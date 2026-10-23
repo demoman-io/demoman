@@ -217,37 +217,66 @@ export interface CursorEntry {
  *  removed (spec §4). `@latest`, so Cursor updates itself: npx asks npm on
  *  every start, and installs a newer release over the one it cached
  *  (measured 2026-10-19 on npm 10 and 11; Cursor has no plugin updater). */
+/** An entry's PATH: the npx it names is a node script, so that node first. */
+const entryPath = (nodeBin: string): string =>
+  `${nodeBin}:/usr/bin:/bin:/usr/sbin:/sbin`;
+
 export function cursorEntry(nodeBin: string): CursorEntry {
   return {
     type: "stdio",
     command: `${nodeBin}/npx`,
     args: ["-y", `${PACKAGE_NAME}@latest`, "mcp"],
     // DEMOMAN_CLIENT tells the server it is Cursor's, so it keeps
-    // ~/.cursor/skills/record-demo current (cursor-skill.ts).
-    env: {
-      PATH: `${nodeBin}:/usr/bin:/bin:/usr/sbin:/sbin`,
-      DEMOMAN_CLIENT: "cursor",
-    },
+    // ~/.cursor/skills/record-demo current (agent-skill.ts).
+    env: { PATH: entryPath(nodeBin), DEMOMAN_CLIENT: "cursor" },
   };
 }
 
-/** setup's own entry, of any version, or the README's paste-in block:
- *  `demoman@<version> mcp` run through an npx. */
-function isOurCursorEntry(e: unknown): boolean {
-  if (!isObject(e) || typeof e.command !== "string") return false;
-  const args = e.args;
+/** OpenCode's config folder, where opencode.json and skills/ live: under
+ *  XDG_CONFIG_HOME when it is set, as OpenCode reads it. */
+export const opencodeDir = (
+  home: string,
+  env: Record<string, string | undefined>,
+): string => `${env.XDG_CONFIG_HOME || `${home}/.config`}/opencode`;
+
+/** OpenCode's local server: the command and its arguments in one array. */
+export interface OpencodeEntry {
+  type: "local";
+  command: string[];
+  environment: { PATH: string; DEMOMAN_CLIENT: "opencode" };
+}
+export function opencodeEntry(nodeBin: string): OpencodeEntry {
+  return {
+    type: "local",
+    command: [`${nodeBin}/npx`, "-y", `${PACKAGE_NAME}@latest`, "mcp"],
+    environment: { PATH: entryPath(nodeBin), DEMOMAN_CLIENT: "opencode" },
+  };
+}
+
+/** setup's own command, of any version, or a paste-in block's:
+ *  `demoman@<version> mcp` run through an npx. Every agent's entry is
+ *  judged by this, whatever shape it keeps the command in. */
+function isOurCommand(command: unknown, args: unknown): boolean {
   return (
-    basename(e.command) === "npx" &&
+    typeof command === "string" &&
+    basename(command) === "npx" &&
     Array.isArray(args) &&
     args.filter((a) => typeof a === "string" && /^demoman@\S+$/.test(a))
       .length === 1 &&
     args.at(-1) === "mcp"
   );
 }
+const isOurCursorEntry = (e: unknown): boolean =>
+  isObject(e) && isOurCommand(e.command, e.args);
+const isOurOpencodeEntry = (e: unknown): boolean =>
+  isObject(e) &&
+  Array.isArray(e.command) &&
+  isOurCommand(e.command[0], e.command.slice(1));
 
 const describeEntry = (e: unknown): string => {
   if (!isObject(e)) return JSON.stringify(e);
   if (typeof e.url === "string") return e.url;
+  if (Array.isArray(e.command)) return e.command.join(" ");
   return [e.command, ...(Array.isArray(e.args) ? e.args : [])]
     .filter((p) => p !== undefined)
     .join(" ");
@@ -283,6 +312,56 @@ export function cursorServer(
   }
   servers.demoman = next;
   obj.mcpServers = servers;
+  return { text: serialise(obj), changed: true };
+}
+
+/**
+ * Puts entry at mcp.servers.demoman in OpenCode's opencode.json. OpenCode
+ * 2.x still reads its older flat form (mcp.demoman), and runs mcp.servers'
+ * when both name demoman, so setup's own flat entry is moved, not left
+ * shadowed. Another server named demoman, in either form, is reported,
+ * never replaced: writing beside it would shadow it.
+ */
+export function opencodeServer(
+  text: string | null,
+  entry: OpencodeEntry,
+): Edit | { foreign: string } {
+  const read = readObject(text);
+  if ("refused" in read) return read;
+  const { obj } = read;
+  const mcp = obj.mcp ?? {};
+  if (!isObject(mcp)) return { refused: "its mcp is not an object" };
+  const servers = mcp.servers ?? {};
+  if (!isObject(servers)) {
+    return { refused: "its mcp.servers is not an object" };
+  }
+  for (const found of [servers.demoman, mcp.demoman]) {
+    if (found !== undefined && !isOurOpencodeEntry(found)) {
+      return { foreign: describeEntry(found) };
+    }
+  }
+  const existing = servers.demoman;
+  const next = isObject(existing)
+    ? {
+        ...existing,
+        ...entry,
+        environment: {
+          ...(isObject(existing.environment) ? existing.environment : {}),
+          ...entry.environment,
+        },
+      }
+    : entry;
+  if (
+    text !== null &&
+    mcp.demoman === undefined &&
+    JSON.stringify(existing) === JSON.stringify(next)
+  ) {
+    return { text, changed: false };
+  }
+  delete mcp.demoman;
+  servers.demoman = next;
+  mcp.servers = servers;
+  obj.mcp = mcp;
   return { text: serialise(obj), changed: true };
 }
 

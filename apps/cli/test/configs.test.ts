@@ -10,6 +10,8 @@ import {
   type Edit,
   isOurSkill,
   marketplaceAutoUpdate,
+  opencodeEntry,
+  opencodeServer,
 } from "../src/configs.js";
 
 const text = (e: Edit | { foreign: string }): string => {
@@ -444,5 +446,110 @@ describe("isOurSkill", () => {
       isOurSkill("---\nname: record-demo\ndescription: x\n---\nUse OBS."),
     ).toBe(false);
     expect(isOurSkill("")).toBe(false);
+  });
+});
+
+describe("opencodeServer", () => {
+  const entry = opencodeEntry("/opt/node/bin");
+  // The README's paste-in block and the author's own hand-written entry:
+  // OpenCode's older flat form, pinned.
+  const flat = (version: string) => ({
+    type: "local",
+    command: ["npx", "-y", `demoman@${version}`, "mcp"],
+    enabled: true,
+  });
+
+  it("opencodeEntry runs the newest demoman through an absolute npx with its node on PATH", () => {
+    expect(entry).toEqual({
+      type: "local",
+      command: ["/opt/node/bin/npx", "-y", "demoman@latest", "mcp"],
+      environment: {
+        PATH: "/opt/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        DEMOMAN_CLIENT: "opencode",
+      },
+    });
+  });
+
+  it("adds demoman under mcp.servers, keeping every other key and server in either form", () => {
+    const pencil = { type: "local", command: ["pencil"], enabled: true };
+    const other = { type: "local", command: ["other"] };
+    const file = {
+      $schema: "https://opencode.ai/config.json",
+      model: "x/y",
+      mcp: { pencil, servers: { other } },
+    };
+    const out = opencodeServer(JSON.stringify(file), entry);
+    expect(out).toMatchObject({ changed: true });
+    expect(JSON.parse(text(out))).toEqual({
+      ...file,
+      mcp: { pencil, servers: { other, demoman: entry } },
+    });
+    expect(JSON.parse(text(opencodeServer(null, entry)))).toEqual({
+      mcp: { servers: { demoman: entry } },
+    });
+  });
+
+  // A flat entry would sit shadowed beside the new one (OpenCode 2.0.32
+  // runs mcp.servers' when both name demoman), so its own is moved.
+  it("moves its own flat, pinned entry to mcp.servers, and then has nothing to do", () => {
+    const out = opencodeServer(
+      JSON.stringify({ mcp: { demoman: flat("0.2.0-rc.6") } }),
+      entry,
+    );
+    expect(JSON.parse(text(out))).toEqual({
+      mcp: { servers: { demoman: entry } },
+    });
+    expect(opencodeServer(text(out), entry)).toEqual({
+      text: text(out),
+      changed: false,
+    });
+  });
+
+  it("keeps what the user added to its entry, setup's fields winning", () => {
+    const mine = {
+      ...entry,
+      timeout: { startup: 20000 },
+      environment: { DEMOMAN_NO_UPDATE_CHECK: "1", PATH: "/elsewhere" },
+    };
+    const out = opencodeServer(
+      JSON.stringify({ mcp: { servers: { demoman: mine } } }),
+      entry,
+    );
+    expect(JSON.parse(text(out)).mcp.servers.demoman).toEqual({
+      ...entry,
+      timeout: { startup: 20000 },
+      environment: { DEMOMAN_NO_UPDATE_CHECK: "1", ...entry.environment },
+    });
+  });
+
+  it("leaves another server named demoman alone, in either form", () => {
+    const dev = {
+      type: "local",
+      command: ["node", "/src/demoman/dist/index.js"],
+    };
+    for (const file of [
+      { mcp: { servers: { demoman: dev } } },
+      { mcp: { demoman: dev } },
+    ]) {
+      expect(
+        opencodeServer(JSON.stringify(file), entry),
+        JSON.stringify(file),
+      ).toEqual({
+        foreign: "node /src/demoman/dist/index.js",
+      });
+    }
+  });
+
+  it("refuses a file it cannot read as a JSON object, and an mcp or servers that is not one", () => {
+    for (const [file, why] of [
+      ['{ // comments\n "mcp": {} }', "it is not JSON"],
+      ["[]", "it is JSON, but not an object"],
+      ['{"mcp": []}', "its mcp is not an object"],
+      ['{"mcp": {"servers": 1}}', "its mcp.servers is not an object"],
+    ] as const) {
+      const out = opencodeServer(file, entry);
+      expect(out, file).toHaveProperty("refused");
+      expect((out as { refused: string }).refused, file).toContain(why);
+    }
   });
 });

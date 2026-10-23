@@ -29,7 +29,7 @@ import {
   usePrebuiltPages,
 } from "@demoman/runner/package";
 import { openStudio, runServe, stopStudio } from "@demoman/studio";
-import { refreshCursorSkill } from "./cursor-skill.js";
+import { refreshAgentSkill } from "./agent-skill.js";
 import { PACKAGE_NAME } from "./names.js";
 import { parseSetupArgs, setup } from "./setup.js";
 import {
@@ -126,7 +126,7 @@ async function mcp(args: string[]): Promise<void> {
     );
     process.exit(1);
   }
-  const skill = refreshCursorSkill({
+  const skill = refreshAgentSkill({
     env: process.env,
     home: homedir(),
     skill: readSkill(here),
