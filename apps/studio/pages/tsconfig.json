@@ -1,0 +1,20 @@
+{
+  // The studio's pages (`vite.config.ts` beside this): the editor, the
+  // library and Settings, with `#platform` on the HTTP side, checked as that
+  // build bundles them. Until 2026-10-20 they lived in apps/extension and
+  // were checked a second time on the chrome side; the HTTP side is the only
+  // one now.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ESNext",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "noEmit": true,
+    "declaration": false,
+    "resolveJsonModule": true,
+    "types": ["vite/client"],
+    "paths": {
+      "#platform": ["./src/platform/http.ts"]
+    }
+  },
+  "include": ["./entrypoints/**/*", "./src/**/*"]
+}

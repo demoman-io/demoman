@@ -1,0 +1,9 @@
+packages:
+  - "packages/*"
+  - "apps/runner"
+  - "apps/mcp"
+  - "apps/cli"
+  - "apps/studio"
+allowBuilds:
+  esbuild: true
+  spawn-sync: true

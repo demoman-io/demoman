@@ -1,0 +1,43 @@
+{
+  "name": "@demoman/runner",
+  "version": "0.1.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./package": {
+      "types": "./dist/package-entry.d.ts",
+      "default": "./dist/package-entry.js"
+    },
+    "./studio": {
+      "types": "./dist/studio-entry.d.ts",
+      "default": "./dist/studio-entry.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
+    "test": "vitest run",
+    "share:measure": "pnpm --filter \"@demoman/runner^...\" build && tsc -p tsconfig.json && node dist/compare/share-measure.js",
+    "bench": "vitest run --config vitest.bench.config.ts"
+  },
+  "dependencies": {
+    "@demoman/agent-bridge": "workspace:*",
+    "@demoman/compositor": "workspace:*",
+    "@demoman/replay-engine": "workspace:*",
+    "@demoman/resolver": "workspace:*",
+    "@demoman/run-core": "workspace:*",
+    "@demoman/scene-schema": "workspace:*",
+    "esbuild": "^0.25.0",
+    "mediabunny": "^1.55.2",
+    "playwright": "^1.62.1",
+    "tldts": "^7.4.10",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "gifenc": "^1.0.3",
+    "typescript": "^5.7.0",
+    "vitest": "3.2.7"
+  }
+}

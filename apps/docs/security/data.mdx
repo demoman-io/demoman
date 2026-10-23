@@ -1,0 +1,93 @@
+---
+title: "Data"
+description: "What Demoman installs, keeps, shows your agent and sends."
+---
+
+Demoman runs on your machine. Its browser opens only the pages your agent asks for, in a fresh profile signed in only where you ran `npx demoman signin <url>` or a demo account signed in. It has no telemetry and calls nothing on demoman.io: the publisher receives nothing from a run.
+
+## What is installed
+
+The `demoman` npm package is the command line, the MCP server your agent talks to, and the studio. The server speaks over standard input and output only. It opens no port for your agent, and there is no bridge key or approval page as in the browser extension.
+
+Setup also downloads Chromium into Playwright's cache (`~/Library/Caches/ms-playwright` on macOS). Each run records in a throwaway profile in that browser.
+
+## What setup changes in your agents
+
+Setup connects each agent it finds and pre-approves Demoman's tools, so they run without asking. It says what it did for each agent, and when it could not pre-approve.
+
+| Agent | What setup does |
+| --- | --- |
+| Claude Code | Installs the Demoman plugin from GitHub, and allows its tools in `~/.claude/settings.json`. |
+| Codex | Installs the Demoman plugin from GitHub, and sets its tools to run without asking in `~/.codex/config.toml`. |
+| Cursor | Adds a `demoman` server to `~/.cursor/mcp.json` and the `record-demo` skill to `~/.cursor/skills/record-demo/`. With Cursor's agent CLI, it also enables the server and allows its tools in `~/.cursor/cli-config.json`. The Cursor app may ask once for each tool. |
+
+Setup is the whole approval. Once it has run, any session of an agent it connected can use Demoman on any site. There is no per-agent or per-site grant.
+
+## What it keeps on disk
+
+Everything lives under `~/.demoman`. `DEMOMAN_HOME` moves it. Videos you export go to `~/Downloads`. An agent started with `--out-dir` saves to that folder instead.
+
+| Where | What |
+| --- | --- |
+| `~/.demoman/takes/` | Each take: its steps, including the text typed and how each target looked, the run's report, the video frames, your studio edits, preview images and a list of its exports. Kept until you delete it in the studio or by hand. |
+| `~/.demoman/sessions/` | A saved sign-in per site: cookies and the page's stored data, readable by you only. Demoman refuses a file other users can read. |
+| `~/.demoman/update-check.json` | When npm was last asked about a newer version, and its answer. |
+| `~/.demoman/kits.json` | Your brand kits, saved by the studio. A reset keeps the old file beside it first. |
+| `~/.demoman/assets/` | Logos you add to a brand kit. |
+| `~/.demoman/settings.json` | The studio's settings: theme, export quality and the pull-request video setting. |
+| `~/.demoman/studio.json` | While the studio runs: its port and the secret its pages use, readable by you only. Removed when it stops. `~/.demoman/studio.start.lock` exists only while the studio starts. |
+| `~/.demoman/studio.log` | The studio's log. The one before it is kept as `~/.demoman/studio.log.1`. |
+| `~/.demoman/profiles/studio` | The studio window's own browser profile, kept between starts. It opens only the studio's pages, and no saved sign-in is loaded into it. |
+| `.demoman/accounts.json` | In your repo, written by your agent: how to sign in as a demo account, with a placeholder in place of every secret. Meant to be committed. |
+| `.demoman/secrets.env` | In your repo, written by your agent: the demo account's secret values, in plain text. Demoman refuses it unless git ignores it. It does not check the file's permissions. |
+| `.demoman/config.json` | In your repo, if you add one: the repo's pull-request video setting. Demoman only reads it. |
+
+Page URLs in a take have query values and token-like path segments replaced by "redacted". The address a script starts at is kept as given. Text typed into a password field, or a field whose name reads like a password, token, card number or code, is stored as hidden.
+
+The command line and the MCP server keep no log file. Their logs go to the terminal, with secrets swept out. The studio reads no secrets, and its log is not swept.
+
+There is no delete command. The studio's library can delete a take. To remove everything else, delete `~/.demoman` (or just its `takes/` or `sessions/` folders), your exported files and Playwright's Chromium cache, and remove Demoman from each agent: uninstall the Demoman plugin in Claude Code and in Codex, and for Cursor delete the `demoman` entry in `~/.cursor/mcp.json` and the `~/.cursor/skills/record-demo/` folder.
+
+## Passwords and secrets
+
+- `npx demoman signin <url>` opens a visible window and you sign in yourself. Demoman saves the site's stored state, never the form, and records nothing.
+- A demo account signs in from the steps in `.demoman/accounts.json`, in a hidden browser that is not recorded. A secret is never typed outside its account's site, and a session that holds a secret's value is not saved.
+- Secret values come from the environment, as in CI, or from `.demoman/secrets.env`. A secret from the environment must name the one site it may be typed on.
+- Demoman sweeps every secret value out of written files, tool answers and log lines, replacing it with a placeholder. One gap: a token that merely contains the password is not caught.
+- The video is not masked unless you mask it. It shows what the page shows. A real password input draws dots because Chromium does; a field Demoman treats as a credential only by its name shows its value. A Mask added in the studio covers part of the picture. A change to a step's typed text covers that one field, not the same text shown elsewhere on the page.
+- Your agent makes the demo password and writes it to `.demoman/secrets.env`, so the agent, and the AI service it runs on, already has that value. Demoman only stops it being echoed back.
+
+## What your agent sees
+
+Every tool answers with text. No image or video bytes travel over MCP.
+
+- **recipe**: how to record with Demoman, the same text for everyone.
+- **snapshot**: the page's address, where it landed, its title, the size it was laid out at, and the visible text and position of its interactive elements.
+- **run** and **report**: the run's report, with each step as the agent wrote it (credential text hidden), where each target was found, the size it recorded at, and the take id.
+- **takes**: each take's id, name, date and step count.
+- **derive**: a script rebuilt from a take, including the text it typed (credential fields blank).
+- **status**: versions, the export folder, saved sign-ins (sites and dates, never cookies), demo accounts (names and sites), the secrets file's path but never a value, the pull-request video setting, the last run's report and the update check's answer.
+- **export**: the saved file's path and size. An agent with file access can open it.
+- **attach**: the pull request's address and the posted video's address on GitHub.
+- **studio**: that the studio window opened, with a link that works once.
+
+## What leaves your machine
+
+To the publisher: nothing.
+
+- **npm**, once a day at most: Demoman asks `https://registry.npmjs.org/demoman/latest` whether a newer version exists, with no identifiers beyond Node's default user agent. `DEMOMAN_NO_UPDATE_CHECK=1` turns it off; set it where your agent starts Demoman, and see [Authentication](/guides/authentication#in-ci) for why Codex may not pass it on from your shell. `npx` also asks npm for the newest Demoman each time your agent starts the server.
+- **During setup**: Playwright downloads Chromium from its CDN, Claude Code and Codex fetch the Demoman plugin from GitHub, and npm's cache is warmed with the package.
+- **GitHub, to update the plugin**: Claude Code and Codex check the Demoman plugin's GitHub repository in the background and install a newer version when there is one.
+- **GitHub**, only when your agent attaches a video to a pull request: the video goes up through your `gh` sign-in, to the pull request's description or a comment, where anyone who can see the pull request can see it. Your agent does this without asking only when the pull-request setting is Attach. It is Ask unless you change it, which offers first.
+- **The sites your agent opens**, and whatever they load, in Demoman's browser. Setup suggests demoman.io/sample, which is the publisher's site and counted by its analytics like any visit.
+- **Your agent's AI service**, through the agent, for everything under "What your agent sees". Demoman neither sees nor controls that.
+
+## Local network
+
+Nothing listens for your agent.
+
+The encode and render steps each start a short-lived server on `127.0.0.1`, on a random port, for the length of that step. It does not authenticate: anything on your machine that finds the port can fetch that take's frames and images while it runs.
+
+The studio serves its pages on `127.0.0.1`, on a random port, while it runs. Every request needs a cookie holding a random secret. A window gets that cookie from a link that works once, within a minute, so the secret never appears in an address.
+
+The browser's own control channel also binds to localhost, with an unguessable path as its only credential.

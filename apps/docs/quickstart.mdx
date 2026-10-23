@@ -1,0 +1,60 @@
+---
+title: "Quickstart"
+description: "Your first demo video in about five minutes, recorded by your coding agent."
+---
+
+<video
+  src="https://demoman.io/assets/hero-1792480760437.mp4"
+  poster="https://demoman.io/assets/hero-1792480760437.webp"
+  controls
+  muted
+  playsInline
+  preload="metadata"
+  style={{ width: "100%", borderRadius: "12px" }}
+>
+  A demo Demoman made: creating an invoice in a sample billing app.
+</video>
+
+## Requirements
+
+macOS, Node 20 or later, and Claude Code, Codex or Cursor. Another agent
+takes two more steps: see [Agents](/agents).
+
+<Steps>
+  <Step title="Set up">
+    ```bash
+    npx demoman setup
+    ```
+
+    Setup downloads Chromium (about 190 MB) and connects Demoman to each
+    coding agent it finds, pre-approving its tools so they run without asking.
+  </Step>
+  <Step title="Restart your agent">
+    Quit and reopen it, so it loads Demoman's tools.
+  </Step>
+  <Step title="Ask for a demo">
+    ```text
+    make a demo of demoman.io/sample
+    ```
+
+    Your agent drives Demoman's browser out of sight, and the video lands in
+    `~/Downloads`.
+  </Step>
+  <Step title="Now try your own app">
+    ```text
+    make a demo of the new checkout flow
+    ```
+  </Step>
+</Steps>
+
+<CardGroup cols={3}>
+  <Card title="Authentication" href="/guides/authentication">
+    Record an app that needs you signed in.
+  </Card>
+  <Card title="Editing" href="/studio/editing">
+    Trim, cut and polish a take.
+  </Card>
+  <Card title="Data" href="/security/data">
+    What Demoman does, and does not do.
+  </Card>
+</CardGroup>

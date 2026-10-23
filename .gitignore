@@ -1,0 +1,58 @@
+# JS/TS
+node_modules/
+dist/
+*.tsbuildinfo
+
+# vitest browser-mode failure screenshots
+__screenshots__/
+
+# OS / editor
+.DS_Store
+
+# Spike leftovers stay committed deliberately; scratch output does not
+spikes/**/node_modules/
+.output/
+
+# SDD scratch (ledger, briefs, review packages)
+.superpowers/
+
+# `pnpm film:compare`'s films and numbers
+film-compare/
+
+# Concurrent-session worktrees (see docs/superpowers/specs/2026-08-25-fanout-plan-design.md)
+.worktrees/
+
+# SP6: harvested fixture bundles are generated on demand, never committed
+packages/compositor/.fixtures/
+
+# SP6: vitest browser-mode failure screenshots, regenerated on any failing run
+**/__screenshots__/
+
+# Local secrets (direnv). Never commit these.
+.envrc
+.envrc.local
+.env
+
+# Signing keys never belong in the repo.
+*.pem
+
+# Native worktree tool (EnterWorktree) — the branch checkout, never the repo
+.claude/worktrees/
+
+# The Impeccable skill's per-machine state: hook consent and its cache
+**/.impeccable/config.local.json
+**/.impeccable/hook.cache.json
+
+# `pnpm --filter @demoman/cli build`: the npm package, its metafiles, the plugin repo
+apps/cli/pkg/
+apps/cli/build-meta/
+apps/cli/plugin-out/
+
+# The private repo (site, specs, research), cloned here by the author.
+internal/
+
+# The author's working notes for Claude Code: a link into internal/, where they are versioned.
+CLAUDE.md
+
+# The author's Claude Code skills: a link into internal/, like CLAUDE.md.
+/.claude

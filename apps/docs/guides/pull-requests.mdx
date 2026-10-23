@@ -1,0 +1,40 @@
+---
+title: "Pull requests"
+description: "A video of the change, in the pull request's description."
+---
+
+When your agent opens a pull request that changes something a user would
+see, it can record that change and put the video in the description. With
+Attach, a pull request without a video gets one line instead: `No demo:`
+and why. With Ask, the agent offers only when there is a change to see,
+and adds nothing to a pull request without a video.
+
+## Off, Ask or Attach
+
+| Setting | What the agent does |
+| --- | --- |
+| Off | Records a pull request only when you ask |
+| Ask | Offers to record it first. The default |
+| Attach | Records and attaches it without asking |
+
+Set your default in the studio, under **Settings → Pull requests**. To set
+it for one repository, commit a `.demoman/config.json`:
+
+```json
+{
+  "pullRequests": "attach"
+}
+```
+
+The repository's file wins over your default.
+
+## What it needs
+
+The [GitHub CLI](https://cli.github.com), `gh` 2.99.0 or later, signed in.
+The video is posted as your `gh` account, and anyone who can see the pull
+request can see it. On a pull request that is not yours, the agent adds it
+as a comment instead.
+
+Without a usable `gh` (missing, older than 2.99.0, or signed out), or for
+a repository that is not on github.com, the agent saves a video under
+10 MB and tells you where, for you to drag into the pull request.

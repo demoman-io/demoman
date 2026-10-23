@@ -1,0 +1,53 @@
+# Licensing
+
+This repository is licensed per directory, not as a whole. Nothing here is
+licensed by default — if a directory is not listed below, no rights are
+granted in it.
+
+## Functional Source License (FSL-1.1-ALv2)
+
+Source-available under the Functional Source License, Version 1.1, with the
+Apache License, Version 2.0 as the future license — the license Sentry ships
+under (it calls it FSL-1.1-Apache-2.0; `FSL-1.1-ALv2` is the SPDX identifier
+for the same text). Each directory carries its own copy of the full text:
+
+- `apps/cli` — the published `demoman` package, which bundles the directories
+  below into one FSL-1.1-ALv2 package
+- `apps/mcp` — the MCP server an agent drives Demoman through
+- `apps/runner` — the executor that drives Chromium and records a take
+- `apps/studio` — the studio, where a take is edited and exported
+- `packages/agent-bridge` — the run outcome types the MCP server and the
+  executor share
+- `packages/compositor`
+- `packages/replay-engine`
+- `packages/resolver`
+- `packages/run-core`
+- `packages/scene-schema`
+- `packages/studio-protocol` — the messages the studio's pages and its server
+  exchange
+
+Any use other than a Competing Use is permitted: running it, reading it,
+changing it, and using it inside your organisation. A Competing Use is making
+it available to others in a commercial product or service that substitutes for
+it, substitutes for a product or service the licensor offers using it, or
+offers substantially the same functionality. Each version becomes
+available under the Apache License, Version 2.0 two years after it is released.
+The text in each directory's `LICENSE` is what binds; this paragraph only
+summarises it.
+
+Code by others that these directories bundle or ship keeps its own license;
+the published package lists it in `THIRD_PARTY_NOTICES`.
+
+## All rights reserved
+
+- `apps/docs` — the documentation's text and images.
+- `brand/` — the marks and lockups.
+- `scripts/` and `.github/` — the repository's own build, test and release
+  tooling.
+- Every file at the repository root other than this one.
+
+"Demoman" and its logo are the licensor's marks. No license above grants any
+right to use them, beyond what each license itself says.
+
+Copyright (c) 2026 Yohana Tesfazgi. All rights reserved except as granted
+above.

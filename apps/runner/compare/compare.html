@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Film compare</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f6f6f7; --fg: #18181b; --muted: #71717a; --line: #d4d4d8; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0b0b0f; --fg: #f4f4f5; --muted: #a1a1aa; --line: #3f3f46; } }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 800px) { .pair { grid-template-columns: 1fr; } }
+  figure { margin: 0; } figcaption { color: var(--muted); margin: 4px 0; }
+  video { width: 100%; background: #000; border-radius: 6px; }
+  .bar { display: flex; gap: 8px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+  button { font: inherit; padding: 4px 10px; }
+  table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td, th { border-bottom: 1px solid var(--line); padding: 3px 10px; text-align: right; }
+  td:first-child, th:first-child { text-align: left; }
+</style>
+<h1 id="title">Film compare</h1>
+<div class="pair">
+  <figure><figcaption id="capA">CLI</figcaption><video id="ext" src="cli.mp4" preload="auto" muted></video></figure>
+  <figure><figcaption id="capB">CLI headless</figcaption><video id="cli" src="headless.mp4" preload="auto" muted></video></figure>
+</div>
+<div class="bar">
+  <button type="button" id="play">Play</button>
+  <button type="button" id="back" title="One frame back (,)">◀ frame</button>
+  <button type="button" id="fwd" title="One frame forward (.)">frame ▶</button>
+  <label>Speed <select id="speed"><option>0.25</option><option>0.5</option><option selected>1</option></select></label>
+  <span id="time">0.000 s</span>
+</div>
+<div id="numbers"></div>
+<script>
+  const NUMBERS = /*NUMBERS*/null;
+  const ext = document.getElementById("ext"), cli = document.getElementById("cli");
+  // The two sides this pass filmed (`--sides`); a page from before it named none.
+  // (A page from before 2026-10-20 may name the archived extension.)
+  const SIDE_NAMES = { extension: "Extension", cli: "CLI", headless: "CLI headless" };
+  if (NUMBERS?.sides) {
+    const [a, b] = NUMBERS.sides;
+    ext.src = `${a}.mp4`; cli.src = `${b}.mp4`;
+    document.getElementById("capA").textContent = SIDE_NAMES[a] ?? a;
+    document.getElementById("capB").textContent = SIDE_NAMES[b] ?? b;
+  }
+  const both = [ext, cli], FRAME = 1 / 60;
+  const time = document.getElementById("time");
+  const sync = () => { cli.currentTime = ext.currentTime; time.textContent = `${ext.currentTime.toFixed(3)} s`; };
+  ext.addEventListener("timeupdate", () => { if (Math.abs(cli.currentTime - ext.currentTime) > 0.05) cli.currentTime = ext.currentTime; time.textContent = `${ext.currentTime.toFixed(3)} s`; });
+  document.getElementById("play").onclick = () => { if (ext.paused) { sync(); for (const v of both) v.play(); } else for (const v of both) v.pause(); };
+  const step = (d) => { for (const v of both) v.pause(); ext.currentTime = Math.max(0, ext.currentTime + d); sync(); };
+  document.getElementById("back").onclick = () => step(-FRAME);
+  document.getElementById("fwd").onclick = () => step(FRAME);
+  document.getElementById("speed").onchange = (e) => { for (const v of both) v.playbackRate = Number(e.target.value); };
+  addEventListener("keydown", (e) => { if (e.key === ",") step(-FRAME); if (e.key === ".") step(FRAME); if (e.key === " ") { e.preventDefault(); document.getElementById("play").click(); } });
+  if (NUMBERS) {
+    document.getElementById("title").textContent = NUMBERS.script;
+    const t = document.createElement("table");
+    t.innerHTML = `<tr><th></th>${NUMBERS.columns.map((c) => `<th>${c}</th>`).join("")}</tr>` +
+      NUMBERS.rows.map((r) => `<tr><td>${r.name}</td>${r.cells.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
+    document.getElementById("numbers").append(t);
+  }
+</script>
+</html>

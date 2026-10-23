@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "types": ["node"]
+  },
+  "include": ["src", "test"],
+  // The pages' tests are checked with the pages (test/pages/tsconfig.json).
+  "exclude": ["test/pages"]
+}

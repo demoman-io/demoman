@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Drag fixture</title>
+    <style>
+      /* Every box placed in px, so no geometry depends on fonts. */
+      body { margin: 0; background: #fff; font: 14px/1 sans-serif; }
+      #pad { position: absolute; left: 40px; top: 40px; width: 400px; height: 240px; border: 1px solid #999; }
+      #list { position: absolute; left: 520px; top: 40px; margin: 0; padding: 0; list-style: none; width: 160px; }
+      #list li { height: 40px; margin: 0 0 8px; background: #d0e4ff; display: flex; align-items: center; padding-left: 12px; user-select: none; }
+      #range { position: absolute; left: 40px; top: 340px; width: 300px; margin: 0; }
+      #range-rtl { position: absolute; left: 40px; top: 380px; width: 300px; margin: 0; direction: rtl; }
+      #range-tall { position: absolute; left: 700px; top: 320px; height: 300px; margin: 0; writing-mode: vertical-lr; }
+      #ticker { position: absolute; left: 1100px; top: 60px; width: 120px; height: 40px; overflow: hidden; }
+      #ticker div { height: 400px; }
+      #blank-a { position: absolute; left: 760px; top: 560px; width: 100px; height: 60px; }
+      #blank-b { position: absolute; left: 900px; top: 560px; width: 100px; height: 60px; }
+      #frame { position: absolute; left: 760px; top: 160px; width: 240px; height: 120px; border: 0; }
+      #far { position: absolute; left: 40px; top: 2400px; width: 80px; height: 40px; }
+      .card { position: absolute; width: 120px; height: 40px; background: #2a9d2a; color: #fff; display: flex; align-items: center; padding-left: 8px; }
+      #card-1 { left: 40px; top: 440px; }
+      #card-2 { left: 40px; top: 500px; }
+      #card-3 { left: 40px; top: 560px; }
+      #card-4 { left: 40px; top: 620px; }
+      #drop { position: absolute; left: 400px; top: 440px; width: 240px; height: 160px; border: 2px dashed #888; }
+      #drop-throws { position: absolute; left: 400px; top: 620px; width: 240px; height: 80px; border: 2px dashed #c00; }
+      #clock { position: absolute; left: 1100px; top: 20px; width: 120px; height: 20px; }
+      #leave { position: absolute; left: 520px; top: 340px; width: 120px; height: 40px; background: #fdd; }
+    </style>
+  </head>
+  <body>
+    <canvas id="pad" width="400" height="240"></canvas>
+    <ul id="list">
+      <li id="item-a">A</li>
+      <li id="item-b">B</li>
+      <li id="item-c">C</li>
+    </ul>
+    <input id="range" type="range" min="0" max="100" value="30" />
+    <input id="range-rtl" type="range" min="0" max="100" value="30" />
+    <input id="range-tall" type="range" min="0" max="100" value="30" />
+    <div id="ticker"><div></div></div>
+    <div id="blank-a"></div>
+    <div id="blank-b"></div>
+    <iframe id="frame" title="Inner frame" srcdoc="<button id='inside' style='width:120px;height:40px'>Inside</button>"></iframe>
+    <div id="far">Far</div>
+    <div id="leave">Leave</div>
+    <div id="clock">0</div>
+    <div class="card" id="card-1" draggable="true">One</div>
+    <div class="card" id="card-2" draggable="true">Two</div>
+    <div class="card" id="card-3" draggable="true">Three</div>
+    <div class="card" id="card-4" draggable="true">Four</div>
+    <div id="drop"></div>
+    <div id="drop-throws"></div>
+    <script>
+      const report = (kind, value) =>
+        fetch("/result", { method: "POST", body: JSON.stringify({ kind, value }) });
+
+      // A canvas that draws a 4px black line while a button is held.
+      const pad = document.getElementById("pad");
+      const g = pad.getContext("2d");
+      g.fillStyle = "#fff";
+      g.fillRect(0, 0, pad.width, pad.height);
+      g.strokeStyle = "#000";
+      g.lineWidth = 4;
+      let drawing = null;
+      pad.addEventListener("pointerdown", (e) => {
+        drawing = { x: e.offsetX, y: e.offsetY };
+      });
+      pad.addEventListener("pointermove", (e) => {
+        if (drawing === null || (e.buttons & 1) === 0) return;
+        g.beginPath();
+        g.moveTo(drawing.x, drawing.y);
+        g.lineTo(e.offsetX, e.offsetY);
+        g.stroke();
+        drawing = { x: e.offsetX, y: e.offsetY };
+      });
+      window.addEventListener("pointerup", () => {
+        if (drawing === null) return;
+        drawing = null;
+        const px = (x, y) => Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3));
+        report("pad", { mid: px(200, 120), corner: px(5, 5) });
+      });
+
+      // A list reordered by pointer events, with a 5px threshold as
+      // dnd-kit has: a press that does not travel is not a drag.
+      const list = document.getElementById("list");
+      let held = null;
+      list.addEventListener("pointerdown", (e) => {
+        const li = e.target.closest("li");
+        if (li) held = { li, y: e.clientY, moved: false };
+      });
+      window.addEventListener("pointermove", (e) => {
+        if (held && Math.abs(e.clientY - held.y) >= 5) held.moved = true;
+      });
+      window.addEventListener("pointerup", (e) => {
+        if (!held) return;
+        const { li, moved } = held;
+        held = null;
+        if (!moved) return;
+        const items = [...list.children].filter((x) => x !== li);
+        const before = items.find((x) => {
+          const r = x.getBoundingClientRect();
+          return e.clientY < r.top + r.height / 2;
+        });
+        list.insertBefore(li, before ?? null);
+        report("list", [...list.children].map((x) => x.textContent));
+      });
+
+      // A native range, every value it passed through reported. Nothing on
+      // the page echoes it: a range's only change is its value, which is no
+      // DOM change, and that is what a drag's change watch has to see.
+      const range = document.getElementById("range");
+      const passed = [];
+      range.addEventListener("input", () => {
+        passed.push(Number(range.value));
+      });
+      range.addEventListener("change", () => report("range", passed));
+      // The same, laid out in each other direction Chrome draws a range in:
+      // right to left, and top to bottom.
+      for (const id of ["range-rtl", "range-tall"]) {
+        const input = document.getElementById(id);
+        const values = [];
+        input.addEventListener("input", () => values.push(Number(input.value)));
+        input.addEventListener("change", () => report(id, values));
+      }
+
+      // Native drag-and-drop. Card two names its own picture: a red square.
+      // Card three refuses to be dragged. What is floating under the pointer
+      // mid-drag is reported from the first dragover past the middle.
+      const square = document.createElement("div");
+      square.style.cssText = "width:40px;height:40px;background:rgb(255,0,0);position:absolute;top:-1000px";
+      document.body.append(square);
+      for (const card of document.querySelectorAll(".card")) {
+        card.addEventListener("dragstart", (e) => {
+          if (card.id === "card-3") return e.preventDefault();
+          e.dataTransfer.setData("text/plain", card.id);
+          if (card.id === "card-2") e.dataTransfer.setDragImage(square, 20, 20);
+        });
+      }
+      let floating = null;
+      for (const zone of [document.getElementById("drop"), document.getElementById("drop-throws")]) {
+        zone.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          if (floating !== null) return;
+          const picture = document.querySelector("[data-demoman-drag]");
+          if (picture === null) return;
+          const r = picture.getBoundingClientRect();
+          const inner = picture.firstElementChild;
+          floating = {
+            underPointer: e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom,
+            text: picture.textContent.trim(),
+            background: inner === null ? null : getComputedStyle(inner).backgroundColor,
+            look: inner === null ? null : [getComputedStyle(inner).fontFamily, getComputedStyle(inner).color],
+            card: [getComputedStyle(document.getElementById("card-1")).fontFamily, getComputedStyle(document.getElementById("card-1")).color],
+          };
+          report("floating", floating);
+        });
+        zone.addEventListener("drop", (e) => {
+          e.preventDefault();
+          const card = document.getElementById(e.dataTransfer.getData("text/plain"));
+          zone.append(card);
+          report("dropped", { card: card.id, into: zone.id });
+          if (zone.id === "drop-throws") throw new Error("the app's drop handler threw");
+        });
+      }
+      window.addEventListener("dragend", () => {
+        setTimeout(() => report("after", { pictures: document.querySelectorAll("[data-demoman-drag]").length }), 50);
+      });
+
+      // A live page changes on its own, far from any drag: a drag that does
+      // nothing must still read as doing nothing beside it. A clock ticks, a
+      // toast comes and goes on <body> (whose box overlaps every drag), and
+      // a ticker scrolls.
+      // Only where the case asks (?clock): a page that never stops
+      // changing makes every step wait out the walk's settle.
+      let ticks = 0;
+      if (location.search.includes("clock")) {
+        const ticker = document.getElementById("ticker");
+        setInterval(() => {
+          document.getElementById("clock").textContent = String(++ticks);
+          document.querySelector(".toast")?.remove();
+          const toast = document.createElement("div");
+          toast.className = "toast";
+          toast.style.cssText = "position:absolute;left:1100px;top:120px;width:120px;height:20px";
+          toast.textContent = `Saved ${ticks}`;
+          document.body.append(toast);
+          ticker.scrollTop = (ticks * 10) % 300;
+          report("live", { ticks, toast: toast.parentElement === document.body, scrolled: ticker.scrollTop });
+        }, 100);
+      }
+
+      // A drop here leaves the page.
+      document.getElementById("leave").addEventListener("pointerup", () => {
+        location.href = "/left";
+      });
+    </script>
+  </body>
+</html>

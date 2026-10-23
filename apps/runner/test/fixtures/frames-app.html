@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>frames-app</title>
+<!--
+  The page the headless PageAgent is proved against. Four realms, chosen so
+  that every routing case the agent has is reachable and told apart:
+
+    iframe ordinal 1  same-origin (srcdoc)         -> hop #frame(origin=,name=,ordinal=1)
+    iframe ordinal 2  CROSS-origin (second server) -> hop #frame(origin=<B>,name=,ordinal=2)
+    iframe ordinal 3  same-origin, holding a frame -> the two-hop chain
+
+  "ordinal" is the hop's own: `findFrameElement` indexes
+  `document.querySelectorAll("iframe")` in document order, so the order of
+  these three elements IS the ordinals the tests' tree paths name. Adding an
+  iframe above one of them renumbers its hop.
+
+  Every frame holds two buttons on purpose. The first carries an id, so an
+  anchor can resolve by `stableId` — which does not need the leading hop
+  stripped, and therefore cannot see whether the agent stripped it. The
+  second carries no id, no role/name pair and no text in its fingerprint, so
+  the ONLY tier that can find it is `treePath` — which walks a path that
+  still names the iframe it is inside unless the hop was stripped. That is
+  the pair that makes the same-origin test able to fail.
+
+  __CROSS_ORIGIN__ is replaced by the test with the second http server's
+  origin. It cannot be baked in: the port is chosen at listen time.
+-->
+<body style="margin: 0; padding: 24px; background: #f7f7fb; font: 14px system-ui">
+  <button type="button" id="top-btn" style="display: block; width: 220px; height: 48px">Top</button>
+  <button type="button" style="display: block; width: 220px; height: 48px">Plain top</button>
+
+  <iframe
+    id="same"
+    title="same-origin child"
+    style="display: block; width: 320px; height: 110px; border: 1px solid #ccc"
+    srcdoc="<body style='margin:0;font:14px system-ui'><button type='button' id='inner-btn' style='display:block;width:100%;height:48px'>Inner</button><button type='button' style='display:block;width:100%;height:48px'>Plain inner</button></body>"
+  ></iframe>
+
+  <iframe
+    id="cross"
+    title="cross-origin child"
+    src="__CROSS_ORIGIN__/child.html"
+    style="display: block; width: 320px; height: 110px; border: 1px solid #ccc"
+  ></iframe>
+
+  <iframe
+    id="mid"
+    title="same-origin child holding a frame"
+    style="display: block; width: 320px; height: 130px; border: 1px solid #ccc"
+    srcdoc="<body style='margin:0'><iframe id=&quot;deep&quot; style=&quot;display:block;width:100%;height:110px;border:0&quot; srcdoc=&quot;<body style='margin:0;font:14px system-ui'><button type='button' id='deep-btn' style='display:block;width:100%;height:48px'>Deep</button><button type='button' style='display:block;width:100%;height:48px'>Plain deep</button></body>&quot;></iframe></body>"
+  ></iframe>
+</body>

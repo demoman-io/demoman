@@ -1,0 +1,37 @@
+diff --git a/lib/ai/models.mock.ts b/lib/ai/models.mock.ts
+index efcc7a1..6c67241 100644
+--- a/lib/ai/models.mock.ts
++++ b/lib/ai/models.mock.ts
+@@ -3,7 +3,8 @@ import type { LanguageModel } from "ai";
+ const mockResponses: Record<string, string> = {
+   default: "This is a mock response for testing.",
+   greeting: "Hello! How can I help you today?",
+-  weather: "The weather in San Francisco is sunny and 72°F.",
++  weather:
++    "The weather in San Francisco is sunny and 72°F. Expect a light breeze off the bay this afternoon, with fog rolling back in after sunset and lows near 56°F. It is a good day for a walk along the Embarcadero or a picnic in Dolores Park, but bring a jacket for the evening.",
+ };
+ 
+ const mockUsage = {
+@@ -53,7 +54,7 @@ const createMockModel = (): LanguageModel =>
+                 type: "text-delta",
+               });
+               await new Promise((resolve) => {
+-                setTimeout(resolve, 10);
++                setTimeout(resolve, 40); // demoman: slow enough to film a stream
+               });
+             }, Promise.resolve());
+             controller.enqueue({ id: "t1", type: "text-end" });
+diff --git a/lib/ai/providers.ts b/lib/ai/providers.ts
+index 9cf5258..2c1ffc0 100644
+--- a/lib/ai/providers.ts
++++ b/lib/ai/providers.ts
+@@ -19,7 +19,8 @@ export const myProvider = isTestEnvironment
+ 
+ export function getLanguageModel(modelId: string) {
+   if (isTestEnvironment && myProvider) {
+-    return myProvider.languageModel(modelId);
++    // demoman: the mock defines only "chat-model"; the default model id would throw.
++    return myProvider.languageModel("chat-model");
+   }
+ 
+   return gateway.languageModel(modelId);

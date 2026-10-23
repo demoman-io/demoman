@@ -1,0 +1,69 @@
+---
+title: "Troubleshooting"
+description: "Fixes for the problems people hit."
+---
+
+Your agent reports the problem in words; these are the ones that need you.
+
+## The agent cannot see Demoman's tools
+
+Run `npx demoman setup` again, then restart the agent. Tools load when the agent starts.
+
+## Demoman's browser is not installed
+
+Demoman needs its own Chromium. The agent's message includes the command that installs it. Run it, then ask the agent to try again.
+
+## A saved sign-in could not be read
+
+A file under `~/.demoman/sessions/` could not be read, or other users on the machine can read it. The message names the file and usually a `chmod` command that fixes it. Run it, then ask the agent to try again.
+
+## The browser refused the saved sign-ins
+
+Sign in again for that site:
+
+```bash
+npx demoman signin <url>
+```
+
+## The app sent Demoman to its sign-in page
+
+The saved sign-in expired, does not cover that page, or was never saved. Nothing was recorded. Run the command in the agent's message, then ask again:
+
+```bash
+npx demoman signin <url>
+```
+
+If the agent uses a demo account, it signs in again by itself; ask it to try once more.
+
+## A secret is missing
+
+The agent's account steps use a secret that is neither in your environment as `DEMOMAN_SECRET_<NAME>` nor in `.demoman/secrets.env`. Let the agent write it, or add the line yourself.
+
+## A secret is not tied to a site
+
+An environment secret needs the site it may be typed on. Set `DEMOMAN_SECRET_<NAME>_ORIGIN` to that site's origin, for example `https://app.example.com`. Nothing was typed.
+
+## A secret was about to be typed on another site
+
+The page asking for the secret is not the site the secret belongs to, or the variable names another site. Nothing was typed. If the app sends its login elsewhere, or the secret is meant for another site, change `DEMOMAN_SECRET_<NAME>_ORIGIN` or the account's site. Otherwise leave it: the refusal is doing its job.
+
+## The secrets file is ignored
+
+Demoman does not read `.demoman/secrets.env` unless git ignores it. Add `.demoman/secrets.env` to `.gitignore`, or take the file out of git if it is tracked.
+
+## Demoman's browser did not start
+
+Ask the agent to try once more.
+
+## Demoman's window was closed during a run
+
+With `--headed`, leave the window open until the run finishes, then ask the
+agent to run again.
+
+## GitHub's `gh` is missing, too old or signed out
+
+Attaching a video to a pull request goes through GitHub's `gh` command. Install or update it, or run `gh auth login`. Until then the agent hands you the video file to attach yourself.
+
+## The update check
+
+Once a day Demoman asks npm whether a newer `demoman` exists. To turn it off, set `DEMOMAN_NO_UPDATE_CHECK=1` in the environment your agent starts Demoman from. Codex may not pass a variable from your shell on to Demoman; see the note under [In CI](/guides/authentication#in-ci).

@@ -1,0 +1,42 @@
+{
+  "name": "@demoman/studio",
+  "version": "0.1.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && vite build -c pages/vite.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json && tsc --noEmit -p pages/tsconfig.json && tsc --noEmit -p test/pages/tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@demoman/run-core": "workspace:*",
+    "@demoman/runner": "workspace:*",
+    "@demoman/scene-schema": "workspace:*",
+    "@demoman/studio-protocol": "workspace:*",
+    "playwright": "^1.62.1"
+  },
+  "devDependencies": {
+    "@demoman/compositor": "workspace:*",
+    "@demoman/replay-engine": "workspace:*",
+    "@types/node": "^26.0.0",
+    "@vitest/browser": "3.2.7",
+    "jsdom": "^30.0.1",
+    "typescript": "^5.7.0",
+    "vite": "^8.2.2",
+    "vitest": "3.2.7",
+    "zod": "^4.1.0"
+  }
+}

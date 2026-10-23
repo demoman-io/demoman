@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 12,
+  "meta": {
+    "id": "scene-readonly-001",
+    "name": "Orders walkthrough (read-only)",
+    "createdAt": "2026-08-25T05:00:00.000Z",
+    "toolchain": {
+      "resolverVersion": "0.1.0",
+      "compositorVersion": null,
+      "captureVersion": "1.0.0"
+    },
+    "capture": {
+      "originUrl": "https://app.example.com/orders",
+      "originClass": "published",
+      "buildSha": "abc1234def",
+      "buildShaSource": "meta:build-sha",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "dpr": 3,
+      "mode": "record"
+    }
+  },
+  "anchors": [
+    {
+      "id": "a-checkout",
+      "fingerprint": {
+        "stableId": "checkout-btn",
+        "role": "button",
+        "accessibleName": "Checkout",
+        "textContent": "Checkout",
+        "treePath": "body:1/main:1/section:2/button:1",
+        "boundingRect": {
+          "x": 980,
+          "y": 620,
+          "width": 160,
+          "height": 44
+        },
+        "imagePatchRef": "patches/a-checkout.png",
+        "dataKey": null
+      },
+      "resolution": {
+        "url": "https://app.example.com/orders",
+        "actionIndex": 0,
+        "entryState": true,
+        "strategy": "stableId",
+        "failureReason": null,
+        "candidates": 1
+      }
+    },
+    {
+      "id": "a-search",
+      "fingerprint": {
+        "stableId": null,
+        "role": "textbox",
+        "accessibleName": "Search orders",
+        "textContent": null,
+        "treePath": "body:1/main:1/header:1/input:1",
+        "boundingRect": {
+          "x": 40,
+          "y": 24,
+          "width": 320,
+          "height": 36
+        },
+        "imagePatchRef": null,
+        "dataKey": null
+      },
+      "resolution": {
+        "url": "https://app.example.com/orders",
+        "actionIndex": 2,
+        "entryState": true,
+        "strategy": "roleName",
+        "failureReason": null,
+        "candidates": 1
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "act-1",
+      "kind": "moveTo",
+      "anchorId": "a-checkout",
+      "timestamp": 500,
+      "marker": "m-1"
+    },
+    {
+      "id": "act-2",
+      "kind": "click",
+      "anchorId": "a-checkout",
+      "timestamp": 1200,
+      "marker": "m-2"
+    },
+    {
+      "id": "act-3",
+      "kind": "type",
+      "anchorId": "a-search",
+      "timestamp": 2400,
+      "marker": "m-3",
+      "text": "Q3 revenue",
+      "redacted": false
+    },
+    {
+      "id": "act-4",
+      "kind": "waitFor",
+      "anchorId": null,
+      "timestamp": 2600,
+      "marker": "m-4",
+      "condition": "loaded"
+    }
+  ],
+  "camera": [
+    {
+      "id": "cam-1",
+      "kind": "zoom",
+      "anchorId": "a-checkout",
+      "marker": {
+        "actionId": "act-2",
+        "offsetMs": 200
+      },
+      "scale": 1.4
+    }
+  ],
+  "edits": {
+    "masks": [
+      {
+        "id": "mask-1",
+        "rect": {
+          "x": 40,
+          "y": 200,
+          "width": 600,
+          "height": 300
+        },
+        "note": "customer table"
+      }
+    ],
+    "holds": [],
+    "gaps": [],
+    "splits": [],
+    "removed": []
+  },
+  "sideChannels": {
+    "network": [
+      {
+        "id": "net-1",
+        "method": "GET",
+        "url": "https://app.example.com/api/orders",
+        "classification": "read",
+        "timestamp": 480,
+        "reclassified": false
+      },
+      {
+        "id": "net-2",
+        "method": "POST",
+        "url": "https://api.segment.io/v1/t",
+        "classification": "analytics",
+        "timestamp": 1300,
+        "reclassified": false
+      }
+    ],
+    "consoleExcerpt": [],
+    "urlTrace": [
+      {
+        "url": "https://app.example.com/orders",
+        "timestamp": 0
+      }
+    ],
+    "uncoveredOrigins": []
+  },
+  "flags": {
+    "mutating": false,
+    "hoverSensitive": false
+  },
+  "branding": {
+    "background": {
+      "kind": "gradient",
+      "from": "#eceff2",
+      "to": "#ced1d6",
+      "angle": 150
+    },
+    "logo": null,
+    "padding": 0.08
+  },
+  "cursor": {
+    "hidden": false,
+    "style": "light",
+    "scale": 1,
+    "motionBlur": 1,
+    "hideWhenIdle": false
+  },
+  "canvas": {
+    "aspect": "16:9"
+  }
+}

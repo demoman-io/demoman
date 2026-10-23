@@ -1,0 +1,20 @@
+{
+  "scriptVersion": 1,
+  "name": "Actual Budget — Demo budget",
+  "target": "http://localhost:3001/",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "role": "button", "name": "Try the demo" } },
+    {
+      "do": "waitFor",
+      "on": { "text": "Bank of America" },
+      "until": "visible"
+    },
+    { "do": "pause", "ms": 800 },
+    { "do": "click", "on": { "text": "Bank of America" } },
+    { "do": "waitFor", "on": { "text": "Payee" }, "until": "visible" },
+    { "do": "pause", "ms": 800 },
+    { "do": "click", "on": { "text": "Reports" } },
+    { "do": "pause", "ms": 1500 }
+  ]
+}

@@ -1,0 +1,233 @@
+<!-- apps/studio/pages/entrypoints/settings/index.html -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Settings - Demoman</title>
+    <!-- The shell — tokens, faces, the top bar and tabs, cards,
+         buttons, switches, notices — is shared with the popup and the
+         Recordings page. Only this page's own rules are inline below. -->
+    <link rel="stylesheet" href="../../assets/shell.css" />
+    <style>
+      /* The bar and the page block are the shell's (`.topbar`, `.page`),
+         the same on every tabbed page, so the header sits still between
+         them. */
+      body { font-size: 14px; }
+      #notice { margin-bottom: 16px; }
+      h1 {
+        margin: 0 0 28px;
+        font: 700 30px/1.2 "Outfit", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: -0.02em;
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        html { scroll-behavior: smooth; }
+      }
+
+      /* The page, after the author's mockup of 2026-10-06: a section nav at
+         the left, held in view, and one column of sections beside it, each
+         titled above its card. The column stops at 720px, which is what
+         lets a control sit at the end of its row and still read with its
+         words. One column under 768px, the nav a row of pills over it. */
+      .settings { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+      @media (min-width: 768px) {
+        .settings { grid-template-columns: 184px minmax(0, 720px); gap: 48px; }
+      }
+      .content { min-width: 0; display: flex; flex-direction: column; gap: 40px; }
+
+      /* The nav: the tabs' pill idiom, stacked. */
+      /* The title and the nav, one column: held in view together where the
+         nav is (see the media rule below). */
+      .settings-side { align-self: start; }
+      /* On the dotted ground, not a card: the ground's opaque control
+         tones, or the dots show through a dark theme's translucent ones. */
+      .section-nav {
+        --control: var(--control-ground);
+        --control-hover: var(--control-hover-ground);
+      }
+      .section-nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px; }
+      .section-nav a {
+        display: flex; align-items: center; gap: 8px;
+        padding: 7px 10px;
+        border-radius: var(--radius);
+        color: var(--ink-muted);
+        font-size: 13px; font-weight: 600;
+        text-decoration: none;
+        transition: background-color 120ms ease, color 120ms ease;
+      }
+      .section-nav svg { width: 15px; height: 15px; flex: none; opacity: 0.85; }
+      .section-nav a:hover { color: var(--ink); background: var(--control); }
+      .section-nav a[aria-current="true"] { color: var(--ink); background: var(--control-hover); }
+      /* The title is held in view with the nav (2026-10-08): both are
+         `.settings-side`, the nav's column, so nothing is laid over the
+         sections as they scroll. The sections start the title's height
+         lower — its 36px line and 28px under it — so the page reads as it
+         did with the title across the top, the nav and the first section
+         level under it. */
+      @media (min-width: 768px) {
+        .settings-side { position: sticky; top: 24px; }
+        .content { padding-top: calc(36px + 28px); }
+        .section-nav ul { flex-direction: column; }
+      }
+
+      /* Sections: the title and its description on the page, the card
+         under them. */
+      section[data-section] { scroll-margin-top: 24px; }
+      .section-head { margin-bottom: 14px; }
+      /* 20px since 2026-09-21, matching the editor inspector's panel
+         titles — see the note on `h2` in `editor/index.html`. */
+      h2 { margin: 0; font-size: 20px; font-weight: 700; }
+      /* min-width: 0 so a long origin or code cannot widen its track. A
+         container, so the Brand kit can ask how wide its own card is. */
+      .section-body { min-width: 0; padding: 20px 24px; container-type: inline-size; }
+      .section-body .notice { margin-bottom: 10px; }
+      .hint { font-size: 12px; color: var(--ink-muted); }
+      code {
+        font: 400 12px/1.4 var(--font-mono);
+        padding: 1px 5px;
+        border-radius: 5px;
+        background: var(--control);
+      }
+
+      /* Export and Pull requests: one row each, the choices centred on the label. */
+      [data-section="pullRequests"] .switch-row,
+      [data-section="export"] .switch-row { align-items: center; }
+
+      /* Brand kits (2026-10-08): the kits as a strip of live tiles, the
+         selected one's picture full width, and its controls in three short
+         groups under it, side by side once the card is wide enough — so no
+         column outweighs the picture. Nothing sticks: with the groups side
+         by side the picture stays in view, and on a phone a stuck 16:9
+         picture would cover most of the screen. */
+      .kit-strip { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 0 20px; }
+      .kit-tile { position: relative; width: 132px; }
+      .kit-pick {
+        display: grid; gap: 6px; width: 100%; padding: 6px;
+        border: 1px solid var(--ring); border-radius: 10px;
+        background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+      }
+      .kit-pick:hover { border-color: var(--ring-strong); }
+      .kit-pick[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .kit-thumb { display: block; width: 100%; height: auto; border-radius: 6px; }
+      .kit-thumb-broken {
+        display: grid; place-items: center; aspect-ratio: 16 / 10;
+        background: var(--error-soft); color: var(--error);
+      }
+      .kit-thumb-broken svg { width: 20px; height: 20px; }
+      .kit-tile-name {
+        font-size: 12px; font-weight: 600;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .kit-star {
+        position: absolute; top: 10px; right: 10px;
+        display: grid; place-items: center; width: 24px; height: 24px;
+        border: 0; border-radius: 6px; padding: 0;
+        background: var(--card); color: var(--ink-muted); cursor: pointer;
+      }
+      .kit-star svg { width: 14px; height: 14px; }
+      .kit-star:hover { color: var(--ink); }
+      .kit-star[aria-pressed="true"] { color: var(--accent); cursor: default; }
+      .kit-star[aria-pressed="true"] svg { fill: currentColor; }
+      .kit-new {
+        display: grid; place-content: center; justify-items: center; gap: 4px;
+        min-height: 96px; padding: 6px;
+        border: 1px dashed var(--ring-strong); border-radius: 10px;
+        background: none; color: var(--ink-muted); font: inherit; font-size: 12px; cursor: pointer;
+      }
+      .kit-new:hover { color: var(--ink); border-color: var(--ink-muted); }
+      .kit-new svg { width: 18px; height: 18px; }
+      .kit-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+      .kit-head .btn svg { width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; }
+      .kit-name {
+        flex: 1 1 160px; min-width: 0; padding: 6px 8px;
+        border: 1px solid transparent; border-radius: 8px;
+        background: none; color: inherit; font: inherit; font-size: 15px; font-weight: 600;
+      }
+      .kit-name:hover { border-color: var(--ring); }
+      .kit-name:focus { border-color: var(--focus); outline: none; }
+      /* A narrow card gives the name its own line and the two buttons the
+         next, rather than wrapping Delete alone under Duplicate. */
+      @container (max-width: 420px) {
+        .kit-name { flex-basis: 100%; }
+      }
+      .kit-hero { display: flex; justify-content: center; margin-bottom: 8px; }
+      /* Stacked, the groups take the picture's width and centre line, so a
+         card between a phone and three columns is not empty on the right
+         (the shell's 420px cap is the editor panel's). */
+      .kit-controls .branding-controls { max-width: 480px; margin-inline: auto; }
+      /* Capped against the window (D3 shots, K2): at 720 tall the 480px-wide
+         preview filled the fold and every control sat under it. The cap
+         takes off roughly what stands above and below it (top bar, title,
+         the tiles, the kit's name, the controls' first row: ~570px), so a
+         720-tall window still shows Background's Style row with it (the
+         shots lane asserts it). Only under 900 tall: from there up the
+         preview keeps its full 480px, the width the stacked groups below
+         share (settings-shell.test.ts). Width and height both auto, so the
+         max-* pair scales the canvas evenly instead of squashing it. */
+      .kit-hero .kit-preview {
+        margin: 0;
+        width: auto;
+        max-width: min(100%, 480px);
+      }
+      @media (max-height: 899px) {
+        .kit-hero .kit-preview { max-height: max(140px, 100vh - 570px); }
+      }
+      .branding-group-title {
+        margin: 16px 0 4px; font-size: 12px; font-weight: 600; color: var(--ink-muted);
+      }
+      @container (min-width: 600px) {
+        /* A column too narrow for the well and a stack beside it: the
+           well on its own line, taller, and Replace and Remove side by side
+           under it (mockup A). */
+        .kit-controls .logo-row { grid-template-columns: minmax(0, 1fr); }
+        .kit-controls .logo-thumb { --thumb-h: 88px; }
+        .kit-controls .logo-stack { grid-template-columns: 1fr 1fr; }
+        .kit-controls .logo-stack .btn { justify-content: center; padding-inline: 8px; }
+        /* The shell caps the controls at 420px for the editor's panel;
+           here the three groups share the card's width instead. */
+        .kit-controls .branding-controls {
+          max-width: none;
+          display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 0 28px; align-items: start;
+        }
+      }
+
+      /* Repeated from the shell, on purpose: rules above set `display` at
+         the same specificity, and this file loads after the shell, so the
+         shell's own `.hidden` would lose to them. */
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-group topbar-pages">
+          <span class="logomark" role="img" aria-label="Demoman">
+            <img class="disc" src="/images/logomark.svg" alt="" />
+            <span class="logomark-word">
+              <img class="for-light" src="/images/lockup_light.svg#svgView(viewBox(400,60,952,300))" alt="" />
+              <img class="for-dark" src="/images/lockup_dark.svg#svgView(viewBox(400,60,952,300))" alt="" />
+            </span>
+            <!-- The studio's mark: demoman.io's bare figure (brand/logomark.svg
+                 without the disc). Hidden here, so the extension shows its
+                 lockup unchanged; only the studio's own sheet shows it. In an
+                 HTML span: the UA's [hidden] rule reaches HTML elements only,
+                 so an svg carrying the attribute would still render. -->
+            <span class="figure" hidden><svg viewBox="258 120 96 302" aria-hidden="true" focusable="false"><path transform="translate(5.54,56.31) scale(0.96895)" d="M 287.20,151.99 L 345.34,125.16 A 16,16 0 0 0 345.34,96.10 L 287.20,69.27 A 16,16 0 0 0 264.50,83.80 L 264.50,137.46 A 16,16 0 0 0 287.20,151.99 Z"/><rect x="264" y="224" width="83" height="83" rx="16.5"/><rect x="264" y="326" width="33" height="92.5" rx="16.5"/><rect x="314" y="326" width="33" height="92.5" rx="16.5"/></svg></span>
+          </span>
+          <!-- Lucide outlines (MIT), decorative beside their words. -->
+          <nav class="tabs" data-tabs aria-label="Pages">
+            <a href="library.html" data-tab="library" title="Recordings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.033 9.44a.647.647 0 0 1 0 1.12l-4.065 2.352a.645.645 0 0 1-.968-.56V7.648a.645.645 0 0 1 .967-.56z"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg><span class="tab-label">Recordings</span></a>
+            <a href="settings.html" data-tab="settings" aria-current="page" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span class="tab-label">Settings</span></a>
+          </nav>
+        </div>
+        <div class="topbar-group topbar-actions">
+        </div>
+      </div>
+    </header>
+    <div class="page">
+      <div id="notice" class="notice notice-error hidden" role="alert"></div>
+      <main id="root"></main>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

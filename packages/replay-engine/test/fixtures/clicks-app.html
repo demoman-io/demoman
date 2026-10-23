@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Clicks</title>
+<style>
+  body { margin: 0; padding: 24px; font: 16px system-ui, sans-serif; }
+  .row { display: flex; gap: 16px; }
+  button { width: 120px; height: 42px; }
+  .done { margin-top: 12px; }
+</style>
+</head>
+<body>
+  <!-- Each button reveals its own line on a whole click — press AND release
+       on the button. A release that lands elsewhere is a click the page
+       never gets, and the script's `waitFor` on that line times out. Used by
+       `scripts/bridge-check/clicks.json` (2026-10-11). -->
+  <div class="row">
+    <button id="b1" type="button">One</button>
+    <button id="b2" type="button">Two</button>
+    <button id="b3" type="button">Three</button>
+    <button id="b4" type="button">Four</button>
+    <button id="b5" type="button">Five</button>
+    <button id="b6" type="button">Six</button>
+  </div>
+  <p class="done" id="done-1" hidden>One clicked</p>
+  <p class="done" id="done-2" hidden>Two clicked</p>
+  <p class="done" id="done-3" hidden>Three clicked</p>
+  <p class="done" id="done-4" hidden>Four clicked</p>
+  <p class="done" id="done-5" hidden>Five clicked</p>
+  <p class="done" id="done-6" hidden>Six clicked</p>
+  <script>
+    for (let i = 1; i <= 6; i++) {
+      document.getElementById(`b${i}`).addEventListener("click", () => {
+        document.getElementById(`done-${i}`).hidden = false;
+      });
+    }
+  </script>
+</body>
+</html>

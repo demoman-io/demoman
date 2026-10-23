@@ -1,0 +1,14 @@
+{
+  "scriptVersion": 1,
+  "name": "Nylon — a quick run of clicks",
+  "target": "{sample}/index.html",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "role": "link", "name": "Customers" } },
+    { "do": "click", "on": { "role": "button", "name": "Status" } },
+    { "do": "click", "on": { "role": "button", "name": "Export" } },
+    { "do": "click", "on": { "role": "button", "name": "Notifications" } },
+    { "do": "click", "on": { "role": "link", "name": "Reports" } },
+    { "do": "pause", "ms": 800 }
+  ]
+}

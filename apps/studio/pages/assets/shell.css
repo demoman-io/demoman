@@ -1,0 +1,1656 @@
+/* apps/studio/pages/assets/shell.css
+ *
+ * The extension's shell, shared by the popup and the Recordings page: the
+ * marketing site's palette and type, the brand lockup, one card, three
+ * buttons, one notice. Each page links this and keeps only its own rules
+ * inline. It lived inline in popup/index.html until 2026-09-13, when the
+ * Recordings page needed the same look and a copy would have drifted.
+ *
+ * Tokens are hex/rgb rather than the site's oklch so a test can read them
+ * back through getComputedStyle and composite them; the values are the
+ * site's own (apps/server/assets/css/app.css names the hex beside each
+ * oklch step). Light is the target; dark follows the editor shell's darks
+ * so the extension pages agree.
+ *
+ * Everything below sits in the `shell` cascade layer, so a page's own
+ * unlayered rules beat it whatever order the two sheets land in. That
+ * order is not ours to choose: the build moves this file's <link> to the
+ * END of the head, after the page's inline <style>, and on 2026-09-14 the
+ * `body { margin: 0 }` below therefore beat the Recordings page's
+ * `margin: 0 auto` in the built extension while every test — which
+ * mounted the shell first — stayed green. A layer makes the order moot. */
+@layer shell {
+  :root {
+    color-scheme: light dark;
+    /* The site's --font-mono stack (apps/server/assets/css/app.css), for
+       readouts and code. A token rather than a family name at each use,
+       because the editor and Settings reach for it from their own sheets. */
+    --font-mono:
+      "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --shell: #eef0f4;
+    /* The ground's dots, on every page's `body` (2026-10-08; the editor's
+       first). `--ink` at 8% in light, a 1px dot every `--dot-pitch`;
+       dark takes 10%, which reads about as quiet on black. Faint on
+       purpose: they show only between the cards. `--dot-origin` is where
+       a dot's centre falls on each axis — 0 by default; the editor sets it
+       to the middle of its outer inset. */
+    --ground-dot: rgba(17, 24, 39, 0.08);
+    --dot-pitch: 20px;
+    --dot-origin: 0px;
+    --card: #ffffff;
+    --ink: #111827;
+    --ink-muted: #4b5563;
+    --ink-faint: #636b7a;
+    --ring: rgba(17, 24, 39, 0.1);
+    --ring-strong: rgba(17, 24, 39, 0.22);
+    --control: #e4e7ed;
+    --control-hover: #d7dbe3;
+    /* `--control` and `--control-hover` for a control that sits on the
+       dotted ground rather than on a card (2026-10-08). Light's are
+       opaque already; dark's are translucent white, which let the dots
+       show through, so dark pre-mixes them with `--shell` — the colour
+       they composited to before there were dots. Not `--control` itself
+       made opaque: on a `--card` that would paint darker than the card. A
+       page points its ground-level controls here by setting `--control:
+       var(--control-ground)` (and the hover) on them or their row. */
+    --control-ground: var(--control);
+    --control-hover-ground: var(--control-hover);
+    --primary: #cdeb45;
+    --primary-hover: #b9d700;
+    --primary-ink: #030712;
+    --secondary: #030712;
+    --secondary-hover: #1f2937;
+    --secondary-ink: #ffffff;
+    --accent: #566505;
+    --accent-soft: #f7fde7;
+    --warn: #b4530a;
+    --warn-soft: #fff7ed;
+    --error: #991b1b;
+    --error-soft: #fef2f2;
+    --error-ring: rgba(153, 27, 27, 0.25);
+    --switch-off: #9ca3af;
+    --switch-knob: #ffffff;
+    /* A slider's resting fill. Light against the card rather than
+       literally white: every slider sits on `--card` (the editor's
+       inspector, Settings' Brand kit), so #fff here paints an invisible
+       fill and the track reads as a grey bar that gets
+       SHORTER as the value rises. Dark has no such problem and keeps
+       the near-white the switch's knob uses. */
+    --slider-rest: #ccd2dc;
+    --rec: #dc2626;
+    --focus: #566505;
+    /* The only depth cue the flat shell keeps, and its first job is
+       this: a layer that floats over a surface of its OWN tone — the
+       editor's popover over the editor's panel — has no tone step left
+       to separate it, so elevation is the only thing that can.
+       The editor's floating chrome is its second use (spec 2026-10-06):
+       the header cards, the rail, the panel and the timeline float over the
+       stage bed by choice — the author picked that look — and carry it
+       through the editor's `--float`. Anything else that sits IN a page
+       separates with `--shell` / `--card` / `--control`; reach for this
+       outside those two jobs and you are probably flattening the wrong
+       thing. */
+    --shadow-overlay: 0 8px 24px rgba(15, 23, 42, 0.14);
+    /* Corners, on the site's Tailwind scale: `rounded-md` for a control
+       — a button, a field, a notice, a panel inside a card — and
+       `rounded-lg` for the card itself. Until 2026-09-14 buttons were
+       10px and cards 12px, and every page restated a number of its own;
+       the whole extension read softer than the site it belongs to. A
+       page that needs a corner reads one of these — never a literal. */
+    --radius: 6px;
+    --radius-card: 8px;
+  }
+  /* The dark tokens, twice on purpose: under the system query for an
+     author who never chose, and under the root's data-theme for one who
+     chose dark on a light system. `:not([data-theme="light"])` on the
+     first is what lets a light choice beat a dark system. CSS has no way
+     to say "either condition" that Chrome 116 understands (light-dark()
+     is 123), so test/node/theme-tokens.test.ts holds the two identical. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      /* Near-black ground with the cards floating on it, from the editor's
+         reference mockup (2026-09-22). It was #101013/#1d1d21 — a pair
+         with a slight blue cast and eleven points between them; these are
+         neutral and nineteen apart, so a card reads as a card rather than
+         as a lighter patch of the page.
+
+         The mockup's own pair is #000 and #121212, and that is NOT what is
+         written here, because it cannot clear this codebase's own floor: a
+         card on a page is held to 1.15:1 by the shortcuts overlay and 1.1:1
+         by the popup, Recordings and Settings, and #121212 reaches only
+         1.121:1 even against pure black. The tone the mockup gives its
+         TIMELINE, #181818, is the darkest card that clears 1.15 — so the
+         card takes that and the page goes to #030304 under it. Fixing it
+         this way round rather than by lowering the floor is deliberate:
+         the floor is the guard, and a guard widened to admit a value is
+         not a guard.
+
+         The page is #010102 rather than the #030304 this first landed on
+         because the shortcuts overlay's panel sits on a scrim, not on the
+         page directly, and measured 1.146:1 against it — under the 1.15
+         it holds itself to. The page went down rather than the card up,
+         so the tone the dock shows is still the mockup's own.
+
+         Not pure #000 for the page: the editor's stage is a WELL, darker
+         than the page in both themes by design, and a black page leaves
+         nothing for it to be darker than — `editor-shell.test.ts` holds
+         that direction, and `--stage-bed` takes the black instead. It is
+         one step of black away now, so the well no longer reads as a
+         trough; what separates the stage from the lanes is the CARD's own
+         edge, which this pair widened from 1.131:1 to 1.175:1. */
+      --shell: #010102;
+      --ground-dot: rgba(236, 236, 241, 0.1);
+      --card: #181818;
+      --ink: #ececf1;
+      --ink-muted: #b4b4bd;
+      --ink-faint: #8b8b94;
+      --ring: rgba(255, 255, 255, 0.1);
+      --ring-strong: rgba(255, 255, 255, 0.24);
+      --control: rgba(255, 255, 255, 0.07);
+      --control-hover: rgba(255, 255, 255, 0.13);
+      --control-ground: color-mix(in srgb, #ffffff 7%, var(--shell));
+      --control-hover-ground: color-mix(in srgb, #ffffff 13%, var(--shell));
+      --primary: #cdeb45;
+      --primary-hover: #b9d700;
+      --primary-ink: #242b04;
+      --secondary: #ececf1;
+      --secondary-hover: #ffffff;
+      --secondary-ink: #141416;
+      --accent: #cdeb45;
+      --accent-soft: #23260f;
+      --warn: #f5a969;
+      --warn-soft: #2a1d10;
+      --error: #fca5a5;
+      --error-soft: #3b1a1a;
+      --error-ring: rgba(252, 165, 165, 0.25);
+      --switch-off: rgba(255, 255, 255, 0.2);
+      --switch-knob: #ececf1;
+      --slider-rest: #ececf1;
+      --rec: #ff4d4f;
+      --focus: #cdeb45;
+      --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.55);
+    }
+  }
+  :root[data-theme="dark"] {
+    --shell: #010102;
+    --ground-dot: rgba(236, 236, 241, 0.1);
+    --card: #181818;
+    --ink: #ececf1;
+    --ink-muted: #b4b4bd;
+    --ink-faint: #8b8b94;
+    --ring: rgba(255, 255, 255, 0.1);
+    --ring-strong: rgba(255, 255, 255, 0.24);
+    --control: rgba(255, 255, 255, 0.07);
+    --control-hover: rgba(255, 255, 255, 0.13);
+    --control-ground: color-mix(in srgb, #ffffff 7%, var(--shell));
+    --control-hover-ground: color-mix(in srgb, #ffffff 13%, var(--shell));
+    --primary: #cdeb45;
+    --primary-hover: #b9d700;
+    --primary-ink: #242b04;
+    --secondary: #ececf1;
+    --secondary-hover: #ffffff;
+    --secondary-ink: #141416;
+    --accent: #cdeb45;
+    --accent-soft: #23260f;
+    --warn: #f5a969;
+    --warn-soft: #2a1d10;
+    --error: #fca5a5;
+    --error-soft: #3b1a1a;
+    --error-ring: rgba(252, 165, 165, 0.25);
+    --switch-off: rgba(255, 255, 255, 0.2);
+    --switch-knob: #ececf1;
+    --slider-rest: #ececf1;
+    --rec: #ff4d4f;
+    --focus: #cdeb45;
+    --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.55);
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+
+  /* Self-hosted copies of the site's faces (public/fonts, from
+     apps/server/priv/static/fonts). An extension page cannot reach the
+     server, and system-ui is the single largest reason the popup did not
+     look like the site. Latin subset, variable weight. */
+  @font-face {
+    font-family: "Manrope";
+    font-style: normal;
+    font-weight: 200 800;
+    font-display: swap;
+    src: url("/fonts/manrope-latin-variable.woff2") format("woff2");
+  }
+  @font-face {
+    font-family: "Outfit";
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url("/fonts/outfit-latin-variable.woff2") format("woff2");
+  }
+  @font-face {
+    font-family: "JetBrains Mono";
+    font-style: normal;
+    font-weight: 100 800;
+    font-display: swap;
+    src: url("/fonts/jetbrains-mono-latin-variable.woff2") format("woff2");
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+  /* Three weights, set by the author on 2026-10-04: 400 for body text and
+     readouts, 600 for what you click or scan as a label (tabs, buttons,
+     pills, chips, field labels), 700 for titles — every page title, every
+     section and item heading, in Outfit and Manrope alike. A new weight
+     on a page is one of these three. The wordmark's 500 is the logo's,
+     not the scale's. */
+  body {
+    font:
+      400 13px / 1.5 "Manrope",
+      ui-sans-serif,
+      system-ui,
+      sans-serif;
+    color: var(--ink);
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* The ground: dotted, so it reads as a surface the cards sit on rather
+     than space left over. A page that wants a different ground colour
+     sets `background-color` on `body` and keeps the dots. */
+  body {
+    background-color: var(--shell);
+    background-image: radial-gradient(
+      circle,
+      var(--ground-dot) 1px,
+      transparent 1.6px
+    );
+    background-size: var(--dot-pitch) var(--dot-pitch);
+    background-position: calc(var(--dot-origin) - var(--dot-pitch) / 2)
+      calc(var(--dot-origin) - var(--dot-pitch) / 2);
+  }
+  p {
+    margin: 0;
+  }
+  button,
+  input {
+    font: inherit;
+    color: inherit;
+  }
+  button {
+    cursor: pointer;
+    /* Flat by default: a button that declares no border of its own gets
+       Chrome's `2px outset buttonface` back, which is how `.pill` came
+       out ringed after its own border was removed. A control that wants
+       one — `.cursor-style`, the editor's `#name` — declares it and wins
+       on specificity. */
+    border: 0;
+  }
+  button:disabled {
+    cursor: default;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  /* Header: the site's own nav lockup, at extension scale. */
+  #brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* Pinned: a page's own body line-height (the review page reads at
+       1.6) must not change the header's height, or the lockup sits a
+       pixel lower there than on the page beside it. */
+    line-height: 1.5;
+  }
+  #brand img {
+    width: 22px;
+    height: 22px;
+  }
+  #wordmark {
+    font:
+      500 18px / 1 "Outfit",
+      ui-sans-serif,
+      system-ui,
+      sans-serif;
+    letter-spacing: -0.01em;
+  }
+  #version {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The tabbed pages' frame — Recordings, Settings, Needs a look — after
+     the Tailwind UI stacked shell the author picked on 2026-10-04: a
+     full-width 64px bar with no line under it (the author's call), the
+     lockup with its disc at 32px (the logomark alone until 2026-10-08), and one container shared by the bar and the
+     page below it, so the mark, the tabs and the page's heading start on
+     the same edge. 1280 wide (`max-w-7xl`) with the template's gutters:
+     16px, 24px from 640, 32px from 1024. The tabs keep their own pills
+     rather than the template's underlines. */
+  :root {
+    --page-gutter: 16px;
+  }
+  @media (min-width: 640px) {
+    :root {
+      --page-gutter: 24px;
+    }
+  }
+  @media (min-width: 1024px) {
+    :root {
+      --page-gutter: 32px;
+    }
+  }
+  /* The bar: the logomark and the tabs at the left, the library's storage
+     trigger at the right, straight on the dotted ground (2026-10-08), in
+     the theme's own tokens. It was a full-width band, dark in both themes
+     (the author's call, 2026-10-04), until the ground was dotted: then the
+     band was the one thing on the page not sitting on it. Floating cards,
+     the editor's header idiom, were tried the same day and read as two
+     stray pieces. On the ground, its controls take the ground's opaque
+     control tones, or dark's translucent ones show the dots through. */
+  .topbar {
+    --control: var(--control-ground);
+    --control-hover: var(--control-hover-ground);
+    /* Pinned for the same reason as #brand's: the review page reads at
+       1.6, and the bar must not sit differently there. */
+    line-height: 1.5;
+  }
+  .topbar-inner,
+  .page {
+    max-width: 1280px;
+    margin-inline: auto;
+    padding-inline: var(--page-gutter);
+  }
+  /* 64px on one line, at every width. Until 2026-10-08 the right end
+     wrapped under the left when the two did not fit, and a header on two
+     lines read as broken. Now it condenses instead, one step at a time,
+     the same steps on every tabbed page so the mark and the tabs never
+     move between them — sized for Recordings, whose storage trigger makes
+     the widest right end:
+
+       under 900px  the storage trigger drops its words (library page)
+       under 760px  the wordmark goes
+       under 560px  the tabs keep their glyphs and lose their words
+
+     Measured on 2026-10-08 with everything showing (signed in, on
+     Recordings): 40px to spare at 900, 49 at 760, 39 at 560 and 18 at
+     360. topbar-condense.test.ts sweeps 1440 to 360 for any overflow. */
+  .topbar-inner {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 16px;
+    min-height: 64px;
+    box-sizing: border-box;
+    padding-block: 8px;
+  }
+  /* The bar's two ends: the logomark with the tabs, and the storage
+     trigger. */
+  .topbar-group {
+    display: flex;
+    align-items: center;
+  }
+  /* The lockup, in two pieces: the logomark at the 32px the bar's mark
+     has always been, then the wordmark cut out of brand/'s lockup by an
+     SVG view (x 400–1352 of its 1408, and the disc's own 300 units of
+     height, so the wordmark sits at the lockup's height beside the disc).
+     Split so the gap is the bar's to set: the lockup's own is ~4.6px at
+     this size, which read as crowded. 12px keeps the popup header's
+     proportion, 8px beside a 22px mark. The lockup files are brand/'s
+     byte for byte; the crop lives in the URL. Two wordmarks because it is
+     ink on light and white on dark, and the page's theme can differ from
+     the system's. Under 760px the wordmark goes and the disc stands alone
+     (the bar's ladder, above). */
+  .logomark {
+    display: flex;
+    flex: none;
+    gap: 12px;
+    height: 32px;
+  }
+  @media (max-width: 759px) {
+    .logomark-word {
+      display: none;
+    }
+  }
+  .logomark .disc {
+    display: block;
+    width: 32px;
+    height: 32px;
+  }
+  .logomark .for-light,
+  .logomark .for-dark {
+    display: block;
+    width: calc(32px * 952 / 300);
+    height: 32px;
+  }
+  .logomark .for-dark {
+    display: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .logomark .for-light {
+      display: none;
+    }
+    :root:not([data-theme="light"]) .logomark .for-dark {
+      display: block;
+    }
+  }
+  :root[data-theme="dark"] .logomark .for-light {
+    display: none;
+  }
+  :root[data-theme="dark"] .logomark .for-dark {
+    display: block;
+  }
+  .page {
+    padding-top: 40px;
+    padding-bottom: 48px;
+  }
+  /* The bar's right end: the library's storage trigger. */
+  .topbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  /* The tabs beside the logomark: Recordings and Settings. The current page
+     is ink on the control tone; the others are muted text that firms
+     under the pointer. (Needs a look is a state of a recording, not a
+     page of its own: it is reached from the badge and the popup.) */
+  .tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    /* The template's `ml-6` from the logomark. */
+    margin-left: 24px;
+  }
+  .tabs a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 11px;
+    border-radius: var(--radius);
+    color: var(--ink-muted);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+  .tabs svg {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    opacity: 0.85;
+  }
+  .tabs a:hover {
+    color: var(--ink);
+    background: var(--control);
+  }
+  .tabs a[aria-current="page"] {
+    color: var(--ink);
+    background: var(--control-hover);
+  }
+  /* The bar's last step (above): under 560px the tabs keep their glyphs,
+     the current one keeps its pill, and the words stay for a screen reader
+     — `.visually-hidden`'s recipe — and under the pointer as the title. */
+  @media (max-width: 559px) {
+    .tabs {
+      margin-left: 16px;
+    }
+    .tabs a {
+      padding: 6px 9px;
+    }
+    .tab-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
+  }
+
+  /* A pill: a filter, a choice in a segmented row. Pressed is ink on ink.
+     On `--control` rather than `--card` since 2026-09-20 for the same
+     reason the field is: only the library's filter row and Settings'
+     theme choice use `.pill` now — the editor's own format pills that
+     motivated this are gone, replaced by a `select` — and both sit inside
+     a `.card`, which IS `--card`, so a card-coloured pill with no ring is
+     a pill nobody can see. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border-radius: var(--radius);
+    background: var(--control);
+    color: var(--ink-muted);
+    font-size: 12px;
+    font-weight: 600;
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+  .pill:hover {
+    background: var(--control-hover);
+    color: var(--ink);
+  }
+  .pill[aria-pressed="true"] {
+    background: var(--secondary);
+    color: var(--secondary-ink);
+  }
+  .pill-count {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.7;
+  }
+
+  /* A switch: a real checkbox as the hit target, a track painted over it.
+     The input sits on top; with the track on top, a pointer reached the
+     input solely by way of the label, which Playwright's actionability
+     check refuses. */
+  .switch-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+  }
+  .switch-row:has(input:disabled) {
+    cursor: default;
+    opacity: 0.5;
+  }
+  .switch-text {
+    flex: 1;
+    min-width: 0;
+  }
+  .switch-text strong {
+    display: block;
+    font-weight: 700;
+  }
+  .hint {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
+  .switch {
+    /* How far the knob slides; the checked rule and the flip keyframes
+       below both read it. */
+    --switch-travel: 16px;
+    position: relative;
+    flex: none;
+    width: 38px;
+    height: 22px;
+  }
+  .switch input {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    margin: 0;
+    opacity: 0;
+    cursor: inherit;
+  }
+  .switch-track {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: 999px;
+    background: var(--switch-off);
+    transition: background-color 120ms ease;
+  }
+  .switch-track::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--switch-knob);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: transform 120ms ease;
+  }
+  .switch input:checked + .switch-track {
+    background: var(--primary);
+  }
+  .switch input:checked + .switch-track::after {
+    transform: translateX(var(--switch-travel));
+  }
+  .switch input:focus-visible + .switch-track {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  /* A switch a page rebuilt mid-slide (src/shell/switch.ts). The element
+     the author clicked is gone, and its transition with it; this one
+     plays the same 120ms from where that one had reached, which is what
+     the negative `--switch-elapsed` delay is. Keyed on the input's own
+     state, so a switch put back after a refused write slides back too.
+     Each keyframe gives only its start: the end is the switch's resting
+     style, so nothing here restates a colour or a position. */
+  .switch[data-flip] .switch-track,
+  .switch[data-flip] .switch-track::after {
+    animation-duration: 120ms;
+    animation-timing-function: ease;
+    animation-delay: var(--switch-elapsed, 0ms);
+  }
+  .switch[data-flip] input:checked + .switch-track {
+    animation-name: switch-track-from-off;
+  }
+  .switch[data-flip] input:checked + .switch-track::after {
+    animation-name: switch-knob-from-off;
+  }
+  .switch[data-flip] input:not(:checked) + .switch-track {
+    animation-name: switch-track-from-on;
+  }
+  .switch[data-flip] input:not(:checked) + .switch-track::after {
+    animation-name: switch-knob-from-on;
+  }
+  @keyframes switch-track-from-off {
+    from {
+      background-color: var(--switch-off);
+    }
+  }
+  @keyframes switch-track-from-on {
+    from {
+      background-color: var(--primary);
+    }
+  }
+  @keyframes switch-knob-from-off {
+    from {
+      transform: none;
+    }
+  }
+  @keyframes switch-knob-from-on {
+    from {
+      transform: translateX(var(--switch-travel));
+    }
+  }
+
+  /* Sliders: quiet until you reach for them. In the shell, not the
+     editor's sheet, because Settings' Brand kit mounts the same slider
+     rows as the editor's Background panel (src/branding/controls.ts);
+     until 2026-10-06 these lived in editor/index.html, and the Brand kit
+     drew Chrome's native slider instead.
+     
+     At rest a light fill on a grey remainder and no thumb at all; under
+     the pointer the fill takes the brand colour and the thumb appears.
+     `accent-color` drew the two-tone track for free, but styling a
+     thumb needs `appearance: none` and that takes the native fill with
+     it — so the fill is a gradient whose stop is `--fill`, which
+     `paintSliderFill` keeps in step from the input's own event.
+     
+     `--switch-knob` / `--switch-off` rather than literal white and
+     grey: they are the tokens for exactly this pairing — a light
+     control riding a muted track — and they already resolve per theme,
+     where a literal white fill would invert into a dark one. */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 16px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  input[type="range"]:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--slider-fill, var(--slider-rest)) 0 var(--fill, 0%),
+      var(--switch-off) var(--fill, 0%) 100%
+    );
+  }
+  /* Sized and placed even while invisible: a thumb that changed size on
+     hover would shift the grab point out from under the pointer that
+     just arrived on it. Only its paint changes. */
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: -4px;
+    border-radius: 50%;
+    background: var(--switch-knob);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  /* Hover is what was asked for; focus and drag are here because a
+     keyboard never hovers, and a slider whose thumb is invisible to the
+     one input method that cannot summon it is a control that reads as
+     broken. `:active` holds it through a drag that leaves the track. */
+  input[type="range"]:hover:not(:disabled),
+  input[type="range"]:focus-visible,
+  input[type="range"]:active {
+    --slider-fill: var(--accent);
+  }
+  input[type="range"]:hover:not(:disabled)::-webkit-slider-thumb,
+  input[type="range"]:focus-visible::-webkit-slider-thumb,
+  input[type="range"]:active::-webkit-slider-thumb {
+    opacity: 1;
+  }
+
+  /* Cards: the site's window chrome as the one container every grouped
+     surface uses. Flat since 2026-09-20 — the hairline ring and the soft
+     shadow are gone, and `--card` separates from `--shell` on tone alone
+     (test/browser/shell-flat.test.ts pins the step at both themes). */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius-card);
+    padding: 12px;
+  }
+
+  /* Buttons. One primary (lime carrying near-black), one secondary
+     (gray-950 carrying white), and a quiet control for everything else —
+     the same three the site's nav and hero use.
+
+     Compact by default — the size a control in a row, a card or the
+     editor's header takes. The popup's stacked, full-width buttons opt
+     into `width: 100%` and a larger pad in its own sheet. Until
+     2026-09-14 it was the other way round, and the Recordings, Settings
+     and editor pages each restated the compact size in their own words. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 6px 11px;
+    border-radius: var(--radius);
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.3;
+    transition: background-color 120ms ease;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: var(--primary-ink);
+  }
+  .btn-primary:not(:disabled):hover {
+    background: var(--primary-hover);
+  }
+  .btn-secondary {
+    background: var(--secondary);
+    color: var(--secondary-ink);
+  }
+  .btn-secondary:not(:disabled):hover {
+    background: var(--secondary-hover);
+  }
+  .btn-quiet {
+    background: var(--control);
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .btn-quiet:not(:disabled):hover {
+    background: var(--control-hover);
+  }
+  .btn-link {
+    background: none;
+    color: var(--ink-muted);
+    font-weight: 600;
+    padding: 6px;
+  }
+  .btn-link:hover {
+    color: var(--ink);
+  }
+  /* A square control carrying one glyph and no words. The accessible name
+     is the `aria-label`; the `title` repeats it for a pointer. */
+  .btn-icon {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    flex: none;
+  }
+  .btn-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+  .btn-icon.btn-danger:not(:disabled):hover {
+    background: var(--error-soft);
+    color: var(--error);
+  }
+
+  /* A field: rounded, no ring, on the CONTROL tone — a recessed well.
+     It was `--card` until 2026-09-20, which worked only because a
+     hairline drew its edge: a field sits inside a card, so a field
+     filled with the card's own colour and stripped of its border has no
+     boundary at all. The tone is the boundary now, and
+     test/browser/shell-flat.test.ts measures it.
+
+     On the bare elements so every page's inputs agree without a class; a
+     page that wants something else (the editor's title-like name)
+     overrides it, and wins from outside the layer. The switch's
+     checkbox, a slider, a colour or file picker keep their native
+     shape. `font-family` because Chrome's own sheet gives `select` the
+     system face rather than inheriting, so every dropdown was SF Pro
+     beside Manrope; `input` already inherits through the rule above. */
+  select,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+    [type="color"]
+  ):not([type="file"]) {
+    padding: 6px 9px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--control);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 13px;
+  }
+
+  /* Notices: the small tinted panels inside a card. */
+  .notice {
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    background: var(--control);
+    color: var(--ink-muted);
+    font-size: 12px;
+  }
+  .notice-error {
+    background: var(--error-soft);
+    border: 1px solid var(--error-ring);
+    color: var(--error);
+    font-weight: 600;
+    padding: 10px 12px;
+  }
+  .notice-warn {
+    background: var(--warn-soft);
+    color: var(--warn);
+    font-weight: 600;
+    padding: 10px 12px;
+  }
+  /* A page's notice line with its parts (src/shell/notice-line.ts): a
+     glyph, a title, a fault's reason behind Details, an action row and a
+     dismiss. Tint and ink are the level's, from the rules above. */
+  .notice-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .notice-line > svg {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin-top: 1px;
+  }
+  .notice-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .notice-title {
+    margin: 0;
+    line-height: 18px;
+    overflow-wrap: anywhere;
+  }
+  .notice-details {
+    margin-top: 2px;
+    font-weight: 500;
+  }
+  .notice-details > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    list-style: none;
+    opacity: 0.8;
+  }
+  .notice-details > summary:hover {
+    opacity: 1;
+  }
+  .notice-details > summary::-webkit-details-marker {
+    display: none;
+  }
+  .notice-details > summary > svg {
+    width: 12px;
+    height: 12px;
+    transition: transform 120ms ease;
+  }
+  .notice-details[open] > summary > svg {
+    transform: rotate(180deg);
+  }
+  .notice-reason {
+    margin-top: 6px;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--ink-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  /* At the title row's end, centred on the title's line: a compact button
+     is 26px against the title's 18px line. On a narrow window the title
+     wraps beside them rather than pushing them off. */
+  .notice-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: -4px 0;
+  }
+  .notice-dismiss {
+    flex: none;
+    display: inline-flex;
+    margin: -3px -5px 0 0;
+    padding: 3px;
+    border-radius: var(--radius);
+    background: none;
+    color: inherit;
+    opacity: 0.7;
+  }
+  .notice-dismiss:hover {
+    opacity: 1;
+  }
+  .notice-dismiss > svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* An empty list (src/shell/empty-state.ts): a glyph beside a title and a
+     hint, flat on the card that holds it. Settings' sites and agents and
+     the Recordings library share it, so it lives here rather than in
+     either page. */
+  .empty {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin: 0;
+    color: var(--ink-muted);
+  }
+  .empty > svg {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    color: var(--ink-faint);
+    margin-top: 1px;
+  }
+  .empty strong {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .empty .hint {
+    margin-top: 2px;
+    max-width: 56ch;
+  }
+
+  /* A code span in a sentence the product wrote (src/shell/code-spans.ts):
+     the mono face at a touch under the text's size, never literal
+     backticks. */
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+  }
+
+  /* The studio's re-film call (platform/http.ts `refilmLine`) is something
+     to copy, so it starts on a line of its own rather than breaking
+     mid-sentence; where the column is too narrow for it whole (a real take
+     id is ~30 characters; the Export panel is ~290px), it wraps where the
+     browser can — a space, or after a hyphen in the id; a copy of it is
+     still one line. Not one unbreakable box: that made the call's
+     full width the inspector's minimum width, and the panel's contents
+     overflowed its left edge, cut off (author, after 8c9ab1af). */
+  [data-rerun-line] code {
+    display: block;
+  }
+
+  /* The studio's full-page line (src/platform/gone.ts): the page can do
+     nothing more, and says why in one centred sentence on the ground. It
+     is laid over the page rather than replacing it, so the editor keeps
+     rendering into its own elements (made inert by the script, so nothing
+     under the line takes focus). */
+  .gone {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background-color: var(--shell);
+    background-image: radial-gradient(
+      circle,
+      var(--ground-dot) 1px,
+      transparent 1.6px
+    );
+    background-size: var(--dot-pitch) var(--dot-pitch);
+  }
+  .gone p {
+    max-width: 40rem;
+    text-align: center;
+    font-size: 14px;
+    color: var(--ink-muted);
+  }
+  .gone code {
+    color: var(--ink);
+  }
+
+  /* A fold's chevron (the `chevronRight` glyph): faint at rest, ink under
+     the pointer, a quarter turn while open. Which fold is open is each
+     page's to say — a Settings site, a Recordings day — so the turn is
+     written there, with the hover. */
+  .chev {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--ink-faint);
+    transition:
+      transform 120ms ease,
+      color 120ms ease;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chev {
+      transition: none;
+    }
+  }
+
+  /* Last, on purpose: `.btn` sets display and shares this specificity, so
+     the later rule has to be the one that hides. A page's own stylesheet
+     loads after this one, so any `display` it sets on a hidden element
+     must carry `:not(.hidden)` or the element stays visible. */
+  .hidden {
+    display: none;
+  }
+  /* The branding controls (src/branding/controls.ts): the editor's
+     Background panel and Settings' Brand kit section mount the same
+     controls, so their styles live here, in the sheet both pages link.
+     Tokens only — every colour below is redefined by the dark blocks. */
+  /* Capped: on Settings' wide card the controls would otherwise run the
+     full width, a 700px box for a seven-character hex. The editor's panel
+     is narrower than the cap, so it is unaffected there. */
+  .branding-controls {
+    max-width: 420px;
+  }
+  /* A segmented choice — the Background panel's Solid/Gradient, the
+     picture's aspect, the Export panel's file type. In the shell because
+     the Background controls also mount on Settings. Scoped to those homes,
+     not the bare class: Settings' theme group is a `.segmented` of separate
+     pills, and this ring and its `overflow: hidden` must not reach it. The
+     aspect switch has two since 2026-10-07: the timeline toolbar's
+     (`#stage-tools`), which the author uses, and the full-screen row on the
+     picture (`#stage-bar`), which the editor re-tones as a scrim. Settings'
+     agent video size (`.run-size`) is one too, and the studio's Pull requests
+     (`.pull-requests`) and Export quality (`.export-quality`). */
+  .branding-controls .segmented,
+  .run-size .segmented,
+  .pull-requests .segmented,
+  .export-quality .segmented,
+  .inspector .segmented,
+  #stage-bar .segmented,
+  #stage-tools .segmented {
+    display: inline-flex;
+    width: fit-content;
+    border: 1px solid var(--ring-strong);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .branding-controls .segment,
+  .run-size .segment,
+  .pull-requests .segment,
+  .export-quality .segment,
+  .inspector .segment,
+  #stage-bar .segment,
+  #stage-tools .segment {
+    padding: 6px 14px;
+    background: var(--control);
+    border: 0;
+    color: var(--ink-muted);
+    font: inherit;
+    cursor: pointer;
+  }
+  .branding-controls .segment + .segment,
+  .run-size .segment + .segment,
+  .pull-requests .segment + .segment,
+  .export-quality .segment + .segment,
+  .inspector .segment + .segment,
+  #stage-bar .segment + .segment,
+  #stage-tools .segment + .segment {
+    border-left: 1px solid var(--ring-strong);
+  }
+  .branding-controls .segment[aria-checked="true"],
+  .run-size .segment[aria-checked="true"],
+  .pull-requests .segment[aria-checked="true"],
+  .export-quality .segment[aria-checked="true"],
+  .inspector .segment[aria-checked="true"],
+  #stage-bar .segment[aria-checked="true"],
+  #stage-tools .segment[aria-checked="true"] {
+    background: var(--accent-soft);
+    color: var(--ink);
+  }
+  /* The mono face is set on the row, not the text box: the shell's input
+     rule above sets `font-family: inherit` at a specificity a class rule
+     cannot beat, so the box takes the face by inheriting it. */
+  .branding-controls .colour-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-family: var(--font-mono);
+  }
+  .branding-controls input[type="color"] {
+    flex: none;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--ring-strong);
+    border-radius: 6px;
+    background: var(--control);
+    cursor: pointer;
+  }
+  .branding-controls .colour-text {
+    flex: 1;
+    min-width: 0;
+  }
+  .branding-controls .colour-text[aria-invalid="true"] {
+    outline: 1px solid var(--error);
+  }
+  .branding-controls .colour-error {
+    color: var(--error);
+    font-size: 12px;
+    margin: 4px 0 0;
+  }
+  .branding-controls .colour-error:empty,
+  .branding-controls [data-colour-note]:empty {
+    display: none;
+  }
+  .branding-controls [data-colour-note] {
+    font-size: 12px;
+    margin: 4px 0 0;
+  }
+  .branding-controls [data-swap] {
+    padding: 0;
+  }
+  /* The corner picker is the video frame (mockup A, 2026-10-08): a
+     centred miniature with the recording drawn inside it, and a button in
+     each corner. The chosen corner shows the mark; the others an outline
+     of where it would go. */
+  .branding-controls .corner-frame {
+    position: relative;
+    width: 100%;
+    max-width: 220px;
+    aspect-ratio: 16 / 9;
+    /* Centred by the row's grid: the row zeroes its children's margins. */
+    justify-self: center;
+    box-sizing: border-box;
+    border: 1px solid var(--ring-strong);
+    border-radius: 8px;
+    background: var(--control);
+  }
+  .branding-controls .corner-frame-rec {
+    position: absolute;
+    inset: 22% 16%;
+    border: 1px solid var(--ring);
+    border-radius: 4px;
+    background: var(--card);
+    pointer-events: none;
+  }
+  .branding-controls .corner {
+    position: absolute;
+    width: 34%;
+    height: 40%;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
+  }
+  .branding-controls .corner:hover {
+    background: var(--control-hover);
+  }
+  .branding-controls .corner:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+  }
+  .branding-controls .corner::after {
+    content: "";
+    position: absolute;
+    box-sizing: border-box;
+    width: 22px;
+    height: 10px;
+    border: 1px dashed var(--ring-strong);
+    border-radius: 2px;
+  }
+  .branding-controls .corner[data-logo-corner="top-left"] {
+    top: 0;
+    left: 0;
+  }
+  .branding-controls .corner[data-logo-corner="top-right"] {
+    top: 0;
+    right: 0;
+  }
+  .branding-controls .corner[data-logo-corner="bottom-left"] {
+    bottom: 0;
+    left: 0;
+  }
+  .branding-controls .corner[data-logo-corner="bottom-right"] {
+    bottom: 0;
+    right: 0;
+  }
+  .branding-controls .corner[data-logo-corner="top-left"]::after {
+    top: 8px;
+    left: 8px;
+  }
+  .branding-controls .corner[data-logo-corner="top-right"]::after {
+    top: 8px;
+    right: 8px;
+  }
+  .branding-controls .corner[data-logo-corner="bottom-left"]::after {
+    bottom: 8px;
+    left: 8px;
+  }
+  .branding-controls .corner[data-logo-corner="bottom-right"]::after {
+    bottom: 8px;
+    right: 8px;
+  }
+  .branding-controls .corner[aria-checked="true"]::after {
+    border: 0;
+    background: var(--accent);
+  }
+  /* The logo in a well beside Replace and Remove, stacked (mockup A,
+     2026-10-08), on a checkerboard so a transparent logo shows its own
+     edges against either theme rather than vanishing into the card. The
+     well takes the row's spare width; a wide wordmark is letterboxed. */
+  /* The editor's kit picker (mockup A, 2026-10-08): a button that reads
+     as a field — the take's kit, its swatch, Edited when the take has
+     moved off it — over a menu of the kits and the two saves. */
+  .branding-controls .kit-picker-wrap {
+    position: relative;
+  }
+  .branding-controls .kit-picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    height: 36px;
+    padding: 0 10px;
+    border: 1px solid var(--ring-strong);
+    border-radius: 8px;
+    background: var(--control);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+  .branding-controls .kit-picker:hover {
+    background: var(--control-hover);
+  }
+  .branding-controls .kit-picker:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+  }
+  .branding-controls .kit-picker > svg {
+    width: 14px;
+    height: 14px;
+    margin-left: auto;
+    flex: none;
+    color: var(--ink-muted);
+  }
+  .branding-controls .kit-picker-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .branding-controls .kit-picker-none {
+    color: var(--ink-muted);
+    font-weight: 500;
+  }
+  .branding-controls .kit-swatch {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 14px;
+    flex: none;
+    border: 1px solid var(--ring);
+    border-radius: 3px;
+    color: var(--error);
+  }
+  .branding-controls .kit-swatch svg {
+    width: 10px;
+    height: 10px;
+  }
+  .branding-controls .kit-edited {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--warn);
+    white-space: nowrap;
+  }
+  .branding-controls .kit-edited::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .branding-controls .kit-menu {
+    position: absolute;
+    z-index: 5;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    display: grid;
+    gap: 2px;
+    padding: 6px;
+    border: 1px solid var(--ring-strong);
+    border-radius: 10px;
+    background: var(--card);
+    box-shadow: var(--shadow-overlay);
+  }
+  .branding-controls .kit-menu[hidden] {
+    display: none;
+  }
+  .branding-controls .kit-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .branding-controls .kit-menu-item:hover:not(:disabled),
+  .branding-controls .kit-menu-item:focus-visible {
+    background: var(--control-hover);
+    outline: none;
+  }
+  .branding-controls .kit-menu-item:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .branding-controls .kit-menu-item[aria-checked="true"] {
+    font-weight: 600;
+  }
+  .branding-controls .kit-menu-item > svg {
+    width: 15px;
+    height: 15px;
+    flex: none;
+  }
+  .branding-controls .kit-menu-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .branding-controls .kit-menu-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    color: var(--ink-muted);
+  }
+  .branding-controls .kit-menu-meta svg {
+    width: 14px;
+    height: 14px;
+  }
+  .branding-controls .kit-menu-meta [data-icon="star"] {
+    width: 12px;
+    height: 12px;
+    fill: currentColor;
+  }
+  .branding-controls .kit-menu-sep {
+    height: 1px;
+    margin: 4px 2px;
+    background: var(--ring);
+  }
+  .branding-controls .kit-naming {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 6px;
+  }
+  .branding-controls .kit-new-name {
+    height: 36px;
+    min-width: 0;
+  }
+  .branding-controls .logo-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: stretch;
+  }
+  .branding-controls .logo-stack {
+    display: grid;
+    gap: 6px;
+    align-content: center;
+  }
+  .branding-controls .logo-controls .btn {
+    gap: 8px;
+  }
+  .branding-controls .logo-stack .btn {
+    justify-content: flex-start;
+  }
+  .branding-controls .logo-controls .btn svg {
+    width: 15px;
+    height: 15px;
+    flex: none;
+  }
+  .branding-controls .logo-thumb {
+    --thumb-h: 76px;
+    /* Border plus padding, on each side. */
+    --thumb-inset: 10px;
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    height: var(--thumb-h);
+    min-width: 0;
+    padding: calc(var(--thumb-inset) - 1px);
+    border: 1px solid var(--ring-strong);
+    border-radius: 8px;
+    background-color: var(--card);
+    background-image: conic-gradient(
+      var(--control) 25%,
+      transparent 0 50%,
+      var(--control) 0 75%,
+      transparent 0
+    );
+    background-size: 12px 12px;
+    color: var(--error);
+  }
+  /* Capped in pixels from the tile's own size, not `max-height: 100%`:
+     the tile's grid row is sized from this image, so a percentage measured
+     the image against itself and capped nothing. A wide lockup still fitted
+     (its width cap held), but a square logomark painted its thumbnail's
+     full 80px in the 32px tile — spilling out, and at 1x on a 2x screen
+     (2026-10-07). */
+  .branding-controls .logo-thumb-img {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: calc(var(--thumb-h) - 2 * var(--thumb-inset));
+  }
+  .branding-controls .logo-thumb svg {
+    width: 16px;
+    height: 16px;
+  }
+  .branding-controls .logo-controls label.btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .branding-controls .logo-controls label.btn input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .kit-preview {
+    display: block;
+    width: 100%;
+    max-width: 480px;
+    /* The canvas's own size gives the ratio, and it holds one size for
+       every padding (`KIT_PREVIEW_BOX`), so a Padding drag moves nothing
+       below it. The frame is painted at its top with its own rounded
+       corners, which is why there is no `border-radius` here: the box is
+       taller than the frame at most paddings. */
+    height: auto;
+    margin: 8px 0 12px;
+  }
+  /* The inspector's row primitive (`.control-row`, `.control-actions`),
+     for the page that does not carry the editor's own sheet: Settings'
+     Brand kit. The editor defines these unscoped and unlayered, so its
+     rules win there; the values are the same rhythm, 12px. The slider
+     itself is the shell's own `input[type="range"]`, on both pages. */
+  .branding-controls .control-row,
+  .branding-controls .slider-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    column-gap: 8px;
+    row-gap: 12px;
+    margin: 12px 0;
+  }
+  .branding-controls .slider-row {
+    row-gap: 6px;
+  }
+  .branding-controls .control-row > :not(.control-label):not(.control-aside),
+  .branding-controls .slider-row > input[type="range"] {
+    grid-column: 1 / -1;
+    min-width: 0;
+    margin: 0;
+  }
+  .branding-controls .control-aside,
+  .branding-controls .slider-row > .slider-value {
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .branding-controls .control-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .branding-controls [data-logo-notes] p {
+    font-size: 12px;
+    margin: 4px 0 0;
+  }
+}
+
+/* Outside the `shell` layer, deliberately. Every other rule in this file
+   is something a page may override, and the layer is what lets it. The
+   confirm dialog is the opposite case: `askToConfirm` drops it into pages
+   it does not own, and a page's own unlayered element rules — the editor's
+   `h2 { margin: 0 0 8px; font-size: 20px; font-weight: 700 }` — beat any
+   layered rule whatever its specificity, so inside the layer the dialog
+   took the editor's heading instead of its own. Unlayered, its class
+   selectors outrank a page's bare element ones. */
+/* `askToConfirm`'s dialog (src/shell/confirm-dialog.ts), in place of
+   `window.confirm`. Laid out as the "Allow an agent?" consent card
+   (entrypoints/approve/index.html) is — centred Outfit heading, two
+   answers of equal width — with the heading first: no brand strip, which
+   inside the app would only repeat the page, and no avatar; each answer
+   carries its own glyph instead. The card's own edge is a hairline, and
+   so is this one's. No padding on the dialog itself: the form fills it,
+   so a click that lands on the dialog element can only have come from
+   the backdrop. */
+.confirm-dialog {
+  width: calc(100% - 32px);
+  max-width: 400px;
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ring);
+}
+.confirm-dialog::backdrop {
+  /* Fixed, as the shortcuts scrim is: a tone derived from `--ink` would
+     light the page up in dark rather than push it back. */
+  background: rgba(3, 7, 18, 0.55);
+}
+.confirm-dialog form {
+  display: flex;
+  flex-direction: column;
+  padding: 28px 28px 24px;
+  text-align: center;
+  font-size: 14px;
+}
+.confirm-title {
+  margin: 0;
+  font:
+    700 22px / 1.25 "Outfit",
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+  letter-spacing: -0.02em;
+}
+.confirm-body {
+  margin: 8px 0 0;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+/* Cancel and the answer weigh the same: one style, one width. */
+.confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 24px;
+}
+.confirm-actions .btn {
+  padding: 10px 16px;
+  font-size: 14px;
+}
+.confirm-actions .btn svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+/* A destructive answer is the one filled button: red, white word and
+   glyph, darker under the pointer. Fixed rather than `--error`, which
+   inverts to a pale red in dark to read as TEXT on the card — as a fill
+   under a white word it has to stay deep in both themes. White on #b42318
+   is 6.5:1, on the hover's #8f1c13 9:1. */
+.confirm-actions .confirm-go-danger {
+  background: #b42318;
+  color: #ffffff;
+}
+.confirm-actions .confirm-go-danger:not(:disabled):hover {
+  background: #8f1c13;
+}
+/* The ring on whichever button Enter presses, however the dialog was
+   opened. `:focus-visible` drops it after a mouse click — and a click is
+   how Delete is reached — which would leave no sign that Enter cancels. */
+.confirm-dialog .btn:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The body's face, OUTSIDE `@layer shell` on purpose. Chrome injects a
+   stylesheet into every extension page (`body { font-family: system-ui;
+   font-size: 75% }`), and an unlayered rule beats any layered one — so the
+   `font` declaration inside the layer above never reached a single page:
+   the editor rendered in system-ui at 12px and Recordings at 14px until
+   2026-10-07. Only the FAMILY comes out here. Pages set their own unlayered
+   `font-size` (Recordings, Settings, approve, review, run: 14px), and an
+   unlayered size here would race theirs on source order, which the build
+   decides, not us (see the note atop this file). The layered `font`
+   shorthand stays as the default for anything that is not an extension
+   page. `test/integration/extension-fonts.test.ts` loads the built
+   extension; nothing in the browser lane can see this. */
+body {
+  font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
+}

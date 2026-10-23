@@ -1,0 +1,12 @@
+{
+  // The pages' tests, checked as the pages are (../../pages/tsconfig.json),
+  // with node's and vitest browser mode's types beside the DOM.
+  "extends": "../../pages/tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client", "node", "@vitest/browser/providers/playwright"],
+    "paths": {
+      "#platform": ["../../pages/src/platform/http.ts"]
+    }
+  },
+  "include": ["./**/*"]
+}

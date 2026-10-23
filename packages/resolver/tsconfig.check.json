@@ -1,0 +1,8 @@
+{
+  // See the note in packages/compositor/tsconfig.check.json. No `scripts/`
+  // here. `import.meta.glob`'s type comes from test/vite-env.d.ts — see the
+  // note there on why it is declared rather than pulled from vite/client.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "declaration": false, "rootDir": "." },
+  "include": ["src", "test"]
+}

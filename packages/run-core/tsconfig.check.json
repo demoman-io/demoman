@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  // rootDir reaches the repo root because the moved film tests import the
+  // extension's package-only test helpers (test/helpers/film, bundles,
+  // replay-scene) by relative path; noEmit, so it only silences TS6059.
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "rootDir": "../.."
+  },
+  "include": ["src", "test"]
+}

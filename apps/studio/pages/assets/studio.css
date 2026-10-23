@@ -1,0 +1,1228 @@
+/* apps/studio/pages/assets/studio.css
+ *
+ * The studio's look: demoman.io's design system (spec
+ * docs/superpowers/specs/2026-10-19-studio-design-system-design.md).
+ * Only the studio build links this sheet, and only a studio page carries
+ * `data-studio` (`markStudioPage` in vite.studio.config.ts), so nothing here
+ * reaches the extension's pages, which keep today's look.
+ *
+ * Every rule is the selector it overrides prefixed with `[data-studio]`, so
+ * it outranks the page's own rule by specificity whatever order the sheets
+ * land in (the extension build moves shell.css's link; the studio build
+ * turns each page's inline <style> into a link of its own). The token block
+ * is `:root[data-studio][data-theme="dark"]`, (0,3,0), above both of the
+ * pages' dark blocks at (0,2,0). Unlayered, so it also beats shell.css's
+ * `@layer shell`.
+ *
+ * Dark only (spec §6): the build writes `data-theme="dark"` beside the
+ * marker and nothing in the studio changes it. */
+
+/* Geist and Geist Mono, the site's files cut to Latin as the shell's other
+   faces are (pyftsubset, every layout feature kept, the weight axis whole):
+   about 33 KB each against 70, which the published package's size ceiling
+   (apps/cli/test/build.test.ts) needed. */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/geist-variable.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/geist-mono-variable.woff2") format("woff2");
+}
+
+:root[data-studio][data-theme="dark"] {
+  color-scheme: dark;
+
+  /* The system (spec §3.1, §3.4). The site's tokens, plus --well, --bg-4,
+     --line-3, --fill-2 and --fill-3 for what an app needs. */
+  --well: #070707;
+  --bg: #0a0a0a;
+  --bg-1: #101010;
+  --bg-2: #151515;
+  --bg-3: #1b1b1b;
+  --bg-4: #232325;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-2: rgba(255, 255, 255, 0.13);
+  --line-3: rgba(255, 255, 255, 0.24);
+  --fill: rgba(255, 255, 255, 0.03);
+  --fill-2: rgba(255, 255, 255, 0.07);
+  --fill-3: rgba(255, 255, 255, 0.11);
+  --ink: #f4f4f5;
+  --ink-2: #a1a1aa;
+  --ink-3: #8f8f98;
+  --ink-4: #7b7b84;
+  --accent: #cdeb45;
+  --ok: #5eead4;
+  --danger: #f87171;
+  --warn: #f5a969;
+  --rec: #ff4d4f;
+  --glow: rgba(228, 228, 231, 0.13);
+  --r-pill: 999px;
+  --r-frame: 14px;
+  --r-panel: 12px;
+  --r-field-lg: 10px;
+  --r-field: 8px;
+  --r-chip: 6px;
+  --sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --shadow-pop: 0 0 0 1px var(--line-2), 0 16px 40px -8px rgba(0, 0, 0, 0.7);
+
+  /* The shared tokens the pages already read, sent to the system's values,
+     so every rule that reads them takes the new look without a rule of
+     its own here. */
+  --shell: var(--bg);
+  --stage-bed: var(--bg);
+  --card: var(--bg-1);
+  --ink-muted: var(--ink-2);
+  --ink-faint: var(--ink-3);
+  --ring: var(--line);
+  --ring-strong: var(--line-2);
+  --control: var(--fill);
+  --control-hover: var(--fill-2);
+  --control-ground: var(--fill);
+  --control-hover-ground: var(--fill-2);
+  --primary: var(--ink);
+  --primary-hover: #ffffff;
+  --primary-ink: var(--bg);
+  --secondary: var(--ink);
+  --secondary-hover: #ffffff;
+  --secondary-ink: var(--bg);
+  --accent-soft: rgba(205, 235, 69, 0.1);
+  --error: var(--danger);
+  --error-soft: rgba(248, 113, 113, 0.1);
+  --error-ring: rgba(248, 113, 113, 0.25);
+  --warn-soft: rgba(245, 169, 105, 0.1);
+  --focus: var(--ink);
+  --switch-off: var(--bg-4);
+  --switch-knob: var(--ink);
+  --slider-rest: var(--line-2);
+  --ground-dot: transparent;
+  --radius: var(--r-field);
+  --radius-card: var(--r-panel);
+  --font-mono: var(--mono);
+  --shadow-overlay: 0 16px 40px -8px rgba(0, 0, 0, 0.7);
+}
+
+[data-studio] body {
+  font-family: var(--sans);
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ───────── The header (spec §4) ───────── */
+
+[data-studio] .topbar {
+  background: rgba(10, 10, 10, 0.78);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--line);
+}
+[data-studio] .topbar-inner {
+  max-width: 1202px;
+  /* 55 and the bar's 1px hairline: the site's 56px header. */
+  height: 55px;
+  min-height: 55px;
+  padding-block: 0;
+  padding-inline: 32px;
+  gap: 28px;
+}
+/* The bare figure in place of the disc and the wordmark. Its span is
+   `hidden` in the markup, so the extension never shows it. */
+[data-studio] .logomark {
+  align-items: center;
+  height: 20px;
+  color: var(--ink);
+}
+[data-studio] .logomark .disc,
+[data-studio] .logomark .logomark-word {
+  display: none;
+}
+[data-studio] .logomark .figure {
+  display: flex;
+  height: 20px;
+}
+/* The site's nav: words in ink-2, the current page in ink, no pill. */
+[data-studio] .tabs {
+  gap: 22px;
+  margin-left: 28px;
+}
+/* Words alone, as the site's nav has them; under 560px the bar keeps the
+   glyphs and drops the words (shell.css), so the glyphs stay there. */
+@media (min-width: 560px) {
+  [data-studio] .tabs svg {
+    display: none;
+  }
+}
+[data-studio] .tabs a {
+  padding: 6px 0;
+  border-radius: 0;
+  font-size: 13.5px;
+  font-weight: 400;
+  letter-spacing: -0.006em;
+  color: var(--ink-2);
+}
+[data-studio] .tabs a:hover {
+  background: transparent;
+  color: var(--ink);
+}
+[data-studio] .tabs a[aria-current="page"] {
+  background: transparent;
+  color: var(--ink);
+}
+
+/* ───────── The frame (spec §5.1): two rails, the page head, two cells ──── */
+
+[data-studio] .page {
+  /* Its own block formatting context, so a notice's top margin stays inside
+     the rails instead of collapsing through and pushing them down. */
+  display: flow-root;
+  max-width: 1202px;
+  min-height: calc(100vh - 56px);
+  padding: 0 0 48px;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+[data-studio] #notice:not(.hidden) {
+  margin: 20px 32px 0;
+}
+/* The page head is the side column's title; a hairline runs under it across
+   both cells, and another divides the cells below it. Drawn on the grid, so
+   both run the page's full height whatever each column holds. */
+[data-studio] .library,
+[data-studio] .settings {
+  /* The head: 32px above the title, the title's 32px line, 26px under it
+     to the hairline. Held this short so the Brand kit's first control row
+     stays above the fold at 1440x900, as studio-shots asserts. */
+  --head-h: 90px;
+  position: relative;
+  gap: 0;
+}
+[data-studio] .library-side,
+[data-studio] .settings-side {
+  padding: 32px 16px 20px;
+}
+[data-studio] .library-side h1,
+[data-studio] .settings-side h1 {
+  margin: 0 0 calc(var(--head-h) - 32px - 32px + 20px);
+  padding-left: 16px;
+  font: 500 32px / 1 var(--sans);
+  letter-spacing: -0.04em;
+  color: var(--ink);
+}
+@media (min-width: 1024px) {
+  [data-studio] .library {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  [data-studio] .library-content {
+    padding: calc(var(--head-h) + 20px) 32px 0;
+  }
+  [data-studio] .library::before,
+  [data-studio] .library::after {
+    content: "";
+    position: absolute;
+    background: var(--line);
+    pointer-events: none;
+  }
+  [data-studio] .library::before {
+    left: 0;
+    right: 0;
+    top: var(--head-h);
+    height: 1px;
+  }
+  [data-studio] .library::after {
+    left: 220px;
+    top: var(--head-h);
+    bottom: -48px;
+    width: 1px;
+  }
+}
+@media (min-width: 768px) {
+  [data-studio] .settings {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  [data-studio] .settings .content {
+    max-width: 784px;
+    padding: calc(var(--head-h) + 20px) 32px 0;
+  }
+  [data-studio] .settings::before,
+  [data-studio] .settings::after {
+    content: "";
+    position: absolute;
+    background: var(--line);
+    pointer-events: none;
+  }
+  [data-studio] .settings::before {
+    left: 0;
+    right: 0;
+    top: var(--head-h);
+    height: 1px;
+  }
+  [data-studio] .settings::after {
+    left: 220px;
+    top: var(--head-h);
+    bottom: -48px;
+    width: 1px;
+  }
+}
+/* One column: the head's hairline under the side column, the content
+   below it. */
+@media (max-width: 1023px) {
+  [data-studio] .library-side {
+    border-bottom: 1px solid var(--line);
+  }
+  [data-studio] .library-side h1 {
+    margin-bottom: 0;
+  }
+  [data-studio] .library-content {
+    padding: 28px 32px 0;
+  }
+}
+@media (max-width: 767px) {
+  [data-studio] .settings-side {
+    border-bottom: 1px solid var(--line);
+  }
+  [data-studio] .settings .content {
+    padding: 28px 32px 0;
+  }
+}
+
+/* The jump list: the site's nav with a current row. */
+[data-studio] .side-item,
+[data-studio] .section-nav a {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: var(--r-field);
+  color: var(--ink-2);
+  font-size: 13.5px;
+  font-weight: 400;
+}
+[data-studio] .side-item:hover,
+[data-studio] .section-nav a:hover {
+  color: var(--ink);
+  background: var(--fill);
+}
+[data-studio] .side-item[aria-current="true"],
+[data-studio] .section-nav a[aria-current="true"] {
+  color: var(--ink);
+  background: var(--fill-2);
+}
+[data-studio] .section-nav svg {
+  color: var(--ink-3);
+  opacity: 1;
+}
+[data-studio] .side-count,
+[data-studio] .nav-count {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-4);
+}
+
+/* ───────── Type: Geist at the site's weights (spec §3.3) ───────── */
+
+/* `#name` apart: inside `:is()` an id lifts every heading in the list to id
+   specificity, and the rules below that restyle a heading lose to it. */
+[data-studio] :is(h1, h2, h3, h4, .confirm-title, .storage-title),
+[data-studio] #name {
+  font-family: var(--sans);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+/* ───────── Controls (spec §3.6) ───────── */
+
+/* The focus ring, white, on every control: an outline, so no box-shadow
+   ring can paint over it. Ink rather than lime since 2026-10-19 (the
+   author), like the playhead. */
+[data-studio] :focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Buttons are pills. This code's `.btn-quiet` is a filled button: in the
+   studio it is the ghost (a fill and a hairline ring), and the icon-only
+   quiet button of a toolbar is quiet indeed (no fill, no ring). */
+[data-studio] .btn {
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease;
+}
+[data-studio] .btn:not(.btn-icon) {
+  min-height: 32px;
+  padding: 0 14px;
+}
+[data-studio] .btn-primary {
+  background: var(--ink);
+  color: var(--bg);
+}
+[data-studio] .btn-primary:not(:disabled):hover {
+  background: #ffffff;
+}
+[data-studio] :is(.btn-secondary, .btn-quiet:not(.btn-icon)) {
+  background: var(--fill);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+[data-studio]
+  :is(.btn-secondary, .btn-quiet:not(.btn-icon)):not(:disabled):hover {
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line-3);
+}
+[data-studio] .btn-quiet.btn-icon {
+  background: transparent;
+  color: var(--ink-2);
+}
+[data-studio] .btn-quiet.btn-icon:not(:disabled):hover {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+[data-studio] .btn-danger {
+  color: var(--danger);
+}
+[data-studio] .btn-link {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+/* Segmented: a pill track of pill segments; the chosen one steps up. */
+[data-studio]
+  :is(
+    .branding-controls,
+    .run-size,
+    .pull-requests,
+    .export-quality,
+    .inspector,
+    #stage-bar,
+    #stage-tools
+  )
+  .segmented {
+  gap: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--bg-1);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  overflow: visible;
+}
+[data-studio]
+  :is(
+    .branding-controls,
+    .run-size,
+    .pull-requests,
+    .export-quality,
+    .inspector,
+    #stage-bar,
+    #stage-tools
+  )
+  .segment {
+  min-height: 26px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+[data-studio]
+  :is(
+    .branding-controls,
+    .run-size,
+    .pull-requests,
+    .export-quality,
+    .inspector,
+    #stage-bar,
+    #stage-tools
+  )
+  .segment
+  + .segment {
+  border-left: 0;
+}
+[data-studio]
+  :is(
+    .branding-controls,
+    .run-size,
+    .pull-requests,
+    .export-quality,
+    .inspector,
+    #stage-bar,
+    #stage-tools
+  )
+  .segment[aria-checked="true"] {
+  background: var(--bg-4);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+/* Switch: 30×18; off is a step-up with a grey knob, on is ink with a dark
+   knob. */
+[data-studio] .switch:not([data-flip]) {
+  --switch-travel: 12px;
+  width: 30px;
+  height: 18px;
+}
+[data-studio] .switch:not([data-flip]) .switch-track {
+  background: var(--bg-4);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+[data-studio] .switch:not([data-flip]) .switch-track::after {
+  width: 12px;
+  height: 12px;
+  background: var(--ink-3);
+  box-shadow: none;
+}
+[data-studio] .switch:not([data-flip]) input:checked + .switch-track {
+  background: var(--ink);
+  box-shadow: none;
+}
+[data-studio] .switch:not([data-flip]) input:checked + .switch-track::after {
+  background: var(--bg);
+}
+
+/* Slider: a 2px track filled in ink, never lime. */
+[data-studio] input[type="range"] {
+  --slider-rest: var(--ink);
+}
+[data-studio] input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(
+    to right,
+    var(--slider-fill, var(--slider-rest)) 0 var(--fill, 0%),
+    var(--line-2) var(--fill, 0%) 100%
+  );
+}
+[data-studio] input[type="range"]::-webkit-slider-thumb {
+  margin-top: -5px;
+  background: var(--ink);
+  box-shadow: 0 0 0 3px var(--bg-1);
+}
+[data-studio]
+  input[type="range"]:is(:hover:not(:disabled), :focus-visible, :active) {
+  --slider-fill: var(--ink);
+}
+
+/* Notices: colour on the icon only; the sentence in ink-2, its claim in
+   ink. */
+[data-studio] .notice {
+  border-radius: var(--r-field-lg);
+  background: var(--bg-1);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--ink-2);
+  font-size: 13px;
+}
+[data-studio] :is(.notice-error, .notice-warn) {
+  border: 0;
+  background: var(--bg-1);
+  color: var(--ink-2);
+  font-weight: 400;
+}
+[data-studio] .notice-error .notice-line > svg {
+  color: var(--danger);
+}
+[data-studio] .notice-warn .notice-line > svg {
+  color: var(--warn);
+}
+[data-studio] .notice-title {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* Things that float over the page keep a shadow (spec §3.2). */
+[data-studio] .confirm-dialog {
+  border-radius: var(--r-frame);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-pop);
+}
+
+/* Lime's other old homes, in ink (spec §3.5). */
+[data-studio] .meter-fill {
+  background: var(--ink);
+}
+[data-studio] .branding-controls .corner[aria-checked="true"]::after {
+  background: var(--ink);
+}
+[data-studio] input[type="checkbox"] {
+  accent-color: var(--ink);
+}
+[data-studio] #rail .btn[aria-pressed="true"] {
+  background: var(--fill-3);
+  color: var(--ink);
+}
+/* Not Play: it is a white disc, and its glyph stays the disc's dark ink
+   while it runs (the editor's own rule says why). This selector outranks
+   that rule, so the exemption has to be said here too. */
+[data-studio]
+  #transport
+  .transport-button[data-active]:not([data-transport-play]),
+[data-studio] .rate {
+  color: var(--ink);
+}
+[data-studio] .cursor-style[aria-checked="true"] {
+  border-color: var(--ink);
+}
+/* The chosen kit: an inset ink ring, so the outline stays the focus
+   ring's (the page's own outline on the chosen tile is dropped). */
+[data-studio] .kit-pick[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+[data-studio] .kit-pick[aria-pressed="true"]:not(:focus-visible) {
+  outline: 0;
+}
+/* An export's progress is one of lime's places. */
+[data-studio] .inspector .export-progress {
+  accent-color: var(--accent);
+}
+/* The stage tools' text chips (Fit) are buttons too: quiet pills. */
+[data-studio] #stage-tools .chip {
+  border-radius: var(--r-pill);
+  color: var(--ink-2);
+  font-weight: 500;
+}
+/* ───────── The library (spec §5.2) ───────── */
+
+/* The header's storage readout: the word in ink-3, the size in mono. */
+[data-studio] .library-total .storage-label {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+[data-studio] .library-total {
+  gap: 6px;
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+[data-studio] .library-total .storage-label {
+  font-family: var(--sans);
+  font-size: 12.5px;
+}
+
+/* Group headings: the chevron, a mono label, the count, and a rule to the
+   column's edge. */
+[data-studio] .section-head {
+  width: 100%;
+  padding: 4px 0;
+}
+[data-studio] .section-head::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+[data-studio] .section-head h2 {
+  font: 400 11.5px / 1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+[data-studio] .section-count {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--ink-4);
+}
+[data-studio] .section-head .chev {
+  color: var(--ink-4);
+}
+[data-studio] .section[open] + .section {
+  margin-top: 36px;
+}
+[data-studio] .rows {
+  gap: 16px;
+}
+
+/* Cards: the site's stage in miniature, a 12px frame with 6px padding
+   holding an 8px picture. */
+[data-studio] article.card {
+  padding: 6px;
+  border-radius: var(--r-panel);
+  background: var(--bg-1);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: box-shadow 0.15s ease;
+}
+[data-studio] article.card:hover {
+  background: var(--bg-1);
+  box-shadow: inset 0 0 0 1px var(--line-3);
+}
+[data-studio] [data-preview] {
+  border-radius: var(--r-field);
+  background: var(--bg-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+[data-studio] [data-duration] {
+  padding: 2px 6px;
+  border-radius: var(--r-chip);
+  background: rgba(10, 10, 10, 0.72);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: var(--ink);
+  font: 400 11px / 1.4 var(--mono);
+}
+[data-studio] .row-text {
+  padding: 10px 2px 2px;
+}
+[data-studio] [data-name] {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+}
+[data-studio] .row-line {
+  font-size: 12.5px;
+}
+[data-studio] :is(.row-meta, .row-size) {
+  color: var(--ink-3);
+}
+[data-studio] .row-size {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+/* The folder that could not be read: its name in mono, its Delete in
+   danger. */
+[data-studio] article.card[data-unreadable-row] [data-unreadable-name] {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+[data-studio] article.card[data-unreadable-row] [data-action="delete"] {
+  color: var(--danger);
+}
+/* The empty state, with the site's light from below. */
+[data-studio] .empty-card {
+  border-radius: var(--r-panel);
+  background:
+    radial-gradient(60% 80% at 50% 100%, var(--glow), transparent 70%),
+    var(--bg-1);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* ───────── Settings (spec §5.5) ───────── */
+
+/* Each section's body: a card told apart by its hairline ring. */
+[data-studio] .settings .section-body {
+  border-radius: var(--r-panel);
+  background: var(--bg-1);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+[data-studio] .settings .section-head {
+  margin-bottom: 12px;
+}
+[data-studio] .kit-strip {
+  margin-bottom: 14px;
+}
+/* The kit strip: 148px cards, a 12px frame holding an 8px swatch. */
+[data-studio] .kit-tile {
+  width: 148px;
+}
+[data-studio] .kit-pick {
+  border: 0;
+  border-radius: var(--r-panel);
+  background: var(--bg-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+[data-studio] .kit-pick:hover {
+  box-shadow: inset 0 0 0 1px var(--line-3);
+}
+[data-studio] .kit-thumb {
+  border-radius: var(--r-field);
+}
+[data-studio] .kit-tile-name {
+  padding: 2px 2px 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+/* The stars: outlined white, the default's filled lime (one of lime's
+   three places). */
+[data-studio] .kit-star {
+  border-radius: var(--r-chip);
+  background: rgba(10, 10, 10, 0.55);
+  color: var(--ink);
+}
+[data-studio] .kit-star[aria-pressed="true"] {
+  color: var(--accent);
+}
+[data-studio] .kit-new {
+  border: 1px dashed var(--line-3);
+  border-radius: var(--r-panel);
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+[data-studio] .kit-new:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+/* The kit's name, then Duplicate and Delete as small ghost pills. */
+[data-studio] .kit-name {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+[data-studio] .kit-head .btn:not(.btn-icon) {
+  min-height: 28px;
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+[data-studio] .kit-head [data-kit-delete] {
+  color: var(--danger);
+}
+/* The preview in a frame of its own. */
+[data-studio] .kit-hero {
+  padding: 8px;
+  border-radius: var(--r-panel);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+/* The page's cap on the preview under 900px tall takes off what stands
+   around it (~570px); the frame and the controls' rule add ~20px more, so
+   the Style row still shows at 720 (studio-shots asserts it). */
+@media (max-height: 899px) {
+  [data-studio] .kit-hero .kit-preview {
+    max-height: max(140px, 100vh - 590px);
+  }
+}
+/* Background, Frame and Logo in the site's hairline cells, under a rule. */
+[data-studio] .branding-group-title {
+  margin: 0 0 10px;
+  font: 400 11.5px / 1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+@container (min-width: 600px) {
+  [data-studio] .kit-controls .branding-controls {
+    gap: 0;
+    margin-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  [data-studio] .kit-controls .branding-group {
+    align-self: stretch;
+    padding: 12px 20px 6px;
+  }
+  [data-studio] .kit-controls .branding-group:first-child {
+    padding-left: 0;
+  }
+  [data-studio] .kit-controls .branding-group:last-child {
+    padding-right: 0;
+  }
+  [data-studio] .kit-controls .branding-group + .branding-group {
+    border-left: 1px solid var(--line);
+  }
+}
+
+/* ───────── The editor, hairline (spec §5.3, direction B) ───────── */
+
+/* Scoped to the editor's own structure (`body > header:not(.topbar)`,
+   `body > main`, `body > aside`): the library's and Settings' top bar is a
+   `body > header` too, and their content sits in a `main`.
+
+   One surface. The editor's own layout tokens take the floats out: no seam
+   between the parts, no ring and shadow around them, no corners. The grid,
+   its areas and the sub-900px guard are the page's own and untouched; the
+   rail is already between the stage and the panel. */
+[data-studio][data-theme="dark"]:root {
+  --seam: 0px;
+  --float: none;
+  --radius-float: 0px;
+  --rail-w: 52px;
+}
+[data-studio] body {
+  padding: 0;
+}
+/* The bar: 52px, the two header cards at its ends, a hairline under it. */
+[data-studio] body > header:not(.topbar) {
+  min-height: 52px;
+  gap: 12px;
+  padding: 0 12px 0 8px;
+  border-bottom: 1px solid var(--line);
+  box-sizing: border-box;
+}
+[data-studio] .head-card {
+  /* 51 and the bar's 1px hairline: the 52px bar on one line. */
+  height: 51px;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+[data-studio] .head-take {
+  min-width: 0;
+}
+[data-studio] .head-divider {
+  height: 18px;
+  background: var(--line-2);
+}
+[data-studio] #name {
+  font-size: 14.5px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+}
+[data-studio] .take-meta {
+  /* --ink-3, not --ink-4: it is a button now (Take info's), and a
+     control's label clears 4.5:1 where --ink-4 does not. */
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+[data-studio] button.take-meta {
+  border-radius: var(--r-chip);
+}
+[data-studio] button.take-meta:hover,
+[data-studio] button.take-meta[aria-expanded="true"] {
+  background: var(--fill-2);
+  color: var(--ink-2);
+}
+/* Take info: the floating surface every popover here takes. */
+[data-studio] #take-info {
+  border-radius: var(--r-frame);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-pop);
+}
+[data-studio] #take-info .info-group + .info-group {
+  border-top-color: var(--line);
+}
+[data-studio] #take-info .info-key,
+[data-studio] #take-info .info-label {
+  color: var(--ink-3);
+}
+[data-studio] #take-info .info-value.mono {
+  font-family: var(--mono);
+  color: var(--ink-2);
+}
+[data-studio] #take-info .output + .output {
+  border-top-color: var(--line);
+}
+[data-studio] #take-info .chip {
+  background: var(--fill-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--ink-3);
+}
+[data-studio] #take-info .chip-warn {
+  color: var(--warn);
+}
+[data-studio] #take-info button.chip:hover {
+  color: var(--ink);
+}
+[data-studio] #take-info .output-meta {
+  color: var(--ink-3);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+[data-studio] #status:has(> :not(:empty):not(.hidden)) {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+/* The preview on its well. */
+[data-studio] body > main {
+  padding: 20px;
+  background: var(--well);
+}
+[data-studio] #preview {
+  border-radius: var(--r-chip);
+}
+/* The rail and the inspector: full height, a hairline on their left. */
+[data-studio] #rail {
+  align-self: stretch;
+  padding: 10px 0;
+  background: var(--bg);
+  border-radius: 0;
+  box-shadow: none;
+  border-left: 1px solid var(--line);
+}
+[data-studio] body > aside {
+  background: var(--bg);
+  border-radius: 0;
+  box-shadow: none;
+  border-left: 1px solid var(--line);
+}
+[data-studio] .inspector {
+  padding: 16px 18px;
+}
+[data-studio] .inspector-close {
+  top: 9px;
+  right: 11px;
+}
+[data-studio] .inspector h2 {
+  font-size: 14.5px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+/* The timeline: a hairline above. */
+[data-studio] #dock {
+  background: var(--bg);
+  border-radius: 0;
+  box-shadow: none;
+  border-top: 1px solid var(--line);
+}
+/* Stacked (the page's own two breakpoints): the inspector drops under the
+   dock, so its hairline moves to its top. */
+@media (max-width: 951px) {
+  [data-studio] body:not([data-panel="closed"]) > aside {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+/* ───────── The timeline: lanes, playhead, transport (spec §5.3, §5.4) ──── */
+
+/* The lanes keep their hues: "between 1 and 2" (the author), today's hues
+   on translucent fills. Flat: the ring in the hue each block wore was
+   removed on 2026-10-19 (the author); a block's only rings now say
+   something, a clamped zoom's warning and a selected block's ink. */
+[data-studio][data-theme="dark"]:root {
+  --lane-clip: rgba(130, 185, 70, 0.3);
+  --lane-clip-ink: var(--ink);
+  --lane-clip-glyph: #9ccc5c;
+  --lane-clip-pointer: #c5e59a;
+  --lane-zoom: rgba(150, 125, 235, 0.3);
+  --lane-zoom-ink: #f1edff;
+  --lane-zoom-glyph: #b59fff;
+  --lane-mask: rgba(225, 110, 95, 0.3);
+  --lane-mask-ink: #ffe6e1;
+  --lane-mask-glyph: #fb8e7c;
+  /* Under the pointer: the same hues, half again as strong, so a block
+     brightens without changing whose it is. */
+  --lane-clip-hover: rgba(130, 185, 70, 0.45);
+  --lane-zoom-hover: rgba(150, 125, 235, 0.45);
+  --lane-mask-hover: rgba(225, 110, 95, 0.45);
+  --track: var(--fill);
+  --playhead: var(--ink);
+}
+[data-studio] .lane[data-lane="clip"] {
+  --clip-fill-hover: var(--lane-clip-hover);
+}
+[data-studio] .lane[data-lane="zoom"] {
+  --clip-fill-hover: var(--lane-zoom-hover);
+}
+[data-studio] .lane[data-lane="mask"] {
+  --clip-fill-hover: var(--lane-mask-hover);
+}
+[data-studio] .seg {
+  border-radius: var(--r-chip);
+  box-shadow: none;
+  font-weight: 500;
+}
+/* Hover, and a block held in a drag, brighten the fill, at
+   once, as an NLE's timeline does: no transition, which would also fade a
+   zoom's warning ring in as it clamps. That ring (below) still wins.
+   The Clip block's steps and trim handles sit beside it in the track, not
+   inside it, so the pointer on one of them is off the block: the track
+   says it instead, and the block stays lit (the author, 2026-10-19). */
+[data-studio] .seg:not([data-pieces]):is(:hover, [data-dragging]),
+[data-studio]
+  .track:has(> .tick:hover, > .handle:hover)
+  > .seg[data-clip-block]:not([data-pieces]) {
+  background-color: var(--clip-fill-hover, var(--clip-fill));
+}
+/* The zoom's scale, the ruler and the clock in the page's face, tabular
+   so their digits keep their places (the author, 2026-10-22; mono until
+   then). */
+[data-studio] .seg[data-kind="zoom"] {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+/* Selection: a 1.5px ink ring. */
+[data-studio] .seg[data-selected]::before {
+  border-width: 1.5px;
+  border-radius: var(--r-chip);
+}
+[data-studio] .track {
+  border-radius: var(--r-chip);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+[data-studio] .lane-head {
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+/* A bare icon per step instead of a shape (the author, 2026-10-19: the
+   shapes had to be clicked to be read). A 24px press area, the icon 16px on
+   a halo of the lane's fill; the tones are the shapes' (inputs in ink, the
+   pointer's moves in the lane's tint, a wait quietest). */
+[data-studio] .lane[data-lane="clip"] .tick[data-verb] {
+  --tick-halo: #2f3d22;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 calc(-12px + var(--tick-stack, 0) * 14px);
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  color: var(--tick-input);
+}
+[data-studio] .lane[data-lane="clip"] .tick[data-verb] svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  filter: drop-shadow(0 0 1px var(--tick-halo))
+    drop-shadow(0 0 2px var(--tick-halo));
+}
+[data-studio]
+  .lane[data-lane="clip"]
+  .tick:is([data-verb="moveTo"], [data-verb="scrollTo"]) {
+  color: var(--tick-pointer);
+}
+[data-studio] .lane[data-lane="clip"] .tick[data-verb="waitFor"] {
+  color: var(--tick-wait);
+}
+[data-studio] .lane[data-lane="clip"] .tick[data-verb][data-cut] {
+  opacity: 0.45;
+}
+[data-studio] .lane[data-lane="clip"] .tick[data-verb][data-flag] {
+  color: var(--warn);
+}
+[data-studio] .lane[data-lane="clip"] .tick[data-verb]:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+/* Selected is a soft white tile behind the icon, as Linear marks a
+   selected row; the icon goes full ink, off its halo. After the hover tile
+   (0.08), so a selected step keeps its stronger one under the pointer. */
+[data-studio] .lane[data-lane="clip"] .tick[data-verb][data-selected] {
+  outline: none;
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--ink);
+}
+[data-studio] .lane[data-lane="clip"] .tick[data-verb][data-selected] svg {
+  filter: none;
+}
+[data-studio] .ruler .tick {
+  color: var(--ink-4);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+[data-studio] #toolbar-clock .stage-clock {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+/* The playhead: a white 1px line with a dark edge so it reads over a lane,
+   no glow, and an 11×14 cap at the ruler (its 20px grab box is unchanged). */
+[data-studio] .playhead {
+  width: 1px;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.5);
+}
+[data-studio] .grab::before {
+  top: 3px;
+  width: 11px;
+  height: 14px;
+  border-radius: 3px;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.5);
+}
+
+/* ───────── From the final review ───────── */
+
+/* A destructive answer: the danger ghost (spec §3.6), not the ink one the
+   generic ghost rule above would make it. */
+[data-studio] .confirm-actions .confirm-go-danger {
+  background: var(--fill);
+  color: var(--danger);
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.4);
+}
+[data-studio] .confirm-actions .confirm-go-danger:not(:disabled):hover {
+  background: rgba(248, 113, 113, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.6);
+}
+/* A notice's level is on its glyph: `notice notice-line notice-error` sit
+   on one element, so the glyph is that element's own child. */
+[data-studio] .notice-error.notice-line > svg {
+  color: var(--danger);
+}
+[data-studio] .notice-warn.notice-line > svg {
+  color: var(--warn);
+}
+/* A clamped zoom keeps its warning ring over the lane's own. */
+[data-studio] .seg[data-clamped="true"] {
+  box-shadow: inset 0 0 0 2px var(--warn);
+}
+/* A count on the current or hovered row: --ink-3, which clears 4.5:1 on the
+   row's fill where --ink-4 does not (spec §3.1). */
+[data-studio]
+  :is(.side-item, .section-nav a):is([aria-current="true"], :hover)
+  :is(.side-count, .nav-count) {
+  color: var(--ink-3);
+}
+/* Fields (spec §3.6): 32px, 8px corners, the system's ring. Not the three
+   title fields edited in place (the editor's name, a kit's, a card's). */
+[data-studio]
+input:is([type="text"], [type="search"], [type="number"], :not([type])):not(
+  #name
+):not(.kit-name):not([data-name]),
+[data-studio] select {
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-field);
+  background: var(--bg-1);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--ink);
+  font-size: 13px;
+}
+[data-studio] .branding-controls input[type="color"] {
+  border-color: var(--line-2);
+  border-radius: var(--r-chip);
+}
+/* Keyboard shortcuts, in the inspector: its field on the page's own ground
+   with a hairline; its keys are the system's keys, a step up with a hairline
+   ring. */
+[data-studio] .shortcuts-search {
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+[data-studio] .shortcuts-row:hover {
+  background: var(--fill-2);
+}
+[data-studio] .shortcuts-group {
+  color: var(--ink-3);
+}
+[data-studio] .keycap {
+  border-radius: 5px;
+  background: var(--bg-3);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-weight: 400;
+}
+
+[data-studio] #shortcuts-open[aria-pressed="true"] {
+  background: var(--fill-2);
+  color: var(--ink);
+}
+/* The tooltip floats: the pop surface and its ring. */
+[data-studio] .tooltip {
+  border-radius: 8px;
+  background: var(--bg-3);
+  box-shadow: var(--shadow-pop);
+  font-size: 12.5px;
+}
+/* ⌘ ⇧ ⌫ and the arrows: the mono's Latin subset has none of them. */
+[data-studio] .keycap[data-symbol] {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+}
+
+/* A notice's action is the small pill (28px), on its title's row. */
+[data-studio] .notice .btn:not(.btn-icon) {
+  min-height: 28px;
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+
+/* The figure's svg, last: every other svg rule here is less specific, and
+   biome's noDescendingSpecificity holds them in ascending order. */
+[data-studio] .logomark .figure svg {
+  width: auto;
+  height: 20px;
+  fill: currentColor;
+}

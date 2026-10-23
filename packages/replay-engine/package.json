@@ -1,0 +1,35 @@
+{
+  "name": "@demoman/replay-engine",
+  "version": "1.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./page": {
+      "types": "./dist/page.d.ts",
+      "default": "./dist/page.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@demoman/compositor": "workspace:*",
+    "@demoman/resolver": "workspace:*",
+    "@demoman/scene-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitest/browser": "3.2.7",
+    "playwright": "^1.62.1",
+    "typescript": "^5.7.0",
+    "vitest": "3.2.7"
+  }
+}

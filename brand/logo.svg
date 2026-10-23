@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <title>Demoman</title>
+  <rect width="100" height="100" rx="22" fill="#0a0a0a"/>
+  <rect x="0.25" y="0.25" width="99.5" height="99.5" rx="21.75" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="0.5"/>
+  <g fill="#f4f4f5" transform="translate(-31.979 -21.898) scale(0.267)"><g transform="translate(5.54,56.31) scale(0.96895)"><path d="M 287.20,151.99 L 345.34,125.16 A 16,16 0 0 0 345.34,96.10 L 287.20,69.27 A 16,16 0 0 0 264.50,83.80 L 264.50,137.46 A 16,16 0 0 0 287.20,151.99 Z"/></g><rect x="264" y="224" width="83" height="83" rx="16.5"/><rect x="264" y="326" width="33" height="92.5" rx="16.5"/><rect x="314" y="326" width="33" height="92.5" rx="16.5"/></g>
+</svg>

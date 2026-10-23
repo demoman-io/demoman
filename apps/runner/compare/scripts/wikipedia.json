@@ -1,0 +1,18 @@
+{
+  "scriptVersion": 1,
+  "name": "Wikipedia: search for Ada Lovelace",
+  "target": "https://en.wikipedia.org/wiki/Main_Page?useskin=monobook",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "stableId": "searchInput" } },
+    {
+      "do": "type",
+      "into": { "stableId": "searchInput" },
+      "text": "Ada Lovelace"
+    },
+    { "do": "click", "on": { "stableId": "searchButton" } },
+    { "do": "waitForLoad" },
+    { "do": "scrollTo", "on": { "role": "heading", "name": "References" } },
+    { "do": "pause", "ms": 800 }
+  ]
+}

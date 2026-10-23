@@ -1,0 +1,84 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Northwind — Invoices</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: #111827; background: #f6f7f9; }
+  header { height: 72px; background: #1f2937; display: flex; align-items: center; gap: 20px; padding: 0 24px; color: #e5e7eb; }
+  /* Fixed width, deliberately, and not auto: #search is the next item in
+     this flex row, so an auto-width brand makes the search input's x the
+     rendered width of the word "Northwind" — a property of whatever face
+     the platform resolves `system-ui` to, not of this stylesheet. That
+     word measures 73.4px under macOS's SF Pro and 84.4px on the ubuntu CI
+     runner, which moved a-search 11.4px and failed the fixture guard's 8px
+     on CI alone (2026-09-10). 120px clears both with room, so every anchor
+     rect fixture-scene.ts records is arithmetic on CSS lengths on every
+     machine. apps/runner's fixture guard holds this. */
+  header .brand { font-weight: 650; letter-spacing: .2px; width: 120px; flex: none; }
+  #search { width: 320px; height: 36px; border: 0; border-radius: 8px; padding: 0 12px; font: inherit; }
+  .shell { display: flex; height: calc(100vh - 72px); }
+  nav { width: 220px; background: #e9ebef; padding: 20px 12px; }
+  nav a { display: block; padding: 8px 12px; border-radius: 6px; color: #374151; text-decoration: none; }
+  nav a.on { background: #fff; font-weight: 600; }
+  main { flex: 1; padding: 24px 28px; overflow: auto; position: relative; }
+  h1 { font-size: 22px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; }
+  th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: #6b7280; padding: 12px 16px; border-bottom: 1px solid #e5e7eb; }
+  td { padding: 16px; border-bottom: 1px solid #f1f2f4; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  .amount { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; background: #e0e7ff; color: #3730a3; }
+  #checkout-btn { position: fixed; right: 140px; bottom: 136px; height: 44px; width: 160px; border: 0; border-radius: 8px; background: #3b5bdb; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  #panel { position: fixed; top: 72px; right: 0; bottom: 0; width: 360px; background: #111827; color: #e5e7eb; padding: 24px; transform: translateX(100%); transition: transform 800ms cubic-bezier(.22,.61,.36,1); }
+  #panel.open { transform: translateX(0); }
+  #panel h2 { font-size: 16px; margin-bottom: 12px; }
+  #panel p { color: #9ca3af; margin-bottom: 8px; }
+</style>
+<header>
+  <span class="brand">Northwind</span>
+  <input id="search" data-testid="search" placeholder="Search invoices" />
+</header>
+<div class="shell">
+  <nav>
+    <a href="#invoices" class="on">Invoices</a><a href="#customers">Customers</a><a href="#products">Products</a>
+    <a href="#shipments">Shipments</a><a href="#reports" data-testid="nav-reports">Reports</a><a href="#settings">Settings</a>
+  </nav>
+  <main>
+    <h1>Invoices</h1>
+    <table>
+      <tr><th>Invoice</th><th>Customer</th><th>Status</th><th class="amount">Amount</th></tr>
+      <tbody id="rows"></tbody>
+    </table>
+    <button type="button" id="checkout-btn" data-testid="checkout-btn">Place order</button>
+    <aside id="panel"><h2>Invoice 8891</h2>
+      <p>Northwind Traders</p><p>Due 14 September 2026</p><p>Net 30 · PO 44-1180</p></aside>
+  </main>
+</div>
+<script>
+  const customers = ["Northwind Traders","Acme Supply Co","Blue Harbor Ltd","Vertex Foods",
+    "Kestrel Logistics","Pinemark Retail","Ordell Systems","Halcyon Grocers","Tidewater Farms","Junction Labs"];
+  document.getElementById("rows").innerHTML = customers.map((name, i) => `
+    <tr data-testid="row-${8891 + i}">
+      <td>INV-${8891 + i}</td><td>${name}</td>
+      <td><span class="pill">${i % 3 === 0 ? "Paid" : "Open"}</span></td>
+      <td class="amount">$${(1200 + i * 317).toLocaleString()}.00</td>
+    </tr>`).join("");
+  // The panel is the only in-app motion: an 800ms transition the retimer
+  // must pass through at rate 1.0 rather than compressing as dead air.
+  document.getElementById("checkout-btn").addEventListener("click", () => {
+    document.getElementById("panel").classList.add("open");
+  });
+  // A second click, in a different region of the page and with no animation
+  // of its own. It exists so the fixture has two consecutive camera beats:
+  // with one click the auto-camera has nothing to return FROM, and
+  // return-to-neutral is unobservable in a harvested render.
+  for (const link of document.querySelectorAll("nav a")) {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      for (const other of document.querySelectorAll("nav a")) {
+        other.classList.remove("on");
+      }
+      link.classList.add("on");
+    });
+  }
+</script>

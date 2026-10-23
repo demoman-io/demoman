@@ -1,0 +1,29 @@
+{
+  "scriptVersion": 1,
+  "name": "Nylon — New Invoice",
+  "target": "{sample}/index.html",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "stableId": "new-invoice" } },
+    { "do": "waitFor", "on": { "stableId": "customer" }, "until": "visible" },
+    {
+      "do": "type",
+      "into": { "stableId": "customer" },
+      "text": "Hollis & Grant"
+    },
+    {
+      "do": "type",
+      "into": { "stableId": "email" },
+      "text": "ap@hollisgrant.example"
+    },
+    { "do": "type", "into": { "stableId": "amount" }, "text": "4800" },
+    { "do": "click", "on": { "stableId": "create" } },
+    {
+      "do": "waitFor",
+      "on": { "text": "Invoice INV-1049 created" },
+      "until": "visible"
+    },
+    { "do": "scrollTo", "on": { "text": "Nov 8, 2026" } },
+    { "do": "pause", "ms": 800 }
+  ]
+}

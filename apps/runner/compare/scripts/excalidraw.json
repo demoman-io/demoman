@@ -1,0 +1,25 @@
+{
+  "scriptVersion": 6,
+  "name": "Excalidraw — Draw a rectangle",
+  "target": "http://localhost:4302/",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "stableId": "toolbar-rectangle" } },
+    {
+      "do": "drag",
+      "from": {
+        "on": { "text": "Drawing canvas" },
+        "at": { "x": 0.35, "y": 0.35 }
+      },
+      "to": {
+        "on": { "text": "Drawing canvas" },
+        "at": { "x": 0.55, "y": 0.6 }
+      }
+    },
+    { "do": "click", "on": { "stableId": "toolbar-diamond" } },
+    { "do": "click", "on": { "stableId": "toolbar-arrow" } },
+    { "do": "click", "on": { "stableId": "toolbar-freedraw" } },
+    { "do": "click", "on": { "role": "button", "name": "Library" } },
+    { "do": "pause", "ms": 1000 }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@demoman/cli",
+  "version": "0.7.1",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:package": "vitest run --config vitest.package.config.ts",
+    "probe": "node probe/server.mjs",
+    "probe:start": "node probe/start-time.mjs"
+  },
+  "dependencies": {
+    "@demoman/mcp": "workspace:*",
+    "@demoman/runner": "workspace:*",
+    "@demoman/studio": "workspace:*",
+    "playwright": "^1.62.1",
+    "smol-toml": "1.9.0"
+  },
+  "devDependencies": {
+    "@demoman/replay-engine": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@types/node": "^26.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0",
+    "vitest": "3.2.7"
+  }
+}

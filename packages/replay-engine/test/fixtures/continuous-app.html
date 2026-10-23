@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>continuous</title>
+<style>
+  body { margin: 0; font: 16px sans-serif; background: #fff; }
+  /* A 200px blue square that fades in and out once a second from the moment
+     the page loads, until #stop-btn stops it: the stand-in for a hero video.
+     Opacity, on the compositor thread, like video decode — a main-thread
+     animation (background-color) stopped advancing in the frames when the
+     full suite starved the main thread, while the screencast kept shipping
+     frames of the unchanged page (2026-10-03). */
+  #pulse { position: absolute; left: 40px; top: 40px; width: 200px; height: 200px; background: rgb(0, 0, 255); will-change: opacity; }
+  body.pulsing #pulse { animation: pulse 1s linear infinite alternate; }
+  @keyframes pulse { from { opacity: 1; } to { opacity: 0.1; } }
+  button { position: absolute; left: 300px; width: 120px; height: 40px; }
+  #start-btn { top: 60px; }
+  #stop-btn { top: 160px; }
+</style>
+<body class="pulsing">
+<div id="pulse"></div>
+<button type="button" id="start-btn" onclick="document.body.classList.add('pulsing')">start</button>
+<button type="button" id="stop-btn" onclick="document.body.classList.remove('pulsing')">stop</button>
+</body>

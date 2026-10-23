@@ -1,0 +1,76 @@
+---
+title: "Changelog"
+description: "What changed in each release."
+---
+
+<Update label="0.7.1" description="Pull requests default to Ask, splits, and drag">
+  - The pull-request setting now defaults to Ask: when a pull request changes something you can see, your agent offers to record it before attaching the video. Under Ask, a pull request without a video gets nothing added. Attach still adds a `No demo:` line saying why. Choose Off, Ask or Attach in the studio, under Settings → Pull requests.
+  - The studio edits by splitting. Press ⌘B or click the scissors to cut the clip into pieces, and delete a piece: the video closes up behind it. Drag a piece's inner edge to trim frames, or to bring back frames removed beside it. A dot marks each join; click it to see what was removed and restore it.
+  - Retext, text overlays and step deletion are gone from the studio. A take's existing cuts open as removed pieces; its replaced text and overlays are dropped, and the studio names what it dropped.
+  - Run reports say video and rerecord. The `film` and `refilm` keys are now `video` and `rerecord`, and the reasons `noRunFilm`, `notInRunFilm`, `notInRecordingFilm`, `notInFilm`, `nothingToRefilm` and `editedSinceFilmed` are now `noRunVideo`, `notInRunVideo`, `notInRecordingVideo`, `notInVideo`, `nothingToRerecord` and `editedSinceRecorded`. A script or tool that reads the old names needs the new ones.
+  - A script can drag: a card across a board, a shape on a canvas. The studio shows drag steps.
+  - While zoomed in, the camera follows the pointer, and a run of clicks plays straight through instead of stopping at each one.
+  - Targets no longer use ids that change on every page load, so a copied target keeps working on the next run.
+  - A saved sign-in loads even when one of the site's databases cannot be restored, and a run on one localhost port no longer writes its storage into another port's sign-in.
+</Update>
+
+<Update label="0.7.0" description="Out of release candidates">
+  - The first release after the 0.2.0 release candidates. Everything below ships in it.
+  - Demoman records in the background by default, with no browser window opening. The video is the same as the one a visible window would record. Pass `--headed` to watch it.
+  - A saved export ends with links: Open in studio, Reveal in Finder and Copy video. Its sentence keeps only what you can act on.
+  - `npx demoman setup` no longer prints a warning from Playwright while it downloads Chromium.
+  - The Chrome extension is retired. Demoman is the CLI and its studio.
+</Update>
+
+<Update label="0.2.0-rc.9" description="The camera lets each step finish">
+  - The camera no longer sets off toward the next click while the step before it is still playing out: typing, a panel opening, a page loading or a scroll. Demoman waits a beat instead, so a video can run a little longer, never hurried.
+  - Motion plays at the moment it happened on the page. Before, the end of each stretch of motion played up to a quarter of a second late.
+  - A run's report says how much time Demoman added before a step, so a longer video is explained.
+</Update>
+
+<Update label="0.2.0-rc.8" description="Demoman keeps itself up to date">
+  - Demoman now updates itself in Claude Code, Codex and Cursor, in the background. Run `npx demoman setup` once to turn it on.
+  - The studio has a new look, with a shortcuts panel, step icons, and each take's details and export history in its header.
+  - Typing plays back one key at a time, at a human pace, after a visible click on the field.
+  - GIFs no longer leave faint ghosts of earlier frames behind moving content.
+  - In a checkout that is not on GitHub, your agent hands you the video to attach yourself.
+</Update>
+
+<Update label="0.2.0-rc.7" description="Videos sized for sharing, and pull requests">
+  - Exports default to a size that fits where videos get shared: 1920 pixels on the long side, or 720×1280 at 9:16, at 30 fps.
+  - Ask for the full-quality file, or a size limit; Demoman says what it lowered to meet it.
+  - Your agent can attach the video to a pull request, or leave a note saying why there is none. Choose Off, Ask or Attach in the studio.
+</Update>
+
+<Update label="0.2.0-rc.6" description="Codex and Cursor">
+  - `npx demoman setup` connects Codex and Cursor as well as Claude Code, and pre-approves Demoman's tools in each.
+  - The README has paste-in blocks for OpenCode, Pi, Kimi Code, Hermes and DeepSeek.
+</Update>
+
+<Update label="0.2.0-rc.5" description="Your library and brand kits">
+  - The studio lists every take, with rename and delete.
+  - Brand kits: a logo, colors and background that your agent can name when it records.
+</Update>
+
+<Update label="0.2.0-rc.4" description="The studio">
+  - Your agent can open a take in the studio. Trim, cut, mask, retext, set the cursor, background, padding and zoom.
+  - Export from the studio, in 16:9 or 9:16.
+</Update>
+
+<Update label="0.2.0-rc.3" description="Secrets belong to a site">
+  - Export a take as a GIF, sized to fit 10 MB, or as stills.
+  - A secret in the environment must name the site it may be typed on, as `DEMOMAN_SECRET_<NAME>_ORIGIN`. Demoman refuses to type it anywhere else.
+</Update>
+
+<Update label="0.2.0-rc.2" description="Apps behind a login">
+  - `npx demoman signin <url>` saves your sign-in for a site, so your agent can record behind it.
+  - Your agent can set up a demo account and sign in as it. Secrets are read from the environment or a git-ignored file, and swept out of the files Demoman writes, its reports and its logs.
+  - Edited takes can be recorded again.
+  - An expired sign-in is detected, and a demo account signs in again by itself.
+</Update>
+
+<Update label="0.2.0-rc.1" description="First public release">
+  - `npx demoman setup` installs Demoman for Claude Code.
+  - Your agent records a flow in a web app and hands you an MP4.
+  - demoman.io/sample is a sample app to try it on.
+</Update>

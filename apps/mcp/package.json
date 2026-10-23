@@ -1,0 +1,52 @@
+{
+  "name": "@demoman/mcp",
+  "version": "0.1.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "demoman-mcp": "./dist/index.js"
+  },
+  "exports": {
+    "./serve-cli": {
+      "types": "./dist/serve-cli.d.ts",
+      "default": "./dist/serve-cli.js"
+    },
+    "./update-check": {
+      "types": "./dist/update-check.d.ts",
+      "default": "./dist/update-check.js"
+    },
+    "./stdout-guard": {
+      "types": "./dist/stdout-guard.d.ts",
+      "default": "./dist/stdout-guard.js"
+    },
+    "./annotations": {
+      "types": "./dist/annotations.d.ts",
+      "default": "./dist/annotations.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "recipe.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@demoman/agent-bridge": "workspace:*",
+    "@demoman/runner": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@demoman/run-core": "workspace:*",
+    "@demoman/scene-schema": "workspace:*",
+    "@types/node": "^26.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "3.2.7"
+  }
+}

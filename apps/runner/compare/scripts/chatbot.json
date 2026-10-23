@@ -1,0 +1,22 @@
+{
+  "scriptVersion": 1,
+  "name": "Chatbot — Ask about the weather",
+  "target": "http://localhost:4303/",
+  "steps": [
+    { "do": "waitForLoad" },
+    {
+      "do": "type",
+      "into": { "stableId": "multimodal-input" },
+      "text": "What is the weather in San Francisco?"
+    },
+    { "do": "click", "on": { "stableId": "send-button" } },
+    {
+      "do": "waitFor",
+      "on": {
+        "text": "The weather in San Francisco is sunny and 72°F. Expect a light breeze off the bay this afternoon, with fog rolling back in after sunset and lows near 56°F. It is a good day for a walk along the Embarcadero or a picnic in Dolores Park, but bring a jacket for the evening."
+      },
+      "until": "visible"
+    },
+    { "do": "pause", "ms": 1200 }
+  ]
+}

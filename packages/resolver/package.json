@@ -1,0 +1,25 @@
+{
+  "name": "@demoman/resolver",
+  "version": "1.1.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@demoman/scene-schema": "workspace:*",
+    "dom-accessibility-api": "^0.7.1"
+  },
+  "devDependencies": {
+    "@vitest/browser": "3.2.7",
+    "jsdom": "^30.0.1",
+    "playwright": "^1.62.1",
+    "typescript": "^5.7.0",
+    "vitest": "3.2.7"
+  }
+}

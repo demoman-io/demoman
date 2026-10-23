@@ -1,0 +1,126 @@
+---
+title: "Agents"
+description: "Setup connects Claude Code, Codex and Cursor. Any other MCP agent takes two steps."
+---
+
+## Claude Code, Codex and Cursor
+
+```bash
+npx demoman setup
+```
+
+Setup connects every one of these it finds on your Mac:
+
+| Agent | Setup adds |
+| --- | --- |
+| Claude Code | the Demoman plugin |
+| Codex | the Demoman plugin |
+| Cursor | an entry in `~/.cursor/mcp.json`, and the `record-demo` skill |
+
+Demoman's tools then run without asking, and setup says so for each agent.
+Restart the agent before your first demo.
+
+Demoman then updates itself in each agent. For Cursor, run setup again after
+removing the Node that ran it: Cursor's entry names that Node's `npx`.
+
+## Any other agent
+
+<Steps>
+  <Step title="Add the MCP server">
+    Add Demoman to the agent's MCP servers, in the form its tab below shows.
+  </Step>
+  <Step title="Add the record-demo skill">
+    The skill tells the agent to read Demoman's recipe first. Fetch it into
+    the agent's skills folder, named in its tab:
+
+    ```bash
+    curl -fsSL --create-dirs -o <skills folder>/record-demo/SKILL.md \
+      https://raw.githubusercontent.com/demoman-io/plugins/main/skills/record-demo/SKILL.md
+    ```
+  </Step>
+</Steps>
+
+Then restart the agent. OpenCode has made a video this way; the others are
+expected to work, not yet run.
+
+<Tabs>
+  <Tab title="OpenCode">
+    In `~/.config/opencode/opencode.json`:
+
+    ```json
+    {
+      "mcp": {
+        "servers": {
+          "demoman": {
+            "type": "local",
+            "command": ["npx", "-y", "demoman@latest", "mcp"]
+          }
+        }
+      }
+    }
+    ```
+
+    Skills folder: `~/.config/opencode/skills`
+  </Tab>
+  <Tab title="Pi">
+    ```bash
+    pi mcp add demoman -- npx -y demoman@latest mcp
+    ```
+
+    Skills folder: `~/.pi/agent/skills`
+  </Tab>
+  <Tab title="Kimi Code">
+    In `~/.kimi-code/mcp.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "demoman": {
+          "command": "npx",
+          "args": ["-y", "demoman@latest", "mcp"]
+        }
+      }
+    }
+    ```
+
+    Kimi Code asks before each call unless `~/.kimi-code/config.toml` allows
+    them:
+
+    ```toml
+    [[permission.rules]]
+    decision = "allow"
+    pattern = "mcp__demoman__*"
+    ```
+
+    Skills folder: `~/.kimi-code/skills`
+  </Tab>
+  <Tab title="Hermes">
+    With Hermes running on this Mac:
+
+    ```bash
+    hermes mcp add demoman --command npx --args -y demoman@latest mcp
+    ```
+
+    Skills folder: `~/.hermes/skills`
+  </Tab>
+  <Tab title="DeepSeek dsh">
+    In `~/.dsh/profiles/web/cordis.patch.yml`, a `@deepseek-ai/dsh-mcp-client`
+    row with `transport: stdio`, `command: npx`,
+    `args: ['-y', 'demoman@latest', 'mcp']`, and `cwd` set to your
+    project.
+
+    Skills folder: `~/.dsh/skills`
+  </Tab>
+  <Tab title="Other">
+    Give the agent this stdio server:
+
+    ```json
+    {
+      "command": "npx",
+      "args": ["-y", "demoman@latest", "mcp"]
+    }
+    ```
+
+    Then fetch the skill into wherever the agent reads skills from.
+  </Tab>
+</Tabs>

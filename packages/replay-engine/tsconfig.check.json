@@ -1,0 +1,6 @@
+{
+  // Project B gave this package a test lane; see vitest.config.ts.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "declaration": false, "rootDir": "." },
+  "include": ["src", "test"]
+}

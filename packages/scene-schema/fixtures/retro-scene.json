@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 12,
+  "meta": {
+    "id": "scene-retro-001",
+    "name": "Settings tour (retro-keep)",
+    "createdAt": "2026-08-25T05:20:00.000Z",
+    "toolchain": {
+      "resolverVersion": "0.1.0",
+      "compositorVersion": null,
+      "captureVersion": "1.0.0"
+    },
+    "capture": {
+      "originUrl": "https://app.example.com/settings",
+      "originClass": "published",
+      "buildSha": null,
+      "buildShaSource": null,
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "dpr": 2,
+      "mode": "retro"
+    }
+  },
+  "anchors": [
+    {
+      "id": "a-api-key-field",
+      "fingerprint": {
+        "stableId": null,
+        "role": "textbox",
+        "accessibleName": "API key",
+        "textContent": null,
+        "treePath": "body:1/main:1/form:1/input:3",
+        "boundingRect": {
+          "x": 300,
+          "y": 340,
+          "width": 420,
+          "height": 36
+        },
+        "imagePatchRef": null,
+        "dataKey": null
+      },
+      "resolution": {
+        "url": "https://app.example.com/settings",
+        "actionIndex": 1,
+        "entryState": true,
+        "strategy": "roleName",
+        "failureReason": null,
+        "candidates": 1
+      }
+    },
+    {
+      "id": "a-save",
+      "fingerprint": {
+        "stableId": "settings-save",
+        "role": "button",
+        "accessibleName": "Save",
+        "textContent": "Save",
+        "treePath": "body:1/main:1/form:1/button:1",
+        "boundingRect": {
+          "x": 300,
+          "y": 420,
+          "width": 100,
+          "height": 40
+        },
+        "imagePatchRef": null,
+        "dataKey": null
+      },
+      "resolution": {
+        "url": "https://app.example.com/settings",
+        "actionIndex": 2,
+        "entryState": true,
+        "strategy": "stableId",
+        "failureReason": null,
+        "candidates": 1
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "act-1",
+      "kind": "moveTo",
+      "anchorId": "a-api-key-field",
+      "timestamp": 300,
+      "marker": "m-1"
+    },
+    {
+      "id": "act-2",
+      "kind": "type",
+      "anchorId": "a-api-key-field",
+      "timestamp": 1100,
+      "marker": "m-2",
+      "text": null,
+      "redacted": true
+    },
+    {
+      "id": "act-3",
+      "kind": "moveTo",
+      "anchorId": "a-save",
+      "timestamp": 2000,
+      "marker": "m-3"
+    }
+  ],
+  "camera": [],
+  "edits": {
+    "masks": [],
+    "holds": [],
+    "gaps": [],
+    "splits": [],
+    "removed": []
+  },
+  "sideChannels": {
+    "network": [
+      {
+        "id": "net-1",
+        "method": "GET",
+        "url": "https://app.example.com/api/settings",
+        "classification": "read",
+        "timestamp": 250,
+        "reclassified": false
+      }
+    ],
+    "consoleExcerpt": [],
+    "urlTrace": [
+      {
+        "url": "https://app.example.com/settings",
+        "timestamp": 0
+      }
+    ],
+    "uncoveredOrigins": []
+  },
+  "flags": {
+    "mutating": false,
+    "hoverSensitive": false
+  },
+  "branding": {
+    "background": {
+      "kind": "gradient",
+      "from": "#eceff2",
+      "to": "#ced1d6",
+      "angle": 150
+    },
+    "logo": null,
+    "padding": 0.08
+  },
+  "cursor": {
+    "hidden": false,
+    "style": "light",
+    "scale": 1,
+    "motionBlur": 1,
+    "hideWhenIdle": false
+  },
+  "canvas": {
+    "aspect": "16:9"
+  }
+}

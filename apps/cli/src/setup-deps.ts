@@ -1,0 +1,247 @@
+// apps/cli/src/setup-deps.ts — the real commands behind setup.ts.
+import { type SpawnSyncReturns, spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { createRequire } from "node:module";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
+import { fullChromiumPath } from "@demoman/runner/package";
+import type { Ran, SetupDeps } from "./setup.js";
+
+/** How long a captured command (claude's git clone of the marketplace, the
+ *  warm-start npx download) may go without finishing. Past it, setup says
+ *  which command stalled instead of hanging with no line. */
+export const CAPTURED_TIMEOUT_MS = 180_000;
+
+function ran(
+  command: string,
+  r: SpawnSyncReturns<string | Buffer>,
+  timeoutMs?: number,
+): Ran {
+  const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
+  const error =
+    code === "ETIMEDOUT" && timeoutMs !== undefined
+      ? `\`${command}\` had not finished after ${timeoutMs / 1000} s and was stopped`
+      : r.error?.message;
+  return {
+    status: r.status,
+    signal: r.signal,
+    stdout: typeof r.stdout === "string" ? r.stdout : "",
+    stderr: typeof r.stderr === "string" ? r.stderr : "",
+    ...(code === "ENOENT" ? { notFound: true } : {}),
+    ...(error !== undefined && code !== "ENOENT" ? { error } : {}),
+  };
+}
+
+/** A command whose output setup reads, stopped after timeoutMs. */
+export function runCaptured(
+  command: string,
+  args: string[],
+  timeoutMs = CAPTURED_TIMEOUT_MS,
+): Ran {
+  return ran(
+    command,
+    spawnSync(command, args, { encoding: "utf8", timeout: timeoutMs }),
+    timeoutMs,
+  );
+}
+
+/** The CLI of the playwright-core this package's own Playwright loads, so
+ *  the download is the Chromium revision that Playwright looks for. */
+function playwrightCli(): string {
+  const pw = createRequire(import.meta.url).resolve("playwright/package.json");
+  const core = createRequire(pw).resolve("playwright-core/package.json");
+  const cli = join(dirname(core), "cli.js");
+  // Checked now, not at the download: a wrong path would otherwise surface
+  // only on a machine that has no Chromium yet.
+  if (!existsSync(cli)) {
+    throw new Error(`this install's Playwright has no CLI at ${cli}`);
+  }
+  return cli;
+}
+
+/** The download, run as `playwright`. Playwright warns "you are running
+ *  'npx playwright install' without first installing your project's
+ *  dependencies" whenever the script path holds `_npx`, which it always
+ *  does under `npx demoman setup` — whose dependencies are installed. */
+export function setupChromiumDownload(cli: string): {
+  command: string;
+  args: string[];
+} {
+  return {
+    command: process.execPath,
+    args: [
+      "-e",
+      "const cli = process.argv[1]; process.argv[1] = 'playwright'; require(cli)",
+      cli,
+      "install",
+      "chromium",
+      "--no-shell",
+    ],
+  };
+}
+
+const failure = (path: string, error: unknown): string =>
+  `${path}: ${error instanceof Error ? error.message : String(error)}`;
+
+export function readTextFile(
+  path: string,
+): { text: string } | { missing: true } | { error: string } {
+  try {
+    return { text: readFileSync(path, "utf8") };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { missing: true };
+    }
+    return { error: failure(path, error) };
+  }
+}
+
+/** Writes beside the target and renames over it, so a cut-short write never
+ *  leaves half a config. Through a symlink (dotfiles managers link these
+ *  files), keeping the file's mode; a new file is 0600, since agents' config
+ *  files can hold tokens. */
+export function writeTextFile(
+  path: string,
+  text: string,
+): { ok: true } | { error: string } {
+  let temp: string | null = null;
+  try {
+    const target = linkTarget(path);
+    const mode = existsSync(target) ? statSync(target).mode & 0o777 : 0o600;
+    mkdirSync(dirname(target), { recursive: true });
+    temp = `${target}.demoman-${process.pid}.tmp`;
+    writeFileSync(temp, text, { mode });
+    chmodSync(temp, mode);
+    renameSync(temp, target);
+    return { ok: true };
+  } catch (error) {
+    // Never leave a stray file beside the user's config.
+    if (temp !== null) rmSync(temp, { force: true });
+    return { error: failure(path, error) };
+  }
+}
+
+/** The file a write to path lands in: through every symlink, including one
+ *  whose target does not exist yet (a dotfiles repo not yet filled in), so
+ *  the link itself is never replaced by a plain file. */
+function linkTarget(path: string): string {
+  if (existsSync(path)) return realpathSync(path);
+  let at = path;
+  for (let hops = 0; hops < 40; hops++) {
+    let link: string;
+    try {
+      if (!lstatSync(at).isSymbolicLink()) return at;
+      link = readlinkSync(at);
+    } catch {
+      return at;
+    }
+    at = isAbsolute(link) ? link : join(dirname(at), link);
+  }
+  return at;
+}
+
+/** The folder Cursor's entry names for npx and node. process.execPath is
+ *  the resolved binary — under Homebrew a versioned Cellar folder that the
+ *  next `brew upgrade node` deletes — so prefer the PATH folder holding an
+ *  npx beside a node that resolves to this one, and fall back to the
+ *  node's own folder. (npx itself is a link into npm's package, so it
+ *  cannot be followed back to node's folder.) fnm's per-shell folder of
+ *  links is skipped: fnm removes it with the shell's session. */
+export function stableNodeBin(
+  execPath: string,
+  pathEnv: string,
+  realpath: (p: string) => string,
+): string {
+  for (const dir of pathEnv.split(":")) {
+    if (dir === "" || dir.includes("/fnm_multishells/")) continue;
+    try {
+      realpath(join(dir, "npx"));
+      if (realpath(join(dir, "node")) === execPath) return dir;
+    } catch {
+      // No npx or node in this folder: the next one may hold them.
+    }
+  }
+  return dirname(execPath);
+}
+
+/** The skill shipped beside demoman.mjs (scripts/build.mjs, step 3c), or
+ *  why it could not be read: only Cursor needs it, so setup says so there. */
+export function readSkill(
+  distDir: string,
+): { text: string } | { error: string } {
+  const path = join(distDir, "skills", "record-demo", "SKILL.md");
+  const read = readTextFile(path);
+  if ("missing" in read) return { error: `${path} is missing` };
+  if ("error" in read) return read;
+  if (read.text.trim() === "") return { error: `${path} is empty` };
+  return read;
+}
+
+/** macOS's managed settings, which an admin's env block may use to turn
+ *  every update off (code.claude.com/docs/en/settings). */
+export const CLAUDE_MANAGED_SETTINGS =
+  "/Library/Application Support/ClaudeCode/managed-settings.json";
+
+/** Where Claude Code keeps its settings and its user config: under
+ *  CLAUDE_CONFIG_DIR when that is set, else ~/.claude and ~/.claude.json. */
+export function claudePaths(
+  home: string,
+  configDir: string | undefined,
+): { settings: string; config: string; managed: string } {
+  if (configDir === undefined || configDir === "") {
+    return {
+      settings: join(home, ".claude", "settings.json"),
+      config: join(home, ".claude.json"),
+      managed: CLAUDE_MANAGED_SETTINGS,
+    };
+  }
+  return {
+    settings: join(configDir, "settings.json"),
+    config: join(configDir, ".claude.json"),
+    managed: CLAUDE_MANAGED_SETTINGS,
+  };
+}
+
+export function realSetupDeps(version: string, distDir: string): SetupDeps {
+  const home = homedir();
+  return {
+    platform: process.platform,
+    nodeVersion: process.version,
+    version,
+    run: (command, args) => runCaptured(command, args),
+    // No timeout: a 190 MB download on a slow line is not a stall, and its
+    // progress is on screen.
+    runVisible: (command, args) =>
+      ran(command, spawnSync(command, args, { stdio: "inherit" })),
+    // The runner's path, which every launch uses (`fullChromiumPath`): one
+    // answer to "is it installed" for setup and for the first run.
+    chromiumInstalled: () => existsSync(fullChromiumPath()),
+    chromiumInstall: setupChromiumDownload(playwrightCli()),
+    home,
+    codexHome: process.env.CODEX_HOME || join(home, ".codex"),
+    env: process.env,
+    claude: claudePaths(home, process.env.CLAUDE_CONFIG_DIR),
+    nodeBin: stableNodeBin(
+      realpathSync(process.execPath),
+      process.env.PATH ?? "",
+      realpathSync,
+    ),
+    skill: readSkill(distDir),
+    exists: (path) => existsSync(path),
+    readText: readTextFile,
+    writeText: writeTextFile,
+    say: (line) => void process.stdout.write(`${line}\n`),
+  };
+}

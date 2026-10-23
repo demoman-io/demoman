@@ -1,0 +1,47 @@
+name: Set up the workspace
+description: pnpm, node 24, a frozen install, Chromium if asked, then the build every lane reads.
+
+inputs:
+  browser:
+    description: Install Playwright's Chromium for the browser lanes.
+    default: "false"
+  build:
+    description: Run `pnpm -r build` (apps/runner and apps/studio read packages' dist).
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+      shell: bash
+    # The browser download is cached by lockfile, since the lockfile pins
+    # the one playwright every package resolves. The system libraries are
+    # not in the cache, so a hit still installs those (`install-deps`).
+    #
+    # Through one workspace package. The root has no playwright of its own
+    # to `pnpm exec`, and the lockfile resolves a single playwright for
+    # every package that has it (compositor, resolver, extension, runner,
+    # studio), so the browser revision this installs is the one every lane
+    # runs. Two filters used to run it and the compositor was neither of
+    # them, which worked only while the versions happened to coincide
+    # (6834d03).
+    - if: inputs.browser == 'true'
+      id: browsers
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+    - if: inputs.browser == 'true' && steps.browsers.outputs.cache-hit != 'true'
+      run: pnpm --filter @demoman/compositor exec playwright install --with-deps chromium
+      shell: bash
+    - if: inputs.browser == 'true' && steps.browsers.outputs.cache-hit == 'true'
+      run: pnpm --filter @demoman/compositor exec playwright install-deps chromium
+      shell: bash
+    - if: inputs.build == 'true'
+      run: pnpm -r build
+      shell: bash

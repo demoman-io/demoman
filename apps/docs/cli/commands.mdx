@@ -1,0 +1,76 @@
+---
+title: "Commands"
+description: "Every demoman command, its flags, and the environment variables it reads."
+---
+
+## setup
+
+```bash
+npx demoman setup
+```
+
+Downloads Chromium (about 190 MB) and connects Demoman to Claude Code, Codex
+and Cursor. See [Agents](/agents).
+
+## signin
+
+```bash
+npx demoman signin <url>
+```
+
+Opens a window to sign in to your app once, so agents can record behind the
+login.
+
+```bash
+npx demoman signin --account <name> [--site <origin>] [--project <dir>]
+```
+
+Signs in as a demo account from `.demoman/accounts.json`, to check it or to
+sign in on CI. See [Authentication](/guides/authentication).
+
+| Flag | |
+| --- | --- |
+| `--account <name>` | The account in `.demoman/accounts.json` |
+| `--site <origin>` | Which site's account, when two sites have one by that name |
+| `--project <dir>` | The project whose `.demoman/` to read; the current folder by default |
+
+## studio
+
+```bash
+npx demoman studio [take]
+npx demoman studio --stop
+```
+
+Opens the studio, on a take when you name one, or closes it with `--stop`.
+See [Overview](/studio/overview).
+
+## mcp
+
+```bash
+demoman mcp [--out-dir <folder>] [--headed]
+```
+
+Serves Demoman's tools on stdio. Your agent runs this; setup and the blocks
+on [Agents](/agents) name it.
+
+| Flag | |
+| --- | --- |
+| `--out-dir <folder>` | Where exports are saved; `~/Downloads` by default |
+| `--headed` | Shows the browser while it records; it records out of sight by default |
+| `--headless` | The default, accepted so older setups still start |
+| `--browser` | Retired: `--browser extension` is refused, since the Chrome extension was archived; remove it from the server's registration |
+
+## `--version`
+
+```bash
+npx demoman --version
+```
+
+## Environment variables
+
+| Variable | |
+| --- | --- |
+| `DEMOMAN_HOME` | Where Demoman keeps its takes, sessions and settings; `~/.demoman` by default |
+| `DEMOMAN_NO_UPDATE_CHECK=1` | Turns off the once-a-day check for a newer version |
+| `DEMOMAN_SECRET_<NAME>` | A demo account's secret, on CI |
+| `DEMOMAN_SECRET_<NAME>_ORIGIN` | The one site that secret may be typed on |

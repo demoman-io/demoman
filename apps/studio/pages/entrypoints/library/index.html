@@ -1,0 +1,653 @@
+<!-- apps/studio/pages/entrypoints/library/index.html -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Recordings - Demoman</title>
+    <!-- The shell — tokens, faces, the top bar and tabs, cards, buttons, notices
+         — is shared with the popup. Only this page's own rules are inline
+         below. -->
+    <link rel="stylesheet" href="../../assets/shell.css" />
+    <style>
+      /* Wide, on purpose — a 720px column left a third of a laptop screen
+         empty on each side — but capped, so on a big monitor the page
+         sits centred with clear margins rather than running edge to edge.
+         The cap is the shell's `.page`, shared with the bar above it:
+         1280 less two 32px gutters holds four 270px cards with their
+         gaps. */
+      body { font-size: 14px; }
+      #notice { margin-bottom: 16px; }
+
+      /* Settings' shape since 2026-10-08: a left column with the title and
+         a jump list of the sections, held in view on a wide window; the
+         filters and the list beside it. The list's column starts the
+         title's height lower — its 36px line and 28px under it — so the
+         filters sit level with the jump list and the title reads as the
+         page's. One column under 1024px, not Settings' 768: the list is a
+         grid of 270px cards, and beside a column at 800px it had room for
+         one. The storage trigger is in the top bar. */
+      .library { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+      .library-side {
+        align-self: start;
+        min-width: 0;
+        /* On the dotted ground, not a card: the ground's opaque control
+           tones, or the dots show through a dark theme's translucent ones. */
+        --control: var(--control-ground);
+        --control-hover: var(--control-hover-ground);
+      }
+      .library-content { min-width: 0; }
+      /* The jump list is for the held column: stacked over the list, the
+         sections follow straight on, and a row of them would only push
+         the list further down. */
+      @media (max-width: 1023px) {
+        [data-jumps] { display: none; }
+      }
+      @media (min-width: 1024px) {
+        .library { grid-template-columns: 184px minmax(0, 1fr); gap: 48px; }
+        /* Held, and never taller than the window: a library of many months
+           scrolls its own column rather than running the trigger off the
+           foot of the screen. */
+        .library-side {
+          position: sticky;
+          top: 24px;
+          max-height: calc(100vh - 48px);
+          overflow-y: auto;
+        }
+        .library-content { padding-top: calc(36px + 28px); }
+        .side-list { flex-direction: column; }
+      }
+      h1 {
+        margin: 0 0 28px;
+        font: 700 30px/1.2 "Outfit", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: -0.02em;
+      }
+      /* The jump list: Settings' section nav, stacked — the section in view
+         in the stronger control tone, the rest muted text that firms under
+         the pointer, a count at the end. Unlabelled: the author's call. */
+      .side-list { display: flex; flex-wrap: wrap; gap: 2px; }
+      .side-item {
+        display: flex; align-items: center; gap: 8px;
+        min-width: 0;
+        padding: 7px 10px;
+        border: 0;
+        border-radius: var(--radius);
+        background: transparent;
+        color: var(--ink-muted);
+        font: inherit;
+        font-size: 13px; font-weight: 600;
+        text-align: left;
+        text-decoration: none;
+        cursor: pointer;
+        transition: background-color 120ms ease, color 120ms ease;
+      }
+      .side-item:hover { color: var(--ink); background: var(--control); }
+      .side-item[aria-pressed="true"],
+      .side-item[aria-current="true"] { color: var(--ink); background: var(--control-hover); }
+      .side-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .side-count { margin-left: auto; font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+      .meter {
+        height: 4px;
+        border-radius: 999px;
+        background: var(--control-hover);
+        overflow: hidden;
+      }
+      .meter-fill {
+        height: 100%;
+        border-radius: inherit;
+        background: var(--accent);
+      }
+      .meter[data-full] .meter-fill { background: var(--warn); }
+
+      /* The trigger: the meter, the sentence and a chevron in one quiet
+         button. It opens the storage panel (view.ts) and points up while
+         the panel is open. Its bar sits on the button's own control tone,
+         so the track steps once more to stay visible under the pointer. */
+      .storage-trigger {
+        gap: 10px;
+        color: var(--ink-muted);
+        font-weight: 500;
+      }
+      .storage-trigger:hover,
+      .storage-trigger[data-open] { color: var(--ink); }
+      .storage-trigger[data-open] { background: var(--control-hover); }
+      .storage-trigger .meter {
+        width: 72px;
+        background: var(--ring-strong);
+      }
+      [data-meter] { font-variant-numeric: tabular-nums; }
+      /* The word that says what the bar measures, in the button's own
+         stronger ink, so it reads as the label and the figure as its value. */
+      .storage-label { color: var(--ink); font-weight: 600; }
+      /* The studio's total in the same slot: the word and the figure, not a
+         button. The word keeps .storage-label's ink; the figure is muted. */
+      .library-total {
+        display: inline-flex;
+        gap: 8px;
+        align-items: baseline;
+        color: var(--ink-muted);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+      .storage-trigger svg {
+        width: 14px;
+        height: 14px;
+        transition: transform 120ms ease;
+      }
+      /* In the top bar since 2026-10-08, left of the theme switch: under
+         900px the words go and the bar and chevron stay, so the bar's
+         right end still fits beside the tabs. The button's label carries
+         the numbers either way. */
+      @media (max-width: 899px) {
+        .storage-trigger .storage-label,
+        .storage-trigger [data-meter] { display: none; }
+      }
+      /* And under 560px, the shell's last step (shell.css, the bar), the
+         meter shortens, so a phone-width bar keeps one line. */
+      @media (max-width: 559px) {
+        .storage-trigger .meter { width: 44px; }
+      }
+      .storage-trigger[data-open] svg { transform: rotate(180deg); }
+
+      /* The panel: a popover in the top layer, so it floats over the list
+         instead of pushing it down. Placed by the script — absolute, so it
+         scrolls with the trigger — and edged as the split button's menu
+         is: a hairline ring under the overlay shadow. It floats over cards
+         of its own tone, and in dark the shadow alone is lost on the black
+         page, so the panel's edge ran into the card beneath it. No
+         `display` here: the UA's `[popover]:not(:popover-open)` is what
+         keeps it hidden. */
+      .storage-panel {
+        position: absolute;
+        /* Capped to the room beside its trigger by view.ts's placePanel
+           when it does not fit; it scrolls inside then. */
+        overflow-y: auto;
+        box-sizing: border-box;
+        inset: auto;
+        margin: 0;
+        padding: 16px;
+        border: 0;
+        border-radius: var(--radius-card);
+        background: var(--card);
+        color: var(--ink);
+        box-shadow:
+          0 0 0 1px var(--ring),
+          var(--shadow-overlay);
+        font-size: 13px;
+      }
+      /* Manrope since 2026-10-06, as every heading under the page title is:
+         Outfit is the page title's and the dialogs'. */
+      .storage-title {
+        margin: 0 0 12px;
+        font: 700 15px/1.3 "Manrope", ui-sans-serif, system-ui, sans-serif;
+      }
+      .storage-used {
+        margin: 6px 0 0;
+        color: var(--ink-muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .storage-field { margin-top: 16px; }
+      .storage-field label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ink-muted);
+      }
+      .storage-budget-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--ink-muted);
+      }
+      .storage-budget-row input {
+        width: 6em;
+        font-variant-numeric: tabular-nums;
+      }
+      .storage-hint {
+        margin: 6px 0 0;
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--ink-faint);
+      }
+      .storage-field .notice { margin-top: 8px; }
+      .storage-foot {
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid var(--ring);
+      }
+      .storage-reclaim { width: 100%; }
+      .storage-reclaim svg { width: 14px; height: 14px; }
+
+      [data-notices] > .notice { margin: 0 0 16px; }
+
+      /* The filter row: pills for hosts and for states over the list they
+         narrow, only when the view renders one (there has to be something
+         to choose between). On the dotted ground, not a card: the
+         ground's opaque control tones, or the dots show through a dark
+         theme's translucent ones. */
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        --control: var(--control-ground);
+        --control-hover: var(--control-hover-ground);
+      }
+      .filters-sep {
+        width: 1px;
+        height: 18px;
+        margin: 0 4px;
+        background: var(--ring-strong);
+      }
+
+      /* The list, in sections by when the take was made: Today, Yesterday,
+         the last week by weekday, then a month at a time (view.ts,
+         state.ts's sectionsOf). Each section is a fold whose summary is
+         its heading and count, so a past month — folded to start with —
+         is one line, and a library that has grown shows this week open
+         and the rest as a short list of months. */
+      /* Settings' rhythm (2026-10-06): 28px from the title block to the
+         first day; 40px after a day that is open, Settings' gap between
+         sections; 8px between folded months, so the past reads as a short
+         list of lines. */
+      .section { margin-top: 8px; }
+      .library-content > .section:first-of-type { margin-top: 0; }
+      /* 28px under the filters, as under the title before 2026-10-08. At
+         the first section's own specificity, or the rule above wins. */
+      .library-content > .filters + .section { margin-top: 28px; }
+      .section[open] + .section { margin-top: 40px; }
+
+      /* A section's summary: Settings' chevron, the heading, its count. */
+      .section-head {
+        list-style: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: fit-content;
+        padding: 4px 8px 4px 0;
+        border-radius: var(--radius);
+      }
+      .section-head::-webkit-details-marker { display: none; }
+      .section-head:hover .chev { color: var(--ink); }
+      .section[open] > .section-head .chev { transform: rotate(90deg); }
+      /* Settings' section heading: Manrope 700 at 20px, where it was Outfit
+         at 15px until 2026-10-06. */
+      .section-head h2 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1.3;
+      }
+      .section-count {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ink-faint);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* The cards under a heading. Each recording is one card with its
+         thumbnail on top, and the card answers the pointer: a firmer ring
+         and a lifted shadow, nothing that moves. A grid of equal columns,
+         as many 270px-or-wider columns as fit (two at 800px, four at the
+         1200 cap), left on the heading's own edge — a heading anchors the
+         left, so the centred wrap the flat gallery had (03cddd4) would
+         float a partial row away from it. A grid also keeps a partial last
+         row's cards in their columns, at the columns' width. */
+      .rows {
+        display: grid;
+        /* min(270px, 100%): a track cannot shrink below its minimum, so
+           a bare 270px would scroll a viewport narrower than that sideways. */
+        grid-template-columns: repeat(auto-fill, minmax(min(270px, 100%), 1fr));
+        gap: 14px;
+      }
+      /* The cards sit 14px under their day, as a card sits under its
+         title on Settings. */
+      .section > .rows { margin-top: 14px; }
+      article.card {
+        /* The whole card opens the editor (view.ts); the name inside it is
+           a field, and says so with its own cursor below. */
+        cursor: pointer;
+        /* min-width: 0 is load-bearing — a grid item's automatic minimum
+           is its min-content width, and the one-line meta below makes that
+           the whole host and path, which took a card in a 360px column to
+           430px and out the side. */
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        /* No padding: the thumbnail runs to the card's edges, and the card
+           clips it to its own corners. The text below carries its own. */
+        padding: 0;
+        overflow: hidden;
+        transition: background-color 120ms ease;
+      }
+      /* Hover was a stronger ring and a lift until 2026-09-20; flat, it is
+         a tone step instead. Mixed against `--ink`, NOT `--control`: in
+         dark `--control` is a translucent white, and as the card's OWN
+         background it composites over the page behind it rather than over
+         the card — measured 1.042:1, a highlight nobody can see. Mixing
+         with the theme's ink darkens in light and lightens in dark, which
+         is the same gesture in both (1.151 / 1.200). */
+      article.card:hover {
+        background: color-mix(in srgb, var(--ink) 7%, var(--card));
+      }
+
+      /* The thumbnail: the take's first keyframe at rest, a flipbook of
+         its keyframes while the pointer is anywhere on the card
+         (src/library/preview.ts). Edge to edge across the top of the card
+         since 2026-10-05; it was a padded well inside the card until then.
+         No surface of its own and no hairline under it, also since
+         2026-10-05: the control tone showed in a letterboxed keyframe's
+         bars as a grey mat around the picture, and the author preferred
+         the bare image. A fixed 16:9 so the grid's rows line up; a
+         keyframe of another shape letterboxes inside it rather than
+         stretching, and its bars are the card's own colour.
+         The picture itself carries a hairline (D3 shots, L2): a mostly white
+         page pillarboxed on a white card had no edge at all. The canvas is
+         sized to the picture (`--thumb-ratio`, set by preview.ts) rather
+         than to the box, and the box clips the ring — so it shows only
+         where the picture meets a bar, and a picture that fills the box
+         stays bare, with no line under it. */
+      [data-preview] {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+        container-type: size;
+      }
+      [data-preview-canvas] {
+        display: block;
+        width: min(100cqw, 100cqh * var(--thumb-ratio, 16 / 9));
+        height: auto;
+        object-fit: contain;
+        box-shadow: 0 0 0 1px var(--ring);
+      }
+      /* `display: block` above beats the UA's `[hidden] { display: none }`
+         — an author rule wins over the UA sheet whatever its specificity —
+         so without this the hidden canvas kept its 100% width and shoved
+         the note out of the box's right edge, clipped. */
+      [data-preview-canvas][hidden] { display: none; }
+      [data-preview-note] {
+        padding: 0 10px;
+        text-align: center;
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--ink-faint);
+      }
+      [data-preview-note]:empty { display: none; }
+
+      /* The export's length, on the picture's bottom-right corner, the way
+         every video player and file browser puts it. A dark scrim with
+         white figures in both themes, not a theme surface: it sits on a
+         screenshot, which is whatever colour the recorded page was. In the
+         page's Manrope with tabular figures since 2026-10-08, as the
+         editor's clock is — not `--font-mono`. */
+      [data-duration] {
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.72);
+        color: #ffffff;
+        font-size: 11px;
+        line-height: 1.4;
+        font-variant-numeric: tabular-nums;
+      }
+      [data-duration][hidden] { display: none; }
+
+      /* The tags ride on the picture's bottom-left, opposite the length.
+         Stays put whatever the pointer does: a reclaimed take has to say
+         so without being hovered. Room kept on the right for the length,
+         so a tag never runs under it. */
+      .row-tags {
+        position: absolute;
+        left: 8px;
+        right: 64px;
+        bottom: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
+      }
+      /* `.tag`, not `.chip`: on Settings a chip is the round on/off icon. */
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 2px 8px 2px 6px;
+        border-radius: var(--radius);
+        /* The card's own surface under the tag's tone: on a picture, a
+           translucent dark-theme `--control` would take its colour from
+           the screenshot behind it. */
+        background:
+          linear-gradient(var(--control), var(--control)),
+          var(--card);
+        color: var(--ink-muted);
+        font-size: 11px;
+        font-weight: 600;
+        /* A whole pixel, so every tag stands 20px and the glyph-only Needs
+           a look flag below can be a 20px square level with them. The
+           inherited 1.5 made it 20.5. */
+        line-height: 16px;
+        /* One line, always: a tag that wraps mid-word is a broken pill. */
+        white-space: nowrap;
+      }
+      .tag svg { width: 12px; height: 12px; }
+      .tag-warn {
+        background: var(--warn-soft);
+        color: var(--warn);
+      }
+      /* Needs a look: the one tag that is a button, and a glyph alone — so
+         a square, the 20px every worded tag stands. */
+      .tag-look {
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: 0;
+        cursor: pointer;
+      }
+      .tag-look svg { width: 14px; height: 14px; }
+      .tag-look:hover { filter: brightness(0.96); }
+      .tag-look:focus-visible {
+        outline: 2px solid var(--focus);
+        outline-offset: 2px;
+      }
+
+      .row-text {
+        min-width: 0;
+        padding: 8px 8px 12px 12px;
+      }
+      /* The name and the actions on one line. The name takes what the
+         actions leave, and clips. */
+      .row-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+      }
+      /* The take's name, editable in place: the editor's own name field,
+         in the card. Pulled back by its own 4px padding so the text sits on
+         the card's text edge, and the ring appears around it. */
+      [data-name] {
+        display: block;
+        flex: 1;
+        min-width: 0;
+        margin-left: -4px;
+        padding: 2px 4px;
+        text-overflow: ellipsis;
+        font: inherit;
+        /* 14px since 2026-10-06, the size of an item's name on Settings. */
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1.3;
+        color: inherit;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        cursor: text;
+      }
+      /* An untitled take: "Untitled" in the row's quiet ink, so it reads as
+         a state rather than as a name somebody chose. */
+      [data-name]::placeholder { color: var(--ink-muted); opacity: 1; }
+      [data-name]:hover { border-color: var(--ring); }
+      [data-name]:focus {
+        outline: none;
+        border-color: var(--accent);
+        background: var(--control);
+      }
+      /* Quiet glyphs beside the name, not filled buttons: at rest the card
+         is a picture and two lines, and four tinted squares would be the
+         loudest thing on it. The tone comes with the pointer. */
+      .row-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        flex: none;
+      }
+      .row-actions .btn-icon {
+        width: 28px;
+        height: 28px;
+        background: transparent;
+        color: var(--ink-muted);
+      }
+      .row-actions .btn-icon:not(:disabled):hover {
+        background: var(--control-hover);
+        color: var(--ink);
+      }
+      /* Delete keeps the shell's red hover. Restated here because the rule
+         above matches it at the same specificity as the shell's own
+         `.btn-icon.btn-danger` hover, and wins by coming later. */
+      .row-actions .btn-icon.btn-danger:not(:disabled):hover {
+        background: var(--error-soft);
+        color: var(--error);
+      }
+
+      /* Where and when, and the size, in one place: both sit in the same
+         grid cell and trade opacity, so the line never changes height and
+         nothing below it moves. */
+      .row-line {
+        display: grid;
+        margin-top: 2px;
+        font-size: 13px;
+      }
+      .row-line > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: opacity 120ms ease;
+      }
+      .row-meta { color: var(--ink-muted); }
+      .row-size {
+        color: var(--ink-muted);
+        font-variant-numeric: tabular-nums;
+      }
+      /* At rest a card is its thumbnail, its name, and where and when. The
+         size and the actions come with the pointer, or with focus anywhere
+         in the card, so the keyboard reaches them too. Opacity rather than
+         visibility or display: they keep their space, so nothing in the
+         card moves, and the actions stay in the tab order — a Tab into a
+         hidden button is what reveals it. */
+      .row-size,
+      .row-actions {
+        opacity: 0;
+        transition: opacity 120ms ease;
+      }
+      article.card:hover .row-size,
+      article.card:hover .row-actions,
+      article.card:focus-within .row-size,
+      article.card:focus-within .row-actions {
+        opacity: 1;
+      }
+      article.card:hover .row-meta,
+      article.card:focus-within .row-meta {
+        opacity: 0;
+      }
+      /* A device with no pointer that hovers — a touchscreen Chromebook —
+         never reveals them, and an invisible Delete is still where a tap
+         lands. There they stay in view, and the two sentences stack rather
+         than share a place, since nothing would ever swap them. */
+      @media (hover: none) {
+        .row-size,
+        .row-actions,
+        article.card .row-meta,
+        article.card:focus-within .row-meta {
+          opacity: 1;
+        }
+        .row-line > .row-size { grid-area: 2 / 1; }
+      }
+      article.card [data-status] { margin: 0 12px 12px; }
+      /* A folder the studio could not read is a row of words, not a take:
+         its name, the reason and the size are what it says, so none of
+         them trades places with the others at rest or under the pointer
+         (the take card's swap above hid the size at rest and the name and
+         reason while reaching for Delete). The reason names whole paths,
+         which have nowhere to break, so it may break anywhere rather than
+         run past the card. */
+      article.card[data-unreadable-row]:is(*, :hover, :focus-within)
+        :is(.row-meta, .row-size) {
+        opacity: 1;
+      }
+      article.card[data-unreadable-row] [data-reason] { overflow-wrap: anywhere; }
+
+      /* The empty states: the shell's `.empty`, on a card, as on Settings. */
+      .empty-card {
+        margin-top: 28px;
+        padding: 20px 24px;
+      }
+      .empty .btn-link {
+        display: inline;
+        padding: 0;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
+      /* Repeated from the shell, on purpose: rules above set `display` at
+         the same specificity, and this file loads after the shell, so the
+         shell's own `.hidden` would lose to them. */
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-group topbar-pages">
+          <span class="logomark" role="img" aria-label="Demoman">
+            <img class="disc" src="/images/logomark.svg" alt="" />
+            <span class="logomark-word">
+              <img class="for-light" src="/images/lockup_light.svg#svgView(viewBox(400,60,952,300))" alt="" />
+              <img class="for-dark" src="/images/lockup_dark.svg#svgView(viewBox(400,60,952,300))" alt="" />
+            </span>
+            <!-- The studio's mark: demoman.io's bare figure (brand/logomark.svg
+                 without the disc). Hidden here, so the extension shows its
+                 lockup unchanged; only the studio's own sheet shows it. In an
+                 HTML span: the UA's [hidden] rule reaches HTML elements only,
+                 so an svg carrying the attribute would still render. -->
+            <span class="figure" hidden><svg viewBox="258 120 96 302" aria-hidden="true" focusable="false"><path transform="translate(5.54,56.31) scale(0.96895)" d="M 287.20,151.99 L 345.34,125.16 A 16,16 0 0 0 345.34,96.10 L 287.20,69.27 A 16,16 0 0 0 264.50,83.80 L 264.50,137.46 A 16,16 0 0 0 287.20,151.99 Z"/><rect x="264" y="224" width="83" height="83" rx="16.5"/><rect x="264" y="326" width="33" height="92.5" rx="16.5"/><rect x="314" y="326" width="33" height="92.5" rx="16.5"/></svg></span>
+          </span>
+          <!-- Lucide outlines (MIT), decorative beside their words. -->
+          <nav class="tabs" data-tabs aria-label="Pages">
+            <a href="library.html" data-tab="library" aria-current="page" title="Recordings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.033 9.44a.647.647 0 0 1 0 1.12l-4.065 2.352a.645.645 0 0 1-.968-.56V7.648a.645.645 0 0 1 .967-.56z"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg><span class="tab-label">Recordings</span></a>
+            <a href="settings.html" data-tab="settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span class="tab-label">Settings</span></a>
+          </nav>
+        </div>
+        <div class="topbar-group topbar-actions">
+          <!-- The storage trigger and its panel, put here by
+               src/library/view.ts. -->
+          <div class="topbar-storage" data-storage-slot></div>
+        </div>
+      </div>
+    </header>
+    <div class="page">
+      <div id="notice" class="notice notice-error hidden" role="alert"></div>
+      <main id="root"></main>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

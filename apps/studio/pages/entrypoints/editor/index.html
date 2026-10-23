@@ -1,0 +1,2674 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Editor - Demoman</title>
+    <!-- The shell — tokens, faces, the brand lockup, buttons, notices — is
+         shared with the popup, the Recordings page and Settings. Only the
+         editor's own rules are inline below. -->
+    <link rel="stylesheet" href="../../assets/shell.css" />
+    <style>
+      /* The editor's own tokens, and only those.
+       *
+       * The ground, the card, the ink, the ring, the controls, the lime
+       * primary, the warn and error tints and the faces all come from
+       * assets/shell.css — the sheet the popup, Recordings and Settings
+       * share — so a change there lands here too. Until 2026-09-14 this
+       * file carried a parallel copy of every one of them under its own
+       * names (`--panel` for the card, `--hairline` for the ring), which
+       * is how the editor came to sit a shade off the pages beside it.
+       *
+       * What stays inline is what only the editor has: the stage bed and
+       * the timeline's beds, the three lane hues, and the floating chrome.
+       *
+       * The surfaces are DIRECTIONAL: the stage bed is the page's ground
+       * (darker than the cards in both themes, since 2026-10-07; before
+       * that it was a well painted into a `--shell` page), and the header
+       * cards, the rail, the panel and the timeline are the shell's CARD
+       * floating on it. Everything here used to be one neutral
+       * rgba(127,127,127,.1x) on the theory that a neutral grey needs no
+       * theme; at .1 it was ~4% contrast on a dark page, and with the same
+       * grey on both sides of the gutter the video and the lanes read as
+       * one slab. A card against the bed draws the boundary the gutter
+       * alone could not.
+       *
+       * The lane colours are the second system: each lane's clips wear
+       * one hue, and the lane's label carries a dot of the same hue so
+       * the legend is the lane itself. Clip is the brand lime the shell's
+       * primary is built on; Zoom is the camera's violet; Mask is a coral
+       * that reads as "redacted" at a glance. `--lane-*-ink` is chosen
+       * per fill: white on the deep fills, near-black on the bright ones.
+       *
+       * Test-visible contract: editor-shell.test.ts asserts the shell's
+       * tokens are NOT re-declared here, editor-shell-layout.test.ts
+       * composites these over the shell's, and test/node/theme-tokens.test.ts
+       * holds the two dark blocks below identical. */
+      :root {
+        /* The floating chrome (spec 2026-10-06): cards that float over the
+           stage bed take a corner above the shell's 6/8 scale, the overlay
+           shadow, and a hairline. `--float` resolves `--ring` and
+           `--shadow-overlay` here on :root, where the theme has set them. */
+        --radius-float: 12px;
+        --float: 0 0 0 1px var(--ring), var(--shadow-overlay);
+        /* The rail's own track, the second grid column: the rail card's
+           width, before the seam its track carries on the left. */
+        --rail-w: 48px;
+        --gap: 16px;
+        /* The gutter between the shell's cards, and the shell's own inset.
+           A different measurement from `--gap`, which is padding INSIDE a
+           surface — collapsing the two would make one of them wrong. 16px
+           since 2026-10-07 (8px before): the cards float on the stage bed,
+           and they read as floating only with the ground showing between
+           them. Tune this by eye; no test pins its value, and both stacking
+           floors in the media queries below are computed from it BY HAND,
+           because a media query cannot read a custom property. */
+        --seam: 16px;
+        /* The panel column, named once. `--rail-w` sits beside it: the rail
+           floated on the picture from 2026-09-21 and took its track back on
+           2026-10-07. */
+        --panel-w: 320px;
+        /* How long the panel takes to open or close. Read by the column
+           transition AND by the delay that hides the panel afterwards, so
+           the two cannot drift apart and leave the contents painted over a
+           stage that has already taken the width. */
+        --panel-ms: 180ms;
+        /* Every row label in the inspector — a slider's, a switch's, the
+           Style heading — and the readout that sits beside one. Held in a
+           token because three rules want it and they are not neighbours in
+           this sheet; `editor-cursor-panel.test.ts` asserts they agree. */
+        --row-label: 14px;
+        /* The inspector's vertical rhythm, read off the Cursor panel: 12px
+           between one row and the next, and 12px PAINTED between a row's
+           label and its control. `inspector-rhythm.test.ts` measures every
+           panel against these, so a panel cannot drift from them unseen. */
+        --row-gap: 12px;
+        /* The page's ground, under every card and under the picture. Flat:
+           the radial `--stage-glow` that lit the old well went when the well
+           became the whole page (2026-10-07). */
+        --stage-bed: #d9dde6;
+        /* The ground's dots are the shell's (`--ground-dot`, on every
+           page's `body`); the editor only phases them, so a row and a
+           column run down the middle of its outer `--seam` inset and the
+           cards' outer edges cut the pattern at the same point every time.
+           The gutters between cards are fluid and cannot be held to it. */
+        --dot-origin: calc(var(--seam) / 2);
+        --track: rgba(17, 24, 39, .1);
+        /* The playhead is `--ink`: the page's own strongest tone, white on a
+           dark dock and near-black on a light one.
+
+           It was `--rec`, the shell's recording red, until 2026-09-21. The
+           red was borrowed from a different job — it is what says "this is
+           capturing" in the popup and on the Recordings page — and on a dock
+           whose lanes now carry four saturated hues it was a fifth one
+           competing with them rather than the one line an author tracks. */
+        --playhead: var(--ink);
+        /* The lane fills. In dark they are deep and desaturated, with white ink
+           on every one; in light they are pale tints with a dark ink each
+           (since 2026-10-07; the segment's edge in the lane's glyph colour
+           keeps them off the bed). They were bright (a neon lime, a violet, a coral) with ink chosen
+           per fill until 2026-09-21: bright fills cannot carry white text,
+           so each lane needed its own ink and the Clip block's name would
+           have been near-black on lime. Deep fills take one ink, which is
+           what lets the three lanes read as one system in dark. */
+        --lane-clip: #b8d46a;
+        --lane-clip-ink: #263006;
+        --lane-zoom: #c4b8f2;
+        --lane-zoom-ink: #2a1f5c;
+        --lane-mask: #f0b4a8;
+        --lane-mask-ink: #4a160d;
+        /* The pointer tick on the Clip block: a deep olive in light, where
+           the block is pale; dark keeps the pale green it always had. */
+        --lane-clip-pointer: #46600c;
+        /* Each lane's track-head glyph: the lane's hue at full saturation,
+           rather than derived from its deep fill. A fill deep enough to carry
+           white text reads nearly black as a stroke on the dark dock, and
+           lifting it toward white washed it to a pastel; these keep the hue
+           and clear 4.5:1 on the glyph's grey disc in each theme.
+
+           All three share one OKLCH lightness and chroma per theme (L 0.50
+           C 0.14 here, L 0.76 C 0.136 in dark) and differ only in hue. Picked
+           at equal saturation instead, the green read far lighter than the
+           violet and the red — 9.3:1 on the disc against 5.4 and 5.8 in dark
+           — and Zoom and Mask looked dimmed beside Clip. */
+        --lane-clip-glyph: #417300;
+        --lane-zoom-glyph: #5c54af;
+        --lane-mask-glyph: #a43c2b;
+        /* The format chip's dropdown arrow. A data URI's stroke is a
+           literal string, not a custom-property read — which is why the
+           chevron was a themed token here until 2026-09-21, kept in sync
+           with `--secondary-ink` by hand.
+
+           It is inlined at its use site now and it is always white,
+           because the chip it sits in stopped theming when the control
+           row moved onto the video: see `#stage-bar .chip`'s own comment.
+           A token that tracked a theme would be tracking the wrong thing,
+           and a hand-kept coupling with nothing left to couple to is a
+           maintenance cost with no payer. */
+      }
+      /* Twice on purpose — under the system query, and under the root's
+         data-theme for an author who chose. test/node/theme-tokens.test.ts
+         holds the two identical; see assets/shell.css for why. */
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          /* Black: the page's ground in dark, with the near-black cards
+             floating on it. It was the well darker than a `--shell` page
+             until 2026-10-07, when the stage bed became the ground. */
+          --stage-bed: #000000;
+          --track: rgba(255, 255, 255, .07);
+          --lane-clip: #44601a;
+          --lane-clip-ink: #ffffff;
+          --lane-zoom: #433568;
+          --lane-zoom-ink: #ffffff;
+          --lane-mask: #6b2f2f;
+          --lane-mask-ink: #ffffff;
+          --lane-clip-glyph: #96c25f;
+          --lane-zoom-glyph: #b59fff;
+          --lane-mask-glyph: #fb8e7c;
+          --lane-clip-pointer: #c5e59a;
+        }
+      }
+      :root[data-theme="dark"] {
+        --stage-bed: #000000;
+          --track: rgba(255, 255, 255, .07);
+        --lane-clip: #44601a;
+        --lane-clip-ink: #ffffff;
+        --lane-zoom: #433568;
+        --lane-zoom-ink: #ffffff;
+        --lane-mask: #6b2f2f;
+        --lane-mask-ink: #ffffff;
+        --lane-clip-glyph: #96c25f;
+        --lane-zoom-glyph: #b59fff;
+        --lane-mask-glyph: #fb8e7c;
+        --lane-clip-pointer: #c5e59a;
+      }
+      /* Buttons and fields are the shell's: every button the renderers
+         build carries `btn btn-quiet` (Play and Render `btn btn-primary`),
+         and the field rule is the shell's bare-element one. Nothing is
+         restated here, so a change to shell.css reaches the editor. So
+         are the sliders (`input[type="range"]`) and their `--slider-rest`
+         fill, which Settings' Brand kit draws too. */
+      input[type="checkbox"] { accent-color: var(--accent); }
+      /* The inspector's panel titles — Export, Background, Cursor, Zoom,
+         Mask — in Outfit 16/700, the title weight of the floating cards
+         (editor-refresh spec, 2026-10-07). Settings' own `h2` stays 20px
+         (`settings-shell.test.ts` holds that side). The review page's
+         `article h2` is 16px for its own reasons: those are per-take
+         cards. Keyboard shortcuts' title is a panel `h2` like the rest. */
+      h2 { margin: 0 0 12px; font: 700 16px/1.2 "Outfit", ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
+      body {
+        margin: 0;
+        display: grid;
+        /* view · rail · pane. The rail's track and the panel's each carry
+           their own seam on the LEFT, and the item inside is held off by an
+           equal margin, so the seam belongs to the track rather than to
+           `column-gap`. That is what lets the panel's seam leave with the
+           panel: a `column-gap` paints its gutter beside a zero-width track
+           too, which would strand a seam's width between the rail and the
+           window's edge with the panel closed. A margin alone cannot do it
+           either —
+           a grid item's margin eats into its own track, so a bare
+           `margin-left` on a fixed-width track shrinks the item rather than
+           offsetting it. (Two tracks from 2026-09-21 to 2026-10-07, while
+           the rail floated on the stage; the rail sat in the last track
+           for a few hours of 2026-10-07 until the author put it between
+           the stage and the panel.) */
+        /* The first track is a spacer the width of the rail's, empty
+           while the panel is open and filled once it closes, so with the
+           panel closed the picture is centred over the timeline instead of
+           a rail's width to the left of it (author, 2026-10-07). With the
+           panel open the picture sits left of centre, which the author
+           accepted. `minmax(0, …)`, so it is the first width to go: grid
+           grows a fixed track toward its limit only from space the 520px
+           floor has not claimed, so the floors below are unchanged. The
+           same track type open and closed, so the column transition
+           interpolates rather than jumping. */
+        grid-template-columns:
+          minmax(0, 0px)
+          minmax(520px, 1fr)
+          calc(var(--rail-w) + var(--seam))
+          calc(var(--panel-w) + var(--seam));
+        grid-template-rows: auto auto minmax(220px, 1fr) auto;
+        /* Both layouts in one legible place. The stacked order lives in
+           the media queries below as a second areas string, which is one
+           line each instead of a `grid-column`/`grid-row` reset per child. */
+        grid-template-areas:
+          "head head head head"
+          "note note note note"
+          ". view rail pane"
+          "dock dock dock dock";
+        /* No `row-gap`: the vertical seams ride on the items instead — see
+           the rule after the grid placements below. A gap is painted
+           between every pair of tracks, empty or not, so the collapsed
+           status row put two seams (32px) between the header and the
+           middle row. */
+        row-gap: 0;
+        column-gap: 0;
+        padding: var(--seam);
+        box-sizing: border-box;
+        height: 100vh;
+        /* The stage bed is the page's ground (spec 2026-10-06): the picture
+           sits on it directly, and every card — the two in the header, the
+           rail, the panel, the timeline — floats on it with `--float`. The
+           ground was `--shell` until 2026-10-07, with the stage a darker
+           well painted into it.
+
+           Dotted since 2026-10-08 — the shell's dots, on `--stage-bed`
+           rather than `--shell`, phased by `--dot-origin` above. They
+           matter most beside a 9:16 picture, where the ground is half the
+           stage. */
+        background-color: var(--stage-bed);
+        color: var(--ink);
+        /* 13px, the shell's body size. Every other page sets its own size
+           unlayered; the editor never did, so the injected extension-page
+           sheet's 75% (12px) was what it rendered at. */
+        font-size: 13px;
+        /* The panel's open/close. Animating the TRACK rather than the panel
+           means the stage widens into the space as it is vacated, instead
+           of the two moving independently. Only the last track moves, so
+           the rail slides right with the stage's edge as the panel closes
+           and stops at the window's edge. */
+        transition: grid-template-columns var(--panel-ms) ease;
+      }
+      #status { grid-area: note; }
+      main { grid-area: view; }
+      /* `#inspector`, not a bare `aside`: the shipped page has exactly one,
+         but `editor-shell.test.ts` mounts a second `<aside
+         data-background-mount>` beside it for the Background panel (see
+         its own comment on why that tag), and a bare-tag rule here claimed
+         that one too — both then resolved to the identical rect, stacking
+         the Background panel exactly on the Export panel instead of
+         leaving it in its own implicit row. The other `aside` rules below
+         (the card tone, the ring, the padding reset) are deliberately left
+         bare: the fixture's second aside is SUPPOSED to pick those up, per
+         its own comment, so it reads as a real panel. Only placement is
+         the hazard. */
+      #inspector { grid-area: pane; }
+      #dock { grid-area: dock; }
+      /* The vertical seams, carried by the items that need them rather than
+         by `row-gap`. The header is held one seam off whatever comes next,
+         and the status row adds its own seam below it only while it is
+         drawn — `#status` is `display: none` with nothing to say, and a
+         box that is not there carries no margin. So the header sits one
+         seam above the middle row with the row collapsed, and one seam
+         above the status card, one seam above the middle row, when it
+         shows. Measured before this: 32px from the header cards to the
+         stage, from a gap on each side of an empty track. The stacked
+         layouts add the panel's own seam in their media blocks. */
+      header { margin-bottom: var(--seam); }
+      #status { margin-bottom: var(--seam); }
+      #dock { margin-top: var(--seam); }
+      /* The seam the panel's track carries, taken back as the item's own
+         inset so the painted card is its true width. `#rail` does the same
+         in its own rule below: each item's seam is the gap to whatever is
+         on its left. */
+      aside { margin-left: var(--seam); }
+      /* Closed: the panel column collapses here, and the panel itself is
+         hidden by `body[data-panel="closed"] aside` far below — a selector
+         with a `body` in front of it has to come after the bare `aside` it
+         overrides, or the cascade reads as an accident (biome's
+         `noDescendingSpecificity`). */
+      body[data-panel="closed"] {
+        grid-template-columns:
+          minmax(0, calc(var(--rail-w) + var(--seam)))
+          minmax(520px, 1fr)
+          calc(var(--rail-w) + var(--seam))
+          0;
+      }
+      /* A card in its own track since 2026-10-07, between the stage and the
+         panel: with the panel open it is the panel's left neighbour, and
+         with it closed the rail is the window's right edge, beside the
+         stage, which takes the panel's width.
+
+         `--card`, the same tone the panel beside it carries: the rail and
+         the panel are two cards of one pair, and editor-shell.test.ts
+         asserts they are EQUAL in both themes, so a future pass cannot
+         re-segment them quietly. The boundary that matters is card against
+         ground, and `--float` adds the shadow that makes it read as
+         floating rather than tiled.
+
+         `align-self: start`: the card is as tall as its entries, not the
+         row. It floated on the picture from 2026-09-21, with a dark scrim
+         on each entry because a frame could be any tone; on a card of its
+         own the entries are quiet controls again. */
+      #rail {
+        grid-area: rail;
+        align-self: start;
+        margin-left: var(--seam);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: 6px;
+        background: var(--card);
+        border-radius: var(--radius-float);
+        box-shadow: var(--float);
+      }
+      /* Delete, red under the pointer — the same answer the Recordings
+         page's own delete gives, and from the same two tokens.
+
+         The shell already says this, in `.btn-icon.btn-danger:hover`, and
+         `#delete` has carried `btn-danger` all along. This sheet is
+         UNLAYERED (shell.css sits in `@layer shell`), and an unlayered
+         declaration beats a layered one whatever their specificities, so
+         `.head-card .btn-icon:not(:disabled):hover` below would paint the
+         grey pill over the shell's red if this were left to the shell.
+         Restated here, in the same layer, where it is settled by
+         specificity: (0,4,1) against the (0,4,0) of that grey hover.
+         `editor-shell.test.ts` hovers the real button and reads the
+         painted result, because the winning rule is a question about
+         layers and the only answer that counts is what the pixel does. */
+      header .head-card .btn-danger:not(:disabled):hover {
+        background: var(--error-soft);
+        color: var(--error);
+      }
+      /* The notes button wears the worst of what `#notes` holds, at rest
+         rather than under the pointer: it is the only sign on the page
+         that a card is waiting, so it cannot wait for a hover to say so.
+         Same tokens as Delete's hover for an error; the shell's warn pair
+         for a note. A plain report rests like the card's other icons —
+         transparent, muted ink — and takes their grey under the pointer.
+
+         The two levels are restated for hover, for the reason Delete's is
+         above: the card's quiet hover, `.head-card .btn-icon:not(:disabled)
+         :hover` (0,4,0), out-ranks the level rules (0,3,1) and painted a
+         red or amber button grey the moment the pointer reached it. The
+         hover forms are (0,5,1). */
+      header .actions .btn-notes { position: relative; anchor-name: --notes; }
+      header .actions .btn-notes[data-level="error"],
+      header .head-card .btn-notes[data-level="error"]:not(:disabled):hover {
+        background: var(--error-soft);
+        color: var(--error);
+      }
+      header .actions .btn-notes[data-level="warn"],
+      header .head-card .btn-notes[data-level="warn"]:not(:disabled):hover {
+        background: var(--warn-soft);
+        color: var(--warn);
+      }
+      header .actions .btn-notes [data-count] {
+        position: absolute;
+        top: -2px;
+        right: -2px;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        box-sizing: border-box;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 18px;
+        text-align: center;
+        background: var(--ink);
+        color: var(--shell);
+      }
+      header .actions .btn-notes[data-level="error"] [data-count] { background: var(--error); }
+      header .actions .btn-notes[data-level="warn"] [data-count] { background: var(--warn); }
+      /* Quiet icons on the card, like the header's: no fill until the
+         pointer arrives. Set here, not left to the shell: the shell's `.btn`
+         declares no background of its own (every other icon button pairs
+         it with `.btn-quiet`), so an entry with nothing set paints Chrome's
+         own `buttonface` — found by editor-shell.test.ts's rail assertion
+         on 2026-09-14.
+
+         The open panel's entry is pressed: a `--control-hover` step off
+         the card, a step past the hover's `--control`, under the accent
+         ink. `--accent-soft` was the first choice for the fill and was
+         measured out — #f7fde7 on a #fff card is 1.04:1 in light, under
+         the 1.1:1 every quiet control has to clear against what it sits
+         on. The `var(--accent)` ink is right here and was wrong while the
+         rail sat on footage, where its light-theme olive vanished on a
+         bright frame and a fixed lime stood in for it.
+         `editor-shell-layout.test.ts`'s "spends the brand colour on ...
+         controls and no others" counts this entry among the controls that
+         carry the brand colour. */
+      #rail .btn { width: 36px; height: 36px; padding: 0; background: transparent; color: var(--ink-muted); }
+      /* Not the pressed entry: this selector outweighs the pressed rule
+         below by a pseudo-class, so without the exclusion the open entry
+         lost its fill and its accent the moment the pointer reached it. */
+      #rail .btn:not(:disabled):not([aria-pressed="true"]):hover { background: var(--control); color: var(--ink); }
+      #rail .btn[aria-pressed="true"] { background: var(--control-hover); color: var(--accent); }
+      #rail .btn:disabled { opacity: 0.38; }
+      :where(#rail .btn) svg { width: 18px; height: 18px; }
+      /* The panel column. It carried a `border-left` until 2026-09-20,
+         which the stacking media query below had to move to `border-top` —
+         a bare-`aside` override at equal specificity, so the two rules'
+         ORDER in this sheet decided which won, and for a while the wrong
+         one did. Without a line there is no line to move and no order to
+         get wrong: the panel is a card floating on the ground, like the
+         rail beside it, in both layouts. */
+      aside {
+        background: var(--card);
+        border-radius: var(--radius-float);
+        box-shadow: var(--float);
+        overflow-y: auto;
+        /* No padding of its own: it moved onto `.inspector` below. A
+           border-box grid item keeps its padding inside a 0px track and
+           renders a 32px sliver past the window's edge; with the padding
+           one level in, the panel's border box IS the track. */
+        padding: 0;
+        /* The panel's right edge is the shell's — the window's, less the
+           seam it is inset by — and its LEFT edge is what sweeps inward as
+           the column closes. Anchoring the contents to the
+           right, at a fixed width, is what keeps them still while that edge
+           passes over them — left-anchored they would slide right with the
+           box, and auto-width they would reflow the whole way. */
+        display: flex;
+        justify-content: flex-end;
+        align-items: flex-start;
+        /* `visibility`, not `display`, is what the closed state uses — see
+           the rule far below — and it is listed here so the OPEN direction
+           reveals the panel immediately rather than at the end. */
+        transition: visibility 0s;
+      }
+      /* Fixed at the open width so nothing inside re-wraps while the column
+         moves: the panel is clipped, not re-laid-out. `aside` is a scroll
+         container, so what overflows its left edge is cut off rather than
+         painted over the stage. */
+      .inspector {
+        flex: 0 0 var(--panel-w);
+        padding: var(--gap);
+        /* What the close button is placed against. */
+        position: relative;
+      }
+      /* Top right, level with the panel's 16px title, and the title is held
+         clear of it so a long one wraps before running under it. Scrolls
+         with the panel, as a dialog's close does. */
+      .inspector-close {
+        position: absolute;
+        top: calc(var(--gap) - 7px);
+        right: calc(var(--gap) - 7px);
+        width: 28px;
+        height: 28px;
+        color: var(--ink-muted);
+        background: transparent;
+      }
+      .inspector-close:hover { color: var(--ink); }
+      .inspector > h2, .inspector > * > h2:first-child { padding-right: 28px; }
+      /* The status row: cards side by side, not blocks stacked full-width,
+         so the stage is not pushed down by a band the height of every
+         message at once. Wraps when there are more than fit.
+
+         No padding of its own. A status entry paints `--card` and
+         `--radius-card` — it IS a card, same as `#dock`, `#inspector` and
+         `#rail` — so it lines up with the shell's outer edges: its left
+         edge is `main`'s, its right edge is the last card's — the panel's
+         while it is open, the rail's once it closes. `#status`'s own box
+         already spans that width (it is the `note` grid area, over all
+         three columns `main`, `#rail` and `aside` sit in), so a padding
+         of `--gap` here did nothing but inset the card FROM that box,
+         16px on both sides — measured, a banner at x=24..715 against
+         `main` at 8..1048. Zero padding lets the card's edges be the
+         box's edges; the vertical seams above and below it are margins,
+         set with the grid placements above. */
+      #status { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; padding: 0; }
+      #status > * { flex: 1 1 320px; min-width: 0; }
+      /* An empty panel must not hold part of the row open beside the one
+         with something to say. */
+      #status > :empty { display: none; }
+      /* `:empty` never matched: #status always holds its panel div, so it
+         has element children whether or not any of them has anything to
+         say. `:has` asks the question that was meant — is there a panel in
+         here with content, and is it one that is not hidden. Only
+         `#develop` lived here from 2026-09-22 (the rest moved to `#notes`),
+         and it left with the rebuild on 2026-09-28 (plan 2 of the agent
+         door, Task 7) — the run page carries its own copy. The row has no
+         resident now and so stays collapsed. */
+      #status:not(:has(> :not(:empty):not(.hidden))) { display: none; }
+      /* The notes popover, hung under its button by anchor positioning and
+         right-aligned to it. In the top layer, so opening it moves nothing
+         on the page — which is the point of it. On the ground colour with
+         the overlay shadow, so the cards inside keep their own `--card`
+         and read as the same cards they were in the row.
+
+         `display` only while open: the UA hides a closed popover with a
+         `display: none` this sheet would otherwise override. */
+      #notes {
+        position-anchor: --notes;
+        position-area: bottom span-left;
+        inset: auto;
+        margin: 8px 0 0;
+        width: min(440px, calc(100vw - 32px));
+        max-height: min(70vh, 560px);
+        overflow: auto;
+        box-sizing: border-box;
+        padding: 10px;
+        border: 0;
+        border-radius: var(--radius-card);
+        background: var(--shell);
+        color: var(--ink);
+        box-shadow: var(--shadow-overlay);
+      }
+      #notes:popover-open { display: flex; flex-direction: column; gap: 10px; }
+      #notes > :empty { display: none; }
+      /* `minmax(0, 1fr)`, not `1fr`, in `#stage` below — and `min-height: 0`
+       * on every box between it and the grid row that sizes it.
+       *
+       * A bare `1fr` row takes its automatic minimum from its content, and
+       * the content here is a canvas: `render()` assigns it a bitmap the size
+       * of the output, which is also its intrinsic size and aspect ratio for
+       * layout. `height: 100%` cannot resolve against a row that is itself
+       * sized by its content, so the canvas fell back to its aspect ratio and
+       * took `width / (1280/720)` — a height derived from the width alone,
+       * which ignores how much vertical room the window actually has.
+       *
+       * Below about 900px of window height that made the canvas taller than
+       * the stage, and since a canvas overflows visibly it painted straight
+       * down across the timeline: 111px of overlap at 1440x900, 449px once
+       * the stage's own box had collapsed to nothing. `#stage`'s rect kept
+       * reporting a clean gap the whole time, because the box was never what
+       * was on screen.
+       *
+       * `minmax(0, 1fr)` floors the row at 0 instead of at its content, which
+       * makes the row's height definite; `height: 100%` then resolves against
+       * it and `object-fit: contain` letterboxes the bitmap inside.
+       *
+       * The 220px floor that pairs with it is on the BODY's `view` row since
+       * 2026-09-21, because the timeline left `main` for `#dock`: flooring
+       * the row at 0 alone fixed the overlap by letting the video shrink to
+       * nothing — at 1200x420 the canvas was 0px tall — and a demo editor
+       * whose video has vanished is not better than one whose video is in
+       * the wrong place. */
+      /* NOT a card, since 2026-09-21. It was `--card` with `--gap` of
+         padding and `#stage` inset inside it, which put two surfaces under
+         the picture: the letterbox bars read as bars INSIDE a box rather
+         than as the background the frame sits on. The reference mockup's
+         preview panel IS its gradient, with the frame floating directly on
+         it, and that is the pattern the author asked for.
+
+         So this is the grid area and nothing else; `#stage` carries the
+         clipping and fills it edge to edge, and since 2026-10-07 neither
+         paints — the frame floats on the page's own ground. The picture
+         gains the 32px of vertical padding that used to be here, which is
+         headroom the 150px floor keeps rather than spends. */
+      main { min-height: 0; display: grid; }
+      /* The picture's region. It was THE WELL — a `--stage-bed` box with a
+         radial glow — from 2026-09-21 to 2026-10-07, and before that the
+         tone was on `#preview`, which made the canvas element's box the
+         well and the letterboxing the canvas's own background. The bed is
+         the page's ground now, so this box paints nothing and the
+         letterboxing is simply the ground showing beside the frame.
+
+         `--frame-ratio` and `--frame-px` default to the target `main.ts`
+         starts on (`previewTarget(LANDSCAPE_1080P)` = 1280x720), so the
+         page before its first `retarget` is not guessing — it is showing
+         the target it actually has. */
+      #stage {
+        --frame-ratio: 16 / 9;
+        --frame-px: 1280;
+        --frame-w: min(100cqw, calc(100cqh * var(--frame-ratio)));
+        min-height: 0;
+        display: grid;
+        /* ONE row since 2026-09-21. `#stage-bar` used to be a second,
+           `auto` row, which took its height straight out of the picture's
+           — the full-screen button had to be shrunk to 22px to keep
+           `#preview` above its 150px floor. The controls float over the
+           frame now, the way a player's do, so the video gets that height
+           back and the row costs nothing. `position: relative` is what the
+           floating row is positioned against. */
+        grid-template-rows: minmax(0, 1fr);
+        position: relative;
+        /* No background, no radius: the stage paints nothing since
+           2026-10-07. The picture sits on the page's ground — the stage bed
+           `body` paints — with no well of its own around it. */
+        overflow: hidden;
+      }
+      /* Fit is the default and is already in `#stage`'s own `--frame-w`.
+         "100%" here means one PREVIEW-BITMAP pixel per CSS pixel, not one
+         deliverable pixel — `--frame-px` is `previewTarget`'s own
+         downscaled width (1280 for a 1920px landscape output, so this is
+         67% of the real deliverable, not 1:1 with it). Reads `--frame-px`
+         rather than any measurement of the stage. Whether the chip should
+         instead read as "output resolution" (Premiere/Resolve's meaning of
+         100%) is an open design question, not settled by this rule. */
+      body[data-zoom="actual"] #stage { --frame-w: calc(var(--frame-px) * 1px); }
+      /* `container-type: size` is what makes `100cqw`/`100cqh` resolve
+         against this box, and it can do that because the row above is
+         `minmax(0, 1fr)` — a definite size in the WIDE layout, where
+         `body` is `height: 100vh`. `overflow: auto` is NOT inert: at
+         `body[data-zoom="actual"]`, `#stage-frame` is deliberately larger
+         than this box in both axes (see the rule below), and `overflow:
+         auto` together with `place-content: safe center` is exactly what
+         makes the frame's top-left corner reachable by scrolling —
+         `safe` falls back to start alignment on overflow, so the
+         author's scroll can reach an edge that `center` alone would push
+         to a negative, unreachable offset. `editor-preview-zoom.test.ts`'s
+         "lets the author reach the frame's top-left corner" test exists to
+         catch either property going missing.
+
+         `min-height: 0`, not a floor: in THIS (wide) shape `#stage`'s row
+         is already definite, so `#stage-box` needs nothing of its own to
+         stay open, and giving it one is actively wrong here — see the note
+         above `aspect-ratio: var(--frame-ratio)` in both stacked `@media`
+         blocks below for why the fix belongs there instead, and why it
+         must NOT be duplicated onto this base rule: an `aspect-ratio` on
+         `#stage-box` here would fight the definite row it already has and
+         break the very letterboxing this task exists to preserve. Two
+         floor-shaped fixes were tried and reverted before this one —
+         `calc(220px - 2 * var(--gap))` here, then `minmax(220px, 1fr)` on
+         both stacked rows — see `task-1-report.md`'s fix rounds 1 and 2
+         for why each pinned the picture to a literal instead of restoring
+         its pre-2026-09-21 size. */
+      #stage-box {
+        container-type: size;
+        min-height: 0;
+        overflow: auto;
+        display: grid;
+        place-content: safe center;
+      }
+      /* `min(100cqw, calc(100cqh * ratio))` IS `object-fit: contain`
+         written as a width, which is why fit needs no script. */
+      #stage-frame {
+        position: relative;
+        aspect-ratio: var(--frame-ratio);
+        width: var(--frame-w);
+        /* The cards' corner, so the picture reads as one of them (author,
+           2026-10-07). `#preview` rounds its own pixels below; the frame
+           is not `overflow: hidden`, because a mask's grips at the edge
+           of the picture would be clipped with it. The deliverable is not
+           rounded — this is the editor's view of it. */
+        border-radius: var(--radius-float);
+        box-shadow: inset 0 0 0 1px var(--ring);
+      }
+      /* The picture's controls in FULL SCREEN, where the dock that holds
+         their toolbar copy (`#stage-tools`) is not painted — see the
+         `display` rules right after this block, which hide it everywhere
+         else. There it lies ON the picture, not under it — the arrangement
+         every player uses. Out of flow, so the video keeps the height a
+         row would cost it.
+
+         `pointer-events: none` with `auto` on the controls is the same
+         trick `#stage-overlay` already plays, and here it is load-bearing:
+         the row lies across the bottom strip of the frame, which is where
+         a selected mask's `s`/`sw`/`se` grips are. Without it the whole
+         strip would swallow those drags; with it only the chips do, and
+         the gap between the clock and them stays draggable. */
+      #stage-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        /* The ROW spans the picture exactly; the CONTROLS are inset from
+           it. `box-sizing: border-box` above is what lets both be true at
+           once — the border box still measures `--bar-w`, so the row keeps
+           tracking the frame, and the padding pulls the clock and the
+           chips off the video's own edges.
+
+           Flush was wrong and it is worth saying why rather than just
+           changing the number: controls hard against a frame's corner read
+           as clipped, and the bottom edge is exactly where a letterboxed
+           cut's black meets the picture's, so anything sitting on that
+           line is ambiguous about which side it belongs to. 12px is
+           neither `--gap` nor `--seam` deliberately — those space things on
+           the app's surfaces, and this row is on footage. */
+        padding: 12px;
+        /* Never narrower than its own controls. A 9:16 picture at an
+           ordinary window is ~270px wide, under what the clock, the
+           three-way shape switch, Fit and full screen need, and capped to
+           it the switch shrank inside its `overflow: hidden` until the
+           checked 9:16 was cut off (2026-10-06). Wider than the picture,
+           the row stays centred on it and spills onto the stage around
+           it. */
+        min-width: max-content;
+        /* On the PICTURE's edges, not the stage's. The mockup caps its
+           readout row to the frame's width so the controls line up with the
+           video instead of with the panel.
+
+           `--bar-w` is the frame's MEASURED width, published by `main.ts` —
+           it cannot be derived here. `--frame-w` is built from `100cqw`/
+           `100cqh`, which resolve against `#stage-box`, and this row is
+           `#stage-box`'s SIBLING rather than its descendant: the same
+           expression used here would fall back to the small viewport and
+           produce a width that is wrong everywhere without looking wrong
+           anywhere.
+
+           `min(…, 100%)` clamps to the stage, because at 100% zoom the frame
+           is deliberately wider than the box it scrolls inside and an
+           unclamped row would run off the side. The `100%` fallback is the
+           full-width row this replaced, so a measurement that never arrives
+           degrades to the previous layout rather than to a broken one. */
+        width: min(var(--bar-w, 100%), 100%);
+        box-sizing: border-box;
+        pointer-events: none;
+        /* Absolute against `#stage`, NOT against `#stage-frame`, and the
+           difference matters at 100%: inside the frame this row would
+           scroll away with the picture and take the zoom chip — the only
+           way back to Fit — off screen with it. Anchored here it stays put
+           while the picture pans beneath it.
+           `--bar-lift` is the gap between the stage's bottom edge and the
+           picture's, published by the same observer as `--bar-w` and
+           clamped at 0 there, so a letterboxed cut lifts the row onto the
+           video while an overflowing one leaves it on the stage's floor. */
+        position: absolute;
+        bottom: var(--bar-lift, 0px);
+        left: 50%;
+        transform: translateX(-50%);
+      }
+      /* Full screen only. Outside it the same controls are in the timeline
+         toolbar (`#stage-tools`); inside it `#stage` is all the browser
+         paints, so this row is the only way to the clock, the zoom chip,
+         and back out. */
+      #stage-bar { display: none; }
+      #stage:fullscreen #stage-bar,
+      #stage[data-fullscreen] #stage-bar { display: flex; }
+      #stage-bar > * { pointer-events: auto; }
+      /* Tabular AND unwrapped, for the reason the transport's copy carried:
+         the clock is ~57px of text and "0:03 / 0:12" broken after the slash
+         is a readout that changes shape as it counts. In the UI's own face
+         since 2026-10-08, not `--font-mono` — see the toolbar's copy. */
+      /* On the video, so the same fixed treatment as the chips beside it —
+         see their rule for why this one corner of the sheet does not
+         theme. Its own scrim, because a bare white clock vanishes on a
+         bright frame. */
+      #stage-bar .stage-clock {
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+        white-space: nowrap;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background-color: rgb(0 0 0 / 0.55);
+        backdrop-filter: blur(6px);
+        color: #fff;
+      }
+      #stage-bar .stage-actions { display: flex; align-items: center; gap: 6px; min-width: 0; }
+      /* The aspect toggle sits among the stage's chips, so it takes their
+         height rather than the panel's roomier segment — and their scrim,
+         not the shell's themed segment tones: this row floats on the video,
+         where no token pair holds (see `#stage-bar .chip`'s comment below).
+         The checked segment is a lighter wash of the same white ink. */
+      #stage-bar .segmented {
+        border: 0;
+        border-radius: 999px;
+        background-color: rgb(0 0 0 / 0.55);
+        backdrop-filter: blur(6px);
+      }
+      #stage-bar .segment { padding: 3px 10px; font-size: 12px; background: transparent; color: rgb(255 255 255 / 0.72); }
+      #stage-bar .segment + .segment { border-left: 1px solid rgb(255 255 255 / 0.18); }
+      #stage-bar .segment[aria-checked="true"] { background: rgb(255 255 255 / 0.22); color: #fff; }
+      /* `#failure` (in `#notes`) sits OUTSIDE `#stage`, so while the
+         document is full screen — `requestFullscreen` succeeded, or an
+         `exitFullscreen` refusal left it standing — only `#stage`'s own
+         subtree paints and a message routed there only is invisible for as
+         long as the refusal is actually relevant. `position: absolute`
+         against `#stage-bar` above: out of flow, so an error showing or
+         clearing never changes the row's own height. Anchored ABOVE the
+         bar (`bottom: 100%`) so it reads over the picture rather than
+         under the chips, where a narrow window would clip it. The
+         toolbar's copy of the same banner has its own rule beside
+         `#stage-tools`. */
+      #stage-bar [data-stage-error] {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 100%;
+        margin-bottom: 6px;
+        padding: 6px 10px;
+        border-radius: var(--radius);
+        background: var(--error-soft);
+        color: var(--error);
+        font-size: 12px;
+        /* `#stage` clips (`overflow: hidden`) and this sits inside its
+           first row, so an unbounded message could grow past the top edge
+           and clip silently — a rejection's own text is not length-bounded.
+           A clipped reason is still a reason lost, which is the entire
+           point of routing it here, so it scrolls instead. */
+        max-height: 4.5em;
+        overflow: auto;
+      }
+      /* Below the shell's own floor the columns stopped fitting and simply
+         overflowed: `body.scrollWidth` pinned at the breakpoint and the
+         inspector ran off the right edge of the window.
+
+         There are TWO floors, because closing the panel takes a column away,
+         and one rule keyed on width alone could only ever know about one of
+         them. The rail's and the panel's tracks each carry a seam, and the
+         shell itself is inset by one on each side (16px since 2026-10-07):
+
+           panel open:   16 inset + 520 stage + (48 rail + 16 seam)
+                         + (320 panel + 16 seam) + 16 inset = 952
+           panel closed: 16 inset + 520 stage + (48 rail + 16 seam)
+                         + 16 inset = 616
+
+         These two sums are maintained BY HAND: a media query cannot read
+         `--seam`, so tuning the seam moves the real floor and leaves the
+         literals below behind. `editor-shell-layout.test.ts`'s "the stacking
+         floors are the real floors" asserts the relationship rather than
+         either number, and is what catches that.
+
+         `max-width` reads inclusively, so the last width that does NOT fit is
+         one below each floor: 951 with the panel open, 615 with it closed.
+         Keyed on the open floor alone, an 800px window stacked with the
+         panel closed even though the closed layout fits in it comfortably
+         — and closing the panel, whose whole job is to give the width to
+         the stage, did nothing.
+
+         Do not round either number up for comfort, and do not leave one
+         standing when the seam moves. A breakpoint ABOVE the real floor
+         stacks a layout that fits — the open number said 900px until
+         2026-09-14, which stacked a 900px window with 12px to spare and
+         pushed the timeline's bottom to y=989 in a 560px one. A breakpoint
+         BELOW it leaves a band of widths where the columns overflow instead
+         of stacking, which nobody sees unless they resize into it.
+
+         Stacked: the picture with the rail beside it, then the timeline,
+         then the panel under it. The rail keeps its own 48px track beside
+         `view` rather than taking a row: it costs the picture little and
+         stays next to what it acts on, and as a column at every width it
+         has no orientation to flip. (It was a row between the dock and the
+         panel until 2026-09-21, then floated on the picture until
+         2026-10-07.) The header cards wrap onto two lines if they must.
+         The `aside` rule is written once per case rather than
+         shared: a selector matching both would have to name `body` twice
+         anyway, and each copy outranks the bare `aside` rule above it, so
+         the cascade no longer depends on which came last in the sheet.
+
+         Both stacked templates' `view` row is a bare `1fr`, same as before
+         2026-09-21 — no `minmax(220px, ...)` floor here. A floor was tried
+         twice on this branch (on `#stage-box` directly, then here on both
+         rows) and reverted both times: below 952px `body` is `height:
+         auto`, so a floor is the ONLY thing a `1fr` row can fall back to
+         under an indefinite container — it cannot grow to fill the window,
+         which is what actually happened (measured: the picture pinned at
+         ~188px regardless of window height, against ~484.75px before this
+         task at 900x560). The real fix is `#stage-box`'s own
+         `aspect-ratio`, below — see the comment beside it. */
+      @media (max-width: 951px) {
+        body:not([data-panel="closed"]) {
+          grid-template-columns: 1fr calc(var(--rail-w) + var(--seam));
+          grid-template-rows: auto auto 1fr auto auto;
+          grid-template-areas: "head head" "note note" "view rail" "dock dock" "pane pane";
+          height: auto;
+          min-height: 100vh;
+        }
+        /* A row of its own under the dock here, so the panel takes its seam
+           on top rather than on the left. */
+        body:not([data-panel="closed"]) aside { margin-left: 0; margin-top: var(--seam); }
+        body:not([data-panel="closed"]) .inspector { flex: 1 1 auto; }
+        /* `#stage`'s row is `minmax(0, 1fr)` under `main`'s content-box —
+           indefinite here, since `body` is `height: auto` and nothing
+           above floors it — so `container-type: size` on `#stage-box`
+           (needed everywhere, for the zoom control's `cqw`/`cqh`) cuts it
+           off from the one thing that used to give it a height anyway: the
+           canvas's own intrinsic aspect ratio, before 2026-09-21. This
+           restores exactly that, on the BOX instead of the canvas —
+           `aspect-ratio` derives a block size from `#stage-box`'s inline
+           size, which IS definite here (the stacked `1fr` column beside the
+           rail's fixed track), so the
+           picture sizes from its own ratio the same way it always did.
+           `#stage-frame`'s own `--frame-w: min(100cqw, calc(100cqh *
+           ratio))` is unaffected: with `#stage-box`'s height now DERIVED
+           from that same ratio, `100cqh * ratio` and `100cqw` compute to
+           the same number, so the `min()` picks either and the frame fills
+           the box exactly — no double letterboxing.
+
+           Scoped to this media query ONLY. In the WIDE layout `#stage-box`
+           has a definite row already (`body`'s `grid-template-rows`, the
+           `minmax(220px, 1fr)` track) and
+           must go on letterboxing inside it; an `aspect-ratio` there would
+           override that definite height with one derived from width, which
+           is the whole bug this task's `#stage-frame` mechanism exists to
+           avoid. */
+        body:not([data-panel="closed"]) #stage-box {
+          aspect-ratio: var(--frame-ratio);
+        }
+      }
+      @media (max-width: 615px) {
+        body[data-panel="closed"] {
+          grid-template-columns: 1fr calc(var(--rail-w) + var(--seam));
+          grid-template-rows: auto auto 1fr auto auto;
+          grid-template-areas: "head head" "note note" "view rail" "dock dock" "pane pane";
+          height: auto;
+          min-height: 100vh;
+        }
+        body[data-panel="closed"] .inspector { flex: 1 1 auto; }
+        /* Same reason as the open template's `#stage-box` rule above — a
+           separate rule because this is a separate selector under a
+           separate breakpoint, not because the reasoning differs. */
+        body[data-panel="closed"] #stage-box {
+          aspect-ratio: var(--frame-ratio);
+        }
+        /* Stacked, the panel is a ROW, and there is no column animating
+           shut for `visibility` to wait on. `visibility: hidden` would hold
+           a full-height row open with nothing painted in it — `display`
+           takes it out of the flow, which is what closing means here.
+
+           The seam reset rides in this rule rather than in one of its own:
+           a second `body[data-panel="closed"] aside` inside this block is
+           what `editor-shell-layout.test.ts`'s "animates the panel from one
+           duration" finds when it looks for the mediated closer, and it
+           read an empty `display` off it. */
+        body[data-panel="closed"] aside { margin-left: 0; display: none; }
+      }
+      /* Transparent since 2026-09-21: the picture sits on the ground (a
+         well `#stage` painted until 2026-10-07) and this fills
+         `#stage-frame`, whose box is already the bitmap's ratio — so
+         `object-fit: contain` has nothing left to letterbox and is kept
+         only as the floor under a ratio that has momentarily drifted. The
+         radius and the ring moved to the frame, where they trace the
+         picture instead of the well. */
+      #preview {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        object-fit: contain;
+        background: transparent;
+        border-radius: var(--radius-float);
+      }
+      /* `inset: 0` on `#stage-frame`, which IS the drawn box — so
+         `renderStageOverlay` places each box against a container that is
+         already correct. Sized to `#stage-box` until 2026-09-21, when the
+         box it had to describe stopped being computable from the canvas
+         alone. */
+      #stage-overlay { position: absolute; inset: 0; pointer-events: none; }
+      .overlay {
+        position: absolute;
+        box-sizing: border-box;
+        border: 2px solid var(--ink);
+        pointer-events: auto;
+        cursor: move;
+      }
+      .overlay[data-overlay="mask"] {
+        background: color-mix(in srgb, var(--lane-mask-glyph) 30%, transparent);
+      }
+      .overlay[data-overlay="zoom"] {
+        border-style: dashed;
+        border-color: var(--lane-zoom-glyph);
+      }
+      .grip {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        margin: -5px;
+        background: var(--card);
+        border: 1px solid var(--ink);
+      }
+      .grip[data-handle="nw"] { left: 0; top: 0; cursor: nwse-resize; }
+      .grip[data-handle="n"] { left: 50%; top: 0; cursor: ns-resize; }
+      .grip[data-handle="ne"] { left: 100%; top: 0; cursor: nesw-resize; }
+      .grip[data-handle="e"] { left: 100%; top: 50%; cursor: ew-resize; }
+      .grip[data-handle="se"] { left: 100%; top: 100%; cursor: nwse-resize; }
+      .grip[data-handle="s"] { left: 50%; top: 100%; cursor: ns-resize; }
+      .grip[data-handle="sw"] { left: 0; top: 100%; cursor: nesw-resize; }
+      .grip[data-handle="w"] { left: 0; top: 50%; cursor: ew-resize; }
+      /* The timeline's card. The transport sits above the lanes here since
+         2026-09-21; it used to be the second row of `#stage`. A floating
+         card since 2026-10-07: `--card` on the stage bed is the boundary,
+         and `--float` is what makes it read as lifted off the ground. */
+      #dock {
+        min-width: 0;
+        min-height: 0;
+        /* A grid, so the lanes can be given LESS than they want.
+           `#dock` sits in an `auto` body row, and an auto row's minimum is
+           its content unless something inside can shrink — so as a plain
+           block the dock kept its full height in a short window and was
+           pushed off the bottom of it, with the shell's own `100vh` box
+           reporting nothing wrong. The old layout got this for free: the
+           timeline was an `auto` row inside `main` and `overflow-x: auto`
+           already made it a scroll container, whose automatic minimum is 0.
+           Measured at 1000x620 with a notice showing: the dock's bottom
+           landed at 736 in a 620px window. `minmax(0, 1fr)` gives the lanes
+           the same floor here, so a cramped window squeezes the lanes —
+           which scroll — rather than the video, which cannot. */
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        background: var(--card);
+        border-radius: var(--radius-float);
+        box-shadow: var(--float);
+        /* The transport sits between the card's edge and the divider over
+           the ruler, centred (2026-10-08): the play disc had 16px above it
+           against 12px below. Its 44px row leaves 4px either side of the
+           36px disc; above that is this 8px, below it `#timeline`'s 2px and
+           `.lane`'s 6px — 12px each side. */
+        padding: 8px 14px 12px;
+        box-sizing: border-box;
+      }
+      /* The padding-and-negative-margin pair moves this scroll container's
+         clip edge 11px out into the dock's own 14px padding without moving
+         the lanes. At the take's last frame the playhead sits on the axis's
+         right edge — its 2px line starting where the track ends, half its
+         20px knob past it — and `overflow-x: auto` clips at this box, so
+         until 2026-09-22 playing to the end hid the line and cut the knob in
+         half. 11px is the knob's reach past the edge; the lanes, the ruler
+         and the axis keep the content box they had. */
+      #timeline { overflow-x: auto; min-height: 0; padding-right: 11px; margin-right: -11px; padding-top: 2px; }
+      /* The label column, named once. Every element on the axis — the ruler,
+         the lanes, the playhead's overlay — is inset by exactly this, and a
+         second hardcoded copy of it is how the ruler and the playhead came to
+         measure a different box from the clips they are drawn over. */
+      /* The track headers' column: the widest header (a 26px disc, an 8px
+         gap and "Clip"/"Zoom"/"Mask" at 12px) needs about 70px; the Mask
+         header also carries the 22px + (8px more gap), which makes it about
+         94px, and this leaves that room (84px clipped "Mask" to 20px of
+         its 30). It was 108px for part of 2026-09-22, to fit a line of text
+         the Clip header no longer carries. */
+      .timeline { position: relative; --lane-label: 96px; --lane-gap: 10px; }
+      /* `ew-resize`, because the ruler is now a scrub surface and a bare
+         arrow over it says "nothing here". */
+      /* Flat since 2026-09-21: the tinted bed (`--ruler`, a 3-4% wash) and
+         the per-tick left rules are both gone, leaving labels on a hairline
+         — the reference mockup's shape. The bed was the only thing on this
+         row carrying a fill, and against the deep lane blocks below it read
+         as a fourth surface between the card and the tracks. */
+      .ruler {
+        position: relative;
+        height: 30px;
+        border-bottom: 1px solid var(--ring);
+        cursor: ew-resize;
+        touch-action: none;
+      }
+      /* Measured to the digits' ink, not the 16px line box: the font keeps
+         room under the baseline for descenders that digits never use, so a
+         box centred in the ruler puts the ink ~.5px low. On 2026-10-08 the
+         ink was evened at 8.9px above and 8.8px below in a 28px ruler,
+         which read cramped under the divider and the playhead's knob; the
+         ruler grew 2px, all of it above the labels — ~10.9px above the
+         ink, 8.8px below. */
+      .ruler .tick {
+        position: absolute;
+        top: 7.5px;
+        padding-left: 4px;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        color: var(--ink-muted);
+        line-height: 16px;
+      }
+      .ruler .tick[data-edge="end"] { transform: translateX(-100%); padding-left: 0; padding-right: 4px; }
+      /* Would overlap the label before it — see `placeRulerLabels`. Hidden,
+         not removed, so it keeps its width for the next measurement. */
+      .ruler .tick[data-crowded] { visibility: hidden; }
+      .ruler[data-source="captured"] { border-bottom-style: dashed; opacity: .8; }
+      .lane { display: grid; grid-template-columns: var(--lane-label) 1fr; gap: var(--lane-gap); align-items: center; margin-top: 6px; }
+      /* `.bar` and `.bar-report` — the hover report's row above the ruler,
+         and the `:has()` rule that collapsed it when there was nothing to
+         say — are gone with the report itself (2026-09-22). It is a card in
+         the status row now; see `renderTakeNotes`. */
+      /* `Snap` and `Fit`'s home, on `#transport`. */
+      .bar-controls { display: flex; gap: 6px; }
+      /* Each lane's hue, set on the ROW so the header's glyph and what is
+         drawn in its track read one declaration. Three lanes: Clip is the
+         olive the take itself plays on, Zoom is the camera's violet, and
+         Mask is a red that reads as "redacted" at a glance. The beats ride
+         the Clip track since 2026-09-22 and have no hue of their own. */
+      .lane[data-lane="clip"] { --clip-fill: var(--lane-clip); --clip-ink: var(--lane-clip-ink); --glyph: var(--lane-clip-glyph); }
+      .lane[data-lane="zoom"] { --clip-fill: var(--lane-zoom); --clip-ink: var(--lane-zoom-ink); --glyph: var(--lane-zoom-glyph); }
+      .lane[data-lane="mask"] { --clip-fill: var(--lane-mask); --clip-ink: var(--lane-mask-ink); --glyph: var(--lane-mask-glyph); }
+      /* A track's header: the lane's glyph in a grey disc, and the name in
+         sentence case beside it. Until 2026-09-22 this was 10px uppercase
+         grey text right-aligned against the track with a coloured dot before
+         it, which read as a caption floating in an empty column. The header
+         had a filled cell of its own for part of that day, dropped the same
+         day: the disc gives the row its head without a second box beside
+         the track. `align-self: stretch` with the track's 30px as a floor,
+         so anything taller put in a header grows the row rather than
+         overflowing it. */
+      .lane-head {
+        align-self: stretch;
+        min-height: 30px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 2px;
+        /* Muted, the inspector's supporting-text tone: the header names the
+           row, and the blocks in the track are what the eye should land on. */
+        color: var(--ink-muted);
+        font-size: 12px;
+        font-weight: 600;
+        min-width: 0;
+      }
+      .lane-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .lane-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      /* The glyph, in a disc of the track bed's grey. Drawn on the svg itself
+         (padding inside a fixed box) rather than a wrapper, so `icon()`'s
+         output goes in as it is. The hue is on the stroke, from the lane's
+         own `--lane-*-glyph` (see `:root` for why not its fill). */
+      .lane-glyph { position: relative; flex: none; display: flex; }
+      .lane-head svg {
+        flex: none;
+        box-sizing: border-box;
+        width: 22px;
+        height: 22px;
+        padding: 5px;
+        border-radius: 50%;
+        background: var(--track);
+        color: var(--glyph);
+      }
+      .track { position: relative; height: 30px; background: var(--track); border-radius: 6px; overflow: hidden; }
+      .degraded { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, transparent 0 4px, color-mix(in srgb, var(--warn) 45%, transparent) 4px 8px); }
+      /* The trim handles, as caps on the Clip block's own ends. `.cut` — a
+         pair of overlays shading what the trim removed — went with the bed
+         they were drawn on: the block IS the kept range now, so the cut is
+         the bare track either side and nothing has to paint it. */
+      /* An estimated trim edge: hatched. Its visibility follows every other
+         edge handle's (see `.handle, .cap` below), and its sentence is in the
+         notes popover either way. */
+      .handle[data-timing="estimated"] { background-image: repeating-linear-gradient(45deg, transparent 0 3px, rgba(255,255,255,.5) 3px 6px); }
+      /* The beats, centred on the Clip track, one shape per verb. Scoped
+         under the lane, not bare `.tick`: the ruler draws its own time
+         labels in a `.tick` span (`.ruler .tick`, above), and a bare rule
+         here would come after it in the cascade at LOWER specificity — a
+         real conflict `noDescendingSpecificity` catches even though the two
+         never share an element.
+
+         Shape carries the verb, because a glyph is illegible at the 12px a
+         beat can have: click a disc, type a rounded square (a key), a hover
+         a hollow ring (the pointer only passing), a scroll a vertical pill,
+         a wait a small diamond. Tone carries the kind, all within the Clip
+         lane's own hue so a busy take does not become a rainbow: the inputs
+         (click, type) in the lane's own ink and strongest, the pointer's
+         movement (hover, scroll) a tint of the lane's green, a wait
+         quietest of all. All three follow the theme: the block's fill is
+         deep in dark and a pale tint in light, so the inputs are
+         `--clip-ink` — white on the dark block, a near-black olive on the
+         light one — the pointer tick is `--lane-clip-pointer`, pale in
+         dark and a deep olive in light, and the wait is the ink mixed 60%
+         into the fill. Computed from the tokens on the Clip block (light /
+         dark): inputs 8.4 / 7.2:1, the pointer tint 4.3 / 5.1, the wait
+         tone about 3.2 / 3.7 — each over the 3:1 a non-text mark needs,
+         each a step below the last.
+
+         Every mark wears a 2px ring of the lane's fill (`--tick-ring`), so
+         on the bare track either side of a trim a white mark still has an
+         edge against a light theme's light bed. A box-shadow rather than a
+         border, so the ring never changes the shape's own size. */
+      .lane[data-lane="clip"] {
+        --tick-input: var(--clip-ink);
+        --tick-pointer: var(--lane-clip-pointer);
+        --tick-wait: color-mix(in srgb, var(--clip-ink) 60%, var(--clip-fill));
+      }
+      .lane[data-lane="clip"] .tick {
+        --tick-ring: var(--clip-fill);
+        position: absolute;
+        top: 50%;
+        width: 12px;
+        height: 12px;
+        margin: -6px 0 0 -6px;
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: var(--tick-input);
+        box-shadow: 0 0 0 2px var(--tick-ring);
+        cursor: pointer;
+        z-index: 4;
+      }
+      .lane[data-lane="clip"] .tick[data-verb="type"] { border-radius: 3px; }
+      .lane[data-lane="clip"] .tick[data-verb="moveTo"] {
+        background: var(--clip-fill);
+        box-shadow: inset 0 0 0 2px var(--tick-pointer), 0 0 0 2px var(--tick-ring);
+      }
+      .lane[data-lane="clip"] .tick[data-verb="scrollTo"] {
+        width: 8px;
+        height: 14px;
+        margin: -7px 0 0 -4px;
+        border-radius: 4px;
+        background: var(--tick-pointer);
+      }
+      /* A drag: an input, held — a pill, as wide as a press that travels. */
+      .lane[data-lane="clip"] .tick[data-verb="drag"] {
+        width: 16px;
+        height: 10px;
+        margin: -5px 0 0 -8px;
+        border-radius: 5px;
+      }
+      .lane[data-lane="clip"] .tick[data-verb="waitFor"] {
+        width: 9px;
+        height: 9px;
+        margin: -4.5px 0 0 -4.5px;
+        border-radius: 2px;
+        background: var(--tick-wait);
+        transform: rotate(45deg);
+      }
+      /* A beat placed from the take's own timestamp rather than a render's
+         marker: the whole mark at half strength. It was a diagonal hatch
+         until 2026-09-22, which at 12px drew as a few stray stripes and read
+         as a rendering fault rather than a state. */
+      .lane[data-lane="clip"] .tick[data-not-in-video] { opacity: .5; }
+      /* A cut step: the mark is hollow, because its frames are not in the
+         video. After the verb rules so it wins, like the hover flag below. */
+      .lane[data-lane="clip"] .tick[data-cut] {
+        background: transparent;
+        box-shadow: inset 0 0 0 2px var(--tick-input), 0 0 0 2px var(--tick-ring);
+      }
+      /* Ticks that resolve to ONE instant, fanned right so each stays
+         clickable. A cut collapses its whole run onto the seam — and the
+         surviving step the run closes on lands there too, on top, because
+         ticks are appended in beat order. Every tick carries the offset,
+         not just the cut ones, or the survivor still covers the first cut.
+         `-6px` is the base rule's own centring half-width. */
+      .lane[data-lane="clip"] .tick[data-stack-index] {
+        margin-left: calc(var(--tick-nudge, -6px) + var(--tick-stack, 0) * 7px);
+      }
+      /* The verb rules above set a `margin` SHORTHAND at class+attribute
+         specificity, so they re-set margin-left too and a plain `.tick`
+         stacking rule lost to them — measured: a scrollTo tick stayed at
+         -4px whatever its stack index, and sat on top of the cut beside it.
+         The two verbs with their own centring half-width restate it here. */
+      .lane[data-lane="clip"] .tick[data-verb="scrollTo"] { --tick-nudge: -4px; }
+      .lane[data-lane="clip"] .tick[data-verb="waitFor"] { --tick-nudge: -4.5px; }
+      .lane[data-lane="clip"] .tick[data-verb="drag"] { --tick-nudge: -8px; }
+      /* A hover the pixel check says changed nothing: its ring goes amber,
+         the colour the hover-check flag on the Clip glyph already uses for
+         "look at this". It was a dashed ring, which is not a style a 12px
+         circle can draw legibly. After the verb rules so it wins. */
+      .lane[data-lane="clip"] .tick[data-flag="unchangedHover"] { --tick-ring: var(--warn); }
+      .lane[data-lane="clip"] .tick[data-selected] { outline: 2px solid var(--ink); outline-offset: 3px; }
+      /* Each tick carries its step's icon (`timeline-view.ts`); the studio's
+         own sheet draws it, and this page keeps its shapes. */
+      .lane[data-lane="clip"] .tick svg { display: none; }
+      /* A block on its lane: the lane's fill, its ink, and the name of the
+         thing in semibold. `top`/`bottom: 0` rather than a 3px inset — the
+         track is the block's own height now (30px since 2026-10-07),
+         so an inset would draw a bed frame around every segment. */
+      .seg {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        border-radius: 6px;
+        background: var(--clip-fill);
+        /* The glyph colour edges the lighter fill: in light the fills are
+           tints a little paler than the bed's neighbours, and the lane's own
+           hue says whose block it is. */
+        box-shadow: inset 0 0 0 1px var(--glyph);
+        color: var(--clip-ink);
+        font-size: 12px;
+        font-weight: 600;
+        padding: 0 10px;
+        display: flex;
+        align-items: center;
+        /* Not clipped since 2026-09-22, so the edge handles' widened press
+           area (`::after`) reaches a few pixels past the ends. The label
+           clips itself (below). */
+        white-space: nowrap;
+        cursor: grab;
+      }
+      /* The block's label. A span rather than the segment's own text so it
+         can be ellipsised independently of the caps and ghosts that share
+         the box. */
+      .seg-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+      /* The take itself. Not draggable — its ends are the trim, and those
+         are the `[data-trim]` handles — so it does not take `.seg`'s grab
+         cursor, and its text is selected by neither. */
+      .seg[data-kind="clip"] { cursor: default; }
+      /* The clip's pieces (split tool, 2026-10-22; the mockup the author
+         approved). A clip in one piece is the one block it always was: the
+         piece is a clear hit area inside it. Split, the block hands its fill
+         to the pieces, each its own rounded block 2px from its neighbours
+         (as two touching zooms read), lit on its own under the pointer. */
+      .piece-wrap { position: absolute; top: 0; bottom: 0; }
+      .piece { position: absolute; inset: 0; padding: 0; border: 0; background: transparent; border-radius: 6px; cursor: pointer; z-index: 2; }
+      .piece-wrap[data-selected] .piece::before { content: ""; position: absolute; inset: 0; border: 2px solid var(--ink); border-radius: 6px; pointer-events: none; }
+      .seg[data-clip-block][data-pieces] { background: transparent; box-shadow: none; }
+      [data-pieces] > .piece-wrap > .piece { margin: 0 1px; }
+      [data-pieces] > .piece-wrap:first-child > .piece { margin-left: 0; }
+      [data-pieces] > .piece-wrap:last-child > .piece { margin-right: 0; }
+      [data-pieces] .piece { background: var(--clip-fill); }
+      [data-pieces] > .piece-wrap:is(:hover, :has(> .edge[data-dragging])) > .piece,
+      .track:has(> .handle[data-trim="head"]:is(:hover, [data-dragging])) [data-pieces] > .piece-wrap:first-child > .piece,
+      .track:has(> .handle[data-trim="tail"]:is(:hover, [data-dragging])) [data-pieces] > .piece-wrap:last-child > .piece { background: var(--clip-fill-hover, var(--clip-fill)); }
+      /* A piece's edge: the trim handle's bracket, just inside the piece's
+         end, its grab reaching inward so two touching pieces never share a
+         press. Shown under the pointer, on the selected piece, and held
+         while dragged, when it says by how much the piece grows or shrinks. */
+      .edge { position: absolute; top: 0; bottom: 0; width: 4px; background: var(--ink); cursor: ew-resize; touch-action: none; z-index: 3; opacity: 0; transition: opacity 120ms; }
+      .edge[data-edge="start"] { left: 0; border-radius: 3px 0 0 3px; }
+      .edge[data-edge="end"] { right: 0; border-radius: 0 3px 3px 0; }
+      [data-pieces] > .piece-wrap:not(:first-child) > .edge[data-edge="start"] { left: 1px; }
+      [data-pieces] > .piece-wrap:not(:last-child) > .edge[data-edge="end"] { right: 1px; }
+      .edge::after { content: ""; position: absolute; top: 0; bottom: 0; }
+      .edge[data-edge="start"]::after { left: -2px; right: -6px; }
+      .edge[data-edge="end"]::after { left: -6px; right: -2px; }
+      .piece-wrap:hover > .edge, .piece-wrap[data-selected] > .edge, .edge[data-dragging] { opacity: 1; }
+      .edge[data-readout]::before { content: attr(data-readout); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); padding: 2px 6px; border-radius: 5px; background: var(--card); box-shadow: 0 0 0 1px var(--line); color: var(--ink); font-family: var(--mono, ui-monospace, monospace); font-size: 11px; white-space: nowrap; pointer-events: none; }
+      /* The Clip lane lets its dots, its readout and a join's card out above
+         it; the other lanes still clip to their bed. */
+      .lane[data-lane="clip"] { margin-top: 14px; }
+      .track[data-track="clip"] { overflow: visible; }
+      /* Where a removed piece was: a line in the lane, a mark only, and a
+         dot above the lane, the one thing to click — so the lane's height
+         stays the handles'. Both take one `left` (timeline-view), so the dot
+         is always centred on its line. */
+      .seam { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--warn); opacity: 0.75; pointer-events: none; z-index: 5; }
+      .join { position: absolute; top: -14px; width: 16px; height: 16px; margin-left: -8px; padding: 0; border: 0; background: none; cursor: pointer; z-index: 6; display: grid; place-items: center; }
+      .join::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--bg); transition: transform 100ms; }
+      .join:is(:hover, :focus-visible, [aria-expanded="true"])::before { transform: scale(1.3); }
+      /* The card a dot opens: how much, from where to where, and Restore. */
+      .join-card { position: fixed; inset: auto; margin: 0; z-index: 30; display: flex; align-items: center; gap: 14px; width: max-content; padding: 10px 10px 10px 12px; border: 0; border-radius: 10px; background: var(--card); box-shadow: 0 0 0 1px var(--line), var(--shadow-overlay); color: var(--ink); cursor: default; overflow: visible; }
+      .join-card::after { content: ""; position: absolute; left: var(--arrow, 50%); bottom: -5px; width: 10px; height: 10px; margin-left: -5px; background: var(--card); transform: rotate(45deg); box-shadow: 1px 1px 0 0 var(--line); }
+      .join-card-what { display: grid; gap: 2px; max-width: 280px; }
+      .join-card-what b { font-weight: 500; font-size: 12.5px; }
+      .join-card-what span { font-family: var(--mono, ui-monospace, monospace); font-size: 11px; color: var(--ink-4, var(--ink-2)); font-variant-numeric: tabular-nums; }
+      .join-card-restore { font: inherit; font-size: 12.5px; font-weight: 500; border: 0; cursor: pointer; padding: 6px 12px; border-radius: 999px; background: var(--ink); color: var(--bg); }
+      .join-card-restore:hover { opacity: 0.9; }
+      .seg[data-timing="estimated"] { background-image: repeating-linear-gradient(45deg, transparent 0 4px, color-mix(in srgb, var(--clip-ink) 22%, transparent) 4px 8px); }
+      /* The scale reads in the middle of the zoom it belongs to — when
+         there is a middle to read it in. A zoom is `MIN_CLIP_FRACTION`
+         wide at its narrowest (0.6% of the track, ~5px), and even an
+         ordinary one draws ~25px at a full-take viewport, which is under
+         "1.8x" plus this rule's 20px of padding — so most zooms still show
+         the label from the left, and only a wide one centres it.
+
+         Plain `center`, not `safe center`: that was tried, and the padding
+         makes it moot. Half the label's worst-case overflow is under 10px,
+         so the side padding absorbs it and the text never runs off the
+         segment's own start edge whichever keyword is used. Masks stay
+         start-aligned — "mask · whole take" is long enough that centring
+         would never apply to them. */
+      .seg[data-kind="zoom"] { justify-content: center; }
+      .seg[data-outside-trim] { opacity: .35; }
+      .seg[data-clamped="true"] { box-shadow: inset 0 0 0 2px var(--warn); }
+      /* The selection ring: a 2px ink border just inside the block, on all
+         four sides. It was an `outline` until 2026-09-22, standing 3px off
+         every side — and `.track` clips at its own box, which a block
+         fills top to bottom, so the outline's top and bottom never drew:
+         what showed was its two sides, bulging 3px past the edge handles
+         once those moved inside the block's ends. Drawn inside, nothing
+         clips it, all four sides show, and the ends land on the handles. */
+      .seg[data-selected] { z-index: 1; }
+      .seg[data-selected]::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border: 2px solid var(--ink);
+        border-radius: 6px;
+        pointer-events: none;
+      }
+      /* The hover ghost: where a click on empty track would put a new segment. Out of the pointer's way, so the click beneath it still lands on the track. */
+      .seg[data-ghost] { opacity: .4; pointer-events: none; border: 1px dashed var(--clip-ink); }
+      /* A segment widened past its own span to stay clickable (`boxOf`'s
+         `minWidth`) still says so: without this a zoom-dependent lie never
+         reads as timing (spec, 2026-09-03), and `MIN_CLIP_FRACTION`'s
+         docblock promises exactly this marker. Carried over from the old
+         `.clip[data-to-scale="false"]::after` rule. */
+      .seg[data-to-scale="false"]::after { content: "·"; position: absolute; right: 1px; top: 0; opacity: .6; }
+      /* Every block's edge handle — the Clip lane's trim (`.handle`) and a
+         zoom's or mask's ends (`.cap`) — is one handle since 2026-09-22: a
+         4px ink bar just inside the block's end, flush with its edge. Until
+         then the Clip's bar was always drawn and a zoom's or mask's ends
+         drew nothing at all, only an `ew-resize` cursor over an invisible
+         strip. The bar was 8px straddling the edge for part of that day,
+         and `.track` clips at its own ends, so a full-length block — every
+         unedited take's Clip — showed only the inner half: thinner than a
+         trimmed one. Inside the edge, nothing can clip it. `::after` widens
+         what a press reaches to 10px without widening what is drawn — a
+         pseudo-element hit-tests as its element.
+
+         Hidden at rest and shown under the pointer: over the Clip lane, over
+         a zoom or mask, over the handle itself, and for the length of a drag
+         (`data-dragging`, set by `armDrag`) so an edge does not vanish when
+         the hand outruns its block. A selected zoom or mask shows its too —
+         the route to them on a touch screen, which has no hover — and with
+         no hover at all the Clip's trim stays drawn, since the Clip block
+         cannot be selected. Transparent is still pressable: the grab zone is
+         there before the bar fades in.
+
+         Below the beats (`.tick`, z-index 4), the way an NLE draws markers
+         over a clip's edge: stacked above them for part of 2026-09-22, which
+         hid the beat an author most often trims to. A beat is at most 14px
+         of the handle's 30px, so the handle is still grabbed above and below
+         it — `editor-shell-layout.test.ts` hit-tests both. */
+      .handle, .cap {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        border-radius: 2px;
+        background: var(--ink);
+        cursor: ew-resize;
+        touch-action: none;
+        z-index: 3;
+        opacity: 0;
+        transition: opacity 120ms;
+      }
+      .handle[data-trim="tail"] { margin-left: -4px; }
+      .cap[data-cap="start"] { left: 0; } .cap[data-cap="end"] { right: 0; }
+      .handle::after, .cap::after { content: ""; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px; }
+      /* Round on the outside, flat on the inside — a bracket closing over
+         the block's end, which is what makes it read as a handle rather
+         than a pill. Until 2026-09-22 all four corners were 3px. */
+      .handle[data-trim="head"], .cap[data-cap="start"] { border-radius: 3px 0 0 3px; }
+      .handle[data-trim="tail"], .cap[data-cap="end"] { border-radius: 0 3px 3px 0; }
+      [data-track="clip"]:not(:has(> .seg[data-pieces])):hover .handle,
+      /* Split, the trim belongs to the end pieces: each shows with its own
+         piece hovered or selected, not with the pointer anywhere on the
+         lane (the author, 2026-10-22). */
+      [data-track="clip"]:has([data-pieces] > .piece-wrap:first-child:is(:hover, [data-selected])) > .handle[data-trim="head"],
+      [data-track="clip"]:has([data-pieces] > .piece-wrap:last-child:is(:hover, [data-selected])) > .handle[data-trim="tail"],
+      .handle:hover,
+      .handle[data-dragging],
+      .seg:hover .cap,
+      .seg[data-selected] .cap,
+      .seg[data-dragging] .cap,
+      .cap[data-dragging] { opacity: 1; }
+      @media (hover: none) { .handle { opacity: 1; } }
+      /* What the playhead is allowed to cross: the ruler and the lanes, and
+         nothing else. `.axis` used to be positioned against `.timeline`
+         itself, so the playhead ran the full height of the block — up through
+         the Fit button above the ruler and down across the refusal line below
+         the last lane. */
+      .lanes { position: relative; }
+      /* The divider under the transport (2026-10-08). Without it the 8px of
+         bare card between the transport and the ruler read as slack rather
+         than a seam. It runs the timeline's full width — over the label
+         column too, not only the axis — so it is drawn on `.lanes` rather
+         than as the ruler's top border, which would have stopped at the
+         axis. A border on the ruler's row would have spanned the width but
+         pushed the ruler 1px below the axis it shares an origin with; this
+         takes no space. Its top is the axis's top, and it is the line the
+         playhead hangs from: `.grab` centres its knob on it. */
+      .lanes::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: var(--ring);
+        pointer-events: none;
+      }
+      /* The playhead's own column: over the lanes, inset by the same label
+         column, so `left: N%` here means the instant it means in a track. */
+      .axis { position: absolute; top: 0; bottom: 0; left: calc(var(--lane-label) + var(--lane-gap)); right: 0; pointer-events: none; }
+      .playhead {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: var(--playhead);
+        box-shadow: 0 0 8px color-mix(in srgb, var(--playhead) 60%, transparent);
+        pointer-events: none;
+        z-index: 2;
+      }
+      /* The playhead's grab handle. `.axis` is `pointer-events: none` so that
+         it never eats a click meant for a clip, which also made the playhead
+         itself the one thing on screen that looks draggable and could not be
+         grabbed. This is the exception, and the only one. */
+      /* Since 2026-09-22 the knob is an 11px circle drawn inside a 20px
+         transparent hit area. It was a 15px rounded square with a shield
+         bottom, which read heavy beside a 2px line; drawn smaller, it would
+         also have been a smaller target, so the box you grab stays larger
+         than the mark you see.
+
+         Since 2026-10-08 the knob's centre sits on the divider over the
+         ruler (`.lanes::before`). The line is the axis's top 1px, so its
+         middle is .5px down, and the circle's centre is `top` + 4.5 + 5.5:
+         hence -9.5px.
+         The circle then reaches 5px above the axis, its shadow 2px more —
+         into `.lane`'s 6px top margin and `#timeline`'s 2px top padding.
+         That padding sits inside the scroll container, where the
+         transport's old bottom margin did not, so the knob's shadow clears
+         its clip edge. */
+      .grab {
+        position: absolute;
+        top: -9.5px;
+        left: 50%;
+        margin-left: -10px;
+        width: 20px;
+        height: 20px;
+        cursor: ew-resize;
+        pointer-events: auto;
+        touch-action: none;
+      }
+      .grab::before {
+        content: "";
+        position: absolute;
+        top: 4.5px;
+        left: 4.5px;
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: var(--playhead);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+      }
+      .refusal { color: var(--warn); margin: 6px 0 0; font-size: 12px; }
+      /* Closed. `visibility: hidden`, not `display: none`: it stops the
+         contents painting over the stage exactly as `display` did, it takes
+         the panel out of the tab order and the accessibility tree just the
+         same — a closed panel must not be reachable — and unlike `display`
+         it can be delayed, which is what lets the panel stay on screen
+         while its column collapses under it. `display` cannot be
+         transitioned at all before `allow-discrete`, which is Chrome 117.
+
+         The delay is the transition's own duration, so the panel goes
+         invisible at the instant the column finishes closing; opening has
+         no delay, so it reappears as the column starts to grow. */
+      body[data-panel="closed"] aside {
+        visibility: hidden;
+        transition: visibility 0s var(--panel-ms);
+      }
+      /* There is deliberately no `prefers-reduced-motion` gate on the panel.
+         The same call `library/preview.ts` records for its flipbook, for the
+         same reason: that setting is aimed at decorative motion nobody asked
+         for, and this runs only when the author clicks the rail to open or
+         close the panel — it is the response to a press, not something the
+         page does on its own.
+
+         A gate was written here first and removed on 2026-09-20, and it
+         failed exactly the way the flipbook's did: with the setting on, the
+         panel snapped open and shut and looked precisely like a transition
+         that had never shipped. It cost four rounds of chasing the build
+         before a diagnostic said the computed `transition-property` was
+         `none`. The popup's `.shake` stays gated — that one is an
+         attention-grab the author did not ask for, which is the category
+         this preference is actually about. */
+      /* Two cards on the ground, the take's on the left and the actions on
+         the right; they wrap rather than overlap when the window is too
+         narrow for both on one line. */
+      header {
+        grid-area: head;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--seam);
+      }
+      .head-card {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        height: 48px;
+        padding: 0 8px;
+        box-sizing: border-box;
+        background: var(--card);
+        border-radius: var(--radius-float);
+        box-shadow: var(--float);
+      }
+      .head-take { flex: 0 1 auto; }
+      /* The actions card keeps the right-hand corner on a wrapped header
+         too. `space-between` puts a line's lone item at its START, so a
+         long name that wrapped the header sent Export to the bottom-left
+         (final review, 2026-10-07); an auto margin takes the free space
+         on whichever line the card lands on. Unwrapped it changes
+         nothing: the auto margin and `space-between` agree there. */
+      .head-card.actions { margin-left: auto; }
+      /* Quiet icons on the card: no pill until the pointer arrives. */
+      .head-card .btn-icon { background: transparent; color: var(--ink-muted); }
+      .head-card .btn-icon:not(:disabled):hover { background: var(--control); color: var(--ink); }
+      :where(.head-card .btn-icon) svg { width: 18px; height: 18px; }
+      .head-divider { flex: none; width: 1px; height: 20px; margin: 0 6px; background: var(--ring); }
+      .take-meta { flex: none; color: var(--ink-faint); font-size: 12px; white-space: nowrap; }
+      /* The line is the door to Take info (the author, 2026-10-19): a quiet
+         button that reads as the line it was until it is pointed at. */
+      button.take-meta {
+        anchor-name: --take-info;
+        border: 0;
+        margin: 0;
+        padding: 3px 6px;
+        border-radius: var(--radius);
+        background: transparent;
+        font: inherit;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      button.take-meta:hover,
+      button.take-meta[aria-expanded="true"] { background: var(--control); color: var(--ink); }
+      #export-open { height: 32px; padding: 0 14px; }
+      #export-open svg { width: 16px; height: 16px; }
+      /* Outfit at 16/700, the title weight. `field-sizing: content` lets the
+         field take its text's width up to 380px and ellipsise past it while
+         unfocused (Chrome 123+; on 116–122 it is simply the default width). */
+      #name {
+        font: 700 16px/1.2 "Outfit", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: -0.01em;
+        field-sizing: content;
+        min-width: 8ch;
+        max-width: 380px;
+        flex: 0 1 auto;
+        text-overflow: ellipsis;
+        padding: 4px 8px;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        background: transparent;
+        color: inherit;
+      }
+      #name:hover { border-color: var(--ring); }
+      #name:focus { outline: none; border-color: var(--accent); background: var(--control); }
+      /* One row: the clock at the left, the shuttle cluster centred, and
+         the picture's and the timeline's tools in one group on the right.
+         Wide, both side columns are equal and the cluster is centred;
+         narrow, each side keeps at least its content and the cluster gives
+         up centring before anything overlaps or clips.
+
+         Both floors are load-bearing. The right column is `minmax(
+         max-content, 1fr)` so the group is never squeezed. The left is
+         plain `1fr` — `minmax(auto, 1fr)` — so it is never narrower than
+         the clock in it (`#toolbar-clock`'s minimum is its unwrapped
+         text). Until the final review of 2026-10-07 the clock was out of
+         flow over a `minmax(0, 1fr)` column that held nothing, so the
+         right floor took every pixel the row lost out of the left, and
+         between about 820 and 880px of window the cluster slid under the
+         clock. `position: relative` is what the toolbar's error banner is
+         placed against.
+
+         Every item below pins its ROW as well as its column. Under CSS
+         Grid §8.5's sparse packing the placement cursor is shared and
+         never moves backwards, so an item whose column is behind the
+         cursor costs a NEW ROW: the media buttons once dropped onto a
+         second row underneath the tools that way, when `renderTransport`
+         appended them after the static group, and `align-items: center`
+         cannot save that. DOM order is clock, cluster, end group now, but
+         the pins keep the row from depending on it. */
+      #transport {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr auto minmax(max-content, 1fr);
+        align-items: center;
+        gap: 12px;
+        min-height: 44px;
+        /* No margin (2026-10-08). The room above and below the row is
+           `#dock`'s top padding and `#timeline`'s, which keep it centred
+           between the card's edge and the divider (see `#dock`). */
+        margin: 0;
+      }
+      /* `relative` for the rate badge, which is positioned against this box
+         so that showing it cannot move the controls off centre — the badge
+         is taken out of flow specifically so its own width never enters
+         this calculation. */
+      #transport .transport-controls { grid-column: 2; grid-row: 1; position: relative; display: flex; align-items: center; gap: 8px; }
+      /* `min-width: 0` is a guard for the wrapped row (below). There the
+         group spans all three columns, and a spanning item's minimum
+         contribution is shared out to the `1fr` (auto-minimum) columns it
+         crosses; at 0 it asks for nothing, so the clock alone sets its
+         column's floor. Today the group's own minimum — its widest single
+         control, since it wraps — is under either column's share at every
+         width measured, so removing it changes nothing yet; it keeps a
+         wider control from pulling the cluster off centre later. */
+      #transport .transport-end { grid-column: 3; grid-row: 1; justify-self: end; display: flex; align-items: center; gap: 4px; min-width: 0; }
+      #timeline-tools { display: flex; align-items: center; gap: 2px; }
+      #stage-tools { display: flex; align-items: center; gap: 6px; }
+      #stage-tools .stage-actions { display: flex; align-items: center; gap: 6px; }
+      /* The clock's own column, on the first row, so a wrapped row keeps
+         it beside the cluster rather than centring it between two. In
+         flow: its unwrapped width is the left column's floor (see
+         `#transport`). Tabular AND unwrapped: "0:03 / 0:12" broken after
+         the slash is a readout that changes shape as it counts — and a
+         wrappable clock would have a min-content of one word, which is
+         all the column would then reserve. */
+      #toolbar-clock { grid-column: 1; grid-row: 1; justify-self: start; }
+      /* Manrope with tabular digits since 2026-10-08, not `--font-mono`:
+         the ruler's labels right under it are the same face set the same
+         way, and a second face for one readout read as code. Tabular is
+         what keeps it from changing width as it counts — Manrope's `tnum`
+         gives "1:11 / 1:11" and "0:08 / 0:08" the same 61.27px.
+
+         `padding-left: 5px` is `.lane-head svg`'s padding: it starts the
+         first digit where the track headers' glyphs start, not at their
+         grey discs' outer edge. Measured to the ink: the glyphs' strokes
+         begin at 35.5-36px in a dock whose content starts at 30, and a
+         Manrope "0" 0.84px into its box, so the digit lands at ~35.8. */
+      #toolbar-clock .stage-clock {
+        display: flex;
+        align-items: center;
+        padding-left: 5px;
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+        white-space: nowrap;
+        color: var(--ink);
+      }
+      /* The chips' own rules (`#stage-tools .chip`) are further down,
+         after `.chip`, for the descending-specificity reason
+         `#stage-bar .chip` is. */
+      /* The shape switch at the chips' size, not the panel's roomier
+         segment (`shell.css`'s 6px 14px at 13px): it shares a row with
+         them, and at that size the end group outgrew its half of the row
+         at 1440px — 560px against a 558px share — which pulled the
+         shuttle cluster off centre, and at the 952px floor left the clock
+         touching the cluster. */
+      #stage-tools .segment { padding: 4px 10px; font-size: 12px; }
+      /* Out of flow, for the reason the floating row's banner is:
+         `#transport`'s height comes out of the space the picture and the
+         lanes share, and a banner in flow would take it exactly while an
+         error is showing.
+
+         BELOW the toolbar row, over the lanes — not above it. Hung above
+         (`bottom: 100%`, until fix round 1) it crossed the dock's 16px seam
+         and painted over the bottom of the stage: 7px for one line, 23px
+         for two, over the picture the spec keeps clear of controls. Below,
+         it stays inside the dock card. `z-index: 5` puts it over the
+         lanes' own layers, whose highest is the beats at 4; `--error-soft`
+         is opaque in both themes, so no lane shows through it. */
+      #stage-tools [data-stage-error] {
+        position: absolute;
+        right: 0;
+        top: 100%;
+        margin-top: 6px;
+        z-index: 5;
+        max-width: 360px;
+        padding: 6px 10px;
+        border-radius: var(--radius);
+        background: var(--error-soft);
+        color: var(--error);
+        font-size: 12px;
+      }
+      /* Both roots' banners: the reason, then a close button, because
+         over the lanes this one covers the Clip lane's tail handle for as
+         long as drawing keeps failing. `:not([hidden])`, or `display`
+         here would beat the attribute and paint an empty banner. */
+      [data-stage-error]:not([hidden]) { display: flex; align-items: flex-start; gap: 6px; }
+      .stage-error-text { flex: 1; min-width: 0; }
+      .stage-error-dismiss {
+        width: 20px;
+        height: 20px;
+        margin: -2px -6px -2px 0;
+        color: inherit;
+        background: transparent;
+      }
+      .stage-error-dismiss svg { width: 14px; height: 14px; }
+      /* Narrow dock: the right-hand group wraps under the transport, onto
+         a second row of its own, centred; the clock stays on the first,
+         at the left. One row needs the clock, the cluster, the group and
+         two 12px gaps — 94 + 196 + 496 + 24 = 810px as measured on
+         2026-10-07, with the ten-minute clock "10:00 / 12:00" — and it
+         wraps at an 830px dock, leaving room for a longer clock or a wider
+         face than this machine's. At the 952px floor the dock's content
+         box is 892px, so the three-column layout never wraps; the
+         stacked layouts wrap below 890px of window.
+
+         The threshold was 760px while the clock was out of flow and took
+         no width; reserving the clock's width moved it. A dock between the
+         two held a row too wide for it, and the group ran off the right.
+         "the toolbar's clock clears the shuttle cluster" measures both
+         sides of it, at 900 (one row) and 860 (wrapped). */
+      #dock { container: dock / inline-size; }
+      @container dock (max-width: 830px) {
+        #transport { grid-template-columns: 1fr auto 1fr; }
+        #transport .transport-end { grid-column: 1 / -1; grid-row: 2; justify-self: center; flex-wrap: wrap; justify-content: center; }
+      }
+      /* Snap, Fit and the magnifiers: glyph-only discs since 2026-09-22, when
+         the row's words went — "Snap", "Fit" and "Zoom" were labels on a row
+         whose other controls are all glyphs (`+ Mask` has since moved to the
+         Mask lane's header). 32px on the
+         control tone, circular like the transport's own discs; the name is
+         each button's `aria-label` and `title` (`toolButton`). */
+      .bar-controls .tool {
+        position: relative;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+      }
+      /* `+ Mask` sits on the Mask lane's header, in that lane's glyph colour,
+         so it reads as the lane's own control. */
+      .lane-title .lane-add { width: 22px; height: 22px; margin-left: auto; background: transparent; color: var(--lane-mask-glyph); }
+      .lane-title .lane-add:not(:disabled):hover { background: var(--control); }
+      /* `.lane-head svg` above is the header's glyph DISC (22px, 5px padding,
+         the track's grey, the lane's hue). The + is an svg inside the same
+         header, so it would be drawn as a second disc with 2px of plus in it
+         unless that is undone here. */
+      .lane-title .lane-add svg { width: 14px; height: 14px; padding: 0; border-radius: 0; background: none; color: inherit; }
+      /* Snap off: the disc's fill goes and the magnet drops to muted ink, so
+         on reads as the engaged button beside a bare glyph. Nothing painted
+         either state until 2026-09-22 — `aria-pressed` was set and no rule
+         read it. Not `--accent`: that is the transport's "this is running"
+         signal (see "spends the brand colour on three controls"), and snapping
+         is on nearly always, so a lit magnet would spend it all the time. */
+      .bar-controls .snap[aria-pressed="false"] { background: transparent; color: var(--ink-muted); }
+      /* Neutral at rest and lit under the pointer: no fill, no pill, just
+         the glyph in muted ink rather than full, so the filled Play button
+         beside them is unmistakably the primary one. The hover tint is the
+         only tone a resting control ever carries — the same one the rail's
+         entries use, so every icon-only control in the editor answers the
+         pointer the same way. 32px, the size the toolbar's other discs
+         (Snap, Fit) take, so the row reads as one set; Play is 36. */
+      #transport .transport-button {
+        background: transparent;
+        color: var(--ink-muted);
+        width: 32px;
+        height: 32px;
+        /* Circular, so the hover tint answers the round glyph it sits
+           under rather than boxing it. The shell's `.btn-icon` gives every
+           other icon button in the extension a rounded square; this row is
+           the transport, where every control reads as a disc. */
+        border-radius: 50%;
+      }
+      #transport .transport-button:not(:disabled):hover { background: var(--control); color: var(--ink); }
+      /* The control actually driving the picture, in the brand colour.
+         `--accent` for the same reason the readout uses it: #cdeb45 as ink
+         on this row is 1.35:1 in light. `view.ts` marks exactly one of the
+         three motion buttons `[data-active]` at a time, but only the two
+         shuttles take the colour from it — Play restates its own ink below,
+         because lime on its light disc would not read. The repeat toggle
+         carries it independently, because it reports a mode rather than a
+         direction. */
+      #transport .transport-button[data-active] { color: var(--accent); }
+      /* Play: a disc, and bigger than its neighbours, which is what makes
+         it the primary one. The disc is the shell's `--secondary` — the
+         theme's solid button, near-black in light and near-white in dark —
+         carrying `--secondary-ink`, so it is the one filled control in the
+         row. Size, shape and fill say "primary".
+
+         The glyph is `--secondary-ink` in EVERY state the disc has: at
+         rest, under the pointer, and while playing. The two rules above
+         would otherwise reach it — the generic hover's `--ink` out-ranks
+         this rule (three classes against two) and drew the glyph at about
+         1.2:1 on the hover disc in both themes, and the generic
+         `[data-active]` lit it lime while playing, about 1.15:1 on the
+         dark theme's #ececf1. So Play is the one transport control that
+         does not take the brand colour when it runs: "running" is the
+         play/pause glyph swap. Restated below for hover and for active,
+         after the generic rules so it wins the tie on specificity. */
+      #transport [data-transport-play] {
+        width: 36px;
+        height: 36px;
+        background: var(--secondary);
+        color: var(--secondary-ink);
+      }
+      #transport [data-transport-play][data-active] { color: var(--secondary-ink); }
+      #transport [data-transport-play]:not(:disabled):hover { background: var(--secondary-hover); color: var(--secondary-ink); }
+      #transport [data-transport-play]:disabled { background: var(--control); color: var(--ink-muted); }
+      /* The repeat toggle's lit dot, under the glyph — the reference
+         mockup's own marker, and a second channel for a state the accent
+         otherwise carries by hue alone. Laid out even while invisible, so
+         switching it on cannot change the button's box and shove the
+         cluster off the centre it is pinned to. */
+      #transport [data-transport-repeat] { position: relative; }
+      .transport-pip {
+        position: absolute;
+        bottom: 4px;
+        left: 50%;
+        width: 4px;
+        height: 4px;
+        margin-left: -2px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0;
+      }
+      #transport [data-transport-repeat][data-active] .transport-pip { opacity: 1; }
+      /* The zoom slider, at the right of the row with Snap, between a
+         zoom-out and a zoom-in magnifier. Those say what the slider does —
+         the word "Zoom" stood beside it until 2026-09-22 — and step it as
+         the − and + keys do. Bare glyphs rather than discs: they are the
+         slider's two ends, not controls of their own, so they sit in its
+         line in muted ink and take a tint only under the pointer. */
+      .zoom-control {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        height: 32px;
+        color: var(--ink-muted);
+      }
+      .bar-controls .zoom-step {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: transparent;
+        color: var(--ink-muted);
+      }
+      .bar-controls .zoom-step:not(:disabled):hover { background: var(--control); color: var(--ink); }
+      .zoom-control input[type="range"] { width: 120px; }
+      /* The one slider in the editor whose knob is always drawn. The
+         inspector's sliders hide theirs until the pointer arrives, because
+         each of those has a number beside it saying where it is set; this
+         one has no readout, so the knob IS the readout — and it moves on
+         its own when ⌘-scroll zooms the lanes. Hidden at rest it would
+         leave the row reporting nothing about the window it controls. */
+      .zoom-control input[type="range"]::-webkit-slider-thumb { opacity: 1; }
+      /* `:where` so this weighs (0,0,1) and does not outrank the plain
+         `svg` rules further down the sheet (`#stage-bar .btn-icon svg`),
+         which biome's `noDescendingSpecificity` reads as a cascade written
+         by accident.
+         It still beats the shell's own `.btn-icon svg`: this sheet is
+         unlayered and the shell sits in `@layer shell`, so layer order
+         decides that one before specificity is consulted. */
+      :where(#transport [data-transport-play]) svg { width: 16px; height: 16px; }
+      /* The status row's cards: the shell's card, with a rule at the left
+         in the colour of what they are. Inside the inspector the same
+         two classes are notes within a card, on the control tint. */
+      .notice, .banner {
+        padding: 10px 12px;
+        border-radius: var(--radius-card);
+        background: var(--card);
+        margin-bottom: var(--gap);
+        /* Body ink at body size: the shell's `.notice` is a muted footnote
+           inside a card, and without these the editor's — the page
+           speaking — took that voice too. */
+        color: var(--ink);
+        font-size: inherit;
+      }
+      .inspector .notice, .inspector .banner { background: var(--control); }
+      /* The rule above outranks shell.css's `.notice-error`, so a failed save
+         in this panel would lose the tint that says it failed. */
+      .inspector .notice-error { background: var(--error-soft); }
+      /* A reveal button never wraps; a file row's name may, and its size
+         stays whole beside it (ruling R20). */
+      .inspector .beat .btn-quiet, .inspector .notice .btn-quiet { flex: none; white-space: nowrap; }
+      .inspector .beat .nowrap { white-space: nowrap; }
+      .inspector .export-summary { font-weight: 600; font-variant-numeric: tabular-nums; margin: 0; }
+      .inspector .export-start { width: 100%; }
+      .inspector .export-progress { width: 100%; accent-color: var(--primary); }
+      .notice strong { display: block; margin-bottom: 4px; }
+      /* One note per line. `renderTakeNotes` appends a <span> per notice
+         into one `.notice` box, and a span in a plain block is inline — so
+         a take with two notes painted them as one run-on sentence with a
+         digit glued to a word ("debugger detached1 hover move changed
+         nothing on screen"), reported by the author on 2026-09-26 reading
+         their own take. The DOM was right the whole time; only the picture
+         was wrong. */
+      /* The notes list: one card per note, spaced. Replaces a rule that made
+         inline spans block-level inside one shared box — the box is gone. */
+      [data-take-notes] { display: flex; flex-direction: column; gap: 8px; }
+      /* The status row's cards carry a rule in the colour of what they are:
+         coral for a failure, muted for a note about the take. The failure
+         panel holds several notices; they sit side by side inside it. */
+      /* A bordered card on the popover's own tone, which is the shape every
+         notification list converges on. It carried `border-left: 3px solid
+         var(--ink-muted)` until 2026-09-26 — an accent rule doing the job a
+         border does, and reading as a quote block rather than a notice. The
+         tone step (`--card` on `--shell`) already separates the box; the
+         hairline is what makes it read as one. */
+      #notes .notice, #notes .banner {
+        margin-bottom: 0;
+        border: 1px solid var(--ring);
+        border-radius: var(--radius-card);
+        padding: 12px 14px;
+        font-size: 12.5px;
+      }
+      #notes .notice button { margin-top: 8px; }
+      #failure { display: flex; flex-direction: column; gap: 10px; }
+      /* Scoped under `#notes` like the muted rule above, or that rule's
+         id specificity keeps the rule at the left grey on a red card. */
+      #notes .notice[data-replay-failure], #notes .notice[data-render-error], #notes .notice[data-preview-error],
+      #notes .notice[data-hover-removal-error], #notes .notice[data-action-error] {
+        background: var(--error-soft);
+        border-left-color: var(--error);
+        color: var(--error);
+      }
+      .routes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+      .verb { font-variant: small-caps; color: var(--ink-muted); }
+      .chip {
+        font-size: 11px;
+        padding: 1px 8px;
+        border-radius: 999px;
+        background: var(--control-hover);
+      }
+      /* A lane reporting on itself: the Clip glyph's hover-check flag, an
+         amber dot on the disc's top-right corner. A dot rather than a line
+         of text under the name: the text lifted the Clip header off its
+         track's centre (see `hoverCheckFlag`), and the sentence it carried
+         is the status row's to say — this only sends the eye there, with
+         the same sentence as its tooltip. Ringed in `--card`, the dock's
+         own fill, so it reads as sitting on the disc rather than bitten out
+         of it. */
+      .lane-flag {
+        position: absolute;
+        top: -2px;
+        right: -2px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        border: 2px solid var(--card);
+        background: var(--warn);
+      }
+      /* A chip among the picture's controls. `shell.css` gives a bare
+         `select` the control tone and the standard radius; this rounds it
+         to a pill and drops the native arrow for a drawn one. After
+         `.chip`, for the
+         descending-specificity reason: `#stage-bar .chip` outweighs it.
+
+         Fix round 1 correction: this used to hard-code `background-color:
+         rgb(0 0 0 / 0.45)` and `color: #fff`, lifted straight from the
+         mockup (a dark-only design) with a comment claiming that "reads on
+         the well in both themes without needing a token per theme". That
+         was never checked against the painted result and was wrong to
+         assume — `#stage-bar` sits on `--stage-bed`, a KNOWN, themed
+         colour (not arbitrary video), so `--secondary`/`--secondary-ink`
+         works here exactly as it already did on the deleted
+         `.pill[aria-checked="true"]`: measured, `--secondary` on
+         `--stage-bed` was ~14.8:1 (light) / ~16.7:1 (dark) while the row
+         sat on that surface. It no longer does, and those figures no
+         longer describe anything — the rule below says what replaced
+         them and why a measured contrast ratio is not available against a
+         backdrop that changes every frame. */
+      /* THE ONE PLACE IN THIS SHEET THAT DOES NOT THEME, and the reason is
+         the backdrop rather than a preference.
+
+         Fix round 1 of the format-chip work replaced literals here with
+         `--secondary`/`--secondary-ink`, and that was right while the row
+         sat on `--stage-bed` — a known, themed surface. The row floats on
+         the VIDEO now, and a frame is arbitrary: it can be a white
+         document on one beat and a dark terminal on the next, in either
+         theme. No token pair survives that, because no token knows what
+         the picture underneath is doing.
+
+         So: a fixed dark scrim and fixed white ink, which is what every
+         player draws over footage for exactly this reason. It is legible
+         on a bright frame because the scrim is opaque enough to carry it,
+         and on a dark frame because the ink is white. The `backdrop-filter`
+         is what keeps it readable over a MID-tone frame, where a flat
+         scrim alone would not separate.
+
+         Do not re-tokenise this. The next reviewer to notice hard-coded
+         colour in a themed sheet should read this comment first — the
+         earlier retokenisation was correct for where the row was then, and
+         became wrong when the row moved onto the picture. */
+      #stage-bar .chip {
+        appearance: none;
+        padding: 3px 24px 3px 10px;
+        border-radius: 999px;
+        background-color: rgb(0 0 0 / 0.55);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 7px center;
+        background-size: 11px 11px;
+        backdrop-filter: blur(6px);
+        color: #fff;
+        font-size: 12px;
+      }
+      /* The native popup Chromium draws for `<option>` inherits the
+         `<select>`'s own `color` into its rows — confirmed as a real gap
+         in fix round 1: `#stage-bar .chip`'s `color` was `#fff` with no
+         `background-color` declared on the option itself, so the popup
+         painted white text on the OS popup's white background in light
+         mode, with nothing in this suite able to see it (the popup is not
+         in the document's layout, so no rect or `getComputedStyle` on the
+         page reaches it). Declared explicitly here so the option never
+         inherits its way into invisibility, independent of whatever the
+         closed chip is painted with. */
+      #stage-bar .chip option { color: var(--ink); background-color: var(--card); }
+      /* The full-screen chip reads as the same round, `--secondary` control
+         the format select is — `#stage-bar .chip` already gives it that
+         background, ink and radius — but it carries a glyph instead of a
+         value, so the select-only parts of that rule (the drawn dropdown
+         arrow and the padding that makes room for it) do not belong on it.
+         `#stage-bar .chip-icon` matches `#stage-bar .chip`'s own
+         specificity and comes after it, so these two properties win while
+         the rest of that rule still applies; `.btn-icon` (shell.css) sets
+         the square this sits inside — scoped down from its 32px default
+         further in this sheet, next to why. */
+      #stage-bar .chip-icon { padding: 0; background-image: none; }
+      /* The zoom chip reads a value too ("Fit" / "100%"), the same
+         way the format select does, but it is a `<button>` with plain
+         text rather than a `<select>` with an option list — so the
+         select's own dropdown arrow and the padding that makes room for it
+         are just as out of place here as they are on the full-screen chip,
+         and `chip-icon` is the wrong fix: that rule also zeroes the
+         padding entirely, which a glyph can afford and a word cannot.
+         Symmetric padding instead, at the same 3px top/bottom `.chip`
+         already sets, so the row's height is unmoved — the fullscreen
+         chip's own comment below is what that height is matched to. */
+      #stage-bar [data-stage-zoom] { padding: 3px 10px; background-image: none; }
+      /* On the card the chips are quiet controls, not scrims over footage:
+         the toolbar copy of the picture's controls sits on `--card`, a
+         known, themed surface, so it takes tokens where `#stage-bar`'s
+         copy above cannot. After `.chip`, which it outweighs. */
+      #stage-tools .chip {
+        appearance: none;
+        padding: 4px 10px;
+        border-radius: var(--radius);
+        background: transparent;
+        color: var(--ink-muted);
+        font-size: 12px;
+        font-weight: 600;
+      }
+      #stage-tools .chip:not(:disabled):hover { background: var(--control); color: var(--ink); }
+      #stage-tools .chip-icon { width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; }
+      #stage-tools .chip-icon svg { width: 16px; height: 16px; }
+      /* The one surface that keeps a depth cue. A popover floats over the
+         panel, which is `--card` too, so there is no tone step available
+         to separate them — without this it would read as part of the
+         content beneath it. Elevation, not a hairline. */
+      .popover { display: grid; gap: 8px; padding: 12px; border-radius: var(--radius-card); background: var(--card); box-shadow: var(--shadow-overlay); }
+      .muted { font-size: 12px; color: var(--ink-muted); }
+      .redacted { color: var(--warn); }
+      .honesty { font-size: 12px; color: var(--ink-muted); margin-top: var(--gap); }
+      /* The inspector: sections under headings, fields on the Settings
+         page's pattern. */
+      .inspector details[data-section] { margin-bottom: 14px; }
+      .inspector details[data-section] > summary {
+        cursor: pointer;
+        font-weight: 700;
+        font-size: 13px;
+        margin-bottom: 8px;
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .inspector details[data-section] > summary::-webkit-details-marker { display: none; }
+      /* The shell's chevron instead of the browser's triangle: a right
+         angle of two borders, turned to point right when closed and down
+         when open. */
+      .inspector details[data-section] > summary::before {
+        content: "";
+        flex: none;
+        width: 6px;
+        height: 6px;
+        border-right: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: rotate(-45deg);
+        transition: transform 120ms ease;
+      }
+      .inspector details[data-section][open] > summary::before { transform: rotate(45deg); }
+      .inspector a[data-runs-route] { color: var(--ink-muted); font-weight: 600; text-decoration: none; }
+      .inspector a[data-runs-route]:hover { color: var(--ink); text-decoration: underline; }
+      /* An exported output and a shareable one are both a label beside a
+         button. Without a rule they were two inline boxes touching, with the
+         file size running straight into "Download". */
+      .inspector .beat { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+      /* One treatment for every row label the inspector stacks, whichever
+         panel is open, so the eye can run down the column: Cursor's slider
+         names, switch names and Style heading, Background's two control
+         labels, and Export's output rows. Until 2026-09-21 those read at
+         14/500, 13/700, 13/600, 12/400-muted and 13/400 respectively — the
+         slider rows were restyled and everything beside them was left
+         behind.
+
+         What is deliberately NOT here: `details[data-section] > summary`,
+         which is a section title and keeps its own weight (asserted in
+         `editor-shell.test.ts` — at body weight it reads as a link), and
+         `.muted`, which is a hint rather than the name of a control. The
+         note under the colour swatch is the worked example: it stays 12px
+         and muted precisely so it does not read as a third field label.
+
+         Editor-scoped on purpose. `.switch-text strong` is
+         `assets/shell.css`'s, and `src/settings/view.ts` builds the same
+         markup for the popup and Settings, which keep their bold switch
+         labels — `settings-shell.test.ts` guards that boundary. Equal
+         specificity to the shell's rule and later in the cascade — this
+         page links that sheet at line 9 and opens its own `<style>` at
+         line 10 — so this wins without inflating the selector.
+
+         `font-weight: inherit` rather than a number: what these labels owe
+         the panel is to read like the text around them, and a literal here
+         would have to be chased if the shell's body weight ever moves. */
+      .control-label,
+      .cursor-label,
+      .switch-text strong,
+      .inspector .beat > span {
+        font-size: var(--row-label);
+        font-weight: inherit;
+        color: var(--ink);
+      }
+      /* The Cursor panel. `.switch`, `.switch-track` and `.switch-row` come
+         from assets/shell.css, which this page already links, and so do
+         every token below — the panel introduces no new ones. */
+      /* 12px above: the gap a slider row PAINTS between its label and its
+         track — `.slider-row`'s 6px row gap plus the 6px the range input
+         leaves above its centred 4px track. Until 2026-09-22 this was 4px,
+         and the buttons sat tight under "Style" beside rows that breathe. */
+      .cursor-styles {
+        display: flex;
+        gap: 0.5rem;
+        margin: 12px 0 0.75rem;
+      }
+      .cursor-style {
+        display: grid;
+        place-items: center;
+        width: 3.25rem;
+        height: 3.25rem;
+        padding: 0;
+        /* `--ring-strong`, not the shared `--ring`: measured against
+           `#inspector`'s own `--card`, an UNCHECKED button's `--ring`
+           border reads at 1.227:1 contrast in light — below this panel's
+           own 1.3 threshold in `editor-cursor-panel.test.ts` — while the
+           CHECKED button's `--accent` border always cleared it, so a test
+           that only ever sampled the checked (default) button passed while
+           two of the three buttons did not actually separate from the
+           panel. `--ring-strong` measures 1.604 (light) / 2.200 (dark) for
+           the same unchecked case, both comfortably above 1.3. This rule
+           is panel-local, so raising it here changes nothing else that
+           reads the shared `--ring` token. */
+        border: 1px solid var(--ring-strong);
+        border-radius: 50%;
+        background: var(--control);
+        cursor: pointer;
+      }
+      .cursor-style:hover:not(:disabled) {
+        background: var(--control-hover);
+      }
+      .cursor-style[aria-checked="true"] {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+      .cursor-style:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .cursor-label {
+        margin-top: 0.5rem;
+      }
+      /* The Camera heading opens a second group after the pointer's last
+         row, so it sits a row's gap further down than Style does under
+         Hide cursor: at 0.5rem (8px painted — the switch row has no
+         margin) it read as a label for the switch above it. 20px above
+         against the 12px below binds it to the rows it heads. */
+      .camera-label {
+        margin-top: calc(0.5rem + 12px);
+      }
+      /* One slider row, shared by the Cursor panel's Size and Motion blur
+         and by the Zoom panel's Level, so the inspector has one slider
+         layout rather than two: the name on its own line with the readout
+         flush to the far end, and the track spanning both columns beneath
+         them. Until 2026-09-21 all three sat on one flex line with the
+         readout in a `.chip` pill; `.chip` still belongs to the lane
+         labels and the anchor-health chip, which are still pills.
+
+         `tabular-nums` is not decoration here. `cursorSlider` rewrites the
+         readout on every `pointermove`, so proportional digits would
+         change its width — and with it the right edge the eye is tracking
+         — under the author's own hand, mid-drag.
+
+         The track's UA `margin: 2px` has to go, or "flush with the far
+         end" is off by two at both ends. */
+      /* The one row every inspector panel is built from: a label on its own
+         line, an optional readout or aside flush to the far end, and the
+         control spanning both columns beneath. `.slider-row` is the same
+         row holding a range input, whose 16px box paints its 4px track
+         6px in — so its row gap is 6px to paint the same 12px as the
+         others. `.control-actions` is a row of buttons.
+
+         Every panel uses these rather than spacing its own blocks: that is
+         the whole of the consistency, and `inspector-rhythm.test.ts`
+         refuses a control outside one.
+
+         `tabular-nums` is not decoration. `cursorSlider` rewrites the
+         readout on every `pointermove`, so proportional digits would
+         change its width — and with it the right edge the eye is tracking
+         — under the author's own hand, mid-drag. */
+      .control-row,
+      .slider-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: baseline;
+        column-gap: 8px;
+        row-gap: var(--row-gap);
+        margin: var(--row-gap) 0;
+      }
+      .slider-row { row-gap: calc(var(--row-gap) / 2); }
+      .control-row > :not(.control-label):not(.control-aside),
+      .slider-row > input[type="range"] {
+        grid-column: 1 / -1;
+        min-width: 0;
+        margin: 0;
+      }
+      .slider-row > .slider-label { font-size: var(--row-label); }
+      .control-aside,
+      .slider-row > .slider-value {
+        font-size: var(--row-label);
+        color: var(--ink-muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .control-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        margin: var(--row-gap) 0;
+      }
+      /* A control and the words that finish it on one line: "400 ms". */
+      .control-inline {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      /* A panel's information lines — an aim, a range, a warning — on the
+         same rhythm as its rows. */
+      .beat-panel > div, .zoom-panel > div, .mask-panel > div { margin: var(--row-gap) 0; }
+      .beat-panel h2 .verb { font-size: 11px; }
+      /* Wide enough for its own placeholder, "recorded". */
+      .beat-panel [data-gap] { width: 8.5em; font-variant-numeric: tabular-nums; }
+      /* Scripts toggle this, so every component rule that sets `display` on
+         an element that can carry it is written `:not(.hidden)` — a bare
+         `#develop [data-preroll]` (0,1,1) beat this (0,1,0) and kept the
+         countdown box open after the run had started, above a Cancel that
+         no longer did anything. The layout test pins each of them. Repeated
+         from the shell on purpose: the rules above set `display` at the
+         same specificity and this sheet is unlayered, so the shell's own
+         `.hidden` would lose to them. */
+      .hidden { display: none; }
+
+      /* The transport's shuttle readout. Beside the button that is running
+         — left of rewind, right of fast-forward — and OUT OF FLOW, because
+         the controls are pinned to the toolbar's centre column and a badge that
+         took width would slide them sideways every time the speed changed.
+         `hidden` below 2x, so ordinary playback looks exactly as it did.
+
+         `--accent`, not `--primary`: the brand lime is #cdeb45, which is
+         1.35:1 on the card this row sits on and would be a readout nobody
+         can read in the light theme. `--accent` is that same brand green
+         resolved for ink — dark in light, lime in dark. */
+      .rate {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+        color: var(--accent);
+        pointer-events: none;
+      }
+      .rate[data-side="back"] { right: 100%; margin-right: 5px; }
+      .rate[data-side="forward"] { left: 100%; margin-left: 5px; }
+      .rate[hidden] { display: none; }
+
+      /* The ? list: the inspector's Keyboard shortcuts panel (the author,
+         2026-10-19: one inspector, one way to close). A modal over a scrim,
+         then a panel of its own down the right edge, before that. */
+      .shortcuts-search {
+        display: block;
+        box-sizing: border-box;
+        width: 100%;
+        height: 32px;
+        margin: 0 0 6px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: var(--radius);
+        background: var(--control);
+        color: var(--ink);
+        font: inherit;
+        font-size: 13px;
+      }
+      .shortcuts-section[hidden], .shortcuts-row[hidden] { display: none; }
+      .shortcuts-group {
+        margin: 0;
+        padding: 12px 0 4px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--ink-faint);
+      }
+      /* What it does on the left, its keys right-aligned: the author comes
+         looking for an action, and the eye no longer crosses a gap. */
+      .shortcuts-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 32px;
+        margin: 0 -8px;
+        padding: 0 8px;
+        border-radius: var(--radius);
+        font-size: 13px;
+      }
+      .shortcuts-row:hover { background: var(--control); }
+      .shortcuts-what { min-width: 0; color: var(--ink); }
+      .shortcuts-keys { flex: none; display: flex; align-items: center; gap: 6px; }
+      /* A chord never wraps and never squashes: adjacency is the only thing
+         saying "held together". */
+      .keychord {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        white-space: nowrap;
+        flex: 0 0 auto;
+      }
+      /* Regular weight at 12px: the bold caps beside bold letters were what
+         made ⌘ ⇧ ⌫ read as smudges (2026-09-19). */
+      .keycap {
+        display: inline-grid;
+        place-items: center;
+        box-sizing: border-box;
+        min-width: 22px;
+        height: 22px;
+        padding: 0 6px;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 1;
+        color: var(--ink-muted);
+        background: var(--control);
+        border: 0;
+        border-radius: 5px;
+      }
+      .keycap[data-symbol] { font-family: system-ui, -apple-system, sans-serif; font-size: 14px; }
+      .shortcuts-empty { margin: 0; padding: 12px 0; color: var(--ink-muted); font-size: 13px; }
+      .shortcuts-empty[hidden] { display: none; }
+      /* The ? button reads as pressed while its panel is the open one, as
+         Export's does (`renderShortcutsDoor`). */
+      #shortcuts-open[aria-pressed="true"] { background: var(--control); color: var(--ink); }
+
+      /* The page's one tooltip (`tooltip.ts`): a control's name and its key
+         as caps. Takes no pointer events, so it is never in the way of the
+         click it describes; placed by script below its control. */
+      .tooltip {
+        position: fixed;
+        z-index: 60;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 5px 4px 9px;
+        border-radius: var(--radius);
+        background: var(--card);
+        box-shadow: var(--shadow-overlay);
+        color: var(--ink);
+        font-size: 12px;
+        line-height: 1;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .tooltip[hidden] { display: none; }
+      .tooltip-keys { display: inline-flex; gap: 3px; }
+      .tooltip .keycap { min-width: 20px; height: 20px; padding: 0 5px; font-size: 11px; }
+      .tooltip .keycap[data-symbol] { font-size: 13px; }
+
+      /* `.btn-icon` (shell.css) is 32px square — sized for the header,
+         where the row has room to spare. `#stage-bar` is the full-screen
+         row floating on the picture, and its controls are the chips' height
+         (12px text over `#stage-bar .chip`'s 3px of vertical padding, ~22px), so the full-screen
+         button matches the chips beside it rather than standing 10px
+         taller than the row it sits in. The size was first set when this
+         row was an `auto`-height row in `#stage`'s grid, where a 32px
+         control took the difference straight out of the video (at 920x560
+         `#preview` fell to 145.98px against a 150px floor); the row is out
+         of flow now, so that cost is gone and the match is what remains. Placed at the end of
+         the sheet, after every other `svg`-descendant rule, so this more
+         specific selector does not trip `noDescendingSpecificity` against
+         one written before it. */
+      #stage-bar .btn-icon { width: 22px; height: 22px; }
+      #stage-bar .btn-icon svg { width: 14px; height: 14px; }
+
+
+      /* Take info, under its button (last in the sheet: its ID-scoped
+         rules outrank the panel's own, and lint holds rules ascending): one list of what the take is, its id,
+         and its exports. */
+      #take-info {
+        position-anchor: --take-info;
+        position-area: bottom span-right;
+        inset: auto;
+        margin: 8px 0 0;
+        width: min(380px, calc(100vw - 32px));
+        max-height: min(70vh, 560px);
+        overflow: auto;
+        box-sizing: border-box;
+        padding: 4px 0;
+        border: 0;
+        border-radius: var(--radius-card);
+        background: var(--shell);
+        color: var(--ink);
+        box-shadow: var(--shadow-overlay);
+        font-size: 13px;
+      }
+      #take-info:popover-open { display: flex; flex-direction: column; }
+      #take-info .info-group { padding: 4px 0; }
+      #take-info .info-group + .info-group { border-top: 1px solid var(--ring); }
+      #take-info .info-row {
+        display: grid;
+        grid-template-columns: 84px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        min-height: 30px;
+        padding: 0 10px 0 14px;
+      }
+      #take-info .info-key { color: var(--ink-muted); }
+      #take-info .info-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #take-info .info-value.mono { font-family: var(--font-mono); font-size: 12px; color: var(--ink-muted); }
+      #take-info .info-copy { width: 26px; height: 26px; padding: 0; }
+      #take-info .info-copy svg { width: 14px; height: 14px; }
+      #take-info .info-error { padding: 0 14px 6px; color: var(--error); font-size: 12px; }
+      #take-info .info-label { padding: 6px 14px 4px; color: var(--ink-muted); font-size: 12px; }
+      #take-info .info-history { display: flex; flex-direction: column; }
+      #take-info .output { display: flex; flex-direction: column; gap: 4px; padding: 10px 10px 10px 14px; }
+      #take-info .output + .output { border-top: 1px solid var(--ring); }
+      #take-info .beat { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      #take-info .beat .btn-quiet, #take-info .notice .btn-quiet { flex: none; white-space: nowrap; }
+      #take-info .beat .nowrap { white-space: nowrap; }
+      #take-info .notice { margin: 0; background: var(--control); font-size: 12.5px; }
+      #take-info [data-history-all] { align-self: stretch; justify-content: center; margin: 4px 10px 8px 14px; }
+      #take-info a[data-runs-route] { color: var(--ink-muted); font-weight: 600; text-decoration: none; }
+      #take-info a[data-runs-route]:hover { color: var(--ink); text-decoration: underline; }
+      /* A history row: the name and its chip, the way to the file, then one
+         quiet line of its size and time. */
+      #take-info .output-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+      #take-info .output-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #take-info .chip {
+        flex: none;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: var(--control);
+        color: var(--ink-muted);
+        font-size: 11px;
+        line-height: 16px;
+      }
+      #take-info .output-meta { font-variant-numeric: tabular-nums; }
+      /* The warnings chip is a button that unfolds them under the row: the
+         chip's look, the warn hue, a pointer. */
+      #take-info button.chip { border: 0; font-family: inherit; cursor: pointer; }
+      #take-info .chip-warn { color: var(--warn); }
+      #take-info button.chip:hover { color: var(--ink); }
+      #take-info .output-warnings { display: flex; flex-direction: column; gap: 4px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <!-- The take: the way out, its name, what it is, and the one
+           destructive act on it. Delete sits beside the name it acts on and
+           away from Export — the author ruled out hiding it in a menu
+           (2026-10-06). -->
+      <div class="head-card head-take">
+        <!-- Where the shell's lockup used to be. The editor is the one page
+             reached FROM another of ours rather than from the toolbar, so the
+             slot that identifies the extension everywhere else is worth more
+             here as the way out of it — and the page it returns to carries
+             the lockup itself. `renderHeaderIcons` fills in the glyph.
+
+             It navigates rather than calling `history.back()`: the editor is
+             the first page in its tab whenever the popup or a finished
+             recording opened it, and `history.back()` there does nothing at
+             all, silently. One named destination behaves the same from every
+             door. -->
+        <button id="back" class="btn btn-quiet btn-icon" type="button"></button>
+        <input id="name" aria-label="Demo name" />
+        <!-- The take's length and size, and the door to Take info: what
+             the take is, its id, and its exports (`take-info.ts`; the
+             author, 2026-10-19). -->
+        <button id="take-meta" class="take-meta" type="button"
+                popovertarget="take-info" aria-label="Take info"
+                aria-expanded="false"></button>
+        <span class="head-divider" aria-hidden="true"></span>
+        <button id="delete" class="btn btn-quiet btn-icon btn-danger" type="button"></button>
+      </div>
+      <!-- The actions. `.actions` is kept as the class because the notes
+           button's rules key on it. Export is the editor's primary act and
+           the door to its panel (`renderExportDoor`); it is last, the
+           corner a primary action lives in. -->
+      <div class="head-card actions">
+        <!-- The affordance that makes the shortcuts overlay findable at
+             all. In the header beside the other persistent controls, and
+             shaped like them: it used to float `position: fixed` over the
+             bottom-right corner, which put it on the timeline's lanes at
+             any width where the shell drops to one column — measured at
+             777px² of overlap at the 800px floor. `renderHeaderIcons` fills
+             in the glyph.
+
+             First in the row, ahead of undo: it is the one control here
+             that does not act on the demo, so it reads as a lead-in to the
+             two that do rather than a tail on the end of them. -->
+        <!-- The take's notes, behind one button: `renderNotesButton`
+             counts what `#notes` holds and colours this by the worst of
+             it, and hides it when there is nothing to say. -->
+        <button id="notes-open" class="btn btn-quiet btn-icon btn-notes hidden"
+                type="button" popovertarget="notes"></button>
+        <button id="shortcuts-open" class="btn btn-quiet btn-icon"
+                type="button"></button>
+        <button id="undo" class="btn btn-quiet btn-icon" type="button"></button>
+        <button id="redo" class="btn btn-quiet btn-icon" type="button"></button>
+        <span class="head-divider" aria-hidden="true"></span>
+        <button id="export-open" class="btn btn-primary" type="button"
+                data-rail="export" title="Export"></button>
+      </div>
+    </header>
+    <!-- The status row: the one place a card stays in the page's flow. Its
+         resident was `#develop`, the rebuild's countdown and Cancel, which
+         left with the rebuild on 2026-09-28; empty, it takes no room. -->
+    <div id="status"></div>
+    <!-- The take-wide cards, in a popover off `#notes-open` rather than a
+         row across the page. As a row they pushed the whole editor down by
+         their own height, so the layout an author was judging changed with
+         every message. The cards themselves are unchanged — only where
+         they are drawn moved, and the button says how many there are and
+         how bad the worst one is. -->
+    <div id="take-info" popover role="dialog" aria-label="Take info"></div>
+    <div id="notes" popover role="dialog" aria-label="Notes on this take">
+      <div id="banner"></div>
+      <div id="failure"></div>
+      <!-- The take's own warnings — the notices `buildLaneModel` collects
+           and the hover pass's verdict. Both were drawn inside the dock
+           until 2026-09-22; see `renderTakeNotes` for why they are here
+           with the editor's other take-wide cards instead. -->
+      <div id="take-notes"></div>
+    </div>
+    <main>
+      <div id="stage">
+        <div id="stage-box">
+          <!-- The canvas's drawn box, as an element. `stage-overlay.ts`'s
+               `drawnBox` derives its scale from the element box, so making
+               that box match the bitmap's ratio leaves its arithmetic
+               correct at any zoom — and `#stage-overlay` at `inset: 0` in
+               HERE rather than in `#stage-box` is the whole mechanism.
+               Positioned for that reason, and for no other. -->
+          <div id="stage-frame">
+            <canvas id="preview"></canvas>
+            <div id="stage-overlay"></div>
+          </div>
+        </div>
+        <div id="stage-bar"></div>
+      </div>
+    </main>
+    <!-- The timeline's card. `#dock` exists because `renderTimeline` calls
+         `replaceChildren` on `#timeline`: the transport cannot be a sibling
+         inside it without being destroyed on the next render, so the card
+         treatment lives here and `#timeline` stays the lanes. `#insert` is
+         the popover parked over those lanes and moves with them.
+
+         DOM order is `main` -> `#dock` -> `#rail` -> `aside`, which is the
+         Tab order: the picture, the timeline, the rail, then the panel the
+         rail opens. The rail lived inside `#stage` from 2026-09-21 to
+         2026-10-07, floating on the picture and read before the timeline;
+         as a card in its own track it is back between the dock and the
+         panel, where it reads next to what it opens. -->
+    <section id="dock">
+      <!-- The timeline toolbar, three groups on one row: the picture's
+           clock at the left edge, the shuttle cluster centred, and the
+           picture's and the timeline's tools together on the right. The
+           static markup is the clock's slot and the right-hand group; both
+           survive `renderTransport`'s build-once guard, which inserts the
+           shuttle cluster between them rather than replacing the row. That
+           puts the DOM — and so the Tab order — in the order the row is
+           read: clock, cluster, tools. -->
+      <div id="transport">
+        <!-- The picture's clock, in a column of its own. `renderStageBar`
+             draws it here rather than into `#stage-tools` (main.ts passes
+             this as the clock's root), so the grid reserves its width: it
+             was out of flow over an empty column until the final review of
+             2026-10-07, and the cluster slid under it. -->
+        <div id="toolbar-clock"></div>
+        <!-- The row's right-hand group: the picture's own controls
+             (`renderStageBar`'s toolbar root) and the timeline's view
+             tools. One flex group so it can wrap as a unit under the
+             transport when the dock is narrow. -->
+        <div class="transport-end">
+          <div id="stage-tools"></div>
+          <span class="head-divider" aria-hidden="true"></span>
+          <div id="timeline-tools"></div>
+        </div>
+      </div>
+      <div id="timeline"></div>
+    </section>
+    <!-- The rail: a grid item in a track of its own, between the stage and
+         the panel — not on the picture, and not part of the
+         panel's card. Placed by `grid-area: rail`, so where it sits in the
+         markup decides only its reading order, which puts it after the
+         timeline and immediately before the panel it opens. -->
+    <nav id="rail" aria-label="Editor panels"></nav>
+    <aside id="inspector"></aside>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

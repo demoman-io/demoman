@@ -1,0 +1,46 @@
+<!doctype html>
+<!-- The positive control for device emulation (spec 2026-10-10 §7). Its only
+     job is to read differently as a phone than as a desktop: every test that
+     uses it asserts the desktop reads the opposite, so a fixture that stopped
+     telling them apart turns those tests red rather than green. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Device fixture</title>
+<style>
+  body { margin: 0; font: 16px/1.4 sans-serif; }
+  #nav-row { display: flex; gap: 16px; padding: 16px; }
+  #hamburger { display: none; width: 48px; height: 48px; margin: 16px; }
+  @media (max-width: 599px) {
+    #nav-row { display: none; }
+    #hamburger { display: block; }
+  }
+  #touch-only { display: block; width: 200px; height: 64px; margin: 16px; }
+  #touched { padding: 16px; }
+</style>
+</head>
+<body>
+  <nav id="nav-row"><a id="nav-home" href="/home">Home</a><a id="nav-pricing" href="/pricing">Pricing</a></nav>
+  <button id="hamburger" type="button" aria-label="Menu">☰</button>
+  <button id="touch-only" type="button">Touch only</button>
+  <div id="touched">untouched</div>
+  <script>
+    window.__device = {
+      coarse: matchMedia("(pointer: coarse)").matches,
+      noHover: matchMedia("(hover: none)").matches,
+      width: innerWidth,
+      ua: navigator.userAgent,
+      uaDataMobile: navigator.userAgentData ? navigator.userAgentData.mobile : null,
+      touchTapped: false,
+    };
+    // Only a touch fires this: a mouse click on the same button does nothing,
+    // which is what makes "the run tapped" checkable from the page itself.
+    document.getElementById("touch-only").addEventListener("touchstart", () => {
+      window.__device.touchTapped = true;
+      document.getElementById("touched").textContent = "touched";
+      document.body.style.background = "#111827";
+    });
+  </script>
+</body>
+</html>

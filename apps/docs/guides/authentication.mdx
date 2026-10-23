@@ -1,0 +1,47 @@
+---
+title: "Authentication"
+description: "Record an app that needs you signed in."
+---
+
+For an app behind a login, sign in once yourself:
+
+```bash
+npx demoman signin https://app.example.com
+```
+
+That is the way for a real account, single sign-on and two-factor.
+
+Demoman's browser keeps the session. It is a fresh profile, signed in only
+where you ran `signin`.
+
+## Demo accounts
+
+For an app you run locally, the agent creates a demo account and its data,
+writes the sign-in steps to `.demoman/accounts.json` (commit it) and the
+password to `.demoman/secrets.env` (git-ignored), and Demoman signs in by
+itself, whenever a session is missing or has lapsed.
+
+<Warning>
+  Only demo accounts: the agent never asks for your own password.
+</Warning>
+
+## In CI
+
+Set each `DEMOMAN_SECRET_<NAME>` from the provider's secrets, with
+`DEMOMAN_SECRET_<NAME>_ORIGIN` naming the one site it may be typed on.
+Check the account with:
+
+```bash
+DEMOMAN_SECRET_SELLER_PASSWORD_ORIGIN=https://staging.example.com \
+  npx demoman signin --account seller
+```
+
+`--account` takes the account's name from `.demoman/accounts.json`.
+`--site` picks the site when an account covers more than one, and
+`--project` names the folder that holds `.demoman`.
+
+<Note>
+  On your own machine, keep secrets in `.demoman/secrets.env`, not your
+  shell: an agent may pass Demoman only part of its environment, as
+  Codex does, so a variable exported in your shell may never reach it.
+</Note>

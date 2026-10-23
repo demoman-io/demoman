@@ -1,0 +1,17 @@
+{
+  "scriptVersion": 1,
+  "name": "Tremor — Usage overview",
+  "target": "http://localhost:4301/overview",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "hover", "on": { "text": "Storage" } },
+    { "do": "hover", "on": { "text": "Current costs" } },
+    { "do": "scrollTo", "on": { "text": "Support calls" } },
+    { "do": "hover", "on": { "text": "Sign ups" } },
+    { "do": "click", "on": { "role": "link", "name": "Details" } },
+    { "do": "waitForLoad" },
+    { "do": "waitFor", "on": { "text": "Owner" }, "until": "visible" },
+    { "do": "hover", "on": { "text": "Owner" } },
+    { "do": "pause", "ms": 800 }
+  ]
+}

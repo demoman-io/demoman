@@ -1,0 +1,106 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Demoman",
+  "colors": {
+    "primary": "#5f7a00",
+    "light": "#cdeb45",
+    "dark": "#4d6600"
+  },
+  "background": {
+    "color": {
+      "dark": "#0a0a0a"
+    }
+  },
+  "fonts": {
+    "family": "Geist"
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "https://demoman.io"
+  },
+  "favicon": "/favicon.png",
+  "navbar": {
+    "links": [
+      {
+        "label": "demoman.io",
+        "href": "https://demoman.io"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "npx demoman setup",
+      "href": "/quickstart"
+    }
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting started",
+        "pages": [
+          "index",
+          "quickstart",
+          "agents"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/prompts",
+          "guides/authentication",
+          "guides/phone-and-tablet",
+          "guides/export",
+          "guides/pull-requests"
+        ]
+      },
+      {
+        "group": "CLI",
+        "pages": [
+          "cli/commands"
+        ]
+      },
+      {
+        "group": "Studio",
+        "pages": [
+          "studio/overview",
+          "studio/editing"
+        ]
+      },
+      {
+        "group": "Security & privacy",
+        "pages": [
+          "security/data",
+          "security/privacy"
+        ]
+      },
+      {
+        "group": "Resources",
+        "pages": [
+          "resources/troubleshooting",
+          "resources/changelog",
+          "resources/license"
+        ]
+      }
+    ]
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "cursor",
+      "vscode"
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/demoman-io"
+    }
+  },
+  "description": "Demoman is a screen recorder for your coding agent. Describe what you want to show and your agent records it in a real browser, handing you back a finished product video with cursor smoothing, zooms and framing already done.",
+  "icons": {
+    "library": "lucide"
+  }
+}

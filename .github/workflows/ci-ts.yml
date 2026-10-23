@@ -1,0 +1,130 @@
+name: CI (TypeScript)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - "brand/**"
+      - "apps/runner/**"
+      - "apps/mcp/**"
+      - "apps/studio/**"
+      - "apps/cli/**"
+      - "scripts/**"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - "biome.json"
+      - "tsconfig.base.json"
+      - ".github/workflows/ci-ts.yml"
+      - ".github/actions/**"
+  pull_request:
+    paths:
+      - "packages/**"
+      - "brand/**"
+      - "apps/runner/**"
+      - "apps/mcp/**"
+      - "apps/studio/**"
+      - "apps/cli/**"
+      - "scripts/**"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - "biome.json"
+      - "tsconfig.base.json"
+      - ".github/workflows/ci-ts.yml"
+      - ".github/actions/**"
+
+# A newer push to a pull request replaces the run in flight: nobody reads
+# the result of a commit that is no longer its head. Not on main: there each
+# commit keeps its own verdict, so a quick second push cannot hide that the
+# first one broke it (review, 2026-10-17).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Every job runs the full tier: CI is the gate `pnpm test:fast` never is
+# (scripts/test-tier.mjs).
+env:
+  DEMOMAN_TEST_TIER: full
+
+# One machine per heavy lane. Until 2026-10-17 this was one job, its steps
+# in series: the runner's headless 4K renders and the studio's real export
+# had to run apart from the (since archived) extension's browser windows,
+# because on one runner they raced the same CPU at its ~5x. It also meant
+# the runner and studio steps were skipped whenever the extension step
+# failed, which was every run from 2026-10-08 to 2026-10-17. Here each job
+# has its own machine, and a red one does not hide the others.
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          build: "false"
+      - run: pnpm exec biome ci .
+      - run: pnpm -r build
+      # After the build, never before: the apps resolve @demoman/* types
+      # from their gitignored dist/, so a typecheck on an unbuilt tree fails
+      # on missing modules rather than on anything real.
+      #
+      # Whole-repo: every workspace defines `typecheck`, and the root script
+      # is `pnpm -r --if-present typecheck`. Each package checks `src` +
+      # `test` + `scripts` through its own tsconfig.check.json, because the
+      # build tsconfig includes `src` alone and widening it would emit test
+      # files into dist/.
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: The root scripts' own tests
+        run: node --test 'scripts/*.test.mjs'
+      - name: Generated JSON Schema is up to date
+        run: |
+          pnpm --filter @demoman/scene-schema gen-schema
+          git diff --exit-code packages/scene-schema/schema.gen.json
+
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          browser: "true"
+      # One package at a time, as test:heavy runs them locally: since
+      # 2026-10-20 replay-engine's integration lane and run-core's browser
+      # lane (from the archived extension's job) sit here beside the
+      # compositor's and resolver's, all launching a real Chromium, and side
+      # by side they would race for the CPU as the studio's lane did below.
+      - name: Tests (every package but the runner and the studio)
+        run: pnpm -r --workspace-concurrency=1 --filter '!@demoman/runner' --filter '!@demoman/studio' test
+      # After the others, not beside them: its browser lane
+      # (test/browser/studio-edit-export.test.ts) drives a real Chrome
+      # through a real render and export, and under -r it raced the other
+      # packages' browser lanes for the same CPU at this runner's 5x.
+      - name: Tests (the studio)
+        run: pnpm --filter @demoman/studio test
+      # The pages' browser lane writes a screenshot for each failed case;
+      # without this they die with the runner and a red run arrives
+      # without them.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-pages-failure-screenshots
+          path: apps/studio/test/pages/browser/__screenshots__/
+          if-no-files-found: ignore
+
+  runner:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          browser: "true"
+      # vitest's --shard splits the lane's files across the three jobs,
+      # each file in exactly one of them.
+      - name: Tests (the runner, shard ${{ matrix.shard }} of 3)
+        run: pnpm --filter @demoman/runner test --shard=${{ matrix.shard }}/3

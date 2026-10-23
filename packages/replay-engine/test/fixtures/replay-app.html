@@ -1,0 +1,121 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>replay fixture</title>
+<style>
+  body { font: 16px system-ui; margin: 0; padding: 24px; background: #f7f7fb; }
+  button { font: inherit; padding: 12px 20px; border: 0; border-radius: 8px;
+           background: #3b5bdb; color: #fff; }
+  /*
+    60ms delay + 300ms fade = 360ms from the moment the cursor enters the
+    button until the tooltip is fully opaque. Tuned, and the numbers are
+    measured rather than picked: the injected path's own tail keeps the
+    cursor inside #hover-btn for 84ms before it ends, and the keyframe is
+    taken ~84ms after the settle elapses. So without a settle the keyframe
+    is taken ~168ms after hover starts, a third of the way through the fade,
+    and with SETTLE_MS=300 at ~468ms, ~110ms after it finished. The settle is
+    load-bearing in both directions. At the 150ms this fixture once carried,
+    the fade finished during the path and the settle proved nothing.
+
+    Retuned 2026-09-29. It was 150ms + 300ms against a measured 217ms tail,
+    but that tail came from a cursor path that ran at about half its planned
+    speed: each step slept 8ms after Chrome answered its move. Paced to the
+    plan the tail is 84ms, and a 450ms fade finished 18ms before the
+    keyframe, which is inside the gap between a style finishing and the
+    frame that paints it.
+
+    It also matches what the settle is for: SP1 §5 measured a tooltip landing
+    ~275ms after the injected path arrives, and 360 - 84 is 276ms after
+    arrival here.
+  */
+  #tooltip { position: fixed; top: 120px; left: 24px; padding: 8px 12px;
+             background: #111; color: #fff; border-radius: 6px;
+             opacity: 0; transition: opacity 300ms ease 60ms; }
+  #hover-btn:hover ~ #tooltip { opacity: 1; }
+  #panel { height: 0; overflow: hidden; background: #fff; border-radius: 12px;
+           transition: height 800ms ease; }
+  #panel.open { height: 240px; }
+  #tall { height: 2400px; }
+  #gap { height: 260px; }
+  #deep, #named-frame { display: block; width: 300px; height: 120px; border: 0; margin-top: 16px; }
+</style>
+<button type="button" id="static-btn">Static</button>
+<button type="button" id="animate-btn">Open panel</button>
+<button type="button" id="hover-btn">Hover me</button>
+<div id="tooltip">Tooltip</div>
+<input id="field" />
+<div id="panel"></div>
+<!--
+  Two iframes, because the frame-name comparison has two halves and they are
+  not the same case.
+
+  #deep carries an id and NO name attribute, which is how iframes are usually
+  written. Capture records the name as "" (it reads the attribute); Chrome's
+  Page.getFrameTree reports frame.name as "deep", falling back to the id. That
+  disagreement used to fail every id-only iframe closed — the mainstream case
+  — so this is the fixture's realistic frame and its hop records name="".
+
+  #named carries a real name attribute, where the two sides do agree. It is
+  here as the control: the name is still corroborated strictly wherever
+  capture genuinely observed one, and a fixture with only #deep could not tell
+  "empty means no claim" from "the name is never checked".
+-->
+<iframe title="deep frame" id="deep" srcdoc="<button type='button' id='inner-btn' onclick='window.__innerClicked = true' style='width:100%;height:100%'>Inner</button>"></iframe>
+<iframe title="named frame" id="named-frame" name="paybox" srcdoc="<button type='button' id='named-btn' onclick='window.__namedClicked = true' style='width:100%;height:100%'>Named</button>"></iframe>
+<!--
+  #mid-btn sits low in the viewport but fully inside it. That is the only
+  position that can tell `block: "nearest"` from `block: "center"`: an
+  element near the top cannot be centred (the page is already at scroll 0 and
+  centring it would mean scrolling up), so a test that used one would pass
+  under either and prove nothing about the correction staying a correction.
+-->
+<div id="gap"></div>
+<button type="button" id="mid-btn">Mid</button>
+<!--
+  #low-btn sits *below* the spacer, not inside it: it has to start genuinely
+  off-screen for the scroll-into-view test to mean anything. The engine
+  corrects the scroll before dispatching, because box-model quads are
+  viewport-relative and a click at an off-screen y lands on whatever is at
+  that coordinate instead.
+-->
+<div id="tall"></div>
+<button type="button" id="low-btn">Down here</button>
+<!--
+  The third and fourth iframes exist to make *document* order and *attach*
+  order disagree, which is the one thing that separates the ordinal capture
+  assigns (`querySelectorAll("iframe")`, document order) from the order
+  `Page.getFrameTree` hands back (attach order).
+
+  #mount is filled by the script below, so #late-frame is the third iframe in
+  document order and the *last* one to attach. #static-frame is written here,
+  so it is fourth in document order and third to attach. Both carry an id, no
+  name and no src, so both of a hop's corroboration signals are "no claim" for
+  either of them — the exact case where the ordinal is all that is left. A
+  JS-mounted frame is the mainstream case rather than a contrivance:
+  `watchForLateFrames` exists in the sensor for precisely it.
+
+  They sit at the bottom of the document, below #low-btn, so that nothing
+  above them moves: #mid-btn has to stay low-but-inside the viewport and
+  #low-btn genuinely below it, and both are positions other tests read.
+  Neither new frame is ever ordinal 1 or 2, so the frame tests above keep the
+  frames they were written against.
+-->
+<div id="mount"></div>
+<iframe title="static frame" id="static-frame" srcdoc="<button type='button' id='static-inner-btn' onclick='window.__staticFrameClicked = true' style='width:100%;height:100%'>Static frame</button>"></iframe>
+<script>
+  // Mounted from script, so it attaches after #static-frame while sitting
+  // *before* it in the document. See the comment above the two frames.
+  {
+    const late = document.createElement("iframe");
+    late.id = "late-frame";
+    late.title = "late frame";
+    late.srcdoc =
+      "<button type='button' id='late-inner-btn' onclick='window.__lateFrameClicked = true' style='width:100%;height:100%'>Late</button>";
+    document.querySelector("#mount").append(late);
+  }
+
+  window.__clicks = [];
+  document.addEventListener("click", (e) => {
+    window.__clicks.push(e.target.id);
+    if (e.target.id === "animate-btn") document.querySelector("#panel").classList.add("open");
+  });
+</script>

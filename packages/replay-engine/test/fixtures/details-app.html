@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FAQ</title>
+<!--
+  The shape the agent door's proving run waited on: an FAQ row that is a
+  closed <details>. Its answer is not shown, and Chrome 151+ still lays it
+  out a box (::details-content is content-visibility: hidden), so a
+  rect-based check reads it as on screen. `#open-faq` is open, the control
+  that says a visible answer still reads as visible.
+-->
+<style>
+  html, body { margin: 0; font: 18px/1.4 system-ui, sans-serif; }
+  main { padding: 40px; width: 640px; }
+  details { border-bottom: 1px solid #ccc; padding: 12px 0; }
+  summary { cursor: pointer; font-weight: 600; }
+  p { margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <details id="faq">
+    <summary id="faq-q">How do customers pay me?</summary>
+    <p id="answer">By card, Apple Pay, Google Pay, or Link through Stripe at checkout.</p>
+  </details>
+  <details id="open-faq" open>
+    <summary id="open-q">Are there platform fees?</summary>
+    <p id="open-answer">No. You keep what you charge, less Stripe's own fee.</p>
+  </details>
+</main>
+</body>
+</html>

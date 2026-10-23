@@ -1,0 +1,20 @@
+{
+  // Unlike every other package's check config, this one does NOT extend
+  // ./tsconfig.json — that config hard-sets rootDir: "src" for the build,
+  // and inheriting it (even without overriding the line) still rejects any
+  // file outside src with TS6059. A later task's test imports a file from
+  // packages/compositor/scripts/, outside apps/runner entirely, so no
+  // rootDir value fixed under apps/runner (not even ".") can accommodate
+  // it. Extending tsconfig.base.json directly instead means rootDir is
+  // never set anywhere in this config's chain, so tsc infers it from the
+  // actual set of files in the program. noEmit: true and declaration: false
+  // mean rootDir's only other job — shaping dist's output layout — does not
+  // apply here either.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "types": ["node"]
+  },
+  "include": ["src", "test"]
+}
