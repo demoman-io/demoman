@@ -13,10 +13,11 @@ macOS, Node 20 or later, and Claude Code, Codex or Cursor:
 
     npx demoman setup
 
-Setup downloads Chromium (about 190 MB) and connects Demoman to each coding
-agent it finds, pre-approving its tools so they run without asking. Restart
-the agent, then ask for a demo — for example, "make a demo of
-demoman.io/sample".
+Setup asks which agents to connect, the export quality and whether pull
+requests get a demo, then downloads Chromium (about 190 MB) and connects
+Demoman, pre-approving its tools so they run without asking. Restart the
+agent, then in your app's repo ask for a demo — for example, "make a demo of
+the feature we just built".
 
 Another MCP client is expected to work, not yet run: give it this stdio
 server.

@@ -26,24 +26,22 @@ takes two more steps: see [Agents](/agents).
     npx demoman setup
     ```
 
-    Setup downloads Chromium (about 190 MB) and connects Demoman to each
-    coding agent it finds, pre-approving its tools so they run without asking.
+    Setup asks which agents to connect, the export quality and whether pull
+    requests get a demo, then downloads Chromium (about 190 MB) and connects
+    Demoman, pre-approving its tools so they run without asking.
   </Step>
   <Step title="Restart your agent">
     Quit and reopen it, so it loads Demoman's tools.
   </Step>
   <Step title="Ask for a demo">
+    In your app's repo:
+
     ```text
-    make a demo of demoman.io/sample
+    make a demo of the feature we just built
     ```
 
     Your agent drives Demoman's browser out of sight, and the video lands in
     `~/Downloads`.
-  </Step>
-  <Step title="Now try your own app">
-    ```text
-    make a demo of the new checkout flow
-    ```
   </Step>
 </Steps>
 
