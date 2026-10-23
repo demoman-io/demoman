@@ -65,14 +65,14 @@ describe("runCaptured", () => {
     expect(r.error).toBeUndefined();
   });
 
-  it("reaches setup's words as a stalled step, not a hang", () => {
+  it("reaches setup's words as a stalled step, not a hang", async () => {
     const lines: string[] = [];
     const stalled = runCaptured(
       process.execPath,
       ["-e", "setTimeout(() => {}, 30000)"],
       300,
     );
-    const code = setup({
+    const code = await setup({
       platform: "darwin",
       nodeVersion: "v22.3.0",
       version: "0.2.0",
@@ -95,6 +95,7 @@ describe("runCaptured", () => {
       readText: () => ({ missing: true }),
       writeText: () => ({ ok: true }),
       say: (l) => void lines.push(l),
+      ask: null,
     });
     expect(code).toBe(1);
     expect(lines.join("\n")).toContain("had not finished after 0.3 s");

@@ -243,5 +243,6 @@ export function realSetupDeps(version: string, distDir: string): SetupDeps {
     readText: readTextFile,
     writeText: writeTextFile,
     say: (line) => void process.stdout.write(`${line}\n`),
+    ask: null,
   };
 }

@@ -257,7 +257,7 @@ switch (command) {
       );
       process.exit(1);
     }
-    process.exit(setup(deps));
+    process.exit(await setup(deps, flags));
     break;
   }
   case "signin": {

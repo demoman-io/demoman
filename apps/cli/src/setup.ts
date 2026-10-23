@@ -76,7 +76,18 @@ export interface SetupDeps {
   /** Through a symlink, keeping the file's mode; a new file is 0600. */
   writeText(path: string, text: string): { ok: true } | { error: string };
   say(line: string): void;
+  /** Asks every question at once; null when there is no terminal to ask
+   *  in, and then nothing is asked. */
+  ask: ((q: Questions) => Promise<Answers | "cancelled">) | null;
 }
+
+/** A present key is a question to ask; its value is what is preselected. */
+export interface Questions {
+  /** The agents setup found, all preselected. */
+  agents?: AgentName[];
+}
+/** The same keys, answered. */
+export type Answers = Questions;
 
 const MIN_NODE = 20;
 const failed = (r: Ran): boolean =>
@@ -157,8 +168,9 @@ export type AgentName = "Claude Code" | "Codex" | "Cursor";
 /** wired: Demoman works and its tools run without asking. partial: it
  *  works, with a limit said beside the fix — its tools will ask, or one of
  *  the agent's surfaces (Cursor's CLI beside its app) cannot use it.
- *  failed: the agent cannot see or run Demoman. absent: not installed. */
-export type AgentState = "wired" | "partial" | "failed" | "absent";
+ *  failed: the agent cannot see or run Demoman. absent: not installed.
+ *  skipped: left as it was, because it was not chosen. */
+export type AgentState = "wired" | "partial" | "failed" | "absent" | "skipped";
 export interface AgentResult {
   agent: AgentName;
   state: AgentState;
@@ -534,9 +546,12 @@ function duplicates(d: SetupDeps): void {
   }
 }
 
-export function setup(d: SetupDeps): number {
+export async function setup(
+  d: SetupDeps,
+  flags: SetupFlags = {},
+): Promise<number> {
   try {
-    return steps(d);
+    return await steps(d, flags);
   } catch (error) {
     // A throw from a real command's adapter: said in setup's own words,
     // not as a stack trace, and never as Done.
@@ -678,6 +693,31 @@ const codex: Wire = (d) => {
   );
   return result("partial");
 };
+/** Where the Cursor app may be installed. */
+const cursorApps = (d: SetupDeps): string[] => [
+  "/Applications/Cursor.app",
+  `${d.home}/Applications/Cursor.app`,
+];
+/** The commands that may be Cursor's agent CLI. */
+const cursorClis = (d: SetupDeps): string[] => [
+  "agent",
+  `${d.home}/.local/bin/agent`,
+  "cursor-agent",
+];
+
+/** The agents on this machine, found without changing anything: the
+ *  ones setup offers to connect. */
+export function foundAgents(d: SetupDeps): AgentName[] {
+  const there = (command: string) => !d.run(command, ["--version"]).notFound;
+  return [
+    ...(there("claude") ? (["Claude Code"] as const) : []),
+    ...(there("codex") ? (["Codex"] as const) : []),
+    ...(cursorApps(d).some((p) => d.exists(p)) || cursorClis(d).some(there)
+      ? (["Cursor"] as const)
+      : []),
+  ];
+}
+
 /** Every tool of the demoman server, in the CLI's permission syntax
  *  (cursor.com/docs/cli/reference/permissions documents the wildcard). */
 export const CURSOR_ALLOW_RULE = "Mcp(demoman:*)";
@@ -691,17 +731,14 @@ const cursor: Wire = (d) => {
     state,
   });
   const again = `run \`npx ${PACKAGE_NAME}@${d.version} setup\` again`;
-  const app = [
-    "/Applications/Cursor.app",
-    `${d.home}/Applications/Cursor.app`,
-  ].some((p) => d.exists(p));
+  const app = cursorApps(d).some((p) => d.exists(p));
   // `agent` is a generic name: only one that answers with Cursor's dated
   // version is Cursor's. The other two are usually Cursor's, so one that is
   // there but does not answer is said, not taken for absence; it fails
   // Cursor only when there is no app to wire instead.
   let cli: string | null = null;
   let odd: string | null = null;
-  for (const c of ["agent", `${d.home}/.local/bin/agent`, "cursor-agent"]) {
+  for (const c of cursorClis(d)) {
     const r = d.run(c, ["--version"]);
     if (r.notFound) continue;
     if (!failed(r) && /^\d{4}\.\d{2}\.\d{2}/.test(r.stdout.trim())) {
@@ -836,21 +873,68 @@ const listed = (names: string[]): string =>
     ? names.join("")
     : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 
-function steps(d: SetupDeps): number {
+async function steps(d: SetupDeps, flags: SetupFlags): Promise<number> {
   const refusal = platformRefusal(d.platform, d.nodeVersion);
   if (refusal !== null) {
     d.say(`Demoman setup stopped: ${refusal}.`);
     return 1;
   }
   d.say(`Demoman ${d.version} setup`);
+  // Every question before any change, so a cancel changes nothing.
+  const questions: Questions = {};
+  const found =
+    d.ask !== null && flags.agents === undefined ? foundAgents(d) : [];
+  if (found.length > 0) questions.agents = found;
+  let answers: Answers = {};
+  if (d.ask !== null && Object.keys(questions).length > 0) {
+    const got = await d.ask(questions);
+    if (got === "cancelled") {
+      d.say("Setup cancelled; nothing was changed.");
+      return 1;
+    }
+    answers = got;
+  }
+  const chosen = flags.agents ?? answers.agents;
+  // Not chosen: an agent left off --agents, or one offered and unticked.
+  // One never offered is wired as today, to say it is not installed.
+  const skip = (agent: AgentName): boolean =>
+    chosen !== undefined &&
+    !chosen.includes(agent) &&
+    (flags.agents !== undefined || found.includes(agent));
+
   if (!browser(d)) return 1;
-  const results = [claudeCode, codex, cursor].map((wire) => wire(d));
+  const wires: Array<[AgentName, Wire]> = [
+    ["Claude Code", claudeCode],
+    ["Codex", codex],
+    ["Cursor", cursor],
+  ];
+  const results = wires.map(([agent, wire]): AgentResult => {
+    if (!skip(agent)) {
+      const r = wire(d);
+      // Named in --agents: not installed is a failure, not a pass.
+      return r.state === "absent" && flags.agents?.includes(agent)
+        ? { agent, state: "failed" }
+        : r;
+    }
+    d.say(`${agent}: not connected (not chosen)`);
+    return { agent, state: "skipped" };
+  });
   const usable = results
     .filter((r) => r.state === "wired" || r.state === "partial")
     .map((r) => r.agent);
   const failed = results
     .filter((r) => r.state === "failed")
     .map((r) => r.agent);
+  if (
+    usable.length === 0 &&
+    failed.length === 0 &&
+    results.some((r) => r.state === "skipped")
+  ) {
+    d.say(
+      `\nDone. No agent was connected; run \`npx ${PACKAGE_NAME}@${d.version} setup\` again to connect one.`,
+    );
+    return 0;
+  }
   if (usable.length === 0 && failed.length === 0) {
     d.say(
       `\nNo coding agent was found. Demoman works with Claude Code, Codex and Cursor: install one and run \`npx ${PACKAGE_NAME}@${d.version} setup\` again, or connect another MCP client with the block in the README (https://www.npmjs.com/package/${PACKAGE_NAME}).`,
@@ -865,7 +949,10 @@ function steps(d: SetupDeps): number {
     return 1;
   }
   d.say(
-    `\nDone. Restart ${listed(usable)}, then ask for a demo, for example: "make a demo of demoman.io/sample".`,
+    `\nDone. Restart ${listed(usable)}, then in your app's repo ask for a demo, for example: "make a demo of the feature we just built".`,
+  );
+  d.say(
+    `If your app needs a login, sign in once with \`npx ${PACKAGE_NAME} signin <url>\`.`,
   );
   return 0;
 }
