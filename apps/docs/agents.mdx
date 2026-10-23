@@ -1,9 +1,9 @@
 ---
 title: "Agents"
-description: "Setup connects Claude Code, Codex and Cursor. Any other MCP agent takes two steps."
+description: "Setup connects Claude Code, Codex, Cursor and OpenCode. Any other MCP agent takes two steps."
 ---
 
-## Claude Code, Codex and Cursor
+## Claude Code, Codex, Cursor and OpenCode
 
 ```bash
 npx demoman setup
@@ -16,12 +16,16 @@ Setup connects every one of these it finds on your Mac:
 | Claude Code | the Demoman plugin |
 | Codex | the Demoman plugin |
 | Cursor | an entry in `~/.cursor/mcp.json`, and the `record-demo` skill |
+| OpenCode | an entry in `~/.config/opencode/opencode.json`, and the `record-demo` skill |
 
-Demoman's tools then run without asking, and setup says so for each agent.
+Demoman's tools then run without asking. Setup pre-approves them in Claude
+Code, Codex and Cursor and says so; OpenCode needs no approval unless its own
+settings ask for one.
 Restart the agent before your first demo.
 
-Demoman then updates itself in each agent. For Cursor, run setup again after
-removing the Node that ran it: Cursor's entry names that Node's `npx`.
+Demoman then updates itself in each agent. For Cursor and OpenCode, run setup
+again after removing the Node that ran it: their entries name that Node's
+`npx`.
 
 ## Any other agent
 
@@ -40,28 +44,9 @@ removing the Node that ran it: Cursor's entry names that Node's `npx`.
   </Step>
 </Steps>
 
-Then restart the agent. OpenCode has made a video this way; the others are
-expected to work, not yet run.
+Then restart the agent. These are expected to work, not yet run.
 
 <Tabs>
-  <Tab title="OpenCode">
-    In `~/.config/opencode/opencode.json`:
-
-    ```json
-    {
-      "mcp": {
-        "servers": {
-          "demoman": {
-            "type": "local",
-            "command": ["npx", "-y", "demoman@latest", "mcp"]
-          }
-        }
-      }
-    }
-    ```
-
-    Skills folder: `~/.config/opencode/skills`
-  </Tab>
   <Tab title="Pi">
     ```bash
     pi mcp add demoman -- npx -y demoman@latest mcp

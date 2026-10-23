@@ -183,8 +183,8 @@ describe("version pins", () => {
     expect(blocks.length).toBeGreaterThan(0);
     expect(new Set(blocks)).toEqual(new Set(["demoman@latest"]));
     const connect = readDocs("agents.mdx");
-    // OpenCode, Pi, Kimi Code, Hermes, DeepSeek dsh, Other
-    expect(connect.match(/demoman@/g)?.length ?? 0).toBeGreaterThanOrEqual(6);
+    // Pi, Kimi Code, Hermes, DeepSeek dsh, Other
+    expect(connect.match(/demoman@/g)?.length ?? 0).toBeGreaterThanOrEqual(5);
   });
   it("the License page links this version's files", () => {
     const license = pins("resources/license");
@@ -197,7 +197,6 @@ describe("the paste-in blocks moved, not lost", () => {
   it("gives each agent setup does not reach a tab, and the skill once", () => {
     const connect = readDocs("agents.mdx");
     for (const a of [
-      "OpenCode",
       "Pi",
       "Kimi Code",
       "Hermes",
@@ -217,6 +216,7 @@ describe("the paste-in blocks moved, not lost", () => {
       ["Claude Code", "the Demoman plugin"],
       ["Codex", "the Demoman plugin"],
       ["Cursor", "`~/.cursor/mcp.json`"],
+      ["OpenCode", "`~/.config/opencode/opencode.json`"],
     ] as const)
       expect(connect, agent).toMatch(
         new RegExp(

@@ -34,9 +34,9 @@ macOS and Node 20 or later:
 
     npx demoman setup
 
-Setup downloads Chromium and connects Demoman to Claude Code, Codex and
-Cursor, whichever it finds. Restart the agent, then ask it to make a demo.
-For OpenCode or another MCP client, see
+Setup downloads Chromium and connects Demoman to Claude Code, Codex, Cursor
+and OpenCode, whichever it finds. Restart the agent, then ask it to make a
+demo. For another MCP client, see
 [Connect your agent](https://demoman.io/docs/agents). Demoman is in public
 beta.
 

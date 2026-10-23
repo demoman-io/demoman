@@ -9,7 +9,7 @@ and saves the video to `~/Downloads`.
 
 ## Install
 
-macOS, Node 20 or later, and Claude Code, Codex or Cursor:
+macOS, Node 20 or later, and Claude Code, Codex, Cursor or OpenCode:
 
     npx demoman setup
 

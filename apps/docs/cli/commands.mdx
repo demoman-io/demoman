@@ -9,8 +9,8 @@ description: "Every demoman command, its flags, and the environment variables it
 npx demoman setup
 ```
 
-Downloads Chromium (about 190 MB) and connects Demoman to Claude Code, Codex
-and Cursor. See [Agents](/agents). In a terminal it first asks which agents to
+Downloads Chromium (about 190 MB) and connects Demoman to Claude Code, Codex,
+Cursor and OpenCode. See [Agents](/agents). In a terminal it first asks which agents to
 connect, the export quality and the pull-request setting; run it again to
 change them. A flag answers its question, so it is not asked; without a
 terminal (a script, CI) nothing is asked.
@@ -18,7 +18,7 @@ terminal (a script, CI) nothing is asked.
 | Flag | |
 | --- | --- |
 | `--yes` | Asks nothing and keeps the current settings, as without a terminal; agents run setup this way |
-| `--agents <list>` | The agents to connect, comma-separated: `claude`, `codex`, `cursor` |
+| `--agents <list>` | The agents to connect, comma-separated: `claude`, `codex`, `cursor`, `opencode` |
 | `--quality <quality>` | Export quality: `share`, `high` or `full` |
 | `--pull-requests <value>` | Pull-request videos: `off`, `ask` or `attach` |
 

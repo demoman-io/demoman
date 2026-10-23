@@ -29,6 +29,9 @@ import {
   type Edit,
   isOurSkill,
   marketplaceAutoUpdate,
+  opencodeDir,
+  opencodeEntry,
+  opencodeServer,
 } from "./configs.js";
 import {
   MARKETPLACE_NAME,
@@ -180,7 +183,7 @@ function browser(d: SetupDeps): boolean {
   return true;
 }
 
-export type AgentName = "Claude Code" | "Codex" | "Cursor";
+export type AgentName = "Claude Code" | "Codex" | "Cursor" | "OpenCode";
 /** wired: Demoman works and its tools run without asking. partial: it
  *  works, with a limit said beside the fix — its tools will ask, or one of
  *  the agent's surfaces (Cursor's CLI beside its app) cannot use it.
@@ -198,6 +201,7 @@ const AGENT_FLAGS: ReadonlyArray<[string, AgentName]> = [
   ["claude", "Claude Code"],
   ["codex", "Codex"],
   ["cursor", "Cursor"],
+  ["opencode", "OpenCode"],
 ];
 
 /** Answers given on the command line: each one is a question not asked. */
@@ -620,16 +624,9 @@ const codex: Wire = (d) => {
     );
     return result("failed");
   }
-  const said = /(\d+)\.(\d+)\.(\d+)/.exec(version.stdout);
-  /** major.minor.patch as one comparable number. */
-  const rank = ([a = 0, b = 0, c = 0]: readonly number[]): number =>
-    a * 1e6 + b * 1e3 + c;
-  const older =
-    said !== null && rank(said.slice(1, 4).map(Number)) < rank(CODEX_MIN);
-  if (said === null || older) {
-    const which = said?.[0] ?? `"${version.stdout.trim()}"`;
+  if (older(version.stdout, CODEX_MIN)) {
     d.say(
-      `Codex: this is Codex ${which}, and Demoman needs ${CODEX_MIN.join(".")} or later for \`codex plugin\` — update Codex, then ${again}`,
+      `Codex: this is Codex ${versionIn(version.stdout)}, and Demoman needs ${CODEX_MIN.join(".")} or later for \`codex plugin\` — update Codex, then ${again}`,
     );
     return result("failed");
   }
@@ -739,6 +736,7 @@ export function foundAgents(d: SetupDeps): AgentName[] {
     ...(cursorApps(d).some((p) => d.exists(p)) || cursorClis(d).some(there)
       ? (["Cursor"] as const)
       : []),
+    ...(there("opencode") ? (["OpenCode"] as const) : []),
   ];
 }
 
@@ -785,22 +783,7 @@ const cursor: Wire = (d) => {
     d.say("Cursor: not installed");
     return result("absent");
   }
-  if ("error" in d.skill) {
-    d.say(
-      `Cursor: this install's record-demo skill could not be read (${d.skill.error}); reinstall Demoman, then ${again}`,
-    );
-    return result("failed");
-  }
-  const shipped = d.skill.text;
-  // The entry runs this npx; without it Cursor could never start Demoman,
-  // whatever the file says.
-  const npx = `${d.nodeBin}/npx`;
-  if (!d.exists(npx)) {
-    d.say(
-      `Cursor: there is no npx beside the Node running setup (${npx}), so an entry naming it could not start — run setup with a Node that has npx`,
-    );
-    return result("failed");
-  }
+  if (!canWriteEntry(d, "Cursor", again)) return result("failed");
 
   const mcpPath = `${d.home}/.cursor/mcp.json`;
   const entry = cursorEntry(d.nodeBin);
@@ -833,27 +816,16 @@ const cursor: Wire = (d) => {
 
   // The skill is what sends the agent to `recipe` here: whether Cursor
   // shows the model the server's instructions is unknown (spec §1).
-  const skillDir = "~/.cursor/skills/record-demo";
-  const skillPath = `${d.home}/.cursor/skills/record-demo/SKILL.md`;
-  const skill = d.readText(skillPath);
-  if ("error" in skill) {
-    d.say(`Cursor: ${skillPath} could not be read (${skill.error})`);
+  if (
+    !placeSkill(
+      d,
+      "Cursor",
+      "~/.cursor/skills/record-demo",
+      `${d.home}/.cursor/skills/record-demo/SKILL.md`,
+      again,
+    )
+  ) {
     return result("failed");
-  }
-  if ("text" in skill && !isOurSkill(skill.text)) {
-    d.say(
-      `Cursor: ${skillDir} already holds a skill that is not Demoman's, so it was left alone — rename that folder, then ${again}`,
-    );
-    return result("failed");
-  }
-  if (!("text" in skill) || skill.text !== shipped) {
-    const wrote = d.writeText(skillPath, shipped);
-    if ("error" in wrote) {
-      d.say(
-        `Cursor: the record-demo skill could not be written (${wrote.error})`,
-      );
-      return result("failed");
-    }
   }
 
   const reasons: string[] = [];
@@ -889,6 +861,161 @@ const cursor: Wire = (d) => {
   }
   d.say(`${connected}, but ${reasons.join("; ")}`);
   return result("partial");
+};
+
+const VERSION_RE = /(\d+)\.(\d+)\.(\d+)/;
+/** The version an agent's --version printed, else what it printed. */
+const versionIn = (stdout: string): string =>
+  VERSION_RE.exec(stdout)?.[0] ?? `"${stdout.trim()}"`;
+/** Older than min, or no version in it at all. */
+function older(stdout: string, min: readonly number[]): boolean {
+  const said = VERSION_RE.exec(stdout);
+  if (said === null) return true;
+  /** major.minor.patch as one comparable number. */
+  const rank = ([a = 0, b = 0, c = 0]: readonly number[]): number =>
+    a * 1e6 + b * 1e3 + c;
+  return rank(said.slice(1, 4).map(Number)) < rank(min);
+}
+
+/** For an agent whose entry setup writes (Cursor, OpenCode): this
+ *  install's skill to copy, and an npx beside the Node running setup, which
+ *  the entry names. Says why not, and answers false. */
+function canWriteEntry(d: SetupDeps, agent: AgentName, again: string): boolean {
+  if ("error" in d.skill) {
+    d.say(
+      `${agent}: this install's record-demo skill could not be read (${d.skill.error}); reinstall Demoman, then ${again}`,
+    );
+    return false;
+  }
+  // Without it the agent could never start Demoman, whatever the file says.
+  const npx = `${d.nodeBin}/npx`;
+  if (!d.exists(npx)) {
+    d.say(
+      `${agent}: there is no npx beside the Node running setup (${npx}), so an entry naming it could not start — run setup with a Node that has npx`,
+    );
+    return false;
+  }
+  return true;
+}
+
+/** Copies this install's record-demo skill to path, over Demoman's own
+ *  older copy and never over someone else's skill. Says why not, and
+ *  answers false. */
+function placeSkill(
+  d: SetupDeps,
+  agent: AgentName,
+  folder: string,
+  path: string,
+  again: string,
+): boolean {
+  if ("error" in d.skill) return false;
+  const skill = d.readText(path);
+  if ("error" in skill) {
+    d.say(`${agent}: ${path} could not be read (${skill.error})`);
+    return false;
+  }
+  if ("text" in skill && !isOurSkill(skill.text)) {
+    d.say(
+      `${agent}: ${folder} already holds a skill that is not Demoman's, so it was left alone — rename that folder, then ${again}`,
+    );
+    return false;
+  }
+  if ("text" in skill && skill.text === d.skill.text) return true;
+  const wrote = d.writeText(path, d.skill.text);
+  if ("error" in wrote) {
+    d.say(
+      `${agent}: the record-demo skill could not be written (${wrote.error})`,
+    );
+    return false;
+  }
+  return true;
+}
+
+/** mcp.servers, the form OpenCode 2 reads first, came with 2.0. */
+const OPENCODE_MIN = [2, 0, 0] as const;
+
+/** OpenCode has no plugin layer either: setup writes its opencode.json and
+ *  copies the skill. Its tools run without asking by default, so there is
+ *  nothing to pre-approve. */
+const opencode: Wire = (d) => {
+  const result = (state: AgentState): AgentResult => ({
+    agent: "OpenCode",
+    state,
+  });
+  const again = `run \`npx ${PACKAGE_NAME}@${d.version} setup\` again`;
+  const version = d.run("opencode", ["--version"]);
+  if (version.notFound) {
+    d.say("OpenCode: not installed");
+    return result("absent");
+  }
+  if (failed(version)) {
+    d.say(
+      `OpenCode: \`opencode --version\` failed (${why(version)}); fix that, then ${again}`,
+    );
+    return result("failed");
+  }
+  if (older(version.stdout, OPENCODE_MIN)) {
+    d.say(
+      `OpenCode: this is OpenCode ${versionIn(version.stdout)}, and Demoman needs ${OPENCODE_MIN.join(".")} or later — update OpenCode, then ${again}`,
+    );
+    return result("failed");
+  }
+  if (!canWriteEntry(d, "OpenCode", again)) return result("failed");
+
+  const dir = opencodeDir(d.home, d.env);
+  const config = `${dir}/opencode.json`;
+  const entry = opencodeEntry(d.nodeBin);
+  const pasteIn = (file: string) =>
+    `add this under "mcp" → "servers" in ${file}, then ${again}:\n\n"demoman": ${JSON.stringify(entry, null, 2)}\n`;
+  const jsonc = `${dir}/opencode.jsonc`;
+  if (d.exists(jsonc)) {
+    d.say(
+      `OpenCode: ${jsonc} may hold comments an edit would lose, so it was left alone; ${pasteIn(jsonc)}`,
+    );
+    return result("failed");
+  }
+  const file = d.readText(config);
+  if ("error" in file) {
+    d.say(
+      `OpenCode: ${config} could not be read (${file.error}); ${pasteIn(config)}`,
+    );
+    return result("failed");
+  }
+  const edit = opencodeServer("text" in file ? file.text : null, entry);
+  if ("foreign" in edit) {
+    d.say(
+      `OpenCode: ${config} already has a "demoman" server that setup did not write (${edit.foreign}), so it was left alone — remove that entry, then ${again}`,
+    );
+    return result("failed");
+  }
+  if ("refused" in edit) {
+    d.say(
+      `OpenCode: ${config} was left alone: ${edit.refused}; ${pasteIn(config)}`,
+    );
+    return result("failed");
+  }
+  if (edit.changed) {
+    const wrote = d.writeText(config, edit.text);
+    if ("error" in wrote) {
+      d.say(
+        `OpenCode: ${config} could not be written (${wrote.error}); ${pasteIn(config)}`,
+      );
+      return result("failed");
+    }
+  }
+  if (
+    !placeSkill(
+      d,
+      "OpenCode",
+      `${dir}/skills/record-demo`,
+      `${dir}/skills/record-demo/SKILL.md`,
+      again,
+    )
+  ) {
+    return result("failed");
+  }
+  d.say("OpenCode: Demoman is connected and updates itself");
+  return result("wired");
 };
 
 /** "A", "A and B", "A, B and C". */
@@ -956,6 +1083,7 @@ async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
     ["Claude Code", claudeCode],
     ["Codex", codex],
     ["Cursor", cursor],
+    ["OpenCode", opencode],
   ];
   const results = wires.map(([agent, wire]): AgentResult => {
     if (!skip(agent)) {
@@ -1061,14 +1189,18 @@ async function saveSettings(
   return [...failed];
 }
 
+/** The agents whose entry setup writes runs `demoman@latest`. */
+const ON_LATEST: readonly AgentName[] = ["Cursor", "OpenCode"];
+
 /** Fills npx's cache for each spec a connected agent starts, each on its
- *  own: the plugins' pinned version (Claude Code, Codex), and Cursor's
- *  `@latest`, which npx caches apart from it. Cursor's answer is the
- *  version it will run, said when it is not this setup's. */
+ *  own: the plugins' pinned version (Claude Code, Codex), and `@latest`
+ *  for the entries setup writes, which npx caches apart from it. That
+ *  answer is the version they will run, said when it is not this setup's. */
 function warmStart(d: SetupDeps, usable: AgentName[]): void {
+  const onLatest = usable.filter((a) => ON_LATEST.includes(a));
   const specs = [
-    ...(usable.some((a) => a !== "Cursor") ? [d.version] : []),
-    ...(usable.includes("Cursor") ? ["latest"] : []),
+    ...(usable.some((a) => !ON_LATEST.includes(a)) ? [d.version] : []),
+    ...(onLatest.length > 0 ? ["latest"] : []),
   ];
   const cold: string[] = [];
   for (const spec of specs) {
@@ -1084,7 +1216,7 @@ function warmStart(d: SetupDeps, usable: AgentName[]): void {
       );
     } else if (!pinned && answer !== d.version) {
       d.say(
-        `Cursor: it runs Demoman ${answer}, the newest release on npm, and this setup is ${d.version}. A version published under npm's next tag alone does not reach Cursor.`,
+        `${listed(onLatest)}: ${onLatest.length > 1 ? "they run" : "it runs"} Demoman ${answer}, the newest release on npm, and this setup is ${d.version}. A version published under npm's next tag alone does not reach ${onLatest.length > 1 ? "them" : onLatest[0]}.`,
       );
     }
   }

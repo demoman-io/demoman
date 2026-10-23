@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { CODEX_APPROVAL_TABLE, cursorEntry } from "../src/configs.js";
+import {
+  CODEX_APPROVAL_TABLE,
+  cursorEntry,
+  opencodeEntry,
+} from "../src/configs.js";
 import {
   type Answers,
   parseSetupArgs,
@@ -48,6 +52,7 @@ function machine(
     "agent --version": NOT_FOUND,
     "/Users/u/.local/bin/agent --version": NOT_FOUND,
     "cursor-agent --version": NOT_FOUND,
+    "opencode --version": NOT_FOUND,
     ...over.answers,
   };
   const answer = (line: string): Ran => {
@@ -132,6 +137,7 @@ describe("setup", () => {
       "agent --version",
       "/Users/u/.local/bin/agent --version",
       "cursor-agent --version",
+      "opencode --version",
       "npx -y demoman@0.2.0 --version",
     ]);
     expect(m.out()).toContain("browser: Chromium installed");
@@ -1254,6 +1260,12 @@ describe("parseSetupArgs", () => {
     }
   });
 
+  it("reads opencode in --agents, after the others", async () => {
+    expect(parseSetupArgs(["--agents", "opencode,cursor"])).toEqual({
+      agents: ["Cursor", "OpenCode"],
+    });
+  });
+
   it("reads --yes", async () => {
     expect(parseSetupArgs(["--yes"])).toEqual({ yes: true });
   });
@@ -1287,6 +1299,7 @@ describe("setup's questions", () => {
     "agent --version",
     "/Users/u/.local/bin/agent --version",
     "cursor-agent --version",
+    "opencode --version",
   ];
   const withCodexFound = () =>
     machine({ answers: { "codex --version": OK("codex-cli 0.163.0\n") } });
@@ -1519,5 +1532,121 @@ describe("setup's settings", () => {
     asking(m, "cancelled");
     expect(await setup(m.d)).toBe(1);
     expect(writes).toEqual([]);
+  });
+});
+
+describe("setup's OpenCode step", () => {
+  const DIR = "/Users/u/.config/opencode";
+  const CONFIG = `${DIR}/opencode.json`;
+  const SKILL_FILE = `${DIR}/skills/record-demo/SKILL.md`;
+  const ENTRY = opencodeEntry("/opt/node/bin");
+  const withOpencode = (version = "opencode v2.0.32\n") =>
+    machine({ answers: { "opencode --version": OK(version) } });
+
+  it("writes the server and the skill, warms @latest, and names OpenCode at the end", async () => {
+    const m = withOpencode();
+    m.files.set(
+      CONFIG,
+      JSON.stringify({ mcp: { pencil: { type: "local", command: ["p"] } } }),
+    );
+    expect(await setup(m.d)).toBe(0);
+    expect(JSON.parse(m.files.get(CONFIG) ?? "")).toEqual({
+      mcp: {
+        pencil: { type: "local", command: ["p"] },
+        servers: { demoman: ENTRY },
+      },
+    });
+    expect(m.files.get(SKILL_FILE)).toBe(SKILL);
+    expect(m.out()).toContain(
+      "OpenCode: Demoman is connected and updates itself",
+    );
+    expect(m.calls).toContain("npx -y demoman@latest --version");
+    expect(m.out()).toContain("Done. Restart Claude Code and OpenCode");
+  });
+
+  it("is offered in the menu when found", async () => {
+    const m = withOpencode();
+    let offered: unknown;
+    m.d.ask = async (q) => {
+      offered = q.agents;
+      return { agents: [] };
+    };
+    await setup(m.d);
+    expect(offered).toEqual(["Claude Code", "OpenCode"]);
+    expect(m.out()).toContain("OpenCode: not connected (not chosen)");
+    expect(m.files.has(CONFIG)).toBe(false);
+  });
+
+  it("says OpenCode is not installed when there is no opencode command", async () => {
+    const m = machine();
+    expect(await setup(m.d)).toBe(0);
+    expect(m.out()).toContain("OpenCode: not installed");
+  });
+
+  it("asks for OpenCode 2 or later, writing nothing for an older one", async () => {
+    const m = withOpencode("1.4.0\n");
+    expect(await setup(m.d)).toBe(1);
+    expect(m.out()).toContain(
+      "OpenCode: this is OpenCode 1.4.0, and Demoman needs 2.0.0 or later",
+    );
+    expect(m.writes.filter((p) => p.startsWith(DIR))).toEqual([]);
+    expect(m.out()).toContain("Not done: OpenCode could not be set up");
+  });
+
+  it("leaves another demoman server alone and fails OpenCode alone", async () => {
+    const m = withOpencode();
+    const mine = JSON.stringify({
+      mcp: { demoman: { type: "local", command: ["node", "/src/dev.js"] } },
+    });
+    m.files.set(CONFIG, mine);
+    expect(await setup(m.d)).toBe(1);
+    expect(m.files.get(CONFIG)).toBe(mine);
+    expect(m.out()).toContain(
+      `OpenCode: ${CONFIG} already has a "demoman" server that setup did not write (node /src/dev.js), so it was left alone`,
+    );
+    expect(m.out()).toContain("Claude Code: the demoman plugin is installed");
+    expect(m.out()).toContain("Not done: OpenCode could not be set up");
+  });
+
+  it("leaves a file it cannot parse alone and prints the block to paste", async () => {
+    const m = withOpencode();
+    m.files.set(CONFIG, '{ // mine\n "mcp": {} }');
+    expect(await setup(m.d)).toBe(1);
+    expect(m.out()).toContain(
+      `OpenCode: ${CONFIG} was left alone: it is not JSON`,
+    );
+    // The block is the entry setup would have written.
+    expect(m.out()).toContain(JSON.stringify(ENTRY, null, 2));
+    expect(m.writes).not.toContain(CONFIG);
+  });
+
+  it("leaves an opencode.jsonc alone, where comments would be lost", async () => {
+    const m = withOpencode();
+    m.files.set(`${DIR}/opencode.jsonc`, "{}");
+    expect(await setup(m.d)).toBe(1);
+    expect(m.out()).toContain(`OpenCode: ${DIR}/opencode.jsonc`);
+    expect(m.writes.filter((p) => p.startsWith(DIR))).toEqual([]);
+  });
+
+  it("writes under XDG_CONFIG_HOME when it is set, as OpenCode reads it", async () => {
+    const m = withOpencode();
+    m.d.env = { XDG_CONFIG_HOME: "/Users/u/xdg" };
+    expect(await setup(m.d)).toBe(0);
+    expect(m.writes).toContain("/Users/u/xdg/opencode/opencode.json");
+    expect(m.writes).toContain(
+      "/Users/u/xdg/opencode/skills/record-demo/SKILL.md",
+    );
+  });
+
+  it("leaves a record-demo skill that is not Demoman's alone", async () => {
+    const m = withOpencode();
+    m.files.set(SKILL_FILE, "---\nname: record-demo\n---\nmy own\n");
+    expect(await setup(m.d)).toBe(1);
+    expect(m.out()).toContain(
+      `OpenCode: ${DIR}/skills/record-demo already holds a skill that is not Demoman's, so it was left alone`,
+    );
+    expect(m.files.get(SKILL_FILE)).toBe(
+      "---\nname: record-demo\n---\nmy own\n",
+    );
   });
 });
