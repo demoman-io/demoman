@@ -31,6 +31,17 @@ import { sampleMp4 } from "./mp4-probe.js";
 // take 17–18 s. x5 for CI (fff4505) is about 90 s.
 const EXPORT_MS = 120_000;
 
+// Only the cores of the red strokes count (within 24 of pure red, see
+// `sampleMp4`): H.264 keeps colour at half resolution, so thin red text
+// smears and the count is small, 122 here and 64–76 on CI. It also moves
+// between two encodes of the same frames: on CI (run 39914004209) the
+// unedited export read 76 and the edited one 64, with no ink over either.
+// What these cases guard against is a cover, an opaque box that takes the
+// red to nothing, so they ask for half the unedited count, and the premise
+// asks for a third of the smallest count CI has read.
+const STILL_SHOWN = 0.5;
+const TEXT_ON_SCREEN = 20;
+
 let home: string;
 let executor: LocalExecutor;
 let bundle: FrameBundle;
@@ -97,7 +108,9 @@ describe("a CLI take's typed-text edit, on the picture", () => {
       expect(answer.outcome, JSON.stringify(answer)).toBe("saved");
       unedited = await lastPicture(answer);
       // The fixture's premise: the original text is on screen to be counted.
-      expect(unedited.red, JSON.stringify(unedited)).toBeGreaterThan(60);
+      expect(unedited.red, JSON.stringify(unedited)).toBeGreaterThan(
+        TEXT_ON_SCREEN,
+      );
     },
     EXPORT_MS,
   );
@@ -111,7 +124,7 @@ describe("a CLI take's typed-text edit, on the picture", () => {
       const edited = await lastPicture(answer);
       const evidence = JSON.stringify({ unedited, edited, lines });
       // Nothing covers the old text, and no ink is drawn over it.
-      expect(edited.red, evidence).toBeGreaterThan(unedited.red * 0.9);
+      expect(edited.red, evidence).toBeGreaterThan(unedited.red * STILL_SHOWN);
       expect(edited.ink - unedited.ink, evidence).toBeLessThan(10);
       expect(answer.summary).toContain("the video still shows the old text");
     },
@@ -135,7 +148,7 @@ describe("a CLI take's typed-text edit, on the picture", () => {
       expect(answer.outcome, JSON.stringify(answer)).toBe("saved");
       const shown = await lastPicture(answer);
       expect(shown.red, JSON.stringify({ unedited, shown })).toBeGreaterThan(
-        unedited.red * 0.9,
+        unedited.red * STILL_SHOWN,
       );
       if (answer.outcome !== "saved") throw new Error("not saved");
       expect(answer.warnings.migration).toEqual([
