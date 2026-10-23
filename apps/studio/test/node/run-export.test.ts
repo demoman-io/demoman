@@ -36,37 +36,25 @@ async function runWith(settings: string | null) {
   return { run, asked, logs, home };
 }
 
-describe("the Studio's run reads Export quality on each export", () => {
-  it("passes full for an MP4 when the file says full, and follows a later change", async () => {
-    const { run, asked, home } = await runWith('{"exportQuality":"full"}');
-    await run("t1", "mp4", "j1", () => {});
-    expect(asked[0]).toMatchObject({ takeId: "t1", quality: "full" });
-    // Same home, the file changed: the next export sees it.
-    await writeFile(join(home, "settings.json"), '{"exportQuality":"share"}');
-    await run("t1", "mp4", "j2", () => {});
-    expect(asked[1]).toMatchObject({ quality: "share" });
-  });
-
-  it("no file exports at high, with nothing logged", async () => {
-    const { run, asked, logs } = await runWith(null);
-    await run("t1", "mp4", "j1", () => {});
-    expect(asked[0]?.quality).toBe("high");
-    expect(logs).toEqual([]);
-  });
-
-  it("unreadable settings export at high and say why in the log", async () => {
-    const { run, asked, logs } = await runWith("{");
-    await run("t1", "mp4", "j1", () => {});
-    expect(asked[0]?.quality).toBe("high");
-    expect(logs.join("\n")).toContain("settings.json is not valid JSON");
-    expect(logs.join("\n")).toContain("High");
-  });
-
-  it("a GIF and stills are asked without a quality (they refuse one)", async () => {
+// The Export quality setting itself is read by `exportTake` (the runner's
+// executor-export test); this run only forwards the editor's pick.
+describe("the Studio's run passes the editor's quality", () => {
+  it("passes the quality the editor picked for this export", async () => {
     const { run, asked } = await runWith('{"exportQuality":"full"}');
-    await run("t1", "gif", "j1", () => {});
-    await run("t1", "stills", "j2", () => {});
+    await run("t1", "mp4", "j1", () => {}, "share");
+    expect(asked[0]).toMatchObject({
+      takeId: "t1",
+      fileType: "mp4",
+      quality: "share",
+    });
+  });
+
+  it("passes no quality when the editor sent none, so exportTake reads Settings", async () => {
+    const { run, asked, logs } = await runWith('{"exportQuality":"full"}');
+    await run("t1", "mp4", "j1", () => {});
+    await run("t1", "gif", "j2", () => {});
     expect(asked.map((a) => "quality" in a)).toEqual([false, false]);
-    expect(asked.map((a) => a.fileType)).toEqual(["gif", "stills"]);
+    expect(asked.map((a) => a.fileType)).toEqual(["mp4", "gif"]);
+    expect(logs).toEqual([]);
   });
 });

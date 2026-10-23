@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ExportAnswer, FileType } from "@demoman/run-core";
+import type { ExportAnswer, ExportQuality, FileType } from "@demoman/run-core";
 import {
   type Exporting,
   type Library,
@@ -38,6 +38,8 @@ export type RunExport = (
   fileType: FileType,
   jobId: string,
   onProgress: (p: Exporting) => void,
+  /** The editor's pick for this export; absent, the Export quality setting. */
+  quality?: ExportQuality,
 ) => Promise<ExportAnswer>;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
@@ -52,6 +54,7 @@ type ExportPhase = DistributiveOmit<
 interface Job {
   takeId: string;
   fileType: FileType;
+  quality?: ExportQuality;
   jobId: string;
 }
 
@@ -122,14 +125,20 @@ export function createExportQueue(o: {
     }
     let answer: ExportAnswer;
     try {
-      answer = await o.run(job.takeId, job.fileType, job.jobId, (p) => {
-        send(
-          job,
-          p.phase === "saving"
-            ? { phase: "saving" }
-            : { phase: "rendering", done: p.done, total: p.total },
-        );
-      });
+      answer = await o.run(
+        job.takeId,
+        job.fileType,
+        job.jobId,
+        (p) => {
+          send(
+            job,
+            p.phase === "saving"
+              ? { phase: "saving" }
+              : { phase: "rendering", done: p.done, total: p.total },
+          );
+        },
+        job.quality,
+      );
     } catch (error) {
       // exportTake resolves for every outcome; a throw is a bug, and the
       // page still hears that this job is over.
@@ -206,7 +215,12 @@ export function createExportQueue(o: {
     if (read.revision !== body.revision) {
       return { reason: "sceneNotSaved", detail: SCENE_NOT_SAVED };
     }
-    const job: Job = { takeId, fileType: body.fileType, jobId: randomUUID() };
+    const job: Job = {
+      takeId,
+      fileType: body.fileType,
+      ...(body.quality === undefined ? {} : { quality: body.quality }),
+      jobId: randomUUID(),
+    };
     const position = waiting.length + (running === null ? 0 : 1);
     waiting.push(job);
     send(job, { phase: "queued", position });

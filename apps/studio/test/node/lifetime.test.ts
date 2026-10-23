@@ -39,6 +39,7 @@ interface Serve {
     takeId: string;
     finish(a: ExportAnswer): void;
     onProgress: (p: Exporting) => void;
+    quality: string | undefined;
   }[];
   /** Each exit, and whether studio.json was still there when it ran. */
   exits: { code: number; stateLeft: boolean }[];
@@ -87,8 +88,8 @@ async function serve(
   const pagesDir = o.pagesDir ?? join(home, "pages");
   if (o.pagesDir === undefined) await writePages(pagesDir);
 
-  const run: RunExport = (takeId, _fileType, _jobId, onProgress) =>
-    new Promise((finish) => runs.push({ takeId, finish, onProgress }));
+  const run: RunExport = (takeId, _fileType, _jobId, onProgress, quality) =>
+    new Promise((finish) => runs.push({ takeId, finish, onProgress, quality }));
 
   void runServe({
     home,
@@ -501,6 +502,36 @@ describe("the window and export routes", () => {
     expect(bad.status).toBe(400);
     expect(bad.json()).toMatchObject({ reason: "invalidFileType" });
     expect(s.runs).toEqual([]);
+  });
+
+  // Red if the route drops the editor's quality, or lets one through that
+  // the export would refuse or ignore.
+  it("an MP4's quality reaches the run; a bad one, or one on a GIF, is 400", async () => {
+    const s = await serve();
+    const { takeId } = await seedTake(home);
+    const read = await call(s.state, `/api/takes/${takeId}/scene`);
+    const { revision } = read.json() as { revision: string };
+    for (const body of [
+      { fileType: "mp4", revision, quality: "best" },
+      { fileType: "gif", revision, quality: "full" },
+    ]) {
+      const bad = await call(s.state, `/api/takes/${takeId}/exports`, {
+        method: "POST",
+        body,
+      });
+      expect(bad.status, bad.text).toBe(400);
+      expect(bad.json()).toMatchObject({ reason: "exportQualityInvalid" });
+    }
+    expect(s.runs).toEqual([]);
+    const started = await call(s.state, `/api/takes/${takeId}/exports`, {
+      method: "POST",
+      body: { fileType: "mp4", revision, quality: "full" },
+    });
+    expect(started.status, started.text).toBe(200);
+    await vi.waitFor(() => {
+      if (s.runs.length !== 1) throw new Error(`${s.runs.length} runs started`);
+    });
+    expect(s.runs[0]?.quality).toBe("full");
   });
 
   it("ping's queued counts the export queue", async () => {

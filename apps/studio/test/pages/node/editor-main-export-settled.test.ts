@@ -48,7 +48,11 @@ vi.mock("@demoman/compositor", async (importOriginal) => {
 /** What the fake platform saw, and the one write the test holds open. */
 const seen = vi.hoisted(() => ({
   puts: [] as { revision: string | null }[],
-  starts: [] as { revision: string | null; fileType: string }[],
+  starts: [] as {
+    revision: string | null;
+    fileType: string;
+    quality?: string;
+  }[],
   releasePut: null as ((revision: string) => void) | null,
   gets: 0,
   withFrames: true,
@@ -134,7 +138,11 @@ vi.mock("#platform", async (importOriginal) => {
     },
     exports: {
       start: async (_takeId, job) => {
-        seen.starts.push({ revision: job.revision, fileType: job.fileType });
+        seen.starts.push({
+          revision: job.revision,
+          fileType: job.fileType,
+          ...(job.quality === undefined ? {} : { quality: job.quality }),
+        });
         return { jobId: "job-1" };
       },
       onEvent: () => () => undefined,
@@ -242,6 +250,43 @@ describe("editor main — Export waits for the edit being written", () => {
     });
     expect(seen.starts).toEqual([
       { revision: "r-after-edit", fileType: "mp4" },
+    ]);
+    // Nothing picked in the panel: no quality, so the studio reads Settings.
+    expect(seen.starts[0]).not.toHaveProperty("quality");
+  }, 20_000);
+
+  // Red if the Quality row stops starting at the setting, a pick stops
+  // reaching the readout, or the export stops carrying it.
+  it("the panel's Quality starts at the setting, and a pick is this export's", async () => {
+    await import("../../../pages/entrypoints/editor/main");
+    const checked = () =>
+      document
+        .querySelector('[data-export-quality][aria-checked="true"]')
+        ?.getAttribute("data-export-quality");
+    // The setting reads "share" (the platform above), not the default.
+    await vi.waitFor(() => {
+      if (checked() !== "share") {
+        throw new Error(`Quality shows ${checked() ?? "nothing"}`);
+      }
+    });
+    const readout = () =>
+      document.querySelector("[data-size-readout]")?.textContent ?? "";
+    const atShare = readout();
+    (
+      document.querySelector('[data-export-quality="full"]') as HTMLElement
+    ).click();
+    await vi.waitFor(() => {
+      if (checked() !== "full") throw new Error("the pick did not show");
+    });
+    // The readout names the size the pick makes, not the setting's.
+    expect(readout()).not.toBe(atShare);
+    expect(atShare).not.toBe("");
+    (document.querySelector("[data-export-start]") as HTMLElement).click();
+    await vi.waitFor(() => {
+      if (seen.starts.length === 0) throw new Error("not posted yet");
+    });
+    expect(seen.starts).toEqual([
+      { revision: "r-open", fileType: "mp4", quality: "full" },
     ]);
   }, 20_000);
 });

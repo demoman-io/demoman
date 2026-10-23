@@ -5,6 +5,7 @@ import {
   renderFrame,
   resolvePlan,
 } from "@demoman/compositor";
+import { DEFAULT_EXPORT_QUALITY } from "@demoman/run-core";
 import type { SceneAspect } from "@demoman/scene-schema";
 import { page } from "@vitest/browser/context";
 import { describe, expect, it, vi } from "vitest";
@@ -218,7 +219,15 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
     },
     handlers(),
   );
-  const target = targetFor(shot.fileType, shot.aspect, bundle, frameOf(scene));
+  // The studio's panel: an MP4 carries the Quality row, at the default.
+  const quality = shot.fileType === "mp4" ? DEFAULT_EXPORT_QUALITY : null;
+  const target = targetFor(
+    shot.fileType,
+    shot.aspect,
+    bundle,
+    frameOf(scene),
+    quality === null ? {} : { quality },
+  );
   const sections = createSections();
   renderExport(
     node("[data-panel-export]"),
@@ -234,6 +243,7 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
         },
       ],
       fileType: shot.fileType,
+      quality,
       aspect: shot.aspect,
       target,
       recording: bundle.viewport,

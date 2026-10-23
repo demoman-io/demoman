@@ -398,6 +398,7 @@ let fileType: FileType = "mp4";
  *  scales. One function, so the preview and the file cannot disagree. */
 function deliverable(bundle: FrameBundle | null): RenderTarget {
   const scene = session.snapshot().scene;
+  const quality = qualityNow();
   // The live branding, not the stored one: under Auto the frame's shape
   // follows the padding, and a drag draws a padding not yet committed.
   return targetFor(
@@ -405,9 +406,9 @@ function deliverable(bundle: FrameBundle | null): RenderTarget {
     scene.canvas.aspect,
     bundle,
     frameOf({ ...scene, branding: liveBranding(scene) }),
-    // The studio exports at its Export quality, so the readout names that
+    // The studio exports at this panel's quality, so the readout names that
     // size. The extension has no such setting and passes nothing: Full-sized.
-    exportQuality === null ? {} : { quality: exportQuality },
+    quality === null ? {} : { quality },
   );
 }
 
@@ -416,6 +417,14 @@ function deliverable(bundle: FrameBundle | null): RenderTarget {
  *  answers, which is what the studio exports at when the read fails too. */
 let exportQuality: ExportQualityChoice | null =
   platform.exportQuality === undefined ? null : DEFAULT_EXPORT_QUALITY;
+
+/** The quality picked in the Export panel for this page's exports, or null
+ *  to follow the Export quality setting. Page-local, like the file type. */
+let pickedQuality: ExportQualityChoice | null = null;
+
+/** The quality the next MP4 is made at, or null where there is none. */
+const qualityNow = (): ExportQualityChoice | null =>
+  exportQuality === null ? null : (pickedQuality ?? exportQuality);
 
 let digestOf: { scene: SceneDocument; digest: string } | null = null;
 /** `sceneDigest` of the scene on screen. Memoised by identity: `render`
@@ -1577,6 +1586,22 @@ function pickAspect(next: SceneAspect): void {
 
 /** The Export panel's file type. Page-local, so no dispatch: swap the
  *  target inside `render`, then redraw the current frame. */
+/** The Export panel's Quality: this page's exports, not the setting. Focus
+ *  is put back as `pickFileType` does, for the same rebuild. */
+function pickQuality(next: ExportQualityChoice): void {
+  if (next === qualityNow()) return;
+  const keyboard =
+    document.activeElement instanceof HTMLElement &&
+    document.activeElement.hasAttribute("data-export-quality");
+  pickedQuality = next;
+  render(session.snapshot());
+  if (keyboard) {
+    document
+      .querySelector<HTMLButtonElement>(`[data-export-quality="${next}"]`)
+      ?.focus();
+  }
+}
+
 function pickFileType(next: FileType): void {
   if (next === fileType) return;
   // Read BEFORE the render that destroys it. A keyboard author moving
@@ -2490,6 +2515,7 @@ function render(snapshot: SessionSnapshot): void {
       {
         outputs,
         fileType,
+        quality: qualityNow(),
         aspect: snapshot.scene.canvas.aspect,
         target: exported,
         // The size `targetFor` solved the Auto frame from.
@@ -2514,6 +2540,7 @@ function render(snapshot: SessionSnapshot): void {
       {
         onExport: () => startExport().catch(reportError),
         onFileType: pickFileType,
+        onQuality: pickQuality,
         // The outcome row's Download again: the same save, for the rows
         // this page already lists.
         onSaveAgain: (refs) => saveRefs(refs).catch(reportError),
@@ -2844,6 +2871,11 @@ async function startExport(): Promise<void> {
       fileType,
       aspect: scene.canvas.aspect,
       revision: sceneRevision,
+      // Unpicked, the studio reads Settings at export time and says when it
+      // cannot; only an MP4 has a quality.
+      ...(pickedQuality === null || fileType !== "mp4"
+        ? {}
+        : { quality: pickedQuality }),
     });
   } catch (error) {
     // The run is otherwise only reset by this job's end, and a job that

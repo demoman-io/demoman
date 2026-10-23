@@ -181,6 +181,8 @@ export interface BundleAnswer {
 export interface ExportStartBody {
   fileType: FileType;
   revision: string;
+  /** An MP4's quality for this export. Absent: the Export quality setting. */
+  quality?: ExportQuality;
 }
 export interface ExportStartAnswer {
   jobId: string;

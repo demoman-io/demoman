@@ -826,7 +826,7 @@ export function createPlatform(
       },
     },
     exports: {
-      async start(takeId, { fileType, revision }) {
+      async start(takeId, { fileType, revision, quality }) {
         // `aspect` is not sent: the revision pins the scene, and the scene
         // pins it (Global Constraints).
         if (revision === null) {
@@ -836,7 +836,11 @@ export function createPlatform(
             0,
           );
         }
-        const body: ExportStartBody = { fileType, revision };
+        const body: ExportStartBody = {
+          fileType,
+          revision,
+          ...(quality === undefined ? {} : { quality }),
+        };
         starting += 1;
         let started: ExportStartAnswer | null = null;
         try {

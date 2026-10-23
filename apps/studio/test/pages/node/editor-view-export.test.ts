@@ -23,6 +23,7 @@ beforeEach(() => {
 const handlers = {
   onExport: vi.fn(),
   onFileType: vi.fn(),
+  onQuality: vi.fn(),
   onDownload: vi.fn(),
   onSaveAgain: vi.fn(),
   onReveal: vi.fn(),
@@ -139,6 +140,55 @@ describe("renderExport", () => {
     ]);
     buttons[2]?.click();
     expect(handlers.onFileType).toHaveBeenCalledWith("stills");
+  });
+
+  // Red if the row stops naming the three qualities, checks one that is not
+  // the state's, drops a click, shows on a GIF, or shows with no quality.
+  it("picks an MP4's quality from three segments, and only for an MP4", () => {
+    renderExport(root, { ...idle, quality: "high" }, handlers);
+    const buttons = [
+      ...root.querySelectorAll<HTMLButtonElement>("[data-export-quality]"),
+    ];
+    expect(
+      buttons.map((b) => [
+        b.dataset.exportQuality,
+        b.textContent,
+        b.getAttribute("aria-checked"),
+      ]),
+    ).toEqual([
+      ["share", "Sharing", "false"],
+      ["high", "High", "true"],
+      ["full", "Full", "false"],
+    ]);
+    buttons[2]?.click();
+    expect(handlers.onQuality).toHaveBeenCalledWith("full");
+
+    // Locked while an export runs, as the file type is.
+    renderExport(
+      root,
+      {
+        ...idle,
+        quality: "high",
+        run: { phase: "encoding", done: 1, total: 10 },
+      },
+      handlers,
+    );
+    expect(
+      [
+        ...root.querySelectorAll<HTMLButtonElement>("[data-export-quality]"),
+      ].every((b) => b.disabled),
+    ).toBe(true);
+
+    for (const state of [
+      { ...idle, quality: "high" as const, fileType: "gif" as const },
+      { ...idle, quality: null },
+      idle,
+    ]) {
+      renderExport(root, state, handlers);
+      expect(root.querySelector("[data-export-qualities]")).toBeNull();
+      // Premise: the panel did draw, so the missing row is not a blank one.
+      expect(root.querySelector("[data-file-types]")).not.toBeNull();
+    }
   });
 
   it("shows real progress while encoding, and locks the file type", () => {

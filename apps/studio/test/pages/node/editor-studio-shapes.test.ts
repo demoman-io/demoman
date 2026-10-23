@@ -55,6 +55,7 @@ const expectDrawnLine = (node: Element | null | undefined): void => {
 const handlers = {
   onExport: vi.fn(),
   onFileType: vi.fn(),
+  onQuality: vi.fn(),
   onDownload: vi.fn(),
   onSaveAgain: vi.fn(),
   onReveal: vi.fn(),

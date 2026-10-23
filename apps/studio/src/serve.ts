@@ -1,7 +1,11 @@
 import type { EventEmitter } from "node:events";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { FileType } from "@demoman/run-core";
+import {
+  EXPORT_QUALITY_VALUES,
+  type FileType,
+  isExportQuality,
+} from "@demoman/run-core";
 import {
   createBrowserSession,
   createLibrary,
@@ -175,15 +179,27 @@ export function buildHandlers(o: {
           `Nothing was exported: ${body.error}.`,
         );
       }
-      const { fileType, revision } = (body.value ?? {}) as {
+      const { fileType, revision, quality } = (body.value ?? {}) as {
         fileType?: unknown;
         revision?: unknown;
+        quality?: unknown;
       };
       if (!FILE_TYPES.includes(fileType as FileType)) {
         return refuse(
           400,
           "invalidFileType",
           `Nothing was exported: ${JSON.stringify(fileType) ?? "no file type"} is not mp4, gif or stills.`,
+        );
+      }
+      // Only an MP4 has a quality: on a GIF or stills it would be ignored.
+      if (
+        quality !== undefined &&
+        (!isExportQuality(quality) || fileType !== "mp4")
+      ) {
+        return refuse(
+          400,
+          "exportQualityInvalid",
+          `Nothing was exported: ${fileType !== "mp4" ? `a ${fileType === "gif" ? "GIF" : "stills export"} has no quality` : `${JSON.stringify(quality)} is not ${EXPORT_QUALITY_VALUES.join(", ")}`}.`,
         );
       }
       if (typeof revision !== "string" || revision === "") {
@@ -196,6 +212,7 @@ export function buildHandlers(o: {
       const started = await o.queue.start(id, {
         fileType: fileType as FileType,
         revision,
+        ...(quality === undefined ? {} : { quality }),
       });
       if ("reason" in started) {
         return json(QUEUE_STATUS[started.reason], started);

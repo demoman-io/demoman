@@ -5,6 +5,7 @@ import {
   type RenderTarget,
   type Vec,
 } from "@demoman/compositor";
+import { EXPORT_QUALITY_VALUES } from "@demoman/run-core";
 import {
   CURSOR_POLISH_DEFAULTS,
   type CursorStyle,
@@ -12,6 +13,7 @@ import {
   type SceneCursor,
   type SceneMotion,
 } from "@demoman/scene-schema";
+import type { ExportQualityChoice } from "@demoman/studio-protocol";
 import {
   type BrandingControlsHandlers,
   type BrandingControlsProps,
@@ -52,6 +54,7 @@ import {
 } from "../../src/editor/shortcuts";
 import { whenLabel } from "../../src/library/state";
 import type { OutputRow, RevealTarget } from "../../src/platform/types";
+import { EXPORT_QUALITY_LABELS } from "../../src/settings/view";
 import { setCodeText, withoutTicks } from "../../src/shell/code-spans";
 import { type GlyphName, icon } from "../../src/shell/icons";
 import {
@@ -903,6 +906,9 @@ export interface ExportState {
   outputs: OutputRow[];
   /** The file type this panel exports. Page-local; picked in this panel. */
   fileType: FileType;
+  /** An MP4's quality, picked here or the Export quality setting; null or
+   *  absent where the platform has none (no Quality row). */
+  quality?: ExportQualityChoice | null;
   /** The scene's aspect, picked under the preview. Named here, not set. */
   aspect: SceneAspect;
   /** `targetFor(fileType, aspect, bundle, frame)` — the same target the
@@ -1024,6 +1030,7 @@ export function renderExport(
     /** The button: encode, then save. */
     onExport(): void;
     onFileType(next: FileType): void;
+    onQuality(next: ExportQualityChoice): void;
     onSaveAgain(refs: string[]): void;
     onReveal(target: RevealTarget): void;
   },
@@ -1074,6 +1081,29 @@ export function renderExport(
   }
   typeRow.append(types);
   box.append(typeRow);
+
+  // Only an MP4 has a quality; a GIF and stills have one size each.
+  if (state.quality != null && state.fileType === "mp4") {
+    const qualityRow = el("div", "control-row");
+    qualityRow.append(el("span", "control-label", "Quality"));
+    const qualities = el("div", "segmented");
+    qualities.setAttribute("role", "radiogroup");
+    qualities.setAttribute("aria-label", "Quality");
+    qualities.setAttribute("data-export-qualities", "");
+    for (const value of EXPORT_QUALITY_VALUES) {
+      const button = el("button", "segment", EXPORT_QUALITY_LABELS[value]);
+      button.type = "button";
+      button.setAttribute("role", "radio");
+      button.setAttribute("data-export-quality", value);
+      button.setAttribute("aria-checked", String(value === state.quality));
+      // Locked while an export runs, as the file type is.
+      button.disabled = busy;
+      button.addEventListener("click", () => handlers.onQuality(value));
+      qualities.append(button);
+    }
+    qualityRow.append(qualities);
+    box.append(qualityRow);
+  }
 
   const start = el(
     "button",

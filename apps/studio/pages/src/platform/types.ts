@@ -97,6 +97,8 @@ export interface Platform {
         fileType: FileType;
         aspect: SceneAspect;
         revision: string | null;
+        /** An MP4's quality for this export; absent, the setting's. */
+        quality?: ExportQualityChoice;
       },
     ): Promise<{ jobId: string }>;
     /**
