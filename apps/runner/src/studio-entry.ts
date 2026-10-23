@@ -7,6 +7,8 @@ export { PAGE_ENTRIES, usePrebuiltPages } from "./bundle-js.js";
 export {
   type BrowserFailure,
   classifyLaunchError,
+  createBrowserSession,
+  fullChromiumPath,
 } from "./executor/browser.js";
 export {
   type ExportDeps,

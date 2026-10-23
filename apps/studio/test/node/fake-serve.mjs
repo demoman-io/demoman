@@ -28,9 +28,6 @@ await runServe({
     async open(t) {
       return { ok: true, path: pagePathFor(t.takeId) };
     },
-    async workPage() {
-      return { ok: false, reason: "windowDidNotOpen", detail: "fake" };
-    },
     onAllClosed() {},
     async close() {},
   }),

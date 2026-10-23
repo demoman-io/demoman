@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { request } from "node:http";
 import type { StudioEvent } from "@demoman/studio-protocol";
 import type { BrowserContext } from "playwright";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createStudioServer,
   type StudioHandlers,
@@ -10,11 +10,7 @@ import {
 } from "../../src/server.js";
 import { createStudioWindow, type LaunchOptions } from "../../src/window.js";
 
-// The window against a stand-in context: pages are event emitters, and
-// `Target.createTarget` makes a page that arrives later, as a real browser's
-// does. Each new window's page arrives after `arrivalMs` — later for the
-// earlier window — so two windows opened together arrive in the reverse
-// order, which is what a "take the next page event" window would get wrong.
+// The window against a stand-in context: pages are event emitters.
 
 class FakePage extends EventEmitter {
   closed = false;
@@ -26,7 +22,6 @@ class FakePage extends EventEmitter {
     readonly ctx: FakeContext,
     readonly id: string,
     private address: string,
-    readonly background: boolean,
   ) {
     super();
   }
@@ -54,8 +49,6 @@ class FakePage extends EventEmitter {
 class FakeContext extends EventEmitter {
   all: FakePage[] = [];
   created = 0;
-  /** Per window created: how long until its page arrives. */
-  arrivalMs: number[] = [];
   pages() {
     return this.all.filter((p) => !p.closed);
   }
@@ -65,32 +58,9 @@ class FakeContext extends EventEmitter {
   }
   async newPage() {
     this.created += 1;
-    const page = new FakePage(this, `np${this.created}`, "about:blank", false);
+    const page = new FakePage(this, `np${this.created}`, "about:blank");
     this.add(page, true);
     return page;
-  }
-  async newCDPSession(page: FakePage) {
-    return {
-      send: async (method: string, params?: Record<string, unknown>) => {
-        if (method === "Target.getTargetInfo") {
-          return { targetInfo: { targetId: page.id } };
-        }
-        if (method === "Target.createTarget") {
-          const n = this.created;
-          this.created += 1;
-          const made = new FakePage(
-            this,
-            `target-${n}`,
-            String(params?.url),
-            params?.background === true,
-          );
-          setTimeout(() => this.add(made, true), this.arrivalMs[n] ?? 0);
-          return { targetId: made.id };
-        }
-        throw new Error(`the fake does not answer ${method}`);
-      },
-      detach: async () => {},
-    };
   }
   async close() {
     for (const p of this.all) p.closed = true;
@@ -120,10 +90,7 @@ function harness(o: { listening?: number } = {}) {
       launches.push(options);
       const made = new FakeContext();
       const app = String(options.args?.find((a) => a.startsWith("--app=")));
-      made.add(
-        new FakePage(made, "app", app.slice("--app=".length), false),
-        false,
-      );
+      made.add(new FakePage(made, "app", app.slice("--app=".length)), false);
       ctx = made;
       return made as unknown as BrowserContext;
     },
@@ -192,8 +159,8 @@ describe("open on a live window (fix 1: never ok when it did not move)", () => {
   });
 });
 
-describe("new windows are matched by target id (fix 2)", () => {
-  it("a render's work page and a window reopened during a drain get their own pages", async () => {
+describe("a window reopened after the person closed every one", () => {
+  it("opens a new page on a fresh entry link, counted as theirs", async () => {
     const h = harness();
     let closedAll = 0;
     h.window.onAllClosed(() => {
@@ -201,44 +168,19 @@ describe("new windows are matched by target id (fix 2)", () => {
     });
     await h.window.open({});
     const ctx = h.ctx();
-    // A render already under way: its work page is the session anchor once
-    // the person closes the app window.
-    const first = await h.window.workPage();
-    if (!first.ok) throw new Error(first.detail);
     await appPage(ctx).close();
+    // Premise: the browser is still running with no window left.
     expect(closedAll).toBe(1);
+    expect(ctx.pages()).toEqual([]);
 
-    // The next two windows, opened together: the earlier one's page
-    // arrives last.
-    ctx.arrivalMs[ctx.created] = 40;
-    ctx.arrivalMs[ctx.created + 1] = 5;
-    const [work, reopened] = await Promise.all([
-      h.window.workPage(),
-      h.window.open({ takeId: "t1" }),
-    ]);
-    if (!work.ok) throw new Error(work.detail);
-    expect(reopened).toEqual({ ok: true, path: "/editor.html?scene=t1" });
-
-    const workPage = work.page as unknown as FakePage;
-    const firstPage = first.page as unknown as FakePage;
-    const person = ctx.pages().find((p) => p !== workPage && p !== firstPage);
-    // Premise: both windows were made, in that order, and arrived reversed
-    // (waited for: a window that took the wrong page answers before the
-    // later page arrives).
-    await vi.waitFor(() => expect(ctx.all).toHaveLength(4));
-    expect(ctx.all.map((p) => p.id)).toEqual([
-      "app",
-      "target-0",
-      "target-2",
-      "target-1",
-    ]);
-    // Red: take the first page that arrives instead of matching its id.
-    expect(workPage.id).toBe("target-1");
-    expect(workPage.background).toBe(true);
-    expect(workPage.url()).toBe("about:blank");
-    expect(person?.id).toBe("target-2");
-    expect(person?.background).toBe(false);
-    expect(person?.url()).toBe(`${ORIGIN}/?t=ticket-2&take=t1`);
+    const answer = await h.window.open({ takeId: "t1" });
+    expect(answer).toEqual({ ok: true, path: "/editor.html?scene=t1" });
+    const [reopened] = ctx.pages();
+    // Red: answer ok without sending the new page anywhere.
+    expect(reopened?.gotos).toEqual([`${ORIGIN}/?t=ticket-2&take=t1`]);
+    // Red: count it as nobody's, so closing it never fires onAllClosed.
+    await reopened?.close();
+    expect(closedAll).toBe(2);
   });
 });
 
@@ -273,7 +215,7 @@ describe("the launch (R12)", () => {
         args = options.args ?? [];
         const ctx = new FakeContext();
         const app = String(args.find((a) => a.startsWith("--app=")));
-        ctx.add(new FakePage(ctx, "app", app.slice(6), false), false);
+        ctx.add(new FakePage(ctx, "app", app.slice(6)), false);
         return ctx as unknown as BrowserContext;
       },
     });

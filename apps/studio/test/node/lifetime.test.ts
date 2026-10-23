@@ -106,13 +106,6 @@ async function serve(
           }
           return { ok: true, path: pagePathFor(t.takeId) };
         },
-        async workPage() {
-          return {
-            ok: false,
-            reason: "windowDidNotOpen",
-            detail: "a fake window renders nothing",
-          };
-        },
         onAllClosed(fn) {
           closedFns.push(fn);
         },

@@ -480,19 +480,14 @@ describe("the Studio, in a real window", () => {
       const pageSummary = await summaryLocator.innerText();
       const exported = Date.now();
 
-      // The render ran in a window of its own, opened over the app page's
-      // CDP session (Target.createTarget) and found by its target id (which
-      // window.ts asks of each page's own session): exactly one page arrived
-      // besides the app window, it was not the app window, and the export
-      // closed it again. The app window is still the editor.
+      // The render ran in the studio's headless browser, not the person's:
+      // the export above saved, and no page opened in this browser while it
+      // did (a visible work window, 2026-10-23, is what this guards). The
+      // app window is still the editor.
       expect(
-        arrivals.length,
-        `pages that opened: ${JSON.stringify(arrivals.map((p) => p.url()))}\n${studio.logs.join("\n")}`,
-      ).toBe(1);
-      expect(arrivals[0]).not.toBe(page);
-      expect(arrivals[0]?.isClosed(), "the export closes its work page").toBe(
-        true,
-      );
+        arrivals.map((p) => p.url()),
+        `pages that opened in the person's browser\n${studio.logs.join("\n")}`,
+      ).toEqual([]);
       expect(context.pages().map((p) => p.url())).toEqual([
         `${studio.origin}${windowAnswer.path}`,
       ]);

@@ -3,8 +3,10 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { FileType } from "@demoman/run-core";
 import {
+  createBrowserSession,
   createLibrary,
   exportTake,
+  fullChromiumPath,
   type Library,
   LibraryError,
 } from "@demoman/runner/studio";
@@ -226,8 +228,8 @@ export interface ServeOptions {
   signals?: EventEmitter;
   /** How long the studio waits for its first window (30 s). */
   noWindowMs?: number;
-  /** Tests: the export itself; `exportTake` on the window's work page
-   *  otherwise. */
+  /** Tests: the export itself; `exportTake` in a headless browser of the
+   *  studio's own otherwise. */
   run?: RunExport;
 }
 
@@ -299,18 +301,24 @@ export async function runServe(o: ServeOptions): Promise<never> {
     return window;
   };
 
+  // Exports render headless, apart from the person's windows: a visible
+  // work window could not be kept off screen (macOS Chrome pulls it back to
+  // leave 40px showing; minimised throttles its timers 3.5x, 2026-10-23).
+  // Launched on the first export and kept until the studio stops.
+  const renderer = createBrowserSession({
+    headless: true,
+    // Left to itself, headless launches the headless shell, which draws in
+    // software (`fullChromiumPath`).
+    executablePath: o.executablePath ?? fullChromiumPath(),
+    log,
+  });
   const run: RunExport =
     o.run ??
     createRunExport({
       exportTake,
       deps: {
         library,
-        session: {
-          openWorkPage: () => theWindow().workPage(),
-          // As the window opens (window.ts): visible unless asked headless,
-          // so a closed render page is worded as a window someone closed.
-          headless: o.headless ?? false,
-        },
+        session: renderer,
         home,
         outDir: o.outDir,
         log,
@@ -462,6 +470,13 @@ export async function runServe(o: ServeOptions): Promise<never> {
       await theWindow().close();
     } catch (error) {
       log(`studio: the browser would not close cleanly (${messageOf(error)})`);
+    }
+    try {
+      await renderer.close();
+    } catch (error) {
+      log(
+        `studio: the render browser would not close cleanly (${messageOf(error)})`,
+      );
     }
     try {
       await removeStudioState(home, process.pid);

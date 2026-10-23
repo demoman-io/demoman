@@ -69,7 +69,7 @@ function failureOf(
 }
 
 /**
- * The studio's exports: FIFO, one at a time on the studio's one work page
+ * The studio's exports: FIFO, one at a time in the studio's headless browser
  * (spec §6.3). `start` checks the take and its revision and queues; the
  * lease and the `outputs.json` row are `run`'s (`exportTake`), so the agent
  * door and the studio take them the same way.
