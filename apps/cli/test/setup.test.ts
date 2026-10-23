@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { CODEX_APPROVAL_TABLE, cursorEntry } from "../src/configs.js";
-import { type Ran, type SetupDeps, setup } from "../src/setup.js";
+import {
+  parseSetupArgs,
+  type Ran,
+  type SetupDeps,
+  setup,
+} from "../src/setup.js";
 
 const OK = (stdout = ""): Ran => ({ status: 0, stdout, stderr: "" });
 const FAIL = (stderr: string, status = 1): Ran => ({
@@ -1165,5 +1170,66 @@ describe("setup", () => {
       setup(m.d);
       expect(m.writes).toEqual([]);
     });
+  });
+});
+
+describe("parseSetupArgs", () => {
+  it("answers nothing with no flags", () => {
+    expect(parseSetupArgs([])).toEqual({});
+  });
+
+  it("reads every flag, agents in setup's order and named as setup names them", () => {
+    expect(
+      parseSetupArgs([
+        "--agents",
+        "codex,claude,codex",
+        "--quality",
+        "share",
+        "--pull-requests",
+        "attach",
+      ]),
+    ).toEqual({
+      agents: ["Claude Code", "Codex"],
+      quality: "share",
+      pullRequests: "attach",
+    });
+  });
+
+  it("refuses a quality that is not one, naming the flag, the choices and the word", () => {
+    const got = parseSetupArgs(["--quality", "ultra"]);
+    expect(got).toHaveProperty("refused");
+    const { refused } = got as { refused: string };
+    expect(refused).toContain("--quality");
+    expect(refused).toContain("share, high, full");
+    expect(refused).toContain('"ultra"');
+  });
+
+  it("refuses a pull-request value that is not one", () => {
+    const { refused } = parseSetupArgs(["--pull-requests", "yes"]) as {
+      refused: string;
+    };
+    expect(refused).toContain("--pull-requests");
+    expect(refused).toContain("off, ask, attach");
+    expect(refused).toContain('"yes"');
+  });
+
+  it("refuses an empty agent list and an agent setup does not know", () => {
+    for (const [value, word] of [
+      ["", '""'],
+      ["claude,vscode", '"vscode"'],
+    ] as const) {
+      const { refused } = parseSetupArgs(["--agents", value]) as {
+        refused: string;
+      };
+      expect(refused).toContain("--agents");
+      expect(refused).toContain("claude, codex, cursor");
+      expect(refused).toContain(word);
+    }
+  });
+
+  it("refuses a flag it does not know instead of throwing", () => {
+    const got = parseSetupArgs(["--colour"]);
+    expect(got).toHaveProperty("refused");
+    expect((got as { refused: string }).refused).toContain("--colour");
   });
 });

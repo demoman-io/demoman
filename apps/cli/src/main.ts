@@ -31,7 +31,7 @@ import {
 import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshCursorSkill } from "./cursor-skill.js";
 import { PACKAGE_NAME } from "./names.js";
-import { setup } from "./setup.js";
+import { parseSetupArgs, setup } from "./setup.js";
 import {
   readSkill,
   readTextFile,
@@ -62,6 +62,7 @@ function requirePageBundles(pages: string, say: (line: string) => void): void {
 const USAGE = `demoman ${VERSION}
 
   npx demoman setup          install the browser and connect your coding agents
+    [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
   npx demoman signin <url>   sign in to your app once, so agents can record behind the login
   npx demoman signin --account <name> [--site <origin>] [--project <dir>]
                              sign in as a demo account from .demoman/accounts.json (CI, or a check)
@@ -239,6 +240,11 @@ switch (command) {
     await studio(rest);
     break;
   case "setup": {
+    const flags = parseSetupArgs(rest);
+    if ("refused" in flags) {
+      process.stdout.write(`Demoman setup stopped: ${flags.refused}.\n`);
+      process.exit(1);
+    }
     let deps: ReturnType<typeof realSetupDeps>;
     try {
       deps = realSetupDeps(

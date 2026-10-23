@@ -10,7 +10,16 @@ npx demoman setup
 ```
 
 Downloads Chromium (about 190 MB) and connects Demoman to Claude Code, Codex
-and Cursor. See [Agents](/agents).
+and Cursor. See [Agents](/agents). In a terminal it first asks which agents to
+connect, the export quality and the pull-request setting; run it again to
+change them. A flag answers its question, so it is not asked; without a
+terminal (a script, CI) nothing is asked.
+
+| Flag | |
+| --- | --- |
+| `--agents <list>` | The agents to connect, comma-separated: `claude`, `codex`, `cursor` |
+| `--quality <quality>` | Export quality: `share`, `high` or `full` |
+| `--pull-requests <value>` | Pull-request videos: `off`, `ask` or `attach` |
 
 ## signin
 

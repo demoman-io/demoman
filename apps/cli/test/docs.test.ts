@@ -318,16 +318,19 @@ describe("the CLI's commands page", () => {
     const src = (f: string) =>
       readFileSync(new URL(`../src/${f}`, import.meta.url), "utf8");
     const flags = new Set([
-      ...[
-        ...src("main.ts").matchAll(
-          /^\s+"?([a-z-]+)"?: \{ type: "(?:boolean|string)" \}/gm,
-        ),
-      ].map((m) => `--${m[1]}`),
+      ...["main.ts", "setup.ts"].flatMap((f) =>
+        [
+          ...src(f).matchAll(
+            /^\s+"?([a-z-]+)"?: \{ type: "(?:boolean|string)" \}/gm,
+          ),
+        ].map((m) => `--${m[1]}`),
+      ),
       ...[...src("studio-args.ts").matchAll(/"(--[a-z-]+)"/g)].map((m) => m[1]),
     ]);
     flags.delete("--serve");
-    // The premise: mcp's two flags, signin's three, and studio's --stop.
-    expect(flags.size).toBeGreaterThanOrEqual(6);
+    // The premise: mcp's two flags, signin's three, studio's --stop and
+    // setup's three.
+    expect(flags.size).toBeGreaterThanOrEqual(9);
     for (const f of flags) expect(page(), f).toContain(`\`${f}`);
   });
 });

@@ -6,6 +6,15 @@
 // failure path is tested; setup-deps.ts supplies the real commands. A failed
 // browser stops everything; a failed agent stops only itself, and makes the
 // exit 1. Each agent says its own result, and no failure reads as success.
+import { parseArgs } from "node:util";
+import {
+  EXPORT_QUALITY_VALUES,
+  type ExportQuality,
+  isExportQuality,
+  isPullRequestsValue,
+  PULL_REQUESTS_VALUES,
+  type PullRequestsValue,
+} from "@demoman/run-core";
 import {
   addAllowRules,
   CODEX_APPROVAL_TABLE,
@@ -155,6 +164,75 @@ export interface AgentResult {
   state: AgentState;
 }
 type Wire = (d: SetupDeps) => AgentResult;
+
+/** Each agent's word on the command line, in the order setup wires them. */
+const AGENT_FLAGS: ReadonlyArray<[string, AgentName]> = [
+  ["claude", "Claude Code"],
+  ["codex", "Codex"],
+  ["cursor", "Cursor"],
+];
+
+/** Answers given on the command line: each one is a question not asked. */
+export interface SetupFlags {
+  agents?: AgentName[];
+  quality?: ExportQuality;
+  pullRequests?: PullRequestsValue;
+}
+
+/** setup's arguments, or why they cannot be used, before anything runs. */
+export function parseSetupArgs(
+  args: string[],
+): SetupFlags | { refused: string } {
+  let values: { agents?: string; quality?: string; "pull-requests"?: string };
+  try {
+    ({ values } = parseArgs({
+      args,
+      options: {
+        agents: { type: "string" },
+        quality: { type: "string" },
+        "pull-requests": { type: "string" },
+      },
+      strict: true,
+      allowPositionals: false,
+    }));
+  } catch (error) {
+    return { refused: error instanceof Error ? error.message : String(error) };
+  }
+  const flags: SetupFlags = {};
+  if (values.agents !== undefined) {
+    const words = values.agents.split(",").map((w) => w.trim());
+    const unknown = words.find(
+      (w) => !AGENT_FLAGS.some(([flag]) => flag === w),
+    );
+    if (unknown !== undefined) {
+      return {
+        refused: `--agents takes ${AGENT_FLAGS.map(([flag]) => flag).join(", ")}, comma-separated; got "${unknown}"`,
+      };
+    }
+    flags.agents = AGENT_FLAGS.filter(([flag]) => words.includes(flag)).map(
+      ([, name]) => name,
+    );
+  }
+  const quality = values.quality;
+  if (quality !== undefined) {
+    if (!isExportQuality(quality)) {
+      return {
+        refused: `--quality must be ${EXPORT_QUALITY_VALUES.join(", ")}; got "${quality}"`,
+      };
+    }
+    flags.quality = quality;
+  }
+  const pr = values["pull-requests"];
+  if (pr !== undefined) {
+    if (!isPullRequestsValue(pr)) {
+      return {
+        refused: `--pull-requests must be ${PULL_REQUESTS_VALUES.join(", ")}; got "${pr}"`,
+      };
+    }
+    flags.pullRequests = pr;
+  }
+  return flags;
+}
 
 /** Every tool of the plugin's server (code.claude.com/docs/en/permissions:
  *  a plugin's server takes the plugin-scoped name). */

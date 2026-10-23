@@ -17,6 +17,9 @@ importers:
       '@demoman/mcp':
         specifier: workspace:*
         version: link:../mcp
+      '@demoman/run-core':
+        specifier: workspace:*
+        version: link:../../packages/run-core
       '@demoman/runner':
         specifier: workspace:*
         version: link:../runner
