@@ -693,7 +693,13 @@ function editedClauses(
  * six-click take, each of which the recipe asked it to name — while a person
  * read one sentence. `summary` is that sentence, so both say the same thing.
  */
-export type ExportAnswer = ExportReport & { summary: string };
+export type ExportAnswer = ExportReport & {
+  summary: string;
+  /** A failed export's: no quality was asked for and the Export quality
+   *  setting could not be read, why. A saved MP4 says it in
+   *  `warnings.videoSize.settingUnreadable` instead. */
+  settingUnreadable?: string;
+};
 
 export function withSummary(report: ExportReport): ExportAnswer {
   return { ...report, summary: exportVerdict(report) };

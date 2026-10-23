@@ -303,6 +303,19 @@ describe("export, high by default", () => {
         expect(unread.summary).toContain(
           "not your Export quality setting, which could not be read",
         );
+
+        // A failed export says it as well: it is not only a saved MP4's.
+        const failed = await exportNow("e-unread-missing", {
+          takeId: "no-such-take",
+        });
+        expect(failed).toMatchObject({
+          outcome: "refusedBeforeExport",
+          reason: "takeNotFound",
+        });
+        expect(failed.settingUnreadable).toContain(settings);
+        expect(failed.summary).toContain(
+          "Your Export quality setting could not be read either",
+        );
       } finally {
         await rm(settings, { force: true });
       }

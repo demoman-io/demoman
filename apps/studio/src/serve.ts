@@ -191,15 +191,19 @@ export function buildHandlers(o: {
           `Nothing was exported: ${JSON.stringify(fileType) ?? "no file type"} is not mp4, gif or stills.`,
         );
       }
-      // Only an MP4 has a quality: on a GIF or stills it would be ignored.
-      if (
-        quality !== undefined &&
-        (!isExportQuality(quality) || fileType !== "mp4")
-      ) {
+      if (quality !== undefined && !isExportQuality(quality)) {
         return refuse(
           400,
           "exportQualityInvalid",
-          `Nothing was exported: ${fileType !== "mp4" ? `a ${fileType === "gif" ? "GIF" : "stills export"} has no quality` : `${JSON.stringify(quality)} is not ${EXPORT_QUALITY_VALUES.join(", ")}`}.`,
+          `Nothing was exported: ${JSON.stringify(quality)} is not ${EXPORT_QUALITY_VALUES.join(", ")}.`,
+        );
+      }
+      // Only an MP4 has a quality: on a GIF or stills it would be ignored.
+      if (quality !== undefined && fileType !== "mp4") {
+        return refuse(
+          400,
+          "exportQualityInvalid",
+          `Nothing was exported: only an MP4 has a quality, not ${fileType === "gif" ? "a GIF" : "stills"}.`,
         );
       }
       if (typeof revision !== "string" || revision === "") {

@@ -73,6 +73,17 @@ export async function exportTake(
   onProgress: (report: Exporting) => void,
 ): Promise<ExportAnswer> {
   const { library } = deps;
+  // Why the Settings quality could not be read, once it has been: a failed
+  // export says it too, not only a saved MP4 (`videoSize`).
+  let settingUnreadable: string | undefined;
+  const told = (answer: ExportAnswer): ExportAnswer =>
+    settingUnreadable === undefined || answer.outcome === "saved"
+      ? answer
+      : {
+          ...answer,
+          settingUnreadable,
+          summary: `${answer.summary} Your Export quality setting could not be read either: ${settingUnreadable.replace(/\.$/, "")}.`,
+        };
   const refused = (
     reason:
       | "noTakeId"
@@ -85,7 +96,7 @@ export async function exportTake(
       | "invalidMaxMB",
     detail: string,
   ): ExportAnswer =>
-    withSummary({ outcome: "refusedBeforeExport", reason, detail });
+    told(withSummary({ outcome: "refusedBeforeExport", reason, detail }));
   const takeId = typeof args.takeId === "string" ? args.takeId.trim() : "";
   if (takeId === "") return refused("noTakeId", "no take id was given");
   // An id that cannot name a folder under takes/ names no take: not a
@@ -123,6 +134,7 @@ export async function exportTake(
       : args.quality === undefined && asked === "mp4"
         ? await settingsQuality(deps)
         : { quality: DEFAULT_EXPORT_QUALITY };
+  settingUnreadable = fallback.unreadable;
   const quality = qualityOf(args.quality, asked, fallback.quality);
   if (typeof quality === "object") {
     return refused("invalidQuality", quality.refusal);
@@ -173,9 +185,7 @@ export async function exportTake(
       asked,
       stills,
       quality,
-      ...(fallback.unreadable === undefined
-        ? {}
-        : { settingUnreadable: fallback.unreadable }),
+      ...(settingUnreadable === undefined ? {} : { settingUnreadable }),
       maxBytes,
       scene,
       notes,
@@ -186,7 +196,7 @@ export async function exportTake(
     });
     return answer.outcome === "saved"
       ? await listed(answer, takeId, scene, deps)
-      : answer;
+      : told(answer);
   } finally {
     try {
       await lease.release();

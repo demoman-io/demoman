@@ -477,7 +477,9 @@ export function createRoutes(o: {
           ? { exportQuality: got.exportQuality }
           : { exportQuality: DEFAULT_EXPORT_QUALITY, unreadable };
       if (unreadable !== undefined) {
-        log(`studio: Export quality is High: ${unreadable}`);
+        log(
+          `studio: Export quality is ${DEFAULT_EXPORT_QUALITY}: ${unreadable}`,
+        );
       }
       return json(200, answer);
     },

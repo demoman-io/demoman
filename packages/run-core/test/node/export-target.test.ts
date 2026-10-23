@@ -322,6 +322,28 @@ describe("targetFor", () => {
       ).toEqual({ ...LANDSCAPE_1080P, bitrate: HIGH_LANDSCAPE.bitrate });
     });
 
+    // Red if high's bitrate stops being capped at the tier's own: on a frame
+    // a cap made small, high would ask more than full.
+    it("high never asks more than full on a small capped tier", () => {
+      const small: typeof LANDSCAPE_1080P = {
+        ...LANDSCAPE_1080P,
+        width: 1280,
+        height: 720,
+        bitrate: 4_000_000,
+      };
+      const bundle = proceduralBundle();
+      const full = targetFor("mp4", "16:9", bundle, FRAME, { maxTier: small });
+      // Premise: the cap made full that small frame, below high's 8 Mbps.
+      expect(full).toEqual(small);
+      expect(full.bitrate).toBeLessThan(HIGH_LANDSCAPE.bitrate);
+      const high = targetFor("mp4", "16:9", bundle, FRAME, {
+        maxTier: small,
+        quality: "high",
+      });
+      expect([high.width, high.height, high.fps]).toEqual([1280, 720, 60]);
+      expect(high.bitrate).toBe(full.bitrate);
+    });
+
     it("high Auto never asks more than HIGH_MAX_BITRATE", () => {
       // Square keyframes wide enough for the 1440p tier, recorded square.
       const square = proceduralBundle({

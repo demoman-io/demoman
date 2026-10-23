@@ -169,11 +169,12 @@ function shareTier(tier: RenderTarget): RenderTarget {
 }
 
 /** The high target for a landscape tier: `HIGH_LANDSCAPE`, or the tier's
- *  own frame at its bitrate when the keyframes (or a cap) back no more. */
+ *  own frame when the keyframes (or a cap) back no more, at high's bitrate
+ *  or the tier's own when that is lower: high never asks more than full. */
 function highTier(tier: RenderTarget): RenderTarget {
   return tier.width >= HIGH_LANDSCAPE.width
     ? HIGH_LANDSCAPE
-    : { ...tier, bitrate: HIGH_LANDSCAPE.bitrate };
+    : { ...tier, bitrate: Math.min(tier.bitrate, HIGH_LANDSCAPE.bitrate) };
 }
 
 /**

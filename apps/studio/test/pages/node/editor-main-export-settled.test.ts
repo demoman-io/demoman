@@ -56,6 +56,10 @@ const seen = vi.hoisted(() => ({
   releasePut: null as ((revision: string) => void) | null,
   gets: 0,
   withFrames: true,
+  qualityRead: { quality: "share" } as {
+    quality: "share" | "high" | "full";
+    unreadable?: string;
+  },
 }));
 
 vi.mock("#platform", async (importOriginal) => {
@@ -133,7 +137,7 @@ vi.mock("#platform", async (importOriginal) => {
       write: async () => ({}),
     },
     exportQuality: {
-      read: async () => ({ quality: "share" }),
+      read: async () => seen.qualityRead,
       write: async () => ({}),
     },
     exports: {
@@ -175,6 +179,7 @@ describe("editor main — Export waits for the edit being written", () => {
     seen.releasePut = null;
     seen.gets = 0;
     seen.withFrames = true;
+    seen.qualityRead = { quality: "share" };
     editorDom();
     vi.stubGlobal(
       "OffscreenCanvas",
@@ -248,10 +253,42 @@ describe("editor main — Export waits for the edit being written", () => {
     await vi.waitFor(() => {
       if (seen.starts.length === 0) throw new Error("not posted yet");
     });
+    // Nothing picked: the setting the panel shows, so a setting changed
+    // before the job runs cannot make another size than the panel named.
     expect(seen.starts).toEqual([
-      { revision: "r-after-edit", fileType: "mp4" },
+      { revision: "r-after-edit", fileType: "mp4", quality: "share" },
     ]);
-    // Nothing picked in the panel: no quality, so the studio reads Settings.
+  }, 20_000);
+
+  // Red if an unread setting is sent as though read: the studio then could
+  // not say, in the export's own answer, why it was not followed.
+  it("sends no quality when the setting could not be read", async () => {
+    seen.qualityRead = {
+      quality: "high",
+      unreadable: "settings.json is not valid JSON",
+    };
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    await import("../../../pages/entrypoints/editor/main");
+    // Premise: the read answered, and the page said so.
+    await vi.waitFor(() => {
+      if (
+        !info.mock.calls.some((c) => String(c[0]).includes("not valid JSON"))
+      ) {
+        throw new Error("the unreadable setting was not read yet");
+      }
+    });
+    const button = await vi.waitFor(() => {
+      const node = document.querySelector<HTMLButtonElement>(
+        "[data-export-start]",
+      );
+      if (node === null || node.disabled) throw new Error("no Export yet");
+      return node;
+    });
+    button.click();
+    await vi.waitFor(() => {
+      if (seen.starts.length === 0) throw new Error("not posted yet");
+    });
+    expect(seen.starts).toEqual([{ revision: "r-open", fileType: "mp4" }]);
     expect(seen.starts[0]).not.toHaveProperty("quality");
   }, 20_000);
 

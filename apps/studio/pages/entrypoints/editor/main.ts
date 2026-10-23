@@ -132,6 +132,7 @@ import type {
   RemoveReply,
   RevealTarget,
 } from "../../src/platform/types";
+import { EXPORT_QUALITY_LABELS } from "../../src/settings/view";
 import { withNote } from "../../src/shell/carried-note";
 import { askToConfirm, DELETE_DEMO } from "../../src/shell/confirm-dialog";
 import {
@@ -426,6 +427,11 @@ let pickedQuality: ExportQualityChoice | null = null;
 /** The quality the next MP4 is made at, or null where there is none. */
 const qualityNow = (): ExportQualityChoice | null =>
   exportQuality === null ? null : (pickedQuality ?? exportQuality);
+
+/** Whether `exportQuality` is the setting as read, not the default standing
+ *  in before the read answers or for one that failed. Only then is it sent
+ *  unpicked; otherwise the studio reads Settings itself and says why not. */
+let exportQualityRead = false;
 
 let digestOf: { scene: SceneDocument; digest: string } | null = null;
 /** `sceneDigest` of the scene on screen. Memoised by identity: `render`
@@ -1622,8 +1628,6 @@ function pickAspect(next: SceneAspect): void {
   );
 }
 
-/** The Export panel's file type. Page-local, so no dispatch: swap the
- *  target inside `render`, then redraw the current frame. */
 /** The Export panel's Quality: this page's exports, not the setting. Focus
  *  is put back as `pickFileType` does, for the same rebuild. */
 function pickQuality(next: ExportQualityChoice): void {
@@ -1640,6 +1644,8 @@ function pickQuality(next: ExportQualityChoice): void {
   }
 }
 
+/** The Export panel's file type. Page-local, so no dispatch: swap the
+ *  target inside `render`, then redraw the current frame. */
 function pickFileType(next: FileType): void {
   if (next === fileType) return;
   // Read BEFORE the render that destroys it. A keyboard author moving
@@ -2905,15 +2911,19 @@ async function startExport(): Promise<void> {
     // revision where it was, and a scene that really differs is refused
     // with the studio's own sentence below.
     await session.settled();
+    const quality = qualityNow();
     await platform.exports.start(sceneId, {
       fileType,
       aspect: scene.canvas.aspect,
       revision: sceneRevision,
-      // Unpicked, the studio reads Settings at export time and says when it
-      // cannot; only an MP4 has a quality.
-      ...(pickedQuality === null || fileType !== "mp4"
+      // What the panel shows, so the file is the size it named even if the
+      // setting changes before the job runs. Unread, nothing: the studio
+      // reads Settings and says why it could not. Only an MP4 has one.
+      ...(quality === null ||
+      fileType !== "mp4" ||
+      (pickedQuality === null && !exportQualityRead)
         ? {}
-        : { quality: pickedQuality }),
+        : { quality }),
     });
   } catch (error) {
     // The run is otherwise only reset by this job's end, and a job that
@@ -3846,9 +3856,10 @@ async function refreshExportQuality(): Promise<void> {
   const member = platform.exportQuality;
   if (member === undefined) return;
   const got = await member.read();
+  exportQualityRead = got.unreadable === undefined;
   if (got.unreadable !== undefined) {
     console.info(
-      `demoman editor: the Studio exports at High quality: ${got.unreadable}`,
+      `demoman editor: the Studio exports at ${EXPORT_QUALITY_LABELS[got.quality]} quality: ${got.unreadable}`,
     );
   }
   if (got.quality === exportQuality) return;

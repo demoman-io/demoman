@@ -401,13 +401,6 @@ describe("editor main — preview sizing", () => {
   });
 
   /**
-   * Under playback the observer solved without the measured cost or the
-   * latch, got the floor, and compared it to the latched height — unequal on
-   * any calibrated machine, so every fire mid-playback ran a full render.
-   * Verified failable: solving in the observer with `previewHeightFor`
-   * directly, as before, fails the final count.
-   */
-  /**
    * A take opened and played at once has drawn too few frames to price the
    * machine, so the play latches the floor. Measured 2026-10-23 on the
    * author's Mac: that first play ran at 994x720 against 1575x1141 parked,
@@ -461,6 +454,13 @@ describe("editor main — preview sizing", () => {
     expect(composeCalls.at(-1)?.height).toBe(parked.height);
   });
 
+  /**
+   * Under playback the observer solved without the measured cost or the
+   * latch, got the floor, and compared it to the latched height — unequal on
+   * any calibrated machine, so every fire mid-playback ran a full render.
+   * Verified failable: solving in the observer with `previewHeightFor`
+   * directly, as before, fails the final count.
+   */
   it("leaves a playing preview's latched height alone on resize", async () => {
     draws.composeMs = 12;
     await booted();
