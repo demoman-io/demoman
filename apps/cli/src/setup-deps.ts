@@ -16,11 +16,20 @@ import {
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+import { isCancel, multiselect, select } from "@clack/prompts";
 import { demomanHome } from "@demoman/mcp/serve-cli";
+import {
+  EXPORT_QUALITY_LABELS,
+  EXPORT_QUALITY_VALUES,
+  type ExportQuality,
+  PULL_REQUESTS_LABELS,
+  PULL_REQUESTS_VALUES,
+  type PullRequestsValue,
+} from "@demoman/run-core";
 import { fullChromiumPath } from "@demoman/runner/package";
 import { readUserSettings } from "@demoman/runner/studio";
 import { writeSetting } from "@demoman/studio";
-import type { Ran, SetupDeps } from "./setup.js";
+import type { Answers, Questions, Ran, SetupDeps } from "./setup.js";
 
 /** How long a captured command (claude's git clone of the marketplace, the
  *  warm-start npx download) may go without finishing. Past it, setup says
@@ -217,7 +226,72 @@ export function claudePaths(
   };
 }
 
-export function realSetupDeps(version: string, distDir: string): SetupDeps {
+/** The line shown beside the highlighted choice: the bare labels are
+ *  ambiguous on their own. */
+export const SETUP_HINTS: Record<ExportQuality | PullRequestsValue, string> = {
+  share: "Small enough for a chat or a pull request.",
+  high: "1440p at 60 fps, about 30 MB for 30 seconds.",
+  full: "The largest size the recording supports.",
+  off: "Never attach a demo to a pull request.",
+  ask: "Ask to attach a demo each time your agent creates a PR.",
+  attach: "Always attach a demo whenever your agent creates a PR.",
+};
+
+/** Setup's questions as terminal menus, in order; any cancel cancels all. */
+async function askInTerminal(q: Questions): Promise<Answers | "cancelled"> {
+  const answers: Answers = {};
+  if (q.agents !== undefined) {
+    const got = await multiselect({
+      message: "Connect Demoman to",
+      options: q.agents.map((a) => ({ value: a, label: a })),
+      initialValues: q.agents,
+      required: false,
+    });
+    if (isCancel(got)) return "cancelled";
+    answers.agents = got;
+  }
+  if (q.quality !== undefined) {
+    const got = await select({
+      message: "Export quality",
+      options: EXPORT_QUALITY_VALUES.map((v) => ({
+        value: v,
+        label: EXPORT_QUALITY_LABELS[v],
+        hint: SETUP_HINTS[v],
+      })),
+      initialValue: q.quality,
+    });
+    if (isCancel(got)) return "cancelled";
+    answers.quality = got;
+  }
+  if (q.pullRequests !== undefined) {
+    const got = await select({
+      message: "Pull requests",
+      options: PULL_REQUESTS_VALUES.map((v) => ({
+        value: v,
+        label: PULL_REQUESTS_LABELS[v],
+        hint: SETUP_HINTS[v],
+      })),
+      initialValue: q.pullRequests,
+    });
+    if (isCancel(got)) return "cancelled";
+    answers.pullRequests = got;
+  }
+  return answers;
+}
+
+export function realSetupDeps(
+  version: string,
+  distDir: string,
+  io: {
+    stdinTTY: boolean;
+    stdoutTTY: boolean;
+    env: Record<string, string | undefined>;
+  } = {
+    stdinTTY: process.stdin.isTTY === true,
+    stdoutTTY: process.stdout.isTTY === true,
+    env: process.env,
+  },
+): SetupDeps {
   const home = homedir();
   return {
     platform: process.platform,
@@ -246,7 +320,11 @@ export function realSetupDeps(version: string, distDir: string): SetupDeps {
     readText: readTextFile,
     writeText: writeTextFile,
     say: (line) => void process.stdout.write(`${line}\n`),
-    ask: null,
+    // An agent's shell, a pipe or CI: nobody can answer, so nothing is asked.
+    ask:
+      io.stdinTTY && io.stdoutTTY && io.env.CI === undefined
+        ? askInTerminal
+        : null,
     settings: {
       read: () => readUserSettings(demomanHome()),
       write: (key, value) => writeSetting(demomanHome(), key, value),
