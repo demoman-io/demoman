@@ -74,7 +74,7 @@ export const strays = (paths) => paths.filter((p) => !SHIPPED.test(p));
 export function authorSteps(version) {
   const rc = version.includes("-rc.");
   return [
-    "Deploy the site, then open https://demoman.io/sample/ and check it answers:\n    (cd internal/site && npx wrangler deploy)",
+    `Deploy the site, then open https://demoman.io/#changelog and check it lists ${version}:\n    (cd internal/site && npx wrangler deploy)`,
     // A subshell: step 3's paths are the repo root's.
     `Publish npm (your security key's browser prompt):\n    ${
       rc
