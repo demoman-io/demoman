@@ -73,7 +73,7 @@ Documentation: [demoman.io/docs](https://demoman.io/docs)
 
 The repo is a pnpm workspace: `apps/cli` is the published `demoman` package,
 `apps/mcp` the MCP server agents drive it through, `apps/runner` the executor
-that drives Chromium and records, `apps/studio` the studio, `apps/docs` the
+that drives Chromium and records, `apps/studio` the Studio, `apps/docs` the
 documentation at demoman.io/docs, and `packages/` the capture, replay and
 rendering pipeline they share.
 

@@ -110,7 +110,7 @@ function studioPages(): Plugin {
       for (const [page, served] of Object.entries(PAGES)) {
         const built = join(outDir, page, "index.html");
         if (!existsSync(built)) {
-          throw new Error(`the studio build wrote no ${built}`);
+          throw new Error(`the Studio build wrote no ${built}`);
         }
         writeFileSync(
           join(outDir, served),
@@ -152,10 +152,10 @@ const HTML_TAG = /<html\b([^>]*)>/i;
  */
 export function markStudioPage(html: string): string {
   if (!HTML_TAG.test(html)) {
-    throw new Error("the studio page has no <html> tag to mark");
+    throw new Error("the Studio page has no <html> tag to mark");
   }
   if (!/<\/head>/i.test(html)) {
-    throw new Error("the studio page has no </head> to link its sheet before");
+    throw new Error("the Studio page has no </head> to link its sheet before");
   }
   return html
     .replace(

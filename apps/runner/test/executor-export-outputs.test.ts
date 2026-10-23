@@ -170,7 +170,7 @@ describe("export lists what it saved, and holds a lease while it works", () => {
     EXPORT_MS,
   );
 
-  it("opens @demoman/runner/studio under raw node with every name the studio needs", async () => {
+  it("opens @demoman/runner/studio under raw node with every name the Studio needs", async () => {
     const names = [
       "createLibrary",
       "LibraryError",

@@ -115,7 +115,7 @@ describe("Take info", () => {
   // The author, 2026-10-19: how a studio take is filmed again is parked;
   // the row copied an agent call that read as plumbing. Red: draw a row
   // for the studio's line answer again.
-  it("draws no Re-film row in the studio", () => {
+  it("draws no Re-film row in the Studio", () => {
     renderTakeInfo(root, base(), handlers);
     // Premise: the id row drew, so the absence is in a drawn group.
     expect(Object.fromEntries(rows())["Take ID"]).toBe("scene-1");

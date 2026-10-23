@@ -392,7 +392,7 @@ describe("the library page on a platform with a take folder", () => {
     expect(target?.hasAttribute("data-unreadable")).toBe(true);
   });
 
-  it("a thumb that fails shows the preview-failed state with the studio's words", async () => {
+  it("a thumb that fails shows the preview-failed state with the Studio's words", async () => {
     const detail = "Couldn't make a preview of kf:x:0: sips: Error 13.";
     const fake = await fakePlatform(
       async () => listing([await scene("a", "Checkout")]),

@@ -419,7 +419,7 @@ describe("renderExport", () => {
     // A row from before digests existed makes no claim either way.
     expect(root.querySelector('[data-stale-export="unknown"]')).toBeNull();
   });
-  it("has no share surface at all (the studio has no hosted service)", () => {
+  it("has no share surface at all (the Studio has no hosted service)", () => {
     renderExport(
       root,
       {

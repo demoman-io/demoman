@@ -230,7 +230,7 @@ describe("editor main — storage lifecycle wiring", () => {
 
   // Final review I1. On the studio, a delete's reply can carry a note — a
   // folder it could not remove, a stale export lock it cleared.
-  describe("a delete whose reply carries a note (the studio)", () => {
+  describe("a delete whose reply carries a note (the Studio)", () => {
     const NOTE = "Cleared a stale export lock left by process 42.";
     beforeEach(() => {
       memory.answer("scenes.remove", async () => ({

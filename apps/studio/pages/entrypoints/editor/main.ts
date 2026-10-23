@@ -3778,7 +3778,7 @@ async function refreshExportQuality(): Promise<void> {
   const got = await member.read();
   if (got.unreadable !== undefined) {
     console.info(
-      `demoman editor: the studio exports at Sharing quality: ${got.unreadable}`,
+      `demoman editor: the Studio exports at Sharing quality: ${got.unreadable}`,
     );
   }
   if (got.quality === exportQuality) return;

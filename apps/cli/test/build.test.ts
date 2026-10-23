@@ -143,7 +143,7 @@ it("ships the record-demo skill beside the recipe, and packs it", () => {
 // `demoman studio --serve` serves `<dir of demoman.mjs>/studio`
 // (src/main.ts), and refuses to start without its library.html. Red: drop
 // build.mjs's step 3b.
-it("ships the studio's pages where studio --serve looks for them, and packs them", () => {
+it("ships the Studio's pages where studio --serve looks for them, and packs them", () => {
   for (const page of ["library.html", "editor.html", "settings.html"]) {
     expect(read(`pkg/dist/studio/${page}`)).toBe(
       readFileSync(
@@ -262,7 +262,7 @@ describe("checkStudioPages (build.mjs step 3b)", () => {
     const verdict = checkStudioPages({ ...dirs, version: "1.2.3" });
     expect(verdict.ok).toBe(false);
     expect(verdict.ok ? "" : verdict.reason).toMatch(
-      /^the studio's pages were built for demoman 1\.2\.2, not 1\.2\.3 .* run `pnpm -r build`$/,
+      /^the Studio's pages were built for demoman 1\.2\.2, not 1\.2\.3 .* run `pnpm -r build`$/,
     );
   });
 
@@ -287,7 +287,7 @@ describe("checkStudioPages (build.mjs step 3b)", () => {
     const verdict = checkStudioPages({ ...dirs, version: "1.2.3" });
     expect(verdict.ok).toBe(false);
     expect(verdict.ok ? "" : verdict.reason).toMatch(
-      /^the studio's pages: .*studio-build\.json is older than the source .* run `pnpm -r build` first\.$/,
+      /^the Studio's pages: .*studio-build\.json is older than the source .* run `pnpm -r build` first\.$/,
     );
   });
 
@@ -312,7 +312,7 @@ describe("checkStudioPages (build.mjs step 3b)", () => {
     rmSync(join(dirs.pagesDir, "editor.html"));
     const verdict = checkStudioPages({ ...dirs, version: "1.2.3" });
     expect(verdict.ok ? "" : verdict.reason).toContain(
-      "the studio's pages are not built (no ",
+      "the Studio's pages are not built (no ",
     );
   });
 });

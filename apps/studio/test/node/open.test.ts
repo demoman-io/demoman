@@ -133,7 +133,7 @@ describe("openStudio", () => {
         });
         expect(a).toMatchObject({
           outcome: "opened",
-          note: "A stale studio record was replaced.",
+          note: "A stale Studio record was replaced.",
         });
         const s = await readStudioState(home);
         if (s === null || "unreadable" in s) throw new Error("no state");
@@ -217,7 +217,7 @@ describe("openStudio", () => {
   );
 
   it(
-    "stops an older studio with nothing queued and starts its own (version skew)",
+    "stops an older Studio with nothing queued and starts its own (version skew)",
     async () => {
       await openStudio({ home, version: "0.0.1", serve: serveFake("0.0.1") });
       const old = await readStudioState(home);
@@ -268,7 +268,7 @@ describe("openStudio", () => {
   });
 
   it(
-    "opens an older studio holding an export, with the R15 note",
+    "opens an older Studio holding an export, with the R15 note",
     async () => {
       await openStudio({ home, version: "0.0.1", serve: serveFake("0.0.1") });
       const old = await readStudioState(home);
@@ -298,7 +298,7 @@ describe("openStudio", () => {
         });
         expect(a).toMatchObject({
           outcome: "opened",
-          note: "An older studio is running an export; it stays open until that export ends and its window closes, and the next studio call starts the new version.",
+          note: "An older Studio is running an export; it stays open until that export ends and its window closes, and the next Studio call starts the new version.",
         });
         const now = await readStudioState(home);
         if (now === null || "unreadable" in now) throw new Error("no state");

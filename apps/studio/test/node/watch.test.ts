@@ -240,7 +240,7 @@ describe("the kits feed", () => {
     expect(vi.getTimerCount()).toBe(1);
   });
 
-  it("a hand edit sends kits; the studio's own PUT sends exactly one", async () => {
+  it("a hand edit sends kits; the Studio's own PUT sends exactly one", async () => {
     const driven = drivenWatch();
     const s = settles(() => h?.sent ?? []);
     h = await startStudio(home, {

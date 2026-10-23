@@ -64,7 +64,7 @@ describe("editor main — a take that cannot be opened", () => {
     vi.resetModules();
   });
 
-  it("says so, with the studio's reason, when the take's read is refused", async () => {
+  it("says so, with the Studio's reason, when the take's read is refused", async () => {
     memory.answer("scenes.get", async () => {
       throw new Error("scene.json could not be read: EACCES");
     });
@@ -91,11 +91,11 @@ describe("editor main — a take that cannot be opened", () => {
     expect(failureText()).toMatch(/no scene/);
   });
 
-  it("says so when the studio does not answer", async () => {
+  it("says so when the Studio does not answer", async () => {
     // The studio stopped under an open editor: every request rejects.
     const gone = async () => {
       throw new Error(
-        "The studio did not answer GET /api/takes (Failed to fetch).",
+        "The Studio did not answer GET /api/takes (Failed to fetch).",
       );
     };
     memory.answer("scenes.get", gone);
@@ -107,7 +107,7 @@ describe("editor main — a take that cannot be opened", () => {
         throw new Error("open failure not shown yet");
       }
     });
-    expect(failureText()).toContain("The studio did not answer");
+    expect(failureText()).toContain("The Studio did not answer");
   });
 
   it("says so when the frames cannot be read", async () => {

@@ -473,7 +473,7 @@ describe("delete", () => {
     }
   });
 
-  it("…and the studio, by the first live holder's door", async () => {
+  it("…and the Studio, by the first live holder's door", async () => {
     const lease = await createLibrary(home).lease(takeId, {
       op: "export",
       door: "studio",
@@ -488,7 +488,7 @@ describe("delete", () => {
         detail: TAKE_BUSY.studio,
       });
       expect(TAKE_BUSY.studio).toBe(
-        "This take is being exported by the studio.",
+        "This take is being exported by the Studio.",
       );
     } finally {
       await lease.release();
@@ -785,7 +785,7 @@ describe("logos", () => {
   });
 });
 
-describe("no theme in the studio", () => {
+describe("no theme in the Studio", () => {
   // Dark only (spec 2026-10-19 §6): the route and the setting are gone, so
   // nothing answers "saved" to a theme that would change nothing. Red: put
   // themeGet/themePut back in the route table.
@@ -803,7 +803,7 @@ describe("no theme in the studio", () => {
     }
   });
 
-  it("a theme key an older studio left in settings.json is kept by other saves", async () => {
+  it("a theme key an older Studio left in settings.json is kept by other saves", async () => {
     await writeFile(
       join(home, "settings.json"),
       JSON.stringify({ theme: "light" }),

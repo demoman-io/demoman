@@ -275,7 +275,7 @@ describe("a saved outcome", () => {
     outputRefs: [],
   };
 
-  it("shows the studio's summary sentence under Saved", () => {
+  it("shows the Studio's summary sentence under Saved", () => {
     renderExport(
       root,
       { ...base, save: { ...saved, summary: "Made at 1080p; one zoom." } },

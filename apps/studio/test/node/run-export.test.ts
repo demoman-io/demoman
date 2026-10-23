@@ -36,7 +36,7 @@ async function runWith(settings: string | null) {
   return { run, asked, logs, home };
 }
 
-describe("the studio's run reads Export quality on each export", () => {
+describe("the Studio's run reads Export quality on each export", () => {
   it("passes full for an MP4 when the file says full, and follows a later change", async () => {
     const { run, asked, home } = await runWith('{"exportQuality":"full"}');
     await run("t1", "mp4", "j1", () => {});

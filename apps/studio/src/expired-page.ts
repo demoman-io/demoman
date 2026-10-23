@@ -27,7 +27,7 @@ const escapeHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** The document: the expired line, its backtick span drawn as `<code>`. */
-export const EXPIRED_HTML = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Demoman studio</title><style>${STYLE}</style><p>${escapeHtml(EXPIRED_LINE).replace(/`([^`]*)`/g, "<code>$1</code>")}</p>`;
+export const EXPIRED_HTML = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Demoman Studio</title><style>${STYLE}</style><p>${escapeHtml(EXPIRED_LINE).replace(/`([^`]*)`/g, "<code>$1</code>")}</p>`;
 
 /** The page's CSP: the spec's, plus permission for the one style above. */
 export const EXPIRED_CSP = `${SECURITY_HEADERS["Content-Security-Policy"]}; style-src ${styleHash}`;

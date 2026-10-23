@@ -120,7 +120,7 @@ async function retype(page: Page, selector: string, text: string) {
   await page.keyboard.press("Enter");
 }
 
-describe("the studio's Brand kit page, in a real window", () => {
+describe("the Studio's Brand kit page, in a real window", () => {
   it(
     "makes a kit an agent's look.kit resolves, and shows a kit written by hand without a reload",
     async () => {
@@ -129,7 +129,7 @@ describe("the studio's Brand kit page, in a real window", () => {
       homes.push(home);
       expect(
         existsSync(join(PAGES, "settings.html")),
-        `the studio pages are built at ${PAGES} (run \`pnpm -r build\`)`,
+        `the Studio pages are built at ${PAGES} (run \`pnpm -r build\`)`,
       ).toBe(true);
       expect(
         existsSync(join(home, "kits.json")),

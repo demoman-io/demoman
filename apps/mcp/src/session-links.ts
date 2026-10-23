@@ -126,12 +126,12 @@ export function createSessionLinks(deps: SessionLinkDeps): {
   const act = async (action: string, saved: SavedExport): Promise<string> => {
     switch (action) {
       case "studio": {
-        if (deps.studio === undefined) throw new Error("no studio here");
+        if (deps.studio === undefined) throw new Error("no Studio here");
         const answer = await deps.studio({ takeId: saved.takeId });
         if ("reason" in answer) throw new Error(answer.detail);
         return answer.note === undefined
-          ? "Opened in the studio."
-          : `Opened in the studio. ${answer.note}`;
+          ? "Opened in the Studio."
+          : `Opened in the Studio. ${answer.note}`;
       }
       case "copy":
         await copy(saved.path);

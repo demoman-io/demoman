@@ -214,7 +214,7 @@ const tileNames = (): string[] =>
     (n) => n.textContent ?? "",
   );
 
-describe("the studio's Settings page", () => {
+describe("the Studio's Settings page", () => {
   let nav: Navigations;
   beforeEach(() => {
     nav = captureNavigations();
@@ -312,7 +312,7 @@ describe("the studio's Settings page", () => {
     });
   });
 
-  it("a carried-over logo: ref shows the studio's sentence and offers Replace", async () => {
+  it("a carried-over logo: ref shows the Studio's sentence and offers Replace", async () => {
     const sentence =
       "logo:9f1c was saved by the extension, which keeps logos in the browser — upload it again here";
     const fake = fakePlatform([
@@ -491,7 +491,7 @@ describe("the studio's Settings page", () => {
     );
     expect(line.hasAttribute("data-notice")).toBe(true);
   });
-  it("the studio's open event takes the window to the path", async () => {
+  it("the Studio's open event takes the window to the path", async () => {
     const fake = fakePlatform([KIT]);
     await openPage();
     await vi.waitFor(() => {

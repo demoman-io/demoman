@@ -175,7 +175,7 @@ describe("open on a live window (fix 1: never ok when it did not move)", () => {
     expect(answer).toEqual({
       reason: "windowDidNotOpen",
       detail:
-        "the studio's window could not be sent to /editor.html?scene=t1 (net::ERR_ABORTED)",
+        "the Studio's window could not be sent to /editor.html?scene=t1 (net::ERR_ABORTED)",
     });
   });
 

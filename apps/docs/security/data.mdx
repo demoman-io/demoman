@@ -7,7 +7,7 @@ Demoman runs on your machine. Its browser opens only the pages your agent asks f
 
 ## What is installed
 
-The `demoman` npm package is the command line, the MCP server your agent talks to, and the studio. The server speaks over standard input and output only. It opens no port for your agent, and there is no bridge key or approval page as in the browser extension.
+The `demoman` npm package is the command line, the MCP server your agent talks to, and the Studio. The server speaks over standard input and output only. It opens no port for your agent, and there is no bridge key or approval page as in the browser extension.
 
 Setup also downloads Chromium into Playwright's cache (`~/Library/Caches/ms-playwright` on macOS). Each run records in a throwaway profile in that browser.
 
@@ -29,24 +29,24 @@ Everything lives under `~/.demoman`. `DEMOMAN_HOME` moves it. Videos you export 
 
 | Where | What |
 | --- | --- |
-| `~/.demoman/takes/` | Each take: its steps, including the text typed and how each target looked, the run's report, the video frames, your studio edits, preview images and a list of its exports. Kept until you delete it in the studio or by hand. |
+| `~/.demoman/takes/` | Each take: its steps, including the text typed and how each target looked, the run's report, the video frames, your Studio edits, preview images and a list of its exports. Kept until you delete it in the Studio or by hand. |
 | `~/.demoman/sessions/` | A saved sign-in per site: cookies and the page's stored data, readable by you only. Demoman refuses a file other users can read. |
 | `~/.demoman/update-check.json` | When npm was last asked about a newer version, and its answer. |
-| `~/.demoman/kits.json` | Your brand kits, saved by the studio. A reset keeps the old file beside it first. |
+| `~/.demoman/kits.json` | Your brand kits, saved by the Studio. A reset keeps the old file beside it first. |
 | `~/.demoman/assets/` | Logos you add to a brand kit. |
-| `~/.demoman/settings.json` | The studio's settings: theme, export quality and the pull-request video setting. |
-| `~/.demoman/studio.json` | While the studio runs: its port and the secret its pages use, readable by you only. Removed when it stops. `~/.demoman/studio.start.lock` exists only while the studio starts. |
-| `~/.demoman/studio.log` | The studio's log. The one before it is kept as `~/.demoman/studio.log.1`. |
-| `~/.demoman/profiles/studio` | The studio window's own browser profile, kept between starts. It opens only the studio's pages, and no saved sign-in is loaded into it. |
+| `~/.demoman/settings.json` | The Studio's settings: theme, export quality and the pull-request video setting. |
+| `~/.demoman/studio.json` | While the Studio runs: its port and the secret its pages use, readable by you only. Removed when it stops. `~/.demoman/studio.start.lock` exists only while the Studio starts. |
+| `~/.demoman/studio.log` | The Studio's log. The one before it is kept as `~/.demoman/studio.log.1`. |
+| `~/.demoman/profiles/studio` | The Studio window's own browser profile, kept between starts. It opens only the Studio's pages, and no saved sign-in is loaded into it. |
 | `.demoman/accounts.json` | In your repo, written by your agent: how to sign in as a demo account, with a placeholder in place of every secret. Meant to be committed. |
 | `.demoman/secrets.env` | In your repo, written by your agent: the demo account's secret values, in plain text. Demoman refuses it unless git ignores it. It does not check the file's permissions. |
 | `.demoman/config.json` | In your repo, if you add one: the repo's pull-request video setting. Demoman only reads it. |
 
 Page URLs in a take have query values and token-like path segments replaced by "redacted". The address a script starts at is kept as given. Text typed into a password field, or a field whose name reads like a password, token, card number or code, is stored as hidden.
 
-The command line and the MCP server keep no log file. Their logs go to the terminal, with secrets swept out. The studio reads no secrets, and its log is not swept.
+The command line and the MCP server keep no log file. Their logs go to the terminal, with secrets swept out. The Studio reads no secrets, and its log is not swept.
 
-There is no delete command. The studio's library can delete a take. To remove everything else, delete `~/.demoman` (or just its `takes/` or `sessions/` folders), your exported files and Playwright's Chromium cache, and remove Demoman from each agent: uninstall the Demoman plugin in Claude Code and in Codex, and for Cursor delete the `demoman` entry in `~/.cursor/mcp.json` and the `~/.cursor/skills/record-demo/` folder.
+There is no delete command. The Studio's library can delete a take. To remove everything else, delete `~/.demoman` (or just its `takes/` or `sessions/` folders), your exported files and Playwright's Chromium cache, and remove Demoman from each agent: uninstall the Demoman plugin in Claude Code and in Codex, and for Cursor delete the `demoman` entry in `~/.cursor/mcp.json` and the `~/.cursor/skills/record-demo/` folder.
 
 ## Passwords and secrets
 
@@ -54,7 +54,7 @@ There is no delete command. The studio's library can delete a take. To remove ev
 - A demo account signs in from the steps in `.demoman/accounts.json`, in a hidden browser that is not recorded. A secret is never typed outside its account's site, and a session that holds a secret's value is not saved.
 - Secret values come from the environment, as in CI, or from `.demoman/secrets.env`. A secret from the environment must name the one site it may be typed on.
 - Demoman sweeps every secret value out of written files, tool answers and log lines, replacing it with a placeholder. One gap: a token that merely contains the password is not caught.
-- The video is not masked unless you mask it. It shows what the page shows. A real password input draws dots because Chromium does; a field Demoman treats as a credential only by its name shows its value. A Mask added in the studio covers part of the picture. A change to a step's typed text covers that one field, not the same text shown elsewhere on the page.
+- The video is not masked unless you mask it. It shows what the page shows. A real password input draws dots because Chromium does; a field Demoman treats as a credential only by its name shows its value. A Mask added in the Studio covers part of the picture. A change to a step's typed text covers that one field, not the same text shown elsewhere on the page.
 - Your agent makes the demo password and writes it to `.demoman/secrets.env`, so the agent, and the AI service it runs on, already has that value. Demoman only stops it being echoed back.
 
 ## What your agent sees
@@ -69,7 +69,7 @@ Every tool answers with text. No image or video bytes travel over MCP.
 - **status**: versions, the export folder, saved sign-ins (sites and dates, never cookies), demo accounts (names and sites), the secrets file's path but never a value, the pull-request video setting, the last run's report and the update check's answer.
 - **export**: the saved file's path and size. An agent with file access can open it.
 - **attach**: the pull request's address and the posted video's address on GitHub.
-- **studio**: that the studio window opened, with a link that works once.
+- **studio**: that the Studio window opened, with a link that works once.
 
 ## What leaves your machine
 
@@ -88,6 +88,6 @@ Nothing listens for your agent.
 
 The encode and render steps each start a short-lived server on `127.0.0.1`, on a random port, for the length of that step. It does not authenticate: anything on your machine that finds the port can fetch that take's frames and images while it runs.
 
-The studio serves its pages on `127.0.0.1`, on a random port, while it runs. Every request needs a cookie holding a random secret. A window gets that cookie from a link that works once, within a minute, so the secret never appears in an address.
+The Studio serves its pages on `127.0.0.1`, on a random port, while it runs. Every request needs a cookie holding a random secret. A window gets that cookie from a link that works once, within a minute, so the secret never appears in an address.
 
 The browser's own control channel also binds to localhost, with an unguessable path as its only credential.

@@ -239,7 +239,7 @@ async function agentExport(
 
 // ------------------------------------------------------------------ test
 
-describe("the studio, in a real window", () => {
+describe("the Studio, in a real window", () => {
   it(
     "edits a take with the editor's own controls, exports a GIF through the queue, and says what the agent's export says",
     async () => {
@@ -249,7 +249,7 @@ describe("the studio, in a real window", () => {
       const outDir = join(home, "out");
       expect(
         existsSync(join(PAGES, "editor.html")),
-        `the studio pages are built at ${PAGES} (run \`pnpm -r build\`)`,
+        `the Studio pages are built at ${PAGES} (run \`pnpm -r build\`)`,
       ).toBe(true);
 
       // 1. The take, and its premises.
@@ -317,7 +317,7 @@ describe("the studio, in a real window", () => {
       // The app window opened alone: no about:blank beside it.
       expect(
         pages.map((p) => p.url()),
-        "the studio's browser holds exactly the app window",
+        "the Studio's browser holds exactly the app window",
       ).toEqual([`${studio.origin}${windowAnswer.path}`]);
       const page = pages[0] as Page;
 
@@ -580,9 +580,9 @@ describe("the studio, in a real window", () => {
   );
 });
 
-describe("the editor's size readout in the studio", () => {
+describe("the editor's size readout in the Studio", () => {
   it(
-    "names the size the studio will export at: Sharing's frame for a 4K-backed take, and follows the setting",
+    "names the size the Studio will export at: Sharing's frame for a 4K-backed take, and follows the setting",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-readout-"));
       homes.push(home);

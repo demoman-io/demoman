@@ -85,7 +85,7 @@ describe("the pages' build carries the HTTP side of #platform", () => {
     for (const dir of made) rmSync(dir, { recursive: true, force: true });
   });
 
-  it("writes the pages the studio serves, under the names it serves them by", () => {
+  it("writes the pages the Studio serves, under the names it serves them by", () => {
     expect(studioHtml.map((f) => f.name).sort()).toEqual([
       "editor.html",
       "library.html",
@@ -112,7 +112,7 @@ describe("the pages' build carries the HTTP side of #platform", () => {
   // import "../../src/adapters/kv" in entrypoints/settings/main.ts.
   it("loads scripts for settings.html that the grep below reads", () => {
     const page = studioHtml.find((f) => f.name === "settings.html");
-    expect(page, "settings.html in the studio output").toBeDefined();
+    expect(page, "settings.html in the Studio output").toBeDefined();
     const srcs = [
       ...(page?.text ?? "").matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g),
     ].map((m) => (m[1] ?? "").replace(/^\//, ""));
@@ -138,12 +138,12 @@ describe("the pages' build carries the HTTP side of #platform", () => {
     }
   });
 
-  it("reaches nothing of Chrome's from the studio's pages", () => {
+  it("reaches nothing of Chrome's from the Studio's pages", () => {
     const found = [
       ...hits(studioJs, "chrome."),
       ...hits(studioJs, "indexedDB"),
     ];
-    expect(found.join("\n"), "Chrome in the studio's pages").toBe("");
+    expect(found.join("\n"), "Chrome in the Studio's pages").toBe("");
   });
 
   // Archive, Task 9 (2026-10-20): what only the extension's platform members
@@ -168,7 +168,7 @@ describe("the pages' build carries the HTTP side of #platform", () => {
 
   // The studio serves every page under `default-src 'self'` (spec §4.1),
   // which refuses inline styles: left in, the pages' own rules never apply.
-  it("leaves no inline style or script in the studio's pages", () => {
+  it("leaves no inline style or script in the Studio's pages", () => {
     for (const page of studioHtml) {
       expect(page.text, page.name).not.toMatch(/<style\b/i);
       expect(page.text, page.name).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
@@ -180,7 +180,7 @@ describe("the pages' build carries the HTTP side of #platform", () => {
   // first. Checked as running in headless Chromium in the Task 12 report;
   // this pins that the build still puts it in. Red: drop `studioPrelude()`
   // from the config's plugins.
-  it("sets zod jitless in the studio's pages", () => {
+  it("sets zod jitless in the Studio's pages", () => {
     expect(studioJs.some((f) => /jitless:\s*(!0|true)\}/.test(f.text))).toBe(
       true,
     );

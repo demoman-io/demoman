@@ -19,7 +19,7 @@ const FILES = [
   "lockup_dark.svg",
 ];
 
-describe("the studio's brand copies", () => {
+describe("the Studio's brand copies", () => {
   it.each(FILES)("holds pages/public/images/%s to brand/", (file) => {
     const canonical = join(REPO, "brand", file);
     const copy = join(IMAGES, file);

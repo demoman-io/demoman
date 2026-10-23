@@ -46,10 +46,10 @@ describe("the memory platform", () => {
   it("answers a member the test overrides, and still records the call", async () => {
     const memory = createMemoryPlatform();
     memory.answer("scenes.get", async () => {
-      throw new Error("the studio did not answer");
+      throw new Error("the Studio did not answer");
     });
     await expect(memory.scenes.get("t")).rejects.toThrow(
-      "the studio did not answer",
+      "the Studio did not answer",
     );
     expect(memory.calls).toEqual([
       { member: "scenes", method: "get", args: ["t"] },

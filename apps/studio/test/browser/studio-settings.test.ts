@@ -85,7 +85,7 @@ async function segments(
     );
 }
 
-describe("the studio's Pull requests setting, in a real window", () => {
+describe("the Studio's Pull requests setting, in a real window", () => {
   it(
     "offers Off, Ask and Attach, checks Ask with nothing set, and saves Attach",
     async () => {
@@ -286,7 +286,7 @@ describe("the studio's Pull requests setting, in a real window", () => {
   );
 });
 
-describe("the studio's Export quality setting, in a real window", () => {
+describe("the Studio's Export quality setting, in a real window", () => {
   it(
     "offers Sharing and Full, checks Sharing with nothing set, and saves Full",
     async () => {

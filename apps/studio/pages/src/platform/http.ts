@@ -278,7 +278,7 @@ export function createPlatform(
       if (init.retried !== true) gone("stopped");
       throw new StudioError(
         "studioGone",
-        `The studio did not answer ${route.method} ${url} (${messageOf(error)}).`,
+        `The Studio did not answer ${route.method} ${url} (${messageOf(error)}).`,
         0,
       );
     }
@@ -294,7 +294,7 @@ export function createPlatform(
     const detail =
       typeof refusal?.detail === "string"
         ? refusal.detail
-        : `The studio answered ${res.status} to ${route.method} ${url} without saying why.`;
+        : `The Studio answered ${res.status} to ${route.method} ${url} without saying why.`;
     if (
       res.status === 403 &&
       (reason === "noReason" || SESSION_REASONS.has(reason))
@@ -310,7 +310,7 @@ export function createPlatform(
     } catch (error) {
       throw new StudioError(
         "internalError",
-        `The studio's answer was not JSON (${messageOf(error)}).`,
+        `The Studio's answer was not JSON (${messageOf(error)}).`,
         res.status,
       );
     }
@@ -327,7 +327,7 @@ export function createPlatform(
       gone("updated");
       throw new StudioError(
         "versionSkew",
-        `${GONE_LINES.updated} (this page is ${typeof expected === "string" ? expected : "unversioned"}, the studio ${ping.version})`,
+        `${GONE_LINES.updated} (this page is ${typeof expected === "string" ? expected : "unversioned"}, the Studio ${ping.version})`,
         0,
       );
     }
@@ -522,7 +522,7 @@ export function createPlatform(
             at = buffer.indexOf("\n\n");
           }
         }
-        why = "the studio closed the event stream";
+        why = "the Studio closed the event stream";
       } catch (error) {
         // A 403 has already taken the page (`request`).
         if (error instanceof StudioError && error.status === 403) return;
@@ -582,7 +582,7 @@ export function createPlatform(
     async remove() {
       // `get` never hands back the old single-kit key, so the store never
       // owes its removal here.
-      throw new Error("the studio keeps no old brand kit key to remove");
+      throw new Error("the Studio keeps no old brand kit key to remove");
     },
   };
   const kitStore = createBrandKitStore(() => area, o.kitLock);
@@ -599,7 +599,7 @@ export function createPlatform(
         return {
           state: "invalid",
           storageRefused: true,
-          reason: `the studio did not answer the kits read: ${messageOf(error)}`,
+          reason: `the Studio did not answer the kits read: ${messageOf(error)}`,
         };
       }
       if ("invalid" in read) {
@@ -869,7 +869,7 @@ export function createPlatform(
       async reveal(target) {
         if (target.kind !== "path") {
           throw new Error(
-            "the studio shows a file by its path, not a download",
+            "the Studio shows a file by its path, not a download",
           );
         }
         await request("reveal", { json: { path: target.path } });

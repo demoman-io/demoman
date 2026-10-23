@@ -16,7 +16,7 @@ const page = (name: string): string =>
   readFileSync(join(ENTRYPOINTS, name, "index.html"), "utf8");
 
 describe("markStudioPage", () => {
-  it("marks <html> dark and links the studio sheet inside <head>", () => {
+  it("marks <html> dark and links the Studio sheet inside <head>", () => {
     const out = markStudioPage(
       '<html lang="en"><head><title>x</title></head><body></body></html>',
     );

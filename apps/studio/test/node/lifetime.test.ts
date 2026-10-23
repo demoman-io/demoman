@@ -285,7 +285,7 @@ async function exportRunning(s: Serve) {
   return { takeId, stream };
 }
 
-describe("the studio's lifetime (Review Focus 3)", () => {
+describe("the Studio's lifetime (Review Focus 3)", () => {
   it("a window closed mid-export: the process stays until the job is saved, then exits and removes studio.json", async () => {
     const s = await serve();
     const { takeId, stream } = await exportRunning(s);
@@ -425,7 +425,7 @@ describe("stopping", () => {
     expect(s.signals.listenerCount("SIGTERM")).toBe(0);
   });
 
-  it("no window within noWindowMs: the studio stops and says why", async () => {
+  it("no window within noWindowMs: the Studio stops and says why", async () => {
     const s = await serve({ noWindowMs: 50 });
     expect(await s.exited).toBe(0);
     expect(s.exits).toEqual([{ code: 0, stateLeft: false }]);
@@ -433,7 +433,7 @@ describe("stopping", () => {
     expect(s.logs.join("\n")).toMatch(/no window opened within/);
   });
 
-  it("an open still in flight when the wait runs out keeps the studio up (M1)", async () => {
+  it("an open still in flight when the wait runs out keeps the Studio up (M1)", async () => {
     const s = await serve({ noWindowMs: 50, holdOpens: true });
     const answer = call(s.state, "/api/window", { method: "POST", body: {} });
     await vi.waitFor(() => {
@@ -458,7 +458,7 @@ describe("stopping", () => {
     expect(s.logs.join("\n")).not.toMatch(/no window opened within/);
   });
 
-  it("an open in flight that then fails: the deferred wait stops the studio", async () => {
+  it("an open in flight that then fails: the deferred wait stops the Studio", async () => {
     const s = await serve({ noWindowMs: 50, holdOpens: true });
     const answer = call(s.state, "/api/window", { method: "POST", body: {} });
     await vi.waitFor(

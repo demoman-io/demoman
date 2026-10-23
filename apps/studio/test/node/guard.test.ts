@@ -146,7 +146,7 @@ describe("the door refuses, each with its own reason", () => {
     const r = await call("/");
     expect(r.status).toBe(403);
     expect(String(r.headers["content-type"])).toContain("text/html");
-    expect(r.text).toContain("This studio link has expired; run ");
+    expect(r.text).toContain("This Studio link has expired; run ");
     expect(r.text).toContain("npx demoman studio");
   });
 });
@@ -189,7 +189,7 @@ describe("the expired page's style", () => {
   // Why the expired page names its faces and links no file: without the
   // session a font is refused like any other path, so the page can only use
   // a Geist the machine has installed, then the system's.
-  it("cannot load the studio's fonts: they are behind the session too", async () => {
+  it("cannot load the Studio's fonts: they are behind the session too", async () => {
     const font = await call("/fonts/geist-variable.woff2");
     expect(font.status).toBe(403);
   });

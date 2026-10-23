@@ -97,10 +97,10 @@ const demoman = (...args: string[]): string =>
     timeout: 60_000,
   });
 
-it("opens the studio on a take, exports a GIF through its API, and stops", async () => {
+it("opens the Studio on a take, exports a GIF through its API, and stops", async () => {
   const id = await takeId();
   const opened = demoman("studio", id);
-  expect(opened).toMatch(/^Opened the studio\. This link works once/);
+  expect(opened).toMatch(/^Opened the Studio\. This link works once/);
   const url = /: (http:\/\/\S+)\s*$/.exec(opened)?.[1];
   if (url === undefined) throw new Error(`no link printed: ${opened}`);
 
@@ -120,7 +120,7 @@ it("opens the studio on a take, exports a GIF through its API, and stops", async
     processes
       .split("\n")
       .some((l) => l.includes(join(home, "profiles", "studio"))),
-    "no browser is running on the studio's profile",
+    "no browser is running on the Studio's profile",
   ).toBe(true);
 
   const call = async (method: string, path: string, body?: unknown) => {
@@ -163,5 +163,5 @@ it("opens the studio on a take, exports a GIF through its API, and stops", async
   expect(read.frameCount, JSON.stringify(read)).toBeGreaterThan(1);
   expect(read.width).toBeGreaterThan(0);
 
-  expect(demoman("studio", "--stop")).toBe("Stopped the studio.\n");
+  expect(demoman("studio", "--stop")).toBe("Stopped the Studio.\n");
 }, 600_000);

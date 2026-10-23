@@ -1411,7 +1411,7 @@ describe("demoman-mcp's tools", () => {
 
   // Red if the tool is registered whether or not the bin injected a studio:
   // the extension executor and demoman-mcp have none to open.
-  it("lists no studio tool unless one was injected", async () => {
+  it("lists no Studio tool unless one was injected", async () => {
     const without = await connect({}, 200, undefined);
     expect(
       (await without.client.listTools()).tools.map((t) => t.name),
@@ -1426,7 +1426,7 @@ describe("demoman-mcp's tools", () => {
     ).toContain("studio");
   });
 
-  it("passes takeId to the studio and answers what it answered", async () => {
+  it("passes takeId to the Studio and answers what it answered", async () => {
     const calls: Array<{ takeId?: string }> = [];
     const { client } = await connect(
       {},
@@ -1439,7 +1439,7 @@ describe("demoman-mcp's tools", () => {
           outcome: "opened",
           url: "http://127.0.0.1:1/?t=x",
           ...(a.takeId === undefined ? {} : { takeId: a.takeId }),
-          note: "A stale studio record was replaced.",
+          note: "A stale Studio record was replaced.",
         };
       },
     );
@@ -1452,7 +1452,7 @@ describe("demoman-mcp's tools", () => {
       outcome: "opened",
       url: "http://127.0.0.1:1/?t=x",
       takeId: "take-1",
-      note: "A stale studio record was replaced.",
+      note: "A stale Studio record was replaced.",
     });
     expect(r.isError).not.toBe(true);
     await client.callTool({ name: "studio", arguments: {} });

@@ -29,7 +29,7 @@ export function checkStudioPages({ pagesDir, pagesSourceDir, version }) {
     if (!existsSync(join(pagesDir, needed))) {
       return {
         ok: false,
-        reason: `the studio's pages are not built (no ${join(pagesDir, needed)}) — run \`pnpm -r build\`, which builds apps/studio's pages first`,
+        reason: `the Studio's pages are not built (no ${join(pagesDir, needed)}) — run \`pnpm -r build\`, which builds apps/studio's pages first`,
       };
     }
   }
@@ -46,7 +46,7 @@ export function checkStudioPages({ pagesDir, pagesSourceDir, version }) {
   if (stamp?.version !== version) {
     return {
       ok: false,
-      reason: `the studio's pages were built for demoman ${stamp?.version === undefined ? "of no stated version" : stamp.version}, not ${version} (${stampPath}) — run \`pnpm -r build\``,
+      reason: `the Studio's pages were built for demoman ${stamp?.version === undefined ? "of no stated version" : stamp.version}, not ${version} (${stampPath}) — run \`pnpm -r build\``,
     };
   }
   const fresh = staleBuild({
@@ -54,7 +54,7 @@ export function checkStudioPages({ pagesDir, pagesSourceDir, version }) {
     sources: STUDIO_SOURCE_DIRS.map((d) => join(pagesSourceDir, d)),
   });
   if (!fresh.ok) {
-    return { ok: false, reason: `the studio's pages: ${fresh.reason}` };
+    return { ok: false, reason: `the Studio's pages: ${fresh.reason}` };
   }
   return { ok: true };
 }

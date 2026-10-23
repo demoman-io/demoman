@@ -170,7 +170,7 @@ const studioModules = JSON.parse(
   readFileSync(`${studioPages}-modules.json`, "utf8"),
 );
 writeFileSync(join(meta, "studio-modules.json"), JSON.stringify(studioModules));
-say(`copied the studio's pages from ${studioPages}`);
+say(`copied the Studio's pages from ${studioPages}`);
 
 // 4. package.json.
 writeFileSync(

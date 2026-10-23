@@ -42,7 +42,7 @@ export const CHANGED_ELSEWHERE =
 /** The Global Constraints sentences for a delete during an export. */
 export const TAKE_BUSY = {
   agent: "This take is being exported by an agent.",
-  studio: "This take is being exported by the studio.",
+  studio: "This take is being exported by the Studio.",
 } as const;
 
 /** Keyframes and spans are content-addressed by ref and never rewritten. */

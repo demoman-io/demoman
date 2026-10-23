@@ -4,7 +4,7 @@ Mintlify site served at demoman.io/docs. Pages are `.mdx`; the sidebar is
 `docs.json`. `apps/docs` is not a pnpm package; `apps/cli/test/docs.test.ts`
 is its test.
 
-- **Terms:** Demoman (the product), the studio (the editor), a take (one
+- **Terms:** Demoman (the product), the Studio (the editor), a take (one
   recording). Do not say "plugin" for the npm package or "clip" for a take.
 - **No scripts.** The reader asks their agent for a demo. No page tells
   them to write or edit a script, or shows script syntax.
@@ -35,7 +35,7 @@ is its test.
 | Phone and tablet recording | recipe "Recording a phone demo", as what to ask for |
 | Export | MP4 (16:9, 9:16), GIF, stills; `~/Downloads` or `--out-dir` |
 | Commands | `USAGE` and the flags `main.ts` parses; the `DEMOMAN_*` variables the package reads |
-| Overview, Editing | `npx demoman studio [take]`, `--stop`, the `studio` tool; the studio's own labels |
+| Overview, Editing | `npx demoman studio [take]`, `--stop`, the `studio` tool; the Studio's own labels |
 | Data | `docs/disclosure-cli.md` |
 | License | FSL-1.1-ALv2 |
 | Troubleshooting | recipe section 7, the human-actionable subset |

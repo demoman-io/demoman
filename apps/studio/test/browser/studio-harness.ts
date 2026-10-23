@@ -98,7 +98,7 @@ export async function startStudio(
     logs,
     context() {
       if (context === null)
-        throw new Error("the studio's browser never launched");
+        throw new Error("the Studio's browser never launched");
       return context;
     },
     async stop() {
@@ -112,7 +112,7 @@ export async function startStudio(
           () =>
             reject(
               new Error(
-                `the studio did not exit within 30 s of SIGTERM; log: ${logs.join(" | ")}`,
+                `the Studio did not exit within 30 s of SIGTERM; log: ${logs.join(" | ")}`,
               ),
             ),
           30_000,

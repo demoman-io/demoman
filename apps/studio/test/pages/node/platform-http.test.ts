@@ -145,7 +145,7 @@ const gone = () =>
     .studioGone ?? null;
 
 describe("the Export quality setting", () => {
-  it("reads the studio's answer, with its sentence when it could not use the file", async () => {
+  it("reads the Studio's answer, with its sentence when it could not use the file", async () => {
     const platform = createPlatform();
     let answered: Record<string, unknown> = {
       exportQuality: "share",
@@ -182,7 +182,7 @@ describe("the Export quality setting", () => {
 });
 
 describe("every request", () => {
-  it("carries the studio header and the session cookie", async () => {
+  it("carries the Studio header and the session cookie", async () => {
     const platform = createPlatform();
     studio.route((c) =>
       c.url === "/api/takes" ? json(200, { scenes: [] }) : undefined,
@@ -216,7 +216,7 @@ describe("every request", () => {
 });
 
 describe("scenes", () => {
-  it("rejects a save another window got to first with the studio's sentence", async () => {
+  it("rejects a save another window got to first with the Studio's sentence", async () => {
     const platform = createPlatform();
     const scene = readonlyScene();
     studio.route((c) =>
@@ -487,7 +487,7 @@ describe("brand kits", () => {
     expect(server.puts).toHaveLength(3);
   });
 
-  it("reads a kits file the studio could not judge as unreadable, with its reason", async () => {
+  it("reads a kits file the Studio could not judge as unreadable, with its reason", async () => {
     studio.route((c) =>
       c.url === "/api/kits"
         ? json(200, {
@@ -863,7 +863,7 @@ describe("frames, outputs, nav", () => {
     expect(caveats?.[0]).toMatch(/^its warnings could not be read: /);
   });
 
-  it("names the studio's pages and the re-film line", () => {
+  it("names the Studio's pages and the re-film line", () => {
     const platform = createPlatform();
     expect(platform.nav.editor("t 1")).toBe("/editor.html?scene=t%201");
     expect(platform.nav.library()).toBe("/");
@@ -898,7 +898,7 @@ describe("the take folder and the kit feed", () => {
     studio.send(e);
   }
 
-  it("folder.read answers sizes, unreadable and unwatched as the studio sent them", async () => {
+  it("folder.read answers sizes, unreadable and unwatched as the Studio sent them", async () => {
     const platform = createPlatform();
     const scene = readonlyScene();
     const sent = {
@@ -948,7 +948,7 @@ describe("the take folder and the kit feed", () => {
     expect({ takes, kits }).toEqual({ takes: 2, kits: 1 });
   });
 
-  it("kits.unwatched is null before any read and the studio's sentence after", async () => {
+  it("kits.unwatched is null before any read and the Studio's sentence after", async () => {
     const platform = createPlatform();
     studio.route((c) =>
       c.url === "/api/kits"
@@ -1001,7 +1001,7 @@ describe("the take folder and the kit feed", () => {
     expect(made).toHaveLength(1);
   });
 
-  it("folder.thumb rejects with the studio's detail when the preview could not be made", async () => {
+  it("folder.thumb rejects with the Studio's detail when the preview could not be made", async () => {
     const platform = createPlatform();
     studio.route((c) =>
       c.url === "/api/takes/t1/bundle"
@@ -1035,7 +1035,7 @@ describe("the take folder and the kit feed", () => {
     });
   });
 
-  it("names the studio's empty-library hint", () => {
+  it("names the Studio's empty-library hint", () => {
     expect(createPlatform().nav.firstTakeHint()).toBe(
       "Ask your agent for a demo video. Each take shows up here, grouped by the day you made it.",
     );

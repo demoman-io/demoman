@@ -61,7 +61,7 @@ describe("the links a saved export ends on", () => {
       expect(Object.keys(l).sort()).toEqual(["copy", "file", "studio"]);
       expect(l.copy).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/copy\/[\w-]{20,}$/);
     }
-    expect((await click(a.studio)).text).toContain("Opened in the studio.");
+    expect((await click(a.studio)).text).toContain("Opened in the Studio.");
     expect((await click(b.copy)).text).toContain("Copied other.mp4.");
     expect(did).toEqual(["studio take-1", "copy /D/other.mp4"]);
   });
@@ -114,7 +114,7 @@ describe("the links a saved export ends on", () => {
       },
       studio: async () => ({
         reason: "studioDidNotStart",
-        detail: "the studio log says no",
+        detail: "the Studio log says no",
       }),
     });
     const l = await linksOf(links);
@@ -125,15 +125,15 @@ describe("the links a saved export ends on", () => {
       ),
     });
     expect((await click(l.studio)).text).toContain(
-      "That did not work: the studio log says no",
+      "That did not work: the Studio log says no",
     );
     expect(logged).toEqual([
       "a copy link failed: The file does not exist.",
-      "a studio link failed: the studio log says no",
+      "a studio link failed: the Studio log says no",
     ]);
   });
 
-  it("gives a stills folder no Copy, and no studio where there is none", async () => {
+  it("gives a stills folder no Copy, and no Studio where there is none", async () => {
     const { links } = setup({ studio: undefined });
     const l = await linksOf(links, { ...saved, isFile: false });
     expect(Object.keys(l)).toEqual(["file"]);

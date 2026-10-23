@@ -100,7 +100,7 @@ const PATHS = (editorTake: string): Record<PageName, string> => ({
   editor: `/editor.html?scene=${editorTake}`,
 });
 
-describe("the studio marker", () => {
+describe("the Studio marker", () => {
   it.runIf(process.platform === "darwin")(
     "marks every page from its first byte and paints it in Geist on the near-black",
     async () => {

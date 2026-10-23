@@ -76,14 +76,14 @@ describe("licenses", () => {
     );
   });
 
-  it("THIRD_PARTY_NOTICES carries the studio's hand-copied fonts and icons", () => {
+  it("THIRD_PARTY_NOTICES carries the Studio's hand-copied fonts and icons", () => {
     const notices = read("pkg/THIRD_PARTY_NOTICES");
     // The shipped folder, not the build's list: a font copied in without a
     // notice is what this exists to catch.
     const fonts = readdirSync(
       new URL("../pkg/dist/studio/fonts", import.meta.url),
     );
-    expect(fonts.length, "premise: the studio ships fonts").toBeGreaterThan(0);
+    expect(fonts.length, "premise: the Studio ships fonts").toBeGreaterThan(0);
     for (const font of fonts) expect(notices).toContain(`fonts/${font}:`);
     expect(notices).toContain("SIL OPEN FONT LICENSE Version 1.1");
     // The studio draws Lucide outlines (pages/src/shell/icons.ts).

@@ -210,9 +210,9 @@ function luminance(css: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-describe("the studio's screenshot set", () => {
+describe("the Studio's screenshot set", () => {
   it.runIf(process.platform === "darwin")(
-    "shoots the editor, library and Brand kit pages at two sizes in the studio's one theme, and the editor stacked, each asserted on its paint",
+    "shoots the editor, library and Brand kit pages at two sizes in the Studio's one theme, and the editor stacked, each asserted on its paint",
     async () => {
       const started = Date.now();
       const home = await mkdtemp(join(tmpdir(), "studio-shots-"));

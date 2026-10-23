@@ -116,7 +116,7 @@ describe("library main — a rename on the card reaches the store, or says why n
     expect(document.querySelector('[data-row="a"] [data-status]')).toBeNull();
   });
 
-  it("says a refused write on the row, with the studio's reason, and puts the old name back", async () => {
+  it("says a refused write on the row, with the Studio's reason, and puts the old name back", async () => {
     memory.answer("scenes.put", async () => {
       throw new Error("the take is being rendered");
     });
@@ -132,14 +132,14 @@ describe("library main — a rename on the card reaches the store, or says why n
     // The call rejecting — the studio gone. `reportError` alone left the
     // field showing a name nothing saved (review finding, 2026-09-14).
     memory.answer("scenes.get", async () => {
-      throw new Error("The studio did not answer (Failed to fetch).");
+      throw new Error("The Studio did not answer (Failed to fetch).");
     });
     await import("../../../pages/entrypoints/library/main");
     await typeName("Signup flow");
 
     const status = await waitForStatus((t) => t !== null && t.length > 0);
     expect(status).toMatch(/^Couldn't rename: /);
-    expect(status).toContain("The studio did not answer");
+    expect(status).toContain("The Studio did not answer");
     expect((await currentField()).value).toBe("Checkout");
   });
 

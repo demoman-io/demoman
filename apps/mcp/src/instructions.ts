@@ -16,7 +16,7 @@ This server runs them in its own browser on this machine: signed in only where t
 3. run(script) — answers its report or {outcome: "stillRunning", id}; then call report(id) until the outcome is none of "running", "stillRunning". Fix what is the script's to fix. Stop after three runs, done or not.
 4. export(takeId) — may answer stillRunning; call report(id) until the outcome is none of "exporting", "stillRunning". On "saved", file.path is the video's absolute path (folder.path for stills; in ~/Downloads unless this server was started with --out-dir). End on summary, then its links as markdown links on one line (recipe: hand back).
 
-When the studio tool is listed and no links.studio is in hand, offer studio({ takeId }) after a run, a window where the user can edit and export the take; never open it unasked.
+When the Studio tool is listed and no links.studio is in hand, offer studio({ takeId }) after a run, a window where the user can edit and export the take; never open it unasked.
 
 Before opening a pull request, check status.pullRequests; the recipe says when to record and attach.
 

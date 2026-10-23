@@ -65,8 +65,8 @@ const USAGE = `demoman ${VERSION}
   npx demoman signin <url>   sign in to your app once, so agents can record behind the login
   npx demoman signin --account <name> [--site <origin>] [--project <dir>]
                              sign in as a demo account from .demoman/accounts.json (CI, or a check)
-  npx demoman studio [take]  open the studio, to look over and edit takes and export them
-  npx demoman studio --stop  close the studio
+  npx demoman studio [take]  open the Studio, to look over and edit takes and export them
+  npx demoman studio --stop  close the Studio
   demoman mcp [--headed]     serve Demoman's tools on stdio (your agent runs this);
                              --headed shows the browser while it records
   demoman --version
@@ -182,13 +182,13 @@ async function studio(args: string[]): Promise<void> {
     const { stopped, cutShort, why } = await stopStudio({ home });
     if (!stopped && why !== undefined) {
       // Could not tell is not "nothing running": say what was found.
-      process.stderr.write(`demoman: the studio was not stopped: ${why}\n`);
+      process.stderr.write(`demoman: the Studio was not stopped: ${why}\n`);
       process.exit(1);
     }
     process.stdout.write(
       stopped
-        ? `Stopped the studio.${cutShort > 0 ? " An export was cut short." : ""}\n`
-        : "No studio is running.\n",
+        ? `Stopped the Studio.${cutShort > 0 ? " An export was cut short." : ""}\n`
+        : "No Studio is running.\n",
     );
     process.exit(0);
   }
@@ -202,7 +202,7 @@ async function studio(args: string[]): Promise<void> {
       // The link works once, for about a minute: say so rather than imply
       // it can be bookmarked.
       process.stdout.write(
-        `${answer.note === undefined ? "" : `${answer.note}\n`}Opened the studio. This link works once, for a minute: ${answer.url}\n`,
+        `${answer.note === undefined ? "" : `${answer.note}\n`}Opened the Studio. This link works once, for a minute: ${answer.url}\n`,
       );
       process.exit(0);
     }

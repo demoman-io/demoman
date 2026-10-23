@@ -295,7 +295,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
   let window: StudioWindow | null = null;
   let entry: ((takeId?: string) => string) | null = null;
   const theWindow = (): StudioWindow => {
-    if (window === null) throw new Error("the studio window is not made yet");
+    if (window === null) throw new Error("the Studio window is not made yet");
     return window;
   };
 
@@ -369,7 +369,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
     entryUrl: (takeId) => {
       // Like the window: no request reaches a handler before the server
       // is listening, which is when `entry` is set.
-      if (entry === null) throw new Error("the studio server is not up yet");
+      if (entry === null) throw new Error("the Studio server is not up yet");
       return entry(takeId);
     },
     onWindowOpened: () => {

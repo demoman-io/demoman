@@ -43,7 +43,7 @@ const PAGE_WAIT_MS = 10_000;
 const STOPPING: BrowserFailure = {
   ok: false,
   reason: "windowDidNotOpen",
-  detail: "the studio is stopping, so no window opens",
+  detail: "the Studio is stopping, so no window opens",
 };
 
 type Started =
@@ -312,7 +312,7 @@ export function createStudioWindow(o: {
         const page = await appWindow();
         if (page === null) {
           return didNotOpen(
-            `the studio's browser started, but its window did not appear within ${pageWaitMs / 1000} s`,
+            `the Studio's browser started, but its window did not appear within ${pageWaitMs / 1000} s`,
           );
         }
         count();
@@ -333,7 +333,7 @@ export function createStudioWindow(o: {
             await live.goto(o.entryUrl(target.takeId));
           } catch (error) {
             return didNotOpen(
-              `the studio's window could not be sent to ${path} (${messageOf(error)})`,
+              `the Studio's window could not be sent to ${path} (${messageOf(error)})`,
             );
           }
         }
@@ -341,7 +341,7 @@ export function createStudioWindow(o: {
           await live.bringToFront();
         } catch (error) {
           return didNotOpen(
-            `the studio's window was sent to ${path} but could not be brought forward (${messageOf(error)})`,
+            `the Studio's window was sent to ${path} but could not be brought forward (${messageOf(error)})`,
           );
         }
         return { ok: true, path };
@@ -354,7 +354,7 @@ export function createStudioWindow(o: {
         await newWindow(got.context, o.entryUrl(target.takeId), false);
       } catch (error) {
         return didNotOpen(
-          `the studio's window would not open: ${messageOf(error)}`,
+          `the Studio's window would not open: ${messageOf(error)}`,
         );
       }
       count();

@@ -60,7 +60,7 @@ export async function readStudioState(
   try {
     const v: unknown = JSON.parse(text);
     if (isState(v)) return v;
-    return { unreadable: "studio.json is missing fields the studio writes" };
+    return { unreadable: "studio.json is missing fields the Studio writes" };
   } catch {
     return { unreadable: "studio.json is not valid JSON" };
   }

@@ -362,7 +362,7 @@ Refused with `nothingToRerecord` when no step that acts is left.
    | drift from the earlier take | the app | report it |
 
    A finding that is Demoman's earns no run, and is not passed on: the
-   user takes the video as it is or changes it in the studio. A step's
+   user takes the video as it is or changes it in the Studio. A step's
    `roomMs` is Demoman's own pacing, not a stall.
 4. Tighten a step whose `candidates` is above 1 or whose `strategy` is weaker
    than the target you named.
@@ -456,7 +456,7 @@ section 7. An export that did not save comes back as the export's answer.
 
 Hand back, on `saved`, two lines and nothing else: the `summary` as it is,
 then the `links` as markdown links on one line, in this order and only
-those present: `[Open in studio](links.studio) · [<file name>](links.file) · [Copy video](links.copy)`
+those present: `[Open in Studio](links.studio) · [<file name>](links.file) · [Copy video](links.copy)`
 (`Copy GIF` for a GIF). Add one line only for `look.brandKitError`,
 `size.error`, `linksError`, or something you could not fix. For any other
 outcome, say it with its `error` or `detail`, quoted.
@@ -570,7 +570,7 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `unconfirmed` | `attach` (`notAttached`) | Unknown what landed: the PR shows nothing new, or could not be read back. Do not post again; tell the user to look at it. |
 | `copyFailed` | `attach` (`notAttached`) | The video could not be copied to post it; nothing was posted. Hand the user the capped export's file. |
 | `windowDidNotOpen` | `snapshot`; `run` (`refusedBeforeRun`); `studio` | The window would not open; try once more. |
-| `studioDidNotStart` | `studio` | The studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
+| `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
 | `alreadyRunning` | `snapshot`, `run`, `derive` | A run, snapshot or export is in progress. Call `report(id)` on it and try again when it settles. |
 | `busy` | `export` (`refusedBeforeExport`) | The same, for an export: a run or snapshot is in progress. Call `report(id)` on that call first. |
 | `browserSilent` | `status`, `takes`, `derive`, `report` | Demoman's browser did not answer within about 50 s (frozen, or still starting). Call `status` once; if it answers this again, tell the user. From `report`, the run may still be going: call `report(id)` again. |

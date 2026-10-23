@@ -22,9 +22,9 @@ export type StudioAnswer =
   | { outcome: "opened"; url: string; takeId?: string; note?: string }
   | Refusal;
 
-const STALE_NOTE = "A stale studio record was replaced.";
+const STALE_NOTE = "A stale Studio record was replaced.";
 const REPLACED_LATER_NOTE =
-  "An older studio is running an export; it stays open until that export ends and its window closes, and the next studio call starts the new version.";
+  "An older Studio is running an export; it stays open until that export ends and its window closes, and the next Studio call starts the new version.";
 const PING_TIMEOUT_MS = 2_000;
 const WINDOW_TIMEOUT_MS = 30_000;
 const LOG_TAIL_LINES = 10;
@@ -162,7 +162,7 @@ async function startStudio(o: {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       return {
         reason: "studioDidNotStart",
-        detail: `The studio's log ${logPath} could not be moved aside: ${messageOf(error)}.`,
+        detail: `The Studio's log ${logPath} could not be moved aside: ${messageOf(error)}.`,
       };
     }
   }
@@ -172,7 +172,7 @@ async function startStudio(o: {
   } catch (error) {
     return {
       reason: "studioDidNotStart",
-      detail: `The studio's log ${logPath} could not be opened: ${messageOf(error)}.`,
+      detail: `The Studio's log ${logPath} could not be opened: ${messageOf(error)}.`,
     };
   }
   // An object, not two lets: the handlers assign it after TypeScript has
@@ -223,7 +223,7 @@ async function startStudio(o: {
   }
   return {
     reason: "studioDidNotStart",
-    detail: `The studio ${why}. The end of ${logPath}:\n${await lastLines(logPath)}`,
+    detail: `The Studio ${why}. The end of ${logPath}:\n${await lastLines(logPath)}`,
   };
 }
 
@@ -244,7 +244,7 @@ async function acquireStartLock(
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
         return {
           reason: "studioDidNotStart",
-          detail: `The studio's start lock ${path} could not be taken: ${messageOf(error)}.`,
+          detail: `The Studio's start lock ${path} could not be taken: ${messageOf(error)}.`,
         };
       }
     }
@@ -262,7 +262,7 @@ async function acquireStartLock(
     if (Date.now() > deadline) {
       return {
         reason: "studioDidNotStart",
-        detail: `Another demoman (pid ${holder}) has been starting the studio for over ${Math.round(waitMs / 1000)} s; see ${join(home, "studio.log")}.`,
+        detail: `Another demoman (pid ${holder}) has been starting the Studio for over ${Math.round(waitMs / 1000)} s; see ${join(home, "studio.log")}.`,
       };
     }
     await sleep(40);
@@ -372,21 +372,21 @@ export async function openStudio(o: {
   if (!win.ok) {
     return {
       reason: "windowDidNotOpen",
-      detail: `The studio did not answer the request for a window: ${win.error}.`,
+      detail: `The Studio did not answer the request for a window: ${win.error}.`,
     };
   }
   if (win.status !== 200) {
     if (isRefusal(win.json)) return win.json;
     return {
       reason: "windowDidNotOpen",
-      detail: `The studio answered ${win.status} to the request for a window.`,
+      detail: `The Studio answered ${win.status} to the request for a window.`,
     };
   }
   const answer = win.json as Partial<WindowAnswer>;
   if (typeof answer.url !== "string") {
     return {
       reason: "windowDidNotOpen",
-      detail: "The studio opened a window but did not say its address.",
+      detail: "The Studio opened a window but did not say its address.",
     };
   }
   return {
@@ -419,7 +419,7 @@ export async function stopStudio(o: { home: string }): Promise<{
     return {
       stopped: false,
       cutShort: 0,
-      why: `pid ${found.pid} is alive but did not answer as the studio, so it was left alone`,
+      why: `pid ${found.pid} is alive but did not answer as the Studio, so it was left alone`,
     };
   }
   const signal = (sig: "SIGTERM" | "SIGKILL"): void => {

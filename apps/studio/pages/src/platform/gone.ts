@@ -8,11 +8,11 @@ import { codeSpans, withoutTicks } from "../shell/code-spans";
  */
 export const GONE_LINES = {
   /** A 403 from any route: the session cookie is missing or wrong. */
-  expired: "This studio link has expired; run `npx demoman studio`.",
+  expired: "This Studio link has expired; run `npx demoman studio`.",
   /** A `fetch` rejected, or the event stream would not reconnect. */
-  stopped: "The studio stopped — run `npx demoman studio`.",
+  stopped: "The Studio stopped — run `npx demoman studio`.",
   /** The page and the server are different versions. */
-  updated: "The studio was updated; reopen it.",
+  updated: "The Studio was updated; reopen it.",
 } as const;
 
 export type GoneKind = keyof typeof GONE_LINES;

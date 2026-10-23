@@ -364,7 +364,7 @@ describe("the pull requests page", () => {
 });
 
 describe("studio and export", () => {
-  it("the studio overview names the open and stop commands", () => {
+  it("the Studio overview names the open and stop commands", () => {
     const t = readDocs("studio/overview.mdx");
     expect(t).toContain("npx demoman studio");
     expect(t).toContain("npx demoman studio --stop");

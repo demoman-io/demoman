@@ -7,7 +7,7 @@ import {
 } from "@demoman/studio-protocol";
 
 export const EXPIRED_LINE =
-  "This studio link has expired; run `npx demoman studio`.";
+  "This Studio link has expired; run `npx demoman studio`.";
 
 export const SECURITY_HEADERS = {
   "Content-Security-Policy":
@@ -28,7 +28,7 @@ export type GuardReason = Extract<
  * is not here: its detail is the thrown error's own message.
  */
 export const REASON_DETAIL: Record<GuardReason | "routeNotFound", string> = {
-  hostRefused: "The request was not addressed to the studio's own address.",
+  hostRefused: "The request was not addressed to the Studio's own address.",
   tokenMissing: EXPIRED_LINE,
   tokenWrong: EXPIRED_LINE,
   headerMissing: `The request lacked the ${STUDIO_HEADER} header.`,

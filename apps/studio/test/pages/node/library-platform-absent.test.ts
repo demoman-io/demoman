@@ -136,7 +136,7 @@ describe("the top bar", () => {
  * sizes on the cards and in the bar, a folder that will not read as a row of
  * its own, and the empty card in the platform's words.
  */
-describe("the library with the studio's sizes and unreadable folders", () => {
+describe("the library with the Studio's sizes and unreadable folders", () => {
   const MB = 1024 ** 2;
   const STUDIO_HINT =
     "Ask your agent for a demo video. Each take shows up here, grouped by the day you made it.";
@@ -188,7 +188,7 @@ describe("the library with the studio's sizes and unreadable folders", () => {
     expect(document.querySelector("[data-storage-trigger]")).toBeNull();
   });
 
-  it("a folder the studio could not measure states no size, and the total says it is partial", () => {
+  it("a folder the Studio could not measure states no size, and the total says it is partial", () => {
     const m = build({
       scenes: [scene("a", "One"), scene("b", "Two")],
       // b and the unreadable folder are left out: the studio could not
