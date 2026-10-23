@@ -37,6 +37,14 @@ export type FileType = "mp4" | "gif" | "stills";
 export const EXPORT_QUALITY_VALUES = ["share", "high", "full"] as const;
 export type ExportQuality = (typeof EXPORT_QUALITY_VALUES)[number];
 
+/** Each quality's name wherever a person picks it: the Studio's Settings and
+ *  Export panel, and setup's menu. */
+export const EXPORT_QUALITY_LABELS: Record<ExportQuality, string> = {
+  share: "Sharing",
+  high: "High",
+  full: "Full",
+};
+
 /** What an MP4 is made at when nothing asks otherwise. GitHub's doors
  *  (`attach`, and an export given `maxMB`) ask for `share`. */
 export const DEFAULT_EXPORT_QUALITY: ExportQuality = "high";

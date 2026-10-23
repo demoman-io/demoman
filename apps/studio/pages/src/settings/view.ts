@@ -1,5 +1,10 @@
 // apps/studio/pages/src/settings/view.ts
-import { EXPORT_QUALITY_VALUES, PULL_REQUESTS_VALUES } from "@demoman/run-core";
+import {
+  EXPORT_QUALITY_LABELS,
+  EXPORT_QUALITY_VALUES,
+  PULL_REQUESTS_LABELS,
+  PULL_REQUESTS_VALUES,
+} from "@demoman/run-core";
 import { BRANDING_DEFAULTS, CANVAS_DEFAULTS } from "@demoman/scene-schema";
 import type {
   ExportQualityChoice,
@@ -52,18 +57,8 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-const PULL_REQUEST_LABELS: Record<PullRequestsChoice, string> = {
-  off: "Off",
-  ask: "Ask",
-  attach: "Attach",
-};
-
 /** Settings' and the editor's Export panel's names for each quality. */
-export const EXPORT_QUALITY_LABELS: Record<ExportQualityChoice, string> = {
-  share: "Sharing",
-  high: "High",
-  full: "Full",
-};
+export { EXPORT_QUALITY_LABELS };
 
 /** The page's sections, in the order the nav lists them and the page
  *  draws them. `id` is the anchor the nav links to. */
@@ -228,7 +223,7 @@ export function renderSettings(
           "data-pull-requests": choice,
           "aria-checked": String(choice === current),
         },
-        PULL_REQUEST_LABELS[choice],
+        PULL_REQUESTS_LABELS[choice],
       );
       button.addEventListener("click", () => {
         if (choice !== current) actions.setPullRequests(choice);
