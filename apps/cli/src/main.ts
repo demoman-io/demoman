@@ -62,7 +62,7 @@ function requirePageBundles(pages: string, say: (line: string) => void): void {
 const USAGE = `demoman ${VERSION}
 
   npx demoman setup          install the browser and connect your coding agents
-    [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
+    [--yes] [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
   npx demoman signin <url>   sign in to your app once, so agents can record behind the login
   npx demoman signin --account <name> [--site <origin>] [--project <dir>]
                              sign in as a demo account from .demoman/accounts.json (CI, or a check)
@@ -148,9 +148,11 @@ async function mcp(args: string[]): Promise<void> {
     ...(values["out-dir"] === undefined
       ? {}
       : { outDir: resolve(values["out-dir"]) }),
-    installCommand: `npx ${PACKAGE_NAME}@${VERSION} setup`,
+    // --yes: an agent may run it in a pseudo-terminal, where a menu would
+    // wait for an answer nobody gives.
+    installCommand: `npx ${PACKAGE_NAME}@${VERSION} setup --yes`,
     signinCommand: `npx ${PACKAGE_NAME}@${VERSION} signin`,
-    updateCommand: `npx ${PACKAGE_NAME}@latest setup`,
+    updateCommand: `npx ${PACKAGE_NAME}@latest setup --yes`,
     updateCheck: createUpdateCheck({
       name: PACKAGE_NAME,
       current: VERSION,

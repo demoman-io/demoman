@@ -1254,6 +1254,10 @@ describe("parseSetupArgs", () => {
     }
   });
 
+  it("reads --yes", async () => {
+    expect(parseSetupArgs(["--yes"])).toEqual({ yes: true });
+  });
+
   it("refuses a flag it does not know instead of throwing", async () => {
     const got = parseSetupArgs(["--colour"]);
     expect(got).toHaveProperty("refused");
@@ -1349,6 +1353,17 @@ describe("setup's questions", () => {
       "If your app needs a login, sign in once with `npx demoman signin <url>`.",
     );
     expect(m.out()).not.toContain("demoman.io/sample");
+  });
+
+  // An agent may run setup in a pseudo-terminal, where a menu would wait
+  // for an answer nobody gives: the command Demoman hands agents says --yes.
+  it("asks nothing, probes nothing and reads no settings with --yes, even in a terminal", async () => {
+    const m = machine();
+    const q = asking(m, "cancelled");
+    expect(await setup(m.d, { yes: true })).toBe(0);
+    expect(q.asked).toEqual([]);
+    expect(m.calls).not.toContain("claude --version");
+    expect(m.settingsReads.n).toBe(0);
   });
 
   it("asks nothing and probes nothing without a terminal", async () => {
@@ -1491,6 +1506,11 @@ describe("setup's settings", () => {
     expect(await setup(m.d)).toBe(1);
     expect(m.out()).toContain("settings: pull requests is now Attach");
     expect(m.out()).toContain(`settings: ${replaced}`);
+    // The value saved; what failed is the file's other settings.
+    expect(m.out()).toContain(
+      "Not done: the settings file was replaced (above).",
+    );
+    expect(m.out()).not.toContain("a setting was not saved");
   });
 
   it("writes nothing when cancelled", async () => {

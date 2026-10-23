@@ -202,6 +202,8 @@ const AGENT_FLAGS: ReadonlyArray<[string, AgentName]> = [
 
 /** Answers given on the command line: each one is a question not asked. */
 export interface SetupFlags {
+  /** Ask nothing, as without a terminal: for an agent's pseudo-terminal. */
+  yes?: boolean;
   agents?: AgentName[];
   quality?: ExportQuality;
   pullRequests?: PullRequestsValue;
@@ -211,11 +213,17 @@ export interface SetupFlags {
 export function parseSetupArgs(
   args: string[],
 ): SetupFlags | { refused: string } {
-  let values: { agents?: string; quality?: string; "pull-requests"?: string };
+  let values: {
+    yes?: boolean;
+    agents?: string;
+    quality?: string;
+    "pull-requests"?: string;
+  };
   try {
     ({ values } = parseArgs({
       args,
       options: {
+        yes: { type: "boolean" },
         agents: { type: "string" },
         quality: { type: "string" },
         "pull-requests": { type: "string" },
@@ -226,7 +234,7 @@ export function parseSetupArgs(
   } catch (error) {
     return { refused: error instanceof Error ? error.message : String(error) };
   }
-  const flags: SetupFlags = {};
+  const flags: SetupFlags = values.yes === true ? { yes: true } : {};
   if (values.agents !== undefined) {
     const words = values.agents.split(",").map((w) => w.trim());
     const unknown = words.find(
@@ -889,7 +897,8 @@ const listed = (names: string[]): string =>
     ? names.join("")
     : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 
-async function steps(d: SetupDeps, flags: SetupFlags): Promise<number> {
+async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
+  const d: SetupDeps = flags.yes === true ? { ...given, ask: null } : given;
   const refusal = platformRefusal(d.platform, d.nodeVersion);
   if (refusal !== null) {
     d.say(`Demoman setup stopped: ${refusal}.`);
@@ -959,7 +968,7 @@ async function steps(d: SetupDeps, flags: SetupFlags): Promise<number> {
     d.say(`${agent}: not connected (not chosen)`);
     return { agent, state: "skipped" };
   });
-  const settingsSaved = await saveSettings(d, preselected, {
+  const settingsFailed = await saveSettings(d, preselected, {
     quality: flags.quality ?? answers.quality,
     pullRequests: flags.pullRequests ?? answers.pullRequests,
   });
@@ -971,7 +980,7 @@ async function steps(d: SetupDeps, flags: SetupFlags): Promise<number> {
     .map((r) => r.agent);
   const notDone = [
     ...(failed.length > 0 ? [`${listed(failed)} could not be set up`] : []),
-    ...(settingsSaved ? [] : ["a setting was not saved"]),
+    ...settingsFailed,
   ];
   if (notDone.length > 0) {
     if (usable.length > 0) warmStart(d, usable);
@@ -1007,13 +1016,13 @@ async function steps(d: SetupDeps, flags: SetupFlags): Promise<number> {
 }
 
 /** Writes each answer that differs from what was preselected, saying each
- *  write. false when one was refused or replaced the file: the run is then
- *  not done. */
+ *  write. Answers what went wrong, for the closing line: a refused write,
+ *  or a write that replaced the file and lost its other settings. */
 async function saveSettings(
   d: SetupDeps,
   preselected: { quality?: ExportQuality; pullRequests?: PullRequestsValue },
   answered: { quality?: ExportQuality; pullRequests?: PullRequestsValue },
-): Promise<boolean> {
+): Promise<string[]> {
   const changes: Array<[SettingKey, string, string]> = [];
   if (
     answered.quality !== undefined &&
@@ -1035,21 +1044,21 @@ async function saveSettings(
       `pull requests is now ${PULL_REQUESTS_LABELS[answered.pullRequests]}`,
     ]);
   }
-  let saved = true;
+  const failed = new Set<string>();
   for (const [key, value, said] of changes) {
     const wrote = await d.settings.write(key, value);
     if ("reason" in wrote) {
       d.say(`settings: ${wrote.detail}`);
-      saved = false;
+      failed.add("a setting was not saved");
       continue;
     }
     d.say(`settings: ${said}`);
     if (wrote.replaced !== undefined) {
       d.say(`settings: ${wrote.replaced}`);
-      saved = false;
+      failed.add("the settings file was replaced");
     }
   }
-  return saved;
+  return [...failed];
 }
 
 /** Fills npx's cache for each spec a connected agent starts, each on its

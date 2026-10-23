@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { EXPORT_QUALITY_VALUES, PULL_REQUESTS_VALUES } from "@demoman/run-core";
 import { describe, expect, it } from "vitest";
@@ -31,6 +32,20 @@ describe("setup's questions, for real", () => {
       const hint = (SETUP_HINTS as Record<string, string>)[v];
       expect(hint, v).toMatch(/^\S.*\.$/);
       expect(hint, v).not.toContain("\n");
+    }
+  });
+});
+
+describe("the setup command Demoman hands an agent", () => {
+  // Read as text: main.ts runs the CLI on import.
+  const main = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+  it("says --yes, so a run in an agent's pseudo-terminal never waits on a menu", () => {
+    for (const key of ["installCommand", "updateCommand"]) {
+      const line = new RegExp(
+        `${key}: \`npx \\$\\{PACKAGE_NAME\\}@[^\`]* setup([^\`]*)\``,
+      ).exec(main);
+      expect(line, key).not.toBeNull();
+      expect(line?.[1], key).toBe(" --yes");
     }
   });
 });
