@@ -417,9 +417,9 @@ too.
    (`run({ takeId })`, or `derive` then `run` when a step's verb changed).
    Re-record only on request.
    `links` holds the export's one-click actions for the user, each present
-   only where it works: `studio`, `reveal` (Finder) and `copy` (the file to
-   the clipboard; none for stills). `linksError`, set instead, says why
-   there are none: tell the user in one line.
+   only where it works: `studio`, `file` (the file itself) and `copy` (the
+   file to the clipboard; none for stills). `linksError`, set instead, says
+   why there are none: tell the user in one line.
    Every export report carries a `summary`, whatever its outcome
    (`stillRunning`, this server's own answer, does not).
 3. `renderFailed` - export **once** more; never re-run the script for an
@@ -456,7 +456,7 @@ section 7. An export that did not save comes back as the export's answer.
 
 Hand back, on `saved`, two lines and nothing else: the `summary` as it is,
 then the `links` as markdown links on one line, in this order and only
-those present: `[Open in studio](links.studio) · [Reveal in Finder](links.reveal) · [Copy video](links.copy)`
+those present: `[Open in studio](links.studio) · [<file name>](links.file) · [Copy video](links.copy)`
 (`Copy GIF` for a GIF). Add one line only for `look.brandKitError`,
 `size.error`, `linksError`, or something you could not fix. For any other
 outcome, say it with its `error` or `detail`, quoted.

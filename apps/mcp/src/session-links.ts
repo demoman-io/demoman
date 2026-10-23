@@ -1,22 +1,25 @@
 // apps/mcp/src/session-links.ts
 //
 // The links a saved export ends on (author, 2026-10-20): Open in studio,
-// Reveal in Finder and Copy video, one click each in the agent's closing
-// message. Terminals open http links only (Ghostty 1.3.1 dropped a
-// `demoman://` scheme in the spike), so this server answers them on
-// 127.0.0.1 while the session lives, and the tab a click leaves says what
-// happened or why it did not.
+// the file itself and Copy video, one click each in the agent's closing
+// message. The file is a plain file:// link, which the terminal hands to
+// macOS with no browser (2026-10-23). The other two need this process to
+// act, and Claude Code makes only http, https and file links clickable, so
+// this server answers them on 127.0.0.1 while the session lives. Their tab
+// closes itself when the action worked, and stays to say why when it did not.
 
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
+import { pathToFileURL } from "node:url";
 import type { StudioToolAnswer } from "./tools.js";
 
-/** What a saved export's answer carries as `links`: each action this
- *  server can take on that file. */
+/** What a saved export's answer carries as `links`: the file, and each
+ *  action this server can take on it. */
 export interface SessionLinks {
   studio?: string;
-  reveal?: string;
+  /** file:// to the video, GIF or stills folder. */
+  file: string;
   copy?: string;
 }
 
@@ -35,9 +38,8 @@ export type LinksFor = (
 export interface SessionLinkDeps {
   /** Absent: `demoman-mcp`, which lists no studio tool, gives no studio link. */
   studio?: (args: { takeId: string }) => Promise<StudioToolAnswer>;
-  reveal?: (path: string) => Promise<void>;
   copy?: (path: string) => Promise<void>;
-  /** Finder and the pasteboard are macOS's: elsewhere only the studio link. */
+  /** The pasteboard is macOS's: elsewhere no Copy. */
   platform?: NodeJS.Platform;
   log: (line: string) => void;
 }
@@ -49,11 +51,6 @@ const run = (file: string, args: string[]): Promise<string> =>
       else reject(new Error(stderr.trim() || error.message));
     });
   });
-
-/** `open -R`, which shows the file selected in a Finder window. */
-export async function revealInFinder(path: string): Promise<void> {
-  await run("open", ["-R", path]);
-}
 
 /**
  * The file itself on the pasteboard, as Finder's Copy puts it, so it pastes
@@ -98,11 +95,15 @@ const escapeHtml = (s: string) =>
       ] as string,
   );
 
-const page = (text: string) => `<!doctype html>
+// A tab a terminal opened has one history entry, which browsers let a
+// script close; where one refuses, the sentence stays readable.
+const CLOSE = "<script>window.close()</script>";
+
+const page = (text: string, close: boolean) => `<!doctype html>
 <meta charset="utf-8"><title>Demoman</title>
 <meta name="color-scheme" content="light dark">
 <body style="font:15px/1.5 system-ui,sans-serif;margin:40px">
-<p>${escapeHtml(text)}</p>`;
+<p>${escapeHtml(text)}</p>${close ? CLOSE : ""}`;
 
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const nameOf = (path: string) => path.split("/").pop() ?? path;
@@ -116,7 +117,6 @@ export function createSessionLinks(deps: SessionLinkDeps): {
   linksFor: LinksFor;
   close: () => void;
 } {
-  const reveal = deps.reveal ?? revealInFinder;
   const copy = deps.copy ?? copyFileToClipboard;
   const mac = (deps.platform ?? process.platform) === "darwin";
   const exports = new Map<string, SavedExport>();
@@ -133,9 +133,6 @@ export function createSessionLinks(deps: SessionLinkDeps): {
           ? "Opened in the studio."
           : `Opened in the studio. ${answer.note}`;
       }
-      case "reveal":
-        await reveal(saved.path);
-        return `Revealed ${nameOf(saved.path)} in Finder.`;
       case "copy":
         await copy(saved.path);
         return `Copied ${nameOf(saved.path)}.`;
@@ -151,7 +148,7 @@ export function createSessionLinks(deps: SessionLinkDeps): {
         const saved = exports.get(token);
         const reply = (status: number, text: string) => {
           res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
-          res.end(page(text));
+          res.end(page(text, status === 200));
         };
         if (req.method !== "GET" || saved === undefined) {
           reply(404, "This is not a link this Demoman session made.");
@@ -195,7 +192,7 @@ export function createSessionLinks(deps: SessionLinkDeps): {
         `http://127.0.0.1:${port}/${action}/${token}`;
       return {
         ...(deps.studio === undefined ? {} : { studio: at("studio") }),
-        ...(mac ? { reveal: at("reveal") } : {}),
+        file: pathToFileURL(saved.path).href,
         ...(mac && saved.isFile ? { copy: at("copy") } : {}),
       };
     },

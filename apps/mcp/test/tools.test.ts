@@ -95,7 +95,7 @@ describe("the links on a saved export", () => {
     asked.push(saved);
     return saved.path === "/D/refused.mp4"
       ? { error: "the links could not be served" }
-      : { reveal: "http://127.0.0.1:1/reveal/tok" };
+      : { file: "file:///D/demo.mp4" };
   };
   const exportOf = (value: Record<string, unknown>) =>
     connect(
@@ -122,7 +122,7 @@ describe("the links on a saved export", () => {
     });
     expect(textOf(result)).toMatchObject({
       outcome: "saved",
-      links: { reveal: "http://127.0.0.1:1/reveal/tok" },
+      links: { file: "file:///D/demo.mp4" },
     });
     expect(asked).toEqual([{ takeId: "t1", path: "/D/a.mp4", isFile: true }]);
 

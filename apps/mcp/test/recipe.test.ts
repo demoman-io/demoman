@@ -367,7 +367,7 @@ describe("the CLI's recipe", () => {
       /Hand back, on `saved`, two lines and nothing else: the `summary` as it is,\s+then the `links`/,
     );
     expect(RECIPE).toContain(
-      "`[Open in studio](links.studio) · [Reveal in Finder](links.reveal) · [Copy video](links.copy)`",
+      "`[Open in studio](links.studio) · [<file name>](links.file) · [Copy video](links.copy)`",
     );
     expect(RECIPE).not.toMatch(/every film finding left standing/);
     expect(RECIPE).toMatch(/not the user's to act on: do not pass them on/);

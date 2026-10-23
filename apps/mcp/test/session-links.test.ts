@@ -21,9 +21,6 @@ function setup(over: Parameters<typeof createSessionLinks>[0] | object = {}) {
       did.push(`studio ${takeId}`);
       return { outcome: "opened", url: "http://x", takeId };
     },
-    reveal: async (path) => {
-      did.push(`reveal ${path}`);
-    },
     copy: async (path) => {
       did.push(`copy ${path}`);
     },
@@ -59,29 +56,49 @@ describe("the links a saved export ends on", () => {
       path: "/D/other.mp4",
       isFile: true,
     });
-    // Premise: both exports got all three, on loopback.
+    // Premise: both exports got all three, the actions on loopback.
     for (const l of [a, b]) {
-      expect(Object.keys(l).sort()).toEqual(["copy", "reveal", "studio"]);
+      expect(Object.keys(l).sort()).toEqual(["copy", "file", "studio"]);
       expect(l.copy).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/copy\/[\w-]{20,}$/);
     }
     expect((await click(a.studio)).text).toContain("Opened in the studio.");
-    expect((await click(a.reveal)).text).toContain(
-      "Revealed Checkout demo.mp4 in Finder.",
-    );
     expect((await click(b.copy)).text).toContain("Copied other.mp4.");
-    expect(did).toEqual([
-      "studio take-1",
-      `reveal ${saved.path}`,
-      "copy /D/other.mp4",
-    ]);
+    expect(did).toEqual(["studio take-1", "copy /D/other.mp4"]);
   });
 
-  // Red if a link carries the path, or a made-up token is acted on.
+  // Red if the file link goes through the server (a tab), or a space in
+  // the name breaks it.
+  it("links the file itself, with no server between", () =>
+    setup()
+      .links.linksFor(saved)
+      .then((l) => {
+        expect(l).toMatchObject({
+          file: "file:///Users/me/Downloads/Checkout%20demo.mp4",
+        });
+      }));
+
+  // Red if a done tab stays open, or a failed one closes before it is read.
+  it("closes the tab when the action worked, and only then", async () => {
+    const { links } = setup({
+      copy: async () => {
+        throw new Error("no clipboard");
+      },
+    });
+    const l = await linksOf(links);
+    const done = await click(l.studio);
+    const failed = await click(l.copy);
+    // Premise: one worked and one did not.
+    expect([done.status, failed.status]).toEqual([200, 500]);
+    expect(done.text).toContain("window.close()");
+    expect(failed.text).not.toContain("window.close()");
+  });
+
+  // Red if an action link carries the path, or a made-up token is acted on.
   it("names no path, and acts on no token it did not hand out", async () => {
     const { links, did } = setup();
     const l = await linksOf(links);
-    expect(JSON.stringify(l)).not.toContain("Downloads");
-    const forged = (l.reveal as string).replace(/[^/]+$/, "made-up-token");
+    expect(JSON.stringify([l.studio, l.copy])).not.toContain("Downloads");
+    const forged = (l.copy as string).replace(/[^/]+$/, "made-up-token");
     expect(await click(forged)).toMatchObject({
       status: 404,
       text: expect.stringContaining("not a link this Demoman session made"),
@@ -92,7 +109,7 @@ describe("the links a saved export ends on", () => {
   // Red if a failed action reads as done, or its reason is lost.
   it("says why an action failed, on the page and in the log", async () => {
     const { links, logged } = setup({
-      reveal: async () => {
+      copy: async () => {
         throw new Error("The file does not exist.");
       },
       studio: async () => ({
@@ -101,7 +118,7 @@ describe("the links a saved export ends on", () => {
       }),
     });
     const l = await linksOf(links);
-    expect(await click(l.reveal)).toEqual({
+    expect(await click(l.copy)).toEqual({
       status: 500,
       text: expect.stringContaining(
         "That did not work: The file does not exist.",
@@ -111,7 +128,7 @@ describe("the links a saved export ends on", () => {
       "That did not work: the studio log says no",
     );
     expect(logged).toEqual([
-      "a reveal link failed: The file does not exist.",
+      "a copy link failed: The file does not exist.",
       "a studio link failed: the studio log says no",
     ]);
   });
@@ -119,22 +136,25 @@ describe("the links a saved export ends on", () => {
   it("gives a stills folder no Copy, and no studio where there is none", async () => {
     const { links } = setup({ studio: undefined });
     const l = await linksOf(links, { ...saved, isFile: false });
-    expect(Object.keys(l)).toEqual(["reveal"]);
+    expect(Object.keys(l)).toEqual(["file"]);
   });
 
-  it("gives only the studio off macOS", async () => {
+  it("gives no Copy off macOS", async () => {
     const { links } = setup({ platform: "linux" });
-    expect(Object.keys(await linksOf(links))).toEqual(["studio"]);
+    expect(Object.keys(await linksOf(links)).sort()).toEqual([
+      "file",
+      "studio",
+    ]);
   });
 
   // Red if a page's text can write markup into the tab.
   it("escapes what the page says", async () => {
     const { links } = setup({
-      reveal: async () => {
+      copy: async () => {
         throw new Error("<script>alert(1)</script>");
       },
     });
-    const { text } = await click((await linksOf(links)).reveal);
+    const { text } = await click((await linksOf(links)).copy);
     expect(text).not.toContain("<script>");
     expect(text).toContain("&lt;script&gt;");
   });
