@@ -3,6 +3,15 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
+<Update label="0.7.2" description="Setup asks first, and connects OpenCode">
+  - `npx demoman setup` asks before it changes anything: which agents to connect, the export quality, and whether pull requests get a demo. Each question starts on what you have now, so run setup again to change them. Without a terminal it asks nothing, as before; `--yes`, `--agents`, `--quality` and `--pull-requests` answer for a script.
+  - Setup connects OpenCode too: it adds Demoman to `opencode.json` and copies the `record-demo` skill. An older hand-written Demoman entry there is replaced.
+  - MP4s export at High by default: 60 fps at 1440p, about 30 MB for 30 seconds. A video attached to a pull request keeps the smaller Sharing size. Change the default in setup or under Settings → Export quality in the Studio, and pick a quality for one export in the Studio's Export panel.
+  - Exporting from the Studio no longer opens a browser window.
+  - The Studio plays a take back at full sharpness; text no longer reads soft while it plays.
+  - An export's Reveal in Finder link opens the file directly, and the Open in Studio and Copy video tabs close themselves once they have worked.
+</Update>
+
 <Update label="0.7.1" description="Pull requests default to Ask, splits, and drag">
   - The pull-request setting now defaults to Ask: when a pull request changes something you can see, your agent offers to record it before attaching the video. Under Ask, a pull request without a video gets nothing added. Attach still adds a `No demo:` line saying why. Choose Off, Ask or Attach in the Studio, under Settings → Pull requests.
   - The Studio edits by splitting. Press ⌘B or click the scissors to cut the clip into pieces, and delete a piece: the video closes up behind it. Drag a piece's inner edge to trim frames, or to bring back frames removed beside it. A dot marks each join; click it to see what was removed and restore it.
