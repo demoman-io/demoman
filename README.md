@@ -47,16 +47,17 @@ beta.
 - **Cinematic by default.** The camera eases in on every click and holds
   while you read, and the cursor takes a smooth path from step to step, at
   desktop, tablet or phone size.
-- **A report on every run.** What was in frame, what was cut off, any
-  detours. When a step misses, your agent fixes the script and runs it again.
+- **Self-reviewing, self-correcting.** Every run reports what was in frame,
+  what was cut off and any detours. When a step misses, your agent fixes the
+  script and runs it again.
 - **[Authenticated apps](https://demoman.io/docs/guides/authentication).**
   For an app you run locally, your agent creates a demo account and Demoman
   signs in with it, in development and in CI. For a real account, sign in
   once with `npx demoman signin <url>`. Your agent never asks for your own
   password.
-- **An editor for every take.** `demoman studio` opens a timeline editor: trim
-  the waiting, split the clip and remove what you don't want, hide what
-  shouldn't be seen, tune each zoom, and apply a brand kit.
+- **Edit in Studio.** `npx demoman studio` opens a timeline editor: trim the
+  waiting, split the clip and remove what you don't want, hide what shouldn't
+  be seen, tune each zoom, and apply a brand kit.
 - **Ready for delivery.** An MP4, a GIF, or a still of every step, 16:9 or
   9:16 from one take. Your agent can attach the video to a pull request.
 - **Runs locally.** Capture, editing and export happen on your machine, and
@@ -80,10 +81,3 @@ rendering pipeline they share.
 
 Demoman is not accepting pull requests from outside.
 Bug reports and ideas are welcome as issues.
-
-## License
-
-The code is source-available under the Functional Source License
-(FSL-1.1-ALv2): yours to read, run and change, for any use but a competing
-product, and each version becomes Apache 2.0 two years after its release.
-The root [`LICENSE`](LICENSE) lists each directory, and what is not licensed.
