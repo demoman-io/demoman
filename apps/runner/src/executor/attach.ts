@@ -300,7 +300,12 @@ export async function attachTake(
   }
 
   const exported = await exportTake(
-    { takeId: a.takeId, ...(a.maxMB === undefined ? {} : { maxMB: a.maxMB }) },
+    {
+      takeId: a.takeId,
+      // GitHub's own size, whatever the default for other exports is.
+      quality: "share",
+      ...(a.maxMB === undefined ? {} : { maxMB: a.maxMB }),
+    },
     deps.export,
     (p: Exporting) =>
       onProgress({

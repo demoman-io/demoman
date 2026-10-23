@@ -956,27 +956,27 @@ describe("pullRequests", () => {
 });
 
 describe("exportQuality", () => {
-  it("no settings.json reads share, and an unreadable one says why (still share)", async () => {
+  it("no settings.json reads high, and an unreadable one says why (still high)", async () => {
     expect((await h.call(pathFor("exportQualityGet"))).json()).toEqual({
-      exportQuality: "share",
+      exportQuality: "high",
     });
     await writeFile(join(home, "settings.json"), "{");
     const body = (await h.call(pathFor("exportQualityGet"))).json() as {
       exportQuality: string;
       unreadable: string;
     };
-    expect(body.exportQuality).toBe("share");
+    expect(body.exportQuality).toBe("high");
     expect(body.unreadable).toContain("settings.json is not valid JSON");
   });
 
-  it("a bad stored value reads share and names the key and the choices", async () => {
-    await writeFile(join(home, "settings.json"), '{"exportQuality":"high"}');
+  it("a bad stored value reads high and names the key and the choices", async () => {
+    await writeFile(join(home, "settings.json"), '{"exportQuality":"best"}');
     const body = (await h.call(pathFor("exportQualityGet"))).json() as {
       exportQuality: string;
       unreadable: string;
     };
-    expect(body.exportQuality).toBe("share");
-    expect(body.unreadable).toContain("share or full");
+    expect(body.exportQuality).toBe("high");
+    expect(body.unreadable).toContain("share, high, full");
   });
 
   it("a PUT keeps the other keys of the file, and a GET reads it back", async () => {
@@ -1001,7 +1001,7 @@ describe("exportQuality", () => {
   it("a bad value is refused as exportQualityInvalid and writes nothing", async () => {
     const r = await h.call(pathFor("exportQualityPut"), {
       method: "PUT",
-      body: JSON.stringify({ exportQuality: "high" }),
+      body: JSON.stringify({ exportQuality: "best" }),
     });
     expect(r.status).toBe(400);
     expect((r.json() as { reason: string }).reason).toBe(

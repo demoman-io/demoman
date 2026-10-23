@@ -5,6 +5,9 @@ import {
   type FrameBundle,
   GIF_800,
   GIF_VERTICAL_450,
+  HIGH_LANDSCAPE,
+  HIGH_MAX_BITRATE,
+  HIGH_VERTICAL,
   LANDSCAPE_1080P,
   landscapeFrame,
   pickMp4Tier,
@@ -25,12 +28,18 @@ export type FileType = "mp4" | "gif" | "stills";
 /**
  * How an MP4 is sized and encoded (spec 2026-10-18 §3). `share`: the share
  * target (`SHARE_LANDSCAPE`, `SHARE_VERTICAL`), small enough for a chat or a
- * pull request. `full`: the largest tier the keyframes back, at 60 fps and
- * the tier's bitrate, as every export was before. GIF and stills have one
- * size each and ignore it.
+ * pull request. `high`: 60 fps at 1440p when the keyframes back it, at
+ * about 30 MB for 30 s (`HIGH_LANDSCAPE`, `HIGH_VERTICAL`). `full`: the
+ * largest tier the keyframes back, at 60 fps and the tier's bitrate, as
+ * every export was before 2026-10-18. GIF and stills have one size each and
+ * ignore it. In the order Settings lists them, smallest first.
  */
-export const EXPORT_QUALITY_VALUES = ["share", "full"] as const;
+export const EXPORT_QUALITY_VALUES = ["share", "high", "full"] as const;
 export type ExportQuality = (typeof EXPORT_QUALITY_VALUES)[number];
+
+/** What an MP4 is made at when nothing asks otherwise. GitHub's doors
+ *  (`attach`, and an export given `maxMB`) ask for `share`. */
+export const DEFAULT_EXPORT_QUALITY: ExportQuality = "high";
 
 /** The one check of a quality read from a file, a request or a tool call:
  *  every door reads `EXPORT_QUALITY_VALUES`, so none can drift. */
@@ -159,6 +168,14 @@ function shareTier(tier: RenderTarget): RenderTarget {
   };
 }
 
+/** The high target for a landscape tier: `HIGH_LANDSCAPE`, or the tier's
+ *  own frame at its bitrate when the keyframes (or a cap) back no more. */
+function highTier(tier: RenderTarget): RenderTarget {
+  return tier.width >= HIGH_LANDSCAPE.width
+    ? HIGH_LANDSCAPE
+    : { ...tier, bitrate: HIGH_LANDSCAPE.bitrate };
+}
+
 /**
  * Maps a file type and the scene's aspect to the compositor's target.
  *
@@ -174,7 +191,8 @@ function shareTier(tier: RenderTarget): RenderTarget {
  * `quality` (absent: `full`) chooses an MP4's size: `full` is the tier
  * above; `share` is the share target, no larger than that tier
  * (`shareTier`), with Auto reshaping the share frame's long side the same
- * way, and `SHARE_VERTICAL` for 9:16, smaller than any vertical tier.
+ * way, and `SHARE_VERTICAL` for 9:16, smaller than any vertical tier;
+ * `high` is the same for the high target (`highTier`, `HIGH_VERTICAL`).
  *
  * The preview and the export panel both resolve through this function.
  * So does the CLI's export (`apps/runner/src/executor/export.ts`): one answer for
@@ -191,19 +209,30 @@ export function targetFor(
   frame: FrameFacts,
   options: TargetOptions = {},
 ): RenderTarget {
-  const share = fileType === "mp4" && options.quality === "share";
+  const quality = fileType === "mp4" ? (options.quality ?? "full") : "full";
   if (aspect !== "9:16") {
     const tier = landscapeTier(fileType, bundle, aspect, options.maxTier);
-    return landscapeFrame(
+    const shaped = landscapeFrame(
       aspect,
-      share ? shareTier(tier) : tier,
+      quality === "share"
+        ? shareTier(tier)
+        : quality === "high"
+          ? highTier(tier)
+          : tier,
       recordingOf(bundle, frame),
       frame.padding,
     );
+    return quality === "high" && shaped.bitrate > HIGH_MAX_BITRATE
+      ? { ...shaped, bitrate: HIGH_MAX_BITRATE }
+      : shaped;
   }
   switch (fileType) {
     case "mp4":
-      return share ? SHARE_VERTICAL : VERTICAL_1080;
+      return quality === "share"
+        ? SHARE_VERTICAL
+        : quality === "high"
+          ? HIGH_VERTICAL
+          : VERTICAL_1080;
     case "gif":
       return GIF_VERTICAL_450;
     case "stills":

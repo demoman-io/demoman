@@ -8,7 +8,7 @@ type Deps = Parameters<typeof ExportTake>[1];
  * The studio's `run`: `exportTake` with the user's Export quality, read from
  * `<home>/settings.json` on each export so a change on the Settings page
  * applies to the next one. A file or value that cannot be read exports at
- * share (the default) and the log says why: never silently.
+ * high (the default) and the log says why: never silently.
  *
  * Only an MP4 has a quality; a GIF or stills export refuses one, so none is
  * passed for them.
@@ -22,7 +22,7 @@ export function createRunExport(a: {
     const settings = await readUserSettings(deps.home);
     if (settings.problems?.exportQuality !== undefined) {
       deps.log(
-        `studio: exporting at Sharing quality: ${settings.problems.exportQuality}`,
+        `studio: exporting at High quality: ${settings.problems.exportQuality}`,
       );
     }
     return exportTake(

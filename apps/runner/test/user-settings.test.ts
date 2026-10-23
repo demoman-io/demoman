@@ -16,17 +16,17 @@ afterEach(async () => {
 const file = (home: string) => join(home, "settings.json");
 
 describe("readUserSettings: exportQuality", () => {
-  it("no file is share, without a complaint", async () => {
+  it("no file is high, without a complaint", async () => {
     const out = await readUserSettings(await temp());
-    expect(out.exportQuality).toBe("share");
+    expect(out.exportQuality).toBe("high");
     expect(out).not.toHaveProperty("unreadable");
   });
 
-  it("a file without the key is share", async () => {
+  it("a file without the key is high", async () => {
     const home = await temp();
     await writeFile(file(home), JSON.stringify({ theme: "dark" }));
     const out = await readUserSettings(home);
-    expect(out.exportQuality).toBe("share");
+    expect(out.exportQuality).toBe("high");
     expect(out).not.toHaveProperty("unreadable");
   });
 
@@ -42,18 +42,18 @@ describe("readUserSettings: exportQuality", () => {
     });
   });
 
-  it("an invalid value is share and unreadable names the file, the key and the choices", async () => {
+  it("an invalid value is high and unreadable names the file, the key and the choices", async () => {
     const home = await temp();
     await writeFile(
       file(home),
-      JSON.stringify({ exportQuality: "high", pullRequests: "ask" }),
+      JSON.stringify({ exportQuality: "best", pullRequests: "ask" }),
     );
     const out = await readUserSettings(home);
-    expect(out.exportQuality).toBe("share");
+    expect(out.exportQuality).toBe("high");
     expect(out.unreadable).toContain(file(home));
     expect(out.unreadable).toContain("exportQuality");
-    expect(out.unreadable).toContain("share or full");
-    expect(out.unreadable).toContain('"high"');
+    expect(out.unreadable).toContain("share, high, full");
+    expect(out.unreadable).toContain('"best"');
     // Premise of "one key's bad value does not unset the other": the other
     // key is a good value, and it survives.
     expect(out.pullRequests).toBe("ask");
@@ -66,7 +66,7 @@ describe("readUserSettings: exportQuality", () => {
       const home = await temp();
       await writeFile(file(home), text);
       const out = await readUserSettings(home);
-      expect(out.exportQuality).toBe("share");
+      expect(out.exportQuality).toBe("high");
       expect(out.pullRequests).toBeNull();
       expect(out.problems?.exportQuality).toContain(file(home));
       expect(out.problems?.pullRequests).toContain(file(home));

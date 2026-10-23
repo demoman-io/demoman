@@ -937,8 +937,14 @@ describe("attach", () => {
       if (answer.outcome !== "attached") return;
       const exported = answer.export as {
         file: { byteLength: number };
-        warnings: { videoSize?: { cap?: { maxBytes: number; met: boolean } } };
+        warnings: {
+          videoSize?: {
+            quality: string;
+            cap?: { maxBytes: number; met: boolean };
+          };
+        };
       };
+      expect(exported.warnings.videoSize?.quality).toBe("share");
       expect(exported.warnings.videoSize?.cap).toMatchObject({
         maxBytes: 123_456_700,
         met: true,
@@ -962,6 +968,11 @@ describe("attach", () => {
       expect(answer.outcome, JSON.stringify(answer)).toBe("attached");
       if (answer.outcome !== "attached") return;
       const saved = (answer.export as { file: { path: string } }).file.path;
+      // No maxMB: GitHub's size all the same, not the export default.
+      expect(
+        (answer.export as { warnings: { videoSize?: { quality: string } } })
+          .warnings.videoSize?.quality,
+      ).toBe("share");
       // Premise: the export's own name is not plain, so the copy is what
       // made it so.
       expect(basename(saved)).toBe("Orders walkthrough.mp4");

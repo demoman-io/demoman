@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  DEFAULT_EXPORT_QUALITY,
+  EXPORT_QUALITY_VALUES,
   type ExportQuality,
   isExportQuality,
   isPullRequestsValue,
@@ -12,7 +14,7 @@ import { messageOf } from "../report.js";
 // `PULL_REQUESTS_VALUES`), the one definition every door reads.
 
 export interface UserSettings {
-  /** "share" when not set, and when set to something unusable (then
+  /** `DEFAULT_EXPORT_QUALITY` ("high") when not set, and when set to something unusable (then
    *  `problems.exportQuality` says why). */
   exportQuality: ExportQuality;
   /** null: not set, or set to something unusable (then `problems` says why). */
@@ -38,14 +40,17 @@ const settingsWith = (
 
 /**
  * `<home>/settings.json` (the studio's file). A missing file or key is "not
- * set" (`exportQuality` share, `pullRequests` null); a file that will not
+ * set" (`exportQuality` high, `pullRequests` null); a file that will not
  * read or parse, or a value that is not one of the key's choices, gives the
  * same defaults but says why in `problems`, so no caller can mistake it for
  * "not set". One key's bad value does not unset the other.
  */
 export async function readUserSettings(home: string): Promise<UserSettings> {
   const path = join(home, "settings.json");
-  const defaults = { exportQuality: "share", pullRequests: null } as const;
+  const defaults = {
+    exportQuality: DEFAULT_EXPORT_QUALITY,
+    pullRequests: null,
+  } as const;
   let text: string;
   try {
     text = await readFile(path, "utf8");
@@ -69,13 +74,15 @@ export async function readUserSettings(home: string): Promise<UserSettings> {
   const qualityBad = quality !== undefined && !isExportQuality(quality);
   return settingsWith(
     {
-      exportQuality: isExportQuality(quality) ? quality : "share",
+      exportQuality: isExportQuality(quality)
+        ? quality
+        : DEFAULT_EXPORT_QUALITY,
       pullRequests: "unreadable" in pr ? null : pr.value,
     },
     {
       ...(qualityBad
         ? {
-            exportQuality: `${path}: exportQuality must be share or full; got ${JSON.stringify(quality)}`,
+            exportQuality: `${path}: exportQuality must be ${EXPORT_QUALITY_VALUES.join(", ")}; got ${JSON.stringify(quality)}`,
           }
         : {}),
       ...("unreadable" in pr ? { pullRequests: pr.unreadable } : {}),

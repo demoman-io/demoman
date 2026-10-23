@@ -47,19 +47,19 @@ describe("the Studio's run reads Export quality on each export", () => {
     expect(asked[1]).toMatchObject({ quality: "share" });
   });
 
-  it("no file exports at share, with nothing logged", async () => {
+  it("no file exports at high, with nothing logged", async () => {
     const { run, asked, logs } = await runWith(null);
     await run("t1", "mp4", "j1", () => {});
-    expect(asked[0]?.quality).toBe("share");
+    expect(asked[0]?.quality).toBe("high");
     expect(logs).toEqual([]);
   });
 
-  it("unreadable settings export at share and say why in the log", async () => {
+  it("unreadable settings export at high and say why in the log", async () => {
     const { run, asked, logs } = await runWith("{");
     await run("t1", "mp4", "j1", () => {});
-    expect(asked[0]?.quality).toBe("share");
+    expect(asked[0]?.quality).toBe("high");
     expect(logs.join("\n")).toContain("settings.json is not valid JSON");
-    expect(logs.join("\n")).toContain("Sharing");
+    expect(logs.join("\n")).toContain("High");
   });
 
   it("a GIF and stills are asked without a quality (they refuse one)", async () => {

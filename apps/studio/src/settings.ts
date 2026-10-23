@@ -1,5 +1,9 @@
 import { join } from "node:path";
-import { isExportQuality, isPullRequestsValue } from "@demoman/run-core";
+import {
+  EXPORT_QUALITY_VALUES,
+  isExportQuality,
+  isPullRequestsValue,
+} from "@demoman/run-core";
 import type { Refusal } from "@demoman/studio-protocol";
 import {
   createChains,
@@ -56,7 +60,7 @@ async function writeSettingNow(
   if (key === "exportQuality" && !isExportQuality(value)) {
     return {
       reason: "exportQualityInvalid",
-      detail: `"${String(value)}" is not a choice — choose share or full.`,
+      detail: `"${String(value)}" is not a choice — choose ${EXPORT_QUALITY_VALUES.join(", ")}.`,
     };
   }
   const path = settingsPath(home);

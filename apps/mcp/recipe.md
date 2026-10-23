@@ -386,8 +386,8 @@ too.
    or snapshot while one is in progress is refused (`busy`, `alreadyRunning`).
    `fileType` picks the file: `mp4` (the default), `gif` (plays inline in
    a GitHub PR or issue), or `stills` (one PNG per step, in a folder). Ask
-   for a GIF or stills only when the user did. An MP4 is as small as stays
-   crisp; `quality: "full"` is the largest.
+   for a GIF or stills only when the user did. An MP4 is 60 fps, ~30 MB
+   for 30 s; `quality: "full"` is the largest.
    `export({ takeId, maxMB: 9.5 })` fits GitHub's 10 MB drag-in, or says
    it could not (it lowers fps, then size, then quality: the summary says
    what it cost).

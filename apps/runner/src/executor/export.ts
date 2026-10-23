@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FrameBundle, RenderTarget } from "@demoman/compositor";
 import {
   contentTypeFor,
+  DEFAULT_EXPORT_QUALITY,
   type ExportAnswer,
   type ExportQuality,
   type ExportReport,
@@ -32,6 +33,7 @@ import type { BrowserSession } from "./browser.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
 import { checkExportFolder, saveExport, saveStillsFolder } from "./save.js";
+import { readUserSettings } from "./user-settings.js";
 
 export interface ExportDeps {
   library: Library;
@@ -113,7 +115,15 @@ export async function exportTake(
   const stills = stillsOptionsOf(args.stills, asked);
   if (typeof stills === "string")
     return refused("invalidStillsOptions", stills);
-  const quality = qualityOf(args.quality, asked);
+  // Nothing asked: GitHub's size under a cap, else the user's Export
+  // quality from Settings, which the summary says it could not read.
+  const fallback =
+    args.maxMB !== undefined
+      ? { quality: "share" as const }
+      : args.quality === undefined && asked === "mp4"
+        ? await settingsQuality(deps)
+        : { quality: DEFAULT_EXPORT_QUALITY };
+  const quality = qualityOf(args.quality, asked, fallback.quality);
   if (typeof quality === "object") {
     return refused("invalidQuality", quality.refusal);
   }
@@ -163,6 +173,9 @@ export async function exportTake(
       asked,
       stills,
       quality,
+      ...(fallback.unreadable === undefined
+        ? {}
+        : { settingUnreadable: fallback.unreadable }),
       maxBytes,
       scene,
       notes,
@@ -225,6 +238,9 @@ async function exportLeased(a: {
   asked: FileType;
   stills: StillsOptions;
   quality: ExportQuality;
+  /** Why the Settings quality could not be read, when `quality` is the
+   *  default in its place. */
+  settingUnreadable?: string;
   /** `maxMB` in bytes, or null for no cap. */
   maxBytes: number | null;
   scene: SceneDocument;
@@ -240,6 +256,7 @@ async function exportLeased(a: {
     asked,
     stills,
     quality,
+    settingUnreadable,
     maxBytes,
     scene,
     notes,
@@ -453,6 +470,7 @@ async function exportLeased(a: {
             videoSize: {
               quality,
               byteLength: file.bytes.byteLength,
+              ...(settingUnreadable === undefined ? {} : { settingUnreadable }),
               ...(rendered.videoCap === undefined
                 ? {}
                 : { cap: rendered.videoCap }),
@@ -463,19 +481,37 @@ async function exportLeased(a: {
   );
 }
 
+/** The user's Export quality (`<home>/settings.json`), and why it could not
+ *  be read when it could not: then the default, and the log says so too. */
+async function settingsQuality(
+  deps: ExportDeps,
+): Promise<{ quality: ExportQuality; unreadable?: string }> {
+  const settings = await readUserSettings(deps.home);
+  const unreadable = settings.problems?.exportQuality;
+  if (unreadable === undefined) return { quality: settings.exportQuality };
+  deps.log(
+    `export: Export quality is ${settings.exportQuality}: ${unreadable}`,
+  );
+  return { quality: settings.exportQuality, unreadable };
+}
+
 /**
- * `export`'s `quality` argument: `share` when absent, `full` for the largest
- * file. Only an MP4 has a quality to choose; on a GIF or stills it would be
- * ignored, and an ignored request reads as one that was followed.
+ * `export`'s `quality` argument, `fallback` when absent: `share` when a
+ * `maxMB` is given, GitHub's drag-in, so a cap starts at the size it will
+ * most likely end at rather than rendering down to it; else the user's
+ * Export quality. Only an MP4 has a quality to choose; on a GIF or stills
+ * it would be ignored, and an ignored request reads as one that was
+ * followed.
  */
 function qualityOf(
   given: unknown,
   fileType: FileType,
+  fallback: ExportQuality,
 ): ExportQuality | { refusal: string } {
-  if (given === undefined) return "share";
+  if (given === undefined) return fallback;
   if (!isExportQuality(given)) {
     return {
-      refusal: `quality is "share" (as small as stays crisp, the default) or "full" (the largest file), not ${JSON.stringify(given) ?? typeof given}`,
+      refusal: `quality is "high" (60 fps, about 30 MB for 30 s, the default), "share" (as small as stays crisp, for GitHub) or "full" (the largest file), not ${JSON.stringify(given) ?? typeof given}`,
     };
   }
   if (fileType !== "mp4") {

@@ -17,7 +17,7 @@ import {
   renderFrame,
   type TimeSpan,
 } from "@demoman/compositor";
-import { checkLogoFile } from "@demoman/run-core";
+import { checkLogoFile, DEFAULT_EXPORT_QUALITY } from "@demoman/run-core";
 import {
   LOGO_DEFAULTS,
   MOTION_DEFAULTS,
@@ -415,7 +415,7 @@ function deliverable(bundle: FrameBundle | null): RenderTarget {
  *  none (the extension). Starts at the studio's default until the read
  *  answers, which is what the studio exports at when the read fails too. */
 let exportQuality: ExportQualityChoice | null =
-  platform.exportQuality === undefined ? null : "share";
+  platform.exportQuality === undefined ? null : DEFAULT_EXPORT_QUALITY;
 
 let digestOf: { scene: SceneDocument; digest: string } | null = null;
 /** `sceneDigest` of the scene on screen. Memoised by identity: `render`
@@ -3778,7 +3778,7 @@ async function refreshExportQuality(): Promise<void> {
   const got = await member.read();
   if (got.unreadable !== undefined) {
     console.info(
-      `demoman editor: the Studio exports at Sharing quality: ${got.unreadable}`,
+      `demoman editor: the Studio exports at High quality: ${got.unreadable}`,
     );
   }
   if (got.quality === exportQuality) return;

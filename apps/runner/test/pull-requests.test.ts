@@ -176,12 +176,12 @@ describe("readUserSettings", () => {
   it("a missing file or key is not set, without a complaint", async () => {
     const home = await temp();
     expect(await readUserSettings(home)).toEqual({
-      exportQuality: "share",
+      exportQuality: "high",
       pullRequests: null,
     });
     await writeFile(userFile(home), JSON.stringify({ theme: "dark" }));
     expect(await readUserSettings(home)).toEqual({
-      exportQuality: "share",
+      exportQuality: "high",
       pullRequests: null,
     });
   });

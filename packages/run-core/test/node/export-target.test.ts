@@ -2,6 +2,9 @@ import {
   autoTarget,
   GIF_800,
   GIF_VERTICAL_450,
+  HIGH_LANDSCAPE,
+  HIGH_MAX_BITRATE,
+  HIGH_VERTICAL,
   LANDSCAPE_4K,
   LANDSCAPE_1080P,
   LANDSCAPE_1440P,
@@ -286,6 +289,75 @@ describe("targetFor", () => {
         bitrate: 2_670_000,
         cornerRadius: 16,
         encoder: { quality: 0.5 },
+        fit: "cover",
+      });
+    });
+
+    it("high is 1440p at 60 fps and 8 Mbps when the keyframes back it", () => {
+      const bundle = proceduralBundle();
+      // Premise: at full quality these keyframes back 4K, wider than high.
+      expect(targetFor("mp4", "16:9", bundle, FRAME)).toEqual(LANDSCAPE_4K);
+      const high = targetFor("mp4", "16:9", bundle, FRAME, { quality: "high" });
+      expect(high).toEqual(HIGH_LANDSCAPE);
+      // The author's pick (2026-10-23), written out: 8 Mbps is 30 MB in
+      // 30 s, inside "20-40MB for a 30 second clip".
+      expect(high).toMatchObject({
+        width: 2560,
+        height: 1440,
+        fps: 60,
+        bitrate: 8_000_000,
+        fit: "contain",
+      });
+      expect((high.bitrate * 30) / 8 / 1_000_000).toBe(30);
+      // Encoded by bitrate, so the size follows it: no quality hint.
+      expect(high.encoder).toBeUndefined();
+    });
+
+    it("high keeps a 1080p tier's frame at its own bitrate", () => {
+      const small = keyframesAt(1920, 1200);
+      // Premise: at full quality these keyframes back only 1080p.
+      expect(targetFor("mp4", "16:9", small, FRAME)).toEqual(LANDSCAPE_1080P);
+      expect(
+        targetFor("mp4", "16:9", small, FRAME, { quality: "high" }),
+      ).toEqual({ ...LANDSCAPE_1080P, bitrate: HIGH_LANDSCAPE.bitrate });
+    });
+
+    it("high Auto never asks more than HIGH_MAX_BITRATE", () => {
+      // Square keyframes wide enough for the 1440p tier, recorded square.
+      const square = proceduralBundle({
+        viewport: { width: 1500, height: 1500 },
+        keyframes: proceduralBundle().keyframes.map((k) => ({
+          ...k,
+          width: 3000,
+          height: 3000,
+        })),
+      });
+      const shaped = autoTarget(
+        HIGH_LANDSCAPE,
+        { width: 1500, height: 1500 },
+        FRAME.padding,
+      );
+      // Premise: a square recording's frame scales the bitrate past the cap.
+      expect(shaped.bitrate).toBeGreaterThan(HIGH_MAX_BITRATE);
+      const high = targetFor("mp4", "auto", square, FRAME, { quality: "high" });
+      expect(high).toEqual({ ...shaped, bitrate: HIGH_MAX_BITRATE });
+      // 37.5 MB in 30 s: under the author's 40.
+      expect((HIGH_MAX_BITRATE * 30) / 8 / 1_000_000).toBeLessThan(40);
+    });
+
+    it("high Auto reshapes the high frame, and 9:16 is HIGH_VERTICAL", () => {
+      const bundle = proceduralBundle();
+      expect(
+        targetFor("mp4", "auto", bundle, FRAME, { quality: "high" }),
+      ).toEqual(autoTarget(HIGH_LANDSCAPE, bundle.viewport, FRAME.padding));
+      expect(
+        targetFor("mp4", "9:16", bundle, FRAME, { quality: "high" }),
+      ).toEqual(HIGH_VERTICAL);
+      expect(HIGH_VERTICAL).toMatchObject({
+        width: 1080,
+        height: 1920,
+        fps: 60,
+        bitrate: 8_000_000,
         fit: "cover",
       });
     });

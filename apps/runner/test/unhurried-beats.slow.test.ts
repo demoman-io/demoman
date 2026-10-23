@@ -133,6 +133,10 @@ describe("a typed field and a far click, filmed unhurried", () => {
       const out = await executor.request("export", {
         takeId,
         callId: "unhurried-export",
+        // The film the ink thresholds below were measured on. At high
+        // (2026-10-23's default) the focus ring alone read 0.3 of the
+        // field's peak before the first key, past the 0.2 premise.
+        quality: "share",
       });
       if (!out.ok) throw new Error(JSON.stringify(out));
       const answer = out.value as ExportAnswer;

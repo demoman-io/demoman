@@ -94,7 +94,7 @@ describe("renderSettings", () => {
     ).toContain("settings.json is not valid JSON");
   });
 
-  // The studio's Export quality: Sharing or Full, one radiogroup and no hint.
+  // The studio's Export quality: Sharing, High or Full, one radiogroup and no hint.
   // Red if the checked state is not the model's, a click does not reach
   // `setExportQuality`, or null is painted as a choice.
   it("draws Export quality with the model's choice", () => {
@@ -118,9 +118,14 @@ describe("renderSettings", () => {
     const choices = [
       ...group.querySelectorAll<HTMLButtonElement>("[role=radio]"),
     ];
-    expect(choices.map((c) => c.textContent)).toEqual(["Sharing", "Full"]);
+    expect(choices.map((c) => c.textContent)).toEqual([
+      "Sharing",
+      "High",
+      "Full",
+    ]);
     expect(choices.map((c) => c.getAttribute("aria-checked"))).toEqual([
       "true",
+      "false",
       "false",
     ]);
     // No helper text: the section holds the heading and the group only.
@@ -147,7 +152,7 @@ describe("renderSettings", () => {
           '[data-section="export"] [role=radio]',
         ),
       ].map((c) => c.getAttribute("aria-checked")),
-    ).toEqual(["false", "false"]);
+    ).toEqual(["false", "false", "false"]);
     expect(
       q<HTMLElement>(unreadable, '[data-section="export"] [data-notice]')
         .textContent,

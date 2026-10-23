@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
+import { DEFAULT_EXPORT_QUALITY } from "@demoman/run-core";
 import {
   type Library,
   LibraryError,
@@ -474,9 +475,9 @@ export function createRoutes(o: {
       const answer: ExportQualityAnswer =
         unreadable === undefined
           ? { exportQuality: got.exportQuality }
-          : { exportQuality: "share", unreadable };
+          : { exportQuality: DEFAULT_EXPORT_QUALITY, unreadable };
       if (unreadable !== undefined) {
-        log(`studio: Export quality is Sharing: ${unreadable}`);
+        log(`studio: Export quality is High: ${unreadable}`);
       }
       return json(200, answer);
     },

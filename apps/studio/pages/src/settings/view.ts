@@ -58,8 +58,10 @@ const PULL_REQUEST_LABELS: Record<PullRequestsChoice, string> = {
   attach: "Attach",
 };
 
-const EXPORT_QUALITY_LABELS: Record<ExportQualityChoice, string> = {
+/** Settings' and the editor's Export panel's names for each quality. */
+export const EXPORT_QUALITY_LABELS: Record<ExportQualityChoice, string> = {
   share: "Sharing",
+  high: "High",
   full: "Full",
 };
 

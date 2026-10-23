@@ -96,9 +96,9 @@ it("runs and exports the fixture take from the packed install, and the film show
     const read = await sampleMp4(await readFile(path), {
       colors: [GREEN, PANEL],
     });
-    // No quality asked for: the default export is share-sized, 720x1280 at
-    // 9:16 (1080x1920 is quality "full").
-    expect([read.width, read.height]).toEqual([720, 1280]);
+    // No quality asked for: the default export is high, 1080x1920 at 9:16
+    // (720x1280 is quality "share", GitHub's).
+    expect([read.width, read.height]).toEqual([1080, 1920]);
     const counts = read.readings.map((r) => r.colorCounts);
     const green = Math.max(...counts.map((c) => c[0] ?? 0));
     expect(green, "the brand background is not in the film").toBeGreaterThan(

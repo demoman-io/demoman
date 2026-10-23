@@ -69,8 +69,8 @@ export interface Platform {
     write(value: PullRequestsChoice): Promise<{ replaced?: string }>;
   };
   /**
-   * How the studio sizes an MP4: Sharing (the default) or Full. With
-   * `unreadable` the quality is `share` (what the studio will export at) and
+   * How the studio sizes an MP4: Sharing, High (the default) or Full. With
+   * `unreadable` the quality is `high` (what the studio will export at) and
    * the page says why; it checks nothing.
    */
   exportQuality: {

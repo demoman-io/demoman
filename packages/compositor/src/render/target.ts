@@ -159,6 +159,33 @@ export const SHARE_VERTICAL: RenderTarget = {
 };
 
 /**
+ * The high targets: what an export is by default when it is not going to
+ * GitHub (the author, 2026-10-23: "60fps and higher quality", "20-40MB for
+ * a 30 second clip"). 60 fps, encoded by bitrate so the size is predictable:
+ * 8 Mbps is 30 MB for 30 s, the middle of that band. A take that changes
+ * little on screen comes in under it; VBR spends no bits a frame does not
+ * need.
+ *
+ * Landscape: LANDSCAPE_1440P's frame and corner radius when the keyframes
+ * back it, else the tier's own at this bitrate (`targetFor`).
+ */
+export const HIGH_LANDSCAPE: RenderTarget = {
+  ...LANDSCAPE_1440P,
+  bitrate: 8_000_000,
+};
+
+/** The most an Auto frame's area may scale HIGH_LANDSCAPE's bitrate to:
+ *  37.5 MB for 30 s, under the author's 40. Uncapped, a square recording's
+ *  2560x2560 frame asked 14.2 Mbps, 53 MB. */
+export const HIGH_MAX_BITRATE = 10_000_000;
+
+/** 9:16 at VERTICAL_1080's frame, at HIGH_LANDSCAPE's bitrate. */
+export const HIGH_VERTICAL: RenderTarget = {
+  ...VERTICAL_1080,
+  bitrate: HIGH_LANDSCAPE.bitrate,
+};
+
+/**
  * The lowest `encoder.quality` a size cap may lower a share export to (the
  * author, 2026-10-18: "drop long videos to 0.35 to fit"; spec §8). Of the
  * candidates the author judged, 0.35 at the share frame was the smallest on

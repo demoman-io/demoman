@@ -231,7 +231,7 @@ describe("a 9:16 export of a take whose zooms do not all play as asked", () => {
       // Red if any of the four reaches the sentence: they are Demoman's own
       // framing calls, kept above for an agent that asks (author, 2026-10-20).
       expect(answer.summary, said).toMatch(
-        /^Saved .*\(720×1280, 30 fps, [\d.]+ [KM]B\)\.$/,
+        /^Saved .*\(1080×1920, 60 fps, [\d.]+ [KM]B\)\.$/,
       );
     },
     VERTICAL_EXPORT_MS,

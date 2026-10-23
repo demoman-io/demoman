@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LANDSCAPE_1080P } from "@demoman/compositor";
 import {
+  DEFAULT_EXPORT_QUALITY,
   type ExportAnswer,
   fileSize,
   frameOf,
@@ -224,7 +225,7 @@ describe("export, on the picture", () => {
   );
 });
 
-describe("export, share-sized by default", () => {
+describe("export, high by default", () => {
   const scene9x16 = async () => {
     await setAspect("9:16");
     const lib = library();
@@ -234,25 +235,26 @@ describe("export, share-sized by default", () => {
   };
 
   it(
-    "default export is share and says its size",
+    "default export is high and says its size",
     async () => {
       const { doc, bundle } = await scene9x16();
+      const high = targetFor("mp4", "9:16", bundle, frameOf(doc), {
+        quality: "high",
+      });
       const share = targetFor("mp4", "9:16", bundle, frameOf(doc), {
         quality: "share",
       });
-      const full = targetFor("mp4", "9:16", bundle, frameOf(doc), {
-        quality: "full",
-      });
       // The premise: the two targets differ, so a default that quietly
-      // stayed full would be told apart from share.
-      expect([share.width, share.height]).not.toEqual([
-        full.width,
-        full.height,
+      // stayed share would be told apart from high.
+      expect([high.width, high.height, high.fps]).not.toEqual([
+        share.width,
+        share.height,
+        share.fps,
       ]);
-      const answer = await exportNow("e-share", {});
+      const answer = await exportNow("e-high", {});
       expect(answer).toMatchObject({ outcome: "saved", fileType: "mp4" });
       if (answer.outcome !== "saved" || answer.fileType !== "mp4") return;
-      expect(answer.warnings.videoSize?.quality).toBe("share");
+      expect(answer.warnings.videoSize?.quality).toBe("high");
       expect(answer.warnings.videoSize?.byteLength).toBe(
         answer.file.byteLength,
       );
@@ -260,15 +262,72 @@ describe("export, share-sized by default", () => {
         (await readFile(answer.file.path)).byteLength,
       );
       expect([answer.width, answer.height, answer.fps]).toEqual([
-        share.width,
-        share.height,
-        share.fps,
+        high.width,
+        high.height,
+        high.fps,
       ]);
       // The size the summary names is the saved file's, in the one helper's
       // words (KB under 1 MB, as this short fixture is).
       expect(answer.summary).toContain(
         `, ${fileSize(answer.file.byteLength)})`,
       );
+    },
+    VERTICAL_EXPORT_MS,
+  );
+
+  // Red if an export with no quality stops reading Settings, or reads a
+  // file it could not parse as a choice and says nothing.
+  it(
+    "no quality follows the Export quality setting, and says when it could not read it",
+    async () => {
+      await scene9x16();
+      const settings = join(home, "settings.json");
+      try {
+        await writeFile(settings, JSON.stringify({ exportQuality: "share" }));
+        const followed = await exportNow("e-setting", {});
+        expect(followed).toMatchObject({ outcome: "saved", fileType: "mp4" });
+        if (followed.outcome !== "saved" || followed.fileType !== "mp4") return;
+        expect(followed.warnings.videoSize?.quality).toBe("share");
+        expect(followed.warnings.videoSize?.settingUnreadable).toBeUndefined();
+        // Premise: share is not the default, so following it is told apart.
+        expect(DEFAULT_EXPORT_QUALITY).not.toBe("share");
+
+        await writeFile(settings, "{");
+        const unread = await exportNow("e-unread", {});
+        expect(unread).toMatchObject({ outcome: "saved", fileType: "mp4" });
+        if (unread.outcome !== "saved" || unread.fileType !== "mp4") return;
+        expect(unread.warnings.videoSize?.quality).toBe(DEFAULT_EXPORT_QUALITY);
+        expect(unread.warnings.videoSize?.settingUnreadable).toContain(
+          settings,
+        );
+        expect(unread.summary).toContain(
+          "not your Export quality setting, which could not be read",
+        );
+      } finally {
+        await rm(settings, { force: true });
+      }
+    },
+    2 * VERTICAL_EXPORT_MS,
+  );
+
+  it(
+    "a size cap with no quality starts at share, GitHub's size",
+    async () => {
+      const { doc, bundle } = await scene9x16();
+      const share = targetFor("mp4", "9:16", bundle, frameOf(doc), {
+        quality: "share",
+      });
+      // A cap this loose is met at once, so the answer is the first render.
+      const answer = await exportNow("e-capq", { maxMB: 1000 });
+      expect(answer).toMatchObject({ outcome: "saved", fileType: "mp4" });
+      if (answer.outcome !== "saved" || answer.fileType !== "mp4") return;
+      expect(answer.warnings.videoSize?.quality).toBe("share");
+      expect(answer.warnings.videoSize?.cap).toMatchObject({ met: true });
+      expect([answer.width, answer.height, answer.fps]).toEqual([
+        share.width,
+        share.height,
+        share.fps,
+      ]);
     },
     VERTICAL_EXPORT_MS,
   );
@@ -293,12 +352,12 @@ describe("export, share-sized by default", () => {
     VERTICAL_EXPORT_MS,
   );
 
-  it("a bad quality is refused, naming share and full", async () => {
+  it("a bad quality is refused, naming every quality", async () => {
     const answer = await exportNow("e-badq", { quality: "best" });
     expect(answer).toMatchObject({
       outcome: "refusedBeforeExport",
       reason: "invalidQuality",
-      detail: expect.stringMatching(/share.*full/),
+      detail: expect.stringMatching(/high.*share.*full/),
     });
     expect(answer.summary).toMatch(/^Not exported: /);
   });

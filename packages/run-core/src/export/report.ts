@@ -267,6 +267,9 @@ export interface VideoCap {
 export interface VideoSize {
   quality: ExportQuality;
   byteLength: number;
+  /** No quality was asked for and the Export quality setting could not be
+   *  read: why. `quality` is then the default in its place. */
+  settingUnreadable?: string;
   cap?: VideoCap;
 }
 
@@ -718,8 +721,14 @@ export function exportCaveats(
     masks,
     unplacedStills,
     gifSize,
+    videoSize,
   } = report.warnings;
   return [
+    ...(videoSize?.settingUnreadable === undefined
+      ? []
+      : [
+          `it is ${videoSize.quality} quality, not your Export quality setting, which could not be read (${videoSize.settingUnreadable.replace(/\.$/, "")})`,
+        ]),
     ...(logo === null ? [] : [`the logo is missing (${logo})`]),
     ...(unavailableSpans.length === 0
       ? []

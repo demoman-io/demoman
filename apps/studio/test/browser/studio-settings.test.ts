@@ -169,7 +169,7 @@ describe("the Studio's Pull requests setting, in a real window", () => {
       expect(notice).toContain("settings.json is not valid JSON");
       // The same file costs Export quality its choice too, with its own say.
       const exported = await segments(page, "Export quality");
-      expect(exported.map((e) => e.label)).toEqual(["Sharing", "Full"]);
+      expect(exported.map((e) => e.label)).toEqual(["Sharing", "High", "Full"]);
       expect(
         exported.filter((e) => e.checked === "true"),
         `an unreadable file must check nothing: ${JSON.stringify(exported)}`,
@@ -288,7 +288,7 @@ describe("the Studio's Pull requests setting, in a real window", () => {
 
 describe("the Studio's Export quality setting, in a real window", () => {
   it(
-    "offers Sharing and Full, checks Sharing with nothing set, and saves Full",
+    "offers Sharing, High and Full, checks High with nothing set, and saves Full",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-export-quality-"));
       homes.push(home);
@@ -307,7 +307,8 @@ describe("the Studio's Export quality setting, in a real window", () => {
         await segments(page, "Export quality"),
         await pageEvidence(page),
       ).toEqual([
-        { label: "Sharing", checked: "true" },
+        { label: "Sharing", checked: "false" },
+        { label: "High", checked: "true" },
         { label: "Full", checked: "false" },
       ]);
 

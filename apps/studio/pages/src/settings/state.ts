@@ -36,7 +36,7 @@ export interface SettingsModel {
    *  reads `PULL_REQUESTS_DEFAULT` ("ask"). */
   pullRequests: PullRequestsChoice | null;
   /** The studio's Export quality, or null when it could not be read: the
-   *  section then says why and checks nothing. Not set reads "share". */
+   *  section then says why and checks nothing. Not set reads "high". */
   exportQuality: ExportQualityChoice | null;
   /** Why the kits' change feed will not fire (`platform.kits.unwatched`),
    *  or null while it does: said in the Brand kit section. */
