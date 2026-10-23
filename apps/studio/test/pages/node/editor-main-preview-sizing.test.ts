@@ -407,6 +407,60 @@ describe("editor main — preview sizing", () => {
    * Verified failable: solving in the observer with `previewHeightFor`
    * directly, as before, fails the final count.
    */
+  /**
+   * A take opened and played at once has drawn too few frames to price the
+   * machine, so the play latches the floor. Measured 2026-10-23 on the
+   * author's Mac: that first play ran at 994x720 against 1575x1141 parked,
+   * on a machine with room for the full size. Verified failable: dropping
+   * the re-solve after the blit leaves every draw of the play at the floor.
+   */
+  it("re-solves an uncalibrated play once, as soon as its draws price the machine", async () => {
+    draws.composeMs = 1;
+    await booted();
+    const parked = composeCalls.at(-1) as RenderTarget;
+    playButton().click();
+    // Premise: too few draws to price the machine, so the play took the floor.
+    expect((composeCalls.at(-1) as RenderTarget).height).toBe(PREVIEW_HEIGHT);
+    expect(parked.height).toBeGreaterThan(PREVIEW_HEIGHT);
+    const heights = new Set<number>();
+    for (let i = 0; i < 12; i++) {
+      await pump();
+      heights.add((composeCalls.at(-1) as RenderTarget).height);
+    }
+    // A cheap machine affords the parked size, and the play reaches it.
+    expect(composeCalls.at(-1)?.height).toBe(parked.height);
+    // Once: the floor, then the solved height, and no flicker after it.
+    expect([...heights].sort((a, b) => a - b)).toEqual([
+      PREVIEW_HEIGHT,
+      parked.height,
+    ]);
+  });
+
+  /**
+   * Parked draws that cost more than playback's (each full-size still's first
+   * paint) latch the play small; the play's own draws re-solve it. Measured
+   * 2026-10-23: plays latched at 994x720 on a Mac whose playback drew at
+   * 0.6 ms per megapixel. Verified failable: re-solving from the whole
+   * window instead of `own` keeps the floor, the parked costs still in it.
+   */
+  it("re-solves a play mispriced by parked draws from the play's own draws", async () => {
+    draws.composeMs = 40;
+    await booted();
+    for (let i = 0; i < 10; i++) {
+      pressKey("ArrowRight");
+      await pump();
+    }
+    const parked = composeCalls.at(-1) as RenderTarget;
+    playButton().click();
+    // Premise: parked drawing priced the machine too slow for more than the
+    // floor, so the play latched it.
+    expect((composeCalls.at(-1) as RenderTarget).height).toBe(PREVIEW_HEIGHT);
+    expect(parked.height).toBeGreaterThan(PREVIEW_HEIGHT);
+    draws.composeMs = 1;
+    for (let i = 0; i < 12; i++) await pump();
+    expect(composeCalls.at(-1)?.height).toBe(parked.height);
+  });
+
   it("leaves a playing preview's latched height alone on resize", async () => {
     draws.composeMs = 12;
     await booted();

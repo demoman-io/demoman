@@ -95,7 +95,16 @@ export function createStudioWindow(o: {
   };
 
   const watch = (ctx: BrowserContext): void => {
-    const onPage = (page: Page) => page.on("close", () => count());
+    const onPage = (page: Page) => {
+      page.on("close", () => count());
+      // The editor's preview line (what playback drew, at what bitmap, at
+      // what cost) reaches studio.log, so a soft preview on the person's own
+      // machine can be read without opening DevTools.
+      page.on("console", (message) => {
+        const text = message.text();
+        if (text.startsWith("[demoman] preview:")) log(`studio: ${text}`);
+      });
+    };
     for (const page of ctx.pages()) onPage(page);
     ctx.on("page", (page) => {
       onPage(page);

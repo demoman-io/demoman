@@ -93,6 +93,7 @@ import {
 } from "../../src/editor/pieces";
 import type { StoredOutput } from "../../src/editor/ports";
 import {
+  COST_MIN_SAMPLES,
   COST_WINDOW,
   composeCostEstimate,
   createFrameSourceCache,
@@ -1326,6 +1327,18 @@ function noteComposeCost(composeMs: number, drawn: RenderTarget): void {
  */
 let latchedPlaybackHeight: number | null = null;
 
+/**
+ * Draws this stretch of playback has made, until the latch is re-solved
+ * from them, once, at `COST_MIN_SAMPLES`. The latch is taken from what
+ * parked drawing cost, and that misprices playback both ways: a take just
+ * opened has drawn once or twice (no price, so the floor), and a parked
+ * draw pays the first paint of each full-size still, which playback has
+ * already paid. Measured 2026-10-23 on the author's Mac: plays latched at
+ * 994x720 against 1646x1192 parked, then drew at 0.6 ms per megapixel,
+ * about a tenth of a frame's budget at full size. Null once re-solved.
+ */
+let playDraws: number | null = null;
+
 let previewPlaying = false;
 const previewStats: PreviewFrameStats = {
   requestedFrames: 0,
@@ -1468,6 +1481,27 @@ const scrubber = createScrubber({
     // casting a CanvasRenderingContext2D into it would be a lie the type
     // system cannot catch; one drawImage keeps it honest.
     canvas.getContext("2d")?.drawImage(offscreen, 0, 0);
+    // After this frame's blit, so it is shown: once this play's own draws
+    // can price it, the latch is re-solved from them alone (`playDraws`).
+    if (player.playing && playDraws !== null) {
+      playDraws += 1;
+      if (playDraws >= COST_MIN_SAMPLES) {
+        const own = composeCosts.slice(-playDraws);
+        const was = latchedPlaybackHeight;
+        latchedPlaybackHeight = null;
+        latchedPlaybackHeight = solvePreviewTarget(
+          session.snapshot().bundle,
+          $("stage-frame").getBoundingClientRect().width,
+          own,
+        ).height;
+        // After the solve, which starts a count of its own on a new latch.
+        playDraws = null;
+        if (latchedPlaybackHeight !== was) {
+          render(session.snapshot());
+          playedBitmap = { width: target.width, height: target.height };
+        }
+      }
+    }
     // The mask box / zoom focus track the camera while scrubbing. This runs
     // per animation frame, so it is skipped entirely unless a mask or a zoom
     // is actually selected — the one case with nothing on screen for it to
@@ -1550,6 +1584,7 @@ const player = createPlayer({
 function solvePreviewTarget(
   bundle: FrameBundle | null,
   paintedCssWidth: number,
+  costs: readonly number[] = composeCosts,
 ): RenderTarget {
   const shape = deliverable(bundle);
   const solve = (): number =>
@@ -1558,7 +1593,7 @@ function solvePreviewTarget(
       paintedCssWidth,
       devicePixelRatio: window.devicePixelRatio,
       playing: player.playing,
-      msPerMegapixel: composeCostEstimate(composeCosts),
+      msPerMegapixel: composeCostEstimate(costs),
     });
   // Playing, the answer is latched for the whole stretch — see
   // `latchedPlaybackHeight`. Parked, it is re-solved every time, because the
@@ -1567,7 +1602,10 @@ function solvePreviewTarget(
     latchedPlaybackHeight = null;
     return previewTarget(shape, solve());
   }
-  latchedPlaybackHeight ??= solve();
+  if (latchedPlaybackHeight === null) {
+    latchedPlaybackHeight = solve();
+    playDraws = 0;
+  }
   return previewTarget(shape, latchedPlaybackHeight);
 }
 
