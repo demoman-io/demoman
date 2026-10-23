@@ -96,6 +96,10 @@ describe("runCaptured", () => {
       writeText: () => ({ ok: true }),
       say: (l) => void lines.push(l),
       ask: null,
+      settings: {
+        read: async () => ({ exportQuality: "high", pullRequests: null }),
+        write: async () => ({}),
+      },
     });
     expect(code).toBe(1);
     expect(lines.join("\n")).toContain("had not finished after 0.3 s");

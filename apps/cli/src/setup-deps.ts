@@ -16,7 +16,10 @@ import {
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+import { demomanHome } from "@demoman/mcp/serve-cli";
 import { fullChromiumPath } from "@demoman/runner/package";
+import { readUserSettings } from "@demoman/runner/studio";
+import { writeSetting } from "@demoman/studio";
 import type { Ran, SetupDeps } from "./setup.js";
 
 /** How long a captured command (claude's git clone of the marketplace, the
@@ -244,5 +247,9 @@ export function realSetupDeps(version: string, distDir: string): SetupDeps {
     writeText: writeTextFile,
     say: (line) => void process.stdout.write(`${line}\n`),
     ask: null,
+    settings: {
+      read: () => readUserSettings(demomanHome()),
+      write: (key, value) => writeSetting(demomanHome(), key, value),
+    },
   };
 }

@@ -43,6 +43,7 @@ export {
   type StudioResponse,
   type StudioServer,
 } from "./server.js";
+export { type SettingKey, writeSetting } from "./settings.js";
 export { checkPagesFresh, staleBuild } from "./stale.js";
 export {
   readStudioState,

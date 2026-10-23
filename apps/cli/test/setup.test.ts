@@ -35,6 +35,7 @@ function machine(
   const files = new Map<string, string>([["/opt/node/bin/npx", ""]]);
   const writes: string[] = [];
   let chromium = false;
+  const settingsReads = { n: 0 };
   const answers: Record<string, Ran | Ran[]> = {
     "claude --version": OK("2.1.0 (Claude Code)\n"),
     "claude plugin marketplace list --json": OK("[]"),
@@ -94,9 +95,26 @@ function machine(
     },
     say: (l) => void lines.push(l),
     ask: null,
+    settings: {
+      read: async () => {
+        settingsReads.n++;
+        return { exportQuality: "high", pullRequests: null };
+      },
+      write: async () => {
+        throw new Error("a setting was written");
+      },
+    },
     ...rest,
   };
-  return { d, lines, calls, files, writes, out: () => lines.join("\n") };
+  return {
+    d,
+    lines,
+    calls,
+    files,
+    writes,
+    settingsReads,
+    out: () => lines.join("\n"),
+  };
 }
 
 describe("setup", () => {
@@ -1273,7 +1291,8 @@ describe("setup's questions", () => {
     const m = machine();
     const q = asking(m, { agents: ["Claude Code"] });
     expect(await setup(m.d)).toBe(0);
-    expect(q.asked).toEqual([{ agents: ["Claude Code"] }]);
+    expect(q.asked).toHaveLength(1);
+    expect(q.asked[0]?.agents).toEqual(["Claude Code"]);
     expect(q.ranBefore[0]).toEqual(PROBES);
     expect(m.calls).toContain("claude plugin install demoman@demoman");
   });
@@ -1312,7 +1331,7 @@ describe("setup's questions", () => {
     const m = machine();
     const q = asking(m, {});
     expect(await setup(m.d, { agents: ["Codex"] })).toBe(1);
-    expect(q.asked).toEqual([]);
+    expect(q.asked[0]).not.toHaveProperty("agents");
     expect(m.out()).toContain("Codex: not installed");
     expect(m.out()).toContain("Claude Code: not connected (not chosen)");
     // Asked for by name, so missing is a failure, never "Done.".
@@ -1337,5 +1356,148 @@ describe("setup's questions", () => {
     expect(m.d.ask).toBeNull();
     expect(await setup(m.d)).toBe(0);
     expect(m.calls).not.toContain("claude --version");
+  });
+});
+
+describe("setup's settings", () => {
+  type Read = Awaited<ReturnType<SetupDeps["settings"]["read"]>>;
+  type Wrote = Awaited<ReturnType<SetupDeps["settings"]["write"]>>;
+  /** A settings file that reads as `read` and answers each write with
+   *  `wrote`, keeping what was written. */
+  function settingsOf(
+    m: ReturnType<typeof machine>,
+    read: Read = { exportQuality: "high", pullRequests: null },
+    wrote: Wrote = {},
+  ) {
+    const writes: Array<[string, string]> = [];
+    m.d.settings = {
+      read: async () => read,
+      write: async (key, value) => {
+        writes.push([key, value]);
+        return wrote;
+      },
+    };
+    return writes;
+  }
+  function asking(
+    m: ReturnType<typeof machine>,
+    answer: Answers | "cancelled",
+  ) {
+    const asked: Questions[] = [];
+    const saidBefore: number[] = [];
+    m.d.ask = async (q) => {
+      asked.push(q);
+      saidBefore.push(m.lines.length);
+      return answer;
+    };
+    return { asked, saidBefore };
+  }
+
+  it("preselects the file's values, and the defaults where it sets none", async () => {
+    const empty = machine();
+    settingsOf(empty);
+    const q1 = asking(empty, {});
+    await setup(empty.d);
+    expect(q1.asked[0]).toMatchObject({ quality: "high", pullRequests: "ask" });
+
+    const set = machine();
+    settingsOf(set, { exportQuality: "full", pullRequests: "attach" });
+    const q2 = asking(set, {});
+    await setup(set.d);
+    expect(q2.asked[0]).toMatchObject({
+      quality: "full",
+      pullRequests: "attach",
+    });
+  });
+
+  it("writes nothing when every answer is what was preselected", async () => {
+    const m = machine();
+    const writes = settingsOf(m);
+    asking(m, {
+      agents: ["Claude Code"],
+      quality: "high",
+      pullRequests: "ask",
+    });
+    expect(await setup(m.d)).toBe(0);
+    expect(writes).toEqual([]);
+    expect(m.out()).not.toContain("settings:");
+  });
+
+  it("writes a changed answer and says it", async () => {
+    const m = machine();
+    const writes = settingsOf(m);
+    asking(m, { quality: "share", pullRequests: "ask" });
+    expect(await setup(m.d)).toBe(0);
+    expect(writes).toEqual([["exportQuality", "share"]]);
+    expect(m.out()).toContain("settings: export quality is now Sharing");
+  });
+
+  it("takes a flag as the answer, asking nothing, with or without a terminal", async () => {
+    const m = machine();
+    const writes = settingsOf(m);
+    expect(await setup(m.d, { pullRequests: "off" })).toBe(0);
+    expect(writes).toEqual([["pullRequests", "off"]]);
+    expect(m.out()).toContain("settings: pull requests is now Off");
+
+    const asked = machine();
+    settingsOf(asked);
+    const q = asking(asked, {});
+    await setup(asked.d, { quality: "full" });
+    expect(q.asked[0]).not.toHaveProperty("quality");
+    expect(q.asked[0]).toHaveProperty("pullRequests");
+  });
+
+  it("reads no settings without a terminal or a flag", async () => {
+    const m = machine();
+    expect(await setup(m.d)).toBe(0);
+    expect(m.settingsReads.n).toBe(0);
+  });
+
+  it("says a file it cannot use before asking, preselects the default, and writes nothing on Enter", async () => {
+    const m = machine();
+    const unreadable = "/h/settings.json is not valid JSON (x)";
+    const writes = settingsOf(m, {
+      exportQuality: "high",
+      pullRequests: null,
+      problems: { exportQuality: unreadable, pullRequests: unreadable },
+      unreadable,
+    });
+    const q = asking(m, { quality: "high", pullRequests: "ask" });
+    expect(await setup(m.d)).toBe(0);
+    const said = m.lines.indexOf(`settings: ${unreadable}`);
+    expect(said).toBeGreaterThanOrEqual(0);
+    expect(said).toBeLessThan(q.saidBefore[0] as number);
+    expect(q.asked[0]).toMatchObject({ quality: "high", pullRequests: "ask" });
+    expect(writes).toEqual([]);
+  });
+
+  it("says a refused write in the Studio's words, never Done, and exits 1", async () => {
+    const m = machine();
+    const detail = "The Export quality setting was not saved: EACCES.";
+    settingsOf(m, undefined, { reason: "studioUnwritable", detail });
+    asking(m, { quality: "full" });
+    expect(await setup(m.d)).toBe(1);
+    expect(m.out()).toContain(`settings: ${detail}`);
+    expect(m.out()).toContain("Not done: a setting was not saved (above).");
+    expect(m.out()).not.toContain("Done.");
+  });
+
+  it("says a replaced file and exits 1", async () => {
+    const m = machine();
+    const replaced =
+      "/h/settings.json was not valid JSON (x); it was replaced and its other settings were not kept";
+    settingsOf(m, undefined, { replaced });
+    asking(m, { pullRequests: "attach" });
+    expect(await setup(m.d)).toBe(1);
+    expect(m.out()).toContain("settings: pull requests is now Attach");
+    expect(m.out()).toContain(`settings: ${replaced}`);
+  });
+
+  it("writes nothing when cancelled", async () => {
+    const m = machine();
+    const writes = settingsOf(m);
+    asking(m, "cancelled");
+    expect(await setup(m.d)).toBe(1);
+    expect(writes).toEqual([]);
   });
 });

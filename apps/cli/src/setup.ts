@@ -8,13 +8,18 @@
 // exit 1. Each agent says its own result, and no failure reads as success.
 import { parseArgs } from "node:util";
 import {
+  EXPORT_QUALITY_LABELS,
   EXPORT_QUALITY_VALUES,
   type ExportQuality,
   isExportQuality,
   isPullRequestsValue,
+  PULL_REQUESTS_DEFAULT,
+  PULL_REQUESTS_LABELS,
   PULL_REQUESTS_VALUES,
   type PullRequestsValue,
 } from "@demoman/run-core";
+import type { UserSettings } from "@demoman/runner/studio";
+import type { SettingKey } from "@demoman/studio";
 import {
   addAllowRules,
   CODEX_APPROVAL_TABLE,
@@ -79,12 +84,23 @@ export interface SetupDeps {
   /** Asks every question at once; null when there is no terminal to ask
    *  in, and then nothing is asked. */
   ask: ((q: Questions) => Promise<Answers | "cancelled">) | null;
+  /** The Studio's settings file: read as the runner reads it, written
+   *  with the Studio's own write. */
+  settings: {
+    read(): Promise<UserSettings>;
+    write(
+      key: SettingKey,
+      value: string,
+    ): Promise<{ replaced?: string } | { reason: string; detail: string }>;
+  };
 }
 
 /** A present key is a question to ask; its value is what is preselected. */
 export interface Questions {
   /** The agents setup found, all preselected. */
   agents?: AgentName[];
+  quality?: ExportQuality;
+  pullRequests?: PullRequestsValue;
 }
 /** The same keys, answered. */
 export type Answers = Questions;
@@ -885,6 +901,30 @@ async function steps(d: SetupDeps, flags: SetupFlags): Promise<number> {
   const found =
     d.ask !== null && flags.agents === undefined ? foundAgents(d) : [];
   if (found.length > 0) questions.agents = found;
+  // Read only when something may change them, so a run with no terminal
+  // and no flag is today's run.
+  const wantsSettings =
+    d.ask !== null ||
+    flags.quality !== undefined ||
+    flags.pullRequests !== undefined;
+  let preselected: {
+    quality?: ExportQuality;
+    pullRequests?: PullRequestsValue;
+  } = {};
+  if (wantsSettings) {
+    const read = await d.settings.read();
+    if (read.unreadable !== undefined) d.say(`settings: ${read.unreadable}`);
+    preselected = {
+      quality: read.exportQuality,
+      pullRequests: read.pullRequests ?? PULL_REQUESTS_DEFAULT,
+    };
+    if (d.ask !== null && flags.quality === undefined) {
+      questions.quality = preselected.quality;
+    }
+    if (d.ask !== null && flags.pullRequests === undefined) {
+      questions.pullRequests = preselected.pullRequests;
+    }
+  }
   let answers: Answers = {};
   if (d.ask !== null && Object.keys(questions).length > 0) {
     const got = await d.ask(questions);
@@ -919,12 +959,27 @@ async function steps(d: SetupDeps, flags: SetupFlags): Promise<number> {
     d.say(`${agent}: not connected (not chosen)`);
     return { agent, state: "skipped" };
   });
+  const settingsSaved = await saveSettings(d, preselected, {
+    quality: flags.quality ?? answers.quality,
+    pullRequests: flags.pullRequests ?? answers.pullRequests,
+  });
   const usable = results
     .filter((r) => r.state === "wired" || r.state === "partial")
     .map((r) => r.agent);
   const failed = results
     .filter((r) => r.state === "failed")
     .map((r) => r.agent);
+  const notDone = [
+    ...(failed.length > 0 ? [`${listed(failed)} could not be set up`] : []),
+    ...(settingsSaved ? [] : ["a setting was not saved"]),
+  ];
+  if (notDone.length > 0) {
+    if (usable.length > 0) warmStart(d, usable);
+    d.say(
+      `\nNot done: ${notDone.join(", and ")} (above).${usable.length > 0 ? ` Restart ${listed(usable)} to use Demoman there.` : ""}`,
+    );
+    return 1;
+  }
   if (
     usable.length === 0 &&
     failed.length === 0 &&
@@ -942,12 +997,6 @@ async function steps(d: SetupDeps, flags: SetupFlags): Promise<number> {
     return 1;
   }
   if (usable.length > 0) warmStart(d, usable);
-  if (failed.length > 0) {
-    d.say(
-      `\nNot done: ${listed(failed)} could not be set up (above).${usable.length > 0 ? ` Restart ${listed(usable)} to use Demoman there.` : ""}`,
-    );
-    return 1;
-  }
   d.say(
     `\nDone. Restart ${listed(usable)}, then in your app's repo ask for a demo, for example: "make a demo of the feature we just built".`,
   );
@@ -955,6 +1004,52 @@ async function steps(d: SetupDeps, flags: SetupFlags): Promise<number> {
     `If your app needs a login, sign in once with \`npx ${PACKAGE_NAME} signin <url>\`.`,
   );
   return 0;
+}
+
+/** Writes each answer that differs from what was preselected, saying each
+ *  write. false when one was refused or replaced the file: the run is then
+ *  not done. */
+async function saveSettings(
+  d: SetupDeps,
+  preselected: { quality?: ExportQuality; pullRequests?: PullRequestsValue },
+  answered: { quality?: ExportQuality; pullRequests?: PullRequestsValue },
+): Promise<boolean> {
+  const changes: Array<[SettingKey, string, string]> = [];
+  if (
+    answered.quality !== undefined &&
+    answered.quality !== preselected.quality
+  ) {
+    changes.push([
+      "exportQuality",
+      answered.quality,
+      `export quality is now ${EXPORT_QUALITY_LABELS[answered.quality]}`,
+    ]);
+  }
+  if (
+    answered.pullRequests !== undefined &&
+    answered.pullRequests !== preselected.pullRequests
+  ) {
+    changes.push([
+      "pullRequests",
+      answered.pullRequests,
+      `pull requests is now ${PULL_REQUESTS_LABELS[answered.pullRequests]}`,
+    ]);
+  }
+  let saved = true;
+  for (const [key, value, said] of changes) {
+    const wrote = await d.settings.write(key, value);
+    if ("reason" in wrote) {
+      d.say(`settings: ${wrote.detail}`);
+      saved = false;
+      continue;
+    }
+    d.say(`settings: ${said}`);
+    if (wrote.replaced !== undefined) {
+      d.say(`settings: ${wrote.replaced}`);
+      saved = false;
+    }
+  }
+  return saved;
 }
 
 /** Fills npx's cache for each spec a connected agent starts, each on its
