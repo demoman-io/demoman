@@ -196,13 +196,7 @@ describe("version pins", () => {
 describe("the paste-in blocks moved, not lost", () => {
   it("gives each agent setup does not reach a tab, and the skill once", () => {
     const connect = readDocs("agents.mdx");
-    for (const a of [
-      "Pi",
-      "Kimi Code",
-      "Hermes",
-      "DeepSeek dsh",
-      "Other",
-    ])
+    for (const a of ["Pi", "Kimi Code", "Hermes", "DeepSeek dsh", "Other"])
       expect(connect, a).toContain(`<Tab title="${a}">`);
     expect(connect).toContain(`"args": ["-y", "demoman@latest", "mcp"]`);
     const skill =
