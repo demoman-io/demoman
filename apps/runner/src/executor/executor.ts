@@ -32,7 +32,7 @@ import { type ExportDeps, exportTake } from "./export.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { readKits } from "./kits.js";
 import { DEFAULT_SIGNIN_COMMAND } from "./landing.js";
-import { createLibrary } from "./library.js";
+import { createLibrary, ownHome } from "./library.js";
 import { installExecutorEntry } from "./page-ops.js";
 import {
   type PullRequestsSetting,
@@ -101,8 +101,19 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
   // sweep: a secret resolved for a sign-in is replaced by `{secret:NAME}`.
   const sweep = createSecretSweep();
   const log = (line: string) => options.log(sweep.scrub(line));
-  const projectDir = options.projectDir ?? process.cwd();
+  // Owner-only, an older home included: takes show signed-in pages. Not
+  // awaited: nothing is written before the first call, and a failure says so.
+  ownHome(home).catch((error: unknown) => {
+    log(
+      `${home} could not be made owner-only (${messageOf(error)}), so other users on this machine may read its takes`,
+    );
+  });
   const env = options.env ?? process.env;
+  // The project the client says it opened before the folder it started this
+  // server in: Claude Code names it (measured 2026-10-24), and a client that
+  // starts servers elsewhere (Cursor: home) would point at the wrong repo.
+  const projectDir =
+    options.projectDir || env.CLAUDE_PROJECT_DIR || process.cwd();
   const library = createLibrary(
     home,
     options.updateCommand === undefined
@@ -531,6 +542,8 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         job.final = out;
         return out;
       }
+      // No page of an earlier call may run while this one's sessions load.
+      await session.retire();
       let loaded = await sessions.load(
         browser.launched.context,
         choiceOf(choice),
@@ -551,6 +564,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           signedIn = { account: chosen.account.name, steps: r.steps, ms: r.ms };
         }
         sessions.forget();
+        await session.retire();
         loaded = await sessions.load(
           browser.launched.context,
           choiceOf(choice),
@@ -705,14 +719,18 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         if (refused !== null) return refused;
       }
     }
-    const take = () =>
-      snapshotOp(args, {
+    const take = async () => {
+      // Before its stage: no page of an earlier call may run while this
+      // one's sessions load.
+      await session.retire();
+      return snapshotOp(args, {
         session,
         home,
         log,
         loadSessions: (context) => sessions.load(context, choiceOf(choice)),
         signinCommand,
       });
+    };
     let answer = await take();
     if (
       chosen !== null &&

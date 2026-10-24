@@ -41,6 +41,8 @@ export interface LoginApp {
   /** The last HTML page sent in answer to a POST (the wrong-password echo):
    *  later GETs of other pages do not replace it. */
   lastPage(): string;
+  /** Event streams `/held` has open: one per live `/held-page`. */
+  held(): number;
   close(): Promise<void>;
 }
 
@@ -75,6 +77,7 @@ export async function serveLoginApp(
   const bodies: string[] = [];
   const served: string[] = [];
   const held = new Set<import("node:http").ServerResponse>();
+  const streams = new Set<import("node:http").ServerResponse>();
   const valid = () => `valid-${generation}`;
   const server = createServer(async (req, res) => {
     let body = "";
@@ -427,6 +430,48 @@ export async function serveLoginApp(
           ),
         );
         return;
+      case "/opener":
+        // A page that opens another, as a recorded app's pop-out does.
+        html(
+          page(
+            "Opener",
+            `<h1>Opener</h1><script>window.open("/held-page")</script>`,
+            "#ffffff",
+          ),
+        );
+        return;
+      case "/held-page":
+        // Alive exactly while its event stream is: `held()` counts it.
+        html(
+          page(
+            "Held",
+            `<h1>Held</h1><script>new EventSource("/held")</script>`,
+            "#ffffff",
+          ),
+        );
+        return;
+      case "/held":
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write(": open\n\n");
+        streams.add(res);
+        res.on("close", () => streams.delete(res));
+        return;
+      case "/forged-login": {
+        // The password field claims to live on `?claim=`'s origin: an own
+        // `ownerDocument` getter, which page-world code reads (audit run 1).
+        // Its input listener posts whatever is typed, as a thief's would.
+        const claim = JSON.stringify(url.searchParams.get("claim") ?? "");
+        html(
+          page(
+            "Sign in",
+            `${form("/login")}<script>const f=document.getElementById("user_password");` +
+              `Object.defineProperty(f,"ownerDocument",{configurable:true,get:()=>({location:{origin:${claim}}})});` +
+              `f.addEventListener("input",()=>navigator.sendBeacon("/leak",f.value))</script>`,
+            "#ff00ff",
+          ),
+        );
+        return;
+      }
       case "/hostile":
         // A page whose own script breaks querySelectorAll: the sign-in check
         // cannot read it (launch C's `landing.unchecked`).
@@ -466,6 +511,7 @@ export async function serveLoginApp(
       released = true;
     },
     gets: (pathname) => getCounts.get(pathname) ?? 0,
+    held: () => streams.size,
     expireAll: () => {
       generation += 1;
     },
@@ -478,6 +524,7 @@ export async function serveLoginApp(
     close: () =>
       new Promise<void>((resolve) => {
         for (const r of held) r.destroy();
+        for (const r of streams) r.destroy();
         server.closeAllConnections();
         server.close(() => resolve());
       }),

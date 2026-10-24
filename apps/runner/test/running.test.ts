@@ -59,3 +59,15 @@ describe("the running line", () => {
     );
   });
 });
+
+// Audit run 1: a target's name is the page's accessible name, and the
+// running line reaches the agent's terminal. Red without the strip.
+describe("the running line carries no control characters", () => {
+  it("flattens them out of a step's name", () => {
+    const words = stepWords({
+      do: "click",
+      on: { role: "button", name: "Pay\u001b[2K\u202enow\u0007" },
+    } as never);
+    expect(words).toBe('click "Pay [2K now"');
+  });
+});

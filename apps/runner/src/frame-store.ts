@@ -84,8 +84,9 @@ function parseParkedIndex(ref: string, prefix: string): number | null {
   return Number(remainder);
 }
 
+/** Owner-only, as every folder of a take is: frames of signed-in pages. */
 async function ensureDir(path: string): Promise<void> {
-  await fs.mkdir(path, { recursive: true });
+  await fs.mkdir(path, { recursive: true, mode: 0o700 });
 }
 
 /** Every blob ref a bundle names — the set `deleteBundle` must remove
@@ -127,7 +128,7 @@ export function createFileFrameStore(root: string): RunnerStore {
   async function writeBlob(ref: string, bytes: Uint8Array): Promise<void> {
     const path = blobPath(ref);
     await ensureDir(dirname(path));
-    await fs.writeFile(path, bytes);
+    await fs.writeFile(path, bytes, { mode: 0o600 });
   }
 
   /** Every blob file directly under `root`, decoded back to its ref. Skips
@@ -192,7 +193,7 @@ export function createFileFrameStore(root: string): RunnerStore {
     async putBundle(sceneId, bundle) {
       const path = bundlePath(sceneId);
       await ensureDir(dirname(path));
-      await fs.writeFile(path, JSON.stringify(bundle));
+      await fs.writeFile(path, JSON.stringify(bundle), { mode: 0o600 });
     },
 
     async getBundle(sceneId) {

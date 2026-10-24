@@ -41,8 +41,16 @@ export interface SigninDeps {
 
 type StateArg = Parameters<BrowserContext["setStorageState"]>[0];
 
+/** One line a terminal prints as text: accounts.json and the page reach
+ *  these lines, and a control character in them could erase a line, forge a
+ *  success or plant a link (audit run 1). The rule export/report.ts's
+ *  `quoted` applies to a page's names. */
+const printable = (line: string): string =>
+  line.replace(/[\p{Cc}\p{Cf}]+/gu, " ");
+
 export async function signin(url: string, deps: SigninDeps): Promise<number> {
-  const say = (line: string) => deps.out(`demoman signin: ${line}`);
+  const out = (line: string) => deps.out(printable(line));
+  const say = (line: string) => out(`demoman signin: ${line}`);
   if (!isHttpUrl(url)) {
     say(`${url} is not an http(s) URL`);
     return 2;
@@ -114,7 +122,7 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
       await settle(window.page);
       facts = await readLandingFacts(window.page, url);
     } catch (error) {
-      deps.out(
+      out(
         `the page could not be checked for a sign-in form (${messageOf(error)}); sign in in the window if you need to, then press Enter here (or close the window).`,
       );
     }
@@ -135,12 +143,12 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
       // would call that page signed out however the sign-in went.
       const landed = new URL(facts.landedUrl);
       signInUrl = inPlace ? null : `${landed.origin}${landed.pathname}`;
-      deps.out(
+      out(
         `Sign in to ${site} in the window that opened, then press Enter here (or close the window).`,
       );
     } else {
       signInUrl = existing?.signInUrl ?? null;
-      deps.out(
+      out(
         `${url} opened with no sign-in page, so this browser may already be signed in to ${site}. Sign in again in the window if you need to, then press Enter here (or close the window).`,
       );
     }
@@ -212,7 +220,7 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
       );
       return 1;
     }
-    deps.out(`Signed in to ${site}; saved ${path}`);
+    out(`Signed in to ${site}; saved ${path}`);
     return 0;
   } catch (error) {
     say(
@@ -253,7 +261,8 @@ export async function signinAccount(
   name: string,
   deps: SigninAccountDeps,
 ): Promise<number> {
-  const say = (line: string) => deps.out(`demoman signin: ${line}`);
+  const out = (line: string) => deps.out(printable(line));
+  const say = (line: string) => out(`demoman signin: ${line}`);
   // A --project that is not a folder is refused, never walked past to a
   // parent's accounts file (final review M7).
   const isFolder = await stat(deps.projectDir).then(
@@ -322,6 +331,6 @@ export async function signinAccount(
     say(result.detail);
     return 1;
   }
-  deps.out(`Signed in to ${site.origin} as ${name}; saved ${result.path}`);
+  out(`Signed in to ${site.origin} as ${name}; saved ${result.path}`);
   return 0;
 }

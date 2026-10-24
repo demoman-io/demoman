@@ -221,13 +221,17 @@ async function runSteps(
             .locator(`[${SIGN_IN_MARK}="${i}"]`)
             .elementHandle({ timeout: left() });
           try {
-            const here = await handle.evaluate(
-              (e) => e.ownerDocument.location.origin,
-            );
+            // The frame's URL, which the browser keeps: page script can
+            // forge `ownerDocument`, and `ownerFrame()` reads it too, so a
+            // forgery answers null, refused (audit run 1).
+            const frame = await handle.ownerFrame();
+            const here = frame === null ? null : new URL(frame.url()).origin;
             if (here !== origin && /\{secret:/.test(step.text)) {
               throw new StepFailed(
                 "secretOffOrigin",
-                `the page is on ${here}, not ${origin}, so the secret was not typed — a sign-in never types a secret off its own site`,
+                here === null
+                  ? `the field's page could not be told, so the secret was not typed — a sign-in never types a secret off its own site`
+                  : `the page is on ${here}, not ${origin}, so the secret was not typed — a sign-in never types a secret off its own site`,
               );
             }
             await handle.fill(resolve(step.text), { timeout: left() });

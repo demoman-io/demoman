@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { findAccounts } from "../src/executor/accounts.js";
 import { createSessionStore } from "../src/executor/sessions.js";
-import { signinAccount } from "../src/signin.js";
+import { signin, signinAccount } from "../src/signin.js";
 import { boundTo, type LoginApp, serveLoginApp } from "./login-app.js";
 
 const PASSWORD = "correct-horse-battery";
@@ -194,5 +194,46 @@ describe("signinAccount", () => {
     ).toBe(2);
     expect(lines.join("\n")).toContain("seller");
     expect(lines.join("\n")).toContain("http://localhost:2");
+  });
+});
+
+// Audit run 1: a repo file or a page could write escape sequences to the
+// user's terminal through signin's lines — erase a line, forge a success,
+// plant a link. Red if `printable` is dropped from either sink.
+describe("signin's lines carry no control characters", () => {
+  const ESC = "\u001b[1A\u001b[2K\u001b]8;;https://x.test\u0007";
+  const control = /[\p{Cc}\p{Cf}]/u;
+
+  it("from an accounts.json key", async () => {
+    const file = JSON.parse(accountsJson([app.url]));
+    file.sites[app.url].accounts.seller[`k${ESC}`] = 1;
+    await writeFile(
+      join(repo, ".demoman", "accounts.json"),
+      JSON.stringify(file),
+    );
+    const lines: string[] = [];
+    const code = await signinAccount("seller", {
+      home,
+      projectDir: repo,
+      env: {},
+      out: (l) => lines.push(l),
+    });
+    expect(code).toBe(2);
+    // Premise: the line quotes the key it refused.
+    expect(lines.join("\n")).toContain("unknown key");
+    expect(lines.join("\n")).not.toMatch(control);
+  });
+
+  it("from the URL it was given", async () => {
+    const lines: string[] = [];
+    const code = await signin(`javascript:${ESC}`, {
+      home,
+      out: (l) => lines.push(l),
+      enter: () => ({ done: new Promise(() => undefined), cancel: () => {} }),
+    });
+    expect(code).not.toBe(0);
+    // Premise: the line quotes the URL it refused.
+    expect(lines.join("\n")).toContain("not an http(s) URL");
+    expect(lines.join("\n")).not.toMatch(control);
   });
 });

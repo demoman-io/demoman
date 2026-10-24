@@ -7,10 +7,12 @@
 // environment secret also names its site, DEMOMAN_SECRET_NAME_ORIGIN, and is
 // typed nowhere else (rc.3): the agent writes accounts.json, so the site an
 // account names is the agent's word, and Demoman's environment may hold
-// secrets the agent's own cannot read (a CI job). secrets.env values stay
-// unbound: the agent writes that file too, so they are its own already.
+// secrets the agent's own cannot read (a CI job). A secrets.env value names
+// its site the same way, on its own _ORIGIN line (audit run 1): accounts.json
+// is committed, and its author need not be whoever wrote the ignored file.
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { messageOf } from "../report.js";
 
@@ -60,7 +62,9 @@ function gitIgnores(
   return new Promise((resolve) => {
     execFile(
       "git",
-      ["check-ignore", "-q", "--", file],
+      // The folder is the caller's choice: its config must not name a
+      // program git runs while it reads the index (audit run 1).
+      ["-c", "core.fsmonitor=false", "check-ignore", "-q", "--", file],
       { cwd: dir },
       (error, _stdout, stderr) => {
         if (error === null) return resolve("ignored");
@@ -78,13 +82,31 @@ function gitIgnores(
 
 export async function readSecretsFile(dir: string): Promise<SecretsSource> {
   const path = join(dir, SECRETS_FILE);
+  const notRegular = new SecretError(
+    "secretsFileInvalid",
+    `${path} is not a regular file, so it was not read — secrets.env must be this folder's own file, not a link to another project's`,
+  );
   let text: string;
   try {
-    text = await readFile(path, "utf8");
+    // Never through a link: outside git, nothing else says whose secrets
+    // these are (audit run 1). Non-blocking, so a FIFO is refused, not waited on.
+    const handle = await open(
+      path,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    try {
+      if (!(await handle.stat()).isFile()) throw notRegular;
+      text = await handle.readFile("utf8");
+    } finally {
+      await handle.close();
+    }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (error === notRegular) throw error;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
       return { path, status: "absent", values: new Map() };
     }
+    if (code === "ELOOP") throw notRegular;
     throw new SecretError(
       "secretsFileInvalid",
       `${path} could not be read (${messageOf(error)})`,
@@ -191,17 +213,41 @@ export function resolveSecrets(
       }
     }
     const fromEnv = envWithheld === undefined && inEnv ? raw : undefined;
-    const value = fromEnv ?? file.values.get(name);
+    const fromFile = fromEnv === undefined ? file.values.get(name) : undefined;
+    if (fromFile !== undefined) {
+      const line = `${variable}${SECRET_ORIGIN_SUFFIX}`;
+      const declared = file.values.get(`${name}${SECRET_ORIGIN_SUFFIX}`);
+      if (declared === undefined || declared === "") {
+        throw new SecretError(
+          "secretUnbound",
+          `{secret:${name}} in ${file.path} names no site, so it was not typed — add the line ${line}=${origin} beside it if this sign-in's site is where it belongs`,
+        );
+      }
+      const site = originNamed(declared);
+      if (site === null) {
+        throw new SecretError(
+          "secretUnbound",
+          `${line} in ${file.path} is ${JSON.stringify(declared)}, which is not an origin: give a scheme, host and port only, like http://localhost:4000 — so {secret:${name}} was not typed`,
+        );
+      }
+      if (site !== origin) {
+        throw new SecretError(
+          "secretOffOrigin",
+          `{secret:${name}} in ${file.path} is for ${site}, and this sign-in is for ${origin}, so it was not typed — a secret is typed only on its own site`,
+        );
+      }
+    }
+    const value = fromEnv ?? fromFile;
     if (value === undefined && envWithheld !== undefined && inEnv) {
       throw new SecretError(
         "secretMissing",
-        `{secret:${name}} has no value in ${file.path}: ${variable} is set in Demoman's environment, but ${envWithheld} — add ${variable}=… to ${file.path}`,
+        `{secret:${name}} has no value in ${file.path}: ${variable} is set in Demoman's environment, but ${envWithheld} — add ${variable}=… and ${variable}${SECRET_ORIGIN_SUFFIX}=${origin} to ${file.path}`,
       );
     }
     if (value === undefined) {
       throw new SecretError(
         "secretMissing",
-        `{secret:${name}} has no value: set ${variable} (and ${variable}${SECRET_ORIGIN_SUFFIX}, its site) in the environment (an agent may pass Demoman only part of its environment — Codex does — so the file is the sure place), or add ${variable}=… to ${file.path}`,
+        `{secret:${name}} has no value: set ${variable} (and ${variable}${SECRET_ORIGIN_SUFFIX}, its site) in the environment (an agent may pass Demoman only part of its environment — Codex does — so the file is the sure place), or add ${variable}=… and ${variable}${SECRET_ORIGIN_SUFFIX}=${origin} to ${file.path}`,
       );
     }
     if (value.length < SECRET_MIN_LENGTH) {
@@ -227,18 +273,27 @@ export interface SecretSweep {
  *  each value resolved so far becomes `{secret:NAME}` again. Longest first,
  *  so a value that contains another is replaced whole. */
 /**
- * A value as an app may keep it: as typed, URL-encoded (a cookie), JSON-
- * escaped (a stored object, the storage scan's JSON), and base64 or
- * base64url (a token). The sweep knows each, so neither a reply nor a saved
- * session carries a password in any of them (review 2026-10-16). A whole
- * token that merely contains the password is not caught.
+ * A value as an app may keep it: as typed, URL-encoded (a cookie), form-
+ * encoded (a GET form's URL, which Playwright's call log quotes), either in
+ * lower-case hex too, JSON-escaped (a stored object, the storage scan's
+ * JSON), and base64 or base64url (a token). The sweep knows each, so neither
+ * a reply nor a saved session carries a password in any of them (review
+ * 2026-10-16, audit run 1). A whole token that merely contains the password
+ * is not caught.
  */
 function formsOf(value: string): Set<string> {
   const b64 = Buffer.from(value, "utf8").toString("base64");
+  const lowerHex = (s: string) =>
+    s.replace(/%[0-9A-F]{2}/g, (h) => h.toLowerCase());
+  const url = encodeURIComponent(value);
+  const form = new URLSearchParams({ k: value }).toString().slice(2);
   return new Set(
     [
       value,
-      encodeURIComponent(value),
+      url,
+      lowerHex(url),
+      form,
+      lowerHex(form),
       JSON.stringify(value).slice(1, -1),
       b64,
       b64.replace(/=+$/, ""),

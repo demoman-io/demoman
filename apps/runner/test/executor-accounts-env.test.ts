@@ -9,6 +9,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createLocalExecutor } from "../src/executor/executor.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import {
   app,
@@ -67,7 +68,7 @@ describe("environment secrets and project (security review, 2026-10-16)", () => 
   it("uses that checkout's own secrets.env", async () => {
     await writeFile(
       join(other, ".demoman", "secrets.env"),
-      `DEMOMAN_SECRET_KL_SELLER=${PASSWORD}\n`,
+      `DEMOMAN_SECRET_KL_SELLER=${PASSWORD}\nDEMOMAN_SECRET_KL_SELLER_ORIGIN=${app.url}\n`,
     );
     const out = await snap(`${app.url}/app`, { project: other });
     expect(out.ok, JSON.stringify(out)).toBe(true);
@@ -245,3 +246,28 @@ it("lists an account's saved session in status.sessions with its account (final 
     origin: app.url,
   });
 }, 120_000); // 5.6 s here; 5x is 28 s
+
+// Audit run 1: the project was the server's working directory, which a
+// client may set anywhere (Cursor: home). Red if CLAUDE_PROJECT_DIR is not
+// read before the cwd.
+it("looks for accounts in the client's CLAUDE_PROJECT_DIR, not its own folder", async () => {
+  await writeAccounts(seller());
+  // Premise: this process is not running in the repo.
+  expect(process.cwd()).not.toBe(repo);
+  const named = createLocalExecutor({
+    home,
+    headless: true,
+    log: () => undefined,
+    env: { CLAUDE_PROJECT_DIR: repo },
+  });
+  try {
+    const out = (await named.request("status", {})) as {
+      value: { accounts: { file?: string } | null };
+    };
+    expect(out.value.accounts?.file).toBe(
+      join(repo, ".demoman", "accounts.json"),
+    );
+  } finally {
+    await named.close();
+  }
+});

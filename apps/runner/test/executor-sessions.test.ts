@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import type { LocalExecutor } from "../src/executor/types.js";
@@ -157,3 +157,39 @@ it.skipIf(process.env.DEMOMAN_OFFLINE === "1")(
   },
   120_000,
 );
+
+// Audit run 1: a page a recorded page opened outlived its call and kept
+// running while the next call loaded another account's sessions, so the
+// run's write-back could save what it wrote under the wrong account. Red if
+// the executor loads sessions without `session.retire()` first.
+it("closes a page an earlier call's site opened before the next call loads sessions", async () => {
+  const opened = (await executor.request("snapshot", {
+    url: `${app.url}/opener`,
+  })) as unknown as { ok: boolean };
+  expect(opened.ok).toBe(true);
+  // Premise: the pop-out the page opened is alive after its call returned.
+  await vi.waitFor(() => expect(app.held()).toBe(1), { timeout: 10_000 });
+  const next = await snapshot();
+  expect(next.ok).toBe(true);
+  await vi.waitFor(() => expect(app.held()).toBe(0), { timeout: 10_000 });
+}, 120_000);
+
+it("closes it before a run loads sessions too", async () => {
+  await executor.request("snapshot", { url: `${app.url}/opener` });
+  // Premise: the pop-out is alive when the run is asked for.
+  await vi.waitFor(() => expect(app.held()).toBe(1), { timeout: 10_000 });
+  const run = (await executor.request("run", {
+    script: {
+      scriptVersion: 1,
+      name: "x",
+      target: `${app.url}/opener`,
+      steps: [{ do: "waitFor", on: { text: "Opener" }, until: "visible" }],
+    },
+  })) as { ok: boolean; value?: { outcome: string } };
+  // Premise: the run went past its door, where sessions load. How it ends
+  // is not this case's business.
+  expect(run.ok, JSON.stringify(run)).toBe(true);
+  expect(run.value?.outcome, JSON.stringify(run)).not.toBe("refusedBeforeRun");
+  // The run's own page opens one pop-out; the earlier call's is gone.
+  await vi.waitFor(() => expect(app.held()).toBe(1), { timeout: 10_000 });
+}, 120_000);

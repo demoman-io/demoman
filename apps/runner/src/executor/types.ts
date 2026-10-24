@@ -33,7 +33,8 @@ export interface ExecutorOptions {
    *  named. */
   updateCommand?: string;
   /** Where `.demoman/accounts.json` is looked for when a call names no
-   *  `project`: the MCP server's working directory. Default `process.cwd()`. */
+   *  `project`. Default: the client's CLAUDE_PROJECT_DIR in `env`, else the
+   *  MCP server's working directory. */
   projectDir?: string;
   /** Where `DEMOMAN_SECRET_*` are read: `process.env` in production. */
   env?: NodeJS.ProcessEnv;

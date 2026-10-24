@@ -70,7 +70,9 @@ its site. Then, in this order:
    create a demo account and the data the demo needs, with a seed script
    committed in the app and safe to run twice (`priv/repo/demo_seeds.exs`,
    `db/seeds/demo.rb`). Generate a random password of 20 or more characters.
-   Write `DEMOMAN_SECRET_<NAME>=…` to `.demoman/secrets.env`, and add
+   Write `DEMOMAN_SECRET_<NAME>=…` and
+   `DEMOMAN_SECRET_<NAME>_ORIGIN=<the site's origin>` to
+   `.demoman/secrets.env`, and add
    `.demoman/secrets.env` to `.gitignore` if it is missing. Add the account
    to `accounts.json`. Tell the user in one line.
    Then `snapshot` again.
@@ -127,10 +129,10 @@ The file, with one account:
   `[A-Z0-9_]+`, not ending in `_ORIGIN`. Demoman reads
   `DEMOMAN_SECRET_NAME` from the environment, else the same line of
   `.demoman/secrets.env`, which it reads only when git ignores it. A value
-  is at least 8 characters. An environment value is typed only with
-  `DEMOMAN_SECRET_NAME_ORIGIN` beside it, naming the account's site; the
-  user sets both, and you never set or change them. `secrets.env` lines
-  need no origin. A `{secret:…}` in a demo
+  is at least 8 characters, typed only with `DEMOMAN_SECRET_NAME_ORIGIN`
+  beside it, naming the account's site. In the environment the user sets
+  both and you never change them; in `secrets.env` you write both.
+  A `{secret:…}` in a demo
   script is refused (`invalidScript`): secrets work only in `signIn`.
   Environment secrets serve only the accounts.json of the repo Demoman was
   started in; one reached through `project` reads only its own
@@ -555,8 +557,8 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `signInFailed` | `snapshot`, `run` (`refusedBeforeRun`) | Demoman signed in as the account and the page still showed a sign-in page, or a step could not run; `detail` names the account, the step and where it landed. It tried once. Fix the account's steps or the secret, or tell the user; do not run again unchanged. |
 | `secretMissing` | `snapshot`, `run` (`refusedBeforeRun`) | A `{secret:NAME}` has no `DEMOMAN_SECRET_NAME` and no line in `.demoman/secrets.env`; `detail` names `NAME` and both places. Through `project`, the environment is not used, and `detail` says so when it holds the name. Write one (section 1), or ask the user. |
 | `secretTooShort` | `snapshot`, `run` (`refusedBeforeRun`) | The secret `NAME` is under 8 characters. Generate a longer one and write it again. |
-| `secretUnbound` | `snapshot`, `run` (`refusedBeforeRun`) | `DEMOMAN_SECRET_NAME` is in Demoman's environment with no `DEMOMAN_SECRET_NAME_ORIGIN`, or one that is not an origin; `detail` names the variable and the site. Nothing was typed. Tell the user; never set it yourself. |
-| `secretOffOrigin` | `snapshot`, `run` (`refusedBeforeRun`) | A secret was about to be typed off its site: a sign-in step's page is not the site's origin, or an environment secret's `_ORIGIN` names another site; `detail` names both. Nothing was typed. Check the account's site and `goto`, then tell the user. |
+| `secretUnbound` | `snapshot`, `run` (`refusedBeforeRun`) | `DEMOMAN_SECRET_NAME` has no `DEMOMAN_SECRET_NAME_ORIGIN` beside it, or one that is not an origin; `detail` names the line and the site. Nothing was typed. Add it to `secrets.env` for an account you made; else tell the user. |
+| `secretOffOrigin` | `snapshot`, `run` (`refusedBeforeRun`) | A secret was about to be typed off its site: a sign-in step's page is not the site's origin, or the secret's `_ORIGIN` names another site; `detail` names both. Nothing was typed. Check the account's site and `goto`, then tell the user. |
 | `secretsFileNotIgnored` | `snapshot`, `run` (`refusedBeforeRun`) | Git does not ignore `.demoman/secrets.env`, so Demoman did not read it. Add `.demoman/secrets.env` to `.gitignore` (`detail` says the line), or take the file out of git if tracked. |
 | `secretsFileInvalid` | `snapshot`, `run` (`refusedBeforeRun`) | A line of `.demoman/secrets.env` is not `DEMOMAN_SECRET_NAME=value`, a comment or blank; `detail` gives the line number. Fix it. |
 | `accountsInvalid` | `snapshot`, `run` (`refusedBeforeRun`) | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names the field and the rule. Fix the file. |

@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -19,6 +25,29 @@ afterEach(() => {
   // frames — tens of MB per `pnpm -r test`, accumulating in TMPDIR on every
   // local and CI run. `store.root` is the directory `beforeEach` just made.
   rmSync(store.root, { recursive: true, force: true });
+});
+
+/** The permission bits of `path`. */
+const modeOf = (path: string): number => statSync(path).mode & 0o777;
+
+describe("the filesystem store, owner-only (audit run 1)", () => {
+  // Red: `mkdir` and `writeFile` with default modes — frames of signed-in
+  // pages, readable by every local user.
+  it("makes its folders 0700 and its frames and bundles 0600", async () => {
+    const root = join(store.root, "takes", "t1", "frames");
+    // Premise: a folder made with no mode here is open to others (umask 022).
+    mkdirSync(join(store.root, "probe"));
+    expect(modeOf(join(store.root, "probe")) & 0o077).not.toBe(0);
+    const fresh = createFileFrameStore(root);
+    const ref = await fresh.putKeyframe("s1", 0, new Uint8Array([1]));
+    await fresh.putBundle("s1", { keyframes: [], spans: [] } as never);
+    expect(modeOf(root)).toBe(0o700);
+    expect(modeOf(join(root, fileNameOf(ref)))).toBe(0o600);
+    expect(modeOf(join(root, "bundles"))).toBe(0o700);
+    expect(modeOf(join(root, "bundles", `${fileNameOf("s1")}.json`))).toBe(
+      0o600,
+    );
+  });
 });
 
 describe("the filesystem store", () => {

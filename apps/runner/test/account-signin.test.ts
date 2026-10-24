@@ -123,7 +123,7 @@ describe("signInAccount", () => {
   it("reads the secret from secrets.env when the environment has none", async () => {
     await writeFile(
       join(repo, ".demoman", "secrets.env"),
-      `DEMOMAN_SECRET_KL_SELLER=${PASSWORD}\n`,
+      `DEMOMAN_SECRET_KL_SELLER=${PASSWORD}\nDEMOMAN_SECRET_KL_SELLER_ORIGIN=${app.url}\n`,
     );
     const { deps: d } = deps({});
     const r = await signInAccount(chosen(steps()), d);
@@ -366,6 +366,23 @@ describe("signInAccount", () => {
     // Premise: the browser did reach the other origin's sign-in page.
     expect(other.gets("/login")).toBeGreaterThan(0);
     expect(other.bodies().join("\n")).not.toContain(PASSWORD);
+  }, 60_000); // 0.7 s here; 5x is 3.5 s
+
+  // Red: read the origin with `handle.evaluate((e) =>
+  // e.ownerDocument.location.origin)`, which the page's own getter answers.
+  it("never types a secret on another origin whose page claims to be the site's", async () => {
+    const { deps: d } = deps();
+    const forged = `${other.url}/forged-login?claim=${encodeURIComponent(app.url)}`;
+    const bounce = `/bounce?to=${encodeURIComponent(forged)}`;
+    const bodies = other.bodies().length;
+    const r = await signInAccount(chosen(steps(bounce)), d);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason, r.detail).toBe("secretOffOrigin");
+    // Premise: the browser reached the forging page. That its forgery
+    // fools a page-world read is shown by the red run, which leaks.
+    expect(other.gets("/forged-login")).toBeGreaterThan(0);
+    expect(other.bodies().slice(bodies).join("\n")).not.toContain(PASSWORD);
   }, 60_000); // 0.7 s here; 5x is 3.5 s
 
   it("names a missing secret before opening anything", async () => {

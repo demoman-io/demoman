@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
 import {
+  chmod,
   mkdir,
   open,
   readdir,
@@ -166,6 +167,16 @@ async function readOutputRows(file: string): Promise<OutputRecord[]> {
  * Every failure is a `LibraryError` naming the path — never a null that
  * reads as "no such take", which is the one answer a missing take gets.
  */
+/**
+ * The Demoman home, made owner-only: takes are frames of signed-in pages,
+ * as private as the sessions they come from (audit run 1). Chmodded too,
+ * because a recursive mkdir's mode does not reach a folder already there.
+ */
+export async function ownHome(home: string): Promise<void> {
+  await mkdir(home, { recursive: true, mode: 0o700 });
+  await chmod(home, 0o700);
+}
+
 export function createLibrary(
   home: string,
   options: { updateCommand?: string } = {},
@@ -281,8 +292,8 @@ export function createLibrary(
   async function write(path: string, text: string): Promise<void> {
     const temp = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
     try {
-      await mkdir(join(path, ".."), { recursive: true });
-      await writeFile(temp, text);
+      await mkdir(join(path, ".."), { recursive: true, mode: 0o700 });
+      await writeFile(temp, text, { mode: 0o600 });
       await rename(temp, path);
     } catch (error) {
       // Only the temp file: whatever was at `path` before is still there.
@@ -419,7 +430,7 @@ export function createLibrary(
       const deadline = Date.now() + LOCK_WAIT_MS;
       for (;;) {
         try {
-          const handle = await open(lock, "wx");
+          const handle = await open(lock, "wx", 0o600);
           try {
             await handle.writeFile(JSON.stringify({ pid: process.pid }));
           } finally {

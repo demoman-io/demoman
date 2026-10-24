@@ -15,7 +15,11 @@ import {
   type SceneDocument,
 } from "@demoman/scene-schema";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createLibrary, LibraryError } from "../src/executor/library.js";
+import {
+  createLibrary,
+  LibraryError,
+  ownHome,
+} from "../src/executor/library.js";
 import { readOnlySceneJson } from "./fixtures/scene.js";
 
 let home: string;
@@ -28,6 +32,40 @@ afterEach(async () => {
 });
 
 const scene = () => structuredClone(readOnlySceneJson()) as SceneDocument;
+
+/** The permission bits of `path`. */
+const modeOf = async (path: string): Promise<number> =>
+  (await stat(path)).mode & 0o777;
+
+describe("the library, owner-only (audit run 1)", () => {
+  // Red: `mkdir` and `writeFile` with default modes in `write` — a take of a
+  // signed-in page, readable by every local user.
+  it("writes a take into a fresh home as 0700 folders and 0600 files", async () => {
+    // Premise: a folder made with no mode here is open to others (umask 022).
+    await mkdir(join(home, "probe"));
+    expect((await modeOf(join(home, "probe"))) & 0o077).not.toBe(0);
+    const fresh = join(home, "fresh-home");
+    const doc = scene();
+    await createLibrary(fresh).putScene(doc);
+    expect(await modeOf(fresh)).toBe(0o700);
+    expect(await modeOf(join(fresh, "takes"))).toBe(0o700);
+    expect(await modeOf(join(fresh, "takes", doc.meta.id))).toBe(0o700);
+    expect(await modeOf(join(fresh, "takes", doc.meta.id, "scene.json"))).toBe(
+      0o600,
+    );
+  });
+
+  // Red: drop ownHome's chmod — a recursive mkdir's mode does not reach a
+  // folder that is already there.
+  it("closes a home that is already there and open to others", async () => {
+    const open = join(home, "open-home");
+    await mkdir(open, { mode: 0o755 });
+    await chmod(open, 0o755);
+    expect(await modeOf(open)).toBe(0o755);
+    await ownHome(open);
+    expect(await modeOf(open)).toBe(0o700);
+  });
+});
 
 describe("createLibrary", () => {
   it("creates <home>/takes on first write and reads the take back", async () => {

@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -100,6 +107,53 @@ describe("readSecretsFile", () => {
   });
 });
 
+describe("readSecretsFile and what it does not trust (audit run 1)", () => {
+  // Red: run `git check-ignore` without `-c core.fsmonitor=false`, and the
+  // checked folder's own config names a program git runs as the user.
+  it("never runs a program the repository's config names", async () => {
+    const marker = join(repo, "fsmonitor-ran");
+    const hook = join(repo, "hook.sh");
+    await writeFile(hook, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+    git("config", "core.fsmonitor", hook);
+    await writeFile(join(repo, ".gitignore"), ".demoman/secrets.env\n");
+    // Premise: git does run it while reading the index here.
+    git("add", ".gitignore");
+    git("status", "--short");
+    await access(marker);
+    await rm(marker);
+    await writeFile(join(dir, "secrets.env"), "DEMOMAN_SECRET_A=abcdefgh\n");
+    expect((await readSecretsFile(dir)).status).toBe("ignored");
+    await expect(access(marker)).rejects.toThrow();
+  });
+
+  // Red: read secrets.env through a link — outside git, nothing else says
+  // whose secrets they are.
+  it("refuses a secrets.env that is a link, without reading what it points at", async () => {
+    const bare = await mkdtemp(join(tmpdir(), "demoman-nogit-"));
+    const elsewhere = await mkdtemp(join(tmpdir(), "demoman-other-project-"));
+    try {
+      await mkdir(join(bare, ".demoman"));
+      await writeFile(
+        join(elsewhere, "secrets.env"),
+        "DEMOMAN_SECRET_A=another-projects-secret\n",
+      );
+      await symlink(
+        join(elsewhere, "secrets.env"),
+        join(bare, ".demoman", "secrets.env"),
+      );
+      const e = await readSecretsFile(join(bare, ".demoman")).catch(
+        (x: unknown) => x,
+      );
+      expect((e as SecretError).reason).toBe("secretsFileInvalid");
+      expect((e as SecretError).message).toContain("not a regular file");
+      expect((e as SecretError).message).not.toContain("another-projects");
+    } finally {
+      await rm(bare, { recursive: true, force: true });
+      await rm(elsewhere, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("readSecretsFile when git itself fails (final review I3)", () => {
   it("refuses, with git's words, instead of reading as 'not a git repository'", async () => {
     await writeFile(join(dir, "secrets.env"), "DEMOMAN_SECRET_A=abcdefgh\n");
@@ -137,14 +191,21 @@ describe("readSecretsFile when git itself fails (final review I3)", () => {
 });
 
 describe("resolveSecrets", () => {
-  const file = {
-    path: "/p/.demoman/secrets.env",
-    status: "ignored" as const,
-    values: new Map([["KL_PASSWORD", "from-the-file"]]),
-  };
   // Not the example origin the messages give, so a message that only
   // quotes the example cannot pass for one that names this site.
   const SITE = "http://localhost:4100";
+  /** A secrets.env holding KL_PASSWORD, bound to `origin` unless null. */
+  const fileFor = (origin: string | null = SITE) => ({
+    path: "/p/.demoman/secrets.env",
+    status: "ignored" as const,
+    values: new Map([
+      ["KL_PASSWORD", "from-the-file"],
+      ...(origin === null
+        ? []
+        : ([["KL_PASSWORD_ORIGIN", origin]] as [string, string][])),
+    ]),
+  });
+  const file = fileFor();
   const at = { origin: SITE };
   /** The environment secret, bound to `origin` (rc.3). */
   const bound = (value: string, origin: string = SITE) => ({
@@ -318,13 +379,6 @@ describe("resolveSecrets", () => {
         expect(e.message, origin).toContain("is not an origin");
       }
     });
-    it("leaves secrets.env values unbound", () => {
-      expect(
-        resolveSecrets("{secret:KL_PASSWORD}", {}, file, {
-          origin: "https://anywhere.example",
-        }).text,
-      ).toBe("from-the-file");
-    });
     it("says the environment was withheld before asking for a binding", () => {
       const e = refusal(() =>
         resolveSecrets(
@@ -336,6 +390,47 @@ describe("resolveSecrets", () => {
       );
       expect(e.reason).toBe("secretMissing");
       expect(e.message).toContain("reached through `project`");
+    });
+  });
+
+  describe("a secrets.env value is bound to its site too (audit run 1)", () => {
+    // Red: return file values unchecked — accounts.json is committed, and
+    // its author can name any site for a password someone else wrote.
+    it("refuses one bound to another site, naming both, without the value", () => {
+      const e = refusal(() =>
+        resolveSecrets("{secret:KL_PASSWORD}", {}, file, {
+          origin: "https://anywhere.example",
+        }),
+      );
+      expect(e.reason).toBe("secretOffOrigin");
+      expect(e.message).toContain(SITE);
+      expect(e.message).toContain("https://anywhere.example");
+      expect(e.message).not.toContain("from-the-file");
+    });
+    it("refuses one with no _ORIGIN line, naming the line to add", () => {
+      const e = refusal(() =>
+        resolveSecrets("{secret:KL_PASSWORD}", {}, fileFor(null), at),
+      );
+      expect(e.reason).toBe("secretUnbound");
+      expect(e.message).toContain(`DEMOMAN_SECRET_KL_PASSWORD_ORIGIN=${SITE}`);
+      expect(e.message).not.toContain("from-the-file");
+    });
+    it("refuses an _ORIGIN line that is not an origin", () => {
+      const e = refusal(() =>
+        resolveSecrets(
+          "{secret:KL_PASSWORD}",
+          {},
+          fileFor(`${SITE}/login`),
+          at,
+        ),
+      );
+      expect(e.reason).toBe("secretUnbound");
+      expect(e.message).toContain("is not an origin");
+    });
+    it("types one bound to this site (positive control)", () => {
+      expect(resolveSecrets("{secret:KL_PASSWORD}", {}, file, at).text).toBe(
+        "from-the-file",
+      );
     });
   });
 });
@@ -381,6 +476,35 @@ describe("the sweep", () => {
     for (const [kind, form] of Object.entries(forms)) {
       expect(sweep.scrub(`a=${form};`), kind).toBe("a={secret:KL_PASSWORD};");
     }
+  });
+});
+
+describe("the sweep and a form's spelling (audit run 1)", () => {
+  // Red: formsOf without the form-urlencoded spelling — a GET form puts the
+  // password in a URL that Playwright's call log quotes into a refusal.
+  it("replaces a value as a form submits it: space as +, ! ' ( ) ~ escaped", () => {
+    const value = "it's (a) pass~word!";
+    const form = new URLSearchParams({ k: value }).toString().slice(2);
+    // Premise: this spelling is none of the forms the sweep knew already.
+    expect(form).not.toBe(value);
+    expect(form).not.toBe(encodeURIComponent(value));
+    const sweep = createSecretSweep();
+    sweep.add("KL_PASSWORD", value);
+    expect(sweep.scrub(`/login?password=${form}&x=1`)).toBe(
+      "/login?password={secret:KL_PASSWORD}&x=1",
+    );
+  });
+
+  // Red: percent-encodings in upper-case hex only.
+  it("replaces a percent-encoding in lower-case hex", () => {
+    const value = "p@ss/word?";
+    const lower = encodeURIComponent(value).replace(/%[0-9A-F]{2}/g, (h) =>
+      h.toLowerCase(),
+    );
+    expect(lower).not.toBe(encodeURIComponent(value));
+    const sweep = createSecretSweep();
+    sweep.add("KL_PASSWORD", value);
+    expect(sweep.scrub(`a=${lower};`)).toBe("a={secret:KL_PASSWORD};");
   });
 });
 

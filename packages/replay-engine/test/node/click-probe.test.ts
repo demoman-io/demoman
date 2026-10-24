@@ -4,6 +4,8 @@ import {
   CLICK_MEASURE_SLACK_PX,
   CLICK_MEASURE_TRIES,
   CLICK_SIGHTING_BINDING,
+  CLICK_SIGHTING_MAX_CHARS,
+  CLICK_SIGHTINGS_MAX,
   type ClickProbe,
   type ClickSeen,
   clickVerdict,
@@ -515,6 +517,70 @@ describe("readClickProbe when the page went away: the listeners' reports", () =>
       kind: "unconfirmed",
       why: "the page went away before the click could be checked (Cannot find context with specified id), and the page could not be given a way to report clicks (Runtime.addBinding refused)",
     });
+  });
+});
+
+describe("click sightings a page cannot grow without bound (audit run 1)", () => {
+  /** A session that hands its `Runtime.bindingCalled` listener to `emit`. */
+  function reporting() {
+    const handlers: ((params: Record<string, unknown>) => void)[] = [];
+    const cdp: CdpSession = {
+      send: async () => ({}),
+      on: (event, handler) => {
+        if (event === "Runtime.bindingCalled") handlers.push(handler);
+        return () => undefined;
+      },
+      detach: async () => undefined,
+    };
+    const emit = (payload: string) => {
+      for (const h of handlers) {
+        h({ name: CLICK_SIGHTING_BINDING, payload, executionContextId: 1 });
+      }
+    };
+    return { cdp, emit };
+  }
+  const report = (token: string, extra: Record<string, unknown> = {}) => {
+    const { focused: _, ...rest } = seen({});
+    return { token, ...rest, ...extra };
+  };
+
+  // Red: an unbounded Map keyed by whatever token the page sends.
+  it("keeps no more than CLICK_SIGHTINGS_MAX, the newest", async () => {
+    const { cdp, emit } = reporting();
+    const sightings = createClickSightings(cdp);
+    const sent = CLICK_SIGHTINGS_MAX * 4;
+    for (let i = 0; i < sent; i++) emit(JSON.stringify(report(`t-${i}`)));
+    expect(sightings.of(`t-${sent - 1}`)).not.toBeNull();
+    expect(sightings.of(`t-${sent - CLICK_SIGHTINGS_MAX}`)).not.toBeNull();
+    expect(sightings.of(`t-${sent - CLICK_SIGHTINGS_MAX - 1}`)).toBeNull();
+    expect(sightings.of("t-0")).toBeNull();
+  });
+
+  // Red: keeping the page's parsed objects, whatever else they carry.
+  it("keeps only the numbers a verdict reads", async () => {
+    const { cdp, emit } = reporting();
+    const sightings = createClickSightings(cdp);
+    const r = report("t", { junk: "x".repeat(100) });
+    emit(
+      JSON.stringify({
+        ...r,
+        own: { ...r.own, junk: "y" },
+        down: { ...r.down, junk: "z" },
+      }),
+    );
+    expect(sightings.of("t")).toEqual(seen({ focused: false }));
+  });
+
+  // Red: parsing any payload, however long.
+  it("ignores a report longer than CLICK_SIGHTING_MAX_CHARS", async () => {
+    const { cdp, emit } = reporting();
+    const sightings = createClickSightings(cdp);
+    const pad = "x".repeat(CLICK_SIGHTING_MAX_CHARS);
+    emit(JSON.stringify(report("long", { pad })));
+    // Positive control: the same report, unpadded, is kept.
+    emit(JSON.stringify(report("short")));
+    expect(sightings.of("short")).not.toBeNull();
+    expect(sightings.of("long")).toBeNull();
   });
 });
 

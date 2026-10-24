@@ -94,6 +94,17 @@ export interface BrowserSession {
    * (`context.addInitScript`, `onLaunched`), so every page has them.
    */
   stage(): Promise<{ ok: true; stage: Stage } | BrowserFailure>;
+  /**
+   * Before a call loads sessions into the shared context: every page no call
+   * owns — one a recorded page opened, a pop-out, a tab — is closed, and the
+   * previous call's page is sent to about:blank, which stops its scripts and
+   * keeps a visible window up until `stage()` replaces it. Without this, a
+   * page from one account's call kept running while the next account's
+   * sessions loaded, and the run's write-back saved what it wrote under the
+   * wrong account (audit run 1). Work pages are left alone. A page that will
+   * not close or blank is said in the log.
+   */
+  retire(): Promise<void>;
   /** A page for encoding or rendering: never the stage, never the author's
    *  view. Headless always opens a tab. Closing it is the caller's.
    *  `relaunch` (default true) lets a dead or author-closed browser be
@@ -190,6 +201,13 @@ export function createBrowserSession(options: {
   /** The page the latest call uses, and whether a call has had it yet. The
    *  launch's own page starts untaken; `stage()` takes it once. */
   let current: { page: Page; cdp: CdpSession; taken: boolean } | null = null;
+  /** Pages `openWorkPage` handed out and their callers have not closed. */
+  const workPages = new Set<Page>();
+  const working = (page: Page): { ok: true; page: Page } => {
+    workPages.add(page);
+    page.on("close", () => workPages.delete(page));
+    return { ok: true, page };
+  };
   let pageClosed = false;
   /** The browser context's id, read off the launch page while it is open. */
   let contextId: string | null = null;
@@ -383,7 +401,7 @@ export function createBrowserSession(options: {
     });
     if (options.headless || workWindow === "tab") {
       try {
-        return { ok: true, page: await launched.context.newPage() };
+        return working(await launched.context.newPage());
       } catch (error) {
         return failed(error);
       }
@@ -453,7 +471,7 @@ export function createBrowserSession(options: {
             });
           }
         }
-        return { ok: true, page };
+        return working(page);
       } finally {
         await browserCdp.detach().catch((error: unknown) => {
           options.log(
@@ -512,6 +530,28 @@ export function createBrowserSession(options: {
   return {
     ensure,
     openWorkPage,
+    async retire() {
+      const launched = live;
+      if (launched === null) return;
+      for (const page of launched.context.pages()) {
+        if (workPages.has(page)) continue;
+        if (page === current?.page) {
+          // The launch's own page before any call is nobody's yet.
+          if (!current.taken) continue;
+          await page.goto("about:blank").catch((error: unknown) => {
+            options.log(
+              `the previous call's page would not stop (${messageOf(error)}); it may still be running as the next call's sessions load`,
+            );
+          });
+          continue;
+        }
+        await page.close().catch((error: unknown) => {
+          options.log(
+            `a page an earlier call's site opened would not close (${messageOf(error)}); it may still be running as the next call's sessions load`,
+          );
+        });
+      }
+    },
     async stage() {
       const got = await ensure();
       if (!got.ok) return got;

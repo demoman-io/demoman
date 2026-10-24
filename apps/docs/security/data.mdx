@@ -52,7 +52,7 @@ There is no delete command. The Studio's library can delete a take. To remove ev
 
 - `npx demoman signin <url>` opens a visible window and you sign in yourself. Demoman saves the site's stored state, never the form, and records nothing.
 - A demo account signs in from the steps in `.demoman/accounts.json`, in a hidden browser that is not recorded. A secret is never typed outside its account's site, and a session that holds a secret's value is not saved.
-- Secret values come from the environment, as in CI, or from `.demoman/secrets.env`. A secret from the environment must name the one site it may be typed on.
+- Secret values come from the environment, as in CI, or from `.demoman/secrets.env`. Either way, a secret must name the one site it may be typed on, so an `accounts.json` someone else wrote cannot send it to theirs.
 - Demoman sweeps every secret value out of written files, tool answers and log lines, replacing it with a placeholder. One gap: a token that merely contains the password is not caught.
 - The video is not masked unless you mask it. It shows what the page shows. A real password input draws dots because Chromium does; a field Demoman treats as a credential only by its name shows its value. A Mask added in the Studio covers part of the picture. A change to a step's typed text covers that one field, not the same text shown elsewhere on the page.
 - Your agent makes the demo password and writes it to `.demoman/secrets.env`, so the agent, and the AI service it runs on, already has that value. Demoman only stops it being echoed back.

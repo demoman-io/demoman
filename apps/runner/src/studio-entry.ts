@@ -20,6 +20,7 @@ export {
   createLibrary,
   type Library,
   LibraryError,
+  ownHome,
 } from "./executor/library.js";
 export { readLogo } from "./executor/logo-ref.js";
 export {

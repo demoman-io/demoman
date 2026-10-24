@@ -191,6 +191,45 @@ describe("createBrowserSession", () => {
     }
   }, 90_000);
 
+  // Audit run 1. Red if retire() closes a work page or the unused launch
+  // page, leaves a stray open, or leaves the previous call's page running.
+  it("retire() stops every page of an earlier call and keeps work pages", async () => {
+    const lines: string[] = [];
+    const session = createBrowserSession({
+      headless: true,
+      log: (line) => lines.push(line),
+    });
+    try {
+      const launched = await session.ensure();
+      if (!launched.ok) throw new Error(JSON.stringify(launched));
+      const { context } = launched.launched;
+      // Before any call, the launch's page is nobody's: left as it is.
+      await session.retire();
+      expect(launched.launched.page.isClosed()).toBe(false);
+
+      const a = await session.stage();
+      if (!a.ok) throw new Error(JSON.stringify(a));
+      await a.stage.page.goto("data:text/html,<h1>call a</h1>");
+      const stray = await context.newPage();
+      const work = await session.openWorkPage();
+      if (!work.ok) throw new Error(JSON.stringify(work));
+      // Premise: three pages, the stage's on what call a opened.
+      expect(context.pages()).toHaveLength(3);
+      expect(a.stage.page.url()).toMatch(/^data:/);
+
+      await session.retire();
+      expect(stray.isClosed()).toBe(true);
+      expect(work.page.isClosed()).toBe(false);
+      expect(a.stage.page.isClosed()).toBe(false);
+      expect(a.stage.page.url()).toBe("about:blank");
+      // The session stopped them itself: not the author's close.
+      expect(session.closedSinceEnsure(), JSON.stringify(lines)).toBe(false);
+      await work.page.close();
+    } finally {
+      await session.close();
+    }
+  }, 90_000);
+
   // Review 2026-10-13, #3: the guard's navigation, the snapshot's reads and
   // the navigation watch all go out on the stage's session, and a server
   // that takes the connection and never answers held `Page.navigate` — and

@@ -27,7 +27,9 @@ function nameOf(target: ScriptTarget): string {
           : null;
   // A tree path is the resolver's grammar, not a name anyone would know.
   if (raw === null) return "an element";
-  const flat = raw.replace(/\s+/g, " ").trim();
+  // A page's own name for it: no control or format character reaches the
+  // agent's terminal line (audit run 1), as export/report.ts's `quoted`.
+  const flat = raw.replace(/[\p{Cc}\p{Cf}\s]+/gu, " ").trim();
   return `"${flat.length > NAME_MAX ? `${flat.slice(0, NAME_MAX - 1)}…` : flat}"`;
 }
 

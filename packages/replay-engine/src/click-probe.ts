@@ -358,28 +358,59 @@ export interface ClickSightings {
   stop(): Promise<void>;
 }
 
+/** The longest report kept: a real one is a few hundred characters. */
+export const CLICK_SIGHTING_MAX_CHARS = 4096;
+/** How many tokens' reports are kept, the newest: one per click, read just
+ *  after it. */
+export const CLICK_SIGHTINGS_MAX = 256;
+
+const num = (v: unknown): number | undefined =>
+  typeof v === "number" ? v : undefined;
+const pointOf = (p: unknown) => {
+  if (p === null) return null;
+  const q = p as Partial<Point> | undefined;
+  return { x: num(q?.x), y: num(q?.y) };
+};
+
 export function createClickSightings(cdp: CdpSession): ClickSightings {
   const seen = new Map<string, ClickSeen>();
   let why: string | null = "the binding was never asked for";
   const off = cdp.on("Runtime.bindingCalled", (params) => {
     if (params.name !== CLICK_SIGHTING_BINDING) return;
+    // The page may call the binding at will, with anything: what is kept
+    // stays small and holds nothing of the page's (audit run 1).
+    const payload = String(params.payload);
+    if (payload.length > CLICK_SIGHTING_MAX_CHARS) return;
     let report: unknown;
     try {
-      report = JSON.parse(String(params.payload));
+      report = JSON.parse(payload);
     } catch {
       return;
     }
-    const r = report as Partial<ClickSeen & { token: unknown }> | null;
+    const r = report as Partial<
+      Record<keyof ClickSeen | "token", unknown>
+    > | null;
+    const own = r?.own as Partial<Rect> | undefined;
+    const viewport = r?.viewport as Partial<ClickSeen["viewport"]> | undefined;
     // Exactly what a read answers, focus aside: it went with the page.
     const sighting = {
-      own: r?.own,
-      viewport: r?.viewport,
-      down: r?.down,
-      up: r?.up,
+      own: {
+        x: num(own?.x),
+        y: num(own?.y),
+        width: num(own?.width),
+        height: num(own?.height),
+      },
+      viewport: { width: num(viewport?.width), height: num(viewport?.height) },
+      down: pointOf(r?.down),
+      up: pointOf(r?.up),
       cancelled: r?.cancelled,
       focused: false,
     };
     if (typeof r?.token === "string" && isSeen(sighting)) {
+      if (!seen.has(r.token) && seen.size >= CLICK_SIGHTINGS_MAX) {
+        const oldest = seen.keys().next().value;
+        if (oldest !== undefined) seen.delete(oldest);
+      }
       seen.set(r.token, sighting);
     }
   });
