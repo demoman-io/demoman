@@ -504,8 +504,8 @@ export const runPipeline: RunPipeline = async (input) => {
       );
     });
     // `close()`, never a bare `browser.close()`: `launch.ts`'s own docblock
-    // measured that only `close()` (which reaches `BrowserServer.close()`)
-    // is documented to end the underlying Chromium OS process on a crashed
+    // measured that only `close()` (which kills what `browser.close()`
+    // leaves) ends the underlying Chromium OS process on a crashed
     // browser — a bare `browser.close()` can resolve while the process and
     // its transport stay registered with the event loop, which is strictly
     // worse than a crash: a run that never exits and reports nothing.

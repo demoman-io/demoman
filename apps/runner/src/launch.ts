@@ -180,21 +180,22 @@ async function visibleUserAgentOr(
  * override exists for a developer watching a run locally, not for
  * production, which is why it is optional and unused unless asked for.
  *
- * Launches via `chromium.launchServer()` + `chromium.connect()` rather than
- * the simpler `chromium.launch()` — not for any behavioural difference
- * `Launched`'s callers can see, but because only `BrowserServer.close()`
- * carries Playwright's own guarantee to "make sure the process is
- * terminated." Measured directly (a real crash reproducing Task 6's
- * ~70-large-frame page.evaluate boundary): after that crash, the connected
- * client's own `browser.close()` resolves in 1-2ms, but the underlying
- * Chromium OS process is still alive afterward, and Node's own transport to
- * it — a `ChildProcess` handle plus its stdio `Socket`s — stays registered
- * with the event loop. A Node process with no other work left then never
- * exits on its own; it was reproduced hanging past this repo's own 15s
- * bound with `close()` already resolved and nothing left printed, which is
- * strictly worse than a crash: it reports nothing at all. `server.close()`
- * is the one call in this module actually documented to end the OS process
- * either way, crashed or not, so `close()` below always calls it.
+ * Launches with `chromium.launch()`, never `launchServer()`: a browser
+ * server listens on loopback, answers `GET /json` with its secret path to
+ * anyone, and hands browser-level CDP — every saved sign-in's cookies,
+ * `file://` reads — to any local peer that connects (audit run 1).
+ *
+ * `launchServer()` was chosen once for `BrowserServer.close()`'s guarantee
+ * to end the OS process. Measured directly (a real crash reproducing Task
+ * 6's ~70-large-frame page.evaluate boundary): after that crash, a client's
+ * `browser.close()` resolves in 1-2ms while the Chromium OS process is still
+ * alive, and Node's transport to it — a `ChildProcess` plus its stdio
+ * `Socket`s — keeps the event loop alive, so a Node process with nothing
+ * left to do never exits and reports nothing. `endBrowser` keeps that
+ * guarantee itself: a bounded `browser.close()`, then SIGKILL to the
+ * process group of whatever is still running, waited for. Playwright's
+ * `Browser` has no `process()`, so the pid is the browser's own answer, over
+ * the pipe Playwright already holds.
  */
 export async function launch(options?: {
   headless?: boolean;
@@ -219,103 +220,148 @@ export async function launch(options?: {
 }): Promise<Launched> {
   const headless = options?.headless ?? true;
   const display = headless ? options?.display : undefined;
-  const server = await chromium.launchServer({
+  const browser = await chromium.launch({
     headless,
     ...(options?.executablePath === undefined
       ? {}
       : { executablePath: options.executablePath }),
     ...(display === undefined ? {} : { args: displayArgs(display) }),
   });
+  let pid: number | null = null;
   try {
-    const browser = await chromium.connect(server.wsEndpoint());
-    try {
-      // Headed: no viewport emulation, so a page is the size of its window
-      // and a new page does not open a window at 1024x640 (parked R12, plan
-      // 2 Task 5). The engine's own metrics override still sets the filmed
-      // size. Headless keeps the fixed viewport the runner's lanes measure,
-      // unless it was given a display to stand in for.
-      const context = await browser.newContext(
-        display !== undefined
-          ? {
-              viewport: null,
-              ...(await visibleUserAgentOr(
-                browser,
-                options?.userAgentOf ?? visibleUserAgent,
-                options?.log,
-              )),
-            }
-          : headless
-            ? { viewport: CONTEXT_VIEWPORT, deviceScaleFactor: CONTEXT_DPR }
-            : { viewport: null },
-      );
-      const page = await context.newPage();
-      const session = await context.newCDPSession(page);
-      const cdp = toCdpSession(session);
-      const clock = nodeClock();
+    pid = await browserPid(browser);
+    // Headed: no viewport emulation, so a page is the size of its window
+    // and a new page does not open a window at 1024x640 (parked R12, plan
+    // 2 Task 5). The engine's own metrics override still sets the filmed
+    // size. Headless keeps the fixed viewport the runner's lanes measure,
+    // unless it was given a display to stand in for.
+    const context = await browser.newContext(
+      display !== undefined
+        ? {
+            viewport: null,
+            ...(await visibleUserAgentOr(
+              browser,
+              options?.userAgentOf ?? visibleUserAgent,
+              options?.log,
+            )),
+          }
+        : headless
+          ? { viewport: CONTEXT_VIEWPORT, deviceScaleFactor: CONTEXT_DPR }
+          : { viewport: null },
+    );
+    const page = await context.newPage();
+    const session = await context.newCDPSession(page);
+    const cdp = toCdpSession(session);
+    const clock = nodeClock();
 
-      let closed = false;
-      return {
-        browser,
-        context,
-        page,
-        cdp,
-        clock,
-        async close() {
-          // Idempotent: a caller that already closed once (or a `finally`
-          // that runs after an earlier explicit close) gets a plain no-op,
-          // not a second warning about a state it already knows about.
-          if (closed) return { crashed: false };
-          closed = true;
+    let closed = false;
+    return {
+      browser,
+      context,
+      page,
+      cdp,
+      clock,
+      async close() {
+        // Idempotent: a caller that already closed once (or a `finally`
+        // that runs after an earlier explicit close) gets a plain no-op,
+        // not a second warning about a state it already knows about.
+        if (closed) return { crashed: false };
+        closed = true;
 
-          // Checked BEFORE closing anything, not after: both close calls
-          // below are safe on a browser that is already gone (measured),
-          // so checking afterward would just report the outcome closing
-          // itself produced, and this branch would never see the crash —
-          // it would see its own successful shutdown instead.
-          const alreadyDead = !browser.isConnected();
+        // Checked BEFORE closing anything, not after: both close calls
+        // below are safe on a browser that is already gone (measured),
+        // so checking afterward would just report the outcome closing
+        // itself produced, and this branch would never see the crash —
+        // it would see its own successful shutdown instead.
+        const alreadyDead = !browser.isConnected();
 
-          // The connected client's own close first, best-effort: it asks
-          // the browser to shut down its pages/contexts gracefully when it
-          // is still alive to hear the request. Its failure here is not
-          // this call's to report — `server.close()` next is what this
-          // function actually depends on, and it tolerates a browser that
-          // never got the graceful request.
-          await browser.close().catch(() => undefined);
+        // Ends the OS process either way — see the module docblock for
+        // the measurement this depends on.
+        await endBrowser(browser, pid, options?.log);
 
-          // The one call in this function guaranteed to end the OS
-          // process either way — see the module docblock above for the
-          // measurement this depends on.
-          await server.close();
-
-          // This is the failure path CLAUDE.md's "report before you
-          // forgive" rule is about: a browser that crashed mid-run and a
-          // browser that closed cleanly must not produce the same
-          // observable outcome from close(). The return value is the
-          // channel; `runPipeline` turns `crashed: true` into a note that
-          // prints under the run's own sentence. (Task 6's report has the
-          // known ~70-large-frame page.evaluate crossing that reproduces
-          // it.)
-          return { crashed: alreadyDead };
-        },
-      };
-    } catch (error) {
-      // Setup after the browser connected (context, page, or CDP session
-      // creation) failed. The connection must not leak: without this,
-      // every failed launch would leave both a live Chromium process and a
-      // live server behind, one per attempt. If closing it *also* fails
-      // here, that failure is not this catch's to report — `error` below
-      // already is the real, caller-visible failure, and a second,
-      // secondary teardown error piled on top of it would only bury the
-      // one the caller needs. The server is closed by the outer catch,
-      // which this rethrow reaches next.
-      await browser.close().catch(() => undefined);
-      throw error;
-    }
+        // This is the failure path CLAUDE.md's "report before you
+        // forgive" rule is about: a browser that crashed mid-run and a
+        // browser that closed cleanly must not produce the same
+        // observable outcome from close(). The return value is the
+        // channel; `runPipeline` turns `crashed: true` into a note that
+        // prints under the run's own sentence. (Task 6's report has the
+        // known ~70-large-frame page.evaluate crossing that reproduces
+        // it.)
+        return { crashed: alreadyDead };
+      },
+    };
   } catch (error) {
-    // Either `chromium.connect()` itself failed, or the inner block above
-    // rethrew after a setup failure. Either way the server process must not
-    // leak — same reasoning as the inner catch, one level up.
-    await server.close().catch(() => undefined);
+    // Setup after the launch (context, page, or CDP session creation)
+    // failed. The process must not leak: without this, every failed
+    // launch would leave a live Chromium behind, one per attempt. If
+    // ending it *also* fails here, that failure is not this catch's to
+    // report — `error` below already is the real, caller-visible failure,
+    // and a secondary teardown error piled on top would only bury it.
+    await endBrowser(browser, pid, options?.log).catch(() => undefined);
     throw error;
+  }
+}
+
+/** How long a graceful `browser.close()` gets before the process is killed. */
+const CLOSE_GRACE_MS = 5_000;
+/** How long a killed browser may take to be gone. */
+const KILL_WAIT_MS = 5_000;
+
+/** The browser's OS pid, from the browser itself. */
+async function browserPid(browser: Browser): Promise<number> {
+  const session = await browser.newBrowserCDPSession();
+  try {
+    const { processInfo } = await session.send("SystemInfo.getProcessInfo");
+    const own = processInfo.find((p) => p.type === "browser");
+    if (own === undefined) throw new Error("the browser named no process");
+    return own.id;
+  } finally {
+    await session.detach();
+  }
+}
+
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Ends the browser and its OS process, crashed or not. The graceful close
+ * is best-effort and bounded: a crashed browser's resolves at once with the
+ * process still alive, and a hung one may never resolve. Whatever is left
+ * is killed with its process group (Playwright starts Chromium detached, as
+ * a group leader, so the renderers go with it), and its end is awaited.
+ */
+async function endBrowser(
+  browser: Browser,
+  pid: number | null,
+  log: ((line: string) => void) | undefined,
+): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    browser.close().catch(() => undefined),
+    new Promise((resolve) => {
+      timer = setTimeout(resolve, CLOSE_GRACE_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (pid === null || !alive(pid)) return;
+  try {
+    process.kill(-pid, "SIGKILL");
+  } catch {
+    // Not a group leader (or Windows): the process itself, at least.
+    process.kill(pid, "SIGKILL");
+  }
+  const deadline = Date.now() + KILL_WAIT_MS;
+  while (alive(pid)) {
+    if (Date.now() >= deadline) {
+      log?.(`the browser (pid ${pid}) was still running after SIGKILL`);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }

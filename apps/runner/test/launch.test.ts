@@ -88,7 +88,54 @@ async function headlessFilm(display?: Display) {
   }
 }
 
+/** TCP servers listening in this process: where a browser server would be. */
+const listeners = (): number =>
+  process.getActiveResourcesInfo().filter((r) => r === "TCPServerWrap").length;
+
+/** Whether `pid` is still a live process. */
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 describe("launch", () => {
+  // Red: `chromium.launchServer()` + `connect()`, whose loopback listener
+  // answers GET /json with its secret path and hands browser-level CDP to
+  // any local peer (audit run 1).
+  it("opens no listening port while its browser runs", async () => {
+    const before = listeners();
+    const launched = await launch();
+    try {
+      // Premise: the browser is up and answering.
+      expect(launched.browser.isConnected()).toBe(true);
+      expect(listeners()).toBe(before);
+    } finally {
+      await launched.close();
+    }
+  }, 30_000);
+
+  // Red: drop endBrowser's kill, leaving only `browser.close()`, which waits
+  // on a browser that will never answer. A stopped process stands in for a
+  // hung one; SIGKILL still reaches it.
+  it("close() ends a browser that will not answer, within its grace", async () => {
+    const launched = await launch();
+    const cdp = await launched.browser.newBrowserCDPSession();
+    const { processInfo } = await cdp.send("SystemInfo.getProcessInfo");
+    await cdp.detach();
+    const pid = processInfo.find((p) => p.type === "browser")?.id as number;
+    expect(alive(pid)).toBe(true);
+    process.kill(pid, "SIGSTOP");
+    const started = Date.now();
+    await launched.close();
+    expect(alive(pid), "the browser outlived close()").toBe(false);
+    // Measured: the 5 s grace, then the kill.
+    expect(Date.now() - started).toBeLessThan(15_000);
+  }, 30_000);
+
   it("gives the engine a CdpSession whose send/on/detach reach a real browser", async () => {
     const launched = await launch();
     try {
