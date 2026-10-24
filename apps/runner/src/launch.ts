@@ -350,12 +350,7 @@ async function endBrowser(
   ]);
   clearTimeout(timer);
   if (pid === null || !alive(pid)) return;
-  try {
-    process.kill(-pid, "SIGKILL");
-  } catch {
-    // Not a group leader (or Windows): the process itself, at least.
-    process.kill(pid, "SIGKILL");
-  }
+  if (!killBrowser(pid, log)) return;
   const deadline = Date.now() + KILL_WAIT_MS;
   while (alive(pid)) {
     if (Date.now() >= deadline) {
@@ -363,5 +358,31 @@ async function endBrowser(
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+/**
+ * SIGKILLs the browser's process group, else the process itself. False when
+ * it is already gone: it may exit between the `alive` check and the kill,
+ * and that is the end being waited for, not a failed close.
+ */
+export function killBrowser(
+  pid: number,
+  log: ((line: string) => void) | undefined,
+  kill: (pid: number, signal: NodeJS.Signals) => void = process.kill,
+): boolean {
+  try {
+    kill(-pid, "SIGKILL");
+    return true;
+  } catch {
+    // Not a group leader (or Windows): the process itself, at least.
+  }
+  try {
+    kill(pid, "SIGKILL");
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    log?.(`the browser (pid ${pid}) could not be killed (${String(error)})`);
+    return false;
   }
 }

@@ -6,6 +6,7 @@ import {
   CONTEXT_VIEWPORT,
   type Display,
   displayArgs,
+  killBrowser,
   launch,
 } from "../src/launch.js";
 
@@ -340,4 +341,35 @@ describe("launch", () => {
     // Measured here (three repeated runs): ~82-86ms (one Chromium launch +
     // an already-closed browser, no page work). Same 30s floor, same reason.
   }, 30_000);
+});
+
+describe("killBrowser", () => {
+  const gone = () => {
+    throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+  };
+
+  it("answers that a browser which exited before the kill is gone, and throws nothing", () => {
+    // Red: the fallback kill unguarded, so close() rejected on a browser that
+    // ended itself between the alive check and the SIGKILL (audit review).
+    const lines: string[] = [];
+    expect(killBrowser(4242, (l) => lines.push(l), gone)).toBe(false);
+    expect(lines).toEqual([]);
+  });
+
+  it("says why when the kill is refused for another reason", () => {
+    const lines: string[] = [];
+    const refused = () => {
+      throw Object.assign(new Error("kill EPERM"), { code: "EPERM" });
+    };
+    expect(killBrowser(4242, (l) => lines.push(l), refused)).toBe(false);
+    expect(lines).toEqual([
+      "the browser (pid 4242) could not be killed (Error: kill EPERM)",
+    ]);
+  });
+
+  it("kills the group when it can", () => {
+    const sent: number[] = [];
+    expect(killBrowser(4242, undefined, (pid) => sent.push(pid))).toBe(true);
+    expect(sent).toEqual([-4242]);
+  });
 });
