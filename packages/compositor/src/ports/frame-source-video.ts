@@ -12,7 +12,7 @@ import {
   servingMotionSpan,
 } from "../bundle.js";
 import { shouldReseek } from "./decode-walk.js";
-import { findKeyframe } from "./keyframe.js";
+import { findKeyframe, keyframesBetween } from "./keyframe.js";
 import type { FrameImage, FrameSource, UnavailableSpan } from "./types.js";
 
 /**
@@ -263,6 +263,17 @@ export async function createVideoFrameSource(
         ...(await still(keyframe.ref)),
         sourceTimeMs: keyframe.sourceTimeMs,
       };
+    },
+    warm(fromSourceMs: number, toSourceMs: number): void {
+      for (const keyframe of keyframesBetween(
+        bundle,
+        fromSourceMs,
+        toSourceMs,
+      )) {
+        // Only this reference forgives: the failed load stays cached, and the
+        // draw that reaches this still rejects with its reason.
+        still(keyframe.ref).catch(() => undefined);
+      }
     },
     describe: () => ({
       keyframes: bundle.keyframes,

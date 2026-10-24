@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { proceduralBundle } from "../../../../../packages/replay-engine/test/helpers/bundles";
 import { readonlyScene } from "../../../../../packages/replay-engine/test/helpers/scenes";
 import { frameOf, targetFor } from "../../../pages/src/editor/jobs";
-import { PREVIEW_HEIGHT } from "../../../pages/src/editor/preview";
+import {
+  PLAY_RESOLVE_SAMPLES,
+  PLAYBACK_BUDGET_MS,
+  PREVIEW_HEIGHT,
+} from "../../../pages/src/editor/preview";
 import { editorDom } from "../helpers/editor-dom";
 import {
   createMemoryPlatform,
@@ -53,6 +57,11 @@ const detailCalls = vi.hoisted(() => [] as Array<RenderTarget | undefined>);
  */
 const draws = vi.hoisted(() => ({
   composeMs: 0,
+  /** Spent first and reported as the `fetch` stage, as a still's decode is. */
+  decodeMs: 0,
+  /** The next this-many draws cost `slowMs` instead of `composeMs`. */
+  slowDraws: 0,
+  slowMs: 0,
   gate: null as Promise<void> | null,
   reachedGate: 0,
   composedInto: new Set<unknown>(),
@@ -73,7 +82,19 @@ vi.mock("@demoman/compositor", async (importOriginal) => {
         draws.reachedGate += 1;
         await draws.gate;
       }
-      const until = performance.now() + draws.composeMs;
+      if (draws.decodeMs > 0) {
+        const decoded = performance.now() + draws.decodeMs;
+        while (performance.now() < decoded) {
+          // Spin.
+        }
+        args.onStage?.("fetch", draws.decodeMs);
+      }
+      let cost = draws.composeMs;
+      if (draws.slowDraws > 0) {
+        draws.slowDraws -= 1;
+        cost = draws.slowMs;
+      }
+      const until = performance.now() + cost;
       while (performance.now() < until) {
         // Spin.
       }
@@ -156,6 +177,9 @@ describe("editor main — preview sizing", () => {
     composeCalls.length = 0;
     detailCalls.length = 0;
     draws.composeMs = 0;
+    draws.decodeMs = 0;
+    draws.slowDraws = 0;
+    draws.slowMs = 0;
     draws.gate = null;
     draws.reachedGate = 0;
     draws.composedInto.clear();
@@ -416,7 +440,7 @@ describe("editor main — preview sizing", () => {
     expect((composeCalls.at(-1) as RenderTarget).height).toBe(PREVIEW_HEIGHT);
     expect(parked.height).toBeGreaterThan(PREVIEW_HEIGHT);
     const heights = new Set<number>();
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < PLAY_RESOLVE_SAMPLES * 3; i++) {
       await pump();
       heights.add((composeCalls.at(-1) as RenderTarget).height);
     }
@@ -450,8 +474,106 @@ describe("editor main — preview sizing", () => {
     expect((composeCalls.at(-1) as RenderTarget).height).toBe(PREVIEW_HEIGHT);
     expect(parked.height).toBeGreaterThan(PREVIEW_HEIGHT);
     draws.composeMs = 1;
-    for (let i = 0; i < 12; i++) await pump();
+    for (let i = 0; i < PLAY_RESOLVE_SAMPLES * 3; i++) await pump();
     expect(composeCalls.at(-1)?.height).toBe(parked.height);
+  });
+
+  /**
+   * A draw that waits on a still's decode is slow at every bitmap size, so
+   * it says nothing about what a size costs. Priced with the decode in, one
+   * measured 124.8 ms per megapixel on a Mac that draws at 0.2, and the play
+   * ran at 994x720 against 1792 parked (studio.log, 2026-10-24). Verified
+   * failable: pricing `composed - fetched` with the decode in leaves the
+   * play on the floor.
+   */
+  it("prices a play's draws without the decode they waited on", async () => {
+    draws.composeMs = 1;
+    await booted();
+    const parked = composeCalls.at(-1) as RenderTarget;
+    draws.decodeMs = 40;
+    playButton().click();
+    for (let i = 0; i < PLAY_RESOLVE_SAMPLES * 3; i++) await pump();
+    // Premise: the draws did wait on decode, far past the frame budget.
+    expect(draws.decodeMs).toBeGreaterThan(PLAYBACK_BUDGET_MS);
+    expect(parked.height).toBeGreaterThan(PREVIEW_HEIGHT);
+    expect(composeCalls.at(-1)?.height).toBe(parked.height);
+  });
+
+  /**
+   * Playback decodes the stills ahead of the playhead, off the draw path.
+   * Verified failable: dropping the `frames.warm` call from the draw loads
+   * nothing here, since this lane's draws read no frame of their own.
+   */
+  it("decodes the stills ahead of the playhead while playing", async () => {
+    draws.composeMs = 1;
+    const asked: string[] = [];
+    memory.answer("bundles.load", async (ref: string) => {
+      asked.push(ref);
+      return new Uint8Array([0]);
+    });
+    await booted();
+    // Premise: the mocked draw reads no frame, so parked drawing loaded none.
+    expect(asked).toEqual([]);
+    playButton().click();
+    await pump();
+    // `k-1` is the procedural bundle's still at 400 ms: ahead, not yet drawn.
+    expect(asked).toContain("k-1");
+  });
+
+  /**
+   * A replay from the end opened on a few slow draws and the play re-solved
+   * from four of them, whose p80 is the slowest: the whole play held the
+   * floor. Measured 2026-10-24: replays at 1280x720 against 1440 parked on
+   * a Mac drawing at 0.2 ms per megapixel. Verified failable: re-solving at
+   * `COST_MIN_SAMPLES` again leaves this play on the floor.
+   */
+  it("lets no three slow draws at a play's start choose its height", async () => {
+    draws.composeMs = 1;
+    await booted();
+    for (let i = 0; i < 10; i++) {
+      pressKey("ArrowRight");
+      await pump();
+    }
+    const parked = composeCalls.at(-1) as RenderTarget;
+    draws.slowDraws = 3;
+    draws.slowMs = 60;
+    playButton().click();
+    for (let i = 0; i < PLAY_RESOLVE_SAMPLES * 3; i++) await pump();
+    // Premise: the slow draws were drawn, and each was far past the budget.
+    expect(draws.slowDraws).toBe(0);
+    expect(draws.slowMs).toBeGreaterThan(PLAYBACK_BUDGET_MS);
+    expect(composeCalls.at(-1)?.height).toBe(parked.height);
+  });
+
+  /**
+   * The line printed the window's estimate at the pause beside the size an
+   * earlier estimate chose, so a play held at the floor read "0.2ms/megapixel"
+   * and looked like a machine with room to spare. Verified failable: printing
+   * `composeCostEstimate(composeCosts)` at the pause, as before, prints the
+   * cheap figure here.
+   */
+  it("prints the cost that chose the played size, not the cost at the pause", async () => {
+    draws.composeMs = 1;
+    const info = vi.spyOn(console, "info");
+    await booted();
+    for (let i = 0; i < 10; i++) {
+      pressKey("ArrowRight");
+      await pump();
+    }
+    // Enough slow draws to choose the floor, then a long cheap stretch that
+    // leaves the window cheap by the time of the pause.
+    draws.slowDraws = 6;
+    draws.slowMs = 60;
+    playButton().click();
+    for (let i = 0; i < PLAY_RESOLVE_SAMPLES * 6; i++) await pump();
+    // Premise: the slow draws chose the floor and the play kept it.
+    expect(composeCalls.at(-1)?.height).toBe(PREVIEW_HEIGHT);
+    playButton().click();
+    const line = info.mock.calls
+      .map((c) => String(c[0]))
+      .find((l) => l.includes("[demoman] preview:") && l.includes("played"));
+    const printed = Number(/([\d.]+)ms\/megapixel/.exec(line ?? "")?.[1]);
+    expect(printed, line).toBeGreaterThan(PLAYBACK_BUDGET_MS);
   });
 
   /**

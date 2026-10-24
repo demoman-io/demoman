@@ -13,6 +13,7 @@
 import {
   CAMERA_DEFAULTS,
   type CursorSegment,
+  coversViewport,
   type Degradation,
   type FrameBundle,
   type KeyframeEntry,
@@ -43,6 +44,7 @@ import {
 import {
   ACT_CEILING_MS,
   KEYFRAME_QUALITY,
+  NEXT_FRAME_WAIT_MS,
   REPLAY_DPR,
   REPLAY_TARGETS,
   SCROLL_SETTLE_TIMEOUT_MS,
@@ -79,6 +81,7 @@ import {
   inViewport,
   rangeThumb,
 } from "./drag.js";
+import { type SeenFrame, standInFrame } from "./frame-change.js";
 import {
   type CdpFrameNode,
   hopsFromTreePath,
@@ -536,6 +539,9 @@ export async function runWalk(
   /** Continuous only: a verb has happened since the last settled still, so
    *  the next quiet earns one even if all it painted was a blip. */
   let stillOwed = false;
+  /** Verbs performed so far, so a settled still can tell it went stale in
+   *  the still line (`settledStill`). */
+  let verbs = 0;
   /**
    * Continuous only: when each moveTo could have made the page react — its
    * path with the hover settle after it, and its marker to the end of its
@@ -709,12 +715,19 @@ export async function runWalk(
         quality: KEYFRAME_QUALITY,
       }),
     );
+    captureEndedMs = at();
     if (sealed) return;
-    const bytes = decodeBase64(String(reply.data ?? ""));
+    await fileStill(decodeBase64(String(reply.data ?? "")), actionId, at());
+  };
+  const fileStill = async (
+    bytes: Uint8Array,
+    actionId: string | null,
+    atMs: number,
+  ): Promise<void> => {
     const size = jpegSize(bytes);
     const ref = await store.putKeyframe(sceneId, keyframes.length, bytes);
     keyframes.push({
-      sourceTimeMs: at(),
+      sourceTimeMs: atMs,
       ref,
       width: size.width,
       height: size.height,
@@ -742,10 +755,84 @@ export async function runWalk(
    *  answers after that files nothing, because the bundle has been built
    *  without it. */
   let sealed = false;
-  const shot = (actionId: string | null): Promise<void> => {
-    const run = shooting.then(() => takeShot(actionId));
+  const shot = (
+    actionId: string | null,
+    /** Asked again when the still's turn comes: false skips it. */
+    stillWanted: () => boolean = () => true,
+  ): Promise<void> => {
+    const run = shooting.then(() =>
+      stillWanted() ? takeShot(actionId) : undefined,
+    );
     shooting = run.catch(() => undefined);
     return run;
+  };
+
+  /** The two newest screencast frames, for `pageMoving`, and whoever is
+   *  waiting on the next one (`nextFrame`). */
+  let newestFrame: SeenFrame | null = null;
+  let priorFrame: SeenFrame | null = null;
+  let frameWaiters: Array<(frame: SeenFrame) => void> = [];
+  const nextFrame = (ms: number): Promise<SeenFrame | null> =>
+    new Promise((resolve) => {
+      let settled = false;
+      const waiter = (frame: SeenFrame): void => {
+        if (settled) return;
+        settled = true;
+        resolve(frame);
+      };
+      frameWaiters.push(waiter);
+      void clock.sleep(ms).then(() => {
+        if (settled) return;
+        settled = true;
+        frameWaiters = frameWaiters.filter((w) => w !== waiter);
+        resolve(null);
+      });
+    });
+
+  /** When the last full still came back: the screencast is blind while
+   *  one is taken (`standInFrame`). */
+  let captureEndedMs = Number.NEGATIVE_INFINITY;
+
+  /**
+   * A step's own still. A full one stalls the screencast while it is taken,
+   * so on a page that is moving it is a screencast frame instead: at the
+   * screencast's resolution rather than `REPLAY_DPR`, and nothing lost.
+   * Decided when its turn in the still line comes, not when it is asked
+   * for: a still queued behind another runs later, and on 2026-10-24's
+   * re-film one decided at the step ran 160 ms later into a sheet sliding
+   * open. A frame that is not the whole viewport cannot stand in. What is
+   * left open on purpose is in `standInFrame`.
+   */
+  const stepStill = (actionId: string): Promise<void> => {
+    const run = shooting.then(async () => {
+      const frame = await standInFrame(
+        {
+          newest: newestFrame,
+          prior: priorFrame,
+          captureEndedMs,
+          nowMs: at(),
+        },
+        nextFrame,
+        NEXT_FRAME_WAIT_MS,
+      );
+      if (sealed) return;
+      const bytes = frame === null ? null : frameBytes(frame.data);
+      if (frame === null || bytes === null) return takeShot(actionId);
+      await fileStill(bytes, actionId, frame.atMs);
+    });
+    shooting = run.catch(() => undefined);
+    return run;
+  };
+  /** A screencast frame's bytes if it can stand in for a still: it decodes
+   *  and it is the whole viewport at some scale. */
+  const frameBytes = (data: string): Uint8Array | null => {
+    try {
+      const bytes = decodeBase64(data);
+      return coversViewport(jpegSize(bytes), viewport) ? bytes : null;
+    } catch {
+      // Not a frame anyone can draw; the caller takes the full still.
+      return null;
+    }
   };
 
   /**
@@ -755,8 +842,14 @@ export async function runWalk(
    * softer — and that must not read as a sharp one.
    */
   const settledStill = async (settledAt: number): Promise<void> => {
+    // A still for a quiet page, skipped if a verb ran while it waited its
+    // turn: the page is no longer the quiet one, and taking it anyway lands
+    // a full still on the page's reaction (2026-10-24's re-film: one queued
+    // behind a click's still ran just as the sheet began to open). Nothing
+    // is lost: the verb set `stillOwed`, so the next quiet takes another.
+    const asked = verbs;
     try {
-      await shot(null);
+      await shot(null, () => verbs === asked);
     } catch (error) {
       degradations.push(
         degradation(
@@ -847,6 +940,10 @@ export async function runWalk(
     // it is the page loading — the navigation, a bar sweeping, a black
     // first paint — which is exactly what the settle waited out.
     if (continuous && !filming) return;
+    const seen = { data: String(params.data ?? ""), atMs: at() };
+    priorFrame = newestFrame;
+    newestFrame = seen;
+    for (const waiter of frameWaiters.splice(0)) waiter(seen);
     recorder.onFrame(params);
   });
 
@@ -1956,7 +2053,7 @@ export async function runWalk(
         // marker's frame by `actionId`, and a marker with no frame of its own
         // falls back to the nearest keyframe at or *before* it, which is the
         // page the wait was waiting to leave.
-        await shot(step.action.id);
+        await stepStill(step.action.id);
         completed++;
         lastCompletedActionId = step.action.id;
         inFlight = null;
@@ -2196,7 +2293,7 @@ export async function runWalk(
         };
       }
       if (zoomedClick) lastHeldUntil = lastZoom?.arrivalMs ?? null;
-      await shot(step.action.id);
+      await stepStill(step.action.id);
 
       if (continuous) {
         // No span to open and no still to take after the verb: the recorder
@@ -2224,6 +2321,7 @@ export async function runWalk(
         // The page may now look different however little it painted: the
         // next quiet earns a still, blip or not.
         stillOwed = true;
+        verbs++;
         if (clickStopped(step.action.kind, clicked)) break;
         if (room !== undefined) pendingAct = { marker, verbEndMs: at() };
         // A drag holds the zoom it is pressed in until it lets go, zoomed or

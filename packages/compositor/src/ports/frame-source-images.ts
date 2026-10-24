@@ -1,5 +1,5 @@
 import type { FrameBundle } from "../bundle.js";
-import { findKeyframe } from "./keyframe.js";
+import { findKeyframe, keyframesBetween } from "./keyframe.js";
 import type { FrameImage, FrameSource } from "./types.js";
 
 /**
@@ -36,6 +36,17 @@ export function createImageFrameSource(
       const keyframe = findKeyframe(bundle, sourceTimeMs);
       const image = await get(keyframe.ref);
       return { ...image, sourceTimeMs: keyframe.sourceTimeMs };
+    },
+    warm(fromSourceMs: number, toSourceMs: number): void {
+      for (const keyframe of keyframesBetween(
+        bundle,
+        fromSourceMs,
+        toSourceMs,
+      )) {
+        // Only this reference forgives: the failed load stays cached, and the
+        // draw that reaches this still rejects with its reason.
+        get(keyframe.ref).catch(() => undefined);
+      }
     },
     describe: () => ({
       keyframes: bundle.keyframes,

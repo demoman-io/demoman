@@ -16,6 +16,7 @@ import {
   type ResolvedPlan,
   renderFrame,
   type TimeSpan,
+  toSourceMs,
 } from "@demoman/compositor";
 import { checkLogoFile, DEFAULT_EXPORT_QUALITY } from "@demoman/run-core";
 import {
@@ -93,7 +94,6 @@ import {
 } from "../../src/editor/pieces";
 import type { StoredOutput } from "../../src/editor/ports";
 import {
-  COST_MIN_SAMPLES,
   COST_WINDOW,
   composeCostEstimate,
   createFrameSourceCache,
@@ -101,6 +101,7 @@ import {
   createScrubber,
   cursorRedrawNeeded,
   motionRedrawNeeded,
+  PLAY_RESOLVE_SAMPLES,
   type PreviewFrameStats,
   presentationRedrawNeeded,
   previewHeightFor,
@@ -1335,7 +1336,7 @@ let latchedPlaybackHeight: number | null = null;
 
 /**
  * Draws this stretch of playback has made, until the latch is re-solved
- * from them, once, at `COST_MIN_SAMPLES`. The latch is taken from what
+ * from them, once, at `PLAY_RESOLVE_SAMPLES`. The latch is taken from what
  * parked drawing cost, and that misprices playback both ways: a take just
  * opened has drawn once or twice (no price, so the floor), and a parked
  * draw pays the first paint of each full-size still, which playback has
@@ -1344,6 +1345,14 @@ let latchedPlaybackHeight: number | null = null;
  * about a tenth of a frame's budget at full size. Null once re-solved.
  */
 let playDraws: number | null = null;
+
+/**
+ * How far ahead of the playhead playback decodes stills, in output time.
+ * A 5130x3321 still took up to ~70 ms to decode on first paint, and
+ * keyframes can sit 105 ms apart; two seconds keeps a cluster of them
+ * decoding off the draw path well before the playhead arrives.
+ */
+const WARM_AHEAD_MS = 2000;
 
 let previewPlaying = false;
 const previewStats: PreviewFrameStats = {
@@ -1359,6 +1368,10 @@ let previewStartedAtMs = 0;
  *  the line is printed the pause has already re-targeted back up, so
  *  `target` no longer describes the stretch being reported. */
 let playedBitmap: { width: number; height: number } | null = null;
+/** The estimate that chose `playedBitmap`, for the same reason: the window
+ *  at the pause has moved on, and printing it beside a size it did not
+ *  choose read "0.2ms/megapixel" next to a play held at the floor. */
+let playedCost: number | null = null;
 /** The decode, summed over the drawn frames — `compose.ts`'s `fetch` stage
  *  and the only one recorded. See `PreviewFrameStats.decodeMs` for why the
  *  other six were dropped. */
@@ -1417,7 +1430,7 @@ function notePreviewPlayback(): void {
       // which one parking returns to, and the measurement that chose.
       ...(playedBitmap === null ? {} : { bitmap: playedBitmap }),
       parkedHeight: target.height,
-      msPerMegapixel: composeCostEstimate(composeCosts),
+      msPerMegapixel: playedCost,
       ...(previewPlayedFrames > 0 ? { decodeMs: previewDecodeMs } : {}),
     }),
   );
@@ -1454,6 +1467,14 @@ const scrubber = createScrubber({
     const startedAt = performance.now();
     const frames = await framesFor(snapshot.bundle);
     const fetched = performance.now();
+    if (previewPlaying) {
+      // Before this draw's own wait, so the next stills decode beside it.
+      frames.warm?.(
+        toSourceMs(drawing.resolved.timeline, outputTimeMs),
+        toSourceMs(drawing.resolved.timeline, outputTimeMs + WARM_AHEAD_MS),
+      );
+    }
+    let decodeMs = 0;
     await renderFrame({
       resolved: drawing.resolved,
       target: drawing.target,
@@ -1463,14 +1484,14 @@ const scrubber = createScrubber({
       outputTimeMs,
       // Only the decode is recorded: the synchronous stages cannot be
       // measured apart (see `PreviewFrameStats.decodeMs`).
-      onStage: previewPlaying
-        ? (name, ms) => {
-            if (name === "fetch") {
-              previewDecodeMs += ms;
-              previewPlayedFrames += 1;
-            }
-          }
-        : undefined,
+      onStage: (name, ms) => {
+        if (name !== "fetch") return;
+        decodeMs = ms;
+        if (previewPlaying) {
+          previewDecodeMs += ms;
+          previewPlayedFrames += 1;
+        }
+      },
     });
     const composed = performance.now();
     // Re-targeted mid-draw: this frame was composed for a bitmap that is no
@@ -1482,7 +1503,13 @@ const scrubber = createScrubber({
     // playback: parked scrubbing is what measures the machine before the
     // author ever presses play, which is why the first playback is not
     // stuck on the uncalibrated floor.
-    noteComposeCost(composed - fetched, drawing.target);
+    //
+    // Without the decode, which a smaller bitmap does not make cheaper: a
+    // still's first decode priced at 124.8 ms per megapixel on a Mac that
+    // draws at 0.2, and the play it latched ran at 994x720 against 1792
+    // parked (studio.log, 2026-10-24). Its cost is dropped frames, which the
+    // preview line reports, and `WARM_AHEAD_MS` is what takes it away.
+    noteComposeCost(composed - fetched - decodeMs, drawing.target);
     // The blit. renderFrame's parameter is an OffscreenCanvas 2D context and
     // casting a CanvasRenderingContext2D into it would be a lie the type
     // system cannot catch; one drawImage keeps it honest.
@@ -1491,7 +1518,7 @@ const scrubber = createScrubber({
     // can price it, the latch is re-solved from them alone (`playDraws`).
     if (player.playing && playDraws !== null) {
       playDraws += 1;
-      if (playDraws >= COST_MIN_SAMPLES) {
+      if (playDraws >= PLAY_RESOLVE_SAMPLES) {
         const own = composeCosts.slice(-playDraws);
         const was = latchedPlaybackHeight;
         latchedPlaybackHeight = null;
@@ -1610,6 +1637,7 @@ function solvePreviewTarget(
   }
   if (latchedPlaybackHeight === null) {
     latchedPlaybackHeight = solve();
+    playedCost = composeCostEstimate(costs);
     playDraws = 0;
   }
   return previewTarget(shape, latchedPlaybackHeight);

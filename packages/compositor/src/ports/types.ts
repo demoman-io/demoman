@@ -33,6 +33,14 @@ export interface FrameSource {
   describe(): { keyframes: KeyframeEntry[]; motionSpans: MotionSpanEntry[] };
   close?(): void;
   /**
+   * Start decoding every still `at()` could answer with between two source
+   * instants, without waiting for any of them, so a draw that reaches one
+   * later does not wait on its decode. The editor's playback calls it a
+   * little ahead of the playhead: a full-size still is 5130x3321 and its
+   * first decode took tens of milliseconds, all of it dropped frames.
+   */
+  warm?(fromSourceMs: number, toSourceMs: number): void;
+  /**
    * The spans `at()` will answer from the preceding keyframe instead of
    * from their own frames. A source that serves only stills has none to
    * lose and may leave this out; a source that demuxes must say, because

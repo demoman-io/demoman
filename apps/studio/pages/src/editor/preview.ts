@@ -80,6 +80,17 @@ export const COST_PERCENTILE = 0.8;
 export const COST_MIN_SAMPLES = 4;
 
 /**
+ * How many of a play's own draws re-solve its height, once.
+ *
+ * Four did, and p80 of four is the slowest of them: one stall at the start
+ * of a play — a replay from the end, here — held the whole play at the
+ * floor. Measured 2026-10-24 on the author's Mac: replays ran at 1280x720
+ * against 1440 parked on a machine drawing at 0.2 ms per megapixel. Fifteen
+ * draws, a quarter of a second, leaves the worst three unable to choose.
+ */
+export const PLAY_RESOLVE_SAMPLES = 15;
+
+/**
  * Milliseconds of composite per megapixel, from recent draws.
  *
  * This was a decaying maximum, `max(sample, previous * 0.98)`, and it was

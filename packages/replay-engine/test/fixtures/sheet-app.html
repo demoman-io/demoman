@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>sheet</title>
+<style>
+  body { margin: 0; font: 16px sans-serif; background: #fff; }
+  /* Half the 1280x800 viewport, sliding in over 1.5 s once #open-btn is
+     clicked: a step that comes 400 ms later lands mid-slide, which is the
+     sheet sliding shut on 2026-10-24's take. Transform, on the compositor
+     thread, so a starved main thread cannot stop it advancing. */
+  #sheet { position: absolute; top: 0; right: 0; width: 640px; height: 800px; background: rgb(20, 90, 200); transform: translateX(100%); will-change: transform; }
+  body.open #sheet { transform: translateX(0); transition: transform 1500ms linear; }
+  /* A 16px square turning for the life of the page: a spinner, repainting
+     every frame and changing a sliver of it. */
+  #spin { position: absolute; left: 40px; top: 700px; width: 16px; height: 16px; background: rgb(200, 0, 0); animation: spin 600ms linear infinite; will-change: transform; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  button { position: absolute; left: 40px; width: 120px; height: 40px; }
+  #open-btn { top: 60px; }
+  #next-btn { top: 160px; }
+  #other-btn { top: 260px; }
+</style>
+<body>
+<div id="sheet"></div>
+<div id="spin"></div>
+<button type="button" id="open-btn" onclick="document.body.classList.add('open')">open</button>
+<button type="button" id="next-btn">next</button>
+<button type="button" id="other-btn">other</button>
+</body>

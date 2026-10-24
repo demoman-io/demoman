@@ -24,6 +24,25 @@ export const TYPE_LEAD_MS = 250;
 export const TYPE_MAX_MS = 2500;
 /** No screencast frame for this long ends a motion span. */
 export const SPAN_QUIET_MS = 250;
+/**
+ * A step's full still stalls the screencast for as long as it takes, and
+ * motion in that window is lost: measured 2026-10-24 on three takes, every
+ * one of ten stills taken during a span left a 87–272 ms hole, one of them
+ * through a sheet sliding shut. So a step whose page is moving takes its
+ * still from the screencast instead (`pageMoving`): both newest frames
+ * within this of each other and of the step. At 60 fps motion they are
+ * 16 ms apart; 100 leaves room for a throttled frame without calling a
+ * caret's once-a-blink repaint motion.
+ */
+export const MOVING_RECENT_MS = 100;
+/** The share of the page that has to change between the two newest frames
+ *  for it to be moving. A sheet sliding is a quarter of it; a 48 px spinner
+ *  is a tenth of a percent. */
+export const MOVING_SHARE = 0.01;
+/** How long a moving step waits for the screencast frame after it, before
+ *  it takes the full still after all: motion that stopped in the meantime
+ *  loses nothing to the stall. */
+export const NEXT_FRAME_WAIT_MS = 100;
 /** A span never runs longer than this, however busy the page is. */
 export const SPAN_MAX_MS = 3000;
 /**
