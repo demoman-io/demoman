@@ -21,6 +21,8 @@ export const ROUTES = {
   sceneGet: { method: "GET", path: "/api/takes/:id/scene" },
   scenePut: { method: "PUT", path: "/api/takes/:id/scene" },
   takeDelete: { method: "DELETE", path: "/api/takes/:id" },
+  videoRename: { method: "PUT", path: "/api/videos/:id/name" },
+  videoDelete: { method: "DELETE", path: "/api/videos/:id" },
   bundle: { method: "GET", path: "/api/takes/:id/bundle" },
   frame: { method: "GET", path: "/api/takes/:id/frames/:ref" },
   thumb: { method: "GET", path: "/api/takes/:id/thumbs/:ref" },
@@ -119,6 +121,14 @@ export type StudioReason =
   | "changedElsewhere"
   | "sceneNotSaved"
   | "takeBusy"
+  /** Another video in the same repo already has this name (spec §1). */
+  | "nameTaken"
+  | "videoNotFound"
+  /** A rename's body named no name, or a blank one. */
+  | "videoNameInvalid"
+  /** The video records would not read or write (the runner's VideoError). */
+  | "videoUnreadable"
+  | "videoUnwritable"
   | "kitsInvalid"
   | "kitsBusy"
   | "logoRefused"
@@ -151,6 +161,11 @@ export interface PingAnswer {
 export interface SceneAnswer {
   scene: SceneDocument;
   revision: string;
+  /** The video this take is a version of, or null when it is in none or
+   *  `videoError` says why it could not be read. */
+  videoId: string | null;
+  /** Why the take's video.json would not read, or null. */
+  videoError: string | null;
   /** What reading the take took away from it (`migrateToCurrent`'s notes):
    *  schema 12 removed text overlays. Empty when nothing was. */
   notes: string[];
@@ -158,12 +173,66 @@ export interface SceneAnswer {
 export interface ScenePutAnswer {
   revision: string;
 }
-/** A take folder the library could not read, said as a row, not dropped. */
+/** Something under the studio's home that could not be read, said as a
+ *  row, not dropped. `kind` says what its Delete removes: a take folder
+ *  (`take`, `folder` its name), a video record (`video`, `folder` its id;
+ *  its recordings stay), or nothing (`upkeep`: joining takes to videos or
+ *  expiring old recordings failed, and `folder` names which). */
 export interface UnreadableTake {
   folder: string;
   reason: string;
+  kind: "take" | "video" | "upkeep";
+}
+/** Where a video was recorded: a repo, no repo (why), or not known (a
+ *  video migrated from takes made before videos). The runner's `VideoRepo`. */
+export type VideoRepo = { key: string } | { none: string } | { unknown: true };
+/** One video as the library lists it: the runner's `VideoSummary`
+ *  (`apps/runner/src/executor/videos-op.ts`), which the studio's routes
+ *  assign to this type, so the two cannot drift apart unnoticed. */
+export interface VideoSummary {
+  id: string;
+  name: string;
+  repo: VideoRepo;
+  startPage: string;
+  versions: number;
+  /** The newest complete version, or null while none completed. */
+  current: {
+    version: number;
+    takeId: string;
+    recordedAt: string;
+    expired: boolean;
+  } | null;
+  pages: string[];
+  steps: string[];
+  /** Every version's exports, each with its take; a version whose list
+   *  will not read is `{ takeId, unreadable }`. */
+  exports: Array<
+    | { takeId: string; path: string; fileType: FileType; exists: boolean }
+    | { takeId: string; unreadable: string }
+  >;
+}
+export interface VersionExport {
+  path: string;
+  fileType: FileType;
+  exists: boolean;
 }
 export interface TakesAnswer {
+  /** The videos the takes belong to. */
+  videos: VideoSummary[];
+  /** Each take that is a version of a video: which, its number, and
+   *  whether its recording expired (its frames were removed). A take not
+   *  here belongs to no video yet. */
+  videoOf: Record<
+    string,
+    {
+      videoId: string;
+      version: number;
+      expired: boolean;
+      /** The files exported from this version, or why they could not be
+       *  read. A file that was moved or deleted is `exists: false`. */
+      exports: VersionExport[] | { unreadable: string };
+    }
+  >;
   scenes: SceneDocument[];
   /** Bytes on disk per take folder, for every scene and unreadable folder
    *  listed — except a folder that could not be measured, which is left
@@ -172,6 +241,10 @@ export interface TakesAnswer {
   unreadable: UnreadableTake[];
   /** Why `takes` events will not come (Task 3), or null while they do. */
   unwatched: string | null;
+}
+/** `PUT /api/videos/:id/name`'s body. */
+export interface VideoRenameBody {
+  name: string;
 }
 export interface BundleAnswer {
   bundle: FrameBundle | null;
@@ -188,9 +261,11 @@ export interface ExportStartAnswer {
   jobId: string;
   position: number;
 }
-/** `note` says what was cleared or left behind, or null. */
+/** `note` says what was cleared or left behind, or null. `partly`, on a
+ *  video's delete, says what was left when it stopped part-way. */
 export interface DeleteAnswer {
   note: string | null;
+  partly?: string;
 }
 export interface KitsAnswer {
   stored: { kits: unknown[]; default: string | null };

@@ -48,9 +48,10 @@ const CLI_SOURCES = [
 const CLI_TOOL_REASONS = ["browserSilent", "unknownRun"];
 /** Every way a reason is spelled where it is answered: a helper's first
  *  argument (`failure(`, `refused(`, `refusal(`, `refuse(` and the door's
- *  `refuseBeforeRun(`), a `LibraryError`'s, or a `reason`/`failed` field. */
+ *  `refuseBeforeRun(`), a `LibraryError`'s or `VideoError`'s, or a
+ *  `reason`/`failed` field. */
 const REASON =
-  /(?:failure|refuseBeforeRun|refused|refusal|refuse|new LibraryError)\(\s*"(\w+)"|reason\s*[:=]\s*"(\w+)"|failed\s*:\s*"(\w+)"/g;
+  /(?:failure|refuseBeforeRun|refused|refusal|refuse|new LibraryError|new VideoError)\(\s*"(\w+)"|reason\s*[:=]\s*"(\w+)"|failed\s*:\s*"(\w+)"/g;
 function reasonsInCode(sources: string[] = CLI_SOURCES): string[] {
   const found = new Set<string>();
   for (const file of sources) {
@@ -318,9 +319,22 @@ describe("the CLI's recipe", () => {
         "libraryUnwritable",
         "kitsUnreadable",
         "unknownKit",
+        "videoUnwritable",
+        "invalidProject",
       ]),
     );
     expect(reasons.filter((r) => !RECIPE.includes(`\`${r}\``))).toEqual([]);
+  });
+
+  // Red if a `run({ takeId })` line comes back (run refuses takeId), or the
+  // order the spec teaches (find the video first) is lost.
+  it("records into videos: finds the video first, and never passes takeId to run", () => {
+    expect(RECIPE.match(/run\([^)]*takeId/g) ?? []).toEqual([]);
+    const at = (needle: string) => RECIPE.indexOf(needle);
+    expect(at("videos({ file")).toBeGreaterThan(-1);
+    expect(at("videos({ file")).toBeLessThan(at("videos({ query"));
+    expect(at("videos({ query")).toBeLessThan(at("video: { new"));
+    expect(RECIPE).toContain("confirmedNew: true");
   });
 
   // Project A's done-means: no extension wording left. Red if a line about

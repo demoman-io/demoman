@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
+import { ownVideo } from "./fixture.js";
 
 // Measured as executor-export.test.ts measures its own (2026-10-12, x5 for
 // CI): a run of a three-click take and one 9:16 export at 1080x1920.
@@ -75,6 +76,7 @@ beforeAll(async () => {
   // Pauses well past the closeness rule between the two zoomed clicks, so
   // neither is skipped as too close to the other.
   const run = await executor.request("run", {
+    video: ownVideo(),
     callId: "make-zooms-take",
     script: {
       scriptVersion: 1,

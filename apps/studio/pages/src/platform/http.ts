@@ -99,9 +99,15 @@ export const KITS_BUSY =
 const STUDIO_FIRST_TAKE_HINT =
   "Ask your agent for a demo video. Each take shows up here, grouped by the day you made it.";
 
-/** The line that replaces every Runs link in the studio (spec §5). */
-export const refilmLine = (takeId: string): string =>
-  `Ask your agent to re-record this take — \`run({ takeId: "${takeId}" })\``;
+/** The line that replaces every Runs link in the studio (spec §5): the
+ *  agent call that records the take's video again, as a new version. */
+export const refilmLine = (videoId: string): string =>
+  `Ask your agent to re-record this take — \`run({ video: { id: "${videoId}" } })\``;
+/** The same, for a take in no video yet: there is no call to name. */
+export const REFILM_NO_VIDEO = "Ask your agent to re-record this take.";
+/** The same, for a take whose video.json would not read: why, not "in no video". */
+export const refilmVideoUnread = (why: string): string =>
+  `Couldn't read which video this take is in: ${why}`;
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -642,9 +648,42 @@ export function createPlatform(
     unwatched: () => kitsUnwatched,
   };
 
+  /** A take's or a video's delete: a refusal resolves with its reason. */
+  async function removeBy(sent: Promise<Response>): Promise<RemoveReply> {
+    try {
+      const done = await answer<DeleteAnswer>(await sent);
+      return {
+        ok: true,
+        ...(done.note === null ? {} : { note: done.note }),
+        ...(done.partly === undefined ? {} : { partly: done.partly }),
+      };
+    } catch (error) {
+      // No answer at all is a request that could not be made.
+      if (!(error instanceof StudioError) || error.status === 0) throw error;
+      // The library says "Not deleted: <detail>." — the detail without
+      // its own full stop.
+      return {
+        ok: false,
+        error: error.reason,
+        detail: error.message.replace(/\.$/, ""),
+      };
+    }
+  }
+
+  /** Which video each take read so far is a version of, for the re-record
+   *  line (`nav.rerun`), which names the video. */
+  const videoOfTake = new Map<string, string>();
+  /** Why a take's video could not be read, said in place of the line. */
+  const videoErrorOfTake = new Map<string, string>();
+
   async function readFolder(): Promise<FolderListing> {
     const got = await answer<TakesAnswer>(await request("takes"));
+    for (const [takeId, v] of Object.entries(got.videoOf)) {
+      videoOfTake.set(takeId, v.videoId);
+    }
     return {
+      videos: got.videos,
+      videoOf: got.videoOf,
       scenes: got.scenes,
       sizes: got.sizes,
       unreadable: got.unreadable,
@@ -659,6 +698,10 @@ export function createPlatform(
           const got = await answer<SceneAnswer>(
             await request("sceneGet", { params: { id } }),
           );
+          if (got.videoId === null) videoOfTake.delete(id);
+          else videoOfTake.set(id, got.videoId);
+          if (got.videoError === null) videoErrorOfTake.delete(id);
+          else videoErrorOfTake.set(id, got.videoError);
           return { scene: got.scene, revision: got.revision, notes: got.notes };
         } catch (error) {
           // Not stored is the null this member promises; anything else is
@@ -684,27 +727,15 @@ export function createPlatform(
       async list() {
         return (await readFolder()).scenes;
       },
-      async remove(id): Promise<RemoveReply> {
-        try {
-          const done = await answer<DeleteAnswer>(
-            await request("takeDelete", { params: { id } }),
-          );
-          return done.note === null
-            ? { ok: true }
-            : { ok: true, note: done.note };
-        } catch (error) {
-          // No answer at all is a request that could not be made.
-          if (!(error instanceof StudioError) || error.status === 0)
-            throw error;
-          // The library says "Not deleted: <detail>." — the detail without
-          // its own full stop.
-          return {
-            ok: false,
-            error: error.reason,
-            detail: error.message.replace(/\.$/, ""),
-          };
-        }
+      remove: (id) => removeBy(request("takeDelete", { params: { id } })),
+    },
+    videos: {
+      async rename(id, name) {
+        await answer<object>(
+          await request("videoRename", { params: { id }, json: { name } }),
+        );
       },
+      remove: (id) => removeBy(request("videoDelete", { params: { id } })),
     },
     folder: {
       read: readFolder,
@@ -884,7 +915,19 @@ export function createPlatform(
       library: () => "/",
       kits: () => "/settings.html",
       firstTakeHint: () => STUDIO_FIRST_TAKE_HINT,
-      rerun: (id) => ({ kind: "line", text: refilmLine(id) }),
+      rerun: (id) => {
+        const videoId = videoOfTake.get(id);
+        const unread = videoErrorOfTake.get(id);
+        return {
+          kind: "line",
+          text:
+            videoId !== undefined
+              ? refilmLine(videoId)
+              : unread !== undefined
+                ? refilmVideoUnread(unread)
+                : REFILM_NO_VIDEO,
+        };
+      },
       onOpen(fn) {
         openListeners.add(fn);
       },

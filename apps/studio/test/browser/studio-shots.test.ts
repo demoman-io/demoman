@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,8 @@ import {
   watchConsole,
 } from "./studio-harness.js";
 import {
+  joinVideo,
+  ONE_VERSION_EXPORT,
   openPage,
   PAINT_MS,
   PLAIN,
@@ -21,6 +23,7 @@ import {
   seedHome,
   settle,
   UNREADABLE,
+  VIDEO_TAKES,
 } from "./studio-pages.js";
 
 // The screenshot set the author looks at (D3, Task 8): the studio's editor,
@@ -617,6 +620,299 @@ describe("the Studio's screenshot set", () => {
       console.info(
         `studio shots lane: seeding ${seeded - started} ms, shots ${Date.now() - seeded} ms; opens (ms) ${opens.join(", ")}; wrote ${shots.join(", ")}`,
       );
+    },
+    LANE_MS,
+  );
+
+  // The library's videos (local video library spec §6): a video of three
+  // versions, opened, at a laptop's 1280x720 (under 900 tall) and 1440x900,
+  // in the studio's one theme (dark only since 2026-10-19, so no light
+  // shot). Asserted on the paint: each version's line is on screen and not
+  // covered, and the expired one shows its re-record line, inside the card.
+  it.runIf(process.platform === "darwin")(
+    "shoots a video's versions opened, the expired one with its line, each asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-video-"));
+      homes.push(home);
+      const { editorTake } = await seedHome(home, VIDEO_TAKES);
+      const videoId = await joinVideo(home);
+      await mkdir(SHOTS, { recursive: true });
+      const [v1, v2, v3, neighbour] = VIDEO_TAKES.map((t) => t.id) as [
+        string,
+        string,
+        string,
+        string,
+      ];
+      const frames = join(home, "takes", v1, "frames");
+      // Premise: the oldest version has a recording for expiry to take.
+      expect(await stat(frames).then(() => true)).toBe(true);
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+        200,
+      );
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      const shots: string[] = [];
+      const visible = { onScreen: true, hit: true, opacity: 1 };
+      /** Each named element as painted: on screen, the point at its centre
+       *  its own, and its opacity as drawn. */
+      const shown = (selectors: string[]) =>
+        page.evaluate((sels) => {
+          const opacity = (el: Element): number => {
+            let o = 1;
+            for (let n: Element | null = el; n !== null; n = n.parentElement) {
+              o *= Number(getComputedStyle(n).opacity);
+            }
+            return Math.round(o * 100) / 100;
+          };
+          return sels.map((sel) => {
+            const el = document.querySelector(sel);
+            if (el === null) return null;
+            const r = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            return {
+              onScreen:
+                r.width > 0 &&
+                r.height > 0 &&
+                r.top >= 0 &&
+                r.bottom <= innerHeight,
+              hit: hit !== null && el.contains(hit),
+              opacity: opacity(el),
+            };
+          });
+        }, selectors);
+      for (const size of SIZES) {
+        await sizeWindow(context, page, size.width, size.height);
+        // The four takes seedHome makes, the neighbour, and this video's
+        // one card.
+        await openPage(page, studio, "library", editorTake, new Set(), 6);
+        const at = `library video ${size.width}x${size.height}`;
+        const cardSel = `article[data-video="${videoId}"]`;
+        const card = page.locator(cardSel);
+        // One card for the three takes, showing the current (newest).
+        expect(await card.getAttribute("data-row"), at).toBe(v3);
+        // Its repo leads its line.
+        expect(
+          await card.locator("[data-meta]").textContent(),
+          `${at}: the card's line`,
+        ).toMatch(/^acme\/web · /);
+        await card.locator(".versions-count").click();
+        await page
+          .locator(`[data-versions="${videoId}"] [data-version-row="${v1}"]`)
+          .scrollIntoViewIfNeeded();
+        // At rest: the pointer off the card and the fold's focus let go, so
+        // the card's hover and focus-within reveals are not what is shot.
+        await page.mouse.move(0, 0);
+        await page.evaluate(() =>
+          (document.activeElement as HTMLElement).blur(),
+        );
+        await settle(page, at);
+        const file = join(
+          SHOTS,
+          `library-versions-${size.width}x${size.height}-dark.png`,
+        );
+        await page.screenshot({ path: file });
+        shots.push(file);
+        const p = await painted(page);
+        expect(p.theme, `${at}: the page's theme`).toBe("dark");
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        expect(
+          p.scrollWidth,
+          `${at}: no sideways scroll (${JSON.stringify(p)})`,
+        ).toBeLessThanOrEqual(p.innerWidth);
+        const rows = await page.evaluate((video) => {
+          const card = document.querySelector(`article[data-video="${video}"]`);
+          const cardRight = card?.getBoundingClientRect().right ?? 0;
+          return [
+            ...document.querySelectorAll(
+              `[data-versions="${video}"] [data-version-row]`,
+            ),
+          ].map((row) => {
+            const line = row.querySelector("[data-rerun-line]");
+            let lineOverflow: number | null = null;
+            if (line !== null) {
+              const range = document.createRange();
+              range.selectNodeContents(line);
+              lineOverflow = Math.round(
+                Math.max(...[...range.getClientRects()].map((r) => r.right)) -
+                  cardRight,
+              );
+            }
+            return {
+              id: row.getAttribute("data-version-row"),
+              number: row.querySelector(".version-number")?.textContent,
+              edit: row.querySelector('[data-action="edit"]') !== null,
+              line: (line as HTMLElement | null)?.innerText ?? null,
+              lineOverflow,
+              exports: [...row.querySelectorAll("[data-export]")].map((e) => [
+                (e as HTMLElement).innerText.replace(/\s+/g, " ").trim(),
+                e.hasAttribute("data-gone"),
+              ]),
+            };
+          });
+        }, videoId);
+        const said = `${at}: ${JSON.stringify(rows)}`;
+        // Newest first, every version painted where it can be read.
+        expect(
+          rows.map((r) => [r.id, r.number]),
+          said,
+        ).toEqual([
+          [v3, "v3"],
+          [v2, "v2"],
+          [v1, "v1"],
+        ]);
+        const row = (id: string) =>
+          `[data-versions="${videoId}"] [data-version-row="${id}"]`;
+        for (const id of [v3, v2, v1]) {
+          expect(
+            await shown([
+              `${row(id)} .version-number`,
+              `${row(id)} .version-when`,
+            ]),
+            `${said}: ${id}'s number and day`,
+          ).toEqual([visible, visible]);
+        }
+        // The newest version's exports, each painted; the moved one gone.
+        expect(rows[0]?.exports, said).toEqual([
+          ["Create an invoice.mp4 MP4", false],
+          ["Create an invoice.gif GIF · gone", true],
+        ]);
+        expect(
+          await shown([
+            `${row(v3)} [data-export]:not([data-gone])`,
+            `${row(v3)} [data-export][data-gone]`,
+          ]),
+          `${said}: the exports`,
+        ).toEqual([visible, visible]);
+        // The expired one (the studio's own expiry took it as it started)
+        // says only how to record it again; the others can be opened.
+        expect(
+          rows.map((r) => [r.id, r.edit, r.line !== null]),
+          said,
+        ).toEqual([
+          [v3, true, false],
+          [v2, true, false],
+          [v1, false, true],
+        ]);
+        const expired = rows[2];
+        expect(expired?.line, said).toContain("Ask your agent to re-record");
+        // The call names the video, which a run records again; never the
+        // take, which the runner refuses.
+        expect(expired?.line, said).toContain(
+          `run({ video: { id: "${videoId}" } })`,
+        );
+        expect(
+          await shown([`${row(v1)} [data-rerun-line]`]),
+          `${said}: the line`,
+        ).toEqual([visible]);
+        expect(
+          expired?.lineOverflow,
+          `${said}: the line stays inside the card`,
+        ).toBeLessThanOrEqual(0);
+        // A video of one version (the neighbour) has no fold: its export
+        // is on its card, painted. Red (final review 14): draw exports only
+        // in the fold.
+        const alone = `article[data-row="${neighbour}"]`;
+        expect(
+          await page.evaluate(
+            (sel) =>
+              [...document.querySelectorAll(`${sel} [data-export]`)].map((e) =>
+                (e as HTMLElement).innerText.replace(/\s+/g, " ").trim(),
+              ),
+            alone,
+          ),
+          `${at}: the one-version card's exports`,
+        ).toEqual([`${ONE_VERSION_EXPORT} MP4`]);
+        expect(
+          await page.locator(`${alone} [data-versions]`).count(),
+          `${at}: premise, the one-version card has no fold`,
+        ).toBe(0);
+        expect(
+          await shown([`${alone} [data-export]`]),
+          `${at}: the one-version card's export`,
+        ).toEqual([visible]);
+        // The fold stretches only its own card: the neighbour in its grid
+        // row keeps its height, and the page below it is not the neighbour.
+        const beside = await page.evaluate(
+          ([cardSel, other]) => {
+            const a = document.querySelector(cardSel)?.getBoundingClientRect();
+            const b = document
+              .querySelector(`article[data-row="${other}"]`)
+              ?.getBoundingClientRect();
+            if (!a || !b) return null;
+            const below = document.elementFromPoint(
+              b.left + b.width / 2,
+              b.bottom + 12,
+            );
+            return {
+              sameRow: Math.abs(a.top - b.top) < 1,
+              shorter: a.bottom - b.bottom,
+              belowIsNeighbour:
+                below?.closest(`article[data-row="${other}"]`) != null,
+            };
+          },
+          [cardSel, neighbour] as const,
+        );
+        expect(
+          beside,
+          `${at}: the neighbour ${JSON.stringify(beside)}`,
+        ).toEqual({
+          sameRow: true,
+          shorter: expect.any(Number),
+          belowIsNeighbour: false,
+        });
+        expect(
+          beside?.shorter,
+          `${at}: ${JSON.stringify(beside)}`,
+        ).toBeGreaterThan(40);
+
+        // With the pointer on a version row, its Edit and Delete paint and
+        // are where a click lands.
+        await page.locator(`${row(v2)} .version-number`).hover();
+        await vi.waitFor(
+          async () => {
+            const done = await page.evaluate(() =>
+              document.getAnimations().every((x) => x.playState !== "running"),
+            );
+            if (!done) throw new Error(`${at}: still animating`);
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+        const hoverFile = join(
+          SHOTS,
+          `library-version-hover-${size.width}x${size.height}-dark.png`,
+        );
+        await page.screenshot({ path: hoverFile });
+        shots.push(hoverFile);
+        expect(
+          await shown([
+            `${row(v2)} [data-action="edit"]`,
+            `${row(v2)} [data-action="delete"]`,
+          ]),
+          `${at}: v2's Edit and Delete under the pointer`,
+        ).toEqual([visible, visible]);
+        await page.mouse.move(0, 0);
+      }
+      // The recording is really gone, by the studio's own expiry.
+      expect(
+        await stat(frames).then(
+          () => true,
+          () => false,
+        ),
+      ).toBe(false);
+      expect(shots).toHaveLength(4);
+      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
     },
     LANE_MS,
   );

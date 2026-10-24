@@ -27,7 +27,7 @@ import { editorDom } from "../helpers/editor-dom";
  */
 
 const LINE =
-  'Ask your agent to re-record this take — `run({ takeId: "scene-readonly-001" })`';
+  'Ask your agent to re-record this take — `run({ video: { id: "scene-readonly-001" } })`';
 const LINE_WORDS = LINE.replaceAll("`", "");
 
 vi.mock("@demoman/compositor", async (importOriginal) => {
@@ -77,6 +77,8 @@ vi.mock("#platform", async (importOriginal) => {
         scenes: [],
         sizes: {},
         unreadable: [],
+        videos: [],
+        videoOf: {},
         unwatched: null,
       }),
       onChange: () => () => {},
@@ -102,6 +104,10 @@ vi.mock("#platform", async (importOriginal) => {
         });
       },
       list: async () => [],
+      remove: async () => ({ ok: true }),
+    },
+    videos: {
+      rename: async () => {},
       remove: async () => ({ ok: true }),
     },
     bundles: {
@@ -158,7 +164,7 @@ vi.mock("#platform", async (importOriginal) => {
       firstTakeHint: () => "",
       rerun: (id) => ({
         kind: "line",
-        text: `Ask your agent to re-record this take — \`run({ takeId: "${id}" })\``,
+        text: `Ask your agent to re-record this take — \`run({ video: { id: "${id}" } })\``,
       }),
       kits: () => "/settings.html",
       onOpen: () => undefined,
@@ -383,7 +389,7 @@ describe("editor main — no frames, on a platform with no Runs page", () => {
     expect(document.body.textContent ?? "").not.toContain("`");
     expect(
       [...document.querySelectorAll("code")].map((c) => c.textContent),
-    ).toContain('run({ takeId: "scene-readonly-001" })');
+    ).toContain('run({ video: { id: "scene-readonly-001" } })');
     const titled = [...document.querySelectorAll<HTMLElement>("[title]")];
     expect(titled.length, "premise: titles were drawn").toBeGreaterThan(3);
     const runs = titled

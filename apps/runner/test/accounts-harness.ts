@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import type { LocalExecutor } from "../src/executor/types.js";
+import { ownVideo } from "./fixture.js";
 import { boundTo, type LoginApp, serveLoginApp } from "./login-app.js";
 
 export const PASSWORD = "correct-horse-battery";
@@ -140,6 +141,7 @@ export const run = async (
   extra: Record<string, unknown> = {},
 ) => {
   const out = (await executor.request("run", {
+    video: ownVideo(),
     script: script(`${app.url}/app`, steps, extra),
   })) as { ok: boolean; value: Report };
   expect(out.ok, JSON.stringify(out)).toBe(true);

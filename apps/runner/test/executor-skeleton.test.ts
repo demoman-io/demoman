@@ -9,6 +9,7 @@ import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
 import { writeSkeleton } from "../src/executor/run.js";
 import type { LocalExecutor } from "../src/executor/types.js";
+import { ownVideo } from "./fixture.js";
 
 // Measured as executor-export-zooms.test.ts measures its run (x5 for CI).
 const RUN_MS = 60_000;
@@ -41,6 +42,7 @@ beforeAll(async () => {
     log: () => undefined,
   });
   const run = await executor.request("run", {
+    video: ownVideo(),
     callId: "skeleton-run",
     script: {
       scriptVersion: 1,

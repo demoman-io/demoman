@@ -127,6 +127,8 @@ function listing(
   more: Partial<FolderListing> = {},
 ): FolderListing {
   return {
+    videos: [],
+    videoOf: {},
     scenes,
     sizes: Object.fromEntries(scenes.map((s) => [s.meta.id, 1024])),
     unreadable: [],
@@ -260,7 +262,13 @@ describe("the library page on a platform with a take folder", () => {
     const fake = await fakePlatform(async () =>
       broken
         ? listing([], {
-            unreadable: [{ folder: "t1", reason: "scene.json is not a take" }],
+            unreadable: [
+              {
+                folder: "t1",
+                reason: "scene.json is not a take",
+                kind: "take",
+              },
+            ],
             sizes: { t1: 2048 },
           })
         : listing([t1]),
@@ -313,7 +321,13 @@ describe("the library page on a platform with a take folder", () => {
       listing([], {
         unreadable: removed
           ? []
-          : [{ folder: "bad-take", reason: "scene.json is not valid JSON" }],
+          : [
+              {
+                folder: "bad-take",
+                reason: "scene.json is not valid JSON",
+                kind: "take",
+              },
+            ],
         sizes: removed ? {} : { "bad-take": 2048 },
       }),
     );
@@ -361,7 +375,11 @@ describe("the library page on a platform with a take folder", () => {
     await fakePlatform(async () =>
       listing([take], {
         unreadable: [
-          { folder: "bad-take", reason: "scene.json is not valid JSON" },
+          {
+            folder: "bad-take",
+            reason: "scene.json is not valid JSON",
+            kind: "take",
+          },
         ],
         sizes: { "take-1": 1024, "bad-take": 2048 },
       }),

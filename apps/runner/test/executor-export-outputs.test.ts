@@ -13,6 +13,7 @@ import {
   exportTake,
 } from "../src/executor/export.js";
 import { createLibrary } from "../src/executor/library.js";
+import { createVideoStore } from "../src/executor/videos.js";
 import { launch } from "../src/launch.js";
 import { makeDiskTake, putTake } from "./disk-take.js";
 
@@ -43,8 +44,10 @@ function depsFor(
   log: string[] = [],
 ): ExportDeps & { closeAll(): Promise<void> } {
   const opened: Awaited<ReturnType<typeof launch>>[] = [];
+  const library = createLibrary(home);
   return {
-    library: createLibrary(home),
+    library,
+    videos: createVideoStore(home, library),
     door: "agent",
     home,
     outDir,
@@ -196,4 +199,32 @@ describe("export lists what it saved, and holds a lease while it works", () => {
     const exposed = JSON.parse(stdout) as string[];
     expect(exposed.sort()).toEqual(expect.arrayContaining(names.sort()));
   });
+});
+
+describe("export tagging", () => {
+  it(
+    "saves untagged and says why when the tag cannot be written",
+    async () => {
+      await putTake(home, take.takeId, take.original, take.bundle);
+      const deps = {
+        ...depsFor(),
+        videos: {
+          videoOf: async () => ({ videoId: "v" }) as never,
+          get: async () => null,
+        },
+        tagBytes: () => ({
+          ok: false as const,
+          error: "the file has no room for a tag",
+        }),
+      };
+      const answer = await exportOnce({ fileType: "gif" }, deps);
+      if (answer.outcome !== "saved")
+        throw new Error(`not saved: ${JSON.stringify(answer)}`);
+      expect(answer.warnings.untagged).toEqual({
+        error: "the file has no room for a tag",
+      });
+      expect(answer.summary).toContain("the file has no room for a tag");
+    },
+    EXPORT_MS,
+  );
 });

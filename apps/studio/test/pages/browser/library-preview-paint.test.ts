@@ -154,6 +154,7 @@ function mountRow(ports: PreviewPorts): {
     preview: mounter.mount,
     filter() {},
     rename() {},
+    renameVideo() {},
     openReview() {},
   };
   // The clock the sections are measured from, beside the fixture's own

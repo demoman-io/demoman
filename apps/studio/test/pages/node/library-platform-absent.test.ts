@@ -57,6 +57,7 @@ const base = {
   preview: vi.fn(),
   filter: vi.fn(),
   rename: vi.fn(),
+  renameVideo: vi.fn(),
 };
 
 describe("the library without the extension-only members", () => {

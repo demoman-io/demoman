@@ -9,6 +9,7 @@ import {
 import {
   createBrowserSession,
   createLibrary,
+  createVideoStore,
   exportTake,
   fullChromiumPath,
   type Library,
@@ -100,6 +101,8 @@ export function buildHandlers(o: {
   /** Told after each window that opened, so the lifetime knows. */
   onWindowOpened?: () => void;
   reveal?: (path: string) => Promise<void>;
+  /** `createRoutes`' own: join and expire now, as the server starts. */
+  upkeepOnStart?: boolean;
 }): StudioHandlers {
   const { library } = o;
   const noTake = (id: string): StudioResponse =>
@@ -127,6 +130,7 @@ export function buildHandlers(o: {
       feeds: o.feeds,
       thumbs: createThumbs({ library }),
       ...(o.reveal === undefined ? {} : { reveal: o.reveal }),
+      upkeepOnStart: o.upkeepOnStart === true,
     }),
 
     async window(req) {
@@ -341,6 +345,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
       exportTake,
       deps: {
         library,
+        videos: createVideoStore(home, library, { log }),
         session: renderer,
         home,
         outDir: o.outDir,
@@ -369,6 +374,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
     log,
     version: o.version,
     queue,
+    upkeepOnStart: true,
     window: {
       open: async (t) => {
         opening += 1;

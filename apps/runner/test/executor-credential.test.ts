@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import type { LocalExecutor } from "../src/executor/types.js";
+import { ownVideo, videoOfTake } from "./fixture.js";
 import { type LoginApp, serveLoginApp } from "./login-app.js";
 
 const SECRET = "Zq-demo-passw0rd-7781";
@@ -43,6 +44,7 @@ async function typeInto(
   testId: "pw" | "nick",
 ): Promise<{ reply: string; files: string[]; takeId: string }> {
   const out = await executor.request("run", {
+    video: ownVideo(),
     script: {
       scriptVersion: 1,
       name: `type into ${testId}`,
@@ -93,7 +95,9 @@ it("keeps a demo password typed into a password field in no file and not in the 
   const derivedJson = JSON.stringify(derived);
   expect(derivedJson).not.toContain(SECRET);
   expect(derivedJson, derivedJson).toMatch(/"reason":"redacted"/);
-  const refilm = await executor.request("run", { takeId });
+  const refilm = await executor.request("run", {
+    video: await videoOfTake(home, takeId),
+  });
   expect(JSON.stringify(refilm), JSON.stringify(refilm)).toMatch(
     /refusedBeforeRun[\s\S]*unfilledHoles/,
   );
@@ -102,6 +106,7 @@ it("keeps a demo password typed into a password field in no file and not in the 
 it("hides text typed into a field the page could not be asked about", async () => {
   const NICK = "harmless-nickname";
   const out = await executor.request("run", {
+    video: ownVideo(),
     script: {
       scriptVersion: 1,
       name: "type into a missing field",
@@ -169,6 +174,7 @@ it("hides a demo password typed through the label a snapshot lists for it", asyn
     JSON.stringify(targets),
   ).toEqual([{ stableId: "nick" }]);
   const out = await executor.request("run", {
+    video: ownVideo(),
     script: {
       scriptVersion: 1,
       name: "type through the label",

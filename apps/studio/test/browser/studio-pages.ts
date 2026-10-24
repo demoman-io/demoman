@@ -6,7 +6,8 @@
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createLibrary } from "@demoman/runner/studio";
+import type { OutputRecord } from "@demoman/run-core";
+import { createLibrary, createVideoStore } from "@demoman/runner/studio";
 import type { Page } from "playwright";
 import { vi } from "vitest";
 import { type PlainTake, seedPlainTakes, seedTake } from "./painted-take.js";
@@ -56,6 +57,107 @@ export const PLAIN: PlainTake[] = [
   },
 ];
 export const UNREADABLE = "take-half-written";
+
+/** One video's three versions, oldest first (local video library §5):
+ *  the oldest past expiry's 30 days with a script, so the studio's own
+ *  expiry as it starts removes its recording; the middle one as old with
+ *  no script, which expiry keeps; the newest today, its current version. */
+export const VIDEO_TAKES: PlainTake[] = [
+  {
+    id: "invoice-v1",
+    name: "Create an invoice",
+    createdAt: daysAgo(40, 11),
+    ground: "#fee2e2",
+  },
+  {
+    id: "invoice-v2",
+    name: "Create an invoice",
+    createdAt: daysAgo(35, 11),
+    ground: "#e0e7ff",
+  },
+  {
+    id: "invoice-v3",
+    name: "Create an invoice",
+    createdAt: daysAgo(0, 9),
+    ground: "#ccfbf1",
+  },
+  // Not a version: a take of the same day, so the video's card has a
+  // neighbour in its row for the opened fold to (not) stretch.
+  {
+    id: "report-today",
+    name: "Export a report",
+    createdAt: daysAgo(0, 8),
+    ground: "#fde68a",
+  },
+];
+
+/** The newest version's exports: one on disk, one since moved away. */
+export const VIDEO_EXPORTS = ["Create an invoice.mp4", "Create an invoice.gif"];
+
+/** The neighbour's one export: a video of one version has no fold, so its
+ *  card lists it. */
+export const ONE_VERSION_EXPORT = "Export a report.mp4";
+
+/** Joins the first three `VIDEO_TAKES` (seeded by `seedHome`'s `extra`) as
+ *  one video of `acme/web`, each complete and recorded as it is, the way a
+ *  run joins its take, and gives the newest `VIDEO_EXPORTS`; the fourth is
+ *  a video of its own, of one version, with `ONE_VERSION_EXPORT`. */
+export async function joinVideo(home: string): Promise<string> {
+  const library = createLibrary(home);
+  const store = createVideoStore(home, library);
+  const made = await store.create({
+    name: "Create an invoice",
+    repo: { key: "github.com/acme/web" },
+    startPage: "https://app.example.com/",
+  });
+  if (!made.ok) throw new Error("the video could not be made");
+  const [kept, gone] = VIDEO_EXPORTS.map((n) => join(home, "out", n)) as [
+    string,
+    string,
+  ];
+  const report = join(home, "out", ONE_VERSION_EXPORT);
+  await mkdir(join(home, "out"), { recursive: true });
+  await writeFile(kept, "an exported video");
+  await writeFile(report, "an exported video");
+  for (const [takeId, path, fileType] of [
+    ["invoice-v3", kept, "mp4"],
+    ["invoice-v3", gone, "gif"],
+    ["report-today", report, "mp4"],
+  ] as const) {
+    await library.appendOutput(takeId, {
+      path,
+      fileType,
+      aspect: "16:9",
+      byteLength: 1,
+      renderedAt: new Date().toISOString(),
+      sceneDigest: "digest",
+      report: { outcome: "saved" } as unknown as OutputRecord["report"],
+    });
+  }
+  const alone = await store.create({
+    name: "Export a report",
+    repo: { key: "github.com/acme/web" },
+    startPage: "https://app.example.com/",
+  });
+  if (!alone.ok) throw new Error("the one-version video could not be made");
+  for (const [i, t] of VIDEO_TAKES.entries()) {
+    await library.putJson(t.id, "status.json", { outcome: "complete" });
+    if (i !== 1) await library.putJson(t.id, "script.json", {});
+    const read = await library.getSceneRead(t.id);
+    if (read === null) throw new Error(`${t.id} was not seeded`);
+    await store.join(t.id, {
+      videoId: i < 3 ? made.video.id : alone.video.id,
+      made: {
+        repo: { none: "seeded" },
+        agent: { none: "seeded" },
+        by: { none: "seeded" },
+        door: "mcp",
+      },
+      recordedRevision: read.revision,
+    });
+  }
+  return made.video.id;
+}
 
 /** The library, the take the editor opens, and the kits. */
 export async function seedHome(

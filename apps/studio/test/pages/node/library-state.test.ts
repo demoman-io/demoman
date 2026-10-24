@@ -8,11 +8,13 @@ import type {
 } from "../../../pages/src/library/state";
 import {
   buildLibraryModel,
+  cardsOf,
   facetsOf,
   filterRows,
   formatBytes,
   NO_FILTER,
   reclaimSentence,
+  repoLabel,
   sectionsOf,
 } from "../../../pages/src/library/state";
 
@@ -585,5 +587,97 @@ describe("reclaimSentence", () => {
     expect(
       Object.fromEntries(model.rows.map((r) => [r.sceneId, r.authored])),
     ).toEqual({ demo: false, screen: false, absent: false, authored: true });
+  });
+});
+
+describe("videoGroupsOf, through buildLibraryModel", () => {
+  const at = (id: string, createdAt: string) =>
+    ({
+      meta: {
+        id,
+        name: id,
+        createdAt,
+        capture: { originUrl: "https://app.test/x" },
+      },
+    }) as never;
+  const summary = (id: string, versions: number, current: string | null) => ({
+    id,
+    name: id,
+    repo: { unknown: true as const },
+    startPage: "https://app.test/",
+    versions,
+    current:
+      current === null
+        ? null
+        : {
+            version: 0,
+            takeId: current,
+            recordedAt: "",
+            expired: false,
+          },
+    pages: [],
+    steps: [],
+    exports: [],
+  });
+  const model = () =>
+    buildLibraryModel({
+      scenes: [
+        at("a1", "2026-09-01T00:00:00Z"),
+        at("a2", "2026-09-02T00:00:00Z"),
+        at("a3", "2026-09-03T00:00:00Z"),
+        at("b1", "2026-09-04T00:00:00Z"),
+        at("loose", "2026-09-05T00:00:00Z"),
+      ],
+      migrating: false,
+      migrationFailed: false,
+      notice: null,
+      needsLook: new Set(),
+      // a3 is the newest and failed: the newest complete is a2.
+      videos: [summary("A", 3, "a2"), summary("B", 1, null)],
+      videoOf: {
+        a1: { videoId: "A", version: 1, expired: true, exports: [] },
+        a2: { videoId: "A", version: 2, expired: false, exports: [] },
+        a3: { videoId: "A", version: 3, expired: false, exports: [] },
+        b1: { videoId: "B", version: 1, expired: false, exports: [] },
+      },
+    });
+
+  it("makes a group per video, versions newest first, the current row the newest complete", () => {
+    // Red: take the newest row as current — a3.
+    const groups = model().groups ?? [];
+    expect(groups.map((g) => g.video.id)).toEqual(["A", "B"]);
+    const [a, b] = groups;
+    expect(a?.versions.map((r) => r.sceneId)).toEqual(["a3", "a2", "a1"]);
+    expect(a?.current?.sceneId).toBe("a2");
+    expect(a?.versions.map((r) => [r.version, r.expired])).toEqual([
+      [3, false],
+      [2, false],
+      [1, true],
+    ]);
+    // None completed: no current, and the card shows the newest.
+    expect(b?.current).toBeNull();
+  });
+
+  it("makes one card per video, its current version else its newest, and one per take in no video", () => {
+    // Red: list every row — five cards.
+    const cards = cardsOf(model());
+    expect(
+      cards.map((c) => [c.row.sceneId, c.group?.video.id ?? null]),
+    ).toEqual([
+      ["loose", null],
+      ["b1", "B"],
+      ["a2", "A"],
+    ]);
+    // Dated by its newest version (a3), when it was last recorded.
+    expect(cards[2]?.row.createdAt).toBe("2026-09-03T00:00:00Z");
+  });
+});
+
+describe("repoLabel", () => {
+  it("is a remote's owner and name, a local repo's folder, no repo, or nothing when not known", () => {
+    expect(repoLabel({ key: "github.com/acme/web" })).toBe("acme/web");
+    expect(repoLabel({ key: "local:/Users/me/code/shop/.git" })).toBe("shop");
+    expect(repoLabel({ none: "not a git checkout" })).toBe("no repo");
+    expect(repoLabel({ unknown: true })).toBeNull();
   });
 });

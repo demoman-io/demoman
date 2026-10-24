@@ -218,6 +218,7 @@ async function agentExport(
       { takeId, fileType: "gif" },
       {
         library: createLibrary(home),
+        videos: { videoOf: async () => null, get: async () => null },
         session: {
           headless: true,
           openWorkPage: async () => ({

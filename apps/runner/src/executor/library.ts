@@ -112,7 +112,7 @@ const sha256 = (text: string): string =>
 
 /** A pid that signals as nonexistent is dead; EPERM means alive and ours to
  *  leave alone. */
-const pidAlive = (pid: number): boolean => {
+export const pidAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
     return true;
@@ -157,6 +157,40 @@ async function readOutputRows(file: string): Promise<OutputRecord[]> {
     );
   }
   return parsed as OutputRecord[];
+}
+
+/** The lease files in a take's `.busy/` folder, parsed. A file that will
+ *  not parse is said, not skipped: skipping it would let a delete past a
+ *  live export. */
+export async function readLeases(
+  dir: string,
+): Promise<{ file: string; holder: LeaseHolder }[]> {
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch (error) {
+    if (isMissing(error)) return [];
+    throw new LibraryError(
+      "libraryUnreadable",
+      `could not list ${dir} (${messageOf(error)})`,
+    );
+  }
+  const found: { file: string; holder: LeaseHolder }[] = [];
+  for (const name of names.filter((n) => n.endsWith(".json"))) {
+    const file = join(dir, name);
+    try {
+      found.push({
+        file,
+        holder: JSON.parse(await readFile(file, "utf8")) as LeaseHolder,
+      });
+    } catch (error) {
+      throw new LibraryError(
+        "libraryUnreadable",
+        `could not read the lease ${file} (${messageOf(error)})`,
+      );
+    }
+  }
+  return found;
 }
 
 /**
@@ -252,39 +286,7 @@ export function createLibrary(
 
   const busyDir = (id: string) => join(takeDir(id), ".busy");
 
-  /** The lease files of a take, parsed. A file that will not parse is
-   *  said, not skipped: skipping it would let a delete past a live export. */
-  async function holdersOf(
-    id: string,
-  ): Promise<{ file: string; holder: LeaseHolder }[]> {
-    const dir = busyDir(id);
-    let names: string[];
-    try {
-      names = await readdir(dir);
-    } catch (error) {
-      if (isMissing(error)) return [];
-      throw new LibraryError(
-        "libraryUnreadable",
-        `could not list ${dir} (${messageOf(error)})`,
-      );
-    }
-    const found: { file: string; holder: LeaseHolder }[] = [];
-    for (const name of names.filter((n) => n.endsWith(".json"))) {
-      const file = join(dir, name);
-      try {
-        found.push({
-          file,
-          holder: JSON.parse(await readFile(file, "utf8")) as LeaseHolder,
-        });
-      } catch (error) {
-        throw new LibraryError(
-          "libraryUnreadable",
-          `could not read the lease ${file} (${messageOf(error)})`,
-        );
-      }
-    }
-    return found;
-  }
+  const holdersOf = (id: string) => readLeases(busyDir(id));
 
   /** Written beside, then renamed over: a process killed mid-write leaves
    *  the old file or the new one, never half of one (review 2026-10-13,

@@ -169,7 +169,15 @@ it("signs in as an account with no window, then films behind it, leaving no pass
       provenance?: { takeId: string | null };
     };
     let v = JSON.parse(
-      text(await c.callTool({ name: "run", arguments: { script } })),
+      text(
+        await c.callTool({
+          name: "run",
+          arguments: {
+            script,
+            video: { new: "Signed in as a demo account", confirmedNew: true },
+          },
+        }),
+      ),
     ) as Rep;
     const deadline = Date.now() + 120_000;
     while (["running", "stillRunning"].includes(v.outcome)) {

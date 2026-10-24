@@ -1,12 +1,23 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../packages/compositor/test/fixtures/scene.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary, type Library } from "../src/executor/library.js";
+import { ensureVideos, JOIN_GRACE_MS } from "../src/executor/migrate-videos.js";
 import { refilmFromLibrary } from "../src/executor/refilm.js";
 import type { LocalExecutor } from "../src/executor/types.js";
+import { createVideoStore } from "../src/executor/videos.js";
+import { videoOfTake } from "./fixture.js";
 
 let home: string;
 let executor: LocalExecutor;
@@ -38,60 +49,118 @@ const run = async (args: Record<string, unknown>) => {
   };
 };
 
-describe("run's door, given a take", () => {
-  it("refuses both a script and a takeId", async () => {
-    expect(await run({ script: {}, takeId: scene.meta.id })).toMatchObject({
+/** A take of its own name in the library, and the video it joins (the
+ *  migration every run starts with makes one per name and start page). */
+async function takeInVideo(
+  id: string,
+  edit: (doc: typeof scene) => typeof scene = (d) => d,
+): Promise<{ id: string }> {
+  const library = createLibrary(home);
+  await library.putScene(
+    edit({ ...scene, meta: { ...scene.meta, id, name: id } }),
+  );
+  await ensureVideos(createVideoStore(home, library), library);
+  return videoOfTake(home, id);
+}
+
+describe("run's door, given a video", () => {
+  it("refuses a run that names no video, saying a takeId is gone", async () => {
+    expect(await run({ script: {} })).toMatchObject({
       outcome: "refusedBeforeRun",
-      reason: "invalidScript",
-      field: "script, takeId",
+      reason: "videoRequired",
+      field: "video",
     });
+    const old = await run({ takeId: scene.meta.id });
+    expect(old).toMatchObject({ reason: "videoRequired" });
+    expect(old.detail).toMatch(/takeId is gone/);
   });
-  it("refuses neither", async () => {
-    expect(await run({})).toMatchObject({
+  it("refuses a new video with no script", async () => {
+    expect(await run({ video: { new: "Anything" } })).toMatchObject({
       outcome: "refusedBeforeRun",
       reason: "invalidScript",
       field: "script",
     });
   });
-  it("answers takeNotFound for an id the library does not hold", async () => {
-    expect(await run({ takeId: "scene-nope" })).toMatchObject({
-      outcome: "refusedBeforeRun",
-      reason: "takeNotFound",
-    });
+  it("answers videoNotFound for an id the library does not hold", async () => {
+    for (const id of ["nope", "00000000-0000-4000-8000-000000000000", "../x"]) {
+      expect(await run({ video: { id } }), id).toMatchObject({
+        outcome: "refusedBeforeRun",
+        reason: "videoNotFound",
+        field: "video",
+      });
+    }
   });
-  it("answers takeUnreadable for a take that will not parse", async () => {
-    await mkdir(join(home, "takes", "scene-broken"), { recursive: true });
+  it("answers videoUnreadable for a video whose version will not parse", async () => {
+    const video = await takeInVideo("scene-broken");
     await writeFile(join(home, "takes", "scene-broken", "scene.json"), "{");
-    expect(await run({ takeId: "scene-broken" })).toMatchObject({
+    const out = await run({ video });
+    expect(out).toMatchObject({
       outcome: "refusedBeforeRun",
-      reason: "takeUnreadable",
+      reason: "videoUnreadable",
+      field: "video",
     });
+    expect(out.detail).toContain("scene-broken");
   });
-  it("refuses a take whose typed text was redacted, naming derive", async () => {
+  it("answers videoUnwritable when the migration before the run cannot write", async () => {
+    const library = createLibrary(home);
+    await library.putScene({
+      ...scene,
+      meta: { ...scene.meta, id: "scene-unmigrated", name: "Unmigrated" },
+    });
+    // Premise: the take is old enough to migrate, and is in no video yet.
+    expect(Date.now() - Date.parse(scene.meta.createdAt)).toBeGreaterThan(
+      JOIN_GRACE_MS,
+    );
+    expect(
+      await createVideoStore(home, library).videoOf("scene-unmigrated"),
+    ).toBeNull();
+    const videosDir = join(home, "videos");
+    await mkdir(videosDir, { recursive: true });
+    await chmod(videosDir, 0o500);
+    let out: Awaited<ReturnType<typeof run>>;
+    try {
+      out = await run({ video: { id: randomUUID() }, script: {} });
+    } finally {
+      await chmod(videosDir, 0o700);
+    }
+    expect(out).toMatchObject({
+      outcome: "refusedBeforeRun",
+      reason: "videoUnwritable",
+      field: "video",
+    });
+    // The migration takes the library's lock first; that is the write
+    // refused here, and the detail names it.
+    expect(out.detail).toContain(`could not take ${join(videosDir, ".lock")}`);
+  });
+  it("refuses a video whose version's typed text was redacted, naming derive", async () => {
     const t = scene.actions.find((a) => a.kind === "type");
     if (t === undefined) throw new Error("fixture has no type step");
-    const redacted = {
-      ...scene,
-      meta: { ...scene.meta, id: "scene-redacted" },
-      actions: scene.actions.map((a) =>
-        a.id === t.id ? { ...a, text: null, redacted: true } : a,
-      ),
-    };
-    await createLibrary(home).putScene(redacted as typeof scene);
-    const out = await run({ takeId: "scene-redacted" });
+    const video = await takeInVideo(
+      "scene-redacted",
+      (d) =>
+        ({
+          ...d,
+          actions: d.actions.map((a) =>
+            a.id === t.id ? { ...a, text: null, redacted: true } : a,
+          ),
+        }) as typeof scene,
+    );
+    const out = await run({ video });
     expect(out).toMatchObject({
       outcome: "refusedBeforeRun",
       reason: "unfilledHoles",
     });
     expect(out.detail).toMatch(/derive/);
+    expect(out.detail).toMatch(
+      /^version 1 of video "scene-redacted" \(take scene-redacted\)/,
+    );
   });
 
-  it("says a script built from the take that the schema refuses came from the take", async () => {
+  it("says a script built from the video's version that the schema refuses came from that take", async () => {
     const id = "scene-bad-viewport";
-    const library = createLibrary(home);
-    await library.putScene({ ...scene, meta: { ...scene.meta, id } });
+    const video = await takeInVideo(id);
     // A saved script whose viewport the script schema refuses.
-    await library.putJson(id, "script.json", {
+    await createLibrary(home).putJson(id, "script.json", {
       skeletonVersion: 1,
       name: "Bad viewport",
       scriptVersion: 1,
@@ -100,7 +169,7 @@ describe("run's door, given a take", () => {
       look: null,
       steps: [],
     });
-    const out = await run({ takeId: id });
+    const out = await run({ video });
     expect(out).toMatchObject({
       outcome: "refusedBeforeRun",
       reason: "invalidScript",
@@ -112,6 +181,7 @@ describe("run's door, given a take", () => {
     );
     // Control: a script passed as itself carries no such prefix.
     const own = await run({
+      video,
       script: {
         scriptVersion: 1,
         name: "x",
@@ -124,15 +194,16 @@ describe("run's door, given a take", () => {
     expect(own.detail).not.toMatch(/built from take/);
   });
 
-  it("holds the slot while the take is read, and releases it after", async () => {
-    // Premise: this take refuses unfilledHoles after the library reads.
-    const first = run({ takeId: "scene-redacted" });
-    const second = run({ takeId: "scene-redacted" });
+  it("holds the slot while the version is read, and releases it after", async () => {
+    // Premise: this video refuses unfilledHoles after the library reads.
+    const video = await videoOfTake(home, "scene-redacted");
+    const first = run({ video });
+    const second = run({ video });
     const reasons = (await Promise.all([first, second]))
       .map((o) => o.reason)
       .sort();
     expect(reasons).toEqual(["alreadyRunning", "unfilledHoles"]);
-    const third = await run({ takeId: "scene-redacted" });
+    const third = await run({ video });
     expect(third.reason).toBe("unfilledHoles");
   });
 });

@@ -141,8 +141,17 @@ export interface RunDeps {
   /** Every string in the report passes this before `report.json` is
    *  written: the executor's secret sweep. */
   scrub?: <T>(value: T) => T;
-  /** Set by `run({ takeId })`: what the merge said, carried into the report. */
+  /** Set by a re-record (`run({ video: { id } })` with no script): what the
+   *  merge said, carried into the report. */
   refilm?: RefilmInfo;
+  /** Joins the run's take to its video once the take is in the library;
+   *  throws a sentence saying what failed, which `notStored` carries. */
+  joinVideo?: (
+    takeId: string,
+  ) => Promise<NonNullable<RunReport["videoVersion"]>>;
+  /** The checkout's commit (`git rev-parse HEAD`), stored as the take's
+   *  `meta.capture.buildSha`. Absent: not a checkout, or no commit yet. */
+  buildSha?: string;
   /** Tests only: the mux, so a test can make it throw. Defaults to
    *  `muxSpans`. */
   muxSpans?: typeof muxSpans;
@@ -665,7 +674,21 @@ export async function runScript(
   let takeId: string | null = null;
   // No take for a signed-out run: before filming there is nothing to keep,
   // and after a mid-run lapse its frames end on the sign-in page.
-  const document = signedOut ? null : walked.document;
+  const walkedDoc = signedOut ? null : walked.document;
+  const document =
+    walkedDoc === null || deps.buildSha === undefined
+      ? walkedDoc
+      : {
+          ...walkedDoc,
+          meta: {
+            ...walkedDoc.meta,
+            capture: {
+              ...walkedDoc.meta.capture,
+              buildSha: deps.buildSha,
+              buildShaSource: "git rev-parse HEAD",
+            },
+          },
+        };
   if (document !== null) {
     try {
       // Swept like report.json: an anchor's text can carry a displayed value
@@ -707,6 +730,14 @@ export async function runScript(
         : deps.scrub(skeletonOf(script, walked.steps, document)),
       notStored,
     );
+  }
+  let videoVersion: RunReport["videoVersion"];
+  if (takeId !== null && deps.joinVideo !== undefined) {
+    try {
+      videoVersion = await deps.joinVideo(takeId);
+    } catch (error) {
+      notStored.push({ what: "video", error: messageOf(error) });
+    }
   }
   if (takeId === null) {
     // Frames with no take to belong to: removed, and said if they cannot be.
@@ -818,6 +849,7 @@ export async function runScript(
     ...built,
     ...(landingNote === undefined ? {} : { landing: landingNote }),
     ...(deps.refilm === undefined ? {} : { rerecord: deps.refilm }),
+    ...(videoVersion === undefined ? {} : { videoVersion }),
   };
   if (takeId !== null) {
     await library

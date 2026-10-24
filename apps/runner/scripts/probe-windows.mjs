@@ -69,7 +69,12 @@ for (const mode of ["tab", "background", "minimized"]) {
     outDir: join(home, "out"),
   });
   try {
-    const run = await ex.request("run", { script, callId: `r-${mode}` });
+    // A fresh home each mode, so the name is free: confirmedNew is not needed.
+    const run = await ex.request("run", {
+      script,
+      video: { new: `Probe windows (${mode})` },
+      callId: `r-${mode}`,
+    });
     const takeId = run.ok ? run.value?.provenance?.takeId : null;
     if (!takeId) {
       console.info(

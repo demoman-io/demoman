@@ -38,11 +38,11 @@ import { rerunAdvice, rerunLineOf } from "../../../pages/src/shell/runs-link";
  */
 
 const REFILM =
-  'Ask your agent to re-record this take — `run({ takeId: "t1" })`';
+  'Ask your agent to re-record this take — `run({ video: { id: "v1" } })`';
 const line = { kind: "line" as const, text: REFILM };
 /** What a reader sees: the words, the span's backticks gone (ruling R20). */
 const REFILM_WORDS = REFILM.replaceAll("`", "");
-const REFILM_CODE = 'run({ takeId: "t1" })';
+const REFILM_CODE = 'run({ video: { id: "v1" } })';
 /** The drawn line: no literal backtick, and the call is a `code` element. */
 const expectDrawnLine = (node: Element | null | undefined): void => {
   expect(node, "the line was drawn").toBeTruthy();

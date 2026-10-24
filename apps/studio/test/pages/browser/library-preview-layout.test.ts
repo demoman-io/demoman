@@ -57,6 +57,7 @@ const actions: LibraryActions = {
   preview() {},
   filter() {},
   rename() {},
+  renameVideo() {},
   openReview() {},
 };
 

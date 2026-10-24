@@ -300,6 +300,9 @@
            a bare 270px would scroll a viewport narrower than that sideways. */
         grid-template-columns: repeat(auto-fill, minmax(min(270px, 100%), 1fr));
         gap: 14px;
+        /* Each card its own height: a video's versions opened under one
+           card must not stretch its neighbours to match. */
+        align-items: start;
       }
       /* The cards sit 14px under their day, as a card sits under its
          title on Settings. */
@@ -583,6 +586,57 @@
         .row-line > .row-size { grid-area: 2 / 1; }
       }
       article.card [data-status] { margin: 0 12px 12px; }
+      /* A video's versions, under its card: the count is the fold, and
+         each version a line of its number, when, and its actions. */
+      .versions { padding: 0 8px 8px 12px; cursor: default; }
+      .versions-count {
+        list-style: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        width: fit-content;
+        font-size: 12.5px;
+        color: var(--ink-muted);
+      }
+      .versions-count::-webkit-details-marker { display: none; }
+      .versions > .versions-count > .chev { width: 14px; height: 14px; }
+      .versions-count:hover .chev { color: var(--ink); }
+      .versions[open] > .versions-count .chev { transform: rotate(90deg); }
+      .versions-list { list-style: none; margin: 6px 0 0; padding: 0; }
+      .version-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+        font-size: 12.5px;
+      }
+      .version-number { font-variant-numeric: tabular-nums; }
+      .version-when {
+        flex: 1;
+        min-width: 0;
+        color: var(--ink-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .version .row-rerun { margin: 0 0 6px; font-size: 12px; color: var(--ink-muted); }
+      article.card .version [data-status] { margin: 0 0 6px; }
+      .version-exports { list-style: none; margin: 0 0 6px; padding: 0; }
+      .version-exports li {
+        display: flex;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--ink-muted);
+      }
+      .version-exports .export-name {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .version-exports [data-gone] .export-name { text-decoration: line-through; }
       /* A folder the studio could not read is a row of words, not a take:
          its name, the reason and the size are what it says, so none of
          them trades places with the others at rest or under the pointer

@@ -247,17 +247,19 @@ const SNAPSHOT_TAIL =
  * extension executor had words of its own beside these.)
  */
 const DESCRIPTIONS: Record<
-  "status" | "snapshot" | "takes" | "run" | "export",
+  "status" | "snapshot" | "takes" | "videos" | "run" | "export",
   string
 > = {
   status:
-    "Is this demoman-mcp's own browser up? executor \"cli\": this server runs scripts in a browser of its own, with no extension to connect or approve. Answers version, browserInstalled (false: the first snapshot or run answers browserMissing with the command that installs it), browserRunning (the window opens on the first snapshot, run or export and stays open between calls), runnerVersion, runPage (the latest run's report or its progress), and update (newer: true means a newer Demoman is out; tell the user once). sessions lists the sessions saved (site, savedAt, refreshedAt, signInUrl; an account's carries account and origin too, a plain entry is the site's manual session), or {unreadable} saying why it could not be read. accounts is the demo accounts in .demoman/accounts.json: {file, sites: [{origin, default, accounts: [{name, about, session}]}]}, {file: null, searchedFrom} when there is none, or {file, invalid, field} when it cannot be used; secretsFile is null, {path, absent}, {path, git: ignored or notGit} or {path, refused}. Never a value. pullRequests is the pull-request video setting: {value: off, ask or attach, from: repo, user or default, file?}, or {unreadable, file} when its file cannot be used (never read that as off; file null: project is not a usable folder); pass project (absolute path) to read another checkout's.",
+    "Is this demoman-mcp's own browser up? executor \"cli\": this server runs scripts in a browser of its own, with no extension to connect or approve. Answers version, browserInstalled (false: the first snapshot or run answers browserMissing with the command that installs it), browserRunning (the window opens on the first snapshot, run or export and stays open between calls), runnerVersion, runPage (the latest run's report or its progress), and update (newer: true means a newer Demoman is out; tell the user once). expiry is the last cleanup of old recordings: {ranAt, expired, freedBytes, skippedLeased}, {ranAt, failed}, {never: true} or {unreadable}. sessions lists the sessions saved (site, savedAt, refreshedAt, signInUrl; an account's carries account and origin too, a plain entry is the site's manual session), or {unreadable} saying why it could not be read. accounts is the demo accounts in .demoman/accounts.json: {file, sites: [{origin, default, accounts: [{name, about, session}]}]}, {file: null, searchedFrom} when there is none, or {file, invalid, field} when it cannot be used; secretsFile is null, {path, absent}, {path, git: ignored or notGit} or {path, refused}. Never a value. pullRequests is the pull-request video setting: {value: off, ask or attach, from: repo, user or default, file?}, or {unreadable, file} when its file cannot be used (never read that as off; file null: project is not a usable folder); pass project (absolute path) to read another checkout's.",
   snapshot: `Open url in this server's own browser — signed in where the user ran npx demoman signin, or as a demo account (account; project: absolute path) — and ${SNAPSHOT_TARGETS} kits is {ok: true, kits: [{name, default, valid}]}: the user's brand kits; name one in a script's look.kit (with scriptVersion 2) only when the user asked for that look; {ok: false, reason} means unreadable: name none. landedElsewhere true means the app redirected: session "signedOut" (or a plain sign-in landedUrl with "none"/"unchecked") means a sign-in page: spend no run; set up a demo account (recipe) or give the user sessionDetail's command (npx demoman signin <the page>). signedIn means Demoman signed in first. If landedUrl is not a sign-in page, use it as the target. ${SNAPSHOT_TAIL} Past about 50 s it answers {outcome: "stillRunning", id}; then call report with that id.`,
   takes:
     "The takes this demoman-mcp's own browser made, newest first: id, name, createdAt, mode, actions. A folder that is not a readable take comes last as {id, unreadable}, saying why. Not the user's Demoman library in their browser.",
-  run: 'Run a DemoScript in this demoman-mcp\'s own browser (signed in where the user ran npx demoman signin, or as the account the script names, at scriptVersion 5; project is the absolute path of another checkout) and answer its report, which carries account and signedIn; the take is saved on disk. Pass {takeId} instead of {script} to re-record a take whose scene.json was edited: a new take, counted as a run. A second run or snapshot while one is in progress is refused (alreadyRunning). Answers {outcome: "stillRunning", id} if it takes longer than about 50 s; then call report with that id.',
+  videos:
+    "The videos in this repo (project: absolute path of another checkout; videos of unknown repo are listed everywhere), newest first: id, name, repo, startPage, versions, current {version, takeId, recordedAt, expired}, pages, steps (the first 12), exports {takeId, path, fileType, exists} of every version. Pass query to find the ones about a phrase (best match first, over every step; no match is an empty list), or file (absolute path of an exported MP4, GIF or PNG) to find the video it was exported from, and file {takeId, version, current, expired} saying which version it is ({takeId, notInVideo} when that take is no longer one). unreadable lists takes and video records that could not be read, each {id, unreadable}. deferred is null, or why takes not yet in a video were left out this time (another Demoman process holds the library; ask again). Refused: noTag (the file carries no Demoman tag), unknownVideo (its video is not in this library; detail names the id), fileNotFound, videoUnreadable, invalidProject, invalidArgs (file with query).",
+  run: 'Run a DemoScript in this demoman-mcp\'s own browser (signed in where the user ran npx demoman signin, or as the account the script names, at scriptVersion 5; project is the absolute path of another checkout) and answer its report, which carries account and signedIn; the take is saved on disk. Every run names its video: video {id} adds a version to that video, {new: name} starts one (refused as possibleDuplicate, listing matches, when a similar name exists in this repo; pass confirmedNew: true if it is a different flow). video {id} with no script re-records the current version of that video, studio edits included: a new version, counted as a run. A second run or snapshot while one is in progress is refused (alreadyRunning). Answers {outcome: "stillRunning", id} if it takes longer than about 50 s; then call report with that id.',
   export:
-    'Render a take this server made to an MP4, a GIF (fileType "gif") or a folder of PNG stills, one per step (fileType "stills"; stills.width in px or "native", stills.zoom "none" or "step"; MP4 quality: absent, the user\'s Export quality setting, "high" unless they changed it (60 fps, about 30 MB for 30 s); "share" as small as stays crisp, the default with maxMB; "full" the largest file; maxMB caps an MP4\'s size, lowering fps, then size, then quality), and save it on this machine — in ~/Downloads, or the folder demoman-mcp was started with --out-dir — in the take\'s frame (Auto, 16:9 or 9:16) and branding, logo included. Answers the export report; on "saved", file.path is the file\'s absolute path, or folder.path the stills folder\'s, summary is the sentence to give the user, and links holds one-click links for them (studio, file, copy; linksError says why there are none). A second export, run or snapshot while one is in progress is refused (busy, alreadyRunning). Past about 50 s it answers {outcome: "stillRunning", id}; then call report with that id.',
+    'Render a take this server made to an MP4, a GIF (fileType "gif") or a folder of PNG stills, one per step (fileType "stills"; stills.width in px or "native", stills.zoom "none" or "step"; MP4 quality: absent, the user\'s Export quality setting, "high" unless they changed it (60 fps, about 30 MB for 30 s); "share" as small as stays crisp, the default with maxMB; "full" the largest file; maxMB caps an MP4\'s size, lowering fps, then size, then quality), and save it on this machine — in ~/Downloads, or the folder demoman-mcp was started with --out-dir — in the take\'s frame (Auto, 16:9 or 9:16) and branding, logo included. Refused versionExpired when the take\'s frames were removed after 30 days: run with video {id} again. A saved export may carry warnings.untagged (the file could not be tagged with its video). Answers the export report; on "saved", file.path is the file\'s absolute path, or folder.path the stills folder\'s, summary is the sentence to give the user, and links holds one-click links for them (studio, file, copy; linksError says why there are none). A second export, run or snapshot while one is in progress is refused (busy, alreadyRunning). Past about 50 s it answers {outcome: "stillRunning", id}; then call report with that id.',
 };
 
 /** What the `studio` tool answers: the studio opened, or a refusal. Declared
@@ -509,6 +511,28 @@ export function registerTools(
   );
 
   server.registerTool(
+    "videos",
+    {
+      annotations: TOOL_ANNOTATIONS.videos,
+      description: said.videos,
+      inputSchema: {
+        file: z.string().min(1).optional(),
+        query: z.string().min(1).optional(),
+        project: z.string().min(1).optional(),
+      },
+    },
+    async ({ file, query, project }) =>
+      answered(
+        "videos",
+        link.request("videos", {
+          ...(file === undefined ? {} : { file }),
+          ...(query === undefined ? {} : { query }),
+          ...(project === undefined ? {} : { project }),
+        }),
+      ),
+  );
+
+  server.registerTool(
     "derive",
     {
       annotations: TOOL_ANNOTATIONS.derive,
@@ -525,19 +549,33 @@ export function registerTools(
     {
       annotations: TOOL_ANNOTATIONS.run,
       description: said.run,
-      inputSchema: {
-        script: z.record(z.string(), z.unknown()).optional(),
-        takeId: z.string().min(1).optional(),
-        project: z.string().min(1).optional(),
-      },
+      // Strict: a takeId (run's old re-record) is refused here, not dropped.
+      // `video` is optional so its absence reaches the runner, which answers
+      // videoRequired saying how to name one.
+      inputSchema: z
+        .object({
+          script: z.record(z.string(), z.unknown()).optional(),
+          video: z
+            .union([
+              z.object({ id: z.string().min(1) }).strict(),
+              z
+                .object({
+                  new: z.string().min(1),
+                  confirmedNew: z.boolean().optional(),
+                })
+                .strict(),
+            ])
+            .optional(),
+          project: z.string().min(1).optional(),
+        })
+        .strict(),
     },
-    async ({ script, takeId, project }, extra) => {
-      // Both or neither reaches the runner's door, which answers invalidScript.
+    async ({ script, video, project }, extra) => {
       return longCall(
         "run",
         {
           ...(script === undefined ? {} : { script }),
-          ...(takeId === undefined ? {} : { takeId }),
+          ...(video === undefined ? {} : { video }),
           ...(project === undefined ? {} : { project }),
         },
         extra as unknown as Extra,

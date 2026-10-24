@@ -10,6 +10,7 @@ export {
   createBrowserSession,
   fullChromiumPath,
 } from "./executor/browser.js";
+export { expireOld, expiryStatus } from "./executor/expiry.js";
 export {
   type ExportDeps,
   type Exporting,
@@ -21,12 +22,21 @@ export {
   type Library,
   LibraryError,
   ownHome,
+  pidAlive,
+  readLeases,
 } from "./executor/library.js";
 export { readLogo } from "./executor/logo-ref.js";
+export { ensureVideos } from "./executor/migrate-videos.js";
 export {
   readUserSettings,
   type UserSettings,
 } from "./executor/user-settings.js";
+export {
+  createVideoStore,
+  VideoError,
+  type VideoStore,
+} from "./executor/videos.js";
+export { summarise, type VideoSummary } from "./executor/videos-op.js";
 export {
   chromiumInstallCommand,
   loadedPlaywrightVersion,

@@ -99,6 +99,7 @@ const noop = {
   preview() {},
   filter() {},
   rename() {},
+  renameVideo() {},
   openReview() {},
 };
 

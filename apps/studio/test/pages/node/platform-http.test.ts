@@ -185,7 +185,9 @@ describe("every request", () => {
   it("carries the Studio header and the session cookie", async () => {
     const platform = createPlatform();
     studio.route((c) =>
-      c.url === "/api/takes" ? json(200, { scenes: [] }) : undefined,
+      c.url === "/api/takes"
+        ? json(200, { scenes: [], videos: [], videoOf: {} })
+        : undefined,
     );
     expect(await platform.scenes.list()).toEqual([]);
     const call = studio.calls.find((c) => c.url === "/api/takes");
@@ -868,9 +870,69 @@ describe("frames, outputs, nav", () => {
     expect(platform.nav.editor("t 1")).toBe("/editor.html?scene=t%201");
     expect(platform.nav.library()).toBe("/");
     expect(platform.nav.kits?.()).toBe("/settings.html");
+    // A take not read yet, or in no video: no call can name it.
     expect(platform.nav.rerun("t1", false)).toEqual({
       kind: "line",
-      text: 'Ask your agent to re-record this take — `run({ takeId: "t1" })`',
+      text: "Ask your agent to re-record this take.",
+    });
+  });
+
+  it("names the take's video in the re-record line once the take was read", async () => {
+    // Red: build the line from the take id — `run({ takeId })`, which the
+    // runner refuses (videoRequired).
+    const platform = createPlatform();
+    const VIDEO = "0b5d2a6e-1c3f-4e8a-9b7d-2f4c6a8e0b1d";
+    studio.route((c) =>
+      c.url === "/api/takes/t1/scene"
+        ? json(200, {
+            scene: readonlyScene(),
+            revision: "r-1",
+            notes: [],
+            videoId: VIDEO,
+          })
+        : undefined,
+    );
+    await platform.scenes.get("t1");
+    expect(platform.nav.rerun("t1", false)).toEqual({
+      kind: "line",
+      text: `Ask your agent to re-record this take — \`run({ video: { id: "${VIDEO}" } })\``,
+    });
+  });
+
+  it("says why the take's video could not be read where the re-record line goes", async () => {
+    // Red (second review 6): drop videoError on the floor — the editor
+    // reads "Ask your agent to re-record this take." as if it were in no
+    // video.
+    const platform = createPlatform();
+    const why = "/h/takes/t1/video.json is not JSON (Unexpected token)";
+    studio.route((c) =>
+      c.url === "/api/takes/t1/scene"
+        ? json(200, {
+            scene: readonlyScene(),
+            revision: "r-1",
+            notes: [],
+            videoId: null,
+            videoError: why,
+          })
+        : undefined,
+    );
+    await platform.scenes.get("t1");
+    expect(platform.nav.rerun("t1", false)).toEqual({
+      kind: "line",
+      text: `Couldn't read which video this take is in: ${why}`,
+    });
+  });
+
+  it("reads a video delete that stopped part-way as partly deleted, never as deleted", async () => {
+    const platform = createPlatform();
+    studio.route((c) =>
+      c.method === "DELETE"
+        ? json(200, { note: null, partly: "only 1 of its 3 recordings went" })
+        : undefined,
+    );
+    expect(await platform.videos.remove("v")).toEqual({
+      ok: true,
+      partly: "only 1 of its 3 recordings went",
     });
   });
 
@@ -902,9 +964,13 @@ describe("the take folder and the kit feed", () => {
     const platform = createPlatform();
     const scene = readonlyScene();
     const sent = {
+      videos: [],
+      videoOf: {},
       scenes: [scene],
       sizes: { [scene.meta.id]: 2048, "half-made": 12 },
-      unreadable: [{ folder: "half-made", reason: "scene.json is not JSON" }],
+      unreadable: [
+        { folder: "half-made", reason: "scene.json is not JSON", kind: "take" },
+      ],
       unwatched: "the watcher stopped: ENOSPC",
     };
     studio.route((c) => (c.url === "/api/takes" ? json(200, sent) : undefined));

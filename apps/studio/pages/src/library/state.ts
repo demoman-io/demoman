@@ -1,5 +1,6 @@
 // apps/studio/pages/src/library/state.ts
 import type { SceneDocument } from "@demoman/scene-schema";
+import type { TakesAnswer, VideoSummary } from "@demoman/studio-protocol";
 import { sceneLabel } from "../core/scene-name";
 import type { DemoFootprint, StorageSummary } from "../core/storage/types";
 
@@ -62,6 +63,83 @@ export interface LibraryRow {
    *  extension, whose rows state `frameBytes` and `outputBytes` instead, and
    *  for a folder the studio could not measure (its log says why). */
   sizeBytes?: number;
+  /** Which version of its video the take is; absent for a take in none. */
+  version?: number;
+  /** Its recording expired: the frames were removed, the record stays. */
+  expired?: boolean;
+  /** The files exported from this version, or why they could not be read;
+   *  absent for a take in no video. */
+  exports?: TakesAnswer["videoOf"][string]["exports"];
+}
+
+/** Where a video was recorded, short: a remote's owner and name
+ *  (`acme/web`), a local repo's folder, "no repo", or null when not known
+ *  (a video migrated from takes made before videos). */
+export function repoLabel(repo: VideoSummary["repo"]): string | null {
+  if ("unknown" in repo) return null;
+  if ("none" in repo) return "no repo";
+  if (repo.key.startsWith("local:")) {
+    const parts = repo.key
+      .slice("local:".length)
+      .split("/")
+      .filter((p) => p !== "" && p !== ".git");
+    return parts.at(-1) ?? repo.key;
+  }
+  return repo.key.split("/").slice(1).join("/") || repo.key;
+}
+
+/** One video and its takes as rows: `versions` newest first, `current` its
+ *  newest complete one (null while none completed). */
+export interface VideoGroup {
+  video: VideoSummary;
+  current: LibraryRow | null;
+  versions: LibraryRow[];
+}
+
+/** The videos `rows` are versions of. A video none of whose takes is listed
+ *  has nothing to show and is left out. */
+export function videoGroupsOf(
+  rows: readonly LibraryRow[],
+  videoOf: TakesAnswer["videoOf"],
+  videos: readonly VideoSummary[],
+): VideoGroup[] {
+  return videos.flatMap((video) => {
+    const versions = rows
+      .filter((r) => videoOf[r.sceneId]?.videoId === video.id)
+      .sort((a, b) => (b.version ?? 0) - (a.version ?? 0));
+    if (versions.length === 0) return [];
+    const current =
+      versions.find((r) => r.sceneId === video.current?.takeId) ?? null;
+    return [{ video, current, versions }];
+  });
+}
+
+/** What the list shows: one card per video and one per take in no video,
+ *  newest first. A video's card is its current version (else its newest)
+ *  dated by its newest version — when it was last recorded — so it sits in
+ *  that version's day. */
+export interface LibraryCard {
+  row: LibraryRow;
+  group: VideoGroup | null;
+}
+export function cardsOf(
+  model: Pick<LibraryModel, "rows" | "groups">,
+): LibraryCard[] {
+  const newestOf = new Map<string, VideoGroup>();
+  const inGroup = new Set<string>();
+  for (const g of model.groups ?? []) {
+    newestOf.set((g.versions[0] as LibraryRow).sceneId, g);
+    for (const v of g.versions) inGroup.add(v.sceneId);
+  }
+  return model.rows.flatMap((row): LibraryCard[] => {
+    const group = newestOf.get(row.sceneId);
+    if (group !== undefined) {
+      const lead = group.current ?? row;
+      const { createdAt, when, time } = row;
+      return [{ row: { ...lead, createdAt, when, time }, group }];
+    }
+    return inGroup.has(row.sceneId) ? [] : [{ row, group: null }];
+  });
 }
 
 export interface LibraryModel {
@@ -87,12 +165,21 @@ export interface LibraryModel {
   /** Folders under `takes/` the studio could not read. Each is a row of its
    *  own, never a missing card. `sizeBytes` is absent when the folder could
    *  not be measured either. */
-  unreadable?: { folder: string; reason: string; sizeBytes?: number }[];
+  unreadable?: {
+    folder: string;
+    reason: string;
+    /** What its Delete removes (`UnreadableTake`); absent is a take folder. */
+    kind?: "take" | "video" | "upkeep";
+    sizeBytes?: number;
+  }[];
   /** Why the page will not hear of new takes by itself, or null while it
    *  will. Absent where there is no watcher. */
   unwatched?: string | null;
   /** The empty library's hint, in the platform's words. */
   emptyHint?: string;
+  /** The videos the rows are versions of. Absent where takes are not
+   *  grouped. */
+  groups?: VideoGroup[];
 }
 
 const STATE: Record<DemoFootprint["motion"], LibraryRow["state"]> = {
@@ -415,10 +502,17 @@ export function buildLibraryModel(args: {
   needsLook: ReadonlySet<string>;
   /** The studio's byte count per folder, by scene id. */
   sizes?: Record<string, number>;
-  unreadable?: { folder: string; reason: string }[];
+  unreadable?: {
+    folder: string;
+    reason: string;
+    kind?: "take" | "video" | "upkeep";
+  }[];
   unwatched?: string | null;
   emptyHint?: string;
+  videos?: VideoSummary[];
+  videoOf?: TakesAnswer["videoOf"];
 }): LibraryModel {
+  const videoOf = args.videoOf ?? {};
   const byId = new Map((args.summary?.demos ?? []).map((d) => [d.sceneId, d]));
   const rows: LibraryRow[] = [...args.scenes]
     .sort((a, b) => b.meta.createdAt.localeCompare(a.meta.createdAt))
@@ -457,6 +551,13 @@ export function buildLibraryModel(args: {
         ...(args.sizes?.[scene.meta.id] === undefined
           ? {}
           : { sizeBytes: args.sizes[scene.meta.id] }),
+        ...(videoOf[scene.meta.id] === undefined
+          ? {}
+          : {
+              version: videoOf[scene.meta.id]?.version,
+              expired: videoOf[scene.meta.id]?.expired,
+              exports: videoOf[scene.meta.id]?.exports,
+            }),
       };
     });
   const { usedBytes, budgetBytes } = args.summary ?? {
@@ -476,8 +577,11 @@ export function buildLibraryModel(args: {
     notice = noticeText(args.notice, holders);
   }
   const sizes = args.sizes;
+  const listedIds = new Set(rows.map((r) => r.sceneId));
+  // A take listed as a card too (one that could not join a video) has its
+  // size on the card: the row repeating it would count it twice.
   const unreadable: LibraryModel["unreadable"] = args.unreadable?.map((u) =>
-    sizes?.[u.folder] === undefined
+    sizes?.[u.folder] === undefined || listedIds.has(u.folder)
       ? { ...u }
       : { ...u, sizeBytes: sizes[u.folder] },
   );
@@ -500,5 +604,8 @@ export function buildLibraryModel(args: {
     ...(unreadable === undefined ? {} : { unreadable }),
     ...(args.unwatched === undefined ? {} : { unwatched: args.unwatched }),
     ...(args.emptyHint === undefined ? {} : { emptyHint: args.emptyHint }),
+    ...(args.videos === undefined
+      ? {}
+      : { groups: videoGroupsOf(rows, videoOf, args.videos) }),
   };
 }

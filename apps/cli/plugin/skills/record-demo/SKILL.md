@@ -11,11 +11,14 @@ this machine, then render the take to an MP4.
 1. Call the `recipe` tool and follow it. It is the whole procedure: the
    script format with examples, how to read each report, and what every
    refusal means. Do not write a script before reading it.
-2. The browser is signed in only where the user ran `npx demoman signin <url>`
+2. Every run belongs to a video. Before recording, find it: `videos` with
+   `file` (an exported video the repo already has) or else `query`; then
+   `run` with `video: { id }`, or `video: { new: "<name>" }` for a new one.
+3. The browser is signed in only where the user ran `npx demoman signin <url>`
    or where a demo account in `.demoman/accounts.json` signs it in. On
    `signedOut`, follow the recipe's "Behind a login: demo accounts": reuse one,
    or create one on a local development database, else give the user the
    command from its detail. Only demo accounts; never ask for the user's own
    password.
-3. When `export` answers `saved`, end on two lines: `summary` as it is, then
+4. When `export` answers `saved`, end on two lines: `summary` as it is, then
    its `links` as markdown links on one line, as the recipe's hand-back says.

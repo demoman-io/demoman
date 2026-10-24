@@ -32,6 +32,7 @@ import {
   useExecutor,
   writeAccounts,
 } from "./accounts-harness.js";
+import { ownVideo } from "./fixture.js";
 import { sessionFor } from "./login-app.js";
 
 describe("environment secrets and project (security review, 2026-10-16)", () => {
@@ -102,6 +103,7 @@ it("never lets a secret value out, in replies, logs or files", async () => {
   });
   await writeAccounts(seller());
   const out = await executor.request("run", {
+    video: ownVideo(),
     script: script(`${app.url}/app`, NEXT),
   });
   expect(app.lastPage()).toContain("wrong-password-here"); // premise
@@ -116,6 +118,7 @@ it("scrubs a value the run itself repeats, from the reply and from report.json",
   // unless the sweep takes it out.
   await writeAccounts(seller());
   const out = (await executor.request("run", {
+    video: ownVideo(),
     script: script(`${app.url}/app`, [
       { do: "waitForLoad" },
       { do: "click", on: { text: PASSWORD } },
@@ -137,6 +140,7 @@ it("scrubs scene.json and status.json too (final review M4)", async () => {
   // The script's name lands in the take's scene; here it carries the value,
   // as an anchor's displayed text could.
   const out = (await executor.request("run", {
+    video: ownVideo(),
     script: {
       ...script(`${app.url}/app`, NEXT, { account: "seller" }),
       name: `Demo ${PASSWORD}`,
@@ -169,7 +173,7 @@ it("scrubs progress notes that quote the script's target", async () => {
   const progress: string[] = [];
   await executor.request(
     "run",
-    { script: script(`${app.url}/app?q=${PASSWORD}`, NEXT) },
+    { video: ownVideo(), script: script(`${app.url}/app?q=${PASSWORD}`, NEXT) },
     (v) => progress.push(JSON.stringify(v)),
   );
   // Premise: the run stopped at the start on the sign-in page and its
@@ -185,6 +189,7 @@ it("scrubs a value it never signed in with: a saved session, a fresh executor", 
   logs.length = 0;
   useExecutor();
   const out = (await executor.request("run", {
+    video: ownVideo(),
     script: script(`${app.url}/app`, [
       { do: "waitForLoad" },
       { do: "click", on: { text: PASSWORD } },

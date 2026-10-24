@@ -167,7 +167,9 @@ export type ExportRefusal =
   | "invalidStillsOptions"
   | "invalidQuality"
   | "invalidMaxMB"
-  | "fileTypeUnsupported";
+  | "fileTypeUnsupported"
+  /** The take's frames expired (local video library §5): re-record it. */
+  | "versionExpired";
 
 export interface ExportWarnings {
   logo: string | null;
@@ -193,10 +195,14 @@ export interface ExportWarnings {
    *  (filmed before skeletons existed) has none, and the summary stays
    *  silent about that, so this field is the only record of it. */
   targetCheck?: TargetCheck;
-  /** How many masks the take has. A re-film (`run({ takeId })`)
+  /** How many masks the take has. A re-record (`run({ video: { id } })`)
    *  leaves every one behind (`notCarried`), so an edited take's
    *  summary says so. Absent: this door does not count them. */
   masks?: number;
+  /** The video the take is a version of, which an edited take's summary
+   *  names as the re-record (`run({ video: { id } })`). null: the take is
+   *  in no video. Absent: this door does not say. */
+  videoId?: string | null;
   /** A GIF the CLI rendered under a byte budget (`renderOutput`'s
    *  `gifBudget`): the widths it would not fit at, widest first, and the
    *  kept file's size — over `maxBytes` when even the narrowest did not
@@ -214,6 +220,10 @@ export interface ExportWarnings {
    *  row, so the studio's list of exports will not show it: why. Absent:
    *  it is listed (or this door keeps no such list). */
   notListed?: { error: string };
+  /** The file was saved but could not be tagged with its video and version
+   *  (or the take's video could not be read): why. Absent: it is tagged, or
+   *  the take belongs to no video. */
+  untagged?: { error: string };
 }
 
 /**
@@ -390,10 +400,14 @@ export function reportForSave(args: {
   targetCheck?: TargetCheck;
   /** See `warnings.masks`: `scene.edits.masks.length`. */
   masks?: number;
+  /** See `warnings.videoId`. */
+  videoId?: string | null;
   /** See `warnings.gifSize`. */
   gifSize?: GifSize;
   /** See `warnings.videoSize`. Omitted by a door that does not say it. */
   videoSize?: VideoSize;
+  /** See `warnings.untagged`. */
+  untagged?: { error: string };
 }): ExportReport {
   const { takeId, file, saved } = args;
   switch (saved.kind) {
@@ -460,9 +474,11 @@ function warningsOf(
     editedSinceRecorded?: EditedStep[];
     targetCheck?: TargetCheck;
     masks?: number;
+    videoId?: string | null;
     gifSize?: GifSize;
     videoSize?: VideoSize;
     stillsCapped?: { askedWidth: number };
+    untagged?: { error: string };
   },
 ): ExportWarnings {
   return {
@@ -483,11 +499,13 @@ function warningsOf(
       ? {}
       : { targetCheck: args.targetCheck }),
     ...(args.masks === undefined ? {} : { masks: args.masks }),
+    ...(args.videoId === undefined ? {} : { videoId: args.videoId }),
     ...(args.gifSize === undefined ? {} : { gifSize: args.gifSize }),
     ...(args.videoSize === undefined ? {} : { videoSize: args.videoSize }),
     ...(args.stillsCapped === undefined
       ? {}
       : { stillsCapped: args.stillsCapped }),
+    ...(args.untagged === undefined ? {} : { untagged: args.untagged }),
   };
 }
 
@@ -522,8 +540,11 @@ export function reportForStillsSave(args: {
   editedSinceRecorded?: EditedStep[];
   targetCheck?: TargetCheck;
   masks?: number;
+  videoId?: string | null;
   /** See `warnings.stillsCapped`. */
   stillsCapped?: { askedWidth: number };
+  /** See `warnings.untagged`. */
+  untagged?: { error: string };
 }): ExportReport {
   const { takeId, saved } = args;
   if (saved.kind === "failed") {
@@ -660,11 +681,11 @@ function editedWhat(e: EditedStep): string {
 
 /** Steps the take was edited on after it was filmed: counted, with the
  *  first one said whole, and the move that makes the video match. That move
- *  is `run({ takeId })` unless a step's verb changed, which a re-film
- *  refuses: then it is derive, check, run. */
+ *  is `run({ video: { id } })` of the take's video unless a step's verb
+ *  changed, which a re-film refuses: then it is derive, check, run. */
 function editedClauses(
   edited: readonly EditedStep[],
-  takeId: string,
+  videoId: string | null | undefined,
   masks: number,
 ): string[] {
   const first = edited[0];
@@ -672,7 +693,9 @@ function editedClauses(
   const changed = edited.find((e) => e.what === "kind");
   const move =
     changed === undefined
-      ? ` — run({ takeId: "${takeId}" }) re-records it`
+      ? typeof videoId === "string"
+        ? ` — run({ video: { id: "${videoId}" } }) re-records it`
+        : " — re-record it with run's video: { id }"
       : changed === first
         ? ""
         : ` — ${changed.actionId}'s step changed from ${changed.was ?? ""} to ${changed.now ?? ""}, so derive this take, check the step, and run the draft`;
@@ -744,7 +767,11 @@ export function exportCaveats(
     ...unplacedClauses(unplacedStills ?? []),
     // Each note is a whole sentence; a clause carries no period of its own.
     ...(migration ?? []).map((note) => note.replace(/\.$/, "")),
-    ...editedClauses(editedSinceRecorded ?? [], report.takeId, masks ?? 0),
+    ...editedClauses(
+      editedSinceRecorded ?? [],
+      report.warnings.videoId,
+      masks ?? 0,
+    ),
     ...gifOverBudget(gifSize, report.width),
   ];
 }
@@ -763,7 +790,7 @@ export function exportVerdict(report: ExportReport): string {
           ? `Exporting — render ${report.pass.render} of up to ${report.pass.upTo} to fit the size asked for: frame ${report.done} of ${report.total}${report.width === undefined ? "" : `, ${report.width} px wide`}.`
           : `Exporting — rendering frame ${report.done} of ${report.total}${report.width === undefined ? "" : `, ${report.width} px wide`}.`;
     case "saved": {
-      const { videoSize, notListed } = report.warnings;
+      const { videoSize, notListed, untagged } = report.warnings;
       const but = exportCaveats(report);
       const capClause =
         report.fileType === "stills" ? null : videoCapClause(videoSize, report);
@@ -776,9 +803,13 @@ export function exportVerdict(report: ExportReport): string {
             : `Saved ${report.file.path} (${report.width}×${report.height}, ${report.fps} fps${videoSize === undefined ? "" : `, ${fileSize(videoSize.byteLength)}`})`;
       const said =
         but.length === 0 ? `${head}.` : `${head}, but ${but.join("; ")}.`;
-      return notListed === undefined
-        ? said
-        : `${said} It was saved, but not listed in the take's exports: ${notListed.error}.`;
+      const listing =
+        notListed === undefined
+          ? said
+          : `${said} It was saved, but not listed in the take's exports: ${notListed.error}.`;
+      return untagged === undefined
+        ? listing
+        : `${listing} It was saved, but not tagged with its video: ${sentence(untagged.error)}`;
     }
     case "renderFailed":
       return `The render failed, so no file was made: ${sentence(report.error)}`;

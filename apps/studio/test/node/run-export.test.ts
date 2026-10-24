@@ -26,6 +26,7 @@ async function runWith(settings: string | null) {
     exportTake: fake,
     deps: {
       library: {} as never,
+      videos: {} as never,
       session: {} as never,
       home,
       outDir: join(home, "out"),

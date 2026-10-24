@@ -13,10 +13,18 @@ import {
   type RowKind,
   renderLibrary,
   statusKey,
+  unreadableKind,
 } from "../../src/library/view";
 import { trackSectionNav } from "../../src/settings/section-nav";
 import { takeNote } from "../../src/shell/carried-note";
-import { askToConfirm, DELETE_DEMO } from "../../src/shell/confirm-dialog";
+import {
+  askToConfirm,
+  type ConfirmQuestion,
+  DELETE_DEMO,
+  DELETE_RECORD,
+  DELETE_VERSION,
+  deleteVideo,
+} from "../../src/shell/confirm-dialog";
 import { createRefresher } from "../../src/shell/refresher";
 import { mountTopbar } from "../../src/shell/topbar";
 
@@ -226,7 +234,11 @@ let filter: LibraryFilter = NO_FILTER;
 function dropStatusesWithNoRow(model: LibraryModel): void {
   const rows = new Set([
     ...model.rows.map((r) => statusKey("take", r.sceneId)),
-    ...(model.unreadable ?? []).map((u) => statusKey("folder", u.folder)),
+    ...(model.groups ?? []).map((g) => statusKey("video", g.video.id)),
+    ...(model.unreadable ?? []).flatMap((u) => {
+      const kind = unreadableKind(u);
+      return kind === null ? [] : [statusKey(kind, u.folder)];
+    }),
   ]);
   for (const key of rowStatus.keys()) {
     if (!rows.has(key)) rowStatus.delete(key);
@@ -260,6 +272,8 @@ async function paintFresh({ keepNotice = false } = {}): Promise<void> {
   const listed = studio.scenes;
   scenesById = new Map(listed.map((scene) => [scene.meta.id, scene]));
   const model = buildLibraryModel({
+    videos: studio.videos,
+    videoOf: studio.videoOf,
     sizes: studio.sizes,
     unreadable: studio.unreadable,
     unwatched: studio.unwatched,
@@ -308,7 +322,7 @@ const renaming = new Map<string, Promise<boolean>>();
  * them to an editor showing a name nothing explains.
  */
 function openAfterRename(sceneId: string, url: string, context: string): void {
-  const pending = renaming.get(sceneId);
+  const pending = renaming.get(sceneId) ?? renaming.get(videoOf(sceneId) ?? "");
   if (pending === undefined) {
     openInThisTab(url, context);
     return;
@@ -316,6 +330,28 @@ function openAfterRename(sceneId: string, url: string, context: string): void {
   void pending.then((landed) => {
     if (landed) openInThisTab(url, context);
   });
+}
+
+/** The video `sceneId` is a version of, in the last pass, if any. */
+function videoOf(sceneId: string): string | undefined {
+  return lastModel?.groups?.find((g) =>
+    g.versions.some((v) => v.sceneId === sceneId),
+  )?.video.id;
+}
+
+/** What Delete asks, by what it removes: one recording of a video, a whole
+ *  video and how many recordings go with it, an unreadable record alone,
+ *  or (a take in no video, a folder) the demo. */
+function questionFor(id: string, kind: RowKind): ConfirmQuestion {
+  if (kind === "record") return DELETE_RECORD;
+  if (kind === "video") {
+    const group = lastModel?.groups?.find((g) => g.video.id === id);
+    return group === undefined
+      ? DELETE_DEMO
+      : deleteVideo(group.video.versions);
+  }
+  if (kind === "take" && videoOf(id) !== undefined) return DELETE_VERSION;
+  return DELETE_DEMO;
 }
 
 /** Whether a take was made by a script, for the route that films it again. */
@@ -419,6 +455,32 @@ const actions: LibraryActions = {
       if (renaming.get(sceneId) === run) renaming.delete(sceneId);
     });
   },
+  renameVideo: (videoId: string, name: string): void => {
+    const run = (async () => {
+      const key = statusKey("video", videoId);
+      let why: string | null = null;
+      try {
+        await platform.videos.rename(videoId, name);
+      } catch (error) {
+        // A refusal (another video has the name) and a channel that failed
+        // both reject here with the studio's sentence; the card says it,
+        // and the repaint puts the stored name back in the field.
+        why = error instanceof Error ? error.message : String(error);
+      }
+      if (why === null) rowStatus.delete(key);
+      else rowStatus.set(key, `Couldn't rename: ${why.replace(/\.$/, "")}.`);
+      try {
+        await render();
+      } catch (error) {
+        reportError("refreshing the library", error);
+      }
+      return why === null;
+    })();
+    renaming.set(videoId, run);
+    void run.finally(() => {
+      if (renaming.get(videoId) === run) renaming.delete(videoId);
+    });
+  },
   restore: (sceneId: string): void => {
     const route = platform.nav.rerun(sceneId, isAuthored(sceneId));
     // Never reached for a line: the view draws that as a sentence in place
@@ -498,7 +560,7 @@ const actions: LibraryActions = {
         // where a refusal from the delete itself would be.
         let go: boolean;
         try {
-          go = await askToConfirm(DELETE_DEMO);
+          go = await askToConfirm(questionFor(sceneId, kind));
         } catch (error) {
           console.error("demoman library: asking before a delete —", error);
           rowStatus.set(
@@ -512,7 +574,10 @@ const actions: LibraryActions = {
         }
         if (!go) return;
         await renaming.get(sceneId);
-        const r = await scenes.remove(sceneId);
+        const r =
+          kind === "video" || kind === "record"
+            ? await platform.videos.remove(sceneId)
+            : await scenes.remove(sceneId);
         // Three distinct outcomes, three distinct sentences — a refusal, a
         // partial delete, and a clean delete must never read alike, and a
         // partial delete in particular must never say "Deleted".
@@ -525,6 +590,11 @@ const actions: LibraryActions = {
           // reason in the author's terms, and the raw identifier last.
           const why = r.detail ?? REFUSAL_TEXT[r.error] ?? r.error;
           rowStatus.set(key, `Not deleted: ${why}.`);
+        } else if (r.partly !== undefined) {
+          // A video's delete that stopped part-way: said on the page, since
+          // the card may be gone with the versions that went.
+          rowStatus.delete(key);
+          pageMessage = `Partly deleted: ${r.partly}.`;
         } else if (r.result !== undefined && !r.result.ok) {
           const failedStep = r.result.steps.find((s) => !s.ok);
           const message = `Partly deleted: ${failedStep?.step ?? "a step"} could not be removed — ${failedStep?.error ?? "unknown error"}`;

@@ -21,9 +21,10 @@ describe("pathFor", () => {
 describe("matchRoute", () => {
   const ids = Object.keys(ROUTES) as RouteId[];
   it("covers the whole table (premise of the round trip)", () => {
-    // 22 since 2026-10-19: themeGet and themePut left with the light theme.
-    expect(ids.length).toBe(22);
-    expect(ids.filter((i) => ROUTES[i].path.includes(":")).length).toBe(8);
+    // 24 since 2026-10-24: videoRename and videoDelete joined for the video library.
+    expect(ids.length).toBe(24);
+    // 10 since 2026-10-24: the two video routes carry :id, so 8 became 10.
+    expect(ids.filter((i) => ROUTES[i].path.includes(":")).length).toBe(10);
   });
   it.each(ids)("round-trips %s", (id) => {
     const wanted = (ROUTES[id].path.match(/:\w+/g) ?? []).map((p) =>

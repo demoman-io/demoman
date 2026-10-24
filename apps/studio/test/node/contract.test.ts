@@ -61,8 +61,9 @@ afterAll(async () => {
 
 describe("the route contract", () => {
   it("covers the whole table (premise)", () => {
-    // 22 since 2026-10-19: themeGet and themePut left with the light theme.
-    expect(ids.length).toBe(22);
+    // 22 since 2026-10-19 (themeGet and themePut left with the light
+    // theme); 24 since 2026-10-24, with videoRename and videoDelete.
+    expect(ids.length).toBe(24);
   });
 
   it("every RouteId has a handler in the composed table, and nothing else does", () => {

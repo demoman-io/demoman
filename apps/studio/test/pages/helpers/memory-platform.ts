@@ -3,7 +3,7 @@ import type { ReplayStatus } from "@demoman/replay-engine";
 import { decodeLogo } from "@demoman/run-core/logo";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { createBrandKitStore } from "../../../pages/src/adapters/brand-kit-store";
-import { refilmLine } from "../../../pages/src/platform/http";
+import { REFILM_NO_VIDEO, refilmLine } from "../../../pages/src/platform/http";
 import type {
   ExportEvent,
   FolderListing,
@@ -46,6 +46,11 @@ export interface MemorySeed {
   /** The brand kits' storage as the kit store reads it (`brandKits`,
    *  `defaultKitId`), raw. */
   kits?: Record<string, unknown>;
+  /** The folder's videos and which take is which version, as listed. */
+  videos?: FolderListing["videos"];
+  videoOf?: FolderListing["videoOf"];
+  /** The "Couldn't read" rows the folder answers. */
+  unreadable?: FolderListing["unreadable"];
 }
 
 type Impl = (...args: never[]) => unknown;
@@ -135,10 +140,16 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
     },
   );
 
+  const videos = structuredClone(seed.videos ?? []);
+  const videoOf = structuredClone(seed.videoOf ?? {});
   const listing = (): FolderListing => ({
+    videos: structuredClone(videos),
+    videoOf: Object.fromEntries(
+      Object.entries(videoOf).filter(([id]) => scenes.has(id)),
+    ),
     scenes: [...scenes.values()].map((s) => s.scene),
     sizes: {},
-    unreadable: [],
+    unreadable: structuredClone(seed.unreadable ?? []),
     unwatched: null,
   });
 
@@ -166,6 +177,21 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       list: member("scenes", "list", async () => listing().scenes),
       remove: member("scenes", "remove", async (id: string) => {
         scenes.delete(id);
+        return { ok: true as const };
+      }),
+    },
+    videos: {
+      rename: member("videos", "rename", async (id: string, name: string) => {
+        const video = videos.find((v) => v.id === id);
+        if (video === undefined) throw new Error(`There is no video "${id}".`);
+        video.name = name;
+      }),
+      remove: member("videos", "remove", async (id: string) => {
+        for (const [takeId, v] of Object.entries(videoOf)) {
+          if (v.videoId === id) scenes.delete(takeId);
+        }
+        const at = videos.findIndex((v) => v.id === id);
+        if (at >= 0) videos.splice(at, 1);
         return { ok: true as const };
       }),
     },
@@ -285,7 +311,13 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       kits: () => "/settings.html",
       firstTakeHint: () => "Ask your agent to film a take.",
       // The studio's own line, so a page test reads what an author would.
-      rerun: (id) => ({ kind: "line", text: refilmLine(id) }),
+      rerun: (id) => {
+        const videoId = videoOf[id]?.videoId;
+        return {
+          kind: "line",
+          text: videoId === undefined ? REFILM_NO_VIDEO : refilmLine(videoId),
+        };
+      },
       onOpen: () => undefined,
     },
   };

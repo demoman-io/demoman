@@ -60,6 +60,7 @@ async function takeId(): Promise<string> {
         await c.callTool({
           name: "run",
           arguments: {
+            video: { new: "Place an order", confirmedNew: true },
             script: {
               scriptVersion: 1,
               name: "Place an order",

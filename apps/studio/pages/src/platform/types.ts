@@ -4,6 +4,7 @@ import type { SceneAspect, SceneDocument } from "@demoman/scene-schema";
 import type {
   ExportQualityChoice,
   PullRequestsChoice,
+  TakesAnswer,
 } from "@demoman/studio-protocol";
 import type { BrandKitStore } from "../adapters/brand-kit-store";
 import type { DeleteResult } from "../core/storage/types";
@@ -132,6 +133,14 @@ export interface Platform {
   /** The studio's take folder: the takes, their sizes, the folders that
    *  would not read, and whether the folder is watched. */
   folder: FolderMember;
+  /** The studio's videos: a take is a version of one (`FolderListing`). */
+  videos: {
+    /** Rejects with the studio's sentence when the rename was refused. */
+    rename(id: string, name: string): Promise<void>;
+    /** Every version and the record. Rejects only when the request itself
+     *  could not be made; a refusal resolves `{ ok: false }`. */
+    remove(id: string): Promise<RemoveReply>;
+  };
   /** Saving stored outputs through the browser's downloads: the extension's
    *  "Download again". The studio has none (its server saves the file).
    *  shortcut: kept with the editor's stored-output rows, which only the
@@ -141,9 +150,11 @@ export interface Platform {
 }
 
 export interface FolderListing {
+  videos: TakesAnswer["videos"];
+  videoOf: TakesAnswer["videoOf"];
   scenes: SceneDocument[];
   sizes: Record<string, number>;
-  unreadable: { folder: string; reason: string }[];
+  unreadable: TakesAnswer["unreadable"];
   unwatched: string | null;
 }
 
@@ -157,7 +168,9 @@ export interface FolderMember {
 }
 
 export type RemoveReply =
-  | { ok: true; result?: DeleteResult; note?: string }
+  /** `partly`: a video's delete stopped part-way, and this says what was
+   *  left. */
+  | { ok: true; result?: DeleteResult; note?: string; partly?: string }
   | { ok: false; error: string; detail?: string };
 
 export type RevealTarget =

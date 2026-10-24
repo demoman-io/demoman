@@ -26,6 +26,7 @@ import {
   useExecutor,
   writeAccounts,
 } from "./accounts-harness.js";
+import { ownVideo } from "./fixture.js";
 import { sessionFor } from "./login-app.js";
 
 it("signs in before the first run and films as the account", async () => {
@@ -126,6 +127,7 @@ it("refuses signInFailed after one attempt when the account cannot see the page"
   // the sign-in page (an app whose seller cannot open the admin area).
   await writeAccounts(seller());
   const out = (await executor.request("run", {
+    video: ownVideo(),
     script: script(`${app.url}/admin-only`, NEXT),
   })) as { value: Report };
   expect(out.value.outcome).toBe("refusedBeforeRun");
@@ -232,6 +234,7 @@ it("refuses a missing secret before opening the page", async () => {
   await writeAccounts(seller());
   const gets = app.gets("/app");
   const out = (await executor.request("run", {
+    video: ownVideo(),
     script: script(`${app.url}/app`, NEXT),
   })) as { value: Report };
   expect(out.value.reason, JSON.stringify(out)).toBe("secretMissing");

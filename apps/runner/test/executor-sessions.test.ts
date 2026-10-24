@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import type { LocalExecutor } from "../src/executor/types.js";
+import { ownVideo } from "./fixture.js";
 import { type LoginApp, serveLoginApp, sessionFor } from "./login-app.js";
 
 let app: LoginApp;
@@ -71,6 +72,7 @@ it("refuses a snapshot and a run with sessionUnreadable when a file is exposed",
     expect(snap.reason).toBe("sessionUnreadable");
     expect(snap.detail).toContain("chmod 600");
     const run = (await executor.request("run", {
+      video: ownVideo(),
       script: {
         scriptVersion: 1,
         name: "x",
@@ -185,6 +187,7 @@ it("closes it before a run loads sessions too", async () => {
       target: `${app.url}/opener`,
       steps: [{ do: "waitFor", on: { text: "Opener" }, until: "visible" }],
     },
+    video: { new: "Opener" },
   })) as { ok: boolean; value?: { outcome: string } };
   // Premise: the run went past its door, where sessions load. How it ends
   // is not this case's business.

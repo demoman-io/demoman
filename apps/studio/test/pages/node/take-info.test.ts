@@ -17,7 +17,7 @@ import {
  * - the Exports group drawn with no outputs: its absence case fails.
  */
 
-const REFILM = 'run({ takeId: "scene-1" })';
+const REFILM = 'run({ video: { id: "scene-1" } })';
 
 const ROUTE = {
   takeId: "scene-1",

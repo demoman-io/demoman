@@ -52,6 +52,7 @@ describe("renderLibrary", () => {
       preview: vi.fn(),
       filter: vi.fn(),
       rename: vi.fn(),
+      renameVideo: vi.fn(),
       openReview: vi.fn(),
     };
     // Delete hands straight to `actions.remove`: the page asks the author,
@@ -88,6 +89,7 @@ describe("renderLibrary", () => {
         preview() {},
         filter() {},
         rename() {},
+        renameVideo() {},
         openReview() {},
       },
       new Map([
@@ -117,6 +119,7 @@ describe("renderLibrary", () => {
       preview() {},
       filter() {},
       rename() {},
+      renameVideo() {},
       openReview() {},
     };
     renderLibrary(
@@ -139,6 +142,7 @@ describe("renderLibrary", () => {
     preview() {},
     filter() {},
     rename() {},
+    renameVideo() {},
     openReview() {},
   };
   const complete: LibraryRow = {
@@ -672,6 +676,7 @@ describe("renderLibrary page parts", () => {
     preview() {},
     filter() {},
     rename() {},
+    renameVideo() {},
     openReview() {},
   };
 
@@ -735,6 +740,7 @@ describe("renderLibrary sections", () => {
     preview() {},
     filter() {},
     rename() {},
+    renameVideo() {},
     openReview() {},
   };
   const at = (y: number, m: number, d: number, h = 12): string =>
@@ -990,6 +996,7 @@ describe("renderLibrary preview box", () => {
     preview: vi.fn(),
     filter: vi.fn(),
     rename: vi.fn(),
+    renameVideo: vi.fn(),
     openReview: vi.fn(),
   });
 

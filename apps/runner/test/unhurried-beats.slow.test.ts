@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
+import { ownVideo } from "./fixture.js";
 import { mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
 
 // Spec 2026-10-19 (unhurried beats), on the picture. The site's hero typed
@@ -67,6 +68,7 @@ beforeAll(async () => {
     log: () => undefined,
   });
   const run = await executor.request("run", {
+    video: ownVideo(),
     callId: "unhurried-take",
     script: {
       scriptVersion: 1,

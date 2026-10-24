@@ -121,17 +121,24 @@ async function filmOnce(args: {
   if (snap.landedElsewhere === true)
     say(`${who}: the snapshot landed on ${snap.landedUrl}`);
   const t0 = Date.now();
-  const report = await settle(
-    mcp,
-    answer<RunAnswer>(
-      await mcp.callTool({
-        name: "run",
-        arguments: { script: script.script },
-      }),
-    ),
-    ["stillRunning", "running", "queued"],
-    600_000,
-  );
+  const runInto = async (video: Record<string, unknown>) =>
+    settle(
+      mcp,
+      answer<RunAnswer & { holder?: { id: string } }>(
+        await mcp.callTool({
+          name: "run",
+          arguments: { script: script.script, video },
+        }),
+      ),
+      ["stillRunning", "running", "queued"],
+      600_000,
+    );
+  // Every compare of one script is a version of one video: the first starts
+  // it, later ones find it by the name it already holds.
+  let report = await runInto({ new: script.name, confirmedNew: true });
+  if (report.reason === "nameTaken" && report.holder !== undefined) {
+    report = await runInto({ id: report.holder.id });
+  }
   const runMs = Date.now() - t0;
   // The raw report, beside the films: the table keeps the reason, this
   // keeps the step, the host's own words and every step record.

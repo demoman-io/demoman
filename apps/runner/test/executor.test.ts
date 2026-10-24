@@ -9,7 +9,7 @@ import {
   createLocalExecutor,
   type LocalExecutor,
 } from "../src/package-entry.js";
-import { makeFixtureTake, serveFixtureApp } from "./fixture.js";
+import { makeFixtureTake, ownVideo, serveFixtureApp } from "./fixture.js";
 
 // Measured locally (2026-10-12, M-series Mac, headless) inside the full
 // runner suite, x5 for CI (fff4505). A run: 6.2 s at the slowest. An export
@@ -203,6 +203,7 @@ describe("createLocalExecutor", () => {
 
   it("refuses an invalid script before opening anything", async () => {
     const out = await executor.request("run", {
+      video: ownVideo(),
       script: { name: "x" },
       callId: "c0",
     });
@@ -217,6 +218,7 @@ describe("createLocalExecutor", () => {
 
   it("refuses a kit the library does not have as unknownKit", async () => {
     const out = await executor.request("run", {
+      video: ownVideo(),
       script: { ...fixtureScript(), scriptVersion: 2, look: { kit: "Nope" } },
       callId: "c1",
     });
@@ -232,7 +234,7 @@ describe("createLocalExecutor", () => {
     const progress: unknown[] = [];
     const first = executor.request(
       "run",
-      { script: fixtureScript(), callId: "r1" },
+      { video: ownVideo(), script: fixtureScript(), callId: "r1" },
       (v) => progress.push(v),
     );
     // Wait until the first run has taken the slot (its first paint), bounded.
@@ -243,6 +245,7 @@ describe("createLocalExecutor", () => {
       await new Promise((r) => setTimeout(r, 50));
     }
     const second = await executor.request("run", {
+      video: ownVideo(),
       script: fixtureScript(),
       callId: "r2",
     });
@@ -288,9 +291,22 @@ describe("createLocalExecutor", () => {
     } = executorWithPendingLaunch();
     try {
       const pending = slow.request("run", {
+        video: ownVideo(),
         script: fixtureScript(),
         callId: "slow1",
       });
+      // Before anything was awaited, the run is already listed.
+      expect(
+        await slow.request("report", { id: "slow1", of: "run" }),
+      ).toMatchObject({ ok: true, value: { outcome: "running", step: 0 } });
+      // The launch is requested after the video is found and the kits are
+      // read; wait for it, bounded.
+      const deadline = Date.now() + 10_000;
+      while (!launchRequested()) {
+        if (Date.now() > deadline)
+          throw new Error("the run never asked to launch a browser");
+        await new Promise((r) => setTimeout(r, 20));
+      }
       // The launch has not resolved: the run holds the slot and no browser exists.
       const mid = await slow.request("report", { id: "slow1", of: "run" });
       expect(slow.browser()).toBeNull();
@@ -308,13 +324,6 @@ describe("createLocalExecutor", () => {
         ok: true,
         value: { runPage: { outcome: "running", step: 0 } },
       });
-      // The launch is requested after the kits are read; wait for it, bounded.
-      const deadline = Date.now() + 10_000;
-      while (!launchRequested()) {
-        if (Date.now() > deadline)
-          throw new Error("the run never asked to launch a browser");
-        await new Promise((r) => setTimeout(r, 20));
-      }
       release();
       // The launch failure ends the run with a refusal, not a hang.
       expect(await pending).toMatchObject({
@@ -332,6 +341,7 @@ describe("createLocalExecutor", () => {
     const { executor: held, release } = executorWithPendingLaunch();
     try {
       const running = held.request("run", {
+        video: ownVideo(),
         callId: "r-busy",
         script: fixtureScript(),
       });
@@ -574,6 +584,7 @@ describe("an export in progress", () => {
         ).toMatchObject({ ok: true, value: { outcome: "exporting" } });
         expect(
           await executor.request("run", {
+            video: ownVideo(),
             callId: "r-hold",
             script: fixtureScript(),
           }),

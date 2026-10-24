@@ -15,6 +15,7 @@ export const OPS = [
   "run",
   "report",
   "takes",
+  "videos",
   "derive",
   "export",
   "attach",

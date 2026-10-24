@@ -172,6 +172,7 @@ describe("demoman-mcp's tools", () => {
       "snapshot",
       "status",
       "takes",
+      "videos",
     ]);
   });
 
@@ -219,23 +220,54 @@ describe("demoman-mcp's tools", () => {
     ]);
   });
 
-  // Red if the tool's schema still requires `script`, or drops `takeId` on
+  // Red if the tool's schema still requires `script`, or drops `video` on
   // the way to the executor.
-  it("passes run({ takeId }) through to the CLI's executor, with no script", async () => {
+  it("passes run({ video }) through to the CLI's executor, with no script", async () => {
     const { client, calls } = await connect(
       { run: async () => ({ ok: true, value: { outcome: "complete" } }) },
       200,
       undefined,
     );
-    const result = await client.callTool({
-      name: "run",
-      arguments: { takeId: "scene-1" },
-    });
-    expect(result.isError).toBeFalsy();
-    expect(textOf(result)).toEqual({ outcome: "complete" });
+    for (const video of [{ id: "v-1" }, { new: "Pay", confirmedNew: true }]) {
+      const result = await client.callTool({
+        name: "run",
+        arguments: { video },
+      });
+      expect(result.isError).toBeFalsy();
+    }
     expect(calls).toEqual([
-      { op: "run", args: { takeId: "scene-1", callId: "id-1", agent: AGENT } },
+      {
+        op: "run",
+        args: { video: { id: "v-1" }, callId: "id-1", agent: AGENT },
+      },
+      {
+        op: "run",
+        args: {
+          video: { new: "Pay", confirmedNew: true },
+          callId: "id-2",
+          agent: AGENT,
+        },
+      },
     ]);
+  });
+
+  // Red if the schema stops being strict: run's old takeId would be dropped
+  // on the way and the run would answer videoRequired, never saying why.
+  it("refuses run({ takeId }) and a video of neither shape before the executor", async () => {
+    const { client, calls } = await connect({
+      run: async () => ({ ok: true, value: { outcome: "complete" } }),
+    });
+    for (const args of [
+      { takeId: "scene-1" },
+      { video: { id: "v-1", new: "Pay" } },
+      { video: { name: "Pay" } },
+    ]) {
+      const result = await client.callTool({ name: "run", arguments: args });
+      expect(result.isError, JSON.stringify(args)).toBe(true);
+    }
+    // Premise: the same server forwards a run it accepts.
+    await client.callTool({ name: "run", arguments: { video: { id: "v" } } });
+    expect(calls.map((c) => c.args.video)).toEqual([{ id: "v" }]);
   });
 
   // Red if the tool drops quality on its way to the CLI's executor.
@@ -812,6 +844,28 @@ describe("demoman-mcp's tools", () => {
     emit({ outcome: "running", step: 3, of: 3, keyframes: 0, note: null });
     await new Promise((r) => setTimeout(r, 50));
     expect(progressOnWire.length, "progress after report answered").toBe(sent);
+  });
+
+  it("registers videos read-only and forwards file, query and project", async () => {
+    const { client, calls } = await connect({
+      videos: async () => ({ ok: true, value: { videos: [], unreadable: [] } }),
+    });
+    const tool = (await client.listTools()).tools.find(
+      (t) => t.name === "videos",
+    );
+    expect(tool?.annotations?.readOnlyHint).toBe(true);
+    await client.callTool({
+      name: "videos",
+      arguments: { file: "/a.mp4", query: "q", project: "/p" },
+    });
+    await client.callTool({ name: "videos", arguments: {} });
+    expect(calls).toEqual([
+      {
+        op: "videos",
+        args: { file: "/a.mp4", query: "q", project: "/p", agent: AGENT },
+      },
+      { op: "videos", args: { agent: AGENT } },
+    ]);
   });
 
   it("passes takeId through for derive and export, and takes needs no arguments", async () => {

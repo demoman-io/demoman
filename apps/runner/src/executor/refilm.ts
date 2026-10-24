@@ -5,8 +5,9 @@ import {
 } from "@demoman/run-core";
 import { messageOf } from "../report.js";
 import { type Library, LibraryError } from "./library.js";
+import type { VideoRecord, VideoStore } from "./videos.js";
 
-/** `run({ takeId })`'s first half (spec 2026-10-14 re-film §2): the take
+/** A take's re-record: its first half (spec 2026-10-14 re-film §2): the take
  *  and its skeleton, merged into a script — or the reason there is none,
  *  in the door's own shape. */
 export async function refilmFromLibrary(
@@ -68,4 +69,59 @@ export async function refilmFromLibrary(
     ...notes.map((sentence) => ({ kind: "migrated" as const, sentence })),
   );
   return built;
+}
+
+/** `run({ video: { id } })` with no script (local video library §4): the
+ *  video's current version re-recorded, or its newest when none completed
+ *  (ruling 9). A refusal names the version it came from, under `video`. */
+export async function refilmFromVideo(
+  store: VideoStore,
+  library: Library,
+  video: VideoRecord,
+  /** The video's takes that will not read (ensureVideos' `skipped`). */
+  leftOut: { takeId: string; reason: string }[] = [],
+): Promise<
+  | {
+      ok: true;
+      script: Record<string, unknown>;
+      refilm: RefilmInfo;
+      takeId: string;
+    }
+  | { ok: false; refusal: RefusedBeforeRun }
+> {
+  const all = await store.versions(video.id);
+  const from = all.filter((v) => v.complete).at(-1) ?? all.at(-1);
+  if (from === undefined && leftOut.length > 0) {
+    return {
+      ok: false,
+      refusal: {
+        outcome: "refusedBeforeRun",
+        reason: "videoUnreadable",
+        detail: `video "${video.name}" has no version that reads — ${leftOut.map((s) => `take ${s.takeId}: ${s.reason}`).join("; ")}`,
+        field: "video",
+      },
+    };
+  }
+  if (from === undefined) {
+    return {
+      ok: false,
+      refusal: {
+        outcome: "refusedBeforeRun",
+        reason: "invalidScript",
+        detail: `video "${video.name}" has no version to re-record — pass a script to record one into it`,
+        field: "script",
+      },
+    };
+  }
+  const built = await refilmFromLibrary(library, from.takeId);
+  if (built.ok) return { ...built, takeId: from.takeId };
+  const { refusal } = built;
+  return {
+    ok: false,
+    refusal: {
+      ...refusal,
+      detail: `version ${from.number} of video "${video.name}" (take ${from.takeId}) cannot be re-recorded — ${refusal.detail}`,
+      field: refusal.field === "takeId" ? "video" : refusal.field,
+    },
+  };
 }

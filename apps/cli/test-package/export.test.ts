@@ -61,6 +61,7 @@ it("runs and exports the fixture take from the packed install, and the film show
   );
   try {
     const run = await finished(c, "run", {
+      video: { new: "Place an order", confirmedNew: true },
       script: {
         scriptVersion: 1,
         name: "Place an order",

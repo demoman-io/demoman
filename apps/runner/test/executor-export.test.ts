@@ -594,6 +594,39 @@ describe("export, when something is wrong", () => {
     );
   });
 
+  it("refuses an expired version as versionExpired, naming its video and the run that records it again", async () => {
+    const lib = library();
+    const doc = (await lib.getScene(takeId)) as SceneDocument;
+    const id = "scene-expired";
+    await lib.putScene({ ...doc, meta: { ...doc.meta, id } });
+    const videoId = "11111111-1111-4111-8111-111111111111";
+    await writeFile(
+      join(lib.takeDir(id), "video.json"),
+      JSON.stringify({
+        videoId,
+        made: {
+          repo: { none: "t" },
+          agent: { none: "t" },
+          by: "t",
+          door: "mcp",
+        },
+        recordedRevision: null,
+        expired: { at: "2026-10-01T00:00:00.000Z", freedBytes: 1 },
+      }),
+    );
+    const out = await executor.request("export", {
+      takeId: id,
+      callId: "e-expired",
+    });
+    expect(out).toMatchObject({
+      ok: true,
+      value: { outcome: "refusedBeforeExport", reason: "versionExpired" },
+    });
+    const value = (out as { value: { detail: string; summary: string } }).value;
+    expect(value.detail).toContain(`run({ video: { id: "${videoId}" } })`);
+    expect(value.summary).toMatch(/^Not exported: /);
+  });
+
   it("refuses an empty id and a missing take with summaries, as the extension does", async () => {
     for (const [id, reason] of [
       ["  ", "noTakeId"],

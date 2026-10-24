@@ -1,4 +1,12 @@
-import { chmod, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,9 +16,11 @@ import {
 } from "@demoman/compositor";
 import { type ExportAnswer, frameOf, targetFor } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
+import { ALL_FORMATS, BufferSource, Input } from "mediabunny";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Rgb } from "../src/decode-probe-entry.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
+import { readTag } from "../src/executor/export-tag.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import {
   DISK_TAKE_INK,
@@ -19,7 +29,7 @@ import {
   makeDiskTake,
   putTake,
 } from "./disk-take.js";
-import { sampleImage } from "./mp4-probe.js";
+import { sampleImage, sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-15, M-series Mac, headless): a GIF export 2.2-2.7 s,
 // stills 1.3 s, the default MP4 15.8 s. x5 for CI (fff4505) is about 80 s for
@@ -584,6 +594,178 @@ describe("export({ fileType: 'stills', stills }), size and zoom", () => {
           expect(answer.detail).toMatch(said);
         }
       }
+    },
+    EXPORT_MS,
+  );
+});
+
+/** Top-level box types of an MP4, in file order. */
+function topBoxes(b: Uint8Array): string[] {
+  const view = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const out: string[] = [];
+  for (let at = 0; at + 8 <= b.length; at += view.getUint32(at)) {
+    out.push(String.fromCharCode(...b.subarray(at + 4, at + 8)));
+    if (view.getUint32(at) < 8) break;
+  }
+  return out;
+}
+
+/** The mdat box, header included. */
+function mdatOf(b: Uint8Array): Uint8Array {
+  const at = Buffer.from(b).indexOf("mdat") - 4;
+  const size = new DataView(b.buffer, b.byteOffset).getUint32(at);
+  return b.slice(at, at + size);
+}
+
+/** Every stco/co64 chunk offset in the file, in order. */
+function chunkOffsets(b: Uint8Array): number[] {
+  const view = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const text = Buffer.from(b);
+  const out: number[] = [];
+  for (const [kind, width] of [
+    ["stco", 4],
+    ["co64", 8],
+  ] as const) {
+    for (let i = text.indexOf(kind); i >= 0; i = text.indexOf(kind, i + 4)) {
+      const count = view.getUint32(i + 8);
+      for (let n = 0; n < count; n++) {
+        const at = i + 12 + n * width;
+        out.push(
+          width === 4 ? view.getUint32(at) : Number(view.getBigUint64(at)),
+        );
+      }
+    }
+  }
+  return out;
+}
+
+let untaggedMp4 = "";
+
+describe("exports carry their video and version", () => {
+  const videoJson = () => join(home, "takes", take.takeId, "video.json");
+  // Written as a join writes it: the tag reads the membership, and a join
+  // proper refuses a video with no record.
+  const join1 = () =>
+    writeFile(
+      videoJson(),
+      JSON.stringify({
+        videoId: "video-under-test",
+        made: {
+          repo: { none: "test" },
+          agent: { none: "test" },
+          by: { none: "test" },
+          door: "mcp",
+        },
+        recordedRevision: null,
+      }),
+    );
+
+  it(
+    "leaves a take in no video untagged, with no warning",
+    async () => {
+      await putTake(home, take.takeId, take.original, take.bundle);
+      await rm(videoJson(), { force: true });
+      const answer = await exportAs("mp4");
+      if (answer.outcome !== "saved" || answer.fileType === "stills")
+        throw new Error(JSON.stringify(answer));
+      expect(readTag(await readFile(answer.file.path))).toHaveProperty("none");
+      expect(answer.warnings.untagged).toBeUndefined();
+      // Kept: the tagged export below is compared against these bytes.
+      untaggedMp4 = join(home, "untagged.mp4");
+      await copyFile(answer.file.path, untaggedMp4);
+    },
+    EXPORT_MS,
+  );
+
+  it(
+    "tags the MP4, GIF and every still, and the MP4 still decodes",
+    async () => {
+      await putTake(home, take.takeId, take.original, take.bundle);
+      await join1();
+      const want = { found: { video: "video-under-test", take: take.takeId } };
+
+      const mp4 = await exportAs("mp4");
+      if (mp4.outcome !== "saved" || mp4.fileType === "stills")
+        throw new Error(JSON.stringify(mp4));
+      const bytes = new Uint8Array(await readFile(mp4.file.path));
+      // The premise the chunk-offset shift is for: the real sink writes moov
+      // before mdat. If it stops, the shift is untested here; say so.
+      expect(topBoxes(bytes), "the real sink's box order").toEqual([
+        "ftyp",
+        "moov",
+        "mdat",
+      ]);
+      // Tagging moved nothing but moov's own size: mdat is byte-identical to
+      // the untagged export's, and each chunk offset moved by the tag's size.
+      const plain = new Uint8Array(await readFile(untaggedMp4));
+      expect(mdatOf(bytes)).toEqual(mdatOf(plain));
+      const delta = bytes.length - plain.length;
+      expect(delta, "the tag grew the file").toBeGreaterThan(0);
+      const offsets = chunkOffsets(bytes);
+      expect(offsets.length, "the fixture has chunks to move").toBeGreaterThan(
+        0,
+      );
+      expect(offsets).toEqual(chunkOffsets(plain).map((o) => o + delta));
+      // The picture: the tagged file decodes to the untagged file's frames.
+      // Metadata and offsets can look right while the samples are read from
+      // the wrong bytes; only decoding says they are not.
+      const probe = { colors: [DISK_TAKE_RED, DISK_TAKE_INK] };
+      const before = await sampleMp4(plain, probe);
+      const after = await sampleMp4(bytes, probe);
+      expect(before.readings.length, "the probe read frames").toBeGreaterThan(
+        1,
+      );
+      expect(
+        before.readings.some((r) => (r.colorCounts[0] ?? 0) > 0),
+        "the untagged picture shows the take's red text",
+      ).toBe(true);
+      expect(after, "tagged decodes as untagged").toEqual(before);
+      expect(readTag(bytes)).toEqual(want);
+      expect(mp4.warnings.untagged).toBeUndefined();
+      const duration = await new Input({
+        source: new BufferSource(bytes),
+        formats: ALL_FORMATS,
+      }).computeDuration();
+      expect(duration).toBeGreaterThan(0);
+      expect(mp4.file.byteLength).toBe(bytes.length);
+
+      const gif = await exportAs("gif");
+      if (gif.outcome !== "saved" || gif.fileType === "stills")
+        throw new Error(JSON.stringify(gif));
+      expect(readTag(await readFile(gif.file.path))).toEqual(want);
+      // Still a GIF the picture reader decodes, with its frames.
+      const counts = await lastCounts(
+        await readFile(gif.file.path),
+        "image/gif",
+      );
+      expect(counts.read.frameCount).toBeGreaterThan(1);
+
+      const stills = await exportAs("stills");
+      if (stills.outcome !== "saved" || stills.fileType !== "stills")
+        throw new Error(JSON.stringify(stills));
+      expect(stills.folder.files.length).toBeGreaterThan(0);
+      for (const f of stills.folder.files) {
+        const png = await readFile(join(stills.folder.path, f.name));
+        expect(readTag(png), f.name).toEqual(want);
+        expect((await lastCounts(png, "image/png")).read.width).toBe(
+          stills.width,
+        );
+      }
+    },
+    EXPORT_MS * 2,
+  );
+
+  it(
+    "saves and says why when the take's video.json cannot be read",
+    async () => {
+      await putTake(home, take.takeId, take.original, take.bundle);
+      await writeFile(videoJson(), "{not json");
+      const answer = await exportAs("gif");
+      if (answer.outcome !== "saved" || answer.fileType === "stills")
+        throw new Error(JSON.stringify(answer));
+      expect(answer.warnings.untagged?.error).toContain("video");
+      expect(answer.summary).toContain("not tagged");
+      expect(readTag(await readFile(answer.file.path))).toHaveProperty("none");
     },
     EXPORT_MS,
   );

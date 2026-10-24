@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import type { LocalExecutor } from "../src/executor/types.js";
+import { ownVideo, videoOfTake } from "./fixture.js";
 import {
   type LoginApp,
   SESSION_COOKIE,
@@ -47,6 +48,7 @@ type Report = {
 };
 const run = async (steps: unknown[], extra: Record<string, unknown> = {}) => {
   const out = (await executor.request("run", {
+    video: ownVideo(),
     script: {
       scriptVersion: extra.device === undefined ? 1 : 4,
       name: "behind the login",
@@ -282,6 +284,7 @@ it("still writes the session back when a cookie in the file had already expired"
 // of the report's note.
 it("notes where the start URL went as origin and path only", async () => {
   const out = (await executor.request("run", {
+    video: ownVideo(),
     script: {
       scriptVersion: 1,
       name: "moved",
@@ -342,6 +345,7 @@ it("does not re-label a stop on a password page of a site with no saved session"
   // Premise: no session file at all.
   expect((await createSessionStore(home).read()).files).toEqual([]);
   const out = (await executor.request("run", {
+    video: ownVideo(),
     script: {
       scriptVersion: 1,
       name: "sign up",
@@ -407,6 +411,7 @@ it.skipIf(process.getuid?.() === 0)(
 
 it("says landing.unchecked when the page cannot be checked, and films on", async () => {
   const out = (await executor.request("run", {
+    video: ownVideo(),
     script: {
       scriptVersion: 1,
       name: "hostile page",
@@ -430,7 +435,9 @@ it("stops a re-film as signedOut once the session has lapsed", async () => {
   const takeId = first.provenance?.takeId;
   expect(takeId).toBeTruthy();
   app.expireAll();
-  const out = (await executor.request("run", { takeId })) as { value: Report };
+  const out = (await executor.request("run", {
+    video: await videoOfTake(home, takeId as string),
+  })) as { value: Report };
   expect(out.value.stopped?.reason, JSON.stringify(out.value)).toBe(
     "signedOut",
   );

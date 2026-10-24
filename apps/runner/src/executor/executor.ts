@@ -1,8 +1,14 @@
 import { existsSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { failure, type Op, type Outcome } from "@demoman/agent-bridge";
+import {
+  AGENT_ARG,
+  agentOf,
+  failure,
+  type Op,
+  type Outcome,
+} from "@demoman/agent-bridge";
 import { authoredTotal, type ReplayProgress } from "@demoman/replay-engine";
 import {
   checkScript,
@@ -28,17 +34,20 @@ import {
 import { attachProjectRefused, attachTake, attachThrew } from "./attach.js";
 import { createBrowserSession } from "./browser.js";
 import { deriveOp, takesOp } from "./derive.js";
+import { expireOld, expiryStatus } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { readKits } from "./kits.js";
 import { DEFAULT_SIGNIN_COMMAND } from "./landing.js";
 import { createLibrary, ownHome } from "./library.js";
+import { ensureVideos, startPage } from "./migrate-videos.js";
 import { installExecutorEntry } from "./page-ops.js";
 import {
   type PullRequestsSetting,
   resolvePullRequests,
 } from "./pull-requests.js";
-import { refilmFromLibrary } from "./refilm.js";
+import { refilmFromVideo } from "./refilm.js";
+import { readRepo } from "./repo.js";
 import { runScript } from "./run.js";
 import { runningWords } from "./running.js";
 import {
@@ -52,6 +61,39 @@ import { createSessionLoader } from "./session-loader.js";
 import { createSessionStore, type SessionChoice } from "./sessions.js";
 import { snapshotOp } from "./snapshot.js";
 import type { ExecutorOptions, LocalExecutor } from "./types.js";
+import { sameName } from "./video-match.js";
+import {
+  createVideoStore,
+  isVideoId,
+  type Made,
+  VideoError,
+  type VideoRecord,
+  type VideoRepo,
+} from "./videos.js";
+import { matchesFor, videosOp } from "./videos-op.js";
+
+/** `run`'s `video`, or null when it is neither `{ id }` nor `{ new }`. */
+function videoArg(
+  v: unknown,
+): { id: string } | { new: string; confirmedNew: boolean } | null {
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  const text = (x: unknown) => (typeof x === "string" ? x.trim() : "");
+  if (text(o.id) !== "" && o.new === undefined) return { id: text(o.id) };
+  if (text(o.new) !== "" && o.id === undefined) {
+    return { new: text(o.new), confirmedNew: o.confirmedNew === true };
+  }
+  return null;
+}
+
+/** Who made a version (spec §2): the OS user, or why it could not be read. */
+function osUserName(): string | { none: string } {
+  try {
+    return userInfo().username;
+  } catch (error) {
+    return { none: `the OS user name could not be read (${messageOf(error)})` };
+  }
+}
 
 const BUSY =
   "a run, snapshot, export or attach is already in progress in this demoman-mcp — call report(id) on it, and try again when it settles";
@@ -120,6 +162,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       ? {}
       : { updateCommand: options.updateCommand },
   );
+  const videos = createVideoStore(home, library, { log });
   const outDir = options.outDir ?? join(homedir(), "Downloads");
   const sessionStore = createSessionStore(home);
   const sessions = createSessionLoader(sessionStore, log);
@@ -382,6 +425,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
   /** What `export` and `attach` export with: one path for both. */
   const exportDeps = (): ExportDeps => ({
     library,
+    videos,
     session,
     door: "agent",
     home,
@@ -436,61 +480,243 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     }
   }
 
+  // The job is listed before the first await (finding the video reads git
+  // and the library), so a report asked meanwhile reads a run, never
+  // noReport; a refusal is the job's answer like any other.
   async function runClaimed(
     args: Record<string, unknown>,
+    onProgress?: (value: unknown) => void,
+  ): Promise<Outcome> {
+    const callId = typeof args.callId === "string" ? args.callId : null;
+    const job: Job = {
+      op: "run",
+      latest: {
+        outcome: "running",
+        summary: "Running — finding its video.",
+        doing: "finding its video",
+        step: 0,
+        of: 0,
+        keyframes: 0,
+        note: null,
+      },
+      final: null,
+    };
+    if (callId !== null) jobs.set(callId, job);
+    lastRun = job;
+    let out: Outcome;
+    try {
+      out = await runJob(args, job, onProgress);
+    } catch (error) {
+      // Before runJob's own catch (finding the video, checking the script):
+      // still the job's answer, or report(id) would say "running" forever.
+      log(`the run threw — ${messageOf(error)}`);
+      out = { ok: true, value: { outcome: "threw", error: messageOf(error) } };
+    }
+    job.final = out;
+    return out;
+  }
+
+  async function runJob(
+    args: Record<string, unknown>,
+    job: Job,
     onProgress?: (value: unknown) => void,
   ): Promise<Outcome> {
     const refusal = (
       reason: string,
       detail: string,
       field: string | null = null,
+      more: Record<string, unknown> = {},
     ): Outcome => ({
       ok: true,
-      value: { outcome: "refusedBeforeRun", reason, detail, field },
+      value: { outcome: "refusedBeforeRun", reason, detail, field, ...more },
     });
-    // `{ script }` or `{ takeId }` (re-film, spec 2026-10-14), never both.
-    const hasScript = args.script !== undefined;
-    const hasTake = args.takeId !== undefined;
-    if (hasScript === hasTake) {
-      return hasScript
-        ? refusal(
-            "invalidScript",
-            "run takes a script or the takeId of a take to re-record, not both",
-            "script, takeId",
-          )
-        : refusal(
-            "invalidScript",
-            "run needs a script, or the takeId of a take to re-record",
-            "script",
-          );
+    // Every take joins a video (local video library §4): `{ id }` adds a
+    // version, `{ new }` starts one. Each refusal here spends no run.
+    const asked = videoArg(args.video);
+    if (asked === null) {
+      return refusal(
+        "videoRequired",
+        `run needs video: { id } to add a version to a video, or { new: "<name>" } to start one; got ${JSON.stringify(args.video) ?? "none"}${args.takeId === undefined ? "" : " (takeId is gone: re-record a take with video: { id } of its video and no script)"}`,
+        "video",
+      );
     }
+    const hasScript = args.script !== undefined;
+    if ("new" in asked && !hasScript) {
+      return refusal(
+        "invalidScript",
+        `a new video needs a script to record its first version`,
+        "script",
+      );
+    }
+    const where = await projectFolder(args.project);
+    if ("kind" in where)
+      return refusal(where.reason, where.detail, where.field);
+    const repoRead = await readRepo(where.from);
+    const videoRepo: VideoRepo = repoRead.ok
+      ? { key: repoRead.repo.key }
+      : { none: repoRead.none };
+    let into: VideoRecord | null = null;
     let raw: unknown = args.script;
     let refilm: RefilmInfo | undefined;
-    if (hasTake) {
-      const built = await refilmFromLibrary(library, args.takeId);
-      if (!built.ok) return { ok: true, value: built.refusal };
-      raw = built.script;
-      refilm = built.refilm;
+    let builtFrom: string | null = null;
+    try {
+      const migrated = await ensureVideos(videos, library);
+      for (const s of migrated.skipped) {
+        log(`take ${s.takeId}: ${s.reason}`);
+      }
+      if (migrated.deferred !== null) {
+        log(
+          `takes waiting to join a video were not joined: ${migrated.deferred}; a later run joins them`,
+        );
+      }
+      // Never refuses the run: a failure is logged here and said by status.
+      const expiry = await expireOld(videos, library, new Date());
+      if ("failed" in expiry) log(`expiry failed: ${expiry.failed}`);
+      if ("id" in asked) {
+        into = isVideoId(asked.id) ? await videos.get(asked.id) : null;
+        if (into === null) {
+          return refusal(
+            "videoNotFound",
+            `no video has the id ${JSON.stringify(asked.id)}`,
+            "video",
+          );
+        }
+        if (!hasScript) {
+          const target = into.id;
+          const built = await refilmFromVideo(
+            videos,
+            library,
+            into,
+            migrated.skipped.filter((s) => s.videoId === target),
+          );
+          if (!built.ok) return { ok: true, value: built.refusal };
+          raw = built.script;
+          refilm = built.refilm;
+          builtFrom = built.takeId;
+        }
+      } else {
+        const matches = await matchesFor(videos, library, asked.new, videoRepo);
+        const holder = matches.find((m) => sameName(m.name, asked.new));
+        if (holder !== undefined) {
+          return refusal(
+            "nameTaken",
+            `video "${holder.name}" (${holder.id}) already has that name in this repo — add a version to it with video: { id: "${holder.id}" }, or name the new video differently`,
+            "video",
+            { holder },
+          );
+        }
+        if (matches.length > 0 && !asked.confirmedNew) {
+          return refusal(
+            "possibleDuplicate",
+            `${matches.length === 1 ? "a video" : `${matches.length} videos`} in this repo may already show this: ${matches.map((m) => `"${m.name}" (${m.id})`).join(", ")} — add a version to one with video: { id }, or call again with video: { new, confirmedNew: true } if this is a different flow`,
+            "video",
+            { matches },
+          );
+        }
+      }
+    } catch (error) {
+      // The store says whether it could not read or could not write.
+      return refusal(
+        error instanceof VideoError ? error.reason : "videoUnreadable",
+        messageOf(error),
+        "video",
+      );
     }
-    const checked = checkScript(raw, hasTake ? [] : holePaths);
+    const checked = checkScript(raw, builtFrom === null ? holePaths : []);
     if (!checked.ok) {
       // A script built from a take is not one the caller wrote: the
       // refusal says where it came from.
       return {
         ok: true,
-        value: hasTake
-          ? {
-              ...checked.refusal,
-              detail: `the script built from take ${String(args.takeId).trim()}'s script.json and scene.json is not valid — ${checked.refusal.detail}`,
-            }
-          : checked.refusal,
+        value:
+          builtFrom !== null
+            ? {
+                ...checked.refusal,
+                detail: `the script built from take ${builtFrom}'s script.json and scene.json is not valid — ${checked.refusal.detail}`,
+              }
+            : checked.refusal,
       };
     }
     const script = checked.script;
-    const callId = typeof args.callId === "string" ? args.callId : null;
-    const job: Job = { op: "run", latest: null, final: null };
-    if (callId !== null) jobs.set(callId, job);
-    lastRun = job;
+    const who = agentOf(args);
+    const made: Made = {
+      repo: repoRead.ok ? repoRead.repo : { none: repoRead.none },
+      agent: who.ok
+        ? who.agent
+        : {
+            none: who.absent
+              ? `the MCP client sent no name (no args.${AGENT_ARG})`
+              : who.why,
+          },
+      by: osUserName(),
+      door: "mcp",
+    };
+    const target = into;
+    // A `new` video is created only here, once the run has a take, so a
+    // refused or failed run leaves no empty video (ruling 9).
+    const joinVideo = async (takeId: string) => {
+      let video: VideoRecord;
+      let created = false;
+      try {
+        if (target !== null) {
+          video = target;
+        } else {
+          const name = (asked as { new: string }).new;
+          const started = await videos.create({
+            name,
+            repo: videoRepo,
+            startPage: startPage(script.target),
+          });
+          if (!started.ok) {
+            throw new Error(
+              `video "${started.holder.name}" (${started.holder.id}) took the name "${name}" while the run played`,
+            );
+          }
+          video = started.video;
+          created = true;
+        }
+      } catch (error) {
+        throw new Error(`the take is not in any video: ${messageOf(error)}`);
+      }
+      try {
+        const read = await library.getSceneRead(takeId);
+        if (read === null) throw new Error("its scene.json was gone when read");
+        await videos.join(takeId, {
+          videoId: video.id,
+          made,
+          recordedRevision: read.revision,
+        });
+      } catch (error) {
+        if (created) {
+          await videos.remove(video.id).catch((e: unknown) => {
+            log(
+              `video ${video.id} has no version and could not be removed (${messageOf(e)})`,
+            );
+          });
+        }
+        throw new Error(
+          `the take is not in any video: it could not join "${video.name}" (${messageOf(error)})`,
+        );
+      }
+      // The take is in the video either way: a version number that cannot
+      // be read back is logged and left out, never a failed join.
+      const unread = `the take joined video "${video.name}" (${video.id}), but its version number could not be read back`;
+      let version: number | undefined;
+      try {
+        version = (await videos.versions(video.id)).find(
+          (v) => v.takeId === takeId,
+        )?.number;
+        if (version === undefined) log(`${unread}: no version is that take`);
+      } catch (error) {
+        log(`${unread} (${messageOf(error)})`);
+      }
+      return {
+        id: video.id,
+        name: video.name,
+        ...(version === undefined ? {} : { version }),
+        created,
+      };
+    };
     const paint = (value: unknown) => {
       job.latest = value;
       onProgress?.(value);
@@ -590,6 +816,10 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             kits,
             log,
             refilm,
+            joinVideo,
+            ...(repoRead.ok && repoRead.repo.commit !== null
+              ? { buildSha: repoRead.repo.commit }
+              : {}),
             sessions: loaded.files,
             sessionsContext: browser.launched.context,
             loadSessions: (context) => sessions.load(context, choiceOf(choice)),
@@ -799,6 +1029,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
                   ? { display: await displayForStatus() }
                   : {}),
                 pullRequests,
+                expiry: await expiryStatus(library),
                 runPage:
                   lastRun === null
                     ? null
@@ -842,6 +1073,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           }
           case "takes":
             return takesOp(library);
+          case "videos": {
+            const where = await projectFolder(args.project);
+            if ("kind" in where) return failure(where.reason, where.detail);
+            return videosOp({ store: videos, library, dir: where.from }, args);
+          }
           case "derive": {
             if (slot !== null) {
               return {

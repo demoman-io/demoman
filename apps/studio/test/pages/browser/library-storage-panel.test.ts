@@ -76,6 +76,7 @@ function actions() {
     preview: vi.fn(),
     filter: vi.fn(),
     rename: vi.fn(),
+    renameVideo: vi.fn(),
     openReview: vi.fn(),
   };
 }

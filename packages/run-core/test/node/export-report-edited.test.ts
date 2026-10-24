@@ -25,18 +25,36 @@ const savedArgs = () => ({
 });
 
 describe("an export of a take edited after recording", () => {
-  it("says which step, what it was and is, and names the re-film", () => {
+  it("says which step, what it was and is, and names the re-record of its video", () => {
+    // Red: build the call from the take id — `run({ takeId })`, which run
+    // refuses (videoRequired).
+    const VIDEO = "0b5d2a6e-1c3f-4e8a-9b7d-2f4c6a8e0b1d";
+    const edited = [
+      { actionId: "ac-7", what: "text" as const, was: "Lumen", now: "Maple" },
+    ];
     const report = reportForSave({
       ...savedArgs(),
-      editedSinceRecorded: [
-        { actionId: "ac-7", what: "text", was: "Lumen", now: "Maple" },
-      ],
+      editedSinceRecorded: edited,
+      videoId: VIDEO,
     });
     expect(report.outcome).toBe("saved");
     const line = exportVerdict(report);
     expect(line).toMatch(/1 step was edited after recording/);
     expect(line).toContain(`ac-7: "Lumen" → "Maple"`);
-    expect(line).toContain(`run({ takeId: "${savedArgs().takeId}" })`);
+    expect(line).toContain(`run({ video: { id: "${VIDEO}" } }) re-records it`);
+    expect(line).not.toContain("takeId");
+    // A take in no video (or one whose video will not read) names the shape.
+    for (const videoId of [null, undefined]) {
+      const none = exportVerdict(
+        reportForSave({
+          ...savedArgs(),
+          editedSinceRecorded: edited,
+          ...(videoId === undefined ? {} : { videoId }),
+        }),
+      );
+      expect(none).toContain("re-record it with run's video: { id }");
+      expect(none).not.toContain("takeId");
+    }
   });
 
   it("says a target edit shows the step as recorded", () => {
@@ -63,7 +81,7 @@ describe("an export of a take edited after recording", () => {
     expect(line).toContain(
       "ac-4: its step changed from type to click; the video shows the step as recorded — derive this take, check the step, and run the draft",
     );
-    expect(line).not.toContain("run({ takeId");
+    expect(line).not.toMatch(/re-records? it/);
   });
 
   it("names derive, not the re-film, when a later step's kind changed", () => {
@@ -82,7 +100,7 @@ describe("an export of a take edited after recording", () => {
     expect(line).toContain(
       "ac-4's step changed from type to click, so derive this take, check the step, and run the draft",
     );
-    expect(line).not.toContain("run({ takeId");
+    expect(line).not.toMatch(/re-records? it/);
   });
 
   // Text overlays left with schema 12 (spec split-tool): nothing draws an

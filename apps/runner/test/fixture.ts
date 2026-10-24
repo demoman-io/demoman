@@ -11,7 +11,9 @@ import {
 } from "../../../packages/compositor/scripts/fixture-scene.js";
 import { bundleEntry } from "../src/bundle-js.js";
 import { FINGERPRINT_PROBE_GLOBAL } from "../src/entry-globals.js";
+import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
+import { createVideoStore } from "../src/executor/videos.js";
 import type {
   FingerprintProbe,
   ProbedFingerprint,
@@ -425,6 +427,27 @@ export async function fixtureDriftComplaints(page: Page): Promise<string[]> {
   ];
 }
 
+let videosMade = 0;
+/** A video of its own for a run that is not about videos: every take joins
+ *  one (local video library §4), and a fresh name per call means no two runs
+ *  in one home collide. */
+export const ownVideo = () => ({
+  new: `fixture video ${++videosMade}`,
+  confirmedNew: true,
+});
+
+/** The video a take joined, for a re-record by `video: { id }`. */
+export async function videoOfTake(
+  home: string,
+  takeId: string,
+): Promise<{ id: string }> {
+  const joined = await createVideoStore(home, createLibrary(home)).videoOf(
+    takeId,
+  );
+  if (joined === null) throw new Error(`take ${takeId} is in no video`);
+  return { id: joined.videoId };
+}
+
 /** A 10x10 flat magenta square: nothing in the fixture app or the kit's green
  *  is near it, so counting magenta pixels counts the logo. Asserted, not
  *  assumed: `executor-export.test.ts`'s missing-logo export counts zero
@@ -448,6 +471,7 @@ export async function makeFixtureTake(
 ): Promise<string> {
   await writeFile(join(where.home, "acme.svg"), LOGO_SVG);
   const run = await executor.request("run", {
+    video: ownVideo(),
     callId: "make-fixture-take",
     script: {
       scriptVersion: 1,

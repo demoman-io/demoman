@@ -162,10 +162,29 @@ export interface RunReport {
    * or the event.
    */
   notStored?: {
-    what: "take" | "status" | "script" | "telemetry" | "renderMode" | "session";
+    what:
+      | "take"
+      | "status"
+      | "script"
+      | "telemetry"
+      | "renderMode"
+      | "session"
+      | "video";
     error: string;
   }[];
-  /** Present on a re-film (`run({ takeId })`): the take it came from, what
+  /** The video the take joined, and its version number there (local video
+   *  library §4); `created` when this run started the video. Not `video`,
+   *  which is the film check's. Absent when the run made no take, or the
+   *  take could not join (then `notStored` has `"video"`). `version` is
+   *  absent when the take joined but its number could not be read back
+   *  (the executor's log says why). */
+  videoVersion?: {
+    id: string;
+    name: string;
+    version?: number;
+    created: boolean;
+  };
+  /** Present on a re-film (`run({ video: { id } })` with no script): the take it came from, what
    *  the merge could not place (`notes`), and the editor edits the new take
    *  does not have (`notCarried`). Absent on a run of a script. */
   rerecord?: RefilmInfo;

@@ -30,10 +30,12 @@ import type { SceneDocument } from "@demoman/scene-schema";
 import type { Page } from "playwright";
 import { renderToFiles } from "../render.js";
 import type { BrowserSession } from "./browser.js";
+import { tagBytes as tagFileBytes, type VideoTag } from "./export-tag.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
 import { checkExportFolder, saveExport, saveStillsFolder } from "./save.js";
 import { readUserSettings } from "./user-settings.js";
+import type { VideoStore } from "./videos.js";
 
 export interface ExportDeps {
   library: Library;
@@ -47,6 +49,10 @@ export interface ExportDeps {
   log: (line: string) => void;
   /** Tests only: sees the work page, so a case can close it mid-render. */
   onWorkPage?: (page: Page) => void;
+  /** Which video a take belongs to; its export is tagged with it. */
+  videos: Pick<VideoStore, "videoOf" | "get">;
+  /** Tests only: stands in for `tagBytes`. */
+  tagBytes?: typeof tagFileBytes;
   /** Tests only: `ExecutorOptions.mp4MaxTier`. */
   maxTier?: RenderTarget;
 }
@@ -93,7 +99,8 @@ export async function exportTake(
       | "invalidFileType"
       | "invalidStillsOptions"
       | "invalidQuality"
-      | "invalidMaxMB",
+      | "invalidMaxMB"
+      | "versionExpired",
     detail: string,
   ): ExportAnswer =>
     told(withSummary({ outcome: "refusedBeforeExport", reason, detail }));
@@ -159,10 +166,27 @@ export async function exportTake(
     return refused("takeNotFound", `there is no take ${takeId} in the library`);
   }
   const { scene, notes } = sceneRead;
+  // Before noFrames: an expired version has none, and the move is to record
+  // it again, not to run its script by hand.
+  // A video.json that will not read does not stop an export with frames
+  // (the save says it, `warnings.untagged`); a refusal below says it too.
+  let expired: Awaited<ReturnType<typeof expiredVideoOf>> = null;
+  let videoUnread = "";
+  try {
+    expired = await expiredVideoOf(takeId, deps);
+  } catch (error) {
+    videoUnread = ` (and its video.json could not be read, so whether its recording expired cannot be told: ${messageOf(error)})`;
+  }
+  if (expired !== null) {
+    return refused(
+      "versionExpired",
+      `take ${takeId} is a version of the video ${expired.name} (${expired.videoId}) whose recording expired on ${expired.at} (over 30 days old, its frames were removed) — record it again with run({ video: { id: "${expired.videoId}" } })`,
+    );
+  }
   if (bundle === null) {
     return refused(
       "noFrames",
-      `take ${takeId} has no frames to render — run its script again`,
+      `take ${takeId} has no frames to render — run its script again${videoUnread}`,
     );
   }
   // Only a take that exists: a lease on a missing one would make its folder.
@@ -208,6 +232,26 @@ export async function exportTake(
   }
 }
 
+/** The video of a take marked expired in `video.json` (the only sign:
+ *  a missing `frames/` is also a run that stopped before its first frame).
+ *  Throws when `video.json` will not read. */
+async function expiredVideoOf(
+  takeId: string,
+  deps: ExportDeps,
+): Promise<{ videoId: string; name: string; at: string } | null> {
+  const member = await deps.videos.videoOf(takeId);
+  if (!member?.expired) return null;
+  // The name is a courtesy beside the id: an unreadable record says why.
+  let name: string;
+  try {
+    const video = await deps.videos.get(member.videoId);
+    name = video === null ? "(its record is gone)" : `"${video.name}"`;
+  } catch (error) {
+    name = `(its record could not be read: ${messageOf(error)})`;
+  }
+  return { videoId: member.videoId, name, at: member.expired.at };
+}
+
 /** Appends the saved answer to the take's `outputs.json`. A row that cannot
  *  be written leaves the answer `saved` and says so (`warnings.notListed`). */
 async function listed(
@@ -241,6 +285,38 @@ async function listed(
       warnings: { ...report.warnings, notListed: { error: said } },
     });
   }
+}
+
+/** Tags the take's exports with its video. A take in no video exports
+ *  untagged and says nothing; one whose video cannot be read, or whose file
+ *  cannot be tagged, still exports and says why (`warnings.untagged`). */
+async function taggerFor(takeId: string, deps: ExportDeps) {
+  let tag: VideoTag | null = null;
+  let error: string | undefined;
+  // Unknown (absent) when the take's video.json will not read.
+  let videoId: string | null | undefined;
+  try {
+    const member = await deps.videos.videoOf(takeId);
+    videoId = member?.videoId ?? null;
+    if (member !== null) tag = { video: member.videoId, take: takeId };
+  } catch (e) {
+    error = `the take's video could not be read (${messageOf(e)})`;
+  }
+  const write = deps.tagBytes ?? tagFileBytes;
+  return {
+    videoId,
+    apply(type: "mp4" | "gif" | "png", bytes: Uint8Array): Uint8Array {
+      if (tag === null) return bytes;
+      const tagged = write(type, bytes, tag);
+      if (tagged.ok) return tagged.bytes;
+      error ??= tagged.error;
+      deps.log(`take ${takeId}: an export is not tagged (${tagged.error})`);
+      return bytes;
+    },
+    get untagged(): { untagged: { error: string } } | Record<string, never> {
+      return error === undefined ? {} : { untagged: { error } };
+    },
+  };
 }
 
 async function exportLeased(a: {
@@ -387,6 +463,7 @@ async function exportLeased(a: {
   }
 
   onProgress({ outcome: "exporting", phase: "saving", done: 0, total: 0 });
+  const tagger = await taggerFor(takeId, deps);
   const base = exportBaseName(sceneLabel(scene.meta));
   const warnings = {
     // The take's own skips under the floor and the render's caps and
@@ -398,6 +475,8 @@ async function exportLeased(a: {
     targetCheck: targetCheckOf(read),
     // A re-film leaves every mask behind; an edited take's summary says so.
     masks: scene.edits.masks.length,
+    // ...and names the video a re-record adds a version to.
+    ...(tagger.videoId === undefined ? {} : { videoId: tagger.videoId }),
   };
   if (asked === "stills") {
     // The same guard as the file below: no stills is a failed render.
@@ -416,7 +495,7 @@ async function exportLeased(a: {
       // never passes.
       rendered.files.map((f, i) => ({
         name: f.name ?? `still-${i}.png`,
-        bytes: f.bytes,
+        bytes: tagger.apply("png", f.bytes),
       })),
     );
     return withSummary(
@@ -432,6 +511,7 @@ async function exportLeased(a: {
           unplacedStills: rendered.unplacedStills,
         },
         ...warnings,
+        ...tagger.untagged,
         ...(rendered.stillsCapped === undefined
           ? {}
           : { stillsCapped: rendered.stillsCapped }),
@@ -448,7 +528,8 @@ async function exportLeased(a: {
     });
   }
   const name = exportFileName(asked, aspect, base);
-  const saved = await saveExport(deps.outDir, name, file.bytes);
+  const bytes = tagger.apply(asked, file.bytes);
+  const saved = await saveExport(deps.outDir, name, bytes);
   return withSummary(
     reportForSave({
       takeId,
@@ -456,7 +537,7 @@ async function exportLeased(a: {
       file: {
         ref: `${takeId}:${name}`,
         name,
-        byteLength: file.bytes.byteLength,
+        byteLength: bytes.byteLength,
         contentType: contentTypeFor(asked),
         detailViolations: rendered.detailViolations,
         unavailableSpans: rendered.unavailableSpans,
@@ -470,6 +551,7 @@ async function exportLeased(a: {
       // wider than its target when it can.
       target: rendered.rendered,
       ...warnings,
+      ...tagger.untagged,
       ...(rendered.gifBudget === undefined
         ? {}
         : { gifSize: rendered.gifBudget }),
@@ -479,7 +561,7 @@ async function exportLeased(a: {
         ? {
             videoSize: {
               quality,
-              byteLength: file.bytes.byteLength,
+              byteLength: bytes.byteLength,
               ...(settingUnreadable === undefined ? {} : { settingUnreadable }),
               ...(rendered.videoCap === undefined
                 ? {}

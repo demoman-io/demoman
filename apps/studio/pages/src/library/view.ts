@@ -10,13 +10,16 @@ import type {
   LibraryRow,
   LibrarySection,
   StateFacet,
+  VideoGroup,
 } from "./state";
 import {
   BAD_BUDGET,
+  cardsOf,
   facetsOf,
   filterRows,
   formatBytes,
   NO_FILTER,
+  repoLabel,
   sectionsOf,
 } from "./state";
 
@@ -24,7 +27,14 @@ import {
  *  it, so a card and the "Couldn't read" row its folder can become share an
  *  id; keyed on the id alone, a card's refusal (an export holding it)
  *  followed the take onto that row, long after it stopped being true. */
-export type RowKind = "take" | "folder";
+export type RowKind = "take" | "folder" | "video" | "record";
+
+/** What an unreadable row's Delete removes, as the kind its status is held
+ *  under; null for a row with nothing to delete. */
+export const unreadableKind = (u: {
+  kind?: "take" | "video" | "upkeep";
+}): "folder" | "record" | null =>
+  u.kind === "upkeep" ? null : u.kind === "video" ? "record" : "folder";
 
 /** The key a row's status is held under in the page's `rowStatus`. */
 export const statusKey = (kind: RowKind, id: string): string => `${kind}:${id}`;
@@ -39,6 +49,9 @@ export interface LibraryActions {
   /** The author committed a new name on the card. Trimmed and non-empty:
    *  the view keeps a blank or unchanged edit to itself. */
   rename(sceneId: string, name: string): void;
+  /** The author committed a new name on a video's card: the video's, not
+   *  its takes'. Trimmed and non-empty; a video is never untitled. */
+  renameVideo(videoId: string, name: string): void;
   restore(sceneId: string): void;
   /** The sentence that stands where a take's Restore button would, on a
    *  platform with no Runs page to open. Absent, or null for this take,
@@ -46,8 +59,10 @@ export interface LibraryActions {
   rerunLine?(sceneId: string, authored: boolean): string | null;
   /** Put a re-shot take back on its recording's frames. */
   backToRecording(sceneId: string): void;
-  /** Delete pressed, on a take's card or on a folder's "Couldn't read" row
-   *  (`kind`). Asks the author first — the page owns the asking, since it
+  /** Delete pressed: on a take's card or one of a video's versions
+   *  (`take`), a video's card (`video`, every version), a folder's
+   *  "Couldn't read" row (`folder`), or an unreadable video record's row
+   *  (`record`, the record alone). Asks the author first — the page owns the asking, since it
    *  owns the row status a dialog that could not open reports to. */
   remove(id: string, kind: RowKind): void;
   /**
@@ -657,30 +672,38 @@ const nameFieldId = (sceneId: string): string => `name-${sceneId}`;
  * name, not the one the row was rendered with — the page re-renders the
  * row once the store answers, and until then this is the truth.
  */
-function nameField(r: LibraryRow, actions: LibraryActions): HTMLInputElement {
+function nameField(
+  r: LibraryRow,
+  actions: LibraryActions,
+  /** A video's card names the video: its own name, and a blank puts it
+   *  back rather than sending (a video is never untitled). */
+  group: VideoGroup | null,
+): HTMLInputElement {
+  const name = group === null ? r.name : group.video.name;
   const field = el("input", {
     type: "text",
     id: nameFieldId(r.sceneId),
     "data-name": "",
-    "aria-label": "Demo name",
+    "aria-label": group === null ? "Demo name" : "Video name",
     // The full name, for the pointer: a long one is clipped at rest.
-    title: r.name,
+    title: name,
     placeholder: "Untitled",
     spellcheck: "false",
     autocomplete: "off",
   });
-  field.value = r.name;
-  let committed = r.name;
+  field.value = name;
+  let committed = name;
   field.addEventListener("change", () => {
     const next = field.value.trim();
-    if (next === committed) {
+    if (next === committed || (group !== null && next === "")) {
       field.value = committed;
       return;
     }
     committed = next;
     field.value = next;
     field.title = next;
-    actions.rename(r.sceneId, next);
+    if (group === null) actions.rename(r.sceneId, next);
+    else actions.renameVideo(group.video.id, next);
   });
   field.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -699,16 +722,23 @@ function row(
   status: string | undefined,
   /** The section's heading names the day, so the line drops the date. */
   namesDay: boolean,
+  /** The video this card stands for (`r` is its current version, else its
+   *  newest), or null for a take in no video. */
+  group: VideoGroup | null,
+  rowStatus: Map<string, string>,
+  /** Whether the video's versions were open before this render. */
+  versionsOpen: boolean,
 ): HTMLElement {
   const article = el("article", {
     class: "card",
     "data-row": r.sceneId,
     "data-state": STATE_ATTR[r.state],
+    ...(group === null ? {} : { "data-video": group.video.id }),
     // The card is named by its take, so a screen reader can tell this
     // card's Edit and Delete from the next card's. An untitled take's
     // field is empty — a placeholder is not part of what `labelledby`
     // reads — so that card carries its label outright.
-    ...(r.name === ""
+    ...(r.name === "" && group === null
       ? { "aria-label": r.label }
       : { "aria-labelledby": nameFieldId(r.sceneId) }),
   });
@@ -729,8 +759,10 @@ function row(
   article.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
     if (nameWasFocused) return;
-    if (target.closest("button, input, a")) return;
+    if (target.closest("button, input, a, [data-versions]")) return;
     if ((window.getSelection()?.toString() ?? "") !== "") return;
+    // An expired recording has nothing to open: its line says what to do.
+    if (r.expired === true) return;
     actions.edit(r.sceneId);
   });
   article.append(previewBox(r, actions));
@@ -749,9 +781,12 @@ function row(
     back.addEventListener("click", () => actions.backToRecording(r.sceneId));
     buttons.append(back);
   }
-  const rerunLine = r.canRestore
-    ? (actions.rerunLine?.(r.sceneId, r.authored) ?? null)
-    : null;
+  // An expired recording can only be recorded again, which the same line
+  // says.
+  const rerunLine =
+    r.canRestore || r.expired === true
+      ? (actions.rerunLine?.(r.sceneId, r.authored) ?? null)
+      : null;
   if (r.canRestore && rerunLine === null) {
     const restore = el("button", {
       type: "button",
@@ -776,7 +811,7 @@ function row(
   });
   edit.append(icon("clapperboard"));
   edit.addEventListener("click", () => actions.edit(r.sceneId));
-  buttons.append(edit);
+  if (r.expired !== true) buttons.append(edit);
 
   const remove = el("button", {
     type: "button",
@@ -786,14 +821,18 @@ function row(
     title: "Delete",
   });
   remove.append(icon("trash"));
-  remove.addEventListener("click", () => actions.remove(r.sceneId, "take"));
+  remove.addEventListener("click", () =>
+    group === null
+      ? actions.remove(r.sceneId, "take")
+      : actions.remove(group.video.id, "video"),
+  );
   buttons.append(remove);
 
   // The name and the actions share one row: the card has no footer, so
   // every card is the thumbnail and two lines of text, whatever it holds.
   const text = el("div", { class: "row-text" });
   const title = el("div", { class: "row-title" });
-  title.append(nameField(r, actions), buttons);
+  title.append(nameField(r, actions, group), buttons);
   text.append(title);
 
   // One line, two sentences in the same place: where and when at rest,
@@ -804,14 +843,16 @@ function row(
   // path together: a developer's takes are mostly on one localhost, and
   // the path is what tells the checkout flow from the settings page. The
   // full line is the title, for when it is clipped.
-  const where = `${r.origin}${r.path}`;
+  // A video's line leads with its repo, when it is known.
+  const repo = group === null ? null : repoLabel(group.video.repo);
+  const where = `${repo === null ? "" : `${repo} · `}${r.origin}${r.path}`;
   const line = el("div", { class: "row-line" });
   // Under a heading that names the day the date would say it twice, so
   // the line keeps only the time; under a month it keeps both.
   line.append(
     el(
       "p",
-      { class: "row-meta", title: where },
+      { class: "row-meta", "data-meta": "", title: where },
       `${where} · ${namesDay ? r.time : r.when}`,
     ),
   );
@@ -833,6 +874,13 @@ function row(
   }
   text.append(line);
   article.append(text);
+  if (group !== null && group.versions.length > 1) {
+    article.append(versionList(group, actions, rowStatus, versionsOpen));
+  } else if (group !== null) {
+    // One version has no fold to hold its exports: they sit on the card.
+    const files = exportsList(group.versions[0]?.exports);
+    if (files !== null) article.append(files);
+  }
 
   // Where there is no Runs page, the way to restore motion is a sentence,
   // not a button.
@@ -852,6 +900,132 @@ function row(
   }
   return article;
 }
+
+/**
+ * A video's versions, newest first, under its card: a fold whose summary is
+ * the count, so a video of one version (nothing to choose between) has
+ * none. Each version is its number and when it was made, Edit and Delete —
+ * or, once its recording expired, the line that says how to record it
+ * again in Edit's place.
+ */
+function versionList(
+  group: VideoGroup,
+  actions: LibraryActions,
+  rowStatus: Map<string, string>,
+  open: boolean,
+): HTMLElement {
+  const box = el("details", {
+    class: "versions",
+    "data-versions": group.video.id,
+  });
+  box.open = open;
+  const summary = el("summary", { class: "versions-count" });
+  const chev = icon("chevronRight");
+  chev.classList.add("chev");
+  summary.append(chev, `${group.versions.length} versions`);
+  box.append(summary);
+  const list = el("ol", { class: "versions-list" });
+  for (const v of group.versions) {
+    const item = el("li", {
+      class: "version",
+      "data-version-row": v.sceneId,
+      ...(v.expired === true ? { "data-expired": "" } : {}),
+    });
+    const head = el("div", { class: "version-head" });
+    head.append(
+      el("span", { class: "version-number" }, `v${v.version ?? "?"}`),
+      el("span", { class: "version-when", title: v.when }, v.when),
+    );
+    const buttons = el("div", { class: "row-actions" });
+    const line =
+      v.expired === true
+        ? (actions.rerunLine?.(v.sceneId, v.authored) ?? null)
+        : null;
+    if (v.expired !== true) {
+      const edit = el("button", {
+        type: "button",
+        "data-action": "edit",
+        class: "btn btn-quiet btn-icon",
+        "aria-label": `Edit version ${v.version ?? ""} of ${group.video.name}`,
+        title: "Edit",
+      });
+      edit.append(icon("clapperboard"));
+      edit.addEventListener("click", () => actions.edit(v.sceneId));
+      buttons.append(edit);
+    }
+    const remove = el("button", {
+      type: "button",
+      "data-action": "delete",
+      class: "btn btn-quiet btn-icon btn-danger",
+      "aria-label": `Delete version ${v.version ?? ""} of ${group.video.name}`,
+      title: "Delete",
+    });
+    remove.append(icon("trash"));
+    remove.addEventListener("click", () => actions.remove(v.sceneId, "take"));
+    buttons.append(remove);
+    head.append(buttons);
+    item.append(head);
+    const files = exportsList(v.exports);
+    if (files !== null) item.append(files);
+    if (line !== null) {
+      const rerun = el("p", { "data-rerun-line": "", class: "row-rerun" });
+      setCodeText(rerun, line);
+      item.append(rerun);
+    }
+    const status = rowStatus.get(statusKey("take", v.sceneId));
+    if (status !== undefined) {
+      item.append(
+        el("p", { "data-status": "", class: "notice notice-error" }, status),
+      );
+    }
+    list.append(item);
+  }
+  box.append(list);
+  return box;
+}
+
+/** A version's exported files: each its name and type, a moved or deleted
+ *  one marked gone; or why they could not be read. Null when it has none. */
+function exportsList(exports: LibraryRow["exports"]): HTMLElement | null {
+  if (exports === undefined) return null;
+  if ("unreadable" in exports) {
+    return el(
+      "p",
+      { class: "row-rerun", "data-exports-unreadable": "" },
+      `Its exports could not be read: ${exports.unreadable}`,
+    );
+  }
+  if (exports.length === 0) return null;
+  const list = el("ul", { class: "version-exports" });
+  for (const e of exports) {
+    const name = e.path.slice(e.path.lastIndexOf("/") + 1) || e.path;
+    const item = el("li", {
+      "data-export": e.path,
+      title: e.path,
+      ...(e.exists ? {} : { "data-gone": "" }),
+    });
+    item.append(
+      el("span", { class: "export-name" }, name),
+      el(
+        "span",
+        { class: "export-type" },
+        e.exists
+          ? e.fileType.toUpperCase()
+          : `${e.fileType.toUpperCase()} · gone`,
+      ),
+    );
+    list.append(item);
+  }
+  return list;
+}
+
+/** The ids of the videos whose versions are open under `root`. */
+const openVersions = (root: HTMLElement): Set<string> =>
+  new Set(
+    [...root.querySelectorAll<HTMLDetailsElement>("[data-versions]")]
+      .filter((d) => d.open)
+      .map((d) => d.getAttribute("data-versions") as string),
+  );
 
 /** The name field being edited under `root`, if any, and what it holds. */
 function typingName(root: HTMLElement): {
@@ -990,6 +1164,8 @@ function section(
   open: boolean,
   actions: LibraryActions,
   rowStatus: Map<string, string>,
+  groupOf: Map<string, VideoGroup>,
+  versionsOpen: Set<string>,
 ): { box: HTMLElement; articles: (readonly [string, HTMLElement])[] } {
   const headingId = sectionHeadingId(s.key);
   const box = el("details", {
@@ -1019,11 +1195,23 @@ function section(
   box.append(summary);
   const list = el("div", { class: "rows" });
   const articles = s.rows.map((r) => {
+    const group = groupOf.get(r.sceneId) ?? null;
     const article = row(
       r,
       actions,
-      rowStatus.get(statusKey("take", r.sceneId)),
+      // A video's card says what was said of the video. What was said of
+      // the take it shows is said on that take's version row, when the
+      // card has them; a card of one version is that version's row.
+      group === null
+        ? rowStatus.get(statusKey("take", r.sceneId))
+        : (rowStatus.get(statusKey("video", group.video.id)) ??
+            (group.versions.length > 1
+              ? undefined
+              : rowStatus.get(statusKey("take", r.sceneId)))),
       s.namesDay,
+      group,
+      rowStatus,
+      group !== null && versionsOpen.has(group.video.id),
     );
     list.append(article);
     return [r.sceneId, article] as const;
@@ -1064,19 +1252,24 @@ function unreadableSection(
     });
     const text = el("div", { class: "row-text" });
     const title = el("div", { class: "row-title" });
-    const remove = el("button", {
-      type: "button",
-      "data-action": "delete",
-      class: "btn btn-quiet btn-icon btn-danger",
-      "aria-label": `Delete ${u.folder}`,
-      title: "Delete",
-    });
-    remove.append(icon("trash"));
-    remove.addEventListener("click", () => actions.remove(u.folder, "folder"));
     title.append(
       el("p", { class: "row-meta", "data-unreadable-name": "" }, u.folder),
-      remove,
     );
+    // A take folder's Delete removes the folder, a video record's the
+    // record alone; a failed join or expiry has nothing to delete.
+    const kind = unreadableKind(u);
+    if (kind !== null) {
+      const remove = el("button", {
+        type: "button",
+        "data-action": "delete",
+        class: "btn btn-quiet btn-icon btn-danger",
+        "aria-label": `Delete ${u.folder}`,
+        title: "Delete",
+      });
+      remove.append(icon("trash"));
+      remove.addEventListener("click", () => actions.remove(u.folder, kind));
+      title.append(remove);
+    }
     text.append(
       title,
       el("p", { class: "row-meta", "data-reason": "" }, u.reason),
@@ -1092,7 +1285,8 @@ function unreadableSection(
       );
     }
     article.append(text);
-    const status = rowStatus.get(statusKey("folder", u.folder));
+    const status =
+      kind === null ? undefined : rowStatus.get(statusKey(kind, u.folder));
     if (status !== undefined) {
       article.append(
         el("p", { "data-status": "", class: "notice notice-error" }, status),
@@ -1119,6 +1313,7 @@ export function renderLibrary(
   // into the new field for the same row. Every row is replaced below.
   const typing = typingName(root);
   const wasOpen = sectionStates(root);
+  const versionsOpen = openVersions(root);
   // Everything but the header is replaced. The header is updated in
   // place and never leaves the page: removing it would close an open
   // storage panel and blur a budget being typed (see `createHeader`).
@@ -1167,10 +1362,18 @@ export function renderLibrary(
     list.append(card);
     return;
   }
-  const filters = filterRow(model.rows, filter, actions);
+  // One card per video: the filters and sections count cards, not takes.
+  const cards = cardsOf(model);
+  const leads = cards.map((c) => c.row);
+  const groupOf = new Map(
+    cards.flatMap((c) =>
+      c.group === null ? [] : [[c.row.sceneId, c.group] as const],
+    ),
+  );
+  const filters = filterRow(leads, filter, actions);
   if (filters !== null) list.append(filters);
 
-  const shown = filterRows(model.rows, filter);
+  const shown = filterRows(leads, filter);
   if (shown.length === 0) {
     // Reachable only through a stale filter — a host whose last take was
     // deleted, say. Says so, and offers the way back, rather than showing
@@ -1205,6 +1408,8 @@ export function renderLibrary(
       wasOpen.get(s.key) ?? !s.folded,
       actions,
       rowStatus,
+      groupOf,
+      versionsOpen,
     );
     list.append(built.box);
     articles.push(...built.articles);

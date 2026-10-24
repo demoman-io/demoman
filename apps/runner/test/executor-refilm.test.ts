@@ -43,6 +43,7 @@ let server: Server;
 let home: string;
 let executor: LocalExecutor;
 let firstTake: string;
+let videoId: string;
 
 const runOf = async (args: Record<string, unknown>) => {
   const out = await executor.request("run", args);
@@ -90,6 +91,7 @@ beforeAll(async () => {
   });
   const first = await runOf({
     callId: "refilm-first",
+    video: { new: "Refilm" },
     script: {
       scriptVersion: 1,
       name: "Refilm",
@@ -117,6 +119,8 @@ beforeAll(async () => {
   if (first.outcome !== "complete" || id === null)
     throw new Error(JSON.stringify(first));
   firstTake = id;
+  if (first.videoVersion === undefined) throw new Error(JSON.stringify(first));
+  videoId = first.videoVersion.id;
 }, RUN_MS);
 
 afterAll(async () => {
@@ -161,10 +165,16 @@ describe("re-filming a take whose typed text was edited", () => {
         { actionId: typed.id, what: "text", was: "red", now: "blue" },
       ]);
       expect(edited.warnings.targetCheck).toBe("checked");
+      // Red (final review 2): leave the video out of the report — the
+      // summary cannot name the call that re-records it.
+      expect(edited.warnings.videoId).toBe(videoId);
+      expect(edited.summary).toContain(
+        `run({ video: { id: "${videoId}" } }) re-records it`,
+      );
 
       const refilm = await runOf({
         callId: "refilm-second",
-        takeId: firstTake,
+        video: { id: videoId },
       });
       expect(refilm.outcome, JSON.stringify(refilm.stopped)).toBe("complete");
       expect(refilm.rerecord?.from).toBe(firstTake);
@@ -172,6 +182,13 @@ describe("re-filming a take whose typed text was edited", () => {
       const second = refilm.provenance.takeId;
       if (second === null) throw new Error(JSON.stringify(refilm));
       expect(second).not.toBe(firstTake);
+      // The re-record is the video's next version, not a video of its own.
+      expect(refilm.videoVersion).toEqual({
+        id: videoId,
+        name: "Refilm",
+        version: 2,
+        created: false,
+      });
 
       const after = await lastColours(second, "refilm-export-2");
       const colours = JSON.stringify({

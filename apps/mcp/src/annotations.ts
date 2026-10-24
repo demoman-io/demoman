@@ -12,6 +12,7 @@ export type ToolName =
   | "recipe"
   | "status"
   | "takes"
+  | "videos"
   | "derive"
   | "report"
   | "snapshot"
@@ -34,6 +35,8 @@ export const TOOL_ANNOTATIONS: {
   recipe: READ_ONLY,
   status: READ_ONLY,
   takes: READ_ONLY,
+  /** Joins untracked takes to videos (bookkeeping beside the takes), writes nothing to the app or the user's files. */
+  videos: READ_ONLY,
   derive: READ_ONLY,
   report: READ_ONLY,
   snapshot: OPENS_PAGES,

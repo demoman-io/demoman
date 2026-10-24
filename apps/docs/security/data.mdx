@@ -29,7 +29,9 @@ Everything lives under `~/.demoman`. `DEMOMAN_HOME` moves it. Videos you export 
 
 | Where | What |
 | --- | --- |
-| `~/.demoman/takes/` | Each take: its steps, including the text typed and how each target looked, the run's report, the video frames, your Studio edits, preview images and a list of its exports. Kept until you delete it in the Studio or by hand. |
+| `~/.demoman/takes/` | Each take: its steps, including the text typed and how each target looked, the run's report, the video frames, your Studio edits, preview images and a list of its exports. Its frames and preview images are removed after 30 days (see below); the rest is kept until you delete it in the Studio or by hand. |
+| `~/.demoman/takes/<id>/video.json` | Which video the take is a version of, and who made it: your OS user name, the repo's folder, `origin` remote URL (without any password or token in it), branch and commit, and your agent's name. Also when its recording was removed, and how many bytes that freed. |
+| `~/.demoman/videos/` | One file per video: its id, name, repo and start page. `.expiry.json` holds the last cleanup's result; `.lock` exists only while a video is made, renamed or given a version, or takes are being grouped into videos; it holds a file naming the process that holds it. |
 | `~/.demoman/sessions/` | A saved sign-in per site: cookies and the page's stored data, readable by you only. Demoman refuses a file other users can read. |
 | `~/.demoman/update-check.json` | When npm was last asked about a newer version, and its answer. |
 | `~/.demoman/kits.json` | Your brand kits, saved by the Studio. A reset keeps the old file beside it first. |
@@ -42,11 +44,17 @@ Everything lives under `~/.demoman`. `DEMOMAN_HOME` moves it. Videos you export 
 | `.demoman/secrets.env` | In your repo, written by your agent: the demo account's secret values, in plain text. Demoman refuses it unless git ignores it. It does not check the file's permissions. |
 | `.demoman/config.json` | In your repo, if you add one: the repo's pull-request video setting. Demoman only reads it. |
 
+Each take is a version of a video. A run records its repo's commit in the take too.
+
+Old recordings are removed on their own. When a run starts and when the Studio opens, at most once an hour, Demoman removes the frames and preview images of each version over 30 days old. It keeps a video's current version, any version you edited in the Studio, the version your newest export was made from, and any version that could not be recorded again. The take's steps, report and list of exports stay, and your exported files are never touched. A version whose recording was removed can be recorded again from its video. `status` says what the last cleanup did.
+
+Every MP4, GIF and PNG Demoman exports carries its video's id and its take's id inside the file. Anyone you send the file to can read them; they name nothing else. Your agent uses them to find the video a file came from.
+
 Page URLs in a take have query values and token-like path segments replaced by "redacted". The address a script starts at is kept as given. Text typed into a password field, or a field whose name reads like a password, token, card number or code, is stored as hidden.
 
 The command line and the MCP server keep no log file. Their logs go to the terminal, with secrets swept out. The Studio reads no secrets, and its log is not swept.
 
-There is no delete command. The Studio's library can delete a take. To remove everything else, delete `~/.demoman` (or just its `takes/` or `sessions/` folders), your exported files and Playwright's Chromium cache, and remove Demoman from each agent: uninstall the Demoman plugin in Claude Code and in Codex, and for Cursor delete the `demoman` entry in `~/.cursor/mcp.json` and the `~/.cursor/skills/record-demo/` folder.
+There is no delete command. The Studio's library can delete a take or a whole video. To remove everything else, delete `~/.demoman` (or just its `takes/`, `videos/` or `sessions/` folders), your exported files and Playwright's Chromium cache, and remove Demoman from each agent: uninstall the Demoman plugin in Claude Code and in Codex, and for Cursor delete the `demoman` entry in `~/.cursor/mcp.json` and the `~/.cursor/skills/record-demo/` folder.
 
 ## Passwords and secrets
 
@@ -63,10 +71,11 @@ Every tool answers with text. No image or video bytes travel over MCP.
 
 - **recipe**: how to record with Demoman, the same text for everyone.
 - **snapshot**: the page's address, where it landed, its title, the size it was laid out at, and the visible text and position of its interactive elements.
-- **run** and **report**: the run's report, with each step as the agent wrote it (credential text hidden), where each target was found, the size it recorded at, and the take id.
+- **run** and **report**: the run's report, with each step as the agent wrote it (credential text hidden), where each target was found, the size it recorded at, the take id, and the video and version it joined.
 - **takes**: each take's id, name, date and step count.
+- **videos**: each video's id, name, repo, start page, versions, pages, steps, and where each version's exports went. Given an exported file, which video and version it came from.
 - **derive**: a script rebuilt from a take, including the text it typed (credential fields blank).
-- **status**: versions, the export folder, saved sign-ins (sites and dates, never cookies), demo accounts (names and sites), the secrets file's path but never a value, the pull-request video setting, the last run's report and the update check's answer.
+- **status**: versions, the export folder, saved sign-ins (sites and dates, never cookies), demo accounts (names and sites), the secrets file's path but never a value, the pull-request video setting, the last run's report, the last cleanup of old recordings and the update check's answer.
 - **export**: the saved file's path and size. An agent with file access can open it.
 - **attach**: the pull request's address and the posted video's address on GitHub.
 - **studio**: that the Studio window opened.

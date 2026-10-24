@@ -3,10 +3,19 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { DEFAULT_EXPORT_QUALITY } from "@demoman/run-core";
 import {
+  createVideoStore,
+  ensureVideos,
+  expireOld,
+  expiryStatus,
   type Library,
   LibraryError,
+  pidAlive,
+  readLeases,
   readLogo,
   readUserSettings,
+  summarise,
+  VideoError,
+  type VideoSummary,
 } from "@demoman/runner/studio";
 import { migrateToCurrent, type SceneDocument } from "@demoman/scene-schema";
 import {
@@ -25,6 +34,7 @@ import {
   type StudioReason,
   type TakesAnswer,
   type UnreadableTake,
+  type VideoSummary as VideoListing,
 } from "@demoman/studio-protocol";
 import { saveLogo } from "./assets.js";
 import type { EventHub } from "./events.js";
@@ -45,6 +55,23 @@ export const TAKE_BUSY = {
   agent: "This take is being exported by an agent.",
   studio: "This take is being exported by the Studio.",
 } as const;
+
+/** What a delete cleared or left behind, each said as a clause. */
+const noteParts = (done: {
+  clearedLeases: { pid: number }[];
+  leftBehind: string | null;
+}): string[] => [
+  ...done.clearedLeases.map(
+    (h) => `cleared a stale export lock left by process ${h.pid}`,
+  ),
+  ...(done.leftBehind === null
+    ? []
+    : [`${done.leftBehind} could not be removed — delete it by hand`]),
+];
+const noteOf = (parts: string[]): string | null =>
+  parts.length === 0
+    ? null
+    : `${parts.join("; ").replace(/^./, (c) => c.toUpperCase())}.`;
 
 /** Keyframes and spans are content-addressed by ref and never rewritten. */
 export const FRAME_CACHE = "private, max-age=31536000, immutable";
@@ -95,11 +122,139 @@ export function createRoutes(o: {
   thumbs: ReturnType<typeof createThumbs>;
   /** Injected by tests; `open -R` otherwise. */
   reveal?: (path: string) => Promise<void>;
+  /** Join loose takes to videos and expire old recordings now, as well as
+   *  on each listing: the studio's server starting (spec §5). Off in the
+   *  route tests, whose homes are removed under a pass still writing. */
+  upkeepOnStart?: boolean;
 }): Omit<StudioHandlers, "window" | "exportStart"> {
   const { library, home, log } = o;
   const reveal = o.reveal ?? revealInFinder;
   const sceneWrites = createChains();
   const kits = createKitsFile(home);
+  const videos = createVideoStore(home, library, { log });
+
+  // One at a time in this process: upkeep, renames and deletes. The store's
+  // lock keeps two processes' migrations apart; this chain also keeps a
+  // delete out of a migration, whose join into the deleted take would fail
+  // (a join never makes a take's folder) and list it as in no video.
+  let videoChain: Promise<unknown> = Promise.resolve();
+  const onVideoChain = <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = videoChain.then(fn, fn);
+    videoChain = run.catch(() => undefined);
+    return run;
+  };
+
+  /**
+   * Joins every loose take to a video, then expires old recordings (at most
+   * once an hour; expireOld throttles itself). Never throws: the listing
+   * answers whatever happens here, and each failure is logged and comes
+   * back as a row — a take in no video's versions as a `take` row, the
+   * lock held elsewhere or a pass that failed as one `upkeep` row (which
+   * has no Delete).
+   */
+  const upkeep = (): Promise<UnreadableTake[]> =>
+    onVideoChain(async () => {
+      const rows: UnreadableTake[] = [];
+      try {
+        const joined = await ensureVideos(videos, library);
+        for (const s of joined.skipped) {
+          rows.push({ folder: s.takeId, reason: s.reason, kind: "take" });
+        }
+        if (joined.deferred !== null) {
+          rows.push({
+            folder: "joining takes to videos",
+            reason: `some takes are not in a video yet: ${joined.deferred}; they join next time`,
+            kind: "upkeep",
+          });
+        }
+      } catch (error) {
+        rows.push({
+          folder: "joining takes to videos",
+          reason: `takes could not be grouped into videos (${messageOf(error)})`,
+          kind: "upkeep",
+        });
+      }
+      const expiry = await expireOld(videos, library, new Date());
+      // A pass that ran within the hour is not run again, so a failure it
+      // met is read back from the state file rather than said only once.
+      const last = "skipped" in expiry ? await expiryStatus(library) : expiry;
+      if ("failed" in last || "unreadable" in last) {
+        rows.push({
+          folder: "expiring old recordings",
+          kind: "upkeep",
+          reason: `old recordings could not be expired (${"failed" in last ? last.failed : last.unreadable})`,
+        });
+      }
+      for (const r of rows) log(`studio: ${r.folder}: ${r.reason}`);
+      return rows;
+    });
+  if (o.upkeepOnStart === true) void upkeep();
+
+  /** A version's exported files; an outputs.json that will not read is
+   *  said as itself, never as no exports. */
+  async function exportsOf(
+    takeId: string,
+  ): Promise<TakesAnswer["videoOf"][string]["exports"]> {
+    try {
+      return (await library.outputs(takeId)).map((o) => ({
+        path: o.path,
+        fileType: o.fileType,
+        exists: o.exists,
+      }));
+    } catch (error) {
+      log(`studio: take ${takeId}'s exports: ${messageOf(error)}`);
+      return { unreadable: messageOf(error) };
+    }
+  }
+
+  /** Every video and which take is which version of which; a video that
+   *  will not read is a row saying so, never a missing card. */
+  async function videoListing(
+    unreadable: UnreadableTake[],
+  ): Promise<Pick<TakesAnswer, "videos" | "videoOf">> {
+    const listed: VideoListing[] = [];
+    const videoOf: TakesAnswer["videoOf"] = {};
+    const say = (row: UnreadableTake): void => {
+      unreadable.push(row);
+      log(`studio: ${row.folder}: ${row.reason}`);
+    };
+    let records: Awaited<ReturnType<typeof videos.list>>;
+    try {
+      records = await videos.list();
+    } catch (error) {
+      say({
+        folder: "listing videos",
+        reason: messageOf(error),
+        kind: "upkeep",
+      });
+      return { videos: listed, videoOf };
+    }
+    for (const v of records) {
+      if ("unreadable" in v) {
+        say({ folder: v.id, reason: v.unreadable, kind: "video" });
+        continue;
+      }
+      try {
+        const summary: VideoSummary = await summarise(videos, library, v);
+        for (const version of await videos.versions(v.id)) {
+          videoOf[version.takeId] = {
+            videoId: v.id,
+            version: version.number,
+            expired: version.expired !== null,
+            exports: await exportsOf(version.takeId),
+          };
+        }
+        listed.push(summary);
+      } catch (error) {
+        say({
+          folder: v.id,
+          reason: `the video "${v.name}" could not be read (${messageOf(error)})`,
+          kind: "video",
+        });
+      }
+    }
+    return { videos: listed, videoOf };
+  }
 
   const noTake = (id: string): StudioResponse =>
     refuse(404, "takeNotFound", `There is no take "${id}" in ${library.root}.`);
@@ -136,19 +291,35 @@ export function createRoutes(o: {
     return typeof value === "string" && value !== "" ? value : null;
   };
 
-  /** A LibraryError is the library's own refusal, with its own sentence. */
+  /** A LibraryError or VideoError is the store's own refusal, with its
+   *  own sentence. */
   const guarded =
     (handler: Handler): Handler =>
     async (req) => {
       try {
         return await handler(req);
       } catch (error) {
-        if (error instanceof LibraryError) {
+        if (error instanceof LibraryError || error instanceof VideoError) {
           return refuse(500, error.reason, `${error.message}.`);
         }
         throw error;
       }
     };
+
+  const noVideo = (id: string): StudioResponse =>
+    refuse(404, "videoNotFound", `There is no video "${id}".`);
+
+  /** A delete refused over an export lease, by the first live holder's door. */
+  const busy = (
+    holders: { door: keyof typeof TAKE_BUSY }[],
+    more = "",
+  ): StudioResponse => {
+    const first = holders[0];
+    if (first === undefined) {
+      throw new Error("a delete was refused with no holder to name");
+    }
+    return refuse(409, "takeBusy", `${TAKE_BUSY[first.door]}${more}`);
+  };
 
   const handlers: Omit<StudioHandlers, "window" | "exportStart"> = {
     async ping() {
@@ -162,7 +333,7 @@ export function createRoutes(o: {
 
     async takes() {
       const scenes: SceneDocument[] = [];
-      const unreadable: UnreadableTake[] = [];
+      const unreadable: UnreadableTake[] = await upkeep();
       const sizes: Record<string, number> = {};
       /** Each folder on its own: a folder that will not measure (a
        *  root-owned `.busy/`, say) leaves its size out, and its card says
@@ -192,8 +363,16 @@ export function createRoutes(o: {
       );
       for (const entry of read) {
         if ("unreadable" in entry) {
-          // A row, so the person can see the folder and delete it.
-          unreadable.push({ folder: entry.id, reason: entry.unreadable });
+          // A row, so the person can see the folder and delete it; once,
+          // though upkeep, which names every take in no video, has it too.
+          if (
+            !unreadable.some((u) => u.kind === "take" && u.folder === entry.id)
+          )
+            unreadable.push({
+              folder: entry.id,
+              reason: entry.unreadable,
+              kind: "take",
+            });
         } else if (entry.scene === null) {
           // Deleted between the listing and this read: no longer a take,
           // and not a size either.
@@ -203,6 +382,7 @@ export function createRoutes(o: {
         }
       }
       const answer: TakesAnswer = {
+        ...(await videoListing(unreadable)),
         scenes,
         sizes,
         unreadable,
@@ -216,7 +396,15 @@ export function createRoutes(o: {
       if (!library.isTakeId(id)) return noTake(id);
       const read = await library.getSceneRead(id);
       if (read === null) return noTake(id);
-      const answer: SceneAnswer = read;
+      let videoId: string | null = null;
+      let videoError: string | null = null;
+      try {
+        videoId = (await videos.videoOf(id))?.videoId ?? null;
+      } catch (error) {
+        videoError = messageOf(error);
+        log(`studio: take ${id}'s video: ${videoError}`);
+      }
+      const answer: SceneAnswer = { ...read, videoId, videoError };
       return json(200, answer);
     },
 
@@ -276,28 +464,137 @@ export function createRoutes(o: {
       // save between its hash check and its rename re-creates
       // `takes/<id>/scene.json` after the folder went to `.trash-*` — a
       // frameless ghost take, and "saved" to an editor whose take is gone.
-      const done = await sceneWrites(id, () => library.deleteTake(id));
-      if (!done.ok) {
-        if ("missing" in done) return noTake(id);
-        const first = done.holders[0];
-        if (first === undefined) {
-          throw new Error("deleteTake refused with no holder to name");
+      return sceneWrites(id, async () => {
+        // Read before the folder goes, since video.json goes with it.
+        let videoId: string | null = null;
+        let unread: string | null = null;
+        try {
+          videoId = (await videos.videoOf(id))?.videoId ?? null;
+        } catch (error) {
+          unread = messageOf(error);
         }
-        return refuse(409, "takeBusy", TAKE_BUSY[first.door]);
+        return onVideoChain(async () => {
+          const done = await library.deleteTake(id);
+          if (!done.ok) {
+            if ("missing" in done) return noTake(id);
+            return busy(done.holders);
+          }
+          const parts = noteParts(done);
+          if (unread !== null) {
+            parts.push(
+              `which video this take was a version of could not be read (${unread}), so that video may be left with no versions`,
+            );
+          } else if (videoId !== null) {
+            // Its last version gone, the video goes too: a video with no
+            // versions has nothing to show, and would hold its name forever.
+            try {
+              if ((await videos.versions(videoId)).length === 0) {
+                await videos.remove(videoId);
+              }
+            } catch (error) {
+              parts.push(
+                `its video could not be checked for versions left (${messageOf(error)})`,
+              );
+            }
+          }
+          const answer: DeleteAnswer = { note: noteOf(parts) };
+          return json(200, answer);
+        });
+      });
+    },
+
+    async videoRename(req) {
+      const id = req.params.id as string;
+      const body = await bodyJson(req);
+      if (!body.ok) {
+        return refuse(
+          400,
+          "videoNameInvalid",
+          `The video was not renamed: ${body.error}.`,
+        );
       }
-      const parts = [
-        ...done.clearedLeases.map(
-          (h) => `cleared a stale export lock left by process ${h.pid}`,
-        ),
-        ...(done.leftBehind === null
-          ? []
-          : [`${done.leftBehind} could not be removed — delete it by hand`]),
-      ];
-      const note =
-        parts.length === 0
-          ? null
-          : `${parts.join("; ").replace(/^./, (c) => c.toUpperCase())}.`;
-      const answer: DeleteAnswer = { note };
+      const name = (body.value as { name?: unknown } | null)?.name;
+      if (typeof name !== "string" || name.trim() === "") {
+        return refuse(
+          400,
+          "videoNameInvalid",
+          "The video was not renamed: a video needs a name.",
+        );
+      }
+      const done = await onVideoChain(() => videos.rename(id, name.trim()));
+      if (done.ok) return json(200, {});
+      if (done.reason === "videoNotFound") return noVideo(id);
+      return refuse(
+        409,
+        "nameTaken",
+        `Another video is already called "${done.holder.name}".`,
+      );
+    },
+
+    async videoDelete(req) {
+      const id = req.params.id as string;
+      // Every version is checked before any goes: one under an export lease
+      // keeps the whole video. The chain is let go before the deletes, which
+      // take each scene's chain first and then this one, as takeDelete does:
+      // held across them, a takeDelete waiting on it would wait forever.
+      const checked = await onVideoChain(async () => {
+        let readable: boolean;
+        try {
+          readable = (await videos.get(id)) !== null;
+        } catch (error) {
+          if (!(error instanceof VideoError)) throw error;
+          // A record that will not read: its "Couldn't read" row's Delete
+          // removes the record alone, and its recordings stay as takes.
+          await videos.remove(id);
+          const answer: DeleteAnswer = {
+            note: "Only the unreadable record was removed; its recordings stay as takes.",
+          };
+          return json(200, answer);
+        }
+        if (!readable) return noVideo(id);
+        const versions = await videos.versions(id);
+        for (const v of versions) {
+          const leases = await readLeases(
+            join(library.takeDir(v.takeId), ".busy"),
+          );
+          const live = leases.filter((l) => pidAlive(l.holder.pid));
+          if (live.length > 0) return busy(live.map((l) => l.holder));
+        }
+        return versions;
+      });
+      if (!Array.isArray(checked)) return checked;
+      const parts: string[] = [];
+      let deleted = 0;
+      const total = checked.length;
+      for (const v of checked) {
+        const done = await sceneWrites(v.takeId, () =>
+          onVideoChain(() => library.deleteTake(v.takeId)),
+        );
+        if (!done.ok) {
+          if ("missing" in done) continue;
+          // Leased after the check above. Nothing gone yet is a refusal;
+          // anything gone is a partial delete, and says so.
+          if (deleted === 0) return busy(done.holders);
+          const door = done.holders[0]?.door ?? "agent";
+          const answer: DeleteAnswer = {
+            note: noteOf(parts),
+            partly: `only ${deleted} of its ${total} recordings went, then one was refused — ${TAKE_BUSY[door].replace(/\.$/, "")}`,
+          };
+          return json(200, answer);
+        }
+        deleted += 1;
+        parts.push(...noteParts(done));
+      }
+      try {
+        await onVideoChain(() => videos.remove(id));
+      } catch (error) {
+        const answer: DeleteAnswer = {
+          note: noteOf(parts),
+          partly: `${total === 1 ? "its recording" : `its ${total} recordings`} went, but its record could not be removed (${messageOf(error)})`,
+        };
+        return json(200, answer);
+      }
+      const answer: DeleteAnswer = { note: noteOf(parts) };
       return json(200, answer);
     },
 

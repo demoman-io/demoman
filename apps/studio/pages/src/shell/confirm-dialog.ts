@@ -36,6 +36,27 @@ export const DELETE_DEMO: ConfirmQuestion = {
   focus: "cancel",
 };
 
+/** One version of a video, from its row under the video's card. */
+export const DELETE_VERSION: ConfirmQuestion = {
+  ...DELETE_DEMO,
+  title: "Delete recording",
+  body: "This permanently removes this recording. It can’t be undone.",
+};
+
+/** A whole video, from its card: every recording goes with it. */
+export const deleteVideo = (recordings: number): ConfirmQuestion => ({
+  ...DELETE_DEMO,
+  title: "Delete video",
+  body: `This permanently removes the video and ${recordings === 1 ? "its recording" : `its ${recordings} recordings`}. It can’t be undone.`,
+});
+
+/** A video record that would not read: only the record goes. */
+export const DELETE_RECORD: ConfirmQuestion = {
+  ...DELETE_DEMO,
+  title: "Delete video record",
+  body: "This removes the unreadable record. Its recordings stay.",
+};
+
 let opened = 0;
 
 /**

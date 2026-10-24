@@ -61,6 +61,8 @@ vi.mock("#platform", async (importOriginal) => {
         scenes: [],
         sizes: {},
         unreadable: [],
+        videos: [],
+        videoOf: {},
         unwatched: null,
       }),
       onChange: () => () => {},
@@ -72,6 +74,10 @@ vi.mock("#platform", async (importOriginal) => {
       get: async () => ({ scene: scene(), revision: "r1", notes: [] }),
       put: async () => ({ revision: "r2" }),
       list: async () => [],
+      remove: async () => ({ ok: true }),
+    },
+    videos: {
+      rename: async () => {},
       remove: async () => ({ ok: true }),
     },
     bundles: {

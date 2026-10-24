@@ -125,12 +125,18 @@ it("signs in through the packed bin, films behind it, then stops when it expires
       }
       return v;
     };
-    const filmed = await finish({ script });
+    const filmed = await finish({
+      script,
+      video: { new: "Signed in", confirmedNew: true },
+    });
     expect(filmed.outcome, JSON.stringify(filmed)).toBe("complete");
     expect(filmed.provenance?.takeId).toBeTruthy();
 
     app.expireAll();
-    const expired = await finish({ script });
+    const expired = await finish({
+      script,
+      video: { new: "Expired session", confirmedNew: true },
+    });
     expect(expired.stopped?.reason, JSON.stringify(expired)).toBe("signedOut");
     expect(expired.outcome, JSON.stringify(expired)).toBe("stopped");
     expect(
