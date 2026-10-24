@@ -77,7 +77,9 @@ it("stops an expired session as signedOut before any frame, keeping no take", as
   const report = await run(NEXT);
   expect(report.stopped?.reason, JSON.stringify(report)).toBe("signedOut");
   expect(report.stopped?.detail).toContain("has expired");
-  expect(report.stopped?.detail).toContain(`npx demoman signin ${app.url}/app`);
+  expect(report.stopped?.detail).toContain(
+    `npx --prefix ~/ demoman signin ${app.url}/app`,
+  );
   expect(report.stopped?.detail).toContain("Nothing was recorded.");
   expect(report.stopped?.at?.index).toBe(0);
   expect(report.frames?.keyframes).toBe(0);

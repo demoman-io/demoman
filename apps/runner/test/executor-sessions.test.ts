@@ -117,7 +117,7 @@ it("answers session: signedOut on the sign-in page, and still lists its targets"
     url: `${app.url}/app`,
   })) as unknown as SessionSnap;
   expect(snap.value.session, JSON.stringify(snap)).toBe("signedOut");
-  expect(snap.value.sessionDetail).toContain("npx demoman signin");
+  expect(snap.value.sessionDetail).toContain("npx --prefix ~/ demoman signin");
   expect(snap.value.targets.length).toBeGreaterThan(0);
 }, 120_000);
 

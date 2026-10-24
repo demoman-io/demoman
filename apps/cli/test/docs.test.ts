@@ -199,7 +199,7 @@ describe("the paste-in blocks moved, not lost", () => {
     for (const a of ["Pi", "Kimi Code", "Hermes", "DeepSeek dsh", "Other"])
       expect(connect, a).toContain(`<Tab title="${a}">`);
     expect(connect).toContain(
-      `"args": ["--prefix", "~", "-y", "demoman@latest", "mcp"]`,
+      `"args": ["--prefix", "~/", "-y", "demoman@latest", "mcp"]`,
     );
     const skill =
       "https://raw.githubusercontent.com/demoman-io/plugins/main/skills/record-demo/SKILL.md";
@@ -231,7 +231,7 @@ describe("the README's new shape", () => {
   it("links to the docs and keeps the generic block, on @latest", () => {
     expect(readme()).toContain("https://demoman.io/docs");
     expect(readme()).toContain(
-      `"args": ["--prefix", "~", "-y", "demoman@latest", "mcp"]`,
+      `"args": ["--prefix", "~/", "-y", "demoman@latest", "mcp"]`,
     );
     // Exactly one: the generic block. A pasted second block is a second.
     expect(readme().match(/demoman@[^\s"',`/)\]]+/g)).toEqual([

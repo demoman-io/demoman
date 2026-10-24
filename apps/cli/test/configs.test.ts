@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { parse } from "smol-toml";
 import { describe, expect, it } from "vitest";
 import {
@@ -10,6 +13,7 @@ import {
   type Edit,
   isOurSkill,
   marketplaceAutoUpdate,
+  NPX_PREFIX,
   opencodeEntry,
   opencodeServer,
 } from "../src/configs.js";
@@ -334,6 +338,19 @@ const pinned = (bin: string, version: string) => ({
   env: { PATH: `${bin}:/usr/bin:/bin:/usr/sbin:/sbin` },
 });
 
+describe("NPX_PREFIX", () => {
+  it("points npm at home when no shell expands it", () => {
+    // As the entries start it: argv straight to npm. Red with a bare "~",
+    // which npm reads as <cwd>/~, a folder a repo can commit.
+    const repo = mkdtempSync(join(tmpdir(), "demoman-prefix-"));
+    const prefix = execFileSync("npm", [...NPX_PREFIX, "prefix"], {
+      cwd: repo,
+      encoding: "utf8",
+    }).trim();
+    expect(prefix).toBe(homedir());
+  });
+});
+
 describe("cursorServer", () => {
   const entry = cursorEntry("/opt/node/bin");
 
@@ -343,7 +360,7 @@ describe("cursorServer", () => {
       command: "/opt/node/bin/npx",
       // Red without NPX_PREFIX: the folder Cursor starts in chooses what
       // npx runs, through its node_modules or .npmrc (audit run 1).
-      args: ["--prefix", "~", "-y", "demoman@latest", "mcp"],
+      args: ["--prefix", "~/", "-y", "demoman@latest", "mcp"],
       env: {
         PATH: "/opt/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         DEMOMAN_CLIENT: "cursor",
@@ -467,7 +484,7 @@ describe("opencodeServer", () => {
       command: [
         "/opt/node/bin/npx",
         "--prefix",
-        "~",
+        "~/",
         "-y",
         "demoman@latest",
         "mcp",

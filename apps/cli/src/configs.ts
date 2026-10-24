@@ -219,8 +219,9 @@ export interface CursorEntry {
  *  (measured 2026-10-19 on npm 10 and 11; Cursor has no plugin updater). */
 /** Before the package: npx reads no node_modules or .npmrc of the folder the
  *  agent was started in, a repo that could choose the code run as Demoman
- *  (audit run 1). npm expands the ~; home always exists. */
-export const NPX_PREFIX = ["--prefix", "~"];
+ *  (audit run 1). `~/`, not `~`: started with no shell, npm expands `~/`
+ *  and reads a bare `~` as a folder of that name (measured npm 11.3). */
+export const NPX_PREFIX = ["--prefix", "~/"];
 
 /** An entry's PATH: the npx it names is a node script, so that node first. */
 const entryPath = (nodeBin: string): string =>

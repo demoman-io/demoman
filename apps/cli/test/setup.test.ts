@@ -46,8 +46,8 @@ function machine(
     "claude plugin marketplace add demoman-io/plugins": OK(),
     "claude plugin list --json": [OK("[]"), OK(PLUGIN("0.2.0"))],
     "claude plugin install demoman@demoman": OK(),
-    "npx --prefix ~ -y demoman@0.2.0 --version": OK("0.2.0\n"),
-    "npx --prefix ~ -y demoman@latest --version": OK("0.2.1\n"),
+    "npx --prefix ~/ -y demoman@0.2.0 --version": OK("0.2.0\n"),
+    "npx --prefix ~/ -y demoman@latest --version": OK("0.2.1\n"),
     "codex --version": NOT_FOUND,
     "agent --version": NOT_FOUND,
     "/Users/u/.local/bin/agent --version": NOT_FOUND,
@@ -138,7 +138,7 @@ describe("setup", () => {
       "/Users/u/.local/bin/agent --version",
       "cursor-agent --version",
       "opencode --version",
-      "npx --prefix ~ -y demoman@0.2.0 --version",
+      "npx --prefix ~/ -y demoman@0.2.0 --version",
     ]);
     expect(m.out()).toContain("browser: Chromium installed");
     expect(m.out()).toContain(
@@ -435,7 +435,7 @@ describe("setup", () => {
   it("says a failed warm start, and still succeeds", async () => {
     const m = machine({
       answers: {
-        "npx --prefix ~ -y demoman@0.2.0 --version": FAIL("npm ERR! 404"),
+        "npx --prefix ~/ -y demoman@0.2.0 --version": FAIL("npm ERR! 404"),
       },
     });
     expect(await setup(m.d)).toBe(0);
@@ -958,14 +958,14 @@ describe("setup", () => {
       });
       expect(await setup(only.d)).toBe(0);
       expect(only.calls.filter((c) => c.startsWith("npx"))).toEqual([
-        "npx --prefix ~ -y demoman@latest --version",
+        "npx --prefix ~/ -y demoman@latest --version",
       ]);
       const pinnedFails = withCli({
-        "npx --prefix ~ -y demoman@0.2.0 --version": FAIL("npm ERR! 404"),
+        "npx --prefix ~/ -y demoman@0.2.0 --version": FAIL("npm ERR! 404"),
       });
       expect(await setup(pinnedFails.d)).toBe(0);
       expect(pinnedFails.calls).toContain(
-        "npx --prefix ~ -y demoman@latest --version",
+        "npx --prefix ~/ -y demoman@latest --version",
       );
       expect(pinnedFails.out()).toContain(
         "warm start: skipped (demoman@0.2.0: npm ERR! 404)",
@@ -976,7 +976,7 @@ describe("setup", () => {
     // the older `latest`, and the answer that says so was in hand.
     it("says when Cursor will run another version than this setup", async () => {
       const m = withCli({
-        "npx --prefix ~ -y demoman@latest --version": OK("0.1.9\n"),
+        "npx --prefix ~/ -y demoman@latest --version": OK("0.1.9\n"),
       });
       expect(await setup(m.d)).toBe(0);
       expect(m.out()).toContain(
@@ -984,7 +984,7 @@ describe("setup", () => {
       );
       expect(m.out()).toContain("warm start: done");
       const same = withCli({
-        "npx --prefix ~ -y demoman@latest --version": OK("0.2.0\n"),
+        "npx --prefix ~/ -y demoman@latest --version": OK("0.2.0\n"),
       });
       expect(await setup(same.d)).toBe(0);
       expect(same.out()).not.toContain("Cursor: it runs Demoman");
@@ -994,12 +994,12 @@ describe("setup", () => {
       const ok = withCli();
       expect(await setup(ok.d)).toBe(0);
       expect(ok.calls.filter((c) => c.startsWith("npx"))).toEqual([
-        "npx --prefix ~ -y demoman@0.2.0 --version",
-        "npx --prefix ~ -y demoman@latest --version",
+        "npx --prefix ~/ -y demoman@0.2.0 --version",
+        "npx --prefix ~/ -y demoman@latest --version",
       ]);
       expect(ok.out()).toContain("warm start: done");
       const cold = withCli({
-        "npx --prefix ~ -y demoman@latest --version": FAIL("npm ERR! network"),
+        "npx --prefix ~/ -y demoman@latest --version": FAIL("npm ERR! network"),
       });
       expect(await setup(cold.d)).toBe(0);
       expect(cold.out()).toContain(
@@ -1564,7 +1564,7 @@ describe("setup's OpenCode step", () => {
     expect(m.out()).toContain(
       "OpenCode: Demoman is connected and updates itself",
     );
-    expect(m.calls).toContain("npx --prefix ~ -y demoman@latest --version");
+    expect(m.calls).toContain("npx --prefix ~/ -y demoman@latest --version");
     expect(m.out()).toContain("Done. Restart Claude Code and OpenCode");
   });
 

@@ -15,7 +15,7 @@ describe("plugin-out (the demoman-io/plugins repo)", () => {
         demoman: {
           command: "npx",
           // Red without the prefix: the opened repo chooses what runs.
-          args: ["--prefix", "~", "-y", `demoman@${version}`, "mcp"],
+          args: ["--prefix", "~/", "-y", `demoman@${version}`, "mcp"],
         },
       },
     });

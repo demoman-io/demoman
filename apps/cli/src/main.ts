@@ -44,7 +44,7 @@ import { VERSION } from "./version.js";
 const log = (line: string): void => {
   process.stderr.write(`demoman: ${line}\n`);
 };
-const REINSTALL = `reinstall with \`npx ${PACKAGE_NAME}@${VERSION} setup\``;
+const REINSTALL = `reinstall with \`npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup\``;
 /** Every in-page bundle must be in `pages`: say which are missing and exit
  *  1, else point the runner at them (no esbuild in an install). */
 function requirePageBundles(pages: string, say: (line: string) => void): void {
@@ -150,11 +150,11 @@ async function mcp(args: string[]): Promise<void> {
       : { outDir: resolve(values["out-dir"]) }),
     // --yes: an agent may run it in a pseudo-terminal, where a menu would
     // wait for an answer nobody gives.
-    // The agent runs these in the repo it opened: `--prefix ~` keeps that
+    // The agent runs these in the repo it opened: `--prefix ~/` keeps that
     // repo's node_modules and .npmrc from choosing what runs (audit run 1).
-    installCommand: `npx --prefix ~ ${PACKAGE_NAME}@${VERSION} setup --yes`,
-    signinCommand: `npx ${PACKAGE_NAME}@${VERSION} signin`,
-    updateCommand: `npx --prefix ~ ${PACKAGE_NAME}@latest setup --yes`,
+    installCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup --yes`,
+    signinCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} signin`,
+    updateCommand: `npx --prefix ~/ ${PACKAGE_NAME}@latest setup --yes`,
     updateCheck: createUpdateCheck({
       name: PACKAGE_NAME,
       current: VERSION,
@@ -307,7 +307,7 @@ switch (command) {
         env: process.env,
         out: (line) => process.stdout.write(`${line}\n`),
         executablePath: fullChromiumPath(),
-        installCommand: `npx ${PACKAGE_NAME}@${VERSION} setup`,
+        installCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup`,
       });
       process.exit(code);
     }
@@ -342,7 +342,7 @@ switch (command) {
         };
       },
       executablePath: fullChromiumPath(),
-      installCommand: `npx ${PACKAGE_NAME}@${VERSION} setup`,
+      installCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup`,
     });
     process.exit(code);
     break;

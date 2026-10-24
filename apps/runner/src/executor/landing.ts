@@ -26,7 +26,7 @@ export async function settle(page: Page): Promise<void> {
   }
 }
 
-export const DEFAULT_SIGNIN_COMMAND = "npx demoman signin";
+export const DEFAULT_SIGNIN_COMMAND = "npx --prefix ~/ demoman signin";
 
 export interface LandingFacts {
   askedUrl: string;
