@@ -19,7 +19,7 @@ import {
 
 /** What `openStudio` answers, and so what the `studio` tool answers. */
 export type StudioAnswer =
-  | { outcome: "opened"; url: string; takeId?: string; note?: string }
+  | { outcome: "opened"; takeId?: string; note?: string }
   | Refusal;
 
 const STALE_NOTE = "A stale Studio record was replaced.";
@@ -271,8 +271,7 @@ async function acquireStartLock(
 
 /**
  * Start-or-reuse the studio (spec §4.3), then ask it for a window. The
- * answer's `url` carries a single-use entry ticket (R12): print it, do not
- * offer it for reuse.
+ * answer carries no link: the window is open already (R12).
  */
 export async function openStudio(o: {
   home: string;
@@ -383,15 +382,14 @@ export async function openStudio(o: {
     };
   }
   const answer = win.json as Partial<WindowAnswer>;
-  if (typeof answer.url !== "string") {
+  if (typeof answer.path !== "string") {
     return {
       reason: "windowDidNotOpen",
-      detail: "The Studio opened a window but did not say its address.",
+      detail: "The Studio answered the request for a window without its page.",
     };
   }
   return {
     outcome: "opened",
-    url: answer.url,
     ...(o.takeId === undefined ? {} : { takeId: o.takeId }),
     ...(notes.length === 0 ? {} : { note: notes.join(" ") }),
   };

@@ -17,6 +17,8 @@ class FakePage extends EventEmitter {
   gotos: string[] = [];
   fronted = 0;
   gotoFails: string | null = null;
+  /** The status the entry door answers a goto with. */
+  answers = 200;
   frontFails: string | null = null;
   constructor(
     readonly ctx: FakeContext,
@@ -35,6 +37,8 @@ class FakePage extends EventEmitter {
     if (this.gotoFails !== null) throw new Error(this.gotoFails);
     this.gotos.push(url);
     this.address = url;
+    const status = this.answers;
+    return { ok: () => status < 400, status: () => status };
   }
   async bringToFront() {
     if (this.frontFails !== null) throw new Error(this.frontFails);
@@ -70,7 +74,7 @@ class FakeContext extends EventEmitter {
 
 const ORIGIN = "http://127.0.0.1:5555";
 
-function harness(o: { listening?: number } = {}) {
+function harness(o: { listening?: number; answers?: number } = {}) {
   let ctx: FakeContext | null = null;
   const launches: LaunchOptions[] = [];
   const sent: StudioEvent[] = [];
@@ -90,7 +94,9 @@ function harness(o: { listening?: number } = {}) {
       launches.push(options);
       const made = new FakeContext();
       const app = String(options.args?.find((a) => a.startsWith("--app=")));
-      made.add(new FakePage(made, "app", app.slice("--app=".length)), false);
+      const page = new FakePage(made, "app", app.slice("--app=".length));
+      page.answers = o.answers ?? 200;
+      made.add(page, false);
       ctx = made;
       return made as unknown as BrowserContext;
     },
@@ -121,7 +127,8 @@ describe("open on a live window (fix 1: never ok when it did not move)", () => {
     expect(answer).toEqual({ ok: true, path: "/editor.html?scene=t1" });
     expect(h.sent).toEqual([{ type: "open", path: "/editor.html?scene=t1" }]);
     expect(appPage(h.ctx()).fronted).toBe(1);
-    expect(appPage(h.ctx()).gotos).toEqual([]);
+    // The launch's own entry, and no other.
+    expect(appPage(h.ctx()).gotos).toEqual([`${ORIGIN}/?t=ticket-1`]);
   });
 
   it("with no page listening, navigates the window through a fresh entry link", async () => {
@@ -129,7 +136,10 @@ describe("open on a live window (fix 1: never ok when it did not move)", () => {
     await h.window.open({});
     const answer = await h.window.open({ takeId: "t1" });
     // Red: send the SSE `open` to nobody and answer ok.
-    expect(appPage(h.ctx()).gotos).toEqual([`${ORIGIN}/?t=ticket-2&take=t1`]);
+    expect(appPage(h.ctx()).gotos).toEqual([
+      `${ORIGIN}/?t=ticket-1`,
+      `${ORIGIN}/?t=ticket-2&take=t1`,
+    ]);
     expect(answer).toEqual({ ok: true, path: "/editor.html?scene=t1" });
     expect(h.sent).toEqual([]);
   });
@@ -156,6 +166,20 @@ describe("open on a live window (fix 1: never ok when it did not move)", () => {
     expect((answer as { detail: string }).detail).toContain(
       "could not be brought forward (Target closed)",
     );
+  });
+});
+
+describe("the launch's window", () => {
+  // Red: answer ok from a window the door refused (`enter` ignoring the
+  // response), which shows "This Studio link has expired".
+  it("is refused windowDidNotOpen when the entry door refuses it", async () => {
+    const h = harness({ answers: 403 });
+    expect(await h.window.open({ takeId: "t1" })).toEqual({
+      reason: "windowDidNotOpen",
+      detail:
+        "the Studio's window opened but could not be sent to /editor.html?scene=t1 (the Studio answered 403)",
+    });
+    expect(appPage(h.ctx()).gotos).toEqual([`${ORIGIN}/?t=ticket-1&take=t1`]);
   });
 });
 
@@ -202,8 +226,9 @@ describe("the launch (R12)", () => {
     await studio.close();
   });
 
-  it("puts a single-use ticket in the browser's argv, never the session token", async () => {
+  it("puts no ticket and no token in the browser's argv, and enters through the pipe", async () => {
     let args: string[] = [];
+    let page: FakePage | null = null;
     const window = createStudioWindow({
       home: "/tmp/studio-window-test",
       origin: studio.origin,
@@ -215,26 +240,30 @@ describe("the launch (R12)", () => {
         args = options.args ?? [];
         const ctx = new FakeContext();
         const app = String(args.find((a) => a.startsWith("--app=")));
-        ctx.add(new FakePage(ctx, "app", app.slice(6)), false);
+        page = new FakePage(ctx, "app", app.slice(6));
+        ctx.add(page, false);
         return ctx as unknown as BrowserContext;
       },
     });
     expect(await window.open({ takeId: "t1" })).toMatchObject({ ok: true });
-    // Red: build the entry URL from the session token (server.ts entryUrl).
+    // Red: `--app=${entryUrl}` — argv is readable by any local user, who can
+    // redeem the ticket before the window does (audit run 1, the high).
+    expect(args).toContain("--app=about:blank");
+    expect(args.join(" ")).not.toContain("t=");
     expect(args.join(" ")).not.toContain(studio.token);
     expect(args).toContain("--use-mock-keychain");
-    const app = new URL(
-      String(args.find((a) => a.startsWith("--app="))).slice(6),
-    );
-    expect(app.searchParams.get("take")).toBe("t1");
-    // The argv's ticket is real: it lets the window in, once.
+    // The window was sent to a real entry link instead: it lets in once.
+    const gotos = (page as FakePage | null)?.gotos ?? [];
+    expect(gotos).toHaveLength(1);
+    const entry = new URL(String(gotos[0]));
+    expect(entry.searchParams.get("take")).toBe("t1");
     const enter = () =>
       new Promise<number>((resolve, reject) => {
         const req = request(
           {
             host: "127.0.0.1",
             port: studio.port,
-            path: `${app.pathname}${app.search}`,
+            path: `${entry.pathname}${entry.search}`,
             headers: { Host: `127.0.0.1:${studio.port}` },
           },
           (res) => {

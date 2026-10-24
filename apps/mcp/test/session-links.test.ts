@@ -19,7 +19,7 @@ function setup(over: Parameters<typeof createSessionLinks>[0] | object = {}) {
     platform: "darwin",
     studio: async ({ takeId }) => {
       did.push(`studio ${takeId}`);
-      return { outcome: "opened", url: "http://x", takeId };
+      return { outcome: "opened", takeId };
     },
     copy: async (path) => {
       did.push(`copy ${path}`);

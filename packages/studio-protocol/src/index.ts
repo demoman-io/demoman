@@ -264,9 +264,10 @@ export interface WindowBody {
  *  (`/editor.html?scene=<id>`, or `/` for the library), and an entry URL to
  *  the same page for openStudio to print. `url` carries a fresh single-use
  *  ticket (good once, for 60 s), never the session token. */
+/** No link: the window is open already, and a live entry ticket in an
+ *  answer that reaches agent transcripts and stdout is a credential. */
 export interface WindowAnswer {
   path: string;
-  url: string;
 }
 
 export type StudioEvent =

@@ -49,15 +49,16 @@ type Started =
 
 /**
  * The studio's browser: a persistent Chromium context launched on the first
- * `open`, whose first window is an app window (`--app=`) on an entry link.
+ * `open`, whose first window is an app window (`--app=`) sent to an entry link.
  * Every page in it is the person's: exports render in a headless browser of
  * their own (serve.ts), so nothing Demoman works in appears on screen.
  */
 export function createStudioWindow(o: {
   home: string;
   origin: string;
-  /** A fresh entry URL with a single-use ticket (ruling R12): the session
-   *  token never goes into the browser's argv or a window's address. */
+  /** A fresh entry URL with a single-use ticket (ruling R12). It reaches
+   *  the browser only through Playwright's pipe, never its argv, which any
+   *  local user can read and race the window to redeem. */
   entryUrl: (takeId?: string) => string;
   events: Pick<EventHub, "send" | "size">;
   executablePath?: string;
@@ -117,22 +118,19 @@ export function createStudioWindow(o: {
     });
   };
 
-  /**
-   * The context, launched when there is none, with the app window on
-   * `appUrl()`.
-   */
-  function ensure(appUrl: () => string): Promise<Started> {
+  /** The context, launched when there is none, with a blank app window. */
+  function ensure(): Promise<Started> {
     if (closed) return Promise.resolve(STOPPING);
     if (context !== null) {
       return Promise.resolve({ ok: true, context, launched: false });
     }
-    starting ??= launch(appUrl()).finally(() => {
+    starting ??= launch().finally(() => {
       starting = null;
     });
     return starting;
   }
 
-  async function launch(appUrl: string): Promise<Started> {
+  async function launch(): Promise<Started> {
     let ctx: BrowserContext;
     try {
       ctx = await launchContext(studioProfileDir(o.home), {
@@ -142,8 +140,9 @@ export function createStudioWindow(o: {
           : { executablePath: o.executablePath }),
         viewport: null,
         args: [
-          // A ticket, not the token: argv is readable by any local user.
-          `--app=${appUrl}`,
+          // Blank: argv is readable by any local user, so the entry link
+          // goes to the window afterwards, through the pipe (`enter`).
+          "--app=about:blank",
           // A fresh macOS profile otherwise asks the login keychain for
           // "Chrome Safe Storage" in a modal prompt (CLAUDE.md).
           "--use-mock-keychain",
@@ -179,7 +178,7 @@ export function createStudioWindow(o: {
   async function appWindow(): Promise<Page | null> {
     const deadline = Date.now() + pageWaitMs;
     for (;;) {
-      const page = livePages().find((p) => p.url().startsWith(o.origin));
+      const page = livePages()[0];
       if (page !== undefined) return page;
       if (Date.now() >= deadline) return null;
       await new Promise((r) => setTimeout(r, 100));
@@ -191,10 +190,19 @@ export function createStudioWindow(o: {
     detail,
   });
 
+  /** Sends `page` through a fresh entry link. A door that refused it (a
+   *  ticket spent by someone else) throws: the window shows "link expired". */
+  async function enter(page: Page, takeId?: string): Promise<void> {
+    const response = await page.goto(o.entryUrl(takeId));
+    if (response && !response.ok()) {
+      throw new Error(`the Studio answered ${response.status()}`);
+    }
+  }
+
   return {
     async open(target) {
       const path = pagePathFor(target.takeId);
-      const got = await ensure(() => o.entryUrl(target.takeId));
+      const got = await ensure();
       if (!got.ok) return { reason: got.reason, detail: got.detail };
 
       if (got.launched) {
@@ -202,6 +210,13 @@ export function createStudioWindow(o: {
         if (page === null) {
           return didNotOpen(
             `the Studio's browser started, but its window did not appear within ${pageWaitMs / 1000} s`,
+          );
+        }
+        try {
+          await enter(page, target.takeId);
+        } catch (error) {
+          return didNotOpen(
+            `the Studio's window opened but could not be sent to ${path} (${messageOf(error)})`,
           );
         }
         count();
@@ -219,7 +234,7 @@ export function createStudioWindow(o: {
           // drop (one still loading has none yet): navigated from here,
           // through an entry link, so its cookie is set whatever it held.
           try {
-            await live.goto(o.entryUrl(target.takeId));
+            await enter(live, target.takeId);
           } catch (error) {
             return didNotOpen(
               `the Studio's window could not be sent to ${path} (${messageOf(error)})`,
@@ -241,7 +256,7 @@ export function createStudioWindow(o: {
       // not an app window: it has an address bar and tabs.
       try {
         const page = await got.context.newPage();
-        await page.goto(o.entryUrl(target.takeId));
+        await enter(page, target.takeId);
       } catch (error) {
         return didNotOpen(
           `the Studio's window would not open: ${messageOf(error)}`,

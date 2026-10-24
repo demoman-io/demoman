@@ -58,10 +58,10 @@ export const TICKET_TTL_MS = 60_000;
 
 /**
  * Single-use entry tickets (ruling R12). The session token never leaves the
- * process but in studio.json (0600); every URL handed out — the `--app`
- * argv any local user can read with `ps`, a CDP-opened window, the URL
- * openStudio prints — carries a ticket instead, good once and for
- * `TICKET_TTL_MS`.
+ * process but in studio.json (0600); a window is sent to a URL carrying a
+ * ticket instead, good once and for `TICKET_TTL_MS`, and only through
+ * Playwright's pipe: argv, stdout and tool answers are readable by others,
+ * who could spend it first.
  */
 export interface TicketBook {
   /** A fresh ticket: 32 random bytes, base64url. */

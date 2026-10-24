@@ -162,10 +162,7 @@ export function buildHandlers(o: {
       );
       if (!("ok" in opened)) return json(500, opened);
       o.onWindowOpened?.();
-      const answer: WindowAnswer = {
-        path: opened.path,
-        url: o.entryUrl(takeId),
-      };
+      const answer: WindowAnswer = { path: opened.path };
       return json(200, answer);
     },
 

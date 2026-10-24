@@ -263,7 +263,9 @@ async function exportRunning(s: Serve) {
     body: {},
   });
   expect(opened.status, opened.text).toBe(200);
-  expect(opened.json()).toMatchObject({ path: "/" });
+  // Red: a `url` with a fresh ticket in it, which reaches agent transcripts
+  // and stdout as a live credential (audit run 1).
+  expect(opened.json()).toEqual({ path: "/" });
   const stream = await events(s.state);
   const read = await call(s.state, `/api/takes/${takeId}/scene`);
   const { revision } = read.json() as { revision: string };
@@ -355,8 +357,10 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
   });
 });
 
-describe("the window answer's url (R12)", () => {
-  it("is an entry link with a fresh ticket, never the token, good once", async () => {
+describe("the window answer (R12)", () => {
+  // Red: answer `url: o.entryUrl(takeId)` — a fresh, unspent ticket that
+  // reaches agent transcripts and stdout as a live credential (audit run 1).
+  it("names the page and carries no link", async () => {
     const s = await serve();
     const { takeId } = await seedTake(home);
     const r = await call(s.state, "/api/window", {
@@ -364,45 +368,7 @@ describe("the window answer's url (R12)", () => {
       body: { takeId },
     });
     expect(r.status, r.text).toBe(200);
-    const { url } = r.json() as { url: string };
-    expect(url).not.toContain(s.state.token);
-    const link = new URL(url);
-    expect(link.origin).toBe(`http://127.0.0.1:${s.state.port}`);
-    expect(link.searchParams.get("take")).toBe(takeId);
-    const ticket = link.searchParams.get("t");
-    expect(ticket).toMatch(/^[\w-]{43}$/);
-    const enter = () =>
-      new Promise<{ status: number; location?: string; cookie?: string[] }>(
-        (resolve, reject) => {
-          const req = request(
-            {
-              host: "127.0.0.1",
-              port: s.state.port,
-              path: `${link.pathname}${link.search}`,
-              headers: { Host: `127.0.0.1:${s.state.port}` },
-            },
-            (res) => {
-              res.resume();
-              resolve({
-                status: res.statusCode ?? 0,
-                ...(res.headers.location === undefined
-                  ? {}
-                  : { location: res.headers.location }),
-                ...(res.headers["set-cookie"] === undefined
-                  ? {}
-                  : { cookie: res.headers["set-cookie"] }),
-              });
-            },
-          );
-          req.on("error", reject);
-          req.end();
-        },
-      );
-    const first = await enter();
-    expect(first.status).toBe(302);
-    expect(first.location).toBe(pagePathFor(takeId));
-    expect(first.cookie?.[0]).toContain(`studio=${s.state.token};`);
-    expect((await enter()).status).toBe(403);
+    expect(r.json()).toEqual({ path: pagePathFor(takeId) });
   });
 });
 

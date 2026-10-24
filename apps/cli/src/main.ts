@@ -202,10 +202,8 @@ async function studio(args: string[]): Promise<void> {
       ...STUDIO_SPAWN,
     });
     if ("outcome" in answer) {
-      // The link works once, for about a minute: say so rather than imply
-      // it can be bookmarked.
       process.stdout.write(
-        `${answer.note === undefined ? "" : `${answer.note}\n`}Opened the Studio. This link works once, for a minute: ${answer.url}\n`,
+        `${answer.note === undefined ? "" : `${answer.note}\n`}Opened the Studio.\n`,
       );
       process.exit(0);
     }

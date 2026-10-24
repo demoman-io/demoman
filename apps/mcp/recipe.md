@@ -466,9 +466,8 @@ outcome, say it with its `error` or `detail`, quoted.
 When the `studio` tool is listed and there is no `links.studio` (after a
 run with no export), **offer** it; never open it unasked. `studio({ takeId })`
 opens a window where the person edits and exports the take.
-`{ outcome: "opened", url, takeId?, note? }`: say the window is open and
-quote `note` if set; `url` is single-use, never offer it. Studio exports go
-to `~/Downloads`.
+`{ outcome: "opened", takeId?, note? }`: say the window is open and
+quote `note` if set. Studio exports go to `~/Downloads`.
 
 ## 6. The format
 

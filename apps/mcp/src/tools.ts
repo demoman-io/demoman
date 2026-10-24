@@ -263,7 +263,7 @@ const DESCRIPTIONS: Record<
 /** What the `studio` tool answers: the studio opened, or a refusal. Declared
  *  here so apps/mcp does not depend on the studio; the CLI injects it. */
 export type StudioToolAnswer =
-  | { outcome: "opened"; url: string; takeId?: string; note?: string }
+  | { outcome: "opened"; takeId?: string; note?: string }
   | { reason: string; detail: string };
 
 export function registerTools(
@@ -624,7 +624,7 @@ export function registerTools(
       {
         annotations: TOOL_ANNOTATIONS.studio,
         description:
-          'Open Demoman\'s studio, a window on this machine where the person can browse and edit the takes and export them. Offer it to the person after a run or an export; never open it unasked. Pass takeId to open that take in the editor, else the library opens. Answers {outcome: "opened", url, takeId?, note?}: the window is open already, and url is a single-use link for the person, good once for about a minute, so do not reuse it. A refusal carries reason and detail.',
+          'Open Demoman\'s studio, a window on this machine where the person can browse and edit the takes and export them. Offer it to the person after a run or an export; never open it unasked. Pass takeId to open that take in the editor, else the library opens. Answers {outcome: "opened", takeId?, note?}: the window is open already. A refusal carries reason and detail.',
         inputSchema: { takeId: z.string().optional() },
       },
       async ({ takeId }) => {

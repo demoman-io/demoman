@@ -100,28 +100,29 @@ const demoman = (...args: string[]): string =>
 it("opens the Studio on a take, exports a GIF through its API, and stops", async () => {
   const id = await takeId();
   const opened = demoman("studio", id);
-  expect(opened).toMatch(/^Opened the Studio\. This link works once/);
-  const url = /: (http:\/\/\S+)\s*$/.exec(opened)?.[1];
-  if (url === undefined) throw new Error(`no link printed: ${opened}`);
+  // No link: stdout and argv are readable, and a live ticket is a key.
+  expect(opened).toBe("Opened the Studio.\n");
 
   const state = JSON.parse(
     await readFile(join(home, "studio.json"), "utf8"),
   ) as { port: number; token: string };
-  // The printed link carries a ticket, never the session token.
-  expect(url, "the printed link holds the session token").not.toContain(
-    state.token,
-  );
 
-  // The window is a real browser on the studio's own profile.
+  // The window is a real browser on the studio's own profile, whose argv
+  // (any local user's `ps`) carries no entry ticket and no token.
   const processes = execFileSync("ps", ["-axo", "command"], {
     encoding: "utf8",
   });
+  const studioBrowser = processes
+    .split("\n")
+    .filter((l) => l.includes(join(home, "profiles", "studio")));
   expect(
-    processes
-      .split("\n")
-      .some((l) => l.includes(join(home, "profiles", "studio"))),
+    studioBrowser,
     "no browser is running on the Studio's profile",
-  ).toBe(true);
+  ).not.toEqual([]);
+  for (const line of studioBrowser) {
+    expect(line).not.toContain("?t=");
+    expect(line).not.toContain(state.token);
+  }
 
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await fetch(`http://127.0.0.1:${state.port}${path}`, {

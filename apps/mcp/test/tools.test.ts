@@ -1372,7 +1372,7 @@ describe("demoman-mcp's tools", () => {
       200,
       undefined,
       undefined,
-      async () => ({ outcome: "opened", url: "http://127.0.0.1:1/?t=x" }),
+      async () => ({ outcome: "opened" }),
     );
     const tools = (await client.listTools()).tools;
     const table = TOOL_ANNOTATIONS as Record<string, Record<string, unknown>>;
@@ -1419,7 +1419,7 @@ describe("demoman-mcp's tools", () => {
     const calls: Array<{ takeId?: string }> = [];
     const withIt = await connect({}, 200, undefined, undefined, async (a) => {
       calls.push(a);
-      return { outcome: "opened", url: "http://127.0.0.1:1/?t=x" };
+      return { outcome: "opened" };
     });
     expect(
       (await withIt.client.listTools()).tools.map((t) => t.name),
@@ -1437,7 +1437,6 @@ describe("demoman-mcp's tools", () => {
         calls.push(a);
         return {
           outcome: "opened",
-          url: "http://127.0.0.1:1/?t=x",
           ...(a.takeId === undefined ? {} : { takeId: a.takeId }),
           note: "A stale Studio record was replaced.",
         };
@@ -1450,7 +1449,6 @@ describe("demoman-mcp's tools", () => {
     expect(calls).toEqual([{ takeId: "take-1" }]);
     expect(textOf(r)).toEqual({
       outcome: "opened",
-      url: "http://127.0.0.1:1/?t=x",
       takeId: "take-1",
       note: "A stale Studio record was replaced.",
     });

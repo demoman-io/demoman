@@ -58,13 +58,12 @@ describe("openStudio", () => {
       });
       expect(a).toMatchObject({ outcome: "opened" });
       if (!("outcome" in a)) throw new Error(JSON.stringify(a));
-      expect(a.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\?t=/);
       expect(a.note).toBeUndefined();
       const s = await readStudioState(home);
       if (s === null || "unreadable" in s) throw new Error("no studio.json");
       expect(() => process.kill(s.pid, 0)).not.toThrow();
-      // the url carries a ticket, never the session token (R12)
-      expect(a.url).not.toContain(s.token);
+      // No link at all: a live ticket is a key in a transcript (R12).
+      expect(a).toEqual({ outcome: "opened" });
     },
     CASE_MS,
   );
@@ -208,10 +207,7 @@ describe("openStudio", () => {
         version: "0.0.0-test",
         serve: serveFake(),
       });
-      expect(a).toMatchObject({ outcome: "opened", takeId });
-      expect((a as { url: string }).url).toContain(
-        `take=${encodeURIComponent(takeId)}`,
-      );
+      expect(a).toEqual({ outcome: "opened", takeId });
     },
     CASE_MS,
   );
