@@ -12,7 +12,7 @@
 // is committed, and its author need not be whoever wrote the ignored file.
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { open } from "node:fs/promises";
+import { lstat, open } from "node:fs/promises";
 import { join } from "node:path";
 import { messageOf } from "../report.js";
 
@@ -86,6 +86,14 @@ export async function readSecretsFile(dir: string): Promise<SecretsSource> {
     "secretsFileInvalid",
     `${path} is not a regular file, so it was not read — secrets.env must be this folder's own file, not a link to another project's`,
   );
+  // O_NOFOLLOW checks only the file: a .demoman that is itself a link
+  // would still read another project's secrets.env.
+  if ((await lstat(dir).catch(() => null))?.isSymbolicLink()) {
+    throw new SecretError(
+      "secretsFileInvalid",
+      `${dir} is a link, so ${path} was not read — secrets.env must be this project's own file, not another project's`,
+    );
+  }
   let text: string;
   try {
     // Never through a link: outside git, nothing else says whose secrets

@@ -3,6 +3,7 @@ import {
   access,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   symlink,
   writeFile,
@@ -146,6 +147,32 @@ describe("readSecretsFile and what it does not trust (audit run 1)", () => {
       );
       expect((e as SecretError).reason).toBe("secretsFileInvalid");
       expect((e as SecretError).message).toContain("not a regular file");
+      expect((e as SecretError).message).not.toContain("another-projects");
+    } finally {
+      await rm(bare, { recursive: true, force: true });
+      await rm(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  // Red: O_NOFOLLOW alone, which looks only at the file's own name.
+  it("refuses a .demoman folder that is a link to another project's", async () => {
+    const bare = await mkdtemp(join(tmpdir(), "demoman-nogit-"));
+    const elsewhere = await mkdtemp(join(tmpdir(), "demoman-other-project-"));
+    try {
+      await writeFile(
+        join(elsewhere, "secrets.env"),
+        "DEMOMAN_SECRET_A=another-projects-secret\n",
+      );
+      await symlink(elsewhere, join(bare, ".demoman"));
+      // The fixture: the file is reachable through the link.
+      await expect(
+        readFile(join(bare, ".demoman", "secrets.env"), "utf8"),
+      ).resolves.toContain("another-projects-secret");
+      const e = await readSecretsFile(join(bare, ".demoman")).catch(
+        (x: unknown) => x,
+      );
+      expect((e as SecretError).reason).toBe("secretsFileInvalid");
+      expect((e as SecretError).message).toContain("is a link");
       expect((e as SecretError).message).not.toContain("another-projects");
     } finally {
       await rm(bare, { recursive: true, force: true });
