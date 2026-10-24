@@ -339,9 +339,15 @@ const owner = {
   url: "https://demoman.io",
 };
 const writeJson = (p, v) => writeFileSync(p, `${JSON.stringify(v, null, 2)}\n`);
+// `--prefix ~`: npx then reads no node_modules or .npmrc of the folder the
+// agent opened, a repo that could choose the code run as Demoman (audit run
+// 1). npm expands the ~, so it works where no shell does; home always exists.
 writeJson(join(plugin, ".mcp.json"), {
   mcpServers: {
-    demoman: { command: "npx", args: ["-y", `demoman@${version}`, "mcp"] },
+    demoman: {
+      command: "npx",
+      args: ["--prefix", "~", "-y", `demoman@${version}`, "mcp"],
+    },
   },
 });
 writeJson(join(plugin, ".claude-plugin", "plugin.json"), {

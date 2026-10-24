@@ -150,9 +150,11 @@ async function mcp(args: string[]): Promise<void> {
       : { outDir: resolve(values["out-dir"]) }),
     // --yes: an agent may run it in a pseudo-terminal, where a menu would
     // wait for an answer nobody gives.
-    installCommand: `npx ${PACKAGE_NAME}@${VERSION} setup --yes`,
+    // The agent runs these in the repo it opened: `--prefix ~` keeps that
+    // repo's node_modules and .npmrc from choosing what runs (audit run 1).
+    installCommand: `npx --prefix ~ ${PACKAGE_NAME}@${VERSION} setup --yes`,
     signinCommand: `npx ${PACKAGE_NAME}@${VERSION} signin`,
-    updateCommand: `npx ${PACKAGE_NAME}@latest setup --yes`,
+    updateCommand: `npx --prefix ~ ${PACKAGE_NAME}@latest setup --yes`,
     updateCheck: createUpdateCheck({
       name: PACKAGE_NAME,
       current: VERSION,

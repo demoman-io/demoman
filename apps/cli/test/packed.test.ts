@@ -229,7 +229,7 @@ describe("the packed install", () => {
       expect(status.browserInstalled).toBe(false);
       const got = await snapshotFrom(["mcp", "--headless"], none);
       expect(got).toContain('"browserMissing"');
-      expect(got).toContain(`npx demoman@${VERSION} setup`);
+      expect(got).toContain(`npx --prefix ~ demoman@${VERSION} setup`);
     } finally {
       await rm(empty, { recursive: true, force: true });
     }

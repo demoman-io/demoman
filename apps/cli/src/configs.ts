@@ -217,6 +217,11 @@ export interface CursorEntry {
  *  removed (spec §4). `@latest`, so Cursor updates itself: npx asks npm on
  *  every start, and installs a newer release over the one it cached
  *  (measured 2026-10-19 on npm 10 and 11; Cursor has no plugin updater). */
+/** Before the package: npx reads no node_modules or .npmrc of the folder the
+ *  agent was started in, a repo that could choose the code run as Demoman
+ *  (audit run 1). npm expands the ~; home always exists. */
+export const NPX_PREFIX = ["--prefix", "~"];
+
 /** An entry's PATH: the npx it names is a node script, so that node first. */
 const entryPath = (nodeBin: string): string =>
   `${nodeBin}:/usr/bin:/bin:/usr/sbin:/sbin`;
@@ -225,7 +230,7 @@ export function cursorEntry(nodeBin: string): CursorEntry {
   return {
     type: "stdio",
     command: `${nodeBin}/npx`,
-    args: ["-y", `${PACKAGE_NAME}@latest`, "mcp"],
+    args: [...NPX_PREFIX, "-y", `${PACKAGE_NAME}@latest`, "mcp"],
     // DEMOMAN_CLIENT tells the server it is Cursor's, so it keeps
     // ~/.cursor/skills/record-demo current (agent-skill.ts).
     env: { PATH: entryPath(nodeBin), DEMOMAN_CLIENT: "cursor" },
@@ -248,7 +253,13 @@ export interface OpencodeEntry {
 export function opencodeEntry(nodeBin: string): OpencodeEntry {
   return {
     type: "local",
-    command: [`${nodeBin}/npx`, "-y", `${PACKAGE_NAME}@latest`, "mcp"],
+    command: [
+      `${nodeBin}/npx`,
+      ...NPX_PREFIX,
+      "-y",
+      `${PACKAGE_NAME}@latest`,
+      "mcp",
+    ],
     environment: { PATH: entryPath(nodeBin), DEMOMAN_CLIENT: "opencode" },
   };
 }

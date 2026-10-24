@@ -22,7 +22,7 @@ the feature we just built".
 Another MCP client is expected to work, not yet run: give it this stdio
 server.
 
-    {"command": "npx", "args": ["-y", "demoman@latest", "mcp"]}
+    {"command": "npx", "args": ["--prefix", "~", "-y", "demoman@latest", "mcp"]}
 
 ## Documentation
 

@@ -49,7 +49,7 @@ Then restart the agent. These are expected to work, not yet run.
 <Tabs>
   <Tab title="Pi">
     ```bash
-    pi mcp add demoman -- npx -y demoman@latest mcp
+    pi mcp add demoman -- npx --prefix ~ -y demoman@latest mcp
     ```
 
     Skills folder: `~/.pi/agent/skills`
@@ -62,7 +62,7 @@ Then restart the agent. These are expected to work, not yet run.
       "mcpServers": {
         "demoman": {
           "command": "npx",
-          "args": ["-y", "demoman@latest", "mcp"]
+          "args": ["--prefix", "~", "-y", "demoman@latest", "mcp"]
         }
       }
     }
@@ -83,7 +83,7 @@ Then restart the agent. These are expected to work, not yet run.
     With Hermes running on this Mac:
 
     ```bash
-    hermes mcp add demoman --command npx --args -y demoman@latest mcp
+    hermes mcp add demoman --command npx --args --prefix ~ -y demoman@latest mcp
     ```
 
     Skills folder: `~/.hermes/skills`
@@ -91,7 +91,7 @@ Then restart the agent. These are expected to work, not yet run.
   <Tab title="DeepSeek dsh">
     In `~/.dsh/profiles/web/cordis.patch.yml`, a `@deepseek-ai/dsh-mcp-client`
     row with `transport: stdio`, `command: npx`,
-    `args: ['-y', 'demoman@latest', 'mcp']`, and `cwd` set to your
+    `args: ['--prefix', '~', '-y', 'demoman@latest', 'mcp']`, and `cwd` set to your
     project.
 
     Skills folder: `~/.dsh/skills`
@@ -102,7 +102,7 @@ Then restart the agent. These are expected to work, not yet run.
     ```json
     {
       "command": "npx",
-      "args": ["-y", "demoman@latest", "mcp"]
+      "args": ["--prefix", "~", "-y", "demoman@latest", "mcp"]
     }
     ```
 

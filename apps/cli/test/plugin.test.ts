@@ -12,7 +12,11 @@ describe("plugin-out (the demoman-io/plugins repo)", () => {
   it("pins the MCP server to this exact version", () => {
     expect(json(".mcp.json")).toEqual({
       mcpServers: {
-        demoman: { command: "npx", args: ["-y", `demoman@${version}`, "mcp"] },
+        demoman: {
+          command: "npx",
+          // Red without the prefix: the opened repo chooses what runs.
+          args: ["--prefix", "~", "-y", `demoman@${version}`, "mcp"],
+        },
       },
     });
   });

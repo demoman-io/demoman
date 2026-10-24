@@ -341,7 +341,9 @@ describe("cursorServer", () => {
     expect(cursorEntry("/opt/node/bin")).toEqual({
       type: "stdio",
       command: "/opt/node/bin/npx",
-      args: ["-y", "demoman@latest", "mcp"],
+      // Red without NPX_PREFIX: the folder Cursor starts in chooses what
+      // npx runs, through its node_modules or .npmrc (audit run 1).
+      args: ["--prefix", "~", "-y", "demoman@latest", "mcp"],
       env: {
         PATH: "/opt/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         DEMOMAN_CLIENT: "cursor",
@@ -462,7 +464,14 @@ describe("opencodeServer", () => {
   it("opencodeEntry runs the newest demoman through an absolute npx with its node on PATH", () => {
     expect(entry).toEqual({
       type: "local",
-      command: ["/opt/node/bin/npx", "-y", "demoman@latest", "mcp"],
+      command: [
+        "/opt/node/bin/npx",
+        "--prefix",
+        "~",
+        "-y",
+        "demoman@latest",
+        "mcp",
+      ],
       environment: {
         PATH: "/opt/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         DEMOMAN_CLIENT: "opencode",

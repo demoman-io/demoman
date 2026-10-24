@@ -29,6 +29,7 @@ import {
   type Edit,
   isOurSkill,
   marketplaceAutoUpdate,
+  NPX_PREFIX,
   opencodeDir,
   opencodeEntry,
   opencodeServer,
@@ -1204,7 +1205,12 @@ function warmStart(d: SetupDeps, usable: AgentName[]): void {
   ];
   const cold: string[] = [];
   for (const spec of specs) {
-    const warm = d.run("npx", ["-y", `${PACKAGE_NAME}@${spec}`, "--version"]);
+    const warm = d.run("npx", [
+      ...NPX_PREFIX,
+      "-y",
+      `${PACKAGE_NAME}@${spec}`,
+      "--version",
+    ]);
     const answer = warm.stdout.trim();
     const pinned = spec === d.version;
     if (
