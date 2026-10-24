@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CURRENT_SCHEMA_VERSION } from "../src/document";
 import { migrateToCurrent } from "../src/migrations";
 
 interface Fixture {
@@ -39,10 +38,6 @@ const REPLACEMENT = {
 };
 
 describe("schema 12: removed ranges", () => {
-  it("is version 12", () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(12);
-  });
-
   it("the fixture is the four-step take these cases cut", () => {
     expect(readonly().actions.map((a) => a.id)).toEqual([
       "act-1",

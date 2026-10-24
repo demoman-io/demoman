@@ -596,8 +596,8 @@ describe("the mask lane", () => {
       {
         kind: "addMask",
         rect: { x: 0, y: 0, width: 10, height: 10 },
-        start: { actionId: "act-1", offsetMs: 0 },
-        end: { actionId: "act-2", offsetMs: 0 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-2", sourceOffsetMs: 0 },
       },
       ids(),
     );

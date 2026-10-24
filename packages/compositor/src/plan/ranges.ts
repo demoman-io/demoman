@@ -1,3 +1,4 @@
+import type { SourcePoint } from "@demoman/scene-schema";
 import { clamp } from "../geometry.js";
 import { type Timeline, toOutputMs } from "./timeline.js";
 import type { PlannedMarker } from "./types.js";
@@ -52,6 +53,81 @@ export function markerOutputMs(
   const sourceMs = markerSourceMs.get(marker.actionId);
   if (sourceMs === undefined) return null;
   return toOutputMs(timeline, sourceMs) + marker.offsetMs;
+}
+
+/**
+ * The output stretch that shows source frames `srcStartMs` through
+ * `srcEndMs`, both included: a hold or pace standing on one of them is in
+ * it, a removed stretch between them is not. Null when no instant of the
+ * video shows any of them.
+ */
+export function outputSpanOfSource(
+  timeline: Timeline,
+  srcStartMs: number,
+  srcEndMs: number,
+): OutputRange | null {
+  let startMs = Number.POSITIVE_INFINITY;
+  let endMs = Number.NEGATIVE_INFINITY;
+  for (const s of timeline.segments) {
+    const lo = Math.max(srcStartMs, s.srcStartMs);
+    const hi = Math.min(srcEndMs, s.srcEndMs);
+    if (lo > hi) continue;
+    const span = s.srcEndMs - s.srcStartMs;
+    // Source standing still (a hold, a pace): its frame is on screen for all
+    // of it.
+    const out = (src: number, still: number) =>
+      span === 0
+        ? still
+        : s.outStartMs +
+          ((s.outEndMs - s.outStartMs) * (src - s.srcStartMs)) / span;
+    startMs = Math.min(startMs, out(lo, s.outStartMs));
+    endMs = Math.max(endMs, out(hi, s.outEndMs));
+  }
+  return startMs <= endMs ? { startMs, endMs } : null;
+}
+
+/**
+ * A mask's range: the output stretch showing the frames between its two
+ * source points (`outputSpanOfSource`), so it follows them through every
+ * cut, gap and hold made after it was drawn (audit run 1). An unplaced side
+ * falls back to the take's own end on that side and is reported, as
+ * `resolveRange`'s is; a range that shows no frame is reported, not drawn.
+ */
+export function resolveMaskRange(args: {
+  id: string;
+  start: SourcePoint;
+  end: SourcePoint;
+  timeline: Timeline;
+  markerSourceMs: Map<string, number>;
+}): ResolvedRange {
+  const { timeline } = args;
+  const unplaced: ("start" | "end")[] = [];
+  const srcOf = (p: SourcePoint, side: "start" | "end", ifNone: number) => {
+    const marker = args.markerSourceMs.get(p.actionId);
+    if (marker === undefined) {
+      unplaced.push(side);
+      return ifNone;
+    }
+    return marker + p.sourceOffsetMs;
+  };
+  const srcStart = srcOf(args.start, "start", 0);
+  const srcEnd = srcOf(args.end, "end", timeline.sourceDurationMs);
+  const span = outputSpanOfSource(timeline, srcStart, srcEnd);
+  if (span !== null && span.endMs > span.startMs) {
+    return { range: span, unplaced, clamped: null };
+  }
+  const at =
+    span?.startMs ??
+    clamp(toOutputMs(timeline, srcStart), 0, timeline.outputDurationMs);
+  const note =
+    srcEnd < srcStart
+      ? `mask "${args.id}" ends ${Math.round(srcStart - srcEnd)}ms before it starts in the recording, so it covers nothing`
+      : `mask "${args.id}" covers no frame of the video: every frame between its ends was removed`;
+  return {
+    range: { startMs: at, endMs: at },
+    unplaced,
+    clamped: { id: args.id, kind: "mask", note },
+  };
 }
 
 /**

@@ -271,6 +271,36 @@ const steps: Record<number, MigrationStep> = {
       schemaVersion: 12,
     };
   },
+  // v12 -> v13 (audit run 1): a mask's ends move to the frames' own time,
+  // as removed pieces are, so a later cut cannot slide or drop a redaction.
+  // The output offset is taken as the source one: exact for a mask with no
+  // cut, gap or hold between its step and its edge.
+  12: (doc) => {
+    const edits = doc.edits;
+    if (edits === null || typeof edits !== "object") {
+      return { ...doc, schemaVersion: 13 };
+    }
+    const e = edits as Record<string, unknown>;
+    const toSource = (m: unknown): unknown => {
+      if (m === null || typeof m !== "object") return m;
+      const { offsetMs, ...rest } = m as Record<string, unknown>;
+      return offsetMs === undefined ? m : { ...rest, sourceOffsetMs: offsetMs };
+    };
+    const masks = Array.isArray(e.masks)
+      ? e.masks.map((m) => {
+          if (m === null || typeof m !== "object") return m;
+          const mask = m as Record<string, unknown>;
+          return {
+            ...mask,
+            ...(mask.start === undefined
+              ? {}
+              : { start: toSource(mask.start) }),
+            ...(mask.end === undefined ? {} : { end: toSource(mask.end) }),
+          };
+        })
+      : e.masks;
+    return { ...doc, edits: { ...e, masks }, schemaVersion: 13 };
+  },
 };
 
 /**

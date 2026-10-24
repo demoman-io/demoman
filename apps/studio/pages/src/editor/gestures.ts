@@ -412,6 +412,37 @@ export function maskSpanAt(
  * with. `end === null` (an unauthored zoom end) never collapses: there is
  * no second marker to compare.
  */
+/**
+ * A mask edge at output instant `ms`, in the frames' own time (schema v13):
+ * snapped as any edit is (`markerAt`), then read back through the last
+ * render's timeline, so the edge stays on the frame it was dropped on
+ * through every later cut. Snapped onto a step, it is that step's frame.
+ * With no render yet there is no timeline, and the offset is taken as
+ * source time — the lane says `estimated` until one lands.
+ */
+function maskPointAt(
+  model: LaneModel,
+  ctx: GestureContext,
+  ms: number,
+  snapMs: number,
+): SourcePoint {
+  const marker = markerAt(model, ms, snapMs);
+  const frame = ctx.bundle?.markers.find((m) => m.actionId === marker.actionId);
+  if (marker.offsetMs === 0 || ctx.resolved === null || frame === undefined) {
+    return { actionId: marker.actionId, sourceOffsetMs: marker.offsetMs };
+  }
+  return {
+    actionId: marker.actionId,
+    sourceOffsetMs: Math.round(
+      toSourceMs(ctx.resolved.timeline, ms) - frame.sourceTimeMs,
+    ),
+  };
+}
+
+/** `collapsed` for a mask's two source points. */
+const maskCollapsed = (start: SourcePoint, end: SourcePoint): boolean =>
+  start.actionId === end.actionId && end.sourceOffsetMs <= start.sourceOffsetMs;
+
 function collapsed(start: SceneMarker, end: SceneMarker | null): boolean {
   return (
     end !== null &&
@@ -656,22 +687,22 @@ export function resolveGesture(
           ? cursor.point
           : { x: ctx.viewport.width / 2, y: ctx.viewport.height / 2 };
       const rect = defaultMaskRect(ctx.viewport, centre);
-      const start = markerAt(model, gesture.atMs, gesture.snapMs);
-      let end = markerAt(model, endMs, gesture.snapMs);
+      const start = maskPointAt(model, ctx, gesture.atMs, gesture.snapMs);
+      let end = maskPointAt(model, ctx, endMs, gesture.snapMs);
       // F1: the band that snaps `start` onto a tick can snap `end` onto the
       // very same tick — `nextTick` above is nearest-by-ms, not
       // nearest-by-track-order, so a playhead just inside a tick's band
       // makes both ends of a fresh mask land on it. Push the end to the
       // NEXT step in track order instead of authoring a zero-length mask;
       // with nothing after `start`, there is nowhere to push it to.
-      if (collapsed(start, end)) {
+      if (maskCollapsed(start, end)) {
         const after = tickAfter(model, start.actionId);
         if (!after) {
           return refuse(
             "That would leave the mask no length; move the playhead earlier.",
           );
         }
-        end = { actionId: after.actionId, offsetMs: 0 };
+        end = { actionId: after.actionId, sourceOffsetMs: 0 };
       }
       return "point" in cursor
         ? { kind: "addMask", rect, start, end }
@@ -699,9 +730,9 @@ export function resolveGesture(
         return refuse("A mask cannot start before the take does.");
       if (endMs > durationMs)
         return refuse("A mask cannot end after the take does.");
-      const start = markerAt(model, startMs, gesture.snapMs);
-      const end = markerAt(model, endMs, gesture.snapMs);
-      if (collapsed(start, end)) return refuseNoLength("mask");
+      const start = maskPointAt(model, ctx, startMs, gesture.snapMs);
+      const end = maskPointAt(model, ctx, endMs, gesture.snapMs);
+      if (maskCollapsed(start, end)) return refuseNoLength("mask");
       return { kind: "setMaskRange", id: m.id, start, end };
     }
 
@@ -721,11 +752,9 @@ export function resolveGesture(
             "A mask cannot start after it ends; drag its end later first.",
           );
         }
-        const start = markerAt(model, gesture.toMs, gesture.snapMs);
+        const start = maskPointAt(model, ctx, gesture.toMs, gesture.snapMs);
         const end = m.endMarker;
-        // F1: `end` is never null here — the whole-take guard above already
-        // refused when there is no end marker to collapse against.
-        if (collapsed(start, end)) return refuseNoLength("mask");
+        if (maskCollapsed(start, end)) return refuseNoLength("mask");
         return { kind: "setMaskRange", id: m.id, start, end };
       }
       if (gesture.toMs > durationMs)
@@ -736,12 +765,10 @@ export function resolveGesture(
         );
       }
       const start = m.startMarker;
-      const end = markerAt(model, gesture.toMs, gesture.snapMs);
+      const end = maskPointAt(model, ctx, gesture.toMs, gesture.snapMs);
       // F1: the ms-diff guard above does not see a snap that lands `end`
-      // back on `start`'s own tick at the same offset. `start` is never
-      // null here — the whole-take guard at the top of this case already
-      // refused when there is no start marker to collapse against.
-      if (collapsed(start, end)) return refuseNoLength("mask");
+      // back on `start`'s own frame at the same offset.
+      if (maskCollapsed(start, end)) return refuseNoLength("mask");
       return { kind: "setMaskRange", id: m.id, start, end };
     }
   }

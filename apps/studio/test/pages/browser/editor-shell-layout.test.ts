@@ -115,8 +115,8 @@ function maskedScene(
         {
           id: "mask-1",
           rect,
-          start: { actionId: "act-1", offsetMs: 0 },
-          end: { actionId: "act-3", offsetMs: 0 },
+          start: { actionId: "act-1", sourceOffsetMs: 0 },
+          end: { actionId: "act-3", sourceOffsetMs: 0 },
         },
       ],
     },

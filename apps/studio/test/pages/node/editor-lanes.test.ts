@@ -349,8 +349,8 @@ describe("masks", () => {
       {
         kind: "addMask",
         rect: { x: 1, y: 2, width: 3, height: 4 },
-        start: { actionId: "act-1", offsetMs: 0 },
-        end: { actionId: "act-2", offsetMs: 0 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-2", sourceOffsetMs: 0 },
       },
       ids(),
     );
@@ -389,8 +389,8 @@ describe("masks", () => {
       {
         kind: "addMask",
         rect: { x: 1, y: 2, width: 3, height: 4 },
-        start: { actionId: "act-1", offsetMs: 0 },
-        end: { actionId: "act-h", offsetMs: 0 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-h", sourceOffsetMs: 0 },
       },
       ids(),
     );
@@ -412,8 +412,8 @@ describe("masks", () => {
       {
         kind: "addMask",
         rect: { x: 1, y: 2, width: 3, height: 4 },
-        start: { actionId: "act-1", offsetMs: 0 },
-        end: { actionId: "act-2", offsetMs: 0 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-2", sourceOffsetMs: 0 },
       },
       ids(),
     );
@@ -427,8 +427,8 @@ describe("masks", () => {
       {
         kind: "addMask",
         rect: { x: 1, y: 2, width: 3, height: 4 },
-        start: { actionId: "act-1", offsetMs: 0 },
-        end: { actionId: "act-2", offsetMs: 0 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-2", sourceOffsetMs: 0 },
       },
       ids(),
     );

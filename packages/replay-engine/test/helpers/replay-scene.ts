@@ -62,7 +62,7 @@ export function scene(over: SceneOptions = {}): SceneDocument {
     typeof spec === "string" ? { id: spec, treePath: "button:1" } : spec,
   );
   return {
-    schemaVersion: 12,
+    schemaVersion: 13,
     meta: {
       id: "scene-1",
       name: "take",

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { oklchToHex } from "./color.js";
 import { CaptureDeviceSchema } from "./device.js";
 
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
 
 const Rect = z.object({
   x: z.number(),
@@ -372,9 +372,11 @@ const Mask = z.object({
   rect: Rect,
   note: z.string().optional(),
   /** Both or neither. Neither means the WHOLE take — the migration rule for
-   *  every mask written before ranges existed. */
-  start: MarkerSchema.optional(),
-  end: MarkerSchema.optional(),
+   *  every mask written before ranges existed. In the frames' own time
+   *  since v13, as a removed piece is: a redaction follows the frames it
+   *  covers through every later cut, gap and hold (audit run 1). */
+  start: SourcePointSchema.optional(),
+  end: SourcePointSchema.optional(),
 });
 
 // v8 §6: an authored pause, anchored to an event rather than to a timestamp —
@@ -943,7 +945,7 @@ export const SceneDocumentSchema = z
         m.start !== undefined &&
         m.end !== undefined &&
         m.start.actionId === m.end.actionId &&
-        m.end.offsetMs <= m.start.offsetMs
+        m.end.sourceOffsetMs <= m.start.sourceOffsetMs
       ) {
         ctx.addIssue({
           code: "custom",

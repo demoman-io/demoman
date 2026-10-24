@@ -102,8 +102,8 @@ describe("mask ranges", () => {
           {
             id: "m-range",
             rect,
-            start: { actionId, offsetMs: 0 },
-            end: { actionId: laterActionId, offsetMs: 500 },
+            start: { actionId, sourceOffsetMs: 0 },
+            end: { actionId: laterActionId, sourceOffsetMs: 500 },
           },
         ],
       },
@@ -116,7 +116,7 @@ describe("mask ranges", () => {
       ...base,
       edits: {
         ...base.edits,
-        masks: [{ id: "m-half", rect, start: { actionId, offsetMs: 0 } }],
+        masks: [{ id: "m-half", rect, start: { actionId, sourceOffsetMs: 0 } }],
       },
     };
     expect(issuesAt(doc)).toContain("edits.masks.0.end");
@@ -131,8 +131,8 @@ describe("mask ranges", () => {
           {
             id: "m-zero",
             rect,
-            start: { actionId, offsetMs: 100 },
-            end: { actionId, offsetMs: 100 },
+            start: { actionId, sourceOffsetMs: 100 },
+            end: { actionId, sourceOffsetMs: 100 },
           },
         ],
       },

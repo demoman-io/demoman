@@ -25,7 +25,12 @@ import {
 import { retimeAlongRoute } from "./cursor-timing.js";
 import { leaveThroughEdges } from "./off-page.js";
 import { planScene } from "./plan.js";
-import { type ClampedRange, type OutputRange, resolveRange } from "./ranges.js";
+import {
+  type ClampedRange,
+  type OutputRange,
+  resolveMaskRange,
+  resolveRange,
+} from "./ranges.js";
 import { inScreenSpace, segmentsInScreenSpace } from "./screen-space.js";
 import { CURSOR_REST_MS, CURSOR_SMOOTHING_MS, smoothCursor } from "./smooth.js";
 import {
@@ -1061,9 +1066,8 @@ export function resolvePlan(
     let range: OutputRange | null = null;
     let unplaced: ("start" | "end")[] = [];
     if (binding.range) {
-      const resolved = resolveRange({
+      const resolved = resolveMaskRange({
         id: binding.id,
-        kind: "mask",
         start: binding.range.start,
         end: binding.range.end,
         timeline,

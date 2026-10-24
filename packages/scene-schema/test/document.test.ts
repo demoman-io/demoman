@@ -189,8 +189,8 @@ describe("the current schema version", () => {
   // "schema v4 — uncovered origins" until 2026-09-20, where its name said
   // nothing about what it guards and the next bump would have read it as
   // part of that block's subject.
-  it("is 12", () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(12);
+  it("is 13", () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(13);
   });
 });
 
@@ -212,7 +212,7 @@ describe("schema v11 — drag", () => {
     });
     expect(SceneDocumentSchema.safeParse(doc).success).toBe(true);
     const v10 = { ...validDocument(), schemaVersion: 10 };
-    expect(migrateToCurrent(v10).schemaVersion).toBe(12);
+    expect(migrateToCurrent(v10).schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
   });
 });
 
@@ -673,6 +673,6 @@ describe("schema v7 — authored capture mode", () => {
     const doc = validDocument();
     (doc.meta.capture as { mode: string }).mode = "synthesised";
     expect(SceneDocumentSchema.safeParse(doc).success).toBe(false);
-    expect(CURRENT_SCHEMA_VERSION).toBe(12);
+    expect(CURRENT_SCHEMA_VERSION).toBe(13);
   });
 });

@@ -11,6 +11,7 @@ import {
   MOTION_DEFAULTS,
   type SceneDocument,
   type SceneMarker,
+  type SourcePoint,
 } from "@demoman/scene-schema";
 import { isAuthoredScene, rerunAdvice } from "../shell/runs-link";
 import type { ZoomTarget } from "./commands";
@@ -177,9 +178,9 @@ export interface MaskSeg {
   rect: Rect;
   wholeTake: boolean;
   timing: Timing;
-  /** Null on a whole-take mask. See `ZoomSeg.marker`. */
-  startMarker: SceneMarker | null;
-  endMarker: SceneMarker | null;
+  /** Null on a whole-take mask. In the frames' own time (schema v13). */
+  startMarker: SourcePoint | null;
+  endMarker: SourcePoint | null;
 }
 
 export interface LaneModel {
@@ -250,6 +251,13 @@ function durationOf(view: TimelineView): number {
  * A marker's instant with no render: the step's own timestamp plus the
  * offset. The provisional axis, drawn as `estimated`.
  */
+/** A mask edge before any render: its source offset read as output time,
+ *  the one guess there is with no timeline (`timing: estimated`). */
+const asOutput = (p: SourcePoint): SceneMarker => ({
+  actionId: p.actionId,
+  offsetMs: p.sourceOffsetMs,
+});
+
 function estimateMs(view: TimelineView, marker: SceneMarker): number {
   const beat = view.beats.find((b) => b.actionId === marker.actionId);
   return (beat ? beatPositionMs(view, beat) : 0) + marker.offsetMs;
@@ -272,7 +280,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
   const timingOf = new Map(
     view.beats.map((b) => [b.actionId, b.timing] as const),
   );
-  const timingAt = (marker: SceneMarker | undefined): Timing =>
+  const timingAt = (marker: { actionId: string } | undefined): Timing =>
     resolved === null
       ? "estimated"
       : marker
@@ -471,14 +479,14 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
       : range
         ? range.startMs
         : mask.start
-          ? Math.max(0, estimateMs(view, mask.start))
+          ? Math.max(0, estimateMs(view, asOutput(mask.start)))
           : 0;
     const endMs = wholeTake
       ? durationMs
       : range
         ? range.endMs
         : mask.end
-          ? Math.min(durationMs, estimateMs(view, mask.end))
+          ? Math.min(durationMs, estimateMs(view, asOutput(mask.end)))
           : durationMs;
     return {
       id: mask.id,

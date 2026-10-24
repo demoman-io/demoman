@@ -196,30 +196,30 @@ describe("masks", () => {
       {
         kind: "addMask",
         rect,
-        start: { actionId: "act-1", offsetMs: 0 },
-        end: { actionId: "act-2", offsetMs: 0 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-2", sourceOffsetMs: 0 },
       },
       ids(),
     );
     expect(scene.edits.masks[0]).toEqual({
       id: "gen-1",
       rect,
-      start: { actionId: "act-1", offsetMs: 0 },
-      end: { actionId: "act-2", offsetMs: 0 },
+      start: { actionId: "act-1", sourceOffsetMs: 0 },
+      end: { actionId: "act-2", sourceOffsetMs: 0 },
     });
     scene = applyCommand(
       scene,
       {
         kind: "setMaskRange",
         id: "gen-1",
-        start: { actionId: "act-1", offsetMs: 100 },
-        end: { actionId: "act-3", offsetMs: 0 },
+        start: { actionId: "act-1", sourceOffsetMs: 100 },
+        end: { actionId: "act-3", sourceOffsetMs: 0 },
       },
       ids(),
     );
     expect(scene.edits.masks[0]?.end).toEqual({
       actionId: "act-3",
-      offsetMs: 0,
+      sourceOffsetMs: 0,
     });
   });
 
@@ -230,8 +230,8 @@ describe("masks", () => {
       {
         kind: "addMask",
         rect,
-        start: { actionId: "act-1", offsetMs: 0 },
-        end: { actionId: "act-2", offsetMs: 0 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-2", sourceOffsetMs: 0 },
       },
       ids(),
     );
@@ -288,8 +288,8 @@ describe("moving a mask's rect", () => {
       {
         kind: "addMask",
         rect: { x: 10, y: 10, width: 100, height: 20 },
-        start: { actionId: "act-1", offsetMs: 0 },
-        end: { actionId: "act-2", offsetMs: 0 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-2", sourceOffsetMs: 0 },
       },
       ids(),
     );

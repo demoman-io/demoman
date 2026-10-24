@@ -768,22 +768,23 @@ describe("resolvePlan mask ranges", () => {
           {
             id: "mask-2",
             rect: { x: 0, y: 0, width: 10, height: 10 },
-            start: { actionId: "act-1", offsetMs: 0 },
-            end: { actionId: "act-2", offsetMs: -100 },
+            start: { actionId: "act-1", sourceOffsetMs: 0 },
+            end: { actionId: "act-2", sourceOffsetMs: -100 },
           },
         ],
       },
     };
     const r = resolvePlan(planScene(ranged), bundle, ranged);
-    const at = (id: string) =>
-      toOutputMs(
-        r.timeline,
-        bundle.markers.find((m) => m.actionId === id)?.sourceTimeMs ?? 0,
-      );
+    const src = (id: string) =>
+      bundle.markers.find((m) => m.actionId === id)?.sourceTimeMs ?? 0;
+    // Premise: nothing stands still here, so a frame plays at one instant.
+    expect(
+      r.timeline.segments.filter((g) => g.srcStartMs === g.srcEndMs),
+    ).toEqual([]);
     expect(r.cosmetics.find((c) => c.id === "mask-1")?.range).toBeNull();
     expect(r.cosmetics.find((c) => c.id === "mask-2")?.range).toEqual({
-      startMs: at("act-1"),
-      endMs: at("act-2") - 100,
+      startMs: toOutputMs(r.timeline, src("act-1")),
+      endMs: toOutputMs(r.timeline, src("act-2") - 100),
     });
   });
 
@@ -803,8 +804,8 @@ describe("resolvePlan mask ranges", () => {
           {
             id: "mask-ghost",
             rect: { x: 0, y: 0, width: 10, height: 10 },
-            start: { actionId: "act-1", offsetMs: 0 },
-            end: { actionId: "act-ghost", offsetMs: 0 },
+            start: { actionId: "act-1", sourceOffsetMs: 0 },
+            end: { actionId: "act-ghost", sourceOffsetMs: 0 },
           },
         ],
       },
@@ -826,8 +827,8 @@ describe("resolvePlan mask ranges", () => {
           {
             id: "mask-ghost",
             rect: { x: 0, y: 0, width: 10, height: 10 },
-            start: { actionId: "act-1", offsetMs: 0 },
-            end: { actionId: "act-2", offsetMs: 0 },
+            start: { actionId: "act-1", sourceOffsetMs: 0 },
+            end: { actionId: "act-2", sourceOffsetMs: 0 },
           },
         ],
       },
@@ -848,8 +849,8 @@ describe("resolvePlan mask ranges", () => {
           {
             id: "mask-x",
             rect: { x: 0, y: 0, width: 10, height: 10 },
-            start: { actionId: "act-3", offsetMs: 0 },
-            end: { actionId: "act-1", offsetMs: 0 },
+            start: { actionId: "act-3", sourceOffsetMs: 0 },
+            end: { actionId: "act-1", sourceOffsetMs: 0 },
           },
         ],
       },

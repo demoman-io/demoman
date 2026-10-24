@@ -25,9 +25,10 @@ describe("v8 -> v9: auto", () => {
   // demo already exported would change shape on its next export.
   it.each(["16:9", "9:16"])("keeps a v8 document's %s", (aspect) => {
     const migrated = migrateToCurrent(v8Document(aspect));
-    // v10 (devices), v11 (drag) and v12 (removed pieces) are past this step; the aspect survives them.
-    expect(CURRENT_SCHEMA_VERSION).toBe(12);
-    expect(migrated.schemaVersion).toBe(12);
+    // v10 (devices), v11 (drag), v12 (removed pieces) and v13 (mask ends in
+    // source time) are past this step; the aspect survives them.
+    expect(CURRENT_SCHEMA_VERSION).toBe(13);
+    expect(migrated.schemaVersion).toBe(13);
     expect(migrated.canvas.aspect).toBe(aspect);
   });
 

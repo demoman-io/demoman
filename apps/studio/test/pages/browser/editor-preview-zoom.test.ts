@@ -62,8 +62,8 @@ function maskedScene(): SceneDocument {
         {
           id: "mask-1",
           rect: { x: 0, y: 0, width: 80, height: 40 },
-          start: { actionId: "act-1", offsetMs: 0 },
-          end: { actionId: "act-3", offsetMs: 0 },
+          start: { actionId: "act-1", sourceOffsetMs: 0 },
+          end: { actionId: "act-3", sourceOffsetMs: 0 },
         },
       ],
     },

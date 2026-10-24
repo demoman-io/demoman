@@ -4,7 +4,7 @@
   "properties": {
     "schemaVersion": {
       "type": "number",
-      "const": 12
+      "const": 13
     },
     "meta": {
       "type": "object",
@@ -1217,13 +1217,13 @@
                     "type": "string",
                     "minLength": 1
                   },
-                  "offsetMs": {
+                  "sourceOffsetMs": {
                     "type": "number"
                   }
                 },
                 "required": [
                   "actionId",
-                  "offsetMs"
+                  "sourceOffsetMs"
                 ],
                 "additionalProperties": false
               },
@@ -1234,13 +1234,13 @@
                     "type": "string",
                     "minLength": 1
                   },
-                  "offsetMs": {
+                  "sourceOffsetMs": {
                     "type": "number"
                   }
                 },
                 "required": [
                   "actionId",
-                  "offsetMs"
+                  "sourceOffsetMs"
                 ],
                 "additionalProperties": false
               }

@@ -60,12 +60,11 @@ export interface PlannedRemoval {
  * dropped in silence, because a zoom that stops happening with nothing said
  * is the silent `prune` the 2026-09-13 pixel-first spec called out.
  *
- * A whole-take mask carries no range, so it has no step to sit on and is
- * never here.
+ * A mask is never here: it covers whatever of its frames survive a cut.
  */
 export interface AttachedEdit {
   id: string;
-  kind: "zoom" | "mask" | "hold";
+  kind: "zoom" | "hold";
   actionId: string;
 }
 
@@ -105,9 +104,8 @@ export interface CosmeticBinding {
   id: string;
   kind: "mask";
   rect: Rect;
-  /** When the mask paints. Null: throughout. A null SIDE is the take's own
-   *  end on that side. */
-  range: { start: PlannedMarker | null; end: PlannedMarker | null } | null;
+  /** The frames it covers, in source time: null is every frame. */
+  range: { start: SourcePoint; end: SourcePoint } | null;
 }
 
 /**

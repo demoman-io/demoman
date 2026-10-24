@@ -47,8 +47,8 @@ function mount() {
     {
       kind: "addMask",
       rect: { x: 300, y: 320, width: 200, height: 30 },
-      start: { actionId: "act-1", offsetMs: 0 },
-      end: { actionId: "act-3", offsetMs: 0 },
+      start: { actionId: "act-1", sourceOffsetMs: 0 },
+      end: { actionId: "act-3", sourceOffsetMs: 0 },
     },
     newId,
   );

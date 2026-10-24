@@ -105,7 +105,7 @@ export function planScene(
     // the author never recorded.
     cursorSegments: planCursorSegments(scene, rectOf),
     cameraIntents: planCameraIntents(scene, cutSteps, attachedToCuts),
-    cosmetics: planCosmetics(scene, cutSteps, attachedToCuts),
+    cosmetics: planCosmetics(scene),
     holds: (scene.edits.holds ?? []).flatMap((hold) => {
       if (cutSteps.has(hold.marker.actionId)) {
         attachedToCuts.push({

@@ -2,7 +2,7 @@ import type { SourcePoint } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import { planScene } from "../../src/plan/plan";
 import { resolvePlan } from "../../src/plan/resolve";
-import { buildTimeline } from "../../src/plan/timeline";
+import { buildTimeline, toOutputMs } from "../../src/plan/timeline";
 import { proceduralBundle } from "../fixtures/bundle";
 import { readonlyScene } from "../fixtures/scene";
 
@@ -168,8 +168,11 @@ describe("planScene and removed pieces", () => {
     ]);
   });
 
-  it("does not draw a ranged mask that opens on a step inside a removed piece, and names it", () => {
-    const base = removing("act-2", "act-3");
+  // Red: planCosmetics dropping a ranged mask whose opening step is cut —
+  // the redaction failed open on an unrelated trim (audit run 1).
+  it("keeps a ranged mask that opens on a step inside a removed piece, covering what survives", () => {
+    // act-2's frame (3200) to 2 s past it is removed; the mask runs on to act-3.
+    const base = withRemoved([{ start: at("act-2"), end: at("act-2", 2000) }]);
     const scene = {
       ...base,
       edits: {
@@ -178,22 +181,92 @@ describe("planScene and removed pieces", () => {
           {
             id: "mask-1",
             rect: { x: 10, y: 10, width: 100, height: 40 },
-            start: { actionId: "act-2", offsetMs: 0 },
-            end: { actionId: "act-3", offsetMs: 0 },
+            start: at("act-2"),
+            end: at("act-3"),
           },
         ],
       },
     };
-    // Premise: without the cut this mask IS planned.
-    expect(
-      planScene({ ...scene, edits: { ...scene.edits, removed: [] } }).cosmetics,
-    ).toHaveLength(1);
-
     const plan = planScene(scene);
-    expect(plan.cosmetics).toEqual([]);
-    expect(plan.attachedToCuts).toEqual([
-      { id: "mask-1", kind: "mask", actionId: "act-2" },
+    // Premise: the mask's opening step is inside the removed piece.
+    expect(plan.removedSteps).toEqual(["act-2"]);
+    expect(plan.cosmetics.map((c) => c.id)).toEqual(["mask-1"]);
+    expect(plan.attachedToCuts).toEqual([]);
+    const r = resolvePlan(plan, proceduralBundle(), scene);
+    expect(r.cosmetics[0]?.range).toEqual({
+      startMs: toOutputMs(r.timeline, 3200),
+      endMs: toOutputMs(r.timeline, 9000),
+    });
+    // The first frame after the piece (5200) is covered.
+    expect(toOutputMs(r.timeline, 5200)).toBeLessThan(
+      r.cosmetics[0]?.range?.endMs ?? 0,
+    );
+    expect(r.clampedRanges).toEqual([]);
+  });
+
+  // Red: a mask's ends on the output axis (`toOutputMs(step) + offsetMs`),
+  // which a piece removed later between its step and its edge slides off
+  // the frames it was drawn over (audit run 1).
+  it("keeps a mask on its frames when a piece is removed between its step and its edges", () => {
+    // Frames 1400..2900 masked; 600..1000 removed, before them.
+    const base = withRemoved([
+      { start: at("act-1", 200), end: at("act-1", 600) },
     ]);
+    const scene = {
+      ...base,
+      edits: {
+        ...base.edits,
+        masks: [
+          {
+            id: "mask-1",
+            rect: { x: 10, y: 10, width: 100, height: 40 },
+            start: at("act-1", 1000),
+            end: at("act-1", 2500),
+          },
+        ],
+      },
+    };
+    const r = resolvePlan(planScene(scene), proceduralBundle(), scene);
+    // Premise: the cut moved those frames 400 ms earlier in the video.
+    expect(toOutputMs(r.timeline, 1400)).toBe(
+      toOutputMs(r.timeline, 400) + 1000 - 400,
+    );
+    expect(r.cosmetics[0]?.range).toEqual({
+      startMs: toOutputMs(r.timeline, 1400),
+      endMs: toOutputMs(r.timeline, 2900),
+    });
+  });
+
+  // Red: resolving the end with `toOutputMs`, which answers a held instant
+  // with the hold's first one — the held frame would play unmasked.
+  it("covers a hold standing on a mask's last frame", () => {
+    const scene = {
+      ...readonlyScene(),
+      edits: {
+        ...readonlyScene().edits,
+        holds: [
+          {
+            id: "hold-1",
+            marker: { actionId: "act-2", offsetMs: 0 },
+            durationMs: 800,
+          },
+        ],
+        masks: [
+          {
+            id: "mask-1",
+            rect: { x: 10, y: 10, width: 100, height: 40 },
+            start: at("act-1"),
+            end: at("act-2"),
+          },
+        ],
+      },
+    };
+    const r = resolvePlan(planScene(scene), proceduralBundle(), scene);
+    // Premise: act-2's frame (3200) is held, and the hold starts there.
+    const held = r.timeline.segments.find((g) => g.kind === "hold");
+    expect(held?.srcStartMs).toBe(3200);
+    expect(held?.outStartMs).toBe(toOutputMs(r.timeline, 3200));
+    expect(r.cosmetics[0]?.range?.endMs).toBe(held?.outEndMs);
   });
 
   it("keeps a whole-take mask, which sits on no step at all", () => {

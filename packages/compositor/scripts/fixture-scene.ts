@@ -22,7 +22,7 @@ import { CAMERA_DEFAULTS } from "../src/plan/camera";
  */
 export function fixtureScene(): SceneDocument {
   return {
-    schemaVersion: 12,
+    schemaVersion: 13,
     meta: {
       id: "scene-fixture-app",
       name: "Northwind invoices walkthrough",

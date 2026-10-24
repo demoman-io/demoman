@@ -3,9 +3,14 @@ import {
   motionTimings,
   planScene,
   resolvePlan,
+  toOutputMs,
 } from "@demoman/compositor";
 import { ZOOM_GLIDE_MIN_MS, zoomsForClicks } from "@demoman/run-core";
-import { MOTION_DEFAULTS, type SceneDocument } from "@demoman/scene-schema";
+import {
+  MOTION_DEFAULTS,
+  type SceneDocument,
+  type SourcePoint,
+} from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import {
   proceduralBundle,
@@ -50,6 +55,16 @@ function setup(scene = readonlyScene(), bundle = proceduralBundle()) {
   const ctx: GestureContext = { resolved, bundle, viewport: VIEWPORT };
   return { scene, model, view, ctx };
 }
+
+/** Where a mask edge's frame plays in the setup's video. */
+const landsAt = (s: ReturnType<typeof setup>, p: SourcePoint): number => {
+  const frame = s.ctx.bundle?.markers.find((m) => m.actionId === p.actionId);
+  if (!frame || !s.ctx.resolved) throw new Error("fixture");
+  return toOutputMs(
+    s.ctx.resolved.timeline,
+    frame.sourceTimeMs + p.sourceOffsetMs,
+  );
+};
 
 const run = (s: ReturnType<typeof setup>, gesture: Gesture) =>
   resolveGesture(s.model, s.view, gesture, s.ctx);
@@ -1002,12 +1017,10 @@ describe("addMask", () => {
     if (!t2 || !t3) throw new Error("fixture");
     const at = t3.atMs - 500;
     const cmd = command(run(s, { kind: "addMask", atMs: at, snapMs: 0 }));
-    expect(cmd).toMatchObject({
-      kind: "addMask",
-      start: markerAt(s.model, at, 0),
-      end: { actionId: "act-3", offsetMs: 0 },
-    });
     if (cmd.kind !== "addMask") throw new Error("kind");
+    expect(cmd.start.actionId).toBe(markerAt(s.model, at, 0).actionId);
+    expect(landsAt(s, cmd.start)).toBeCloseTo(at, 0);
+    expect(cmd.end).toEqual({ actionId: "act-3", sourceOffsetMs: 0 });
     expect(cmd.rect.width).toBe(VIEWPORT.width / 2);
     expect(cmd.rect.height).toBe(VIEWPORT.height / 2);
     expect(cmd.note).toBeUndefined();
@@ -1019,9 +1032,11 @@ describe("addMask", () => {
     if (!t1) throw new Error("fixture");
     const at = t1.atMs + 10;
     const cmd = command(run(s, { kind: "addMask", atMs: at, snapMs: 0 }));
-    expect(cmd).toMatchObject({
-      end: markerAt(s.model, at + MASK_DEFAULT_MS, 0),
-    });
+    if (cmd.kind !== "addMask") throw new Error("kind");
+    expect(cmd.end.actionId).toBe(
+      markerAt(s.model, at + MASK_DEFAULT_MS, 0).actionId,
+    );
+    expect(landsAt(s, cmd.end)).toBeCloseTo(at + MASK_DEFAULT_MS, 0);
   });
 
   it("centres the box and says so when the pointer has no sample there", () => {
@@ -1056,9 +1071,45 @@ describe("addMask", () => {
     const cmd = command(run(s, { kind: "addMask", atMs: at, snapMs: 400 }));
     expect(cmd).toMatchObject({
       kind: "addMask",
-      start: { actionId: t2.actionId, offsetMs: 0 },
-      end: { actionId: t3.actionId, offsetMs: 0 },
+      start: { actionId: t2.actionId, sourceOffsetMs: 0 },
+      end: { actionId: t3.actionId, sourceOffsetMs: 0 },
     });
+  });
+});
+
+describe("a mask drawn after a cut (audit run 1)", () => {
+  // Red: maskPointAt copying the output offset into sourceOffsetMs — with a
+  // piece already removed between the step and the drop, that names a frame
+  // later than the one on screen where the mask was dropped.
+  it("stores the frame on screen where it was dropped, not the output offset", () => {
+    const base = readonlyScene();
+    const scene = {
+      ...base,
+      edits: {
+        ...base.edits,
+        removed: [
+          {
+            id: "r-1",
+            start: { actionId: "act-1", sourceOffsetMs: 200 },
+            end: { actionId: "act-1", sourceOffsetMs: 600 },
+          },
+        ],
+      },
+    };
+    const s = setup(scene);
+    const t1 = s.model.clip.ticks[0];
+    if (!t1) throw new Error("fixture");
+    const at = t1.atMs + 1000;
+    const cmd = command(run(s, { kind: "addMask", atMs: at, snapMs: 0 }));
+    if (cmd.kind !== "addMask") throw new Error("kind");
+    // Premise: the cut sits between act-1 and the drop, so the output and
+    // source offsets differ by its 400 ms.
+    expect(markerAt(s.model, at, 0)).toEqual({
+      actionId: "act-1",
+      offsetMs: 1000,
+    });
+    expect(cmd.start).toEqual({ actionId: "act-1", sourceOffsetMs: 1400 });
+    expect(landsAt(s, cmd.start)).toBeCloseTo(at, 0);
   });
 });
 
@@ -1069,30 +1120,26 @@ describe("mask edges", () => {
       {
         kind: "addMask",
         rect: { x: 0, y: 0, width: 10, height: 10 },
-        start: { actionId: "act-1", offsetMs: 0 },
-        end: { actionId: "act-2", offsetMs: -100 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-2", sourceOffsetMs: -100 },
       },
       ids(),
     );
     const s = setup(scene);
     const m = s.model.masks[0];
     if (!m) throw new Error("fixture");
-    expect(
-      command(
-        run(s, {
-          kind: "maskEdge",
-          id: m.id,
-          edge: "end",
-          toMs: m.endMs + 800,
-          snapMs: 0,
-        }),
-      ),
-    ).toEqual({
-      kind: "setMaskRange",
-      id: m.id,
-      start: { actionId: "act-1", offsetMs: 0 },
-      end: markerAt(s.model, m.endMs + 800, 0),
-    });
+    const cmd = command(
+      run(s, {
+        kind: "maskEdge",
+        id: m.id,
+        edge: "end",
+        toMs: m.endMs + 800,
+        snapMs: 0,
+      }),
+    );
+    if (cmd.kind !== "setMaskRange") throw new Error("kind");
+    expect(cmd.start).toEqual({ actionId: "act-1", sourceOffsetMs: 0 });
+    expect(landsAt(s, cmd.end)).toBeCloseTo(m.endMs + 800, 0);
   });
 
   it("refuses to move a whole-take mask's ends", () => {
@@ -1127,8 +1174,8 @@ describe("mask edges", () => {
       {
         kind: "addMask",
         rect: { x: 0, y: 0, width: 10, height: 10 },
-        start: { actionId: "act-1", offsetMs: 0 },
-        end: { actionId: "act-2", offsetMs: -100 },
+        start: { actionId: "act-1", sourceOffsetMs: 0 },
+        end: { actionId: "act-2", sourceOffsetMs: -100 },
       },
       ids(),
     );

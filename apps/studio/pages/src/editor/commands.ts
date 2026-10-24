@@ -44,11 +44,11 @@ export type EditCommand =
   | {
       kind: "addMask";
       rect: EditRect;
-      start: SceneMarker;
-      end: SceneMarker;
+      start: SourcePoint;
+      end: SourcePoint;
       note?: string;
     }
-  | { kind: "setMaskRange"; id: string; start: SceneMarker; end: SceneMarker }
+  | { kind: "setMaskRange"; id: string; start: SourcePoint; end: SourcePoint }
   | { kind: "moveMask"; id: string; rect: EditRect }
   /** The mask panel's note field. An empty string clears it. */
   | { kind: "setMaskNote"; id: string; note: string }
