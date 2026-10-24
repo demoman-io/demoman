@@ -67,7 +67,8 @@ export type Exporting = Extract<ExportReport, { outcome: "exporting" }>;
  * of the CLI's own browser for the offscreen document, and a folder save for
  * chrome.downloads. Every decision that is not a port is the extension's own,
  * moved to run-core: the target (`targetFor`), the file name
- * (`exportFileName`/`exportBaseName`/`sceneLabel`), the report
+ * (`exportFileName`/`exportBaseName` of the take's video name, else
+ * `sceneLabel`), the report
  * (`reportForSave`) and the sentence (`withSummary`). It makes MP4, GIF or
  * stills (`fileType`, MP4 by default); stills save into a folder of their
  * own. Resolves for every
@@ -295,6 +296,9 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
   let error: string | undefined;
   // Unknown (absent) when the take's video.json will not read.
   let videoId: string | null | undefined;
+  // The file is named after the video (author, 2026-10-24); without one,
+  // after the take.
+  let videoName: string | null = null;
   try {
     const member = await deps.videos.videoOf(takeId);
     videoId = member?.videoId ?? null;
@@ -302,9 +306,19 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
   } catch (e) {
     error = `the take's video could not be read (${messageOf(e)})`;
   }
+  if (videoId) {
+    try {
+      videoName = (await deps.videos.get(videoId))?.name ?? null;
+    } catch (e) {
+      deps.log(
+        `take ${takeId}: the export is named after the take, as its video's record would not read (${messageOf(e)})`,
+      );
+    }
+  }
   const write = deps.tagBytes ?? tagFileBytes;
   return {
     videoId,
+    videoName,
     apply(type: "mp4" | "gif" | "png", bytes: Uint8Array): Uint8Array {
       if (tag === null) return bytes;
       const tagged = write(type, bytes, tag);
@@ -464,7 +478,7 @@ async function exportLeased(a: {
 
   onProgress({ outcome: "exporting", phase: "saving", done: 0, total: 0 });
   const tagger = await taggerFor(takeId, deps);
-  const base = exportBaseName(sceneLabel(scene.meta));
+  const base = exportBaseName(tagger.videoName ?? sceneLabel(scene.meta));
   const warnings = {
     // The take's own skips under the floor and the render's caps and
     // narrowings: an export whose zooms did not play as asked says which.

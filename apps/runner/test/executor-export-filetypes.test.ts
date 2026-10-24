@@ -21,7 +21,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Rgb } from "../src/decode-probe-entry.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { readTag } from "../src/executor/export-tag.js";
+import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
+import { createVideoStore } from "../src/executor/videos.js";
 import {
   DISK_TAKE_INK,
   DISK_TAKE_RED,
@@ -753,6 +755,40 @@ describe("exports carry their video and version", () => {
       }
     },
     EXPORT_MS * 2,
+  );
+
+  // Red: `exportBaseName(sceneLabel(scene.meta))` alone names the file
+  // after the take, whatever its video is called.
+  it(
+    "names the file after the take's video",
+    async () => {
+      await putTake(home, take.takeId, take.original, take.bundle);
+      const store = createVideoStore(home, createLibrary(home));
+      const made = await store.create({
+        name: "Video name under test",
+        repo: { unknown: true },
+        startPage: "x",
+      });
+      if (!made.ok) throw new Error(JSON.stringify(made));
+      // Premise: the take's own label is not the video's name.
+      expect(take.original.meta.name).not.toBe("Video name under test");
+      await store.join(take.takeId, {
+        videoId: made.video.id,
+        made: {
+          repo: { none: "test" },
+          agent: { none: "test" },
+          by: { none: "test" },
+          door: "mcp",
+        },
+        recordedRevision: null,
+      });
+      const answer = await exportAs("gif");
+      if (answer.outcome !== "saved" || answer.fileType === "stills")
+        throw new Error(JSON.stringify(answer));
+      expect(answer.file.path).toBe(join(outDir, "Video name under test.gif"));
+      await rm(videoJson(), { force: true });
+    },
+    EXPORT_MS,
   );
 
   it(
