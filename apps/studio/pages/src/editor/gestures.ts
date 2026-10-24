@@ -414,11 +414,12 @@ export function maskSpanAt(
  */
 /**
  * A mask edge at output instant `ms`, in the frames' own time (schema v13):
- * snapped as any edit is (`markerAt`), then read back through the last
- * render's timeline, so the edge stays on the frame it was dropped on
- * through every later cut. Snapped onto a step, it is that step's frame.
- * With no render yet there is no timeline, and the offset is taken as
- * source time — the lane says `estimated` until one lands.
+ * snapped as any edit is (`markerAt`), then read back through the editor's
+ * current timeline (`refreshDerived` re-resolves it from the live document
+ * on every edit, cuts included), so the edge stays on the frame it was
+ * dropped on through every later cut. Snapped onto a step, it is that
+ * step's frame. With no frames loaded there is no timeline, and the offset
+ * is taken as source time — the lane says `estimated` until they load.
  */
 function maskPointAt(
   model: LaneModel,

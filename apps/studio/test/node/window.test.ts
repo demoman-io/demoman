@@ -33,9 +33,18 @@ class FakePage extends EventEmitter {
   url() {
     return this.address;
   }
+  /** How long a goto takes; a second goto started meanwhile interrupts the
+   *  first, as Chrome's does. */
+  gotoMs = 0;
+  private navigation = 0;
   async goto(url: string) {
     if (this.gotoFails !== null) throw new Error(this.gotoFails);
     this.gotos.push(url);
+    const mine = ++this.navigation;
+    if (this.gotoMs > 0) await new Promise((r) => setTimeout(r, this.gotoMs));
+    if (mine !== this.navigation) {
+      throw new Error(`page.goto: net::ERR_ABORTED at ${url}`);
+    }
     this.address = url;
     const status = this.answers;
     return { ok: () => status < 400, status: () => status };
@@ -74,7 +83,9 @@ class FakeContext extends EventEmitter {
 
 const ORIGIN = "http://127.0.0.1:5555";
 
-function harness(o: { listening?: number; answers?: number } = {}) {
+function harness(
+  o: { listening?: number; answers?: number; gotoMs?: number } = {},
+) {
   let ctx: FakeContext | null = null;
   const launches: LaunchOptions[] = [];
   const sent: StudioEvent[] = [];
@@ -96,6 +107,7 @@ function harness(o: { listening?: number; answers?: number } = {}) {
       const app = String(options.args?.find((a) => a.startsWith("--app=")));
       const page = new FakePage(made, "app", app.slice("--app=".length));
       page.answers = o.answers ?? 200;
+      page.gotoMs = o.gotoMs ?? 0;
       made.add(page, false);
       ctx = made;
       return made as unknown as BrowserContext;
@@ -118,6 +130,27 @@ const appPage = (ctx: FakeContext) => {
   if (page === undefined) throw new Error("no app page");
   return page;
 };
+
+describe("two opens at once", () => {
+  it("both open the window, the second after the first's entry", async () => {
+    // Red: the second open found the blank window still loading its entry
+    // and sent it through another, which aborted the first's: it answered
+    // windowDidNotOpen for a window that opened (audit review).
+    const h = harness({ listening: 0, gotoMs: 50 });
+    const answers = await Promise.all([
+      h.window.open({}),
+      h.window.open({ takeId: "t1" }),
+    ]);
+    expect(answers).toEqual([
+      { ok: true, path: "/" },
+      { ok: true, path: "/editor.html?scene=t1" },
+    ]);
+    expect(appPage(h.ctx()).gotos).toEqual([
+      `${ORIGIN}/?t=ticket-1`,
+      `${ORIGIN}/?t=ticket-2&take=t1`,
+    ]);
+  });
+});
 
 describe("open on a live window (fix 1: never ok when it did not move)", () => {
   it("with a page listening, sends `open` and brings the window forward", async () => {

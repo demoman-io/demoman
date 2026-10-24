@@ -53,9 +53,6 @@ beforeAll(async () => {
     window: {
       open: () => Promise.reject(new Error("no window opens in this test")),
     },
-    entryUrl: () => {
-      throw new Error("no entry URL is made in this test");
-    },
   });
 });
 afterAll(async () => {

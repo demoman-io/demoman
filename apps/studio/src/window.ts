@@ -199,71 +199,15 @@ export function createStudioWindow(o: {
     }
   }
 
+  // One open at a time: a second one's goto would interrupt the first's
+  // entry into the same window, which then answers windowDidNotOpen.
+  let opening: Promise<unknown> = Promise.resolve();
+
   return {
-    async open(target) {
-      const path = pagePathFor(target.takeId);
-      const got = await ensure();
-      if (!got.ok) return { reason: got.reason, detail: got.detail };
-
-      if (got.launched) {
-        const page = await appWindow();
-        if (page === null) {
-          return didNotOpen(
-            `the Studio's browser started, but its window did not appear within ${pageWaitMs / 1000} s`,
-          );
-        }
-        try {
-          await enter(page, target.takeId);
-        } catch (error) {
-          return didNotOpen(
-            `the Studio's window opened but could not be sent to ${path} (${messageOf(error)})`,
-          );
-        }
-        count();
-        return { ok: true, path };
-      }
-
-      const live = livePages()[0];
-      if (live !== undefined) {
-        if (o.events.size() > 0) {
-          // The page navigates itself after its owed writes (Task 12); a
-          // server-side goto could drop an edit still being saved.
-          o.events.send({ type: "open", path });
-        } else {
-          // No page is listening, so no editor holds a write this could
-          // drop (one still loading has none yet): navigated from here,
-          // through an entry link, so its cookie is set whatever it held.
-          try {
-            await enter(live, target.takeId);
-          } catch (error) {
-            return didNotOpen(
-              `the Studio's window could not be sent to ${path} (${messageOf(error)})`,
-            );
-          }
-        }
-        try {
-          await live.bringToFront();
-        } catch (error) {
-          return didNotOpen(
-            `the Studio's window was sent to ${path} but could not be brought forward (${messageOf(error)})`,
-          );
-        }
-        return { ok: true, path };
-      }
-
-      // The browser is running and the person closed every window (during
-      // a drain). `--app` is a launch flag, so this is an ordinary window,
-      // not an app window: it has an address bar and tabs.
-      try {
-        const page = await got.context.newPage();
-        await enter(page, target.takeId);
-      } catch (error) {
-        return didNotOpen(
-          `the Studio's window would not open: ${messageOf(error)}`,
-        );
-      }
-      count();
-      return { ok: true, path };
+    open(target) {
+      const next = opening.then(() => openNow(target));
+      opening = next.catch(() => undefined);
+      return next;
     },
 
     onAllClosed(fn) {
@@ -279,4 +223,72 @@ export function createStudioWindow(o: {
       if (ctx !== null) await ctx.close();
     },
   };
+
+  async function openNow(
+    target: Parameters<StudioWindow["open"]>[0],
+  ): ReturnType<StudioWindow["open"]> {
+    const path = pagePathFor(target.takeId);
+    const got = await ensure();
+    if (!got.ok) return { reason: got.reason, detail: got.detail };
+
+    if (got.launched) {
+      const page = await appWindow();
+      if (page === null) {
+        return didNotOpen(
+          `the Studio's browser started, but its window did not appear within ${pageWaitMs / 1000} s`,
+        );
+      }
+      try {
+        await enter(page, target.takeId);
+      } catch (error) {
+        return didNotOpen(
+          `the Studio's window opened but could not be sent to ${path} (${messageOf(error)})`,
+        );
+      }
+      count();
+      return { ok: true, path };
+    }
+
+    const live = livePages()[0];
+    if (live !== undefined) {
+      if (o.events.size() > 0) {
+        // The page navigates itself after its owed writes (Task 12); a
+        // server-side goto could drop an edit still being saved.
+        o.events.send({ type: "open", path });
+      } else {
+        // No page is listening, so no editor holds a write this could
+        // drop (one still loading has none yet): navigated from here,
+        // through an entry link, so its cookie is set whatever it held.
+        try {
+          await enter(live, target.takeId);
+        } catch (error) {
+          return didNotOpen(
+            `the Studio's window could not be sent to ${path} (${messageOf(error)})`,
+          );
+        }
+      }
+      try {
+        await live.bringToFront();
+      } catch (error) {
+        return didNotOpen(
+          `the Studio's window was sent to ${path} but could not be brought forward (${messageOf(error)})`,
+        );
+      }
+      return { ok: true, path };
+    }
+
+    // The browser is running and the person closed every window (during
+    // a drain). `--app` is a launch flag, so this is an ordinary window,
+    // not an app window: it has an address bar and tabs.
+    try {
+      const page = await got.context.newPage();
+      await enter(page, target.takeId);
+    } catch (error) {
+      return didNotOpen(
+        `the Studio's window would not open: ${messageOf(error)}`,
+      );
+    }
+    count();
+    return { ok: true, path };
+  }
 }

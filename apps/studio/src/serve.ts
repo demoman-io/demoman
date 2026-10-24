@@ -99,9 +99,6 @@ export function buildHandlers(o: {
   window: Pick<StudioWindow, "open">;
   /** Told after each window that opened, so the lifetime knows. */
   onWindowOpened?: () => void;
-  /** A fresh entry URL with a single-use ticket (the server's `entryUrl`),
-   *  for the window answer's `url` (ruling R12). */
-  entryUrl: (takeId?: string) => string;
   reveal?: (path: string) => Promise<void>;
 }): StudioHandlers {
   const { library } = o;
@@ -322,7 +319,6 @@ export async function runServe(o: ServeOptions): Promise<never> {
   // Assigned once the server has an origin; no request reaches a handler
   // before it does.
   let window: StudioWindow | null = null;
-  let entry: ((takeId?: string) => string) | null = null;
   const theWindow = (): StudioWindow => {
     if (window === null) throw new Error("the Studio window is not made yet");
     return window;
@@ -401,12 +397,6 @@ export async function runServe(o: ServeOptions): Promise<never> {
         }
       },
     },
-    entryUrl: (takeId) => {
-      // Like the window: no request reaches a handler before the server
-      // is listening, which is when `entry` is set.
-      if (entry === null) throw new Error("the Studio server is not up yet");
-      return entry(takeId);
-    },
     onWindowOpened: () => {
       everOpened = true;
       windowOpen = true;
@@ -428,7 +418,6 @@ export async function runServe(o: ServeOptions): Promise<never> {
     return forever;
   }
   const studioServer = server;
-  entry = (takeId) => studioServer.entryUrl(takeId);
 
   window = (o.createWindow ?? defaultWindow(o))({
     origin: studioServer.origin,
