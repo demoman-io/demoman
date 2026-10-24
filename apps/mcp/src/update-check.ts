@@ -113,7 +113,7 @@ export function createUpdateCheck(o: {
   /** Beside, then renamed over: two sessions never leave half a file. */
   async function write(c: Cached): Promise<void> {
     try {
-      await mkdir(o.home, { recursive: true });
+      await mkdir(o.home, { recursive: true, mode: 0o700 });
       const tmp = `${file}.${process.pid}.tmp`;
       await writeFile(tmp, JSON.stringify(c));
       await rename(tmp, file);

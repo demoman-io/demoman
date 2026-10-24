@@ -235,7 +235,7 @@ async function acquireStartLock(
 ): Promise<{ release: () => Promise<void> } | Refusal> {
   const path = join(home, "studio.start.lock");
   const deadline = Date.now() + waitMs + 5_000;
-  await mkdir(home, { recursive: true });
+  await mkdir(home, { recursive: true, mode: 0o700 });
   for (;;) {
     try {
       await writeFile(path, `${process.pid}\n`, { flag: "wx", mode: 0o600 });

@@ -32,8 +32,9 @@ export async function writeAtomic(
 ): Promise<void> {
   const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(temp, bytes);
+    // Owner-only: everything under the home is (audit run 1).
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await writeFile(temp, bytes, { mode: 0o600 });
     await rename(temp, path);
   } catch (error) {
     // The rename's failure is the one being reported; a temp file that will

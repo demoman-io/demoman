@@ -19,7 +19,7 @@ export async function writeStudioState(
   home: string,
   s: StudioState,
 ): Promise<void> {
-  await mkdir(home, { recursive: true });
+  await mkdir(home, { recursive: true, mode: 0o700 });
   const path = studioStatePath(home);
   const tmp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   try {

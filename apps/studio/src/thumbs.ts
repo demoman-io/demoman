@@ -179,7 +179,7 @@ export function createThumbs(o: {
           // again — a ghost with no scene.json, never listed and so never
           // deletable from the page.
           try {
-            await mkdir(dir);
+            await mkdir(dir, { mode: 0o700 });
           } catch (error) {
             if (isMissing(error)) return noTake(id);
             if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
@@ -188,7 +188,7 @@ export function createThumbs(o: {
           const src = join(dir, `.src-${tag}`);
           const out = join(dir, `.out-${tag}.jpg`);
           try {
-            await writeFile(src, await store.load(ref));
+            await writeFile(src, await store.load(ref), { mode: 0o600 });
             try {
               await makeInTime(src, out);
             } catch (error) {

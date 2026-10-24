@@ -13,6 +13,7 @@ import {
   fullChromiumPath,
   type Library,
   LibraryError,
+  ownHome,
 } from "@demoman/runner/studio";
 import type {
   ExportStartAnswer,
@@ -303,8 +304,16 @@ export async function runServe(o: ServeOptions): Promise<never> {
   const library = createLibrary(home);
   const events = createEventHub({ log });
   try {
+    // Owner-only, an older home included: takes show signed-in pages.
+    await ownHome(home);
+  } catch (error) {
+    log(
+      `studio: ${home} could not be made owner-only (${messageOf(error)}), so other users on this machine may read its takes`,
+    );
+  }
+  try {
     // A fresh home has no takes/ yet, and a watch on a missing folder fails.
-    await mkdir(join(home, "takes"), { recursive: true });
+    await mkdir(join(home, "takes"), { recursive: true, mode: 0o700 });
   } catch (error) {
     // Not a crash: the watch below fails on the same folder and says so in
     // that feed's sentence.
