@@ -3,6 +3,19 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
+<Update label="0.7.3" description="A library of videos">
+  - Every run belongs to a video: your agent names a new one, or adds a version to one you have. A run that names no video is refused, and so is a new name that matches or comes close to a video already in that repo, until the agent confirms it means a new one. Takes you already have are grouped into videos by name the first time the library is read.
+  - The Studio lists your videos, each with its versions, its exports and its repo, with rename and delete.
+  - An export takes its video's name, so a second version of "New invoice" still saves as `New invoice.mp4`. Exported MP4, GIF and PNG files carry their video's id, so your agent can trace a file in the repo back to the video and version it came from.
+  - Recordings older than 30 days lose their frames and thumbnails. Kept: each video's current version, versions edited in the Studio, the source of the newest export, and versions with no script. `status` reports the last cleanup.
+  - A secret in `.demoman/secrets.env` needs `DEMOMAN_SECRET_<NAME>_ORIGIN` beside it, as one in the environment already did, and is typed only into a field whose own frame is on that site. A `.demoman` folder that is a link is refused.
+  - Demoman's browser no longer opens a debugging port, the Studio's entry link no longer shows in its window's command line, and `~/.demoman` and your takes are readable by you alone.
+  - Every `npx` command Demoman writes or hands you runs from your home folder, so a repo's own `node_modules` or `.npmrc` cannot choose what runs as Demoman.
+  - A mask stays on the frames it was drawn over when you remove a piece before it, and a mask whose first step is removed still covers the frames left.
+  - The Studio's preview stays sharp while it plays, and a step taken while the page is moving no longer leaves a brief stall in the video.
+  - Opening the Studio twice in quick succession no longer reports that the window did not open.
+</Update>
+
 <Update label="0.7.2" description="Setup asks first, and connects OpenCode">
   - `npx demoman setup` asks before it changes anything: which agents to connect, the export quality, and whether pull requests get a demo. Each question starts on what you have now, so run setup again to change them. Without a terminal it asks nothing, as before; `--yes`, `--agents`, `--quality` and `--pull-requests` answer for a script.
   - Setup connects OpenCode too: it adds Demoman to `opencode.json` and copies the `record-demo` skill. An older hand-written Demoman entry there is replaced.
