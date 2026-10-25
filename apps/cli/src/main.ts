@@ -28,6 +28,7 @@ import {
   signinAccount,
   usePrebuiltPages,
 } from "@demoman/runner/package";
+import { couldNotCheck, postToolUseAnswer } from "@demoman/runner/studio";
 import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshAgentSkill } from "./agent-skill.js";
 import { PACKAGE_NAME } from "./names.js";
@@ -70,6 +71,7 @@ const USAGE = `demoman ${VERSION}
   npx demoman studio --stop  close the Studio
   demoman mcp [--headed]     serve Demoman's tools on stdio (your agent runs this);
                              --headed shows the browser while it records
+  demoman hook post-tool-use answer Claude Code's PostToolUse hook on stdin (the plugin runs this)
   demoman --version
 `;
 
@@ -345,6 +347,29 @@ switch (command) {
       installCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup`,
     });
     process.exit(code);
+    break;
+  }
+  case "hook": {
+    if (rest.length !== 1 || rest[0] !== "post-tool-use") {
+      process.stderr.write(`demoman: hook takes post-tool-use\n\n${USAGE}`);
+      process.exit(2);
+    }
+    // Always exit 0: a hook that fails is not shown to anyone, so every
+    // failure is answered as the reminder's own text.
+    try {
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+      const answer = await postToolUseAnswer(
+        Buffer.concat(chunks).toString("utf8"),
+        demomanHome(),
+      );
+      if (answer !== null) process.stdout.write(`${answer}\n`);
+    } catch (error) {
+      process.stdout.write(
+        `${couldNotCheck(error instanceof Error ? error.message : String(error))}\n`,
+      );
+    }
+    process.exit(0);
     break;
   }
   case "--version":

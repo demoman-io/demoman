@@ -257,7 +257,7 @@ describe("the README's new shape", () => {
 describe("commands", () => {
   it("USAGE is read as text and lists the commands the docs may use", () => {
     expect([...usageCommands()].sort()).toEqual(
-      ["--version", "mcp", "setup", "signin", "studio"].sort(),
+      ["--version", "hook", "mcp", "setup", "signin", "studio"].sort(),
     );
   });
   it("every npx demoman command on the site is one USAGE lists", () => {

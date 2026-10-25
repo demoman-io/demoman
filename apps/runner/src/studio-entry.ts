@@ -27,6 +27,7 @@ export {
 } from "./executor/library.js";
 export { readLogo } from "./executor/logo-ref.js";
 export { ensureVideos } from "./executor/migrate-videos.js";
+export { couldNotCheck, postToolUseAnswer } from "./executor/pr-hook.js";
 export {
   readUserSettings,
   type UserSettings,
