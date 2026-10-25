@@ -92,7 +92,10 @@ describe("postToolUseAnswer", () => {
   it("matches gh pr create inside a chained command", async () => {
     const { repo, home } = await setup('{"pullRequests":"attach"}');
     expect(
-      await postToolUseAnswer(bash(repo, "cd sub && gh pr create --fill"), home),
+      await postToolUseAnswer(
+        bash(repo, "cd sub && gh pr create --fill"),
+        home,
+      ),
     ).not.toBeNull();
   });
 
@@ -103,7 +106,11 @@ describe("postToolUseAnswer", () => {
     });
     expect(
       await postToolUseAnswer(
-        bash(repo, "gh pr create --web", "Opening github.com/o/r/compare in your browser.\n"),
+        bash(
+          repo,
+          "gh pr create --web",
+          "Opening github.com/o/r/compare in your browser.\n",
+        ),
         home,
       ),
     ).toBeNull();

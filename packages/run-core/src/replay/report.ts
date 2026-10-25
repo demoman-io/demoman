@@ -98,6 +98,14 @@ export interface StepReport {
  *  Chromium (spec 2026-10-12). Every report says so. */
 export type Executor = "extension" | "cli";
 
+/** The code a run filmed: the tree on disk when it started (every file git
+ *  would commit, tracked or untracked but not ignored), the commit it sat on
+ *  (null before the first commit), and whether the two differ. `none` says
+ *  why it could not be read. */
+export type FilmedCode =
+  | { commit: string | null; tree: string; dirty: boolean }
+  | { none: string };
+
 export interface RunReport {
   run: {
     id: string;
@@ -194,6 +202,9 @@ export interface RunReport {
    *  stopped on. Absent: it landed where it was asked, and any page checked
    *  after a stop was read. */
   landing?: { startedElsewhere: string } | { unchecked: string };
+  /** What the run filmed (docs/superpowers/specs/2026-10-25-pr-reminder-
+   *  and-verdict-design.md). Absent on a report written before it existed. */
+  filmedCode?: FilmedCode;
   /** The account the run filmed as (launch C2); absent for a manual session. */
   account?: string;
   /** Present when Demoman signed in as the account for this run. */
@@ -681,6 +692,43 @@ export function verdictLine(report: RunReport): string {
     return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${lookClause(report)}`;
   }
   return `${runVerdictLine(report)}${framesClause(report)}${lookClause(report)}`;
+}
+
+/**
+ * `verdictLine`'s short form, for the line above a video on a pull request:
+ * the same fields in the same precedence, so it is not a second decision.
+ * `details` is the whole line whenever the run has more to say than a clean
+ * match, and null when it does not.
+ */
+export function prVerdict(report: RunReport): {
+  clause: string;
+  details: string | null;
+} {
+  const n = report.steps.length;
+  const clean = `matches all ${n} step${n === 1 ? "" : "s"}`;
+  const clause = prClause(report, clean);
+  return { clause, details: clause === clean ? null : verdictLine(report) };
+}
+
+function prClause(report: RunReport, clean: string): string {
+  if ((report.notStored ?? []).length > 0)
+    return "the run's record is incomplete";
+  if (report.outcome === "refused")
+    return `refused: ${report.refused?.reason ?? "unknown"}`;
+  if (report.outcome === "stopped") {
+    const at = report.stopped?.at;
+    return at ? `stopped after step ${at.index} of ${at.of}` : "stopped";
+  }
+  if (report.stopped !== undefined) return "finished, but did not end cleanly";
+  if (report.verdict.kind !== "matches") {
+    const k = report.verdict.diverged.length;
+    return `${k} step${k === 1 ? "" : "s"} not shown as scripted`;
+  }
+  const noted =
+    report.frames.degradations.length > 0 ||
+    report.frames.storageRefused ||
+    (report.look?.brandKitError ?? null) !== null;
+  return noted ? `${clean}, with notes` : clean;
 }
 
 /**
