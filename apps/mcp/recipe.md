@@ -430,34 +430,34 @@ too.
 
 ### Pull requests
 
-Before opening a pull request, read `status.pullRequests` (pass `project`
-in another checkout): `attach`, `ask`, `off`, or `{ unreadable, file }`,
+Before opening a PR, read `status.pullRequests` (`project` for
+another checkout): `attach`, `ask`, `off`, or `{ unreadable, file }`,
 which is not `off`: tell the user. `off`: only when asked. If the diff
-changes something a user would see, record that one flow (only the change),
+changes what a user sees, record that one flow (only the change),
 push and open the PR, then `attach({ takeId, into: "description" })`, or
-`"comment"` on a PR that is not yours. A later `gh pr edit --body` drops the video. `ask`: offer once; on a no, nothing to see or a failed run (say why),
+`"comment"` on a PR that is not yours. The video carries its own line; write no other. On `line.notWritten`,
+tell the user the video lacks its line, quoting why. A later `gh pr edit --body` drops the video. `ask`: offer once; on a no, nothing to see or a failed run (say why),
 the PR says nothing of it. `attach`: with no video, the PR description gets
 one line, `No demo: <why>`, and so does the user.
 `attach` takes `maxMB` as `export` does. On `stillRunning`, `report(id)`
-until the outcome is none of `attaching`, `stillRunning`. On `busy`,
+until the outcome is neither `attaching` nor `stillRunning`. On `busy`,
 `report(id)` on the export in flight, then `attach` again. On `ghMissing`,
 `ghOutdated`, `ghSignedOut`, `notGitHub` or `copyFailed`, call
-`export({ takeId, maxMB: 9.5 })` and give the user that `file.path` to drag
+`export({ takeId, maxMB: 9.5 })` and give the user its `file.path` to drag
 into the PR, saying why. On `uploadRefused`, do as its `detail` says. On `partial` or `unconfirmed`, do not
-post again; tell the user to look at the PR. For the other reasons, follow
-section 7. An export that did not save comes back as the export's answer.
+post again; tell the user to check the PR. Other reasons: section 7. An unsaved export answers as `export` does.
 
 Hand back, on `saved`, two lines and nothing else: the `summary` as it is,
-then the `links` as markdown links on one line, in this order and only
+then the `links` as markdown links on one line, in this order, only
 those present: `[Open in Studio](links.studio) · [<file name>](links.file) · [Copy video](links.copy)`
 (`Copy GIF` for a GIF). Add one line only for `look.brandKitError`,
-`size.error`, `linksError`, or something you could not fix. For any other
-outcome, say it with its `error` or `detail`, quoted.
+`size.error`, `linksError`, or something you could not fix. Any other
+outcome: quote its `error` or `detail`.
 
-When the `studio` tool is listed and there is no `links.studio` (after a
-run with no export), **offer** it; never open it unasked. `studio({ takeId })`
-opens a window where the person edits and exports the take.
-`{ outcome: "opened", takeId?, note? }`: say the window is open and
+When the `studio` tool is listed and there is no `links.studio`, **offer**
+it; never open it unasked. `studio({ takeId })`
+opens a window to edit and export the take.
+`{ outcome: "opened", takeId?, note? }`: say the window is open;
 quote `note` if set. Studio exports go to `~/Downloads`.
 
 ## 6. The format

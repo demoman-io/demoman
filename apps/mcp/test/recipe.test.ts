@@ -423,3 +423,17 @@ describe("the recipe on a run's size", () => {
     expect(recipe).toMatch(/Hand back[\s\S]*`size\.error`/);
   });
 });
+
+describe("the recipe on pull requests", () => {
+  // Red if the recipe has the agent write a second line, or forgets the
+  // video can go up without its line.
+  it("says the attached video carries its own line, and what notWritten means", () => {
+    const sec = RECIPE.slice(
+      RECIPE.indexOf("### Pull requests"),
+      RECIPE.indexOf("## 6. The format"),
+    );
+    expect(sec.length, "the section was found").toBeGreaterThan(200);
+    expect(sec).toContain("carries its own line");
+    expect(sec).toContain("line.notWritten");
+  });
+});

@@ -1232,6 +1232,17 @@ describe("demoman-mcp's tools", () => {
     expect(status?.description ?? "").toContain("pullRequests");
   });
 
+  // Red if the agent is not told an attached video carries its line.
+  it("describes attach's line (cli)", async () => {
+    const { client } = await connect({}, 200, undefined);
+    const attach = (await client.listTools()).tools.find(
+      (t) => t.name === "attach",
+    );
+    expect(attach?.description ?? "").toContain(
+      "attached carries line ({text, written} or {text, notWritten})",
+    );
+  });
+
   // Spec 2026-10-10 §3. Red if snapshot drops `device`: the agent would be
   // handed the desktop's targets for a phone run that cannot find them.
   it("forwards snapshot's device, and refuses one it does not know", async () => {
