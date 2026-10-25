@@ -22,7 +22,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
-import { LOGO_SVG, makeFixtureTake, serveFixtureApp } from "./fixture.js";
+import { createVideoStore } from "../src/executor/videos.js";
+import {
+  LOGO_SVG,
+  makeFixtureTake,
+  serveFixtureApp,
+  videoOfTake,
+} from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-17, M-series Mac, headless), beside
@@ -42,6 +48,8 @@ let home: string;
 let outDir: string;
 let executor: LocalExecutor;
 let takeId: string;
+/** The take's video's name, which its exports are named after. */
+let videoName: string;
 const lines: string[] = [];
 
 beforeAll(async () => {
@@ -59,6 +67,11 @@ beforeAll(async () => {
     mp4MaxTier: LANDSCAPE_1080P,
   });
   takeId = await makeFixtureTake(executor, { home, url: app.url });
+  const video = await createVideoStore(home, createLibrary(home)).get(
+    (await videoOfTake(home, takeId)).id,
+  );
+  if (video === null) throw new Error(`take ${takeId}'s video has no record`);
+  videoName = video.name;
 }, RUN_MS);
 
 afterAll(async () => {
@@ -100,6 +113,8 @@ describe("the fixture take", () => {
     expect(doc.branding.logo?.ref).toBe("acme.svg");
     expect(doc.branding.background).toMatchObject({ color: "#00c853" });
     const bundle = await lib.frameStore(takeId).getBundle(takeId);
+    // The names below would pass on the take's name too if the two matched.
+    expect(videoName).not.toBe(doc.meta.name);
     const xs = (bundle?.cursorSamples ?? []).map((s) => s.x);
     expect(
       Math.max(...xs) - Math.min(...xs),
@@ -110,7 +125,7 @@ describe("the fixture take", () => {
 
 describe("export, on the picture", () => {
   it(
-    "saves 16:9 at the capped 1080p tier, named after the take, with the logo and the kit's background",
+    "saves 16:9 at the capped 1080p tier, named after its video, with the logo and the kit's background",
     async () => {
       await setAspect("16:9");
       const answer = await exportNow("e-169");
@@ -120,7 +135,7 @@ describe("export, on the picture", () => {
         file: { downloadId: null },
       });
       if (answer.outcome !== "saved" || answer.fileType === "stills") return;
-      expect(answer.file.path).toBe(join(outDir, "Place an order.mp4"));
+      expect(answer.file.path).toBe(join(outDir, `${videoName}.mp4`));
       expect([answer.width, answer.height]).toEqual([1920, 1080]);
       expect(lines, "the cap says what it changed").toContainEqual(
         expect.stringContaining("export capped at 1920x1080, not 3840x2160"),
@@ -160,7 +175,7 @@ describe("export, on the picture", () => {
       });
       if (answer.outcome !== "saved" || answer.fileType === "stills") return;
       expect(answer.file.path).toBe(
-        join(outDir, "Place an order (vertical).mp4"),
+        join(outDir, `${videoName} (vertical).mp4`),
       );
       const read = await sampleMp4(await readFile(answer.file.path), {
         colors: [MAGENTA],
@@ -177,7 +192,7 @@ describe("export, on the picture", () => {
   );
 
   // Auto is the recording (1280x800, 16:10) plus an even margin: not 16:9.
-  // Shape only: its file name is "Place an order (k).mp4" for whichever k
+  // Shape only: its file name is "<video> (k).mp4" for whichever k
   // the 16:9 case left free, which the uniquify case below pins.
   it(
     "saves Auto in the recording's shape, not 16:9",
@@ -206,18 +221,18 @@ describe("export, on the picture", () => {
     async () => {
       // At 9:16, the cheaper render: the naming rule is the same for both.
       await setAspect("9:16");
-      const plain = join(outDir, "Place an order (vertical).mp4");
+      const plain = join(outDir, `${videoName} (vertical).mp4`);
       const before = await readdir(outDir);
       // The premise: a first export of this take is there to collide with.
-      expect(before).toContain("Place an order (vertical).mp4");
+      expect(before).toContain(`${videoName} (vertical).mp4`);
       const firstBytes = await readFile(plain);
       let k = 1;
-      while (before.includes(`Place an order (vertical) (${k}).mp4`)) k++;
+      while (before.includes(`${videoName} (vertical) (${k}).mp4`)) k++;
       const answer = await exportNow("e-again");
       expect(answer).toMatchObject({ outcome: "saved" });
       if (answer.outcome !== "saved" || answer.fileType === "stills") return;
       expect(answer.file.path).toBe(
-        join(outDir, `Place an order (vertical) (${k}).mp4`),
+        join(outDir, `${videoName} (vertical) (${k}).mp4`),
       );
       expect((await readFile(plain)).equals(firstBytes)).toBe(true);
     },
