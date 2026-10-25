@@ -196,6 +196,17 @@ describe("gh adapter", () => {
     expect((out as { detail: string }).detail).toContain("git.corp.example");
   });
 
+  it("a body write runs gh pr edit --body-file, answered as an upload is", async () => {
+    const { gh } = await fakeGh({ "pr edit": { code: 1, stderr: "nope" } });
+    expect(await gh.setBody(7, "/t/body.md")).toMatchObject({
+      code: 1,
+      stderr: "nope",
+    });
+    expect(await calls()).toEqual([
+      ["pr", "edit", "7", "--body-file", "/t/body.md"],
+    ]);
+  });
+
   it("description and comment argv", async () => {
     const { gh } = await fakeGh({
       "pr edit": { code: 0, stdout: "ok" },

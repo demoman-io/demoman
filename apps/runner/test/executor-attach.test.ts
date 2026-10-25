@@ -22,6 +22,7 @@ import {
   codeClause,
   commentBody,
   copyFailedDetail,
+  insertAbove,
   prLine,
 } from "../src/executor/attach.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
@@ -57,6 +58,8 @@ type Logged = {
   cwd: string;
   /** For an `--attach` call: the posted file's sha256, read while gh ran. */
   attached?: { path: string; sha: string };
+  /** For a `--body-file` call: the file's text, read while gh ran. */
+  bodyFile?: string;
 };
 
 let dir: string;
@@ -104,6 +107,8 @@ const loggingRun: GhRun = async (args, opts) => {
     const path = args[i + 1] as string;
     entry.attached = { path, sha: sha(await readFile(path)) };
   }
+  const b = args.indexOf("--body-file");
+  if (b >= 0) entry.bodyFile = await readFile(args[b + 1] as string, "utf8");
   logged.push(entry);
   return defaultGhRun(args, opts);
 };
@@ -187,6 +192,10 @@ const text = (
  *  "new" has to mean new. */
 const BEFORE = text(`Adds the filter.\n\n${OLD_ASSET}`);
 const AFTER = text(`Adds the filter.\n\n${OLD_ASSET}\n\n${ASSET}`);
+/** The description after the second edit wrote the line above the video. */
+const AFTER_LINE = text(
+  `Adds the filter.\n\n${OLD_ASSET}\n\n${NO_REPORT_LINE}\n\n${ASSET}`,
+);
 
 async function script(answers: Record<string, Answer | Answer[]>) {
   await writeFile(scriptPath, JSON.stringify({ ...signedIn, ...answers }));
@@ -262,8 +271,9 @@ describe("attach", () => {
     async () => {
       await script({
         "pr view --json number,url,headRefOid": prView,
-        "pr view 12 --json body,comments": [BEFORE, AFTER],
+        "pr view 12 --json body,comments": [BEFORE, AFTER, AFTER_LINE],
         "pr edit 12 --attach": { stdout: `${PR_URL}\n` },
+        "pr edit 12 --body-file": { stdout: `${PR_URL}\n` },
       });
       const answer = await attach({ into: "description" });
       expect(answer, JSON.stringify(answer)).toMatchObject({
@@ -271,6 +281,7 @@ describe("attach", () => {
         pr: { number: 12, url: PR_URL },
         into: "description",
         assetUrl: ASSET,
+        line: { text: NO_REPORT_LINE, written: true },
       });
       if (answer.outcome !== "attached") return;
       expect(answer.export).toMatchObject({
@@ -293,6 +304,8 @@ describe("attach", () => {
         "pr view --json number,url,headRefOid",
         "pr view 12 --json body,comments",
         expect.stringMatching(/^pr edit 12 --attach \S+\.mp4$/),
+        "pr view 12 --json body,comments",
+        expect.stringMatching(/^pr edit 12 --body-file \S+$/),
         "pr view 12 --json body,comments",
       ]);
     },
@@ -373,13 +386,14 @@ describe("attach", () => {
     async () => {
       await script({
         "pr view --json number,url,headRefOid": prView,
-        "pr view 12 --json body,comments": [BEFORE, AFTER],
+        "pr view 12 --json body,comments": [BEFORE, AFTER, AFTER_LINE],
         "pr edit 12 --attach": {},
+        "pr edit 12 --body-file": {},
       });
       const answer = await attach({ into: "description", project });
       expect(answer.outcome, JSON.stringify(answer)).toBe("attached");
-      // Premise: the whole sequence ran, posting included.
-      expect(logged.length).toBe(6);
+      // Premise: the whole sequence ran, posting and the line included.
+      expect(logged.length).toBe(8);
       expect(project).not.toBe(dir);
       expect(new Set(logged.map((l) => l.cwd))).toEqual(new Set([project]));
       // And without project, gh runs where demoman-mcp was started.
@@ -509,8 +523,9 @@ describe("attach", () => {
     async () => {
       await script({
         "pr view --json number,url,headRefOid": prView,
-        "pr view 12 --json body,comments": [BEFORE, AFTER],
+        "pr view 12 --json body,comments": [BEFORE, AFTER, AFTER_LINE],
         "pr edit 12 --attach": {},
+        "pr edit 12 --body-file": {},
       });
       const seen: Attaching[] = [];
       const out = await executor.request(
@@ -793,8 +808,9 @@ describe("attach", () => {
     async () => {
       await script({
         "pr view --json number,url,headRefOid": prView,
-        "pr view 12 --json body,comments": [BEFORE, AFTER],
+        "pr view 12 --json body,comments": [BEFORE, AFTER, AFTER_LINE],
         "pr edit 12 --attach": {},
+        "pr edit 12 --body-file": {},
       });
       const rendering = new Promise<void>((resolve) => {
         onWorkPage = () => resolve();
@@ -936,8 +952,9 @@ describe("attach", () => {
     async () => {
       await script({
         "pr view --json number,url,headRefOid": prView,
-        "pr view 12 --json body,comments": [BEFORE, AFTER],
+        "pr view 12 --json body,comments": [BEFORE, AFTER, AFTER_LINE],
         "pr edit 12 --attach": {},
+        "pr edit 12 --body-file": {},
       });
       const answer = await attach({ into: "description", maxMB: 123.4567 });
       expect(answer.outcome, JSON.stringify(answer)).toBe("attached");
@@ -968,8 +985,9 @@ describe("attach", () => {
     async () => {
       await script({
         "pr view --json number,url,headRefOid": prView,
-        "pr view 12 --json body,comments": [BEFORE, AFTER],
+        "pr view 12 --json body,comments": [BEFORE, AFTER, AFTER_LINE],
         "pr edit 12 --attach": {},
+        "pr edit 12 --body-file": {},
       });
       const answer = await attach({ into: "description" });
       expect(answer.outcome, JSON.stringify(answer)).toBe("attached");
@@ -1265,6 +1283,136 @@ describe("the line on an attached comment", () => {
       });
       if (answer.outcome !== "attached") return;
       expect(answer.summary).toContain("was not written");
+    },
+    ATTACH_MS,
+  );
+});
+
+describe("insertAbove", () => {
+  const U = "https://github.com/user-attachments/assets/abc";
+  it("puts the block as its own paragraph above the asset's", () => {
+    expect(insertAbove(`Text.\n\n${U}`, U, "LINE")).toBe(
+      `Text.\n\nLINE\n\n${U}`,
+    );
+  });
+  it("takes the asset in image or video markup", () => {
+    expect(insertAbove(`T\n\n<video src="${U}"></video>`, U, "L")).toBe(
+      `T\n\nL\n\n<video src="${U}"></video>`,
+    );
+    expect(insertAbove(`T\n\n![demo](${U})`, U, "L")).toBe(
+      `T\n\nL\n\n![demo](${U})`,
+    );
+  });
+  it("keeps CRLF paragraphs CRLF", () => {
+    expect(insertAbove(`Text.\r\n\r\n${U}\r\n`, U, "L")).toBe(
+      `Text.\r\n\r\nL\r\n\r\n${U}\r\n`,
+    );
+  });
+  it("answers null for an asset inside a list item, or not there", () => {
+    expect(insertAbove(`Text.\n\n- see ${U}`, U, "L")).toBeNull();
+    expect(insertAbove("Text.", U, "L")).toBeNull();
+  });
+});
+
+describe("the line in an attached description", () => {
+  const LINE = NO_REPORT_LINE;
+  const WITH_LINE = text(
+    `Adds the filter.\n\n${OLD_ASSET}\n\n${LINE}\n\n${ASSET}`,
+  );
+  const bodyWrite = () => logged.find((l) => l.args.includes("--body-file"));
+
+  it(
+    "writes the line above the video, keeping the author's text",
+    async () => {
+      await script({
+        "pr view --json number,url,headRefOid": prView,
+        "pr view 12 --json body,comments": [BEFORE, AFTER, WITH_LINE],
+        "pr edit 12 --attach": { stdout: `${PR_URL}\n` },
+        "pr edit 12 --body-file": { stdout: `${PR_URL}\n` },
+      });
+      const answer = await attach({ into: "description" });
+      expect(answer, JSON.stringify(answer)).toMatchObject({
+        outcome: "attached",
+        line: { text: LINE, written: true },
+      });
+      expect(bodyWrite()?.bodyFile).toBe(
+        `Adds the filter.\n\n${OLD_ASSET}\n\n${LINE}\n\n${ASSET}`,
+      );
+      expect(calls().slice(-4)).toEqual([
+        expect.stringMatching(/^pr edit 12 --attach \S+\.mp4$/),
+        "pr view 12 --json body,comments",
+        expect.stringMatching(/^pr edit 12 --body-file \S+$/),
+        "pr view 12 --json body,comments",
+      ]);
+    },
+    ATTACH_MS,
+  );
+
+  it(
+    "a body write gh refuses is still attached, saying the line was not written",
+    async () => {
+      await script({
+        "pr view --json number,url,headRefOid": prView,
+        "pr view 12 --json body,comments": [BEFORE, AFTER],
+        "pr edit 12 --attach": { stdout: `${PR_URL}\n` },
+        "pr edit 12 --body-file": {
+          code: 1,
+          stderr: "HTTP 502: Bad Gateway\n",
+        },
+      });
+      const answer = await attach({ into: "description" });
+      expect(answer).toMatchObject({
+        outcome: "attached",
+        assetUrl: ASSET,
+        line: { text: LINE, notWritten: expect.stringContaining("HTTP 502") },
+      });
+      if (answer.outcome !== "attached") return;
+      expect(answer.summary).toContain("was not written");
+    },
+    ATTACH_MS,
+  );
+
+  it(
+    "a body that reads back without the video says so first",
+    async () => {
+      await script({
+        "pr view --json number,url,headRefOid": prView,
+        "pr view 12 --json body,comments": [
+          BEFORE,
+          AFTER,
+          text(`Adds the filter.\n\n${LINE}`),
+        ],
+        "pr edit 12 --attach": { stdout: `${PR_URL}\n` },
+        "pr edit 12 --body-file": { stdout: `${PR_URL}\n` },
+      });
+      const answer = await attach({ into: "description" });
+      expect(answer).toMatchObject({
+        outcome: "attached",
+        line: {
+          notWritten: expect.stringContaining("no longer in the description"),
+        },
+      });
+    },
+    ATTACH_MS,
+  );
+
+  it(
+    "a video gh put inside other text gets no line, saying why, and no body write",
+    async () => {
+      await script({
+        "pr view --json number,url,headRefOid": prView,
+        "pr view 12 --json body,comments": [
+          BEFORE,
+          text(`Adds the filter.\n\n${OLD_ASSET}\n- ${ASSET}`),
+        ],
+        "pr edit 12 --attach": { stdout: `${PR_URL}\n` },
+      });
+      const answer = await attach({ into: "description" });
+      expect(answer).toMatchObject({
+        outcome: "attached",
+        line: { notWritten: expect.stringContaining("paragraph of its own") },
+      });
+      expect(bodyWrite()).toBeUndefined();
     },
     ATTACH_MS,
   );

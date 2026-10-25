@@ -309,8 +309,8 @@ export function createGh(
 
   // gh's own answer is the caller's to judge; a spawn failure is shown as a
   // non-zero exit carrying its reason, never as success.
-  async function attached(args: readonly string[]) {
-    const r = await call(args);
+  async function attached(args: readonly string[], via = call) {
+    const r = await via(args);
     if ("spawnError" in r) {
       return { code: 127, stdout: "", stderr: missing(r.spawnError).detail };
     }
@@ -321,7 +321,7 @@ export function createGh(
       return {
         code: 124,
         stdout: "",
-        stderr: `gh did not finish within ${duration(uploadTimeoutMs)} and was stopped`,
+        stderr: `gh did not finish within ${duration(via === call ? uploadTimeoutMs : checkTimeoutMs)} and was stopped`,
       };
     }
     return r;
@@ -334,6 +334,10 @@ export function createGh(
       attached(["pr", "edit", String(n), "--attach", file]),
     attachToComment: (n: number, file: string, body: string) =>
       attached(["pr", "comment", String(n), "--body", body, "--attach", file]),
+    /** Replaces the description with a file's text: no upload, so timed
+     *  like a check. */
+    setBody: (n: number, bodyFile: string) =>
+      attached(["pr", "edit", String(n), "--body-file", bodyFile], check),
     /** The PR's description and comments, or `{ unreadable }` saying why
      *  they could not be read — never "nothing there". A read, so it is
      *  timed like a check. */

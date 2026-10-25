@@ -4,7 +4,7 @@
 // upload that left the video behind is `partial`, one the PR cannot be read
 // back after is "unknown", and neither is ever retried.
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, rm } from "node:fs/promises";
+import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import {
@@ -401,34 +401,37 @@ export async function attachTake(
     const fresh = "unreadable" in after ? [] : newAssets(before, after);
     if (r.code === 0) {
       const assetUrl = fresh.at(-1);
-      if (assetUrl !== undefined && into === "description") {
-        return {
-          outcome: "attached",
-          pr: { number: pr.number, url: pr.url },
-          into,
-          assetUrl,
-          byteLength: file.byteLength,
-          export: exported,
-          summary: `Attached the video (${size}) to ${where}${capMissed(exported)}.`,
-        };
-      }
       if (assetUrl !== undefined) {
         // Read back, not assumed: the comment holding the video holds the
-        // line too, or the answer says it does not.
-        const holder =
-          "unreadable" in after
-            ? undefined
-            : after.comments.find((c) => c.body.includes(assetUrl));
-        const said: NonNullable<
-          Extract<AttachAnswer, { outcome: "attached" }>["line"]
-        > =
-          holder?.body.includes(line.line) === true
-            ? { text: line.line, written: true }
-            : {
-                text: line.line,
-                notWritten:
-                  "the comment holding the video read back without its line",
-              };
+        // line too, or the description gets it in a second edit.
+        let said: Extract<AttachAnswer, { outcome: "attached" }>["line"];
+        if (into === "description") {
+          said = {
+            text: line.line,
+            ...(await writeLine(
+              pr.number,
+              "unreadable" in after ? "" : after.body,
+              assetUrl,
+              block,
+              line.line,
+              join(folder, "body.md"),
+              gh,
+            )),
+          };
+        } else {
+          const holder =
+            "unreadable" in after
+              ? undefined
+              : after.comments.find((c) => c.body.includes(assetUrl));
+          said =
+            holder?.body.includes(line.line) === true
+              ? { text: line.line, written: true }
+              : {
+                  text: line.line,
+                  notWritten:
+                    "the comment holding the video read back without its line",
+                };
+        }
         return {
           outcome: "attached",
           pr: { number: pr.number, url: pr.url },
@@ -519,6 +522,85 @@ export function commentBody(label: string): string {
   const cut =
     chars.length > LABEL_MAX ? `${chars.slice(0, LABEL_MAX).join("")}…` : one;
   return `Demo: \`${cut}\``;
+}
+
+/** Paragraph breaks: a blank line, CRLF or not, kept as written. */
+const PARAGRAPHS = /(\r?\n[ \t]*\r?\n)/;
+
+/**
+ * `body` with `block` as its own paragraph directly above the paragraph
+ * that is the asset alone: its URL bare, or in the image or video markup
+ * GitHub writes around one. Null when no paragraph is, so a body whose video
+ * sits inside other text is never rewritten around it.
+ */
+export function insertAbove(
+  body: string,
+  assetUrl: string,
+  block: string,
+): string | null {
+  const parts = body.split(PARAGRAPHS);
+  const url = assetUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const alone = new RegExp(
+    `^(?:${url}|!\\[[^\\]\\n]*\\]\\(${url}\\)|<(?:video|img)\\b[^>]*\\bsrc="${url}"[^>]*>(?:\\s*</video>)?)$`,
+  );
+  // Paragraphs are the even entries; the odd ones are their separators.
+  const at = parts.findIndex((p, i) => i % 2 === 0 && alone.test(p.trim()));
+  if (at < 0) return null;
+  const sep = body.includes("\r\n") ? "\r\n\r\n" : "\n\n";
+  return `${parts.slice(0, at).join("")}${block}${sep}${parts.slice(at).join("")}`;
+}
+
+/**
+ * The description's line, written with a second `gh pr edit --body-file`
+ * over the body as just read back. A PR author editing the description in
+ * the seconds between that read and this write loses their edit; accepted
+ * (spec 2026-10-25, "Posting it"). Written only when the read-back holds
+ * both the line and the video.
+ */
+async function writeLine(
+  n: number,
+  body: string,
+  assetUrl: string,
+  block: string,
+  line: string,
+  bodyFile: string,
+  gh: Gh,
+): Promise<{ written: true } | { notWritten: string }> {
+  const next = insertAbove(body, assetUrl, block);
+  if (next === null) {
+    return {
+      notWritten:
+        "the video is not in a paragraph of its own in the description, so nothing was put above it",
+    };
+  }
+  try {
+    await writeFile(bodyFile, next);
+  } catch (error) {
+    return {
+      notWritten: `the description could not be written to ${bodyFile} (${messageOf(error)})`,
+    };
+  }
+  const r = await gh.setBody(n, bodyFile);
+  if (r.code !== 0) {
+    return {
+      notWritten: `gh pr edit ${n} --body-file exited ${r.code}: "${quoted(r.stderr, r.stdout, r.code)}"`,
+    };
+  }
+  const back = await gh.readBack(n);
+  if ("unreadable" in back) {
+    return {
+      notWritten: `the description could not be read back after the line was written (${back.unreadable}): look at the PR`,
+    };
+  }
+  if (!back.body.includes(assetUrl)) {
+    return {
+      notWritten: "the video is no longer in the description: look at the PR",
+    };
+  }
+  if (!back.body.includes(line)) {
+    return { notWritten: "the description read back without the line" };
+  }
+  return { written: true };
 }
 
 /** Longest run notes the collapsed block carries, in characters. */
