@@ -47,7 +47,7 @@ import {
   resolvePullRequests,
 } from "./pull-requests.js";
 import { refilmFromVideo } from "./refilm.js";
-import { readRepo } from "./repo.js";
+import { readFilmedCode, readRepo } from "./repo.js";
 import { runScript } from "./run.js";
 import { runningWords } from "./running.js";
 import {
@@ -804,6 +804,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           return refused;
         }
       }
+      // The code on disk as the film starts, decided once here and recorded
+      // in the report; `attach` reads it rather than looking again.
+      const filmedCode = repoRead.ok
+        ? await readFilmedCode(repoRead.repo.root)
+        : { none: repoRead.none };
       // Whatever the run did to the context's cookies, the next call starts
       // from the saved sessions again (final review 2).
       const film = async () => {
@@ -820,6 +825,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             ...(repoRead.ok && repoRead.repo.commit !== null
               ? { buildSha: repoRead.repo.commit }
               : {}),
+            filmedCode,
             sessions: loaded.files,
             sessionsContext: browser.launched.context,
             loadSessions: (context) => sessions.load(context, choiceOf(choice)),

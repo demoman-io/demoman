@@ -19,6 +19,7 @@ import {
   clickNotDeliveredDetail,
   createRoomPolicy,
   DEFAULT_RUN_SIZE,
+  type FilmedCode,
   filmForRun,
   linksOf,
   loadRecording,
@@ -153,6 +154,9 @@ export interface RunDeps {
   /** The checkout's commit (`git rev-parse HEAD`), stored as the take's
    *  `meta.capture.buildSha`. Absent: not a checkout, or no commit yet. */
   buildSha?: string;
+  /** The tree on disk when the run started (`readFilmedCode`), carried into
+   *  the report for `attach` to compare with a pull request's head. */
+  filmedCode?: FilmedCode;
   /** Tests only: the mux, so a test can make it throw. Defaults to
    *  `muxSpans`. */
   muxSpans?: typeof muxSpans;
@@ -860,6 +864,7 @@ export async function runScript(
     ...(landingNote === undefined ? {} : { landing: landingNote }),
     ...(deps.refilm === undefined ? {} : { rerecord: deps.refilm }),
     ...(videoVersion === undefined ? {} : { videoVersion }),
+    ...(deps.filmedCode === undefined ? {} : { filmedCode: deps.filmedCode }),
   };
   times.mark("store");
   log(times.line(`run ${takeId ?? sceneId}`));
