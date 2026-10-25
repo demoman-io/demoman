@@ -44,6 +44,26 @@ describe("plugin-out (the demoman-io/plugins repo)", () => {
     }
   });
 
+  it("hooks PostToolUse to the wrapper, pinned to the MCP server's version", () => {
+    const entry = {
+      type: "command",
+      command: `sh "\${CLAUDE_PLUGIN_ROOT}/hooks/post-tool-use.sh" ${version}`,
+      timeout: 30,
+    };
+    expect(json("hooks/hooks.json")).toEqual({
+      hooks: {
+        PostToolUse: [
+          { matcher: "Bash", hooks: [entry] },
+          { matcher: "mcp__.*github.*__create_pull_request", hooks: [entry] },
+        ],
+      },
+    });
+    expect(json(".mcp.json").mcpServers.demoman.args).toContain(
+      `demoman@${version}`,
+    );
+    expect(read("hooks/post-tool-use.sh")).toContain("hook post-tool-use");
+  });
+
   it("carries the license", () => {
     expect(read("LICENSE")).toBe(
       readFileSync(

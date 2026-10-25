@@ -328,6 +328,9 @@ mkdirSync(join(plugin, ".claude-plugin"), { recursive: true });
 cpSync(join(app, "plugin", "skills"), join(plugin, "skills"), {
   recursive: true,
 });
+cpSync(join(app, "plugin", "hooks"), join(plugin, "hooks"), {
+  recursive: true,
+});
 cpSync(
   join(repo, "packages", "compositor", "LICENSE"),
   join(plugin, "LICENSE"),
@@ -348,6 +351,23 @@ writeJson(join(plugin, ".mcp.json"), {
       command: "npx",
       args: ["--prefix", "~/", "-y", `demoman@${version}`, "mcp"],
     },
+  },
+});
+// After a call that opened a PR, remind the agent of the repo's pullRequests
+// setting (docs/superpowers/specs/2026-10-25-pr-reminder-and-verdict-design.md).
+// The wrapper drops every other call before node starts, and runs the same
+// pinned Demoman as the MCP server.
+const hook = {
+  type: "command",
+  command: `sh "\${CLAUDE_PLUGIN_ROOT}/hooks/post-tool-use.sh" ${version}`,
+  timeout: 30,
+};
+writeJson(join(plugin, "hooks", "hooks.json"), {
+  hooks: {
+    PostToolUse: [
+      { matcher: "Bash", hooks: [hook] },
+      { matcher: "mcp__.*github.*__create_pull_request", hooks: [hook] },
+    ],
   },
 });
 writeJson(join(plugin, ".claude-plugin", "plugin.json"), {
