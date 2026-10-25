@@ -1269,6 +1269,28 @@ describe("the line on an attached comment", () => {
     ATTACH_MS,
   );
 
+  // Final review M-4: the comment is posted under the user's account, so
+  // why the report would not read (its local path, a parser's quote of it)
+  // goes to the log, not the PR.
+  it(
+    "an unreadable report says so on the line, and its path only in the log",
+    async () => {
+      await writeFile(reportPath(), "{ not json <img src=x>");
+      const line =
+        "Demo: `Orders walkthrough` · run report unreadable, so no verdict · commit not recorded";
+      await commentOn(line);
+      const answer = await attach({ into: "comment", pr: 7 });
+      expect(answer).toMatchObject({
+        outcome: "attached",
+        line: { text: line, written: true },
+      });
+      expect(postedBody()).not.toContain(home);
+      expect(postedBody()).not.toContain("<img");
+      expect(lines.some((l) => l.includes(reportPath()))).toBe(true);
+    },
+    ATTACH_MS,
+  );
+
   it(
     "a comment that reads back without its line says so",
     async () => {
@@ -1391,6 +1413,33 @@ describe("the line in an attached description", () => {
         line: {
           notWritten: expect.stringContaining("no longer in the description"),
         },
+      });
+    },
+    ATTACH_MS,
+  );
+
+  // Final review I-3: a second attach of the same take writes the same line,
+  // so finding the line in the read-back proved nothing.
+  it(
+    "a re-attach whose body write changed nothing is not called written",
+    async () => {
+      const once = `Adds the filter.\n\n${LINE}\n\n${OLD_ASSET}`;
+      const posted = text(`${once}\n\n${ASSET}`);
+      await script({
+        "pr view --json number,url,headRefOid": prView,
+        "pr view 12 --json body,comments": [text(once), posted, posted],
+        "pr edit 12 --attach": { stdout: `${PR_URL}\n` },
+        "pr edit 12 --body-file": { stdout: `${PR_URL}\n` },
+      });
+      const answer = await attach({ into: "description" });
+      // Premise: the edit was asked for, and the read-back holds the line
+      // (the first attach's) and the new video.
+      expect(bodyWrite()?.bodyFile).toBe(
+        `Adds the filter.\n\n${LINE}\n\n${OLD_ASSET}\n\n${LINE}\n\n${ASSET}`,
+      );
+      expect(answer).toMatchObject({
+        outcome: "attached",
+        line: { notWritten: expect.stringContaining("without the line") },
       });
     },
     ATTACH_MS,

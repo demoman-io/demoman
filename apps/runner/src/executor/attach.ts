@@ -49,9 +49,8 @@ export type AttachAnswer =
       byteLength: number;
       export: ExportAnswer;
       /** The line above the video: what the run did and which code it
-       *  filmed. `notWritten` says why the video went up without it. Absent
-       *  on a description until it writes one. */
-      line?:
+       *  filmed. `notWritten` says why the video went up without it. */
+      line:
         | { text: string; written: true }
         | { text: string; notWritten: string };
       summary: string;
@@ -597,7 +596,10 @@ async function writeLine(
       notWritten: "the video is no longer in the description: look at the PR",
     };
   }
-  if (!back.body.includes(line)) {
+  // Counted, not found: a re-attach of the same take writes the same line,
+  // and the first one's copy must not stand in for it.
+  const copies = (text: string) => text.split(line).length - 1;
+  if (copies(back.body) <= copies(body)) {
     return { notWritten: "the description read back without the line" };
   }
   return { written: true };
@@ -658,6 +660,8 @@ export function prLine(
   };
 }
 
+const UNREADABLE_REPORT = "run report unreadable, so no verdict";
+
 /** The line for this take on this PR, from the stored report (never
  *  recomputed) and the PR head's tree. Every read that fails is said on the
  *  line rather than reading clean. */
@@ -676,7 +680,10 @@ async function lineFor(
     if ("missing" in read) {
       verdict = { none: "no run report on disk, so no verdict" };
     } else if ("unreadable" in read) {
-      verdict = { none: `run report unreadable (${one(read.unreadable)})` };
+      // Why goes to the log: it names a local path, and the line is posted
+      // under the user's account.
+      deps.log(`attach: take ${takeId}'s ${read.unreadable}`);
+      verdict = { none: UNREADABLE_REPORT };
     } else {
       const report = read.value as RunReport;
       filmed = report.filmedCode;
@@ -684,7 +691,10 @@ async function lineFor(
     }
   } catch (error) {
     // A report.json that is JSON but not a report throws in prVerdict.
-    verdict = { none: `run report unreadable (${one(messageOf(error))})` };
+    deps.log(
+      `attach: take ${takeId}'s report.json is not a run report (${messageOf(error)})`,
+    );
+    verdict = { none: UNREADABLE_REPORT };
   }
   let headTree: string | null = null;
   if (head !== null && deps.git !== undefined) {
