@@ -47,6 +47,7 @@ import type { RunnerStore } from "../frame-store.js";
 import { type MuxOutcome, muxSpans } from "../mux.js";
 import { createHeadlessPageAgent } from "../page-agent.js";
 import { watchNavigation } from "../replay.js";
+import { stageTimes } from "../stage-times.js";
 import type { BrowserSession } from "./browser.js";
 import {
   fileForLanding,
@@ -245,6 +246,7 @@ export async function runScript(
   onProgress: (progress: ReplayProgress) => void,
 ): Promise<RunReport> {
   const { library, log } = deps;
+  const times = stageTimes();
   const run: RunReport["run"] = {
     id: newId("run"),
     startedAt: Date.now(),
@@ -410,6 +412,7 @@ export async function runScript(
   // `errorText` is read at the runner's edge (`watchNavigation`).
   const store = library.frameStore(sceneId);
   const mux = deps.muxSpans ?? muxSpans;
+  times.mark("setup");
 
   /** The walk and the encode: everything that writes into the take's folder
    *  before the take exists. Its caller removes that folder on any throw. */
@@ -490,6 +493,7 @@ export async function runScript(
       roomFor: (vp) =>
         createRoomPolicy(vp, script.look?.motion ?? MOTION_DEFAULTS),
     });
+    times.mark("walk");
     // Spread both ways round: `attributeClosedWindow` refines the run's stop
     // reason and returns a `ReplayResult`, which would drop `document`,
     // `documentError` and `steps` if it were assigned instead of merged.
@@ -563,6 +567,7 @@ export async function runScript(
         }
       }
     }
+    times.mark("checks");
     // No take is kept for a signed-out run, so its frames are not encoded.
     const discarded = result.reason === "signedOut" || signedOutAfter !== null;
 
@@ -637,6 +642,11 @@ export async function runScript(
         }
       }
     }
+    const muxed = encoder.spans().filter((s) => s.kept);
+    times.mark("mux");
+    times.note(
+      `${muxed.length} span(s), ${muxed.reduce((n, s) => n + s.frames, 0)} frames muxed`,
+    );
     return { result, navigationError, failedNote, signedOutAfter };
   };
 
@@ -851,6 +861,8 @@ export async function runScript(
     ...(deps.refilm === undefined ? {} : { rerecord: deps.refilm }),
     ...(videoVersion === undefined ? {} : { videoVersion }),
   };
+  times.mark("store");
+  log(times.line(`run ${takeId ?? sceneId}`));
   if (takeId !== null) {
     await library
       .putJson(
