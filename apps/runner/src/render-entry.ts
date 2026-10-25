@@ -132,6 +132,27 @@ async function load(ref: string): Promise<Uint8Array | FrameImage> {
 // so the outputs are overwritten rather than accumulated.
 let outputs: Uint8Array[] = [];
 
+/**
+ * The software encoder unless a target names one (`share-measure` does).
+ * Which encoder Chromium offers depends on whether its GPU is on — headless
+ * on macOS gets VideoToolbox only with `HEADLESS_GPU_ARGS` — and the encoders
+ * size files differently: on 2026-10-25 one take's export went from 9.0 to
+ * 12.9 Mbps on VideoToolbox, and the share target opened quantizer mode its
+ * thresholds were not measured under. Pinned, the file is the same whatever
+ * the GPU, the window or the platform. Every cap step spreads `target` or
+ * `share`, so pinning both reaches them all.
+ */
+function softwareEncoded(target: RenderTarget): RenderTarget {
+  return {
+    ...target,
+    encoder: {
+      ...target.encoder,
+      hardwareAcceleration:
+        target.encoder?.hardwareAcceleration ?? "prefer-software",
+    },
+  };
+}
+
 async function render(manifest: RenderManifest): Promise<RenderedFacts> {
   const { scene, bundle, target, fileType } = manifest;
   // The logo is decoration: one that will not decode leaves the file
@@ -185,7 +206,7 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
   // propagate out of this function unchanged.
   const { files, facts } = await renderOutput({
     fileType,
-    target,
+    target: softwareEncoded(target),
     scene,
     bundle,
     frames,
@@ -193,7 +214,14 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
     ...(manifest.gifBudget === undefined
       ? {}
       : { gifBudget: manifest.gifBudget }),
-    ...(manifest.mp4Cap === undefined ? {} : { mp4Cap: manifest.mp4Cap }),
+    ...(manifest.mp4Cap === undefined
+      ? {}
+      : {
+          mp4Cap: {
+            ...manifest.mp4Cap,
+            share: softwareEncoded(manifest.mp4Cap.share),
+          },
+        }),
     ...(manifest.stills === undefined ? {} : { stills: manifest.stills }),
     onFrame: wholePercent((done, total, width, pass) =>
       width === undefined

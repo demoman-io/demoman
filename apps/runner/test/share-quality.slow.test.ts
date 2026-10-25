@@ -434,7 +434,10 @@ describe("the share render", () => {
         `the thresholds were measured under mediabunny's bitrate fallback (headless, quantizer mode refused); this run's encoder opened with ${JSON.stringify(r.encoderUsed?.rateControl)}: re-measure KEPT_FRACTION_MIN, DISCRIMINATION_MIN and SIZE_RATIO for it. ${evidence()}`,
       ).toMatch(MEASURED_RATE_CONTROL);
     }
+    // Pinned by render-entry's `softwareEncoded`, so a GPU that offers a
+    // hardware encoder cannot change which one ran.
     expect(full.encoderUsed, evidence()).toEqual({
+      hardwareAcceleration: "prefer-software",
       bitrate: full.target.bitrate,
       rateControl: `bitrate ${full.target.bitrate}`,
     });

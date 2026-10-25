@@ -136,6 +136,26 @@ export function displayArgs(display: Display): string[] {
   ];
 }
 
+/**
+ * What puts a headless Chrome's 2D canvases on the GPU. Without it, headless
+ * draws every canvas on the renderer's CPU (`SkCanvas::drawPath` on its main
+ * thread, a `Canvas2DBitmapProvider` surface) while `chrome://gpu` still says
+ * "Hardware accelerated". Measured 2026-10-25 on an M4, one 1920x1500 60 fps
+ * take: its export rendered in 70.5 s without and 5.3 s with, the camera
+ * blur's passes and the frame's two shadows being most of the difference.
+ *
+ * Per platform, and only where measured. Linux has no entry yet: CI's
+ * runners have no GPU, and whether `--enable-gpu` helps or falls back there
+ * is unmeasured. Adding one is the whole change — the encoder is pinned
+ * apart from the GPU (`render-entry.ts`'s `softwareEncoded`), launch.test.ts
+ * runs its check on any platform listed here, and
+ * `compare/export-variants.mjs` is the before/after.
+ */
+const GPU_ARGS_BY_PLATFORM: Partial<Record<NodeJS.Platform, string[]>> = {
+  darwin: ["--enable-gpu"],
+};
+export const HEADLESS_GPU_ARGS = GPU_ARGS_BY_PLATFORM[process.platform] ?? [];
+
 /** The browser's own user agent with `HeadlessChrome` said as `Chrome`. */
 async function visibleUserAgent(browser: Browser): Promise<string> {
   const session = await browser.newBrowserCDPSession();
@@ -225,7 +245,10 @@ export async function launch(options?: {
     ...(options?.executablePath === undefined
       ? {}
       : { executablePath: options.executablePath }),
-    ...(display === undefined ? {} : { args: displayArgs(display) }),
+    args: [
+      ...(display === undefined ? [] : displayArgs(display)),
+      ...(headless ? HEADLESS_GPU_ARGS : []),
+    ],
   });
   let pid: number | null = null;
   try {

@@ -51,7 +51,22 @@ built runner (`pnpm -r build`). Every run and export also logs one
   VideoFrame(canvas)`) and 14% in `paintCameraBlur`.
 - `render-cost-probe.mjs [--headed] [--as-executor]` prints `chrome://gpu`'s
   feature lines for the executor's Chromium and times synthetic frames
-  through draw, `new VideoFrame(canvas)` and a live encoder. On 2026-10-25,
-  headless was on the GPU (Skia Graphite on Metal, hardware encode) and every
-  synthetic variant, including 24 blur passes and zoomed shadows, cost
-  6–7 ms a frame: the probe does not reproduce the real compositor's cost.
+  through draw, `new VideoFrame(canvas)` and a live encoder. Its 6–7 ms a
+  frame did not reproduce the real compositor's cost, and `chrome://gpu`'s
+  "Hardware accelerated" is not evidence: it says the same with and without
+  the GPU in use.
+
+What the cost was (2026-10-25): headless Chromium drew the export's canvas
+on the renderer's CPU. A trace of the export (`export-profile.mjs` with the
+`disabled-by-default-skia` and `blink` categories) showed
+`OffscreenCanvasRenderingContext2D::FinalizeFrame` taking 77.9 s of a 78.3 s
+render on the renderer's main thread, `SkCanvas::drawPath` (the shadows)
+running there, and the canvas on a `Canvas2DBitmapProvider` surface.
+Launched with `--enable-gpu` (`HEADLESS_GPU_ARGS` in `src/launch.ts`) the
+same take rendered in 5.3 s against 70.5 s, and a sample-app take with a
+stand-in display in 9.6 s against 174.7 s. The GPU also offers headless a
+hardware encoder, which sized files differently, so the render page pins the
+software one (`render-entry.ts`'s `softwareEncoded`): one take then rendered
+in 5.7 s against 92.6 s at 12,243,149 against 12,307,207 bytes. Linux has no
+entry in `HEADLESS_GPU_ARGS` yet; this script, run there with and without
+one, is the measurement that adds it.
