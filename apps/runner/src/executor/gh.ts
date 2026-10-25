@@ -227,15 +227,23 @@ export function createGh(
     return null;
   }
 
-  async function pr(
-    n?: number,
-  ): Promise<{ number: number; url: string; host: string } | GhRefusal> {
+  async function pr(n?: number): Promise<
+    | {
+        number: number;
+        url: string;
+        host: string;
+        /** The head commit, for `attach` to compare with the code filmed;
+         *  null when gh does not name one. */
+        head: string | null;
+      }
+    | GhRefusal
+  > {
     const args = ["pr", "view", ...(n === undefined ? [] : [String(n)])];
-    const r = await check([...args, "--json", "number,url"]);
+    const r = await check([...args, "--json", "number,url,headRefOid"]);
     if ("timedOut" in r) {
       return timedOut(
         "prNotFound",
-        `${["gh", ...args].join(" ")} --json number,url`,
+        `${["gh", ...args].join(" ")} --json number,url,headRefOid`,
         "Check that gh can reach github.com.",
       );
     }
@@ -258,7 +266,7 @@ export function createGh(
         detail: `gh pr view failed (exit ${r.code}): ${said}`,
       };
     }
-    let parsed: { number?: unknown; url?: unknown };
+    let parsed: { number?: unknown; url?: unknown; headRefOid?: unknown };
     try {
       parsed = JSON.parse(r.stdout) as typeof parsed;
     } catch {
@@ -288,7 +296,15 @@ export function createGh(
         detail: `this pull request lives on ${host}; video attachments work only on github.com.`,
       };
     }
-    return { number: parsed.number, url: parsed.url, host };
+    return {
+      number: parsed.number,
+      url: parsed.url,
+      host,
+      head:
+        typeof parsed.headRefOid === "string" && parsed.headRefOid !== ""
+          ? parsed.headRefOid
+          : null,
+    };
   }
 
   // gh's own answer is the caller's to judge; a spawn failure is shown as a

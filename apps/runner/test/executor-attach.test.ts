@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
@@ -11,15 +12,17 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { RenderTarget } from "@demoman/compositor";
-import type { ExportAnswer } from "@demoman/run-core";
+import type { ExportAnswer, RunReport } from "@demoman/run-core";
 import type { Page } from "playwright";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   type AttachAnswer,
   type Attaching,
   capMissed,
+  codeClause,
   commentBody,
   copyFailedDetail,
+  prLine,
 } from "../src/executor/attach.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { defaultGhRun, type GhRun } from "../src/executor/gh.js";
@@ -170,6 +173,10 @@ const ASSET =
 const OLD_ASSET =
   "https://github.com/user-attachments/assets/11111111-2222-3333-4444-555555555555";
 const prView: Answer = { stdout: JSON.stringify({ number: 12, url: PR_URL }) };
+/** The disk take has no report.json, and its project no git: the line says
+ *  both rather than reading clean. */
+const NO_REPORT_LINE =
+  "Demo: `Orders walkthrough` · no run report on disk, so no verdict · commit not recorded";
 const text = (
   body: string,
   comments: { body: string; createdAt: string }[] = [],
@@ -254,7 +261,7 @@ describe("attach", () => {
     "attached into the description",
     async () => {
       await script({
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [BEFORE, AFTER],
         "pr edit 12 --attach": { stdout: `${PR_URL}\n` },
       });
@@ -283,7 +290,7 @@ describe("attach", () => {
       expect(calls()).toEqual([
         "--version",
         "auth status --hostname github.com",
-        "pr view --json number,url",
+        "pr view --json number,url,headRefOid",
         "pr view 12 --json body,comments",
         expect.stringMatching(/^pr edit 12 --attach \S+\.mp4$/),
         "pr view 12 --json body,comments",
@@ -297,7 +304,7 @@ describe("attach", () => {
     async () => {
       const at = "2026-10-18T10:00:00Z";
       await script({
-        "pr view 7 --json number,url": {
+        "pr view 7 --json number,url,headRefOid": {
           stdout: JSON.stringify({
             number: 7,
             url: "https://github.com/o/r/pull/7",
@@ -308,7 +315,7 @@ describe("attach", () => {
           text("theirs", [
             { body: `old one ${OLD_ASSET}`, createdAt: at },
             {
-              body: `Demo: Orders walkthrough\n\n${ASSET}`,
+              body: `${NO_REPORT_LINE}\n\n${ASSET}`,
               createdAt: "2026-10-18T11:00:00Z",
             },
           ]),
@@ -329,7 +336,7 @@ describe("attach", () => {
         "comment",
         "7",
         "--body",
-        "Demo: `Orders walkthrough`",
+        NO_REPORT_LINE,
       ]);
       expect(post?.args[5]).toBe("--attach");
     },
@@ -338,7 +345,7 @@ describe("attach", () => {
 
   it("a non-github.com host is refused before the export", async () => {
     await script({
-      "pr view --json number,url": {
+      "pr view --json number,url,headRefOid": {
         stdout: JSON.stringify({
           number: 3,
           url: "https://git.corp.example/o/r/pull/3",
@@ -358,14 +365,14 @@ describe("attach", () => {
     expect(answer.summary).toMatch(/^Not attached: /);
     expect(workPages).toBe(0);
     // Premise: gh was asked, and said where the PR lives.
-    expect(calls()).toContain("pr view --json number,url");
+    expect(calls()).toContain("pr view --json number,url,headRefOid");
   });
 
   it(
     "gh checks run in project",
     async () => {
       await script({
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [BEFORE, AFTER],
         "pr edit 12 --attach": {},
       });
@@ -401,7 +408,7 @@ describe("attach", () => {
     "uploadRefused quotes gh and reads back",
     async () => {
       await script({
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [BEFORE, BEFORE],
         "pr edit 12 --attach": {
           code: 1,
@@ -449,7 +456,7 @@ describe("attach", () => {
     "uploadRefused under a cap of 9.5 MB or less hands the file over; under a looser cap it retries once",
     async () => {
       const refusedUpload = {
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [BEFORE, BEFORE],
         "pr edit 12 --attach": {
           code: 1,
@@ -501,7 +508,7 @@ describe("attach", () => {
     "a cap the export missed is said in the summary, and each render is named in the progress",
     async () => {
       await script({
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [BEFORE, AFTER],
         "pr edit 12 --attach": {},
       });
@@ -547,7 +554,7 @@ describe("attach", () => {
     "partial when the read-back finds the asset",
     async () => {
       await script({
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [BEFORE, AFTER],
         "pr edit 12 --attach": { code: 1, stderr: "HTTP 502: Bad Gateway\n" },
       });
@@ -571,7 +578,7 @@ describe("attach", () => {
     "a failed upload whose PR cannot be read back says it is unknown what landed",
     async () => {
       await script({
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [
           BEFORE,
           { code: 1, stderr: "HTTP 503: Service Unavailable\n" },
@@ -600,7 +607,7 @@ describe("attach", () => {
     "a post gh reports done whose PR cannot be read back is unconfirmed, not attached",
     async () => {
       await script({
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [
           BEFORE,
           { code: 1, stderr: "HTTP 503\n" },
@@ -626,7 +633,7 @@ describe("attach", () => {
     "a post gh reports done whose PR reads back with no new video is unconfirmed",
     async () => {
       await script({
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [BEFORE, BEFORE],
         "pr edit 12 --attach": {},
       });
@@ -656,7 +663,7 @@ describe("attach", () => {
       const at = "2026-10-18T10:00:00Z";
       const before = text("theirs", [{ body: "a review", createdAt: at }]);
       await script({
-        "pr view 7 --json number,url": {
+        "pr view 7 --json number,url,headRefOid": {
           stdout: JSON.stringify({
             number: 7,
             url: "https://github.com/o/r/pull/7",
@@ -686,7 +693,7 @@ describe("attach", () => {
       await rm(statePath, { force: true });
       await rm(outDir, { recursive: true, force: true });
       await script({
-        "pr view 7 --json number,url": {
+        "pr view 7 --json number,url,headRefOid": {
           stdout: JSON.stringify({
             number: 7,
             url: "https://github.com/o/r/pull/7",
@@ -712,7 +719,7 @@ describe("attach", () => {
     "an export that does not save is answered as itself, and nothing is posted",
     async () => {
       const ready = {
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": BEFORE,
         "pr edit 12 --attach": {},
         "pr comment": {},
@@ -752,7 +759,7 @@ describe("attach", () => {
 
   it("a gh runner that throws answers attach's own threw sentence", async () => {
     await script({
-      "pr view --json number,url": prView,
+      "pr view --json number,url,headRefOid": prView,
       "pr view 12 --json body,comments": BEFORE,
     });
     throwOn = "pr view 12 --json body,comments";
@@ -769,7 +776,7 @@ describe("attach", () => {
 
   it("a PR that cannot be read before posting costs no render", async () => {
     await script({
-      "pr view --json number,url": prView,
+      "pr view --json number,url,headRefOid": prView,
       "pr view 12 --json body,comments": { code: 1, stderr: "HTTP 500\n" },
     });
     const answer = await attach({ into: "description" });
@@ -785,7 +792,7 @@ describe("attach", () => {
     "attach holds the export slot",
     async () => {
       await script({
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [BEFORE, AFTER],
         "pr edit 12 --attach": {},
       });
@@ -820,7 +827,7 @@ describe("attach", () => {
 
   it("no pr and no PR for the branch", async () => {
     await script({
-      "pr view --json number,url": {
+      "pr view --json number,url,headRefOid": {
         code: 1,
         stderr: 'no pull requests found for branch "feat/x"\n',
       },
@@ -928,7 +935,7 @@ describe("attach", () => {
     "maxMB passes through to the export: its cap is maxMB × 1,000,000 bytes",
     async () => {
       await script({
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [BEFORE, AFTER],
         "pr edit 12 --attach": {},
       });
@@ -960,7 +967,7 @@ describe("attach", () => {
     "the file posted has a plain name",
     async () => {
       await script({
-        "pr view --json number,url": prView,
+        "pr view --json number,url,headRefOid": prView,
         "pr view 12 --json body,comments": [BEFORE, AFTER],
         "pr edit 12 --attach": {},
       });
@@ -991,6 +998,278 @@ describe("attach", () => {
 
 // Code review finding 2, the branch the render above cannot reach: a step
 // of the ladder that threw. Red if the summary drops why the cap was missed.
+describe("codeClause", () => {
+  const A = "a".repeat(40);
+  const B = "b".repeat(40);
+  const T = "1".repeat(40);
+  const U = "2".repeat(40);
+  it.each([
+    ["no filmedCode", undefined, B, T, "commit not recorded"],
+    ["none", { none: "git is not installed" }, B, T, "commit unknown"],
+    [
+      "the PR head's tree",
+      { commit: A, tree: T, dirty: true },
+      B,
+      T,
+      `filmed at \`bbbbbbb\``,
+    ],
+    [
+      "head unknown",
+      { commit: A, tree: T, dirty: false },
+      null,
+      null,
+      "filmed at `aaaaaaa`, not checked against the PR",
+    ],
+    [
+      "head tree unknown, dirty",
+      { commit: A, tree: T, dirty: true },
+      B,
+      null,
+      "filmed at `aaaaaaa` with uncommitted changes, not checked against the PR",
+    ],
+    [
+      "another tree, dirty",
+      { commit: A, tree: T, dirty: true },
+      B,
+      U,
+      "filmed from uncommitted changes on `aaaaaaa`",
+    ],
+    [
+      "another tree, clean",
+      { commit: A, tree: T, dirty: false },
+      B,
+      U,
+      "filmed at `aaaaaaa`, not the PR's head `bbbbbbb`",
+    ],
+    [
+      "no commit yet",
+      { commit: null, tree: T, dirty: true },
+      B,
+      U,
+      "filmed from uncommitted changes before the first commit",
+    ],
+  ] as const)("%s", (_name, filmed, head, headTree, want) => {
+    expect(codeClause(filmed, head, headTree)).toBe(want);
+  });
+});
+
+describe("prLine", () => {
+  it("joins the label, the verdict and the code on one line, with no details for a clean run", () => {
+    expect(
+      prLine(
+        "Create an invoice",
+        { clause: "matches all 3 steps", details: null },
+        "filmed at `abc1234`",
+      ),
+    ).toEqual({
+      line: "Demo: `Create an invoice` · matches all 3 steps · filmed at `abc1234`",
+      details: null,
+    });
+  });
+
+  it("puts the run's notes in a collapsed block, without backticks or mentions", () => {
+    const out = prLine(
+      "x",
+      {
+        clause: "stopped after step 1 of 3",
+        details: "Stopped: saw `y` from @octocat",
+      },
+      "commit unknown",
+    );
+    expect(out.details).toBe(
+      "<details><summary>Run notes</summary>\n\n```\nStopped: saw y from octocat\n```\n</details>",
+    );
+  });
+
+  it("caps the notes at 1,000 characters", () => {
+    const out = prLine(
+      "x",
+      { clause: "c", details: "n".repeat(5000) },
+      "commit unknown",
+    );
+    expect(out.details).toContain(`${"n".repeat(1000)}…`);
+    expect(out.details).not.toContain("n".repeat(1001));
+  });
+});
+
+describe("the line on an attached comment", () => {
+  let head: string;
+  let tree: string;
+  const reportPath = () => join(home, "takes", takeId, "report.json");
+  beforeAll(() => {
+    const git = (...a: string[]) =>
+      execFileSync("git", a, { cwd: dir, encoding: "utf8" }).trim();
+    git("init", "-q");
+    git(
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "x",
+    );
+    head = git("rev-parse", "HEAD");
+    tree = git("rev-parse", "HEAD^{tree}");
+  });
+  afterAll(async () => {
+    await rm(join(dir, ".git"), { recursive: true, force: true });
+  });
+  beforeEach(async () => {
+    await rm(reportPath(), { force: true });
+  });
+
+  /** A report with only what the line reads; `extra` overrides. */
+  const report = (extra: Partial<RunReport> = {}) =>
+    ({
+      run: { script: { name: "s", scriptVersion: 1, steps: 3 } },
+      outcome: "complete",
+      steps: [{}, {}, {}],
+      frames: { degradations: [], storageRefused: false },
+      look: null,
+      verdict: { kind: "matches", diverged: [] },
+      ...extra,
+    }) as unknown as RunReport;
+  const writeReport = (r: RunReport) =>
+    writeFile(reportPath(), JSON.stringify(r));
+
+  /** Scripts gh for a comment on PR 7 whose head is `head`, read back with
+   *  a new comment holding `posted` and the video. */
+  async function commentOn(posted: string) {
+    await script({
+      "pr view 7 --json number,url,headRefOid": {
+        stdout: JSON.stringify({
+          number: 7,
+          url: "https://github.com/o/r/pull/7",
+          headRefOid: head,
+        }),
+      },
+      "pr view 7 --json body,comments": [
+        text("theirs"),
+        text("theirs", [
+          { body: `${posted}\n\n${ASSET}`, createdAt: "2026-10-25T11:00:00Z" },
+        ]),
+      ],
+      "pr comment 7": {
+        stdout: "https://github.com/o/r/pull/7#issuecomment-1\n",
+      },
+    });
+  }
+  const postedBody = () =>
+    logged.find((l) => l.args[1] === "comment")?.args[4] ?? "";
+
+  it(
+    "a clean run filmed at the PR's head says so, and the line is written",
+    async () => {
+      await writeReport(
+        report({ filmedCode: { commit: head, tree, dirty: false } }),
+      );
+      // Premise: the report on disk is the clean one, filmed at this tree.
+      expect(
+        JSON.parse(await readFile(reportPath(), "utf8")).filmedCode.tree,
+      ).toBe(tree);
+      const want = `Demo: \`Orders walkthrough\` · matches all 3 steps · filmed at \`${head.slice(0, 7)}\``;
+      await commentOn(want);
+      const answer = await attach({ into: "comment", pr: 7 });
+      expect(answer, JSON.stringify(answer)).toMatchObject({
+        outcome: "attached",
+        line: { text: want, written: true },
+      });
+      expect(postedBody()).toBe(want);
+    },
+    ATTACH_MS,
+  );
+
+  it(
+    "a stopped run says where, with its notes in a block, and no backticks or mentions from the page",
+    async () => {
+      await writeReport(
+        report({
+          outcome: "stopped",
+          stopped: {
+            reason: "anchorNotRendered",
+            at: { index: 1, of: 3, label: "x" },
+            sentence: "s",
+            detail: "the page showed `Sign in` to @octocat",
+          },
+          filmedCode: { commit: head, tree, dirty: false },
+        }),
+      );
+      expect(JSON.parse(await readFile(reportPath(), "utf8")).outcome).toBe(
+        "stopped",
+      );
+      const line = `Demo: \`Orders walkthrough\` · stopped after step 1 of 3 · filmed at \`${head.slice(0, 7)}\``;
+      await commentOn(line);
+      const answer = await attach({ into: "comment", pr: 7 });
+      expect(answer).toMatchObject({
+        outcome: "attached",
+        line: { written: true },
+      });
+      const body = postedBody();
+      expect(
+        body.startsWith(`${line}\n\n<details><summary>Run notes</summary>`),
+      ).toBe(true);
+      const notes = body.slice(body.indexOf("<details>"));
+      expect(notes).toContain("the page showed Sign in to octocat");
+      expect(notes.replace(/```/g, "")).not.toMatch(/[`@]/);
+    },
+    ATTACH_MS,
+  );
+
+  it(
+    "a report written before filmedCode existed says the commit was not recorded",
+    async () => {
+      await writeReport(report());
+      expect(
+        JSON.parse(await readFile(reportPath(), "utf8")),
+      ).not.toHaveProperty("filmedCode");
+      const line =
+        "Demo: `Orders walkthrough` · matches all 3 steps · commit not recorded";
+      await commentOn(line);
+      const answer = await attach({ into: "comment", pr: 7 });
+      expect(answer).toMatchObject({
+        outcome: "attached",
+        line: { text: line, written: true },
+      });
+    },
+    ATTACH_MS,
+  );
+
+  it(
+    "no report on disk says there is no verdict",
+    async () => {
+      expect(existsSync(reportPath())).toBe(false);
+      await commentOn(NO_REPORT_LINE);
+      const answer = await attach({ into: "comment", pr: 7 });
+      expect(answer).toMatchObject({
+        outcome: "attached",
+        line: { text: NO_REPORT_LINE, written: true },
+      });
+    },
+    ATTACH_MS,
+  );
+
+  it(
+    "a comment that reads back without its line says so",
+    async () => {
+      await commentOn("something else");
+      const answer = await attach({ into: "comment", pr: 7 });
+      expect(answer).toMatchObject({
+        outcome: "attached",
+        line: {
+          text: NO_REPORT_LINE,
+          notWritten: expect.stringContaining("without its line"),
+        },
+      });
+      if (answer.outcome !== "attached") return;
+      expect(answer.summary).toContain("was not written");
+    },
+    ATTACH_MS,
+  );
+});
+
 describe("capMissed", () => {
   const saved = (cap: object | undefined): ExportAnswer =>
     ({

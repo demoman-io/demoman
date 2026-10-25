@@ -47,7 +47,7 @@ import {
   resolvePullRequests,
 } from "./pull-requests.js";
 import { refilmFromVideo } from "./refilm.js";
-import { readFilmedCode, readRepo } from "./repo.js";
+import { execGit, readFilmedCode, readRepo } from "./repo.js";
 import { runScript } from "./run.js";
 import { runningWords } from "./running.js";
 import {
@@ -1187,6 +1187,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
                       : [options.ghCheckTimeoutMs]),
                   ),
                   export: exportDeps(),
+                  git: (args) => execGit(args, where.from),
                   log,
                 },
                 (progress) => {

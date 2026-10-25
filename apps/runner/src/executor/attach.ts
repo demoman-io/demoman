@@ -10,8 +10,11 @@ import { basename, join } from "node:path";
 import {
   type CapRender,
   type ExportAnswer,
+  type FilmedCode,
   fileSize,
   messageOf,
+  prVerdict,
+  type RunReport,
   sceneLabel,
   sentence,
 } from "@demoman/run-core";
@@ -45,6 +48,12 @@ export type AttachAnswer =
       assetUrl: string;
       byteLength: number;
       export: ExportAnswer;
+      /** The line above the video: what the run did and which code it
+       *  filmed. `notWritten` says why the video went up without it. Absent
+       *  on a description until it writes one. */
+      line?:
+        | { text: string; written: true }
+        | { text: string; notWritten: string };
       summary: string;
     }
   | {
@@ -89,6 +98,11 @@ export interface AttachDeps {
   log: (line: string) => void;
   /** Where the plain-named copy is made; `os.tmpdir()` when absent. */
   tmpDir?: string;
+  /** git, run in the project, to read the PR head's tree. Absent: the line
+   *  says the code was not checked against the PR. */
+  git?: (
+    args: string[],
+  ) => Promise<{ code: number; stdout: string; stderr: string }>;
 }
 
 /** What a person can do when gh cannot be used, or the video cannot be
@@ -369,10 +383,13 @@ export async function attachTake(
       into === "description"
         ? `gh pr edit ${pr.number} --attach`
         : `gh pr comment ${pr.number} --attach`;
+    const line = await lineFor(a.takeId, label, pr.head, deps);
+    const block =
+      line.details === null ? line.line : `${line.line}\n\n${line.details}`;
     const r =
       into === "description"
         ? await gh.attachToDescription(pr.number, posted)
-        : await gh.attachToComment(pr.number, posted, commentBody(label));
+        : await gh.attachToComment(pr.number, posted, block);
     // Read back whatever gh answered: on success it says where the video
     // is, on failure what (if anything) landed.
     const after = await gh.readBack(pr.number);
@@ -384,7 +401,7 @@ export async function attachTake(
     const fresh = "unreadable" in after ? [] : newAssets(before, after);
     if (r.code === 0) {
       const assetUrl = fresh.at(-1);
-      if (assetUrl !== undefined) {
+      if (assetUrl !== undefined && into === "description") {
         return {
           outcome: "attached",
           pr: { number: pr.number, url: pr.url },
@@ -393,6 +410,37 @@ export async function attachTake(
           byteLength: file.byteLength,
           export: exported,
           summary: `Attached the video (${size}) to ${where}${capMissed(exported)}.`,
+        };
+      }
+      if (assetUrl !== undefined) {
+        // Read back, not assumed: the comment holding the video holds the
+        // line too, or the answer says it does not.
+        const holder =
+          "unreadable" in after
+            ? undefined
+            : after.comments.find((c) => c.body.includes(assetUrl));
+        const said: NonNullable<
+          Extract<AttachAnswer, { outcome: "attached" }>["line"]
+        > =
+          holder?.body.includes(line.line) === true
+            ? { text: line.line, written: true }
+            : {
+                text: line.line,
+                notWritten:
+                  "the comment holding the video read back without its line",
+              };
+        return {
+          outcome: "attached",
+          pr: { number: pr.number, url: pr.url },
+          into,
+          assetUrl,
+          byteLength: file.byteLength,
+          export: exported,
+          line: said,
+          summary:
+            "written" in said
+              ? `Attached the video (${size}) to ${where}${capMissed(exported)}.`
+              : `Attached the video (${size}) to ${where}${capMissed(exported)}, but the line above it was not written: ${said.notWritten}.`,
         };
       }
       const why =
@@ -471,6 +519,107 @@ export function commentBody(label: string): string {
   const cut =
     chars.length > LABEL_MAX ? `${chars.slice(0, LABEL_MAX).join("")}…` : one;
   return `Demo: \`${cut}\``;
+}
+
+/** Longest run notes the collapsed block carries, in characters. */
+const DETAILS_MAX = 1000;
+
+/** `short` as the line shows a sha: seven characters, in code. */
+const short = (sha: string) => `\`${sha.slice(0, 7)}\``;
+
+/**
+ * Which code the video shows, against the PR's head. The tree was recorded
+ * at run time (`readFilmedCode`); comparing trees can wrongly say
+ * "differs" (an ignored file changed) and never wrongly "same".
+ */
+export function codeClause(
+  filmed: FilmedCode | undefined,
+  head: string | null,
+  headTree: string | null,
+): string {
+  if (filmed === undefined) return "commit not recorded";
+  if ("none" in filmed) return "commit unknown";
+  if (head !== null && headTree !== null && filmed.tree === headTree)
+    return `filmed at ${short(head)}`;
+  if (filmed.commit === null)
+    return "filmed from uncommitted changes before the first commit";
+  if (head === null || headTree === null)
+    return `filmed at ${short(filmed.commit)}${filmed.dirty ? " with uncommitted changes" : ""}, not checked against the PR`;
+  if (filmed.dirty)
+    return `filmed from uncommitted changes on ${short(filmed.commit)}`;
+  return `filmed at ${short(filmed.commit)}, not the PR's head ${short(head)}`;
+}
+
+/**
+ * The line above the video, and the run's notes in a collapsed block when
+ * it has any. The label is neutralised as `commentBody` does; the notes come
+ * from a filmed page too, so they lose backticks (which would close the
+ * fence) and `@`, and are capped.
+ */
+export function prLine(
+  label: string,
+  verdict: { clause: string; details: string | null } | { none: string },
+  code: string,
+): { line: string; details: string | null } {
+  const clause = "none" in verdict ? verdict.none : verdict.clause;
+  const line = `${commentBody(label)} · ${clause} · ${code}`;
+  if ("none" in verdict || verdict.details === null)
+    return { line, details: null };
+  const chars = Array.from(verdict.details.replace(/[`@]/g, ""));
+  const text =
+    chars.length > DETAILS_MAX
+      ? `${chars.slice(0, DETAILS_MAX).join("")}…`
+      : chars.join("");
+  return {
+    line,
+    details: `<details><summary>Run notes</summary>\n\n\`\`\`\n${text}\n\`\`\`\n</details>`,
+  };
+}
+
+/** The line for this take on this PR, from the stored report (never
+ *  recomputed) and the PR head's tree. Every read that fails is said on the
+ *  line rather than reading clean. */
+async function lineFor(
+  takeId: string,
+  label: string,
+  head: string | null,
+  deps: AttachDeps,
+): Promise<{ line: string; details: string | null }> {
+  const one = (text: string) =>
+    text.replace(/[`@]/g, "").replace(/\s+/g, " ").trim().slice(0, 200);
+  let verdict: Parameters<typeof prLine>[1];
+  let filmed: FilmedCode | undefined;
+  try {
+    const read = await deps.export.library.getJson(takeId, "report.json");
+    if ("missing" in read) {
+      verdict = { none: "no run report on disk, so no verdict" };
+    } else if ("unreadable" in read) {
+      verdict = { none: `run report unreadable (${one(read.unreadable)})` };
+    } else {
+      const report = read.value as RunReport;
+      filmed = report.filmedCode;
+      verdict = prVerdict(report);
+    }
+  } catch (error) {
+    // A report.json that is JSON but not a report throws in prVerdict.
+    verdict = { none: `run report unreadable (${one(messageOf(error))})` };
+  }
+  let headTree: string | null = null;
+  if (head !== null && deps.git !== undefined) {
+    try {
+      const r = await deps.git(["rev-parse", `${head}^{tree}`]);
+      if (r.code === 0) headTree = r.stdout.trim();
+      else
+        deps.log(
+          `attach: the PR head ${head} is not in this checkout (${one(r.stderr)}); the line says the code was not checked`,
+        );
+    } catch (error) {
+      deps.log(
+        `attach: git could not read the PR head's tree (${messageOf(error)})`,
+      );
+    }
+  }
+  return prLine(label, verdict, codeClause(filmed, head, headTree));
 }
 
 /** The take's label for the comment's one line. The export just read the

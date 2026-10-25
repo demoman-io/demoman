@@ -142,7 +142,33 @@ describe("gh adapter", () => {
     );
   });
 
-  it("a PR answers number, url and host, and an explicit number is passed", async () => {
+  it("a PR answers number, url, host and head, and an explicit number is passed", async () => {
+    const { gh } = await fakeGh({
+      "pr view": {
+        code: 0,
+        stdout: JSON.stringify({
+          number: 7,
+          url: "https://github.com/o/r/pull/7",
+          headRefOid: "abc123",
+        }),
+      },
+    });
+    expect(await gh.pr(7)).toEqual({
+      number: 7,
+      url: "https://github.com/o/r/pull/7",
+      host: "github.com",
+      head: "abc123",
+    });
+    expect((await calls())[0]).toEqual([
+      "pr",
+      "view",
+      "7",
+      "--json",
+      "number,url,headRefOid",
+    ]);
+  });
+
+  it("a PR whose head gh does not name answers head null", async () => {
     const { gh } = await fakeGh({
       "pr view": {
         code: 0,
@@ -152,18 +178,7 @@ describe("gh adapter", () => {
         }),
       },
     });
-    expect(await gh.pr(7)).toEqual({
-      number: 7,
-      url: "https://github.com/o/r/pull/7",
-      host: "github.com",
-    });
-    expect((await calls())[0]).toEqual([
-      "pr",
-      "view",
-      "7",
-      "--json",
-      "number,url",
-    ]);
+    expect(await gh.pr(7)).toMatchObject({ head: null });
   });
 
   it("a GHES URL is notGitHub", async () => {
@@ -278,7 +293,7 @@ describe("gh adapter", () => {
     const out = await gh.pr(7);
     expect(out).toMatchObject({ reason: "prNotFound" });
     expect((out as { detail: string }).detail).toContain(
-      "gh pr view 7 --json number,url timed out",
+      "gh pr view 7 --json number,url,headRefOid timed out",
     );
     expect(await gh.readBack(7)).toEqual({
       unreadable: expect.stringContaining(

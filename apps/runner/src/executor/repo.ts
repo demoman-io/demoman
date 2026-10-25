@@ -24,7 +24,7 @@ export type GitRunner = (
   env?: Record<string, string>,
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-const execGit: GitRunner = (args, cwd, env) =>
+export const execGit: GitRunner = (args, cwd, env) =>
   new Promise((done, fail) => {
     const options =
       env === undefined ? { cwd } : { cwd, env: { ...process.env, ...env } };

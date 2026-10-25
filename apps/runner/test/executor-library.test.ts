@@ -320,6 +320,24 @@ describe("createLibrary", () => {
     ).toEqual({ outcome: "complete" });
   });
 
+  it("reads report.json back: missing, unreadable and the value told apart", async () => {
+    const lib = createLibrary(home);
+    const doc = scene();
+    await lib.putScene(doc);
+    expect(await lib.getJson(doc.meta.id, "report.json")).toEqual({
+      missing: true,
+    });
+    const path = join(home, "takes", doc.meta.id, "report.json");
+    await writeFile(path, "{ not json");
+    expect(await lib.getJson(doc.meta.id, "report.json")).toEqual({
+      unreadable: expect.stringContaining(path),
+    });
+    await lib.putJson(doc.meta.id, "report.json", { outcome: "complete" });
+    expect(await lib.getJson(doc.meta.id, "report.json")).toEqual({
+      value: { outcome: "complete" },
+    });
+  });
+
   it("refuses ids that would leave the library", async () => {
     const lib = createLibrary(home);
     await writeFile(join(home, "kits.json"), "{}");
