@@ -30,3 +30,28 @@ script is filmed. Rebrand anything filmed from them before it goes on the site.
 - `actual.json` — Actual Budget (MIT) on 3001: Try the demo, an account's transactions, then Reports. It starts on the welcome screen only in a browser that has not opened the demo, which `film:compare`'s fresh homes are. Until 2026-10-21 snapshot listed its buttons by react-aria ids that change on every load, and its demo database (blocks keyed from -1) refused every localhost session once a run had written it back; both are fixed.
 
 Ctrl+C mid-run leaves its temporary folders in `$TMPDIR`: the two homes (`film-compare-cli-home-*`, `film-compare-headless-home-*`). A side whose runs did not all complete keeps its home on purpose; the refusal names it.
+
+## Export cost
+
+Three scripts for where an export's time goes, all headless, all against a
+built runner (`pnpm -r build`). Every run and export also logs one
+`timing …` line (`apps/runner/src/stage-times.ts`) naming its stages.
+
+- `export-variants.mjs --repo <root> --script <file> [--sample <index.html>]`
+  films a script once and exports the take under scene variants (no camera
+  blur, no padding, solid background, no zooms, no blur and no padding),
+  printing each render's seconds. On 2026-10-25, `button-run.json`
+  (684 frames, 1920x1500 at 60 fps) rendered in 72 s as filmed, 31 s with no
+  camera blur, 41 s with no padding (the frame's two shadows) and 16 s with
+  neither, the same within 2.5 s on a second take.
+- `export-profile.mjs --repo <root> --script <file> [--out <trace.json>]`
+  exports under a V8 CPU-profiler trace and prints self time per function on
+  the render page. GPU work is charged to whatever waits on it first: on
+  2026-10-25, 85% landed in mediabunny's `VideoSample` (`new
+  VideoFrame(canvas)`) and 14% in `paintCameraBlur`.
+- `render-cost-probe.mjs [--headed] [--as-executor]` prints `chrome://gpu`'s
+  feature lines for the executor's Chromium and times synthetic frames
+  through draw, `new VideoFrame(canvas)` and a live encoder. On 2026-10-25,
+  headless was on the GPU (Skia Graphite on Metal, hardware encode) and every
+  synthetic variant, including 24 blur passes and zoomed shadows, cost
+  6–7 ms a frame: the probe does not reproduce the real compositor's cost.
