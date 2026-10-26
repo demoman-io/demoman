@@ -18,6 +18,7 @@ import {
   PULL_REQUESTS_VALUES,
   type PullRequestsValue,
 } from "@demoman/run-core";
+import { recorderPlatform } from "@demoman/runner/package";
 import type { UserSettings } from "@demoman/runner/studio";
 import type { SettingKey } from "@demoman/studio";
 import {
@@ -55,6 +56,9 @@ export interface Ran {
 
 export interface SetupDeps {
   platform: string;
+  arch: string;
+  /** Root may install Chromium's system libraries; setup never runs sudo. */
+  isRoot: boolean;
   nodeVersion: string;
   version: string;
   /** Output captured: for claude's JSON answers. */
@@ -63,6 +67,11 @@ export interface SetupDeps {
   runVisible(command: string, args: string[]): Ran;
   chromiumInstalled(): boolean;
   chromiumInstall: { command: string; args: string[] };
+  /** Playwright's `install-deps chromium`: Linux system libraries, as root. */
+  chromiumDeps: { command: string; args: string[] };
+  /** null when a headless Chromium launches and closes, else the first line
+   *  Playwright said. Asked on Linux only, where libraries can be missing. */
+  browserLaunches(): Promise<string | null>;
   /** The user's home folder. */
   home: string;
   /** Codex's folder: $CODEX_HOME, else ~/.codex. */
@@ -138,11 +147,11 @@ const userRow = (
 
 export function platformRefusal(
   platform: string,
+  arch: string,
   nodeVersion: string,
 ): string | null {
-  if (platform !== "darwin") {
-    return `this build is for macOS, and this machine is ${platform}`;
-  }
+  const recorder = recorderPlatform(platform, arch);
+  if (!recorder.ok) return recorder.detail;
   const major = Number(/^v?(\d+)/.exec(nodeVersion)?.[1]);
   if (!(major >= MIN_NODE)) {
     return `Demoman needs Node ${MIN_NODE} or later, and this is Node ${nodeVersion.replace(/^v/, "")}`;
@@ -160,27 +169,64 @@ function parseList(r: Ran): Array<Record<string, unknown>> | string {
   }
 }
 
-function browser(d: SetupDeps): boolean {
-  if (d.chromiumInstalled()) {
-    d.say("browser: Chromium is already installed");
-    return true;
-  }
-  d.say("browser: downloading Chromium (about 190 MB)…");
+async function browser(d: SetupDeps): Promise<boolean> {
   const again = `run \`npx ${PACKAGE_NAME}@${d.version} setup\` again`;
-  const r = d.runVisible(d.chromiumInstall.command, d.chromiumInstall.args);
+  const had = d.chromiumInstalled();
+  if (!had) {
+    d.say("browser: downloading Chromium (about 190 MB)…");
+    const r = d.runVisible(d.chromiumInstall.command, d.chromiumInstall.args);
+    if (failed(r)) {
+      d.say(
+        `browser: the download failed (${why(r)}). Nothing else was set up; ${again} once that is fixed.`,
+      );
+      return false;
+    }
+    if (!d.chromiumInstalled()) {
+      d.say(
+        `browser: the download said it finished, but Chromium is still not there. ${again}; if it says this twice, the download is being cut short.`,
+      );
+      return false;
+    }
+  }
+  // Also when it was already there: an earlier setup may have stopped here.
+  if (d.platform === "linux" && !(await libraries(d, again))) return false;
+  d.say(
+    had
+      ? "browser: Chromium is already installed"
+      : "browser: Chromium installed",
+  );
+  return true;
+}
+
+/** Linux only: Chromium launches, or its system libraries are installed as
+ *  root, or setup names the command for root and stops. */
+async function libraries(d: SetupDeps, again: string): Promise<boolean> {
+  const said = await d.browserLaunches();
+  if (said === null) return true;
+  const deps = [d.chromiumDeps.command, ...d.chromiumDeps.args]
+    .map(shellQuoted)
+    .join(" ");
+  if (!d.isRoot) {
+    d.say(
+      `browser: Chromium was downloaded but cannot start (${said}). Its system libraries need root: run \`sudo ${deps}\`, then ${again}.`,
+    );
+    return false;
+  }
+  d.say("browser: installing the system libraries Chromium needs…");
+  const r = d.runVisible(d.chromiumDeps.command, d.chromiumDeps.args);
   if (failed(r)) {
     d.say(
-      `browser: the download failed (${why(r)}). Nothing else was set up; ${again} once that is fixed.`,
+      `browser: installing Chromium's system libraries failed (${why(r)}). Nothing else was set up; ${again} once that is fixed.`,
     );
     return false;
   }
-  if (!d.chromiumInstalled()) {
+  const after = await d.browserLaunches();
+  if (after !== null) {
     d.say(
-      `browser: the download said it finished, but Chromium is still not there. ${again}; if it says this twice, the download is being cut short.`,
+      `browser: the system libraries were installed, but Chromium still cannot start (${after}). Nothing else was set up.`,
     );
     return false;
   }
-  d.say("browser: Chromium installed");
   return true;
 }
 
@@ -1027,7 +1073,7 @@ const listed = (names: string[]): string =>
 
 async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
   const d: SetupDeps = flags.yes === true ? { ...given, ask: null } : given;
-  const refusal = platformRefusal(d.platform, d.nodeVersion);
+  const refusal = platformRefusal(d.platform, d.arch, d.nodeVersion);
   if (refusal !== null) {
     d.say(`Demoman setup stopped: ${refusal}.`);
     return 1;
@@ -1079,7 +1125,7 @@ async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
     !chosen.includes(agent) &&
     (flags.agents !== undefined || found.includes(agent));
 
-  if (!browser(d)) return 1;
+  if (!(await browser(d))) return 1;
   const wires: Array<[AgentName, Wire]> = [
     ["Claude Code", claudeCode],
     ["Codex", codex],

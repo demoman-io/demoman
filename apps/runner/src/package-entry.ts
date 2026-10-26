@@ -13,6 +13,7 @@ export {
 export { fullChromiumPath } from "./executor/browser.js";
 export { createLocalExecutor } from "./executor/executor.js";
 export type { ExecutorOptions, LocalExecutor } from "./executor/types.js";
+export { recorderPlatform } from "./platform.js";
 export {
   type SigninAccountDeps,
   type SigninDeps,

@@ -74,12 +74,16 @@ describe("runCaptured", () => {
     );
     const code = await setup({
       platform: "darwin",
+      arch: "arm64",
+      isRoot: false,
       nodeVersion: "v22.3.0",
       version: "0.2.0",
       run: () => stalled,
       runVisible: () => ({ status: 0, stdout: "", stderr: "" }),
       chromiumInstalled: () => true,
       chromiumInstall: { command: "node", args: [] },
+      chromiumDeps: { command: "node", args: [] },
+      browserLaunches: async () => null,
       home: "/Users/u",
       codexHome: "/Users/u/.codex",
       env: {},

@@ -29,6 +29,7 @@ import {
 import { fullChromiumPath } from "@demoman/runner/package";
 import { readUserSettings } from "@demoman/runner/studio";
 import { writeSetting } from "@demoman/studio";
+import { chromium } from "playwright";
 import type { Answers, Questions, Ran, SetupDeps } from "./setup.js";
 
 /** How long a captured command (claude's git clone of the marketplace, the
@@ -102,6 +103,37 @@ export function setupChromiumDownload(cli: string): {
       "--no-shell",
     ],
   };
+}
+
+/** Playwright's `install-deps chromium`, for root: the apt packages the
+ *  Chromium of this install needs. */
+export function setupChromiumDeps(cli: string): {
+  command: string;
+  args: string[];
+} {
+  return { command: process.execPath, args: [cli, "install-deps", "chromium"] };
+}
+
+/** null when the runner's Chromium launches headless and closes; else the
+ *  first line Playwright said (on Linux, usually missing libraries). */
+export async function browserLaunches(): Promise<string | null> {
+  try {
+    const b = await chromium.launch({
+      executablePath: fullChromiumPath(),
+      headless: true,
+      timeout: 30_000,
+    });
+    await b.close();
+    return null;
+  } catch (error) {
+    const said = error instanceof Error ? error.message : String(error);
+    return (
+      said
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l !== "") ?? "it failed and said nothing"
+    );
+  }
 }
 
 const failure = (path: string, error: unknown): string =>
@@ -295,6 +327,8 @@ export function realSetupDeps(
   const home = homedir();
   return {
     platform: process.platform,
+    arch: process.arch,
+    isRoot: process.getuid?.() === 0,
     nodeVersion: process.version,
     version,
     run: (command, args) => runCaptured(command, args),
@@ -306,6 +340,8 @@ export function realSetupDeps(
     // answer to "is it installed" for setup and for the first run.
     chromiumInstalled: () => existsSync(fullChromiumPath()),
     chromiumInstall: setupChromiumDownload(playwrightCli()),
+    chromiumDeps: setupChromiumDeps(playwrightCli()),
+    browserLaunches,
     home,
     codexHome: process.env.CODEX_HOME || join(home, ".codex"),
     env: process.env,

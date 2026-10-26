@@ -40,6 +40,8 @@ function machine(
   const writes: string[] = [];
   let chromium = false;
   const settingsReads = { n: 0 };
+  /** Every headless launch setup tried, so a case can say none happened. */
+  const launchChecks = { n: 0 };
   const answers: Record<string, Ran | Ran[]> = {
     "claude --version": OK("2.1.0 (Claude Code)\n"),
     "claude plugin marketplace list --json": OK("[]"),
@@ -65,6 +67,8 @@ function machine(
   const { answers: _answers, ...rest } = over;
   const d: SetupDeps = {
     platform: "darwin",
+    arch: "arm64",
+    isRoot: false,
     nodeVersion: "v22.3.0",
     version: "0.2.0",
     run: (c, args) => answer([c, ...args].join(" ")),
@@ -77,6 +81,14 @@ function machine(
     chromiumInstall: {
       command: "node",
       args: ["/pw/cli.js", "install", "chromium", "--no-shell"],
+    },
+    chromiumDeps: {
+      command: "/opt/node/bin/node",
+      args: ["/pw/cli.js", "install-deps", "chromium"],
+    },
+    browserLaunches: async () => {
+      launchChecks.n++;
+      return null;
     },
     home: "/Users/u",
     codexHome: "/Users/u/.codex",
@@ -118,6 +130,7 @@ function machine(
     files,
     writes,
     settingsReads,
+    launchChecks,
     out: () => lines.join("\n"),
   };
 }
@@ -169,19 +182,113 @@ describe("setup", () => {
     expect(m.out()).toContain("browser: Chromium is already installed");
   });
 
-  it("refuses Linux and old Node before doing anything", async () => {
-    const linux = machine({ platform: "linux" });
-    expect(await setup(linux.d)).toBe(1);
-    expect(linux.calls).toEqual([]);
-    expect(linux.out()).toContain(
-      "this build is for macOS, and this machine is linux",
-    );
+  it("refuses arm64 Linux, other platforms and old Node before doing anything", async () => {
+    const arm = machine({ platform: "linux", arch: "arm64" });
+    expect(await setup(arm.d)).toBe(1);
+    expect(arm.calls).toEqual([]);
+    expect(arm.out()).toContain("Demoman setup stopped:");
+    expect(arm.out()).toContain("no H.264 encoder");
+    const windows = machine({ platform: "win32", arch: "x64" });
+    expect(await setup(windows.d)).toBe(1);
+    expect(windows.calls).toEqual([]);
+    expect(windows.out()).toContain("this machine is win32 (x64)");
     const old = machine({ nodeVersion: "v18.19.0" });
     expect(await setup(old.d)).toBe(1);
     expect(old.calls).toEqual([]);
     expect(old.out()).toContain(
       "needs Node 20 or later, and this is Node 18.19.0",
     );
+  });
+
+  it("never test-launches Chromium or installs libraries on macOS", async () => {
+    const m = machine();
+    expect(await setup(m.d)).toBe(0);
+    expect(m.launchChecks.n).toBe(0);
+    expect(m.calls.some((c) => c.includes("install-deps"))).toBe(false);
+  });
+
+  describe("on x86_64 Linux", () => {
+    const DEPS = "/opt/node/bin/node /pw/cli.js install-deps chromium";
+    /** browserLaunches answering each line in turn, the last one after. */
+    const launches = (...said: Array<string | null>) => {
+      const seen = { n: 0 };
+      return {
+        seen,
+        browserLaunches: async () =>
+          said[Math.min(seen.n++, said.length - 1)] ?? null,
+      };
+    };
+
+    it("says Chromium is installed when it launches, and installs no libraries", async () => {
+      const l = launches(null);
+      const m = machine({ platform: "linux", arch: "x64", ...l });
+      expect(await setup(m.d)).toBe(0);
+      expect(l.seen.n).toBe(1);
+      expect(m.calls).not.toContain(DEPS);
+      expect(m.out()).toContain("browser: Chromium installed");
+    });
+
+    it("installs the libraries as root, then checks Chromium launches", async () => {
+      const l = launches(
+        "browserType.launch: Host system is missing dependencies to run browsers.",
+        null,
+      );
+      const m = machine({ platform: "linux", arch: "x64", isRoot: true, ...l });
+      expect(await setup(m.d)).toBe(0);
+      expect(m.calls.slice(0, 2)).toEqual([
+        "node /pw/cli.js install chromium --no-shell",
+        DEPS,
+      ]);
+      expect(l.seen.n).toBe(2);
+      expect(m.out()).toContain("browser: Chromium installed");
+    });
+
+    it("names the sudo command and stops when it is not root", async () => {
+      const l = launches(
+        "browserType.launch: Host system is missing dependencies to run browsers.",
+      );
+      const m = machine({
+        platform: "linux",
+        arch: "x64",
+        isRoot: false,
+        ...l,
+      });
+      expect(await setup(m.d)).toBe(1);
+      expect(m.calls).not.toContain(DEPS);
+      expect(m.out()).toContain(`sudo ${DEPS}`);
+      expect(m.out()).toContain("Host system is missing dependencies");
+      expect(m.out()).not.toContain("Chromium installed");
+      expect(m.calls.some((c) => c.startsWith("claude"))).toBe(false);
+    });
+
+    it("checks the libraries again when Chromium was already downloaded", async () => {
+      const l = launches(
+        "browserType.launch: Host system is missing dependencies to run browsers.",
+      );
+      const m = machine({
+        platform: "linux",
+        arch: "x64",
+        chromiumInstalled: () => true,
+        ...l,
+      });
+      expect(await setup(m.d)).toBe(1);
+      expect(m.out()).toContain(`sudo ${DEPS}`);
+      expect(m.out()).not.toContain("Chromium is already installed");
+    });
+
+    it("stops, quoting the launch, when Chromium still fails after the root install", async () => {
+      const l = launches(
+        "browserType.launch: Host system is missing dependencies to run browsers.",
+        "browserType.launch: Target page, context or browser has been closed",
+      );
+      const m = machine({ platform: "linux", arch: "x64", isRoot: true, ...l });
+      expect(await setup(m.d)).toBe(1);
+      expect(m.calls).toContain(DEPS);
+      expect(m.out()).toContain(
+        "Target page, context or browser has been closed",
+      );
+      expect(m.out()).not.toContain("Chromium installed");
+    });
   });
 
   it("stops at a failed download, in Playwright's words, and registers nothing", async () => {
