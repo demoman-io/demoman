@@ -415,15 +415,9 @@ export async function signInAccount(
           : { executablePath: deps.executablePath }),
       });
     } catch (error) {
-      const c = classifyLaunchError(error);
-      if (c.reason === "browserMissing") {
-        return fail(
-          "browserMissing",
-          deps.installCommand === undefined
-            ? c.detail
-            : `Demoman's browser is not installed — run \`${deps.installCommand}\` once, then call this again`,
-        );
-      }
+      const c = classifyLaunchError(error, undefined, deps.installCommand);
+      if (c.reason === "browserMissing")
+        return fail("browserMissing", c.detail);
       return fail("signInFailed", c.detail);
     }
     try {

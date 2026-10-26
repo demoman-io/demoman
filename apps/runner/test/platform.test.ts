@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recorderPlatform } from "../src/platform.js";
+import { recorderPlatform, visibleWindowRefusal } from "../src/platform.js";
 
 describe("recorderPlatform", () => {
   it("records on macOS of either arch and on x86_64 Linux", () => {
@@ -18,5 +18,21 @@ describe("recorderPlatform", () => {
     const r = recorderPlatform("win32", "x64");
     expect(r).toMatchObject({ ok: false, reason: "unsupportedPlatform" });
     expect(r.ok === false && r.detail).toContain("win32 (x64)");
+  });
+});
+
+describe("visibleWindowRefusal", () => {
+  it("refuses on Linux with neither DISPLAY nor WAYLAND_DISPLAY", () => {
+    expect(visibleWindowRefusal("linux", {})).toBe(
+      "there is no display here (DISPLAY and WAYLAND_DISPLAY are unset), so no window can open",
+    );
+  });
+
+  it("lets a window open on Linux with either display, and on macOS", () => {
+    expect(visibleWindowRefusal("linux", { DISPLAY: ":0" })).toBeNull();
+    expect(
+      visibleWindowRefusal("linux", { WAYLAND_DISPLAY: "wayland-0" }),
+    ).toBeNull();
+    expect(visibleWindowRefusal("darwin", {})).toBeNull();
   });
 });

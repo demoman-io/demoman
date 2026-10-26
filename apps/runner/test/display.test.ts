@@ -97,7 +97,9 @@ DP-1 disconnected (normal left inverted right x axis y axis)
   it("says there is no display, asking nothing, when neither variable is set", async () => {
     const x = answering(XRANDR);
     const got = await readDisplay({}, { platform: "linux", run: x.run });
-    expect(got).toMatchObject({ failed: expect.stringContaining("no display") });
+    expect(got).toMatchObject({
+      failed: expect.stringContaining("no display"),
+    });
     expect(x.calls).toEqual([]);
   });
 

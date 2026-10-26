@@ -2,6 +2,7 @@ import { join } from "node:path";
 import {
   type BrowserFailure,
   classifyLaunchError,
+  visibleWindowRefusal,
 } from "@demoman/runner/studio";
 import type { Refusal } from "@demoman/studio-protocol";
 import { type BrowserContext, chromium, type Page } from "playwright";
@@ -74,6 +75,8 @@ export function createStudioWindow(o: {
   launchContext?: LaunchContext;
   /** Tests: how long a window may take to appear (10 s). */
   pageWaitMs?: number;
+  /** The machine the window opens on; `process` unless a test stands in. */
+  host?: { platform: string; env: NodeJS.ProcessEnv };
 }): StudioWindow {
   const { log } = o;
   const pageWaitMs = o.pageWaitMs ?? PAGE_WAIT_MS;
@@ -233,6 +236,13 @@ export function createStudioWindow(o: {
   async function openNow(
     target: Parameters<StudioWindow["open"]>[0],
   ): ReturnType<StudioWindow["open"]> {
+    const host = o.host ?? process;
+    const noWindow =
+      o.headless === true
+        ? null
+        : visibleWindowRefusal(host.platform, host.env);
+    if (noWindow !== null)
+      return { reason: "windowDidNotOpen", detail: noWindow };
     const path = pagePathFor(target.takeId);
     const got = await ensure();
     if (!got.ok) return { reason: got.reason, detail: got.detail };

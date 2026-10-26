@@ -84,7 +84,12 @@ class FakeContext extends EventEmitter {
 const ORIGIN = "http://127.0.0.1:5555";
 
 function harness(
-  o: { listening?: number; answers?: number; gotoMs?: number } = {},
+  o: {
+    listening?: number;
+    answers?: number;
+    gotoMs?: number;
+    host?: { platform: string; env: NodeJS.ProcessEnv };
+  } = {},
 ) {
   let ctx: FakeContext | null = null;
   const launches: LaunchOptions[] = [];
@@ -101,6 +106,9 @@ function harness(
     events: { send: (e) => sent.push(e), size: () => o.listening ?? 1 },
     log: (l) => logs.push(l),
     pageWaitMs: 2_000,
+    // A machine with a screen wherever the lane runs (a Linux runner has no
+    // DISPLAY), unless a case names another.
+    host: o.host ?? { platform: "darwin", env: {} },
     launchContext: async (_dir, options) => {
       launches.push(options);
       const made = new FakeContext();
@@ -130,6 +138,24 @@ const appPage = (ctx: FakeContext) => {
   if (page === undefined) throw new Error("no app page");
   return page;
 };
+
+describe("a Linux machine with no display", () => {
+  it("refuses at once, naming why, and launches nothing", async () => {
+    const h = harness({ host: { platform: "linux", env: {} } });
+    expect(await h.window.open({})).toEqual({
+      reason: "windowDidNotOpen",
+      detail:
+        "there is no display here (DISPLAY and WAYLAND_DISPLAY are unset), so no window can open",
+    });
+    expect(h.launches).toEqual([]);
+  });
+
+  it("opens where Linux has a display", async () => {
+    const h = harness({ host: { platform: "linux", env: { DISPLAY: ":0" } } });
+    await h.window.open({});
+    expect(h.launches).toHaveLength(1);
+  });
+});
 
 describe("two opens at once", () => {
   it("both open the window, the second after the first's entry", async () => {

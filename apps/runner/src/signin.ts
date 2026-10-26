@@ -25,6 +25,7 @@ import {
   sliceForSite,
 } from "./executor/sessions.js";
 import { type Launched, launch } from "./launch.js";
+import { visibleWindowRefusal } from "./platform.js";
 
 export interface SigninDeps {
   home: string;
@@ -37,6 +38,9 @@ export interface SigninDeps {
   installCommand?: string;
   launchFn?: typeof launch;
   now?: () => Date;
+  /** The machine the window opens on; `process` unless a test stands in. */
+  platform?: string;
+  env?: NodeJS.ProcessEnv;
 }
 
 type StateArg = Parameters<BrowserContext["setStorageState"]>[0];
@@ -60,6 +64,16 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
     say(`${url} names no site`);
     return 2;
   }
+  const noWindow = visibleWindowRefusal(
+    deps.platform ?? process.platform,
+    deps.env ?? process.env,
+  );
+  if (noWindow !== null && deps.headless !== true) {
+    say(
+      `${noWindow}; sign in on a machine with a screen, or use a demo account (.demoman/accounts.json) with \`demoman signin --account\``,
+    );
+    return 1;
+  }
   const store = createSessionStore(deps.home);
   let saved: SessionFile[];
   try {
@@ -77,12 +91,7 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
     try {
       return await launchFn({ headless, ...exe });
     } catch (error) {
-      const failed = classifyLaunchError(error);
-      say(
-        failed.reason === "browserMissing" && deps.installCommand !== undefined
-          ? `Demoman's browser is not installed — run \`${deps.installCommand}\` once, then run this again`
-          : failed.detail,
-      );
+      say(classifyLaunchError(error, undefined, deps.installCommand).detail);
       return null;
     }
   };

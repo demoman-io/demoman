@@ -43,3 +43,4 @@ export {
   loadedPlaywrightVersion,
 } from "./install-advice.js";
 export { listenOnLoopback } from "./loopback.js";
+export { visibleWindowRefusal } from "./platform.js";

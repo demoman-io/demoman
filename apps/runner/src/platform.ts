@@ -30,3 +30,14 @@ export function recorderPlatform(
  *  or an SSH session. Read by the screen read and by every visible window. */
 export const noDisplay = (env: NodeJS.ProcessEnv): boolean =>
   !env.DISPLAY && !env.WAYLAND_DISPLAY;
+
+/** Why a visible window (signin, the Studio, `--headed`) cannot open here,
+ *  or null: said at once rather than waiting on a window that never comes. */
+export function visibleWindowRefusal(
+  platform: string,
+  env: NodeJS.ProcessEnv,
+): string | null {
+  return platform === "linux" && noDisplay(env)
+    ? "there is no display here (DISPLAY and WAYLAND_DISPLAY are unset), so no window can open"
+    : null;
+}
