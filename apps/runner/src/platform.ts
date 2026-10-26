@@ -25,3 +25,8 @@ export function recorderPlatform(
         : `Demoman records on macOS and on x86_64 Linux, and this machine is ${platform} (${arch})`,
   };
 }
+
+/** Linux with neither an X11 nor a Wayland display: a headless server, CI,
+ *  or an SSH session. Read by the screen read and by every visible window. */
+export const noDisplay = (env: NodeJS.ProcessEnv): boolean =>
+  !env.DISPLAY && !env.WAYLAND_DISPLAY;

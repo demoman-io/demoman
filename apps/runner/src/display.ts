@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import type { Display } from "./launch.js";
+import { noDisplay } from "./platform.js";
 
 /** Asks macOS for the menu-bar screen through JXA: `screens[0]` is fixed,
  *  where `mainScreen` follows whichever screen holds the focused window, so a
@@ -22,6 +23,54 @@ export function displayUnreadSentence(
   return `Demoman could not read this computer's display (${failed}), so headless ${tense} at 1x, and at its own window size unless the script or its device ${names} one — set DEMOMAN_DISPLAY to <width>x<height>@<scale> (such as 1710x1107@2), or start Demoman with --headed`;
 }
 
+/** Runs a command for its output; rejects when it cannot be started. */
+type RunCommand = (
+  cmd: string,
+  args: string[],
+) => Promise<{ code: number; stdout: string }>;
+
+const runCommand: RunCommand = (cmd, args) =>
+  new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: 10_000 }, (error, stdout) => {
+      if (error === null) resolve({ code: 0, stdout });
+      else if (typeof error.code === "number") {
+        resolve({ code: error.code, stdout });
+      } else reject(error);
+    });
+  });
+
+/** An output's `<w>x<h>+x+y` on its `connected` line: the primary one, else
+ *  the first listed. A connected output with no mode is switched off. */
+const XRANDR_OUTPUT = /^\S+ connected (primary )?(\d+)x(\d+)\+\d+\+\d+/gm;
+
+/** The screen xrandr lists, in CSS px at GDK_SCALE (1 unless a positive
+ *  integer), as macOS's points are; or why it could not be read. */
+async function readXrandr(
+  env: NodeJS.ProcessEnv,
+  run: RunCommand,
+): Promise<Display | { failed: string }> {
+  const cannot = (why: string) => ({
+    failed: `xrandr could not read the screen (${why})`,
+  });
+  let out: { code: number; stdout: string };
+  try {
+    out = await run("xrandr", ["--current"]);
+  } catch (error) {
+    return cannot(error instanceof Error ? error.message : String(error));
+  }
+  if (out.code !== 0) return cannot(`it exited ${out.code}`);
+  const outputs = [...out.stdout.matchAll(XRANDR_OUTPUT)];
+  const chosen = outputs.find((m) => m[1] !== undefined) ?? outputs[0];
+  if (chosen === undefined) return cannot("it listed no connected screen");
+  const gdk = Number(env.GDK_SCALE);
+  const scale = Number.isInteger(gdk) && gdk > 0 ? gdk : 1;
+  return {
+    width: Number(chosen[2]) / scale,
+    height: Number(chosen[3]) / scale,
+    scale,
+  };
+}
+
 /** `DEMOMAN_DISPLAY`, as `<width>x<height>@<scale>` in CSS px, e.g.
  *  `1710x1107@2`. */
 const DISPLAY_SETTING = /^(\d+)x(\d+)@(\d+(?:\.\d+)?)$/;
@@ -29,14 +78,16 @@ const DISPLAY_SETTING = /^(\d+)x(\d+)@(\d+(?:\.\d+)?)$/;
 /**
  * The display a visible window would open on, for a headless launch to stand
  * in for (`launch`'s `display`). `DEMOMAN_DISPLAY` names one outright: where
- * it cannot be read (not macOS, no window server) and where a test needs the
- * same display on every machine. Otherwise macOS is asked. Anything else is
- * `{ failed }` with why, never a guess — a guessed screen would film a size
- * nobody has.
+ * it cannot be read (no window server) and where a test needs the same
+ * display on every machine. Otherwise macOS is asked, or on Linux xrandr.
+ * Anything else is `{ failed }` with why, never a guess — a guessed screen
+ * would film a size nobody has.
  */
 export function readDisplay(
   env: NodeJS.ProcessEnv = process.env,
+  deps: { platform?: string; run?: RunCommand } = {},
 ): Promise<Display | { failed: string }> {
+  const platform = deps.platform ?? process.platform;
   const setting = env.DEMOMAN_DISPLAY;
   if (setting !== undefined && setting !== "") {
     const m = DISPLAY_SETTING.exec(setting.trim());
@@ -56,9 +107,17 @@ export function readDisplay(
     }
     return Promise.resolve(display);
   }
-  if (process.platform !== "darwin") {
+  if (platform === "linux") {
+    if (noDisplay(env)) {
+      return Promise.resolve({
+        failed: "there is no display (DISPLAY and WAYLAND_DISPLAY are unset)",
+      });
+    }
+    return readXrandr(env, deps.run ?? runCommand);
+  }
+  if (platform !== "darwin") {
     return Promise.resolve({
-      failed: `reading the display is macOS only, and this is ${process.platform}`,
+      failed: `reading the display is macOS and Linux only, and this is ${platform}`,
     });
   }
   return new Promise((resolve) => {
