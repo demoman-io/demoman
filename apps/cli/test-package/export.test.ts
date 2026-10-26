@@ -31,6 +31,7 @@ type Answer = {
   outcome: string;
   id?: string;
   provenance?: { takeId?: string };
+  frames?: { degradations: string[] };
   file?: { path: string };
 };
 /** Calls a long tool, then polls report until it is done — no sleeps:
@@ -88,6 +89,9 @@ it("runs and exports the fixture take from the packed install, and the film show
       },
     });
     expect(run.outcome, JSON.stringify(run)).toBe("complete");
+    // Linux CI composes about 5x slower than a Mac: a take it degraded is a
+    // finding to report, never a tolerance to loosen (Linux spec, Part 1).
+    expect(run.frames?.degradations, JSON.stringify(run)).toEqual([]);
     const exported = await finished(c, "export", {
       takeId: run.provenance?.takeId,
     });

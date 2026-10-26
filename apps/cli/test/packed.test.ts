@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { recorderPlatform } from "@demoman/runner/package";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { connect, installPacked, text } from "./packed-install.js";
 
@@ -272,11 +273,13 @@ describe("the packed install", () => {
         encoding: "utf8",
         env,
       });
-      if (process.platform !== "darwin") {
-        // CI runs on Linux, where setup refuses before any command: the real
-        // adapter still loads, and the refusal is the answer (review fix).
+      const recorder = recorderPlatform(process.platform, process.arch);
+      if (!recorder.ok) {
+        // A machine Demoman does not record on: setup refuses before any
+        // command; the real adapter still loads, and the refusal is the
+        // answer (review fix).
         expect(r.stdout, r.stderr).toContain(
-          `Demoman setup stopped: this build is for macOS, and this machine is ${process.platform}.`,
+          `Demoman setup stopped: ${recorder.detail}.`,
         );
         expect(r.status).toBe(1);
         return;
