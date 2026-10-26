@@ -807,7 +807,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       // The code on disk as the film starts, decided once here and recorded
       // in the report; `attach` reads it rather than looking again.
       const filmedCode = repoRead.ok
-        ? await readFilmedCode(repoRead.repo.root)
+        ? await readFilmedCode(repoRead.repo.root, undefined, undefined, log)
         : { none: repoRead.none };
       // Whatever the run did to the context's cookies, the next call starts
       // from the saved sessions again (final review 2).

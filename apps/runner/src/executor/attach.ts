@@ -665,7 +665,7 @@ const UNREADABLE_REPORT = "run report unreadable, so no verdict";
 /** The line for this take on this PR, from the stored report (never
  *  recomputed) and the PR head's tree. Every read that fails is said on the
  *  line rather than reading clean. */
-async function lineFor(
+export async function lineFor(
   takeId: string,
   label: string,
   head: string | null,
@@ -673,28 +673,33 @@ async function lineFor(
 ): Promise<{ line: string; details: string | null }> {
   const one = (text: string) =>
     text.replace(/[`@]/g, "").replace(/\s+/g, " ").trim().slice(0, 200);
-  let verdict: Parameters<typeof prLine>[1];
+  let verdict: Parameters<typeof prLine>[1] = { none: UNREADABLE_REPORT };
   let filmed: FilmedCode | undefined;
-  try {
-    const read = await deps.export.library.getJson(takeId, "report.json");
-    if ("missing" in read) {
-      verdict = { none: "no run report on disk, so no verdict" };
-    } else if ("unreadable" in read) {
-      // Why goes to the log: it names a local path, and the line is posted
-      // under the user's account.
-      deps.log(`attach: take ${takeId}'s ${read.unreadable}`);
-      verdict = { none: UNREADABLE_REPORT };
-    } else {
-      const report = read.value as RunReport;
-      filmed = report.filmedCode;
-      verdict = prVerdict(report);
-    }
-  } catch (error) {
-    // A report.json that is JSON but not a report throws in prVerdict.
+  // Each failure keeps its own reason in the log; the line, posted under the
+  // user's account, says only that the report could not be used.
+  const read = await deps.export.library
+    .getJson(takeId, "report.json")
+    .catch((error: unknown) => ({ threw: messageOf(error) }));
+  if ("threw" in read) {
     deps.log(
-      `attach: take ${takeId}'s report.json is not a run report (${messageOf(error)})`,
+      `attach: take ${takeId}'s report.json could not be read (${read.threw})`,
     );
-    verdict = { none: UNREADABLE_REPORT };
+  } else if ("missing" in read) {
+    verdict = { none: "no run report on disk, so no verdict" };
+  } else if ("unreadable" in read) {
+    // It names a local path.
+    deps.log(`attach: take ${takeId}'s ${read.unreadable}`);
+  } else {
+    try {
+      const report = read.value as RunReport;
+      verdict = prVerdict(report);
+      filmed = report.filmedCode;
+    } catch (error) {
+      // JSON, but not the shape prVerdict reads (an older or damaged report).
+      deps.log(
+        `attach: take ${takeId}'s report.json is not a run report (${messageOf(error)})`,
+      );
+    }
   }
   let headTree: string | null = null;
   if (head !== null && deps.git !== undefined) {

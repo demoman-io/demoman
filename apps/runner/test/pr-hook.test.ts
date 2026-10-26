@@ -116,6 +116,26 @@ describe("postToolUseAnswer", () => {
     ).toBeNull();
   });
 
+  // Final review (code-review high): a create that fails because the PR
+  // already exists prints that PR's URL, so the URL proves only that a PR
+  // was named, and the reminder must not say one was just opened.
+  it("a PR that already existed is not called just opened", async () => {
+    const { repo, home } = await setup('{"pullRequests":"attach"}');
+    const text = context(
+      await postToolUseAnswer(
+        bash(
+          repo,
+          "gh pr create --fill",
+          `a pull request for branch "x" into branch "main" already exists:\n${URL7}\n`,
+        ),
+        home,
+      ),
+    );
+    expect(text).toContain(URL7);
+    expect(text).not.toContain("was just opened");
+    expect(text).toContain("If that pull request was opened now");
+  });
+
   it("other calls say nothing", async () => {
     const { repo, home } = await setup('{"pullRequests":"attach"}');
     expect(await postToolUseAnswer(bash(repo, "gh pr list"), home)).toBeNull();

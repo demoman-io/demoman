@@ -1030,6 +1030,16 @@ describe("prVerdict", () => {
       },
       "the run's record is incomplete",
     ],
+    [
+      // verdictLine says the take is in the library and only the site's
+      // session was not saved back, so the record is not incomplete.
+      "a session that was not saved back",
+      buildRunReport({
+        ...complete(),
+        notStored: [{ what: "session", error: "EACCES" }],
+      }),
+      "matches all 3 steps, with notes",
+    ],
     ["refused", buildRunReport(refused("settingOff")), "refused: settingOff"],
     [
       "stopped",

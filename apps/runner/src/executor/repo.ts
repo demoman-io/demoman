@@ -133,6 +133,7 @@ export async function readFilmedCode(
   root: string,
   run: GitRunner = execGit,
   deadlineMs = 20_000,
+  log: (line: string) => void = () => undefined,
 ): Promise<FilmedCode> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<FilmedCode>((done) => {
@@ -160,7 +161,13 @@ export async function readFilmedCode(
     ]);
   } finally {
     clearTimeout(timer);
-    await rm(temp, { recursive: true, force: true });
+    // Forgiven, and said: a folder that will not come off (a git still
+    // writing past the deadline) must not fail the run it was recording.
+    await rm(temp, { recursive: true, force: true }).catch((error: unknown) => {
+      log(
+        `the filmed tree's temporary index at ${temp} would not be removed (${messageOf(error)})`,
+      );
+    });
   }
 }
 

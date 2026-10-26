@@ -17,12 +17,14 @@ import type { Page } from "playwright";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   type AttachAnswer,
+  type AttachDeps,
   type Attaching,
   capMissed,
   codeClause,
   commentBody,
   copyFailedDetail,
   insertAbove,
+  lineFor,
   prLine,
 } from "../src/executor/attach.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
@@ -1107,6 +1109,44 @@ describe("prLine", () => {
     );
     expect(out.details).toContain(`${"n".repeat(1000)}…`);
     expect(out.details).not.toContain("n".repeat(1001));
+  });
+});
+
+// code-review high: one catch around both the read and prVerdict named
+// every throw "not a run report". Red if a library that throws is logged as
+// a report of the wrong shape, or the other way round.
+describe("lineFor", () => {
+  const deps = (getJson: () => Promise<unknown>, lines: string[]) =>
+    ({
+      export: { library: { getJson } },
+      log: (l: string) => void lines.push(l),
+    }) as unknown as AttachDeps;
+
+  it("a library that throws is said as a read that failed", async () => {
+    const lines: string[] = [];
+    const out = await lineFor(
+      "t1",
+      "x",
+      null,
+      deps(async () => {
+        throw new Error("disk gone");
+      }, lines),
+    );
+    expect(out.line).toContain("run report unreadable");
+    expect(lines.join("\n")).toContain("could not be read (disk gone)");
+    expect(lines.join("\n")).not.toContain("not a run report");
+  });
+
+  it("a report.json that is not a run report is said as one", async () => {
+    const lines: string[] = [];
+    const out = await lineFor(
+      "t1",
+      "x",
+      null,
+      deps(async () => ({ value: {} }), lines),
+    );
+    expect(out.line).toContain("run report unreadable");
+    expect(lines.join("\n")).toContain("is not a run report");
   });
 });
 

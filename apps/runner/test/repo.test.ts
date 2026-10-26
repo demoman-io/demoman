@@ -1,5 +1,8 @@
 import { execFileSync } from "node:child_process";
 import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -7,9 +10,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  execGit,
+  type GitRunner,
   normaliseRemote,
   readFilmedCode,
   readRepo,
@@ -214,6 +219,39 @@ describe("readFilmedCode", () => {
     const dir = committed("film-hang");
     const filmed = await readFilmedCode(dir, () => new Promise(() => {}), 50);
     expect(filmed).toEqual({ none: expect.stringContaining("timed out") });
+  });
+
+  // code-review high: the temp folder's removal ran in a bare finally, so a
+  // folder that would not come off threw out of readFilmedCode and failed
+  // the run. Recording the code must never cost the film.
+  it("a temp folder that will not come off is logged, and the tree still answered", async () => {
+    const dir = committed("film-cleanup");
+    let locked = "";
+    const stuck: GitRunner = async (args, cwd, env) => {
+      if (args[0] === "add" && env?.GIT_INDEX_FILE !== undefined) {
+        // A folder whose file cannot be unlinked, beside the temp index.
+        locked = join(dirname(env.GIT_INDEX_FILE), "locked");
+        mkdirSync(locked);
+        writeFileSync(join(locked, "x"), "x");
+        chmodSync(locked, 0o500);
+      }
+      return execGit(args, cwd, env);
+    };
+    const lines: string[] = [];
+    try {
+      const filmed = await readFilmedCode(dir, stuck, 20_000, (l) =>
+        lines.push(l),
+      );
+      // Premise: the folder was made and is still there.
+      expect(existsSync(join(locked, "x"))).toBe(true);
+      expect(filmed).toMatchObject({ dirty: false });
+      expect(lines.join("\n")).toContain(dirname(locked));
+    } finally {
+      if (locked !== "") {
+        chmodSync(locked, 0o700);
+        rmSync(dirname(locked), { recursive: true, force: true });
+      }
+    }
   });
 
   it("a git step that fails says which, in git's words", async () => {

@@ -3,8 +3,10 @@
 // The answer `demoman hook post-tool-use` prints for Claude Code's
 // PostToolUse hook: after a tool call opened a pull request, remind the agent
 // of the repo's pullRequests setting. The PR URL in the call's output is the
-// proof it opened (Bash's tool_response carries no exit code); a failed or
-// `--web` create prints none. Never silence on a failure: the answer says it
+// evidence (Bash's tool_response carries no exit code): a `--web` create
+// prints none, but one refused because the PR already exists prints that
+// PR's URL, so the answer says the call named a PR and leaves "opened now"
+// to the agent. Never silence on a failure: the answer says it
 // could not check (docs/superpowers/specs/2026-10-25-pr-reminder-and-verdict-design.md).
 import { resolvePullRequests } from "./pull-requests.js";
 
@@ -67,11 +69,11 @@ export async function postToolUseAnswer(
   }
   if ("unreadable" in setting) {
     return answer(
-      `Demoman: pull request ${url} was just opened, but this repo's Demoman pullRequests setting could not be read (${setting.unreadable}). That is not "off": tell the user, and follow the recipe's Pull requests section.`,
+      `Demoman: that call names pull request ${url}, but this repo's Demoman pullRequests setting could not be read (${setting.unreadable}). That is not "off": tell the user. If that pull request was opened now, follow the recipe's Pull requests section.`,
     );
   }
   if (setting.value === "off") return null;
   return answer(
-    `Demoman: pull request ${url} was just opened, and this repo's Demoman pullRequests setting is "${setting.value}". Follow the recipe's Pull requests section now (call the recipe tool if it is not in context).`,
+    `Demoman: that call names pull request ${url}, and this repo's Demoman pullRequests setting is "${setting.value}". If that pull request was opened now, follow the recipe's Pull requests section (call the recipe tool if it is not in context).`,
   );
 }

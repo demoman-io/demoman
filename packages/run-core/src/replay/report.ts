@@ -711,7 +711,12 @@ export function prVerdict(report: RunReport): {
 }
 
 function prClause(report: RunReport, clean: string): string {
-  if ((report.notStored ?? []).length > 0)
+  const unstored = report.notStored ?? [];
+  // A session that was not saved back is not part of the take's record, as
+  // verdictLine says; it is a note, not an incomplete record.
+  const sessionOnly =
+    unstored.length > 0 && unstored.every((w) => w.what === "session");
+  if (unstored.length > 0 && !sessionOnly)
     return "the run's record is incomplete";
   if (report.outcome === "refused")
     return `refused: ${report.refused?.reason ?? "unknown"}`;
@@ -725,6 +730,7 @@ function prClause(report: RunReport, clean: string): string {
     return `${k} step${k === 1 ? "" : "s"} not shown as scripted`;
   }
   const noted =
+    sessionOnly ||
     report.frames.degradations.length > 0 ||
     report.frames.storageRefused ||
     (report.look?.brandKitError ?? null) !== null;
