@@ -295,6 +295,8 @@ describe("the launch (R12)", () => {
       events: { send: () => {}, size: () => 1 },
       log: () => {},
       pageWaitMs: 2_000,
+      // A machine with a screen wherever the lane runs, as the harness pins.
+      host: { platform: "darwin", env: {} },
       launchContext: async (_dir, options) => {
         args = options.args ?? [];
         const ctx = new FakeContext();

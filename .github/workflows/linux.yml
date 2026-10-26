@@ -62,7 +62,9 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           browser: "true"
-      - run: sudo apt-get update && sudo apt-get install -y xvfb
+      # xrandr (x11-xserver-utils) is not on the 24.04 image: without it the
+      # screen read never runs here, and only its fallback is exercised.
+      - run: sudo apt-get update && sudo apt-get install -y xvfb x11-xserver-utils
       - name: The packed install films and exports (${{ matrix.os }})
         run: xvfb-run -a pnpm --filter @demoman/cli test:package
 
