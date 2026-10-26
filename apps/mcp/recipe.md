@@ -540,7 +540,8 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 
 | Reason | Where | What it means, and the move |
 | --- | --- | --- |
-| `browserMissing` | `snapshot`, `run` (`refusedBeforeRun`), `studio` | Demoman's browser is not installed; `detail` gives the command that installs it. Ask the user to run it, then call again. |
+| `browserMissing` | `snapshot`, `run` (`refusedBeforeRun`), `studio` | Demoman's browser or its libraries are missing; `detail` gives the command. Ask the user to run it, then call again. |
+| `unsupportedPlatform` | `snapshot`, `run`, `export` | This machine cannot record (arm64 Linux, or another OS); quote `detail` to the user. |
 | `sessionUnreadable` | `snapshot`, `run` (`refusedBeforeRun`) | A saved session file or folder could not be read, or others can read it; `detail` names the fix. Tell the user. |
 | `sessionNotLoaded` | `snapshot`, `run` (`refusedBeforeRun`) | The browser refused the saved sessions; `detail` says why. Tell the user to run `npx demoman signin` again for that site. |
 | `signInFailed` | `snapshot`, `run` (`refusedBeforeRun`) | Demoman signed in as the account and the page still showed a sign-in page, or a step could not run; `detail` says where. It tried once. Fix the account's steps or the secret, or tell the user; do not run again unchanged. |
@@ -559,16 +560,16 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `uploadRefused` | `attach` (`notAttached`) | GitHub refused the video. Retry as the Pull requests text says. |
 | `partial` | `attach` (`notAttached`) | `gh` failed but the video is on the PR; do not post again. |
 | `unconfirmed` | `attach` (`notAttached`) | Unknown what landed. Do not post again; tell the user to look at the PR. |
-| `copyFailed` | `attach` (`notAttached`) | The video could not be copied to post it; nothing was posted. Hand the user the capped export's file. |
+| `copyFailed` | `attach` (`notAttached`) | The video could not be copied; nothing was posted. Hand the user the capped export's file. |
 | `windowDidNotOpen` | `snapshot`; `run` (`refusedBeforeRun`); `studio` | The window would not open; try once more. |
 | `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
-| `alreadyRunning` | `snapshot`, `run`, `derive` | A run, snapshot or export is in progress. Call `report(id)` on it and try again when it settles. |
-| `busy` | `export` (`refusedBeforeExport`) | The same, for an export: a run or snapshot is in progress. Call `report(id)` on that call first. |
-| `browserSilent` | `status`, `takes`, `derive`, `report` | The browser did not answer within about 50 s. Call `status` once; if it answers this again, tell the user. From `report`, the run may still be going: call `report(id)` again. |
+| `alreadyRunning` | `snapshot`, `run`, `derive` | A run, snapshot or export is in progress. Call `report(id)` on it; try again when it settles. |
+| `busy` | `export` (`refusedBeforeExport`) | A run or snapshot is in progress. Call `report(id)` on it first. |
+| `browserSilent` | `status`, `takes`, `derive`, `report` | The browser did not answer within about 50 s. Call `status` once; if again, tell the user. From `report`, the run may still be going: call `report(id)` again. |
 | `libraryUnreadable` | `takes`, `studio` | The library could not be read; report it. |
 | `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: the report has a `notStored` entry `{ "what": "take", "error": … }` and a null `provenance.takeId`. Nothing was saved; quote the `error`. |
-| `unknownRun` | `report` | This demoman-mcp never issued that id (ids do not survive a restart of the server). |
-| `noReport` | `report` | No report for that id: this server keeps only its latest; `detail` says which. Do not run again for it. |
+| `unknownRun` | `report` | This demoman-mcp never issued that id (ids do not survive a server restart). |
+| `noReport` | `report` | No report for that id: this server keeps only its latest; `detail` says which. Do not run again. |
 | `notAnObject` | `run` | The script is not a JSON object. |
 | `invalidScript` | `run` | The schema refused the script; `field` names where. |
 | `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-record of a take that did not keep a value. |
@@ -581,19 +582,19 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `versionExpired` | `export` (`refusedBeforeExport`) | The take's frames expired: `run({ video: { id } })`, then export. |
 | `failed` | `status` (`expiry`) | Not a refusal: `expiry` is the last cleanup `{ ranAt, expired, freedBytes, skippedLeased }`. Say nothing unless it is `{ failed }` or `{ unreadable }`: quote it. |
 | `nothingToRerecord` | `run` (`refusedBeforeRun`) | The take has no step left that acts; tell the user. |
-| `unknownKit` | `run` (`refusedBeforeRun`) | `look.kit` names no brand kit, or one that cannot be read; `detail` lists the kits there are. Fix the name from `snapshot`'s `kits`, or ask the user. |
-| `kitsUnreadable` | `run` (`refusedBeforeRun`) | The brand kits file could not be read, so `look.kit` could not be checked; not a wrong name. Quote `detail` to the user; do not change the name. |
-| `invalidDevice` | `snapshot` | `device` names no phone or tablet Demoman has; `detail` lists the ones it does. Use one of them. |
-| `deviceFailed` | `snapshot`, `run` | The browser would not emulate the device; nothing was listed or recorded; `detail` says why. Tell the user; do not run it again. |
+| `unknownKit` | `run` (`refusedBeforeRun`) | `look.kit` names no brand kit, or one that cannot be read; `detail` lists the kits. Fix the name from `snapshot`'s `kits`, or ask the user. |
+| `kitsUnreadable` | `run` (`refusedBeforeRun`) | The brand kits file could not be read, so `look.kit` was not checked. Quote `detail` to the user; do not change the name. |
+| `invalidDevice` | `snapshot` | `device` names no phone or tablet Demoman has; `detail` lists those it has. Use one. |
+| `deviceFailed` | `snapshot`, `run` | The browser would not emulate the device; nothing was listed or recorded; `detail` says why. Tell the user; do not run again. |
 | `nonHttpTarget` | `run`, `snapshot` | The target or url is not `http(s)`, or its host contains `*`. |
 | `invalidFileType` | `export` (`refusedBeforeExport`) | Not answered here: the schema takes only `mp4`, `gif`, `stills`. |
 | `invalidStillsOptions` | `export` (`refusedBeforeExport`) | `stills` was given for an MP4 or GIF, or holds a width outside 320-3840 (or `"native"`), a zoom other than `"none"` or `"step"`, or another field; `detail` says which. Fix the call. |
 | `invalidQuality`, `invalidMaxMB` | `export` (`refusedBeforeExport`), `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
 | `noTakeId`, `noFrames` | `export` (`refusedBeforeExport`) | No take id; the take has no frames to render. |
-| `takeNotFound`, `takeUnreadable` | `export` (`refusedBeforeExport`), `run` re-record (`refusedBeforeRun`), `studio` (`takeNotFound`: call `takes`) | No such take; the take could not be read (or, for `run`, built into a script). |
+| `takeNotFound`, `takeUnreadable` | `export` (`refusedBeforeExport`), `run` re-record (`refusedBeforeRun`), `studio` (`takeNotFound`: call `takes`) | No such take; it could not be read (or, for `run`, built into a script). |
 | `dragEndOutOfView`, `dragNoDistance` | `run` (`stopped.reason`) | A drag's end was off screen (a drag cannot scroll), or on its start. Fix the script. |
 | `clickNotDelivered` | `run` (`stopped.reason`) | The browser put a click elsewhere than where it was sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |
-| `signedOut` | `run` (`stopped.reason`) | The app sent this browser to its sign-in page. Nothing was kept. Give the user the command in `stopped.detail`; run again only after they have run it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it says so. |
+| `signedOut` | `run` (`stopped.reason`) | The app sent this browser to its sign-in page. Nothing was kept. Give the user the command in `stopped.detail`; run again only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it says so. |
 | `windowClosed` | `run` (`stopped.reason`) | `--headed` only: the window was closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
 | `pageDidNotLoad` | `snapshot` | The url did not load. Ask the user whether the app is running at that address; spend no run. |
 | `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman's script; tell the user. |

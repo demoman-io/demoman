@@ -414,6 +414,13 @@ async function exportLeased(a: {
   // Default relaunch: an export may be the first call that needs a browser,
   // or come after the author closed the window.
   const work = await deps.session.openWorkPage();
+  if (!work.ok && work.reason === "unsupportedPlatform") {
+    return withSummary({
+      outcome: "refusedBeforeExport",
+      reason: work.reason,
+      detail: work.detail,
+    });
+  }
   if (!work.ok) {
     return withSummary({ outcome: "renderFailed", takeId, error: work.detail });
   }

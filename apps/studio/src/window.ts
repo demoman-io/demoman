@@ -37,7 +37,13 @@ export type LaunchContext = (
 /** How long a window Demoman asked for may take to appear. */
 const PAGE_WAIT_MS = 10_000;
 
-const STOPPING: BrowserFailure = {
+/** The Studio's own launch never asks `recorderPlatform`, so a failure to
+ *  open its window is one of these two. */
+type WindowFailure = BrowserFailure & {
+  reason: "browserMissing" | "windowDidNotOpen";
+};
+
+const STOPPING: WindowFailure = {
   ok: false,
   reason: "windowDidNotOpen",
   detail: "the Studio is stopping, so no window opens",
@@ -45,7 +51,7 @@ const STOPPING: BrowserFailure = {
 
 type Started =
   | { ok: true; context: BrowserContext; launched: boolean }
-  | BrowserFailure;
+  | WindowFailure;
 
 /**
  * The studio's browser: a persistent Chromium context launched on the first

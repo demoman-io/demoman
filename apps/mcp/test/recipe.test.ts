@@ -41,6 +41,7 @@ const tree = (d: string): string[] =>
 const CLI_SOURCES = [
   ...dir("apps/mcp/src"),
   ...dir("apps/runner/src/executor"),
+  "apps/runner/src/platform.ts",
   ...tree("packages/run-core/src").filter((f) => !f.endsWith("auto-zoom.ts")),
 ];
 /** Answered by tools.ts itself rather than spelled through a helper the
@@ -321,6 +322,7 @@ describe("the CLI's recipe", () => {
         "unknownKit",
         "videoUnwritable",
         "invalidProject",
+        "unsupportedPlatform",
       ]),
     );
     expect(reasons.filter((r) => !RECIPE.includes(`\`${r}\``))).toEqual([]);

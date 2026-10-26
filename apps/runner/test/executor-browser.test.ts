@@ -65,6 +65,31 @@ describe("classifyLaunchError", () => {
     expect(failure.detail).not.toMatch(/npx playwright(@\S*)? install/);
   });
 
+  it("names install-deps when Chromium's system libraries are missing", () => {
+    const failure = classifyLaunchError(
+      new Error(
+        "browserType.launch: \n╔══════╗\n║ Host system is missing dependencies to run browsers. ║\n║ Please install them with the following command: ║",
+      ),
+      { ok: true, version: "1.62.1" },
+    );
+    expect(failure.reason).toBe("browserMissing");
+    expect(failure.detail).toContain(
+      "sudo npx playwright@1.62.1 install-deps chromium",
+    );
+  });
+
+  // The published package's setup command answers a missing Chromium; it
+  // cannot install libraries without root, so it must not replace this one.
+  it("keeps install-deps when the package names its own install command", () => {
+    const failure = classifyLaunchError(
+      new Error("Host system is missing dependencies to run browsers."),
+      { ok: true, version: "1.62.1" },
+      "npx demoman@9.9.9 setup",
+    );
+    expect(failure.detail).toContain("install-deps chromium");
+    expect(failure.detail).not.toContain("npx demoman@9.9.9 setup");
+  });
+
   it("calls any other launch failure windowDidNotOpen, with Playwright's words", () => {
     const failure = classifyLaunchError(new Error("spawn EACCES"));
     expect(failure).toEqual({
@@ -121,6 +146,38 @@ describe("createBrowserSession", () => {
       expect(got.reason).toBe("windowDidNotOpen");
       expect(got.detail).not.toContain("npx demoman");
     }
+  });
+
+  it("refuses arm64 Linux by name before launching anything", async () => {
+    let launches = 0;
+    const session = createBrowserSession({
+      headless: true,
+      host: { platform: "linux", arch: "arm64" },
+      launchFn: async () => {
+        launches++;
+        throw new Error("launched");
+      },
+      log,
+    });
+    const got = await session.ensure();
+    expect(got).toMatchObject({ ok: false, reason: "unsupportedPlatform" });
+    if (!got.ok) expect(got.detail).toContain("no H.264 encoder");
+    expect(launches).toBe(0);
+  });
+
+  it("launches on x86_64 Linux", async () => {
+    let launches = 0;
+    const session = createBrowserSession({
+      headless: true,
+      host: { platform: "linux", arch: "x64" },
+      launchFn: async () => {
+        launches++;
+        throw new Error("launched");
+      },
+      log,
+    });
+    await session.ensure();
+    expect(launches).toBe(1);
   });
 
   it("launches once, lazily, and hands back the same browser", async () => {

@@ -408,6 +408,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       ? {}
       : { installCommand: options.installCommand }),
     ...(options.launchFn === undefined ? {} : { launchFn: options.launchFn }),
+    ...(options.host === undefined ? {} : { host: options.host }),
     ...(options.workWindow === undefined
       ? {}
       : { workWindow: options.workWindow }),

@@ -8,6 +8,7 @@ import { type BrowserContext, chromium, type Page } from "playwright";
 import { displayUnreadSentence } from "../display.js";
 import {
   chromiumInstallCommand,
+  loadedPlaywrightVersion,
   type PlaywrightVersion,
 } from "../install-advice.js";
 import {
@@ -16,26 +17,48 @@ import {
   launch,
   openCdpSession,
 } from "../launch.js";
+import { recorderPlatform } from "../platform.js";
 import { messageOf } from "../report.js";
 import { readScreen } from "./page-ops.js";
 
 export type BrowserFailure = {
   ok: false;
-  reason: "browserMissing" | "windowDidNotOpen";
+  reason: "browserMissing" | "windowDidNotOpen" | "unsupportedPlatform";
   detail: string;
 };
 
 /**
- * Playwright's missing-browser error says "Executable doesn't exist at …";
- * that is the one launch failure the author fixes with a command, so it gets
- * its own reason. Every other launch failure is said in Playwright's words.
+ * Playwright's missing-browser error says "Executable doesn't exist at …",
+ * and on Linux "Host system is missing dependencies" when Chromium's system
+ * libraries are not installed; those are the launch failures the author
+ * fixes with a command, so they get their own reason. Every other launch
+ * failure is said in Playwright's words. `installCommand`, the published
+ * package's setup command, answers a missing Chromium only: setup cannot
+ * install libraries without root.
  */
 export function classifyLaunchError(
   error: unknown,
-  playwright?: PlaywrightVersion,
-): BrowserFailure {
+  playwright: PlaywrightVersion = loadedPlaywrightVersion(),
+  installCommand?: string,
+): BrowserFailure & { reason: "browserMissing" | "windowDidNotOpen" } {
   const said = messageOf(error);
+  if (/Host system is missing dependencies/i.test(said)) {
+    return {
+      ok: false,
+      reason: "browserMissing",
+      detail: playwright.ok
+        ? `Chromium's system libraries are missing — run \`sudo npx playwright@${playwright.version} install-deps chromium\` once, then call this again`
+        : `Chromium's system libraries are missing, and Demoman could not read which Playwright it runs (${playwright.why}), so it cannot name the command that installs them: ${said}`,
+    };
+  }
   if (/Executable doesn't exist/i.test(said)) {
+    if (installCommand !== undefined) {
+      return {
+        ok: false,
+        reason: "browserMissing",
+        detail: `Demoman's browser is not installed — run \`${installCommand}\` once, then call this again`,
+      };
+    }
     const install = chromiumInstallCommand(playwright);
     return {
       ok: false,
@@ -194,6 +217,8 @@ export function createBrowserSession(options: {
    *  throws counts as one that failed. Absent, headless launches with no
    *  display, as the runner's lanes measure it. */
   readDisplay?: () => Promise<Display | { failed: string }>;
+  /** The machine this records on; `process` unless a test stands in. */
+  host?: { platform: string; arch: string };
 }): BrowserSession {
   const launchFn = options.launchFn ?? launch;
   const workWindow = options.workWindow ?? DEFAULT_WORK_WINDOW;
@@ -247,6 +272,12 @@ export function createBrowserSession(options: {
   async function start(): Promise<
     { ok: true; launched: Launched } | BrowserFailure
   > {
+    const host = options.host ?? process;
+    const platform = recorderPlatform(host.platform, host.arch);
+    if (!platform.ok) {
+      options.log(`${platform.reason} — ${platform.detail}`);
+      return { ok: false, reason: platform.reason, detail: platform.detail };
+    }
     let launched: Launched;
     let display: Display | undefined;
     if (options.headless && options.readDisplay !== undefined) {
@@ -274,15 +305,11 @@ export function createBrowserSession(options: {
           : { executablePath: options.executablePath }),
       });
     } catch (error) {
-      const classified = classifyLaunchError(error);
-      const failure: BrowserFailure =
-        classified.reason === "browserMissing" &&
-        options.installCommand !== undefined
-          ? {
-              ...classified,
-              detail: `Demoman's browser is not installed — run \`${options.installCommand}\` once, then call this again`,
-            }
-          : classified;
+      const failure = classifyLaunchError(
+        error,
+        undefined,
+        options.installCommand,
+      );
       options.log(`${failure.reason} — ${failure.detail}`);
       return failure;
     }
