@@ -62,15 +62,11 @@ export function chromiumInstallCommand(
   };
 }
 
-/**
- * Playwright's `install-deps chromium` (Linux system libraries, as root),
- * run by this node through the CLI of the playwright-core this process
- * loads. Absolute paths: `sudo` resets PATH, and an nvm, fnm or volta `npx`
- * is not on root's. One command, which setup runs as root and a failed
- * launch names.
- */
-export function chromiumDepsCommand():
-  | { ok: true; command: string; args: string[] }
+/** The CLI of the playwright-core this process's Playwright loads: the one
+ *  setup downloads Chromium with and installs its libraries with, so both
+ *  are the revision a launch looks for. */
+export function playwrightCliPath():
+  | { ok: true; cli: string }
   | { ok: false; why: string } {
   try {
     const pw = createRequire(import.meta.url).resolve(
@@ -84,12 +80,27 @@ export function chromiumDepsCommand():
         why: `this install's Playwright has no CLI at ${cli}`,
       };
     }
-    return {
-      ok: true,
-      command: process.execPath,
-      args: [cli, "install-deps", "chromium"],
-    };
+    return { ok: true, cli };
   } catch (error) {
     return { ok: false, why: messageOf(error) };
   }
+}
+
+/**
+ * Playwright's `install-deps chromium` (Linux system libraries, as root),
+ * run by this node through the CLI of the playwright-core this process
+ * loads. Absolute paths: `sudo` resets PATH, and an nvm, fnm or volta `npx`
+ * is not on root's. One command, which setup runs as root and a failed
+ * launch names.
+ */
+export function chromiumDepsCommand():
+  | { ok: true; command: string; args: string[] }
+  | { ok: false; why: string } {
+  const found = playwrightCliPath();
+  if (!found.ok) return found;
+  return {
+    ok: true,
+    command: process.execPath,
+    args: [found.cli, "install-deps", "chromium"],
+  };
 }

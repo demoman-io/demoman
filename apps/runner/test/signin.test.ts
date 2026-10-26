@@ -333,5 +333,5 @@ it("refuses on a Linux machine with no display, launching nothing", async () => 
   expect(code).toBe(1);
   expect(launches).toBe(0);
   expect(lines.join("\n")).toContain("DISPLAY and WAYLAND_DISPLAY are unset");
-  expect(lines.join("\n")).toContain("demoman signin --account");
+  expect(lines.join("\n")).toContain("demoman signin --account <name>");
 });

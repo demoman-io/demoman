@@ -13,7 +13,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { isCancel, multiselect, select } from "@clack/prompts";
@@ -26,7 +25,12 @@ import {
   PULL_REQUESTS_VALUES,
   type PullRequestsValue,
 } from "@demoman/run-core";
-import { chromiumDepsCommand, fullChromiumPath } from "@demoman/runner/package";
+import {
+  chromiumDepsCommand,
+  fullChromiumPath,
+  launchFailure,
+  playwrightCliPath,
+} from "@demoman/runner/package";
 import { readUserSettings } from "@demoman/runner/studio";
 import { writeSetting } from "@demoman/studio";
 import { chromium } from "playwright";
@@ -70,18 +74,14 @@ export function runCaptured(
   );
 }
 
-/** The CLI of the playwright-core this package's own Playwright loads, so
- *  the download is the Chromium revision that Playwright looks for. */
+/** The runner's Playwright CLI (`playwrightCliPath`), the one the
+ *  libraries are installed with too. Checked now, not at the download: a
+ *  wrong path would otherwise surface only on a machine that has no
+ *  Chromium yet. */
 function playwrightCli(): string {
-  const pw = createRequire(import.meta.url).resolve("playwright/package.json");
-  const core = createRequire(pw).resolve("playwright-core/package.json");
-  const cli = join(dirname(core), "cli.js");
-  // Checked now, not at the download: a wrong path would otherwise surface
-  // only on a machine that has no Chromium yet.
-  if (!existsSync(cli)) {
-    throw new Error(`this install's Playwright has no CLI at ${cli}`);
-  }
-  return cli;
+  const found = playwrightCliPath();
+  if (!found.ok) throw new Error(found.why);
+  return found.cli;
 }
 
 /** The runner's install-deps command; thrown when it cannot be named, as a
@@ -113,9 +113,12 @@ export function setupChromiumDownload(cli: string): {
   };
 }
 
-/** null when the runner's Chromium launches headless and closes; else the
- *  first line Playwright said (on Linux, usually missing libraries). */
-export async function browserLaunches(): Promise<string | null> {
+/** null when the runner's Chromium launches headless and closes; else
+ *  what it said, read by the runner's `launchFailure`. */
+export async function browserLaunches(): Promise<{
+  missingLibraries: boolean;
+  line: string;
+} | null> {
   try {
     const b = await chromium.launch({
       executablePath: fullChromiumPath(),
@@ -125,12 +128,8 @@ export async function browserLaunches(): Promise<string | null> {
     await b.close();
     return null;
   } catch (error) {
-    const said = error instanceof Error ? error.message : String(error);
-    return (
-      said
-        .split("\n")
-        .map((l) => l.trim())
-        .find((l) => l !== "") ?? "it failed and said nothing"
+    return launchFailure(
+      error instanceof Error ? error.message : String(error),
     );
   }
 }

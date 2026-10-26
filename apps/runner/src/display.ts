@@ -16,25 +16,32 @@ JSON.stringify({ width: s.frame.size.width, height: s.frame.size.height, scale: 
  *  anything is filmed ("films") and on every size filmed without it
  *  ("filmed"), in the same words. */
 export function displayUnreadSentence(
-  failed: string,
+  read: DisplayUnread,
   tense: "records" | "recorded",
 ): string {
   const names = tense === "records" ? "names" : "named";
-  return `Demoman could not read this computer's display (${failed}), so headless ${tense} at 1x, and at its own window size unless the script or its device ${names} one — set DEMOMAN_DISPLAY to <width>x<height>@<scale> (such as 1710x1107@2), or start Demoman with --headed`;
+  // --headed is refused where no window can open (`headlessFrom`).
+  const headed =
+    read.noWindow === true ? "" : ", or start Demoman with --headed";
+  return `Demoman could not read this computer's display (${read.failed}), so headless ${tense} at 1x, and at its own window size unless the script or its device ${names} one — set DEMOMAN_DISPLAY to <width>x<height>@<scale> (such as 1710x1107@2)${headed}`;
 }
+
+/** Why the display could not be read; `noWindow` where there is no display
+ *  for any window (`noDisplay`). */
+export type DisplayUnread = { failed: string; noWindow?: true };
 
 /** Runs a command for its output; rejects when it cannot be started. */
 type RunCommand = (
   cmd: string,
   args: string[],
-) => Promise<{ code: number; stdout: string }>;
+) => Promise<{ code: number; stdout: string; stderr?: string }>;
 
 const runCommand: RunCommand = (cmd, args) =>
   new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: 10_000 }, (error, stdout) => {
-      if (error === null) resolve({ code: 0, stdout });
+    execFile(cmd, args, { timeout: 10_000 }, (error, stdout, stderr) => {
+      if (error === null) resolve({ code: 0, stdout, stderr });
       else if (typeof error.code === "number") {
-        resolve({ code: error.code, stdout });
+        resolve({ code: error.code, stdout, stderr });
       } else reject(error);
     });
   });
@@ -48,17 +55,20 @@ const XRANDR_OUTPUT = /^\S+ connected (primary )?(\d+)x(\d+)\+\d+\+\d+/gm;
 async function readXrandr(
   env: NodeJS.ProcessEnv,
   run: RunCommand,
-): Promise<Display | { failed: string }> {
+): Promise<Display | DisplayUnread> {
   const cannot = (why: string) => ({
     failed: `xrandr could not read the screen (${why})`,
   });
-  let out: { code: number; stdout: string };
+  let out: Awaited<ReturnType<RunCommand>>;
   try {
     out = await run("xrandr", ["--current"]);
   } catch (error) {
     return cannot(error instanceof Error ? error.message : String(error));
   }
-  if (out.code !== 0) return cannot(`it exited ${out.code}`);
+  if (out.code !== 0) {
+    const said = out.stderr?.trim().split("\n")[0];
+    return cannot(`it exited ${out.code}${said ? `: ${said}` : ""}`);
+  }
   const outputs = [...out.stdout.matchAll(XRANDR_OUTPUT)];
   const chosen = outputs.find((m) => m[1] !== undefined) ?? outputs[0];
   if (chosen === undefined) return cannot("it listed no connected screen");
@@ -86,7 +96,7 @@ const DISPLAY_SETTING = /^(\d+)x(\d+)@(\d+(?:\.\d+)?)$/;
 export function readDisplay(
   env: NodeJS.ProcessEnv = process.env,
   deps: { platform?: string; run?: RunCommand } = {},
-): Promise<Display | { failed: string }> {
+): Promise<Display | DisplayUnread> {
   const platform = deps.platform ?? process.platform;
   const setting = env.DEMOMAN_DISPLAY;
   if (setting !== undefined && setting !== "") {
@@ -111,6 +121,7 @@ export function readDisplay(
     if (noDisplay(env)) {
       return Promise.resolve({
         failed: "there is no display (DISPLAY and WAYLAND_DISPLAY are unset)",
+        noWindow: true,
       });
     }
     return readXrandr(env, deps.run ?? runCommand);

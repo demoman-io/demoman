@@ -389,10 +389,15 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     try {
       const read = await readDisplay(options.env ?? process.env);
       return "failed" in read
-        ? { unreadable: displayUnreadSentence(read.failed, "records") }
+        ? { unreadable: displayUnreadSentence(read, "records") }
         : read;
     } catch (error) {
-      return { unreadable: displayUnreadSentence(messageOf(error), "records") };
+      return {
+        unreadable: displayUnreadSentence(
+          { failed: messageOf(error) },
+          "records",
+        ),
+      };
     }
   }
   const session = createBrowserSession({

@@ -209,8 +209,14 @@ describe("setup", () => {
 
   describe("on x86_64 Linux", () => {
     const DEPS = "/opt/node/bin/node /pw/cli.js install-deps chromium";
-    /** browserLaunches answering each line in turn, the last one after. */
-    const launches = (...said: Array<string | null>) => {
+    /** What the runner's launchFailure answers for the linker's line. */
+    const LIBNSS: Launch = {
+      missingLibraries: true,
+      line: "error while loading shared libraries: libnss3.so: cannot open shared object file: No such file or directory",
+    };
+    type Launch = { missingLibraries: boolean; line: string };
+    /** browserLaunches answering each in turn, the last one after. */
+    const launches = (...said: Array<Launch | null>) => {
       const seen = { n: 0 };
       return {
         seen,
@@ -229,10 +235,7 @@ describe("setup", () => {
     });
 
     it("installs the libraries as root, then checks Chromium launches", async () => {
-      const l = launches(
-        "browserType.launch: Host system is missing dependencies to run browsers.",
-        null,
-      );
+      const l = launches(LIBNSS, null);
       const m = machine({ platform: "linux", arch: "x64", isRoot: true, ...l });
       expect(await setup(m.d)).toBe(0);
       expect(m.calls.slice(0, 2)).toEqual([
@@ -243,10 +246,8 @@ describe("setup", () => {
       expect(m.out()).toContain("browser: Chromium installed");
     });
 
-    it("names the sudo command and stops when it is not root", async () => {
-      const l = launches(
-        "browserType.launch: Host system is missing dependencies to run browsers.",
-      );
+    it("names the sudo command and the missing library, and stops, when it is not root", async () => {
+      const l = launches(LIBNSS);
       const m = machine({
         platform: "linux",
         arch: "x64",
@@ -256,15 +257,13 @@ describe("setup", () => {
       expect(await setup(m.d)).toBe(1);
       expect(m.calls).not.toContain(DEPS);
       expect(m.out()).toContain(`sudo ${DEPS}`);
-      expect(m.out()).toContain("Host system is missing dependencies");
+      expect(m.out()).toContain("libnss3.so");
       expect(m.out()).not.toContain("Chromium installed");
       expect(m.calls.some((c) => c.startsWith("claude"))).toBe(false);
     });
 
     it("checks the libraries again when Chromium was already downloaded", async () => {
-      const l = launches(
-        "browserType.launch: Host system is missing dependencies to run browsers.",
-      );
+      const l = launches(LIBNSS);
       const m = machine({
         platform: "linux",
         arch: "x64",
@@ -277,17 +276,33 @@ describe("setup", () => {
     });
 
     it("stops, quoting the launch, when Chromium still fails after the root install", async () => {
-      const l = launches(
-        "browserType.launch: Host system is missing dependencies to run browsers.",
-        "browserType.launch: Target page, context or browser has been closed",
-      );
+      const l = launches(LIBNSS, {
+        missingLibraries: false,
+        line: "browserType.launch: Timeout 30000ms exceeded.",
+      });
       const m = machine({ platform: "linux", arch: "x64", isRoot: true, ...l });
       expect(await setup(m.d)).toBe(1);
       expect(m.calls).toContain(DEPS);
-      expect(m.out()).toContain(
-        "Target page, context or browser has been closed",
-      );
+      expect(m.out()).toContain("Timeout 30000ms exceeded");
       expect(m.out()).not.toContain("Chromium installed");
+    });
+
+    // A launch that failed for another reason (a slow VM's timeout, a
+    // corrupt download): libraries would not fix it, so setup neither names
+    // sudo nor runs apt, even as root, and says what Chromium said.
+    it("blames no libraries for a launch that failed for another reason", async () => {
+      for (const isRoot of [false, true]) {
+        const l = launches({
+          missingLibraries: false,
+          line: "browserType.launch: Timeout 30000ms exceeded.",
+        });
+        const m = machine({ platform: "linux", arch: "x64", isRoot, ...l });
+        expect(await setup(m.d)).toBe(1);
+        expect(m.calls).not.toContain(DEPS);
+        expect(m.out()).not.toContain("sudo");
+        expect(m.out()).toContain("Timeout 30000ms exceeded");
+        expect(m.out()).not.toContain("Chromium installed");
+      }
     });
   });
 

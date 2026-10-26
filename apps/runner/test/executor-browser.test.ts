@@ -9,6 +9,7 @@ import type { WorkWindow } from "../src/executor/browser.js";
 import {
   classifyLaunchError,
   createBrowserSession,
+  launchFailure,
 } from "../src/executor/browser.js";
 import { chromiumDepsCommand } from "../src/install-advice.js";
 import type { Launched, launch } from "../src/launch.js";
@@ -91,6 +92,23 @@ describe("classifyLaunchError", () => {
     expect(failure.reason).toBe("browserMissing");
     expect(failure.detail).toContain("libnss3.so");
     expect(failure.detail).toContain("install-deps chromium");
+  });
+
+  // One reading of a launch's words, which setup and classifyLaunchError
+  // both use: the linker's line, not Playwright's first.
+  it("reads a missing library out of the launch error, and nothing else as one", () => {
+    expect(launchFailure(MISSING_LIBRARY)).toEqual({
+      missingLibraries: true,
+      line: "error while loading shared libraries: libnss3.so: cannot open shared object file: No such file or directory",
+    });
+    expect(
+      launchFailure(
+        "browserType.launch: Timeout 30000ms exceeded.\nCall log:\n  - <launching> /x",
+      ),
+    ).toEqual({
+      missingLibraries: false,
+      line: "browserType.launch: Timeout 30000ms exceeded.",
+    });
   });
 
   // sudo resets PATH, and an nvm, fnm or volta npx is not on root's: the

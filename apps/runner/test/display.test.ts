@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readDisplay } from "../src/display.js";
+import { displayUnreadSentence, readDisplay } from "../src/display.js";
 
 describe("readDisplay", () => {
   it("takes DEMOMAN_DISPLAY outright, in CSS px and a scale", async () => {
@@ -52,7 +52,9 @@ HDMI-1 connected primary 2560x1440+0+0 (normal left inverted right x axis y axis
 DP-1 disconnected (normal left inverted right x axis y axis)
 `;
   /** A stand-in for running xrandr, counting its calls. */
-  const xrandr = (answer: () => Promise<{ code: number; stdout: string }>) => {
+  const xrandr = (
+    answer: () => Promise<{ code: number; stdout: string; stderr?: string }>,
+  ) => {
     const calls: string[] = [];
     return {
       calls,
@@ -126,6 +128,34 @@ DP-1 disconnected (normal left inverted right x axis y axis)
     expect(got).toMatchObject({
       failed: expect.stringContaining("xrandr could not read"),
     });
+  });
+
+  // Wayland without XWayland, or a stale DISPLAY: xrandr says why on stderr.
+  it("says what xrandr said when it fails", async () => {
+    const x = xrandr(async () => ({
+      code: 1,
+      stdout: "",
+      stderr: "Can't open display :0\n",
+    }));
+    const got = await readDisplay(
+      { DISPLAY: ":0" },
+      { platform: "linux", run: x.run },
+    );
+    expect(got).toMatchObject({
+      failed: expect.stringContaining("Can't open display :0"),
+    });
+  });
+
+  // --headed is refused where there is no display (headlessFrom), so the
+  // sentence must not suggest it there; elsewhere it still does.
+  it("does not suggest --headed where there is no display", async () => {
+    const none = await readDisplay({}, { platform: "linux" });
+    expect(none).toMatchObject({ noWindow: true });
+    if (!("failed" in none)) throw new Error("expected a failed read");
+    expect(displayUnreadSentence(none, "records")).not.toContain("--headed");
+    expect(
+      displayUnreadSentence({ failed: "osascript refused" }, "records"),
+    ).toContain("--headed");
   });
 
   it("lets DEMOMAN_DISPLAY win on Linux too", async () => {

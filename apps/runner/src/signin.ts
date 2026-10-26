@@ -70,7 +70,7 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
   );
   if (noWindow !== null && deps.headless !== true) {
     say(
-      `${noWindow}; sign in on a machine with a screen, or use a demo account (.demoman/accounts.json) with \`demoman signin --account\``,
+      `${noWindow}; sign in on a machine with a screen, or use a demo account (.demoman/accounts.json) with \`demoman signin --account <name>\``,
     );
     return 1;
   }

@@ -5,7 +5,7 @@ import {
   withAnswerDeadline,
 } from "@demoman/replay-engine";
 import { type BrowserContext, chromium, type Page } from "playwright";
-import { displayUnreadSentence } from "../display.js";
+import { type DisplayUnread, displayUnreadSentence } from "../display.js";
 import {
   chromiumDepsCommand,
   chromiumInstallCommand,
@@ -29,6 +29,35 @@ export type BrowserFailure = {
 };
 
 /**
+ * What a failed launch said, read once for setup and `classifyLaunchError`:
+ * a missing library is the dynamic linker's line from the browser log (or,
+ * for Playwright's own executable, its host check's), never Playwright's
+ * first line, which says only that the browser closed. Anything else is
+ * that first line.
+ */
+export function launchFailure(said: string): {
+  missingLibraries: boolean;
+  line: string;
+} {
+  const lines = said
+    .split("\n")
+    .map((l) => l.replace(/^[\s║]+|[\s║]+$/g, ""))
+    .filter((l) => l !== "");
+  for (const l of lines) {
+    const linker = /error while loading shared libraries:.*/i.exec(l);
+    if (linker !== null) return { missingLibraries: true, line: linker[0] };
+  }
+  const host = lines.find((l) =>
+    /Host system is missing dependencies/i.test(l),
+  );
+  if (host !== undefined) return { missingLibraries: true, line: host };
+  return {
+    missingLibraries: false,
+    line: lines[0] ?? "it failed and said nothing",
+  };
+}
+
+/**
  * Playwright's missing-browser error says "Executable doesn't exist at …".
  * On Linux, missing system libraries say "Host system is missing
  * dependencies" only for Playwright's own executable; a named one (every
@@ -46,12 +75,9 @@ export function classifyLaunchError(
   installCommand?: string,
 ): BrowserFailure & { reason: "browserMissing" | "windowDidNotOpen" } {
   const said = messageOf(error);
-  if (
-    /Host system is missing dependencies|error while loading shared libraries/i.test(
-      said,
-    )
-  ) {
-    const lib = /error while loading shared libraries: ([^:\s]+)/i.exec(said);
+  const read = launchFailure(said);
+  if (read.missingLibraries) {
+    const lib = /shared libraries: ([^:\s]+)/i.exec(read.line);
     const missing = `Chromium's system libraries are missing${lib === null ? "" : ` (${lib[1]})`}`;
     const deps = chromiumDepsCommand();
     return {
@@ -227,7 +253,7 @@ export function createBrowserSession(options: {
    *  relaunch after a crash films at the one it is on now. A read that
    *  throws counts as one that failed. Absent, headless launches with no
    *  display, as the runner's lanes measure it. */
-  readDisplay?: () => Promise<Display | { failed: string }>;
+  readDisplay?: () => Promise<Display | DisplayUnread>;
   /** The machine this records on; `process` unless a test stands in. */
   host?: { platform: string; arch: string };
 }): BrowserSession {
@@ -256,8 +282,8 @@ export function createBrowserSession(options: {
   /** The display this launch stands in for, or why there is none. Never
    *  throws: a read that throws is a read that failed, and says what threw. */
   async function readDisplayNow(
-    read: () => Promise<Display | { failed: string }>,
-  ): Promise<Display | { failed: string }> {
+    read: () => Promise<Display | DisplayUnread>,
+  ): Promise<Display | DisplayUnread> {
     try {
       return await read();
     } catch (error) {
@@ -298,7 +324,7 @@ export function createBrowserSession(options: {
         // screencast. Said here when the reason is new, and on every size
         // the snapshot and run report (`screenUnknown`), so the film's size
         // and scale have their reason.
-        const why = displayUnreadSentence(read.failed, "recorded");
+        const why = displayUnreadSentence(read, "recorded");
         if (why !== screenUnknown) options.log(why);
         screenUnknown = why;
       } else {

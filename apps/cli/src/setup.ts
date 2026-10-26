@@ -69,9 +69,13 @@ export interface SetupDeps {
   chromiumInstall: { command: string; args: string[] };
   /** Playwright's `install-deps chromium`: Linux system libraries, as root. */
   chromiumDeps: { command: string; args: string[] };
-  /** null when a headless Chromium launches and closes, else the first line
-   *  Playwright said. Asked on Linux only, where libraries can be missing. */
-  browserLaunches(): Promise<string | null>;
+  /** null when a headless Chromium launches and closes, else what it said,
+   *  read by the runner's `launchFailure`. Asked on Linux only, where
+   *  libraries can be missing. */
+  browserLaunches(): Promise<{
+    missingLibraries: boolean;
+    line: string;
+  } | null>;
   /** The user's home folder. */
   home: string;
   /** Codex's folder: $CODEX_HOME, else ~/.codex. */
@@ -203,12 +207,19 @@ async function browser(d: SetupDeps): Promise<boolean> {
 async function libraries(d: SetupDeps, again: string): Promise<boolean> {
   const said = await d.browserLaunches();
   if (said === null) return true;
+  // Libraries would not fix it: no sudo, no apt, and Chromium's own words.
+  if (!said.missingLibraries) {
+    d.say(
+      `browser: Chromium was downloaded but cannot start (${said.line}). Nothing else was set up; ${again} once that is fixed.`,
+    );
+    return false;
+  }
   const deps = [d.chromiumDeps.command, ...d.chromiumDeps.args]
     .map(shellQuoted)
     .join(" ");
   if (!d.isRoot) {
     d.say(
-      `browser: Chromium was downloaded but cannot start (${said}). Its system libraries need root: run \`sudo ${deps}\`, then ${again}.`,
+      `browser: Chromium was downloaded but cannot start (${said.line}). Its system libraries need root: run \`sudo ${deps}\`, then ${again}.`,
     );
     return false;
   }
@@ -223,7 +234,7 @@ async function libraries(d: SetupDeps, again: string): Promise<boolean> {
   const after = await d.browserLaunches();
   if (after !== null) {
     d.say(
-      `browser: the system libraries were installed, but Chromium still cannot start (${after}). Nothing else was set up.`,
+      `browser: the system libraries were installed, but Chromium still cannot start (${after.line}). Nothing else was set up.`,
     );
     return false;
   }
