@@ -7,6 +7,7 @@ import {
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { displayUnreadSentence } from "../display.js";
 import {
+  chromiumDepsCommand,
   chromiumInstallCommand,
   loadedPlaywrightVersion,
   type PlaywrightVersion,
@@ -28,10 +29,13 @@ export type BrowserFailure = {
 };
 
 /**
- * Playwright's missing-browser error says "Executable doesn't exist at …",
- * and on Linux "Host system is missing dependencies" when Chromium's system
- * libraries are not installed; those are the launch failures the author
- * fixes with a command, so they get their own reason. Every other launch
+ * Playwright's missing-browser error says "Executable doesn't exist at …".
+ * On Linux, missing system libraries say "Host system is missing
+ * dependencies" only for Playwright's own executable; a named one (every
+ * production launch, `fullChromiumPath`) skips that check, and the dynamic
+ * linker's "error while loading shared libraries" arrives in the browser
+ * log instead. Those are the launch failures the author fixes with a
+ * command, so they get their own reason. Every other launch
  * failure is said in Playwright's words. `installCommand`, the published
  * package's setup command, answers a missing Chromium only: setup cannot
  * install libraries without root.
@@ -42,13 +46,20 @@ export function classifyLaunchError(
   installCommand?: string,
 ): BrowserFailure & { reason: "browserMissing" | "windowDidNotOpen" } {
   const said = messageOf(error);
-  if (/Host system is missing dependencies/i.test(said)) {
+  if (
+    /Host system is missing dependencies|error while loading shared libraries/i.test(
+      said,
+    )
+  ) {
+    const lib = /error while loading shared libraries: ([^:\s]+)/i.exec(said);
+    const missing = `Chromium's system libraries are missing${lib === null ? "" : ` (${lib[1]})`}`;
+    const deps = chromiumDepsCommand();
     return {
       ok: false,
       reason: "browserMissing",
-      detail: playwright.ok
-        ? `Chromium's system libraries are missing — run \`sudo npx playwright@${playwright.version} install-deps chromium\` once, then call this again`
-        : `Chromium's system libraries are missing, and Demoman could not read which Playwright it runs (${playwright.why}), so it cannot name the command that installs them: ${said}`,
+      detail: deps.ok
+        ? `${missing} — run \`sudo ${[deps.command, ...deps.args].join(" ")}\` once, then call this again`
+        : `${missing}, and Demoman cannot name the command that installs them (${deps.why}): ${said}`,
     };
   }
   if (/Executable doesn't exist/i.test(said)) {

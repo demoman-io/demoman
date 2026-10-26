@@ -26,7 +26,7 @@ import {
   PULL_REQUESTS_VALUES,
   type PullRequestsValue,
 } from "@demoman/run-core";
-import { fullChromiumPath } from "@demoman/runner/package";
+import { chromiumDepsCommand, fullChromiumPath } from "@demoman/runner/package";
 import { readUserSettings } from "@demoman/runner/studio";
 import { writeSetting } from "@demoman/studio";
 import { chromium } from "playwright";
@@ -84,6 +84,14 @@ function playwrightCli(): string {
   return cli;
 }
 
+/** The runner's install-deps command; thrown when it cannot be named, as a
+ *  wrong Playwright CLI path is (`playwrightCli`). */
+function chromiumDeps(): { command: string; args: string[] } {
+  const deps = chromiumDepsCommand();
+  if (!deps.ok) throw new Error(deps.why);
+  return { command: deps.command, args: deps.args };
+}
+
 /** The download, run as `playwright`. Playwright warns "you are running
  *  'npx playwright install' without first installing your project's
  *  dependencies" whenever the script path holds `_npx`, which it always
@@ -103,15 +111,6 @@ export function setupChromiumDownload(cli: string): {
       "--no-shell",
     ],
   };
-}
-
-/** Playwright's `install-deps chromium`, for root: the apt packages the
- *  Chromium of this install needs. */
-export function setupChromiumDeps(cli: string): {
-  command: string;
-  args: string[];
-} {
-  return { command: process.execPath, args: [cli, "install-deps", "chromium"] };
 }
 
 /** null when the runner's Chromium launches headless and closes; else the
@@ -234,27 +233,34 @@ export function readSkill(
 }
 
 /** macOS's managed settings, which an admin's env block may use to turn
- *  every update off (code.claude.com/docs/en/settings). */
+ *  every update off (code.claude.com/docs/en/settings); Linux's are under
+ *  /etc. */
 export const CLAUDE_MANAGED_SETTINGS =
   "/Library/Application Support/ClaudeCode/managed-settings.json";
+const CLAUDE_MANAGED_SETTINGS_LINUX = "/etc/claude-code/managed-settings.json";
 
 /** Where Claude Code keeps its settings and its user config: under
  *  CLAUDE_CONFIG_DIR when that is set, else ~/.claude and ~/.claude.json. */
 export function claudePaths(
   home: string,
   configDir: string | undefined,
+  platform: string = process.platform,
 ): { settings: string; config: string; managed: string } {
+  const managed =
+    platform === "linux"
+      ? CLAUDE_MANAGED_SETTINGS_LINUX
+      : CLAUDE_MANAGED_SETTINGS;
   if (configDir === undefined || configDir === "") {
     return {
       settings: join(home, ".claude", "settings.json"),
       config: join(home, ".claude.json"),
-      managed: CLAUDE_MANAGED_SETTINGS,
+      managed,
     };
   }
   return {
     settings: join(configDir, "settings.json"),
     config: join(configDir, ".claude.json"),
-    managed: CLAUDE_MANAGED_SETTINGS,
+    managed,
   };
 }
 
@@ -340,7 +346,7 @@ export function realSetupDeps(
     // answer to "is it installed" for setup and for the first run.
     chromiumInstalled: () => existsSync(fullChromiumPath()),
     chromiumInstall: setupChromiumDownload(playwrightCli()),
-    chromiumDeps: setupChromiumDeps(playwrightCli()),
+    chromiumDeps: chromiumDeps(),
     browserLaunches,
     home,
     codexHome: process.env.CODEX_HOME || join(home, ".codex"),

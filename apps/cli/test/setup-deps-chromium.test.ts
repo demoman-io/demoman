@@ -32,6 +32,14 @@ describe("realSetupDeps' chromiumInstalled", () => {
     // Playwright's own Chromium exists here (premise above), so a launch that
     // ignored the runner's path would answer null.
     expect(await d.browserLaunches()).toContain(NOWHERE);
+    // One command, decided in the runner: the one a failed launch names.
+    const { chromiumDepsCommand } = await import("@demoman/runner/package");
+    const { ok: _ok, ...runner } = chromiumDepsCommand() as {
+      ok: true;
+      command: string;
+      args: string[];
+    };
+    expect(d.chromiumDeps).toEqual(runner);
     expect(d.chromiumDeps.args.slice(-2)).toEqual(["install-deps", "chromium"]);
   });
 });

@@ -37,9 +37,9 @@ macOS or x86_64 Linux, and Node 20 or later:
 Setup downloads Chromium and connects Demoman to Claude Code, Codex, Cursor
 and OpenCode, whichever it finds. Restart the agent, then ask it to make a
 demo. For another MCP client, see
-[Connect your agent](https://demoman.io/docs/agents). On Linux (x86_64), Chromium also needs system libraries: run setup as
-root to install them, or it names the one `sudo` command to run. Demoman is in
-public beta.
+[Connect your agent](https://demoman.io/docs/agents). On Linux (x86_64),
+Chromium also needs system libraries: setup names the one `sudo` command that
+installs them; run it, then setup again. Demoman is in public beta.
 
 ## Features
 

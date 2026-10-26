@@ -10,6 +10,7 @@ import {
   classifyLaunchError,
   createBrowserSession,
 } from "../src/executor/browser.js";
+import { chromiumDepsCommand } from "../src/install-advice.js";
 import type { Launched, launch } from "../src/launch.js";
 
 const log = (_: string) => undefined;
@@ -65,17 +66,49 @@ describe("classifyLaunchError", () => {
     expect(failure.detail).not.toMatch(/npx playwright(@\S*)? install/);
   });
 
-  it("names install-deps when Chromium's system libraries are missing", () => {
-    const failure = classifyLaunchError(
-      new Error(
-        "browserType.launch: \n╔══════╗\n║ Host system is missing dependencies to run browsers. ║\n║ Please install them with the following command: ║",
-      ),
-      { ok: true, version: "1.62.1" },
-    );
+  // Every production launch names its executable (fullChromiumPath), and
+  // Playwright skips its host check for a custom executable
+  // (playwright-core 1.62.1 coreBundle.js, launch: `if (customExecutablePath)`),
+  // so missing libraries arrive as the dynamic linker's line in the browser
+  // log. The shape of Playwright's launch error around it, from that file;
+  // not captured on a machine missing libnss3.
+  const MISSING_LIBRARY = [
+    "browserType.launch: Target page, context or browser has been closed",
+    "Browser logs:",
+    "",
+    "<launching> /home/u/.cache/ms-playwright/chromium-1234/chrome-linux/chrome --disable-field-trial-config --headless",
+    "<launched> pid=4242",
+    "[pid=4242][err] /home/u/.cache/ms-playwright/chromium-1234/chrome-linux/chrome: error while loading shared libraries: libnss3.so: cannot open shared object file: No such file or directory",
+    "Call log:",
+    "  - <launching> /home/u/.cache/ms-playwright/chromium-1234/chrome-linux/chrome",
+  ].join("\n");
+
+  it("names install-deps when a library is missing at a custom executable's launch", () => {
+    // Premise: the fixture is not the host-check text, which a custom
+    // executable never gets.
+    expect(MISSING_LIBRARY).not.toContain("Host system is missing");
+    const failure = classifyLaunchError(new Error(MISSING_LIBRARY));
     expect(failure.reason).toBe("browserMissing");
-    expect(failure.detail).toContain(
-      "sudo npx playwright@1.62.1 install-deps chromium",
+    expect(failure.detail).toContain("libnss3.so");
+    expect(failure.detail).toContain("install-deps chromium");
+  });
+
+  // sudo resets PATH, and an nvm, fnm or volta npx is not on root's: the
+  // command runs this node and this Playwright's CLI by absolute path, the
+  // same one setup names (chromiumDepsCommand).
+  it("names the one install-deps command setup names, by absolute path", () => {
+    const deps = chromiumDepsCommand();
+    expect(deps.ok, JSON.stringify(deps)).toBe(true);
+    if (!deps.ok) return;
+    expect(deps.command).toBe(process.execPath);
+    expect(deps.args.slice(-2)).toEqual(["install-deps", "chromium"]);
+    const failure = classifyLaunchError(
+      new Error("Host system is missing dependencies to run browsers."),
     );
+    expect(failure.detail).toContain(
+      `sudo ${[deps.command, ...deps.args].join(" ")}`,
+    );
+    expect(failure.detail).not.toContain("npx");
   });
 
   // The published package's setup command answers a missing Chromium; it

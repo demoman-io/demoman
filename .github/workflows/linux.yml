@@ -62,7 +62,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           browser: "true"
-      - run: sudo apt-get install -y xvfb
+      - run: sudo apt-get update && sudo apt-get install -y xvfb
       - name: The packed install films and exports (${{ matrix.os }})
         run: xvfb-run -a pnpm --filter @demoman/cli test:package
 

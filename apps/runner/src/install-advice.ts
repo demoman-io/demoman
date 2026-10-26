@@ -1,4 +1,6 @@
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { messageOf } from "./report.js";
 
 export type PlaywrightVersion =
@@ -58,4 +60,36 @@ export function chromiumInstallCommand(
     ok: false,
     detail: `Demoman could not read which Playwright it runs (${playwright.why}), so it cannot name the install command for its Chromium`,
   };
+}
+
+/**
+ * Playwright's `install-deps chromium` (Linux system libraries, as root),
+ * run by this node through the CLI of the playwright-core this process
+ * loads. Absolute paths: `sudo` resets PATH, and an nvm, fnm or volta `npx`
+ * is not on root's. One command, which setup runs as root and a failed
+ * launch names.
+ */
+export function chromiumDepsCommand():
+  | { ok: true; command: string; args: string[] }
+  | { ok: false; why: string } {
+  try {
+    const pw = createRequire(import.meta.url).resolve(
+      "playwright/package.json",
+    );
+    const core = createRequire(pw).resolve("playwright-core/package.json");
+    const cli = join(dirname(core), "cli.js");
+    if (!existsSync(cli)) {
+      return {
+        ok: false,
+        why: `this install's Playwright has no CLI at ${cli}`,
+      };
+    }
+    return {
+      ok: true,
+      command: process.execPath,
+      args: [cli, "install-deps", "chromium"],
+    };
+  } catch (error) {
+    return { ok: false, why: messageOf(error) };
+  }
 }

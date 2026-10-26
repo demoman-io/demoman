@@ -19,7 +19,8 @@ requests get a demo, then downloads Chromium (about 190 MB) and connects
 Demoman, pre-approving its tools so they run without asking. Restart the
 agent, then in your app's repo ask for a demo — for example, "make a demo of
 the feature we just built". On Linux, Chromium also needs system libraries:
-run setup as root to install them, or it names the one `sudo` command to run.
+setup names the one `sudo` command that installs them; run it, then setup
+again.
 
 Another MCP client is expected to work, not yet run: give it this stdio
 server.

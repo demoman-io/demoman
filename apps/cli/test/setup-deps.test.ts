@@ -251,20 +251,28 @@ describe("stableNodeBin", () => {
 // (/code-review, 2026-10-17); setup wrote ~/.claude regardless.
 describe("claudePaths", () => {
   it("follows CLAUDE_CONFIG_DIR, else ~/.claude and ~/.claude.json", () => {
-    expect(claudePaths("/Users/u", undefined)).toEqual({
+    expect(claudePaths("/Users/u", undefined, "darwin")).toEqual({
       settings: "/Users/u/.claude/settings.json",
       config: "/Users/u/.claude.json",
       managed: "/Library/Application Support/ClaudeCode/managed-settings.json",
     });
-    expect(claudePaths("/Users/u", "")).toEqual(
-      claudePaths("/Users/u", undefined),
+    expect(claudePaths("/Users/u", "", "darwin")).toEqual(
+      claudePaths("/Users/u", undefined, "darwin"),
     );
-    expect(claudePaths("/Users/u", "/Users/u/.claude-work")).toEqual({
+    expect(claudePaths("/Users/u", "/Users/u/.claude-work", "darwin")).toEqual({
       settings: "/Users/u/.claude-work/settings.json",
       config: "/Users/u/.claude-work/.claude.json",
       // An admin's file: CLAUDE_CONFIG_DIR does not move it.
       managed: "/Library/Application Support/ClaudeCode/managed-settings.json",
     });
+  });
+
+  // Linux keeps an admin's managed settings under /etc: reading the macOS
+  // path there is never there, and says no admin switch without looking.
+  it("reads Linux's managed settings under /etc", () => {
+    expect(claudePaths("/home/u", undefined, "linux").managed).toBe(
+      "/etc/claude-code/managed-settings.json",
+    );
   });
 });
 
