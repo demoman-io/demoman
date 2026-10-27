@@ -9,11 +9,14 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import {
   app,
+  CUSTOMER,
   executor,
+  lastServed,
   NEXT,
   SELLER,
   script,
   seller,
+  sellerAndCustomer,
   signedInSince,
   writeAccounts,
 } from "./accounts-harness.js";
@@ -104,6 +107,17 @@ it("a probe as an account whose session lapsed signs in once and probes again", 
   expect(again.value.stopped, JSON.stringify(again)).toBeNull();
   expect(signedInSince(SELLER)).toBe(2);
 }, 180_000);
+
+it("a probe plays as the account its script names, as the run would", async () => {
+  await writeAccounts(sellerAndCustomer());
+  const out = await probe(
+    script(`${app.url}/app`, NEXT, { account: "customer" }),
+  );
+  expect(out.ok, JSON.stringify(out)).toBe(true);
+  // The premise: the site's default is seller, so this is the script's word.
+  expect(out.value.account, JSON.stringify(out)).toBe("customer");
+  expect(lastServed()).toBe(CUSTOMER);
+}, 120_000);
 
 it("a probe makes no take", async () => {
   const before = await executor.request("takes", {});
