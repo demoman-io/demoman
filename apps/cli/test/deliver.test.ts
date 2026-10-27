@@ -30,6 +30,8 @@ const calls = (): string[][] =>
     .filter(Boolean)
     .map((l) => JSON.parse(l));
 
+const SENTENCE =
+  /Commits that were on `demoman\/refresh` before this run were replaced/;
 const bodyOf = (c: string[] | undefined): string =>
   c?.[(c?.indexOf("--body") ?? -2) + 1] ?? "";
 
@@ -179,6 +181,9 @@ describe("deliver", () => {
     ).toBe("docs/add-task.mp4");
     const create = calls().filter((c) => c[0] === "pr" && c[1] === "create");
     expect(create).toHaveLength(1);
+    expect(
+      git(remote, "log", "-1", "--format=%b", "demoman/refresh"),
+    ).toContain("[skip demoman]");
     expect(create[0]).toContain("demoman/refresh");
     const body = bodyOf(create[0]);
     expect(body).toContain("Demo: `Add a task` · 4.5 s · matches");
@@ -222,7 +227,7 @@ describe("deliver", () => {
     );
     expect(git(remote, "rev-list", "--count", "demoman/refresh")).toBe("2");
     const create = calls().find((c) => c[1] === "create");
-    expect(bodyOf(create)).toMatch(/replaced/);
+    expect(bodyOf(create)).toMatch(SENTENCE);
   });
 
   it("pr after only the bot's own earlier commit: the body does not claim a replacement", async () => {
@@ -237,7 +242,7 @@ describe("deliver", () => {
     writeFileSync(logPath, "");
     await run("pr", result());
     const edit = calls().find((c) => c[1] === "edit");
-    expect(bodyOf(edit)).not.toMatch(/replaced by|were replaced/);
+    expect(bodyOf(edit)).not.toMatch(SENTENCE);
   });
 
   it("pr: gh refusing to create names the repository setting and is not delivered", async () => {
