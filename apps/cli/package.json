@@ -1,6 +1,6 @@
 {
   "name": "@demoman/cli",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "license": "FSL-1.1-ALv2",
   "private": true,
   "type": "module",
