@@ -375,6 +375,12 @@ export async function playOnStage(
 const portFailureDetail = (note: string): string =>
   `something underneath the run gave way: ${note} — not a fault in the script, so rewriting steps will not fix it; run it once more, and if it stops the same way, report these words`;
 
+/** The walk's stop reason as everything downstream reads it: `signedOut`
+ *  when the page it stopped on is a sign-in page (`signedOutAfter`). */
+export function walkedReason(played: Played): ReplayStopReason | null {
+  return played.signedOutAfter === null ? played.result.reason : "signedOut";
+}
+
 /**
  * `stopped.detail` is printed in place of the reason's sentence, so it is
  * set only where it IS that reason's explanation (as the extension's):
@@ -405,10 +411,9 @@ export function stopDetail(target: string, played: Played): string | undefined {
             : navigationError !== null && result.outcome !== "complete"
               ? `${target} did not load (${navigationError}) — check that the app is running at that address`
               : undefined;
-  const walkedReason = signedOutAfter === null ? result.reason : "signedOut";
   return signedOutAfter !== null && result.reason !== null
     ? `${signedOutAfter} The take was not kept: it would end on the sign-in page. ${ownStop(result, ownDetail ?? reasonSentence(result.reason))}`
-    : walkedReason === "signedOut" && failedNote !== undefined
+    : walkedReason(played) === "signedOut" && failedNote !== undefined
       ? `${failedNote} Nothing was recorded.`
       : ownDetail;
 }

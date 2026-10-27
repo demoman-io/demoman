@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Portal fixture</title>
+    <style>
+      /* Every box placed in px, so no geometry depends on fonts. */
+      body { margin: 0; background: #fff; font: 14px/1 sans-serif; }
+      #open { position: absolute; left: 40px; top: 40px; width: 140px; height: 36px; }
+      #saved { position: absolute; left: 40px; top: 100px; margin: 0; }
+      #shown { position: absolute; left: 40px; top: 140px; margin: 0; }
+      #security { position: absolute; left: 40px; top: 180px; }
+      #down { position: absolute; left: 140px; top: 180px; }
+      [role="menu"] { position: absolute; left: 40px; top: 240px; display: flex; flex-direction: column; gap: 8px; }
+      [role="menu"] button { width: 140px; height: 32px; }
+    </style>
+  </head>
+  <body>
+    <button id="open" type="button">Open filters</button>
+    <p id="saved"></p>
+    <p id="shown"></p>
+    <a id="security" href="/security">Security</a>
+    <a id="down" href="http://127.0.0.1:1/">Down</a>
+    <script>
+      document.getElementById("saved").textContent =
+        `Saved: ${localStorage.getItem("filter") ?? "none"}`;
+      // Mounted on open, as a portal is: the menu is not in the document
+      // until the button is clicked, so a plain snapshot cannot list it.
+      document.getElementById("open").addEventListener("click", () => {
+        const menu = document.createElement("div");
+        menu.setAttribute("role", "menu");
+        for (const label of ["Live", "Archived"]) {
+          const item = document.createElement("button");
+          item.setAttribute("role", "menuitem");
+          item.textContent = label;
+          if (label === "Live") {
+            item.addEventListener("click", () => {
+              document.getElementById("shown").textContent = "Showing Live";
+              localStorage.setItem("filter", "live");
+            });
+          }
+          menu.append(item);
+        }
+        document.body.append(menu);
+      });
+    </script>
+  </body>
+</html>

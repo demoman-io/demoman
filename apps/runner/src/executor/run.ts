@@ -38,7 +38,7 @@ import {
   readLandingFacts,
 } from "./landing.js";
 import { type Library, LibraryError } from "./library.js";
-import { playOnStage, prepareStage, stopDetail } from "./play.js";
+import { playOnStage, prepareStage, stopDetail, walkedReason } from "./play.js";
 import type { SessionsLoaded } from "./session-loader.js";
 import {
   type SessionChoice,
@@ -438,8 +438,7 @@ export async function runScript(
   // when the page it stopped on is a sign-in page. Every read below is of
   // this, never of `result`, so a discarded take leaves no scene, status,
   // script.json, report.json or frames behind.
-  const walked: AuthoredResult =
-    signedOutAfter === null ? result : { ...result, reason: "signedOut" };
+  const walked: AuthoredResult = { ...result, reason: walkedReason(filmed) };
 
   // --- the take, and everything that says it happened -----------------
   //
