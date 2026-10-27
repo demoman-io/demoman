@@ -7,6 +7,7 @@
 //
 // First, before anything that could print: console.log/info/debug to stderr.
 import "@demoman/mcp/stdout-guard";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
@@ -45,6 +46,7 @@ import {
 } from "@demoman/runner/studio";
 import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshAgentSkill } from "./agent-skill.js";
+import { deliver } from "./deliver.js";
 import { PACKAGE_NAME } from "./names.js";
 import { refreshLines } from "./refresh-lines.js";
 import { parseSetupArgs, setup } from "./setup.js";
@@ -86,8 +88,9 @@ const USAGE = `demoman ${VERSION}
   npx demoman studio --stop  close the Studio
   npx demoman keep <video> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
                              keep a video current: its re-film file in .demoman/videos/, its exports in the repo
-  npx demoman refresh [<video>…] [--base-url <origin>]
-                             film the kept videos again and replace the exports whose picture changed
+  npx demoman refresh [<video>…] [--base-url <origin>] [--deliver pr|main]
+                             film the kept videos again and replace the exports whose picture changed;
+                             --deliver commits them on main, or opens a pull request (CI)
   demoman mcp [--headed]     serve Demoman's tools on stdio (your agent runs this);
                              --headed shows the browser while it records
   demoman hook post-tool-use answer Claude Code's PostToolUse hook on stdin (the plugin runs this)
@@ -386,18 +389,24 @@ async function refresh(args: string[]): Promise<void> {
     process.stderr.write(`demoman: ${said}\n\n${USAGE}`);
     process.exit(2);
   };
-  let values: { "base-url"?: string };
+  let values: { "base-url"?: string; deliver?: string };
   let positionals: string[];
   try {
     ({ values, positionals } = parseArgs({
       args,
-      options: { "base-url": { type: "string" } },
+      options: {
+        "base-url": { type: "string" },
+        deliver: { type: "string" },
+      },
       allowPositionals: true,
       strict: true,
     }));
   } catch (error) {
     return usage(error instanceof Error ? error.message : String(error));
   }
+  if (values.deliver !== undefined && !/^(pr|main)$/.test(values.deliver))
+    return usage(`--deliver is pr or main, not "${values.deliver}"`);
+  const route = values.deliver as "pr" | "main" | undefined;
   let baseUrl: string | undefined;
   if (values["base-url"] !== undefined) {
     const url = URL.canParse(values["base-url"])
@@ -476,7 +485,39 @@ async function refresh(args: string[]): Promise<void> {
   if ("threw" in result) return fail(result.threw);
   const { lines, code } = refreshLines(result);
   for (const line of lines) process.stdout.write(`${line}\n`);
-  process.exit(code);
+  if (route === undefined) process.exit(code);
+  const {
+    GITHUB_SERVER_URL: server,
+    GITHUB_REPOSITORY: slug,
+    GITHUB_RUN_ID: id,
+  } = process.env;
+  const delivered = await deliver(
+    {
+      route,
+      repoRoot: repo.repo.root,
+      result,
+      runUrl:
+        server && slug && id ? `${server}/${slug}/actions/runs/${id}` : null,
+    },
+    {
+      git: execGit,
+      gh: (a) =>
+        new Promise((done) => {
+          execFile("gh", a, { cwd: repo.repo.root }, (err, stdout, stderr) =>
+            done({
+              code: err ? (typeof err.code === "number" ? err.code : 127) : 0,
+              stdout,
+              stderr:
+                err && typeof err.code !== "number" ? String(err) : stderr,
+            }),
+          );
+        }),
+    },
+  );
+  process.stdout.write(
+    `delivered: ${delivered.delivered}: ${delivered.detail}\n`,
+  );
+  process.exit(code === 0 && delivered.ok ? 0 : 1);
 }
 
 const [command, ...rest] = process.argv.slice(2);

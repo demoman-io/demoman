@@ -80,7 +80,7 @@ hand with `signin` rather than as a demo account.
 ## refresh
 
 ```bash
-npx demoman refresh [<video>…] [--base-url <origin>]
+npx demoman refresh [<video>…] [--base-url <origin>] [--deliver pr|main]
 ```
 
 Films every video kept in `.demoman/videos/` again, or only those named, with
@@ -94,6 +94,7 @@ machine, into your own.
 | Flag | |
 | --- | --- |
 | `--base-url <origin>` | Film the app at this origin instead of the one each video was recorded at, such as a preview deployment |
+| `--deliver pr\|main` | After refreshing, commit only the replaced files: `main` pushes one `Refresh demo videos` commit to the checked-out branch; `pr` force-pushes it to `demoman/refresh` and opens or updates one pull request (the workflow's `GITHUB_TOKEN` needs "Allow GitHub Actions to create and approve pull requests"). Exits 1 if delivery fails |
 
 ## mcp
 
