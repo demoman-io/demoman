@@ -39,6 +39,13 @@ export async function deliver(
     const nothing = "no video was replaced";
     if (route === "main")
       return { delivered: "nothing", ok: true, detail: nothing };
+    // A failed video may still be out of date: the open PR's proposal for it stands.
+    if (result.videos.some((v) => v.outcome === "failed"))
+      return {
+        delivered: "nothing",
+        ok: true,
+        detail: `${nothing}; the open refresh pull request stays, because a video failed`,
+      };
     // An open refresh PR proposes videos this run just filmed equal to the
     // committed ones: left open, it could be merged.
     const found = await openRefreshPr();

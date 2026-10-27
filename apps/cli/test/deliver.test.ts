@@ -167,6 +167,25 @@ describe("deliver", () => {
     expect(a.detail).toContain("closed pull request #12");
   });
 
+  it("pr with nothing replaced but a video failed leaves the open refresh PR alone", async () => {
+    const r = unchanged();
+    r.videos = [
+      ...r.videos,
+      { ...r.videos[0], name: "Broken", outcome: "failed", detail: "x" },
+    ] as typeof r.videos;
+    // Premise: nothing was replaced, and one video failed.
+    expect(r.videos.map((v) => v.outcome)).toEqual(["unchanged", "failed"]);
+    script = { "pr list": { stdout: '[{"number":12}]' } };
+    const a = await run("pr", r);
+    expect(calls().filter((c) => c[1] === "close")).toEqual([]);
+    expect(a).toEqual({
+      delivered: "nothing",
+      ok: true,
+      detail:
+        "no video was replaced; the open refresh pull request stays, because a video failed",
+    });
+  });
+
   it("pr with nothing replaced reports a gh failure while listing or closing", async () => {
     script = { "pr list": { code: 1, stderr: "HTTP 502 bad gateway" } };
     const a = await run("pr", unchanged());
