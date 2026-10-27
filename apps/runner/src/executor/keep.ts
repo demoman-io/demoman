@@ -144,6 +144,9 @@ export async function keepVideo(
       outside: `${path} is not inside the repo at ${root} (it resolves to ${real ?? "a link to nothing"}) — keep writes only into the repo it keeps the video in`,
     };
   };
+  // The kept file itself: `.demoman` or its `videos` can be a link too.
+  const own = await inRepo(fileRel);
+  if (typeof own !== "string") return refuse("outsideRepo", own.outside);
   const paths: string[] = [];
   for (const asked of [...args.to.map((o) => o.path), args.report]) {
     if (asked === undefined) continue;
@@ -265,6 +268,8 @@ export async function keepVideo(
       logo = there;
     } else {
       logo = `${KEPT_DIR}/logos/${basename(abs)}`;
+      const copy = await inRepo(logo);
+      if (typeof copy !== "string") return refuse("outsideRepo", copy.outside);
       const existing = await readFile(join(root, logo)).catch(
         (error: NodeJS.ErrnoException) => {
           if (error.code === "ENOENT") return null;
@@ -338,6 +343,8 @@ export async function keepVideo(
           takeId: built.takeId,
           fileType: o.fileType,
           aspect: o.aspect,
+          // Its file is renamed into the repo; no row names the temp one.
+          unlisted: true,
           // A GIF has no quality to choose; export refuses one.
           ...(o.fileType === "mp4" ? { quality: o.quality } : {}),
         },

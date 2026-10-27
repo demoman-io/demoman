@@ -236,7 +236,9 @@ export async function exportTake(
       deps,
       onProgress,
     });
-    return answer.outcome === "saved"
+    // `unlisted`: `keep` and `refresh` render into a temp folder they then
+    // empty, so a row would list a file that is gone. Not an MCP argument.
+    return answer.outcome === "saved" && args.unlisted !== true
       ? await listed(answer, takeId, scene, deps)
       : told(answer);
   } finally {

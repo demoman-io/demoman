@@ -3,6 +3,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -17,6 +18,7 @@ import {
   type BrowserSession,
   createBrowserSession,
 } from "../src/executor/browser.js";
+import { exportTake } from "../src/executor/export.js";
 import { type KeepDeps, keepVideo } from "../src/executor/keep.js";
 import { createLibrary, type Library } from "../src/executor/library.js";
 import { execGit, readRepo } from "../src/executor/repo.js";
@@ -400,4 +402,113 @@ describe("keep's repo check", () => {
       await rm(join(repo, "out"));
     }
   });
+});
+
+// Review Focus 2 for keep's own files: the kept JSON and the logo copy go
+// through the same check as the outputs, before anything renders.
+describe("keep's own files stay in the repo", () => {
+  /** Puts a link at `at` (repo-relative) to an empty folder outside, with
+   *  whatever was there set aside and put back after. */
+  async function linkedOut(at: string, run: (target: string) => Promise<void>) {
+    const real = join(repo, at);
+    const aside = await mkdtemp(join(tmpdir(), "demoman-keep-aside-"));
+    const target = await mkdtemp(join(tmpdir(), "demoman-keep-target-"));
+    await rename(real, join(aside, "kept"));
+    await symlink(target, real);
+    try {
+      await run(target);
+    } finally {
+      await rm(real);
+      await rename(join(aside, "kept"), real);
+      await rm(aside, { recursive: true, force: true });
+      await rm(target, { recursive: true, force: true });
+    }
+  }
+  const keepTo = (path: string) =>
+    keepVideo(
+      {
+        video: "Add a task",
+        to: [{ path, fileType: "gif", quality: "share" }],
+        repoRoot: repo,
+      },
+      deps(),
+    );
+
+  it(
+    "refuses when .demoman links out of the repo, writing nothing either side",
+    async () => {
+      await linkedOut(".demoman", async (target) => {
+        const before = await repoFiles();
+        const out = await keepTo("docs/linked-demoman.gif");
+        expect(out).toMatchObject({ ok: false, reason: "outsideRepo" });
+        if (out.ok) return;
+        expect(out.detail).toContain(
+          `.demoman/videos/${keptFileName("Add a task")}`,
+        );
+        expect(await repoFiles(), "the repo's files").toEqual(before);
+        expect(await readdir(target), "the outside folder").toEqual([]);
+      });
+    },
+    KEEP_MS,
+  );
+
+  it(
+    "refuses when the logos folder links out of the repo, writing nothing either side",
+    async () => {
+      // Premise: the clean case copied the logo there, so there is a folder to
+      // put a link in its place, and this video's logo lives outside the repo.
+      expect(await readdir(join(repo, ".demoman/videos/logos"))).toEqual([
+        "acme.svg",
+      ]);
+      await linkedOut(".demoman/videos/logos", async (target) => {
+        const before = await repoFiles();
+        const out = await keepTo("docs/linked-logos.gif");
+        expect(out).toMatchObject({ ok: false, reason: "outsideRepo" });
+        if (out.ok) return;
+        expect(out.detail).toContain(".demoman/videos/logos/acme.svg");
+        expect(await repoFiles(), "the repo's files").toEqual(before);
+        expect(await readdir(target), "the outside folder").toEqual([]);
+      });
+    },
+    KEEP_MS,
+  );
+});
+
+// The take's outputs.json lists what was exported where: keep's renders land
+// in a temp folder it deletes, so listing them would name files that are gone.
+describe("keep's exports are not listed on the take", () => {
+  it(
+    "adds no outputs.json row, where a plain export adds one",
+    async () => {
+      const rows = async () => (await library.outputs(cleanTakeId)).length;
+      const before = await rows();
+      const out = await keepVideo(
+        {
+          video: "Add a task",
+          to: [
+            { path: "docs/unlisted.gif", fileType: "gif", quality: "share" },
+          ],
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      expect(out, JSON.stringify(out)).toMatchObject({ ok: true });
+      expect(await rows(), "rows after keep").toBe(before);
+      // Premise: a plain export of the same take does add a row, so the count
+      // above could have moved.
+      const outDir = await mkdtemp(join(tmpdir(), "demoman-keep-plain-"));
+      try {
+        const plain = await exportTake(
+          { takeId: cleanTakeId, fileType: "gif" },
+          { ...deps().export, outDir },
+          () => undefined,
+        );
+        expect(plain).toMatchObject({ outcome: "saved" });
+        expect(await rows(), "rows after a plain export").toBe(before + 1);
+      } finally {
+        await rm(outDir, { recursive: true, force: true });
+      }
+    },
+    KEEP_MS,
+  );
 });
