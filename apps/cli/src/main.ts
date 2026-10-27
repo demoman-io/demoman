@@ -8,9 +8,9 @@
 // First, before anything that could print: console.log/info/debug to stderr.
 import "@demoman/mcp/stdout-guard";
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -46,11 +46,13 @@ import {
 } from "@demoman/runner/studio";
 import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshAgentSkill } from "./agent-skill.js";
+import { ciSetup } from "./ci-workflow.js";
 import { deliver } from "./deliver.js";
 import { PACKAGE_NAME } from "./names.js";
 import { refreshLines } from "./refresh-lines.js";
 import { parseSetupArgs, setup } from "./setup.js";
 import {
+  ciPrompts,
   readSkill,
   readTextFile,
   realSetupDeps,
@@ -81,6 +83,9 @@ const USAGE = `demoman ${VERSION}
 
   npx demoman setup          install the browser and connect your coding agents
     [--yes] [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
+  npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
+  npx demoman setup --ci [--trigger push|<environment>] [--route pr|main]
+                             write .github/workflows/demoman.yml, which refreshes the kept videos on each merge
   npx demoman signin <url>   sign in to your app once, so agents can record behind the login
   npx demoman signin --account <name> [--site <origin>] [--project <dir>]
                              sign in as a demo account from .demoman/accounts.json (CI, or a check)
@@ -535,6 +540,21 @@ switch (command) {
     await refresh(rest);
     break;
   case "setup": {
+    if (rest.includes("--ci")) {
+      const tty = process.stdin.isTTY === true;
+      process.exit(
+        await ciSetup(rest, {
+          version: VERSION,
+          ask: tty ? ciPrompts() : null,
+          exists: existsSync,
+          write: (path, text) => {
+            mkdirSync(dirname(path), { recursive: true });
+            writeFileSync(path, text);
+          },
+          say: (l) => process.stdout.write(`${l}\n`),
+        }),
+      );
+    }
     const flags = parseSetupArgs(rest);
     if ("refused" in flags) {
       process.stdout.write(`Demoman setup stopped: ${flags.refused}.\n`);

@@ -18,9 +18,23 @@ terminal (a script, CI) nothing is asked.
 | Flag | |
 | --- | --- |
 | `--yes` | Asks nothing and keeps the current settings, as without a terminal; agents run setup this way |
+| `--browser-only` | Installs Chromium and connects no agent, asking nothing; for CI. On Linux it exits 1, naming the one `sudo` command, when Chromium's libraries are missing |
 | `--agents <list>` | The agents to connect, comma-separated: `claude`, `codex`, `cursor`, `opencode` |
 | `--quality <quality>` | Export quality: `share`, `high` or `full` |
 | `--pull-requests <value>` | Pull-request videos: `off`, `ask` or `attach` |
+
+### setup --ci
+
+```bash
+npx demoman setup --ci [--trigger push|<environment>] [--route pr|main]
+```
+
+Writes `.github/workflows/demoman.yml`, which runs `demoman refresh --deliver`
+on each merge to main (`push`) or after each successful deployment to the named
+environment. `--route pr` opens a pull request with the changed files, and
+needs "Allow GitHub Actions to create and approve pull requests" on in the
+repository's Actions settings; `--route main` commits them. A trigger or route
+not given is asked. For `push`, fill in the workflow's "Start your app" step.
 
 ## signin
 
