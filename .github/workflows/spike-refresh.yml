@@ -1,0 +1,47 @@
+name: Spike refresh
+on:
+  push:
+    branches: [spike/refresh-measure]
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  attach:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open a PR and attach a video with GITHUB_TOKEN
+        run: |
+          set +e
+          gh --version
+          ffmpeg -loglevel error -f lavfi -i testsrc=duration=2:size=320x240:rate=15 -pix_fmt yuv420p -c:v libx264 small.mp4; ls -l small.mp4
+          git config user.name spike; git config user.email spike@example.com
+          b=spike/refresh-attach-pr-${{ github.run_id }}
+          git checkout -b "$b"
+          echo spike > spike.txt; git add spike.txt; git commit -qm "spike: attach"
+          git push origin "$b"; echo "push exit $?"
+          gh pr create --base main --head "$b" --title "spike: attach" --body "spike body"; echo "pr create exit $?"
+          n=$(gh pr view "$b" --json number -q .number); echo "PR number: $n"
+          echo "+ gh pr edit $n --attach small.mp4"
+          gh pr edit "$n" --attach small.mp4; echo "attach exit $?"
+          echo "---- body after:"; gh pr view "$n" --json body -q .body
+          gh pr close "$n" --delete-branch; echo "close exit $?"
+  film:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        repeat: [1, 2, 3, 4, 5]
+    env:
+      REPEAT: ${{ matrix.repeat }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          browser: "true"
+      - run: pnpm --filter @demoman/cli exec vitest run --config vitest.package.config.ts test-package/spike-refresh.test.ts
