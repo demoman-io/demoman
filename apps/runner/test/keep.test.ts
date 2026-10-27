@@ -216,9 +216,13 @@ describe("keep, a clean take", () => {
           report: "docs/hero-report.json",
           repoRoot: repo,
         },
-        deps(),
+        // Kept off Linux: the answer says the first CI refresh replaces it.
+        { ...deps(), platform: "darwin" },
       );
       if (!out.ok) throw new Error(JSON.stringify(out));
+      expect(out.platformNote).toBe(
+        "kept on macOS: the first refresh in CI films it again on Linux, whose fonts differ, and replaces its outputs once; after that, refresh in CI only",
+      );
       const file = join(".demoman/videos", keptFileName("Add a task"));
       expect(out.file).toBe(file);
       const parsed = parseKept(await readFile(join(repo, file), "utf8"), file);
@@ -612,11 +616,13 @@ describe("keep's scale, from the take's record", () => {
           to: [{ path: `docs/${id}.gif`, fileType: "gif", quality: "share" }],
           repoRoot: repo,
         },
-        deps(),
+        // Kept on Linux, as CI films: nothing to replace once.
+        { ...deps(), platform: "linux" },
       );
       if (!out.ok) throw new Error(JSON.stringify(out));
       expect(out.kept.scale).toBe(2);
       expect(out.scaleGuess).toBeUndefined();
+      expect("platformNote" in out).toBe(false);
     },
     KEEP_MS,
   );

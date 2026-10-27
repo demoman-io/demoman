@@ -386,6 +386,9 @@ async function keep(args: string[]): Promise<void> {
   if (answer.scaleGuess !== undefined) {
     process.stdout.write(`  ${answer.scaleGuess}\n`);
   }
+  if (answer.platformNote !== undefined) {
+    process.stdout.write(`  ${answer.platformNote}\n`);
+  }
   process.exit(0);
 }
 

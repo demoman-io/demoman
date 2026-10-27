@@ -42,7 +42,15 @@ Films every kept video again, with no agent. It prints a line per video:
 
 The picture is compared where the camera is still. A change visible only
 while the camera moves is not seen until a later change is. Videos are not
-compared byte for byte, so an unchanged app makes no commit.
+compared byte for byte, so an unchanged app makes no commit, with two
+exceptions:
+
+- A video kept on macOS is filmed again on Linux by the first refresh in CI.
+  Linux's fonts differ, so that refresh replaces it once. After that, refresh
+  in CI only: a refresh on a Mac and one in CI replace each other's files.
+- A film whose page never comes to rest (a spinner, a clock or a carousel
+  always in view) is compared while the camera moves, so it is replaced on
+  every refresh. Its line says "(the film is never at rest)".
 
 ## Run it on every merge
 

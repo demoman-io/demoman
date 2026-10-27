@@ -69,6 +69,8 @@ export interface KeepDeps {
   export: ExportDeps;
   git: GitRunner;
   log: (line: string) => void;
+  /** process.platform unless given: tests say which side they are on. */
+  platform?: NodeJS.Platform;
 }
 
 export type KeepAnswer =
@@ -79,6 +81,9 @@ export type KeepAnswer =
       written: string[];
       /** Said when `kept.scale` is a guess: the take records none. */
       scaleGuess?: string;
+      /** Said when kept off Linux: CI's fonts differ, so its first refresh
+       *  replaces the outputs once. */
+      platformNote?: string;
     }
   | { ok: false; reason: KeepRefusal; detail: string };
 
@@ -111,6 +116,7 @@ export async function keepVideo(
   });
   const root = resolve(args.repoRoot);
   const rootReal = await realpath(root);
+  const platform = deps.platform ?? process.platform;
 
   // The video: by id or exact name, among this repo's.
   const repo = await readRepo(root, deps.git);
@@ -279,6 +285,11 @@ export async function keepVideo(
       kept,
       written,
       ...(made.scaleGuess === null ? {} : { scaleGuess: made.scaleGuess }),
+      ...(platform === "linux"
+        ? {}
+        : {
+            platformNote: `kept on ${platform === "darwin" ? "macOS" : platform}: the first refresh in CI films it again on Linux, whose fonts differ, and replaces its outputs once; after that, refresh in CI only`,
+          }),
     };
   } finally {
     await rm(temp, { recursive: true, force: true }).catch((error: unknown) =>
