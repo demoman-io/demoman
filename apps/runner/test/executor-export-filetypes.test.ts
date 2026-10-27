@@ -20,7 +20,7 @@ import { ALL_FORMATS, BufferSource, Input } from "mediabunny";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Rgb } from "../src/decode-probe-entry.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
-import { readTag } from "../src/executor/export-tag.js";
+import { readTag, tagBytes } from "../src/executor/export-tag.js";
 import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { createVideoStore } from "../src/executor/videos.js";
@@ -690,20 +690,31 @@ describe("exports carry their video and version", () => {
       if (mp4.outcome !== "saved" || mp4.fileType === "stills")
         throw new Error(JSON.stringify(mp4));
       const bytes = new Uint8Array(await readFile(mp4.file.path));
+      // The tag's byte invariants are shown on the untagged export's own
+      // bytes, tagged here: two encodes of one take are not byte-identical
+      // on CI (mdat 432,737 vs 436,861 bytes on 2026-10-25), so comparing
+      // this export with that one tested the encoder, not the tag.
+      const plain = new Uint8Array(await readFile(untaggedMp4));
       // The premise the chunk-offset shift is for: the real sink writes moov
       // before mdat. If it stops, the shift is untested here; say so.
-      expect(topBoxes(bytes), "the real sink's box order").toEqual([
+      expect(topBoxes(plain), "the real sink's box order").toEqual([
         "ftyp",
         "moov",
         "mdat",
       ]);
-      // Tagging moved nothing but moov's own size: mdat is byte-identical to
-      // the untagged export's, and each chunk offset moved by the tag's size.
-      const plain = new Uint8Array(await readFile(untaggedMp4));
-      expect(mdatOf(bytes)).toEqual(mdatOf(plain));
-      const delta = bytes.length - plain.length;
+      const tagged = tagBytes("mp4", plain, want.found);
+      if (!tagged.ok) throw new Error(tagged.error);
+      // Tagging moved nothing but moov's own size: mdat is byte-identical,
+      // and each chunk offset moved by the tag's size. Compared as one
+      // boolean: a failed toEqual on ~430 KB printed a per-byte diff for
+      // 44 minutes.
+      expect(
+        Buffer.from(mdatOf(tagged.bytes)).equals(mdatOf(plain)),
+        "mdat is byte-identical after tagging",
+      ).toBe(true);
+      const delta = tagged.bytes.length - plain.length;
       expect(delta, "the tag grew the file").toBeGreaterThan(0);
-      const offsets = chunkOffsets(bytes);
+      const offsets = chunkOffsets(tagged.bytes);
       expect(offsets.length, "the fixture has chunks to move").toBeGreaterThan(
         0,
       );
@@ -713,7 +724,7 @@ describe("exports carry their video and version", () => {
       // the wrong bytes; only decoding says they are not.
       const probe = { colors: [DISK_TAKE_RED, DISK_TAKE_INK] };
       const before = await sampleMp4(plain, probe);
-      const after = await sampleMp4(bytes, probe);
+      const after = await sampleMp4(tagged.bytes, probe);
       expect(before.readings.length, "the probe read frames").toBeGreaterThan(
         1,
       );
@@ -722,7 +733,15 @@ describe("exports carry their video and version", () => {
         "the untagged picture shows the take's red text",
       ).toBe(true);
       expect(after, "tagged decodes as untagged").toEqual(before);
+      // The export itself went through the tagger: its tag reads back, and
+      // its samples decode to the take's picture.
       expect(readTag(bytes)).toEqual(want);
+      expect(
+        (await sampleMp4(bytes, probe)).readings.some(
+          (r) => (r.colorCounts[0] ?? 0) > 0,
+        ),
+        "the tagged export shows the take's red text",
+      ).toBe(true);
       expect(mp4.warnings.untagged).toBeUndefined();
       const duration = await new Input({
         source: new BufferSource(bytes),
