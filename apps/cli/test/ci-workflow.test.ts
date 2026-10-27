@@ -66,11 +66,24 @@ describe("ciWorkflow", () => {
     expect(deploy).toContain(
       "github.event.deployment.environment == 'Production'",
     );
+    // The URL reaches the shell through env, never interpolated into it.
+    expect(deploy).toContain('--base-url "$DEMOMAN_BASE_URL"');
     expect(deploy).toContain(
-      `--base-url ${expr("github.event.deployment_status.environment_url")}`,
+      `DEMOMAN_BASE_URL: ${expr("github.event.deployment_status.environment_url")}`,
     );
     expect(deploy).toContain(`ref: ${expr("github.event.deployment.sha")}`);
     expect(push).not.toContain("--base-url");
+  });
+
+  it("interpolates no expression into any run line, in either shape", () => {
+    for (const y of [push, deploy]) {
+      const runs = lines(y).filter((l) => l.trim().startsWith("run:"));
+      expect(
+        runs.length,
+        "premise: the workflow has run lines",
+      ).toBeGreaterThan(3);
+      for (const l of runs) expect(l, l).not.toContain("${{");
+    }
   });
 
   it("passes the route to --deliver", () => {

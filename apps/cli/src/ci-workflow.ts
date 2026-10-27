@@ -70,10 +70,13 @@ export function ciWorkflow(o: CiOptions): string {
       #   run: npm ci && npm run build && (npm start &) && npx wait-on http://localhost:3000
 `
       : "";
-  const baseUrl =
+  // The URL is set by whoever may post deployment statuses: it reaches the
+  // shell through env, never interpolated into the run line.
+  const baseUrl = deployment === null ? "" : ' --base-url "$DEMOMAN_BASE_URL"';
+  const baseUrlEnv =
     deployment === null
       ? ""
-      : ` --base-url ${expr("github.event.deployment_status.environment_url")}`;
+      : `\n          DEMOMAN_BASE_URL: ${expr("github.event.deployment_status.environment_url")}`;
   const run = expr("steps.guard.outputs.skip != 'true'");
   const script = GUARD_SCRIPT.split("\n")
     .map((l) => `          ${l}`)
@@ -122,7 +125,7 @@ ${start}      - name: Refresh the kept videos
         if: ${run}
         run: ${npx} refresh --deliver ${o.route}${baseUrl}
         env:
-          GH_TOKEN: ${expr("github.token")}
+          GH_TOKEN: ${expr("github.token")}${baseUrlEnv}
           # One pair per demo account: NAME is what a kept script's { secret: NAME }
           # names, and _ORIGIN is the one site it may be typed on (without it the
           # run refuses the secret).
