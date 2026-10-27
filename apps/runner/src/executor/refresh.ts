@@ -1,0 +1,451 @@
+import {
+  access,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
+import {
+  type ExportAnswer,
+  KEPT_DIR,
+  type KeptVideo,
+  keptFileName,
+  messageOf,
+  parseKept,
+  prVerdict,
+  type RunReport,
+} from "@demoman/run-core";
+import type { DemoScript } from "@demoman/scene-schema";
+import { codeClause, prLine } from "./attach.js";
+import type { BrowserSession } from "./browser.js";
+import { place, repoPath } from "./keep.js";
+import { createLibrary } from "./library.js";
+import type { GitRunner } from "./repo.js";
+import { samePicture } from "./same-picture.js";
+import type { LocalExecutor } from "./types.js";
+
+export interface RefreshVideo {
+  name: string;
+  /** The kept file, repo-relative. */
+  file: string;
+  outcome: "replaced" | "unchanged" | "failed";
+  /** Why it failed (the run's verdict line, or what refused), or what the
+   *  comparison found. */
+  detail: string;
+  /** The repo paths this refresh wrote for the video. */
+  outputs: string[];
+  /** A replaced video's line for a pull request (`attach`'s), else null. */
+  line: string | null;
+}
+
+export interface RefreshResult {
+  videos: RefreshVideo[];
+}
+
+export interface RefreshDeps {
+  /** The user's library, which `library: "local"` films into. */
+  home: string;
+  /** A headless executor filming into `home`, at the display `env` names,
+   *  exporting into `outDir`, reading accounts from `projectDir`. */
+  executor(options: {
+    home: string;
+    env: NodeJS.ProcessEnv;
+    outDir: string;
+    projectDir: string;
+  }): LocalExecutor;
+  /** The browser that decodes outputs to compare them. */
+  session: Pick<BrowserSession, "openWorkPage">;
+  env: NodeJS.ProcessEnv;
+  git: GitRunner;
+  log: (line: string) => void;
+}
+
+/** The display a device script films on; its own size comes from the
+ *  device, so only the scale here matters. */
+const DEVICE_DISPLAY = { width: 1280, height: 800 };
+
+type Job = { kept: KeptVideo; file: string; script: DemoScript };
+
+/**
+ * Why a run answer is not clean enough to replace a committed video, or
+ * null when it is: complete, never stopped, every step matched, nothing
+ * degraded, everything stored. Read from the answer, never recomputed; the
+ * reason given is the answer's own summary (its verdict line).
+ */
+export function uncleanRun(answer: Record<string, unknown>): string | null {
+  const r = answer as Omit<Partial<RunReport>, "outcome"> & {
+    outcome?: unknown;
+    summary?: unknown;
+    reason?: unknown;
+    detail?: unknown;
+    error?: unknown;
+  };
+  if (r.outcome === "refusedBeforeRun") return `${r.reason}: ${r.detail}`;
+  if (r.outcome === "threw") return `the run threw: ${r.error}`;
+  const clean =
+    r.outcome === "complete" &&
+    r.stopped === undefined &&
+    r.verdict?.kind === "matches" &&
+    r.frames?.degradations.length === 0 &&
+    (r.notStored ?? []).length === 0;
+  if (clean) return null;
+  return typeof r.summary === "string"
+    ? r.summary
+    : `the run answered ${JSON.stringify(r.outcome)} with no summary`;
+}
+
+/**
+ * `demoman refresh`: re-films each kept video's script with no agent,
+ * judges the run, exports each output and replaces only those whose picture
+ * changed, each by rename from a finished file beside it. A video that fails
+ * leaves its committed files as they were and says why; the others still
+ * refresh.
+ */
+export async function refreshKept(
+  args: {
+    repoRoot: string;
+    only?: string[];
+    baseUrl?: string;
+    library: "local" | "throwaway";
+  },
+  deps: RefreshDeps,
+): Promise<RefreshResult> {
+  const root = resolve(args.repoRoot);
+  const rootReal = await realpath(root);
+  const videos: RefreshVideo[] = [];
+  const failed = (name: string, file: string, detail: string) =>
+    videos.push({
+      name,
+      file,
+      outcome: "failed",
+      detail,
+      outputs: [],
+      line: null,
+    });
+
+  let names: string[] = [];
+  try {
+    names = (await readdir(join(root, KEPT_DIR)))
+      .filter((n) => n.endsWith(".json"))
+      .sort();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const asked = args.only?.map(keptFileName);
+  const found = new Set<string>();
+  // One executor per display: a browser launches at one scale.
+  const groups = new Map<string, Job[]>();
+  for (const n of names) {
+    const file = `${KEPT_DIR}/${n}`;
+    let text: string;
+    try {
+      text = await readFile(join(root, file), "utf8");
+    } catch (error) {
+      failed(n, file, `${file} could not be read (${messageOf(error)})`);
+      continue;
+    }
+    const parsed = parseKept(text, file);
+    // Whether it is one `only` names cannot be told, so it is said.
+    if (!parsed.ok) {
+      failed(n.replace(/\.json$/, ""), file, parsed.detail);
+      continue;
+    }
+    const { kept } = parsed;
+    const slug = keptFileName(kept.name);
+    if (asked !== undefined && !asked.includes(slug)) continue;
+    found.add(slug);
+    const outside: string[] = [];
+    for (const p of [
+      ...kept.outputs.map((o) => o.path),
+      ...(kept.report === null ? [] : [kept.report]),
+      ...(kept.logo === null ? [] : [kept.logo]),
+    ]) {
+      const at = await repoPath(root, rootReal, p, "refresh");
+      if (typeof at !== "string") outside.push(at.outside);
+    }
+    if (outside.length > 0) {
+      failed(kept.name, file, outside.join("; "));
+      continue;
+    }
+    const script = scriptFor(kept, root, args.baseUrl);
+    const { width, height } = script.viewport ?? DEVICE_DISPLAY;
+    const display = `${width}x${height}@${kept.scale}`;
+    groups.set(display, [
+      ...(groups.get(display) ?? []),
+      { kept, file, script },
+    ]);
+  }
+  for (const a of args.only ?? []) {
+    if (!found.has(keptFileName(a)))
+      failed(
+        a,
+        `${KEPT_DIR}/${keptFileName(a)}`,
+        `no kept video is named "${a}"`,
+      );
+  }
+
+  // Every video is filmed before any file is written, so each one films
+  // the checkout as it was, and each line names the same code.
+  const head =
+    groups.size > 0 ? await headOf(root, deps) : { commit: null, tree: null };
+  const filmed: Filmed[] = [];
+  const outDirs: string[] = [];
+  try {
+    for (const [display, jobs] of groups) {
+      const home =
+        args.library === "throwaway"
+          ? await mkdtemp(join(tmpdir(), "demoman-refresh-home-"))
+          : deps.home;
+      const outDir = await mkdtemp(join(tmpdir(), "demoman-refresh-"));
+      outDirs.push(outDir);
+      const executor = deps.executor({
+        home,
+        env: { ...deps.env, DEMOMAN_DISPLAY: display },
+        outDir,
+        projectDir: root,
+      });
+      try {
+        for (const job of jobs) {
+          deps.log(`refresh: filming "${job.kept.name}" at ${display}`);
+          try {
+            const one = await filmOne(job, root, executor, home, args.library);
+            if ("failed" in one) failed(job.kept.name, job.file, one.failed);
+            else filmed.push(one);
+          } catch (error) {
+            failed(
+              job.kept.name,
+              job.file,
+              `refresh threw: ${messageOf(error)}`,
+            );
+          }
+        }
+      } finally {
+        await executor
+          .close()
+          .catch((error: unknown) =>
+            deps.log(
+              `refresh: the browser would not close (${messageOf(error)})`,
+            ),
+          );
+        if (args.library === "throwaway") await remove(home, deps);
+      }
+    }
+    for (const one of filmed) {
+      try {
+        videos.push(await replaceOne(one, root, head, deps));
+      } catch (error) {
+        failed(
+          one.job.kept.name,
+          one.job.file,
+          `refresh threw: ${messageOf(error)}`,
+        );
+      }
+    }
+  } finally {
+    for (const dir of outDirs) await remove(dir, deps);
+  }
+  videos.sort((a, b) => a.file.localeCompare(b.file));
+  return { videos };
+}
+
+/** The kept script as this refresh films it: the logo by its repo path
+ *  (the runner reads a relative ref from DEMOMAN_HOME), and the target at
+ *  `baseUrl`'s origin when one is given. */
+function scriptFor(
+  kept: KeptVideo,
+  root: string,
+  baseUrl?: string,
+): DemoScript {
+  const script = structuredClone(kept.script);
+  const logo = script.look?.branding?.logo;
+  if (kept.logo !== null && logo !== undefined && logo !== null)
+    logo.ref = join(root, kept.logo);
+  if (baseUrl !== undefined) {
+    const t = new URL(script.target);
+    script.target = new URL(`${t.pathname}${t.search}${t.hash}`, baseUrl).href;
+  }
+  return script;
+}
+
+/** The checkout's commit and tree, for the line's code clause. */
+async function headOf(
+  root: string,
+  deps: RefreshDeps,
+): Promise<{ commit: string | null; tree: string | null }> {
+  const read = async (rev: string) => {
+    try {
+      const r = await deps.git(["rev-parse", rev], root);
+      if (r.code === 0) return r.stdout.trim();
+      deps.log(
+        `refresh: git rev-parse ${rev} exited ${r.code}; lines say the code was not checked`,
+      );
+    } catch (error) {
+      deps.log(
+        `refresh: git could not read ${rev} (${messageOf(error)}); lines say the code was not checked`,
+      );
+    }
+    return null;
+  };
+  return { commit: await read("HEAD"), tree: await read("HEAD^{tree}") };
+}
+
+async function remove(dir: string, deps: RefreshDeps): Promise<void> {
+  await rm(dir, { recursive: true, force: true }).catch((error: unknown) =>
+    deps.log(`refresh: ${dir} was not removed (${messageOf(error)})`),
+  );
+}
+
+/** A video filmed clean and exported: each output's new file, in order. */
+type Filmed = {
+  job: Job;
+  report: RunReport;
+  rendered: string[];
+  /** The take's report.json, for `kept.report`; or why it is not had. */
+  stored: { value: unknown } | { not: string } | null;
+};
+
+async function filmOne(
+  { kept, file, script }: Job,
+  root: string,
+  executor: LocalExecutor,
+  home: string,
+  library: "local" | "throwaway",
+): Promise<Filmed | { failed: string }> {
+  const fresh = { new: kept.name, confirmedNew: true };
+  const run = async (video: unknown) => {
+    const out = await executor.request("run", { script, video, project: root });
+    return out.ok
+      ? (out.value as Record<string, unknown>)
+      : { outcome: "refusedBeforeRun", reason: out.reason, detail: out.detail };
+  };
+  let answer = await run(
+    library === "local" ? { id: kept.from.videoId } : fresh,
+  );
+  // A checkout whose videos were kept on another machine.
+  if (
+    answer.outcome === "refusedBeforeRun" &&
+    answer.reason === "videoNotFound"
+  )
+    answer = await run(fresh);
+  const unclean = uncleanRun(answer);
+  if (unclean !== null) return { failed: unclean };
+  const report = answer as unknown as RunReport;
+  const takeId = report.provenance.takeId;
+  if (takeId === null) return { failed: "the run is clean but made no take" };
+
+  const rendered: string[] = [];
+  for (const o of kept.outputs) {
+    const out = await executor.request("export", {
+      takeId,
+      fileType: o.fileType,
+      aspect: o.aspect,
+      // Its file is renamed into the repo; no row names the temp one.
+      unlisted: true,
+      // A GIF has no quality to choose; export refuses one.
+      ...(o.fileType === "mp4" ? { quality: o.quality } : {}),
+    });
+    if (!out.ok) return { failed: `${o.path}: ${out.detail}` };
+    const exported = out.value as ExportAnswer & { summary?: string };
+    if (exported.outcome !== "saved" || exported.fileType === "stills")
+      return { failed: `${o.path}: ${exported.summary ?? exported.outcome}` };
+    if (exported.warnings.logo !== null)
+      return {
+        failed: `${o.path} was rendered without its logo: ${exported.warnings.logo}`,
+      };
+    rendered.push(exported.file.path);
+  }
+  let stored: Filmed["stored"] = null;
+  if (kept.report !== null) {
+    const read = await createLibrary(home).getJson(takeId, "report.json");
+    stored =
+      "value" in read
+        ? { value: read.value }
+        : {
+            not: `take ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
+          };
+  }
+  return { job: { kept, file, script }, report, rendered, stored };
+}
+
+/** Compares each new output with the committed one and replaces those
+ *  whose picture changed, each by rename from a finished file beside it. */
+async function replaceOne(
+  { job, report, rendered, stored }: Filmed,
+  root: string,
+  head: { commit: string | null; tree: string | null },
+  deps: RefreshDeps,
+): Promise<RefreshVideo> {
+  const { kept, file } = job;
+  const changed: number[] = [];
+  const said: string[] = [];
+  for (const [i, o] of kept.outputs.entries()) {
+    const committed = join(root, o.path);
+    const there = await access(committed).then(
+      () => true,
+      () => false,
+    );
+    if (!there) {
+      changed.push(i);
+      said.push(`${o.path} is new`);
+      continue;
+    }
+    try {
+      const cmp = await samePicture(committed, rendered[i] as string, deps);
+      if (!cmp.same) changed.push(i);
+      said.push(`${o.path}: ${cmp.detail}`);
+    } catch (error) {
+      // Replaced: a committed file that cannot be decoded is no picture.
+      changed.push(i);
+      said.push(`${o.path} could not be compared (${messageOf(error)})`);
+    }
+  }
+  const answer = (
+    outcome: RefreshVideo["outcome"],
+    outputs: string[],
+    line: string | null,
+  ): RefreshVideo => ({
+    name: kept.name,
+    file,
+    outcome,
+    detail: said.join("; "),
+    outputs,
+    line,
+  });
+  if (changed.length === 0) return answer("unchanged", [], null);
+
+  const written: string[] = [];
+  try {
+    for (const i of changed) {
+      const o = kept.outputs[i] as (typeof kept.outputs)[number];
+      const from = await place(
+        join(root, o.path),
+        await readFile(rendered[i] as string),
+      );
+      deps.log(`refresh: renamed ${relative(root, from)} over ${o.path}`);
+      written.push(o.path);
+    }
+    if (kept.report !== null && stored !== null) {
+      if ("value" in stored) {
+        await place(
+          join(root, kept.report),
+          `${JSON.stringify(stored.value, null, 2)}\n`,
+        );
+        written.push(kept.report);
+      } else said.push(`${kept.report} was not written: ${stored.not}`);
+    }
+  } catch (error) {
+    said.push(
+      `${written.length > 0 ? `wrote ${written.join(", ")}, then ` : ""}could not write into ${root} (${messageOf(error)})`,
+    );
+    return answer("failed", written, null);
+  }
+  const { line } = prLine(
+    kept.name,
+    prVerdict(report),
+    codeClause(report.filmedCode, head.commit, head.tree),
+  );
+  return answer("replaced", written, line);
+}

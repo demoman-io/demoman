@@ -18,12 +18,14 @@ import type { BuildOptions } from "esbuild";
  */
 const APP_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-/** The four in-page entries, by the file name a prebuilt bundle carries. */
+/** The in-page entries, by the file name a prebuilt bundle carries. The
+ *  decode page is `refresh`'s, to compare a new export with the committed. */
 export const PAGE_ENTRIES = [
   "resolve-entry",
   "executor-entry",
   "render-entry",
   "mux-entry",
+  "decode-probe-entry",
 ] as const;
 export type PageEntry = (typeof PAGE_ENTRIES)[number];
 

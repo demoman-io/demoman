@@ -19,7 +19,14 @@ export {
   type KeepRefusal,
   keepVideo,
 } from "./executor/keep.js";
+export {
+  type RefreshDeps,
+  type RefreshResult,
+  type RefreshVideo,
+  refreshKept,
+} from "./executor/refresh.js";
 export { execGit, readRepo } from "./executor/repo.js";
+export { samePicture } from "./executor/same-picture.js";
 export type { ExecutorOptions, LocalExecutor } from "./executor/types.js";
 export { chromiumDepsCommand, playwrightCliPath } from "./install-advice.js";
 export { recorderPlatform, visibleWindowRefusal } from "./platform.js";

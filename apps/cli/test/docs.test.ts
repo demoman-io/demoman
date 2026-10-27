@@ -257,7 +257,16 @@ describe("the README's new shape", () => {
 describe("commands", () => {
   it("USAGE is read as text and lists the commands the docs may use", () => {
     expect([...usageCommands()].sort()).toEqual(
-      ["--version", "hook", "keep", "mcp", "setup", "signin", "studio"].sort(),
+      [
+        "--version",
+        "hook",
+        "keep",
+        "mcp",
+        "refresh",
+        "setup",
+        "signin",
+        "studio",
+      ].sort(),
     );
   });
   it("every npx demoman command on the site is one USAGE lists", () => {
@@ -327,8 +336,9 @@ describe("the CLI's commands page", () => {
     ]);
     flags.delete("--serve");
     // The premise: mcp's two flags, signin's three, studio's --stop,
-    // setup's three and keep's three more (--to, --gif, --report).
-    expect(flags.size).toBeGreaterThanOrEqual(12);
+    // setup's three, keep's three more (--to, --gif, --report) and
+    // refresh's --base-url.
+    expect(flags.size).toBeGreaterThanOrEqual(13);
     for (const f of flags) expect(page(), f).toContain(`\`${f}`);
   });
 });

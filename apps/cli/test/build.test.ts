@@ -19,7 +19,13 @@ import { checkStudioPages } from "../scripts/studio-pages.mjs";
 const at = (p: string) => new URL(`../${p}`, import.meta.url);
 const read = (p: string) => readFileSync(at(p), "utf8");
 const json = (p: string) => JSON.parse(read(p));
-const PAGES = ["resolve-entry", "executor-entry", "render-entry", "mux-entry"];
+const PAGES = [
+  "resolve-entry",
+  "executor-entry",
+  "render-entry",
+  "mux-entry",
+  "decode-probe-entry",
+];
 const inputsOf = (meta: { inputs: Record<string, unknown> }) =>
   Object.keys(meta.inputs);
 
@@ -191,9 +197,12 @@ it("ships the package README and packs it", () => {
 // Measured 2026-10-16 with the studio's pages in dist/studio (launch D2):
 // 1,100,194 B, unpacked 4,752,377 B, 34 files — the pages' shared chunk
 // carries mediabunny a third time, for the editor's preview.
+// Measured 2026-10-27 with refresh's decode page (decode-probe-entry, its
+// own copy of mediabunny's demuxer): 1,403,516 B, unpacked 6,028,731 B, 37
+// files; 1,249,382 B without it.
 // 25% headroom; red when something like compositor's 21 MB of fixtures
 // rides in.
-const MAX_TARBALL_BYTES = 1_375_000;
+const MAX_TARBALL_BYTES = 1_755_000;
 it("packs under its size ceiling", () => {
   const out = execFileSync("npm", ["pack", "--dry-run", "--json"], {
     cwd: fileURLToPath(new URL("../pkg", import.meta.url)),

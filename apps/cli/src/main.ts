@@ -29,7 +29,9 @@ import {
   type KeepOutput,
   keepVideo,
   PAGE_ENTRIES,
+  type RefreshResult,
   readRepo,
+  refreshKept,
   signin,
   signinAccount,
   usePrebuiltPages,
@@ -83,6 +85,8 @@ const USAGE = `demoman ${VERSION}
   npx demoman studio --stop  close the Studio
   npx demoman keep <video> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
                              keep a video current: its re-film file in .demoman/videos/, its exports in the repo
+  npx demoman refresh [<video>…] [--base-url <origin>]
+                             film the kept videos again and replace the exports whose picture changed
   demoman mcp [--headed]     serve Demoman's tools on stdio (your agent runs this);
                              --headed shows the browser while it records
   demoman hook post-tool-use answer Claude Code's PostToolUse hook on stdin (the plugin runs this)
@@ -373,6 +377,109 @@ async function keep(args: string[]): Promise<void> {
   process.exit(0);
 }
 
+/** `demoman refresh`: every kept video in the repo (or those named) filmed
+ *  again with no agent; an export is replaced only when its picture changed.
+ *  In CI (`CI=true`) into a library thrown away after; else the user's. */
+async function refresh(args: string[]): Promise<void> {
+  const usage = (said: string): never => {
+    process.stderr.write(`demoman: ${said}\n\n${USAGE}`);
+    process.exit(2);
+  };
+  let values: { "base-url"?: string };
+  let positionals: string[];
+  try {
+    ({ values, positionals } = parseArgs({
+      args,
+      options: { "base-url": { type: "string" } },
+      allowPositionals: true,
+      strict: true,
+    }));
+  } catch (error) {
+    return usage(error instanceof Error ? error.message : String(error));
+  }
+  let baseUrl: string | undefined;
+  if (values["base-url"] !== undefined) {
+    const url = URL.canParse(values["base-url"])
+      ? new URL(values["base-url"])
+      : null;
+    if (url === null || !/^https?:$/.test(url.protocol))
+      return usage(
+        `--base-url is an http(s) origin such as http://localhost:3000, not "${values["base-url"]}"`,
+      );
+    baseUrl = url.origin;
+  }
+  const fail = (detail: string): never => {
+    process.stderr.write(`demoman refresh: ${detail}\n`);
+    process.exit(1);
+  };
+  const repo = await readRepo(process.cwd(), execGit);
+  if (!repo.ok) {
+    return fail(
+      `${repo.none} — run refresh inside the repo the videos are kept in`,
+    );
+  }
+  requirePageBundles(
+    join(fileURLToPath(new URL(".", import.meta.url)), "page"),
+    (line) => fail(line),
+  );
+  const install = `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup`;
+  // Decodes the exports to compare them, out of sight.
+  const session = createBrowserSession({
+    headless: true,
+    executablePath: fullChromiumPath(),
+    installCommand: install,
+    log,
+  });
+  let result: RefreshResult | { threw: string };
+  try {
+    result = await refreshKept(
+      {
+        repoRoot: repo.repo.root,
+        ...(positionals.length > 0 ? { only: positionals } : {}),
+        ...(baseUrl === undefined ? {} : { baseUrl }),
+        library: process.env.CI === "true" ? "throwaway" : "local",
+      },
+      {
+        home: demomanHome(),
+        executor: (o) =>
+          createLocalExecutor({
+            ...o,
+            headless: true,
+            // Films at the kept scale, which DEMOMAN_DISPLAY names.
+            standInDisplay: true,
+            executablePath: fullChromiumPath(),
+            installCommand: install,
+            signinCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} signin`,
+            log,
+          }),
+        session,
+        env: process.env,
+        git: execGit,
+        log,
+      },
+    );
+  } catch (error) {
+    result = { threw: error instanceof Error ? error.message : String(error) };
+  } finally {
+    await session
+      .close()
+      .catch((error: unknown) =>
+        log(`the browser would not close (${String(error)})`),
+      );
+  }
+  if ("threw" in result) return fail(result.threw);
+  if (result.videos.length === 0) {
+    process.stdout.write("No videos are kept in .demoman/videos/.\n");
+    process.exit(0);
+  }
+  for (const v of result.videos) {
+    process.stdout.write(
+      `${v.name}: ${v.outcome === "failed" ? `failed: ${v.detail}` : v.outcome}\n`,
+    );
+  }
+  process.exit(result.videos.some((v) => v.outcome === "failed") ? 1 : 0);
+}
+
 const [command, ...rest] = process.argv.slice(2);
 switch (command) {
   case "mcp":
@@ -383,6 +490,9 @@ switch (command) {
     break;
   case "keep":
     await keep(rest);
+    break;
+  case "refresh":
+    await refresh(rest);
     break;
   case "setup": {
     const flags = parseSetupArgs(rest);

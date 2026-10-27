@@ -126,24 +126,7 @@ export async function keepVideo(
 
   // Every path keep writes, inside the repo once links are followed.
   const fileRel = `${KEPT_DIR}/${keptFileName(video.name)}`;
-  const inRepo = async (
-    path: string,
-  ): Promise<string | { outside: string }> => {
-    const abs = resolve(root, path);
-    const rel = relative(root, abs);
-    const real = await realOf(abs);
-    const inside =
-      real !== null &&
-      (real === rootReal || real.startsWith(`${rootReal}${sep}`)) &&
-      rel !== "" &&
-      rel !== ".." &&
-      !rel.startsWith(`..${sep}`) &&
-      !isAbsolute(rel);
-    if (inside) return rel.split(sep).join("/");
-    return {
-      outside: `${path} is not inside the repo at ${root} (it resolves to ${real ?? "a link to nothing"}) — keep writes only into the repo it keeps the video in`,
-    };
-  };
+  const inRepo = (path: string) => repoPath(root, rootReal, path, "keep");
   // The kept file itself: `.demoman` or its `videos` can be a link too.
   const own = await inRepo(fileRel);
   if (typeof own !== "string") return refuse("outsideRepo", own.outside);
@@ -406,6 +389,30 @@ export async function keepVideo(
   }
 }
 
+/** `path` as a repo-relative posix path when it is inside the repo once
+ *  links are followed (`rootReal` is the root's realpath), else why not. */
+export async function repoPath(
+  root: string,
+  rootReal: string,
+  path: string,
+  who: "keep" | "refresh",
+): Promise<string | { outside: string }> {
+  const abs = resolve(root, path);
+  const rel = relative(root, abs);
+  const real = await realOf(abs);
+  const inside =
+    real !== null &&
+    (real === rootReal || real.startsWith(`${rootReal}${sep}`)) &&
+    rel !== "" &&
+    rel !== ".." &&
+    !rel.startsWith(`..${sep}`) &&
+    !isAbsolute(rel);
+  if (inside) return rel.split(sep).join("/");
+  return {
+    outside: `${path} is not inside the repo at ${root} (it resolves to ${real ?? "a link to nothing"}) — ${who} writes only into the repo it keeps the video in`,
+  };
+}
+
 /** Where `abs` really is: the deepest part that exists, links followed,
  *  plus the rest as written. Null for a link to nothing, whose target
  *  cannot be told. */
@@ -431,13 +438,17 @@ async function realOf(abs: string): Promise<string | null> {
 }
 
 /** Writes beside `dest`, then renames over it: a kill leaves the old file
- *  or the new one, never half of one. */
-async function place(dest: string, bytes: Uint8Array | string): Promise<void> {
+ *  or the new one, never half of one. Answers the file it renamed. */
+export async function place(
+  dest: string,
+  bytes: Uint8Array | string,
+): Promise<string> {
   await mkdir(dirname(dest), { recursive: true });
   const temp = `${dest}.${randomUUID()}.tmp`;
   try {
     await writeFile(temp, bytes);
     await rename(temp, dest);
+    return temp;
   } catch (error) {
     // The write's own error is the one reported; a temp left behind is a
     // dot-less stray beside it, named by that error's path.

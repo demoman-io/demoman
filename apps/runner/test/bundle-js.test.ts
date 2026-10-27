@@ -8,7 +8,7 @@ import {
   usePrebuiltPages,
 } from "../src/bundle-js.js";
 
-// The published package ships the four page bundles prebuilt and no esbuild
+// The published package ships the page bundles prebuilt and no esbuild
 // (launch B). Red if bundleEntry ignores usePrebuiltPages: it would hand
 // these nonexistent entry paths to esbuild, which rejects.
 let dir: string | null = null;
@@ -42,8 +42,8 @@ describe("usePrebuiltPages", () => {
 
   it("refuses an entry the package does not prebuild, naming it", async () => {
     await prebuilt({});
-    await expect(bundleEntry("/x/decode-probe-entry.ts")).rejects.toThrow(
-      /decode-probe-entry\.ts has no prebuilt page bundle/,
+    await expect(bundleEntry("/x/fingerprint-probe-entry.ts")).rejects.toThrow(
+      /fingerprint-probe-entry\.ts has no prebuilt page bundle/,
     );
   });
 

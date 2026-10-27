@@ -4,7 +4,13 @@ import { describe, expect, it } from "vitest";
 const read = (p: string) =>
   readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const json = (p: string) => JSON.parse(read(p));
-const PAGES = ["resolve-entry", "executor-entry", "render-entry", "mux-entry"];
+const PAGES = [
+  "resolve-entry",
+  "executor-entry",
+  "render-entry",
+  "mux-entry",
+  "decode-probe-entry",
+];
 
 const packageIn = (input: string): string | undefined => {
   const all = [...input.matchAll(/node_modules\/((?:@[^/]+\/)?[^/]+)\//g)];

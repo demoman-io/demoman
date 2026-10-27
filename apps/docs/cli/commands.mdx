@@ -77,6 +77,24 @@ hand with `signin` rather than as a demo account.
 | `--report <path>` | Where to write the run report |
 | `--quality <quality>` | The MP4s' quality: `share` (the default, small to commit), `high` or `full` |
 
+## refresh
+
+```bash
+npx demoman refresh [<video>…] [--base-url <origin>]
+```
+
+Films every video kept in `.demoman/videos/` again, or only those named, with
+no agent. Each output whose picture changed is replaced; one that looks the
+same is left as it is, so an unchanged app makes no commit. A video whose run
+was not clean (a step stopped or did not match, a frame was lost, the logo
+could not be drawn) keeps its committed files and prints why, and the command
+exits 1. In CI (`CI=true`) it films into a library it then deletes; on your
+machine, into your own.
+
+| Flag | |
+| --- | --- |
+| `--base-url <origin>` | Film the app at this origin instead of the one each video was recorded at, such as a preview deployment |
+
 ## mcp
 
 ```bash

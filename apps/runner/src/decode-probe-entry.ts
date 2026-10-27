@@ -13,9 +13,11 @@
  * duplicated behind two globals, and `decodeFrame` and `sampleFrames` are
  * the same `Input`/`CanvasSink` open with different questions asked of it.
  *
- * No production path bundles or injects this file. `mux.test.ts` and
- * `acceptance.slow.test.ts` do, via the same `bundleEntry` + `page.addScriptTag`
- * mechanism `mux.ts`/`render.ts` use for their own entries — additively, so
+ * No run or export injects this file. `refresh`'s `samePicture` does, on a
+ * work page of its own, and so the package prebuilds it (`PAGE_ENTRIES`).
+ * `mux.test.ts` and `acceptance.slow.test.ts` do too, via the same
+ * `bundleEntry` + `page.addScriptTag` mechanism `mux.ts`/`render.ts` use for
+ * their own entries — additively, so
  * `MUX_ENTRY_GLOBAL` (production) and `DECODE_PROBE_GLOBAL` (this file) can
  * coexist on one page without either overwriting the other.
  *
@@ -118,7 +120,48 @@ export interface CropReading {
   grey?: string;
 }
 
+/** One file as `pictureDiff` read it; `length` and `frame` (its shortest
+ *  frame) in seconds. */
+export interface PictureFile {
+  width: number;
+  height: number;
+  length: number;
+  frame: number;
+}
+
+/** One moment of the first file, against the second. Shares are of the
+ *  first file's pixels whose grey level moved more than `levels`. */
+export interface PictureSample {
+  t: number;
+  /** Against its own frame before: near 0 when the film is at rest here. */
+  moving: number;
+  /** Against the second file's best match within `windowSec` of `t`; null
+   *  where the film was moving, and so not compared. */
+  changed: number | null;
+}
+
+export interface PictureDiff {
+  a: PictureFile;
+  b: PictureFile;
+  /** Empty when the two differ in frame size. */
+  samples: PictureSample[];
+}
+
+export interface PictureOptions {
+  spacingSec: number;
+  width: number;
+  levels: number;
+  windowSec: number;
+  restShare: number;
+}
+
 export interface DecodeProbeEntry {
+  pictureDiff(
+    a: string,
+    b: string,
+    type: "video/mp4" | "image/gif",
+    options: PictureOptions,
+  ): Promise<PictureDiff>;
   /** Every frame of the film at `url`, decoded in order: its timestamp, and
    *  how much its picture changed from the frame before. */
   frameTimes(url: string): Promise<FrameTimes>;
@@ -713,6 +756,242 @@ async function frameTimes(url: string): Promise<FrameTimes> {
   return { width, height, timesSec, changes };
 }
 
+/** Grey levels of `source` drawn at `width` wide, row-major. */
+function greyOf(
+  source: CanvasImageSource,
+  sw: number,
+  sh: number,
+  width: number,
+): Uint8Array {
+  const height = Math.max(1, Math.round((width * sh) / sw));
+  const work = new OffscreenCanvas(width, height);
+  const ctx = work.getContext("2d") as OffscreenCanvasRenderingContext2D;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, 0, 0, width, height);
+  const pixels = ctx.getImageData(0, 0, width, height).data;
+  const grey = new Uint8Array(width * height);
+  for (let i = 0; i < grey.length; i++) {
+    const p = i * 4;
+    grey[i] = Math.round(
+      0.299 * (pixels[p] as number) +
+        0.587 * (pixels[p + 1] as number) +
+        0.114 * (pixels[p + 2] as number),
+    );
+  }
+  return grey;
+}
+
+/** The share of `a`'s pixels whose grey level differs from `b`'s by more
+ *  than `levels`. */
+function changedShare(a: Uint8Array, b: Uint8Array, levels: number): number {
+  let changed = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (Math.abs((a[i] as number) - (b[i] as number)) > levels) changed++;
+  }
+  return changed / a.length;
+}
+
+/** A file's frames by time, drawn small. `at` takes ascending times;
+ *  `before` is the frame shown just before `t` (after it, for the first). */
+interface PictureReader extends PictureFile {
+  at(times: number[]): Promise<Uint8Array[]>;
+  before(t: number): Promise<Uint8Array>;
+  close(): void;
+}
+
+async function pictureReader(
+  url: string,
+  type: "video/mp4" | "image/gif",
+  width: number,
+): Promise<PictureReader> {
+  if (type === "image/gif") {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${url} answered ${res.status}`);
+    const decoder = new ImageDecoder({ data: await res.arrayBuffer(), type });
+    try {
+      await decoder.tracks.ready;
+      const count = decoder.tracks.selectedTrack?.frameCount ?? 0;
+      if (count === 0) throw new Error(`${url} has no frames`);
+      // A GIF holds a frame that does not change for as long as it lasts,
+      // so its frames are found by time, never by index.
+      const ends: number[] = [];
+      let w = 0;
+      let h = 0;
+      let end = 0;
+      for (let i = 0; i < count; i++) {
+        const { image } = await decoder.decode({ frameIndex: i });
+        w = image.displayWidth;
+        h = image.displayHeight;
+        end += (image.duration ?? 0) / 1e6;
+        ends.push(end);
+        image.close();
+      }
+      const frame = Math.min(
+        ...ends.map((e, i) => e - (ends[i - 1] ?? 0)).filter((d) => d > 0),
+      );
+      const indexAt = (t: number) => {
+        const i = ends.findIndex((e) => t < e);
+        return i < 0 ? count - 1 : i;
+      };
+      const grey = async (i: number) => {
+        const { image } = await decoder.decode({ frameIndex: i });
+        try {
+          return greyOf(image, w, h, width);
+        } finally {
+          image.close();
+        }
+      };
+      return {
+        width: w,
+        height: h,
+        length: end,
+        frame,
+        at: async (times) => {
+          const out: Uint8Array[] = [];
+          for (const t of times) out.push(await grey(indexAt(t)));
+          return out;
+        },
+        // A frame held two frames or more is the GIF's own word for still.
+        before: async (t) => {
+          const i = indexAt(t);
+          const held = (ends[i] as number) - (ends[i - 1] ?? 0) >= 2 * frame;
+          return grey(held || i === 0 ? i : i - 1);
+        },
+        close: () => decoder.close(),
+      };
+    } catch (error) {
+      decoder.close();
+      throw error;
+    }
+  }
+  const input = new Input({
+    source: new UrlSource(url, { getRetryDelay: () => null }),
+    formats: ALL_FORMATS,
+  });
+  const track = await input.getPrimaryVideoTrack();
+  if (track === null) throw new Error(`${url} has no video track`);
+  if (!(await track.canDecode())) {
+    throw new Error(
+      `${url}'s video track (${track.codec ?? "unknown codec"}) cannot be decoded in this browser`,
+    );
+  }
+  const length = await input.computeDuration();
+  const rate = (await track.computePacketStats()).averagePacketRate;
+  const frame = rate > 0 ? 1 / rate : 1 / 30;
+  const last = Math.max(0, length - frame);
+  const at = async (times: number[]) => {
+    const greys: Uint8Array[] = [];
+    for await (const wrapped of new CanvasSink(track).canvasesAtTimestamps(
+      times,
+    )) {
+      const t = times[greys.length] as number;
+      if (!wrapped) throw new Error(`no frame decoded at ${t.toFixed(3)}s`);
+      const c = wrapped.canvas as OffscreenCanvas;
+      greys.push(greyOf(c, c.width, c.height, width));
+    }
+    return greys;
+  };
+  return {
+    width: track.displayWidth,
+    height: track.displayHeight,
+    length,
+    frame,
+    at,
+    before: async (t) =>
+      (
+        await at([t < frame ? Math.min(frame, last) : t - frame])
+      )[0] as Uint8Array,
+    close: () => input.dispose(),
+  };
+}
+
+/**
+ * `a` and `b` read side by side every `spacingSec`: at each moment of `a`,
+ * how much `a` itself is moving, and, where it is at rest (under
+ * `restShare`; everywhere, when it never is), how much of it the closest
+ * frame of `b` within `windowSec` leaves changed: two films of one script
+ * place the same moment a little apart. Read here, next to the pixels, so
+ * no frame crosses `page.evaluate`; `b`'s frames are kept only while a
+ * window needs them. Throws, like `sampleFrames`: a comparison cannot use a
+ * false verdict.
+ */
+async function pictureDiff(
+  urlA: string,
+  urlB: string,
+  type: "video/mp4" | "image/gif",
+  o: PictureOptions,
+): Promise<PictureDiff> {
+  const ra = await pictureReader(urlA, type, o.width);
+  try {
+    const rb = await pictureReader(urlB, type, o.width);
+    try {
+      return await diffOf(ra, rb, o);
+    } finally {
+      rb.close();
+    }
+  } finally {
+    ra.close();
+  }
+}
+
+async function diffOf(
+  ra: PictureReader,
+  rb: PictureReader,
+  o: PictureOptions,
+): Promise<PictureDiff> {
+  const file = (r: PictureReader): PictureFile => ({
+    width: r.width,
+    height: r.height,
+    length: r.length,
+    frame: r.frame,
+  });
+  const answer = { a: file(ra), b: file(rb), samples: [] as PictureSample[] };
+  if (ra.width !== rb.width || ra.height !== rb.height) return answer;
+  // Off the end by a frame: a request at exactly the length decodes nothing.
+  const lastA = Math.max(0, ra.length - ra.frame);
+  const lastB = Math.max(0, rb.length - rb.frame);
+  const ts: number[] = [];
+  for (let t = 0; t < lastA; t += o.spacingSec) ts.push(t);
+  ts.push(lastA);
+  const own = await ra.at(ts);
+  const moving: number[] = [];
+  for (const [i, t] of ts.entries())
+    moving.push(
+      changedShare(own[i] as Uint8Array, await ra.before(t), o.levels),
+    );
+  const still = moving.some((m) => m < o.restShare);
+  // `b`'s frames on its own grid, decoded once each, kept while in reach.
+  const kept = new Map<number, Uint8Array>();
+  const lastIndex = Math.floor(lastB / rb.frame + 1e-6);
+  for (const [i, t] of ts.entries()) {
+    const ga = own[i] as Uint8Array;
+    if (still && (moving[i] as number) >= o.restShare) {
+      answer.samples.push({ t, moving: moving[i] as number, changed: null });
+      continue;
+    }
+    const from = Math.max(0, Math.ceil((t - o.windowSec) / rb.frame - 1e-6));
+    const to = Math.min(
+      lastIndex,
+      Math.floor((t + o.windowSec) / rb.frame + 1e-6),
+    );
+    for (const k of kept.keys()) if (k < from) kept.delete(k);
+    const missing: number[] = [];
+    for (let k = from; k <= to; k++) if (!kept.has(k)) missing.push(k);
+    const got = await rb.at(missing.map((k) => k * rb.frame));
+    for (const [j, k] of missing.entries()) kept.set(k, got[j] as Uint8Array);
+    let best = 1;
+    for (let k = from; k <= to; k++)
+      best = Math.min(
+        best,
+        changedShare(ga, kept.get(k) as Uint8Array, o.levels),
+      );
+    // No frame of `b` this near (it ends before `a` does) leaves it at 1.
+    answer.samples.push({ t, moving: moving[i] as number, changed: best });
+  }
+  return answer;
+}
+
 /** Mean absolute difference per colour channel (alpha left out), 0–255. */
 function meanAbsoluteDifference(
   a: Uint8ClampedArray,
@@ -729,6 +1008,7 @@ function meanAbsoluteDifference(
 }
 
 const entry: DecodeProbeEntry = {
+  pictureDiff,
   decodeFrame,
   readCrops,
   sampleFrames,
