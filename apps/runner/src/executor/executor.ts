@@ -37,6 +37,7 @@ import { deriveOp, takesOp } from "./derive.js";
 import { expireOld, expiryStatus } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { createGh, defaultGhRun } from "./gh.js";
+import { rewriteKept } from "./keep.js";
 import { readKits } from "./kits.js";
 import { DEFAULT_SIGNIN_COMMAND } from "./landing.js";
 import { createLibrary, ownHome } from "./library.js";
@@ -896,6 +897,33 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           return out;
         }
       }
+      // A run into a kept video makes a new version: its file follows.
+      let kept: RunReport["kept"];
+      if (
+        report.outcome === "complete" &&
+        report.videoVersion !== undefined &&
+        repoRead.ok
+      ) {
+        try {
+          const rewrote = await rewriteKept(
+            repoRead.repo.root,
+            report.videoVersion.id,
+            {
+              home,
+              library,
+              videos,
+              export: exportDeps(),
+              git: execGit,
+              log,
+            },
+          );
+          if (!("none" in rewrote)) kept = rewrote;
+        } catch (error) {
+          kept = {
+            refused: `the kept file could not be rewritten (${messageOf(error)})`,
+          };
+        }
+      }
       const out: Outcome = {
         ok: true,
         value: {
@@ -903,6 +931,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           // terminal reads what the run page would have said.
           summary: verdictLine(report),
           ...report,
+          ...(kept === undefined ? {} : { kept }),
           ...(chosen === null ? {} : { account: chosen.account.name }),
           ...(signedIn === undefined ? {} : { signedIn }),
         },

@@ -184,8 +184,131 @@ export async function keepVideo(
     }
   }
 
+  const made = await buildKept(
+    {
+      root,
+      rootReal,
+      video,
+      outputs: args.to.map((o, i) => ({
+        ...o,
+        path: outputPaths[i] as string,
+      })),
+      report,
+    },
+    deps,
+  );
+  if (!made.ok) return refuse(made.reason, made.detail);
+  const { kept, built, logoBytes } = made;
+  const { logo } = kept;
+
+  const temp = await mkdtemp(join(tmpdir(), "demoman-keep-"));
+  try {
+    const rendered: Uint8Array[] = [];
+    for (const o of kept.outputs) {
+      deps.log(`keep: exporting ${o.path}`);
+      const answer = await exportTake(
+        {
+          takeId: built.takeId,
+          fileType: o.fileType,
+          aspect: o.aspect,
+          // Its file is renamed into the repo; no row names the temp one.
+          unlisted: true,
+          // A GIF has no quality to choose; export refuses one.
+          ...(o.fileType === "mp4" ? { quality: o.quality } : {}),
+        },
+        { ...deps.export, outDir: temp },
+        () => undefined,
+      );
+      if (answer.outcome !== "saved" || answer.fileType === "stills") {
+        return refuse("exportFailed", `${o.path}: ${answer.summary}`);
+      }
+      if (answer.warnings.logo !== null) {
+        return refuse(
+          "logoUnreadable",
+          `${o.path} was rendered without its logo: ${answer.warnings.logo}`,
+        );
+      }
+      rendered.push(await readFile(answer.file.path));
+    }
+    const runReport =
+      report === null
+        ? null
+        : await deps.library.getJson(built.takeId, "report.json");
+
+    const written: string[] = [];
+    try {
+      for (const [i, o] of kept.outputs.entries()) {
+        await place(join(root, o.path), rendered[i] as Uint8Array);
+        written.push(o.path);
+      }
+      if (logo !== null && logoBytes !== null) {
+        await place(join(root, logo), logoBytes);
+        written.push(logo);
+      }
+      if (report !== null && runReport !== null) {
+        if ("value" in runReport) {
+          await place(
+            join(root, report),
+            `${JSON.stringify(runReport.value, null, 2)}\n`,
+          );
+          written.push(report);
+        } else {
+          deps.log(
+            `keep: ${report} is written by the next refresh — take ${built.takeId}'s run report ${"missing" in runReport ? "is missing" : `could not be read (${runReport.unreadable})`}`,
+          );
+        }
+      }
+      await place(join(root, fileRel), serializeKept(kept));
+      written.push(fileRel);
+    } catch (error) {
+      return refuse(
+        "exportFailed",
+        `${written.length > 0 ? `wrote ${written.join(", ")}, then ` : ""}could not write into ${root} (${messageOf(error)}), so ${fileRel} was not written`,
+      );
+    }
+    return { ok: true, file: fileRel, kept, written };
+  } finally {
+    await rm(temp, { recursive: true, force: true }).catch((error: unknown) =>
+      deps.log(`keep: ${temp} was not removed (${messageOf(error)})`),
+    );
+  }
+}
+
+type Built =
+  | {
+      ok: true;
+      kept: KeptVideo;
+      built: { takeId: string };
+      read: { revision: string };
+      /** The logo's bytes when they are to be copied into the repo. */
+      logoBytes: Uint8Array | null;
+    }
+  | { ok: false; reason: KeepRefusal; detail: string };
+
+/**
+ * The kept file for `a.video`'s current version, built the way a re-film
+ * builds its script: shared by `keep` and by `rewriteKept`, so a rewrite
+ * can never differ from a keep. Writes nothing.
+ */
+async function buildKept(
+  a: {
+    root: string;
+    rootReal: string;
+    video: VideoRecord;
+    outputs: (Omit<KeptOutput, "aspect"> & { aspect?: KeptOutput["aspect"] })[];
+    report: string | null;
+  },
+  deps: KeepDeps,
+): Promise<Built> {
+  const { root, rootReal, video } = a;
+  const inRepo = (path: string) => repoPath(root, rootReal, path, "keep");
+  const refuse = (reason: KeepRefusal, detail: string): Built => ({
+    ok: false,
+    reason,
+    detail,
+  });
   // The script a re-film would run, and everything it leaves behind.
-  const built = await refilmFromVideo(deps.videos, deps.library, video);
+  const built = await refilmFromVideo(deps.videos, deps.library, a.video);
   if (!built.ok) {
     const { reason, detail } = built.refusal;
     return refuse(
@@ -308,13 +431,13 @@ export async function keepVideo(
     script: script.data,
     scale: scale ?? 1,
     logo,
-    outputs: args.to.map((o, i) => ({
-      path: outputPaths[i] as string,
+    outputs: a.outputs.map((o) => ({
+      path: o.path,
       fileType: o.fileType,
       aspect: o.aspect ?? scene.canvas.aspect,
       quality: o.quality,
     })),
-    report,
+    report: a.report,
     // The revision this file was built from: a later Studio edit changes it.
     from: {
       videoId: video.id,
@@ -322,78 +445,88 @@ export async function keepVideo(
       recordedRevision: read.revision,
     },
   };
+  return { ok: true, kept, built, read, logoBytes };
+}
 
-  const temp = await mkdtemp(join(tmpdir(), "demoman-keep-"));
+export type RewriteAnswer =
+  | { rewritten: string }
+  | { none: true }
+  | { refused: string };
+
+/**
+ * A run into a kept video made a new version: the kept file follows, rebuilt
+ * from that version exactly as `keep` builds it, with its outputs, report
+ * and logo path as they were. Outputs are not re-exported (the next refresh
+ * does). Nothing is written on a refusal, and a kept file that cannot be
+ * read is said, never taken for "no file keeps this video".
+ */
+export async function rewriteKept(
+  repoRoot: string,
+  videoId: string,
+  deps: KeepDeps,
+): Promise<RewriteAnswer> {
+  const root = resolve(repoRoot);
+  const rootReal = await realpath(root);
+  const dir = join(root, KEPT_DIR);
+  let names: string[] = [];
   try {
-    const rendered: Uint8Array[] = [];
-    for (const o of kept.outputs) {
-      deps.log(`keep: exporting ${o.path}`);
-      const answer = await exportTake(
-        {
-          takeId: built.takeId,
-          fileType: o.fileType,
-          aspect: o.aspect,
-          // Its file is renamed into the repo; no row names the temp one.
-          unlisted: true,
-          // A GIF has no quality to choose; export refuses one.
-          ...(o.fileType === "mp4" ? { quality: o.quality } : {}),
-        },
-        { ...deps.export, outDir: temp },
-        () => undefined,
-      );
-      if (answer.outcome !== "saved" || answer.fileType === "stills") {
-        return refuse("exportFailed", `${o.path}: ${answer.summary}`);
-      }
-      if (answer.warnings.logo !== null) {
-        return refuse(
-          "logoUnreadable",
-          `${o.path} was rendered without its logo: ${answer.warnings.logo}`,
-        );
-      }
-      rendered.push(await readFile(answer.file.path));
-    }
-    const runReport =
-      report === null
-        ? null
-        : await deps.library.getJson(built.takeId, "report.json");
-
-    const written: string[] = [];
-    try {
-      for (const [i, o] of kept.outputs.entries()) {
-        await place(join(root, o.path), rendered[i] as Uint8Array);
-        written.push(o.path);
-      }
-      if (logo !== null && logoBytes !== null) {
-        await place(join(root, logo), logoBytes);
-        written.push(logo);
-      }
-      if (report !== null && runReport !== null) {
-        if ("value" in runReport) {
-          await place(
-            join(root, report),
-            `${JSON.stringify(runReport.value, null, 2)}\n`,
-          );
-          written.push(report);
-        } else {
-          deps.log(
-            `keep: ${report} is written by the next refresh — take ${built.takeId}'s run report ${"missing" in runReport ? "is missing" : `could not be read (${runReport.unreadable})`}`,
-          );
-        }
-      }
-      await place(join(root, fileRel), serializeKept(kept));
-      written.push(fileRel);
-    } catch (error) {
-      return refuse(
-        "exportFailed",
-        `${written.length > 0 ? `wrote ${written.join(", ")}, then ` : ""}could not write into ${root} (${messageOf(error)}), so ${fileRel} was not written`,
-      );
-    }
-    return { ok: true, file: fileRel, kept, written };
-  } finally {
-    await rm(temp, { recursive: true, force: true }).catch((error: unknown) =>
-      deps.log(`keep: ${temp} was not removed (${messageOf(error)})`),
-    );
+    names = (await readdir(dir)).filter((n) => n.endsWith(".json"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      return { none: true };
+    return {
+      refused: `${KEPT_DIR} could not be read (${messageOf(error)}), so whether a kept file follows this run is unknown`,
+    };
   }
+  const unreadable: string[] = [];
+  for (const name of names) {
+    const rel = `${KEPT_DIR}/${name}`;
+    let text: string;
+    try {
+      text = await readFile(join(dir, name), "utf8");
+    } catch (error) {
+      unreadable.push(`${rel} could not be read (${messageOf(error)})`);
+      continue;
+    }
+    const parsed = parseKept(text, rel);
+    if (!parsed.ok) {
+      unreadable.push(parsed.detail);
+      continue;
+    }
+    const old = parsed.kept;
+    if (old.from.videoId !== videoId) continue;
+    const own = await repoPath(root, rootReal, rel, "keep");
+    if (typeof own !== "string") return { refused: own.outside };
+    const video = await deps.videos.get(videoId);
+    if (video === null) {
+      return {
+        refused: `${rel} keeps video ${videoId}, which the library no longer has`,
+      };
+    }
+    const made = await buildKept(
+      { root, rootReal, video, outputs: old.outputs, report: old.report },
+      deps,
+    );
+    if (!made.ok)
+      return { refused: `${rel} was not rewritten: ${made.detail}` };
+    try {
+      if (made.kept.logo !== null && made.logoBytes !== null) {
+        await place(join(root, made.kept.logo), made.logoBytes);
+      }
+      await place(join(root, rel), serializeKept(made.kept));
+    } catch (error) {
+      return {
+        refused: `${rel} could not be written (${messageOf(error)}), so it still describes the earlier version`,
+      };
+    }
+    for (const u of unreadable) deps.log(`kept: ${u}`);
+    return { rewritten: rel };
+  }
+  return unreadable.length > 0
+    ? {
+        refused: `${unreadable.join("; ")} — so whether a kept file follows this run is unknown`,
+      }
+    : { none: true };
 }
 
 /** What a re-film does not carry, named the way `keep` refuses it. */

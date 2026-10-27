@@ -192,6 +192,10 @@ export interface RunReport {
     version?: number;
     created: boolean;
   };
+  /** Present only when a kept file (.demoman/videos) in the run's repo
+   *  keeps the video this run joined: the file rewritten to follow the new
+   *  version, or why it was not (it still describes the earlier one). */
+  kept?: { rewritten: string } | { refused: string };
   /** Present on a re-film (`run({ video: { id } })` with no script): the take it came from, what
    *  the merge could not place (`notes`), and the editor edits the new take
    *  does not have (`notCarried`). Absent on a run of a script. */

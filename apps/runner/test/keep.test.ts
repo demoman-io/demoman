@@ -20,7 +20,7 @@ import {
   createBrowserSession,
 } from "../src/executor/browser.js";
 import { exportTake } from "../src/executor/export.js";
-import { type KeepDeps, keepVideo } from "../src/executor/keep.js";
+import { type KeepDeps, keepVideo, rewriteKept } from "../src/executor/keep.js";
 import { createLibrary, type Library } from "../src/executor/library.js";
 import { execGit, readRepo } from "../src/executor/repo.js";
 import { createSessionStore } from "../src/executor/sessions.js";
@@ -587,4 +587,143 @@ describe("keep's scale, from the motion frames", () => {
     },
     KEEP_MS,
   );
+});
+
+describe("a run into a kept video rewrites its file", () => {
+  /** A newer take in an existing video, filmed at another page. */
+  async function newVersion(
+    videoId: string,
+    takeId: string,
+    edit: (doc: SceneDocument) => SceneDocument = (d) => d,
+  ): Promise<SceneDocument> {
+    const base = readonlyScene();
+    const capture = {
+      ...base.meta.capture,
+      originUrl: "https://example.test/second",
+    };
+    const scene = edit({
+      ...base,
+      meta: { ...base.meta, id: takeId, capture },
+    });
+    await library.putScene(scene);
+    await copyFrames(takeId);
+    const read = await library.getSceneRead(takeId);
+    if (read === null) throw new Error(`take ${takeId} has no scene`);
+    await videos.join(takeId, {
+      videoId,
+      made: {
+        repo: { none: "test" },
+        agent: { none: "test" },
+        by: { none: "test" },
+        door: "mcp",
+      },
+      recordedRevision: read.revision,
+    });
+    return scene;
+  }
+  const keptOf = async (file: string) => {
+    const parsed = parseKept(await readFile(join(repo, file), "utf8"), file);
+    if (!parsed.ok) throw new Error(parsed.detail);
+    return parsed.kept;
+  };
+
+  it(
+    "follows the new version, keeps the outputs, and touches nothing else",
+    async () => {
+      const first = await videoOf("scene-rw-1", "Rewrite me");
+      await copyFrames("scene-rw-1");
+      const out = await keepVideo(
+        {
+          video: "Rewrite me",
+          to: [{ path: "docs/rw.gif", fileType: "gif", quality: "share" }],
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      const before = await keptOf(out.file);
+      const gifBefore = await readFile(join(repo, "docs/rw.gif"));
+      const filesBefore = await repoFiles();
+
+      const second = await newVersion(first.videoId, "scene-rw-2");
+      // Premise: the new version films another page, so its script differs.
+      expect(second.meta.capture.originUrl).not.toBe(
+        first.scene.meta.capture.originUrl,
+      );
+      const answer = await rewriteKept(repo, first.videoId, deps());
+      expect(answer).toEqual({ rewritten: out.file });
+      const after = await keptOf(out.file);
+      expect(after.from.takeId).toBe("scene-rw-2");
+      expect(after.script.target).toBe("https://example.test/second");
+      expect(after.script).not.toEqual(before.script);
+      expect(after.outputs).toEqual(before.outputs);
+      expect(after.report).toBe(before.report);
+      expect(await readFile(join(repo, "docs/rw.gif"))).toEqual(gifBefore);
+      expect(await repoFiles(), "no stray temp file").toEqual(filesBefore);
+    },
+    KEEP_MS,
+  );
+
+  // Red if the videoId match is skipped: an unkept video would write a file.
+  it("a video no file keeps writes nothing and says nothing", async () => {
+    const other = await videoOf("scene-rw-unkept", "Never kept");
+    await copyFrames("scene-rw-unkept");
+    await newVersion(other.videoId, "scene-rw-unkept-2");
+    const before = await repoFiles();
+    // Premise: the repo has kept files, just none for this video.
+    expect(
+      before.filter((f) => f.startsWith(".demoman/videos/")).length,
+    ).toBeGreaterThan(0);
+    expect(await rewriteKept(repo, other.videoId, deps())).toEqual({
+      none: true,
+    });
+    expect(await repoFiles()).toEqual(before);
+  });
+
+  it(
+    "a new version with a mask is refused, naming it, and the file stays as it was",
+    async () => {
+      const first = await videoOf("scene-rw-m1", "Rewrite masked");
+      await copyFrames("scene-rw-m1");
+      const out = await keepVideo(
+        {
+          video: "Rewrite masked",
+          to: [{ path: "docs/rwm.gif", fileType: "gif", quality: "share" }],
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      const bytes = await readFile(join(repo, out.file));
+      const scene = await newVersion(first.videoId, "scene-rw-m2", (d) => ({
+        ...d,
+        edits: {
+          ...d.edits,
+          masks: [
+            { id: "mask-9", rect: { x: 0, y: 0, width: 10, height: 10 } },
+          ],
+        },
+      }));
+      expect(notCarriedOf(scene)).toEqual([{ kind: "mask", id: "mask-9" }]);
+      const answer = await rewriteKept(repo, first.videoId, deps());
+      expect(answer).toEqual({
+        refused: expect.stringContaining("mask mask-9"),
+      });
+      expect(await readFile(join(repo, out.file))).toEqual(bytes);
+    },
+    KEEP_MS,
+  );
+
+  it("a kept file that cannot be read is said, naming the file", async () => {
+    await writeFile(join(repo, ".demoman/videos/broken.json"), "{ not json");
+    try {
+      const other = await videoOf("scene-rw-b", "Unmatched");
+      const answer = await rewriteKept(repo, other.videoId, deps());
+      expect(answer).toEqual({
+        refused: expect.stringContaining(".demoman/videos/broken.json"),
+      });
+    } finally {
+      await rm(join(repo, ".demoman/videos/broken.json"));
+    }
+  });
 });
