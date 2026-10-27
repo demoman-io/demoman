@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ciSetup, ciWorkflow, expr } from "../src/ci-workflow.js";
 
@@ -7,7 +11,7 @@ const push = ciWorkflow({ version: "0.2.0", trigger: "push", route: "pr" });
 const deploy = ciWorkflow({
   version: "0.2.0",
   trigger: { deployment: "Production" },
-  route: "main",
+  route: "pr",
 });
 const lines = (y: string) => y.split("\n");
 const npx = (y: string) => lines(y).filter((l) => l.includes("npx --prefix"));
@@ -62,7 +66,10 @@ describe("ciWorkflow", () => {
 
   it("passes the route to --deliver", () => {
     expect(push).toContain("refresh --deliver pr");
-    expect(deploy).toContain("refresh --deliver main");
+    expect(deploy).toContain("refresh --deliver pr");
+    expect(
+      ciWorkflow({ version: "0.2.0", trigger: "push", route: "main" }),
+    ).toContain("refresh --deliver main");
     expect(push).toContain(`GH_TOKEN: ${expr("github.token")}`);
   });
 
@@ -88,28 +95,141 @@ describe("ciWorkflow", () => {
   });
 });
 
+describe("the loop guard", () => {
+  const skipIf = expr("steps.guard.outputs.skip != 'true'");
+  /** The steps of the job, each as its own block of lines. */
+  const steps = (y: string) =>
+    y
+      .slice(y.indexOf("    steps:\n") + 11)
+      .split(/\n(?= {6}- )/)
+      .filter((b) => b.startsWith("      - "));
+
+  for (const [name, y, sha] of [
+    ["push", push, "github.sha"],
+    ["deployment", deploy, "github.event.deployment.sha"],
+  ] as const) {
+    it(`${name}: a guard step follows the checkout and every later step is conditioned on it`, () => {
+      const all = steps(y);
+      expect(all.length).toBeGreaterThan(4);
+      expect(all[0]).toContain("actions/checkout@v4");
+      expect(all[1]).toContain("id: guard");
+      expect(all[1]).toContain(`SHA: ${expr(sha)}`);
+      for (const later of all.slice(2)) {
+        expect(later, later).toContain(`if: ${skipIf}`);
+      }
+      // The sha reaches the script through env, never interpolated into it.
+      expect(all[1]?.split("run: |")[1]).not.toContain("${{");
+    });
+  }
+
+  it("outputs skip for the refresh PR's merge commit and a marked commit, not an ordinary one", () => {
+    const script = (push.split("run: |\n")[1] ?? "")
+      .split("\n      - ")[0]
+      ?.split("\n")
+      .map((l) => l.slice(10))
+      .join("\n");
+    expect(script).toContain("GITHUB_OUTPUT");
+    const dir = mkdtempSync(join(tmpdir(), "guard-"));
+    const git = (...a: string[]) =>
+      execFileSync("git", ["-C", dir, ...a], { encoding: "utf8" });
+    git("init", "-q");
+    const answer = (message: string): string => {
+      git(
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        message,
+      );
+      const out = join(dir, "out.txt");
+      writeFileSync(out, "");
+      execFileSync("bash", ["-c", script ?? ""], {
+        cwd: dir,
+        env: { ...process.env, SHA: "HEAD", GITHUB_OUTPUT: out },
+      });
+      return readFileSync(out, "utf8");
+    };
+    expect(answer("Merge pull request #7 from acme/demoman/refresh")).toBe(
+      "skip=true\n",
+    );
+    expect(answer("Refresh the demo\n\n[skip demoman]")).toBe("skip=true\n");
+    expect(answer("Fix the invoice filter")).toBe("");
+  });
+
+  it("keeps the push job's own guard", () => {
+    expect(push).toContain("github.actor != 'github-actions[bot]'");
+  });
+});
+
+describe("the workflow's shape", () => {
+  it("serialises runs", () => {
+    expect(push).toContain(
+      "concurrency:\n  group: demoman-refresh\n  cancel-in-progress: false",
+    );
+  });
+  it("watches the branch it is given, main by default", () => {
+    expect(push).toContain("branches: [main]");
+    const m = ciWorkflow({
+      version: "0.2.0",
+      trigger: "push",
+      route: "pr",
+      branch: "master",
+    });
+    expect(m).toContain("branches: [master]");
+  });
+  it("names _ORIGIN beside each secret", () => {
+    expect(push).toContain("# DEMOMAN_SECRET_SELLER: ");
+    expect(push).toContain("# DEMOMAN_SECRET_SELLER_ORIGIN: ");
+    expect(push).toContain("{ secret: NAME }");
+  });
+  it("refuses the main route on a deployment", () => {
+    expect(() =>
+      ciWorkflow({
+        version: "0.2.0",
+        trigger: { deployment: "P" },
+        route: "main",
+      }),
+    ).toThrow(/not a branch/);
+  });
+});
+
 describe("ciSetup", () => {
-  const io = (exists = false) => {
+  const io = (
+    over: {
+      exists?: boolean;
+      root?: { root: string } | { none: string };
+      branch?: string | null;
+      ask?: unknown;
+    } = {},
+  ) => {
     const said: string[] = [];
     const wrote: Array<[string, string]> = [];
+    const asked = { n: 0 };
     return {
       said,
       wrote,
+      asked,
       io: {
         version: "0.2.0",
-        ask: null,
-        exists: () => exists,
+        ask: (over.ask ?? null) as never,
+        root: async () => over.root ?? { root: "/repo" },
+        defaultBranch: async () =>
+          over.branch === undefined ? "main" : over.branch,
+        exists: () => over.exists ?? false,
         write: (p: string, t: string) => void wrote.push([p, t]),
         say: (l: string) => void said.push(l),
       },
     };
   };
+  const flags = ["--ci", "--trigger", "push", "--route", "pr"];
 
-  it("writes the file and says the two settings that make it work", async () => {
+  it("writes the file and says the settings that make it work", async () => {
     const m = io();
-    expect(
-      await ciSetup(["--ci", "--trigger", "push", "--route", "pr"], m.io),
-    ).toBe(0);
+    expect(await ciSetup(flags, m.io)).toBe(0);
     expect(m.wrote[0]?.[0]).toBe(".github/workflows/demoman.yml");
     expect(m.wrote[0]?.[1]).toBe(push);
     const said = m.said.join("\n");
@@ -117,16 +237,68 @@ describe("ciSetup", () => {
       "Allow GitHub Actions to create and approve pull requests",
     );
     expect(said).toContain("Start your app");
+    expect(said).toContain("_ORIGIN");
   });
 
   it("stops, writing nothing, without a terminal or with a file already there", async () => {
     const a = io();
     expect(await ciSetup(["--ci"], a.io)).toBe(1);
     expect(a.said.join("")).toContain("--trigger");
-    const b = io(true);
-    expect(
-      await ciSetup(["--ci", "--trigger", "push", "--route", "main"], b.io),
-    ).toBe(1);
+    const b = io({ exists: true });
+    expect(await ciSetup(flags, b.io)).toBe(1);
     expect(a.wrote.length + b.wrote.length).toBe(0);
+  });
+
+  it("stops outside a git repo", async () => {
+    const m = io({ root: { none: "not a git repository" } });
+    expect(await ciSetup(flags, m.io)).toBe(1);
+    expect(m.said.join("")).toContain("not a git repository");
+    expect(m.wrote).toEqual([]);
+  });
+
+  it("looks for an existing file before asking anything", async () => {
+    const m = io({
+      exists: true,
+      ask: {
+        trigger: async () => {
+          throw new Error("asked");
+        },
+        route: async () => "pr",
+      },
+    });
+    expect(await ciSetup(["--ci"], m.io)).toBe(1);
+    expect(m.said.join("")).toContain("already exists");
+  });
+
+  it("refuses --route main with a deployment trigger, by flags and by prompt", async () => {
+    const a = io();
+    expect(
+      await ciSetup(
+        ["--ci", "--trigger", "Production", "--route", "main"],
+        a.io,
+      ),
+    ).toBe(1);
+    const b = io({
+      ask: { trigger: async () => "Production", route: async () => "main" },
+    });
+    expect(await ciSetup(["--ci"], b.io)).toBe(1);
+    for (const m of [a, b]) {
+      expect(m.said.join("")).toContain("not a branch");
+      expect(m.said.join("")).toContain("--route pr");
+      expect(m.wrote).toEqual([]);
+    }
+  });
+
+  it("writes the default branch it read, and says it assumed main when it cannot read one", async () => {
+    const a = io({ branch: "master" });
+    expect(await ciSetup(flags, a.io)).toBe(0);
+    expect(a.wrote[0]?.[1]).toContain("branches: [master]");
+    expect(a.said.join("")).not.toContain("assum");
+    const b = io({ branch: null });
+    expect(await ciSetup(flags, b.io)).toBe(0);
+    expect(b.wrote[0]?.[1]).toContain("branches: [main]");
+    expect(b.said.join("\n")).toContain(
+      "Could not read origin's default branch",
+    );
   });
 });

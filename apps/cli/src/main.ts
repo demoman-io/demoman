@@ -542,14 +542,32 @@ switch (command) {
   case "setup": {
     if (rest.includes("--ci")) {
       const tty = process.stdin.isTTY === true;
+      let ciRoot = process.cwd();
       process.exit(
         await ciSetup(rest, {
           version: VERSION,
           ask: tty ? ciPrompts() : null,
-          exists: existsSync,
-          write: (path, text) => {
-            mkdirSync(dirname(path), { recursive: true });
-            writeFileSync(path, text);
+          root: async () => {
+            const r = await readRepo(process.cwd(), execGit);
+            if (r.ok) ciRoot = r.repo.root;
+            return r.ok ? { root: r.repo.root } : { none: r.none };
+          },
+          defaultBranch: async () => {
+            try {
+              const r = await execGit(
+                ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+                process.cwd(),
+              );
+              const name = r.stdout.trim().replace(/^origin\//, "");
+              return r.code === 0 && name !== "" ? name : null;
+            } catch {
+              return null; // git not running: the caller says it assumed main
+            }
+          },
+          exists: (p) => existsSync(join(ciRoot, p)),
+          write: (p, text) => {
+            mkdirSync(dirname(join(ciRoot, p)), { recursive: true });
+            writeFileSync(join(ciRoot, p), text);
           },
           say: (l) => process.stdout.write(`${l}\n`),
         }),
