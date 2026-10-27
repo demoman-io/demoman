@@ -38,17 +38,44 @@ export const SLACK_SEC = 0.4;
 /** The share of a moment at rest that may change before the picture has. */
 export const CHANGED_SHARE = 0.00015;
 /** A moment is at rest when less than this share of the film's own picture
- *  moved since the frame before: about 18 pixels of 1280x720. Mid-move
- *  reads 1-16%; the pointer alone gliding reads 0.01-0.08%, and two films
- *  place it apart enough to read 0.04% changed (measured), so a moment
- *  with the pointer moving is not at rest. */
+ *  moved within `REST_SEC` either side of it: about 18 pixels of 1280x720.
+ *  Mid-move reads 1-16%; the pointer alone gliding reads 0.01-0.08% from
+ *  one frame to the next, and two films place it apart enough to read
+ *  0.04% changed (measured), so a moment with the pointer moving is not at
+ *  rest. */
 export const REST_SHARE = 0.00002;
-const OPTIONS: PictureOptions = {
+/**
+ * How long the film must hold one picture before and after a moment for it
+ * to be at rest: `REST_SEC` each way, so a hold of more than 0.5 s.
+ *
+ * Not one frame back. The export holds each screencast capture until the
+ * next, so a capture slower than its 30 fps leaves runs of equal frames
+ * in the middle of an animation, each a phase of it the other film never
+ * caught. CI on 2026-10-27 (PR #9, ubuntu "runner (1)") judged such a frame
+ * of the fixture's 800 ms panel slide at rest and read "5.127% of the
+ * picture changed at 4.00s": the slide fills 3.5-4.6 s of that film.
+ *
+ * Why 0.25 s. The holds inside motion, measured: on a Mac these films hold
+ * a frame 2-6 frames (at most 0.2 s) between camera moves; a step's full
+ * still stalls the screencast 87-272 ms (`constants.ts`, beside
+ * `SPAN_QUIET_MS`); ubuntu CI caught the same slide in 22 frames against 34,
+ * and once split it at a pause of 250 ms or more. A hold must outlast twice
+ * the longest of those to read as rest. The other way, the rest a film is
+ * judged on: the fixture films' opening holds 1.3 s, so 6 moments at rest
+ * (0.4 s: 5; one frame: 9, the 3 more all brief holds between moves).
+ * Larger would judge fewer moments after the first step, and a change shown
+ * only there would go unseen; smaller brings a stalled slide within reach.
+ * A runner whose screencast falls silent for over 0.5 s mid-animation would
+ * still read that hold as rest: none measured so far comes near it.
+ */
+export const REST_SEC = 0.25;
+export const PICTURE_OPTIONS: PictureOptions = {
   spacingSec: 0.25,
   width: 1280,
   levels: 48,
   windowSec: SLACK_SEC,
   restShare: REST_SHARE,
+  restSec: REST_SEC,
 };
 
 const ENTRY_PATH = fileURLToPath(
@@ -116,7 +143,7 @@ export async function samePicture(
           options as PictureOptions,
         );
       },
-      [DECODE_PROBE_GLOBAL, type, OPTIONS] as const,
+      [DECODE_PROBE_GLOBAL, type, PICTURE_OPTIONS] as const,
     );
   } finally {
     server.close();

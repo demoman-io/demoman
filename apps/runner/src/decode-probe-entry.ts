@@ -133,7 +133,8 @@ export interface PictureFile {
  *  first file's pixels whose grey level moved more than `levels`. */
 export interface PictureSample {
   t: number;
-  /** Against its own frame before: near 0 when the film is at rest here. */
+  /** Against its own picture `restSec` either side, the larger: near 0
+   *  when the film is at rest here. */
   moving: number;
   /** Against the second file's best match within `windowSec` of `t`; null
    *  where the film was moving, and so not compared. */
@@ -159,6 +160,7 @@ export interface PictureOptions {
   levels: number;
   windowSec: number;
   restShare: number;
+  restSec: number;
 }
 
 export interface DecodeProbeEntry {
@@ -798,11 +800,9 @@ function changedShare(a: Uint8Array, b: Uint8Array, levels: number): number {
   return changed / a.length;
 }
 
-/** A file's frames by time, drawn small. `at` takes ascending times;
- *  `before` is the frame shown just before `t` (after it, for the first). */
+/** A file's frames by time, drawn small. `at` takes ascending times. */
 interface PictureReader extends PictureFile {
   at(times: number[]): Promise<Uint8Array[]>;
-  before(t: number): Promise<Uint8Array>;
   close(): void;
 }
 
@@ -858,12 +858,6 @@ async function pictureReader(
           for (const t of times) out.push(await grey(indexAt(t)));
           return out;
         },
-        // A frame held two frames or more is the GIF's own word for still.
-        before: async (t) => {
-          const i = indexAt(t);
-          const held = (ends[i] as number) - (ends[i - 1] ?? 0) >= 2 * frame;
-          return grey(held || i === 0 ? i : i - 1);
-        },
         close: () => decoder.close(),
       };
     } catch (error) {
@@ -885,7 +879,6 @@ async function pictureReader(
   const length = await input.computeDuration();
   const rate = (await track.computePacketStats()).averagePacketRate;
   const frame = rate > 0 ? 1 / rate : 1 / 30;
-  const last = Math.max(0, length - frame);
   const at = async (times: number[]) => {
     const greys: Uint8Array[] = [];
     for await (const wrapped of new CanvasSink(track).canvasesAtTimestamps(
@@ -904,22 +897,18 @@ async function pictureReader(
     length,
     frame,
     at,
-    before: async (t) =>
-      (
-        await at([t < frame ? Math.min(frame, last) : t - frame])
-      )[0] as Uint8Array,
     close: () => input.dispose(),
   };
 }
 
 /**
  * `a` and `b` read side by side every `spacingSec`: at each moment of `a`,
- * how much `a` itself is moving, and, where it is at rest (under
- * `restShare`; everywhere, when it never is), how much of it the closest
- * frame of `b` within `windowSec` leaves changed: two films of one script
- * place the same moment a little apart. Read here, next to the pixels, so
- * no frame crosses `page.evaluate`; `b`'s frames are kept only while a
- * window needs them. Throws, like `sampleFrames`: a comparison cannot use a
+ * how much `a` itself changes within `restSec` either side, and, where it
+ * is at rest (under `restShare`; everywhere, when it never is), how much of
+ * it the closest frame of `b` within `windowSec` leaves changed: two films
+ * of one script place the same moment a little apart. Read here, next to
+ * the pixels, so no frame crosses `page.evaluate`; `b`'s frames are kept
+ * only while a window needs them. Throws, like `sampleFrames`: a comparison cannot use a
  * false verdict.
  */
 async function pictureDiff(
@@ -972,7 +961,6 @@ async function blamed(
   return {
     ...r,
     at: (times) => blame(r.at(times)),
-    before: (t) => blame(r.before(t)),
   };
 }
 
@@ -996,11 +984,16 @@ async function diffOf(
   for (let t = 0; t < lastA; t += o.spacingSec) ts.push(t);
   ts.push(lastA);
   const own = await ra.at(ts);
-  const moving: number[] = [];
-  for (const [i, t] of ts.entries())
-    moving.push(
-      changedShare(own[i] as Uint8Array, await ra.before(t), o.levels),
-    );
+  // At rest: unchanged from `restSec` before to `restSec` after, so a frame
+  // the export merely held, between two captures of a slide, is not.
+  const before = await ra.at(ts.map((t) => Math.max(0, t - o.restSec)));
+  const after = await ra.at(ts.map((t) => Math.min(lastA, t + o.restSec)));
+  const moving = ts.map((_, i) =>
+    Math.max(
+      changedShare(own[i] as Uint8Array, before[i] as Uint8Array, o.levels),
+      changedShare(own[i] as Uint8Array, after[i] as Uint8Array, o.levels),
+    ),
+  );
   const still = moving.some((m) => m < o.restShare);
   // `b`'s frames on its own grid, decoded once each, kept while in reach.
   const kept = new Map<number, Uint8Array>();
