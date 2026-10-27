@@ -21,11 +21,12 @@ import {
 import type { DemoScript } from "@demoman/scene-schema";
 import { codeClause, prLine } from "./attach.js";
 import type { BrowserSession } from "./browser.js";
-import { place, repoPath } from "./keep.js";
-import { createLibrary } from "./library.js";
+import { libraryAhead, place, repoPath } from "./keep.js";
+import { createLibrary, type Library } from "./library.js";
 import type { GitRunner } from "./repo.js";
 import { samePicture } from "./same-picture.js";
 import type { LocalExecutor } from "./types.js";
+import type { VideoStore } from "./videos.js";
 
 export interface RefreshVideo {
   name: string;
@@ -51,6 +52,10 @@ export interface RefreshResult {
 export interface RefreshDeps {
   /** The user's library, which `library: "local"` films into. */
   home: string;
+  /** The library's reads, for the check that it is ahead of a kept file
+   *  (local refreshes only; a throwaway refresh never reads them). */
+  library: Library;
+  videos: VideoStore;
   /** A headless executor filming into `home`, at the display `env` names,
    *  exporting into `outDir`, reading accounts from `projectDir`. */
   executor(options: {
@@ -70,7 +75,13 @@ export interface RefreshDeps {
  *  device, so only the scale here matters. */
 const DEVICE_DISPLAY = { width: 1280, height: 800 };
 
-type Job = { kept: KeptVideo; file: string; script: DemoScript };
+type Job = {
+  kept: KeptVideo;
+  file: string;
+  script: DemoScript;
+  /** Read before the film, which adds a version to the library. */
+  ahead: string | null;
+};
 
 /**
  * Why a run answer is not clean enough to replace a committed video, or
@@ -119,7 +130,12 @@ export async function refreshKept(
   const root = resolve(args.repoRoot);
   const rootReal = await realpath(root);
   const videos: RefreshVideo[] = [];
-  const failed = (name: string, file: string, detail: string) =>
+  const failed = (
+    name: string,
+    file: string,
+    detail: string,
+    notes: string[] = [],
+  ) =>
     videos.push({
       name,
       file,
@@ -127,7 +143,7 @@ export async function refreshKept(
       detail,
       outputs: [],
       line: null,
-      notes: [],
+      notes,
     });
 
   let names: string[] = [];
@@ -179,7 +195,15 @@ export async function refreshKept(
     const display = `${width}x${height}@${kept.scale}`;
     groups.set(display, [
       ...(groups.get(display) ?? []),
-      { kept, file, script },
+      {
+        kept,
+        file,
+        script,
+        ahead:
+          args.library === "local"
+            ? await libraryAhead(kept, file, deps)
+            : null,
+      },
     ]);
   }
   for (const a of args.only ?? []) {
@@ -216,13 +240,15 @@ export async function refreshKept(
           deps.log(`refresh: filming "${job.kept.name}" at ${display}`);
           try {
             const one = await filmOne(job, root, executor, home, args.library);
-            if ("failed" in one) failed(job.kept.name, job.file, one.failed);
+            if ("failed" in one)
+              failed(job.kept.name, job.file, one.failed, notesOf(job));
             else filmed.push(one);
           } catch (error) {
             failed(
               job.kept.name,
               job.file,
               `refresh threw: ${messageOf(error)}`,
+              notesOf(job),
             );
           }
         }
@@ -254,6 +280,8 @@ export async function refreshKept(
   videos.sort((a, b) => a.file.localeCompare(b.file));
   return { videos };
 }
+
+const notesOf = (job: Job): string[] => (job.ahead === null ? [] : [job.ahead]);
 
 /** The kept script as this refresh films it: the logo by its repo path
  *  (the runner reads a relative ref from DEMOMAN_HOME), and the target at
@@ -312,7 +340,7 @@ type Filmed = {
 };
 
 async function filmOne(
-  { kept, file, script }: Job,
+  { kept, file, script, ahead }: Job,
   root: string,
   executor: LocalExecutor,
   home: string,
@@ -371,7 +399,7 @@ async function filmOne(
             not: `take ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
           };
   }
-  return { job: { kept, file, script }, report, rendered, stored };
+  return { job: { kept, file, script, ahead }, report, rendered, stored };
 }
 
 /** Compares each new output with the committed one and replaces those
@@ -385,7 +413,7 @@ async function replaceOne(
   const { kept, file } = job;
   const changed: number[] = [];
   const said: string[] = [];
-  const notes: string[] = [];
+  const notes: string[] = notesOf(job);
   const answer = (
     outcome: RefreshVideo["outcome"],
     outputs: string[],

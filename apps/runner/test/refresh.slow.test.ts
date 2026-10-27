@@ -34,6 +34,7 @@ import {
   uncleanRun,
 } from "../src/executor/refresh.js";
 import { execGit } from "../src/executor/repo.js";
+import { createVideoStore } from "../src/executor/videos.js";
 import { listenOnLoopback } from "../src/loopback.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): a refresh of both
@@ -110,6 +111,8 @@ const refreshTemps = async () =>
 
 const deps = (): RefreshDeps => ({
   home,
+  library: createLibrary(home),
+  videos: createVideoStore(home, createLibrary(home)),
   executor: (o) => {
     const e = createLocalExecutor({
       home: o.home,

@@ -27,7 +27,9 @@ import {
   type KeptOutput,
   type KeptVideo,
   keptFileName,
+  notCarriedOf,
   parseKept,
+  type RefilmInfo,
   serializeKept,
 } from "@demoman/run-core";
 import { DemoScriptSchema } from "@demoman/scene-schema";
@@ -191,12 +193,7 @@ export async function keepVideo(
       reason === "unfilledHoles" ? detail : `${detail} (${reason})`,
     );
   }
-  const left = [
-    ...built.refilm.notCarried.map((n) => `${n.kind} ${n.id}`),
-    ...built.refilm.notes.flatMap((n) =>
-      n.kind === "migrated" ? [`migrated: ${n.sentence}`] : [],
-    ),
-  ];
+  const left = leftBehind(built.refilm);
   if (left.length > 0) {
     return refuse(
       "notCarried",
@@ -396,6 +393,58 @@ export async function keepVideo(
     await rm(temp, { recursive: true, force: true }).catch((error: unknown) =>
       deps.log(`keep: ${temp} was not removed (${messageOf(error)})`),
     );
+  }
+}
+
+/** What a re-film does not carry, named the way `keep` refuses it. */
+export function leftBehind(refilm: RefilmInfo): string[] {
+  return [
+    ...refilm.notCarried.map((n) => `${n.kind} ${n.id}`),
+    ...refilm.notes.flatMap((n) =>
+      n.kind === "migrated" ? [`migrated: ${n.sentence}`] : [],
+    ),
+  ];
+}
+
+/**
+ * The line a local refresh carries when the library holds a version, or
+ * Studio edits, the kept file lacks; null when it does not. Edited is read
+ * against the scene revision `keep` recorded, not the membership's `edited`
+ * flag, which is also true for edits carried into the file at keep time.
+ * A library that cannot be read is said, never taken for "nothing newer".
+ */
+export async function libraryAhead(
+  kept: KeptVideo,
+  file: string,
+  deps: { videos: VideoStore; library: Library },
+): Promise<string | null> {
+  try {
+    const video = await deps.videos.get(kept.from.videoId);
+    // Kept on another machine: this library has nothing to be ahead of.
+    if (video === null) return null;
+    const all = await deps.videos.versions(video.id);
+    const current = all.filter((v) => v.complete).at(-1) ?? all.at(-1);
+    if (current === undefined) return null;
+    const read = await deps.library.getSceneRead(current.takeId);
+    if (read === null) {
+      return `the library's current version of "${kept.name}" (take ${current.takeId}) has no scene.json, so whether it is ahead of ${file} cannot be told`;
+    }
+    if (
+      current.takeId === kept.from.takeId &&
+      read.revision === kept.from.recordedRevision
+    )
+      return null;
+    const left = leftBehind({
+      from: current.takeId,
+      notCarried: notCarriedOf(read.scene),
+      notes: read.notes.map((sentence) => ({
+        kind: "migrated" as const,
+        sentence,
+      })),
+    });
+    return `the library has a newer version or Studio edits not in ${file}; run \`demoman keep ${kept.name}\` again to take them${left.length > 0 ? ` (keep will refuse the edits a re-film does not carry: ${left.join(", ")})` : ""}`;
+  } catch (error) {
+    return `whether the library is ahead of ${file} cannot be told: ${messageOf(error)}`;
   }
 }
 

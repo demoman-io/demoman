@@ -433,6 +433,7 @@ async function refresh(args: string[]): Promise<void> {
   });
   let result: RefreshResult | { threw: string };
   try {
+    const refreshHome = demomanHome();
     result = await refreshKept(
       {
         repoRoot: repo.repo.root,
@@ -441,7 +442,11 @@ async function refresh(args: string[]): Promise<void> {
         library: process.env.CI === "true" ? "throwaway" : "local",
       },
       {
-        home: demomanHome(),
+        home: refreshHome,
+        library: createLibrary(refreshHome),
+        videos: createVideoStore(refreshHome, createLibrary(refreshHome), {
+          log,
+        }),
         executor: (o) =>
           createLocalExecutor({
             ...o,
