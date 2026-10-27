@@ -227,15 +227,23 @@ export function createGh(
     return null;
   }
 
-  async function pr(
-    n?: number,
-  ): Promise<{ number: number; url: string; host: string } | GhRefusal> {
+  async function pr(n?: number): Promise<
+    | {
+        number: number;
+        url: string;
+        host: string;
+        /** The head commit, for `attach` to compare with the code filmed;
+         *  null when gh does not name one. */
+        head: string | null;
+      }
+    | GhRefusal
+  > {
     const args = ["pr", "view", ...(n === undefined ? [] : [String(n)])];
-    const r = await check([...args, "--json", "number,url"]);
+    const r = await check([...args, "--json", "number,url,headRefOid"]);
     if ("timedOut" in r) {
       return timedOut(
         "prNotFound",
-        `${["gh", ...args].join(" ")} --json number,url`,
+        `${["gh", ...args].join(" ")} --json number,url,headRefOid`,
         "Check that gh can reach github.com.",
       );
     }
@@ -258,7 +266,7 @@ export function createGh(
         detail: `gh pr view failed (exit ${r.code}): ${said}`,
       };
     }
-    let parsed: { number?: unknown; url?: unknown };
+    let parsed: { number?: unknown; url?: unknown; headRefOid?: unknown };
     try {
       parsed = JSON.parse(r.stdout) as typeof parsed;
     } catch {
@@ -288,13 +296,21 @@ export function createGh(
         detail: `this pull request lives on ${host}; video attachments work only on github.com.`,
       };
     }
-    return { number: parsed.number, url: parsed.url, host };
+    return {
+      number: parsed.number,
+      url: parsed.url,
+      host,
+      head:
+        typeof parsed.headRefOid === "string" && parsed.headRefOid !== ""
+          ? parsed.headRefOid
+          : null,
+    };
   }
 
   // gh's own answer is the caller's to judge; a spawn failure is shown as a
   // non-zero exit carrying its reason, never as success.
-  async function attached(args: readonly string[]) {
-    const r = await call(args);
+  async function attached(args: readonly string[], via = call) {
+    const r = await via(args);
     if ("spawnError" in r) {
       return { code: 127, stdout: "", stderr: missing(r.spawnError).detail };
     }
@@ -305,7 +321,7 @@ export function createGh(
       return {
         code: 124,
         stdout: "",
-        stderr: `gh did not finish within ${duration(uploadTimeoutMs)} and was stopped`,
+        stderr: `gh did not finish within ${duration(via === call ? uploadTimeoutMs : checkTimeoutMs)} and was stopped`,
       };
     }
     return r;
@@ -318,6 +334,10 @@ export function createGh(
       attached(["pr", "edit", String(n), "--attach", file]),
     attachToComment: (n: number, file: string, body: string) =>
       attached(["pr", "comment", String(n), "--body", body, "--attach", file]),
+    /** Replaces the description with a file's text: no upload, so timed
+     *  like a check. */
+    setBody: (n: number, bodyFile: string) =>
+      attached(["pr", "edit", String(n), "--body-file", bodyFile], check),
     /** The PR's description and comments, or `{ unreadable }` saying why
      *  they could not be read — never "nothing there". A read, so it is
      *  timed like a check. */

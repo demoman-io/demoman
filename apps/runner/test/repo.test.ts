@@ -1,10 +1,22 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  execGit,
+  type GitRunner,
   normaliseRemote,
+  readFilmedCode,
   readRepo,
   storedRemote,
 } from "../src/executor/repo.js";
@@ -116,5 +128,139 @@ describe("readRepo", () => {
       ok: false,
       none: expect.stringMatching(/git failed.*boom/),
     });
+  });
+});
+
+describe("readFilmedCode", () => {
+  /** A repo with one committed file and a .gitignore'd `ignored.txt`. */
+  function committed(name: string): string {
+    const dir = makeRepo(name);
+    writeFileSync(join(dir, "app.txt"), "one\n");
+    writeFileSync(join(dir, ".gitignore"), "ignored.txt\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "app");
+    return dir;
+  }
+
+  it("a clean checkout films HEAD's tree", async () => {
+    const dir = committed("film-clean");
+    expect(await readFilmedCode(dir)).toEqual({
+      commit: git(dir, "rev-parse", "HEAD"),
+      tree: git(dir, "rev-parse", "HEAD^{tree}"),
+      dirty: false,
+    });
+  });
+
+  it("a new untracked file is in the tree filmed", async () => {
+    const dir = committed("film-untracked");
+    writeFileSync(join(dir, "new.txt"), "new\n");
+    // Premise: git sees it as untracked, not staged.
+    expect(git(dir, "status", "--porcelain")).toBe("?? new.txt");
+    const filmed = await readFilmedCode(dir);
+    expect(filmed).toMatchObject({ dirty: true });
+    expect(filmed).not.toHaveProperty(
+      "tree",
+      git(dir, "rev-parse", "HEAD^{tree}"),
+    );
+  });
+
+  it("a change to an ignored file is not", async () => {
+    const dir = committed("film-ignored");
+    writeFileSync(join(dir, "ignored.txt"), "changed\n");
+    // Premise: the ignored file exists and git does not list it.
+    expect(readFileSync(join(dir, "ignored.txt"), "utf8")).toBe("changed\n");
+    expect(git(dir, "status", "--porcelain")).toBe("");
+    expect(await readFilmedCode(dir)).toMatchObject({ dirty: false });
+  });
+
+  it("leaves the real index byte for byte as it was, in a worktree too", async () => {
+    const dir = committed("film-index");
+    writeFileSync(join(dir, "new.txt"), "new\n");
+    writeFileSync(join(dir, "app.txt"), "two\n");
+    const index = join(dir, ".git", "index");
+    const before = readFileSync(index);
+    expect(await readFilmedCode(dir)).toMatchObject({ dirty: true });
+    expect(readFileSync(index).equals(before)).toBe(true);
+    // Nothing staged: the edit and the new file are still the user's own.
+    expect(git(dir, "diff", "--cached", "--name-only")).toBe("");
+    expect(git(dir, "status", "--porcelain")).toContain("?? new.txt");
+
+    const wt = join(scratch, "film-index-wt");
+    git(dir, "worktree", "add", "-q", wt, "-b", "film-side");
+    writeFileSync(join(wt, "wt.txt"), "wt\n");
+    // Premise: the worktree's .git is a file, and its index lives elsewhere.
+    expect(readFileSync(join(wt, ".git"), "utf8")).toMatch(/^gitdir: /);
+    const wtIndex = git(
+      wt,
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "index",
+    );
+    const wtBefore = readFileSync(wtIndex);
+    expect(await readFilmedCode(wt)).toMatchObject({ dirty: true });
+    expect(readFileSync(wtIndex).equals(wtBefore)).toBe(true);
+    expect(git(wt, "status", "--porcelain")).toBe("?? wt.txt");
+  });
+
+  it("before the first commit, the tree is still read", async () => {
+    const dir = join(scratch, "film-unborn");
+    execFileSync("git", ["init", "-q", "-b", "main", dir]);
+    writeFileSync(join(dir, "a.txt"), "a\n");
+    const filmed = await readFilmedCode(dir);
+    expect(filmed).toMatchObject({ commit: null, dirty: true });
+    expect(filmed).toHaveProperty(
+      "tree",
+      expect.stringMatching(/^[0-9a-f]{40}$/),
+    );
+  });
+
+  it("a git that never answers is cut off, saying so", async () => {
+    const dir = committed("film-hang");
+    const filmed = await readFilmedCode(dir, () => new Promise(() => {}), 50);
+    expect(filmed).toEqual({ none: expect.stringContaining("timed out") });
+  });
+
+  // code-review high: the temp folder's removal ran in a bare finally, so a
+  // folder that would not come off threw out of readFilmedCode and failed
+  // the run. Recording the code must never cost the film.
+  it("a temp folder that will not come off is logged, and the tree still answered", async () => {
+    const dir = committed("film-cleanup");
+    let locked = "";
+    const stuck: GitRunner = async (args, cwd, env) => {
+      if (args[0] === "add" && env?.GIT_INDEX_FILE !== undefined) {
+        // A folder whose file cannot be unlinked, beside the temp index.
+        locked = join(dirname(env.GIT_INDEX_FILE), "locked");
+        mkdirSync(locked);
+        writeFileSync(join(locked, "x"), "x");
+        chmodSync(locked, 0o500);
+      }
+      return execGit(args, cwd, env);
+    };
+    const lines: string[] = [];
+    try {
+      const filmed = await readFilmedCode(dir, stuck, 20_000, (l) =>
+        lines.push(l),
+      );
+      // Premise: the folder was made and is still there.
+      expect(existsSync(join(locked, "x"))).toBe(true);
+      expect(filmed).toMatchObject({ dirty: false });
+      expect(lines.join("\n")).toContain(dirname(locked));
+    } finally {
+      if (locked !== "") {
+        chmodSync(locked, 0o700);
+        rmSync(dirname(locked), { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("a git step that fails says which, in git's words", async () => {
+    const dir = committed("film-fail");
+    const filmed = await readFilmedCode(dir, async (args) =>
+      args[0] === "write-tree"
+        ? { code: 128, stdout: "", stderr: "fatal: boom\nmore" }
+        : { code: 0, stdout: ".git/index\n", stderr: "" },
+    );
+    expect(filmed).toEqual({ none: "git write-tree failed: fatal: boom" });
   });
 });

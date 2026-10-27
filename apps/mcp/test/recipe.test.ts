@@ -41,6 +41,7 @@ const tree = (d: string): string[] =>
 const CLI_SOURCES = [
   ...dir("apps/mcp/src"),
   ...dir("apps/runner/src/executor"),
+  "apps/runner/src/platform.ts",
   ...tree("packages/run-core/src").filter((f) => !f.endsWith("auto-zoom.ts")),
 ];
 /** Answered by tools.ts itself rather than spelled through a helper the
@@ -321,6 +322,7 @@ describe("the CLI's recipe", () => {
         "unknownKit",
         "videoUnwritable",
         "invalidProject",
+        "unsupportedPlatform",
       ]),
     );
     expect(reasons.filter((r) => !RECIPE.includes(`\`${r}\``))).toEqual([]);
@@ -421,5 +423,19 @@ describe("the recipe on a run's size", () => {
     expect(recipe).toMatch(/`size` is `\{ width, height, from, error \}`/);
     // The hand-back names it on its one extra line.
     expect(recipe).toMatch(/Hand back[\s\S]*`size\.error`/);
+  });
+});
+
+describe("the recipe on pull requests", () => {
+  // Red if the recipe has the agent write a second line, or forgets the
+  // video can go up without its line.
+  it("says the attached video carries its own line, and what notWritten means", () => {
+    const sec = RECIPE.slice(
+      RECIPE.indexOf("### Pull requests"),
+      RECIPE.indexOf("## 6. The format"),
+    );
+    expect(sec.length, "the section was found").toBeGreaterThan(200);
+    expect(sec).toContain("carries its own line");
+    expect(sec).toContain("line.notWritten");
   });
 });

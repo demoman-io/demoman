@@ -40,6 +40,9 @@ export interface ExecutorOptions {
   env?: NodeJS.ProcessEnv;
   /** One line to stderr. Never stdout: stdout belongs to MCP. */
   log: (line: string) => void;
+  /** The machine this records on (`recorderPlatform`); `process` unless a
+   *  test stands in for arm64 Linux. */
+  host?: { platform: string; arch: string };
   /** Tests only: stands in for the browser launch, so a test can hold it
    *  pending. Production never sets it. */
   launchFn?: typeof launch;

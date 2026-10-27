@@ -13,7 +13,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { isCancel, multiselect, select } from "@clack/prompts";
@@ -26,9 +25,15 @@ import {
   PULL_REQUESTS_VALUES,
   type PullRequestsValue,
 } from "@demoman/run-core";
-import { fullChromiumPath } from "@demoman/runner/package";
+import {
+  chromiumDepsCommand,
+  fullChromiumPath,
+  launchFailure,
+  playwrightCliPath,
+} from "@demoman/runner/package";
 import { readUserSettings } from "@demoman/runner/studio";
 import { writeSetting } from "@demoman/studio";
+import { chromium } from "playwright";
 import type { Answers, Questions, Ran, SetupDeps } from "./setup.js";
 
 /** How long a captured command (claude's git clone of the marketplace, the
@@ -69,18 +74,22 @@ export function runCaptured(
   );
 }
 
-/** The CLI of the playwright-core this package's own Playwright loads, so
- *  the download is the Chromium revision that Playwright looks for. */
+/** The runner's Playwright CLI (`playwrightCliPath`), the one the
+ *  libraries are installed with too. Checked now, not at the download: a
+ *  wrong path would otherwise surface only on a machine that has no
+ *  Chromium yet. */
 function playwrightCli(): string {
-  const pw = createRequire(import.meta.url).resolve("playwright/package.json");
-  const core = createRequire(pw).resolve("playwright-core/package.json");
-  const cli = join(dirname(core), "cli.js");
-  // Checked now, not at the download: a wrong path would otherwise surface
-  // only on a machine that has no Chromium yet.
-  if (!existsSync(cli)) {
-    throw new Error(`this install's Playwright has no CLI at ${cli}`);
-  }
-  return cli;
+  const found = playwrightCliPath();
+  if (!found.ok) throw new Error(found.why);
+  return found.cli;
+}
+
+/** The runner's install-deps command; thrown when it cannot be named, as a
+ *  wrong Playwright CLI path is (`playwrightCli`). */
+function chromiumDeps(): { command: string; args: string[] } {
+  const deps = chromiumDepsCommand();
+  if (!deps.ok) throw new Error(deps.why);
+  return { command: deps.command, args: deps.args };
 }
 
 /** The download, run as `playwright`. Playwright warns "you are running
@@ -102,6 +111,27 @@ export function setupChromiumDownload(cli: string): {
       "--no-shell",
     ],
   };
+}
+
+/** null when the runner's Chromium launches headless and closes; else
+ *  what it said, read by the runner's `launchFailure`. */
+export async function browserLaunches(): Promise<{
+  missingLibraries: boolean;
+  line: string;
+} | null> {
+  try {
+    const b = await chromium.launch({
+      executablePath: fullChromiumPath(),
+      headless: true,
+      timeout: 30_000,
+    });
+    await b.close();
+    return null;
+  } catch (error) {
+    return launchFailure(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 const failure = (path: string, error: unknown): string =>
@@ -202,27 +232,34 @@ export function readSkill(
 }
 
 /** macOS's managed settings, which an admin's env block may use to turn
- *  every update off (code.claude.com/docs/en/settings). */
+ *  every update off (code.claude.com/docs/en/settings); Linux's are under
+ *  /etc. */
 export const CLAUDE_MANAGED_SETTINGS =
   "/Library/Application Support/ClaudeCode/managed-settings.json";
+const CLAUDE_MANAGED_SETTINGS_LINUX = "/etc/claude-code/managed-settings.json";
 
 /** Where Claude Code keeps its settings and its user config: under
  *  CLAUDE_CONFIG_DIR when that is set, else ~/.claude and ~/.claude.json. */
 export function claudePaths(
   home: string,
   configDir: string | undefined,
+  platform: string = process.platform,
 ): { settings: string; config: string; managed: string } {
+  const managed =
+    platform === "linux"
+      ? CLAUDE_MANAGED_SETTINGS_LINUX
+      : CLAUDE_MANAGED_SETTINGS;
   if (configDir === undefined || configDir === "") {
     return {
       settings: join(home, ".claude", "settings.json"),
       config: join(home, ".claude.json"),
-      managed: CLAUDE_MANAGED_SETTINGS,
+      managed,
     };
   }
   return {
     settings: join(configDir, "settings.json"),
     config: join(configDir, ".claude.json"),
-    managed: CLAUDE_MANAGED_SETTINGS,
+    managed,
   };
 }
 
@@ -295,6 +332,8 @@ export function realSetupDeps(
   const home = homedir();
   return {
     platform: process.platform,
+    arch: process.arch,
+    isRoot: process.getuid?.() === 0,
     nodeVersion: process.version,
     version,
     run: (command, args) => runCaptured(command, args),
@@ -306,6 +345,8 @@ export function realSetupDeps(
     // answer to "is it installed" for setup and for the first run.
     chromiumInstalled: () => existsSync(fullChromiumPath()),
     chromiumInstall: setupChromiumDownload(playwrightCli()),
+    chromiumDeps: chromiumDeps(),
+    browserLaunches,
     home,
     codexHome: process.env.CODEX_HOME || join(home, ".codex"),
     env: process.env,

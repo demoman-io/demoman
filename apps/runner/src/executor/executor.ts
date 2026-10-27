@@ -47,7 +47,7 @@ import {
   resolvePullRequests,
 } from "./pull-requests.js";
 import { refilmFromVideo } from "./refilm.js";
-import { readRepo } from "./repo.js";
+import { execGit, readFilmedCode, readRepo } from "./repo.js";
 import { runScript } from "./run.js";
 import { runningWords } from "./running.js";
 import {
@@ -389,10 +389,15 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     try {
       const read = await readDisplay(options.env ?? process.env);
       return "failed" in read
-        ? { unreadable: displayUnreadSentence(read.failed, "records") }
+        ? { unreadable: displayUnreadSentence(read, "records") }
         : read;
     } catch (error) {
-      return { unreadable: displayUnreadSentence(messageOf(error), "records") };
+      return {
+        unreadable: displayUnreadSentence(
+          { failed: messageOf(error) },
+          "records",
+        ),
+      };
     }
   }
   const session = createBrowserSession({
@@ -408,6 +413,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       ? {}
       : { installCommand: options.installCommand }),
     ...(options.launchFn === undefined ? {} : { launchFn: options.launchFn }),
+    ...(options.host === undefined ? {} : { host: options.host }),
     ...(options.workWindow === undefined
       ? {}
       : { workWindow: options.workWindow }),
@@ -804,6 +810,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           return refused;
         }
       }
+      // The code on disk as the film starts, decided once here and recorded
+      // in the report; `attach` reads it rather than looking again.
+      const filmedCode = repoRead.ok
+        ? await readFilmedCode(repoRead.repo.root, undefined, undefined, log)
+        : { none: repoRead.none };
       // Whatever the run did to the context's cookies, the next call starts
       // from the saved sessions again (final review 2).
       const film = async () => {
@@ -820,6 +831,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             ...(repoRead.ok && repoRead.repo.commit !== null
               ? { buildSha: repoRead.repo.commit }
               : {}),
+            filmedCode,
             sessions: loaded.files,
             sessionsContext: browser.launched.context,
             loadSessions: (context) => sessions.load(context, choiceOf(choice)),
@@ -1181,6 +1193,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
                       : [options.ghCheckTimeoutMs]),
                   ),
                   export: exportDeps(),
+                  git: (args) => execGit(args, where.from),
                   log,
                 },
                 (progress) => {

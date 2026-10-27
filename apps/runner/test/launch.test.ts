@@ -1,11 +1,13 @@
+import { execFileSync } from "node:child_process";
 import { REPLAY_DPR } from "@demoman/replay-engine";
-import { chromium } from "playwright";
+import { type Browser, chromium } from "playwright";
 import { describe, expect, it } from "vitest";
 import {
   CONTEXT_DPR,
   CONTEXT_VIEWPORT,
   type Display,
   displayArgs,
+  HEADLESS_GPU_ARGS,
   killBrowser,
   launch,
 } from "../src/launch.js";
@@ -198,6 +200,54 @@ describe("launch", () => {
     expect(on.userAgent).not.toContain("Headless");
     expect(on.userAgent).toContain("Chrome/");
   }, 60_000);
+
+  // Headless draws a page's 2D canvas on the CPU without HEADLESS_GPU_ARGS:
+  // the same sample-app export rendered in 174.7 s without them and 9.6 s
+  // with (measured 2026-10-25, M4, `compare/export-variants.mjs`). That
+  // cost is a measurement, not a test; this holds that the flag reaches the
+  // browser, which an args object built beside the launch once did not.
+  it.runIf(HEADLESS_GPU_ARGS.length > 0)(
+    "asks a headless Chrome for the GPU",
+    async () => {
+      // The browser process's own argv, read from the OS: CDP's
+      // Browser.getBrowserCommandLine refuses without --enable-automation.
+      const commandLine = async (browser: Browser) => {
+        const session = await browser.newBrowserCDPSession();
+        try {
+          const { processInfo } = await session.send(
+            "SystemInfo.getProcessInfo",
+          );
+          const pid = processInfo.find((p) => p.type === "browser")?.id;
+          return execFileSync("ps", ["-o", "command=", "-p", String(pid)])
+            .toString()
+            .trim()
+            .split(" ");
+        } finally {
+          await session.detach();
+        }
+      };
+      const launched = await launch({
+        headless: true,
+        executablePath: chromium.executablePath(),
+      });
+      const asked = await commandLine(launched.browser).finally(() =>
+        launched.close(),
+      );
+      const bare = await chromium.launch({
+        headless: true,
+        executablePath: chromium.executablePath(),
+      });
+      const control = await commandLine(bare).finally(() => bare.close());
+      // Premise: the command line is readable, and Chrome does not ask for
+      // the GPU by itself.
+      expect(control, control.join(" ")).toContain("--headless");
+      for (const arg of HEADLESS_GPU_ARGS) expect(control).not.toContain(arg);
+      expect(asked, asked.join(" ")).toEqual(
+        expect.arrayContaining(HEADLESS_GPU_ARGS),
+      );
+    },
+    30_000,
+  );
 
   // The user agent is cosmetic: a launch whose rewrite of it fails still
   // films, with the browser's own, and says why.

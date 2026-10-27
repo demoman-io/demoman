@@ -205,6 +205,22 @@ describe("run records into a video", () => {
         buildSha: commit,
         buildShaSource: "git rev-parse HEAD",
       });
+      // The tree it filmed, recorded in the report and in report.json.
+      const filmed = {
+        commit,
+        tree: execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
+          cwd: project,
+        })
+          .toString()
+          .trim(),
+        dirty: false,
+      };
+      expect(out.filmedCode).toEqual(filmed);
+      expect(
+        JSON.parse(
+          await readFile(join(home, "takes", take, "report.json"), "utf8"),
+        ).filmedCode,
+      ).toEqual(filmed);
     },
     RUN_MS,
   );

@@ -9,7 +9,9 @@ import type { WorkWindow } from "../src/executor/browser.js";
 import {
   classifyLaunchError,
   createBrowserSession,
+  launchFailure,
 } from "../src/executor/browser.js";
+import { chromiumDepsCommand } from "../src/install-advice.js";
 import type { Launched, launch } from "../src/launch.js";
 
 const log = (_: string) => undefined;
@@ -63,6 +65,80 @@ describe("classifyLaunchError", () => {
       "Cannot find module 'playwright/package.json'",
     );
     expect(failure.detail).not.toMatch(/npx playwright(@\S*)? install/);
+  });
+
+  // Every production launch names its executable (fullChromiumPath), and
+  // Playwright skips its host check for a custom executable
+  // (playwright-core 1.62.1 coreBundle.js, launch: `if (customExecutablePath)`),
+  // so missing libraries arrive as the dynamic linker's line in the browser
+  // log. The shape of Playwright's launch error around it, from that file;
+  // not captured on a machine missing libnss3.
+  const MISSING_LIBRARY = [
+    "browserType.launch: Target page, context or browser has been closed",
+    "Browser logs:",
+    "",
+    "<launching> /home/u/.cache/ms-playwright/chromium-1234/chrome-linux/chrome --disable-field-trial-config --headless",
+    "<launched> pid=4242",
+    "[pid=4242][err] /home/u/.cache/ms-playwright/chromium-1234/chrome-linux/chrome: error while loading shared libraries: libnss3.so: cannot open shared object file: No such file or directory",
+    "Call log:",
+    "  - <launching> /home/u/.cache/ms-playwright/chromium-1234/chrome-linux/chrome",
+  ].join("\n");
+
+  it("names install-deps when a library is missing at a custom executable's launch", () => {
+    // Premise: the fixture is not the host-check text, which a custom
+    // executable never gets.
+    expect(MISSING_LIBRARY).not.toContain("Host system is missing");
+    const failure = classifyLaunchError(new Error(MISSING_LIBRARY));
+    expect(failure.reason).toBe("browserMissing");
+    expect(failure.detail).toContain("libnss3.so");
+    expect(failure.detail).toContain("install-deps chromium");
+  });
+
+  // One reading of a launch's words, which setup and classifyLaunchError
+  // both use: the linker's line, not Playwright's first.
+  it("reads a missing library out of the launch error, and nothing else as one", () => {
+    expect(launchFailure(MISSING_LIBRARY)).toEqual({
+      missingLibraries: true,
+      line: "error while loading shared libraries: libnss3.so: cannot open shared object file: No such file or directory",
+    });
+    expect(
+      launchFailure(
+        "browserType.launch: Timeout 30000ms exceeded.\nCall log:\n  - <launching> /x",
+      ),
+    ).toEqual({
+      missingLibraries: false,
+      line: "browserType.launch: Timeout 30000ms exceeded.",
+    });
+  });
+
+  // sudo resets PATH, and an nvm, fnm or volta npx is not on root's: the
+  // command runs this node and this Playwright's CLI by absolute path, the
+  // same one setup names (chromiumDepsCommand).
+  it("names the one install-deps command setup names, by absolute path", () => {
+    const deps = chromiumDepsCommand();
+    expect(deps.ok, JSON.stringify(deps)).toBe(true);
+    if (!deps.ok) return;
+    expect(deps.command).toBe(process.execPath);
+    expect(deps.args.slice(-2)).toEqual(["install-deps", "chromium"]);
+    const failure = classifyLaunchError(
+      new Error("Host system is missing dependencies to run browsers."),
+    );
+    expect(failure.detail).toContain(
+      `sudo ${[deps.command, ...deps.args].join(" ")}`,
+    );
+    expect(failure.detail).not.toContain("npx");
+  });
+
+  // The published package's setup command answers a missing Chromium; it
+  // cannot install libraries without root, so it must not replace this one.
+  it("keeps install-deps when the package names its own install command", () => {
+    const failure = classifyLaunchError(
+      new Error("Host system is missing dependencies to run browsers."),
+      { ok: true, version: "1.62.1" },
+      "npx demoman@9.9.9 setup",
+    );
+    expect(failure.detail).toContain("install-deps chromium");
+    expect(failure.detail).not.toContain("npx demoman@9.9.9 setup");
   });
 
   it("calls any other launch failure windowDidNotOpen, with Playwright's words", () => {
@@ -121,6 +197,38 @@ describe("createBrowserSession", () => {
       expect(got.reason).toBe("windowDidNotOpen");
       expect(got.detail).not.toContain("npx demoman");
     }
+  });
+
+  it("refuses arm64 Linux by name before launching anything", async () => {
+    let launches = 0;
+    const session = createBrowserSession({
+      headless: true,
+      host: { platform: "linux", arch: "arm64" },
+      launchFn: async () => {
+        launches++;
+        throw new Error("launched");
+      },
+      log,
+    });
+    const got = await session.ensure();
+    expect(got).toMatchObject({ ok: false, reason: "unsupportedPlatform" });
+    if (!got.ok) expect(got.detail).toContain("no H.264 encoder");
+    expect(launches).toBe(0);
+  });
+
+  it("launches on x86_64 Linux", async () => {
+    let launches = 0;
+    const session = createBrowserSession({
+      headless: true,
+      host: { platform: "linux", arch: "x64" },
+      launchFn: async () => {
+        launches++;
+        throw new Error("launched");
+      },
+      log,
+    });
+    await session.ensure();
+    expect(launches).toBe(1);
   });
 
   it("launches once, lazily, and hands back the same browser", async () => {

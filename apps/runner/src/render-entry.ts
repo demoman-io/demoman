@@ -69,6 +69,9 @@ export interface RenderedFacts extends RenderFacts {
   /** What is held in the page, by index: `readChunk` reads these. `name` is
    *  null for mp4 and gif (the caller names them), set for each still. */
   files: { name: string | null; byteLength: number }[];
+  /** Where the page's time went (`stage-times.ts`): all of `renderOutput`,
+   *  and the part of it spent waiting on source frames (fetch and decode). */
+  timing: { renderMs: number; framesMs: number; frameReads: number };
 }
 
 export interface RenderEntry {
@@ -129,6 +132,27 @@ async function load(ref: string): Promise<Uint8Array | FrameImage> {
 // so the outputs are overwritten rather than accumulated.
 let outputs: Uint8Array[] = [];
 
+/**
+ * The software encoder unless a target names one (`share-measure` does).
+ * Which encoder Chromium offers depends on whether its GPU is on — headless
+ * on macOS gets VideoToolbox only with `HEADLESS_GPU_ARGS` — and the encoders
+ * size files differently: on 2026-10-25 one take's export went from 9.0 to
+ * 12.9 Mbps on VideoToolbox, and the share target opened quantizer mode its
+ * thresholds were not measured under. Pinned, the file is the same whatever
+ * the GPU, the window or the platform. Every cap step spreads `target` or
+ * `share`, so pinning both reaches them all.
+ */
+function softwareEncoded(target: RenderTarget): RenderTarget {
+  return {
+    ...target,
+    encoder: {
+      ...target.encoder,
+      hardwareAcceleration:
+        target.encoder?.hardwareAcceleration ?? "prefer-software",
+    },
+  };
+}
+
 async function render(manifest: RenderManifest): Promise<RenderedFacts> {
   const { scene, bundle, target, fileType } = manifest;
   // The logo is decoration: one that will not decode leaves the file
@@ -152,20 +176,52 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
   ] as
     | ((done: number, total: number, width?: number, pass?: CapRender) => void)
     | undefined;
+  const started = performance.now();
+  const source = await framesFor(bundle, load);
+  let framesMs = 0;
+  let frameReads = 0;
+  // Every member forwarded by name: the source can be a class instance, whose
+  // methods a spread would not copy.
+  const frames: typeof source = {
+    at: async (ms) => {
+      const t = performance.now();
+      try {
+        return await source.at(ms);
+      } finally {
+        framesMs += performance.now() - t;
+        frameReads++;
+      }
+    },
+    describe: () => source.describe(),
+    ...(source.close === undefined ? {} : { close: () => source.close?.() }),
+    ...(source.warm === undefined
+      ? {}
+      : { warm: (from, to) => source.warm?.(from, to) }),
+    ...(source.unavailable === undefined
+      ? {}
+      : { unavailable: () => source.unavailable?.() ?? [] }),
+  };
   // Bytes or a reason, never an empty list: the sinks refuse a zero-frame
   // render and renderStills a take with no step left, and both throws
   // propagate out of this function unchanged.
   const { files, facts } = await renderOutput({
     fileType,
-    target,
+    target: softwareEncoded(target),
     scene,
     bundle,
-    frames: await framesFor(bundle, load),
+    frames,
     logo,
     ...(manifest.gifBudget === undefined
       ? {}
       : { gifBudget: manifest.gifBudget }),
-    ...(manifest.mp4Cap === undefined ? {} : { mp4Cap: manifest.mp4Cap }),
+    ...(manifest.mp4Cap === undefined
+      ? {}
+      : {
+          mp4Cap: {
+            ...manifest.mp4Cap,
+            share: softwareEncoded(manifest.mp4Cap.share),
+          },
+        }),
     ...(manifest.stills === undefined ? {} : { stills: manifest.stills }),
     onFrame: wholePercent((done, total, width, pass) =>
       width === undefined
@@ -179,6 +235,11 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
   return {
     ...facts,
     files: files.map((f) => ({ name: f.name, byteLength: f.bytes.byteLength })),
+    timing: {
+      renderMs: performance.now() - started,
+      framesMs,
+      frameReads,
+    },
   };
 }
 

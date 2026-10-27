@@ -5,9 +5,11 @@ import {
   withAnswerDeadline,
 } from "@demoman/replay-engine";
 import { type BrowserContext, chromium, type Page } from "playwright";
-import { displayUnreadSentence } from "../display.js";
+import { type DisplayUnread, displayUnreadSentence } from "../display.js";
 import {
+  chromiumDepsCommand,
   chromiumInstallCommand,
+  loadedPlaywrightVersion,
   type PlaywrightVersion,
 } from "../install-advice.js";
 import {
@@ -16,26 +18,84 @@ import {
   launch,
   openCdpSession,
 } from "../launch.js";
+import { recorderPlatform } from "../platform.js";
 import { messageOf } from "../report.js";
 import { readScreen } from "./page-ops.js";
 
 export type BrowserFailure = {
   ok: false;
-  reason: "browserMissing" | "windowDidNotOpen";
+  reason: "browserMissing" | "windowDidNotOpen" | "unsupportedPlatform";
   detail: string;
 };
 
 /**
- * Playwright's missing-browser error says "Executable doesn't exist at …";
- * that is the one launch failure the author fixes with a command, so it gets
- * its own reason. Every other launch failure is said in Playwright's words.
+ * What a failed launch said, read once for setup and `classifyLaunchError`:
+ * a missing library is the dynamic linker's line from the browser log (or,
+ * for Playwright's own executable, its host check's), never Playwright's
+ * first line, which says only that the browser closed. Anything else is
+ * that first line.
+ */
+export function launchFailure(said: string): {
+  missingLibraries: boolean;
+  line: string;
+} {
+  const lines = said
+    .split("\n")
+    .map((l) => l.replace(/^[\s║]+|[\s║]+$/g, ""))
+    .filter((l) => l !== "");
+  for (const l of lines) {
+    const linker = /error while loading shared libraries:.*/i.exec(l);
+    if (linker !== null) return { missingLibraries: true, line: linker[0] };
+  }
+  const host = lines.find((l) =>
+    /Host system is missing dependencies/i.test(l),
+  );
+  if (host !== undefined) return { missingLibraries: true, line: host };
+  return {
+    missingLibraries: false,
+    line: lines[0] ?? "it failed and said nothing",
+  };
+}
+
+/**
+ * Playwright's missing-browser error says "Executable doesn't exist at …".
+ * On Linux, missing system libraries say "Host system is missing
+ * dependencies" only for Playwright's own executable; a named one (every
+ * production launch, `fullChromiumPath`) skips that check, and the dynamic
+ * linker's "error while loading shared libraries" arrives in the browser
+ * log instead. Those are the launch failures the author fixes with a
+ * command, so they get their own reason. Every other launch
+ * failure is said in Playwright's words. `installCommand`, the published
+ * package's setup command, answers a missing Chromium only: setup cannot
+ * install libraries without root.
  */
 export function classifyLaunchError(
   error: unknown,
-  playwright?: PlaywrightVersion,
-): BrowserFailure {
+  playwright: PlaywrightVersion = loadedPlaywrightVersion(),
+  installCommand?: string,
+): BrowserFailure & { reason: "browserMissing" | "windowDidNotOpen" } {
   const said = messageOf(error);
+  const read = launchFailure(said);
+  if (read.missingLibraries) {
+    const lib = /shared libraries: ([^:\s]+)/i.exec(read.line);
+    const missing = `Chromium's system libraries are missing${lib === null ? "" : ` (${lib[1]})`}`;
+    const deps = chromiumDepsCommand();
+    return {
+      ok: false,
+      reason: "browserMissing",
+      detail: deps.ok
+        ? `${missing} — run \`sudo ${[deps.command, ...deps.args].join(" ")}\` once, then call this again`
+        : `${missing}, and Demoman cannot name the command that installs them (${deps.why}): ${said}`,
+    };
+  }
   if (/Executable doesn't exist/i.test(said)) {
+    if (installCommand !== undefined) {
+      return {
+        ok: false,
+        reason: "browserMissing",
+        detail: `Demoman's browser is not installed — run \`${installCommand}\` once, then call this again`,
+      };
+    }
     const install = chromiumInstallCommand(playwright);
     return {
       ok: false,
@@ -193,7 +253,9 @@ export function createBrowserSession(options: {
    *  relaunch after a crash films at the one it is on now. A read that
    *  throws counts as one that failed. Absent, headless launches with no
    *  display, as the runner's lanes measure it. */
-  readDisplay?: () => Promise<Display | { failed: string }>;
+  readDisplay?: () => Promise<Display | DisplayUnread>;
+  /** The machine this records on; `process` unless a test stands in. */
+  host?: { platform: string; arch: string };
 }): BrowserSession {
   const launchFn = options.launchFn ?? launch;
   const workWindow = options.workWindow ?? DEFAULT_WORK_WINDOW;
@@ -220,8 +282,8 @@ export function createBrowserSession(options: {
   /** The display this launch stands in for, or why there is none. Never
    *  throws: a read that throws is a read that failed, and says what threw. */
   async function readDisplayNow(
-    read: () => Promise<Display | { failed: string }>,
-  ): Promise<Display | { failed: string }> {
+    read: () => Promise<Display | DisplayUnread>,
+  ): Promise<Display | DisplayUnread> {
     try {
       return await read();
     } catch (error) {
@@ -247,6 +309,12 @@ export function createBrowserSession(options: {
   async function start(): Promise<
     { ok: true; launched: Launched } | BrowserFailure
   > {
+    const host = options.host ?? process;
+    const platform = recorderPlatform(host.platform, host.arch);
+    if (!platform.ok) {
+      options.log(`${platform.reason} — ${platform.detail}`);
+      return { ok: false, reason: platform.reason, detail: platform.detail };
+    }
     let launched: Launched;
     let display: Display | undefined;
     if (options.headless && options.readDisplay !== undefined) {
@@ -256,7 +324,7 @@ export function createBrowserSession(options: {
         // screencast. Said here when the reason is new, and on every size
         // the snapshot and run report (`screenUnknown`), so the film's size
         // and scale have their reason.
-        const why = displayUnreadSentence(read.failed, "recorded");
+        const why = displayUnreadSentence(read, "recorded");
         if (why !== screenUnknown) options.log(why);
         screenUnknown = why;
       } else {
@@ -274,15 +342,11 @@ export function createBrowserSession(options: {
           : { executablePath: options.executablePath }),
       });
     } catch (error) {
-      const classified = classifyLaunchError(error);
-      const failure: BrowserFailure =
-        classified.reason === "browserMissing" &&
-        options.installCommand !== undefined
-          ? {
-              ...classified,
-              detail: `Demoman's browser is not installed — run \`${options.installCommand}\` once, then call this again`,
-            }
-          : classified;
+      const failure = classifyLaunchError(
+        error,
+        undefined,
+        options.installCommand,
+      );
       options.log(`${failure.reason} — ${failure.detail}`);
       return failure;
     }

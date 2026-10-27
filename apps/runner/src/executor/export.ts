@@ -29,6 +29,7 @@ import {
 import type { SceneDocument } from "@demoman/scene-schema";
 import type { Page } from "playwright";
 import { renderToFiles } from "../render.js";
+import { stageTimes } from "../stage-times.js";
 import type { BrowserSession } from "./browser.js";
 import { tagBytes as tagFileBytes, type VideoTag } from "./export-tag.js";
 import type { Library } from "./library.js";
@@ -366,6 +367,7 @@ async function exportLeased(a: {
     onProgress,
   } = a;
   const { library } = deps;
+  const times = stageTimes();
 
   const aspect = scene.canvas.aspect;
   // The function the extension's offscreen renderer resolves its target through.
@@ -407,14 +409,23 @@ async function exportLeased(a: {
     });
   }
 
+  times.mark("prepare");
   onProgress({ outcome: "exporting", phase: "rendering", done: 0, total: 0 });
   // Default relaunch: an export may be the first call that needs a browser,
   // or come after the author closed the window.
   const work = await deps.session.openWorkPage();
+  if (!work.ok && work.reason === "unsupportedPlatform") {
+    return withSummary({
+      outcome: "refusedBeforeExport",
+      reason: work.reason,
+      detail: work.detail,
+    });
+  }
   if (!work.ok) {
     return withSummary({ outcome: "renderFailed", takeId, error: work.detail });
   }
   deps.onWorkPage?.(work.page);
+  times.mark("open page");
   let rendered: Awaited<ReturnType<typeof renderToFiles>>;
   try {
     rendered = await renderToFiles({
@@ -445,6 +456,7 @@ async function exportLeased(a: {
       // than the recording, and the whole window rather than the video's
       // camera, which at a step's own instant is often mid-move.
       ...(asked === "stills" ? { stills } : {}),
+      times,
       onFrame: (done, total, width, pass) =>
         onProgress({
           outcome: "exporting",
@@ -512,6 +524,8 @@ async function exportLeased(a: {
         bytes: tagger.apply("png", f.bytes),
       })),
     );
+    times.mark("save");
+    deps.log(times.line(`export ${takeId} stills`));
     return withSummary(
       reportForStillsSave({
         takeId,
@@ -544,6 +558,8 @@ async function exportLeased(a: {
   const name = exportFileName(asked, aspect, base);
   const bytes = tagger.apply(asked, file.bytes);
   const saved = await saveExport(deps.outDir, name, bytes);
+  times.mark("save");
+  deps.log(times.line(`export ${takeId} ${asked}`));
   return withSummary(
     reportForSave({
       takeId,

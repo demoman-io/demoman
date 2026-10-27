@@ -67,6 +67,7 @@ import type {
   RenderedFacts,
   RenderManifest,
 } from "./render-entry.js";
+import type { StageTimes } from "./stage-times.js";
 
 /** Bytes pulled back per `page.evaluate` round trip for the finished mp4.
  *  Matches `render-fixture.ts`'s own `CHUNK_BYTES`, reused via `mux.ts` —
@@ -278,6 +279,8 @@ export async function renderToFiles(input: {
   mp4Cap?: { maxBytes: number; share: RenderTarget };
   /** See `RenderManifest.stills`. */
   stills?: StillsOptions;
+  /** Marked at each of this render's stages (`stage-times.ts`). */
+  times?: StageTimes;
 }): Promise<Rendered> {
   const {
     scene,
@@ -291,6 +294,7 @@ export async function renderToFiles(input: {
     gifBudget,
     mp4Cap,
     stills,
+    times,
   } = input;
   const stamped: SceneDocument = {
     ...scene,
@@ -323,6 +327,7 @@ export async function renderToFiles(input: {
     }
     await page.goto(origin);
     await page.addScriptTag({ content: await renderEntryBundle() });
+    times?.mark("render page");
 
     const facts = await renderInPage(page, {
       scene: stamped,
@@ -340,6 +345,11 @@ export async function renderToFiles(input: {
       ...(mp4Cap === undefined ? {} : { mp4Cap }),
       ...(stills === undefined ? {} : { stills }),
     });
+    times?.mark("render");
+    const { renderMs, framesMs, frameReads } = facts.timing;
+    times?.note(
+      `in page: render ${(renderMs / 1000).toFixed(2)}s, of it ${(framesMs / 1000).toFixed(2)}s waiting on ${frameReads} frame reads, ${((renderMs - framesMs) / 1000).toFixed(2)}s drawing, encoding and finishing (${facts.rendered.width}x${facts.rendered.height} ${facts.rendered.fps}fps)`,
+    );
 
     const files: Rendered["files"] = [];
     for (const [index, meta] of facts.files.entries()) {
@@ -350,6 +360,7 @@ export async function renderToFiles(input: {
       }
       files.push({ name: meta.name, bytes: Buffer.concat(parts) });
     }
+    times?.mark("read back");
     return {
       files,
       detailViolations: facts.detailViolations,

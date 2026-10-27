@@ -24,4 +24,25 @@ describe("realSetupDeps' chromiumInstalled", () => {
     const dist = fileURLToPath(new URL("../pkg/dist", import.meta.url));
     expect(realSetupDeps("0.0.0", dist).chromiumInstalled()).toBe(false);
   });
+
+  it("test-launches the runner's Chromium, and says why it would not start", async () => {
+    const { realSetupDeps } = await import("../src/setup-deps.js");
+    const dist = fileURLToPath(new URL("../pkg/dist", import.meta.url));
+    const d = realSetupDeps("0.0.0", dist);
+    // Playwright's own Chromium exists here (premise above), so a launch that
+    // ignored the runner's path would answer null.
+    expect(await d.browserLaunches()).toEqual({
+      missingLibraries: false,
+      line: expect.stringContaining(NOWHERE),
+    });
+    // One command, decided in the runner: the one a failed launch names.
+    const { chromiumDepsCommand } = await import("@demoman/runner/package");
+    const { ok: _ok, ...runner } = chromiumDepsCommand() as {
+      ok: true;
+      command: string;
+      args: string[];
+    };
+    expect(d.chromiumDeps).toEqual(runner);
+    expect(d.chromiumDeps.args.slice(-2)).toEqual(["install-deps", "chromium"]);
+  });
 });

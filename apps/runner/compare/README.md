@@ -30,3 +30,43 @@ script is filmed. Rebrand anything filmed from them before it goes on the site.
 - `actual.json` — Actual Budget (MIT) on 3001: Try the demo, an account's transactions, then Reports. It starts on the welcome screen only in a browser that has not opened the demo, which `film:compare`'s fresh homes are. Until 2026-10-21 snapshot listed its buttons by react-aria ids that change on every load, and its demo database (blocks keyed from -1) refused every localhost session once a run had written it back; both are fixed.
 
 Ctrl+C mid-run leaves its temporary folders in `$TMPDIR`: the two homes (`film-compare-cli-home-*`, `film-compare-headless-home-*`). A side whose runs did not all complete keeps its home on purpose; the refusal names it.
+
+## Export cost
+
+Three scripts for where an export's time goes, all headless, all against a
+built runner (`pnpm -r build`). Every run and export also logs one
+`timing …` line (`apps/runner/src/stage-times.ts`) naming its stages.
+
+- `export-variants.mjs --repo <root> --script <file> [--sample <index.html>]`
+  films a script once and exports the take under scene variants (no camera
+  blur, no padding, solid background, no zooms, no blur and no padding),
+  printing each render's seconds. On 2026-10-25, `button-run.json`
+  (684 frames, 1920x1500 at 60 fps) rendered in 72 s as filmed, 31 s with no
+  camera blur, 41 s with no padding (the frame's two shadows) and 16 s with
+  neither, the same within 2.5 s on a second take.
+- `export-profile.mjs --repo <root> --script <file> [--out <trace.json>]`
+  exports under a V8 CPU-profiler trace and prints self time per function on
+  the render page. GPU work is charged to whatever waits on it first: on
+  2026-10-25, 85% landed in mediabunny's `VideoSample` (`new
+  VideoFrame(canvas)`) and 14% in `paintCameraBlur`.
+- `render-cost-probe.mjs [--headed] [--as-executor]` prints `chrome://gpu`'s
+  feature lines for the executor's Chromium and times synthetic frames
+  through draw, `new VideoFrame(canvas)` and a live encoder. Its 6–7 ms a
+  frame did not reproduce the real compositor's cost, and `chrome://gpu`'s
+  "Hardware accelerated" is not evidence: it says the same with and without
+  the GPU in use.
+
+What the cost was (2026-10-25): headless Chromium drew the export's canvas
+on the renderer's CPU. A trace of the export (`export-profile.mjs` with the
+`disabled-by-default-skia` and `blink` categories) showed
+`OffscreenCanvasRenderingContext2D::FinalizeFrame` taking 77.9 s of a 78.3 s
+render on the renderer's main thread, `SkCanvas::drawPath` (the shadows)
+running there, and the canvas on a `Canvas2DBitmapProvider` surface.
+Launched with `--enable-gpu` (`HEADLESS_GPU_ARGS` in `src/launch.ts`) the
+same take rendered in 5.3 s against 70.5 s, and a sample-app take with a
+stand-in display in 9.6 s against 174.7 s. The GPU also offers headless a
+hardware encoder, which sized files differently, so the render page pins the
+software one (`render-entry.ts`'s `softwareEncoded`): one take then rendered
+in 5.7 s against 92.6 s at 12,243,149 against 12,307,207 bytes. Linux has no
+entry in `HEADLESS_GPU_ARGS` yet; this script, run there with and without
+one, is the measurement that adds it.

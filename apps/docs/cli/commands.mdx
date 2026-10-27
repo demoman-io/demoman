@@ -70,6 +70,16 @@ on [Agents](/agents) name it.
 | `--headless` | The default, accepted so older setups still start |
 | `--browser` | Retired: `--browser extension` is refused, since the Chrome extension was archived; remove it from the server's registration |
 
+## hook
+
+```bash
+demoman hook post-tool-use
+```
+
+The Claude Code plugin runs this after a tool call opens a pull request.
+It reads the call on stdin and, unless the repo's `pullRequests` setting is
+`off`, reminds the agent to attach a demo.
+
 ## `--version`
 
 ```bash

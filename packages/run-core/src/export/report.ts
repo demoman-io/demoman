@@ -169,7 +169,10 @@ export type ExportRefusal =
   | "invalidMaxMB"
   | "fileTypeUnsupported"
   /** The take's frames expired (local video library §5): re-record it. */
-  | "versionExpired";
+  | "versionExpired"
+  /** This machine cannot record (`recorderPlatform`): arm64 Linux, or
+   *  another platform. */
+  | "unsupportedPlatform";
 
 export interface ExportWarnings {
   logo: string | null;

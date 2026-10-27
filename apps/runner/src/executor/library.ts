@@ -102,6 +102,12 @@ export interface Library {
     name: "report.json" | "status.json" | "script.json",
     value: unknown,
   ): Promise<void>;
+  /** A file `putJson` wrote: missing (never written, or its write failed)
+   *  and unreadable answered apart, never as one "nothing". */
+  getJson(
+    id: string,
+    name: "report.json",
+  ): Promise<{ value: unknown } | { missing: true } | { unreadable: string }>;
   getSkeleton(id: string): Promise<SkeletonRead>;
   removeTake(id: string): Promise<void>;
   list(): Promise<TakeEntry[]>;
@@ -513,6 +519,22 @@ export function createLibrary(
     async putJson(id, name, value) {
       guard(id, "libraryUnwritable");
       await write(join(takeDir(id), name), JSON.stringify(value, null, 2));
+    },
+    async getJson(id, name) {
+      guard(id, "libraryUnreadable");
+      const path = join(takeDir(id), name);
+      let text: string;
+      try {
+        text = await readFile(path, "utf8");
+      } catch (error) {
+        if (isMissing(error)) return { missing: true };
+        return { unreadable: `could not read ${path} (${messageOf(error)})` };
+      }
+      try {
+        return { value: JSON.parse(text) };
+      } catch (error) {
+        return { unreadable: `${path} is not JSON (${messageOf(error)})` };
+      }
     },
     /** `script.json`: none (an old or extension take), one, or one that
      *  will not read — never the same answer for the last two. */

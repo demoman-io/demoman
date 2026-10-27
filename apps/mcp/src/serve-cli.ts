@@ -3,7 +3,10 @@
 // demoman-mcp's server as a function, so the published `demoman` package
 // (apps/cli) serves exactly what `demoman-mcp` serves.
 
-import type { ExecutorOptions } from "@demoman/runner/package";
+import {
+  type ExecutorOptions,
+  visibleWindowRefusal,
+} from "@demoman/runner/package";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { demomanHome } from "./home.js";
@@ -24,14 +27,21 @@ export { demomanHome };
  * it was an opt-in pass it. Both entry points (`demoman mcp`, `demoman-mcp`)
  * decide here, so the published package and the repo's server cannot drift.
  */
-export function headlessFrom(flags: {
-  headed?: boolean;
-  headless?: boolean;
-}): { ok: true; headless: boolean } | { ok: false; error: string } {
+export function headlessFrom(
+  flags: { headed?: boolean; headless?: boolean },
+  host: { platform: string; env: NodeJS.ProcessEnv } = process,
+): { ok: true; headless: boolean } | { ok: false; error: string } {
   if (flags.headed === true && flags.headless === true) {
     return {
       ok: false,
       error: "--headed and --headless ask for opposite things; pass one",
+    };
+  }
+  const noWindow = visibleWindowRefusal(host.platform, host.env);
+  if (flags.headed === true && noWindow !== null) {
+    return {
+      ok: false,
+      error: `--headed: ${noWindow}; leave it off to film headless`,
     };
   }
   return { ok: true, headless: flags.headed !== true };

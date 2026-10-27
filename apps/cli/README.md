@@ -9,7 +9,8 @@ and saves the video to `~/Downloads`.
 
 ## Install
 
-macOS, Node 20 or later, and Claude Code, Codex, Cursor or OpenCode:
+macOS or x86_64 Linux, Node 20 or later, and Claude Code, Codex, Cursor or
+OpenCode:
 
     npx demoman setup
 
@@ -17,7 +18,9 @@ Setup asks which agents to connect, the export quality and whether pull
 requests get a demo, then downloads Chromium (about 190 MB) and connects
 Demoman, pre-approving its tools so they run without asking. Restart the
 agent, then in your app's repo ask for a demo — for example, "make a demo of
-the feature we just built".
+the feature we just built". On Linux, Chromium also needs system libraries:
+setup names the one `sudo` command that installs them; run it, then setup
+again.
 
 Another MCP client is expected to work, not yet run: give it this stdio
 server.

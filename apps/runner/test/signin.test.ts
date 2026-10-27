@@ -310,3 +310,28 @@ it("never copies an account's signInUrl into the site's manual session", async (
   const manual = JSON.parse(await readFile(store.pathOf("localhost"), "utf8"));
   expect(manual.signInUrl, lines.join("\n")).toBeNull();
 }, 120_000);
+
+// SSH into a Linux box: a window cannot open, so signin says so at once,
+// naming the way that needs none, and never waits on a window.
+it("refuses on a Linux machine with no display, launching nothing", async () => {
+  const lines: string[] = [];
+  let launches = 0;
+  const code = await signin(`${app.url}/app`, {
+    home,
+    out: (l) => lines.push(l),
+    enter: () => ({
+      done: new Promise(() => undefined),
+      cancel: () => undefined,
+    }),
+    platform: "linux",
+    env: {},
+    launchFn: async () => {
+      launches += 1;
+      throw new Error("launched");
+    },
+  });
+  expect(code).toBe(1);
+  expect(launches).toBe(0);
+  expect(lines.join("\n")).toContain("DISPLAY and WAYLAND_DISPLAY are unset");
+  expect(lines.join("\n")).toContain("demoman signin --account <name>");
+});

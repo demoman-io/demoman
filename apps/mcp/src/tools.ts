@@ -627,7 +627,7 @@ export function registerTools(
     {
       annotations: TOOL_ANNOTATIONS.attach,
       description:
-        'Post a take\'s video to a GitHub pull request with gh — into "description" for a PR you opened, "comment" for anyone else\'s. Exports the take first (maxMB caps the MP4, as export\'s does). Answers attached, or a reason; past about 50 s {outcome: "stillRunning", id}, then call report.',
+        'Post a take\'s video to a GitHub pull request with gh — into "description" for a PR you opened, "comment" for anyone else\'s. Exports the take first (maxMB caps the MP4, as export\'s does). Answers attached, or a reason; attached carries line ({text, written} or {text, notWritten}); past about 50 s {outcome: "stillRunning", id}, then call report.',
       inputSchema: {
         takeId: z.string().min(1),
         // Absent: the PR for the project's current branch.

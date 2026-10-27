@@ -1,0 +1,152 @@
+name: Linux
+
+# Demoman on Linux (docs/superpowers/specs/2026-10-26-linux-and-ci-refresh-design.md,
+# Part 1): the packed package films and exports on x86_64 Ubuntu and Debian,
+# setup runs as a user who is not root, and arm64 Linux is refused by name.
+# Exports are proven here, never in Docker on a Mac: that is arm64, whose
+# Chromium has no H.264 encoder.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - "brand/**"
+      - "apps/runner/**"
+      - "apps/mcp/**"
+      - "apps/studio/**"
+      - "apps/cli/**"
+      - "scripts/**"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - "biome.json"
+      - "tsconfig.base.json"
+      - ".github/workflows/linux.yml"
+      - ".github/actions/**"
+  pull_request:
+    paths:
+      - "packages/**"
+      - "brand/**"
+      - "apps/runner/**"
+      - "apps/mcp/**"
+      - "apps/studio/**"
+      - "apps/cli/**"
+      - "scripts/**"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - "biome.json"
+      - "tsconfig.base.json"
+      - ".github/workflows/linux.yml"
+      - ".github/actions/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # The packed-install lane (`pnpm test:package`), as it runs before a
+  # release on a Mac: export, accounts, signin and the Studio. signin and the
+  # Studio open visible windows, so xvfb-run gives them a display.
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          browser: "true"
+      # xrandr (x11-xserver-utils) is not on the 24.04 image: without it the
+      # screen read never runs here, and only its fallback is exercised.
+      - run: sudo apt-get update && sudo apt-get install -y xvfb x11-xserver-utils
+      - name: The packed install films and exports (${{ matrix.os }})
+        run: xvfb-run -a pnpm --filter @demoman/cli test:package
+
+  # Setup from the packed package as the runner's own user, who is not root:
+  # it downloads Chromium, then either launches it or names the one sudo
+  # command and stops. It never runs sudo itself, and never says installed
+  # when Chromium cannot start. No agent is installed here, which setup says.
+  setup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Pack and install the package
+        run: |
+          dir=$(mktemp -d)
+          npm pack apps/cli/pkg --pack-destination "$dir" --silent
+          (cd "$dir" && echo '{"private":true}' > package.json && npm install ./demoman-*.tgz --no-audit --no-fund --ignore-scripts)
+          echo "DEMOMAN_BIN=$dir/node_modules/demoman/dist/demoman.mjs" >> "$GITHUB_ENV"
+      - name: Setup as a user who is not root
+        run: |
+          set +e
+          out=$(node "$DEMOMAN_BIN" setup --yes 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          echo "exit $code"
+          if grep -q "browser: Chromium installed" <<<"$out"; then
+            if grep -q "sudo" <<<"$out"; then
+              echo "::error::setup both named sudo and said Chromium installed"; exit 1
+            fi
+            grep -q "No coding agent was found" <<<"$out" || { echo "::error::setup did not say no agent was found"; exit 1; }
+          elif grep -q "sudo .*install-deps chromium" <<<"$out"; then
+            [ "$code" = 1 ] || { echo "::error::setup named sudo but exited $code"; exit 1; }
+          else
+            echo "::error::setup neither launched Chromium nor named the sudo command"; exit 1
+          fi
+
+  # Debian 12 as root in a container: setup's own path for root installs the
+  # libraries; here Playwright's install-deps does, and the export lane runs
+  # headless, as shipped.
+  debian:
+    runs-on: ubuntu-24.04
+    container: debian:12
+    timeout-minutes: 45
+    steps:
+      - run: apt-get update && apt-get install -y --no-install-recommends ca-certificates git
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - run: pnpm --filter @demoman/compositor exec playwright install --with-deps chromium
+      - name: The packed install films and exports (Debian 12)
+        run: pnpm --filter @demoman/cli exec vitest run --config vitest.package.config.ts test-package/export.test.ts
+
+  # arm64 Linux: setup refuses by name before downloading anything.
+  arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Pack and install the package
+        run: |
+          dir=$(mktemp -d)
+          npm pack apps/cli/pkg --pack-destination "$dir" --silent
+          (cd "$dir" && echo '{"private":true}' > package.json && npm install ./demoman-*.tgz --no-audit --no-fund --ignore-scripts)
+          echo "DEMOMAN_BIN=$dir/node_modules/demoman/dist/demoman.mjs" >> "$GITHUB_ENV"
+      - name: Setup refuses arm64 Linux by name
+        run: |
+          set +e
+          out=$(node "$DEMOMAN_BIN" setup --yes 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          echo "exit $code"
+          [ "$code" = 1 ] || { echo "::error::setup exited $code, not 1"; exit 1; }
+          grep -q "no H.264 encoder" <<<"$out" || { echo "::error::setup did not name the missing H.264 encoder"; exit 1; }
+          if grep -q "downloading Chromium" <<<"$out"; then
+            echo "::error::setup downloaded before refusing"; exit 1
+          fi

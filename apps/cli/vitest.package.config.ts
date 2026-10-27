@@ -1,7 +1,9 @@
 import { defineConfig } from "vitest/config";
 
-/** By hand before a release (`pnpm test:package`), never CI: signin opens a
- *  visible window, and the runs and renders come from the packed install. */
+/** By hand before a release on a Mac (`pnpm test:package`), and in CI on
+ *  Linux (.github/workflows/linux.yml) under xvfb-run, since signin and the
+ *  Studio open visible windows. The runs and renders come from the packed
+ *  install. */
 export default defineConfig({
   test: {
     name: "cli-package",

@@ -13,7 +13,9 @@ import {
   buildRunReport,
   clickNotDeliveredDetail,
   HIDDEN_TEXT,
+  prVerdict,
   type ReplayRefusal,
+  type RunReport,
   verdictLine,
   type WalkResultLike,
 } from "../../src/replay/report.js";
@@ -1011,5 +1013,114 @@ describe("a step whose typed text is hidden", () => {
     // Positive control: an unhidden type step keeps its text.
     expect(report.steps[1]?.intent).toMatchObject({ text: "visible-demo" });
     expect(report.steps[1]?.textHidden).toBeUndefined();
+  });
+});
+
+describe("prVerdict", () => {
+  const CLEAN = /^Complete: the video matches every step/;
+  const clean = () => buildRunReport(complete());
+  // Each row of the short form's table, built from the clean report by
+  // changing only the field that row reads.
+  const rows: [string, RunReport, string][] = [
+    [
+      "notStored, even over a refusal",
+      {
+        ...buildRunReport(refused("settingOff")),
+        notStored: [{ what: "status", error: "QuotaExceededError" }],
+      },
+      "the run's record is incomplete",
+    ],
+    [
+      // verdictLine says the take is in the library and only the site's
+      // session was not saved back, so the record is not incomplete.
+      "a session that was not saved back",
+      buildRunReport({
+        ...complete(),
+        notStored: [{ what: "session", error: "EACCES" }],
+      }),
+      "matches all 3 steps, with notes",
+    ],
+    ["refused", buildRunReport(refused("settingOff")), "refused: settingOff"],
+    [
+      "stopped",
+      buildRunReport({
+        ...complete(),
+        walk: { ...completeWalk(3), reason: "anchorNotRendered", completed: 1 },
+      }),
+      "stopped after step 1 of 3",
+    ],
+    [
+      "complete with a stop reason",
+      buildRunReport({
+        ...complete(),
+        walk: { ...completeWalk(3), reason: "portFailure" },
+      }),
+      "finished, but did not end cleanly",
+    ],
+    [
+      "diverged",
+      {
+        ...clean(),
+        verdict: {
+          kind: "diverged",
+          diverged: [
+            { kind: "missing", actionId: "a1", reason: "x" },
+            { kind: "missing", actionId: "a2", reason: "y" },
+          ],
+        },
+      },
+      "2 steps not shown as scripted",
+    ],
+    [
+      "a degradation",
+      buildRunReport({
+        ...complete(),
+        walk: {
+          ...completeWalk(3),
+          degradations: [
+            { kind: "surfaceMismatch", startMs: 0, endMs: 1, note: "x" },
+          ],
+        },
+      }),
+      "matches all 3 steps, with notes",
+    ],
+    [
+      "storageRefused",
+      buildRunReport({
+        ...complete(),
+        walk: { ...completeWalk(3), storageRefused: true },
+      }),
+      "matches all 3 steps, with notes",
+    ],
+    [
+      "an unreadable brand kit",
+      buildRunReport({
+        ...complete(),
+        look: { branding: "defaults", kit: null, brandKitError: "kit boom" },
+      }),
+      "matches all 3 steps, with notes",
+    ],
+  ];
+
+  for (const [name, report, clause] of rows) {
+    it(`${name} → "${clause}", with the whole line as its details`, () => {
+      // Premise: the fixture is not the clean run.
+      expect(verdictLine(report)).not.toBe(verdictLine(clean()));
+      expect(prVerdict(report)).toEqual({
+        clause,
+        details: verdictLine(report),
+      });
+    });
+  }
+
+  it("a clean match → the step count, and no details", () => {
+    const report = clean();
+    expect(report.steps).toHaveLength(3);
+    expect(verdictLine(report)).toMatch(CLEAN);
+    expect(verdictLine(report)).not.toContain("But not everything");
+    expect(prVerdict(report)).toEqual({
+      clause: "matches all 3 steps",
+      details: null,
+    });
   });
 });
