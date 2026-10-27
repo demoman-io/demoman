@@ -247,7 +247,7 @@ const SNAPSHOT_TAIL =
  * extension executor had words of its own beside these.)
  */
 const DESCRIPTIONS: Record<
-  "status" | "snapshot" | "takes" | "videos" | "run" | "export",
+  "status" | "snapshot" | "probe" | "takes" | "videos" | "run" | "export",
   string
 > = {
   status:
@@ -257,6 +257,7 @@ const DESCRIPTIONS: Record<
     "The takes this demoman-mcp's own browser made, newest first: id, name, createdAt, mode, actions. A folder that is not a readable take comes last as {id, unreadable}, saying why. Not the user's Demoman library in their browser.",
   videos:
     "The videos in this repo (project: absolute path of another checkout; videos of unknown repo are listed everywhere), newest first: id, name, repo, startPage, versions, current {version, takeId, recordedAt, expired}, pages, steps (the first 12), exports {takeId, path, fileType, exists} of every version. Pass query to find the ones about a phrase (best match first, over every step; no match is an empty list), or file (absolute path of an exported MP4, GIF or PNG) to find the video it was exported from, and file {takeId, version, current, expired} saying which version it is ({takeId, notInVideo} when that take is no longer one). unreadable lists takes and video records that could not be read, each {id, unreadable}. deferred is null, or why takes not yet in a video were left out this time (another Demoman process holds the library; ask again). Refused: noTag (the file carries no Demoman tag), unknownVideo (its video is not in this library; detail names the id), fileNotFound, videoUnreadable, invalidProject, invalidArgs (file with query).",
+  probe: `Play a draft script's steps in this server's own browser, unfilmed, and list the targets on the page they end on: the way to see what a click, hover or typing creates (a menu, dialog, panel, results), which snapshot cannot list. script is the script you mean to run, with its steps cut off after the one that opens what you need; it is refused exactly as run would refuse it. The steps really act on the app, every time: "Add item" adds one on each probe and again in the run, and a delete deletes. Prefer demo data and steps that look rather than change. No take is made and it is not a run. Answers snapshot's fields: url, landedUrl, landedElsewhere and session describe the arrival at script.target, before any step; title, settled, targets, unresolvable, notExamined and size describe the page the steps ended on (endedUrl). Plus steps {played, of}, counted as a run counts them (pauses are not steps), and stopped: null, or {at, reason, detail} with a run's reason when a step could not play; targets then list the page where it stopped. Copy targets verbatim; never compose one. account, project and contains as for snapshot. Past about 50 s it answers {outcome: "stillRunning", id}; then call report with that id.`,
   run: 'Run a DemoScript in this demoman-mcp\'s own browser (signed in where the user ran npx demoman signin, or as the account the script names, at scriptVersion 5; project is the absolute path of another checkout) and answer its report, which carries account and signedIn; the take is saved on disk. Every run names its video: video {id} adds a version to that video, {new: name} starts one (refused as possibleDuplicate, listing matches, when a similar name exists in this repo; pass confirmedNew: true if it is a different flow). video {id} with no script re-records the current version of that video, studio edits included: a new version, counted as a run. A second run or snapshot while one is in progress is refused (alreadyRunning). Answers {outcome: "stillRunning", id} if it takes longer than about 50 s; then call report with that id.',
   export:
     'Render a take this server made to an MP4, a GIF (fileType "gif") or a folder of PNG stills, one per step (fileType "stills"; stills.width in px or "native", stills.zoom "none" or "step"; MP4 quality: absent, the user\'s Export quality setting, "high" unless they changed it (60 fps, about 30 MB for 30 s); "share" as small as stays crisp, the default with maxMB; "full" the largest file; maxMB caps an MP4\'s size, lowering fps, then size, then quality), and save it on this machine — in ~/Downloads, or the folder demoman-mcp was started with --out-dir — in the take\'s frame (Auto, 16:9 or 9:16) and branding, logo included. Refused versionExpired when the take\'s frames were removed after 30 days: run with video {id} again. A saved export may carry warnings.untagged (the file could not be tagged with its video). Answers the export report; on "saved", file.path is the file\'s absolute path, or folder.path the stills folder\'s, summary is the sentence to give the user, and links holds one-click links for them (studio, file, copy; linksError says why there are none). A second export, run or snapshot while one is in progress is refused (busy, alreadyRunning). Past about 50 s it answers {outcome: "stillRunning", id}; then call report with that id.',
@@ -309,7 +310,7 @@ export function registerTools(
   const calls = new Map<
     string,
     {
-      op: "run" | "export" | "snapshot" | "attach";
+      op: "run" | "export" | "snapshot" | "probe" | "attach";
       call: Promise<Outcome>;
       watched: Watched;
     }
@@ -382,7 +383,7 @@ export function registerTools(
   };
 
   const longCall = async (
-    op: "run" | "export" | "snapshot" | "attach",
+    op: "run" | "export" | "snapshot" | "probe" | "attach",
     args: Record<string, unknown>,
     extra: Extra,
   ): Promise<ToolResult> => {
@@ -492,6 +493,32 @@ export function registerTools(
           url,
           ...(contains === undefined ? {} : { contains }),
           ...(device === undefined ? {} : { device }),
+          ...(account === undefined ? {} : { account }),
+          ...(project === undefined ? {} : { project }),
+        },
+        extra as unknown as Extra,
+      );
+    },
+  );
+
+  server.registerTool(
+    "probe",
+    {
+      annotations: TOOL_ANNOTATIONS.probe,
+      description: said.probe,
+      inputSchema: {
+        script: z.record(z.string(), z.unknown()),
+        contains: z.string().min(1).optional(),
+        account: z.string().min(1).optional(),
+        project: z.string().min(1).optional(),
+      },
+    },
+    async ({ script, contains, account, project }, extra) => {
+      return longCall(
+        "probe",
+        {
+          script,
+          ...(contains === undefined ? {} : { contains }),
           ...(account === undefined ? {} : { account }),
           ...(project === undefined ? {} : { project }),
         },
@@ -679,7 +706,7 @@ export function registerTools(
     {
       annotations: TOOL_ANNOTATIONS.report,
       description:
-        'The report of a run, export, attach or snapshot this server started, by the id stillRunning or queued gave. Waits up to about 40 s; if it has not finished, answers {outcome: "queued", …} while it waits in line, then its progress so far: {outcome: "running", …} for a run, {outcome: "exporting", …} for an export, {outcome: "attaching", …} for an attach, {outcome: "stillRunning", id} for a snapshot.',
+        'The report of a run, export, attach or snapshot this server started, by the id stillRunning or queued gave. Waits up to about 40 s; if it has not finished, answers {outcome: "queued", …} while it waits in line, then its progress so far: {outcome: "running", …} for a run, {outcome: "exporting", …} for an export, {outcome: "attaching", …} for an attach, {outcome: "stillRunning", id} for a snapshot or probe.',
       inputSchema: { id: z.string().min(1) },
     },
     async ({ id }, extra) => {
@@ -687,7 +714,7 @@ export function registerTools(
       if (entry === undefined) {
         return refused(
           "unknownRun",
-          `no run, export, attach or snapshot with id ${id} was started by this demoman-mcp — ids do not survive a restart of the server`,
+          `no run, export, attach, snapshot or probe with id ${id} was started by this demoman-mcp — ids do not survive a restart of the server`,
         );
       }
       // One deadline over both waits below (REPORT_CALL_SHARE).
@@ -711,7 +738,10 @@ export function registerTools(
         outcome !== STILL_RUNNING &&
         !outcome.ok &&
         (outcome.reason === "bridgeLost" || outcome.reason === "hubSilent");
-      if (outcome !== STILL_RUNNING && (!lostCall || entry.op === "snapshot")) {
+      if (
+        outcome !== STILL_RUNNING &&
+        (!lostCall || entry.op === "snapshot" || entry.op === "probe")
+      ) {
         return fromOutcome(
           entry.op === "export" ? await withLinks(outcome) : outcome,
         );
@@ -719,7 +749,8 @@ export function registerTools(
       if (outcome === STILL_RUNNING) {
         // The page keeps no snapshot by id: this server's call is the only
         // place its answer will land.
-        if (entry.op === "snapshot") return ok({ outcome: "stillRunning", id });
+        if (entry.op === "snapshot" || entry.op === "probe")
+          return ok({ outcome: "stillRunning", id });
       }
       // Still going, or its call was lost with the socket while it carried
       // on in the page: the page that took THIS call is the one that knows.

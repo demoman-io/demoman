@@ -166,6 +166,7 @@ describe("demoman-mcp's tools", () => {
       "attach",
       "derive",
       "export",
+      "probe",
       "recipe",
       "report",
       "run",
@@ -1032,6 +1033,10 @@ describe("demoman-mcp's tools", () => {
         2000,
       );
     }
+    // Premise: probe is listed, so the loop above cannot pass by omission.
+    const probe = tools.find((t) => t.name === "probe");
+    expect(probe?.description?.length ?? 0).toBeGreaterThan(0);
+    expect(probe?.description?.length ?? 0).toBeLessThanOrEqual(2000);
   });
 
   // Final review 2026-10-12, Important 3. Red if this server is described
@@ -1320,6 +1325,107 @@ describe("demoman-mcp's tools", () => {
     ]);
   });
 
+  // Red if probe drops `script` or `contains`, or answers anything but the
+  // executor's reply.
+  it("probe forwards its script and answers the executor's reply", async () => {
+    const reply = {
+      url: "http://a/",
+      steps: { played: 1, of: 2 },
+      stopped: null,
+    };
+    const { client, calls } = await connect({
+      probe: async () => ({ ok: true, value: reply }),
+    });
+    const r = await client.callTool({
+      name: "probe",
+      arguments: { script: { name: "x" }, contains: "Live" },
+    });
+    expect(textOf(r)).toEqual(reply);
+    expect(calls).toEqual([
+      {
+        op: "probe",
+        args: {
+          script: { name: "x" },
+          contains: "Live",
+          callId: "id-1",
+          agent: AGENT,
+        },
+      },
+    ]);
+  });
+
+  // Red if report asks the page for a probe still going (the page keeps no
+  // probe by id): the cap expires again with the probe unsettled.
+  it("report(id) of a probe still going answers stillRunning, without asking the page", async () => {
+    const { client, calls } = await connect(
+      { probe: () => new Promise<Outcome>(() => {}) },
+      100,
+    );
+    const first = await client.callTool({
+      name: "probe",
+      arguments: { script: { name: "x" } },
+    });
+    expect(textOf(first)).toEqual({ outcome: "stillRunning", id: "id-1" });
+    const again = await client.callTool({
+      name: "report",
+      arguments: { id: "id-1" },
+    });
+    expect(textOf(again)).toEqual({ outcome: "stillRunning", id: "id-1" });
+    expect(calls.map((c) => c.op)).toEqual(["probe"]);
+  });
+
+  // Red if a probe's lost call sends report to the page.
+  it("answers a probe's lost call as it was lost, without asking the page", async () => {
+    let land: (o: Outcome) => void = () => {};
+    const { client, calls } = await connect(
+      {
+        probe: () =>
+          new Promise<Outcome>((r) => {
+            land = r;
+          }),
+      },
+      100,
+    );
+    await client.callTool({
+      name: "probe",
+      arguments: { script: { name: "x" } },
+    });
+    land({ ok: false, reason: "bridgeLost", detail: "the hub went" });
+    const r = await client.callTool({
+      name: "report",
+      arguments: { id: "id-1" },
+    });
+    expect(r.isError).toBe(true);
+    expect(textOf(r)).toEqual({ reason: "bridgeLost", detail: "the hub went" });
+    expect(calls.map((c) => c.op)).toEqual(["probe"]);
+  });
+
+  // Red if report(id) of a landed probe does not answer the probe's reply.
+  it("a probe past the cap answers stillRunning, and report(id) answers the probe's reply", async () => {
+    let land: (o: Outcome) => void = () => {};
+    const { client, calls } = await connect(
+      {
+        probe: () =>
+          new Promise<Outcome>((r) => {
+            land = r;
+          }),
+      },
+      150,
+    );
+    const first = await client.callTool({
+      name: "probe",
+      arguments: { script: { name: "x" } },
+    });
+    expect(textOf(first)).toEqual({ outcome: "stillRunning", id: "id-1" });
+    land({ ok: true, value: { url: "http://a/", stopped: null } });
+    const r = await client.callTool({
+      name: "report",
+      arguments: { id: "id-1" },
+    });
+    expect(textOf(r)).toEqual({ url: "http://a/", stopped: null });
+    expect(calls.map((c) => c.op)).toEqual(["probe"]);
+  });
+
   // Project A of cli-launch.md. Red while the CLI's timeout answers in the
   // extension's words: an agent told "Demoman's extension did not connect"
   // asks the user about an extension the CLI does not use.
@@ -1450,6 +1556,9 @@ describe("demoman-mcp's tools", () => {
       expect(table[n], n).toMatchObject({ openWorldHint: true });
     }
     expect(table.snapshot?.destructiveHint).toBe(false);
+    // A probe plays the script's steps for real, so it can press Delete.
+    expect(table.probe?.destructiveHint).toBe(true);
+    expect(table.probe).toMatchObject({ openWorldHint: true });
     // A script clicks and types in an app the user may be signed in to, so
     // it can press Delete; an agent that trusts the hint must not skip
     // asking because of it (/code-review, 2026-10-17).
