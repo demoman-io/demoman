@@ -26,6 +26,7 @@ import {
   createBrowserSession,
 } from "../src/executor/browser.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
+import { createLibrary } from "../src/executor/library.js";
 import {
   type RefreshDeps,
   type RefreshResult,
@@ -36,8 +37,8 @@ import { execGit } from "../src/executor/repo.js";
 import { listenOnLoopback } from "../src/loopback.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): a refresh of both
-// videos (two runs, three exports, three comparisons) 13-17 s; of one video
-// 5-9 s. x5 for CI (fff4505) with margin.
+// videos (two runs, three exports, three comparisons) 13-21 s; of one video
+// 5-10 s. x5 for CI (fff4505) with margin.
 const SETUP_MS = 60_000;
 const BOTH_MS = 150_000;
 const ONE_MS = 90_000;
@@ -74,7 +75,7 @@ const out = {
 
 function kept(
   name: string,
-  click: string,
+  clicks: string[],
   scale: number,
   outputs: KeptVideo["outputs"],
 ): KeptVideo {
@@ -86,7 +87,10 @@ function kept(
       name,
       target: `${origin}/app`,
       viewport: { width: 1280, height: 800 },
-      steps: [{ do: "waitForLoad" }, { do: "click", on: { text: click } }],
+      steps: [
+        { do: "waitForLoad" },
+        ...clicks.map((text) => ({ do: "click", on: { text } })),
+      ],
     } as KeptVideo["script"],
     scale,
     logo: null,
@@ -95,6 +99,14 @@ function kept(
     from: { videoId: "video-x", takeId: "scene-x", recordedRevision: "r" },
   };
 }
+
+/** Each run: the display its executor was given, and its motion's scale. */
+const filmed: { name: string; display: string; scale: number | null }[] = [];
+/** The temp folders refresh makes, as they are in the system's temp now. */
+const refreshTemps = async () =>
+  (await readdir(tmpdir())).filter((n) =>
+    /^demoman-refresh-(home-)?[A-Za-z0-9]{6}$/.test(n),
+  );
 
 const deps = (): RefreshDeps => ({
   home,
@@ -112,6 +124,22 @@ const deps = (): RefreshDeps => ({
       ...e,
       request: async (op, args, p) => {
         const answer = await e.request(op, args, p);
+        if (op === "run" && answer.ok) {
+          // The scale its motion was really filmed at: the screencast's
+          // frames against the page's width (`capture.dpr` is the stills'
+          // fixed REPLAY_DPR, not the display's).
+          const takeId = (answer.value as RunReport).provenance?.takeId;
+          const bundle =
+            typeof takeId === "string"
+              ? await createLibrary(o.home).frameStore(takeId).getBundle(takeId)
+              : null;
+          const span = bundle?.motionSpans[0];
+          filmed.push({
+            name: String((args.script as { name: string }).name),
+            display: String(o.env.DEMOMAN_DISPLAY),
+            scale: span === undefined ? null : span.width / 1280,
+          });
+        }
         if (op !== "run" || inject === null || !answer.ok) return answer;
         return {
           ok: true,
@@ -166,7 +194,7 @@ beforeAll(async () => {
   await writeFile(
     join(repo, KEPT_DIR, keptFileName(A)),
     serializeKept(
-      kept(A, "Place order", 1, [
+      kept(A, ["Place order"], 1, [
         { path: out.aMp4, fileType: "mp4", aspect: "16:9", quality: "share" },
         { path: out.aGif, fileType: "gif", aspect: "16:9", quality: "share" },
       ]),
@@ -175,7 +203,7 @@ beforeAll(async () => {
   await writeFile(
     join(repo, KEPT_DIR, keptFileName(B)),
     serializeKept(
-      kept(B, "Reports", 2, [
+      kept(B, ["Place order", "Reports"], 2, [
         { path: out.bMp4, fileType: "mp4", aspect: "16:9", quality: "share" },
       ]),
     ),
@@ -204,6 +232,7 @@ describe("refresh", () => {
   it(
     "films each kept video and writes its outputs, the first time as new",
     async () => {
+      const temps = await refreshTemps();
       const r = await refresh();
       expect(
         r.videos.map((v) => [v.name, v.outcome]),
@@ -211,6 +240,11 @@ describe("refresh", () => {
       ).toEqual([
         [B, "replaced"],
         [A, "replaced"],
+      ]);
+      // Each scale films in a browser of its own, at that scale.
+      expect(filmed).toEqual([
+        { name: B, display: "1280x800@2", scale: 2 },
+        { name: A, display: "1280x800@1", scale: 1 },
       ]);
       const a = byName(r, A);
       expect(a.outputs.sort()).toEqual(
@@ -235,6 +269,9 @@ describe("refresh", () => {
       // folder refresh made was removed.
       expect(await readdir(home)).toEqual([]);
       expect(lines.some((l) => l.includes("was not removed"))).toBe(false);
+      // The premise: refresh made its folders where this looks.
+      expect(lines.some((l) => l.startsWith("refresh: filming"))).toBe(true);
+      expect(await refreshTemps()).toEqual(temps);
     },
     BOTH_MS,
   );
@@ -263,6 +300,49 @@ describe("refresh", () => {
         expect(b.equals(before[i] as Buffer)).toBe(true);
     },
     BOTH_MS,
+  );
+
+  it(
+    "fails a video whose pictures cannot be compared, leaving its file",
+    async () => {
+      const before = await bytes(out.bMp4);
+      const r = await refreshKept(
+        { repoRoot: repo, library: "throwaway", only: [B] },
+        {
+          ...deps(),
+          session: {
+            openWorkPage: async () => ({
+              ok: false,
+              reason: "windowDidNotOpen",
+              detail: "injected: no page to decode on",
+            }),
+          },
+        },
+      );
+      expect(r.videos.map((v) => [v.name, v.outcome])).toEqual([[B, "failed"]]);
+      expect(r.videos[0]?.detail).toContain("injected: no page to decode on");
+      expect((await bytes(out.bMp4)).equals(before)).toBe(true);
+    },
+    ONE_MS,
+  );
+
+  it(
+    "replaces a committed file that is not a decodable video, saying so",
+    async () => {
+      await writeFile(join(repo, out.bMp4), "not a video");
+      const r = await refresh([B]);
+      const b = byName(r, B);
+      expect(b.outcome, JSON.stringify(r)).toBe("replaced");
+      expect(b.notes).toEqual([
+        expect.stringMatching(
+          /^docs\/reports\.mp4 was replaced without a comparison: the committed file could not be decoded \(.+\)$/,
+        ),
+      ]);
+      expect((await bytes(out.bMp4)).toString("latin1")).not.toBe(
+        "not a video",
+      );
+    },
+    ONE_MS,
   );
 
   it(
@@ -368,7 +448,7 @@ describe("refresh", () => {
         await writeFile(
           join(repo, KEPT_DIR, keptFileName("Linked out")),
           serializeKept(
-            kept("Linked out", "Place order", 1, [
+            kept("Linked out", ["Place order"], 1, [
               {
                 path: "linked/c.mp4",
                 fileType: "mp4",

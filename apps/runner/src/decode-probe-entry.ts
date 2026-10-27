@@ -147,6 +147,12 @@ export interface PictureDiff {
   samples: PictureSample[];
 }
 
+/** One file could not be read as its type: `a` or `b`, and why. */
+export interface PictureUnreadable {
+  unreadable: "a" | "b";
+  error: string;
+}
+
 export interface PictureOptions {
   spacingSec: number;
   width: number;
@@ -161,7 +167,7 @@ export interface DecodeProbeEntry {
     b: string,
     type: "video/mp4" | "image/gif",
     options: PictureOptions,
-  ): Promise<PictureDiff>;
+  ): Promise<PictureDiff | PictureUnreadable>;
   /** Every frame of the film at `url`, decoded in order: its timestamp, and
    *  how much its picture changed from the frame before. */
   frameTimes(url: string): Promise<FrameTimes>;
@@ -921,18 +927,53 @@ async function pictureDiff(
   urlB: string,
   type: "video/mp4" | "image/gif",
   o: PictureOptions,
-): Promise<PictureDiff> {
-  const ra = await pictureReader(urlA, type, o.width);
+): Promise<PictureDiff | PictureUnreadable> {
   try {
-    const rb = await pictureReader(urlB, type, o.width);
+    const ra = await blamed("a", urlA, type, o.width);
     try {
-      return await diffOf(ra, rb, o);
+      const rb = await blamed("b", urlB, type, o.width);
+      try {
+        return await diffOf(ra, rb, o);
+      } finally {
+        rb.close();
+      }
     } finally {
-      rb.close();
+      ra.close();
     }
-  } finally {
-    ra.close();
+  } catch (error) {
+    if (error instanceof Unreadable)
+      return { unreadable: error.side, error: error.message };
+    throw error;
   }
+}
+
+/** A failure to read one file's frames, and which file. */
+class Unreadable extends Error {
+  constructor(
+    readonly side: "a" | "b",
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+/** `pictureReader`, with every failure to read it blamed on `side`. */
+async function blamed(
+  side: "a" | "b",
+  url: string,
+  type: "video/mp4" | "image/gif",
+  width: number,
+): Promise<PictureReader> {
+  const blame = <T>(p: Promise<T>) =>
+    p.catch((error: unknown) => {
+      throw new Unreadable(side, error);
+    });
+  const r = await blame(pictureReader(url, type, width));
+  return {
+    ...r,
+    at: (times) => blame(r.at(times)),
+    before: (t) => blame(r.before(t)),
+  };
 }
 
 async function diffOf(

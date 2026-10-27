@@ -6,6 +6,7 @@ import type {
   DecodeProbeEntry,
   PictureDiff,
   PictureOptions,
+  PictureUnreadable,
 } from "../decode-probe-entry.js";
 import { DECODE_PROBE_GLOBAL } from "../entry-globals.js";
 import { listenOnLoopback } from "../loopback.js";
@@ -60,20 +61,26 @@ const ENTRY_PATH = fileURLToPath(
 );
 
 /**
- * Whether two MP4s or two GIFs show the same picture, decoded side by side.
- * A different frame size, or lengths further apart than `SLACK_SEC`, is a
- * different picture. Throws when a file cannot be read or decoded: that is
- * not an answer either way.
+ * Whether `committed` and `fresh`, two MP4s or two GIFs (`fileType`, from
+ * the kept output: never guessed from a name), show the same picture,
+ * decoded side by side. A different frame size, or lengths further apart
+ * than `SLACK_SEC`, is a different picture. A file that cannot be decoded
+ * as its type is named (`undecodable`); anything else that stops the
+ * comparison (no page, no decode bundle) throws: neither is an answer.
  */
 export async function samePicture(
-  a: string,
-  b: string,
+  committed: string,
+  fresh: string,
+  fileType: "mp4" | "gif",
   deps: { session: Pick<BrowserSession, "openWorkPage"> },
-): Promise<{ same: boolean; detail: string }> {
-  const type = /\.gif$/i.test(a) ? "image/gif" : "video/mp4";
+): Promise<
+  | { same: boolean; detail: string }
+  | { undecodable: "committed" | "new"; detail: string }
+> {
+  const type = fileType === "gif" ? "image/gif" : "video/mp4";
   const files = new Map([
-    ["/a", await readFile(a)],
-    ["/b", await readFile(b)],
+    ["/a", await readFile(committed)],
+    ["/b", await readFile(fresh)],
   ]);
   const work = await deps.session.openWorkPage();
   if (!work.ok) throw new Error(`no page to decode on: ${work.detail}`);
@@ -90,7 +97,7 @@ export async function samePicture(
     });
     res.end(bytes);
   });
-  let diff: PictureDiff;
+  let diff: PictureDiff | PictureUnreadable;
   try {
     // Loopback: `about:blank` is not a secure context, and has no decoder.
     const origin = await listenOnLoopback(server);
@@ -115,6 +122,12 @@ export async function samePicture(
     server.close();
     // The answer is read; a work page left open is the session's to close.
     await work.page.close().catch(() => undefined);
+  }
+  if ("unreadable" in diff) {
+    return {
+      undecodable: diff.unreadable === "a" ? "committed" : "new",
+      detail: diff.error,
+    };
   }
   return comparePictures(diff);
 }

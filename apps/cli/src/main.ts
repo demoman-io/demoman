@@ -46,6 +46,7 @@ import {
 import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshAgentSkill } from "./agent-skill.js";
 import { PACKAGE_NAME } from "./names.js";
+import { refreshLines } from "./refresh-lines.js";
 import { parseSetupArgs, setup } from "./setup.js";
 import {
   readSkill,
@@ -468,16 +469,9 @@ async function refresh(args: string[]): Promise<void> {
       );
   }
   if ("threw" in result) return fail(result.threw);
-  if (result.videos.length === 0) {
-    process.stdout.write("No videos are kept in .demoman/videos/.\n");
-    process.exit(0);
-  }
-  for (const v of result.videos) {
-    process.stdout.write(
-      `${v.name}: ${v.outcome === "failed" ? `failed: ${v.detail}` : v.outcome}\n`,
-    );
-  }
-  process.exit(result.videos.some((v) => v.outcome === "failed") ? 1 : 0);
+  const { lines, code } = refreshLines(result);
+  for (const line of lines) process.stdout.write(`${line}\n`);
+  process.exit(code);
 }
 
 const [command, ...rest] = process.argv.slice(2);

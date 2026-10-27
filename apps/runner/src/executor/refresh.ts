@@ -39,6 +39,9 @@ export interface RefreshVideo {
   outputs: string[];
   /** A replaced video's line for a pull request (`attach`'s), else null. */
   line: string | null;
+  /** What a reader must hear even though the video did not fail: an output
+   *  replaced without a comparison, a report not written. */
+  notes: string[];
 }
 
 export interface RefreshResult {
@@ -124,6 +127,7 @@ export async function refreshKept(
       detail,
       outputs: [],
       line: null,
+      notes: [],
     });
 
   let names: string[] = [];
@@ -381,27 +385,7 @@ async function replaceOne(
   const { kept, file } = job;
   const changed: number[] = [];
   const said: string[] = [];
-  for (const [i, o] of kept.outputs.entries()) {
-    const committed = join(root, o.path);
-    const there = await access(committed).then(
-      () => true,
-      () => false,
-    );
-    if (!there) {
-      changed.push(i);
-      said.push(`${o.path} is new`);
-      continue;
-    }
-    try {
-      const cmp = await samePicture(committed, rendered[i] as string, deps);
-      if (!cmp.same) changed.push(i);
-      said.push(`${o.path}: ${cmp.detail}`);
-    } catch (error) {
-      // Replaced: a committed file that cannot be decoded is no picture.
-      changed.push(i);
-      said.push(`${o.path} could not be compared (${messageOf(error)})`);
-    }
-  }
+  const notes: string[] = [];
   const answer = (
     outcome: RefreshVideo["outcome"],
     outputs: string[],
@@ -413,7 +397,54 @@ async function replaceOne(
     detail: said.join("; "),
     outputs,
     line,
+    notes,
   });
+  // Nothing is written until every output is compared: a comparison that
+  // cannot be made fails the video with its files as they were.
+  const fail = (why: string) => {
+    said.splice(0, said.length, why);
+    return answer("failed", [], null);
+  };
+  for (const [i, o] of kept.outputs.entries()) {
+    const committed = join(root, o.path);
+    const there = await access(committed).then(
+      () => true,
+      () => false,
+    );
+    if (!there) {
+      changed.push(i);
+      said.push(`${o.path} is new`);
+      continue;
+    }
+    let cmp: Awaited<ReturnType<typeof samePicture>>;
+    try {
+      cmp = await samePicture(
+        committed,
+        rendered[i] as string,
+        o.fileType,
+        deps,
+      );
+    } catch (error) {
+      return fail(
+        `${o.path} could not be compared with its new export, so nothing was replaced: ${messageOf(error)}`,
+      );
+    }
+    if ("undecodable" in cmp) {
+      if (cmp.undecodable === "new") {
+        return fail(
+          `${o.path}'s new export could not be decoded as ${o.fileType.toUpperCase()} (${cmp.detail}), so nothing was replaced`,
+        );
+      }
+      // The one forgiven: a committed file that is no picture is replaced.
+      changed.push(i);
+      notes.push(
+        `${o.path} was replaced without a comparison: the committed file could not be decoded (${cmp.detail})`,
+      );
+      continue;
+    }
+    if (!cmp.same) changed.push(i);
+    said.push(`${o.path}: ${cmp.detail}`);
+  }
   if (changed.length === 0) return answer("unchanged", [], null);
 
   const written: string[] = [];
@@ -434,7 +465,7 @@ async function replaceOne(
           `${JSON.stringify(stored.value, null, 2)}\n`,
         );
         written.push(kept.report);
-      } else said.push(`${kept.report} was not written: ${stored.not}`);
+      } else notes.push(`${kept.report} was not written: ${stored.not}`);
     }
   } catch (error) {
     said.push(
