@@ -1,0 +1,100 @@
+---
+title: "Keep videos current"
+description: "Film a video again on every merge, and commit it only when the picture changed."
+---
+
+A demo video goes stale when the app changes. Keep it, and CI films it
+again after each merge and delivers what changed.
+
+## Keep a video
+
+In the repo, with a video your agent recorded:
+
+```bash
+npx demoman keep "Add a task" --to docs/add-task.mp4
+```
+
+This writes `.demoman/videos/<name>.json`, everything a re-film needs, and
+exports the video to each `--to` path. Commit both. `--gif` adds a GIF.
+
+Keep refuses, writing nothing, a video whose current version has Studio
+edits a re-film does not carry (a mask, a trim, a cut, a split, a hold, a
+gap, a placed zoom), typed text the recording never read, or a site you
+signed in to by hand with `signin` rather than as a demo account. The
+refusal names which. Record it again without them.
+
+When your agent later runs a script into a kept video, the kept file
+follows the script.
+
+## Refresh
+
+```bash
+npx demoman refresh
+```
+
+Films every kept video again, with no agent. It prints a line per video:
+
+| Line | Meaning |
+| --- | --- |
+| `<name>: replaced` | The picture changed. The files are overwritten |
+| `<name>: unchanged` | It looks the same. The files are left as they are |
+| `<name>: failed: <why>` | The run was not clean. The committed files stay, and the command exits 1 |
+
+The picture is compared where the camera is still. A change visible only
+while the camera moves is not seen until a later change is. Videos are not
+compared byte for byte, so an unchanged app makes no commit.
+
+## Run it on every merge
+
+```bash
+npx demoman setup --ci
+```
+
+Writes `.github/workflows/demoman.yml` at the repo root. Asked, or given as
+flags:
+
+- `--trigger push` runs on each push to the default branch. Fill in the
+  workflow's "Start your app" step: refresh films the app at its address.
+  `--trigger <environment>` runs after each successful deployment to that
+  environment, and films the deployed app.
+- `--route pr` opens a pull request with the changed files. `--route main`
+  commits them to the branch.
+
+A deployment trigger cannot use `--route main`: the deployed commit is not a
+branch. Setup refuses the pair and names `pr`.
+
+The workflow checks out the full history (`fetch-depth: 0`), installs
+Chromium and fonts on Ubuntu, runs `demoman refresh --deliver`, and takes
+one run at a time (`concurrency: demoman-refresh`). Add a
+`DEMOMAN_SECRET_<NAME>` and its `_ORIGIN` for each demo account the kept
+scripts sign in with.
+
+### The pull request route
+
+Turn on **Allow GitHub Actions to create and approve pull requests** under
+Settings → Actions → General. While it is off, refresh pushes the branch,
+opens no pull request, says so, and exits 1.
+
+Refresh force-pushes `demoman/refresh` and opens one pull request titled
+"Refresh demo videos", or updates the open one. The description lists each
+replaced video and its files, and any video that failed. A workflow token
+cannot attach a video, so open the files under "Files changed" to play
+them. Commits that were on `demoman/refresh` before the run are replaced,
+and the description says so.
+
+### The main route
+
+One "Refresh demo videos" commit on the checked-out branch, pushed. Nothing
+is reviewed first.
+
+### No loop
+
+The bot's commit carries `[skip demoman]`, and the refresh pull request's
+merge commit names `demoman/refresh`. The workflow reads the triggering
+commit's message and does nothing when it finds either. A rebase merge
+keeps the bot's commit message, and so does a squash merge under GitHub's
+default squash message. A squash message set to the pull request's title or
+description drops the marker: one more refresh then runs, finds every video
+unchanged, and commits nothing.
+
+When no video was replaced, nothing is committed.
