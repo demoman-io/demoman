@@ -899,11 +899,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       }
       // A run into a kept video makes a new version: its file follows.
       let kept: RunReport["kept"];
-      if (
-        report.outcome === "complete" &&
-        report.videoVersion !== undefined &&
-        repoRead.ok
-      ) {
+      if (report.videoVersion !== undefined && repoRead.ok) {
         try {
           const rewrote = await rewriteKept(
             repoRead.repo.root,
@@ -916,6 +912,9 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               git: execGit,
               log,
             },
+            report.outcome === "complete"
+              ? undefined
+              : `the run did not complete (${report.outcome})`,
           );
           if (!("none" in rewrote)) kept = rewrote;
         } catch (error) {

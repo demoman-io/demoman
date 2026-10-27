@@ -464,6 +464,9 @@ export async function rewriteKept(
   repoRoot: string,
   videoId: string,
   deps: KeepDeps,
+  /** Why the file must not follow this run (it did not complete): said
+   *  when a file keeps the video, which then stays as it was. */
+  notNow?: string,
 ): Promise<RewriteAnswer> {
   const root = resolve(repoRoot);
   const rootReal = await realpath(root);
@@ -497,6 +500,11 @@ export async function rewriteKept(
     if (old.from.videoId !== videoId) continue;
     const own = await repoPath(root, rootReal, rel, "keep");
     if (typeof own !== "string") return { refused: own.outside };
+    if (notNow !== undefined) {
+      return {
+        refused: `${rel} was not rewritten: ${notNow}, so it still holds the earlier script`,
+      };
+    }
     const video = await deps.videos.get(videoId);
     if (video === null) {
       return {
