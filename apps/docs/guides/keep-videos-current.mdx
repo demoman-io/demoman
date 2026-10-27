@@ -63,7 +63,8 @@ flags:
 A deployment trigger cannot use `--route main`: the deployed commit is not a
 branch. Setup refuses the pair and names `pr`.
 
-The workflow checks out the full history (`fetch-depth: 0`), installs
+The workflow checks out the full history (`fetch-depth: 0`) with any Git
+LFS files (`lfs: true`, so a video in LFS is compared, not a pointer), installs
 Chromium and fonts on Ubuntu, runs `demoman refresh --deliver`, and takes
 one run at a time (`concurrency: demoman-refresh`). Add a
 `DEMOMAN_SECRET_<NAME>` and its `_ORIGIN` for each demo account the kept

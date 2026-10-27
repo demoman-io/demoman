@@ -38,6 +38,15 @@ describe("ciWorkflow", () => {
     expect(push).toContain("fetch-depth: 0");
   });
 
+  it("checks out LFS files, so refresh compares videos and not pointers", () => {
+    for (const y of [push, deploy]) {
+      const checkout = y
+        .split("uses: actions/checkout@v4\n")[1]
+        ?.split("\n      - ")[0];
+      expect(checkout).toContain("          lfs: true");
+    }
+  });
+
   it("guards the push job against its own commits", () => {
     expect(push).toContain("[skip demoman]");
     expect(push).toContain("github.actor != 'github-actions[bot]'");

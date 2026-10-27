@@ -94,7 +94,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0${ref}
+          fetch-depth: 0
+          # A committed video in LFS is compared, not replaced as a pointer.
+          lfs: true${ref}
       - name: Skip Demoman's own commits
         id: guard
         env:
