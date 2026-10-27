@@ -57,7 +57,7 @@ beforeAll(async () => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(
       req.url === "/security"
-        ? '<!doctype html><title>Security</title><input type="password" aria-label="New password">'
+        ? '<!doctype html><title>Security</title><input type="password" aria-label="New password"><button>Change password</button>'
         : html,
     );
   });
@@ -243,6 +243,18 @@ describe("probeOp", () => {
       (await readLandingFacts(page, url)).passwordFieldVisible,
       page.url(),
     ).toBe(true);
+  }, 120_000);
+
+  it("a last click that navigates ends on the new page, named and listed", async () => {
+    const reply = await probe(
+      script([{ do: "click", on: { role: "link", name: "Security" } }]),
+    );
+    expect(reply.stopped, JSON.stringify({ reply, lines })).toBeNull();
+    expect(reply.endedUrl).toMatch(/\/security$/);
+    // The premise: the listing is the new page's, not the one clicked on.
+    const texts = JSON.stringify(reply.targets);
+    expect(texts).toContain("Change password");
+    expect(texts).not.toContain("Open filters");
   }, 120_000);
 
   it("a filming fault after the last step is not a stopped step", async () => {

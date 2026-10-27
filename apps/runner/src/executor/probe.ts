@@ -137,6 +137,9 @@ export async function probeOp(
   }
 
   const { page } = stage;
+  const ready = await waitForPageReady(stage.cdp, stage.clock.sleep);
+  // Read once the page is ready, so a navigation the last step began and
+  // that committed meanwhile is named by the page it lists.
   const endedUrl = page.url();
   if (endedUrl.startsWith("chrome-error:")) {
     return failure(
@@ -145,7 +148,6 @@ export async function probeOp(
     );
   }
 
-  const ready = await waitForPageReady(stage.cdp, stage.clock.sleep);
   const reply = await pageSnapshotTargets(page)({
     contains,
     maxTargets: SNAPSHOT_MAX_TARGETS,
