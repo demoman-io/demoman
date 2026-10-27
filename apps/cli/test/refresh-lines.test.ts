@@ -16,12 +16,25 @@ const video = (name: string, more: Partial<Video>): Video => ({
 
 // The CI workflow's only failure signal is this exit code.
 describe("refreshLines", () => {
-  it("exits 0 when nothing failed, one line per video", () => {
+  // A "replaced" that cannot say why reads the same as a false one: CI's
+  // 22.04 lane replaced an identical re-film and printed nothing more
+  // (2026-10-27).
+  it("exits 0 when nothing failed, one line per video saying what the comparison found", () => {
+    const near = "docs/x.mp4: at most 0.010% of the picture changed";
     expect(
       refreshLines({
-        videos: [video("a", {}), video("b", { outcome: "unchanged" })],
+        videos: [
+          video("a", {}),
+          video("b", { outcome: "unchanged", detail: near }),
+        ],
       }),
-    ).toEqual({ lines: ["a: replaced", "b: unchanged"], code: 0 });
+    ).toEqual({
+      lines: [
+        "a: replaced: docs/x.mp4: 0.200% of the picture changed",
+        `b: unchanged: ${near}`,
+      ],
+      code: 0,
+    });
   });
   it("exits 1 when any video failed, saying why", () => {
     expect(
@@ -35,7 +48,10 @@ describe("refreshLines", () => {
         ],
       }),
     ).toEqual({
-      lines: ["a: replaced", "b: failed: Stopped after step 1 of 2"],
+      lines: [
+        "a: replaced: docs/x.mp4: 0.200% of the picture changed",
+        "b: failed: Stopped after step 1 of 2",
+      ],
       code: 1,
     });
   });
@@ -45,7 +61,9 @@ describe("refreshLines", () => {
       "docs/x.json was not written: its run report is missing",
     ];
     expect(refreshLines({ videos: [video("a", { notes })] })).toEqual({
-      lines: [`a: replaced (${notes.join("; ")})`],
+      lines: [
+        `a: replaced: docs/x.mp4: 0.200% of the picture changed (${notes.join("; ")})`,
+      ],
       code: 0,
     });
   });

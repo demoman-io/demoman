@@ -36,8 +36,8 @@ Films every kept video again, with no agent. It prints a line per video:
 
 | Line | Meaning |
 | --- | --- |
-| `<name>: replaced` | The picture changed. The files are overwritten |
-| `<name>: unchanged` | It looks the same. The files are left as they are |
+| `<name>: replaced: <what changed>` | The picture changed: how much, and when in the video. The files are overwritten |
+| `<name>: unchanged: <how much changed>` | It looks the same. The files are left as they are |
 | `<name>: failed: <why>` | The run was not clean. The committed files stay, and the command exits 1 |
 
 The picture is compared where the camera is still. A change visible only

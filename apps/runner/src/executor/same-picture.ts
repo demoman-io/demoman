@@ -169,7 +169,7 @@ export function comparePictures(diff: PictureDiff): {
   return worst.changed > CHANGED_SHARE
     ? {
         same: false,
-        detail: `${pct}% of the picture changed at ${worst.t.toFixed(2)}s, of ${where}`,
+        detail: `${pct}% of the picture changed at ${worst.t.toFixed(2)}s, over the ${(CHANGED_SHARE * 100).toFixed(3)}% allowed, of ${where}`,
       }
     : {
         same: true,

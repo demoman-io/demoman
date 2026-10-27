@@ -85,7 +85,8 @@ describe("comparePictures", () => {
       comparePictures({ a: file(3), b: file(3), samples: heading }),
     ).toEqual({
       same: false,
-      detail: "0.200% of the picture changed at 2.50s, of 3 moments at rest",
+      detail:
+        "0.200% of the picture changed at 2.50s, over the 0.015% allowed, of 3 moments at rest",
     });
   });
   it("judges every moment of a film never at rest, saying so", () => {
@@ -95,7 +96,7 @@ describe("comparePictures", () => {
     ).toEqual({
       same: false,
       detail:
-        "3.000% of the picture changed at 1.00s, of 2 moments (the film is never at rest)",
+        "3.000% of the picture changed at 1.00s, over the 0.015% allowed, of 2 moments (the film is never at rest)",
     });
   });
 });

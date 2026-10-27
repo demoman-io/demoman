@@ -119,7 +119,7 @@ describe("samePicture", () => {
       );
       expect(out.same, out.detail).toBe(false);
       expect(out.detail).toMatch(
-        /% of the picture changed at [\d.]+s, of \d+ moments at rest$/,
+        /% of the picture changed at [\d.]+s, over the 0\.015% allowed, of \d+ moments at rest$/,
       );
     },
     CASE_MS,

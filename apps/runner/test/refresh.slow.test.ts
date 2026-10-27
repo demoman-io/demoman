@@ -367,7 +367,7 @@ describe("refresh", () => {
         JSON.stringify(r),
       ).toEqual(["replaced", "replaced"]);
       expect(byName(r, A).detail).toMatch(
-        /% of the picture changed at [\d.]+s, of \d+ moments at rest/,
+        /% of the picture changed at [\d.]+s, over the 0\.015% allowed, of \d+ moments at rest/,
       );
       const after = await Promise.all(Object.values(out).map(bytes));
       for (const [i, b] of after.entries())
