@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { FrameBundle } from "@demoman/compositor";
 import { keptFileName, notCarriedOf, parseKept } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -84,7 +85,10 @@ async function videoOf(
 /** The clean take's frames under another take, so an export of it would
  *  save: a refusal case then refuses for its own reason, not for want of
  *  frames, and a check removed shows up as files written. */
-async function copyFrames(takeId: string): Promise<void> {
+async function copyFrames(
+  takeId: string,
+  motionSpans?: FrameBundle["motionSpans"],
+): Promise<void> {
   const from = library.frameStore(cleanTakeId);
   const to = library.frameStore(takeId);
   const bundle = await from.getBundle(cleanTakeId);
@@ -95,7 +99,18 @@ async function copyFrames(takeId: string): Promise<void> {
       ref: await to.putKeyframe(takeId, i, await from.load(k.ref)),
     })),
   );
-  await to.putBundle(takeId, { ...bundle, sceneId: takeId, keyframes });
+  // Spans' bytes that will not demux: the render reports each one
+  // unavailable and draws the keyframes, and the bundle still says how wide
+  // the motion was filmed.
+  for (const m of motionSpans ?? []) {
+    await to.putSpan(m.ref, new Uint8Array([1, 2, 3]));
+  }
+  await to.putBundle(takeId, {
+    ...bundle,
+    sceneId: takeId,
+    keyframes,
+    ...(motionSpans === undefined ? {} : { motionSpans }),
+  });
   // Premise: the copy reads back as a bundle with frames.
   expect((await to.getBundle(takeId))?.keyframes.length).toBe(
     bundle.keyframes.length,
@@ -165,14 +180,20 @@ afterAll(async () => {
 
 describe("keep, a clean take", () => {
   it(
-    "writes a kept file a re-film can read, pinned to the take's size and scale, and each output",
+    "writes a kept file a re-film can read, pinned to the take's size, and each output; with no motion frames, at 1x and says so",
     async () => {
       const scene = (await library.getScene(cleanTakeId)) as SceneDocument;
-      // Premises: nothing a re-film leaves behind, a logo to copy, and a
-      // scale that is not 1 (so a pinned scale is told apart from a default).
+      // Premises: nothing a re-film leaves behind, a logo to copy, no
+      // motion frames, and a stills dpr that is not 1 (REPLAY_DPR), so a
+      // scale read from it is told apart from the 1x keep falls back to.
       expect(notCarriedOf(scene)).toEqual([]);
       expect(scene.branding.logo?.ref).toBe("acme.svg");
+      expect(
+        (await library.frameStore(cleanTakeId).getBundle(cleanTakeId))
+          ?.motionSpans,
+      ).toEqual([]);
       expect(scene.meta.capture.dpr).toBe(3);
+      const from = lines.length;
       expect(scene.canvas.aspect).toBe("16:9");
       // The run report keep copies to --report.
       await library.putJson(cleanTakeId, "report.json", {
@@ -206,7 +227,12 @@ describe("keep, a clean take", () => {
       expect(kept).toEqual(out.kept);
       expect(kept.name).toBe("Add a task");
       expect(kept.script.viewport).toEqual(scene.meta.capture.viewport);
-      expect(kept.scale).toBe(scene.meta.capture.dpr);
+      expect(kept.scale).toBe(1);
+      expect(lines.slice(from)).toContainEqual(
+        expect.stringContaining(
+          "no motion frames to read the filmed scale from; refresh films it at 1x",
+        ),
+      );
       expect(kept.from.takeId).toBe(cleanTakeId);
       expect(kept.report).toBe("docs/hero-report.json");
       expect(
@@ -508,6 +534,56 @@ describe("keep's exports are not listed on the take", () => {
       } finally {
         await rm(outDir, { recursive: true, force: true });
       }
+    },
+    KEEP_MS,
+  );
+});
+
+// The scale a kept video films at is the one its motion was filmed at:
+// screencast frames follow the display's DPR, where `meta.capture.dpr` is
+// REPLAY_DPR (3), the stills' scale, on every authored take.
+describe("keep's scale, from the motion frames", () => {
+  /** A span of the given pixel width over the take's 1280px viewport. */
+  const span = (id: string, width: number) => [
+    {
+      startMs: 400,
+      endMs: 3200,
+      ref: `span:${id}:0`,
+      width,
+      height: (width * 800) / 1280,
+      fps: 30,
+      byteLength: 0,
+    },
+  ];
+  it.each([
+    ["Retina", 2560, 2],
+    ["Plain", 1280, 1],
+    // An encoder's even-pixel rounding is not another display.
+    ["Rounded", 2562, 2],
+  ])(
+    "%s: motion %ipx wide over a 1280px viewport keeps scale %i",
+    async (name, width, scale) => {
+      const id = `scene-${name.toLowerCase()}`;
+      const { scene } = await videoOf(id, name);
+      await copyFrames(id, span(id, width));
+      // Premises: the viewport the ratio is taken over, and a stills dpr
+      // that is neither answer.
+      expect(scene.meta.capture.viewport.width).toBe(1280);
+      expect(scene.meta.capture.dpr).toBe(3);
+      const from = lines.length;
+      const out = await keepVideo(
+        {
+          video: name,
+          to: [{ path: `docs/${id}.gif`, fileType: "gif", quality: "share" }],
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      expect(out.kept.scale).toBe(scale);
+      expect(
+        lines.slice(from).filter((l) => l.includes("no motion frames")),
+      ).toEqual([]);
     },
     KEEP_MS,
   );

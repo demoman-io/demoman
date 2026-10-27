@@ -20,6 +20,7 @@ import {
   resolve,
   sep,
 } from "node:path";
+import type { FrameBundle } from "@demoman/compositor";
 import {
   KEPT_DIR,
   KEPT_VERSION,
@@ -210,6 +211,15 @@ export async function keepVideo(
     );
   }
   const { scene } = read;
+  const scale = filmedScale(
+    await deps.library.frameStore(built.takeId).getBundle(built.takeId),
+    scene.meta.capture.viewport.width,
+  );
+  if (scale === null) {
+    deps.log(
+      `keep: take ${built.takeId} has no motion frames to read the filmed scale from; refresh films it at 1x`,
+    );
+  }
 
   // A site signed in to by hand cannot be signed in to by a refresh in CI.
   const target = String(built.script.target);
@@ -299,7 +309,7 @@ export async function keepVideo(
     keptVersion: KEPT_VERSION,
     name: video.name,
     script: script.data,
-    scale: scene.meta.capture.dpr,
+    scale: scale ?? 1,
     logo,
     outputs: args.to.map((o, i) => ({
       path: outputPaths[i] as string,
@@ -411,6 +421,26 @@ export async function repoPath(
   return {
     outside: `${path} is not inside the repo at ${root} (it resolves to ${real ?? "a link to nothing"}) — ${who} writes only into the repo it keeps the video in`,
   };
+}
+
+/**
+ * The scale the take's motion was filmed at, or null with no motion frames.
+ * Screencast spans follow the display's DPR; `meta.capture.dpr` is
+ * REPLAY_DPR on every authored take, the stills' scale, not the display's.
+ * The widest span, since the encoder may keep a span smaller than it
+ * arrived; to the nearest quarter, since an encoder's even-pixel width is
+ * not another display and displays come at 1, 1.25, 1.5, 2; never under 1.
+ */
+function filmedScale(
+  bundle: FrameBundle | null,
+  viewportWidth: number,
+): number | null {
+  const widest = Math.max(
+    0,
+    ...(bundle?.motionSpans ?? []).map((s) => s.width),
+  );
+  if (widest === 0) return null;
+  return Math.max(1, Math.round((widest / viewportWidth) * 4) / 4);
 }
 
 /** Where `abs` really is: the deepest part that exists, links followed,
