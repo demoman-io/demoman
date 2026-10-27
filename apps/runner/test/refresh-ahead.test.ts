@@ -125,6 +125,21 @@ describe("a refresh says when the library is ahead of the file", () => {
       "cannot be told: videos.json is torn",
     );
   });
+  it("films with leaveKept, so its own run never rewrites the kept file", async () => {
+    const runs: Record<string, unknown>[] = [];
+    const d = deps();
+    d.executor = () =>
+      ({
+        request: async (op: string, args: Record<string, unknown>) => {
+          if (op === "run") runs.push(args);
+          return { ok: false, reason: "x", detail: "no film" };
+        },
+        close: async () => undefined,
+      }) as unknown as ReturnType<RefreshDeps["executor"]>;
+    await notes("local", d);
+    expect(runs.length, "premise: refresh asked for a run").toBeGreaterThan(0);
+    for (const args of runs) expect(args.leaveKept).toBe(true);
+  });
   it("never reads the library in a throwaway refresh", async () => {
     const boom = () => {
       throw new Error("the library was read");

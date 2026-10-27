@@ -183,8 +183,23 @@ describe("a run's answer says whether its kept file was rewritten", () => {
         refused: expect.stringContaining(`${file} was not rewritten`),
       });
       expect(await readFile(join(repo, file))).toEqual(before);
+
+      // refresh's own run reads the kept file and must not write it.
+      const refreshed = await run(executor, {
+        callId: "kept-refresh",
+        video: { id: videoId },
+        leaveKept: true,
+      });
+      expect(refreshed.outcome, "premise: the run completed").toBe("complete");
+      expect(refreshed.videoVersion?.id, "premise: it joined the video").toBe(
+        videoId,
+      );
+      expect(await readFile(join(repo, file), "utf8")).toBe(
+        before.toString("utf8"),
+      );
+      expect("kept" in refreshed).toBe(false);
     },
-    RUN_MS * 5,
+    RUN_MS * 6,
   );
 
   it(

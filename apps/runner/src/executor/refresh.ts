@@ -348,7 +348,13 @@ async function filmOne(
 ): Promise<Filmed | { failed: string }> {
   const fresh = { new: kept.name, confirmedNew: true };
   const run = async (video: unknown) => {
-    const out = await executor.request("run", { script, video, project: root });
+    const out = await executor.request("run", {
+      script,
+      video,
+      project: root,
+      // The committed kept file is refresh's input, never its output.
+      leaveKept: true,
+    });
     return out.ok
       ? (out.value as Record<string, unknown>)
       : { outcome: "refusedBeforeRun", reason: out.reason, detail: out.detail };
