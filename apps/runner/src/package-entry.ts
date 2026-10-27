@@ -12,6 +12,14 @@ export {
 } from "./bundle-js.js";
 export { fullChromiumPath, launchFailure } from "./executor/browser.js";
 export { createLocalExecutor } from "./executor/executor.js";
+export {
+  type KeepAnswer,
+  type KeepDeps,
+  type KeepOutput,
+  type KeepRefusal,
+  keepVideo,
+} from "./executor/keep.js";
+export { execGit, readRepo } from "./executor/repo.js";
 export type { ExecutorOptions, LocalExecutor } from "./executor/types.js";
 export { chromiumDepsCommand, playwrightCliPath } from "./install-advice.js";
 export { recorderPlatform, visibleWindowRefusal } from "./platform.js";

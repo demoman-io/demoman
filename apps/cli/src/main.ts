@@ -8,8 +8,8 @@
 // First, before anything that could print: console.log/info/debug to stderr.
 import "@demoman/mcp/stdout-guard";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -20,15 +20,27 @@ import {
   serveCli,
 } from "@demoman/mcp/serve-cli";
 import { createUpdateCheck } from "@demoman/mcp/update-check";
+import { isExportQuality } from "@demoman/run-core";
 import {
   createLocalExecutor,
+  execGit,
   fullChromiumPath,
+  type KeepAnswer,
+  type KeepOutput,
+  keepVideo,
   PAGE_ENTRIES,
+  readRepo,
   signin,
   signinAccount,
   usePrebuiltPages,
 } from "@demoman/runner/package";
-import { couldNotCheck, postToolUseAnswer } from "@demoman/runner/studio";
+import {
+  couldNotCheck,
+  createBrowserSession,
+  createLibrary,
+  createVideoStore,
+  postToolUseAnswer,
+} from "@demoman/runner/studio";
 import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshAgentSkill } from "./agent-skill.js";
 import { PACKAGE_NAME } from "./names.js";
@@ -69,6 +81,8 @@ const USAGE = `demoman ${VERSION}
                              sign in as a demo account from .demoman/accounts.json (CI, or a check)
   npx demoman studio [take]  open the Studio, to look over and edit takes and export them
   npx demoman studio --stop  close the Studio
+  npx demoman keep <video> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
+                             keep a video current: its re-film file in .demoman/videos/, its exports in the repo
   demoman mcp [--headed]     serve Demoman's tools on stdio (your agent runs this);
                              --headed shows the browser while it records
   demoman hook post-tool-use answer Claude Code's PostToolUse hook on stdin (the plugin runs this)
@@ -235,6 +249,130 @@ async function studio(args: string[]): Promise<void> {
   });
 }
 
+/** `demoman keep`: the video's kept file and its outputs, in the repo the
+ *  command runs in. Paths are the shell's, relative to the current folder. */
+async function keep(args: string[]): Promise<void> {
+  const usage = (said: string): never => {
+    process.stderr.write(`demoman: ${said}\n\n${USAGE}`);
+    process.exit(2);
+  };
+  let values: {
+    to?: string[];
+    gif?: string[];
+    report?: string;
+    quality?: string;
+  };
+  let positionals: string[];
+  try {
+    ({ values, positionals } = parseArgs({
+      args,
+      options: {
+        to: { type: "string", multiple: true },
+        gif: { type: "string", multiple: true },
+        report: { type: "string" },
+        quality: { type: "string" },
+      },
+      allowPositionals: true,
+      strict: true,
+    }));
+  } catch (error) {
+    return usage(error instanceof Error ? error.message : String(error));
+  }
+  const [video, ...extra] = positionals;
+  const asked = [
+    ...(values.to ?? []).map((a) => ["mp4", a] as const),
+    ...(values.gif ?? []).map((a) => ["gif", a] as const),
+  ];
+  if (video === undefined || extra.length > 0 || asked.length === 0) {
+    return usage("keep takes one video and at least one --to or --gif");
+  }
+  // Share by default: every refresh commits these files again.
+  const quality = values.quality ?? "share";
+  if (!isExportQuality(quality)) {
+    return usage(`--quality is share, high or full, not "${quality}"`);
+  }
+  const fail = (detail: string): never => {
+    process.stderr.write(`demoman keep: ${detail}\n`);
+    process.exit(1);
+  };
+  const repo = await readRepo(process.cwd(), execGit);
+  if (!repo.ok) {
+    return fail(`${repo.none} — run keep inside the repo the video is kept in`);
+  }
+  const root = repo.repo.root;
+  const inRoot = (p: string) => relative(root, resolve(p));
+  const to: KeepOutput[] = asked.map(([fileType, arg]) => {
+    const m = /^(.*):(auto|16:9|9:16)$/.exec(arg);
+    return {
+      path: inRoot(m?.[1] ?? arg),
+      fileType,
+      quality,
+      ...(m?.[2] === undefined
+        ? {}
+        : { aspect: m[2] as NonNullable<KeepOutput["aspect"]> }),
+    };
+  });
+  requirePageBundles(
+    join(fileURLToPath(new URL(".", import.meta.url)), "page"),
+    (line) => fail(line),
+  );
+  const home = demomanHome();
+  const library = createLibrary(home);
+  const videos = createVideoStore(home, library, { log });
+  // Renders out of sight, as the Studio's exports do.
+  const session = createBrowserSession({
+    headless: true,
+    executablePath: fullChromiumPath(),
+    installCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup`,
+    log,
+  });
+  let answer: KeepAnswer | { threw: string };
+  try {
+    answer = await keepVideo(
+      {
+        video,
+        to,
+        ...(values.report === undefined
+          ? {}
+          : { report: inRoot(values.report) }),
+        repoRoot: root,
+      },
+      {
+        home,
+        library,
+        videos,
+        git: execGit,
+        log,
+        export: {
+          library,
+          videos,
+          session,
+          door: "agent",
+          home,
+          // Each output renders into a temp folder of keep's own.
+          outDir: tmpdir(),
+          log,
+        },
+      },
+    );
+  } catch (error) {
+    answer = { threw: error instanceof Error ? error.message : String(error) };
+  } finally {
+    await session
+      .close()
+      .catch((error: unknown) =>
+        log(`the browser would not close (${String(error)})`),
+      );
+  }
+  if ("threw" in answer) return fail(answer.threw);
+  if (!answer.ok) return fail(answer.detail);
+  process.stdout.write(`Kept "${answer.kept.name}" in ${answer.file}\n`);
+  for (const p of answer.written) {
+    if (p !== answer.file) process.stdout.write(`  wrote ${p}\n`);
+  }
+  process.exit(0);
+}
+
 const [command, ...rest] = process.argv.slice(2);
 switch (command) {
   case "mcp":
@@ -242,6 +380,9 @@ switch (command) {
     break;
   case "studio":
     await studio(rest);
+    break;
+  case "keep":
+    await keep(rest);
     break;
   case "setup": {
     const flags = parseSetupArgs(rest);

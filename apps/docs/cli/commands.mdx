@@ -54,6 +54,29 @@ npx demoman studio --stop
 Opens the Studio, on a take when you name one, or closes it with `--stop`.
 See [Overview](/studio/overview).
 
+## keep
+
+```bash
+npx demoman keep <video> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
+```
+
+Keeps a video current. Run it in the repo, naming one of its videos by id or
+exact name. It writes `.demoman/videos/<name>.json`, everything a re-film
+needs, and exports the video to each path. Commit both. A logo from outside
+the repo is copied to `.demoman/videos/logos/`.
+
+It refuses, writing nothing, a video whose current version has Studio edits
+a re-film does not carry (a mask, a trim, a cut, a split, a hold, a gap, a
+placed zoom), typed text the recording never read, or a site signed in to by
+hand with `signin` rather than as a demo account.
+
+| Flag | |
+| --- | --- |
+| `--to <path>[:<aspect>]` | An MP4 to write, repeatable; the aspect is `auto`, `16:9` or `9:16`, the take's own by default |
+| `--gif <path>[:<aspect>]` | A GIF to write, repeatable |
+| `--report <path>` | Where to write the run report |
+| `--quality <quality>` | The MP4s' quality: `share` (the default, small to commit), `high` or `full` |
+
 ## mcp
 
 ```bash

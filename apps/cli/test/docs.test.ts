@@ -257,7 +257,7 @@ describe("the README's new shape", () => {
 describe("commands", () => {
   it("USAGE is read as text and lists the commands the docs may use", () => {
     expect([...usageCommands()].sort()).toEqual(
-      ["--version", "hook", "mcp", "setup", "signin", "studio"].sort(),
+      ["--version", "hook", "keep", "mcp", "setup", "signin", "studio"].sort(),
     );
   });
   it("every npx demoman command on the site is one USAGE lists", () => {
@@ -319,16 +319,16 @@ describe("the CLI's commands page", () => {
       ...["main.ts", "setup.ts"].flatMap((f) =>
         [
           ...src(f).matchAll(
-            /^\s+"?([a-z-]+)"?: \{ type: "(?:boolean|string)" \}/gm,
+            /^\s+"?([a-z-]+)"?: \{ type: "(?:boolean|string)"(?:, multiple: true)? \}/gm,
           ),
         ].map((m) => `--${m[1]}`),
       ),
       ...[...src("studio-args.ts").matchAll(/"(--[a-z-]+)"/g)].map((m) => m[1]),
     ]);
     flags.delete("--serve");
-    // The premise: mcp's two flags, signin's three, studio's --stop and
-    // setup's three.
-    expect(flags.size).toBeGreaterThanOrEqual(9);
+    // The premise: mcp's two flags, signin's three, studio's --stop,
+    // setup's three and keep's three more (--to, --gif, --report).
+    expect(flags.size).toBeGreaterThanOrEqual(12);
     for (const f of flags) expect(page(), f).toContain(`\`${f}`);
   });
 });

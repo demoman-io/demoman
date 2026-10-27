@@ -238,6 +238,32 @@ describe("export, on the picture", () => {
     },
     VERTICAL_EXPORT_MS,
   );
+
+  // What `keep` and `refresh` ask for: an output's own aspect, whatever the
+  // take's is. Red if `aspect` is not read: the take's 16:9 renders.
+  it(
+    "an asked aspect overrides the take's: a 16:9 take saves portrait",
+    async () => {
+      await setAspect("16:9");
+      const answer = await exportNow("e-aspect", {
+        aspect: "9:16",
+        quality: "share",
+      });
+      expect(answer).toMatchObject({ outcome: "saved", aspect: "9:16" });
+      if (answer.outcome !== "saved" || answer.fileType === "stills") return;
+      const read = await sampleMp4(await readFile(answer.file.path), {
+        colors: [],
+      });
+      // The premise of the picture: frames were decoded to measure.
+      expect(read.readings.length).toBeGreaterThan(0);
+      expect(read.height, `${read.width}x${read.height}`).toBeGreaterThan(
+        read.width,
+      );
+      // The take keeps its own aspect: the override is the export's alone.
+      expect((await library().getScene(takeId))?.canvas.aspect).toBe("16:9");
+    },
+    VERTICAL_EXPORT_MS,
+  );
 });
 
 describe("export, high by default", () => {
