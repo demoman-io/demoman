@@ -182,12 +182,13 @@ it(
   STEP_MS * 5,
 );
 
-// The regression guard for a take whose page never moves: a hash-only nav
-// click leaves no motion frames to read a scale from, so keep must read the
-// scale the run recorded. A guessed 1x on a 2x display re-films text that
-// rasterises differently, and an unchanged app read as replaced (2026-10-27).
+// The regression guard for a take with no motion frames: on a Mac, the nav
+// click's one repaint reaches the screencast as fewer than SPAN_MIN_FRAMES
+// frames, so no span is kept and keep must read the scale the run recorded.
+// A guessed 1x on a 2x display re-films text that rasterises differently, and
+// an unchanged app read as replaced (2026-10-27).
 it(
-  "keeps a nav click that moves nothing and refreshes it unchanged",
+  "keeps a nav click at the scale the run recorded and refreshes it unchanged",
   async () => {
     html = ORIGINAL;
     const nav = "Open reports";
@@ -198,23 +199,35 @@ it(
     expect(k.code, said(k)).toBe(0);
     expect(k.stdout, said(k)).not.toContain("is a guess");
 
-    // Premises: the take has no motion frames, and keep kept the scale the
-    // run recorded rather than a fallback.
+    // Keep kept the scale the run recorded.
     const keptPath = /^Kept "[^"]*" in (\S+)$/m.exec(k.stdout)?.[1];
     expect(keptPath, said(k)).toBeDefined();
     const keptFile = JSON.parse(
       await readFile(join(repo, keptPath as string), "utf8"),
     ) as { scale: number; from: { takeId: string } };
-    console.info(`[refresh] nav kept scale: ${keptFile.scale}`);
     const library = createLibrary(home);
     const takeId = keptFile.from.takeId;
     const scene = await library.getScene(takeId);
-    const bundle = await library.frameStore(takeId).getBundle(takeId);
-    expect(
-      bundle?.motionSpans ?? [],
-      JSON.stringify(bundle?.motionSpans),
-    ).toEqual([]);
+    const spans = (await library.frameStore(takeId).getBundle(takeId))
+      ?.motionSpans;
+    console.info(
+      `[refresh] nav kept scale: ${keptFile.scale}; motion spans: ${JSON.stringify(spans)}`,
+    );
     expect(scene?.meta.capture.displayScale, said(k)).toBe(keptFile.scale);
+    // The guard's premise, where its bug can happen: filmed at other than
+    // keep's 1x fallback, with no motion frames for keep to read the scale
+    // from, so only the run's record can have given it. At 1x (CI's Linux
+    // under xvfb) the fallback is the true scale and the premise guards
+    // nothing; there the same repaint arrived as three frames in 54-75 ms, a
+    // kept span, in all three jobs of run 40535980217. The unchanged refresh
+    // below runs either way.
+    if (keptFile.scale === 1) {
+      console.info(
+        "[refresh] nav: filmed at 1x, where keep's fallback is also 1x; the no-motion premise is asserted only off 1x (a 2x Mac)",
+      );
+    } else {
+      expect(spans ?? [], JSON.stringify(spans)).toEqual([]);
+    }
 
     const original = await readFile(join(repo, navMp4));
     const same = await cli("refresh", nav);
