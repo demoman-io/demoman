@@ -1,0 +1,23 @@
+{
+  "scriptVersion": 1,
+  "name": "Tremor — Status filter and row menu",
+  "target": "http://localhost:4301/details",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "role": "button", "name": "Status" } },
+    {
+      "do": "click",
+      "on": { "treePath": "body:1/div:2/div:1/form:1/div:1/div:1/button:1" }
+    },
+    { "do": "click", "on": { "role": "option", "name": "Live" } },
+    { "do": "click", "on": { "role": "button", "name": "Apply" } },
+    {
+      "do": "click",
+      "on": {
+        "treePath": "body:1/div:1/main:1/div:1/div:1/div:1/div:1/div:2/table:1/tbody:1/tr:1/td:8/button:1"
+      }
+    },
+    { "do": "click", "on": { "role": "menuitem", "name": "Edit" } },
+    { "do": "pause", "ms": 800 }
+  ]
+}
