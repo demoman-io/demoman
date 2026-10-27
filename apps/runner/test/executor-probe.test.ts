@@ -6,6 +6,7 @@
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { checkScript } from "@demoman/run-core";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import {
   app,
@@ -117,6 +118,20 @@ it("a probe plays as the account its script names, as the run would", async () =
   // The premise: the site's default is seller, so this is the script's word.
   expect(out.value.account, JSON.stringify(out)).toBe("customer");
   expect(lastServed()).toBe(CUSTOMER);
+}, 120_000);
+
+it("refuses a malformed script before signing in or opening anything", async () => {
+  await writeAccounts(seller());
+  const raw = {
+    ...script(`${app.url}/app`, []),
+    steps: [{ do: "pause", ms: 10 }],
+  };
+  // The premise: the run door refuses this script.
+  const checked = checkScript(raw, []);
+  expect(checked.ok).toBe(false);
+  const out = await probe(raw);
+  expect(out).toEqual({ ok: true, value: checked.ok ? null : checked.refusal });
+  expect(signedInSince(SELLER)).toBe(0);
 }, 120_000);
 
 it("a probe makes no take", async () => {

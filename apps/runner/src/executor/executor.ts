@@ -1013,43 +1013,40 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
   /** A probe as the account the call names, or else the one its script
    *  names, as a run of that script would play. Whatever its steps did to
    *  the context's cookies and storage, the next call starts from the saved
-   *  sessions again, as after a run. */
-  const probeAs = (args: Record<string, unknown>) => {
-    const raw = (args.script ?? {}) as { target?: unknown; account?: unknown };
-    const named = [args.account, raw.account].find(
-      (a): a is string => typeof a === "string",
-    );
+   *  sessions again, as after a run. A script the run door would refuse is
+   *  refused first, before any sign-in or launch. */
+  const probeAs = async (args: Record<string, unknown>): Promise<Outcome> => {
+    const checked = checkScript(args.script, holePaths);
+    if (!checked.ok) return { ok: true, value: checked.refusal };
+    const { script } = checked;
+    const named =
+      typeof args.account === "string" ? args.account : script.account;
     const contains = typeof args.contains === "string" ? args.contains : null;
-    return pageCallAs(
-      args,
-      typeof raw.target === "string" ? raw.target : "",
-      named,
-      async (choice, chosen) => {
-        try {
-          const browser = await session.ensure();
-          if (!browser.ok) return failure(browser.reason, browser.detail);
-          const { context } = browser.launched;
-          // No page of an earlier call may run while this one's sessions load.
-          await session.retire();
-          const loaded = await sessions.load(context, choiceOf(choice));
-          if (!loaded.ok) return failure(loaded.reason, loaded.detail);
-          return await probeOp(args.script, contains, {
-            session,
-            log,
-            sessions: loaded.files,
-            sessionsContext: context,
-            loadSessions: (c) => sessions.load(c, choiceOf(choice)),
-            signinCommand,
-            ...(chosen === null ? {} : { account: signInAgainAs(chosen) }),
-            home,
-            kits: await readKits(home),
-            holePaths,
-          });
-        } finally {
-          sessions.forget();
-        }
-      },
-    );
+    return pageCallAs(args, script.target, named, async (choice, chosen) => {
+      try {
+        const browser = await session.ensure();
+        if (!browser.ok) return failure(browser.reason, browser.detail);
+        const { context } = browser.launched;
+        // No page of an earlier call may run while this one's sessions load.
+        await session.retire();
+        const loaded = await sessions.load(context, choiceOf(choice));
+        if (!loaded.ok) return failure(loaded.reason, loaded.detail);
+        return await probeOp(args.script, contains, {
+          session,
+          log,
+          sessions: loaded.files,
+          sessionsContext: context,
+          loadSessions: (c) => sessions.load(c, choiceOf(choice)),
+          signinCommand,
+          ...(chosen === null ? {} : { account: signInAgainAs(chosen) }),
+          home,
+          kits: await readKits(home),
+          holePaths,
+        });
+      } finally {
+        sessions.forget();
+      }
+    });
   };
 
   return {
