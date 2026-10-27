@@ -29,11 +29,13 @@ export async function deliver(
     route: "pr" | "main";
     repoRoot: string;
     result: RefreshResult;
+    /** Only the named videos were filmed: the others' proposals are not judged. */
+    named?: boolean;
     runUrl: string | null;
   },
   deps: { git: GitRunner; gh: Gh },
 ): Promise<Delivered> {
-  const { route, repoRoot, result, runUrl } = args;
+  const { route, repoRoot, result, named, runUrl } = args;
   const replaced = result.videos.filter((v) => v.outcome === "replaced");
   if (replaced.length === 0) {
     const nothing = "no video was replaced";
@@ -45,6 +47,12 @@ export async function deliver(
         delivered: "nothing",
         ok: true,
         detail: `${nothing}; the open refresh pull request stays, because a video failed`,
+      };
+    if (named)
+      return {
+        delivered: "nothing",
+        ok: true,
+        detail: `${nothing}; the open refresh pull request stays, because only the named videos were filmed`,
       };
     // An open refresh PR proposes videos this run just filmed equal to the
     // committed ones: left open, it could be merged.

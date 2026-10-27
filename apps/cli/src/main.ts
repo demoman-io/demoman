@@ -507,6 +507,7 @@ async function refresh(args: string[]): Promise<void> {
       route,
       repoRoot: repo.repo.root,
       result,
+      named: positionals.length > 0,
       runUrl:
         server && slug && id ? `${server}/${slug}/actions/runs/${id}` : null,
     },

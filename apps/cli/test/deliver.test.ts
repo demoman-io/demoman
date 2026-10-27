@@ -84,12 +84,13 @@ const result = (
   ],
 });
 
-const run = (route: "pr" | "main", r: RefreshResult) =>
+const run = (route: "pr" | "main", r: RefreshResult, named = false) =>
   deliver(
     {
       route,
       repoRoot: repo,
       result: r,
+      named,
       runUrl: "https://github.com/o/r/actions/runs/9",
     },
     { git: execGit, gh },
@@ -183,6 +184,18 @@ describe("deliver", () => {
       ok: true,
       detail:
         "no video was replaced; the open refresh pull request stays, because a video failed",
+    });
+  });
+
+  it("pr with nothing replaced in a refresh of named videos leaves the open refresh PR alone", async () => {
+    script = { "pr list": { stdout: '[{"number":12}]' } };
+    const a = await run("pr", unchanged(), true);
+    expect(calls().filter((c) => c[1] === "close")).toEqual([]);
+    expect(a).toEqual({
+      delivered: "nothing",
+      ok: true,
+      detail:
+        "no video was replaced; the open refresh pull request stays, because only the named videos were filmed",
     });
   });
 

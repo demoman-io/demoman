@@ -107,6 +107,7 @@ description drops the marker: one more refresh then runs, finds every video
 unchanged, and commits nothing.
 
 When no video was replaced, nothing is committed. On the pull request
-route, when every video came back unchanged, an open refresh pull request
-is then closed with a comment: its videos are out of date. When a video
-failed, the pull request stays open.
+route, when every kept video was filmed and came back unchanged, an open
+refresh pull request is then closed with a comment: its videos are out of
+date. When a video failed, or only named videos were refreshed, the pull
+request stays open.
