@@ -118,8 +118,7 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("deliver", () => {
-  it("delivers nothing when nothing was replaced: no commit, no gh call", async () => {
-    const before = count();
+  const unchanged = () => {
     const r = result();
     r.videos = r.videos.map((v) => ({
       ...v,
@@ -128,12 +127,60 @@ describe("deliver", () => {
       line: null,
     }));
     expect(r.videos.map((v) => v.outcome)).toEqual(["unchanged"]);
-    const a = await run("pr", r);
-    const b = await run("main", r);
-    expect(a).toMatchObject({ delivered: "nothing", ok: true });
-    expect(b).toMatchObject({ delivered: "nothing", ok: true });
+    return r;
+  };
+
+  it("delivers nothing when nothing was replaced: no commit; pr only looks for an open PR", async () => {
+    const before = count();
+    script = { "pr list": { stdout: "[]" } };
+    const a = await run("pr", unchanged());
+    expect(calls().map((c) => c.slice(0, 2))).toEqual([["pr", "list"]]);
+    writeFileSync(logPath, "");
+    const b = await run("main", unchanged());
+    expect(a).toEqual({
+      delivered: "nothing",
+      ok: true,
+      detail: "no video was replaced",
+    });
+    expect(b).toEqual({
+      delivered: "nothing",
+      ok: true,
+      detail: "no video was replaced",
+    });
     expect(count()).toBe(before);
     expect(calls()).toEqual([]);
+  });
+
+  it("pr with nothing replaced closes the open refresh PR, whose videos are now wrong", async () => {
+    script = {
+      "pr list": { stdout: '[{"number":12}]' },
+      "pr close": { stdout: "closed" },
+    };
+    const a = await run("pr", unchanged());
+    const close = calls().filter((c) => c[0] === "pr" && c[1] === "close");
+    expect(close).toHaveLength(1);
+    expect(close[0]?.[2]).toBe("12");
+    expect(close[0]).toContain("--comment");
+    expect(a.ok).toBe(true);
+    expect(a.delivered).toBe("nothing");
+    expect(a.detail).toContain("no video was replaced");
+    expect(a.detail).toContain("closed pull request #12");
+  });
+
+  it("pr with nothing replaced reports a gh failure while listing or closing", async () => {
+    script = { "pr list": { code: 1, stderr: "HTTP 502 bad gateway" } };
+    const a = await run("pr", unchanged());
+    expect(a.ok).toBe(false);
+    expect(a.detail).toContain("gh pr list");
+    expect(a.detail).toContain("HTTP 502 bad gateway");
+    script = {
+      "pr list": { stdout: '[{"number":12}]' },
+      "pr close": { code: 1, stderr: "HTTP 403 forbidden" },
+    };
+    const b = await run("pr", unchanged());
+    expect(b.ok).toBe(false);
+    expect(b.detail).toContain("#12");
+    expect(b.detail).toContain("HTTP 403 forbidden");
   });
 
   it("main: one commit with [skip demoman], only the outputs, pushed", async () => {

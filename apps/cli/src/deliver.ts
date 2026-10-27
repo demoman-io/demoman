@@ -8,9 +8,8 @@ const BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com";
 const BOT = ["-c", `user.name=${BOT_NAME}`, "-c", `user.email=${BOT_EMAIL}`];
 const NOT_PERMITTED = /not permitted to create or approve pull requests/i;
 
-type Gh = (
-  args: string[],
-) => Promise<{ code: number; stdout: string; stderr: string }>;
+type GhResult = { code: number; stdout: string; stderr: string };
+type Gh = (args: string[]) => Promise<GhResult>;
 
 export interface Delivered {
   delivered: "pr" | "main" | "nothing";
@@ -36,8 +35,36 @@ export async function deliver(
 ): Promise<Delivered> {
   const { route, repoRoot, result, runUrl } = args;
   const replaced = result.videos.filter((v) => v.outcome === "replaced");
-  if (replaced.length === 0)
-    return { delivered: "nothing", ok: true, detail: "no video was replaced" };
+  if (replaced.length === 0) {
+    const nothing = "no video was replaced";
+    if (route === "main")
+      return { delivered: "nothing", ok: true, detail: nothing };
+    // An open refresh PR proposes videos this run just filmed equal to the
+    // committed ones: left open, it could be merged.
+    const found = await openRefreshPr();
+    const failed = (step: string, r: GhResult): Delivered => ({
+      delivered: "nothing",
+      ok: false,
+      detail: `${nothing}, and ${step} failed: ${said(r)}`,
+    });
+    if ("step" in found) return failed(found.step, found.r);
+    if (found.open === null)
+      return { delivered: "nothing", ok: true, detail: nothing };
+    const close = await deps.gh([
+      "pr",
+      "close",
+      String(found.open),
+      "--comment",
+      `Demoman's latest refresh replaced no video, so the videos proposed here are out of date.${runUrl === null ? "" : ` Run: ${runUrl}`}`,
+    ]);
+    if (close.code !== 0)
+      return failed(`closing pull request #${found.open} (gh pr close)`, close);
+    return {
+      delivered: "nothing",
+      ok: true,
+      detail: `${nothing}; closed pull request #${found.open}, whose videos are out of date`,
+    };
+  }
   const fail = (
     step: string,
     r: { stderr: string; stdout: string; code: number },
@@ -142,28 +169,9 @@ export async function deliver(
       : []),
   ].join("\n");
 
-  const list = await deps.gh([
-    "pr",
-    "list",
-    "--head",
-    BRANCH,
-    "--state",
-    "open",
-    "--json",
-    "number",
-  ]);
-  if (list.code !== 0) return pushedButNo("gh pr list", list);
-  let open: number | null;
-  try {
-    const rows = JSON.parse(list.stdout) as Array<{ number: number }>;
-    open = rows[0]?.number ?? null;
-  } catch (error) {
-    return pushedButNo("reading gh pr list", {
-      code: 0,
-      stdout: "",
-      stderr: `${String(error)}: ${list.stdout.slice(0, 200)}`,
-    });
-  }
+  const found = await openRefreshPr();
+  if ("step" in found) return pushedButNo(found.step, found.r);
+  const { open } = found;
   if (open !== null) {
     const edit = await deps.gh(["pr", "edit", String(open), "--body", body]);
     if (edit.code !== 0) return pushedButNo("gh pr edit", edit);
@@ -199,10 +207,37 @@ export async function deliver(
     detail: `opened pull request ${create.stdout.trim()}`,
   };
 
-  function pushedButNo(
-    step: string,
-    r: { stderr: string; stdout: string; code: number },
-  ): Delivered {
+  /** The open pull request from `demoman/refresh`, or the gh step that failed. */
+  async function openRefreshPr(): Promise<
+    { open: number | null } | { step: string; r: GhResult }
+  > {
+    const list = await deps.gh([
+      "pr",
+      "list",
+      "--head",
+      BRANCH,
+      "--state",
+      "open",
+      "--json",
+      "number",
+    ]);
+    if (list.code !== 0) return { step: "gh pr list", r: list };
+    try {
+      const rows = JSON.parse(list.stdout) as Array<{ number: number }>;
+      return { open: rows[0]?.number ?? null };
+    } catch (error) {
+      return {
+        step: "reading gh pr list",
+        r: {
+          code: 0,
+          stdout: "",
+          stderr: `${String(error)}: ${list.stdout.slice(0, 200)}`,
+        },
+      };
+    }
+  }
+
+  function pushedButNo(step: string, r: GhResult): Delivered {
     return {
       delivered: "nothing",
       ok: false,
