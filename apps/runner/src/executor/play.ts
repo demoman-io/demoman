@@ -195,6 +195,7 @@ export async function playOnStage(
   const { log } = deps;
   const { stage: launched, sessions, viewport } = prepared;
   const { page, clock } = launched;
+  const filmScale = deps.session.filmScale();
   const { encoder, store, sceneId } = film;
   const { startingBranding, onProgress } = options;
 
@@ -271,6 +272,8 @@ export async function playOnStage(
     // Null only for a device script, whose size runAuthored takes from
     // the device.
     ...(viewport === null ? {} : { viewport }),
+    // Decided once, at launch; the take records it for keep to read.
+    ...(filmScale === null ? {} : { displayScale: filmScale }),
     // Spec 2026-10-01 §1: the take starts as a recorded one does — the
     // author's kit and a zoom on every click.
     startingBranding,

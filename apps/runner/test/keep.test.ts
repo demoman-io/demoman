@@ -193,7 +193,7 @@ describe("keep, a clean take", () => {
           ?.motionSpans,
       ).toEqual([]);
       expect(scene.meta.capture.dpr).toBe(3);
-      const from = lines.length;
+      expect(scene.meta.capture.displayScale).toBeUndefined();
       expect(scene.canvas.aspect).toBe("16:9");
       // The run report keep copies to --report.
       await library.putJson(cleanTakeId, "report.json", {
@@ -228,10 +228,10 @@ describe("keep, a clean take", () => {
       expect(kept.name).toBe("Add a task");
       expect(kept.script.viewport).toEqual(scene.meta.capture.viewport);
       expect(kept.scale).toBe(1);
-      expect(lines.slice(from)).toContainEqual(
-        expect.stringContaining(
-          "no motion frames to read the filmed scale from; refresh films it at 1x",
-        ),
+      // Report before you forgive: a guessed 1 is said on the answer, not
+      // left to look like a recorded one.
+      expect(out.scaleGuess).toContain(
+        `1x is a guess: take ${cleanTakeId} records no filmed scale and has no motion frames to read one from`,
       );
       expect(kept.from.takeId).toBe(cleanTakeId);
       expect(kept.report).toBe("docs/hero-report.json");
@@ -566,11 +566,11 @@ describe("keep's scale, from the motion frames", () => {
       const id = `scene-${name.toLowerCase()}`;
       const { scene } = await videoOf(id, name);
       await copyFrames(id, span(id, width));
-      // Premises: the viewport the ratio is taken over, and a stills dpr
-      // that is neither answer.
+      // Premises: the viewport the ratio is taken over, a stills dpr that is
+      // neither answer, and no recorded scale (a take filmed before it).
       expect(scene.meta.capture.viewport.width).toBe(1280);
       expect(scene.meta.capture.dpr).toBe(3);
-      const from = lines.length;
+      expect(scene.meta.capture.displayScale).toBeUndefined();
       const out = await keepVideo(
         {
           video: name,
@@ -581,9 +581,42 @@ describe("keep's scale, from the motion frames", () => {
       );
       if (!out.ok) throw new Error(JSON.stringify(out));
       expect(out.kept.scale).toBe(scale);
-      expect(
-        lines.slice(from).filter((l) => l.includes("no motion frames")),
-      ).toEqual([]);
+      expect(out.scaleGuess).toBeUndefined();
+    },
+    KEEP_MS,
+  );
+});
+
+// Decide once, record it: the run writes the scale it filmed at, and keep
+// reads that before anything else — a take whose page never moved has no
+// motion frames, but was still filmed at the display's scale.
+describe("keep's scale, from the take's record", () => {
+  it(
+    "keeps the recorded display scale of a take with no motion frames",
+    async () => {
+      const id = "scene-recorded";
+      const { scene } = await videoOf(id, "Recorded", (d) => ({
+        ...d,
+        meta: { ...d.meta, capture: { ...d.meta.capture, displayScale: 2 } },
+      }));
+      await copyFrames(id);
+      // Premises: the record is there, and there is no motion to read.
+      expect(scene.meta.capture.displayScale).toBe(2);
+      expect((await library.getScene(id))?.meta.capture.displayScale).toBe(2);
+      expect((await library.frameStore(id).getBundle(id))?.motionSpans).toEqual(
+        [],
+      );
+      const out = await keepVideo(
+        {
+          video: "Recorded",
+          to: [{ path: `docs/${id}.gif`, fileType: "gif", quality: "share" }],
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      expect(out.kept.scale).toBe(2);
+      expect(out.scaleGuess).toBeUndefined();
     },
     KEEP_MS,
   );

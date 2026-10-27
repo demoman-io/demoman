@@ -383,6 +383,9 @@ async function keep(args: string[]): Promise<void> {
   for (const p of answer.written) {
     if (p !== answer.file) process.stdout.write(`  wrote ${p}\n`);
   }
+  if (answer.scaleGuess !== undefined) {
+    process.stdout.write(`  ${answer.scaleGuess}\n`);
+  }
   process.exit(0);
 }
 

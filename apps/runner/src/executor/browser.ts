@@ -194,6 +194,14 @@ export interface BrowserSession {
    */
   screenUnknown(): string | null;
   /**
+   * The scale the live browser films motion at, as its launch decided it
+   * (`meta.capture.displayScale`): headless, the display it stands in for,
+   * else 1 (an unplaced headless screencast films at 1x). Null for a visible
+   * window, whose scale is the OS's and never read here, and before any
+   * launch.
+   */
+  filmScale(): number | null;
+  /**
    * The screen `page` is on, as a run or a snapshot chooses its size from:
    * the page's own `screen`, or, when that is Chrome's stand-in for a
    * display headless could not read, the reason (`screenUnknown`) instead,
@@ -278,6 +286,7 @@ export function createBrowserSession(options: {
     { ok: true; launched: Launched } | BrowserFailure
   > | null = null;
   let screenUnknown: string | null = null;
+  let filmScale: number | null = null;
 
   /** The display this launch stands in for, or why there is none. Never
    *  throws: a read that throws is a read that failed, and says what threw. */
@@ -382,6 +391,7 @@ export function createBrowserSession(options: {
       }
     }
     live = launched;
+    filmScale = options.headless ? (display?.scale ?? 1) : null;
     pageClosed = false;
     current = { page: launched.page, cdp: launched.cdp, taken: false };
     watch(launched, launched.page);
@@ -708,6 +718,7 @@ export function createBrowserSession(options: {
     version: () =>
       live?.browser.isConnected() ? live.browser.version() : null,
     screenUnknown: () => screenUnknown,
+    filmScale: () => filmScale,
     async close() {
       closed = true;
       pageClosed = false;

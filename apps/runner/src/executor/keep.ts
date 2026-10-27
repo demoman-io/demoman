@@ -72,7 +72,14 @@ export interface KeepDeps {
 }
 
 export type KeepAnswer =
-  | { ok: true; file: string; kept: KeptVideo; written: string[] }
+  | {
+      ok: true;
+      file: string;
+      kept: KeptVideo;
+      written: string[];
+      /** Said when `kept.scale` is a guess: the take records none. */
+      scaleGuess?: string;
+    }
   | { ok: false; reason: KeepRefusal; detail: string };
 
 /** An output as asked: with no aspect, the take's own. */
@@ -266,7 +273,13 @@ export async function keepVideo(
         `${written.length > 0 ? `wrote ${written.join(", ")}, then ` : ""}could not write into ${root} (${messageOf(error)}), so ${fileRel} was not written`,
       );
     }
-    return { ok: true, file: fileRel, kept, written };
+    return {
+      ok: true,
+      file: fileRel,
+      kept,
+      written,
+      ...(made.scaleGuess === null ? {} : { scaleGuess: made.scaleGuess }),
+    };
   } finally {
     await rm(temp, { recursive: true, force: true }).catch((error: unknown) =>
       deps.log(`keep: ${temp} was not removed (${messageOf(error)})`),
@@ -282,6 +295,8 @@ type Built =
       read: { revision: string };
       /** The logo's bytes when they are to be copied into the repo. */
       logoBytes: Uint8Array | null;
+      /** Why `kept.scale` is a guess, or null when the take said it. */
+      scaleGuess: string | null;
     }
   | { ok: false; reason: KeepRefusal; detail: string };
 
@@ -331,15 +346,17 @@ async function buildKept(
     );
   }
   const { scene } = read;
-  const scale = filmedScale(
-    await deps.library.frameStore(built.takeId).getBundle(built.takeId),
-    scene.meta.capture.viewport.width,
-  );
-  if (scale === null) {
-    deps.log(
-      `keep: take ${built.takeId} has no motion frames to read the filmed scale from; refresh films it at 1x`,
+  // The run's own record first; takes filmed before it, their motion frames.
+  const scale =
+    scene.meta.capture.displayScale ??
+    filmedScale(
+      await deps.library.frameStore(built.takeId).getBundle(built.takeId),
+      scene.meta.capture.viewport.width,
     );
-  }
+  const scaleGuess =
+    scale === null
+      ? `1x is a guess: take ${built.takeId} records no filmed scale and has no motion frames to read one from, so refresh films it at 1x — if it was filmed at another scale, set "scale" in the kept file to it, or the first refresh replaces a video that did not change`
+      : null;
 
   // A site signed in to by hand cannot be signed in to by a refresh in CI.
   const target = String(built.script.target);
@@ -445,7 +462,7 @@ async function buildKept(
       recordedRevision: read.revision,
     },
   };
-  return { ok: true, kept, built, read, logoBytes };
+  return { ok: true, kept, built, read, logoBytes, scaleGuess };
 }
 
 export type RewriteAnswer =
@@ -528,6 +545,7 @@ export async function rewriteKept(
       };
     }
     for (const u of unreadable) deps.log(`kept: ${u}`);
+    if (made.scaleGuess !== null) deps.log(`kept: ${rel}: ${made.scaleGuess}`);
     return { rewritten: rel };
   }
   return unreadable.length > 0
@@ -614,7 +632,8 @@ export async function repoPath(
 }
 
 /**
- * The scale the take's motion was filmed at, or null with no motion frames.
+ * The scale the take's motion was filmed at, or null with no motion frames:
+ * for takes filmed before `meta.capture.displayScale` was recorded.
  * Screencast spans follow the display's DPR; `meta.capture.dpr` is
  * REPLAY_DPR on every authored take, the stills' scale, not the display's.
  * The widest span, since the encoder may keep a span smaller than it

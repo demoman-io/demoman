@@ -211,3 +211,25 @@ describe("an authored run with a device", () => {
     });
   });
 });
+
+describe("an authored run's display scale", () => {
+  it("writes the scale its caller filmed at on the take", async () => {
+    const cdp = createCdpFake();
+    const result = await runAuthored(oneClick(), {
+      ...deps(cdp),
+      displayScale: 2,
+    });
+    expect(result.completed, JSON.stringify(result.reason)).toBe(1);
+    expect(result.document?.meta.capture.displayScale).toBe(2);
+    // The stills' scale is a different field and stays the walk's.
+    expect(result.document?.meta.capture.dpr).toBe(3);
+  });
+
+  it("writes none when the caller does not know it", async () => {
+    const cdp = createCdpFake();
+    const result = await runAuthored(oneClick(), deps(cdp));
+    expect(result.completed).toBe(1);
+    expect(result.document).not.toBeNull();
+    expect(result.document?.meta.capture.displayScale).toBeUndefined();
+  });
+});

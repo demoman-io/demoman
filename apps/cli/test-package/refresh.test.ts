@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
+import { createLibrary } from "../../runner/src/executor/library.js";
 import { sampleMp4 } from "../../runner/test/mp4-probe.js";
 import { connect, installPacked, text } from "../test/packed-install.js";
 
@@ -90,46 +91,51 @@ const magentaMost = async (bytes: Buffer) => {
   return Math.max(...read.readings.map((r) => r.colorCounts[0] ?? 0));
 };
 
+/** A new video `name` clicking `on`, filmed through the packed MCP server
+ *  (headless, standing in for this machine's display), in the temp repo. */
+async function film(name: string, on: string): Promise<void> {
+  const c = await connect(
+    process.execPath,
+    [packed.bin, "mcp", "--out-dir", join(home, "out")],
+    { DEMOMAN_HOME: home, DEMOMAN_NO_UPDATE_CHECK: "1" },
+  );
+  try {
+    const args = {
+      video: { new: name, confirmedNew: true },
+      project: repo,
+      script: {
+        scriptVersion: 1,
+        name,
+        target: origin,
+        viewport: { width: 1280, height: 800 },
+        steps: [
+          { do: "waitForLoad" },
+          { do: "click", on: { text: on } },
+          { do: "pause", ms: 1200 },
+        ],
+      },
+    };
+    let v = JSON.parse(
+      text(await c.callTool({ name: "run", arguments: args })),
+    ) as {
+      outcome: string;
+      id?: string;
+    };
+    while (["running", "stillRunning"].includes(v.outcome)) {
+      v = JSON.parse(
+        text(await c.callTool({ name: "report", arguments: { id: v.id } })),
+      );
+    }
+    expect(v.outcome, JSON.stringify(v)).toBe("complete");
+  } finally {
+    await c.close();
+  }
+}
+
 it(
   "keeps a video and refreshes it from the packed install: unchanged, replaced, failed",
   async () => {
-    // The video: a fixture run through the packed MCP server, in the temp repo.
-    const c = await connect(
-      process.execPath,
-      [packed.bin, "mcp", "--out-dir", join(home, "out")],
-      { DEMOMAN_HOME: home, DEMOMAN_NO_UPDATE_CHECK: "1" },
-    );
-    try {
-      const args = {
-        video: { new: NAME, confirmedNew: true },
-        project: repo,
-        script: {
-          scriptVersion: 1,
-          name: NAME,
-          target: origin,
-          viewport: { width: 1280, height: 800 },
-          steps: [
-            { do: "waitForLoad" },
-            { do: "click", on: { text: "Place order" } },
-            { do: "pause", ms: 1200 },
-          ],
-        },
-      };
-      let v = JSON.parse(
-        text(await c.callTool({ name: "run", arguments: args })),
-      ) as {
-        outcome: string;
-        id?: string;
-      };
-      while (["running", "stillRunning"].includes(v.outcome)) {
-        v = JSON.parse(
-          text(await c.callTool({ name: "report", arguments: { id: v.id } })),
-        );
-      }
-      expect(v.outcome, JSON.stringify(v)).toBe("complete");
-    } finally {
-      await c.close();
-    }
+    await film(NAME, "Place order");
 
     const k = await cli("keep", NAME, "--to", MP4);
     expect(k.code, said(k)).toBe(0);
@@ -174,4 +180,51 @@ it(
     expect((await kept()).equals(replaced), said(broken)).toBe(true);
   },
   STEP_MS * 5,
+);
+
+// The regression guard for a take whose page never moves: a hash-only nav
+// click leaves no motion frames to read a scale from, so keep must read the
+// scale the run recorded. A guessed 1x on a 2x display re-films text that
+// rasterises differently, and an unchanged app read as replaced (2026-10-27).
+it(
+  "keeps a nav click that moves nothing and refreshes it unchanged",
+  async () => {
+    html = ORIGINAL;
+    const nav = "Open reports";
+    const navMp4 = "docs/reports.mp4";
+    await film(nav, "Reports");
+    const k = await cli("keep", nav, "--to", navMp4);
+    console.info(`[refresh] nav keep: ${k.stdout.trim()}`);
+    expect(k.code, said(k)).toBe(0);
+    expect(k.stdout, said(k)).not.toContain("is a guess");
+
+    // Premises: the take has no motion frames, and keep kept the scale the
+    // run recorded rather than a fallback.
+    const keptPath = /^Kept "[^"]*" in (\S+)$/m.exec(k.stdout)?.[1];
+    expect(keptPath, said(k)).toBeDefined();
+    const keptFile = JSON.parse(
+      await readFile(join(repo, keptPath as string), "utf8"),
+    ) as { scale: number; from: { takeId: string } };
+    console.info(`[refresh] nav kept scale: ${keptFile.scale}`);
+    const library = createLibrary(home);
+    const takeId = keptFile.from.takeId;
+    const scene = await library.getScene(takeId);
+    const bundle = await library.frameStore(takeId).getBundle(takeId);
+    expect(
+      bundle?.motionSpans ?? [],
+      JSON.stringify(bundle?.motionSpans),
+    ).toEqual([]);
+    expect(scene?.meta.capture.displayScale, said(k)).toBe(keptFile.scale);
+
+    const original = await readFile(join(repo, navMp4));
+    const same = await cli("refresh", nav);
+    console.info(`[refresh] nav unchanged: ${same.stdout.trim()}`);
+    expect(same.code, said(same)).toBe(0);
+    expect(same.stdout, said(same)).toContain(`${nav}: unchanged`);
+    expect(
+      (await readFile(join(repo, navMp4))).equals(original),
+      said(same),
+    ).toBe(true);
+  },
+  STEP_MS * 3,
 );
