@@ -18,7 +18,7 @@ private-port build on 47399; it was archived that day (tag
 - `button-run.json` — the same sample app: five quick clicks across the page (sidebar, table header, page header, top bar, sidebar) with no navigation, for the camera's follow through a run of zooms (spec 2026-10-22). Filmed before and after on 2026-10-22 (CLI side): between the first and last click the picture stood still in 45% of frames on main, with a longest still of 1.20 s, and in 25% on `feat/camera-trails`, longest 0.40 s; every click framed `inside` on both.
 - `wikipedia.json` — search, type, a navigating submit, a scroll, on the monobook skin (Vector 2022's search button is ambiguous to a script). The submit is "Go" (`searchButton`), which opens the article; `mw-searchButton` is full-text "Search" and lands on a results page with no "References". The navigating submit is where the CLI hit `stillFailed` on 2026-10-12.
 
-Five more film four third-party apps kept outside the repo, each a different kind
+Five more scripts film four third-party apps kept outside the repo, each a different kind
 of page. `scripts/samples.sh setup` clones them at pinned commits into
 `~/Code/demoman-samples` (`DEMOMAN_SAMPLES` moves it; about 6 GB installed);
 `scripts/samples.sh start <app>` serves one, and it must be running before its

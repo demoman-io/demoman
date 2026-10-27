@@ -555,8 +555,8 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `copyFailed` | `attach` (`notAttached`) | The video could not be copied; nothing was posted. Hand the user the capped export's file. |
 | `windowDidNotOpen` | `snapshot`; `run` (`refusedBeforeRun`); `studio` | The window would not open; try once more. |
 | `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
-| `alreadyRunning` | `snapshot`, `run`, `derive` | A run, snapshot or export is in progress. Call `report(id)` on it; try again when it settles. |
-| `busy` | `export` (`refusedBeforeExport`) | A run or snapshot is in progress. Call `report(id)` on it first. |
+| `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. Call `report(id)` on it; try again when it settles. |
+| `busy` | `export` (`refusedBeforeExport`) | A run, probe or snapshot is in progress. Call `report(id)` on it first. |
 | `browserSilent` | `status`, `takes`, `derive`, `report` | The browser did not answer within about 50 s. Call `status` once; if again, tell the user. From `report`, the run may still be going: call `report(id)` again. |
 | `libraryUnreadable` | `takes`, `studio` | The library could not be read; report it. |
 | `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: the report has a `notStored` entry `{ "what": "take", "error": … }` and a null `provenance.takeId`. Nothing was saved; quote the `error`. |
@@ -593,4 +593,4 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `pageFaulted` | `snapshot` | The page's own code threw; quote `detail`. |
 | `snapshotThrew` | `snapshot` | A fault in the snapshot; quote `detail`. |
 | `probeThrew` | `probe` | A fault in the probe; quote `detail`. |
-| `portFailure` | `probe` | The browser gave way before any step played; not the script's fault. Probe once more; quote `detail` if it repeats. |
+| `portFailure` | `probe` | The browser gave way; not the script's fault. Probe once more; quote `detail` if it repeats. |

@@ -47,8 +47,7 @@ import { type SessionFile, samePage } from "./sessions.js";
 /**
  * A run's stage and its walk, apart from the take: the code path `runScript`
  * films through, so anything else that plays a script's steps plays them the
- * way a run does. Moved out of `runScript` unchanged; its comments came with
- * it.
+ * way a run does.
  */
 
 export type PlayDeps = Pick<
