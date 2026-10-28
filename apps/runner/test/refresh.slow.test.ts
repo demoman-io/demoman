@@ -33,6 +33,7 @@ import { createLibrary } from "../src/executor/library.js";
 import {
   type RefreshDeps,
   type RefreshResult,
+  type RefreshVideo,
   refreshKept,
   uncleanRun,
 } from "../src/executor/refresh.js";
@@ -115,6 +116,8 @@ const RESTYLES = [
     rule: "border-radius: 8px; background: ",
     from: "#3b5bdb",
     to: "#2b8a3e",
+    /** Grey alone cannot tell these apart: the test that colour is read. */
+    greyUnder: 10,
     where: /before step \d+/,
   },
   {
@@ -178,6 +181,10 @@ let session: BrowserSession;
 const lines: string[] = [];
 /** Rewrites a run answer before refresh reads it; null leaves it alone. */
 let inject:
+  | ((answer: Record<string, unknown>) => Record<string, unknown>)
+  | null = null;
+/** Rewrites a saved export's answer before refresh reads it. */
+let injectExport:
   | ((answer: Record<string, unknown>) => Record<string, unknown>)
   | null = null;
 
@@ -301,6 +308,11 @@ const deps = (): RefreshDeps => ({
         if (op === "export" && answer.ok) {
           const v = answer.value as { fileType: string; screens: KeptScreens };
           exported.push({ fileType: v.fileType, screens: v.screens });
+          if (injectExport !== null)
+            return {
+              ok: true,
+              value: injectExport(answer.value as Record<string, unknown>),
+            };
         }
         if (op !== "run" || inject === null || !answer.ok) return answer;
         return {
@@ -604,6 +616,11 @@ describe("refresh", () => {
         expect(page.length).toBe(ORIGINAL.length);
         const shift = Math.abs(luma(restyle.from) - luma(restyle.to));
         console.info(`restyle ${restyle.name}: grey moves ${shift.toFixed(1)}`);
+        if ("greyUnder" in restyle)
+          expect(
+            shift,
+            `grey ${luma(restyle.from)} to ${luma(restyle.to)}`,
+          ).toBeLessThan(restyle.greyUnder);
         html = page;
         let r: RefreshResult;
         try {
@@ -659,6 +676,50 @@ describe("refresh", () => {
         const slower = exported.find((e) => e.fileType === "mp4")?.screens;
         expect(slower && final(slower), JSON.stringify(exported)).toBe(true);
         expect(v.outcome, v.detail).toBe("unchanged");
+      });
+    },
+    BOTH_MS,
+  );
+
+  it(
+    "reads a video kept as a GIF alone unchanged, and slower",
+    async () => {
+      const name = "Order as a GIF";
+      const gif = "docs/order-only.gif";
+      const video = kept(
+        name,
+        ["Place order"],
+        1,
+        [{ path: gif, fileType: "gif", aspect: "16:9", quality: "share" }],
+        0,
+        3500,
+      );
+      await withKept(video, async () => {
+        const first = byName(await refresh([name]), name);
+        expect(first.outcome, first.detail).toBe("replaced");
+        // The premise: the GIF is the output judged, and it has screens.
+        const { screens } = await keptOf(name);
+        expect(screens.moments.length, JSON.stringify(screens)).toBeGreaterThan(
+          1,
+        );
+        const same = byName(await refresh([name]), name);
+        html = SLOW;
+        let slower: RefreshVideo;
+        try {
+          slower = byName(await refresh([name]), name);
+        } finally {
+          html = ORIGINAL;
+        }
+        // Measured 2026-10-28 on a Mac: 0.0000% on both looks, both films.
+        for (const [label, v] of [
+          ["GIF alone", same],
+          ["GIF alone, slower", slower],
+        ] as const) {
+          expect(v.detail, v.detail).toContain(gif);
+          console.info(`gif only: ${label}: ${v.outcome}: ${v.detail}`);
+          if (/\d+ of \d+ screens/.test(v.detail)) noiseLine(label, v.detail);
+          expect(v.outcome, v.detail).toBe("unchanged");
+        }
       });
     },
     BOTH_MS,
@@ -892,6 +953,44 @@ describe("refresh", () => {
       expect(byName(r, A).outcome).toBe("replaced");
     },
     BOTH_MS,
+  );
+
+  it(
+    "fails a replace whose new film has no still screen, writing nothing",
+    async () => {
+      // The committed MP4 is gone, so the video is replaced without a
+      // comparison, and its new film recorded no still screen.
+      const file = `${KEPT_DIR}/${keptFileName(A)}`;
+      const mp4 = await bytes(out.aMp4);
+      const before = await Promise.all([out.aGif, file].map(bytes));
+      await rm(join(repo, out.aMp4));
+      injectExport = (v) =>
+        v.fileType === "mp4"
+          ? { ...v, screens: { ...(v.screens as KeptScreens), moments: [] } }
+          : v;
+      let r: RefreshResult;
+      try {
+        r = await refresh([A]);
+      } finally {
+        injectExport = null;
+        await writeFile(join(repo, out.aMp4), mp4);
+      }
+      const a = byName(r, A);
+      expect(a.outcome, JSON.stringify(r)).toBe("failed");
+      expect(a.detail).toBe(
+        `${out.aMp4}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
+      );
+      expect(a.outputs).toEqual([]);
+      // The premise: the export really answered with no screen.
+      expect(
+        exported.some((e) => e.fileType === "mp4"),
+        JSON.stringify(exported),
+      ).toBe(true);
+      const after = await Promise.all([out.aGif, file].map(bytes));
+      for (const [i, b] of after.entries())
+        expect(b.equals(before[i] as Buffer)).toBe(true);
+    },
+    ONE_MS,
   );
 
   it(

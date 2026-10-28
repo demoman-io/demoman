@@ -141,8 +141,34 @@ describe("comparePictures", () => {
     const out = comparePictures(diff([0, 0.002, 0]), shared, 4);
     expect(out).toMatchObject({ same: false });
     expect((out as { detail: string }).detail).toMatch(
-      /% of the picture changed sharply before step 2 at [\d.]+s, over the 0\.0008% allowed, of 3 of 4 screens/,
+      /% of the picture changed sharply before action 2 at [\d.]+s, over the 0\.0008% allowed, of 3 of 4 screens/,
     );
+  });
+  // Red if the screen is named by its action: a `pause` makes none, so
+  // action 2 (the second click) is the script's step 4.
+  it("names a screen by its script step, past a pause", () => {
+    const steps = [
+      { do: "waitForLoad" },
+      { do: "click" },
+      { do: "pause" },
+      { do: "click" },
+    ];
+    const paused = [
+      { step: 0, msA: 0, msB: 0 },
+      { step: 2, msA: 2000, msB: 2100 },
+    ];
+    const out = comparePictures(diff([0, 0.002]), paused, 4, steps);
+    expect((out as { detail: string }).detail).toMatch(
+      /changed sharply before step 4 at 2\.10s/,
+    );
+    // The script cannot have that action: named as what it is.
+    const short = comparePictures(
+      diff([0, 0.002]),
+      paused,
+      4,
+      steps.slice(0, 2),
+    );
+    expect((short as { detail: string }).detail).toMatch(/before action 3 at/);
   });
   it("names the final screen", () => {
     const out = comparePictures(diff([0, 0, 0.01]), shared, 4);
@@ -154,7 +180,7 @@ describe("comparePictures", () => {
     const faint = comparePictures(diff([0, [0, 0.0002], 0]), shared, 4);
     expect(faint).toMatchObject({ same: false });
     expect((faint as { detail: string }).detail).toMatch(
-      /^0\.0200% of the picture changed faintly before step 2 at 2\.10s, over the 0\.0170% allowed/,
+      /^0\.0200% of the picture changed faintly before action 2 at 2\.10s, over the 0\.0170% allowed/,
     );
     // Faintly 0.0100%: over sharply's 0.0008%, under its own 0.0170%.
     expect(comparePictures(diff([0, [0, 0.0001], 0]), shared, 4)).toMatchObject(

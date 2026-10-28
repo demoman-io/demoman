@@ -146,7 +146,7 @@ describe("samePicture", () => {
       );
       expect(out.same, out.detail).toBe(false);
       expect(out.detail).toMatch(
-        /% of the picture changed \w+ (before step \d+|on the final screen) at [\d.]+s, over the 0\.0\d+% allowed, of \d+ of \d+ screens$/,
+        /% of the picture changed \w+ (before action \d+|on the final screen) at [\d.]+s, over the 0\.0\d+% allowed, of \d+ of \d+ screens$/,
       );
     },
     CASE_MS,

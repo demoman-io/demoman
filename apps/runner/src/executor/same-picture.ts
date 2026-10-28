@@ -90,7 +90,11 @@ export async function samePicture(
   fileType: "mp4" | "gif",
   committedScreens: KeptScreens,
   freshScreens: KeptScreens,
-  deps: { session: Pick<BrowserSession, "openWorkPage"> },
+  deps: {
+    session: Pick<BrowserSession, "openWorkPage">;
+    /** The kept script's steps, to name a screen by its script step. */
+    steps?: readonly { do: string }[];
+  },
 ): Promise<
   | { same: boolean; detail: string }
   | { undecodable: "committed" | "new"; detail: string }
@@ -165,7 +169,29 @@ export async function samePicture(
       detail: diff.error,
     };
   }
-  return comparePictures(diff, shared, freshScreens.steps + 1);
+  return comparePictures(diff, shared, freshScreens.steps + 1, deps.steps);
+}
+
+/** The script step a screen's `step` (an index into the film's actions)
+ *  comes from: `pause` makes no action (`authoredTotal`), every other step
+ *  makes one. Null when the script has no such step. */
+export function scriptStep(
+  steps: readonly { do: string }[],
+  action: number,
+): number | null {
+  let seen = -1;
+  for (const [i, step] of steps.entries()) {
+    if (step.do !== "pause") seen++;
+    if (seen === action) return i;
+  }
+  return null;
+}
+
+/** Where a step's screen is, in the script's own numbering when the script
+ *  is known; else as what it is, the film's Nth action. */
+function before(action: number, steps?: readonly { do: string }[]): string {
+  const i = steps === undefined ? null : scriptStep(steps, action);
+  return i === null ? `before action ${action + 1}` : `before step ${i + 1}`;
 }
 
 /** The screens both films have, paired by `step`, in increasing ms. */
@@ -191,6 +217,7 @@ export function comparePictures(
   diff: ScreensDiff,
   shared: ReturnType<typeof sharedScreens>,
   total: number,
+  steps?: readonly { do: string }[],
 ): { same: boolean; detail: string } | { uncomparable: string } {
   const { a, b, changed } = diff;
   if (a.width !== b.width || a.height !== b.height) {
@@ -229,8 +256,7 @@ export function comparePictures(
       detail: `at most ${worst.map((w) => `${pct(w.share)} ${w.look.name}`).join(" and ")} of the picture changed, over ${where}`,
     };
   const s = shared[most.at] as (typeof shared)[number];
-  const place =
-    s.step === null ? "on the final screen" : `before step ${s.step + 1}`;
+  const place = s.step === null ? "on the final screen" : before(s.step, steps);
   return {
     same: false,
     detail: `${pct(most.share)} of the picture changed ${most.look.name} ${place} at ${(s.msB / 1000).toFixed(2)}s, over the ${pct(most.look.allowed)} allowed, of ${where}`,

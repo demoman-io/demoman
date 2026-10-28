@@ -474,7 +474,7 @@ async function replaceOne(
         judged.fileType,
         kept.screens,
         renderedScreens[j] as KeptScreens,
-        deps,
+        { session: deps.session, steps: kept.script.steps },
       );
     } catch (error) {
       return fail(
@@ -512,6 +512,13 @@ async function replaceOne(
     }
   }
   if (toWrite.length === 0) return answer("unchanged", [], null);
+  // A kept file with no screen is one every later refresh refuses: fail now,
+  // with nothing written, as keep does.
+  if (changed && (renderedScreens[j] as KeptScreens).moments.length === 0) {
+    return fail(
+      `${judged.path}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
+    );
+  }
 
   const written: string[] = [];
   const put = async (path: string, bytes: Uint8Array | string) => {
