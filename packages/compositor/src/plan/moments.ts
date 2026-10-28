@@ -109,22 +109,27 @@ export function busySpans(resolved: ResolvedPlan): {
   };
 }
 
-/** The midpoint of the last still stretch inside [fromMs, toMs] at least
- *  `MIN_SCREEN_MS` long, or null. */
-function lastStill(
+/**
+ * The midpoint of the still stretch that runs up to `toMs` (clipped at
+ * `fromMs`), when it is at least `MIN_SCREEN_MS` long; else null.
+ *
+ * Only that one stretch, never an earlier one: falling back to an earlier
+ * still stretch when the latest is short would let a jitter across
+ * `MIN_SCREEN_MS` swap which picture is the screen (a result that settles
+ * 95 ms before the glide in one film and 105 ms in the other), and refresh
+ * would read an unchanged app as changed. Taking only this one, a jitter can
+ * remove the screen and never move it to another picture.
+ */
+function stillUpTo(
   busy: TimeSpan[],
   fromMs: number,
   toMs: number,
 ): number | null {
-  let found: number | null = null;
   let start = fromMs;
-  for (const span of [...busy, { startMs: toMs, endMs: toMs }]) {
-    const end = Math.min(span.startMs, toMs);
-    if (end - start >= MIN_SCREEN_MS) found = (start + end) / 2;
-    start = Math.max(start, span.endMs);
-    if (start >= toMs) break;
+  for (const span of busy) {
+    if (span.startMs < toMs) start = Math.max(start, span.endMs);
   }
-  return found;
+  return toMs - start >= MIN_SCREEN_MS ? (start + toMs) / 2 : null;
 }
 
 /** What a render records about the screens it stops on. */
@@ -142,14 +147,16 @@ export interface Screens {
  * reads the record rather than finding rest in the pixels again.
  *
  * A stretch is still when nothing drawn is changing (`busySpans`). Step
- * `i`'s moment is the midpoint of the last still stretch at least
- * `MIN_SCREEN_MS` long that starts after step `i-1`'s marker (0 for the
- * first) and ends by the first instant anything moves toward step `i`: the
- * drawn camera setting off for a zoom on it, the last run of pointer and
- * camera travel before it (its glide), or whatever is already moving when
- * its marker lands (a scroll, the press). Without that bound the dwell
- * after the glide, zoomed in on the target, would be "the screen before".
- * The final screen is the last still stretch after the last marker.
+ * `i`'s moment is the midpoint of the still stretch that ends at the first
+ * instant anything moves toward step `i` (its approach), clipped at step
+ * `i-1`'s marker (0 for the first), when it is at least `MIN_SCREEN_MS`
+ * long. The approach is the drawn camera setting off for a zoom on it, the
+ * last run of pointer and camera travel before it (its glide), or whatever
+ * is already moving when its marker lands (a scroll, the press). Without
+ * that bound the dwell after the glide, zoomed in on the target, would be
+ * "the screen before". The final screen is the still stretch that runs to
+ * the video's end. An earlier stretch never stands in for either: see
+ * `stillUpTo`, which is why a jitter can cost a screen but never change it.
  *
  * A step with no such stretch, or whose marker the bundle lacks, has no
  * moment, and neither has one the trim cut off: about half the steps of a
@@ -203,9 +210,9 @@ export function screenMoments(
       ...(run.length > 0 ? [(run[run.length - 1] as TimeSpan).startMs] : []),
       ...(moving ? [moving.startMs] : []),
     );
-    place(i, lastStill(busy, fromMs, approachMs));
+    place(i, stillUpTo(busy, fromMs, approachMs));
     fromMs = atMs;
   }
-  place(null, lastStill(busy, fromMs, timeline.outputDurationMs));
+  place(null, stillUpTo(busy, fromMs, timeline.outputDurationMs));
   return { steps: scene.actions.length, moments };
 }

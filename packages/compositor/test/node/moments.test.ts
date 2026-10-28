@@ -225,6 +225,64 @@ describe("screenMoments", () => {
     expect(moments.map((m) => m.step)).toEqual([0, 2, null]);
   });
 
+  it("skips a step whose last still stretch is short, not falling back", () => {
+    const scene = clicksScene();
+    // act-1's result paints from 2300 to 2920: the page is still for 350 ms
+    // before it and only 80 ms after it, before act-2's glide at 3000. One
+    // more settled film would show the result; falling back to the
+    // pre-result page would make the two films' screens differ.
+    const bundle = bundleOf({
+      motionSpans: [
+        {
+          startMs: 2300,
+          endMs: 2920,
+          ref: "m-0",
+          width: 1280,
+          height: 800,
+          fps: 60,
+          byteLength: 0,
+        },
+      ],
+    });
+    const r = resolved(scene, bundle);
+    // Premise: the two stretches between act-1's pulse and act-2's glide.
+    expect(
+      lengths(stills(r).filter((s) => s.startMs >= 1500 && s.endMs <= 3000)),
+    ).toEqual([350, 80]);
+
+    const { steps, moments } = screenMoments(r, scene, bundle);
+    expect(steps).toBe(3);
+    expect(moments.map((m) => m.step)).toEqual([0, 2, null]);
+  });
+
+  it("has no final screen when the video ends moving", () => {
+    const scene = clicksScene();
+    // The page moves from 6200 to the take's end at 7000: still for 250 ms
+    // after act-3's pulse, then never again.
+    const bundle = bundleOf({
+      motionSpans: [
+        {
+          startMs: 6200,
+          endMs: END_MS,
+          ref: "m-0",
+          width: 1280,
+          height: 800,
+          fps: 60,
+          byteLength: 0,
+        },
+      ],
+    });
+    const r = resolved(scene, bundle);
+    // Premise: the last still stretch is the 250 ms one, and it stops short
+    // of the end.
+    const last = stills(r).at(-1);
+    expect(last && Math.round(last.endMs - last.startMs)).toBe(250);
+    expect(last?.endMs).toBeLessThan(r.timeline.outputDurationMs);
+
+    const { moments } = screenMoments(r, scene, bundle);
+    expect(moments.map((m) => m.step)).toEqual([0, 1, 2]);
+  });
+
   it("skips a moment inside a click's pulse", () => {
     // act-2 is a wait 300 ms after act-1's click; nothing moves on the page
     // or the pointer between them, but the click's pulse is playing.
