@@ -11,7 +11,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FrameBundle } from "@demoman/compositor";
-import { keptFileName, notCarriedOf, parseKept } from "@demoman/run-core";
+import {
+  keptFileName,
+  notCarriedOf,
+  parseKept,
+  serializeKept,
+} from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../packages/compositor/test/fixtures/scene.js";
@@ -25,7 +30,7 @@ import { createLibrary, type Library } from "../src/executor/library.js";
 import { execGit, readRepo } from "../src/executor/repo.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import { createVideoStore, type VideoStore } from "../src/executor/videos.js";
-import { makeDiskTake } from "./disk-take.js";
+import { makeDiskTake, putTake } from "./disk-take.js";
 import { LOGO_SVG } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
@@ -44,6 +49,8 @@ let videos: VideoStore;
 let session: BrowserSession;
 let repoKey: string;
 let cleanTakeId: string;
+/** The disk take's own pointer, which glides for the whole take: no still screen. */
+let movingCursor: NonNullable<FrameBundle["cursorSamples"]>;
 const lines: string[] = [];
 
 const deps = (): KeepDeps => ({
@@ -158,8 +165,16 @@ beforeAll(async () => {
     log: (l) => void lines.push(l),
   });
   // The clean take: frames on disk, and a logo outside the repo (in home).
-  const { takeId, original } = await makeDiskTake(home);
+  const { takeId, original, bundle } = await makeDiskTake(home);
   cleanTakeId = takeId;
+  // The pointer holds still, as in executor-export-screens.slow.test.ts: a
+  // film that is never still has no screens, and keep refuses one.
+  movingCursor = bundle.cursorSamples;
+  const still = { sourceTimeMs: 0, x: 900, y: 600 };
+  await putTake(home, takeId, original, {
+    ...bundle,
+    cursorSamples: [still, { ...still, sourceTimeMs: 9000 }],
+  });
   await writeFile(join(home, "acme.svg"), LOGO_SVG);
   const withLogo: SceneDocument = {
     ...original,
@@ -274,6 +289,33 @@ describe("keep, a clean take", () => {
       ).toBeGreaterThan(50);
       const gif = await readFile(join(repo, "docs/hero.gif"));
       expect(gif.subarray(0, 6).toString("latin1")).toMatch(/^GIF8[79]a$/);
+
+      // The kept file records the judged output's (the 16:9 MP4's) screens:
+      // what a plain export of that output answers.
+      const outDir = await mkdtemp(join(tmpdir(), "demoman-keep-screens-"));
+      try {
+        const plain = await exportTake(
+          {
+            takeId: cleanTakeId,
+            fileType: "mp4",
+            aspect: "16:9",
+            quality: "share",
+            unlisted: true,
+          },
+          { ...deps().export, outDir },
+          () => undefined,
+        );
+        if (plain.outcome !== "saved" || plain.fileType === "stills")
+          throw new Error(JSON.stringify(plain));
+        // Premise: there are screens to carry, or equal empties prove nothing.
+        expect(plain.screens.moments.length).toBeGreaterThan(0);
+        expect(kept.screens).toEqual(plain.screens);
+        expect(out.screensNote).toBe(
+          `${plain.screens.moments.length} of ${plain.screens.steps} screens are still`,
+        );
+      } finally {
+        await rm(outDir, { recursive: true, force: true });
+      }
     },
     KEEP_MS,
   );
@@ -299,6 +341,29 @@ describe("keep refuses, writing nothing", () => {
     if (out.ok) throw new Error(`kept: ${JSON.stringify(out)}`);
     return out;
   };
+
+  // Red if keep stops checking the judged export's moments: an empty array
+  // would be written, and parseKept refuses the file it just wrote.
+  it(
+    "a take whose film is never still, saying it has no still screen to compare against",
+    async () => {
+      const { scene } = await videoOf("scene-moving", "Never still");
+      await copyFrames(scene.meta.id);
+      const frames = library.frameStore(scene.meta.id);
+      const bundle = await frames.getBundle(scene.meta.id);
+      if (bundle === null) throw new Error("no bundle");
+      // Premise: the pointer travels the whole take.
+      expect(movingCursor.length).toBeGreaterThan(1);
+      expect(movingCursor[0]).not.toEqual(movingCursor[1]);
+      await frames.putBundle(scene.meta.id, {
+        ...bundle,
+        cursorSamples: movingCursor,
+      });
+      const out = await refused("Never still");
+      expect(out.detail).toContain("no still screen to compare against");
+    },
+    KEEP_MS,
+  );
 
   it("a video this repo has no record of", async () => {
     expect(await refused("No such video")).toMatchObject({
@@ -681,6 +746,17 @@ describe("a run into a kept video rewrites its file", () => {
       );
       if (!out.ok) throw new Error(JSON.stringify(out));
       const before = await keptOf(out.file);
+      // The screens describe the committed files, which a rewrite does not
+      // replace: give the file screens no render of the new take would give.
+      const tampered = {
+        ...before,
+        screens: {
+          steps: before.screens.steps,
+          moments: [{ step: null, ms: 1 }],
+        },
+      };
+      expect(tampered.screens).not.toEqual(before.screens);
+      await writeFile(join(repo, out.file), serializeKept(tampered));
       const gifBefore = await readFile(join(repo, "docs/rw.gif"));
       const filesBefore = await repoFiles();
 
@@ -696,6 +772,9 @@ describe("a run into a kept video rewrites its file", () => {
       expect(after.script.target).toBe("https://example.test/second");
       expect(after.script).not.toEqual(before.script);
       expect(after.outputs).toEqual(before.outputs);
+      expect(JSON.stringify(after.screens)).toBe(
+        JSON.stringify(tampered.screens),
+      );
       expect(after.report).toBe(before.report);
       expect(await readFile(join(repo, "docs/rw.gif"))).toEqual(gifBefore);
       expect(await repoFiles(), "no stray temp file").toEqual(filesBefore);

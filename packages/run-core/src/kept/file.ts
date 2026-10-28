@@ -13,6 +13,29 @@ export type KeptOutput = {
   quality: ExportQuality;
 };
 
+/** A still screen of the committed video: the step it follows (null for the
+ *  opening) and when it ends, in output milliseconds. */
+export type KeptMoment = { step: number | null; ms: number };
+/** The same shape as the compositor's `Screens`: the file's format is owned here. */
+export type KeptScreens = { steps: number; moments: KeptMoment[] };
+
+/** The output a refresh judges: the first non-9:16 MP4, else the first
+ *  non-9:16, else the first MP4, else the first. */
+export function judgedOutput(outputs: KeptOutput[]): number {
+  const wide = (o: KeptOutput) => o.aspect !== "9:16";
+  const mp4 = (o: KeptOutput) => o.fileType === "mp4";
+  for (const pick of [
+    (o: KeptOutput) => wide(o) && mp4(o),
+    wide,
+    mp4,
+    () => true,
+  ]) {
+    const i = outputs.findIndex(pick);
+    if (i >= 0) return i;
+  }
+  return 0;
+}
+
 export interface KeptVideo {
   keptVersion: 1;
   name: string;
@@ -20,6 +43,7 @@ export interface KeptVideo {
   scale: number;
   logo: string | null;
   outputs: KeptOutput[];
+  screens: KeptScreens;
   report: string | null;
   from: { videoId: string; takeId: string; recordedRevision: string };
 }
@@ -93,6 +117,37 @@ export function parseKept(text: string, file: string): Parsed {
       quality: o.quality as ExportQuality,
     });
   }
+  const sc = raw.screens;
+  if (!isObj(sc))
+    return bad(
+      `${raw.name} has no screens — it was kept before they were recorded; run \`demoman keep\` again to record them`,
+    );
+  if (!Number.isInteger(sc.steps) || (sc.steps as number) < 0)
+    return bad("screens.steps must be a whole number of steps");
+  if (!Array.isArray(sc.moments) || sc.moments.length === 0)
+    return bad("screens.moments must list at least one still screen");
+  const moments: KeptMoment[] = [];
+  const seen = new Set<number>();
+  for (const [i, m] of sc.moments.entries()) {
+    const at = `screens.moments[${i}]`;
+    if (!isObj(m)) return bad(`${at} is not an object`);
+    if (typeof m.ms !== "number" || !Number.isFinite(m.ms) || m.ms < 0)
+      return bad(`${at}.ms must be a non-negative number`);
+    if (m.ms <= (moments[i - 1]?.ms ?? -1))
+      return bad(`${at}.ms must be greater than the one before it`);
+    if (m.step !== null) {
+      if (!Number.isInteger(m.step) || (m.step as number) < 0)
+        return bad(`${at}.step must be null or a whole step number`);
+      if ((m.step as number) >= (sc.steps as number))
+        return bad(
+          `${at}.step ${m.step} is not below screens.steps ${sc.steps}`,
+        );
+      if (seen.has(m.step as number))
+        return bad(`${at}.step ${m.step} is named by an earlier moment`);
+      seen.add(m.step as number);
+    }
+    moments.push({ step: m.step as number | null, ms: m.ms });
+  }
   const f = raw.from;
   if (
     !isObj(f) ||
@@ -110,6 +165,7 @@ export function parseKept(text: string, file: string): Parsed {
       scale: raw.scale,
       logo: raw.logo,
       outputs,
+      screens: { steps: sc.steps as number, moments },
       report: raw.report,
       from: {
         videoId: f.videoId,
@@ -138,6 +194,10 @@ export function serializeKept(k: KeptVideo): string {
       aspect: o.aspect,
       quality: o.quality,
     })),
+    screens: {
+      steps: k.screens.steps,
+      moments: k.screens.moments.map((m) => ({ step: m.step, ms: m.ms })),
+    },
     report: k.report,
     from: {
       videoId: k.from.videoId,

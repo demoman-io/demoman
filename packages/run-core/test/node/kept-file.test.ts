@@ -1,6 +1,8 @@
 import { DemoScriptSchema } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import {
+  judgedOutput,
+  type KeptOutput,
   type KeptVideo,
   keptFileName,
   parseKept,
@@ -28,6 +30,14 @@ const kept: KeptVideo = {
       quality: "share",
     },
   ],
+  screens: {
+    steps: 3,
+    moments: [
+      { step: 0, ms: 400 },
+      { step: null, ms: 900 },
+      { step: 2, ms: 1500 },
+    ],
+  },
   report: null,
   from: { videoId: "v1", takeId: "t1", recordedRevision: "abc123" },
 };
@@ -82,5 +92,89 @@ describe("the kept file", () => {
     expect(keptFileName("Add a task!")).toBe("add-task.json");
     expect(keptFileName("add the tasks")).toBe("add-task.json");
     expect(keptFileName("add a task")).toBe("add-task.json");
+  });
+
+  it("refuses a file without screens, naming the video and demoman keep", () => {
+    const { screens: _s, ...rest } = JSON.parse(serializeKept(kept));
+    const d = refusal(JSON.stringify(rest));
+    expect(d).toContain("screens");
+    expect(d).toContain("demoman keep");
+    expect(d).toContain("Add a task");
+  });
+
+  const moments = (...m: unknown[]) =>
+    withChange({ screens: { steps: 3, moments: m } });
+  it.each([
+    [
+      "a negative ms",
+      [
+        { step: 0, ms: 5 },
+        { step: 1, ms: -1 },
+      ],
+    ],
+    [
+      "a fractional step",
+      [
+        { step: 0, ms: 5 },
+        { step: 1.5, ms: 9 },
+      ],
+    ],
+    [
+      "a step at or past steps",
+      [
+        { step: 0, ms: 5 },
+        { step: 3, ms: 9 },
+      ],
+    ],
+    [
+      "a repeated step",
+      [
+        { step: 1, ms: 5 },
+        { step: 1, ms: 9 },
+      ],
+    ],
+    [
+      "ms not increasing",
+      [
+        { step: 0, ms: 5 },
+        { step: 1, ms: 5 },
+      ],
+    ],
+  ])("refuses %s, naming screens.moments[1]", (_n, m) => {
+    expect(refusal(moments(...m))).toContain("screens.moments[1]");
+  });
+
+  it("refuses no moments and a non-integer steps", () => {
+    expect(refusal(moments())).toContain("screens.moments");
+    expect(
+      refusal(
+        withChange({ screens: { steps: 2.5, moments: [{ step: 0, ms: 1 }] } }),
+      ),
+    ).toContain("screens.steps");
+  });
+
+  it("lets two null-step moments through (they are not 'the same step')", () => {
+    const text = moments({ step: null, ms: 5 }, { step: null, ms: 9 });
+    expect(parseKept(text, "x.json").ok).toBe(true);
+  });
+});
+
+describe("judgedOutput", () => {
+  const o = (
+    fileType: "mp4" | "gif",
+    aspect: KeptOutput["aspect"],
+  ): KeptOutput => ({
+    path: "a",
+    fileType,
+    aspect,
+    quality: "share",
+  });
+  it.each([
+    [[o("gif", "auto"), o("mp4", "auto")], 1],
+    [[o("mp4", "9:16"), o("mp4", "16:9")], 1],
+    [[o("gif", "9:16"), o("mp4", "9:16")], 1],
+    [[o("gif", "auto")], 0],
+  ])("%j -> %i", (outputs, want) => {
+    expect(judgedOutput(outputs)).toBe(want);
   });
 });

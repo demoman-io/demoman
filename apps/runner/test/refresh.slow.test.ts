@@ -96,6 +96,7 @@ function kept(
     scale,
     logo: null,
     outputs,
+    screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
     report: name === A ? "docs/order-report.json" : null,
     from: { videoId: "video-x", takeId: "scene-x", recordedRevision: "r" },
   };

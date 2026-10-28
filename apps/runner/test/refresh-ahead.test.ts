@@ -29,6 +29,7 @@ const kept: KeptVideo = {
   outputs: [
     { path: "docs/o.mp4", fileType: "mp4", aspect: "16:9", quality: "share" },
   ],
+  screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
   report: null,
   from: { videoId: "v1", takeId: "t1", recordedRevision: "r1" },
 };

@@ -22,9 +22,11 @@ import {
 } from "node:path";
 import type { FrameBundle } from "@demoman/compositor";
 import {
+  judgedOutput,
   KEPT_DIR,
   KEPT_VERSION,
   type KeptOutput,
+  type KeptScreens,
   type KeptVideo,
   keptFileName,
   notCarriedOf,
@@ -78,6 +80,8 @@ export type KeepAnswer =
       ok: true;
       file: string;
       kept: KeptVideo;
+      /** "k of n screens are still": what a refresh compares at. */
+      screensNote: string;
       written: string[];
       /** Said when `kept.scale` is a guess: the take records none. */
       scaleGuess?: string;
@@ -211,13 +215,16 @@ export async function keepVideo(
     deps,
   );
   if (!made.ok) return refuse(made.reason, made.detail);
-  const { kept, built, logoBytes } = made;
-  const { logo } = kept;
+  const { built, logoBytes } = made;
+  const base = made.kept;
+  const { logo } = base;
 
   const temp = await mkdtemp(join(tmpdir(), "demoman-keep-"));
   try {
     const rendered: Uint8Array[] = [];
-    for (const o of kept.outputs) {
+    let screens: KeptScreens | undefined;
+    const judged = judgedOutput(base.outputs);
+    for (const [i, o] of base.outputs.entries()) {
       deps.log(`keep: exporting ${o.path}`);
       const answer = await exportTake(
         {
@@ -241,8 +248,16 @@ export async function keepVideo(
           `${o.path} was rendered without its logo: ${answer.warnings.logo}`,
         );
       }
+      if (i === judged) screens = answer.screens;
       rendered.push(await readFile(answer.file.path));
     }
+    if (screens === undefined || screens.moments.length === 0) {
+      return refuse(
+        "exportFailed",
+        `${base.outputs[judged]?.path}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
+      );
+    }
+    const kept: KeptVideo = { ...base, screens };
     const runReport =
       report === null
         ? null
@@ -283,6 +298,7 @@ export async function keepVideo(
       ok: true,
       file: fileRel,
       kept,
+      screensNote: `${screens.moments.length} of ${screens.steps} screens are still`,
       written,
       ...(made.scaleGuess === null ? {} : { scaleGuess: made.scaleGuess }),
       ...(platform === "linux"
@@ -301,7 +317,7 @@ export async function keepVideo(
 type Built =
   | {
       ok: true;
-      kept: KeptVideo;
+      kept: Omit<KeptVideo, "screens">;
       built: { takeId: string };
       read: { revision: string };
       /** The logo's bytes when they are to be copied into the repo. */
@@ -453,7 +469,7 @@ async function buildKept(
       `the script built from take ${built.takeId} is refused at script.${(issue?.path ?? []).join(".")}: ${issue?.message ?? "by the script schema"}`,
     );
   }
-  const kept: KeptVideo = {
+  const kept: Omit<KeptVideo, "screens"> = {
     keptVersion: KEPT_VERSION,
     name: video.name,
     script: script.data,
@@ -549,7 +565,11 @@ export async function rewriteKept(
       if (made.kept.logo !== null && made.logoBytes !== null) {
         await place(join(root, made.kept.logo), made.logoBytes);
       }
-      await place(join(root, rel), serializeKept(made.kept));
+      // The screens describe the committed files, which this does not replace.
+      await place(
+        join(root, rel),
+        serializeKept({ ...made.kept, screens: old.screens }),
+      );
     } catch (error) {
       return {
         refused: `${rel} could not be written (${messageOf(error)}), so it still describes the earlier version`,
