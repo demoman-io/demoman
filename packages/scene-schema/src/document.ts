@@ -741,12 +741,12 @@ export type SceneBranding = z.infer<typeof BrandingSchema>;
  * to hex. Computed rather than written out so it is, by construction, the
  * value the migration gives a v5 document with no colour.
  */
-export const NEUTRAL_BACKGROUND: SceneBackground = Object.freeze({
+export const NEUTRAL_BACKGROUND = Object.freeze({
   kind: "gradient",
   from: oklchToHex({ l: 0.95, c: 0.005, h: 260 }, "clip").hex,
   to: oklchToHex({ l: 0.86, c: 0.008, h: 260 }, "clip").hex,
   angle: 150,
-}) as SceneBackground;
+}) as Extract<SceneBackground, { kind: "gradient" }>;
 
 export const BRANDING_DEFAULTS: SceneBranding = Object.freeze({
   background: Object.freeze({

@@ -231,4 +231,10 @@ export {
   VERTICAL_1080,
   verticalCameraIntents,
 } from "./render/target.js";
+export {
+  coverRect,
+  WALLPAPER_LONG_SIDE,
+  wallpaperRasterSize,
+  wallpaperShape,
+} from "./render/wallpaper.js";
 export { COMPOSITOR_VERSION } from "./version.js";

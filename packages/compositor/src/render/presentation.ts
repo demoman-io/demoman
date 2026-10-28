@@ -7,6 +7,7 @@ import {
 import { containRect, type Rect, type Vec } from "../geometry.js";
 import type { FrameImage } from "../ports/types.js";
 import type { RenderTarget } from "./target.js";
+import { coverRect } from "./wallpaper.js";
 
 export interface LogoPlacement {
   rect: Rect;
@@ -103,6 +104,9 @@ export interface Presentation {
    *  and its image is decoded (the aspect comes from the image). The panel
    *  reads `capped` from here to say when the mark was shrunk. */
   logoPlacement: LogoPlacement | null;
+  /** The decoded image a `wallpaper` or `image` background draws, or null:
+   *  another kind, or no image supplied (which paints the neutral). */
+  wallpaper: FrameImage | null;
 }
 
 /** The pixel height to rasterise a logo at for `target`: the authored
@@ -127,6 +131,7 @@ export function derivePresentation(
   target: RenderTarget,
   viewport: { width: number; height: number },
   logo: FrameImage | null = null,
+  wallpaper: FrameImage | null = null,
 ): Presentation {
   const pad = Math.min(target.width, target.height) * branding.padding;
   const box = {
@@ -194,6 +199,11 @@ export function derivePresentation(
         ? { image: logo, opacity: spec.opacity, rect: logoPlacement.rect }
         : null,
     logoPlacement,
+    wallpaper:
+      branding.background.kind === "wallpaper" ||
+      branding.background.kind === "image"
+        ? wallpaper
+        : null,
   };
 }
 
@@ -290,11 +300,6 @@ export function gradientLine(
   };
 }
 
-const neutralGradient = NEUTRAL_BACKGROUND as Extract<
-  SceneBackground,
-  { kind: "gradient" }
->;
-
 export function drawBackground(
   ctx: OffscreenCanvasRenderingContext2D,
   target: RenderTarget,
@@ -304,8 +309,9 @@ export function drawBackground(
   if (bg.kind === "solid") {
     ctx.fillStyle = bg.color;
   } else {
-    // Task 3 paints wallpaper and image; until then they draw the neutral.
-    const g = bg.kind === "gradient" ? bg : neutralGradient;
+    // An image paints over the neutral: it shows through transparency, and
+    // is the whole picture when no image was supplied.
+    const g = bg.kind === "gradient" ? bg : NEUTRAL_BACKGROUND;
     const { x0, y0, x1, y1 } = gradientLine(
       g.angle,
       target.width,
@@ -317,6 +323,14 @@ export function drawBackground(
     ctx.fillStyle = gradient;
   }
   ctx.fillRect(0, 0, target.width, target.height);
+  const image = presentation.wallpaper;
+  if (image === null || bg.kind === "solid" || bg.kind === "gradient") return;
+  const { sx, sy, sw, sh } = coverRect(image, target);
+  // Under the camera the image is magnified up to `maxScale`: ask for the
+  // best filter rather than whatever the context was left at.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image.image, sx, sy, sw, sh, 0, 0, target.width, target.height);
 }
 
 function framePath(

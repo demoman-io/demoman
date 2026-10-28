@@ -41,6 +41,9 @@ export interface RenderResult {
   /** The still screens this render stops on (`screenMoments`), decided
    *  from the composition it walked. No scene, no steps: none. */
   screens: Screens;
+  /** The largest camera scale this render draws (its clamped keys), or 1
+   *  with none: how far the background was magnified. */
+  deepestScale: number;
 }
 
 /**
@@ -63,11 +66,22 @@ export async function renderScene(args: {
   target: RenderTarget;
   ports: CompositorPorts;
   logo?: FrameImage | null;
+  /** The decoded wallpaper or uploaded image (`wallpaperRasterSize`). */
+  wallpaper?: FrameImage | null;
   /** Called after each frame is handed to the sink, with how many are done
    *  and how many there will be. The editor's "Exporting · 43%". */
   onFrame?: (done: number, total: number) => void;
 }): Promise<RenderResult> {
-  const { plan, bundle, scene, target, ports, logo = null, onFrame } = args;
+  const {
+    plan,
+    bundle,
+    scene,
+    target,
+    ports,
+    logo = null,
+    wallpaper = null,
+    onFrame,
+  } = args;
 
   const sink =
     target.format === "mp4"
@@ -99,7 +113,15 @@ export async function renderScene(args: {
     resolved: composed,
     presentation,
     violations,
-  } = composeForTarget({ plan, bundle, scene, target, hints, logo });
+  } = composeForTarget({
+    plan,
+    bundle,
+    scene,
+    target,
+    hints,
+    logo,
+    wallpaper,
+  });
 
   const canvas = ports.surface.create(target.width, target.height);
   const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
@@ -210,6 +232,7 @@ export async function renderScene(args: {
     screens: scene
       ? screenMoments(composed, scene, bundle)
       : { steps: 0, moments: [] },
+    deepestScale: composed.cameraKeys.reduce((m, k) => Math.max(m, k.scale), 1),
   };
 }
 
@@ -380,6 +403,8 @@ export async function renderStills(args: {
   ports: CompositorPorts;
   outputTimesMs?: number[];
   logo?: FrameImage | null;
+  /** As `renderScene`'s. */
+  wallpaper?: FrameImage | null;
   /** How each still is framed (`StillCamera`). Defaults to `video`, the
    *  framing the extension's stills have always had. */
   camera?: StillCamera;
@@ -398,7 +423,15 @@ export async function renderStills(args: {
   loweredZooms: LoweredZoom[];
   clampedRanges: ClampedRange[];
 }> {
-  const { plan, bundle, scene, target, ports, logo = null } = args;
+  const {
+    plan,
+    bundle,
+    scene,
+    target,
+    ports,
+    logo = null,
+    wallpaper = null,
+  } = args;
   const images = ports.images;
   if (!images) throw new Error('render target "png" needs a matching png sink');
 
@@ -406,7 +439,7 @@ export async function renderStills(args: {
     resolved: composed,
     presentation,
     violations,
-  } = composeForTarget({ plan, bundle, scene, target, logo });
+  } = composeForTarget({ plan, bundle, scene, target, logo, wallpaper });
   const canvas = ports.surface.create(target.width, target.height);
   const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
 
