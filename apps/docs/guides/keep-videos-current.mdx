@@ -116,13 +116,12 @@ is reviewed first.
 
 ### No loop
 
-The bot's commit carries `[skip demoman]`, and the refresh pull request's
-merge commit names `demoman/refresh`. The workflow reads the triggering
-commit's message and does nothing when it finds either. A rebase merge
-keeps the bot's commit message, and so does a squash merge under GitHub's
-default squash message. A squash message set to the pull request's title or
-description drops the marker: one more refresh then runs, finds every video
-unchanged, and commits nothing.
+The bot's commit carries `[skip demoman]`, the refresh pull request's
+merge commit names `demoman/refresh`, and its squash merge is titled
+"Refresh demo videos (#N)". The workflow reads the triggering commit's
+message and does nothing when it finds any of them. A rebase merge keeps
+the bot's commit message. If you rename the pull request before squashing
+it, one more refresh runs; it replaces only a video whose picture changed.
 
 When no video was replaced, nothing is committed. On the pull request
 route, when every kept video was filmed and came back unchanged, an open

@@ -3,6 +3,7 @@
 // delivers what changed with `demoman refresh --deliver`.
 
 import { parseArgs } from "node:util";
+import { COMMIT_SUBJECT } from "./deliver.js";
 import { PACKAGE_NAME } from "./names.js";
 
 export interface CiOptions {
@@ -20,9 +21,11 @@ export const expr = (e: string): string => `\${{ ${e} }}`;
 
 /** The loop guard's script: it reads the triggering commit's message from
  *  $SHA. The refresh pull request's merge commit reads "Merge pull request
- *  #N from <owner>/demoman/refresh"; both routes' commits carry the marker. */
+ *  #N from <owner>/demoman/refresh"; its squash merge, "Refresh demo videos
+ *  (#N)" with or without the PR's description; both routes' commits carry
+ *  the marker. */
 export const GUARD_SCRIPT = `msg=$(git log -1 --format=%B "$SHA")
-if printf '%s' "$msg" | grep -qE '\\[skip demoman\\]|/demoman/refresh'; then
+if printf '%s' "$msg" | grep -qE '\\[skip demoman\\]|/demoman/refresh|^${COMMIT_SUBJECT} \\(#[0-9]+\\)$'; then
   echo "skip=true" >> "$GITHUB_OUTPUT"
   echo "Skipping: this commit is Demoman's own refresh, and filming it again would loop."
 fi`;
@@ -71,8 +74,12 @@ export function ciWorkflow(o: CiOptions): string {
 `
       : "";
   // The URL is set by whoever may post deployment statuses: it reaches the
-  // shell through env, never interpolated into the run line.
-  const baseUrl = deployment === null ? "" : ' --base-url "$DEMOMAN_BASE_URL"';
+  // shell through env, never interpolated into the run line. A deployment
+  // that names none stops the step with that said, not a usage error.
+  const baseUrl =
+    deployment === null
+      ? ""
+      : ` --base-url "\${DEMOMAN_BASE_URL:?the deployment named no environment_url, so there is no deployed app to film}"`;
   const baseUrlEnv =
     deployment === null
       ? ""

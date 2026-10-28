@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,12 +67,38 @@ describe("ciWorkflow", () => {
       "github.event.deployment.environment == 'Production'",
     );
     // The URL reaches the shell through env, never interpolated into it.
-    expect(deploy).toContain('--base-url "$DEMOMAN_BASE_URL"');
+    expect(deploy).toContain('--base-url "${DEMOMAN_BASE_URL:?');
     expect(deploy).toContain(
       `DEMOMAN_BASE_URL: ${expr("github.event.deployment_status.environment_url")}`,
     );
     expect(deploy).toContain(`ref: ${expr("github.event.deployment.sha")}`);
     expect(push).not.toContain("--base-url");
+  });
+
+  it("says the deployment named no URL, rather than misusing --base-url", () => {
+    const line = npx(deploy).find((l) => l.includes(" refresh "));
+    const run = line?.trim().replace(/^run: /, "") ?? "";
+    expect(run, "premise: the refresh run line").toContain("refresh --deliver");
+    const bin = mkdtempSync(join(tmpdir(), "npx-"));
+    writeFileSync(join(bin, "npx"), '#!/bin/sh\necho "npx $*"\n', {
+      mode: 0o755,
+    });
+    const shell = (url: string) =>
+      spawnSync("bash", ["-e", "-c", run], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          DEMOMAN_BASE_URL: url,
+        },
+      });
+    const empty = shell("");
+    expect(empty.status).not.toBe(0);
+    expect(empty.stdout, "npx must not run").toBe("");
+    expect(empty.stderr).toContain("named no environment_url");
+    const set = shell("https://app.example.com");
+    expect(set.status, set.stderr).toBe(0);
+    expect(set.stdout).toContain("--base-url https://app.example.com");
   });
 
   it("interpolates no expression into any run line, in either shape", () => {
@@ -180,6 +206,15 @@ describe("the loop guard", () => {
     );
     expect(answer("Refresh the demo\n\n[skip demoman]")).toBe("skip=true\n");
     expect(answer("Fix the invoice filter")).toBe("");
+    // A squash merge of the refresh PR, as each of GitHub's squash
+    // messages writes it: the PR title alone, or with its description.
+    expect(answer("Refresh demo videos (#12)")).toBe("skip=true\n");
+    expect(
+      answer(
+        "Refresh demo videos (#12)\n\nDemoman filmed the kept videos again and replaced 1.",
+      ),
+    ).toBe("skip=true\n");
+    expect(answer("Refresh demo videos for the new nav")).toBe("");
   });
 
   it("keeps the push job's own guard", () => {
