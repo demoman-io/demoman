@@ -224,6 +224,14 @@ const refresh = (only?: string[]): Promise<RefreshResult> =>
     { repoRoot: repo, library: "throwaway", ...(only ? { only } : {}) },
     deps(),
   );
+/** The `k of n screens` of a detail line. */
+const screensOf = (detail: string): [number, number] => {
+  const m = detail.match(/(\d+) of (\d+) screens/);
+  if (m === null) throw new Error(`no "k of n screens" in: ${detail}`);
+  return [Number(m[1]), Number(m[2])];
+};
+/** A's detail from the unchanged run, for the slower app's to match. */
+let unchangedDetailA = "";
 const bytes = (p: string) => readFile(join(repo, p));
 const keptOf = async (name: string): Promise<KeptVideo> => {
   const file = `${KEPT_DIR}/${keptFileName(name)}`;
@@ -389,6 +397,7 @@ describe("refresh", () => {
         expect(Number(m?.[2])).toBe(screens.steps + 1);
       }
       expect(byName(r, A).detail).not.toContain(out.aGif);
+      unchangedDetailA = byName(r, A).detail;
       expect(byName(r, A).line).toBeNull();
       const after = await Promise.all(Object.values(out).map(bytes));
       for (const [i, b] of after.entries())
@@ -417,6 +426,13 @@ describe("refresh", () => {
         [B, "unchanged"],
         [A, "unchanged"],
       ]);
+      // The premise: as many screens were compared as in the unchanged run,
+      // so the final screen did not drop out of either film.
+      const slowA = byName(r, A).detail;
+      expect(
+        screensOf(slowA),
+        `unchanged: ${unchangedDetailA} | slower: ${slowA}`,
+      ).toEqual(screensOf(unchangedDetailA));
       // The premise: the first click's act ran longer than in the film before it by more than the
       // films' own 20 ms jitter (the act is capped near 1.1 s, so not by 600), and neither sits near the camera's line.
       const bGaps = gaps.filter((g) => g.name === B);
