@@ -98,7 +98,7 @@ describe("the kept file", () => {
     const { screens: _s, ...rest } = JSON.parse(serializeKept(kept));
     const d = refusal(JSON.stringify(rest));
     expect(d).toContain("screens");
-    expect(d).toContain("demoman keep");
+    expect(d).toContain("`demoman keep Add a task`");
     expect(d).toContain("Add a task");
   });
 
@@ -153,9 +153,9 @@ describe("the kept file", () => {
     ).toContain("screens.steps");
   });
 
-  it("lets two null-step moments through (they are not 'the same step')", () => {
+  it("refuses a second final screen, naming screens.moments[1]", () => {
     const text = moments({ step: null, ms: 5 }, { step: null, ms: 9 });
-    expect(parseKept(text, "x.json").ok).toBe(true);
+    expect(refusal(text)).toContain("screens.moments[1]");
   });
 });
 

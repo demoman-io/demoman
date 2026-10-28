@@ -298,7 +298,7 @@ export async function keepVideo(
       ok: true,
       file: fileRel,
       kept,
-      screensNote: `${screens.moments.length} of ${screens.steps} screens are still`,
+      screensNote: `${screens.moments.length} of ${screens.steps + 1} screens are still`,
       written,
       ...(made.scaleGuess === null ? {} : { scaleGuess: made.scaleGuess }),
       ...(platform === "linux"

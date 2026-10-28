@@ -311,7 +311,7 @@ describe("keep, a clean take", () => {
         expect(plain.screens.moments.length).toBeGreaterThan(0);
         expect(kept.screens).toEqual(plain.screens);
         expect(out.screensNote).toBe(
-          `${plain.screens.moments.length} of ${plain.screens.steps} screens are still`,
+          `${plain.screens.moments.length} of ${plain.screens.steps + 1} screens are still`,
         );
       } finally {
         await rm(outDir, { recursive: true, force: true });

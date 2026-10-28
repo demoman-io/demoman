@@ -48,6 +48,7 @@ import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshAgentSkill } from "./agent-skill.js";
 import { ciSetup } from "./ci-workflow.js";
 import { deliver } from "./deliver.js";
+import { keepLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
 import { refreshLines } from "./refresh-lines.js";
 import { parseSetupArgs, setup } from "./setup.js";
@@ -379,16 +380,7 @@ async function keep(args: string[]): Promise<void> {
   }
   if ("threw" in answer) return fail(answer.threw);
   if (!answer.ok) return fail(answer.detail);
-  process.stdout.write(`Kept "${answer.kept.name}" in ${answer.file}\n`);
-  for (const p of answer.written) {
-    if (p !== answer.file) process.stdout.write(`  wrote ${p}\n`);
-  }
-  if (answer.scaleGuess !== undefined) {
-    process.stdout.write(`  ${answer.scaleGuess}\n`);
-  }
-  if (answer.platformNote !== undefined) {
-    process.stdout.write(`  ${answer.platformNote}\n`);
-  }
+  process.stdout.write(`${keepLines(answer).join("\n")}\n`);
   process.exit(0);
 }
 

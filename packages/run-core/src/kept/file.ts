@@ -120,14 +120,14 @@ export function parseKept(text: string, file: string): Parsed {
   const sc = raw.screens;
   if (!isObj(sc))
     return bad(
-      `${raw.name} has no screens — it was kept before they were recorded; run \`demoman keep\` again to record them`,
+      `${raw.name} has no screens — it was kept before they were recorded; run \`demoman keep ${raw.name}\` again to record them`,
     );
   if (!Number.isInteger(sc.steps) || (sc.steps as number) < 0)
     return bad("screens.steps must be a whole number of steps");
   if (!Array.isArray(sc.moments) || sc.moments.length === 0)
     return bad("screens.moments must list at least one still screen");
   const moments: KeptMoment[] = [];
-  const seen = new Set<number>();
+  const seen = new Set<number | null>();
   for (const [i, m] of sc.moments.entries()) {
     const at = `screens.moments[${i}]`;
     if (!isObj(m)) return bad(`${at} is not an object`);
@@ -145,7 +145,9 @@ export function parseKept(text: string, file: string): Parsed {
       if (seen.has(m.step as number))
         return bad(`${at}.step ${m.step} is named by an earlier moment`);
       seen.add(m.step as number);
-    }
+    } else if (seen.has(null))
+      return bad(`${at}.step is a second final screen`);
+    else seen.add(null);
     moments.push({ step: m.step as number | null, ms: m.ms });
   }
   const f = raw.from;
