@@ -175,6 +175,8 @@ export async function refreshKept(
     // Whether it is one `only` names cannot be told, so it is said.
     if (!parsed.ok) {
       failed(n.replace(/\.json$/, ""), file, parsed.detail);
+      // Its file is the one `only` would name: not also "no kept video".
+      found.add(n);
       continue;
     }
     const { kept } = parsed;

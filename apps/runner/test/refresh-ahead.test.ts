@@ -152,3 +152,19 @@ describe("a refresh says when the library is ahead of the file", () => {
     expect(await notes("throwaway", d)).toEqual([]);
   });
 });
+
+describe("a kept file that does not parse", () => {
+  it("is one failure when `only` names it, not also a missing video", async () => {
+    await writeFile(join(repo, FILE), "{ not json");
+    const { videos } = await refreshKept(
+      { repoRoot: repo, library: "local", only: [NAME] },
+      deps(),
+    );
+    expect(
+      videos.map((v) => v.detail),
+      JSON.stringify(videos),
+    ).toHaveLength(1);
+    expect(videos[0]?.detail).not.toContain("no kept video is named");
+    expect(videos[0]?.file).toBe(FILE);
+  });
+});
