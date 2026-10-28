@@ -53,13 +53,14 @@ export interface RefreshResult {
 }
 
 export interface RefreshDeps {
-  /** The user's library, which `library: "local"` films into. */
-  home: string;
-  /** The library's reads, for the check that it is ahead of a kept file
-   *  (local refreshes only; a throwaway refresh never reads them). */
+  /** The user's library's reads, for the check that it is ahead of a kept
+   *  file (`library: "local"` only). Never filmed into: every refresh films
+   *  into a library thrown away after, so a refresh adds no version the
+   *  kept file does not name. */
   library: Library;
   videos: VideoStore;
-  /** A headless executor filming into `home`, at the display `env` names,
+  /** A headless executor filming into `home` (a throwaway library), at the
+   *  display `env` names,
    *  exporting into `outDir`, reading accounts from `projectDir`. */
   executor(options: {
     home: string;
@@ -82,7 +83,7 @@ type Job = {
   kept: KeptVideo;
   file: string;
   script: DemoScript;
-  /** Read before the film, which adds a version to the library. */
+  /** What the user's library has that the file lacks (local only). */
   ahead: string | null;
 };
 
@@ -229,10 +230,7 @@ export async function refreshKept(
   const outDirs: string[] = [];
   try {
     for (const [display, jobs] of groups) {
-      const home =
-        args.library === "throwaway"
-          ? await mkdtemp(join(tmpdir(), "demoman-refresh-home-"))
-          : deps.home;
+      const home = await mkdtemp(join(tmpdir(), "demoman-refresh-home-"));
       const outDir = await mkdtemp(join(tmpdir(), "demoman-refresh-"));
       outDirs.push(outDir);
       const executor = deps.executor({
@@ -245,7 +243,7 @@ export async function refreshKept(
         for (const job of jobs) {
           deps.log(`refresh: filming "${job.kept.name}" at ${display}`);
           try {
-            const one = await filmOne(job, root, executor, home, args.library);
+            const one = await filmOne(job, root, executor, home);
             if ("failed" in one)
               failed(job.kept.name, job.file, one.failed, notesOf(job));
             else filmed.push(one);
@@ -266,7 +264,7 @@ export async function refreshKept(
               `refresh: the browser would not close (${messageOf(error)})`,
             ),
           );
-        if (args.library === "throwaway") await remove(home, deps);
+        await remove(home, deps);
       }
     }
     for (const one of filmed) {
@@ -351,13 +349,12 @@ async function filmOne(
   root: string,
   executor: LocalExecutor,
   home: string,
-  library: "local" | "throwaway",
 ): Promise<Filmed | { failed: string }> {
-  const fresh = { new: kept.name, confirmedNew: true };
-  const run = async (video: unknown) => {
+  const run = async () => {
     const out = await executor.request("run", {
       script,
-      video,
+      // A library of its own: no other video, so no name is taken.
+      video: { new: kept.name, confirmedNew: true },
       project: root,
       // The committed kept file is refresh's input, never its output.
       leaveKept: true,
@@ -366,15 +363,7 @@ async function filmOne(
       ? (out.value as Record<string, unknown>)
       : { outcome: "refusedBeforeRun", reason: out.reason, detail: out.detail };
   };
-  let answer = await run(
-    library === "local" ? { id: kept.from.videoId } : fresh,
-  );
-  // A checkout whose videos were kept on another machine.
-  if (
-    answer.outcome === "refusedBeforeRun" &&
-    answer.reason === "videoNotFound"
-  )
-    answer = await run(fresh);
+  const answer = await run();
   const unclean = uncleanRun(answer);
   if (unclean !== null) return { failed: unclean };
   const report = answer as unknown as RunReport;

@@ -386,7 +386,8 @@ async function keep(args: string[]): Promise<void> {
 
 /** `demoman refresh`: every kept video in the repo (or those named) filmed
  *  again with no agent; an export is replaced only when its picture changed.
- *  In CI (`CI=true`) into a library thrown away after; else the user's. */
+ *  Always into a library thrown away after; off CI (`CI` not "true") the
+ *  user's own is read to say what it has that a kept file lacks. */
 async function refresh(args: string[]): Promise<void> {
   const usage = (said: string): never => {
     process.stderr.write(`demoman: ${said}\n\n${USAGE}`);
@@ -454,7 +455,6 @@ async function refresh(args: string[]): Promise<void> {
         library: process.env.CI === "true" ? "throwaway" : "local",
       },
       {
-        home: refreshHome,
         library: createLibrary(refreshHome),
         videos: createVideoStore(refreshHome, createLibrary(refreshHome), {
           log,

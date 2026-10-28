@@ -102,8 +102,9 @@ no agent. Each output whose picture changed is replaced; one that looks the
 same is left as it is, so an unchanged app makes no commit. A video whose run
 was not clean (a step stopped or did not match, a frame was lost, the logo
 could not be drawn) keeps its committed files and prints why, and the command
-exits 1. In CI (`CI=true`) it films into a library it then deletes; on your
-machine, into your own.
+exits 1. It films into a library it then deletes, so a refresh adds nothing
+to your own; on your machine it reads yours to say when it has edits a kept
+file lacks.
 
 | Flag | |
 | --- | --- |

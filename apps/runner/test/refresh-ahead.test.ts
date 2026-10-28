@@ -57,7 +57,6 @@ beforeEach(async () => {
 });
 
 const deps = (): RefreshDeps => ({
-  home: repo,
   videos: {
     get: async () => {
       reads++;
@@ -166,5 +165,80 @@ describe("a kept file that does not parse", () => {
     ).toHaveLength(1);
     expect(videos[0]?.detail).not.toContain("no kept video is named");
     expect(videos[0]?.file).toBe(FILE);
+  });
+});
+
+describe("a local refresh films outside the user's library", () => {
+  /** Each executor's library, by its home, under the run's own rules for
+   *  `video` (executor.ts): an unknown id is videoNotFound, a name this repo
+   *  already has is nameTaken, and a run into a video adds a version. */
+  const libraries = new Map<string, { ids: Set<string>; names: Set<string> }>();
+  const runs: { home: string; video: Record<string, unknown> }[] = [];
+  const filming = (userHas: boolean): RefreshDeps => {
+    libraries.clear();
+    runs.length = 0;
+    libraries.set(repo, {
+      ids: new Set(userHas ? ["v1"] : []),
+      names: new Set(userHas ? [NAME] : []),
+    });
+    const d = deps();
+    if (!userHas)
+      d.videos = {
+        get: async () => null,
+        versions: async () => [],
+      } as unknown as VideoStore;
+    d.executor = ({ home }) =>
+      ({
+        request: async (_op: string, args: Record<string, unknown>) => {
+          const video = args.video as Record<string, unknown>;
+          runs.push({ home, video });
+          const lib = libraries.get(home) ?? {
+            ids: new Set(),
+            names: new Set(),
+          };
+          libraries.set(home, lib);
+          const refuse = (reason: string, detail: string) => ({
+            ok: true,
+            value: { outcome: "refusedBeforeRun", reason, detail },
+          });
+          if ("id" in video) {
+            if (!lib.ids.has(String(video.id)))
+              return refuse("videoNotFound", `no video has the id ${video.id}`);
+            // A new version of the user's video: the take a refresh made.
+            if (home === repo) current.takeId = "t-refresh";
+          } else {
+            if (lib.names.has(String(video.new)))
+              return refuse(
+                "nameTaken",
+                `video "${video.new}" already has that name`,
+              );
+            lib.names.add(String(video.new));
+            lib.ids.add(`v${lib.ids.size + 2}`);
+          }
+          return refuse("x", "no film");
+        },
+        close: async () => undefined,
+      }) as unknown as ReturnType<RefreshDeps["executor"]>;
+    return d;
+  };
+  const refreshOnce = async (d: RefreshDeps) =>
+    (await refreshKept({ repoRoot: repo, library: "local" }, d)).videos[0];
+
+  it("refreshes a video kept on another machine twice without nameTaken", async () => {
+    const d = filming(false);
+    await refreshOnce(d);
+    const second = await refreshOnce(d);
+    expect(runs.length, "premise: both refreshes ran").toBeGreaterThanOrEqual(
+      2,
+    );
+    expect(second?.detail, JSON.stringify(runs)).not.toContain("nameTaken");
+    expect(second?.detail).toBe("x: no film");
+  });
+
+  it("leaves the next refresh with nothing to say about the library", async () => {
+    const d = filming(true);
+    expect(await refreshOnce(d).then((v) => v?.notes)).toEqual([]);
+    expect(runs.length, "premise: the refresh filmed").toBeGreaterThan(0);
+    expect((await refreshOnce(d))?.notes, JSON.stringify(runs)).toEqual([]);
   });
 });

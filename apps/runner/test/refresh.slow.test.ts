@@ -250,7 +250,6 @@ const refreshTemps = async () =>
   );
 
 const deps = (): RefreshDeps => ({
-  home,
   library: createLibrary(home),
   videos: createVideoStore(home, createLibrary(home)),
   executor: (o) => {
