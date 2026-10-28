@@ -56,6 +56,7 @@ const saved = (takeId: string): ExportAnswer =>
     height: 720,
     fps: 30,
     file: { path: `/out/${takeId}.mp4`, byteLength: 10, downloadId: null },
+    screens: { steps: 0, moments: [] },
     warnings: { logo: null, unavailableSpans: [], detailViolations: [] },
     summary: `Saved /out/${takeId}.mp4 (1280×720, 30 fps).`,
   }) as ExportAnswer;

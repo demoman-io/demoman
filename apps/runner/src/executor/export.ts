@@ -573,6 +573,15 @@ async function exportLeased(a: {
       error: "the render produced no file",
     });
   }
+  // The kept render's screens are what a refresh compares at: a video
+  // without them is a failed render, never one that "has none".
+  if (rendered.screens === undefined) {
+    return withSummary({
+      outcome: "renderFailed",
+      takeId,
+      error: `the ${asked} render reported no screens`,
+    });
+  }
   const name = exportFileName(asked, aspect, base);
   const bytes = tagger.apply(asked, file.bytes);
   const saved = await saveExport(deps.outDir, name, bytes);
@@ -600,7 +609,7 @@ async function exportLeased(a: {
       target: rendered.rendered,
       ...warnings,
       ...tagger.untagged,
-      ...(rendered.screens === undefined ? {} : { screens: rendered.screens }),
+      screens: rendered.screens,
       ...(rendered.gifBudget === undefined
         ? {}
         : { gifSize: rendered.gifBudget }),

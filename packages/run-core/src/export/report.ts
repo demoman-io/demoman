@@ -325,8 +325,8 @@ export type ExportReport =
       fileType: "mp4" | "gif";
       file: { path: string; byteLength: number; downloadId: number | null };
       /** The still screens the render recorded (`renderScene`'s
-       *  `screens`). Absent when the render gave none. */
-      screens?: Screens;
+       *  `screens`). Required: a video without them cannot be compared. */
+      screens: Screens;
     })
   | (SavedCommon & {
       fileType: "stills";
@@ -414,7 +414,7 @@ export function reportForSave(args: {
   /** See `warnings.videoSize`. Omitted by a door that does not say it. */
   videoSize?: VideoSize;
   /** See `ExportReport`'s `screens`. */
-  screens?: Screens;
+  screens: Screens;
   /** See `warnings.untagged`. */
   untagged?: { error: string };
 }): ExportReport {
@@ -458,7 +458,7 @@ export function reportForSave(args: {
         width: args.target.width,
         height: args.target.height,
         fps: args.target.fps,
-        ...(args.screens === undefined ? {} : { screens: args.screens }),
+        screens: args.screens,
         warnings: warningsOf(
           {
             logoWarning: file.logoWarning ?? null,
