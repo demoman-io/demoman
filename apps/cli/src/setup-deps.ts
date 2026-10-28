@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
-import { isCancel, multiselect, select } from "@clack/prompts";
+import { isCancel, multiselect, select, text } from "@clack/prompts";
 import { demomanHome } from "@demoman/mcp/serve-cli";
 import {
   EXPORT_QUALITY_LABELS,
@@ -34,6 +34,7 @@ import {
 import { readUserSettings } from "@demoman/runner/studio";
 import { writeSetting } from "@demoman/studio";
 import { chromium } from "playwright";
+import type { CiIo } from "./ci-workflow.js";
 import type { Answers, Questions, Ran, SetupDeps } from "./setup.js";
 
 /** How long a captured command (claude's git clone of the marketplace, the
@@ -369,6 +370,35 @@ export function realSetupDeps(
     settings: {
       read: () => readUserSettings(demomanHome()),
       write: (key, value) => writeSetting(demomanHome(), key, value),
+    },
+  };
+}
+
+/** The two questions of `setup --ci`; null is a cancel. */
+export function ciPrompts(): NonNullable<CiIo["ask"]> {
+  return {
+    trigger: async () => {
+      const how = await select({
+        message: "When should Demoman refresh the kept videos?",
+        options: [
+          { value: "push", label: "On each merge to main" },
+          { value: "deployment", label: "After a successful deployment" },
+        ],
+      });
+      if (isCancel(how)) return null;
+      if (how === "push") return "push";
+      const env = await text({ message: "The deployment environment's name" });
+      return isCancel(env) || env.trim() === "" ? null : env.trim();
+    },
+    route: async () => {
+      const route = await select({
+        message: "How should the changed videos reach the repo?",
+        options: [
+          { value: "pr", label: "In a pull request" },
+          { value: "main", label: "Committed straight to main" },
+        ],
+      });
+      return isCancel(route) ? null : (route as "pr" | "main");
     },
   };
 }

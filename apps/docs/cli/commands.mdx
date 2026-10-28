@@ -18,9 +18,23 @@ terminal (a script, CI) nothing is asked.
 | Flag | |
 | --- | --- |
 | `--yes` | Asks nothing and keeps the current settings, as without a terminal; agents run setup this way |
+| `--browser-only` | Installs Chromium and connects no agent, asking nothing; for CI. On Linux it exits 1, naming the one `sudo` command, when Chromium's libraries are missing |
 | `--agents <list>` | The agents to connect, comma-separated: `claude`, `codex`, `cursor`, `opencode` |
 | `--quality <quality>` | Export quality: `share`, `high` or `full` |
 | `--pull-requests <value>` | Pull-request videos: `off`, `ask` or `attach` |
+
+### setup --ci
+
+```bash
+npx demoman setup --ci [--trigger push|<environment>] [--route pr|main]
+```
+
+Writes `.github/workflows/demoman.yml`, which runs `demoman refresh --deliver`
+on each merge to main (`push`) or after each successful deployment to the named
+environment. `--route pr` opens a pull request with the changed files, and
+needs "Allow GitHub Actions to create and approve pull requests" on in the
+repository's Actions settings; `--route main` commits them. A trigger or route
+not given is asked. For `push`, fill in the workflow's "Start your app" step.
 
 ## signin
 
@@ -53,6 +67,49 @@ npx demoman studio --stop
 
 Opens the Studio, on a take when you name one, or closes it with `--stop`.
 See [Overview](/studio/overview).
+
+## keep
+
+```bash
+npx demoman keep <video> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
+```
+
+Keeps a video current. Run it in the repo, naming one of its videos by id or
+exact name. It writes `.demoman/videos/<name>.json`, everything a re-film
+needs, and exports the video to each path. Commit both. A logo from outside
+the repo is copied to `.demoman/videos/logos/`.
+
+It refuses, writing nothing, a video whose current version has Studio edits
+a re-film does not carry (a mask, a trim, a cut, a split, a hold, a gap, a
+placed zoom), typed text the recording never read, or a site signed in to by
+hand with `signin` rather than as a demo account.
+
+| Flag | |
+| --- | --- |
+| `--to <path>[:<aspect>]` | An MP4 to write, repeatable; the aspect is `auto`, `16:9` or `9:16`, the take's own by default |
+| `--gif <path>[:<aspect>]` | A GIF to write, repeatable |
+| `--report <path>` | Where to write the run report |
+| `--quality <quality>` | The MP4s' quality: `share` (the default, small to commit), `high` or `full` |
+
+## refresh
+
+```bash
+npx demoman refresh [<video>…] [--base-url <origin>] [--deliver pr|main]
+```
+
+Films every video kept in `.demoman/videos/` again, or only those named, with
+no agent. Each output whose picture changed is replaced; one that looks the
+same is left as it is, so an unchanged app makes no commit. A video whose run
+was not clean (a step stopped or did not match, a frame was lost, the logo
+could not be drawn) keeps its committed files and prints why, and the command
+exits 1. It films into a library it then deletes, so a refresh adds nothing
+to your own; on your machine it reads yours to say when it has edits a kept
+file lacks.
+
+| Flag | |
+| --- | --- |
+| `--base-url <origin>` | Film the app at this origin instead of the one each video was recorded at, such as a preview deployment |
+| `--deliver pr\|main` | After refreshing, commit only the replaced files: `main` pushes one `Refresh demo videos` commit to the checked-out branch; `pr` force-pushes it to `demoman/refresh` and opens or updates one pull request (the workflow's `GITHUB_TOKEN` needs "Allow GitHub Actions to create and approve pull requests"). Exits 1 if delivery fails |
 
 ## mcp
 

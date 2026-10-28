@@ -61,6 +61,10 @@ installs them; run it, then setup again. Demoman is in public beta.
   be seen, tune each zoom, and apply a brand kit.
 - **Ready for delivery.** An MP4, a GIF, or a still of every step, 16:9 or
   9:16 from one take. Your agent can attach the video to a pull request.
+- **[Kept current](https://demoman.io/docs/guides/keep-videos-current).**
+  `npx demoman keep` saves a video's script in the repo, and a GitHub
+  Actions workflow from `npx demoman setup --ci` films it again on each
+  merge, committing it only when the picture changed.
 - **Runs locally.** Capture, editing and export happen on your machine, and
   Demoman sends nothing to us. Your agent passes what Demoman reports to the
   AI service it runs on.

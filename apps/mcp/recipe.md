@@ -272,6 +272,8 @@ run toward the three. Refused with `unfilledHoles` when the take did not keep
 a value: `derive`, fill, `run`. `invalidScript` (`field` `steps.<i>.do`): a
 verb was changed by hand: `derive`, check it, `run` the draft.
 
+A video kept current in the repo (.demoman/videos) is rewritten by each run into it: commit that file with the change. To keep one current, run `npx demoman keep <video> --to <path>` in the repo.
+
 ## 4. Run and read
 
 0. Name the video first: every run adds a version to one. If the repo
@@ -282,7 +284,7 @@ verb was changed by hand: `derive`, check it, `run` the draft.
    `possibleDuplicate` lists `matches`: use one's `id`, or repeat with
    `confirmedNew: true` for a different flow. `nameTaken` names the
    `holder`: use its `id` or another name. The report's `videoVersion`
-   (`id`, `version`, `created`) says what was made.
+   says what was made.
 1. `run(script, video)`. It answers the run's report, or
    `{ "outcome": "stillRunning", "id": … }` after about 50 s; then call
    `report(id)` until the outcome is neither `running` nor `stillRunning`.
@@ -306,8 +308,7 @@ verb was changed by hand: `derive`, check it, `run` the draft.
    - In any outcome, a step whose `textHidden` is set typed into a credential
      field (`"credentialField"`, or `"credentialUnchecked"` if the page could
      not say): its text is kept nowhere. Re-recording or deriving that take
-     asks for a demo value. `landing.startedElsewhere` names where the start URL went
-     instead; `landing.unchecked`: the page could not be checked for a
+     asks for a demo value. `landing.startedElsewhere` names where the start URL went; `landing.unchecked`: the page could not be checked for a
      sign-in page. `notStored` with `what: "session"` means the saved
      session could not be refreshed: name it to the user.
    - `threw` - a fault in the run; report its `error`.
@@ -315,8 +316,7 @@ verb was changed by hand: `derive`, check it, `run` the draft.
      about the video, not the script (`surfaceMismatch`: the browser handed
      back frames of the wrong size; `dragPictureMissing`: a native drag's item
      jumps). `notDragged`: a drag changed nothing; `verdict.diverged` lists
-     it. Spend no run on them; name them to the
-     user. One is about a step: `clickUnconfirmed` means a click
+     it. Name them to the user; spend no run. One is about a step: `clickUnconfirmed` means a click
      could not be confirmed to have reached its target, and
      `frames.unconfirmedClicks` names each such step and says why; check in
      the video that the step did what it should before saying so.
@@ -351,7 +351,7 @@ verb was changed by hand: `derive`, check it, `run` the draft.
    | stray arrival, `detour` | Demoman | leave it |
    | drift from the earlier take | the app | report it |
 
-   A finding that is Demoman's earns no run, and is not passed on: the
+   A finding that is Demoman's earns no run and is not passed on: the
    user takes the video as it is or changes it in the Studio. A step's
    `roomMs` is Demoman's own pacing, not a stall.
 4. Tighten a step whose `candidates` is above 1 or whose `strategy` is weaker
@@ -364,8 +364,7 @@ branding. The report's `look.branding` says where it came from: `script`,
 `kit` (you named it; `look.kit.name` says which), `defaultKit`, or
 `defaults`. A non-null `look.brandKitError` means the default kit could not
 be read, and goes into your hand-back. The report's `size` is what the video
-was recorded at, read as in section 2; a `size.error` goes into your hand-back
-too.
+was recorded at (section 2); a `size.error` goes into your hand-back too.
 
 ## 5. Export and hand back
 
@@ -373,8 +372,8 @@ too.
    the export report, or `stillRunning` with an `id`; then call `report(id)`
    until the outcome is none of `exporting`, `stillRunning`.
    `fileType` picks the file: `mp4` (the default), `gif` (plays inline in
-   a GitHub PR or issue), or `stills` (a PNG per step, in a folder). Ask
-   for a GIF or stills only if the user did. An MP4 follows Settings
+   a GitHub PR or issue), or `stills` (a PNG per step, in a folder); only
+   if the user asked for a GIF or stills. An MP4 follows Settings
    (unset: ~1 MB/s); `quality: "full"` is largest.
    `export({ takeId, maxMB: 9.5 })` fits GitHub's 10 MB drag-in, or says
    it could not (it lowers fps, then size, then quality: the summary says
@@ -383,9 +382,8 @@ too.
    its usual width; `warnings.gifSize` says how wide, its size, and which
    wider widths were refused (`limit`: `budget`, too big, or `detail`, too
    few pixels); a GIF over 10 MB at its narrowest says so: offer the MP4.
-   Stills take `stills: { width, zoom }`, both optional. By default each
-   still is up to 2560 px wide (never wider than the recording) and shows
-   the whole window. `width` asks for a size in
+   Stills take `stills: { width, zoom }`, both optional. A
+   still is by default the whole window, up to 2560 px wide (not wider than the recording). `width` asks for a size in
    px (320-3840) or `"native"`, the recording's own size; `zoom: "step"`
    frames each step the way the video zooms on it, all the way in. Pass
    them only when the user asked for a size or for zoomed stills.
@@ -400,20 +398,20 @@ too.
    a GIF's widths, `targetCheck`). They are
    not the user's to act on: do not pass them on. None is the script's to fix.
    `warnings.editedSinceRecorded` lists steps whose `scene.json` no longer
-   matches the frames; the summary says so and names the re-recording
+   matches the frames; the summary names the re-recording
    (`run({ video: { id } })`, or `derive` then `run` when a verb changed).
    Re-record only on request. `warnings.untagged`: the file has no video
    tag (`error` says why); not the user's to act on.
-   `links` holds the export's one-click actions for the user, each present
+   `links` holds the export's one-click actions, each present
    only where it works: `studio`, `file` (the file itself) and `copy` (the
    file to the clipboard; none for stills). `linksError`, set instead, says
    why there are none: tell the user in one line.
-   Every export report carries a `summary`, whatever its outcome
-   (`stillRunning`, this server's own answer, does not).
+   Every export report carries a `summary` (`stillRunning`, this server's
+   own answer, does not).
 3. `renderFailed` - export **once** more; never re-run the script for an
    export failure. `saveFailed` - its `error` names the folder and the
    system's reason (a folder that cannot be written): tell the user;
-   exporting again will not help until it is fixed. A stills export that
+   exporting again will not help until fixed. A stills export that
    stopped partway carries `partial: { folder, written, notWritten }`; the
    stills in `written` are whole PNGs.
 4. `pathUnknown`, `refusedBeforeExport` or `threw` - report it, quoting
@@ -428,11 +426,11 @@ which is not `off`: tell the user. `off`: only when asked. If the diff
 changes what a user sees, record that one flow (only the change),
 push and open the PR, then `attach({ takeId, into: "description" })`, or
 `"comment"` on a PR that is not yours. The video carries its own line; write no other. On `line.notWritten`,
-tell the user the video lacks its line, quoting why. A later `gh pr edit --body` drops the video. `ask`: offer once; on a no, nothing to see or a failed run (say why),
+tell the user the video lacks it, quoting why. A later `gh pr edit --body` drops the video. `ask`: offer once; on a no, nothing to see or a failed run (say why),
 the PR says nothing of it. `attach`: with no video, the PR description gets
 one line, `No demo: <why>`, and so does the user.
 `attach` takes `maxMB` as `export` does. On `stillRunning`, `report(id)`
-until the outcome is neither `attaching` nor `stillRunning`. On `busy`,
+until the outcome is not `attaching` or `stillRunning`. On `busy`,
 `report(id)` on the export in flight, then `attach` again. On `ghMissing`,
 `ghOutdated`, `ghSignedOut`, `notGitHub` or `copyFailed`, call
 `export({ takeId, maxMB: 9.5 })` and give the user its `file.path` to drag
@@ -449,7 +447,7 @@ outcome: quote its `error` or `detail`.
 When the `studio` tool is listed and there is no `links.studio`, **offer**
 it; never open it unasked. `studio({ takeId })`
 opens a window to edit and export the take.
-`{ outcome: "opened", takeId?, note? }`: say the window is open;
+`{ outcome: "opened", takeId?, note? }`: say it is open;
 quote `note` if set. Studio exports go to `~/Downloads`.
 
 ## 6. The format

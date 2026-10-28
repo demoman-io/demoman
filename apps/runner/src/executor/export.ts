@@ -26,7 +26,11 @@ import {
   withSummary,
   zoomWarnings,
 } from "@demoman/run-core";
-import type { SceneDocument } from "@demoman/scene-schema";
+import {
+  SCENE_ASPECTS,
+  type SceneAspect,
+  type SceneDocument,
+} from "@demoman/scene-schema";
 import type { Page } from "playwright";
 import { renderToFiles } from "../render.js";
 import { stageTimes } from "../stage-times.js";
@@ -168,6 +172,18 @@ export async function exportTake(
     return refused("takeNotFound", `there is no take ${takeId} in the library`);
   }
   const { scene, notes } = sceneRead;
+  // `keep` and `refresh` ask for each output's own aspect (never the MCP
+  // tool, whose schema leaves it out); the take's scene.json is untouched.
+  const aspect = args.aspect ?? scene.canvas.aspect;
+  if (!(SCENE_ASPECTS as readonly unknown[]).includes(aspect)) {
+    throw new Error(
+      `export's aspect is "auto", "16:9" or "9:16", not ${JSON.stringify(aspect)}`,
+    );
+  }
+  const framed: SceneDocument = {
+    ...scene,
+    canvas: { ...scene.canvas, aspect: aspect as SceneAspect },
+  };
   // Before noFrames: an expired version has none, and the move is to record
   // it again, not to run its script by hand.
   // A video.json that will not read does not stop an export with frames
@@ -213,14 +229,16 @@ export async function exportTake(
       quality,
       ...(settingUnreadable === undefined ? {} : { settingUnreadable }),
       maxBytes,
-      scene,
+      scene: framed,
       notes,
       bundle,
       store,
       deps,
       onProgress,
     });
-    return answer.outcome === "saved"
+    // `unlisted`: `keep` and `refresh` render into a temp folder they then
+    // empty, so a row would list a file that is gone. Not an MCP argument.
+    return answer.outcome === "saved" && args.unlisted !== true
       ? await listed(answer, takeId, scene, deps)
       : told(answer);
   } finally {
@@ -555,6 +573,15 @@ async function exportLeased(a: {
       error: "the render produced no file",
     });
   }
+  // The kept render's screens are what a refresh compares at: a video
+  // without them is a failed render, never one that "has none".
+  if (rendered.screens === undefined) {
+    return withSummary({
+      outcome: "renderFailed",
+      takeId,
+      error: `the ${asked} render reported no screens`,
+    });
+  }
   const name = exportFileName(asked, aspect, base);
   const bytes = tagger.apply(asked, file.bytes);
   const saved = await saveExport(deps.outDir, name, bytes);
@@ -582,6 +609,7 @@ async function exportLeased(a: {
       target: rendered.rendered,
       ...warnings,
       ...tagger.untagged,
+      screens: rendered.screens,
       ...(rendered.gifBudget === undefined
         ? {}
         : { gifSize: rendered.gifBudget }),

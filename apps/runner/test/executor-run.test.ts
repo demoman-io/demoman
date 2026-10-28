@@ -15,6 +15,7 @@ import {
   expect,
   it,
 } from "vitest";
+import { readDisplay } from "../src/display.js";
 import { createBrowserSession } from "../src/executor/browser.js";
 import { createLibrary } from "../src/executor/library.js";
 import { installExecutorEntry } from "../src/executor/page-ops.js";
@@ -285,6 +286,8 @@ describe("runScript", () => {
     // `waitForLoad` commits an action of its own (a `waitFor` navigation
     // wait, authored.ts), so the take holds two: the wait and the click.
     expect(doc?.actions.map((a) => a.kind)).toEqual(["waitFor", "click"]);
+    // An unplaced headless browser films motion at 1x, and the take says so.
+    expect(doc?.meta.capture.displayScale).toBe(1);
     // The picture, not the bundle: a keyframe on disk decodes to the
     // run's size at a real DPR, and is not one flat colour.
     const seen = await firstKeyframe(library, takeId as string);
@@ -426,6 +429,54 @@ describe("runScript", () => {
       );
     } finally {
       await blind.close();
+    }
+  }, 180_000);
+
+  // Decide once, record it: the scale the launch put the browser on is the
+  // one the take records, so keep never has to guess it from the frames.
+  it("records the display scale it filmed at on the take", async () => {
+    const placed = createBrowserSession({
+      headless: true,
+      log,
+      readDisplay: () => readDisplay({ DEMOMAN_DISPLAY: "1280x800@2" }),
+      onLaunched: async ({ context }) => {
+        await installResolver(context);
+        await installExecutorEntry(context);
+      },
+    });
+    try {
+      const library = createLibrary(home);
+      const report = await runScript(
+        script() as never,
+        {
+          session: placed,
+          library,
+          kits,
+          log,
+          sessions: [],
+          sessionStore: createSessionStore(home),
+          signinCommand: "npx demoman signin",
+          loadSessions: async () => ({ ok: true as const, files: [] }),
+          sessionsContext: {} as BrowserContext,
+        },
+        () => undefined,
+      );
+      expect(report.outcome, JSON.stringify({ report, lines })).toBe(
+        "complete",
+      );
+      const takeId = report.provenance.takeId as string;
+      const doc = await library.getScene(takeId);
+      expect(doc?.meta.capture.displayScale).toBe(2);
+      // The record agrees with the picture: the motion was filmed at 2x.
+      const spans =
+        (await library.frameStore(takeId).getBundle(takeId))?.motionSpans ?? [];
+      expect(spans.length, JSON.stringify(spans)).toBeGreaterThan(0);
+      expect(
+        Math.max(...spans.map((s) => s.width)),
+        JSON.stringify(spans),
+      ).toBeGreaterThan(1280 * 1.5);
+    } finally {
+      await placed.close();
     }
   }, 180_000);
 

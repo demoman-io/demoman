@@ -32,6 +32,8 @@ const FILE: RenderedFile = {
 const JOB = "job-1";
 const TARGET = { width: 1920, height: 1080, fps: 60 };
 
+const NO_SCREENS = { steps: 0, moments: [] };
+
 describe("settleRender", () => {
   it("one output, then finished, is the file", () => {
     expect(
@@ -99,6 +101,7 @@ describe("reportForSave", () => {
     file: FILE,
     aspect: "16:9" as const,
     target: TARGET,
+    screens: NO_SCREENS,
   };
 
   // The CLI's save has no browser download behind it. Red if reportForSave
@@ -106,6 +109,7 @@ describe("reportForSave", () => {
   // number on the way (CLI executor plan 2, departure "downloadId").
   it("carries a null downloadId through, for a file no browser download made", () => {
     const report = reportForSave({
+      screens: NO_SCREENS,
       fileType: "mp4",
       takeId: "t1",
       file: {
@@ -142,6 +146,7 @@ describe("reportForSave", () => {
     });
     expect(report).toEqual({
       outcome: "saved",
+      screens: NO_SCREENS,
       fileType: "mp4",
       takeId: "take-1",
       file: { path: "/D/demo.mp4", byteLength: 123456, downloadId: 9 },
@@ -215,6 +220,7 @@ describe("exportVerdict, the size of an MP4", () => {
     byteLength: number;
   }): ExportReport => ({
     outcome: "saved",
+    screens: NO_SCREENS,
     fileType: "mp4",
     takeId: "t",
     file: { path: "/x.mp4", byteLength: 6_412_000, downloadId: null },
@@ -281,6 +287,7 @@ describe("exportVerdict, an MP4 with a size cap", () => {
     logo: string | null = null,
   ): ExportReport => ({
     outcome: "saved",
+    screens: NO_SCREENS,
     fileType: "mp4",
     takeId: "t",
     file: { path: "/x.mp4", byteLength, downloadId: null },
@@ -461,6 +468,7 @@ describe("exportVerdict", () => {
     { outcome: "exporting", phase: "saving", done: 10, total: 10 },
     {
       outcome: "saved",
+      screens: NO_SCREENS,
       fileType: "mp4",
       takeId: "t",
       file: { path: "/D/a.mp4", byteLength: 1, downloadId: 1 },
@@ -803,6 +811,7 @@ describe("zoomWarnings and the verdict", () => {
       zooms.filter((z) => z.kind === "lowered" && z.by === "cap"),
     ).toHaveLength(2);
     const report = reportForSave({
+      screens: NO_SCREENS,
       fileType: "mp4",
       takeId: "t",
       file: FILE,
@@ -867,6 +876,7 @@ describe("zoomWarnings and the verdict", () => {
 describe("file types", () => {
   it("names the file type on a saved mp4 or gif", () => {
     const report = reportForSave({
+      screens: NO_SCREENS,
       fileType: "gif",
       takeId: "t",
       file: FILE,
@@ -1022,6 +1032,7 @@ describe("a GIF kept under its byte budget, in the summary", () => {
     },
   ) =>
     reportForSave({
+      screens: NO_SCREENS,
       fileType: "gif",
       takeId: "t",
       file: { ...FILE, name: "a.gif", contentType: "image/gif" },
@@ -1131,6 +1142,55 @@ describe("stills the 4K cap cut", () => {
   });
 });
 
+describe("a saved video names its screens", () => {
+  const screens = {
+    steps: 3,
+    moments: [
+      { step: 0, ms: 400 },
+      { step: null, ms: 2100 },
+    ],
+  };
+  const save = (fileType: "mp4" | "gif") =>
+    reportForSave({
+      takeId: "t",
+      fileType,
+      file: {
+        ref: "t:a",
+        name: "a",
+        byteLength: 10,
+        contentType: "video/mp4",
+        detailViolations: [],
+      },
+      saved: { kind: "saved", path: "/D/a", savedAs: "a", downloadId: null },
+      aspect: "16:9",
+      target: { width: 1920, height: 1080, fps: 60 },
+      screens,
+    });
+
+  // Red if the report drops the screens, or rebuilds them.
+  it("carries them unchanged on an MP4 and a GIF", () => {
+    expect(save("mp4")).toMatchObject({ screens });
+    expect(save("gif")).toMatchObject({ screens });
+  });
+
+  // Red if a stills report grows screens.
+  it("gives stills none", () => {
+    const report = reportForStillsSave({
+      takeId: "t",
+      aspect: "16:9",
+      target: { width: 2560, height: 1440, fps: 0 },
+      facts: {
+        logoWarning: null,
+        unavailableSpans: [],
+        detailViolations: [],
+        unplacedStills: [],
+      },
+      saved: { kind: "saved", path: "/o/S", files: [] },
+    });
+    expect(report).not.toHaveProperty("screens");
+  });
+});
+
 describe("a save that failed, said for the file asked for", () => {
   // Red if a stills or GIF failure is told as a video the caller never asked for.
   it("names stills and a GIF, and keeps 'video' for an MP4", () => {
@@ -1178,6 +1238,7 @@ describe("a save that failed, said for the file asked for", () => {
 
   it("carries the file type from a GIF save that failed", () => {
     const report = reportForSave({
+      screens: NO_SCREENS,
       fileType: "gif",
       takeId: "t",
       file: { ...FILE, name: "a.gif", contentType: "image/gif" },

@@ -1,6 +1,7 @@
 import type { SceneDocument } from "@demoman/scene-schema";
 import type { FrameBundle, MarkerEntry } from "../bundle.js";
 import { type CameraKey, sampleCamera } from "../plan/camera.js";
+import { type Screens, screenMoments } from "../plan/moments.js";
 import type { ClampedRange } from "../plan/ranges.js";
 import type { LoweredZoom } from "../plan/resolve.js";
 import { type Timeline, toOutputMs, toSourceMs } from "../plan/timeline.js";
@@ -37,6 +38,9 @@ export interface RenderResult {
   /** What the plan clamped (`ResolvedPlan.clampedRanges`), from the
    *  composition this render walked, so the report and the picture agree. */
   clampedRanges: ClampedRange[];
+  /** The still screens this render stops on (`screenMoments`), decided
+   *  from the composition it walked. No scene, no steps: none. */
+  screens: Screens;
 }
 
 /**
@@ -203,6 +207,9 @@ export async function renderScene(args: {
     unavailableSpans: ports.frames.unavailable?.() ?? [],
     loweredZooms: composed.loweredZooms,
     clampedRanges: composed.clampedRanges,
+    screens: scene
+      ? screenMoments(composed, scene, bundle)
+      : { steps: 0, moments: [] },
   };
 }
 

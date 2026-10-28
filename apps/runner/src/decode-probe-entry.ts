@@ -13,9 +13,11 @@
  * duplicated behind two globals, and `decodeFrame` and `sampleFrames` are
  * the same `Input`/`CanvasSink` open with different questions asked of it.
  *
- * No production path bundles or injects this file. `mux.test.ts` and
- * `acceptance.slow.test.ts` do, via the same `bundleEntry` + `page.addScriptTag`
- * mechanism `mux.ts`/`render.ts` use for their own entries — additively, so
+ * No run or export injects this file. `refresh`'s `samePicture` does, on a
+ * work page of its own, and so the package prebuilds it (`PAGE_ENTRIES`).
+ * `mux.test.ts` and `acceptance.slow.test.ts` do too, via the same
+ * `bundleEntry` + `page.addScriptTag` mechanism `mux.ts`/`render.ts` use for
+ * their own entries — additively, so
  * `MUX_ENTRY_GLOBAL` (production) and `DECODE_PROBE_GLOBAL` (this file) can
  * coexist on one page without either overwriting the other.
  *
@@ -118,7 +120,53 @@ export interface CropReading {
   grey?: string;
 }
 
+/** One file as `screensDiff` read it; `length` and `frame` (its shortest
+ *  frame) in seconds. */
+export interface PictureFile {
+  width: number;
+  height: number;
+  length: number;
+  frame: number;
+}
+
+export interface ScreensDiff {
+  a: PictureFile;
+  b: PictureFile;
+  /** Per moment pair, per look (in `looks` order): the share of the
+   *  picture that look counts changed at that moment in `b`; null where
+   *  either moment lies past its film's end. Empty when the two differ in
+   *  frame size. */
+  changed: (number[] | null)[];
+}
+
+/** One file could not be read as its type: `a` or `b`, and why. */
+export interface PictureUnreadable {
+  unreadable: "a" | "b";
+  error: string;
+}
+
+/** One way of looking for a change: average each pixel's colour over the
+ *  `block`-wide square around it (`blockMoves`), and count it changed when
+ *  any channel's mean moved more than `levels` (0-255). */
+export interface PictureLook {
+  block: number;
+  levels: number;
+}
+
+export interface PictureOptions {
+  /** The width both films are drawn at before comparing. */
+  width: number;
+  looks: PictureLook[];
+}
 export interface DecodeProbeEntry {
+  screensDiff(
+    a: string,
+    b: string,
+    type: "video/mp4" | "image/gif",
+    msA: number[],
+    msB: number[],
+    options: PictureOptions,
+  ): Promise<ScreensDiff | PictureUnreadable>;
   /** Every frame of the film at `url`, decoded in order: its timestamp, and
    *  how much its picture changed from the frame before. */
   frameTimes(url: string): Promise<FrameTimes>;
@@ -713,6 +761,284 @@ async function frameTimes(url: string): Promise<FrameTimes> {
   return { width, height, timesSec, changes };
 }
 
+/** `source` drawn at `width` wide: its RGBA pixels, row-major. */
+interface Drawn {
+  width: number;
+  height: number;
+  rgba: Uint8ClampedArray;
+}
+
+function drawnOf(
+  source: CanvasImageSource,
+  sw: number,
+  sh: number,
+  width: number,
+): Drawn {
+  const height = Math.max(1, Math.round((width * sh) / sw));
+  const work = new OffscreenCanvas(width, height);
+  const ctx = work.getContext("2d") as OffscreenCanvasRenderingContext2D;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, 0, 0, width, height);
+  return { width, height, rgba: ctx.getImageData(0, 0, width, height).data };
+}
+
+/**
+ * Per pixel: how far its colour moved from `a` to `b`, as the largest of
+ * the three channels' moves, each averaged over the `block`-wide square
+ * around it (clipped at the frame's edges). Averaging first is what tells a
+ * change from the encoder's noise: that noise is single pixels scattered
+ * along edges, a change is a patch (a glyph, a fill) that moves together.
+ * Colour, not grey: a blue button turned a green of the same lightness
+ * keeps its grey level.
+ */
+function blockMoves(a: Drawn, b: Drawn, block: number): Float32Array {
+  const { width: w, height: h } = a;
+  const W = w + 1;
+  const lo = Math.floor((block - 1) / 2);
+  const hi = block - 1 - lo;
+  const moves = new Float32Array(w * h);
+  // One summed-area table per channel, of a minus b.
+  for (let c = 0; c < 3; c++) {
+    const sum = new Float64Array(W * (h + 1));
+    for (let y = 0; y < h; y++) {
+      let row = 0;
+      for (let x = 0; x < w; x++) {
+        const p = (y * w + x) * 4 + c;
+        row += (a.rgba[p] as number) - (b.rgba[p] as number);
+        sum[(y + 1) * W + x + 1] = (sum[y * W + x + 1] as number) + row;
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      const y0 = Math.max(0, y - lo);
+      const y1 = Math.min(h, y + hi + 1);
+      for (let x = 0; x < w; x++) {
+        const x0 = Math.max(0, x - lo);
+        const x1 = Math.min(w, x + hi + 1);
+        const total =
+          (sum[y1 * W + x1] as number) -
+          (sum[y0 * W + x1] as number) -
+          (sum[y1 * W + x0] as number) +
+          (sum[y0 * W + x0] as number);
+        const move = Math.abs(total / ((x1 - x0) * (y1 - y0)));
+        const i = y * w + x;
+        if (move > (moves[i] as number)) moves[i] = move;
+      }
+    }
+  }
+  return moves;
+}
+
+/** The share of the picture `look` counts changed from `a` to `b`. */
+function changedShare(a: Drawn, b: Drawn, look: PictureLook): number {
+  const moves = blockMoves(a, b, look.block);
+  let changed = 0;
+  for (const m of moves) if (m > look.levels) changed++;
+  return changed / moves.length;
+}
+
+/** A file's frames by time, drawn small. `at` takes ascending times. */
+interface PictureReader extends PictureFile {
+  at(times: number[]): Promise<Drawn[]>;
+  close(): void;
+}
+
+async function pictureReader(
+  url: string,
+  type: "video/mp4" | "image/gif",
+  width: number,
+): Promise<PictureReader> {
+  if (type === "image/gif") {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${url} answered ${res.status}`);
+    const decoder = new ImageDecoder({ data: await res.arrayBuffer(), type });
+    try {
+      await decoder.tracks.ready;
+      const count = decoder.tracks.selectedTrack?.frameCount ?? 0;
+      if (count === 0) throw new Error(`${url} has no frames`);
+      // A GIF holds a frame that does not change for as long as it lasts,
+      // so its frames are found by time, never by index.
+      const ends: number[] = [];
+      let w = 0;
+      let h = 0;
+      let end = 0;
+      for (let i = 0; i < count; i++) {
+        const { image } = await decoder.decode({ frameIndex: i });
+        w = image.displayWidth;
+        h = image.displayHeight;
+        end += (image.duration ?? 0) / 1e6;
+        ends.push(end);
+        image.close();
+      }
+      const frame = Math.min(
+        ...ends.map((e, i) => e - (ends[i - 1] ?? 0)).filter((d) => d > 0),
+      );
+      const indexAt = (t: number) => {
+        const i = ends.findIndex((e) => t < e);
+        return i < 0 ? count - 1 : i;
+      };
+      const drawnAt = async (i: number) => {
+        const { image } = await decoder.decode({ frameIndex: i });
+        try {
+          return drawnOf(image, w, h, width);
+        } finally {
+          image.close();
+        }
+      };
+      return {
+        width: w,
+        height: h,
+        length: end,
+        frame,
+        at: async (times) => {
+          const out: Drawn[] = [];
+          for (const t of times) out.push(await drawnAt(indexAt(t)));
+          return out;
+        },
+        close: () => decoder.close(),
+      };
+    } catch (error) {
+      decoder.close();
+      throw error;
+    }
+  }
+  const input = new Input({
+    source: new UrlSource(url, { getRetryDelay: () => null }),
+    formats: ALL_FORMATS,
+  });
+  const track = await input.getPrimaryVideoTrack();
+  if (track === null) throw new Error(`${url} has no video track`);
+  if (!(await track.canDecode())) {
+    throw new Error(
+      `${url}'s video track (${track.codec ?? "unknown codec"}) cannot be decoded in this browser`,
+    );
+  }
+  const length = await input.computeDuration();
+  const rate = (await track.computePacketStats()).averagePacketRate;
+  const frame = rate > 0 ? 1 / rate : 1 / 30;
+  const at = async (times: number[]) => {
+    const drawn: Drawn[] = [];
+    for await (const wrapped of new CanvasSink(track).canvasesAtTimestamps(
+      times,
+    )) {
+      const t = times[drawn.length] as number;
+      if (!wrapped) throw new Error(`no frame decoded at ${t.toFixed(3)}s`);
+      const c = wrapped.canvas as OffscreenCanvas;
+      drawn.push(drawnOf(c, c.width, c.height, width));
+    }
+    return drawn;
+  };
+  return {
+    width: track.displayWidth,
+    height: track.displayHeight,
+    length,
+    frame,
+    at,
+    close: () => input.dispose(),
+  };
+}
+
+/**
+ * `a` at `msA[i]` against `b` at `msB[i]`, for the moments the renders
+ * recorded as still screens. Read here, next to the pixels, so no frame
+ * crosses `page.evaluate`. Throws, like `sampleFrames`: a comparison cannot
+ * use a false verdict.
+ */
+async function screensDiff(
+  urlA: string,
+  urlB: string,
+  type: "video/mp4" | "image/gif",
+  msA: number[],
+  msB: number[],
+  o: PictureOptions,
+): Promise<ScreensDiff | PictureUnreadable> {
+  try {
+    const ra = await blamed("a", urlA, type, o.width);
+    try {
+      const rb = await blamed("b", urlB, type, o.width);
+      try {
+        return await diffOf(ra, rb, msA, msB, o);
+      } finally {
+        rb.close();
+      }
+    } finally {
+      ra.close();
+    }
+  } catch (error) {
+    if (error instanceof Unreadable)
+      return { unreadable: error.side, error: error.message };
+    throw error;
+  }
+}
+
+/** A failure to read one file's frames, and which file. */
+class Unreadable extends Error {
+  constructor(
+    readonly side: "a" | "b",
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+/** `pictureReader`, with every failure to read it blamed on `side`. */
+async function blamed(
+  side: "a" | "b",
+  url: string,
+  type: "video/mp4" | "image/gif",
+  width: number,
+): Promise<PictureReader> {
+  const blame = <T>(p: Promise<T>) =>
+    p.catch((error: unknown) => {
+      throw new Unreadable(side, error);
+    });
+  const r = await blame(pictureReader(url, type, width));
+  return {
+    ...r,
+    at: (times) => blame(r.at(times)),
+  };
+}
+
+async function diffOf(
+  ra: PictureReader,
+  rb: PictureReader,
+  msA: number[],
+  msB: number[],
+  o: PictureOptions,
+): Promise<ScreensDiff> {
+  const file = (r: PictureReader): PictureFile => ({
+    width: r.width,
+    height: r.height,
+    length: r.length,
+    frame: r.frame,
+  });
+  const answer = {
+    a: file(ra),
+    b: file(rb),
+    changed: [] as (number[] | null)[],
+  };
+  if (ra.width !== rb.width || ra.height !== rb.height) return answer;
+  // A moment at or past the length has no frame; a request there decodes none.
+  const within = (r: PictureReader, ms: number) => ms / 1000 < r.length;
+  const keep = msA.map((a, i) =>
+    within(ra, a) && within(rb, msB[i] as number) ? i : -1,
+  );
+  const ids = keep.filter((i) => i >= 0);
+  const ga = await ra.at(ids.map((i) => (msA[i] as number) / 1000));
+  const gb = await rb.at(ids.map((i) => (msB[i] as number) / 1000));
+  for (const i of msA.keys()) {
+    const k = ids.indexOf(i);
+    answer.changed.push(
+      k < 0
+        ? null
+        : o.looks.map((look) =>
+            changedShare(ga[k] as Drawn, gb[k] as Drawn, look),
+          ),
+    );
+  }
+  return answer;
+}
+
 /** Mean absolute difference per colour channel (alpha left out), 0–255. */
 function meanAbsoluteDifference(
   a: Uint8ClampedArray,
@@ -729,6 +1055,7 @@ function meanAbsoluteDifference(
 }
 
 const entry: DecodeProbeEntry = {
+  screensDiff,
   decodeFrame,
   readCrops,
   sampleFrames,

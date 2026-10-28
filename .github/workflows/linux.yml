@@ -68,6 +68,24 @@ jobs:
       - name: The packed install films and exports (${{ matrix.os }})
         run: xvfb-run -a pnpm --filter @demoman/cli test:package
 
+  # keep and refresh from the packed install, in a temp git repo: an unchanged
+  # app leaves the kept file alone, a changed heading replaces it (decoded
+  # frames show it), a broken target fails and leaves it. Measured 33 s of
+  # test locally; the rest is install, build and Chromium.
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          browser: "true"
+      - run: sudo apt-get update && sudo apt-get install -y xvfb x11-xserver-utils
+      - name: Keep and refresh from the packed install
+        run: xvfb-run -a pnpm --filter @demoman/cli exec vitest run --config vitest.package.config.ts test-package/refresh.test.ts
+
   # Setup from the packed package as the runner's own user, who is not root:
   # it downloads Chromium, then either launches it or names the one sudo
   # command and stops. It never runs sudo itself, and never says installed

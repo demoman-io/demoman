@@ -497,6 +497,16 @@ const Meta = z.object({
      * `capture` without it and rebuild a phone take on the desktop.
      */
     device: CaptureDeviceSchema.optional(),
+    /**
+     * The display scale the run filmed motion at: the scale screencast spans
+     * follow, which `dpr` (the stills' scale) is not. Written by the run that
+     * decided it (the CLI's browser session, at launch), so `keep` reads it
+     * rather than guessing from the frames. Absent on takes filmed before it
+     * and where the run could not know it (a visible window, whose scale is
+     * the OS's). Widening with an optional field is backward compatible, as
+     * `mode`'s was: `CURRENT_SCHEMA_VERSION` stays and no migration is owed.
+     */
+    displayScale: z.number().positive().optional(),
   }),
   /**
    * Which render this scene wants: `screen` serves the frames the take

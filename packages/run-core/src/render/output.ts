@@ -25,6 +25,7 @@ import {
   type RenderTarget,
   renderScene,
   renderStills,
+  type Screens,
   type UnavailableSpan,
   type UnplacedStill,
 } from "@demoman/compositor";
@@ -143,6 +144,9 @@ export interface RenderFacts {
   /** Set when the caller gave the MP4 a size cap (`mp4Cap`): the steps it
    *  took, and whether the kept file is within it. */
   videoCap?: VideoCap;
+  /** The still screens of the render that was kept. Set for mp4 and gif;
+   *  stills have none. */
+  screens?: Screens;
 }
 
 /**
@@ -534,6 +538,9 @@ export async function renderOutput(input: {
             },
           }),
       ...(videoCap === undefined ? {} : { videoCap }),
+      // From `done`, the render kept: a capped or budgeted file is the
+      // last rung that was kept, and its screens are that render's.
+      screens: result.screens,
     },
   };
 }

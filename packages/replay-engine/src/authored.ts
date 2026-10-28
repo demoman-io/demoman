@@ -245,6 +245,9 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
    *  default in between. Absent when the script names a device, which is
    *  its own size (spec 2026-10-10 §3); a run with neither is refused. */
   viewport?: { width: number; height: number };
+  /** The display scale the caller's browser films motion at, which only it
+   *  decided (`meta.capture.displayScale`). Absent when it does not know. */
+  displayScale?: number;
   /**
    * The take's branding when the script names none (`look.branding` wins).
    * The caller's, because only the caller can read the author's brand kit:
@@ -979,6 +982,8 @@ export function assembleAuthored(
     camera: CameraPlan;
     /** The device the run filmed as; absent for the desktop. */
     device?: CaptureDevice;
+    /** The caller's display scale; absent when it does not know. */
+    displayScale?: number;
   },
 ): { document: SceneDocument | null; error: string | null } {
   if (args.actions.length === 0) return { document: null, error: null };
@@ -1011,6 +1016,9 @@ export function assembleAuthored(
         dpr: args.walked.counters.dpr,
         mode: "authored",
         ...(args.device === undefined ? {} : { device: args.device }),
+        ...(args.displayScale === undefined
+          ? {}
+          : { displayScale: args.displayScale }),
       },
       // The frames this take has are its own, which is what `screen` means —
       // the same value `finalize` writes for every new take. A Rebuild of it
@@ -1258,6 +1266,9 @@ export async function runAuthored(
     // was recorded on (`cameraInputs`).
     camera: deps.cameraFor(inputs.actions, viewport, inputs.scaleAt),
     ...(device === null ? {} : { device: captureDeviceOf(device) }),
+    ...(deps.displayScale === undefined
+      ? {}
+      : { displayScale: deps.displayScale }),
   });
 
   return {

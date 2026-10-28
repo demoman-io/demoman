@@ -676,3 +676,28 @@ describe("schema v7 — authored capture mode", () => {
     expect(CURRENT_SCHEMA_VERSION).toBe(13);
   });
 });
+
+describe("meta.capture.displayScale", () => {
+  it("accepts a document with the display scale and one without, at the same schema version", () => {
+    // Premise: the fixture carries no displayScale, as every take filmed
+    // before the field existed does.
+    expect(readonlyFixture.meta.capture.displayScale).toBeUndefined();
+    expect(SceneDocumentSchema.safeParse(validDocument()).success).toBe(true);
+
+    const doc = validDocument();
+    doc.meta.capture.displayScale = 2;
+    const parsed = SceneDocumentSchema.parse(doc);
+    expect(parsed.meta.capture.displayScale).toBe(2);
+    expect(CURRENT_SCHEMA_VERSION).toBe(13);
+  });
+
+  it("refuses a display scale that is not positive", () => {
+    for (const bad of [0, -2]) {
+      const doc = validDocument();
+      doc.meta.capture.displayScale = bad;
+      expect(SceneDocumentSchema.safeParse(doc).success, String(bad)).toBe(
+        false,
+      );
+    }
+  });
+});

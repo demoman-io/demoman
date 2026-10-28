@@ -214,6 +214,10 @@
                 "userAgent"
               ],
               "additionalProperties": false
+            },
+            "displayScale": {
+              "type": "number",
+              "exclusiveMinimum": 0
             }
           },
           "required": [

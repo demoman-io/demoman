@@ -49,6 +49,12 @@ export {
   sampleSegment,
   segmentDurationMs,
 } from "./plan/cursor.js";
+export {
+  MIN_SCREEN_MS,
+  type ScreenMoment,
+  type Screens,
+  screenMoments,
+} from "./plan/moments.js";
 export { planScene, RETIMING_DEFAULTS } from "./plan/plan.js";
 export {
   type ClampedRange,

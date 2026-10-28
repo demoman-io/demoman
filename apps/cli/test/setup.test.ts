@@ -1776,3 +1776,41 @@ describe("setup's OpenCode step", () => {
     );
   });
 });
+
+describe("setup --browser-only", () => {
+  const DEPS = "/opt/node/bin/node /pw/cli.js install-deps chromium";
+  const LIBNSS = {
+    missingLibraries: true,
+    line: "error while loading shared libraries: libnss3.so: cannot open shared object file",
+  };
+
+  it("installs Chromium, touches no agent and asks nothing, and exits 0", async () => {
+    const m = machine({
+      platform: "linux",
+      arch: "x64",
+      ask: async () => {
+        throw new Error("a question was asked");
+      },
+    });
+    expect(await setup(m.d, { browserOnly: true })).toBe(0);
+    expect(m.out()).toContain("browser: Chromium installed");
+    expect(m.calls).toEqual(["node /pw/cli.js install chromium --no-shell"]);
+    expect(m.settingsReads.n).toBe(0);
+    expect(m.writes).toEqual([]);
+  });
+
+  it("names the sudo command and exits 1 when the libraries are missing", async () => {
+    const m = machine({
+      platform: "linux",
+      arch: "x64",
+      browserLaunches: async () => LIBNSS,
+    });
+    expect(await setup(m.d, { browserOnly: true })).toBe(1);
+    expect(m.out()).toContain(`sudo ${DEPS}`);
+    expect(m.calls.some((c) => c.startsWith("claude"))).toBe(false);
+  });
+
+  it("is a flag setup's arguments accept", () => {
+    expect(parseSetupArgs(["--browser-only"])).toEqual({ browserOnly: true });
+  });
+});

@@ -8,6 +8,7 @@ export * from "./door.js";
 export * from "./export/outputs.js";
 export * from "./export/report.js";
 export * from "./export/target.js";
+export * from "./kept/file.js";
 export * from "./logo-file.js";
 export * from "./pull-requests.js";
 export * from "./redaction.js";
@@ -37,4 +38,5 @@ export type {
 } from "./snapshot-walk.js";
 export type { TelemetryEvent } from "./telemetry-event.js";
 export * from "./url.js";
+export * from "./video-name.js";
 export * from "./zoom-defaults.js";

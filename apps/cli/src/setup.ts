@@ -266,6 +266,8 @@ const AGENT_FLAGS: ReadonlyArray<[string, AgentName]> = [
 export interface SetupFlags {
   /** Ask nothing, as without a terminal: for an agent's pseudo-terminal. */
   yes?: boolean;
+  /** Install Chromium and nothing else: CI, where no agent is wanted. */
+  browserOnly?: boolean;
   agents?: AgentName[];
   quality?: ExportQuality;
   pullRequests?: PullRequestsValue;
@@ -277,6 +279,7 @@ export function parseSetupArgs(
 ): SetupFlags | { refused: string } {
   let values: {
     yes?: boolean;
+    "browser-only"?: boolean;
     agents?: string;
     quality?: string;
     "pull-requests"?: string;
@@ -286,6 +289,7 @@ export function parseSetupArgs(
       args,
       options: {
         yes: { type: "boolean" },
+        "browser-only": { type: "boolean" },
         agents: { type: "string" },
         quality: { type: "string" },
         "pull-requests": { type: "string" },
@@ -297,6 +301,7 @@ export function parseSetupArgs(
     return { refused: error instanceof Error ? error.message : String(error) };
   }
   const flags: SetupFlags = values.yes === true ? { yes: true } : {};
+  if (values["browser-only"] === true) flags.browserOnly = true;
   if (values.agents !== undefined) {
     const words = values.agents.split(",").map((w) => w.trim());
     const unknown = words.find(
@@ -1090,6 +1095,7 @@ async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
     return 1;
   }
   d.say(`Demoman ${d.version} setup`);
+  if (flags.browserOnly === true) return (await browser(d)) ? 0 : 1;
   // Every question before any change, so a cancel changes nothing.
   const questions: Questions = {};
   const found =

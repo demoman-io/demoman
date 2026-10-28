@@ -2,7 +2,7 @@
 //
 // Builds the published `demoman` package into apps/cli/pkg (launch B):
 //   dist/demoman.mjs   the node half: apps/mcp's CLI path + the runner, one file
-//   dist/page/*.js     the four in-page bundles, prebuilt, so no esbuild ships
+//   dist/page/*.js     the in-page bundles, prebuilt, so no esbuild ships
 //   dist/recipe.md     apps/mcp/recipe.md
 //   dist/skills/       the record-demo skill, which setup gives Cursor
 //   dist/studio/       the studio's pages (apps/studio's pages build)

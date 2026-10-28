@@ -7,9 +7,10 @@
 //
 // First, before anything that could print: console.log/info/debug to stderr.
 import "@demoman/mcp/stdout-guard";
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { execFile } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -20,20 +21,39 @@ import {
   serveCli,
 } from "@demoman/mcp/serve-cli";
 import { createUpdateCheck } from "@demoman/mcp/update-check";
+import { isExportQuality } from "@demoman/run-core";
 import {
   createLocalExecutor,
+  execGit,
   fullChromiumPath,
+  type KeepAnswer,
+  type KeepOutput,
+  keepVideo,
   PAGE_ENTRIES,
+  type RefreshResult,
+  readRepo,
+  refreshKept,
   signin,
   signinAccount,
   usePrebuiltPages,
 } from "@demoman/runner/package";
-import { couldNotCheck, postToolUseAnswer } from "@demoman/runner/studio";
+import {
+  couldNotCheck,
+  createBrowserSession,
+  createLibrary,
+  createVideoStore,
+  postToolUseAnswer,
+} from "@demoman/runner/studio";
 import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshAgentSkill } from "./agent-skill.js";
+import { ciSetup } from "./ci-workflow.js";
+import { deliver } from "./deliver.js";
+import { keepLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
+import { refreshLines } from "./refresh-lines.js";
 import { parseSetupArgs, setup } from "./setup.js";
 import {
+  ciPrompts,
   readSkill,
   readTextFile,
   realSetupDeps,
@@ -64,11 +84,19 @@ const USAGE = `demoman ${VERSION}
 
   npx demoman setup          install the browser and connect your coding agents
     [--yes] [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
+  npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
+  npx demoman setup --ci [--trigger push|<environment>] [--route pr|main]
+                             write .github/workflows/demoman.yml, which refreshes the kept videos on each merge
   npx demoman signin <url>   sign in to your app once, so agents can record behind the login
   npx demoman signin --account <name> [--site <origin>] [--project <dir>]
                              sign in as a demo account from .demoman/accounts.json (CI, or a check)
   npx demoman studio [take]  open the Studio, to look over and edit takes and export them
   npx demoman studio --stop  close the Studio
+  npx demoman keep <video> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
+                             keep a video current: its re-film file in .demoman/videos/, its exports in the repo
+  npx demoman refresh [<video>…] [--base-url <origin>] [--deliver pr|main]
+                             film the kept videos again and replace the exports whose picture changed;
+                             --deliver commits them on main, or opens a pull request (CI)
   demoman mcp [--headed]     serve Demoman's tools on stdio (your agent runs this);
                              --headed shows the browser while it records
   demoman hook post-tool-use answer Claude Code's PostToolUse hook on stdin (the plugin runs this)
@@ -235,6 +263,267 @@ async function studio(args: string[]): Promise<void> {
   });
 }
 
+/** `demoman keep`: the video's kept file and its outputs, in the repo the
+ *  command runs in. Paths are the shell's, relative to the current folder. */
+async function keep(args: string[]): Promise<void> {
+  const usage = (said: string): never => {
+    process.stderr.write(`demoman: ${said}\n\n${USAGE}`);
+    process.exit(2);
+  };
+  let values: {
+    to?: string[];
+    gif?: string[];
+    report?: string;
+    quality?: string;
+  };
+  let positionals: string[];
+  try {
+    ({ values, positionals } = parseArgs({
+      args,
+      options: {
+        to: { type: "string", multiple: true },
+        gif: { type: "string", multiple: true },
+        report: { type: "string" },
+        quality: { type: "string" },
+      },
+      allowPositionals: true,
+      strict: true,
+    }));
+  } catch (error) {
+    return usage(error instanceof Error ? error.message : String(error));
+  }
+  const [video, ...extra] = positionals;
+  const asked = [
+    ...(values.to ?? []).map((a) => ["mp4", a] as const),
+    ...(values.gif ?? []).map((a) => ["gif", a] as const),
+  ];
+  if (video === undefined || extra.length > 0 || asked.length === 0) {
+    return usage("keep takes one video and at least one --to or --gif");
+  }
+  // Share by default: every refresh commits these files again.
+  const quality = values.quality ?? "share";
+  if (!isExportQuality(quality)) {
+    return usage(`--quality is share, high or full, not "${quality}"`);
+  }
+  const fail = (detail: string): never => {
+    process.stderr.write(`demoman keep: ${detail}\n`);
+    process.exit(1);
+  };
+  const repo = await readRepo(process.cwd(), execGit);
+  if (!repo.ok) {
+    return fail(`${repo.none} — run keep inside the repo the video is kept in`);
+  }
+  const root = repo.repo.root;
+  const inRoot = (p: string) => relative(root, resolve(p));
+  const to: KeepOutput[] = asked.map(([fileType, arg]) => {
+    const m = /^(.*):(auto|16:9|9:16)$/.exec(arg);
+    return {
+      path: inRoot(m?.[1] ?? arg),
+      fileType,
+      quality,
+      ...(m?.[2] === undefined
+        ? {}
+        : { aspect: m[2] as NonNullable<KeepOutput["aspect"]> }),
+    };
+  });
+  requirePageBundles(
+    join(fileURLToPath(new URL(".", import.meta.url)), "page"),
+    (line) => fail(line),
+  );
+  const home = demomanHome();
+  const library = createLibrary(home);
+  const videos = createVideoStore(home, library, { log });
+  // Renders out of sight, as the Studio's exports do.
+  const session = createBrowserSession({
+    headless: true,
+    executablePath: fullChromiumPath(),
+    installCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup`,
+    log,
+  });
+  let answer: KeepAnswer | { threw: string };
+  try {
+    answer = await keepVideo(
+      {
+        video,
+        to,
+        ...(values.report === undefined
+          ? {}
+          : { report: inRoot(values.report) }),
+        repoRoot: root,
+      },
+      {
+        home,
+        library,
+        videos,
+        git: execGit,
+        log,
+        export: {
+          library,
+          videos,
+          session,
+          door: "agent",
+          home,
+          // Each output renders into a temp folder of keep's own.
+          outDir: tmpdir(),
+          log,
+        },
+      },
+    );
+  } catch (error) {
+    answer = { threw: error instanceof Error ? error.message : String(error) };
+  } finally {
+    await session
+      .close()
+      .catch((error: unknown) =>
+        log(`the browser would not close (${String(error)})`),
+      );
+  }
+  if ("threw" in answer) return fail(answer.threw);
+  if (!answer.ok) return fail(answer.detail);
+  process.stdout.write(`${keepLines(answer).join("\n")}\n`);
+  process.exit(0);
+}
+
+/** `demoman refresh`: every kept video in the repo (or those named) filmed
+ *  again with no agent; an export is replaced only when its picture changed.
+ *  Always into a library thrown away after; off CI (`CI` not "true") the
+ *  user's own is read to say what it has that a kept file lacks. */
+async function refresh(args: string[]): Promise<void> {
+  const usage = (said: string): never => {
+    process.stderr.write(`demoman: ${said}\n\n${USAGE}`);
+    process.exit(2);
+  };
+  let values: { "base-url"?: string; deliver?: string };
+  let positionals: string[];
+  try {
+    ({ values, positionals } = parseArgs({
+      args,
+      options: {
+        "base-url": { type: "string" },
+        deliver: { type: "string" },
+      },
+      allowPositionals: true,
+      strict: true,
+    }));
+  } catch (error) {
+    return usage(error instanceof Error ? error.message : String(error));
+  }
+  if (values.deliver !== undefined && !/^(pr|main)$/.test(values.deliver))
+    return usage(`--deliver is pr or main, not "${values.deliver}"`);
+  const route = values.deliver as "pr" | "main" | undefined;
+  let baseUrl: string | undefined;
+  if (values["base-url"] !== undefined) {
+    const url = URL.canParse(values["base-url"])
+      ? new URL(values["base-url"])
+      : null;
+    if (url === null || !/^https?:$/.test(url.protocol))
+      return usage(
+        `--base-url is an http(s) origin such as http://localhost:3000, not "${values["base-url"]}"`,
+      );
+    baseUrl = url.origin;
+  }
+  const fail = (detail: string): never => {
+    process.stderr.write(`demoman refresh: ${detail}\n`);
+    process.exit(1);
+  };
+  const repo = await readRepo(process.cwd(), execGit);
+  if (!repo.ok) {
+    return fail(
+      `${repo.none} — run refresh inside the repo the videos are kept in`,
+    );
+  }
+  requirePageBundles(
+    join(fileURLToPath(new URL(".", import.meta.url)), "page"),
+    (line) => fail(line),
+  );
+  const install = `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup`;
+  // Decodes the exports to compare them, out of sight.
+  const session = createBrowserSession({
+    headless: true,
+    executablePath: fullChromiumPath(),
+    installCommand: install,
+    log,
+  });
+  let result: RefreshResult | { threw: string };
+  try {
+    const refreshHome = demomanHome();
+    result = await refreshKept(
+      {
+        repoRoot: repo.repo.root,
+        ...(positionals.length > 0 ? { only: positionals } : {}),
+        ...(baseUrl === undefined ? {} : { baseUrl }),
+        library: process.env.CI === "true" ? "throwaway" : "local",
+      },
+      {
+        library: createLibrary(refreshHome),
+        videos: createVideoStore(refreshHome, createLibrary(refreshHome), {
+          log,
+        }),
+        executor: (o) =>
+          createLocalExecutor({
+            ...o,
+            headless: true,
+            // Films at the kept scale, which DEMOMAN_DISPLAY names.
+            standInDisplay: true,
+            executablePath: fullChromiumPath(),
+            installCommand: install,
+            signinCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} signin`,
+            log,
+          }),
+        session,
+        env: process.env,
+        git: execGit,
+        log,
+      },
+    );
+  } catch (error) {
+    result = { threw: error instanceof Error ? error.message : String(error) };
+  } finally {
+    await session
+      .close()
+      .catch((error: unknown) =>
+        log(`the browser would not close (${String(error)})`),
+      );
+  }
+  if ("threw" in result) return fail(result.threw);
+  const { lines, code } = refreshLines(result);
+  for (const line of lines) process.stdout.write(`${line}\n`);
+  if (route === undefined) process.exit(code);
+  const {
+    GITHUB_SERVER_URL: server,
+    GITHUB_REPOSITORY: slug,
+    GITHUB_RUN_ID: id,
+  } = process.env;
+  const delivered = await deliver(
+    {
+      route,
+      repoRoot: repo.repo.root,
+      result,
+      named: positionals.length > 0,
+      runUrl:
+        server && slug && id ? `${server}/${slug}/actions/runs/${id}` : null,
+    },
+    {
+      git: execGit,
+      gh: (a) =>
+        new Promise((done) => {
+          execFile("gh", a, { cwd: repo.repo.root }, (err, stdout, stderr) =>
+            done({
+              code: err ? (typeof err.code === "number" ? err.code : 127) : 0,
+              stdout,
+              stderr:
+                err && typeof err.code !== "number" ? String(err) : stderr,
+            }),
+          );
+        }),
+    },
+  );
+  process.stdout.write(
+    `delivered: ${delivered.delivered}: ${delivered.detail}\n`,
+  );
+  process.exit(code === 0 && delivered.ok ? 0 : 1);
+}
+
 const [command, ...rest] = process.argv.slice(2);
 switch (command) {
   case "mcp":
@@ -243,7 +532,46 @@ switch (command) {
   case "studio":
     await studio(rest);
     break;
+  case "keep":
+    await keep(rest);
+    break;
+  case "refresh":
+    await refresh(rest);
+    break;
   case "setup": {
+    if (rest.includes("--ci")) {
+      const tty = process.stdin.isTTY === true;
+      let ciRoot = process.cwd();
+      process.exit(
+        await ciSetup(rest, {
+          version: VERSION,
+          ask: tty ? ciPrompts() : null,
+          root: async () => {
+            const r = await readRepo(process.cwd(), execGit);
+            if (r.ok) ciRoot = r.repo.root;
+            return r.ok ? { root: r.repo.root } : { none: r.none };
+          },
+          defaultBranch: async () => {
+            try {
+              const r = await execGit(
+                ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+                process.cwd(),
+              );
+              const name = r.stdout.trim().replace(/^origin\//, "");
+              return r.code === 0 && name !== "" ? name : null;
+            } catch {
+              return null; // git not running: the caller says it assumed main
+            }
+          },
+          exists: (p) => existsSync(join(ciRoot, p)),
+          write: (p, text) => {
+            mkdirSync(dirname(join(ciRoot, p)), { recursive: true });
+            writeFileSync(join(ciRoot, p), text);
+          },
+          say: (l) => process.stdout.write(`${l}\n`),
+        }),
+      );
+    }
     const flags = parseSetupArgs(rest);
     if ("refused" in flags) {
       process.stdout.write(`Demoman setup stopped: ${flags.refused}.\n`);

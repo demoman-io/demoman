@@ -92,20 +92,7 @@ it("runs and exports the fixture take from the packed install, and the film show
     // Premise: the report says what it degraded, so the checks below read it.
     const degradations = run.frames?.degradations;
     expect(degradations, JSON.stringify(run)).toBeInstanceOf(Array);
-    // shortcut: GitHub's ubuntu-24.04 runner sometimes breaches the frame
-    // budget (budgetBreach, 1 of 2 runs on 2026-10-26); the author accepted
-    // degraded takes in the Linux CI lane for now, said as a warning. Revisit
-    // with the frame budget on slow machines. A Mac, and Linux off CI, still
-    // require none.
-    if (process.env.CI !== undefined && process.platform === "linux") {
-      if (degradations?.length) {
-        console.warn(
-          `::warning title=Degraded take on Linux CI::${degradations.join(", ")} — ${JSON.stringify(run).slice(0, 400)}`,
-        );
-      }
-    } else {
-      expect(degradations, JSON.stringify(run)).toEqual([]);
-    }
+    expect(degradations, JSON.stringify(run)).toEqual([]);
     const exported = await finished(c, "export", {
       takeId: run.provenance?.takeId,
     });

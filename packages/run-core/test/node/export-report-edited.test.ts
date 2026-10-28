@@ -22,6 +22,7 @@ const savedArgs = () => ({
   },
   aspect: "16:9" as const,
   target: { width: 1920, height: 1080, fps: 60 },
+  screens: { steps: 0, moments: [] },
 });
 
 describe("an export of a take edited after recording", () => {

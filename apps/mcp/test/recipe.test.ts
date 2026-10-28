@@ -40,7 +40,8 @@ const tree = (d: string): string[] =>
  *  skipped, which no tool answers), and the tools themselves. */
 const CLI_SOURCES = [
   ...dir("apps/mcp/src"),
-  ...dir("apps/runner/src/executor"),
+  // keep's reasons answer `npx demoman keep` at the terminal, not a tool call.
+  ...dir("apps/runner/src/executor").filter((f) => !f.endsWith("/keep.ts")),
   "apps/runner/src/platform.ts",
   ...tree("packages/run-core/src").filter((f) => !f.endsWith("auto-zoom.ts")),
 ];
