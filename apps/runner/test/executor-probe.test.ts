@@ -134,6 +134,18 @@ it("refuses a malformed script before signing in or opening anything", async () 
   expect(signedInSince(SELLER)).toBe(0);
 }, 120_000);
 
+it("refuses a missing brand kit before signing in or opening anything", async () => {
+  await writeAccounts(seller());
+  const out = await probe(
+    script(`${app.url}/app`, NEXT, { scriptVersion: 2, look: { kit: "nope" } }),
+  );
+  expect(out, JSON.stringify(out)).toMatchObject({
+    ok: true,
+    value: { outcome: "refusedBeforeRun", reason: "unknownKit" },
+  });
+  expect(signedInSince(SELLER)).toBe(0);
+}, 120_000);
+
 it("a probe makes no take", async () => {
   const before = await executor.request("takes", {});
   expect(before.ok, JSON.stringify(before)).toBe(true);

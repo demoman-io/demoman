@@ -530,6 +530,8 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 
 ## 7. Every reason
 
+`probe` can answer any reason `snapshot` can, and `run`'s `refusedBeforeRun` ones.
+
 | Reason | Where | What it means, and the move |
 | --- | --- | --- |
 | `browserMissing` | `snapshot`, `run` (`refusedBeforeRun`), `studio` | Demoman's browser or its libraries are missing; `detail` gives the command. Ask the user to run it, then call again. |

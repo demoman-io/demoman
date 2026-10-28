@@ -5,6 +5,7 @@ import {
   type CdpSession,
   type EngineStore,
   type FrameEncoder,
+  type PageReady,
   type ReplayStopReason,
   reasonSentence,
   waitForPageReady,
@@ -17,13 +18,17 @@ import {
   lookForRun,
   messageOf,
   newId,
+  type RefusedBeforeRun,
   type Snapshot,
   type SnapshotKits,
+  type SnapshotWalk,
 } from "@demoman/run-core";
 import {
   SNAPSHOT_BUDGET_MS,
   SNAPSHOT_MAX_TARGETS,
 } from "@demoman/run-core/page";
+import type { DemoScript, SceneBranding } from "@demoman/scene-schema";
+import type { Stage } from "./browser.js";
 import { pageSnapshotTargets } from "./page-ops.js";
 import {
   type PlayDeps,
@@ -63,7 +68,6 @@ export function discardingFilm(): {
 export interface ProbeDeps extends PlayDeps {
   home: string;
   kits: BrandKitsRead;
-  holePaths: readonly string[];
   /** Tests only: replaces discardingFilm(). */
   film?: () => { encoder: FrameEncoder; store: EngineStore };
 }
@@ -78,22 +82,28 @@ export interface ProbeReply extends Snapshot {
   endedUrl: string | null;
 }
 
-export async function probeOp(
+/** A script the probe may play, or the refusal the run door gives it. */
+export type ProbeEntry =
+  | { ok: true; script: DemoScript; startingBranding: SceneBranding }
+  | { ok: false; refusal: RefusedBeforeRun };
+
+/**
+ * The run door's checks, the brand kit's included, so the caller can refuse
+ * before any sign-in or launch (executor.ts `probeAs`).
+ */
+export function probeEntry(
   rawScript: unknown,
-  contains: string | null,
-  deps: ProbeDeps,
-): Promise<Outcome> {
-  const { log } = deps;
-  // Refused exactly as the run door refuses it, before anything opens.
-  const checked = checkScript(rawScript, deps.holePaths);
-  if (!checked.ok) return { ok: true, value: checked.refusal };
-  const { script } = checked;
-  const look = lookForRun(script, deps.kits);
+  holePaths: readonly string[],
+  kits: BrandKitsRead,
+): ProbeEntry {
+  const checked = checkScript(rawScript, holePaths);
+  if (!checked.ok) return checked;
+  const look = lookForRun(checked.script, kits);
   if (!look.ok) {
     // The run door's two reasons, on the same field (executor.ts `run`).
     return {
-      ok: true,
-      value: {
+      ok: false,
+      refusal: {
         outcome: "refusedBeforeRun",
         reason: look.reason,
         detail: look.detail,
@@ -101,6 +111,20 @@ export async function probeOp(
       },
     };
   }
+  return {
+    ok: true,
+    script: checked.script,
+    startingBranding: look.startingBranding,
+  };
+}
+
+export async function probeOp(
+  entry: Extract<ProbeEntry, { ok: true }>,
+  contains: string | null,
+  deps: ProbeDeps,
+): Promise<Outcome> {
+  const { log } = deps;
+  const { script } = entry;
 
   const prepared = await prepareStage(script, deps);
   if (!prepared.ok) return failure(prepared.reason, prepared.detail);
@@ -111,7 +135,7 @@ export async function probeOp(
     prepared,
     deps,
     { ...film, sceneId: newId("probe") },
-    { startingBranding: look.startingBranding, onProgress: () => undefined },
+    { startingBranding: entry.startingBranding, onProgress: () => undefined },
   );
   const { result, arrival } = played;
   const { completed, total } = result;
@@ -136,30 +160,40 @@ export async function probeOp(
     }
   }
 
-  const { page } = stage;
-  const ready = await waitForPageReady(stage.cdp, stage.clock.sleep);
-  // Read once the page is ready, so a navigation the last step began and
-  // that committed meanwhile is named by the page it lists.
-  const endedUrl = page.url();
-  if (endedUrl.startsWith("chrome-error:")) {
-    return failure(
-      "pageDidNotLoad",
-      `the probe's steps ended on a page that did not load (${await failedAddress(stage.cdp, endedUrl, log)}) after ${completed} of ${total} steps; check that the app is running there`,
+  // A stopped step outranks what the end page then does: it is what the
+  // agent has to fix, so a page that cannot be read or listed after it
+  // empties the listing and says why, and the stop is still answered.
+  let listed: Awaited<ReturnType<typeof listEndPage>>;
+  try {
+    listed = await listEndPage(
+      stage,
+      contains,
+      `${completed} of ${total}`,
+      log,
     );
+  } catch (error) {
+    if (stopped === null) throw error;
+    listed = { ok: false, reason: "probeThrew", detail: messageOf(error) };
   }
-
-  const reply = await pageSnapshotTargets(page)({
-    contains,
-    maxTargets: SNAPSHOT_MAX_TARGETS,
-    budgetMs: SNAPSHOT_BUDGET_MS,
-  });
-  if ("failed" in reply) {
-    return failure(
-      reply.failed,
-      `${reply.detail} (after ${completed} of ${total} steps played)`,
-    );
+  if (!listed.ok && stopped === null) {
+    return failure(listed.reason, listed.detail);
   }
-  const { walk } = reply;
+  const { ready, endedUrl, walk } = listed.ok
+    ? listed
+    : {
+        ready: {
+          settled: false,
+          note: `the page it stopped on could not be listed (${listed.reason}): ${listed.detail}`,
+        },
+        endedUrl: stage.page.isClosed() ? null : stage.page.url(),
+        walk: {
+          title: "",
+          targets: [],
+          unresolvable: 0,
+          notExamined: 0,
+          walkMs: 0,
+        },
+      };
 
   // The arrival at the target, measured by the walk before its first step,
   // as `snapshotOp` reads its own. The end page is not checked for sign-in:
@@ -205,6 +239,43 @@ export async function probeOp(
     endedUrl,
   };
   return { ok: true, value };
+}
+
+/** The page the steps ended on, once it is ready, listed as snapshot lists. */
+async function listEndPage(
+  stage: Stage,
+  contains: string | null,
+  played: string,
+  log: (line: string) => void,
+): Promise<
+  | { ok: true; ready: PageReady; endedUrl: string; walk: SnapshotWalk }
+  | { ok: false; reason: string; detail: string }
+> {
+  const { page } = stage;
+  const ready = await waitForPageReady(stage.cdp, stage.clock.sleep);
+  // Read once the page is ready, so a navigation the last step began and
+  // that committed meanwhile is named by the page it lists.
+  const endedUrl = page.url();
+  if (endedUrl.startsWith("chrome-error:")) {
+    return {
+      ok: false,
+      reason: "pageDidNotLoad",
+      detail: `the probe's steps ended on a page that did not load (${await failedAddress(stage.cdp, endedUrl, log)}) after ${played} steps; check that the app is running there`,
+    };
+  }
+  const reply = await pageSnapshotTargets(page)({
+    contains,
+    maxTargets: SNAPSHOT_MAX_TARGETS,
+    budgetMs: SNAPSHOT_BUDGET_MS,
+  });
+  if ("failed" in reply) {
+    return {
+      ok: false,
+      reason: reply.failed,
+      detail: `${reply.detail} (after ${played} steps played)`,
+    };
+  }
+  return { ok: true, ready, endedUrl, walk: reply.walk };
 }
 
 /**

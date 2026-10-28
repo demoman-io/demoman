@@ -42,7 +42,7 @@ import { DEFAULT_SIGNIN_COMMAND } from "./landing.js";
 import { createLibrary, ownHome } from "./library.js";
 import { ensureVideos, startPage } from "./migrate-videos.js";
 import { installExecutorEntry } from "./page-ops.js";
-import { probeOp } from "./probe.js";
+import { probeEntry, probeOp } from "./probe.js";
 import {
   type PullRequestsSetting,
   resolvePullRequests,
@@ -1016,9 +1016,10 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
    *  sessions again, as after a run. A script the run door would refuse is
    *  refused first, before any sign-in or launch. */
   const probeAs = async (args: Record<string, unknown>): Promise<Outcome> => {
-    const checked = checkScript(args.script, holePaths);
-    if (!checked.ok) return { ok: true, value: checked.refusal };
-    const { script } = checked;
+    const kits = await readKits(home);
+    const entry = probeEntry(args.script, holePaths, kits);
+    if (!entry.ok) return { ok: true, value: entry.refusal };
+    const { script } = entry;
     const named =
       typeof args.account === "string" ? args.account : script.account;
     const contains = typeof args.contains === "string" ? args.contains : null;
@@ -1031,7 +1032,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         await session.retire();
         const loaded = await sessions.load(context, choiceOf(choice));
         if (!loaded.ok) return failure(loaded.reason, loaded.detail);
-        return await probeOp(args.script, contains, {
+        return await probeOp(entry, contains, {
           session,
           log,
           sessions: loaded.files,
@@ -1040,8 +1041,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           signinCommand,
           ...(chosen === null ? {} : { account: signInAgainAs(chosen) }),
           home,
-          kits: await readKits(home),
-          holePaths,
+          kits,
         });
       } finally {
         sessions.forget();

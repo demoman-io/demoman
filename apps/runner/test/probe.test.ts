@@ -15,6 +15,7 @@ import {
   discardingFilm,
   type ProbeDeps,
   type ProbeReply,
+  probeEntry,
   probeOp,
 } from "../src/executor/probe.js";
 import { runScript } from "../src/executor/run.js";
@@ -93,12 +94,17 @@ const deps = (over: Partial<ProbeDeps> = {}): ProbeDeps => ({
   signinCommand: "npx demoman signin",
   home,
   kits,
-  holePaths: [],
   ...over,
 });
+/** The script past the run door's checks, or a throw saying why not. */
+const enter = (raw: unknown) => {
+  const entry = probeEntry(raw, [], kits);
+  if (!entry.ok) throw new Error(JSON.stringify(entry));
+  return entry;
+};
 /** The probe's ok value, or a throw carrying what it answered instead. */
 const probe = async (raw: unknown, over: Partial<ProbeDeps> = {}) => {
-  const out = await probeOp(raw, null, deps(over));
+  const out = await probeOp(enter(raw), null, deps(over));
   if (!out.ok) throw new Error(JSON.stringify({ out, lines }));
   return out.value as ProbeReply;
 };
@@ -216,10 +222,18 @@ describe("probeOp", () => {
     const checked = checkScript(raw, []);
     // The premise: the run door refuses this script.
     expect(checked.ok).toBe(false);
-    const out = await probeOp(raw, null, deps());
-    expect(out).toEqual({
-      ok: true,
-      value: checked.ok ? null : checked.refusal,
+    expect(probeEntry(raw, [], kits)).toEqual(checked);
+  });
+
+  it("refuses a script whose brand kit is not there, as run would", () => {
+    const entry = probeEntry(
+      { ...script([]), look: { kit: "nope" } },
+      [],
+      kits,
+    );
+    expect(entry, JSON.stringify(entry)).toMatchObject({
+      ok: false,
+      refusal: { reason: "unknownKit", field: "look.kit" },
     });
   });
 
@@ -282,7 +296,7 @@ describe("probeOp", () => {
 
   it("says pageDidNotLoad when the steps end on a page that did not load", async () => {
     const out = await probeOp(
-      script([{ do: "click", on: { role: "link", name: "Down" } }]),
+      enter(script([{ do: "click", on: { role: "link", name: "Down" } }])),
       null,
       deps(),
     );
@@ -291,6 +305,66 @@ describe("probeOp", () => {
       reason: "pageDidNotLoad",
     });
     expect(out.ok ? "" : out.detail).toContain("127.0.0.1:1");
+  }, 120_000);
+
+  it("a step that stopped is still said when its page then did not load", async () => {
+    const out = await probeOp(
+      enter(
+        script([
+          { do: "click", on: { role: "link", name: "Down" } },
+          openFilters,
+        ]),
+      ),
+      null,
+      deps(),
+    );
+    const said = JSON.stringify({ out, lines });
+    // The step's own stop, not the end page's failure in its place.
+    expect(out, said).toMatchObject({ ok: true, value: { targets: [] } });
+    const reply = (out.ok ? out.value : null) as ProbeReply;
+    expect(reply.stopped, said).not.toBeNull();
+    expect(reply.settleNote, said).toContain(
+      "could not be listed (pageDidNotLoad)",
+    );
+    // The premise: the page it stopped on is the one that did not load.
+    expect(reply.settleNote, said).toContain("127.0.0.1:1");
+  }, 120_000);
+
+  it("a step that stopped is still said when its page is gone", async () => {
+    const launched = await session.ensure();
+    if (!launched.ok) throw new Error(JSON.stringify(launched));
+    const { context } = launched.launched;
+    const before = new Set(context.pages());
+    const probed = probeOp(
+      enter(script([openFilters, { do: "pause", ms: 3000 }, openFilters])),
+      null,
+      deps(),
+    );
+    // Closed once its menu is open: mid-pause, after one step played.
+    let closed = false;
+    for (let tries = 0; !closed && tries < 400; tries++) {
+      const page = context.pages().find((p) => !before.has(p));
+      if (
+        page !== undefined &&
+        (await page.$('[role="menu"]').catch(() => null))
+      ) {
+        await page.close();
+        closed = true;
+      } else {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    }
+    const out = await probed;
+    const said = JSON.stringify({ out, lines });
+    // The premise: the page was closed under the probe.
+    expect(closed, said).toBe(true);
+    expect(out, said).toMatchObject({ ok: true, value: { targets: [] } });
+    const reply = (out.ok ? out.value : null) as ProbeReply;
+    expect(reply.stopped, said).not.toBeNull();
+    expect(reply.settleNote, said).toContain(
+      "could not be listed (probeThrew)",
+    );
+    expect(reply.endedUrl, said).toBeNull();
   }, 120_000);
 
   it("leaves no take behind", async () => {
