@@ -202,7 +202,11 @@ it("ships the package README and packs it", () => {
 // files; 1,249,382 B without it.
 // 25% headroom; red when something like compositor's 21 MB of fixtures
 // rides in.
-const MAX_TARBALL_BYTES = 1_755_000;
+// Measured 2026-10-28 with the built-in wallpapers (the studio pages'
+// public/wallpapers, 30 WebP files, 20,107,026 B, already compressed):
+// 21,041,235 B, unpacked 26,191,809 B, 67 files. The ceiling adds their raw
+// bytes to the old one, so everything else keeps the headroom it had.
+const MAX_TARBALL_BYTES = 1_755_000 + 20_110_000;
 it("packs under its size ceiling", () => {
   const out = execFileSync("npm", ["pack", "--dry-run", "--json"], {
     cwd: fileURLToPath(new URL("../pkg", import.meta.url)),

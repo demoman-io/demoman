@@ -8,50 +8,52 @@ export interface WallpaperInfo {
   swatch: { from: string; to: string };
 }
 
-/** Display order: vivid, light, dark. The ids are the shipped file stems. */
+/** Display order: vivid, light, dark. The ids are the shipped file stems.
+ *  Each swatch is sampled from its generated image: generate.mjs in
+ *  apps/studio/scripts/wallpapers prints them. */
 export const WALLPAPERS: readonly WallpaperInfo[] = [
   {
     id: "vivid-1",
     family: "vivid",
-    swatch: { from: "#5b3bf5", to: "#f53b8f" },
+    swatch: { from: "#3527bc", to: "#ce1676" },
   },
   {
     id: "vivid-2",
     family: "vivid",
-    swatch: { from: "#0ea5e9", to: "#7c3aed" },
+    swatch: { from: "#0769ca", to: "#1e26b7" },
   },
   {
     id: "vivid-3",
     family: "vivid",
-    swatch: { from: "#f97316", to: "#e11d48" },
+    swatch: { from: "#c90757", to: "#ed480d" },
   },
   {
     id: "vivid-4",
     family: "vivid",
-    swatch: { from: "#10b981", to: "#0284c7" },
+    swatch: { from: "#0ba393", to: "#0575c7" },
   },
   {
     id: "vivid-5",
     family: "vivid",
-    swatch: { from: "#facc15", to: "#f43f5e" },
+    swatch: { from: "#f28b0a", to: "#df2d21" },
   },
   {
     id: "vivid-6",
     family: "vivid",
-    swatch: { from: "#6366f1", to: "#06b6d4" },
+    swatch: { from: "#3d0dbf", to: "#133ac7" },
   },
   {
     id: "light-1",
     family: "light",
-    swatch: { from: "#e0e7ff", to: "#fce7f3" },
+    swatch: { from: "#b7bff3", to: "#eda9c5" },
   },
   {
     id: "light-2",
     family: "light",
-    swatch: { from: "#d1fae5", to: "#e0f2fe" },
+    swatch: { from: "#afe5f0", to: "#98c5e8" },
   },
-  { id: "dark-1", family: "dark", swatch: { from: "#0f0a24", to: "#2a1250" } },
-  { id: "dark-2", family: "dark", swatch: { from: "#06121f", to: "#0b3a4a" } },
+  { id: "dark-1", family: "dark", swatch: { from: "#150217", to: "#3d044b" } },
+  { id: "dark-2", family: "dark", swatch: { from: "#02576e", to: "#023758" } },
 ];
 
 export const DEFAULT_WALLPAPER_ID = "vivid-1";
