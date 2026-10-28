@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import {
   type ExportAnswer,
+  judgedOutput,
   KEPT_DIR,
   type KeptScreens,
   type KeptVideo,
@@ -18,6 +19,7 @@ import {
   parseKept,
   prVerdict,
   type RunReport,
+  serializeKept,
 } from "@demoman/run-core";
 import type { DemoScript } from "@demoman/scene-schema";
 import { codeClause, prLine } from "./attach.js";
@@ -114,8 +116,9 @@ export function uncleanRun(answer: Record<string, unknown>): string | null {
 
 /**
  * `demoman refresh`: re-films each kept video's script with no agent,
- * judges the run, exports each output and replaces only those whose picture
- * changed, each by rename from a finished file beside it. A video that fails
+ * judges the run, exports each output, and replaces the video's files (each
+ * by rename from a finished file beside it) only when the picture of its
+ * judged output changed. A video that fails
  * leaves its committed files as they were and says why; the others still
  * refresh.
  */
@@ -418,8 +421,11 @@ async function filmOne(
   };
 }
 
-/** Compares each new output with the committed one and replaces those
- *  whose picture changed, each by rename from a finished file beside it. */
+/** Judges the video's one output (`judgedOutput`) against its committed
+ *  file. When the picture changed, every output, the report and the kept
+ *  file (with the new film's screens) are replaced, each by rename from a
+ *  finished file beside it. When it did not, only an output with no
+ *  committed file is written. */
 async function replaceOne(
   { job, report, rendered, renderedScreens, stored }: Filmed,
   root: string,
@@ -427,7 +433,6 @@ async function replaceOne(
   deps: RefreshDeps,
 ): Promise<RefreshVideo> {
   const { kept, file } = job;
-  const changed: number[] = [];
   const said: string[] = [];
   const notes: string[] = notesOf(job);
   const answer = (
@@ -443,80 +448,93 @@ async function replaceOne(
     line,
     notes,
   });
-  // Nothing is written until every output is compared: a comparison that
-  // cannot be made fails the video with its files as they were.
+  // Nothing is written until the comparison is made: one that cannot be
+  // made fails the video with its files as they were.
   const fail = (why: string) => {
     said.splice(0, said.length, why);
     return answer("failed", [], null);
   };
-  for (const [i, o] of kept.outputs.entries()) {
-    const committed = join(root, o.path);
-    const there = await access(committed).then(
+  const exists = (p: string) =>
+    access(join(root, p)).then(
       () => true,
       () => false,
     );
-    if (!there) {
-      changed.push(i);
-      said.push(`${o.path} is new`);
-      continue;
-    }
+  const j = judgedOutput(kept.outputs);
+  const judged = kept.outputs[j] as (typeof kept.outputs)[number];
+  let changed = false;
+  if (!(await exists(judged.path))) {
+    changed = true;
+    said.push(`${judged.path} is new`);
+  } else {
     let cmp: Awaited<ReturnType<typeof samePicture>>;
     try {
       cmp = await samePicture(
-        committed,
-        rendered[i] as string,
-        o.fileType,
+        join(root, judged.path),
+        rendered[j] as string,
+        judged.fileType,
         kept.screens,
-        renderedScreens[i] as KeptScreens,
+        renderedScreens[j] as KeptScreens,
         deps,
       );
     } catch (error) {
       return fail(
-        `${o.path} could not be compared with its new export, so nothing was replaced: ${messageOf(error)}`,
+        `${judged.path} could not be compared with its new export, so nothing was replaced: ${messageOf(error)}`,
       );
     }
     if ("uncomparable" in cmp) {
       return fail(
-        `${o.path} could not be compared with its new export, so nothing was replaced: ${cmp.uncomparable}`,
+        `${judged.path} could not be compared with its new export, so nothing was replaced: ${cmp.uncomparable}`,
       );
     }
     if ("undecodable" in cmp) {
       if (cmp.undecodable === "new") {
         return fail(
-          `${o.path}'s new export could not be decoded as ${o.fileType.toUpperCase()} (${cmp.detail}), so nothing was replaced`,
+          `${judged.path}'s new export could not be decoded as ${judged.fileType.toUpperCase()} (${cmp.detail}), so nothing was replaced`,
         );
       }
       // The one forgiven: a committed file that is no picture is replaced.
-      changed.push(i);
+      changed = true;
       notes.push(
-        `${o.path} was replaced without a comparison: the committed file could not be decoded (${cmp.detail})`,
+        `${judged.path} was replaced without a comparison: the committed file could not be decoded (${cmp.detail})`,
       );
-      continue;
+    } else {
+      changed = !cmp.same;
+      said.push(`${judged.path}: ${cmp.detail}`);
     }
-    if (!cmp.same) changed.push(i);
-    said.push(`${o.path}: ${cmp.detail}`);
   }
-  if (changed.length === 0) return answer("unchanged", [], null);
+  // The outputs to write: all of them on a change; else those not yet there.
+  const toWrite: number[] = [];
+  for (const [i, o] of kept.outputs.entries()) {
+    if (changed) toWrite.push(i);
+    else if (i !== j && !(await exists(o.path))) {
+      toWrite.push(i);
+      said.push(`${o.path} is new`);
+    }
+  }
+  if (toWrite.length === 0) return answer("unchanged", [], null);
 
   const written: string[] = [];
+  const put = async (path: string, bytes: Uint8Array | string) => {
+    const from = await place(join(root, path), bytes);
+    deps.log(`refresh: renamed ${relative(root, from)} over ${path}`);
+    written.push(path);
+  };
   try {
-    for (const i of changed) {
+    for (const i of toWrite) {
       const o = kept.outputs[i] as (typeof kept.outputs)[number];
-      const from = await place(
-        join(root, o.path),
-        await readFile(rendered[i] as string),
-      );
-      deps.log(`refresh: renamed ${relative(root, from)} over ${o.path}`);
-      written.push(o.path);
+      await put(o.path, await readFile(rendered[i] as string));
     }
-    if (kept.report !== null && stored !== null) {
-      if ("value" in stored) {
-        await place(
-          join(root, kept.report),
-          `${JSON.stringify(stored.value, null, 2)}\n`,
-        );
-        written.push(kept.report);
-      } else notes.push(`${kept.report} was not written: ${stored.not}`);
+    if (changed) {
+      if (kept.report !== null && stored !== null) {
+        if ("value" in stored)
+          await put(kept.report, `${JSON.stringify(stored.value, null, 2)}\n`);
+        else notes.push(`${kept.report} was not written: ${stored.not}`);
+      }
+      // Last: the kept file says what the committed video now shows.
+      await put(
+        file,
+        serializeKept({ ...kept, screens: renderedScreens[j] as KeptScreens }),
+      );
     }
   } catch (error) {
     said.push(

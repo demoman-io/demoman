@@ -12,10 +12,13 @@ import {
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CAMERA_DEFAULTS, motionTimings } from "@demoman/compositor";
 import {
   KEPT_DIR,
+  type KeptScreens,
   type KeptVideo,
   keptFileName,
+  parseKept,
   type RunReport,
   serializeKept,
   verdictLine,
@@ -52,6 +55,26 @@ const ORIGINAL = await readFile(
   "utf8",
 );
 const HEADING = "<h1>Invoices</h1>";
+// Hidden off-screen until the first click opens it: a change here is seen
+// only on what the last step reveals.
+const PANEL_CSS = "transform: translateX(100%)";
+const PANEL_BG = "background: #111827; color: #e5e7eb;";
+const PANEL_CHANGED = ORIGINAL.replace(
+  PANEL_BG,
+  "background: #f9fafb; color: #e5e7eb;",
+);
+const CLICK_ANSWER = 'document.getElementById("panel").classList.add("open");';
+const SLOW = ORIGINAL.replace(
+  CLICK_ANSWER,
+  `setTimeout(() => { ${CLICK_ANSWER} }, 600);`,
+);
+/** `returnsBetween`'s line, as the gap from one beat's hold to the next
+ *  arrival at the default smoothness (2725 ms); a gap between two markers is
+ *  the same length, as both sit `leadInMs` before theirs. */
+const LINE_MS = (() => {
+  const t = motionTimings(0.5);
+  return t.zoomInMs + t.zoomOutMs + 2 * CAMERA_DEFAULTS.neutral.minPlateauMs;
+})();
 const REPORTS_LINK = '<a href="#reports" data-testid="nav-reports">Reports</a>';
 
 let html = ORIGINAL;
@@ -79,6 +102,13 @@ function kept(
   clicks: string[],
   scale: number,
   outputs: KeptVideo["outputs"],
+  /** A pause before the last click, to move the gap between clicks off the
+   *  camera's line (the guard test at the end). */
+  pauseMs = 0,
+  /** A pause after the last click, so the film ends on a still screen
+   *  (measured 2026-10-27: after 1500 ms a 600 ms slower app read 0.015% changed
+   *  on that screen, over the allowed 0.015%; after 3500 ms it did not). */
+  endMs = 0,
 ): KeptVideo {
   return {
     keptVersion: 1,
@@ -90,7 +120,13 @@ function kept(
       viewport: { width: 1280, height: 800 },
       steps: [
         { do: "waitForLoad" },
-        ...clicks.map((text) => ({ do: "click", on: { text } })),
+        ...clicks.flatMap((text, i) => [
+          ...(pauseMs > 0 && i === clicks.length - 1 && i > 0
+            ? [{ do: "pause", ms: pauseMs }]
+            : []),
+          { do: "click", on: { text } },
+        ]),
+        ...(endMs > 0 ? [{ do: "pause", ms: endMs }] : []),
       ],
     } as KeptVideo["script"],
     scale,
@@ -104,6 +140,11 @@ function kept(
 
 /** Each run: the display its executor was given, and its motion's scale. */
 const filmed: { name: string; display: string; scale: number | null }[] = [];
+/** Every run this file films: its name, and the gaps (source ms) between
+ *  its consecutive step markers after the first. */
+const gaps: { name: string; gaps: number[]; act: number }[] = [];
+/** Every saved export's screens, in order. */
+const exported: { fileType: string; screens: KeptScreens }[] = [];
 /** The temp folders refresh makes, as they are in the system's temp now. */
 const refreshTemps = async () =>
   (await readdir(tmpdir())).filter((n) =>
@@ -138,11 +179,31 @@ const deps = (): RefreshDeps => ({
               ? await createLibrary(o.home).frameStore(takeId).getBundle(takeId)
               : null;
           const span = bundle?.motionSpans[0];
+          const at = (bundle?.markers ?? [])
+            .map((m) => m.sourceTimeMs)
+            .sort((x, y) => x - y)
+            .slice(1);
+          const marks = (bundle?.markers ?? [])
+            .slice()
+            .sort((x, y) => x.sourceTimeMs - y.sourceTimeMs)
+            .slice(1);
+          gaps.push({
+            name: String((args.script as { name: string }).name),
+            gaps: at.slice(1).map((t, i) => t - (at[i] as number)),
+            // How long the first click's act lasted: the page's response.
+            act:
+              (marks[0]?.actEndSourceTimeMs ?? Number.NaN) -
+              (marks[0]?.sourceTimeMs ?? Number.NaN),
+          });
           filmed.push({
             name: String((args.script as { name: string }).name),
             display: String(o.env.DEMOMAN_DISPLAY),
             scale: span === undefined ? null : span.width / 1280,
           });
+        }
+        if (op === "export" && answer.ok) {
+          const v = answer.value as { fileType: string; screens: KeptScreens };
+          exported.push({ fileType: v.fileType, screens: v.screens });
         }
         if (op !== "run" || inject === null || !answer.ok) return answer;
         return {
@@ -164,6 +225,17 @@ const refresh = (only?: string[]): Promise<RefreshResult> =>
     deps(),
   );
 const bytes = (p: string) => readFile(join(repo, p));
+const keptOf = async (name: string): Promise<KeptVideo> => {
+  const file = `${KEPT_DIR}/${keptFileName(name)}`;
+  const parsed = parseKept(await readFile(join(repo, file), "utf8"), file);
+  if (!parsed.ok) throw new Error(parsed.detail);
+  return parsed.kept;
+};
+/** How far a gap between two clicks is from the pan-or-pull-back line: the
+ *  room `returnsBetween` finds between the camera's hold after the first
+ *  click and its arrival at the second (both `leadInMs` before their markers).
+ *  Positive returns, negative pans; near 0 is the line. */
+const clearOfLine = (g: number) => Math.abs(g - LINE_MS) > 500;
 const byName = (r: RefreshResult, name: string) => {
   const v = r.videos.find((x) => x.name === name);
   if (v === undefined) throw new Error(`no ${name} in ${JSON.stringify(r)}`);
@@ -198,18 +270,29 @@ beforeAll(async () => {
   await writeFile(
     join(repo, KEPT_DIR, keptFileName(A)),
     serializeKept(
-      kept(A, ["Place order"], 1, [
-        { path: out.aMp4, fileType: "mp4", aspect: "16:9", quality: "share" },
-        { path: out.aGif, fileType: "gif", aspect: "16:9", quality: "share" },
-      ]),
+      kept(
+        A,
+        ["Place order"],
+        1,
+        [
+          { path: out.aMp4, fileType: "mp4", aspect: "16:9", quality: "share" },
+          { path: out.aGif, fileType: "gif", aspect: "16:9", quality: "share" },
+        ],
+        0,
+        3500,
+      ),
     ),
   );
   await writeFile(
     join(repo, KEPT_DIR, keptFileName(B)),
     serializeKept(
-      kept(B, ["Place order", "Reports"], 2, [
-        { path: out.bMp4, fileType: "mp4", aspect: "16:9", quality: "share" },
-      ]),
+      kept(
+        B,
+        ["Place order", "Reports"],
+        2,
+        [{ path: out.bMp4, fileType: "mp4", aspect: "16:9", quality: "share" }],
+        2000,
+      ),
     ),
   );
   // Committed, as a checkout in CI has them: the first film is at HEAD.
@@ -252,7 +335,12 @@ describe("refresh", () => {
       ]);
       const a = byName(r, A);
       expect(a.outputs.sort()).toEqual(
-        [out.aGif, out.aMp4, "docs/order-report.json"].sort(),
+        [
+          out.aGif,
+          out.aMp4,
+          "docs/order-report.json",
+          `${KEPT_DIR}/${keptFileName(A)}`,
+        ].sort(),
       );
       expect(a.detail).toContain(`${out.aMp4} is new`);
       // The line attach would put above it, filmed at the checkout's HEAD.
@@ -289,19 +377,59 @@ describe("refresh", () => {
         r.videos.map((v) => v.outcome),
         JSON.stringify(r),
       ).toEqual(["unchanged", "unchanged"]);
-      // The premise: samePicture answered same for each output.
-      expect(byName(r, A).detail).toMatch(
-        new RegExp(
-          `^${out.aMp4}: at most [\\d.]+% of the picture changed, over \\d+ moments at rest; ${out.aGif}: at most`,
-        ),
-      );
-      expect(byName(r, B).detail).toMatch(
-        /at most [\d.]+% of the picture changed/,
-      );
+      // The premise: samePicture answered same for the judged output
+      // alone, over k of n screens recorded from a real film.
+      for (const name of [A, B]) {
+        const { screens } = await keptOf(name);
+        const m = byName(r, name).detail.match(
+          /^docs\/\w+\.mp4: at most [\d.]+% of the picture changed, over (\d+) of (\d+) screens$/,
+        );
+        expect(m, byName(r, name).detail).not.toBeNull();
+        expect(Number(m?.[1])).toBeGreaterThanOrEqual(2);
+        expect(Number(m?.[2])).toBe(screens.steps + 1);
+      }
+      expect(byName(r, A).detail).not.toContain(out.aGif);
       expect(byName(r, A).line).toBeNull();
       const after = await Promise.all(Object.values(out).map(bytes));
       for (const [i, b] of after.entries())
         expect(b.equals(before[i] as Buffer)).toBe(true);
+    },
+    BOTH_MS,
+  );
+
+  it(
+    "reads a slower app as unchanged",
+    async () => {
+      // The premise: the app really answers the click 600 ms later.
+      expect(SLOW).not.toBe(ORIGINAL);
+      const fast = gaps.filter((g) => g.name === B).length;
+      html = SLOW;
+      let r: RefreshResult;
+      try {
+        r = await refresh();
+      } finally {
+        html = ORIGINAL;
+      }
+      expect(
+        r.videos.map((v) => [v.name, v.outcome]),
+        JSON.stringify(r),
+      ).toEqual([
+        [B, "unchanged"],
+        [A, "unchanged"],
+      ]);
+      // The premise: the first click's act ran longer than in the film before it by more than the
+      // films' own 20 ms jitter (the act is capped near 1.1 s, so not by 600), and neither sits near the camera's line.
+      const bGaps = gaps.filter((g) => g.name === B);
+      const [before, now] = [
+        bGaps[fast - 1],
+        bGaps[fast],
+      ] as (typeof gaps)[0][];
+      expect(
+        (now?.act as number) - (before?.act as number),
+        JSON.stringify(gaps),
+      ).toBeGreaterThan(100);
+      for (const g of [before, now])
+        expect(clearOfLine(g?.gaps[0] as number), JSON.stringify(g)).toBe(true);
     },
     BOTH_MS,
   );
@@ -331,6 +459,25 @@ describe("refresh", () => {
   );
 
   it(
+    "fails a kept file with no screens, saying keep it again",
+    async () => {
+      const kf = join(repo, KEPT_DIR, "no-screens.json");
+      const { screens: _gone, ...bare } = await keptOf(A);
+      await writeFile(kf, JSON.stringify({ ...bare, name: "No screens" }));
+      try {
+        const r = await refresh([A]);
+        const v = r.videos.find((x) => x.file.endsWith("no-screens.json"));
+        expect(v?.outcome, JSON.stringify(r)).toBe("failed");
+        expect(v?.detail).toContain("demoman keep No screens");
+        expect(v?.outputs).toEqual([]);
+      } finally {
+        await rm(kf, { force: true });
+      }
+    },
+    ONE_MS,
+  );
+
+  it(
     "replaces a committed file that is not a decodable video, saying so",
     async () => {
       await writeFile(join(repo, out.bMp4), "not a video");
@@ -345,6 +492,70 @@ describe("refresh", () => {
       expect((await bytes(out.bMp4)).toString("latin1")).not.toBe(
         "not a video",
       );
+    },
+    ONE_MS,
+  );
+
+  it(
+    "replaces a change seen only on the final screen",
+    async () => {
+      // The premise: the change is in a panel that is off-screen until the
+      // last step opens it, and the page really changed.
+      expect(ORIGINAL).toContain(PANEL_CSS);
+      expect(ORIGINAL.split(PANEL_BG).length).toBe(2);
+      expect(PANEL_CHANGED).not.toContain(PANEL_BG);
+      html = PANEL_CHANGED;
+      const r = await refresh([A]);
+      expect(byName(r, A).outcome, JSON.stringify(r)).toBe("replaced");
+      expect(byName(r, A).detail).toMatch(
+        /% of the picture changed on the final screen at [\d.]+s/,
+      );
+    },
+    ONE_MS,
+  );
+
+  it(
+    "replaces the GIF with its MP4, and leaves it with it",
+    async () => {
+      const both = () => Promise.all([out.aMp4, out.aGif].map(bytes));
+      const before = await both();
+      html = PANEL_CHANGED;
+      const same = await refresh([A]);
+      expect(byName(same, A).outcome, JSON.stringify(same)).toBe("unchanged");
+      for (const [i, b] of (await both()).entries())
+        expect(b.equals(before[i] as Buffer)).toBe(true);
+      html = PANEL_CHANGED.replace(HEADING, "<h1>Open invoices</h1>");
+      expect(html).not.toContain(HEADING);
+      const r = await refresh([A]);
+      const a = byName(r, A);
+      expect(a.outcome, JSON.stringify(r)).toBe("replaced");
+      // Judged by its MP4 alone, and the GIF went with it.
+      expect(a.detail).toContain(out.aMp4);
+      expect(a.detail).not.toContain(out.aGif);
+      expect(a.outputs).toContain(out.aGif);
+      for (const [i, b] of (await both()).entries())
+        expect(b.equals(before[i] as Buffer)).toBe(false);
+    },
+    ONE_MS,
+  );
+
+  it(
+    "rewrites the kept file's screens when it replaces, and lists it",
+    async () => {
+      const file = `${KEPT_DIR}/${keptFileName(A)}`;
+      const before = (await keptOf(A)).screens;
+      html = PANEL_CHANGED.replace(HEADING, "<h1>Overdue invoices</h1>");
+      expect(html).not.toContain(HEADING);
+      exported.length = 0;
+      const r = await refresh([A]);
+      expect(byName(r, A).outcome, JSON.stringify(r)).toBe("replaced");
+      expect(byName(r, A).outputs).toContain(file);
+      const judged = exported.find((e) => e.fileType === "mp4");
+      expect(judged, JSON.stringify(exported)).toBeDefined();
+      const after = (await keptOf(A)).screens;
+      expect(after).toEqual(judged?.screens);
+      // The premise: the new film's screens are not the file's old ones.
+      expect(after).not.toEqual(before);
     },
     ONE_MS,
   );
@@ -368,7 +579,7 @@ describe("refresh", () => {
         JSON.stringify(r),
       ).toEqual(["replaced", "replaced"]);
       expect(byName(r, A).detail).toMatch(
-        /% of the picture changed at [\d.]+s, over the 0\.015% allowed, of \d+ moments at rest/,
+        /% of the picture changed (before step \d+|on the final screen) at [\d.]+s/,
       );
       const after = await Promise.all(Object.values(out).map(bytes));
       for (const [i, b] of after.entries())
@@ -507,4 +718,18 @@ describe("refresh", () => {
     },
     ONE_MS,
   );
+
+  it("keeps every click clear of the pan-or-pull-back line", () => {
+    // Tests no production code: it fails when a fixture edit moves a gap
+    // between clicks onto `returnsBetween`'s line (spec decision 5).
+    // The premise: the file filmed a video with two clicks, several times.
+    const withGap = gaps.filter((g) => g.gaps.length > 0);
+    expect(withGap.length, JSON.stringify(gaps)).toBeGreaterThan(3);
+    for (const g of withGap)
+      for (const gap of g.gaps)
+        expect(
+          clearOfLine(gap),
+          `${g.name}: a ${gap} ms gap is within 500 ms of ${LINE_MS}`,
+        ).toBe(true);
+  });
 });

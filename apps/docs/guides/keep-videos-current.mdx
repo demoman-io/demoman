@@ -40,17 +40,25 @@ Films every kept video again, with no agent. It prints a line per video:
 | `<name>: unchanged: <how much changed>` | It looks the same. The files are left as they are |
 | `<name>: failed: <why>` | The run was not clean. The committed files stay, and the command exits 1 |
 
-The picture is compared where the camera is still. A change visible only
-while the camera moves is not seen until a later change is. Videos are not
-compared byte for byte, so an unchanged app makes no commit, with two
-exceptions:
+Refresh compares the screen before each step and the final screen, in the
+video it judges: the first MP4 that is not 9:16, else the first file that is
+not 9:16, else the first MP4. Where the kept file recorded a still screen, the new film is read at the
+same step. If the picture changed, every file of the video is replaced, with
+the kept file's record of its screens. Videos are not compared byte for byte,
+so an unchanged app makes no commit. Three gaps are accepted:
 
+- A change seen only in motion or mid-scroll, or something that appears and
+  goes within one step, is not seen. It is seen once it shows on a screen
+  that is compared.
+- A slower app that tips the camera to pull back, where it held before (or
+  the reverse), reads as changed. The camera decides from the gap between two
+  clicks, and a gap near that line can fall either side of it.
 - A video kept on macOS is filmed again on Linux by the first refresh in CI.
   Linux's fonts differ, so that refresh replaces it once. After that, refresh
   in CI only: a refresh on a Mac and one in CI replace each other's files.
-- A film whose page never comes to rest (a spinner, a clock or a carousel
-  always in view) is compared while the camera moves, so it is replaced on
-  every refresh. Its line says "(the film is never at rest)".
+
+A kept file with no recorded screens is not refreshed. Its line says to run
+`demoman keep` for it again.
 
 ## Run it on every merge
 
