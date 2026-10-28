@@ -100,7 +100,10 @@ async function compared(
   sa: KeptScreens,
   sb: KeptScreens,
 ): Promise<{ same: boolean; detail: string }> {
-  const out = await samePicture(a, b, fileType, sa, sb, { session });
+  const out = await samePicture(a, b, fileType, sa, sb, {
+    session,
+    log: console.warn,
+  });
   if (!("same" in out)) throw new Error(JSON.stringify(out));
   return out;
 }
@@ -198,6 +201,7 @@ describe("samePicture", () => {
       await copyFile(files.gif as string, bin);
       const out = await samePicture(bin, bin, "gif", of("gif"), of("gif"), {
         session,
+        log: console.warn,
       });
       expect(out, JSON.stringify(out)).toMatchObject({ same: true });
     },
@@ -212,10 +216,16 @@ describe("samePicture", () => {
       const mp4 = files.mp4 as string;
       const s = of("mp4");
       expect(
-        await samePicture(junk, mp4, "mp4", s, s, { session }),
+        await samePicture(junk, mp4, "mp4", s, s, {
+          session,
+          log: console.warn,
+        }),
       ).toMatchObject({ undecodable: "committed" });
       expect(
-        await samePicture(mp4, junk, "mp4", s, s, { session }),
+        await samePicture(mp4, junk, "mp4", s, s, {
+          session,
+          log: console.warn,
+        }),
       ).toMatchObject({ undecodable: "new" });
       await expect(
         samePicture(mp4, mp4, "mp4", s, s, {
@@ -226,6 +236,7 @@ describe("samePicture", () => {
               detail: "injected",
             }),
           },
+          log: console.warn,
         }),
       ).rejects.toThrow("no page to decode on: injected");
     },
@@ -243,7 +254,10 @@ describe("samePicture", () => {
         moments: [{ step: first.step, ms: 600_000 }],
       };
       const fresh: KeptScreens = { steps: s.steps, moments: [first] };
-      const out = await samePicture(mp4, mp4, "mp4", past, fresh, { session });
+      const out = await samePicture(mp4, mp4, "mp4", past, fresh, {
+        session,
+        log: console.warn,
+      });
       expect(out, JSON.stringify(out)).toMatchObject({
         uncomparable: expect.stringMatching(
           /^the committed video ends at [\d.]+s, before its screen at 600\.000s$/,

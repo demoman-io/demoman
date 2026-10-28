@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { uncleanRun } from "../src/executor/refresh.js";
 import {
@@ -87,7 +90,7 @@ describe("samePicture decides before it decodes", () => {
       "mp4",
       screens(3, 0),
       screens(4, 0),
-      { session: none },
+      { session: none, log: () => undefined },
     );
     expect(out).toEqual({
       same: false,
@@ -98,10 +101,49 @@ describe("samePicture decides before it decodes", () => {
     const a = { steps: 3, moments: [m(0, 0)] };
     const b = { steps: 3, moments: [m(1, 0)] };
     expect(
-      await samePicture("/x", "/y", "mp4", a, b, { session: none }),
+      await samePicture("/x", "/y", "mp4", a, b, {
+        session: none,
+        log: () => undefined,
+      }),
     ).toEqual({
       uncomparable: "no screen of the video is still in both films",
     });
+  });
+});
+
+describe("samePicture says a work page that would not close", () => {
+  it("logs the close failure beside a verdict it still gives", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "same-close-"));
+    const [a, b] = [join(dir, "a.mp4"), join(dir, "b.mp4")];
+    await writeFile(a, "a");
+    await writeFile(b, "b");
+    const file = { width: 4, height: 4, length: 2, frame: 1 / 30 };
+    let closes = 0;
+    const page = {
+      goto: async () => undefined,
+      addScriptTag: async () => undefined,
+      // What the page would read: one screen, unchanged.
+      evaluate: async () => ({ a: file, b: file, changed: [[0, 0]] }),
+      close: async () => {
+        closes++;
+        throw new Error("Target closed");
+      },
+    };
+    const said: string[] = [];
+    const out = await samePicture(
+      a,
+      b,
+      "mp4",
+      screens(1, 500),
+      screens(1, 500),
+      {
+        session: { openWorkPage: async () => ({ ok: true, page }) } as never,
+        log: (line: string) => void said.push(line),
+      },
+    );
+    expect(closes, "premise: the page was closed and refused").toBe(1);
+    expect(out).toMatchObject({ same: true });
+    expect(said.join("\n")).toContain("Target closed");
   });
 });
 

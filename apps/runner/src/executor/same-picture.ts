@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import type { KeptScreens } from "@demoman/run-core";
+import { type KeptScreens, messageOf } from "@demoman/run-core";
 import { bundleEntry } from "../bundle-js.js";
 import type {
   DecodeProbeEntry,
@@ -94,6 +94,8 @@ export async function samePicture(
     session: Pick<BrowserSession, "openWorkPage">;
     /** The kept script's steps, to name a screen by its script step. */
     steps?: readonly { do: string }[];
+    /** Where a forgiven failure (a work page that would not close) is said. */
+    log: (line: string) => void;
   },
 ): Promise<
   | { same: boolean; detail: string }
@@ -161,7 +163,11 @@ export async function samePicture(
   } finally {
     server.close();
     // The answer is read; a work page left open is the session's to close.
-    await work.page.close().catch(() => undefined);
+    await work.page.close().catch((error: unknown) => {
+      deps.log(
+        `refresh: the comparison's page would not close (${messageOf(error)})`,
+      );
+    });
   }
   if ("unreadable" in diff) {
     return {

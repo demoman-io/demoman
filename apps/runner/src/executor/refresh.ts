@@ -476,7 +476,7 @@ async function replaceOne(
         judged.fileType,
         kept.screens,
         renderedScreens[j] as KeptScreens,
-        { session: deps.session, steps: kept.script.steps },
+        { session: deps.session, steps: kept.script.steps, log: deps.log },
       );
     } catch (error) {
       return fail(
