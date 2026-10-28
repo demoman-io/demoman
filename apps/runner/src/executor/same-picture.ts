@@ -1,19 +1,21 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
+import type { KeptScreens } from "@demoman/run-core";
 import { bundleEntry } from "../bundle-js.js";
 import type {
   DecodeProbeEntry,
-  PictureDiff,
   PictureOptions,
   PictureUnreadable,
+  ScreensDiff,
 } from "../decode-probe-entry.js";
 import { DECODE_PROBE_GLOBAL } from "../entry-globals.js";
 import { listenOnLoopback } from "../loopback.js";
 import type { BrowserSession } from "./browser.js";
 
 /**
- * Measured 2026-10-27 (M-series Mac, headless) on refresh.slow.test.ts's two
+ * Measured 2026-10-27 (M-series Mac, headless), when the films were compared
+ * at moments found at rest, on refresh.slow.test.ts's two
  * fixture videos (1920x1080 MP4s at share quality, and a GIF). First, the
  * largest share changed at rest at each width and level tried, on one
  * capture of each pair (window 0.1 s, a looser rest):
@@ -30,53 +32,11 @@ import type { BrowserSession } from "./browser.js";
  * change. Mid-move the same pairs read up to 7%: the camera runs a fraction
  * of a frame apart, which is why only moments at rest are judged.
  */
-/** How far apart two films of one script may place a moment, and end:
- *  measured, re-films of one unchanged script ran 4.533 s, 4.567 s,
- *  4.600 s, 4.767 s and 4.800 s long (the run's own waits differ), 0.27 s
- *  apart at most. */
-export const SLACK_SEC = 0.4;
-/** The share of a moment at rest that may change before the picture has. */
+/** The share of a recorded screen that may change before the picture has.
+ *  Measured at moments at rest (above); Task 6 re-measures it at the
+ *  recorded screens. */
 export const CHANGED_SHARE = 0.00015;
-/** A moment is at rest when less than this share of the film's own picture
- *  moved within `REST_SEC` either side of it: about 18 pixels of 1280x720.
- *  Mid-move reads 1-16%; the pointer alone gliding reads 0.01-0.08% from
- *  one frame to the next, and two films place it apart enough to read
- *  0.04% changed (measured), so a moment with the pointer moving is not at
- *  rest. */
-export const REST_SHARE = 0.00002;
-/**
- * How long the film must hold one picture before and after a moment for it
- * to be at rest: `REST_SEC` each way, so a hold of more than 0.5 s.
- *
- * Not one frame back. The export holds each screencast capture until the
- * next, so a capture slower than its 30 fps leaves runs of equal frames
- * in the middle of an animation, each a phase of it the other film never
- * caught. CI on 2026-10-27 (PR #9, ubuntu "runner (1)") judged such a frame
- * of the fixture's 800 ms panel slide at rest and read "5.127% of the
- * picture changed at 4.00s": the slide fills 3.5-4.6 s of that film.
- *
- * Why 0.25 s. The holds inside motion, measured: on a Mac these films hold
- * a frame 2-6 frames (at most 0.2 s) between camera moves; a step's full
- * still stalls the screencast 87-272 ms (`constants.ts`, beside
- * `SPAN_QUIET_MS`); ubuntu CI caught the same slide in 22 frames against 34,
- * and once split it at a pause of 250 ms or more. A hold must outlast twice
- * the longest of those to read as rest. The other way, the rest a film is
- * judged on: the fixture films' opening holds 1.3 s, so 6 moments at rest
- * (0.4 s: 5; one frame: 9, the 3 more all brief holds between moves).
- * Larger would judge fewer moments after the first step, and a change shown
- * only there would go unseen; smaller brings a stalled slide within reach.
- * A runner whose screencast falls silent for over 0.5 s mid-animation would
- * still read that hold as rest: none measured so far comes near it.
- */
-export const REST_SEC = 0.25;
-export const PICTURE_OPTIONS: PictureOptions = {
-  spacingSec: 0.25,
-  width: 1280,
-  levels: 48,
-  windowSec: SLACK_SEC,
-  restShare: REST_SHARE,
-  restSec: REST_SEC,
-};
+export const PICTURE_OPTIONS: PictureOptions = { width: 1280, levels: 48 };
 
 const ENTRY_PATH = fileURLToPath(
   new URL(
@@ -89,21 +49,35 @@ const ENTRY_PATH = fileURLToPath(
 
 /**
  * Whether `committed` and `fresh`, two MP4s or two GIFs (`fileType`, from
- * the kept output: never guessed from a name), show the same picture,
- * decoded side by side. A different frame size, or lengths further apart
- * than `SLACK_SEC`, is a different picture. A file that cannot be decoded
- * as its type is named (`undecodable`); anything else that stops the
- * comparison (no page, no decode bundle) throws: neither is an answer.
+ * the kept output: never guessed from a name), show the same picture at the
+ * still screens both films recorded, paired by step. A different step
+ * count or frame size is a different picture; no shared screen, or one past
+ * a film's end, is no comparison (`uncomparable`). The films' lengths are
+ * not judged. A file that cannot be decoded as its type is named
+ * (`undecodable`); anything else that stops the comparison (no page, no
+ * decode bundle) throws: neither is an answer.
  */
 export async function samePicture(
   committed: string,
   fresh: string,
   fileType: "mp4" | "gif",
+  committedScreens: KeptScreens,
+  freshScreens: KeptScreens,
   deps: { session: Pick<BrowserSession, "openWorkPage"> },
 ): Promise<
   | { same: boolean; detail: string }
   | { undecodable: "committed" | "new"; detail: string }
+  | { uncomparable: string }
 > {
+  if (committedScreens.steps !== freshScreens.steps) {
+    return {
+      same: false,
+      detail: `the video's steps changed, ${committedScreens.steps} to ${freshScreens.steps}`,
+    };
+  }
+  const shared = sharedScreens(committedScreens, freshScreens);
+  if (shared.length === 0)
+    return { uncomparable: "no screen of the video is still in both films" };
   const type = fileType === "gif" ? "image/gif" : "video/mp4";
   const files = new Map([
     ["/a", await readFile(committed)],
@@ -124,26 +98,34 @@ export async function samePicture(
     });
     res.end(bytes);
   });
-  let diff: PictureDiff | PictureUnreadable;
+  let diff: ScreensDiff | PictureUnreadable;
   try {
     // Loopback: `about:blank` is not a secure context, and has no decoder.
     const origin = await listenOnLoopback(server);
     await work.page.goto(origin);
     await work.page.addScriptTag({ content: await bundleEntry(ENTRY_PATH) });
     diff = await work.page.evaluate(
-      ([name, mime, options]) => {
+      ([name, mime, msA, msB, options]) => {
         const entry = (
           globalThis as unknown as Record<string, DecodeProbeEntry>
         )[name as string];
         if (entry === undefined) throw new Error(`${name} is not installed`);
-        return entry.pictureDiff(
+        return entry.screensDiff(
           "/a",
           "/b",
           mime as "video/mp4" | "image/gif",
+          msA as number[],
+          msB as number[],
           options as PictureOptions,
         );
       },
-      [DECODE_PROBE_GLOBAL, type, PICTURE_OPTIONS] as const,
+      [
+        DECODE_PROBE_GLOBAL,
+        type,
+        shared.map((s) => s.msA),
+        shared.map((s) => s.msB),
+        PICTURE_OPTIONS,
+      ] as const,
     );
   } finally {
     server.close();
@@ -156,50 +138,67 @@ export async function samePicture(
       detail: diff.error,
     };
   }
-  return comparePictures(diff);
+  return comparePictures(diff, shared, freshScreens.steps + 1);
+}
+
+/** The screens both films have, paired by `step`, in increasing ms. */
+export function sharedScreens(
+  a: KeptScreens,
+  b: KeptScreens,
+): { step: number | null; msA: number; msB: number }[] {
+  return a.moments.flatMap((m) => {
+    const other = b.moments.find((n) => n.step === m.step);
+    return other === undefined
+      ? []
+      : [{ step: m.step, msA: m.ms, msB: other.ms }];
+  });
 }
 
 /**
- * The decision, on what the page read: the moments it compared, which are
- * those at rest. Two films of one script run the camera a fraction of a
- * frame apart, so the same pan reads as several per cent changed mid-move,
- * while an app's own picture shows where the film holds still. A film never
- * at rest is compared at every moment, and says so.
+ * The decision, on what the page read: the largest share changed over the
+ * shared screens, against `CHANGED_SHARE`. `total` is the screens a film can
+ * have (its steps and the final one), for "k of n screens".
  */
-export function comparePictures(diff: PictureDiff): {
-  same: boolean;
-  detail: string;
-} {
-  const { a, b, samples } = diff;
+export function comparePictures(
+  diff: ScreensDiff,
+  shared: ReturnType<typeof sharedScreens>,
+  total: number,
+): { same: boolean; detail: string } | { uncomparable: string } {
+  const { a, b, changed } = diff;
   if (a.width !== b.width || a.height !== b.height) {
     return {
       same: false,
       detail: `the frame size changed, ${a.width}x${a.height} to ${b.width}x${b.height}`,
     };
   }
-  if (Math.abs(a.length - b.length) > Math.max(a.frame, b.frame, SLACK_SEC)) {
+  for (const [i, share] of changed.entries()) {
+    if (share !== null) continue;
+    const s = shared[i] as (typeof shared)[number];
+    const past = s.msA / 1000 >= a.length;
     return {
-      same: false,
-      detail: `the length changed, ${a.length.toFixed(3)}s to ${b.length.toFixed(3)}s`,
+      uncomparable: `the ${past ? "committed" : "new"} video ends at ${(past ? a : b).length.toFixed(3)}s, before its screen at ${((past ? s.msA : s.msB) / 1000).toFixed(3)}s`,
     };
   }
-  const judged = samples.flatMap((s) =>
-    s.changed === null ? [] : [{ t: s.t, changed: s.changed }],
-  );
-  const still = samples.some((s) => s.moving < REST_SHARE);
-  const where = `${judged.length} moment${judged.length === 1 ? "" : "s"}${still ? " at rest" : " (the film is never at rest)"}`;
-  const [first] = judged;
-  if (first === undefined)
-    return { same: false, detail: "no moment of the film could be compared" };
-  const worst = judged.reduce((w, s) => (s.changed > w.changed ? s : w), first);
-  const pct = (worst.changed * 100).toFixed(3);
-  return worst.changed > CHANGED_SHARE
-    ? {
-        same: false,
-        detail: `${pct}% of the picture changed at ${worst.t.toFixed(2)}s, over the ${(CHANGED_SHARE * 100).toFixed(3)}% allowed, of ${where}`,
-      }
-    : {
-        same: true,
-        detail: `at most ${pct}% of the picture changed, over ${where}`,
-      };
+  let worst = 0;
+  let at = 0;
+  for (const [i, share] of changed.entries()) {
+    if ((share as number) > worst) {
+      worst = share as number;
+      at = i;
+    }
+  }
+  const where = `${shared.length} of ${total} screens`;
+  const pct = (worst * 100).toFixed(3);
+  if (worst <= CHANGED_SHARE)
+    return {
+      same: true,
+      detail: `at most ${pct}% of the picture changed, over ${where}`,
+    };
+  const s = shared[at] as (typeof shared)[number];
+  const place =
+    s.step === null ? "on the final screen" : `before step ${s.step + 1}`;
+  return {
+    same: false,
+    detail: `${pct}% of the picture changed ${place} at ${(s.msB / 1000).toFixed(2)}s, over the ${(CHANGED_SHARE * 100).toFixed(3)}% allowed, of ${where}`,
+  };
 }

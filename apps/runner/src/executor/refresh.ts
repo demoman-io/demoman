@@ -11,6 +11,7 @@ import { join, relative, resolve } from "node:path";
 import {
   type ExportAnswer,
   KEPT_DIR,
+  type KeptScreens,
   type KeptVideo,
   keptFileName,
   messageOf,
@@ -335,6 +336,7 @@ type Filmed = {
   job: Job;
   report: RunReport;
   rendered: string[];
+  renderedScreens: KeptScreens[];
   /** The take's report.json, for `kept.report`; or why it is not had. */
   stored: { value: unknown } | { not: string } | null;
 };
@@ -375,6 +377,7 @@ async function filmOne(
   if (takeId === null) return { failed: "the run is clean but made no take" };
 
   const rendered: string[] = [];
+  const renderedScreens: KeptScreens[] = [];
   for (const o of kept.outputs) {
     const out = await executor.request("export", {
       takeId,
@@ -394,6 +397,7 @@ async function filmOne(
         failed: `${o.path} was rendered without its logo: ${exported.warnings.logo}`,
       };
     rendered.push(exported.file.path);
+    renderedScreens.push(exported.screens);
   }
   let stored: Filmed["stored"] = null;
   if (kept.report !== null) {
@@ -405,13 +409,19 @@ async function filmOne(
             not: `take ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
           };
   }
-  return { job: { kept, file, script, ahead }, report, rendered, stored };
+  return {
+    job: { kept, file, script, ahead },
+    report,
+    rendered,
+    renderedScreens,
+    stored,
+  };
 }
 
 /** Compares each new output with the committed one and replaces those
  *  whose picture changed, each by rename from a finished file beside it. */
 async function replaceOne(
-  { job, report, rendered, stored }: Filmed,
+  { job, report, rendered, renderedScreens, stored }: Filmed,
   root: string,
   head: { commit: string | null; tree: string | null },
   deps: RefreshDeps,
@@ -456,11 +466,18 @@ async function replaceOne(
         committed,
         rendered[i] as string,
         o.fileType,
+        kept.screens,
+        renderedScreens[i] as KeptScreens,
         deps,
       );
     } catch (error) {
       return fail(
         `${o.path} could not be compared with its new export, so nothing was replaced: ${messageOf(error)}`,
+      );
+    }
+    if ("uncomparable" in cmp) {
+      return fail(
+        `${o.path} could not be compared with its new export, so nothing was replaced: ${cmp.uncomparable}`,
       );
     }
     if ("undecodable" in cmp) {

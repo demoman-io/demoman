@@ -120,7 +120,7 @@ export interface CropReading {
   grey?: string;
 }
 
-/** One file as `pictureDiff` read it; `length` and `frame` (its shortest
+/** One file as `screensDiff` read it; `length` and `frame` (its shortest
  *  frame) in seconds. */
 export interface PictureFile {
   width: number;
@@ -129,23 +129,13 @@ export interface PictureFile {
   frame: number;
 }
 
-/** One moment of the first file, against the second. Shares are of the
- *  first file's pixels whose grey level moved more than `levels`. */
-export interface PictureSample {
-  t: number;
-  /** Against its own picture `restSec` either side, the larger: near 0
-   *  when the film is at rest here. */
-  moving: number;
-  /** Against the second file's best match within `windowSec` of `t`; null
-   *  where the film was moving, and so not compared. */
-  changed: number | null;
-}
-
-export interface PictureDiff {
+export interface ScreensDiff {
   a: PictureFile;
   b: PictureFile;
-  /** Empty when the two differ in frame size. */
-  samples: PictureSample[];
+  /** Per moment pair: the share of `a`'s pixels whose grey level moved more
+   *  than `levels` at that moment in `b`; null where either moment lies
+   *  past its film's end. Empty when the two differ in frame size. */
+  changed: (number | null)[];
 }
 
 /** One file could not be read as its type: `a` or `b`, and why. */
@@ -155,21 +145,19 @@ export interface PictureUnreadable {
 }
 
 export interface PictureOptions {
-  spacingSec: number;
   width: number;
   levels: number;
-  windowSec: number;
-  restShare: number;
-  restSec: number;
 }
 
 export interface DecodeProbeEntry {
-  pictureDiff(
+  screensDiff(
     a: string,
     b: string,
     type: "video/mp4" | "image/gif",
+    msA: number[],
+    msB: number[],
     options: PictureOptions,
-  ): Promise<PictureDiff | PictureUnreadable>;
+  ): Promise<ScreensDiff | PictureUnreadable>;
   /** Every frame of the film at `url`, decoded in order: its timestamp, and
    *  how much its picture changed from the frame before. */
   frameTimes(url: string): Promise<FrameTimes>;
@@ -902,27 +890,25 @@ async function pictureReader(
 }
 
 /**
- * `a` and `b` read side by side every `spacingSec`: at each moment of `a`,
- * how much `a` itself changes within `restSec` either side, and, where it
- * is at rest (under `restShare`; everywhere, when it never is), how much of
- * it the closest frame of `b` within `windowSec` leaves changed: two films
- * of one script place the same moment a little apart. Read here, next to
- * the pixels, so no frame crosses `page.evaluate`; `b`'s frames are kept
- * only while a window needs them. Throws, like `sampleFrames`: a comparison cannot use a
- * false verdict.
+ * `a` at `msA[i]` against `b` at `msB[i]`, for the moments the renders
+ * recorded as still screens. Read here, next to the pixels, so no frame
+ * crosses `page.evaluate`. Throws, like `sampleFrames`: a comparison cannot
+ * use a false verdict.
  */
-async function pictureDiff(
+async function screensDiff(
   urlA: string,
   urlB: string,
   type: "video/mp4" | "image/gif",
+  msA: number[],
+  msB: number[],
   o: PictureOptions,
-): Promise<PictureDiff | PictureUnreadable> {
+): Promise<ScreensDiff | PictureUnreadable> {
   try {
     const ra = await blamed("a", urlA, type, o.width);
     try {
       const rb = await blamed("b", urlB, type, o.width);
       try {
-        return await diffOf(ra, rb, o);
+        return await diffOf(ra, rb, msA, msB, o);
       } finally {
         rb.close();
       }
@@ -967,61 +953,33 @@ async function blamed(
 async function diffOf(
   ra: PictureReader,
   rb: PictureReader,
+  msA: number[],
+  msB: number[],
   o: PictureOptions,
-): Promise<PictureDiff> {
+): Promise<ScreensDiff> {
   const file = (r: PictureReader): PictureFile => ({
     width: r.width,
     height: r.height,
     length: r.length,
     frame: r.frame,
   });
-  const answer = { a: file(ra), b: file(rb), samples: [] as PictureSample[] };
+  const answer = { a: file(ra), b: file(rb), changed: [] as (number | null)[] };
   if (ra.width !== rb.width || ra.height !== rb.height) return answer;
-  // Off the end by a frame: a request at exactly the length decodes nothing.
-  const lastA = Math.max(0, ra.length - ra.frame);
-  const lastB = Math.max(0, rb.length - rb.frame);
-  const ts: number[] = [];
-  for (let t = 0; t < lastA; t += o.spacingSec) ts.push(t);
-  ts.push(lastA);
-  const own = await ra.at(ts);
-  // At rest: unchanged from `restSec` before to `restSec` after, so a frame
-  // the export merely held, between two captures of a slide, is not.
-  const before = await ra.at(ts.map((t) => Math.max(0, t - o.restSec)));
-  const after = await ra.at(ts.map((t) => Math.min(lastA, t + o.restSec)));
-  const moving = ts.map((_, i) =>
-    Math.max(
-      changedShare(own[i] as Uint8Array, before[i] as Uint8Array, o.levels),
-      changedShare(own[i] as Uint8Array, after[i] as Uint8Array, o.levels),
-    ),
+  // A moment at or past the length has no frame; a request there decodes none.
+  const within = (r: PictureReader, ms: number) => ms / 1000 < r.length;
+  const keep = msA.map((a, i) =>
+    within(ra, a) && within(rb, msB[i] as number) ? i : -1,
   );
-  const still = moving.some((m) => m < o.restShare);
-  // `b`'s frames on its own grid, decoded once each, kept while in reach.
-  const kept = new Map<number, Uint8Array>();
-  const lastIndex = Math.floor(lastB / rb.frame + 1e-6);
-  for (const [i, t] of ts.entries()) {
-    const ga = own[i] as Uint8Array;
-    if (still && (moving[i] as number) >= o.restShare) {
-      answer.samples.push({ t, moving: moving[i] as number, changed: null });
-      continue;
-    }
-    const from = Math.max(0, Math.ceil((t - o.windowSec) / rb.frame - 1e-6));
-    const to = Math.min(
-      lastIndex,
-      Math.floor((t + o.windowSec) / rb.frame + 1e-6),
+  const ids = keep.filter((i) => i >= 0);
+  const ga = await ra.at(ids.map((i) => (msA[i] as number) / 1000));
+  const gb = await rb.at(ids.map((i) => (msB[i] as number) / 1000));
+  for (const i of msA.keys()) {
+    const k = ids.indexOf(i);
+    answer.changed.push(
+      k < 0
+        ? null
+        : changedShare(ga[k] as Uint8Array, gb[k] as Uint8Array, o.levels),
     );
-    for (const k of kept.keys()) if (k < from) kept.delete(k);
-    const missing: number[] = [];
-    for (let k = from; k <= to; k++) if (!kept.has(k)) missing.push(k);
-    const got = await rb.at(missing.map((k) => k * rb.frame));
-    for (const [j, k] of missing.entries()) kept.set(k, got[j] as Uint8Array);
-    let best = 1;
-    for (let k = from; k <= to; k++)
-      best = Math.min(
-        best,
-        changedShare(ga, kept.get(k) as Uint8Array, o.levels),
-      );
-    // No frame of `b` this near (it ends before `a` does) leaves it at 1.
-    answer.samples.push({ t, moving: moving[i] as number, changed: best });
   }
   return answer;
 }
@@ -1042,7 +1000,7 @@ function meanAbsoluteDifference(
 }
 
 const entry: DecodeProbeEntry = {
-  pictureDiff,
+  screensDiff,
   decodeFrame,
   readCrops,
   sampleFrames,
