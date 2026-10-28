@@ -679,6 +679,18 @@ export const CANVAS_DEFAULTS: SceneCanvas = Object.freeze({
  */
 export const BrandColorSchema = z.string().regex(/^#[0-9a-f]{6}$/);
 
+/**
+ * How blurred an image background is, 0 (sharp) to 1 (`WALLPAPER_BLUR_MAX`
+ * of the frame's short side, in the compositor). Optional, and absent reads
+ * as 0: everything saved before blur existed renders as it did, with no
+ * version bump (spec 2026-10-28, "Blur").
+ */
+const WallpaperBlurSchema = z.number().min(0).max(1).optional();
+
+/** The blur new takes and kits start on: the author's pick (2026-10-28),
+ *  the top of the slider, 12% of the frame's short side. */
+export const DEFAULT_WALLPAPER_BLUR = 1;
+
 export const BackgroundSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("solid"), color: BrandColorSchema }),
   z.object({
@@ -694,8 +706,13 @@ export const BackgroundSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("wallpaper"),
     id: z.string().regex(/^[a-z0-9-]+$/),
+    blur: WallpaperBlurSchema,
   }),
-  z.object({ kind: z.literal("image"), ref: z.string().min(1) }),
+  z.object({
+    kind: z.literal("image"),
+    ref: z.string().min(1),
+    blur: WallpaperBlurSchema,
+  }),
 ]);
 
 export const LOGO_CORNERS = [
@@ -752,21 +769,24 @@ export const BRANDING_DEFAULTS: SceneBranding = Object.freeze({
   background: Object.freeze({
     kind: "wallpaper",
     id: DEFAULT_WALLPAPER_ID,
+    blur: DEFAULT_WALLPAPER_BLUR,
   }) as SceneBackground,
   logo: null,
   /**
-   * 8%: the margin of a polished recording, near enough (8.4% measured on
-   * 2026-10-05), and the smallest padding that draws the default logo at
-   * full size.
-   * `placeLogo` keeps a mark 0.02 × short in from the edge and clear of the
-   * recording, so a logo of size `s` fits only when the padding is at least
-   * `s + 0.02`, and `LOGO_DEFAULTS.size` is 0.06.
+   * 12%: the author's call on 2026-10-28, from a side-by-side with the
+   * wallpapers, which want more of the frame to show. It was 8% from
+   * 2026-10-05 (the margin of a polished recording, 8.4% measured), the
+   * smallest padding that draws the default logo at full size; documents
+   * migrated from v7 still get that 8% (`migrations.ts`), so nothing saved
+   * changes. `placeLogo` keeps a mark 0.02 × short in from the edge and
+   * clear of the recording, so a logo of size `s` fits only when the padding
+   * is at least `s + 0.02`; `LOGO_DEFAULTS.size` is 0.06, well inside.
    *
    * Landscape exports used 15% until 2026-10-05 for zoom headroom: a
    * smaller window leaves more source detail per output pixel. That trade
    * is the author's now; `clampToSourceDetail` reports what it costs.
    */
-  padding: 0.08,
+  padding: 0.12,
 }) as SceneBranding;
 
 /** Where, how large and how strong a freshly uploaded logo lands. The

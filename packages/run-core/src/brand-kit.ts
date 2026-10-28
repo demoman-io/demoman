@@ -30,15 +30,18 @@ export function coerceBrandKit(raw: unknown): BrandKitRead {
 
 /**
  * A kit saved before 2026-10-05 has no `padding`. It is the author's
- * working kit, not a broken one, so it reads as that kit at the default
- * padding — an upgrade of an absent key, never a stand-in for a bad value:
- * a present `padding` is passed through for the schema to judge. A copy, so
- * reading never writes; the stored kit gains the key on its next save.
+ * working kit, not a broken one, so it reads as that kit at 8%: the
+ * padding it has read at since then, kept when new kits moved to 12%
+ * (2026-10-28) so a saved kit does not change. An upgrade of an absent key,
+ * never a stand-in for a bad value: a present `padding` is passed through
+ * for the schema to judge. A copy, so reading never writes; the stored kit
+ * gains the key on its next save.
  */
+const LEGACY_KIT_PADDING = 0.08;
 function withPadding(raw: unknown): unknown {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
   if ("padding" in raw) return raw;
-  return { ...raw, padding: BRANDING_DEFAULTS.padding };
+  return { ...raw, padding: LEGACY_KIT_PADDING };
 }
 
 /** One kit as stored: the branding is checked on read, never trusted. */

@@ -237,4 +237,9 @@ export {
   wallpaperRasterSize,
   wallpaperShape,
 } from "./render/wallpaper.js";
+export {
+  blurWallpaper,
+  WALLPAPER_BLUR_MAX,
+  wallpaperBlurPx,
+} from "./render/wallpaper-blur.js";
 export { COMPOSITOR_VERSION } from "./version.js";

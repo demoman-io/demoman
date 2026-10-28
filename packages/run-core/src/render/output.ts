@@ -6,6 +6,7 @@
 // OffscreenCanvas and WebCodecs. Naming and storing the files are the
 // callers', since each door saves differently.
 import {
+  blurWallpaper,
   type ClampedRange,
   composeForTarget,
   createGifSink,
@@ -28,6 +29,7 @@ import {
   type Screens,
   type UnavailableSpan,
   type UnplacedStill,
+  wallpaperBlurPx,
   wallpaperRasterSize,
 } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
@@ -335,30 +337,47 @@ export async function renderOutput(input: {
       };
     if (!load.ok) return { image: null, failed: load.error };
     const size = wallpaperRasterSize(at, load.image);
-    if (size.width >= load.image.width)
-      return { image: load.image, failed: null };
-    try {
-      const bitmap = await createImageBitmap(load.image.image, {
-        resizeWidth: size.width,
-        resizeHeight: size.height,
-        resizeQuality: "high",
-      });
-      return {
-        image: {
+    let sized = load.image;
+    if (size.width < load.image.width) {
+      try {
+        const bitmap = await createImageBitmap(load.image.image, {
+          resizeWidth: size.width,
+          resizeHeight: size.height,
+          resizeQuality: "high",
+        });
+        sized = {
           ...load.image,
           image: bitmap,
           width: size.width,
           height: size.height,
-        },
-        failed: null,
-      };
+        };
+      } catch (error) {
+        return {
+          image: null,
+          failed: `"${load.name}" could not be resized to ${size.width}×${size.height} (${
+            error instanceof Error ? error.message : String(error)
+          })`,
+        };
+      }
+    }
+    // Blurred here, once for this output, as the take records it: never
+    // per frame, and never re-decided from anything else.
+    const bg = scene.branding.background;
+    const blur = bg.kind === "wallpaper" || bg.kind === "image" ? bg.blur : 0;
+    const radius = wallpaperBlurPx(at, sized, blur ?? 0);
+    try {
+      return { image: blurWallpaper(sized, radius), failed: null };
     } catch (error) {
       return {
         image: null,
-        failed: `"${load.name}" could not be resized to ${size.width}×${size.height} (${
+        failed: `"${load.name}" could not be blurred at ${sized.width}×${sized.height} (${
           error instanceof Error ? error.message : String(error)
         })`,
       };
+    } finally {
+      // The sharp copy made for this output, once the blur has its own.
+      if (radius > 0 && sized !== load.image)
+        (sized.image as ImageBitmap).close();
     }
   };
   /** What the facts say about the wallpaper of a render at `at` whose

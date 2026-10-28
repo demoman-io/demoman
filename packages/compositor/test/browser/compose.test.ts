@@ -1,5 +1,4 @@
 import {
-  BRANDING_DEFAULTS,
   CURSOR_DEFAULTS,
   type SceneCursor,
   type SceneDocument,
@@ -285,7 +284,7 @@ describe("renderFrame", () => {
   // spend it on the anchor the beat is about.
   it("centres a cover crop on the active anchor rather than sitting fixed", () => {
     const presentation = derivePresentation(
-      BRANDING_DEFAULTS,
+      readonlyScene().branding,
       VERTICAL_1080,
       VIEWPORT,
     );
@@ -1473,7 +1472,7 @@ describe("the drawn cursor through a pause in a capture take", () => {
     // at, so the claim is now about the pointer rather than about the frame
     // it happens to be drawn in.
     const { frameRect } = derivePresentation(
-      BRANDING_DEFAULTS,
+      scene.branding,
       target,
       scene.meta.capture.viewport,
     );
@@ -1564,7 +1563,7 @@ describe("the drawn cursor through a gap in a capture take", () => {
     // at, so the claim is now about the pointer rather than about the frame
     // it happens to be drawn in.
     const { frameRect } = derivePresentation(
-      BRANDING_DEFAULTS,
+      scene.branding,
       target,
       scene.meta.capture.viewport,
     );
@@ -1610,7 +1609,7 @@ describe("the drawn cursor leaving through the page's edge", () => {
   });
   const resolved = resolvePlan(planScene(scene), left, scene);
   const { frameRect } = derivePresentation(
-    BRANDING_DEFAULTS,
+    scene.branding,
     target,
     scene.meta.capture.viewport,
   );

@@ -1435,6 +1435,206 @@ describe("the Studio's screenshot set", () => {
         });
       }
 
+      // Blur (spec 2026-10-28, "Blur"), below full screen: the slider under
+      // the grid, inside the panel and on top of it; then dragged to its end
+      // by a real mouse and released, and the preview's margin, sharp
+      // before, holds far less detail after.
+      {
+        const at = "editor wallpaper blur 1280x720";
+        await page
+          .locator("input[data-wallpaper-blur]")
+          .evaluate((s) =>
+            s.scrollIntoView({ block: "nearest", behavior: "instant" }),
+          );
+        await settle(page, at);
+        const placed = await page.evaluate(() => {
+          const s = document.querySelector<HTMLInputElement>(
+            "input[data-wallpaper-blur]",
+          );
+          const row = s?.closest(".slider-row")?.getBoundingClientRect();
+          const grid = document
+            .querySelector(".wallpaper-grid")
+            ?.getBoundingClientRect();
+          if (s === null || row === undefined || grid === undefined)
+            return null;
+          const r = s.getBoundingClientRect();
+          const hit = document.elementFromPoint(
+            r.left + r.width / 2,
+            r.top + r.height / 2,
+          );
+          return {
+            value: s.value,
+            row: {
+              top: row.top,
+              bottom: row.bottom,
+              left: row.left,
+              right: row.right,
+            },
+            grid: { bottom: grid.bottom, left: grid.left, right: grid.right },
+            slider: { left: r.left, right: r.right, y: r.top + r.height / 2 },
+            onTop: hit === s,
+            innerHeight,
+          };
+        });
+        if (placed === null) throw new Error(`${at}: no Blur slider`);
+        const said = JSON.stringify(placed);
+        // The take on vivid-1 with no blur saved: sharp, at 0.
+        expect(placed.value, said).toBe("0");
+        expect(placed.onTop, `${at}: the slider is on top: ${said}`).toBe(true);
+        expect(
+          placed.row.top,
+          `${at}: under the grid: ${said}`,
+        ).toBeGreaterThanOrEqual(placed.grid.bottom);
+        expect(placed.row.left, said).toBeGreaterThanOrEqual(
+          placed.grid.left - 1,
+        );
+        expect(placed.row.right, said).toBeLessThanOrEqual(
+          placed.grid.right + 1,
+        );
+        expect(
+          placed.row.bottom,
+          `${at}: in view: ${said}`,
+        ).toBeLessThanOrEqual(placed.innerHeight);
+        /** The preview's margin as painted: the summed second difference of
+         *  grey along its left edge and its top, sampled every 2 CSS px. */
+        const marginDetail = async () => {
+          const r = await page.evaluate(() => {
+            const c = document
+              .querySelector("#preview")
+              ?.getBoundingClientRect();
+            return c === undefined
+              ? null
+              : { left: c.left, top: c.top, width: c.width, height: c.height };
+          });
+          if (r === null) throw new Error(`${at}: no #preview`);
+          const column: [number, number][] = [];
+          for (
+            let y = r.top + r.height * 0.05;
+            y < r.top + r.height * 0.95;
+            y += 2
+          )
+            column.push([r.left + r.width * 0.02, y]);
+          const row: [number, number][] = [];
+          for (
+            let x = r.left + r.width * 0.05;
+            x < r.left + r.width * 0.95;
+            x += 2
+          )
+            row.push([x, r.top + r.height * 0.02]);
+          const px = await pixelsAt(page, [...column, ...row]);
+          const grey = px.map(([a, b, c]) => (a + b + c) / 3);
+          let sum = 0;
+          for (const [from, to] of [
+            [0, column.length],
+            [column.length, grey.length],
+          ] as const)
+            for (let i = from + 1; i < to - 1; i++)
+              sum += Math.abs(
+                (grey[i - 1] as number) +
+                  (grey[i + 1] as number) -
+                  2 * (grey[i] as number),
+              );
+          return sum;
+        };
+        const sharp = await marginDetail();
+        // A frame-time log across the drag: what the author's pointer feels
+        // (reported, not asserted: a headless frame clock is no hand's).
+        await page.evaluate(() => {
+          const w = window as unknown as {
+            __frames: number[];
+            __stop: boolean;
+          };
+          w.__frames = [];
+          w.__stop = false;
+          let last = performance.now();
+          const tick = (now: number) => {
+            w.__frames.push(now - last);
+            last = now;
+            if (!w.__stop) requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        });
+        await page.mouse.move(placed.slider.left + 4, placed.slider.y);
+        await page.mouse.down();
+        // Half way, held: the preview follows the drag before any commit.
+        const half =
+          placed.slider.left + (placed.slider.right - placed.slider.left) / 2;
+        for (let i = 1; i <= 30; i++) {
+          await page.mouse.move(
+            placed.slider.left + 4 + ((half - placed.slider.left - 4) * i) / 30,
+            placed.slider.y,
+          );
+          // One move a frame, as a hand moves: each `input` its own preview.
+          await page.evaluate(
+            () =>
+              new Promise((done) => requestAnimationFrame(() => done(null))),
+          );
+        }
+        // Read before any screenshot, which stalls frames of its own.
+        const frames = await page.evaluate(() => {
+          const w = window as unknown as {
+            __frames: number[];
+            __stop: boolean;
+          };
+          w.__stop = true;
+          return w.__frames;
+        });
+        const midDrag = await vi.waitFor(
+          async () => {
+            const d = await marginDetail();
+            if (d >= sharp * 0.8)
+              throw new Error(
+                `${at}: mid-drag margin still sharp: ${d} of ${sharp}`,
+              );
+            return d;
+          },
+          { timeout: PAINT_MS, interval: 100 },
+        );
+        await page.mouse.move(placed.slider.right + 20, placed.slider.y, {
+          steps: 10,
+        });
+        await page.mouse.up();
+        await vi.waitFor(
+          async () => {
+            const v = await page
+              .locator("input[data-wallpaper-blur]")
+              .evaluate((s) => (s as HTMLInputElement).value);
+            if (v !== "1") throw new Error(`${at}: the slider reads ${v}`);
+          },
+          { timeout: PAINT_MS, interval: 100 },
+        );
+        await settle(page, at);
+        const blurred = await marginDetail();
+        const sorted = [...frames].sort((a, b) => a - b);
+        const evidence = JSON.stringify({
+          sharp,
+          midDrag,
+          blurred,
+          frames: frames.length,
+          medianFrameMs: sorted[Math.floor(sorted.length / 2)],
+          worstFrameMs: sorted.at(-1),
+        });
+        console.info(`${at}: ${evidence}`);
+        // The fixture: the sharp margin crosses vivid-1's band edges.
+        expect(sharp, evidence).toBeGreaterThan(200);
+        expect(
+          blurred,
+          `${at}: the margin is blurred: ${evidence}`,
+        ).toBeLessThan(sharp * 0.5);
+        expect(await page.locator("#failure").innerText(), at).not.toMatch(
+          /background image/i,
+        );
+        await page.screenshot({
+          path: join(SHOTS, "editor-wallpaper-blur-1280x720-dark.png"),
+        });
+        // The panel close up: the grid and the slider under it.
+        await page
+          .locator('.branding-group[data-group="background"]')
+          .screenshot({
+            path: join(SHOTS, "editor-wallpaper-blur-panel-1280x720-dark.png"),
+          });
+      }
+
       // The Brand kit page, its default kit on dark-1.
       await sizeWindow(context, page, 1280, 800);
       await openPage(page, studio, "kits", editorTake, new Set());

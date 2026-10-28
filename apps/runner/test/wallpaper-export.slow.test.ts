@@ -24,6 +24,7 @@ import {
 } from "@demoman/compositor";
 import { type ExportAnswer, frameOf, targetFor } from "@demoman/run-core";
 import {
+  BRANDING_DEFAULTS,
   NEUTRAL_BACKGROUND,
   type SceneBackground,
   type SceneDocument,
@@ -401,7 +402,9 @@ afterAll(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
-const VIVID: SceneBackground = { kind: "wallpaper", id: "vivid-1" };
+/** Sharp, said rather than left to the absent field: these cases guard the
+ *  resolution rule, which the blur would hide. */
+const VIVID: SceneBackground = { kind: "wallpaper", id: "vivid-1", blur: 0 };
 
 describe.each([
   {
@@ -543,6 +546,48 @@ const VARIANCE_FLOOR = 1.5;
  */
 const SHARP_RATIO = 0.35;
 
+describe("the default take's wallpaper", () => {
+  it(
+    "is blurred: the margin holds well under a quarter of the sharp detail",
+    async () => {
+      const blurred = sceneOn(BRANDING_DEFAULTS.background, "16:9", false);
+      const sharp = sceneOn(VIVID, "16:9", false);
+      // The fixture: the default is vivid-1 at 1, the case below at 0.
+      expect(BRANDING_DEFAULTS.background).toEqual({ ...VIVID, blur: 1 });
+      const bundle = await takeBundle();
+      const target = await targetOf(blurred);
+      expect(await targetOf(sharp)).toEqual(target);
+      const atRest = cameraAt(blurred, bundle, target, 0);
+      expect(atRest.scale).toBe(1);
+      // The left margin from 508 px down, where vivid-1's band edges cross
+      // it. Measured 2026-10-28: 5.0 sharp, 0.61 at blur 1 (0.73 at 0.5; the
+      // codec's own floor is 0.16-0.47); its top 300 px read 0.43-0.48
+      // sharp, no edge.
+      const region = marginRegion(atRest.window, target, 24, 500);
+      expect(
+        outside(region, atRest.window),
+        JSON.stringify({ region, w: atRest.window }),
+      ).toBe(true);
+      expect(Math.min(region.width, region.height)).toBeGreaterThan(100);
+      const at = 0.5;
+      const sharpExport = await exportOf(sharp, WALLPAPERS_DIR);
+      const blurExport = await exportOf(blurred, WALLPAPERS_DIR);
+      for (const e of [sharpExport, blurExport]) {
+        expect(
+          e.answer.outcome === "saved" && e.answer.warnings.wallpaperWarning,
+        ).toBeUndefined();
+      }
+      const sharpVar = await varianceOf(sharpExport.bytes, at, region, target);
+      const blurVar = await varianceOf(blurExport.bytes, at, region, target);
+      const said = JSON.stringify({ sharpVar, blurVar, region });
+      // The fixture: the sharp margin really has detail to lose.
+      expect(sharpVar, said).toBeGreaterThan(VARIANCE_FLOOR);
+      expect(blurVar, said).toBeLessThan(0.25 * sharpVar);
+    },
+    EXPORT_MS * 2,
+  );
+});
+
 /** The 1080p export's left-margin point at scale 1: background, not window. */
 const MARGIN_POINT: [number, number] = [0.04, 0.5];
 
@@ -631,7 +676,11 @@ describe("an upload smaller than the zoom needs", () => {
       await mkdir(join(home, "assets"), { recursive: true });
       await writeFile(join(home, "assets", "small.webp"), webp);
       const { answer, bytes } = await exportOf(
-        sceneOn({ kind: "image", ref: "assets/small.webp" }, "16:9", false),
+        sceneOn(
+          { kind: "image", ref: "assets/small.webp", blur: 0 },
+          "16:9",
+          false,
+        ),
         WALLPAPERS_DIR,
       );
       if (answer.outcome !== "saved") throw new Error("not saved");

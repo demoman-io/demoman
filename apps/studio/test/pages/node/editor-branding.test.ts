@@ -1,5 +1,6 @@
 import {
   BRANDING_DEFAULTS,
+  DEFAULT_WALLPAPER_BLUR,
   DEFAULT_WALLPAPER_ID,
   NEUTRAL_BACKGROUND,
   type SceneBranding,
@@ -294,9 +295,86 @@ describe("the Background panel's Wallpaper", () => {
     const { q, handlers } = mountControls(solid);
     q<HTMLButtonElement>('[data-bg-kind="wallpaper"]').click();
     expect(handlers.onCommit).toHaveBeenCalledWith({
-      background: { kind: "wallpaper", id: DEFAULT_WALLPAPER_ID },
+      background: {
+        kind: "wallpaper",
+        id: DEFAULT_WALLPAPER_ID,
+        blur: DEFAULT_WALLPAPER_BLUR,
+      },
     });
     expect(DEFAULT_WALLPAPER_ID).toBe("vivid-1");
+    expect(DEFAULT_WALLPAPER_BLUR).toBe(1);
+  });
+
+  it("Gradient to Wallpaper commits the default blur too", () => {
+    const { q, handlers } = mountControls(
+      onWallpaper({
+        kind: "gradient",
+        from: "#000000",
+        to: "#ffffff",
+        angle: 90,
+      }),
+    );
+    q<HTMLButtonElement>('[data-bg-kind="wallpaper"]').click();
+    expect(handlers.onCommit).toHaveBeenCalledWith({
+      background: { kind: "wallpaper", id: DEFAULT_WALLPAPER_ID, blur: 1 },
+    });
+  });
+
+  it("the Blur slider is there only under Wallpaper, at the background's blur", () => {
+    for (const bg of [
+      { kind: "solid", color: "#1b2a4a" },
+      { kind: "gradient", from: "#000000", to: "#ffffff", angle: 90 },
+    ] as const) {
+      const { root } = mountControls(onWallpaper(bg));
+      // The control: these panels draw their own sliders, just not Blur.
+      expect(root.querySelector("[data-padding]"), bg.kind).not.toBeNull();
+      expect(root.querySelector("[data-wallpaper-blur]"), bg.kind).toBeNull();
+    }
+    const on = (bg: SceneBranding["background"]) =>
+      mountControls(onWallpaper(bg)).q<HTMLInputElement>(
+        "input[data-wallpaper-blur]",
+      );
+    const slider = on({ kind: "wallpaper", id: "vivid-2", blur: 0.3 });
+    expect([slider.type, slider.min, slider.max, slider.value]).toEqual([
+      "range",
+      "0",
+      "1",
+      "0.3",
+    ]);
+    expect(slider.getAttribute("aria-label")).toBe("Blur");
+    // A take saved before blur reads sharp; an upload has the slider too.
+    expect(on({ kind: "wallpaper", id: "vivid-2" }).value).toBe("0");
+    expect(on({ kind: "image", ref: "assets/a.webp", blur: 0.7 }).value).toBe(
+      "0.7",
+    );
+  });
+
+  it("dragging Blur previews, and releasing commits the whole background", () => {
+    const { q, root, handlers } = mountControls(
+      onWallpaper({ kind: "image", ref: "assets/a.webp", blur: 0.4 }),
+    );
+    const slider = q<HTMLInputElement>("input[data-wallpaper-blur]");
+    slider.value = "0.83";
+    slider.dispatchEvent(new Event("input"));
+    expect(handlers.onPreview).toHaveBeenLastCalledWith({
+      background: { kind: "image", ref: "assets/a.webp", blur: 0.83 },
+    });
+    expect(handlers.onCommit).not.toHaveBeenCalled();
+    expect(root.textContent).toContain("83%");
+    slider.dispatchEvent(new Event("change"));
+    expect(handlers.onCommit).toHaveBeenCalledWith({
+      background: { kind: "image", ref: "assets/a.webp", blur: 0.83 },
+    });
+  });
+
+  it("picking another wallpaper keeps the blur", () => {
+    const { q, handlers } = mountControls(
+      onWallpaper({ kind: "image", ref: "assets/a.webp", blur: 0.2 }),
+    );
+    q<HTMLButtonElement>('[data-wallpaper-id="dark-2"]').click();
+    expect(handlers.onCommit).toHaveBeenCalledWith({
+      background: { kind: "wallpaper", id: "dark-2", blur: 0.2 },
+    });
   });
 
   it("draws one tile per built-in, each from its thumbnail, and the chosen one pressed", () => {
@@ -525,6 +603,7 @@ describe("editor main — a refused wallpaper upload", () => {
     expect(backgroundBefore).toEqual({
       kind: "wallpaper",
       id: DEFAULT_WALLPAPER_ID,
+      blur: DEFAULT_WALLPAPER_BLUR,
     });
     const putsBefore = memory.puts().length;
     const file = new File(["gif"], "bg.gif", { type: "image/gif" });
@@ -541,5 +620,60 @@ describe("editor main — a refused wallpaper upload", () => {
     ).toHaveLength(1);
     expect(memory.puts().length).toBe(putsBefore);
     expect(memory.puts().at(-1)?.branding.background).toEqual(backgroundBefore);
+  });
+});
+
+describe("editor main — an accepted wallpaper upload", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("keeps the blur the background had", async () => {
+    vi.resetModules();
+    editorDom();
+    vi.stubGlobal("OffscreenCanvas", FakeOffscreenCanvas);
+    const memory = createMemoryPlatform();
+    state.memory = memory;
+    const scene = readonlyScene();
+    const blurred = {
+      ...scene,
+      branding: {
+        ...scene.branding,
+        background: { kind: "wallpaper", id: "vivid-2", blur: 0.3 } as const,
+      },
+    };
+    memory.serveScene(() => blurred);
+    memory.serveBundle(null, null);
+    await import("../../../pages/entrypoints/editor/main");
+    const rail = await vi.waitFor(() => {
+      const node = document.querySelector<HTMLButtonElement>(
+        '#rail [data-rail="background"]',
+      );
+      if (!node) throw new Error("rail not rendered yet");
+      return node;
+    });
+    rail.click();
+    const input = await vi.waitFor(() => {
+      const node = document.querySelector<HTMLInputElement>(
+        "input[data-wallpaper-file]",
+      );
+      if (!node) throw new Error("no upload tile yet");
+      return node;
+    });
+    // The premise: the panel is on the blurred wallpaper, not the default.
+    expect(
+      document.querySelector<HTMLInputElement>("input[data-wallpaper-blur]")
+        ?.value,
+    ).toBe("0.3");
+    const file = new File(["png"], "bg.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: [file] });
+    input.dispatchEvent(new Event("change"));
+    const saved = await vi.waitFor(() => {
+      const bg = memory.puts().at(-1)?.branding.background;
+      if (bg?.kind !== "image") throw new Error("not saved yet");
+      return bg;
+    });
+    expect(saved.blur).toBe(0.3);
   });
 });

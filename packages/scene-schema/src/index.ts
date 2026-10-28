@@ -33,6 +33,7 @@ export {
   CursorSchema,
   type CursorStyle,
   CursorStyleName,
+  DEFAULT_WALLPAPER_BLUR,
   FailureReason,
   type FailureReasonName,
   LOGO_CORNERS,

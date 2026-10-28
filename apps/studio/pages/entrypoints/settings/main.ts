@@ -24,6 +24,7 @@ import {
   decodeBackground,
   type ImageBackground,
   isImageBackground,
+  uploadedBackground,
   wallpaperKey,
   wallpaperThumbOf,
 } from "../../src/branding/wallpaper";
@@ -867,7 +868,9 @@ const actions = {
         return describe(error);
       }
       return writeKit(id, async (kit) =>
-        applyBrandingPatch(kit, { background: { kind: "image", ref } }),
+        applyBrandingPatch(kit, {
+          background: uploadedBackground(ref, kit.background),
+        }),
       );
     });
   },

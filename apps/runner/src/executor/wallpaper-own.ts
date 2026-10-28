@@ -126,6 +126,7 @@ export async function ownWallpaperImage(
   }
   return {
     ok: true,
-    branding: { ...branding, background: { kind: "image", ref } },
+    // Its blur, if it has one, stays: only where the image lives changed.
+    branding: { ...branding, background: { ...background, ref } },
   };
 }

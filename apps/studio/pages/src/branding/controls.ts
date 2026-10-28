@@ -1,5 +1,6 @@
 import type { LogoPlacement } from "@demoman/compositor";
 import {
+  DEFAULT_WALLPAPER_BLUR,
   DEFAULT_WALLPAPER_ID,
   LOGO_CORNERS,
   type LogoCorner,
@@ -120,7 +121,11 @@ function switchTo(
   if (kind === "wallpaper") {
     return isImageBackground(bg)
       ? null
-      : { kind: "wallpaper", id: DEFAULT_WALLPAPER_ID };
+      : {
+          kind: "wallpaper",
+          id: DEFAULT_WALLPAPER_ID,
+          blur: DEFAULT_WALLPAPER_BLUR,
+        };
   }
   if (bg.kind === kind) return null;
   const { from, to } = coloursOf(bg);
@@ -152,6 +157,9 @@ function wallpaperGrid(
   const grid = el("div", "wallpaper-grid");
   grid.setAttribute("role", "group");
   grid.setAttribute("aria-label", "Wallpaper");
+  // Another image keeps the blur the author set; a take from before blur
+  // existed keeps having none.
+  const blur = bg.blur === undefined ? {} : { blur: bg.blur };
   const tile = (pressed: boolean, label: string, next: SceneBackground) => {
     const b = el("button", "wallpaper-tile");
     b.type = "button";
@@ -168,6 +176,7 @@ function wallpaperGrid(
     const b = tile(bg.kind === "wallpaper" && bg.id === w.id, label, {
       kind: "wallpaper",
       id: w.id,
+      ...blur,
     });
     b.setAttribute("data-wallpaper-id", w.id);
     b.append(imageTileImg(props.thumbUrl(w.id)));
@@ -178,6 +187,7 @@ function wallpaperGrid(
     const b = tile(bg.kind === "image" && bg.ref === custom.ref, "Your image", {
       kind: "image",
       ref: custom.ref,
+      ...blur,
     });
     b.setAttribute("data-wallpaper-custom", custom.thumb?.kind ?? "none");
     if (custom.thumb?.kind === "ready")
@@ -493,6 +503,18 @@ export function renderBrandingControls(
       error.setAttribute("role", "alert");
       background.append(error);
     }
+    // Absent is sharp: a take saved before blur renders as it did.
+    background.append(
+      sliderRow(
+        "data-wallpaper-blur",
+        "Blur",
+        bg.blur ?? 0,
+        { min: 0, max: 1, step: 0.01 },
+        (v) => `${Math.round(v * 100)}%`,
+        (v) => ({ background: { ...bg, blur: Math.round(v * 100) / 100 } }),
+        handlers,
+      ),
+    );
   } else {
     const with_ = (gradient: GradientAdjust): BrandingPatch => ({ gradient });
     const swap = el("button", "btn btn-link", "⇅ Swap");

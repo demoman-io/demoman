@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   BackgroundSchema,
   BRANDING_DEFAULTS,
+  DEFAULT_WALLPAPER_BLUR,
   NEUTRAL_BACKGROUND,
 } from "../src/document";
 import { migrateToCurrent } from "../src/migrations";
@@ -20,6 +21,23 @@ describe("wallpaper and image backgrounds", () => {
     }
   });
 
+  it("a wallpaper or image takes an optional blur from 0 to 1", () => {
+    for (const bg of [
+      { kind: "wallpaper", id: "vivid-3", blur: 0 },
+      { kind: "wallpaper", id: "vivid-3", blur: 1 },
+      { kind: "image", ref: "assets/x.webp", blur: 0.25 },
+    ]) {
+      expect(BackgroundSchema.parse(bg)).toEqual(bg);
+    }
+    for (const blur of [1.2, -0.1]) {
+      expect(
+        BackgroundSchema.safeParse({ kind: "wallpaper", id: "vivid-3", blur })
+          .success,
+        `blur ${blur}`,
+      ).toBe(false);
+    }
+  });
+
   it("refuses a wallpaper id with a path in it", () => {
     expect(
       BackgroundSchema.safeParse({ kind: "wallpaper", id: "../x" }).success,
@@ -30,7 +48,9 @@ describe("wallpaper and image backgrounds", () => {
     expect(BRANDING_DEFAULTS.background).toEqual({
       kind: "wallpaper",
       id: "vivid-1",
+      blur: 1,
     });
+    expect(DEFAULT_WALLPAPER_BLUR).toBe(1);
     expect(wallpaperInfo("vivid-1")?.family).toBe("vivid");
   });
 
@@ -41,13 +61,20 @@ describe("wallpaper and image backgrounds", () => {
     expect(new Set(WALLPAPERS.map((w) => w.id)).size).toBe(10);
   });
 
-  const scriptOn = (id: string) => ({
+  const scriptOn = (id: string, blur?: number) => ({
     scriptVersion: 1,
     name: "demo",
     target: "https://app.example.com/",
     steps: [{ do: "click", on: { stableId: "go" } }],
     look: {
-      branding: { background: { kind: "wallpaper", id }, logo: null },
+      branding: {
+        background: {
+          kind: "wallpaper",
+          id,
+          ...(blur === undefined ? {} : { blur }),
+        },
+        logo: null,
+      },
     },
   });
 
@@ -59,6 +86,16 @@ describe("wallpaper and image backgrounds", () => {
     expect(result.data?.look?.branding?.background).toEqual({
       kind: "wallpaper",
       id: "vivid-1",
+    });
+  });
+
+  it("a script's wallpaper keeps its blur", () => {
+    const result = DemoScriptSchema.safeParse(scriptOn("vivid-2", 0.3));
+    expect(result.error?.issues).toBeUndefined();
+    expect(result.data?.look?.branding?.background).toEqual({
+      kind: "wallpaper",
+      id: "vivid-2",
+      blur: 0.3,
     });
   });
 

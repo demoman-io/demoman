@@ -1,4 +1,3 @@
-import { BRANDING_DEFAULTS } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import { coversViewport } from "../../src/bundle";
 import { planScene } from "../../src/plan/plan";
@@ -30,7 +29,7 @@ const viewport = { width: 1280, height: 800 };
  * moves.
  */
 function pxPerCss(target: RenderTarget): number {
-  const { frameRect } = derivePresentation(BRANDING_DEFAULTS, target, viewport);
+  const { frameRect } = derivePresentation(scene.branding, target, viewport);
   return contentScale(frameRect, viewport);
 }
 

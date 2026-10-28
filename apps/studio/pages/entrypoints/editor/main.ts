@@ -39,10 +39,13 @@ import {
 } from "../../src/adapters/logo";
 import type { LogoThumb } from "../../src/branding/controls";
 import {
+  blurredBackground,
   type DecodedWallpaper,
   decodeBackground,
+  dragRaster,
   isImageBackground,
   neededSize,
+  uploadedBackground,
   wallpaperKey,
   wallpaperThumbOf,
   wallpaperThumbUrl,
@@ -928,6 +931,9 @@ let wallpaperHeld: {
 /** The key a decode is in flight for; a later one supersedes it. */
 let wallpaperWanted: string | null = null;
 let wallpaperLoadError: string | null = null;
+/** Why the held image could not be blurred for the preview, or null. Said
+ *  where a load failure is: the frame paints the neutral in its place. */
+let wallpaperBlurError: string | null = null;
 /** The uploaded image's tile, kept after the author picks a built-in so
  *  they can go back to it. */
 let wallpaperCustom: { ref: string; thumb: LogoThumb | null } | null = null;
@@ -1193,6 +1199,35 @@ function wallpaperCustomFor(
   return wallpaperCustom;
 }
 
+/**
+ * The held image as `bg` draws it: blurred once per value at the preview's
+ * size. While the Blur slider is dragged the blur runs on every `input`, on
+ * `dragRaster`'s smaller copy: measured 2026-10-28 (headless, M-series), a
+ * 1280×720 preview's 3200×2400 raster took 56-141 ms a blur, several frames;
+ * its 1280×960 drag raster 9-12 ms. The release commits, and the full
+ * raster is blurred once.
+ */
+function previewWallpaper(
+  bg: SceneDocument["branding"]["background"],
+): FrameImage | null {
+  wallpaperBlurError = null;
+  if (wallpaper === null) return null;
+  const dragging =
+    pointerHeld && brandingPreview?.patch.background !== undefined;
+  try {
+    return blurredBackground(
+      dragging ? dragRaster(wallpaper, target) : wallpaper,
+      bg,
+      target,
+    );
+  } catch (caught) {
+    wallpaperBlurError = `it could not be blurred: ${
+      caught instanceof Error ? caught.message : String(caught)
+    }`;
+    return null;
+  }
+}
+
 async function refreshWallpaper(snapshot: SessionSnapshot): Promise<void> {
   const bg = liveBranding(snapshot.scene).background;
   if (!isImageBackground(bg)) {
@@ -1390,7 +1425,7 @@ function refreshDerived(snapshot: SessionSnapshot): void {
         detailTarget: deliverable(bundle),
         hints: motionHints,
         logo,
-        wallpaper,
+        wallpaper: previewWallpaper(branding.background),
       })
     : null;
   resolved = composed?.resolved ?? null;
@@ -2277,7 +2312,7 @@ function render(snapshot: SessionSnapshot): void {
     renderError: exportFlow.error,
     previewError,
     logoLoadError,
-    wallpaperLoadError,
+    wallpaperLoadError: wallpaperLoadError ?? wallpaperBlurError,
     openError: loadError,
     deleteError,
     navigationError,
@@ -2622,7 +2657,7 @@ function render(snapshot: SessionSnapshot): void {
           thumbUrl: wallpaperThumbUrl,
           custom: wallpaperCustomFor(snapshot.scene.branding.background),
           loadError: isImageBackground(snapshot.scene.branding.background)
-            ? wallpaperLoadError
+            ? (wallpaperLoadError ?? wallpaperBlurError)
             : null,
         },
         kit: {
@@ -2956,7 +2991,12 @@ async function addWallpaper(file: File): Promise<void> {
   }
   await session.dispatch({
     kind: "setBranding",
-    patch: { background: { kind: "image", ref } },
+    patch: {
+      background: uploadedBackground(
+        ref,
+        session.snapshot().scene.branding.background,
+      ),
+    },
   });
 }
 

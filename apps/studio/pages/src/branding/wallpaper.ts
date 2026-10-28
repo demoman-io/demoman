@@ -1,6 +1,8 @@
 import {
+  blurWallpaper,
   type FrameImage,
   type RenderTarget,
+  wallpaperBlurPx,
   wallpaperRasterSize,
   wallpaperShape,
 } from "@demoman/compositor";
@@ -20,6 +22,18 @@ export type ImageBackground = Extract<
 
 export const isImageBackground = (bg: SceneBackground): bg is ImageBackground =>
   bg.kind === "wallpaper" || bg.kind === "image";
+
+/** An uploaded image as the background, keeping the blur `current` has. */
+export const uploadedBackground = (
+  ref: string,
+  current: SceneBackground,
+): SceneBackground => ({
+  kind: "image",
+  ref,
+  ...(isImageBackground(current) && current.blur !== undefined
+    ? { blur: current.blur }
+    : {}),
+});
 
 /** Where the studio serves a built-in's file: the pages' `public/` folder,
  *  at the root the page server serves the built pages from. */
@@ -134,4 +148,76 @@ export async function wallpaperThumbOf(image: FrameImage): Promise<string> {
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(image.image, 0, 0, width, height);
   return URL.createObjectURL(await canvas.convertToBlob({ type: "image/png" }));
+}
+
+/** Blurred rasters made from one decoded image, by radius: a kit tile and
+ *  the hero share a decode at different blurs, and a drag revisits values. */
+const blurredBy = new WeakMap<FrameImage, Map<number, FrameImage>>();
+const BLURS_KEPT = 4;
+
+/**
+ * `image` as `bg` draws it on `target`: blurred by the take's own value,
+ * once per image and radius rather than per frame — the export's rule
+ * (`wallpaperAt`), at the preview's size. Throws when there is no canvas
+ * to blur on; the caller says so.
+ */
+export function blurredBackground(
+  image: FrameImage | null,
+  bg: SceneBackground,
+  target: RenderTarget,
+): FrameImage | null {
+  if (image === null || !isImageBackground(bg)) return image;
+  const radius = wallpaperBlurPx(target, image, bg.blur ?? 0);
+  if (radius === 0) return image;
+  let held = blurredBy.get(image);
+  if (held === undefined) {
+    held = new Map();
+    blurredBy.set(image, held);
+  }
+  let out = held.get(radius);
+  if (out === undefined) {
+    out = blurWallpaper(image, radius);
+    held.set(radius, out);
+    // Not closed: the scrubber may still be drawing a frame composed with
+    // it. Dropped, it goes when the presentation holding it does.
+    if (held.size > BLURS_KEPT) held.delete(held.keys().next().value as number);
+  }
+  return out;
+}
+
+const dragRasters = new WeakMap<FrameImage, FrameImage>();
+
+/**
+ * `image` at the size that covers `target` at camera scale 1, made once per
+ * image: what a Blur drag re-blurs on every `input`, 2.5² fewer pixels than
+ * the zoom's raster. A blurred picture has no detail the smaller raster
+ * loses; the release commits, and the full raster is blurred once.
+ */
+export function dragRaster(
+  image: FrameImage,
+  target: RenderTarget,
+): FrameImage {
+  const scale = Math.max(
+    target.width / image.width,
+    target.height / image.height,
+  );
+  if (scale >= 1) return image;
+  const width = Math.ceil(image.width * scale);
+  const height = Math.ceil(image.height * scale);
+  const held = dragRasters.get(image);
+  if (held !== undefined && held.width === width) return held;
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  if (ctx === null)
+    throw new Error(`no 2D context to draw ${width}×${height} on`);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image.image, 0, 0, width, height);
+  const small = {
+    ...image,
+    image: canvas.transferToImageBitmap(),
+    width,
+    height,
+  };
+  dragRasters.set(image, small);
+  return small;
 }

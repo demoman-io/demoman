@@ -365,7 +365,7 @@ user's default brand kit; a derived draft keeps its take's branding. The report'
    until the outcome is none of `exporting`, `stillRunning`.
    `fileType` picks the file: `mp4` (the default), `gif` (plays inline in
    a GitHub PR or issue), or `stills` (a PNG per step, in a folder); only
-   if the user asked for a GIF or stills. An MP4 follows Settings
+   if asked. An MP4 follows Settings
    (unset: ~1 MB/s); `quality: "full"` is largest.
    `export({ takeId, maxMB: 9.5 })` fits GitHub's 10 MB drag-in, or says
    it could not (it lowers fps, then size, then quality: the summary says
@@ -378,7 +378,7 @@ user's default brand kit; a derived draft keeps its take's branding. The report'
    still is by default the whole window, up to 2560 px wide (not wider than the recording). `width` asks for a size in
    px (320-3840) or `"native"`, the recording's own size; `zoom: "step"`
    frames each step the way the video zooms on it, all the way in. Pass
-   them only when the user asked for a size or for zoomed stills.
+   them only when asked.
 2. `saved` - the file is at `file.path`, absolute: in `~/Downloads`, or the
    folder the server was started with `--out-dir`. For `stills`, `fileType`
    is `stills` and the answer carries `folder: { path, files }` instead of
@@ -510,11 +510,12 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
   branding, not both. An unknown key in `look` is refused and named. A
   `branding` is the whole of one: `background`, `logo` (or `null`) and
   `padding`, the margin as a fraction of the frame's shorter side (0 to
-  0.2; left out is 0.08); a missing `background` or `logo` is refused.
+  0.2; left out is 0.12); a missing `background` or `logo` is refused.
   A `background` may be `{ "kind": "wallpaper", "id" }` (`vivid-1` to
   `vivid-6`, `light-1`, `light-2`, `dark-1`, `dark-2`; another id is refused,
   naming them) or `{ "kind": "image", "ref": "<path>" }`, a file, absolute or
-  relative to the Demoman home; copied into the take.
+  relative to the Demoman home; copied into the take. Either takes
+  `"blur"`, 0-1 (left out: 0, sharp; Demoman's default: 1).
   A `canvas` is `{ "aspect": "auto" | "16:9" | "9:16" }`; `auto`, the
   default, is the recording's own shape plus an even margin.
   A `motion` is how the camera moves, `{ "smoothness": 0-1, "blur": 0-1, "follow": true | false }`; a derived draft carries the take's own, so keep it.

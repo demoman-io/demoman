@@ -62,9 +62,12 @@ describe("v5 -> v6: branding becomes a background and a placed logo", () => {
       logo: null,
       padding: 0.08,
     });
+    // Today's defaults but the padding: v7 -> v8 wrote 8%, and what old
+    // documents migrate to stays put when the default moves (12%, 2026-10-28).
     expect(migrated.branding).toEqual({
       ...BRANDING_DEFAULTS,
       background: NEUTRAL_BACKGROUND,
+      padding: 0.08,
     });
   });
 

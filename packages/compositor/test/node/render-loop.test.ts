@@ -1,4 +1,3 @@
-import { BRANDING_DEFAULTS } from "@demoman/scene-schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type FrameBundle,
@@ -208,7 +207,7 @@ describe("renderScene", () => {
       3840 /
       1280 /
       contentScale(
-        derivePresentation(BRANDING_DEFAULTS, target, plan.viewport).frameRect,
+        derivePresentation(scene.branding, target, plan.viewport).frameRect,
         plan.viewport,
       );
     expect(headroom).toBeGreaterThan(1);

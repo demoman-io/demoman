@@ -9,6 +9,7 @@ import {
   type RenderTarget,
 } from "@demoman/compositor";
 import { BrandingSchema, type SceneBranding } from "@demoman/scene-schema";
+import { blurredBackground } from "../branding/wallpaper";
 
 /**
  * The Brand kit preview's tier: landscape's, at a 480-wide working size. The
@@ -99,12 +100,23 @@ export function paintKitPreview(
   // The compositor's painters are typed for OffscreenCanvas; the 2D API
   // they use is the same on a DOM canvas.
   const paint2d = ctx as unknown as OffscreenCanvasRenderingContext2D;
+  let drawn: FrameImage | null = null;
+  try {
+    drawn = blurredBackground(wallpaper, branding.background, target);
+  } catch (error) {
+    // The kit still paints, on the neutral; the console says why.
+    console.warn(
+      `demoman settings: the brand kit preview's image could not be blurred: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
   const presentation = derivePresentation(
     branding,
     target,
     KIT_VIEWPORT,
     logo,
-    wallpaper,
+    drawn,
   );
   drawBackground(paint2d, target, presentation);
   const r = presentation.frameRect;

@@ -550,7 +550,14 @@ async function buildKept(
                 : { logo: { ...scene.branding.logo, ref: logo } }),
               ...(wallpaper === null
                 ? {}
-                : { background: { kind: "image", ref: wallpaper } }),
+                : {
+                    // The take's own blur with it, as wallpaper-own keeps it.
+                    background: {
+                      ...background,
+                      kind: "image",
+                      ref: wallpaper,
+                    },
+                  }),
             },
           },
         }),
