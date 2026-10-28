@@ -12,6 +12,7 @@
 export const OPS = [
   "status",
   "snapshot",
+  "probe",
   "run",
   "report",
   "takes",

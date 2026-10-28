@@ -16,6 +16,7 @@ export type ToolName =
   | "derive"
   | "report"
   | "snapshot"
+  | "probe"
   | "run"
   | "export"
   | "attach"
@@ -40,6 +41,8 @@ export const TOOL_ANNOTATIONS: {
   derive: READ_ONLY,
   report: READ_ONLY,
   snapshot: OPENS_PAGES,
+  /** Plays a script's steps in the app, which may press Delete. */
+  probe: { ...OPENS_PAGES, destructiveHint: true },
   /** Clicks and types in the app, which may be signed in to a real
    *  account: a script can press Delete. */
   run: { ...OPENS_PAGES, destructiveHint: true },

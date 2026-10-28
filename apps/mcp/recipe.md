@@ -14,10 +14,7 @@ the user; section 7 lists every reason.
    `secretsFile`, `expiry` and `update`.
    `sessions` is `[{site, savedAt, refreshedAt, signInUrl}]`; it and
    `display` can be `{unreadable}`: tell the user why. `accounts` and
-   `secretsFile` are the demo accounts below. The browser starts on the
-   first `snapshot`, `run` or `export`. Say nothing about `update`. When
-   `browserInstalled` is false, the first `snapshot` or `run` answers
-   `browserMissing`.
+   `secretsFile` are the demo accounts below. Say nothing about `update`.
 2. The browser is signed in wherever the user ran `npx demoman signin <url>`,
    and nowhere else; `status`'s `sessions` lists those sites. A demo account records best. A page
    that sends this browser to its sign-in page answers `signedOut` (section
@@ -29,8 +26,6 @@ the user; section 7 lists every reason.
    the script at that form's page and type them; a password field's text is
    hidden on disk and in the report.
 3. Takes are saved under `<DEMOMAN_HOME, default ~/.demoman>/takes/<id>/`.
-   `takes` lists them, newest first: `id`, `name`, `createdAt`, `mode`,
-   `actions`; an unreadable folder comes last as `{ id, unreadable }`.
    Demoman keeps no telemetry.
 
 ### Behind a login: demo accounts
@@ -165,8 +160,6 @@ and leaves the page open. Each entry is
 `{ target, kind, text, rect, inFirstViewport }`. Every `target` listed is one
 a run resolves to exactly that element: Demoman checked it.
 
-`snapshot` may answer `stillRunning` too: call `report(id)`.
-
 - **Copy a `target` into a step verbatim. Never compose one**, and never
   translate a name from another tool's accessibility tree: Demoman's roles
   are not Chrome's.
@@ -205,9 +198,15 @@ a run resolves to exactly that element: Demoman checked it.
   further.
 - Iframe and shadow-root elements are not listed.
 - A snapshot sees only the page as it loads: hidden content already in the
-  page is listed; content a click creates (a dialog or menu built when it
-  opens) is not, so a step on it has no target: tell the user it cannot be
-  scripted yet. A page the flow navigates to has its own URL to snapshot.
+  page is listed; content a click creates (a menu or dialog built when it
+  opens, search results, a new row) is not. To list it, `probe` your script
+  with its steps cut off after the step that opens it, and copy targets from
+  that answer. A probe acts on the app for real, every time: "Add item" adds
+  one per probe and again in the run, so a target listed as unique can be
+  ambiguous by then; a delete deletes; in the Studio an edit saves into the
+  take. Prefer demo data. `stopped` means a step did not play: fix it as a
+  run's stop with that reason says, and probe again. A page the flow
+  navigates to has its own URL to snapshot.
 
 ### Recording a phone demo
 
@@ -278,8 +277,7 @@ verb was changed by hand: `derive`, check it, `run` the draft.
 0. Name the video first: every run adds a version to one. If the repo
    has an exported file of it, `videos({ file:
    <absolute path> })`. Else `videos({ query: "<what the flow shows>" })`;
-   `videos()` lists the repo's. Answers: `{ videos, unreadable, deferred }`;
-   `file` adds `{ version, current, expired }`. Then `run({ script, video:
+   `videos()` lists the repo's. Then `run({ script, video:
    { id } })` adds a version; `video: { new: "<name>" }` starts one.
    `possibleDuplicate` lists `matches`: use one's `id`, or repeat with
    `confirmedNew: true` for a different flow. `nameTaken` names the
@@ -288,8 +286,6 @@ verb was changed by hand: `derive`, check it, `run` the draft.
 1. `run(script, video)`. It answers the run's report, or
    `{ "outcome": "stillRunning", "id": … }` after about 50 s; then call
    `report(id)` until the outcome is neither `running` nor `stillRunning`.
-   Never `run` again while one is in progress: it is refused
-   (`alreadyRunning`).
 2. The report's `outcome`:
    - `refusedBeforeRun` - the door refused before opening anything; `reason`
      and `field` name what to fix (section 7).
@@ -298,13 +294,10 @@ verb was changed by hand: `derive`, check it, `run` the draft.
    - `stopped` - `stopped.at` names the step and `stopped.sentence` says why.
      A `steps[i].pageUrl` on a sign-in page means the app sent this browser
      to sign in mid-run: tell the user; do not rewrite targets.
-     `signedOut` means nothing usable was recorded and no take was kept: give
-     the user the command in `stopped.detail`; run again only after they
-     have run it. It is not a script fault.
      `signInFailed` names the account, step and landing: fix the account's
      file or secret, or tell the user. (A run
      that stopped short on the site's recorded sign-in page is relabelled
-     `signedOut` too; its detail ends "The run itself stopped at script
+     `signedOut` (section 7); its detail ends "The run itself stopped at script
      step N: ...".)
    - `complete` - read `verdict`: `verdict.kind` is `"matches"` or
      `"diverged"`, and `verdict.diverged[]` lists each step the video does not
@@ -378,8 +371,7 @@ too.
 
 1. `export(takeId)` with the accepted run's `provenance.takeId`. It answers
    the export report, or `stillRunning` with an `id`; then call `report(id)`
-   until the outcome is none of `exporting`, `stillRunning`. A second export, run
-   or snapshot while one is in progress is refused (`busy`, `alreadyRunning`).
+   until the outcome is none of `exporting`, `stillRunning`.
    `fileType` picks the file: `mp4` (the default), `gif` (plays inline in
    a GitHub PR or issue), or `stills` (a PNG per step, in a folder). Ask
    for a GIF or stills only if the user did. An MP4 follows Settings
@@ -538,6 +530,8 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 
 ## 7. Every reason
 
+`probe` can answer any reason `snapshot` can, and `run`'s `refusedBeforeRun` ones.
+
 | Reason | Where | What it means, and the move |
 | --- | --- | --- |
 | `browserMissing` | `snapshot`, `run` (`refusedBeforeRun`), `studio` | Demoman's browser or its libraries are missing; `detail` gives the command. Ask the user to run it, then call again. |
@@ -563,8 +557,8 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `copyFailed` | `attach` (`notAttached`) | The video could not be copied; nothing was posted. Hand the user the capped export's file. |
 | `windowDidNotOpen` | `snapshot`; `run` (`refusedBeforeRun`); `studio` | The window would not open; try once more. |
 | `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
-| `alreadyRunning` | `snapshot`, `run`, `derive` | A run, snapshot or export is in progress. Call `report(id)` on it; try again when it settles. |
-| `busy` | `export` (`refusedBeforeExport`) | A run or snapshot is in progress. Call `report(id)` on it first. |
+| `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. Call `report(id)` on it; try again when it settles. |
+| `busy` | `export` (`refusedBeforeExport`) | A run, probe or snapshot is in progress. Call `report(id)` on it first. |
 | `browserSilent` | `status`, `takes`, `derive`, `report` | The browser did not answer within about 50 s. Call `status` once; if again, tell the user. From `report`, the run may still be going: call `report(id)` again. |
 | `libraryUnreadable` | `takes`, `studio` | The library could not be read; report it. |
 | `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: the report has a `notStored` entry `{ "what": "take", "error": … }` and a null `provenance.takeId`. Nothing was saved; quote the `error`. |
@@ -594,9 +588,11 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `takeNotFound`, `takeUnreadable` | `export` (`refusedBeforeExport`), `run` re-record (`refusedBeforeRun`), `studio` (`takeNotFound`: call `takes`) | No such take; it could not be read (or, for `run`, built into a script). |
 | `dragEndOutOfView`, `dragNoDistance` | `run` (`stopped.reason`) | A drag's end was off screen (a drag cannot scroll), or on its start. Fix the script. |
 | `clickNotDelivered` | `run` (`stopped.reason`) | The browser put a click elsewhere than where it was sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |
-| `signedOut` | `run` (`stopped.reason`) | The app sent this browser to its sign-in page. Nothing was kept. Give the user the command in `stopped.detail`; run again only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it says so. |
+| `signedOut` | `run` (`stopped.reason`) | The app sent this browser to its sign-in page. Nothing was kept, and it is not a script fault. Give the user the command in `stopped.detail`; run again only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it says so. |
 | `windowClosed` | `run` (`stopped.reason`) | `--headed` only: the window was closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
 | `pageDidNotLoad` | `snapshot` | The url did not load. Ask the user whether the app is running at that address; spend no run. |
 | `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman's script; tell the user. |
 | `pageFaulted` | `snapshot` | The page's own code threw; quote `detail`. |
 | `snapshotThrew` | `snapshot` | A fault in the snapshot; quote `detail`. |
+| `probeThrew` | `probe` | A fault in the probe; quote `detail`. |
+| `portFailure` | `probe` | The browser gave way; not the script's fault. Probe once more; quote `detail` if it repeats. |

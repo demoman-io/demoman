@@ -42,6 +42,7 @@ import { DEFAULT_SIGNIN_COMMAND } from "./landing.js";
 import { createLibrary, ownHome } from "./library.js";
 import { ensureVideos, startPage } from "./migrate-videos.js";
 import { installExecutorEntry } from "./page-ops.js";
+import { probeEntry, probeOp } from "./probe.js";
 import {
   type PullRequestsSetting,
   resolvePullRequests,
@@ -288,6 +289,17 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       ...(since === undefined ? {} : { reuseSavedSince: since }),
     });
   };
+  /** What a walk signs in again with when the session lapses mid-steps:
+   *  the repo's sign-in flow, saved as `signInAs` saves it. */
+  const signInAgainAs = (c: Chosen) => ({
+    name: c.account.name,
+    signInAgain: async () => {
+      const r = await signInAs(c);
+      return r.ok
+        ? ({ ok: true } as const)
+        : ({ ok: false, detail: r.detail } as const);
+    },
+  });
   /** Whether the account has a saved session of its own, signed in with
    *  the definition accounts.json holds now (`accountDefinition`). */
   const hasSession = (
@@ -424,7 +436,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       await installExecutorEntry(context);
     },
   });
-  let slot: "run" | "snapshot" | "export" | "attach" | null = null;
+  let slot: "run" | "snapshot" | "probe" | "export" | "attach" | null = null;
   let holePaths: string[] = [];
   const jobs = createJobTable();
   let lastRun: Job | null = null;
@@ -838,19 +850,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             sessionStore,
             signinCommand,
             scrub: sweep.scrubValue,
-            ...(chosen === null
-              ? {}
-              : {
-                  account: {
-                    name: chosen.account.name,
-                    signInAgain: async () => {
-                      const r = await signInAs(chosen);
-                      return r.ok
-                        ? ({ ok: true } as const)
-                        : ({ ok: false, detail: r.detail } as const);
-                    },
-                  },
-                }),
+            ...(chosen === null ? {} : { account: signInAgainAs(chosen) }),
           },
           (p: ReplayProgress) => {
             if (job.final !== null) return;
@@ -920,19 +920,19 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     }
   }
 
-  /** A snapshot as the account a call names, signing in on demand: before
-   *  it when the account has no session, once after when the page is the
-   *  sign-in page (the saved session lapsed). */
-  async function snapshotAs(args: Record<string, unknown>): Promise<Outcome> {
-    const url = typeof args.url === "string" ? args.url : "";
+  /** A call that opens `url` as the account it names, signing in on
+   *  demand: before it when the account has no session, once after when
+   *  the answer's `session` is the sign-in page (the saved session lapsed). */
+  async function pageCallAs(
+    args: Record<string, unknown>,
+    url: string,
+    named: string | undefined,
+    take: (choice: AccountChoice, chosen: Chosen | null) => Promise<Outcome>,
+  ): Promise<Outcome> {
     let choice: AccountChoice = { kind: "manual" };
-    // A url that is not http(s) is snapshotOp's own refusal.
+    // A url that is not http(s) is the op's own refusal.
     if (isHttpUrl(url)) {
-      const c = await accountFor(
-        args.project,
-        url,
-        typeof args.account === "string" ? args.account : undefined,
-      );
+      const c = await accountFor(args.project, url, named);
       if (c.kind === "refused") return failure(c.reason, c.detail);
       choice = c;
     }
@@ -961,19 +961,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         if (refused !== null) return refused;
       }
     }
-    const take = async () => {
-      // Before its stage: no page of an earlier call may run while this
-      // one's sessions load.
-      await session.retire();
-      return snapshotOp(args, {
-        session,
-        home,
-        log,
-        loadSessions: (context) => sessions.load(context, choiceOf(choice)),
-        signinCommand,
-      });
-    };
-    let answer = await take();
+    let answer = await take(choice, chosen);
     if (
       chosen !== null &&
       answer.ok &&
@@ -984,7 +972,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       }
       const refused = await signInNow();
       if (refused !== null) return refused;
-      answer = await take();
+      answer = await take(choice, chosen);
       if (
         answer.ok &&
         (answer.value as { session?: unknown }).session === "signedOut"
@@ -1002,6 +990,64 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       },
     };
   }
+
+  const snapshotAs = (args: Record<string, unknown>) =>
+    pageCallAs(
+      args,
+      typeof args.url === "string" ? args.url : "",
+      typeof args.account === "string" ? args.account : undefined,
+      async (choice) => {
+        // Before its stage: no page of an earlier call may run while this
+        // one's sessions load.
+        await session.retire();
+        return snapshotOp(args, {
+          session,
+          home,
+          log,
+          loadSessions: (context) => sessions.load(context, choiceOf(choice)),
+          signinCommand,
+        });
+      },
+    );
+
+  /** A probe as the account the call names, or else the one its script
+   *  names, as a run of that script would play. Whatever its steps did to
+   *  the context's cookies and storage, the next call starts from the saved
+   *  sessions again, as after a run. A script the run door would refuse is
+   *  refused first, before any sign-in or launch. */
+  const probeAs = async (args: Record<string, unknown>): Promise<Outcome> => {
+    const kits = await readKits(home);
+    const entry = probeEntry(args.script, holePaths, kits);
+    if (!entry.ok) return { ok: true, value: entry.refusal };
+    const { script } = entry;
+    const named =
+      typeof args.account === "string" ? args.account : script.account;
+    const contains = typeof args.contains === "string" ? args.contains : null;
+    return pageCallAs(args, script.target, named, async (choice, chosen) => {
+      try {
+        const browser = await session.ensure();
+        if (!browser.ok) return failure(browser.reason, browser.detail);
+        const { context } = browser.launched;
+        // No page of an earlier call may run while this one's sessions load.
+        await session.retire();
+        const loaded = await sessions.load(context, choiceOf(choice));
+        if (!loaded.ok) return failure(loaded.reason, loaded.detail);
+        return await probeOp(entry, contains, {
+          session,
+          log,
+          sessions: loaded.files,
+          sessionsContext: context,
+          loadSessions: (c) => sessions.load(c, choiceOf(choice)),
+          signinCommand,
+          ...(chosen === null ? {} : { account: signInAgainAs(chosen) }),
+          home,
+          kits,
+        });
+      } finally {
+        sessions.forget();
+      }
+    });
+  };
 
   return {
     async request(op: Op, args, rawProgress) {
@@ -1058,6 +1104,17 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               return await snapshotAs(args);
             } catch (error) {
               return failure("snapshotThrew", messageOf(error));
+            } finally {
+              slot = null;
+            }
+          }
+          case "probe": {
+            if (slot !== null) return failure("alreadyRunning", BUSY);
+            slot = "probe";
+            try {
+              return await probeAs(args);
+            } catch (error) {
+              return failure("probeThrew", messageOf(error));
             } finally {
               slot = null;
             }

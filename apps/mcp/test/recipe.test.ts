@@ -151,6 +151,15 @@ describe("the recipe's examples and snapshot reading", () => {
     expect(recipe).not.toMatch(/[Ss]napshot again after a step/);
     expect(recipe).not.toMatch(/snapshot what the run's report shows/);
   });
+
+  // Red if the recipe stops pointing at `probe` for content a click
+  // creates, stops warning that a probe changes the app, or goes back to
+  // calling that content unscriptable.
+  it("tells the agent to probe for what a click creates, and warns that probes act", () => {
+    expect(recipe).toMatch(/`probe`/);
+    expect(recipe).toMatch(/acts on the app for real/);
+    expect(recipe).not.toMatch(/cannot be scripted yet/);
+  });
 });
 
 describe("the sign-in rule", () => {
