@@ -160,11 +160,11 @@ describe("settings main — the brand kits", () => {
     await boot();
     await ready();
     // Premise: no kit, and the controls start from the defaults, a
-    // gradient — so Solid is a real change.
+    // wallpaper — so Solid is a real change.
     expect(kits()).toBeUndefined();
     expect(lines()).toEqual(["Brand kits: none saved"]);
     expect(
-      q(`${section} [data-bg-kind="gradient"]`).getAttribute("aria-checked"),
+      q(`${section} [data-bg-kind="wallpaper"]`).getAttribute("aria-checked"),
     ).toBe("true");
     q(`${section} [data-bg-kind="solid"]`).click();
     await until(() => kits() !== undefined, "the kit write");
@@ -212,6 +212,10 @@ describe("settings main — the brand kits", () => {
 
   it("builds a second quick change on the first, not on the last render", async () => {
     await boot();
+    await ready();
+    // The defaults are a wallpaper: the first edit makes the kit a gradient
+    // (from the wallpaper's swatch), and the two quick changes follow it.
+    q(`${section} [data-bg-kind="gradient"]`).click();
     await until(
       () => document.querySelector(`${section} [data-angle]`) !== null,
       "the gradient controls",

@@ -886,6 +886,30 @@ describe("presentationRedrawNeeded", () => {
     height: 100,
     sourceTimeMs: 0,
   } as never;
+
+  it("asks for a redraw when the wallpaper's image lands", () => {
+    // The background names the wallpaper before its image is decoded: the
+    // frame drawn then is the neutral, and the same background with the
+    // image is a different picture. Red if the image is not compared.
+    const onWallpaper = {
+      background: { kind: "wallpaper" as const, id: "vivid-1" },
+      logo: null,
+      padding: 0.08,
+    };
+    const before = derivePresentation(onWallpaper, LANDSCAPE_1080P, viewport);
+    const after = derivePresentation(
+      onWallpaper,
+      LANDSCAPE_1080P,
+      viewport,
+      null,
+      image,
+    );
+    expect(before.wallpaper).toBeNull();
+    expect(after.wallpaper).not.toBeNull();
+    expect(presentationRedrawNeeded(before, after)).toBe(true);
+    expect(presentationRedrawNeeded(after, after)).toBe(false);
+  });
+
   const logo = (patch: object = {}) => ({
     ref: "logo:a",
     corner: "bottom-right" as const,

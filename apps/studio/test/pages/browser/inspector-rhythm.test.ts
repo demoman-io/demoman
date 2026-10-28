@@ -157,6 +157,11 @@ function mount(
         logoPlacement: null,
         formatTitle: "Landscape video",
         logoNotes: [],
+        wallpaper: {
+          thumbUrl: (id: string) => `/wallpapers/${id}-thumb.webp`,
+          custom: null,
+          loadError: null,
+        },
       },
       handlers(),
     );

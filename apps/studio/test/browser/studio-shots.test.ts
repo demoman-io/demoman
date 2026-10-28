@@ -1,7 +1,17 @@
-import { chmod, mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createLibrary } from "@demoman/runner/studio";
+import { NEUTRAL_BACKGROUND, WALLPAPERS } from "@demoman/scene-schema";
 import type { Page, Route } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { distance, limeOutsideItsPlaces, pixelsAt } from "./look-probes.js";
@@ -1155,6 +1165,279 @@ describe("the Studio's screenshot set", () => {
         },
         { timeout: PAINT_MS, interval: 100 },
       );
+      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
+
+  // The Wallpaper style (spec 2026-10-28, "Editor and Brand kit UI"): the
+  // editor's Background panel on vivid-1, at 1280x800 and below full screen
+  // at 1280x720, and the Brand kit page on a kit on dark-1. Asserted on the
+  // paint: each of the ten tiles shows its thumbnail (a thumbnail that did
+  // not load paints the tile's one fill), the chosen tile's ring shows in
+  // the gap around it, and the preview's background is the wallpaper, not
+  // the neutral the compositor paints when it has no image.
+  it.runIf(process.platform === "darwin")(
+    "shoots the Wallpaper grid in the Background panel and on the Brand kit page, each asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-wallpaper-"));
+      homes.push(home);
+      const { editorTake } = await seedHome(home);
+      await mkdir(SHOTS, { recursive: true });
+      const library = createLibrary(home);
+      const scene = await library.getScene(editorTake);
+      if (scene === null) throw new Error("the seeded take did not read back");
+      await library.putScene({
+        ...scene,
+        branding: {
+          ...scene.branding,
+          background: { kind: "wallpaper", id: "vivid-1" },
+        },
+      });
+      // The default kit, Launch (the one the page selects), on dark-1.
+      const kitsFile = join(home, "kits.json");
+      const kits = JSON.parse(await readFile(kitsFile, "utf8")) as {
+        kits: { id: string; branding: { background: unknown } }[];
+      };
+      const launch = kits.kits.find((k) => k.id === "kit-launch");
+      if (launch === undefined) throw new Error("seedHome made no Launch kit");
+      launch.branding.background = { kind: "wallpaper", id: "dark-1" };
+      await writeFile(kitsFile, `${JSON.stringify(kits, null, 2)}\n`);
+
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+        200,
+      );
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      const thumbs = new Map<string, number>();
+      page.on("response", (r) => {
+        const m = /\/wallpapers\/([a-z0-9-]+)-thumb\.webp$/.exec(r.url());
+        if (m !== null) thumbs.set(m[1] as string, r.status());
+      });
+      const neutral = [NEUTRAL_BACKGROUND.from, NEUTRAL_BACKGROUND.to].map(
+        (hex) =>
+          [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16)) as [
+            number,
+            number,
+            number,
+          ],
+      );
+      /** The grid as painted: each tile's spread of colours over a 4x3
+       *  sweep inside it, and the ring colour above the pressed tile beside
+       *  the same point above an unpressed one. */
+      const grid = async (at: string) => {
+        // Every thumbnail settled, loaded or not: a broken one must reach
+        // the pixel assertion, not time out here.
+        await vi.waitFor(
+          async () => {
+            const done = await page.evaluate(() =>
+              [
+                ...document.querySelectorAll<HTMLImageElement>(
+                  "[data-wallpaper-id] img",
+                ),
+              ].map((i) => i.complete),
+            );
+            if (done.length !== WALLPAPERS.length || done.includes(false))
+              throw new Error(`thumbnails settling: ${JSON.stringify(done)}`);
+          },
+          { timeout: PAINT_MS, interval: 100 },
+        );
+        // The whole grid in view: on Settings it sits below the fold.
+        await page.locator(".wallpaper-grid").evaluate((g) =>
+          // Instant: the page scrolls smoothly, and a shot mid-scroll
+          // samples the tiles where they were.
+          g.scrollIntoView({ block: "nearest", behavior: "instant" }),
+        );
+        await settle(page, at);
+        const tiles = await page.evaluate(() =>
+          [
+            ...document.querySelectorAll<HTMLElement>(
+              "button[data-wallpaper-id]",
+            ),
+          ].map((b) => {
+            const r = b.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            return {
+              id: b.getAttribute("data-wallpaper-id") as string,
+              pressed: b.getAttribute("aria-pressed") === "true",
+              left: r.left,
+              top: r.top,
+              width: r.width,
+              height: r.height,
+              onTop: hit !== null && b.contains(hit),
+              hit: hit?.outerHTML.slice(0, 80) ?? null,
+            };
+          }),
+        );
+        // The lower right of each tile: Chrome draws a broken image's icon
+        // in its top left corner, which would read as a picture there.
+        const sweep = tiles.flatMap((t) =>
+          [0.5, 0.65, 0.8, 0.9].flatMap((fx) =>
+            [0.6, 0.75, 0.9].map(
+              (fy) => [t.left + t.width * fx, t.top + t.height * fy] as const,
+            ),
+          ),
+        );
+        const pressed = tiles.find((t) => t.pressed);
+        const other = tiles.find((t) => !t.pressed);
+        if (pressed === undefined || other === undefined)
+          throw new Error(`${at}: no pressed tile ${JSON.stringify(tiles)}`);
+        const px = await pixelsAt(page, [
+          ...sweep,
+          [pressed.left + pressed.width / 2, pressed.top - 3],
+          [other.left + other.width / 2, other.top - 3],
+        ]);
+        const spread = tiles.map((t, i) => {
+          const own = px.slice(i * 12, i * 12 + 12);
+          let most = 0;
+          for (const a of own)
+            for (const b of own) most = Math.max(most, distance(a, b));
+          return { id: t.id, spread: most, onTop: t.onTop, hit: t.hit };
+        });
+        return {
+          tiles,
+          spread,
+          ring: px.at(-2) as [number, number, number],
+          beside: px.at(-1) as [number, number, number],
+        };
+      };
+      /** The colour a preview canvas paints in its background, at `fx`,
+       *  `fy` of its box; waited on while the image is still decoding. */
+      const ground = async (selector: string, fx: number, fy: number) => {
+        const read = async () => {
+          const r = await page.evaluate((sel) => {
+            const c = document.querySelector(sel)?.getBoundingClientRect();
+            return c === undefined
+              ? null
+              : { left: c.left, top: c.top, width: c.width, height: c.height };
+          }, selector);
+          if (r === null) throw new Error(`no ${selector}`);
+          const [p] = await pixelsAt(page, [
+            [r.left + r.width * fx, r.top + r.height * fy],
+          ]);
+          return p as [number, number, number];
+        };
+        const off = (p: [number, number, number]) =>
+          Math.min(...neutral.map((n) => distance(p, n)));
+        try {
+          await vi.waitFor(
+            async () => {
+              const p = await read();
+              if (off(p) <= 30) throw new Error(`still neutral: ${p}`);
+            },
+            { timeout: PAINT_MS, interval: 200 },
+          );
+        } catch {
+          // Said by the assertion below, with what the page showed.
+        }
+        const p = await read();
+        return { px: p, off: off(p) };
+      };
+      const checkGrid = async (at: string) => {
+        const g = await grid(at);
+        const evidence = JSON.stringify({ g, thumbs: [...thumbs] });
+        expect(
+          g.tiles.map((t) => t.id),
+          `${at}: one tile per built-in`,
+        ).toEqual(WALLPAPERS.map((w) => w.id));
+        expect(
+          g.spread.filter((t) => !t.onTop || t.spread <= 6),
+          `${at}: every tile paints its thumbnail, uncovered: ${evidence}`,
+        ).toEqual([]);
+        // The premise of the ring check: the point beside it is the
+        // panel's ground, and the ring is the ink drawn over it.
+        expect(
+          distance(g.ring, g.beside),
+          `${at}: the pressed tile's ring shows: ${evidence}`,
+        ).toBeGreaterThan(60);
+        return g;
+      };
+
+      // The editor's Background panel, at full height and below it.
+      for (const size of [
+        { width: 1280, height: 800 },
+        { width: 1280, height: 720 },
+      ]) {
+        const at = `editor wallpaper ${size.width}x${size.height}`;
+        await sizeWindow(context, page, size.width, size.height);
+        await openPage(page, studio, "editor", editorTake, new Set());
+        await page.locator('#rail [data-rail="background"]').click();
+        await page.locator("[data-wallpaper-upload]").waitFor();
+        await page.mouse.move(0, 0);
+        const g = await checkGrid(at);
+        expect(
+          g.tiles.find((t) => t.pressed)?.id,
+          `${at}: the take's wallpaper is the pressed tile`,
+        ).toBe("vivid-1");
+        // Left of the recording, mid-height: the frame's padding, and the
+        // contain fit's bars beside it.
+        const bg = await ground("#preview", 0.02, 0.5);
+        const failure = await page.locator("#failure").innerText();
+        expect(
+          bg.off,
+          `${at}: the preview's background is the wallpaper, not the neutral (${JSON.stringify(bg)}; failure band: ${failure})`,
+        ).toBeGreaterThan(30);
+        expect(failure, `${at}: nothing failed`).not.toMatch(
+          /background image/i,
+        );
+        const p = await painted(page);
+        expect(
+          p.dockBand?.every((h) => h.endsWith(": dock")),
+          `${at}: the band across the dock's top edge is the dock's: ${JSON.stringify(p.dockBand)}`,
+        ).toBe(true);
+        expect(
+          p.scrollWidth,
+          `${at}: no sideways scroll (${JSON.stringify(p)})`,
+        ).toBeLessThanOrEqual(p.innerWidth);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        await page.screenshot({
+          path: join(
+            SHOTS,
+            `editor-wallpaper-${size.width}x${size.height}-dark.png`,
+          ),
+        });
+      }
+
+      // The Brand kit page, its default kit on dark-1.
+      await sizeWindow(context, page, 1280, 800);
+      await openPage(page, studio, "kits", editorTake, new Set());
+      const at = "kits wallpaper 1280x800";
+      const g = await checkGrid(at);
+      expect(g.tiles.find((t) => t.pressed)?.id, at).toBe("dark-1");
+      const hero = await ground("[data-preview-kit]", 0.02, 0.2);
+      expect(
+        hero.off,
+        `${at}: the kit's preview is the wallpaper, not the neutral (${JSON.stringify(hero)})`,
+      ).toBeGreaterThan(30);
+      expect(
+        await page.locator("[data-wallpaper-error]").count(),
+        `${at}: no load error`,
+      ).toBe(0);
+      const p = await painted(page);
+      expect(
+        p.scrollWidth,
+        `${at}: no sideways scroll (${JSON.stringify(p)})`,
+      ).toBeLessThanOrEqual(p.innerWidth);
+      await page.screenshot({
+        path: join(SHOTS, "kits-wallpaper-1280x800-dark.png"),
+      });
+      // The tiles' pictures came from the pages' own folder.
+      expect(
+        [...thumbs.entries()].filter(([, status]) => status >= 400),
+        JSON.stringify([...thumbs]),
+      ).toEqual([]);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);

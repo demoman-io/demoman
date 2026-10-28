@@ -886,7 +886,7 @@ export function motionRedrawNeeded(
  * round to one gradient) costs no redraw, and anything else that reaches the
  * backdrop — a corner radius, the frame rect — re-arms it too. The logo is
  * compared by image identity (`refreshLogo` decodes a new image per ref and
- * raster height) plus its opacity and placed rect: `derivePresentation`
+ * raster height), as the wallpaper is, plus its opacity and placed rect: `derivePresentation`
  * builds a fresh placed-logo object on every call, so the object itself
  * cannot be compared.
  */
@@ -910,6 +910,9 @@ export function presentationRedrawNeeded(
     drawn.cornerRadius !== live.cornerRadius ||
     !sameRect(drawn.frameRect, live.frameRect) ||
     drawn.logo?.image !== live.logo?.image ||
+    // The image arrives after the background names it: the frame drawn
+    // before then is the neutral, and must be redrawn when it lands.
+    drawn.wallpaper?.image !== live.wallpaper?.image ||
     drawn.logo?.opacity !== live.logo?.opacity ||
     !sameRect(drawn.logo?.rect, live.logo?.rect)
   );

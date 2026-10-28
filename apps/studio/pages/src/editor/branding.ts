@@ -1,8 +1,7 @@
-import {
-  NEUTRAL_BACKGROUND,
-  type SceneBackground,
-  type SceneBranding,
-  type SceneLogo,
+import type {
+  SceneBackground,
+  SceneBranding,
+  SceneLogo,
 } from "@demoman/scene-schema";
 
 /** The three placement fields the panel adjusts one at a time. */
@@ -54,10 +53,6 @@ export function applyBrandingPatch(
   }
   let background = patch.background ?? branding.background;
   if (patch.gradient !== undefined) {
-    // Task 6 gives wallpaper and image their own controls; until then the
-    // panel shows them as the neutral gradient, so a gradient edit starts there.
-    if (background.kind === "wallpaper" || background.kind === "image")
-      background = NEUTRAL_BACKGROUND;
     if (background.kind !== "gradient")
       throw new Error("the background is not a gradient any more");
     const { swap, ...fields } = patch.gradient;
@@ -74,12 +69,14 @@ export function applyBrandingPatch(
 }
 
 /** Key order aside, every field equal (backgrounds are flat records). */
-export function sameBackground(a: object, b: object): boolean {
-  const x = a as Record<string, unknown>;
-  const y = b as Record<string, unknown>;
-  const keys = Object.keys(x);
+export function sameBackground(
+  a: SceneBackground,
+  b: SceneBackground,
+): boolean {
+  const keys = Object.keys(a) as (keyof typeof a)[];
   return (
-    keys.length === Object.keys(y).length && keys.every((k) => x[k] === y[k])
+    keys.length === Object.keys(b).length &&
+    keys.every((k) => a[k] === b[k as keyof typeof b])
   );
 }
 

@@ -248,6 +248,9 @@ export function renderFailure(
     previewError?: string | null;
     /** Why the scene's logo could not be loaded (`loadLogo`). */
     logoLoadError?: string | null;
+    /** Why the background's wallpaper or image could not be loaded: the
+     *  frame paints the neutral gradient in its place. */
+    wallpaperLoadError?: string | null;
     /**
      * The take itself could not be read — the scene deleted under the
      * editor, the extension reloaded with it open, the store refusing. The
@@ -356,6 +359,16 @@ export function renderFailure(
     box.setAttribute("data-logo-load-error", "");
     box.append(el("strong", undefined, "The logo could not be loaded"));
     box.append(el("div", undefined, failure.logoLoadError));
+    parts.push(box);
+  }
+
+  if (failure.wallpaperLoadError != null) {
+    const box = el("div", "notice");
+    box.setAttribute("data-wallpaper-load-error", "");
+    box.append(
+      el("strong", undefined, "The background image could not be loaded"),
+    );
+    box.append(el("div", undefined, failure.wallpaperLoadError));
     parts.push(box);
   }
 

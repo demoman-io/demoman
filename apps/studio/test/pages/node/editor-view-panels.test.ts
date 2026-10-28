@@ -51,10 +51,20 @@ describe("renderBranding", () => {
         logoPlacement: null,
         formatTitle: "Landscape video",
         logoNotes: [],
+        wallpaper: {
+          thumbUrl: (id: string) => `/wallpapers/${id}-thumb.webp`,
+          custom: null,
+          loadError: null,
+        },
       },
-      { onCommit: vi.fn(), onPreview: vi.fn(), onLogoFile: vi.fn() },
+      {
+        onCommit: vi.fn(),
+        onPreview: vi.fn(),
+        onLogoFile: vi.fn(),
+        onWallpaperFile: vi.fn(),
+      },
     );
-    expect(root.querySelectorAll("[data-bg-kind]").length).toBe(2);
+    expect(root.querySelectorAll("[data-bg-kind]").length).toBe(3);
     expect(root.querySelector('input[type="file"]')).not.toBeNull();
   });
 });

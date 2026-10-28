@@ -81,6 +81,9 @@ export function paintKitPreview(
   logo: FrameImage | null,
   cardColour: string,
   outerRadius = 0,
+  /** The background's image, decoded for `KIT_PREVIEW_BOX`; without one a
+   *  wallpaper paints the neutral, which the caller must say. */
+  wallpaper: FrameImage | null = null,
 ): boolean {
   const ctx = canvas.getContext("2d");
   if (ctx === null) return false;
@@ -96,7 +99,13 @@ export function paintKitPreview(
   // The compositor's painters are typed for OffscreenCanvas; the 2D API
   // they use is the same on a DOM canvas.
   const paint2d = ctx as unknown as OffscreenCanvasRenderingContext2D;
-  const presentation = derivePresentation(branding, target, KIT_VIEWPORT, logo);
+  const presentation = derivePresentation(
+    branding,
+    target,
+    KIT_VIEWPORT,
+    logo,
+    wallpaper,
+  );
   drawBackground(paint2d, target, presentation);
   const r = presentation.frameRect;
   ctx.save();

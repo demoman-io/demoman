@@ -20,6 +20,7 @@ const model: SettingsModel = {
   brandKitPlacement: null,
   brandKitLogoThumb: null,
   brandKitNotes: [],
+  brandKitWallpaper: { custom: null, loadError: null },
   pullRequests: "off",
   exportQuality: "share",
   kitsUnwatched: null,
@@ -32,6 +33,7 @@ const actions = (): SettingsActions &
   setBrandKit: vi.fn(),
   previewBrandKit: vi.fn(),
   uploadKitLogo: vi.fn(),
+  uploadKitWallpaper: vi.fn(),
   selectKit: vi.fn(),
   newKit: vi.fn(),
   duplicateKit: vi.fn(),
@@ -247,9 +249,10 @@ describe("the Brand kit section", () => {
 
   it("starts from the defaults when there are no kits, with New kit", () => {
     const { box } = section({});
-    expect(q<HTMLInputElement>(box, "[data-colour-text]").value).toBe(
-      "#eceff2",
-    );
+    // The defaults' wallpaper, pressed in the grid.
+    expect(
+      q(box, '[data-wallpaper-id="vivid-1"]').getAttribute("aria-pressed"),
+    ).toBe("true");
     expect(box.querySelector("[data-kit-tile]")).toBeNull();
     expect(box.querySelector("[data-kit-new]")).not.toBeNull();
     // No kit to rename, copy or delete yet.

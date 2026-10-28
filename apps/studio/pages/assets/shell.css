@@ -1485,6 +1485,59 @@
     width: 16px;
     height: 16px;
   }
+  /* The Wallpaper style's grid: the built-ins as 4:3 tiles, the uploaded
+     image, and the tile that uploads one, four to a row in the editor's
+     panel. The chosen tile carries an ink ring outside its edge, in the
+     grid's gap, so it never covers the picture it marks. */
+  .branding-controls .wallpaper-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    padding: 3px;
+  }
+  .branding-controls .wallpaper-tile {
+    display: grid;
+    place-items: center;
+    aspect-ratio: 4 / 3;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--control);
+    color: var(--ink-muted);
+    cursor: pointer;
+  }
+  .branding-controls .wallpaper-tile:hover {
+    filter: brightness(1.08);
+  }
+  .branding-controls .wallpaper-tile[aria-pressed="true"] {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+  .branding-controls .wallpaper-tile:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .branding-controls .wallpaper-tile-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .branding-controls .wallpaper-tile svg {
+    width: 16px;
+    height: 16px;
+  }
+  .branding-controls .wallpaper-upload {
+    border: 1px dashed var(--ring-strong);
+    background: transparent;
+  }
+  .branding-controls .wallpaper-upload:hover {
+    filter: none;
+    background: var(--control-hover);
+    color: var(--ink);
+  }
   .branding-controls .logo-controls label.btn {
     position: relative;
     display: inline-flex;

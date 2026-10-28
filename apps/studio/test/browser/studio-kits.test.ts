@@ -188,9 +188,9 @@ describe("the Studio's Brand kit page, in a real window", () => {
       await waitForKit(home, page, "the rename saved", (k) => k !== null);
 
       // The background, through its own control: Solid, then the colour
-      // typed into its box. A new kit starts on the default wallpaper, whose
-      // controls are still the neutral gradient's until Task 6, so both
-      // steps change what is stored.
+      // typed into its box. A new kit starts on the default wallpaper, shown
+      // as its pressed tile with no colour fields, so both steps change
+      // what is stored.
       const before = kitNamed(await readKits(home), "Launch");
       expect(
         before?.read.state === "ready" && before.read.kit.background.kind,
@@ -199,10 +199,25 @@ describe("the Studio's Brand kit page, in a real window", () => {
       const colourFields = page.locator(
         '[data-group="background"] [data-colour-text]',
       );
+      await expect
+        .poll(
+          () =>
+            page
+              .locator(
+                '[data-group="background"] [data-wallpaper-id="vivid-1"]',
+              )
+              .getAttribute("aria-pressed"),
+          {
+            timeout: EDIT_MS,
+            message:
+              "the premise: the page shows the default wallpaper pressed",
+          },
+        )
+        .toBe("true");
       expect(
         await colourFields.count(),
-        "the premise: the page shows the gradient's two colour fields (From, To)",
-      ).toBe(2);
+        "the premise: a wallpaper shows no colour fields",
+      ).toBe(0);
       await page
         .locator('[data-group="background"] [data-bg-kind="solid"]')
         .click();
@@ -214,8 +229,8 @@ describe("the Studio's Brand kit page, in a real window", () => {
           k?.read.state === "ready" && k.read.kit.background.kind === "solid",
       );
       // The file is written before the page re-reads it and redraws, so
-      // the page may still show the gradient's two fields; type into the
-      // solid's one only once it is drawn.
+      // the page may still show the wallpaper's grid; type into the solid's
+      // one field only once it is drawn.
       await expect
         .poll(() => colourFields.count(), {
           timeout: EDIT_MS,

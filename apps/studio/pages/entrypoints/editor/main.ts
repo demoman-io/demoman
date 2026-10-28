@@ -39,6 +39,15 @@ import {
 } from "../../src/adapters/logo";
 import type { LogoThumb } from "../../src/branding/controls";
 import {
+  type DecodedWallpaper,
+  decodeBackground,
+  isImageBackground,
+  neededSize,
+  wallpaperKey,
+  wallpaperThumbOf,
+  wallpaperThumbUrl,
+} from "../../src/branding/wallpaper";
+import {
   type BrandKitsRead,
   checkKitName,
   type KitEntry,
@@ -903,6 +912,26 @@ let drawnLogoLoadError: string | null = null;
  *  next upload or a Remove does. */
 let uploadNote: { ref: string; note: string } | null = null;
 
+// The background's wallpaper or uploaded image, decoded once per id and
+// shape (or per ref) at the preview's `wallpaperRasterSize`, and again only
+// when the preview needs more pixels than it holds — a pause after playback
+// raises the height, a wider window too. A smaller need draws from what is
+// held. A failure is held as well, so the render that follows it does not
+// try again, and is said: the compositor paints the neutral in its place.
+let wallpaper: FrameImage | null = null;
+/** What `wallpaper` was decoded from, or why it could not be. */
+let wallpaperHeld: {
+  key: string;
+  natural: DecodedWallpaper["natural"];
+  error: string | null;
+} | null = null;
+/** The key a decode is in flight for; a later one supersedes it. */
+let wallpaperWanted: string | null = null;
+let wallpaperLoadError: string | null = null;
+/** The uploaded image's tile, kept after the author picks a built-in so
+ *  they can go back to it. */
+let wallpaperCustom: { ref: string; thumb: LogoThumb | null } | null = null;
+
 /**
  * A slider's value while it is being dragged, layered over the scene's own
  * cursor block when the frame is composed.
@@ -1155,6 +1184,84 @@ function logoThumbFor(ref: string | null): LogoThumb | null {
   return { kind: "loading" };
 }
 
+/** The custom tile for the background the scene holds, or the last one. */
+function wallpaperCustomFor(
+  bg: SceneDocument["branding"]["background"],
+): { ref: string; thumb: LogoThumb | null } | null {
+  if (bg.kind === "image" && wallpaperCustom?.ref !== bg.ref)
+    return { ref: bg.ref, thumb: { kind: "loading" } };
+  return wallpaperCustom;
+}
+
+async function refreshWallpaper(snapshot: SessionSnapshot): Promise<void> {
+  const bg = liveBranding(snapshot.scene).background;
+  if (!isImageBackground(bg)) {
+    if (wallpaperHeld === null && wallpaperWanted === null) return;
+    wallpaper = null;
+    wallpaperHeld = null;
+    wallpaperWanted = null;
+    wallpaperLoadError = null;
+    render(session.snapshot());
+    return;
+  }
+  const key = wallpaperKey(bg, target);
+  const held = wallpaperHeld?.key === key ? wallpaperHeld : null;
+  if (
+    held !== null &&
+    (held.error !== null ||
+      (wallpaper !== null &&
+        neededSize(target, held.natural).width <= wallpaper.width))
+  )
+    return;
+  if (wallpaperWanted === key) return;
+  wallpaperWanted = key;
+  // A different image from the one held: its old reason no longer stands.
+  // The old picture does, until the new one lands, rather than a flash of
+  // the neutral.
+  if (held === null) wallpaperLoadError = null;
+  let next: DecodedWallpaper | null = null;
+  let error: string | null = null;
+  try {
+    next = await decodeBackground(bg, target, platform.wallpapers);
+  } catch (caught) {
+    error = caught instanceof Error ? caught.message : String(caught);
+  }
+  if (wallpaperWanted !== key) {
+    // Superseded while decoding; never drawn, so safe to let go now.
+    if (next !== null && "close" in next.image.image) next.image.image.close();
+    return;
+  }
+  wallpaperWanted = null;
+  // The image it replaces is not closed: the scrubber may still be drawing
+  // a frame composed with it. It goes with the presentation that held it.
+  wallpaper = next?.image ?? null;
+  wallpaperHeld = { key, natural: next?.natural ?? null, error };
+  wallpaperLoadError = error;
+  if (bg.kind === "image") {
+    let thumb: LogoThumb;
+    if (next === null) thumb = { kind: "failed", reason: error ?? "" };
+    else if (
+      wallpaperCustom?.ref === bg.ref &&
+      wallpaperCustom.thumb?.kind === "ready"
+    )
+      thumb = wallpaperCustom.thumb;
+    else {
+      try {
+        thumb = { kind: "ready", url: await wallpaperThumbOf(next.image) };
+      } catch (caught) {
+        thumb = {
+          kind: "failed",
+          reason: caught instanceof Error ? caught.message : String(caught),
+        };
+      }
+    }
+    const old = wallpaperCustom?.thumb;
+    if (old?.kind === "ready" && old !== thumb) URL.revokeObjectURL(old.url);
+    wallpaperCustom = { ref: bg.ref, thumb };
+  }
+  render(session.snapshot());
+}
+
 async function refreshLogo(snapshot: SessionSnapshot): Promise<void> {
   const branding = liveBranding(snapshot.scene);
   const ref = branding.logo?.ref ?? null;
@@ -1271,6 +1378,7 @@ function refreshDerived(snapshot: SessionSnapshot): void {
         detailTarget: deliverable(bundle),
         hints: motionHints,
         logo,
+        wallpaper,
       })
     : null;
   resolved = composed?.resolved ?? null;
@@ -2157,6 +2265,7 @@ function render(snapshot: SessionSnapshot): void {
     renderError: exportFlow.error,
     previewError,
     logoLoadError,
+    wallpaperLoadError,
     openError: loadError,
     deleteError,
     navigationError,
@@ -2497,6 +2606,13 @@ function render(snapshot: SessionSnapshot): void {
         logoPlacement: presentation?.logoPlacement ?? null,
         formatTitle: deliverableTitle(fileType, snapshot.scene.canvas.aspect),
         logoNotes,
+        wallpaper: {
+          thumbUrl: wallpaperThumbUrl,
+          custom: wallpaperCustomFor(snapshot.scene.branding.background),
+          loadError: isImageBackground(snapshot.scene.branding.background)
+            ? wallpaperLoadError
+            : null,
+        },
         kit: {
           read: kitsRead,
           standing: kitStanding(snapshot.scene.branding),
@@ -2549,6 +2665,7 @@ function render(snapshot: SessionSnapshot): void {
         // Deliberately NOT a render — see `previewBranding`.
         onPreview: previewBranding,
         onLogoFile: (file) => addLogo(file).catch(reportError),
+        onWallpaperFile: (file) => addWallpaper(file).catch(reportError),
       },
     );
   }
@@ -2737,6 +2854,9 @@ function render(snapshot: SessionSnapshot): void {
   // pause height change is a session emit, so it is asked here. Bounded:
   // `refreshLogo` renders only when something it owns changed.
   void refreshLogo(snapshot).catch(reportError);
+  // The same for the background's image: its shape follows the format and
+  // its size the preview's height.
+  void refreshWallpaper(snapshot).catch(reportError);
 }
 
 /**
@@ -2802,6 +2922,29 @@ async function addLogo(file: File): Promise<void> {
   await session.dispatch({
     kind: "setBranding",
     patch: { logo: { ref, ...placement } },
+  });
+}
+
+/**
+ * An uploaded background image: the platform checks the type, fits it to
+ * the wallpaper size and stores it, refusing — with which of the two it
+ * was — a file that is not a usable image. A refusal is said in the edit
+ * box and the background is left as it was.
+ */
+async function addWallpaper(file: File): Promise<void> {
+  logoError = null;
+  let ref: string;
+  try {
+    ({ ref } = await platform.wallpapers.put(file));
+  } catch (error) {
+    logoError = error instanceof Error ? error.message : String(error);
+    logoErrorScene = session.snapshot().scene;
+    render(session.snapshot());
+    return;
+  }
+  await session.dispatch({
+    kind: "setBranding",
+    patch: { background: { kind: "image", ref } },
   });
 }
 

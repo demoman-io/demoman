@@ -87,8 +87,8 @@ function renderExportPanel(): HTMLElement {
   return panel;
 }
 
-/** Colour and logo today; wallpaper, gradient and image later — named for
- *  what it will hold. `main.ts` fills `data-panel-branding`. */
+/** The background, the frame and the logo. `main.ts` fills
+ *  `data-panel-branding`. */
 function renderBackgroundPanel(): HTMLElement {
   const panel = el("div", "demo-panel");
   panel.setAttribute("data-background-panel", "");
