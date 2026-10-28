@@ -125,14 +125,14 @@ describe("comparePictures", () => {
   it("is the same when every shared screen is under the threshold", () => {
     expect(comparePictures(diff([0, 0, 0]), shared, 4)).toEqual({
       same: true,
-      detail: "at most 0.000% of the picture changed, over 3 of 4 screens",
+      detail: "at most 0.0000% of the picture changed, over 3 of 4 screens",
     });
   });
   it("names the step and time of the screen that changed", () => {
     const out = comparePictures(diff([0, 0.002, 0]), shared, 4);
     expect(out).toMatchObject({ same: false });
     expect((out as { detail: string }).detail).toMatch(
-      /% of the picture changed before step 2 at [\d.]+s, over the 0\.015% allowed, of 3 of 4 screens/,
+      /% of the picture changed before step 2 at [\d.]+s, over the 0\.0008% allowed, of 3 of 4 screens/,
     );
   });
   it("names the final screen", () => {

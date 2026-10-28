@@ -14,29 +14,38 @@ import { listenOnLoopback } from "../loopback.js";
 import type { BrowserSession } from "./browser.js";
 
 /**
- * Measured 2026-10-27 (M-series Mac, headless), when the films were compared
- * at moments found at rest, on refresh.slow.test.ts's two
- * fixture videos (1920x1080 MP4s at share quality, and a GIF). First, the
- * largest share changed at rest at each width and level tried, on one
- * capture of each pair (window 0.1 s, a looser rest):
+ * Measured 2026-10-28 (M-series Mac, headless) at the recorded screens, on
+ * refresh.slow.test.ts's fixture videos (1920x1080 MP4s at share quality):
+ * the largest share of a screen changed, in %, at each width and grey level
+ * (Chrome's own decode and scaling), over one full run of that file; 1280/48
+ * read the same on two runs before it.
  *
- *   pair                          640/24  1280/32  1280/48  1920/32
- *   re-film, nothing changed       0.013    0.009    0.006    0.010
- *   a nav link's word removed      0.035    0.035    0.029    0.035
- *   the page's heading rewritten   0.184    0.195    0.177    0.174
+ *   pair                              1280/48  1280/64  1280/80  1280/96  1920/96
+ *   re-film, nothing changed (x4)       0.000    0.000    0.000    0.000    0.000
+ *   a 600 ms slower app, 2 clicks       0.0088   0.0010   0.0001   0.000    0.0007
+ *   slower, ending 1500 ms after it     0.0167   0.0007   0.000    0.000    0.0015
+ *   one digit, $1,200.00 to $1,207.00   0.0034   0.0027   0.0025   0.0017   0.0024
+ *   a nav link removed                  0.029    0.024    0.019    0.015    0.017
  *
- * 1280 wide at 48 levels leaves the most room between the first two rows.
- * Then, as set here, over three full runs of that file: every re-film with
- * nothing changed read 0.000% (nine comparisons), the nav word 0.029-0.031%,
- * the heading 0.177-0.505%. `CHANGED_SHARE` sits at half the smallest
- * change. Mid-move the same pairs read up to 7%: the camera runs a fraction
- * of a frame apart, which is why only moments at rest are judged.
+ * The slower apps' noise is the encoder's, not the page's: a still screen
+ * that follows a camera move by a few frames still carries that move's
+ * coding error, which differs between two films and fades over about six
+ * frames (decoded frame by frame with ffmpeg: up to 77 grey levels, scattered,
+ * against the digit's 190 in one 6x9 block). Placing the final screen at the end of
+ * its still stretch rather than its middle did not help: the short ending's
+ * stretch is four frames, all of them inside that fade (0.019% and 0.016% at
+ * 1280/48 on two runs). So only a grey move of more than 96 levels counts,
+ * and 1280 wide, where the fade averages out more than at 1920.
+ * `CHANGED_SHARE` sits at half the digit, about 7 pixels at 1280x720.
+ *
+ * What this cannot see: a change of colour that moves a pixel's grey level
+ * 96 or less, about 38% of the range — text from gray-700 to gray-500, a
+ * button from blue to green, a dark panel from #111827 to #7f1d1d.
  */
-/** The share of a recorded screen that may change before the picture has.
- *  Measured at moments at rest (above); Task 6 re-measures it at the
- *  recorded screens. */
-export const CHANGED_SHARE = 0.00015;
-export const PICTURE_OPTIONS: PictureOptions = { width: 1280, levels: 48 };
+/** The share of a recorded screen that may change before the picture has:
+ *  half of one digit of body text (above). */
+export const CHANGED_SHARE = 0.000008;
+export const PICTURE_OPTIONS: PictureOptions = { width: 1280, levels: 96 };
 
 const ENTRY_PATH = fileURLToPath(
   new URL(
@@ -188,7 +197,7 @@ export function comparePictures(
     }
   }
   const where = `${shared.length} of ${total} screens`;
-  const pct = (worst * 100).toFixed(3);
+  const pct = (worst * 100).toFixed(4);
   if (worst <= CHANGED_SHARE)
     return {
       same: true,
@@ -199,6 +208,6 @@ export function comparePictures(
     s.step === null ? "on the final screen" : `before step ${s.step + 1}`;
   return {
     same: false,
-    detail: `${pct}% of the picture changed ${place} at ${(s.msB / 1000).toFixed(2)}s, over the ${(CHANGED_SHARE * 100).toFixed(3)}% allowed, of ${where}`,
+    detail: `${pct}% of the picture changed ${place} at ${(s.msB / 1000).toFixed(2)}s, over the ${(CHANGED_SHARE * 100).toFixed(4)}% allowed, of ${where}`,
   };
 }

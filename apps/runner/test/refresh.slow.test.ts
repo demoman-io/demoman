@@ -76,6 +76,59 @@ const LINE_MS = (() => {
   return t.zoomInMs + t.zoomOutMs + 2 * CAMERA_DEFAULTS.neutral.minPlateauMs;
 })();
 const REPORTS_LINK = '<a href="#reports" data-testid="nav-reports">Reports</a>';
+/** The amounts' generator: the first row reads $1,200.00. */
+const AMOUNT = "(1200 + i * 317)";
+/** One digit of one cell: the first row's $1,200.00 reads $1,207.00. */
+const ONE_DIGIT = ORIGINAL.replace(
+  AMOUNT,
+  "(1200 + i * 317 + (i === 0 ? 7 : 0))",
+);
+/** A spinner that never stops, beside the button the camera zooms to, so it
+ *  is in view on every screen: the page is never still (#10). */
+const SPINNER = ORIGINAL.replace(
+  "</style>",
+  `#spin { position: fixed; right: 320px; bottom: 148px; width: 20px; height: 20px; border: 3px solid #c7d2fe; border-top-color: #3b5bdb; border-radius: 50%; animation: spin 800ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>`,
+).replace("</main>", '<div id="spin"></div></main>');
+/** Each `td`'s text, as the page renders it from `page`. */
+async function cellsOf(page: string): Promise<string[]> {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    await work.page.setContent(page);
+    return await work.page.$$eval("td", (tds) =>
+      tds.map((td) => td.textContent ?? ""),
+    );
+  } finally {
+    await work.page.close();
+  }
+}
+/** The `screens noise` line CI's log carries: the largest share changed at
+ *  a screen, out of how many were compared, on this platform. */
+function noiseLine(name: string, detail: string): string {
+  const share = detail.match(/([\d.]+)% of the picture changed/)?.[1];
+  const [k] = screensOf(detail);
+  const line = `screens noise: max ${share}% over ${k} screens on ${process.platform} (${name})`;
+  console.info(line);
+  return line;
+}
+/** Writes a kept file of its own into the repo, and removes it with every
+ *  output it names when `body` is done. */
+async function withKept<T>(
+  video: KeptVideo,
+  body: () => Promise<T>,
+): Promise<T> {
+  const file = join(repo, KEPT_DIR, keptFileName(video.name));
+  await writeFile(file, serializeKept(video));
+  try {
+    return await body();
+  } finally {
+    await rm(file, { force: true });
+    for (const o of video.outputs)
+      await rm(join(repo, o.path), { force: true });
+  }
+}
 
 let html = ORIGINAL;
 let server: ReturnType<typeof createServer>;
@@ -106,8 +159,7 @@ function kept(
    *  camera's line (the guard test at the end). */
   pauseMs = 0,
   /** A pause after the last click, so the film ends on a still screen
-   *  (measured 2026-10-27: after 1500 ms a 600 ms slower app read 0.015% changed
-   *  on that screen, over the allowed 0.015%; after 3500 ms it did not). */
+   *  (1500 ms is the short ending a slower app is measured on, below). */
   endMs = 0,
 ): KeptVideo {
   return {
@@ -396,6 +448,7 @@ describe("refresh", () => {
         expect(Number(m?.[1])).toBeGreaterThanOrEqual(2);
         expect(Number(m?.[2])).toBe(screens.steps + 1);
       }
+      for (const name of [A, B]) noiseLine(name, byName(r, name).detail);
       expect(byName(r, A).detail).not.toContain(out.aGif);
       unchangedDetailA = byName(r, A).detail;
       expect(byName(r, A).line).toBeNull();
@@ -426,6 +479,8 @@ describe("refresh", () => {
         [B, "unchanged"],
         [A, "unchanged"],
       ]);
+      for (const name of [A, B])
+        noiseLine(`${name}, slower`, byName(r, name).detail);
       // The premise: as many screens were compared as in the unchanged run,
       // so the final screen did not drop out of either film.
       const slowA = byName(r, A).detail;
@@ -446,6 +501,125 @@ describe("refresh", () => {
       ).toBeGreaterThan(100);
       for (const g of [before, now])
         expect(clearOfLine(g?.gaps[0] as number), JSON.stringify(g)).toBe(true);
+    },
+    BOTH_MS,
+  );
+
+  it(
+    "a one-digit change reads replaced",
+    async () => {
+      // The premise: exactly one cell's text differs, by one character.
+      const [was, now] = await Promise.all([ORIGINAL, ONE_DIGIT].map(cellsOf));
+      const differ = (was as string[]).flatMap((c, i) =>
+        c === (now as string[])[i]
+          ? []
+          : [[c.trim(), (now as string[])[i]?.trim()]],
+      );
+      expect(differ).toEqual([["$1,200.00", "$1,207.00"]]);
+      // The premise: the film stops on a screen before a step, where the
+      // table is in view (the panel the click opens covers the amounts).
+      const { screens } = await keptOf(A);
+      expect(
+        screens.moments.some((m) => m.step !== null),
+        JSON.stringify(screens),
+      ).toBe(true);
+      html = ONE_DIGIT;
+      let r: RefreshResult;
+      try {
+        r = await refresh([A]);
+      } finally {
+        html = ORIGINAL;
+      }
+      const a = byName(r, A);
+      noiseLine("one digit", a.detail);
+      expect(a.outcome, JSON.stringify(r)).toBe("replaced");
+      expect(a.detail).toMatch(/% of the picture changed before step \d+ at /);
+      // And back: the digit restored reads replaced too, a second reading.
+      const back = byName(await refresh([A]), A);
+      noiseLine("one digit, back", back.detail);
+      expect(back.outcome, back.detail).toBe("replaced");
+    },
+    BOTH_MS,
+  );
+
+  it(
+    "reads a slower app as unchanged with a short ending",
+    async () => {
+      const name = "Short ending";
+      const mp4 = "docs/short.mp4";
+      const video = kept(
+        name,
+        ["Place order"],
+        1,
+        [{ path: mp4, fileType: "mp4", aspect: "16:9", quality: "share" }],
+        0,
+        1500,
+      );
+      await withKept(video, async () => {
+        const first = byName(await refresh([name]), name);
+        expect(first.outcome, first.detail).toBe("replaced");
+        // The premise: both films end on a still screen, so the final screen
+        // is compared (the slower film's screens, from its export).
+        const final = (sc: KeptScreens) =>
+          sc.moments.some((m) => m.step === null);
+        const { screens } = await keptOf(name);
+        expect(final(screens), JSON.stringify(screens)).toBe(true);
+        exported.length = 0;
+        html = SLOW;
+        let r: RefreshResult;
+        try {
+          r = await refresh([name]);
+        } finally {
+          html = ORIGINAL;
+        }
+        const v = byName(r, name);
+        noiseLine("short ending, slower", v.detail);
+        const slower = exported.find((e) => e.fileType === "mp4")?.screens;
+        expect(slower && final(slower), JSON.stringify(exported)).toBe(true);
+        expect(v.outcome, v.detail).toBe("unchanged");
+      });
+    },
+    BOTH_MS,
+  );
+
+  it(
+    "measures a spinner that never stops, filmed twice (#10)",
+    async () => {
+      const name = "Spinner";
+      const video = kept(
+        name,
+        ["Place order"],
+        1,
+        [
+          {
+            path: "docs/spinner.mp4",
+            fileType: "mp4",
+            aspect: "16:9",
+            quality: "share",
+          },
+        ],
+        0,
+        3500,
+      );
+      // The premise: the spinner is on the page.
+      expect(SPINNER).toContain('<div id="spin"></div></main>');
+      expect(SPINNER).toContain("animation: spin");
+      html = SPINNER;
+      try {
+        await withKept(video, async () => {
+          const first = byName(await refresh([name]), name);
+          const { screens } = await keptOf(name).catch(() => ({
+            screens: null,
+          }));
+          const second = byName(await refresh([name]), name);
+          // Measured, not asserted: it goes on #10.
+          console.info(
+            `spinner: first ${first.outcome}: ${first.detail} | screens ${JSON.stringify(screens)} | again ${second.outcome}: ${second.detail} | on ${process.platform}`,
+          );
+        });
+      } finally {
+        html = ORIGINAL;
+      }
     },
     BOTH_MS,
   );
