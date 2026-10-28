@@ -1204,6 +1204,10 @@ describe("the Studio's screenshot set", () => {
       const launch = kits.kits.find((k) => k.id === "kit-launch");
       if (launch === undefined) throw new Error("seedHome made no Launch kit");
       launch.branding.background = { kind: "wallpaper", id: "dark-1" };
+      // Night on an upload that is not there: its tile has to say so.
+      const night = kits.kits.find((k) => k.id === "kit-night");
+      if (night === undefined) throw new Error("seedHome made no Night kit");
+      night.branding.background = { kind: "image", ref: "assets/moved.webp" };
       await writeFile(kitsFile, `${JSON.stringify(kits, null, 2)}\n`);
 
       const studio = await startStudio(home, join(home, "out"));
@@ -1294,8 +1298,24 @@ describe("the Studio's screenshot set", () => {
         const other = tiles.find((t) => !t.pressed);
         if (pressed === undefined || other === undefined)
           throw new Error(`${at}: no pressed tile ${JSON.stringify(tiles)}`);
+        // The panel's own ground: the empty cell after the upload tile, the
+        // grid's eleventh of twelve.
+        const empty = await page.evaluate(() => {
+          const grid = document
+            .querySelector(".wallpaper-grid")
+            ?.getBoundingClientRect();
+          const up = document
+            .querySelector("[data-wallpaper-upload]")
+            ?.getBoundingClientRect();
+          if (grid === undefined || up === undefined) return null;
+          const x = up.right + (up.width + 8) / 2;
+          return { x, y: up.top + up.height / 2, inGrid: x < grid.right };
+        });
+        if (empty === null || !empty.inGrid)
+          throw new Error(`${at}: no empty cell after the upload tile`);
         const px = await pixelsAt(page, [
           ...sweep,
+          [empty.x, empty.y],
           [pressed.left + pressed.width / 2, pressed.top - 3],
           [other.left + other.width / 2, other.top - 3],
         ]);
@@ -1309,6 +1329,7 @@ describe("the Studio's screenshot set", () => {
         return {
           tiles,
           spread,
+          ground: px.at(-3) as [number, number, number],
           ring: px.at(-2) as [number, number, number],
           beside: px.at(-1) as [number, number, number],
         };
@@ -1358,6 +1379,10 @@ describe("the Studio's screenshot set", () => {
         ).toEqual([]);
         // The premise of the ring check: the point beside it is the
         // panel's ground, and the ring is the ink drawn over it.
+        expect(
+          distance(g.beside, g.ground),
+          `${at}: the point beside the ring is the panel's ground: ${evidence}`,
+        ).toBeLessThanOrEqual(6);
         expect(
           distance(g.ring, g.beside),
           `${at}: the pressed tile's ring shows: ${evidence}`,
@@ -1425,6 +1450,32 @@ describe("the Studio's screenshot set", () => {
         await page.locator("[data-wallpaper-error]").count(),
         `${at}: no load error`,
       ).toBe(0);
+      // Night's image did not load: its tile carries the alert, painted on
+      // top of the neutral it shows instead, and names why.
+      const alert = page.locator(
+        '[data-kit-tile="kit-night"] [data-kit-thumb-alert]',
+      );
+      await alert.waitFor({ timeout: PAINT_MS });
+      const alertPaint = await alert.evaluate((a) => {
+        const r = a.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          r.left + r.width / 2,
+          r.top + r.height / 2,
+        );
+        return {
+          onTop: hit !== null && a.contains(hit),
+          label: a.getAttribute("aria-label") ?? "",
+          width: r.width,
+        };
+      });
+      expect(alertPaint.onTop, JSON.stringify(alertPaint)).toBe(true);
+      expect(alertPaint.label).toContain("assets/moved.webp");
+      await alert.evaluate((a) =>
+        a.scrollIntoView({ block: "center", behavior: "instant" }),
+      );
+      await page.screenshot({
+        path: join(SHOTS, "kits-wallpaper-strip-1280x800-dark.png"),
+      });
       const p = await painted(page);
       expect(
         p.scrollWidth,
@@ -1438,7 +1489,13 @@ describe("the Studio's screenshot set", () => {
         [...thumbs.entries()].filter(([, status]) => status >= 400),
         JSON.stringify([...thumbs]),
       ).toEqual([]);
-      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+      // Night's missing image is the one fault this home was built to have.
+      expect(
+        console_
+          .faults()
+          .filter((l) => !/\/api\/wallpaper\?ref=assets%2Fmoved\.webp/.test(l)),
+        console_.lines.join("\n"),
+      ).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
     },

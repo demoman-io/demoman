@@ -1211,8 +1211,13 @@ async function refreshWallpaper(snapshot: SessionSnapshot): Promise<void> {
     (held.error !== null ||
       (wallpaper !== null &&
         neededSize(target, held.natural).width <= wallpaper.width))
-  )
+  ) {
+    // Back on what is held (A, then B, then A again before B landed): a
+    // decode still in flight is for a background the scene left, and must
+    // not land over this one.
+    wallpaperWanted = null;
     return;
+  }
   if (wallpaperWanted === key) return;
   wallpaperWanted = key;
   // A different image from the one held: its old reason no longer stands.
@@ -1238,6 +1243,7 @@ async function refreshWallpaper(snapshot: SessionSnapshot): Promise<void> {
   wallpaperHeld = { key, natural: next?.natural ?? null, error };
   wallpaperLoadError = error;
   if (bg.kind === "image") {
+    const before = wallpaperCustom;
     let thumb: LogoThumb;
     if (next === null) thumb = { kind: "failed", reason: error ?? "" };
     else if (
@@ -1255,9 +1261,15 @@ async function refreshWallpaper(snapshot: SessionSnapshot): Promise<void> {
         };
       }
     }
-    const old = wallpaperCustom?.thumb;
-    if (old?.kind === "ready" && old !== thumb) URL.revokeObjectURL(old.url);
-    wallpaperCustom = { ref: bg.ref, thumb };
+    if (wallpaperCustom !== before) {
+      // A newer image's tile was set while this one was drawn.
+      if (thumb.kind === "ready" && thumb !== before?.thumb)
+        URL.revokeObjectURL(thumb.url);
+    } else {
+      const old = wallpaperCustom?.thumb;
+      if (old?.kind === "ready" && old !== thumb) URL.revokeObjectURL(old.url);
+      wallpaperCustom = { ref: bg.ref, thumb };
+    }
   }
   render(session.snapshot());
 }

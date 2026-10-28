@@ -49,6 +49,7 @@ import { trackSectionNav } from "../../src/settings/section-nav";
 import type { Section, SettingsModel } from "../../src/settings/state";
 import { renderSettings } from "../../src/settings/view";
 import { askToConfirm } from "../../src/shell/confirm-dialog";
+import { icon } from "../../src/shell/icons";
 import {
   addNoticeAction,
   type NoticeText,
@@ -101,6 +102,9 @@ type KitWallpaper =
  *  the settled ones for the painter, which does not wait. */
 const kitWallpapers = new Map<string, Promise<KitWallpaper>>();
 const kitWallpaperDone = new Map<string, KitWallpaper>();
+/** The last decode queued: one at a time, since each decodes a full-size
+ *  master first (hundreds of MB while it runs). */
+let kitDecodeQueue: Promise<unknown> = Promise.resolve();
 /** The uploaded image's tile: the selected kit's, or the last one shown. */
 let kitWallpaperCustom: { ref: string; thumb: LogoThumb | null } | null = null;
 
@@ -108,10 +112,16 @@ function kitWallpaper(bg: ImageBackground): Promise<KitWallpaper> {
   const key = wallpaperKey(bg, KIT_PREVIEW_BOX);
   let decoding = kitWallpapers.get(key);
   if (decoding === undefined) {
-    decoding = decodeBackground(bg, KIT_PREVIEW_BOX, platform.wallpapers).then(
-      (d): KitWallpaper => ({ ok: true, image: d.image }),
-      (error: unknown): KitWallpaper => ({ ok: false, error: describe(error) }),
-    );
+    decoding = kitDecodeQueue
+      .then(() => decodeBackground(bg, KIT_PREVIEW_BOX, platform.wallpapers))
+      .then(
+        (d): KitWallpaper => ({ ok: true, image: d.image }),
+        (error: unknown): KitWallpaper => ({
+          ok: false,
+          error: describe(error),
+        }),
+      );
+    kitDecodeQueue = decoding;
     kitWallpapers.set(key, decoding);
     void decoding.then((done) => kitWallpaperDone.set(key, done));
   }
@@ -131,6 +141,9 @@ function kitWallpaperImage(bg: SceneBranding["background"]): FrameImage | null {
  *  upload; starts the other kits' for their tiles, repainting each one as
  *  it lands. */
 async function refreshKitWallpaper(branding: SceneBranding): Promise<void> {
+  const bg = branding.background;
+  // The selected kit's first in the queue: the page waits for it.
+  const selected = isImageBackground(bg) ? kitWallpaper(bg) : null;
   if (kitsRead.state === "ready") {
     for (const kit of kitsRead.kits) {
       if (kit.read.state !== "ready") continue;
@@ -141,9 +154,8 @@ async function refreshKitWallpaper(branding: SceneBranding): Promise<void> {
       void kitWallpaper(bg).then(() => paintTiles(kit.id));
     }
   }
-  const bg = branding.background;
-  if (!isImageBackground(bg)) return;
-  const done = await kitWallpaper(bg);
+  if (selected === null) return;
+  const done = await selected;
   if (bg.kind !== "image") return;
   if (
     kitWallpaperCustom?.ref === bg.ref &&
@@ -159,6 +171,8 @@ async function refreshKitWallpaper(branding: SceneBranding): Promise<void> {
       thumb = { kind: "failed", reason: describe(error) };
     }
   }
+  const old = kitWallpaperCustom?.thumb;
+  if (old?.kind === "ready" && old !== thumb) URL.revokeObjectURL(old.url);
   kitWallpaperCustom = { ref: bg.ref, thumb };
 }
 
@@ -403,8 +417,19 @@ function paintTile(
   const done = isImageBackground(bg)
     ? kitWallpaperDone.get(wallpaperKey(bg, KIT_PREVIEW_BOX))
     : undefined;
+  // Named on the tile: a glyph over the neutral it paints instead, and the
+  // reason in its title.
+  const pick = thumb.parentElement;
+  pick?.querySelector("[data-kit-thumb-alert]")?.remove();
   if (done?.ok === false) {
     thumb.title = `The image could not be loaded: ${done.error}`;
+    const alert = document.createElement("span");
+    alert.className = "kit-thumb-alert";
+    alert.setAttribute("data-kit-thumb-alert", "");
+    alert.setAttribute("role", "img");
+    alert.setAttribute("aria-label", thumb.title);
+    alert.append(icon("circleAlert"));
+    pick?.append(alert);
   } else thumb.removeAttribute("title");
   if (!paintKitPreview(thumb, kit, null, card, radius, kitWallpaperImage(bg))) {
     console.info("demoman settings: a kit tile has no 2D context");

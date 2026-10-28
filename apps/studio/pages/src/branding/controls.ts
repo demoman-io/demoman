@@ -184,7 +184,8 @@ function wallpaperGrid(
       b.append(imageTileImg(custom.thumb.url));
     else if (custom.thumb?.kind === "failed") {
       b.append(icon("circleAlert"));
-      b.title = `Your image could not be shown: ${custom.thumb.reason}`;
+      b.title = `Your image — could not be loaded: ${custom.thumb.reason}`;
+      b.setAttribute("aria-label", b.title);
     } else b.append(icon("image"));
     grid.append(b);
   }
