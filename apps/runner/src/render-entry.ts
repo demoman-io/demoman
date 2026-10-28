@@ -35,7 +35,10 @@ import {
   type WallpaperLoad,
   wholePercent,
 } from "@demoman/run-core/render";
-import { decodeWallpaper } from "@demoman/run-core/wallpaper";
+import {
+  decodeWallpaper,
+  fitWallpaperImage,
+} from "@demoman/run-core/wallpaper";
 import type { SceneDocument } from "@demoman/scene-schema";
 import {
   RENDER_ENTRY_GLOBAL,
@@ -89,6 +92,14 @@ export interface RenderEntry {
    *  base64 slices instead of risking the same crossing as one
    *  `page.evaluate` return value. */
   readChunk(index: number, offset: number, length: number): string;
+  /** `fitWallpaperImage` on an image node read from a path (the run door's
+   *  `ownWallpaperImage`). The WebP is held as output 0 for `readChunk`;
+   *  rejects with `fitWallpaperImage`'s sentence. */
+  fitWallpaper(
+    base64: string,
+    contentType: string,
+    name: string,
+  ): Promise<{ width: number; height: number; byteLength: number }>;
 }
 
 // Its own copy, not `./report.js`'s: this file is bundled into the render
@@ -286,5 +297,22 @@ function readChunk(index: number, offset: number, length: number): string {
   return btoa(binary);
 }
 
-const entry: RenderEntry = { render, readChunk };
+async function fitWallpaper(
+  base64: string,
+  contentType: string,
+  name: string,
+): Promise<{ width: number; height: number; byteLength: number }> {
+  const fitted = await fitWallpaperImage(
+    new File([bytesOf(base64).slice()], name, { type: contentType }),
+  );
+  const bytes = new Uint8Array(await fitted.blob.arrayBuffer());
+  outputs = [bytes];
+  return {
+    width: fitted.width,
+    height: fitted.height,
+    byteLength: bytes.byteLength,
+  };
+}
+
+const entry: RenderEntry = { render, readChunk, fitWallpaper };
 (globalThis as unknown as Record<string, unknown>)[RENDER_ENTRY_GLOBAL] = entry;

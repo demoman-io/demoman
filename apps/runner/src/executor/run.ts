@@ -25,7 +25,7 @@ import {
   statusOf,
   type WalkResultLike,
 } from "@demoman/run-core";
-import type { DemoScript } from "@demoman/scene-schema";
+import type { DemoScript, SceneBranding } from "@demoman/scene-schema";
 import type { BrowserContext, Page } from "playwright";
 import { createParkingEncoder, type ParkedSpan } from "../encoder.js";
 import type { RunnerStore } from "../frame-store.js";
@@ -129,6 +129,11 @@ export interface RunDeps {
   /** The tree on disk when the run started (`readFilmedCode`), carried into
    *  the report for `attach` to compare with a pull request's head. */
   filmedCode?: FilmedCode;
+  /** A kit's image path made into the take's own copy
+   *  (`ownWallpaperImage`). Never refuses: a kit's image that cannot be
+   *  owned is answered as the kit has it, and its export says so. Absent:
+   *  the kit's branding as it is. */
+  ownKitWallpaper?: (branding: SceneBranding) => Promise<SceneBranding>;
   /** Tests only: the mux, so a test can make it throw. Defaults to
    *  `muxSpans`. */
   muxSpans?: typeof muxSpans;
@@ -245,7 +250,13 @@ export async function runScript(
       `the run's brand kit could not be used: ${resolved.detail}`,
     );
   }
-  const { startingBranding, look } = resolved;
+  const { look } = resolved;
+  // A script's own branding was owned at the door (executor.ts), and the
+  // walk takes it over this one; a kit's is owned here, for each take.
+  const startingBranding =
+    look.branding === "script" || deps.ownKitWallpaper === undefined
+      ? resolved.startingBranding
+      : await deps.ownKitWallpaper(resolved.startingBranding);
 
   // What the walk is measured against: every step but `pause`, which is a
   // duration and yields no beat. See `authoredTotal`.

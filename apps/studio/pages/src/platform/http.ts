@@ -7,6 +7,7 @@ import {
 } from "@demoman/run-core";
 import { decodeLogo } from "@demoman/run-core/logo";
 import type { LogoLoad } from "@demoman/run-core/render";
+import { fitWallpaperImage } from "@demoman/run-core/wallpaper";
 import type { SceneDocument } from "@demoman/scene-schema";
 import {
   type AssetAnswer,
@@ -820,6 +821,29 @@ export function createPlatform(
             ok: true,
             source: await decodeLogo(bytes, type?.trim() ?? ""),
           };
+        } catch (error) {
+          return { ok: false, error: messageOf(error) };
+        }
+      },
+    },
+    wallpapers: {
+      async put(file) {
+        const fitted = await fitWallpaperImage(file);
+        const done = await answer<AssetAnswer>(
+          await request("wallpaperPut", {
+            raw: fitted.blob,
+            headers: {
+              [FILE_NAME_HEADER]: encodeURIComponent(file.name),
+              "Content-Type": fitted.blob.type,
+            },
+          }),
+        );
+        return { ref: done.ref };
+      },
+      async load(ref) {
+        try {
+          const res = await request("wallpaper", { query: { ref } });
+          return { ok: true, blob: await res.blob() };
         } catch (error) {
           return { ok: false, error: messageOf(error) };
         }

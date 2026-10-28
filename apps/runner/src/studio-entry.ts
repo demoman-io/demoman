@@ -38,6 +38,8 @@ export {
   type VideoStore,
 } from "./executor/videos.js";
 export { summarise, type VideoSummary } from "./executor/videos-op.js";
+export { writeWallpaperAsset } from "./executor/wallpaper-own.js";
+export { readWallpaper } from "./executor/wallpaper-read.js";
 export {
   chromiumInstallCommand,
   loadedPlaywrightVersion,

@@ -574,9 +574,10 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `versionExpired` | `export` (`refusedBeforeExport`) | The take's frames expired: `run({ video: { id } })`, then export. |
 | `failed` | `status` (`expiry`) | Not a refusal: `expiry` is the last cleanup `{ ranAt, expired, freedBytes, skippedLeased }`. Say nothing unless it is `{ failed }` or `{ unreadable }`: quote it. |
 | `nothingToRerecord` | `run` (`refusedBeforeRun`) | The take has no step left that acts; tell the user. |
-| `unknownKit` | `run` (`refusedBeforeRun`) | `look.kit` names no brand kit, or one that cannot be read; `detail` lists the kits. Fix the name from `snapshot`'s `kits`, or ask the user. |
-| `kitsUnreadable` | `run` (`refusedBeforeRun`) | The brand kits file could not be read, so `look.kit` was not checked. Quote `detail` to the user; do not change the name. |
-| `invalidDevice` | `snapshot` | `device` names no phone or tablet Demoman has; `detail` lists those it has. Use one. |
+| `unknownKit` | `run` (`refusedBeforeRun`) | `look.kit` names no kit, or an unreadable one; `detail` lists the kits. Fix it from `snapshot`'s `kits`, or ask the user. |
+| `kitsUnreadable` | `run` (`refusedBeforeRun`) | The kits file would not read, so `look.kit` went unchecked. Quote `detail`; keep the name. |
+| `wallpaperUnreadable` | `run` (`refusedBeforeRun`) | The `look.branding` image would not open; fix the path. |
+| `invalidDevice` | `snapshot` | `device` is no phone or tablet Demoman has; `detail` lists them. |
 | `deviceFailed` | `snapshot`, `run` | The browser would not emulate the device; nothing was listed or recorded; `detail` says why. Tell the user; do not run again. |
 | `nonHttpTarget` | `run`, `snapshot` | The target or url is not `http(s)`, or its host contains `*`. |
 | `invalidFileType` | `export` (`refusedBeforeExport`) | Not answered here: the schema takes only `mp4`, `gif`, `stills`. |

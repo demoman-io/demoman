@@ -42,3 +42,33 @@ export function checkLogoFile(file: {
         : null,
   };
 }
+
+/**
+ * The studio's sanity bound on a stored wallpaper. What reaches it is the
+ * page's resized WebP (`fitWallpaperImage`), never the user's file, so no
+ * person meets this; it stops a body that skipped the resize.
+ */
+export const WALLPAPER_MAX_BYTES = 64 * 1024 * 1024;
+
+/**
+ * What a wallpaper upload may be, by its type alone: any size goes, since
+ * the page scales it down before it is stored (spec 2026-10-28, "Uploads").
+ */
+export function checkWallpaperFile(file: {
+  name: string;
+  type: string;
+}): { ok: true } | { ok: false; reason: string } {
+  if (file.type === "") {
+    return {
+      ok: false,
+      reason: `The image "${file.name}" has no file type — use PNG, JPEG, WebP or SVG`,
+    };
+  }
+  if (!ACCEPTED.has(file.type)) {
+    return {
+      ok: false,
+      reason: `The image "${file.name}" is a ${file.type} file — use PNG, JPEG, WebP or SVG`,
+    };
+  }
+  return { ok: true };
+}

@@ -415,6 +415,56 @@ export async function renderToFiles(input: {
   }
 }
 
+/**
+ * An image's bytes made into a wallpaper's stored WebP (`fitWallpaperImage`)
+ * inside `page`, a blank work page. Rejects with the page's sentence (one
+ * that will not decode names the file) or the transport's.
+ */
+export async function fitWallpaperInPage(
+  page: Page,
+  image: { bytes: Uint8Array; contentType: string; name: string },
+): Promise<{ bytes: Buffer; width: number; height: number }> {
+  await page.addScriptTag({ content: await renderEntryBundle() });
+  const fitted = await page.evaluate(
+    ([globalName, base64, contentType, name]) => {
+      const entry = (
+        globalThis as unknown as Record<string, RenderEntry | undefined>
+      )[globalName as string];
+      if (entry === undefined) {
+        throw new Error(
+          `${globalName} is not installed on this page — render.ts must ` +
+            "inject render-entry.ts's bundle before calling into it",
+        );
+      }
+      return entry.fitWallpaper(
+        base64 as string,
+        contentType as string,
+        name as string,
+      );
+    },
+    [
+      RENDER_ENTRY_GLOBAL,
+      Buffer.from(image.bytes).toString("base64"),
+      image.contentType,
+      image.name,
+    ] as const,
+  );
+  const parts: Buffer[] = [];
+  for (let offset = 0; offset < fitted.byteLength; offset += CHUNK_BYTES) {
+    parts.push(
+      Buffer.from(
+        await readChunkInPage(page, 0, offset, CHUNK_BYTES),
+        "base64",
+      ),
+    );
+  }
+  return {
+    bytes: Buffer.concat(parts),
+    width: fitted.width,
+    height: fitted.height,
+  };
+}
+
 function renderPhaseWallpaper(scene: SceneDocument): WallpaperInput | null {
   const bg = scene.branding.background;
   if (bg.kind !== "wallpaper" && bg.kind !== "image") return null;

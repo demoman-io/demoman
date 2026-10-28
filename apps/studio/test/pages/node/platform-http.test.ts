@@ -181,6 +181,32 @@ describe("the Export quality setting", () => {
   });
 });
 
+describe("wallpapers", () => {
+  // The upload's resize needs a real canvas: `fit-wallpaper.test.ts`
+  // (run-core's browser lane) covers it. Here, what `load` answers.
+  it("load answers the served bytes, and a refusal as its sentence rather than an empty image", async () => {
+    const platform = createPlatform();
+    const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3]);
+    studio.route((c) =>
+      c.url === "/api/wallpaper?ref=assets%2Fa.webp"
+        ? new Response(webp, { headers: { "Content-Type": "image/webp" } })
+        : c.url.startsWith("/api/wallpaper?")
+          ? json(422, {
+              reason: "wallpaperRefused",
+              detail: "/h/assets/b.webp could not be read (ENOENT)",
+            })
+          : undefined,
+    );
+    const got = await platform.wallpapers.load("assets/a.webp");
+    if (!got.ok) throw new Error(got.error);
+    expect(new Uint8Array(await got.blob.arrayBuffer())).toEqual(webp);
+    expect(await platform.wallpapers.load("assets/b.webp")).toEqual({
+      ok: false,
+      error: "/h/assets/b.webp could not be read (ENOENT)",
+    });
+  });
+});
+
 describe("every request", () => {
   it("carries the Studio header and the session cookie", async () => {
     const platform = createPlatform();

@@ -73,6 +73,7 @@ import {
   type VideoRepo,
 } from "./videos.js";
 import { matchesFor, videosOp } from "./videos-op.js";
+import { ownWallpaperImage } from "./wallpaper-own.js";
 
 /** `run`'s `video`, or null when it is neither `{ id }` nor `{ new }`. */
 function videoArg(
@@ -657,7 +658,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             : checked.refusal,
       };
     }
-    const script = checked.script;
+    let script = checked.script;
     const who = agentOf(args);
     const made: Made = {
       repo: repoRead.ok ? repoRead.repo : { none: repoRead.none },
@@ -788,6 +789,30 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         job.final = out;
         return out;
       }
+      // A script's image path becomes the take's own copy before anything
+      // is filmed; one that cannot be read or decoded is the script's to
+      // fix, refused as a bad `look` is (spec 2026-10-28, "Uploads"). After
+      // the launch, so a browser that will not start is refused as that.
+      const scriptBranding = script.look?.branding;
+      if (scriptBranding !== undefined) {
+        const owned = await ownWallpaperImage(scriptBranding, {
+          home,
+          work: session,
+        });
+        if (!owned.ok) {
+          const out = refusal(
+            "wallpaperUnreadable",
+            owned.detail,
+            "look.branding.background",
+          );
+          job.final = out;
+          return out;
+        }
+        script = {
+          ...script,
+          look: { ...script.look, branding: owned.branding },
+        };
+      }
       // No page of an earlier call may run while this one's sessions load.
       await session.retire();
       let loaded = await sessions.load(
@@ -842,6 +867,19 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             log,
             refilm,
             joinVideo,
+            // A kit's image path is owned too, for every take; one that
+            // cannot be is left as the kit has it, and its export says so.
+            ownKitWallpaper: async (branding) => {
+              const owned = await ownWallpaperImage(branding, {
+                home,
+                work: session,
+              });
+              if (owned.ok) return owned.branding;
+              log(
+                `the brand kit's image is left as the kit has it: ${owned.detail}`,
+              );
+              return branding;
+            },
             ...(repoRead.ok && repoRead.repo.commit !== null
               ? { buildSha: repoRead.repo.commit }
               : {}),

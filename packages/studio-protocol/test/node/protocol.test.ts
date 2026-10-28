@@ -21,8 +21,9 @@ describe("pathFor", () => {
 describe("matchRoute", () => {
   const ids = Object.keys(ROUTES) as RouteId[];
   it("covers the whole table (premise of the round trip)", () => {
-    // 24 since 2026-10-24: videoRename and videoDelete joined for the video library.
-    expect(ids.length).toBe(24);
+    // 24 since 2026-10-24: videoRename and videoDelete joined for the video
+    // library; 26 since 2026-10-28, with wallpaperPut and wallpaper.
+    expect(ids.length).toBe(26);
     // 10 since 2026-10-24: the two video routes carry :id, so 8 became 10.
     expect(ids.filter((i) => ROUTES[i].path.includes(":")).length).toBe(10);
   });

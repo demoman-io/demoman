@@ -33,6 +33,10 @@ export const ROUTES = {
   kitsReset: { method: "POST", path: "/api/kits/reset" },
   assetPut: { method: "POST", path: "/api/assets" },
   logo: { method: "GET", path: "/api/logo" },
+  /** An uploaded wallpaper: the page's resized WebP (`fitWallpaperImage`),
+   *  sent as `assetPut` sends a logo. Answers an `AssetAnswer`. */
+  wallpaperPut: { method: "POST", path: "/api/wallpapers" },
+  wallpaper: { method: "GET", path: "/api/wallpaper" },
   pullRequestsGet: { method: "GET", path: "/api/settings/pull-requests" },
   pullRequestsPut: { method: "PUT", path: "/api/settings/pull-requests" },
   exportQualityGet: { method: "GET", path: "/api/settings/export-quality" },
@@ -132,6 +136,9 @@ export type StudioReason =
   | "kitsInvalid"
   | "kitsBusy"
   | "logoRefused"
+  /** An uploaded wallpaper the studio would not store, or one `?ref=` names
+   *  that it could not serve; `detail` names the file. */
+  | "wallpaperRefused"
   | "revealRefused"
   | "pullRequestsInvalid"
   | "exportQualityInvalid"

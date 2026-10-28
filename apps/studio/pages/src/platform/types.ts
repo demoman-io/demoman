@@ -47,6 +47,16 @@ export interface Platform {
     put(file: File): Promise<{ ref: string }>;
     load(ref: string): Promise<LogoLoad>;
   };
+  /** Uploaded wallpapers. `put` resizes in the page first
+   *  (`fitWallpaperImage`) and rejects with its sentence, or the studio's,
+   *  naming the file. `load` is the stored bytes, decoded by the caller at
+   *  its own size (`decodeWallpaper`), or why they could not be had. */
+  wallpapers: {
+    put(file: File): Promise<{ ref: string }>;
+    load(
+      ref: string,
+    ): Promise<{ ok: true; blob: Blob } | { ok: false; error: string }>;
+  };
   /** `onChange` calls back when another window writes the kits. `reset`
    *  answers where the list it replaced was kept (`backup`), null when
    *  nothing was kept. `unwatched` is why `onChange` will not fire, or null
