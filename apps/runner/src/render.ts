@@ -41,6 +41,7 @@ import {
   type FrameBundle,
   type LoweredZoom,
   type RenderTarget,
+  type Screens,
   type UnavailableSpan,
   type UnplacedStill,
 } from "@demoman/compositor";
@@ -246,6 +247,8 @@ export interface Rendered {
   videoCap?: VideoCap;
   /** Stills whose asked width the 4K cap cut: the width asked for. */
   stillsCapped?: { askedWidth: number };
+  /** Set for an mp4 or gif: the still screens of the render kept. */
+  screens?: Screens;
 }
 
 /**
@@ -375,6 +378,7 @@ export async function renderToFiles(input: {
       rendered: facts.rendered,
       ...(facts.gifBudget === undefined ? {} : { gifBudget: facts.gifBudget }),
       ...(facts.videoCap === undefined ? {} : { videoCap: facts.videoCap }),
+      ...(facts.screens === undefined ? {} : { screens: facts.screens }),
       ...(facts.stillsCapped === undefined
         ? {}
         : { stillsCapped: facts.stillsCapped }),

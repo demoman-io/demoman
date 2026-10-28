@@ -1131,6 +1131,43 @@ describe("stills the 4K cap cut", () => {
   });
 });
 
+describe("a saved video names its screens", () => {
+  const screens = {
+    steps: 3,
+    moments: [
+      { step: 0, ms: 400 },
+      { step: null, ms: 2100 },
+    ],
+  };
+  const save = (fileType: "mp4" | "gif", withScreens: boolean) =>
+    reportForSave({
+      takeId: "t",
+      fileType,
+      file: {
+        ref: "t:a",
+        name: "a",
+        byteLength: 10,
+        contentType: "video/mp4",
+        detailViolations: [],
+      },
+      saved: { kind: "saved", path: "/D/a", savedAs: "a", downloadId: null },
+      aspect: "16:9",
+      target: { width: 1920, height: 1080, fps: 60 },
+      ...(withScreens ? { screens } : {}),
+    });
+
+  // Red if the report drops the screens, or rebuilds them.
+  it("carries them unchanged on an MP4 and a GIF", () => {
+    expect(save("mp4", true)).toMatchObject({ screens });
+    expect(save("gif", true)).toMatchObject({ screens });
+  });
+
+  // Red if the report invents screens a render never gave.
+  it("has none when the render gave none", () => {
+    expect(save("mp4", false)).not.toHaveProperty("screens");
+  });
+});
+
 describe("a save that failed, said for the file asked for", () => {
   // Red if a stills or GIF failure is told as a video the caller never asked for.
   it("names stills and a GIF, and keeps 'video' for an MP4", () => {

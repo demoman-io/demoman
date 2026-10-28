@@ -600,6 +600,7 @@ async function exportLeased(a: {
       target: rendered.rendered,
       ...warnings,
       ...tagger.untagged,
+      ...(rendered.screens === undefined ? {} : { screens: rendered.screens }),
       ...(rendered.gifBudget === undefined
         ? {}
         : { gifSize: rendered.gifBudget }),
