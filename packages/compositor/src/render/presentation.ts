@@ -1,7 +1,8 @@
-import type {
-  SceneBackground,
-  SceneBranding,
-  SceneLogo,
+import {
+  NEUTRAL_BACKGROUND,
+  type SceneBackground,
+  type SceneBranding,
+  type SceneLogo,
 } from "@demoman/scene-schema";
 import { containRect, type Rect, type Vec } from "../geometry.js";
 import type { FrameImage } from "../ports/types.js";
@@ -289,6 +290,11 @@ export function gradientLine(
   };
 }
 
+const neutralGradient = NEUTRAL_BACKGROUND as Extract<
+  SceneBackground,
+  { kind: "gradient" }
+>;
+
 export function drawBackground(
   ctx: OffscreenCanvasRenderingContext2D,
   target: RenderTarget,
@@ -298,14 +304,16 @@ export function drawBackground(
   if (bg.kind === "solid") {
     ctx.fillStyle = bg.color;
   } else {
+    // Task 3 paints wallpaper and image; until then they draw the neutral.
+    const g = bg.kind === "gradient" ? bg : neutralGradient;
     const { x0, y0, x1, y1 } = gradientLine(
-      bg.angle,
+      g.angle,
       target.width,
       target.height,
     );
     const gradient = ctx.createLinearGradient(x0, y0, x1, y1);
-    gradient.addColorStop(0, bg.from);
-    gradient.addColorStop(1, bg.to);
+    gradient.addColorStop(0, g.from);
+    gradient.addColorStop(1, g.to);
     ctx.fillStyle = gradient;
   }
   ctx.fillRect(0, 0, target.width, target.height);

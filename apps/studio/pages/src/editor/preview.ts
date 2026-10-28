@@ -11,6 +11,7 @@ import type {
   SceneDocument,
   SceneMotion,
 } from "@demoman/scene-schema";
+import { sameBackground } from "./branding.js";
 
 /**
  * The preview bitmap's height DURING PLAYBACK, and the floor everywhere.
@@ -904,15 +905,8 @@ export function presentationRedrawNeeded(
       a.height === b.height);
   const bgA = drawn.background;
   const bgB = live.background;
-  const sameBackground =
-    bgA.kind === bgB.kind &&
-    (bgA.kind === "solid"
-      ? bgA.color === (bgB as typeof bgA).color
-      : bgA.from === (bgB as typeof bgA).from &&
-        bgA.to === (bgB as typeof bgA).to &&
-        bgA.angle === (bgB as typeof bgA).angle);
   return (
-    !sameBackground ||
+    !sameBackground(bgA, bgB) ||
     drawn.cornerRadius !== live.cornerRadius ||
     !sameRect(drawn.frameRect, live.frameRect) ||
     drawn.logo?.image !== live.logo?.image ||

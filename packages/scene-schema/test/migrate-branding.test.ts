@@ -5,6 +5,7 @@ import {
   BRANDING_DEFAULTS,
   BrandingSchema,
   CURRENT_SCHEMA_VERSION,
+  NEUTRAL_BACKGROUND,
   SceneDocumentSchema,
 } from "../src/document";
 import { migrateToCurrent } from "../src/migrations";
@@ -61,7 +62,10 @@ describe("v5 -> v6: branding becomes a background and a placed logo", () => {
       logo: null,
       padding: 0.08,
     });
-    expect(migrated.branding).toEqual(BRANDING_DEFAULTS);
+    expect(migrated.branding).toEqual({
+      ...BRANDING_DEFAULTS,
+      background: NEUTRAL_BACKGROUND,
+    });
   });
 
   it("keeps a logo where and how today's watermark draws it", () => {
@@ -82,7 +86,7 @@ describe("v5 -> v6: branding becomes a background and a placed logo", () => {
     const migrated = migrateToCurrent(
       v5Document({ logoRef: null, primaryColor: "rgb(1,2,3)" }),
     );
-    expect(migrated.branding.background).toEqual(BRANDING_DEFAULTS.background);
+    expect(migrated.branding.background).toEqual(NEUTRAL_BACKGROUND);
   });
 
   it("migrates both at once", () => {

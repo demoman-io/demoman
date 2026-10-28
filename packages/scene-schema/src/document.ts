@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { oklchToHex } from "./color.js";
 import { CaptureDeviceSchema } from "./device.js";
+import { DEFAULT_WALLPAPER_ID } from "./wallpapers.js";
 
 export const CURRENT_SCHEMA_VERSION = 13;
 
@@ -687,6 +688,14 @@ export const BackgroundSchema = z.discriminatedUnion("kind", [
     /** CSS convention: 0 = to top, 90 = to right, 180 = to bottom. */
     angle: z.number().int().min(0).max(359),
   }),
+  // Not restricted to `WALLPAPERS`: a take naming an id a later build
+  // removed still loads, and export says so. A script is checked against
+  // the list in `DemoScriptSchema`.
+  z.object({
+    kind: z.literal("wallpaper"),
+    id: z.string().regex(/^[a-z0-9-]+$/),
+  }),
+  z.object({ kind: z.literal("image"), ref: z.string().min(1) }),
 ]);
 
 export const LOGO_CORNERS = [
@@ -740,7 +749,10 @@ export const NEUTRAL_BACKGROUND: SceneBackground = Object.freeze({
 }) as SceneBackground;
 
 export const BRANDING_DEFAULTS: SceneBranding = Object.freeze({
-  background: NEUTRAL_BACKGROUND,
+  background: Object.freeze({
+    kind: "wallpaper",
+    id: DEFAULT_WALLPAPER_ID,
+  }) as SceneBackground,
   logo: null,
   /**
    * 8%: the margin of a polished recording, near enough (8.4% measured on

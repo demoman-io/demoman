@@ -114,3 +114,11 @@ export {
   type ScriptDraft,
   scriptFromTake,
 } from "./script-from-take.js";
+export {
+  DEFAULT_WALLPAPER_ID,
+  WALLPAPERS,
+  type WallpaperFamily,
+  type WallpaperInfo,
+  wallpaperFile,
+  wallpaperInfo,
+} from "./wallpapers.js";

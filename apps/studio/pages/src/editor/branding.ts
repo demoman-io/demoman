@@ -1,7 +1,8 @@
-import type {
-  SceneBackground,
-  SceneBranding,
-  SceneLogo,
+import {
+  NEUTRAL_BACKGROUND,
+  type SceneBackground,
+  type SceneBranding,
+  type SceneLogo,
 } from "@demoman/scene-schema";
 
 /** The three placement fields the panel adjusts one at a time. */
@@ -53,6 +54,10 @@ export function applyBrandingPatch(
   }
   let background = patch.background ?? branding.background;
   if (patch.gradient !== undefined) {
+    // Task 6 gives wallpaper and image their own controls; until then the
+    // panel shows them as the neutral gradient, so a gradient edit starts there.
+    if (background.kind === "wallpaper" || background.kind === "image")
+      background = NEUTRAL_BACKGROUND;
     if (background.kind !== "gradient")
       throw new Error("the background is not a gradient any more");
     const { swap, ...fields } = patch.gradient;
@@ -68,6 +73,16 @@ export function applyBrandingPatch(
   };
 }
 
+/** Key order aside, every field equal (backgrounds are flat records). */
+export function sameBackground(a: object, b: object): boolean {
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  const keys = Object.keys(x);
+  return (
+    keys.length === Object.keys(y).length && keys.every((k) => x[k] === y[k])
+  );
+}
+
 /**
  * Whether two brandings paint the same thing. Field by field rather than by
  * identity or JSON: a patch always builds a new object, and a kit's
@@ -78,14 +93,7 @@ export function sameBranding(a: SceneBranding, b: SceneBranding): boolean {
   if (a.padding !== b.padding) return false;
   const bgA = a.background;
   const bgB = b.background;
-  const sameBackground =
-    bgA.kind === "solid"
-      ? bgB.kind === "solid" && bgA.color === bgB.color
-      : bgB.kind === "gradient" &&
-        bgA.from === bgB.from &&
-        bgA.to === bgB.to &&
-        bgA.angle === bgB.angle;
-  if (!sameBackground) return false;
+  if (!sameBackground(bgA, bgB)) return false;
   if (a.logo === null || b.logo === null) return a.logo === b.logo;
   return (
     a.logo.ref === b.logo.ref &&

@@ -188,13 +188,14 @@ describe("the Studio's Brand kit page, in a real window", () => {
       await waitForKit(home, page, "the rename saved", (k) => k !== null);
 
       // The background, through its own control: Solid, then the colour
-      // typed into its box. A new kit starts as the neutral gradient, so
-      // both steps change what is stored.
+      // typed into its box. A new kit starts on the default wallpaper, whose
+      // controls are still the neutral gradient's until Task 6, so both
+      // steps change what is stored.
       const before = kitNamed(await readKits(home), "Launch");
       expect(
         before?.read.state === "ready" && before.read.kit.background.kind,
-        `the premise: a new kit is a gradient (${JSON.stringify(before)})`,
-      ).toBe("gradient");
+        `the premise: a new kit is the default wallpaper (${JSON.stringify(before)})`,
+      ).toBe("wallpaper");
       const colourFields = page.locator(
         '[data-group="background"] [data-colour-text]',
       );

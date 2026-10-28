@@ -2,6 +2,7 @@ import type { LogoPlacement } from "@demoman/compositor";
 import {
   LOGO_CORNERS,
   type LogoCorner,
+  NEUTRAL_BACKGROUND,
   parseColor,
   type SceneBackground,
   type SceneBranding,
@@ -288,7 +289,13 @@ export function renderBrandingControls(
   handlers: BrandingControlsHandlers,
 ): void {
   const { branding } = props;
-  const bg = branding.background;
+  // Task 6 gives wallpaper and image their own controls; until then the
+  // panel shows them as the neutral gradient.
+  const bg =
+    branding.background.kind === "wallpaper" ||
+    branding.background.kind === "image"
+      ? (NEUTRAL_BACKGROUND as Extract<SceneBackground, { kind: "gradient" }>)
+      : branding.background;
   const box = el("div", "branding-controls");
   const fieldDrafts = draftsFor(root);
   const group = (
@@ -557,6 +564,11 @@ export function renderBrandingControls(
  *  rebuilds these controls on every session emit and export tick, and a
  *  menu that shut on each would be unusable. */
 const kitMenuOpen = new WeakMap<HTMLElement, boolean>();
+const NEUTRAL_CSS =
+  NEUTRAL_BACKGROUND.kind === "gradient"
+    ? `linear-gradient(${NEUTRAL_BACKGROUND.angle}deg, ${NEUTRAL_BACKGROUND.from}, ${NEUTRAL_BACKGROUND.to})`
+    : "";
+
 /** Roots whose outside-click closer is registered: once each. */
 const kitMenuWatched = new WeakSet<HTMLElement>();
 
@@ -568,7 +580,9 @@ function swatchFor(entry: KitEntry | null): HTMLElement {
     swatch.style.background =
       bg.kind === "solid"
         ? bg.color
-        : `linear-gradient(${bg.angle}deg, ${bg.from}, ${bg.to})`;
+        : bg.kind === "gradient"
+          ? `linear-gradient(${bg.angle}deg, ${bg.from}, ${bg.to})`
+          : NEUTRAL_CSS; // Task 6 draws the wallpaper itself.
   } else if (entry !== null) {
     swatch.append(icon("circleAlert"));
   }
