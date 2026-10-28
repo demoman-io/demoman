@@ -60,7 +60,11 @@ const isAbstract = (name) =>
 function sources() {
   const found = new Map();
   const consider = (name, path) => {
-    if (!isAbstract(name) || !existsSync(path)) return;
+    if (!isAbstract(name)) return;
+    if (!existsSync(path)) {
+      console.warn(`${name}: ${path} is not on disk, not measured`);
+      return;
+    }
     if (!found.has(name) || !path.includes("/.thumbnails/"))
       found.set(name, path);
   };
@@ -228,16 +232,11 @@ for (const fam of ["vivid", "light", "dark"]) {
 }
 
 const missing = ["vivid", "light", "dark"].filter((f) => !families[f]);
-const provisional = decoded.length === 0;
-const palette = {
-  ...(provisional ? { provisional: true } : {}),
-  families,
-  measuredFrom: measuredFrom.sort(),
-};
-if (provisional) {
+if (decoded.length === 0) {
   console.error("no Apple wallpaper decoded; palette.json left as it is");
   process.exit(1);
 }
+const palette = { families, measuredFrom: measuredFrom.sort() };
 if (missing.length) console.warn(`no image measured as ${missing.join(", ")}`);
 for (const st of stats)
   console.log(

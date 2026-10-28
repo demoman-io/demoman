@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -204,16 +205,24 @@ it("ships the package README and packs it", () => {
 // rides in.
 // Measured 2026-10-28 with the built-in wallpapers (the studio pages'
 // public/wallpapers, 30 WebP files, 20,107,026 B, already compressed):
-// 21,041,235 B, unpacked 26,191,809 B, 67 files. The ceiling adds their raw
-// bytes to the old one, so everything else keeps the headroom it had.
-const MAX_TARBALL_BYTES = 1_755_000 + 20_110_000;
+// 21,041,235 B, unpacked 26,191,809 B, 67 files. Their bytes are read from
+// disk and added to the ceiling, so retuning them does not move it and
+// everything else keeps the headroom it had.
+const MAX_TARBALL_BYTES = 1_755_000;
+const wallpapers = fileURLToPath(
+  new URL("../../studio/pages/public/wallpapers/", import.meta.url),
+);
 it("packs under its size ceiling", () => {
+  const wallpaperBytes = readdirSync(wallpapers).reduce(
+    (sum, f) => sum + statSync(join(wallpapers, f)).size,
+    0,
+  );
   const out = execFileSync("npm", ["pack", "--dry-run", "--json"], {
     cwd: fileURLToPath(new URL("../pkg", import.meta.url)),
     encoding: "utf8",
   });
   const [{ size }] = JSON.parse(out);
-  expect(size).toBeLessThan(MAX_TARBALL_BYTES);
+  expect(size).toBeLessThan(MAX_TARBALL_BYTES + wallpaperBytes);
 });
 
 // Final review I3: build.mjs step 3b packed whatever was in
