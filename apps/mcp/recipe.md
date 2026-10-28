@@ -576,9 +576,9 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `nothingToRerecord` | `run` (`refusedBeforeRun`) | The take has no step left that acts; tell the user. |
 | `unknownKit` | `run` (`refusedBeforeRun`) | `look.kit` names no kit, or an unreadable one; `detail` lists the kits. Fix it from `snapshot`'s `kits`, or ask the user. |
 | `kitsUnreadable` | `run` (`refusedBeforeRun`) | The kits file would not read, so `look.kit` went unchecked. Quote `detail`; keep the name. |
-| `wallpaperUnreadable` | `run` (`refusedBeforeRun`) | The `look.branding` image would not open; fix the path. |
+| `wallpaperUnreadable` | `run` (`refusedBeforeRun`) | The image would not open. Quote `detail`; fix or drop `look.branding`. |
 | `invalidDevice` | `snapshot` | `device` is no phone or tablet Demoman has; `detail` lists them. |
-| `deviceFailed` | `snapshot`, `run` | The browser would not emulate the device; nothing was listed or recorded; `detail` says why. Tell the user; do not run again. |
+| `deviceFailed` | `snapshot`, `run` | The browser would not emulate the device; nothing was listed or recorded. Tell the user `detail`; do not run again. |
 | `nonHttpTarget` | `run`, `snapshot` | The target or url is not `http(s)`, or its host contains `*`. |
 | `invalidFileType` | `export` (`refusedBeforeExport`) | Not answered here: the schema takes only `mp4`, `gif`, `stills`. |
 | `invalidStillsOptions` | `export` (`refusedBeforeExport`) | `stills` was given for an MP4 or GIF, or holds a width outside 320-3840 (or `"native"`), a zoom other than `"none"` or `"step"`, or another field; `detail` says which. Fix the call. |

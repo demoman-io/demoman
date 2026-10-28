@@ -129,6 +129,10 @@ export interface RunDeps {
   /** The tree on disk when the run started (`readFilmedCode`), carried into
    *  the report for `attach` to compare with a pull request's head. */
   filmedCode?: FilmedCode;
+  /** The script's `look.branding` with its image path made into the take's
+   *  own copy (`ownWallpaperImage`, at the door). The walk films it; the
+   *  take's script.json keeps the script's own. Absent: the script's. */
+  ownedScriptBranding?: SceneBranding;
   /** A kit's image path made into the take's own copy
    *  (`ownWallpaperImage`). Never refuses: a kit's image that cannot be
    *  owned is answered as the kit has it, and its export says so. Absent:
@@ -251,8 +255,16 @@ export async function runScript(
     );
   }
   const { look } = resolved;
-  // A script's own branding was owned at the door (executor.ts), and the
-  // walk takes it over this one; a kit's is owned here, for each take.
+  // A script's own branding was owned at the door (executor.ts): the walk
+  // films the owned copy, and script.json keeps what the script asked. A
+  // kit's is owned here, for each take.
+  const toFilm: DemoScript =
+    deps.ownedScriptBranding === undefined || script.look === undefined
+      ? script
+      : {
+          ...script,
+          look: { ...script.look, branding: deps.ownedScriptBranding },
+        };
   const startingBranding =
     look.branding === "script" || deps.ownKitWallpaper === undefined
       ? resolved.startingBranding
@@ -335,7 +347,7 @@ export async function runScript(
   const filmAndEncode = async () => {
     const encoder = createParkingEncoder(store, sceneId);
     const played = await playOnStage(
-      script,
+      toFilm,
       prepared,
       deps,
       { encoder, store, sceneId },

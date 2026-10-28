@@ -6,6 +6,7 @@ import type { SceneBranding } from "@demoman/scene-schema";
 import { fitWallpaperInPage } from "../render.js";
 import { messageOf } from "../report.js";
 import type { BrowserSession } from "./browser.js";
+import { IMAGE_TYPES as RASTER_TYPES } from "./wallpaper-read.js";
 
 /**
  * A fitted wallpaper (`fitWallpaperImage`'s WebP) written into
@@ -33,12 +34,10 @@ export async function writeWallpaperAsset(
   return ref;
 }
 
-/** What a path's image is, by its extension: the upload's four types. */
+/** What a path's image is, by its extension: the upload's four types, the
+ *  render's rasters and the SVG this rasterises. */
 const IMAGE_TYPES: Record<string, string> = {
-  ".png": "image/png",
-  ".webp": "image/webp",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
+  ...RASTER_TYPES,
   ".svg": "image/svg+xml",
 };
 
@@ -95,7 +94,7 @@ export async function ownWallpaperImage(
   if (!work.ok) {
     return {
       ok: false,
-      detail: `The image ${path} could not be resized: ${work.detail}`,
+      detail: `Demoman could not open a page to resize the image ${path}: ${work.detail}`,
     };
   }
   let fitted: Buffer;
@@ -104,7 +103,13 @@ export async function ownWallpaperImage(
       await fitWallpaperInPage(work.page, { bytes, contentType, name: path })
     ).bytes;
   } catch (error) {
-    return { ok: false, detail: pageSentence(error) };
+    // The page's sentence names the file (`fitWallpaperImage`); a transport
+    // failure's does not, so the path goes in front of it.
+    const said = pageSentence(error);
+    return {
+      ok: false,
+      detail: said.includes(path) ? said : `The image ${path}: ${said}`,
+    };
   } finally {
     // A work page that will not close changes nothing this answers; the
     // browser's own close takes it.
@@ -116,7 +121,7 @@ export async function ownWallpaperImage(
   } catch (error) {
     return {
       ok: false,
-      detail: `The image ${path} was resized, but its copy was not saved: ${messageOf(error)}`,
+      detail: `Demoman resized the image ${path} but could not save its copy: ${messageOf(error)}`,
     };
   }
   return {

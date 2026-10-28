@@ -10,7 +10,7 @@ import { messageOf } from "../report.js";
 
 /** Rasters only: an SVG is rasterised where it enters (upload or run), so
  *  none reaches the render as a vector. */
-const IMAGE_TYPES: Record<string, string> = {
+export const IMAGE_TYPES: Record<string, string> = {
   ".png": "image/png",
   ".webp": "image/webp",
   ".jpg": "image/jpeg",

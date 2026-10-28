@@ -182,6 +182,29 @@ describe("the Export quality setting", () => {
 });
 
 describe("wallpapers", () => {
+  it("put refuses a PDF and a GIF by type, as the studio would, and uploads nothing", async () => {
+    const platform = createPlatform();
+    const cases = [
+      new File(["%PDF-1.4"], "brochure.pdf", { type: "application/pdf" }),
+      // A GIF decodes in a browser: only the type check keeps it out.
+      new File(["GIF89a"], "loop.gif", { type: "image/gif" }),
+    ];
+    for (const file of cases) {
+      const error = await platform.wallpapers.put(file).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(error, file.name).toBeInstanceOf(StudioError);
+      expect((error as StudioError).reason).toBe("wallpaperRefused");
+      expect((error as StudioError).message).toBe(
+        `The image "${file.name}" is a ${file.type} file — use PNG, JPEG, WebP or SVG`,
+      );
+    }
+    expect(
+      studio.calls.filter((c) => c.url.startsWith("/api/wallpapers")),
+    ).toEqual([]);
+  });
+
   // The upload's resize needs a real canvas: `fit-wallpaper.test.ts`
   // (run-core's browser lane) covers it. Here, what `load` answers.
   it("load answers the served bytes, and a refusal as its sentence rather than an empty image", async () => {

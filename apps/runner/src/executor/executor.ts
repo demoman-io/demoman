@@ -20,6 +20,7 @@ import {
   verdictLine,
   withSummary,
 } from "@demoman/run-core";
+import type { SceneBranding } from "@demoman/scene-schema";
 import { chromium } from "playwright";
 import { displayUnreadSentence, readDisplay } from "../display.js";
 import { installResolver } from "../page-agent.js";
@@ -658,7 +659,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             : checked.refusal,
       };
     }
-    let script = checked.script;
+    const script = checked.script;
     const who = agentOf(args);
     const made: Made = {
       repo: repoRead.ok ? repoRead.repo : { none: repoRead.none },
@@ -793,13 +794,23 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       // is filmed; one that cannot be read or decoded is the script's to
       // fix, refused as a bad `look` is (spec 2026-10-28, "Uploads"). After
       // the launch, so a browser that will not start is refused as that.
+      // A script built from a take carries the take's own branding, which
+      // no agent wrote: one that cannot be owned is kept as the take has
+      // it, as a kit's is, and its export says so.
+      let ownedScriptBranding: SceneBranding | undefined;
       const scriptBranding = script.look?.branding;
       if (scriptBranding !== undefined) {
         const owned = await ownWallpaperImage(scriptBranding, {
           home,
           work: session,
         });
-        if (!owned.ok) {
+        if (owned.ok) {
+          ownedScriptBranding = owned.branding;
+        } else if (builtFrom !== null) {
+          log(
+            `take ${builtFrom}'s image is left as the take has it: ${owned.detail}`,
+          );
+        } else {
           const out = refusal(
             "wallpaperUnreadable",
             owned.detail,
@@ -808,10 +819,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           job.final = out;
           return out;
         }
-        script = {
-          ...script,
-          look: { ...script.look, branding: owned.branding },
-        };
       }
       // No page of an earlier call may run while this one's sessions load.
       await session.retire();
@@ -867,6 +874,9 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             log,
             refilm,
             joinVideo,
+            ...(ownedScriptBranding === undefined
+              ? {}
+              : { ownedScriptBranding }),
             // A kit's image path is owned too, for every take; one that
             // cannot be is left as the kit has it, and its export says so.
             ownKitWallpaper: async (branding) => {

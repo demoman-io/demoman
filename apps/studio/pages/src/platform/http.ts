@@ -1,6 +1,7 @@
 // apps/studio/pages/src/platform/http.ts
 import type { FrameImage } from "@demoman/compositor";
 import {
+  checkWallpaperFile,
   type ExportAnswer,
   exportCaveats,
   type OutputListing,
@@ -828,7 +829,18 @@ export function createPlatform(
     },
     wallpapers: {
       async put(file) {
-        const fitted = await fitWallpaperImage(file);
+        // Refused here as the studio refuses it (`saveWallpaper`), so the
+        // page meets one shape: the type first, then whether it decodes.
+        const check = checkWallpaperFile(file);
+        if (!check.ok) {
+          throw new StudioError("wallpaperRefused", check.reason, 400);
+        }
+        let fitted: Awaited<ReturnType<typeof fitWallpaperImage>>;
+        try {
+          fitted = await fitWallpaperImage(file);
+        } catch (error) {
+          throw new StudioError("wallpaperRefused", messageOf(error), 400);
+        }
         const done = await answer<AssetAnswer>(
           await request("wallpaperPut", {
             raw: fitted.blob,
