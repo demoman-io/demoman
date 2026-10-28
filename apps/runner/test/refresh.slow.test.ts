@@ -91,6 +91,38 @@ const SPINNER = ORIGINAL.replace(
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>`,
 ).replace("</main>", '<div id="spin"></div></main>');
+/** A colour's grey level (Rec. 601), 0-255. */
+const luma = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map((i) =>
+    Number.parseInt(hex.slice(i, i + 2), 16),
+  );
+  return 0.299 * (r as number) + 0.587 * (g as number) + 0.114 * (b as number);
+};
+/** Restyles that change a colour and nothing else: where the fixture says
+ *  it, what it becomes, and where in the film it shows. */
+const RESTYLES = [
+  {
+    name: "nav text gray-700 to gray-500",
+    rule: "nav a { display: block; padding: 8px 12px; border-radius: 6px; color: ",
+    from: "#374151",
+    to: "#6b7280",
+    where: /changed faintly before step \d+/,
+  },
+  {
+    name: "the button blue to a green as light",
+    rule: "border-radius: 8px; background: ",
+    from: "#3b5bdb",
+    to: "#2b8a3e",
+    where: /before step \d+/,
+  },
+  {
+    name: "the dark panel #111827 to #7f1d1d",
+    rule: "width: 360px; background: ",
+    from: "#111827",
+    to: "#7f1d1d",
+    where: /on the final screen/,
+  },
+] as const;
 /** Each `td`'s text, as the page renders it from `page`. */
 async function cellsOf(page: string): Promise<string[]> {
   const work = await session.openWorkPage();
@@ -107,9 +139,14 @@ async function cellsOf(page: string): Promise<string[]> {
 /** The `screens noise` line CI's log carries: the largest share changed at
  *  a screen, out of how many were compared, on this platform. */
 function noiseLine(name: string, detail: string): string {
-  const share = detail.match(/([\d.]+)% of the picture changed/)?.[1];
+  const same = detail.match(/at most ([\d.]+)% sharply and ([\d.]+)% faintly/);
+  const changed = detail.match(/([\d.]+)% of the picture changed (\w+)/);
   const [k] = screensOf(detail);
-  const line = `screens noise: max ${share}% over ${k} screens on ${process.platform} (${name})`;
+  const shares =
+    same !== null
+      ? `${same[1]}% sharply, ${same[2]}% faintly`
+      : `${changed?.[1]}% ${changed?.[2]}`;
+  const line = `screens noise: max ${shares} over ${k} screens on ${process.platform} (${name})`;
   console.info(line);
   return line;
 }
@@ -448,7 +485,7 @@ describe("refresh", () => {
       for (const name of [A, B]) {
         const { screens } = await keptOf(name);
         const m = byName(r, name).detail.match(
-          /^docs\/\w+\.mp4: at most [\d.]+% of the picture changed, over (\d+) of (\d+) screens$/,
+          /^docs\/\w+\.mp4: at most [\d.]+% sharply and [\d.]+% faintly of the picture changed, over (\d+) of (\d+) screens$/,
         );
         expect(m, byName(r, name).detail).not.toBeNull();
         expect(Number(m?.[1])).toBeGreaterThanOrEqual(2);
@@ -541,7 +578,9 @@ describe("refresh", () => {
       const a = byName(r, A);
       noiseLine("one digit", a.detail);
       expect(a.outcome, JSON.stringify(r)).toBe("replaced");
-      expect(a.detail).toMatch(/% of the picture changed before step \d+ at /);
+      expect(a.detail).toMatch(
+        /% of the picture changed sharply before step \d+ at /,
+      );
       // And back: the digit restored reads replaced too, a second reading.
       const back = byName(await refresh([A]), A);
       noiseLine("one digit, back", back.detail);
@@ -549,6 +588,39 @@ describe("refresh", () => {
     },
     BOTH_MS,
   );
+
+  for (const restyle of RESTYLES) {
+    it(
+      `a colour restyle reads replaced: ${restyle.name}`,
+      async () => {
+        // The premise: the rule names that colour once, and only the colour
+        // changes; the button keeps its lightness (grey alone cannot tell).
+        const at = `${restyle.rule}${restyle.from}`;
+        expect(ORIGINAL.split(at).length, at).toBe(2);
+        const page = ORIGINAL.replace(at, `${restyle.rule}${restyle.to}`);
+        expect(page).not.toContain(at);
+        expect(page.length).toBe(ORIGINAL.length);
+        const shift = Math.abs(luma(restyle.from) - luma(restyle.to));
+        console.info(`restyle ${restyle.name}: grey moves ${shift.toFixed(1)}`);
+        html = page;
+        let r: RefreshResult;
+        try {
+          r = await refresh([A]);
+        } finally {
+          html = ORIGINAL;
+        }
+        const a = byName(r, A);
+        noiseLine(restyle.name, a.detail);
+        expect(a.outcome, JSON.stringify(r)).toBe("replaced");
+        expect(a.detail).toMatch(restyle.where);
+        // And back to the committed colours, a second reading.
+        const back = byName(await refresh([A]), A);
+        noiseLine(`${restyle.name}, back`, back.detail);
+        expect(back.outcome, back.detail).toBe("replaced");
+      },
+      BOTH_MS,
+    );
+  }
 
   it(
     "reads a slower app as unchanged with a short ending",
@@ -616,8 +688,8 @@ describe("refresh", () => {
       try {
         await withKept(video, async () => {
           const first = byName(await refresh([name]), name);
-          const { screens } = await keptOf(name).catch(() => ({
-            screens: null,
+          const { screens } = await keptOf(name).catch((error: unknown) => ({
+            screens: `unreadable: ${error instanceof Error ? error.message : String(error)}`,
           }));
           const second = byName(await refresh([name]), name);
           // Measured, not asserted: it goes on #10.
@@ -706,7 +778,7 @@ describe("refresh", () => {
       const r = await refresh([A]);
       expect(byName(r, A).outcome, JSON.stringify(r)).toBe("replaced");
       expect(byName(r, A).detail).toMatch(
-        /% of the picture changed on the final screen at [\d.]+s/,
+        /% of the picture changed \w+ on the final screen at [\d.]+s/,
       );
     },
     ONE_MS,
@@ -777,7 +849,7 @@ describe("refresh", () => {
         JSON.stringify(r),
       ).toEqual(["replaced", "replaced"]);
       expect(byName(r, A).detail).toMatch(
-        /% of the picture changed (before step \d+|on the final screen) at [\d.]+s/,
+        /% of the picture changed \w+ (before step \d+|on the final screen) at [\d.]+s/,
       );
       const after = await Promise.all(Object.values(out).map(bytes));
       for (const [i, b] of after.entries())

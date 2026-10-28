@@ -46,15 +46,17 @@ video rests at the end, in the video it judges: the first MP4 that is not
 file recorded a still screen, the new film is read at the same step. If the
 picture changed, every file of the video is replaced, with the kept file's
 record of its screens. Videos are not compared byte for byte, so an unchanged
-app makes no commit. A change as small as one digit of body text on a
-compared screen is seen. Four gaps are accepted:
+app makes no commit. On a compared screen, a change as small as one digit
+of body text is seen, and so is a colour change alone: grey text a few
+shades lighter, a button turned another colour of the same lightness. Four
+gaps are accepted:
 
 - A change seen only in motion or mid-scroll, or something that appears and
   goes within one step, is not seen. It is seen once it shows on a screen
   that is compared.
-- A change of colour alone is not seen when it moves the brightness by less
-  than about 38%: text from dark grey to mid grey, a button from blue to
-  green, a dark panel from one dark colour to another.
+- A change too small to tell from the video's own compression is not seen:
+  a single character in very light text, or a slight shade change over a
+  small area, such as a thin border or a small icon.
 - A slower app that tips the camera to pull back, where it held before (or
   the reverse), reads as changed. The camera decides from the gap between two
   clicks, and a gap near that line can fall either side of it.

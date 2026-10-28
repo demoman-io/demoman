@@ -132,10 +132,11 @@ export interface PictureFile {
 export interface ScreensDiff {
   a: PictureFile;
   b: PictureFile;
-  /** Per moment pair: the share of `a`'s pixels whose grey level moved more
-   *  than `levels` at that moment in `b`; null where either moment lies
-   *  past its film's end. Empty when the two differ in frame size. */
-  changed: (number | null)[];
+  /** Per moment pair, per look (in `looks` order): the share of the
+   *  picture that look counts changed at that moment in `b`; null where
+   *  either moment lies past its film's end. Empty when the two differ in
+   *  frame size. */
+  changed: (number[] | null)[];
 }
 
 /** One file could not be read as its type: `a` or `b`, and why. */
@@ -144,11 +145,19 @@ export interface PictureUnreadable {
   error: string;
 }
 
-export interface PictureOptions {
-  width: number;
+/** One way of looking for a change: average each pixel's colour over the
+ *  `block`-wide square around it (`blockMoves`), and count it changed when
+ *  any channel's mean moved more than `levels` (0-255). */
+export interface PictureLook {
+  block: number;
   levels: number;
 }
 
+export interface PictureOptions {
+  /** The width both films are drawn at before comparing. */
+  width: number;
+  looks: PictureLook[];
+}
 export interface DecodeProbeEntry {
   screensDiff(
     a: string,
@@ -752,45 +761,85 @@ async function frameTimes(url: string): Promise<FrameTimes> {
   return { width, height, timesSec, changes };
 }
 
-/** Grey levels of `source` drawn at `width` wide, row-major. */
-function greyOf(
+/** `source` drawn at `width` wide: its RGBA pixels, row-major. */
+interface Drawn {
+  width: number;
+  height: number;
+  rgba: Uint8ClampedArray;
+}
+
+function drawnOf(
   source: CanvasImageSource,
   sw: number,
   sh: number,
   width: number,
-): Uint8Array {
+): Drawn {
   const height = Math.max(1, Math.round((width * sh) / sw));
   const work = new OffscreenCanvas(width, height);
   const ctx = work.getContext("2d") as OffscreenCanvasRenderingContext2D;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(source, 0, 0, width, height);
-  const pixels = ctx.getImageData(0, 0, width, height).data;
-  const grey = new Uint8Array(width * height);
-  for (let i = 0; i < grey.length; i++) {
-    const p = i * 4;
-    grey[i] = Math.round(
-      0.299 * (pixels[p] as number) +
-        0.587 * (pixels[p + 1] as number) +
-        0.114 * (pixels[p + 2] as number),
-    );
-  }
-  return grey;
+  return { width, height, rgba: ctx.getImageData(0, 0, width, height).data };
 }
 
-/** The share of `a`'s pixels whose grey level differs from `b`'s by more
- *  than `levels`. */
-function changedShare(a: Uint8Array, b: Uint8Array, levels: number): number {
-  let changed = 0;
-  for (let i = 0; i < a.length; i++) {
-    if (Math.abs((a[i] as number) - (b[i] as number)) > levels) changed++;
+/**
+ * Per pixel: how far its colour moved from `a` to `b`, as the largest of
+ * the three channels' moves, each averaged over the `block`-wide square
+ * around it (clipped at the frame's edges). Averaging first is what tells a
+ * change from the encoder's noise: that noise is single pixels scattered
+ * along edges, a change is a patch (a glyph, a fill) that moves together.
+ * Colour, not grey: a blue button turned a green of the same lightness
+ * keeps its grey level.
+ */
+function blockMoves(a: Drawn, b: Drawn, block: number): Float32Array {
+  const { width: w, height: h } = a;
+  const W = w + 1;
+  const lo = Math.floor((block - 1) / 2);
+  const hi = block - 1 - lo;
+  const moves = new Float32Array(w * h);
+  // One summed-area table per channel, of a minus b.
+  for (let c = 0; c < 3; c++) {
+    const sum = new Float64Array(W * (h + 1));
+    for (let y = 0; y < h; y++) {
+      let row = 0;
+      for (let x = 0; x < w; x++) {
+        const p = (y * w + x) * 4 + c;
+        row += (a.rgba[p] as number) - (b.rgba[p] as number);
+        sum[(y + 1) * W + x + 1] = (sum[y * W + x + 1] as number) + row;
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      const y0 = Math.max(0, y - lo);
+      const y1 = Math.min(h, y + hi + 1);
+      for (let x = 0; x < w; x++) {
+        const x0 = Math.max(0, x - lo);
+        const x1 = Math.min(w, x + hi + 1);
+        const total =
+          (sum[y1 * W + x1] as number) -
+          (sum[y0 * W + x1] as number) -
+          (sum[y1 * W + x0] as number) +
+          (sum[y0 * W + x0] as number);
+        const move = Math.abs(total / ((x1 - x0) * (y1 - y0)));
+        const i = y * w + x;
+        if (move > (moves[i] as number)) moves[i] = move;
+      }
+    }
   }
-  return changed / a.length;
+  return moves;
+}
+
+/** The share of the picture `look` counts changed from `a` to `b`. */
+function changedShare(a: Drawn, b: Drawn, look: PictureLook): number {
+  const moves = blockMoves(a, b, look.block);
+  let changed = 0;
+  for (const m of moves) if (m > look.levels) changed++;
+  return changed / moves.length;
 }
 
 /** A file's frames by time, drawn small. `at` takes ascending times. */
 interface PictureReader extends PictureFile {
-  at(times: number[]): Promise<Uint8Array[]>;
+  at(times: number[]): Promise<Drawn[]>;
   close(): void;
 }
 
@@ -828,10 +877,10 @@ async function pictureReader(
         const i = ends.findIndex((e) => t < e);
         return i < 0 ? count - 1 : i;
       };
-      const grey = async (i: number) => {
+      const drawnAt = async (i: number) => {
         const { image } = await decoder.decode({ frameIndex: i });
         try {
-          return greyOf(image, w, h, width);
+          return drawnOf(image, w, h, width);
         } finally {
           image.close();
         }
@@ -842,8 +891,8 @@ async function pictureReader(
         length: end,
         frame,
         at: async (times) => {
-          const out: Uint8Array[] = [];
-          for (const t of times) out.push(await grey(indexAt(t)));
+          const out: Drawn[] = [];
+          for (const t of times) out.push(await drawnAt(indexAt(t)));
           return out;
         },
         close: () => decoder.close(),
@@ -868,16 +917,16 @@ async function pictureReader(
   const rate = (await track.computePacketStats()).averagePacketRate;
   const frame = rate > 0 ? 1 / rate : 1 / 30;
   const at = async (times: number[]) => {
-    const greys: Uint8Array[] = [];
+    const drawn: Drawn[] = [];
     for await (const wrapped of new CanvasSink(track).canvasesAtTimestamps(
       times,
     )) {
-      const t = times[greys.length] as number;
+      const t = times[drawn.length] as number;
       if (!wrapped) throw new Error(`no frame decoded at ${t.toFixed(3)}s`);
       const c = wrapped.canvas as OffscreenCanvas;
-      greys.push(greyOf(c, c.width, c.height, width));
+      drawn.push(drawnOf(c, c.width, c.height, width));
     }
-    return greys;
+    return drawn;
   };
   return {
     width: track.displayWidth,
@@ -963,7 +1012,11 @@ async function diffOf(
     length: r.length,
     frame: r.frame,
   });
-  const answer = { a: file(ra), b: file(rb), changed: [] as (number | null)[] };
+  const answer = {
+    a: file(ra),
+    b: file(rb),
+    changed: [] as (number[] | null)[],
+  };
   if (ra.width !== rb.width || ra.height !== rb.height) return answer;
   // A moment at or past the length has no frame; a request there decodes none.
   const within = (r: PictureReader, ms: number) => ms / 1000 < r.length;
@@ -978,7 +1031,9 @@ async function diffOf(
     answer.changed.push(
       k < 0
         ? null
-        : changedShare(ga[k] as Uint8Array, gb[k] as Uint8Array, o.levels),
+        : o.looks.map((look) =>
+            changedShare(ga[k] as Drawn, gb[k] as Drawn, look),
+          ),
     );
   }
   return answer;

@@ -15,37 +15,55 @@ import type { BrowserSession } from "./browser.js";
 
 /**
  * Measured 2026-10-28 (M-series Mac, headless) at the recorded screens, on
- * refresh.slow.test.ts's fixture videos (1920x1080 MP4s at share quality):
- * the largest share of a screen changed, in %, at each width and grey level
- * (Chrome's own decode and scaling), over one full run of that file; 1280/48
- * read the same on two runs before it.
+ * refresh.slow.test.ts's fixture videos (1920x1080 MP4s at share quality),
+ * drawn 1280 wide by Chrome's own decoder. Each pixel's colour is averaged
+ * over a block around it in both films (`blockMoves`); a "move" is how far
+ * that mean moved in its most-moved channel. What decides a look is the
+ * Nth-largest move on a screen against `levels`, N its allowed pixels:
  *
- *   pair                              1280/48  1280/64  1280/80  1280/96  1920/96
- *   re-film, nothing changed (x4)       0.000    0.000    0.000    0.000    0.000
- *   a 600 ms slower app, 2 clicks       0.0088   0.0010   0.0001   0.000    0.0007
- *   slower, ending 1500 ms after it     0.0167   0.0007   0.000    0.000    0.0015
- *   one digit, $1,200.00 to $1,207.00   0.0034   0.0027   0.0025   0.0017   0.0024
- *   a nav link removed                  0.029    0.024    0.019    0.015    0.017
+ *   Nth-largest move, worst screen     block 2, 8th   block 8, 160th
+ *   re-films and slower apps (x7)          33-35          9.4-9.5
+ *   one digit, $1,200.00 to $1,207.00      107            2
+ *   nav text gray-700 to gray-500          39             18
+ *   a button blue to a green as light      165            156
+ *   a dark panel #111827 to #7f1d1d        117            112
  *
- * The slower apps' noise is the encoder's, not the page's: a still screen
- * that follows a camera move by a few frames still carries that move's
- * coding error, which differs between two films and fades over about six
- * frames (decoded frame by frame with ffmpeg: up to 77 grey levels, scattered,
- * against the digit's 190 in one 6x9 block). Placing the final screen at the end of
- * its still stretch rather than its middle did not help: the short ending's
- * stretch is four frames, all of them inside that fade (0.019% and 0.016% at
- * 1280/48 on two runs). So only a grey move of more than 96 levels counts,
- * and 1280 wide, where the fade averages out more than at 1920.
- * `CHANGED_SHARE` sits at half the digit, about 7 pixels at 1280x720.
+ * over two full runs of that file. The noise is the encoder's: a still
+ * screen a few frames after a camera move still carries that move's coding
+ * error, single pixels up to 77 levels scattered along edges, and it fades
+ * over about six frames. The short ending's last still
+ * stretch is four frames, all inside that fade, so placing its screen at
+ * the end of the stretch rather than the middle did not help. Averaging
+ * does: noise is scattered, a change moves together. A small block keeps a
+ * glyph strong (`sharply`, 60 levels, 1.8x clear of both sides); a wide
+ * block over many pixels sees a few shades on a whole word or fill
+ * (`faintly`, 13 levels, 1.4x clear of both). No single block measured
+ * better than 1.7x for both the digit and the grey text.
  *
- * What this cannot see: a change of colour that moves a pixel's grey level
- * 96 or less, about 38% of the range — text from gray-700 to gray-500, a
- * button from blue to green, a dark panel from #111827 to #7f1d1d.
+ * At those settings, locally: re-films and slower apps read at most 0.0000%
+ * sharply and 0.0021% faintly; the digit 0.0027% sharply (allowed 0.0008%,
+ * about 7 pixels); the grey text 0.097% faintly (allowed 0.017%, about 157
+ * pixels); the button 0.42% and the panel 16%. Colour, not grey, is
+ * compared: the button keeps its grey level (4.9 apart).
+ *
+ * What this cannot see: one changed glyph whose strokes move less than
+ * about 60 levels (a digit in light grey on white), and a change of shade
+ * that moves its block average 13 levels or less, or covers fewer than
+ * about 157 pixels at 1280 wide (a thin border's colour, a small icon's
+ * tint).
  */
-/** The share of a recorded screen that may change before the picture has:
- *  half of one digit of body text (above). */
-export const CHANGED_SHARE = 0.000008;
-export const PICTURE_OPTIONS: PictureOptions = { width: 1280, levels: 96 };
+/** The two ways a screen is looked at (above), each with the share of the
+ *  picture it may count changed before the picture has. `sharply` sees a
+ *  small, strong change (one digit of body text); `faintly` a weak change
+ *  over an area (text or a fill a few shades off). */
+export const LOOKS = [
+  { name: "sharply", block: 2, levels: 60, allowed: 0.000008 },
+  { name: "faintly", block: 8, levels: 13, allowed: 0.00017 },
+] as const;
+export const PICTURE_OPTIONS: PictureOptions = {
+  width: 1280,
+  looks: LOOKS.map(({ block, levels }) => ({ block, levels })),
+};
 
 const ENTRY_PATH = fileURLToPath(
   new URL(
@@ -164,9 +182,10 @@ export function sharedScreens(
 }
 
 /**
- * The decision, on what the page read: the largest share changed over the
- * shared screens, against `CHANGED_SHARE`. `total` is the screens a film can
- * have (its steps and the final one), for "k of n screens".
+ * The decision, on what the page read: per look, the largest share changed
+ * over the shared screens, against that look's `allowed`. `total` is the
+ * screens a film can have (its steps and the final one), for "k of n
+ * screens".
  */
 export function comparePictures(
   diff: ScreensDiff,
@@ -180,34 +199,40 @@ export function comparePictures(
       detail: `the frame size changed, ${a.width}x${a.height} to ${b.width}x${b.height}`,
     };
   }
-  for (const [i, share] of changed.entries()) {
-    if (share !== null) continue;
+  for (const [i, shares] of changed.entries()) {
+    if (shares !== null) continue;
     const s = shared[i] as (typeof shared)[number];
     const past = s.msA / 1000 >= a.length;
     return {
       uncomparable: `the ${past ? "committed" : "new"} video ends at ${(past ? a : b).length.toFixed(3)}s, before its screen at ${((past ? s.msA : s.msB) / 1000).toFixed(3)}s`,
     };
   }
-  let worst = 0;
-  let at = 0;
-  for (const [i, share] of changed.entries()) {
-    if ((share as number) > worst) {
-      worst = share as number;
-      at = i;
+  const pct = (share: number) => `${(share * 100).toFixed(4)}%`;
+  // Per look: its largest share, and the screen it was read at.
+  const worst = LOOKS.map((look, j) => {
+    let share = 0;
+    let at = 0;
+    for (const [i, shares] of changed.entries()) {
+      const v = (shares as number[])[j] as number;
+      if (v > share) {
+        share = v;
+        at = i;
+      }
     }
-  }
+    return { look, share, at, over: share / look.allowed };
+  });
   const where = `${shared.length} of ${total} screens`;
-  const pct = (worst * 100).toFixed(4);
-  if (worst <= CHANGED_SHARE)
+  const most = worst.reduce((x, y) => (y.over > x.over ? y : x));
+  if (most.over <= 1)
     return {
       same: true,
-      detail: `at most ${pct}% of the picture changed, over ${where}`,
+      detail: `at most ${worst.map((w) => `${pct(w.share)} ${w.look.name}`).join(" and ")} of the picture changed, over ${where}`,
     };
-  const s = shared[at] as (typeof shared)[number];
+  const s = shared[most.at] as (typeof shared)[number];
   const place =
     s.step === null ? "on the final screen" : `before step ${s.step + 1}`;
   return {
     same: false,
-    detail: `${pct}% of the picture changed ${place} at ${(s.msB / 1000).toFixed(2)}s, over the ${(CHANGED_SHARE * 100).toFixed(4)}% allowed, of ${where}`,
+    detail: `${pct(most.share)} of the picture changed ${most.look.name} ${place} at ${(s.msB / 1000).toFixed(2)}s, over the ${pct(most.look.allowed)} allowed, of ${where}`,
   };
 }

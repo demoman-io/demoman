@@ -128,7 +128,7 @@ describe("samePicture", () => {
       );
       expect(out.same, out.detail).toBe(true);
       expect(out.detail).toMatch(
-        /^at most 0\.0000% of the picture changed, over \d+ of \d+ screens$/,
+        /^at most 0\.0000% sharply and 0\.0000% faintly of the picture changed, over \d+ of \d+ screens$/,
       );
     },
     CASE_MS,
@@ -146,7 +146,7 @@ describe("samePicture", () => {
       );
       expect(out.same, out.detail).toBe(false);
       expect(out.detail).toMatch(
-        /% of the picture changed (before step \d+|on the final screen) at [\d.]+s, over the 0\.0008% allowed, of \d+ of \d+ screens$/,
+        /% of the picture changed \w+ (before step \d+|on the final screen) at [\d.]+s, over the 0\.0\d+% allowed, of \d+ of \d+ screens$/,
       );
     },
     CASE_MS,

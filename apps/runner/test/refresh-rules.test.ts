@@ -117,27 +117,53 @@ describe("comparePictures", () => {
     { step: 1, msA: 2000, msB: 2100 },
     { step: null, msA: 5000, msB: 5200 },
   ];
-  const diff = (changed: (number | null)[], a = 6, b = 8) => ({
+  /** Per screen, `[sharply, faintly]` (LOOKS' order), or one number for
+   *  both looks, or null. */
+  const diff = (
+    changed: (number | [number, number] | null)[],
+    a = 6,
+    b = 8,
+  ) => ({
     a: file(a),
     b: file(b),
-    changed,
+    changed: changed.map((c) =>
+      c === null ? null : typeof c === "number" ? [c, c] : c,
+    ),
   });
   it("is the same when every shared screen is under the threshold", () => {
     expect(comparePictures(diff([0, 0, 0]), shared, 4)).toEqual({
       same: true,
-      detail: "at most 0.0000% of the picture changed, over 3 of 4 screens",
+      detail:
+        "at most 0.0000% sharply and 0.0000% faintly of the picture changed, over 3 of 4 screens",
     });
   });
   it("names the step and time of the screen that changed", () => {
     const out = comparePictures(diff([0, 0.002, 0]), shared, 4);
     expect(out).toMatchObject({ same: false });
     expect((out as { detail: string }).detail).toMatch(
-      /% of the picture changed before step 2 at [\d.]+s, over the 0\.0008% allowed, of 3 of 4 screens/,
+      /% of the picture changed sharply before step 2 at [\d.]+s, over the 0\.0008% allowed, of 3 of 4 screens/,
     );
   });
   it("names the final screen", () => {
     const out = comparePictures(diff([0, 0, 0.01]), shared, 4);
     expect((out as { detail: string }).detail).toMatch(/on the final screen/);
+  });
+  // Each look has its own allowance: red if one threshold judges both.
+  it("judges each look against its own allowance", () => {
+    // Faintly over its 0.0170%, sharply nothing: changed.
+    const faint = comparePictures(diff([0, [0, 0.0002], 0]), shared, 4);
+    expect(faint).toMatchObject({ same: false });
+    expect((faint as { detail: string }).detail).toMatch(
+      /^0\.0200% of the picture changed faintly before step 2 at 2\.10s, over the 0\.0170% allowed/,
+    );
+    // Faintly 0.0100%: over sharply's 0.0008%, under its own 0.0170%.
+    expect(comparePictures(diff([0, [0, 0.0001], 0]), shared, 4)).toMatchObject(
+      { same: true },
+    );
+    // Sharply 0.0010%, over its 0.0008%: changed, though faintly is under.
+    expect(
+      comparePictures(diff([0, [0.00001, 0.00001], 0]), shared, 4),
+    ).toMatchObject({ same: false });
   });
   it("a screen past the end of a film is uncomparable, naming the film", () => {
     expect(comparePictures(diff([0, null, 0], 1.5, 8), shared, 4)).toEqual({
