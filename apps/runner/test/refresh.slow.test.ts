@@ -106,7 +106,9 @@ const RESTYLES = [
     rule: "nav a { display: block; padding: 8px 12px; border-radius: 6px; color: ",
     from: "#374151",
     to: "#6b7280",
-    where: /changed faintly before step \d+/,
+    // The nav is on every screen; which one reads most depends on the
+    // platform's fonts (Linux: the final screen, 2026-10-28).
+    where: /changed faintly (before step \d+|on the final screen)/,
   },
   {
     name: "the button blue to a green as light",
