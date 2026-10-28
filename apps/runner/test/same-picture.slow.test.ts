@@ -13,7 +13,7 @@ import { createLibrary, type Library } from "../src/executor/library.js";
 import { samePicture } from "../src/executor/same-picture.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { makeDiskTake, putTake } from "./disk-take.js";
-import { LOGO_SVG } from "./fixture.js";
+import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): the disk take
 // about 2 s, each export 2-4 s, each comparison 2-6 s. x5 for CI
@@ -42,6 +42,7 @@ async function exported(
       ...(aspect === undefined ? {} : { aspect }),
     },
     {
+      wallpapersDir: WALLPAPERS_DIR,
       library,
       videos: createVideoStore(home, library),
       session,

@@ -29,6 +29,7 @@ async function runWith(settings: string | null) {
       videos: {} as never,
       session: {} as never,
       home,
+      wallpapersDir: join(home, "wallpapers"),
       outDir: join(home, "out"),
       log: (l) => void logs.push(l),
       door: "studio",

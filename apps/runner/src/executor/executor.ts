@@ -448,6 +448,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     session,
     door: "agent",
     home,
+    wallpapersDir: options.wallpapersDir,
     outDir,
     log,
     ...(options.onWorkPage === undefined

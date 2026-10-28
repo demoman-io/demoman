@@ -10,6 +10,7 @@ import { exportTake } from "../src/executor/export.js";
 import { createLibrary } from "../src/executor/library.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { makeDiskTake, putTake } from "./disk-take.js";
+import { WALLPAPERS_DIR } from "./fixture.js";
 
 // Measured locally (2026-10-27): the disk take about 2 s, each export 2-4 s.
 // x5 for CI (fff4505) with margin.
@@ -25,6 +26,7 @@ async function exported(fileType: "mp4" | "gif", takeId: string) {
   const answer = await exportTake(
     { takeId, fileType, unlisted: true },
     {
+      wallpapersDir: WALLPAPERS_DIR,
       library,
       videos: createVideoStore(home, library),
       session,

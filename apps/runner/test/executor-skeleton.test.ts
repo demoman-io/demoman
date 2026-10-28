@@ -9,7 +9,7 @@ import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
 import { writeSkeleton } from "../src/executor/run.js";
 import type { LocalExecutor } from "../src/executor/types.js";
-import { ownVideo } from "./fixture.js";
+import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 
 // Measured as executor-export-zooms.test.ts measures its run (x5 for CI).
 const RUN_MS = 60_000;
@@ -36,6 +36,7 @@ beforeAll(async () => {
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   home = await mkdtemp(join(tmpdir(), "demoman-skeleton-"));
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir: join(home, "out"),

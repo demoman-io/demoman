@@ -97,6 +97,9 @@ export interface RenderedFile {
   /** Why the logo is missing from this file, when it is. Optional: rows
    *  stored before this field existed carry none. */
   logoWarning?: string;
+  /** Why the file shows the gradient instead of its wallpaper, or that the
+   *  image is too small for its deepest zoom (`RenderFacts`). */
+  wallpaperWarning?: string;
   /** Steps that got no still. See `StoredOutput.unplacedStills` for why this
    *  rides the row rather than a console. */
   unplacedStills?: UnplacedStill[];

@@ -46,6 +46,15 @@ let tracing = null;
 let exporting = false;
 const executor = createLocalExecutor({
   home,
+  wallpapersDir: join(
+    import.meta.dirname,
+    "..",
+    "..",
+    "studio",
+    "pages",
+    "public",
+    "wallpapers",
+  ),
   headless: true,
   outDir: join(home, "out"),
   log: (m) => say(typeof m === "string" ? m : JSON.stringify(m)),

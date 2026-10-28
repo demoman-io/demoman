@@ -40,6 +40,7 @@ import {
 import { execGit } from "../src/executor/repo.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { listenOnLoopback } from "../src/loopback.js";
+import { WALLPAPERS_DIR } from "./fixture.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): a refresh of both
 // videos (two runs, three exports, three comparisons) 13-21 s; of one video
@@ -254,6 +255,7 @@ const deps = (): RefreshDeps => ({
   videos: createVideoStore(home, createLibrary(home)),
   executor: (o) => {
     const e = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
       home: o.home,
       headless: true,
       standInDisplay: true,

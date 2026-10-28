@@ -97,4 +97,15 @@ describe("wallpaper sizing", () => {
     const huge: RenderTarget = { ...LANDSCAPE_4K, width: 7680, height: 4320 };
     expect(wallpaperRasterSize(huge)).toEqual({ width: 9600, height: 7200 });
   });
+
+  it("sizes an upload from its own size and aspect", () => {
+    // A square: the 16:9 cover is width-bound, 0.2 × 2.5 of it.
+    expect(
+      wallpaperRasterSize(LANDSCAPE_1080P, { width: 9600, height: 9600 }),
+    ).toEqual({ width: 4800, height: 4800 });
+    // Smaller than the cover needs: never upscaled.
+    expect(
+      wallpaperRasterSize(LANDSCAPE_1080P, { width: 640, height: 480 }),
+    ).toEqual({ width: 640, height: 480 });
+  });
 });

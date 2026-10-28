@@ -28,25 +28,32 @@ export function wallpaperShape(target: RenderTarget): "landscape" | "portrait" {
   return target.height > target.width ? "portrait" : "landscape";
 }
 
+/** The built-in master `target` draws from. */
+function masterFor(target: RenderTarget): { width: number; height: number } {
+  return wallpaperShape(target) === "portrait"
+    ? { width: WALLPAPER_SHORT_SIDE, height: WALLPAPER_LONG_SIDE }
+    : { width: WALLPAPER_LONG_SIDE, height: WALLPAPER_SHORT_SIDE };
+}
+
 /**
- * The size to decode a built-in master to for `target`: the master scaled
- * to cover the target, times the deepest zoom, never above the master.
+ * The size to decode an image to for `target`: the image scaled to cover
+ * the target, times the deepest zoom, never above the image. `image` is the
+ * built-in master unless given (an upload keeps its own size and aspect).
  */
-export function wallpaperRasterSize(target: RenderTarget): {
+export function wallpaperRasterSize(
+  target: RenderTarget,
+  image: { width: number; height: number } = masterFor(target),
+): {
   width: number;
   height: number;
 } {
-  const master =
-    wallpaperShape(target) === "portrait"
-      ? { width: WALLPAPER_SHORT_SIDE, height: WALLPAPER_LONG_SIDE }
-      : { width: WALLPAPER_LONG_SIDE, height: WALLPAPER_SHORT_SIDE };
   const cover = Math.max(
-    target.width / master.width,
-    target.height / master.height,
+    target.width / image.width,
+    target.height / image.height,
   );
   const scale = Math.min(1, cover * CAMERA_DEFAULTS.maxScale);
   return {
-    width: Math.ceil(master.width * scale),
-    height: Math.ceil(master.height * scale),
+    width: Math.ceil(image.width * scale),
+    height: Math.ceil(image.height * scale),
   };
 }

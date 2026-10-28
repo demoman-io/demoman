@@ -17,7 +17,7 @@ import { ensureVideos, JOIN_GRACE_MS } from "../src/executor/migrate-videos.js";
 import { refilmFromLibrary } from "../src/executor/refilm.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { createVideoStore } from "../src/executor/videos.js";
-import { videoOfTake } from "./fixture.js";
+import { videoOfTake, WALLPAPERS_DIR } from "./fixture.js";
 
 let home: string;
 let executor: LocalExecutor;
@@ -26,6 +26,7 @@ const scene = readonlyScene();
 beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "demoman-refilm-door-"));
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir: join(home, "out"),

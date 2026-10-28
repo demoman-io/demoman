@@ -68,6 +68,15 @@ const home = mkdtempSync(join(tmpdir(), "export-variants-home-"));
 let lastTiming = null;
 const executor = createLocalExecutor({
   home,
+  wallpapersDir: join(
+    import.meta.dirname,
+    "..",
+    "..",
+    "studio",
+    "pages",
+    "public",
+    "wallpapers",
+  ),
   headless: true,
   outDir: join(home, "out"),
   log: (m) => {

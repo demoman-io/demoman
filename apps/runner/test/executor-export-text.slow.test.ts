@@ -15,6 +15,7 @@ import {
   makeDiskTake,
   putTake,
 } from "./disk-take.js";
+import { WALLPAPERS_DIR } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 // Text overlays left with schema 12 (spec 2026-10-22 split-tool): the
@@ -52,6 +53,7 @@ let takeId: string;
 beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "demoman-retext-"));
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir: join(home, "out"),

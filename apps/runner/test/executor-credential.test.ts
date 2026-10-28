@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import type { LocalExecutor } from "../src/executor/types.js";
-import { ownVideo, videoOfTake } from "./fixture.js";
+import { ownVideo, videoOfTake, WALLPAPERS_DIR } from "./fixture.js";
 import { type LoginApp, serveLoginApp } from "./login-app.js";
 
 const SECRET = "Zq-demo-passw0rd-7781";
@@ -19,6 +19,7 @@ beforeAll(async () => {
   app = await serveLoginApp();
   home = await mkdtemp(join(tmpdir(), "demoman-credential-"));
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     log: () => undefined,

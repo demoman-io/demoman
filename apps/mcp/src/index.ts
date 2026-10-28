@@ -13,6 +13,7 @@
 // First, before anything that could print: console.log/info/debug to stderr.
 import "./stdout-guard.js";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createLocalExecutor, fullChromiumPath } from "@demoman/runner/package";
 import { browserFlagRefusal } from "./browser-flag.js";
@@ -72,6 +73,10 @@ await serveCli({
   recipe,
   version: SERVER_VERSION,
   headless: browserMode.headless,
+  // A development build runs from the repo: the studio pages' own copy.
+  wallpapersDir: fileURLToPath(
+    new URL("../../studio/pages/public/wallpapers", import.meta.url),
+  ),
   // The Chromium the published package launches (apps/cli): headless would
   // otherwise get Playwright's software-drawn shell.
   executablePath: fullChromiumPath(),

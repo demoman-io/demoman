@@ -6,7 +6,7 @@ import type { ExportAnswer } from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import type { LocalExecutor } from "../src/executor/types.js";
-import { makeFixtureTake, serveFixtureApp } from "./fixture.js";
+import { makeFixtureTake, serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 /**
@@ -34,6 +34,7 @@ beforeAll(async () => {
   app = await serveFixtureApp();
   home = await mkdtemp(join(tmpdir(), "demoman-export-4k-"));
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir: join(home, "out"),

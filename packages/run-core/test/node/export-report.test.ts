@@ -1016,6 +1016,48 @@ describe("file types", () => {
       "Saved 1 still in /o/S (2560×1440), but the logo is missing (The logo was left out: x).",
     );
   });
+
+  // Report before you forgive. Red if the answer or the sentence drops it.
+  it("says the wallpaper was left out, on the answer and in the sentence", () => {
+    const said =
+      "The wallpaper was left out: /h/assets/gone.webp could not be read (ENOENT); the video uses the plain gradient.";
+    const report = reportForSave({
+      screens: NO_SCREENS,
+      fileType: "mp4",
+      takeId: "t1",
+      file: { ...FILE, wallpaperWarning: said },
+      saved: {
+        kind: "saved",
+        downloadId: null,
+        savedAs: "a.mp4",
+        path: "/x/a.mp4",
+      },
+      aspect: "16:9",
+      target: TARGET,
+    });
+    expect(report).toMatchObject({ warnings: { wallpaperWarning: said } });
+    expect(exportVerdict(report)).toBe(
+      "Saved /x/a.mp4 (1920×1080, 60 fps), but the wallpaper was left out: /h/assets/gone.webp could not be read (ENOENT); the video uses the plain gradient.",
+    );
+    const stills = reportForStillsSave({
+      takeId: "t",
+      aspect: "16:9",
+      target: stillsTarget,
+      facts: { ...facts, wallpaperWarning: said },
+      saved: { kind: "saved", path: "/o/S", files: [] },
+    });
+    expect(stills).toMatchObject({ warnings: { wallpaperWarning: said } });
+    // Absent when there is nothing to say.
+    expect(
+      reportForSave({
+        ...{ screens: NO_SCREENS, fileType: "mp4" as const, takeId: "t1" },
+        file: FILE,
+        saved: { kind: "saved", downloadId: null, savedAs: "a", path: "/a" },
+        aspect: "16:9",
+        target: TARGET,
+      }),
+    ).not.toHaveProperty("warnings.wallpaperWarning");
+  });
 });
 
 describe("a GIF kept under its byte budget, in the summary", () => {

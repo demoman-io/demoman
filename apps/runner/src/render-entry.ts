@@ -32,8 +32,10 @@ import {
   type LogoLoad,
   type RenderFacts,
   renderOutput,
+  type WallpaperLoad,
   wholePercent,
 } from "@demoman/run-core/render";
+import { decodeWallpaper } from "@demoman/run-core/wallpaper";
 import type { SceneDocument } from "@demoman/scene-schema";
 import {
   RENDER_ENTRY_GLOBAL,
@@ -54,6 +56,12 @@ export interface RenderManifest {
   fileType: FileType;
   /** The logo's bytes as node read them, or null for no logo. */
   logo: { base64: string; contentType: string } | null;
+  /** The wallpaper's bytes as node read them, or why node could not; null
+   *  for a solid or gradient background. */
+  wallpaper:
+    | { base64: string; contentType: string; name: string }
+    | { error: string }
+    | null;
   /** GIF only: how many bytes the GIF may grow to before a narrower width
    *  is tried (`renderOutput`'s `gifBudget`). Absent: the target's width. */
   gifBudget?: { maxBytes: number };
@@ -171,6 +179,24 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
       logo = { ok: false, error: messageOf(error) };
     }
   }
+  // Decoration too: decoded at its own size here, and rasterised per
+  // output by `renderOutput`; one that will not decode is its
+  // wallpaperWarning, and the frame shows the gradient.
+  let wallpaper: WallpaperLoad | null = null;
+  const sent = manifest.wallpaper;
+  if (sent !== null && "error" in sent) {
+    wallpaper = { ok: false, error: sent.error };
+  } else if (sent !== null) {
+    try {
+      wallpaper = {
+        ok: true,
+        name: sent.name,
+        image: await decodeWallpaper(bytesOf(sent.base64), sent.contentType),
+      };
+    } catch (error) {
+      wallpaper = { ok: false, error: `${sent.name}: ${messageOf(error)}` };
+    }
+  }
   const report = (globalThis as unknown as Record<string, unknown>)[
     RENDER_PROGRESS_BINDING
   ] as
@@ -211,6 +237,7 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
     bundle,
     frames,
     logo,
+    wallpaper,
     ...(manifest.gifBudget === undefined
       ? {}
       : { gifBudget: manifest.gifBudget }),

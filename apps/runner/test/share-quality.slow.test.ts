@@ -25,7 +25,7 @@ import type { LocalExecutor } from "../src/executor/types.js";
 import type { RunnerStore } from "../src/frame-store.js";
 import { launch } from "../src/launch.js";
 import { renderToFiles } from "../src/render.js";
-import { makeFixtureTake, serveFixtureApp } from "./fixture.js";
+import { makeFixtureTake, serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
 import { readMp4Crops } from "./mp4-probe.js";
 
 /**
@@ -222,6 +222,7 @@ async function render(
   const launched = await launch();
   try {
     const rendered = await renderToFiles({
+      wallpaper: null,
       scene,
       bundle,
       store,
@@ -300,6 +301,7 @@ beforeAll(async () => {
   app = await serveFixtureApp();
   home = await mkdtemp(join(tmpdir(), "demoman-share-quality-"));
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir: join(home, "out"),

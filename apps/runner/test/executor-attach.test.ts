@@ -31,6 +31,7 @@ import { createLocalExecutor } from "../src/executor/executor.js";
 import { defaultGhRun, type GhRun } from "../src/executor/gh.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { makeDiskTake } from "./disk-take.js";
+import { WALLPAPERS_DIR } from "./fixture.js";
 
 // Measured locally (2026-10-18, M-series Mac, headless): an attach of the
 // disk take at TINY is about 2 s, most of it the render. x5 for CI (fff4505)
@@ -133,6 +134,7 @@ beforeAll(async () => {
   );
   await chmod(join(bin, "gh"), 0o755);
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir,

@@ -408,6 +408,9 @@ export const runPipeline: RunPipeline = async (input) => {
       if (renderedFile.logoWarning !== null) {
         report(`demoman: ${renderedFile.logoWarning}`);
       }
+      if (renderedFile.wallpaperWarning !== null) {
+        report(`demoman: ${renderedFile.wallpaperWarning}`);
+      }
     } catch (error) {
       // Whole-branch review finding 2: design §5's exit-5 render row was
       // unreachable, because every genuine render failure — a sink error, a

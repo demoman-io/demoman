@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import type { LocalExecutor } from "../src/executor/types.js";
-import { ownVideo, videoOfTake } from "./fixture.js";
+import { ownVideo, videoOfTake, WALLPAPERS_DIR } from "./fixture.js";
 import {
   type LoginApp,
   SESSION_COOKIE,
@@ -26,6 +26,7 @@ beforeEach(async () => {
   if (home !== undefined) await rm(home, { recursive: true, force: true });
   home = await mkdtemp(join(tmpdir(), "demoman-signed-out-"));
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     log: () => undefined,

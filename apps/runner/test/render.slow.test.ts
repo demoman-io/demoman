@@ -196,6 +196,45 @@ describe("renderPhase stamps COMPOSITOR_VERSION before rendering", () => {
   });
 });
 
+describe("renderPhase on a wallpaper", () => {
+  // `demoman render` has no wallpapers folder: a scene on one is told so in
+  // the page's warning (and pipeline.ts's report line), never drawn on the
+  // gradient without a word. Red if renderPhase passes no wallpaper.
+  it("hands the page the reason it has no wallpaper", async () => {
+    const store = createFileFrameStore(tempDir("demoman-wallpaper-phase-"));
+    const scene: SceneDocument = {
+      ...readonlyScene(),
+      branding: {
+        ...readonlyScene().branding,
+        background: { kind: "wallpaper", id: "vivid-1" },
+      },
+    };
+    const bundle = await keyframeOnlyBundle(store, scene);
+    let sent: unknown;
+    const fakePage = {
+      goto: async () => undefined,
+      addScriptTag: async () => undefined,
+      evaluate: async (_fn: unknown, args: unknown) => {
+        sent = (args as [string, { wallpaper: unknown }])[1].wallpaper;
+        throw new Error("fake page");
+      },
+    } as unknown as Page;
+    await expect(
+      renderPhase({
+        scene,
+        bundle,
+        store,
+        page: fakePage,
+        outPath: join(tempDir("demoman-wallpaper-phase-out-"), "demo.mp4"),
+      }),
+    ).rejects.toThrow();
+    expect(sent).toEqual({
+      error:
+        'demoman render reads no wallpaper files (the scene names "vivid-1"); export through demoman-mcp for a wallpaper',
+    });
+  });
+});
+
 describe("renderPhase", () => {
   // Real Chromium, one landscape mp4, decoded back through the test-only
   // probe. `readonlyScene()`'s last action lands at 9000ms and this
@@ -424,6 +463,7 @@ describe("renderToFiles", () => {
       const target = targetFor("mp4", "16:9", bundle, frameOf(scene));
       const page = await blankPage();
       const drawn = await renderToFiles({
+        wallpaper: null,
         scene,
         bundle,
         store,
@@ -435,6 +475,7 @@ describe("renderToFiles", () => {
       expect(drawn.logoWarning).toBeNull();
       const withIt = await sampleMp4(first(drawn).bytes, { colors: [MAGENTA] });
       const plain = await renderToFiles({
+        wallpaper: null,
         scene,
         bundle,
         store,
@@ -470,6 +511,7 @@ describe("renderToFiles", () => {
       const bundle = await keyframeOnlyBundle(store, scene);
       const target = targetFor("mp4", "16:9", bundle, frameOf(scene));
       const out = await renderToFiles({
+        wallpaper: null,
         scene,
         bundle,
         store,
@@ -496,6 +538,7 @@ describe("renderToFiles", () => {
       const bundle = await keyframeOnlyBundle(store, scene);
       const target = targetFor("mp4", "16:9", bundle, frameOf(scene));
       const out = await renderToFiles({
+        wallpaper: null,
         scene,
         bundle,
         store,
@@ -521,6 +564,7 @@ describe("renderToFiles", () => {
       const bundle = await keyframeOnlyBundle(store, scene);
       const seen: [number, number][] = [];
       await renderToFiles({
+        wallpaper: null,
         scene,
         bundle,
         store,
@@ -546,6 +590,7 @@ describe("renderToFiles", () => {
       const bundle = await keyframeOnlyBundle(store, scene);
       const target = targetFor("gif", "16:9", bundle, frameOf(scene));
       const rendered = await renderToFiles({
+        wallpaper: null,
         scene,
         bundle,
         store,
@@ -575,6 +620,7 @@ describe("renderToFiles", () => {
       const bundle = await keyframeOnlyBundle(store, scene);
       const target = targetFor("stills", "16:9", bundle, frameOf(scene));
       const rendered = await renderToFiles({
+        wallpaper: null,
         scene,
         bundle,
         store,

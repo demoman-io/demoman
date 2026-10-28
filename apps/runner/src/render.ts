@@ -225,6 +225,12 @@ export type LogoInput =
   | { ok: true; bytes: Uint8Array; contentType: string }
   | { ok: false; error: string };
 
+/** A wallpaper or uploaded image as node read it (`readWallpaper`): its
+ *  bytes and the id or path the warnings name it by, or why it is not. */
+export type WallpaperInput =
+  | { ok: true; bytes: Uint8Array; contentType: string; name: string }
+  | { ok: false; error: string };
+
 export interface Rendered {
   /** One file, `name: null`, for mp4 and gif; a named file per still. */
   files: { name: string | null; bytes: Buffer }[];
@@ -236,6 +242,8 @@ export interface Rendered {
   unplacedStills: UnplacedStill[];
   /** "The logo was left out: …", or null when there was none to leave. */
   logoWarning: string | null;
+  /** The wallpaper left out or too small (`RenderFacts`), or null. */
+  wallpaperWarning: string | null;
   /** What the plan clamped. */
   clampedRanges: ClampedRange[];
   /** The size the file was rendered at: the target, or wider for a GIF
@@ -268,6 +276,9 @@ export async function renderToFiles(input: {
   target: RenderTarget;
   fileType: FileType;
   logo: LogoInput | null;
+  /** The scene's wallpaper or image; null for a solid or gradient. Never a
+   *  reason to throw: one that cannot be had is `wallpaperWarning`. */
+  wallpaper: WallpaperInput | null;
   /** See `renderOutput`'s `onFrame`: a budgeted GIF and a capped MP4 add
    *  their width, and a capped MP4 which render it is. */
   onFrame?: (
@@ -293,6 +304,7 @@ export async function renderToFiles(input: {
     target,
     fileType,
     logo,
+    wallpaper,
     onFrame,
     gifBudget,
     mp4Cap,
@@ -344,6 +356,19 @@ export async function renderToFiles(input: {
               contentType: logo.contentType,
             }
           : null,
+      // As base64 beside the logo: measured 2026-10-28, a 9600x7200 master
+      // (1.1 MB, 1.5 MB as base64) crosses `page.evaluate` in 15-20 ms,
+      // far under the 2 s that would call for serving it instead.
+      wallpaper:
+        wallpaper === null
+          ? null
+          : wallpaper.ok
+            ? {
+                base64: Buffer.from(wallpaper.bytes).toString("base64"),
+                contentType: wallpaper.contentType,
+                name: wallpaper.name,
+              }
+            : { error: wallpaper.error },
       ...(gifBudget === undefined ? {} : { gifBudget }),
       ...(mp4Cap === undefined ? {} : { mp4Cap }),
       ...(stills === undefined ? {} : { stills }),
@@ -374,6 +399,7 @@ export async function renderToFiles(input: {
         logo !== null && !logo.ok
           ? `The logo was left out: ${logo.error}`
           : facts.logoWarning,
+      wallpaperWarning: facts.wallpaperWarning,
       clampedRanges: facts.clampedRanges,
       rendered: facts.rendered,
       ...(facts.gifBudget === undefined ? {} : { gifBudget: facts.gifBudget }),
@@ -386,6 +412,15 @@ export async function renderToFiles(input: {
   } finally {
     server.close();
   }
+}
+
+function renderPhaseWallpaper(scene: SceneDocument): WallpaperInput | null {
+  const bg = scene.branding.background;
+  if (bg.kind !== "wallpaper" && bg.kind !== "image") return null;
+  return {
+    ok: false,
+    error: `demoman render reads no wallpaper files (the scene names "${bg.kind === "wallpaper" ? bg.id : bg.ref}"); export through demoman-mcp for a wallpaper`,
+  };
 }
 
 /** `demoman render`'s phase: the scene's own aspect through `targetFor`, then
@@ -415,6 +450,8 @@ export async function renderPhase(input: {
             ok: false,
             error: `demoman render reads no logo files (the scene names "${scene.branding.logo.ref}"); export through demoman-mcp --browser cli for a logo`,
           },
+    // Nor wallpaper files, said the same way.
+    wallpaper: renderPhaseWallpaper(scene),
   });
   // Every byte is already back in node: a render that threw above never
   // touched the filesystem, so `outPath` is written whole or not at all.

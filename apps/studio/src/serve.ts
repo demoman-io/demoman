@@ -348,6 +348,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
         videos: createVideoStore(home, library, { log }),
         session: renderer,
         home,
+        wallpapersDir: join(o.pagesDir, "wallpapers"),
         outDir: o.outDir,
         log,
         door: "studio",

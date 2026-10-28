@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { FrameBundle, RenderTarget } from "@demoman/compositor";
+import {
+  type FrameBundle,
+  type RenderTarget,
+  wallpaperShape,
+} from "@demoman/compositor";
 import {
   contentTypeFor,
   DEFAULT_EXPORT_QUALITY,
@@ -41,6 +45,7 @@ import { readLogo } from "./logo-ref.js";
 import { checkExportFolder, saveExport, saveStillsFolder } from "./save.js";
 import { readUserSettings } from "./user-settings.js";
 import type { VideoStore } from "./videos.js";
+import { readWallpaper } from "./wallpaper-read.js";
 
 export interface ExportDeps {
   library: Library;
@@ -50,6 +55,9 @@ export interface ExportDeps {
   /** The lease's job id; a fresh one when absent. */
   jobId?: string;
   home: string;
+  /** The built-in wallpapers' folder (`<id>-<shape>.webp`): the CLI's
+   *  `dist/studio/wallpapers`, the studio's `<pagesDir>/wallpapers`. */
+  wallpapersDir: string;
   outDir: string;
   log: (line: string) => void;
   /** Tests only: sees the work page, so a case can close it mid-render. */
@@ -407,6 +415,12 @@ async function exportLeased(a: {
     scene.branding.logo === null
       ? null
       : await readLogo(deps.home, scene.branding.logo.ref);
+  const wallpaper = await readWallpaper(
+    deps.home,
+    deps.wallpapersDir,
+    scene.branding.background,
+    wallpaperShape(target),
+  );
   const madeFrom = bundle.madeFrom ?? null;
   // Every step scene.json changed since filming: the video shows each as
   // filmed, so the caller is told (re-film §3).
@@ -454,6 +468,7 @@ async function exportLeased(a: {
       target,
       fileType: asked,
       logo,
+      wallpaper,
       // As wide as fits: sharp on a Retina screen when the take is short,
       // narrower (and said) when it is long.
       ...(asked === "gif" ? { gifBudget: { maxBytes: GIF_BUDGET_BYTES } } : {}),
@@ -552,6 +567,7 @@ async function exportLeased(a: {
         target: rendered.rendered,
         facts: {
           logoWarning: rendered.logoWarning,
+          wallpaperWarning: rendered.wallpaperWarning,
           unavailableSpans: rendered.unavailableSpans,
           detailViolations: rendered.detailViolations,
           unplacedStills: rendered.unplacedStills,
@@ -601,6 +617,9 @@ async function exportLeased(a: {
         ...(rendered.logoWarning === null
           ? {}
           : { logoWarning: rendered.logoWarning }),
+        ...(rendered.wallpaperWarning === null
+          ? {}
+          : { wallpaperWarning: rendered.wallpaperWarning }),
       },
       saved,
       aspect,

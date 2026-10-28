@@ -31,7 +31,7 @@ import { execGit, readRepo } from "../src/executor/repo.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import { createVideoStore, type VideoStore } from "../src/executor/videos.js";
 import { makeDiskTake, putTake } from "./disk-take.js";
-import { LOGO_SVG } from "./fixture.js";
+import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): the disk take
@@ -60,6 +60,7 @@ const deps = (): KeepDeps => ({
   git: execGit,
   log: (l) => void lines.push(l),
   export: {
+    wallpapersDir: WALLPAPERS_DIR,
     library,
     videos,
     session,

@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import type { LocalExecutor } from "../src/executor/types.js";
-import { ownVideo } from "./fixture.js";
+import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 import { boundTo, type LoginApp, serveLoginApp } from "./login-app.js";
 
 export const PASSWORD = "correct-horse-battery";
@@ -44,6 +44,7 @@ beforeAll(async () => {
 
 export const makeExecutor = (over: { env?: NodeJS.ProcessEnv } = {}) =>
   createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     log: (line) => logs.push(line),

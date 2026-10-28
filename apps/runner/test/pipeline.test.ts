@@ -26,13 +26,15 @@ const launchMock = vi.fn();
 const replayPhaseMock = vi.fn();
 const muxSpansMock = vi.fn();
 const renderPhaseMock = vi.fn();
-/** What the real `renderPhase` resolves: the file's facts, no logo warning. */
+/** What the real `renderPhase` resolves: the file's facts, no logo or
+ *  wallpaper warning. */
 const RENDERED = {
   bytes: Buffer.alloc(0),
   detailViolations: [],
   unavailableSpans: [],
   loweredZooms: [],
   logoWarning: null,
+  wallpaperWarning: null,
 };
 const closeMock = vi.fn(async () => ({ crashed: false }));
 const cdpDetachMock = vi.fn(async () => undefined);
@@ -731,6 +733,42 @@ describe("runPipeline", () => {
     });
     expect(clean.kind).toBe("rendered");
     expect(notesText(clean)).not.toContain("logo");
+  });
+
+  // As the logo: `demoman render` reads no wallpaper files, and says so.
+  // Red if pipeline.ts stops printing `wallpaperWarning`.
+  it("says on the notes why the file has no wallpaper, and only then", async () => {
+    const { runPipeline } = await import("../src/pipeline.js");
+    const WARNING =
+      "The wallpaper was left out: demoman render reads no wallpaper files; the video uses the plain gradient.";
+    replayPhaseMock.mockResolvedValue({
+      result: bareReplayResult({
+        outcome: "complete",
+        completed: 4,
+        total: 4,
+        bundle: bundleWith(),
+      }),
+      spans: [],
+      navigationError: null,
+    });
+    muxSpansMock.mockResolvedValue({ muxed: [], shortfall: 0 });
+    renderPhaseMock.mockResolvedValueOnce({
+      ...RENDERED,
+      wallpaperWarning: WARNING,
+    });
+    const warned = await runPipeline({
+      scene: SCENE,
+      targetUrl: TARGET_URL,
+      outPath: OUT_PATH,
+    });
+    expect(notesText(warned)).toContain(WARNING);
+    renderPhaseMock.mockResolvedValueOnce(RENDERED);
+    const clean = await runPipeline({
+      scene: SCENE,
+      targetUrl: TARGET_URL,
+      outPath: OUT_PATH,
+    });
+    expect(notesText(clean)).not.toContain("wallpaper");
   });
 
   it("says the browser crashed, on the notes, when close() reports it did not shut down cleanly", async () => {

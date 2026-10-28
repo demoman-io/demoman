@@ -55,6 +55,10 @@ const pagesAlias = [
     replacement: `${src("run-core")}/logo.ts`,
   },
   {
+    find: "@demoman/run-core/wallpaper",
+    replacement: `${src("run-core")}/wallpaper.ts`,
+  },
+  {
     find: "@demoman/run-core/page",
     replacement: `${src("run-core")}/page.ts`,
   },

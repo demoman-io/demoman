@@ -149,6 +149,7 @@ export async function renderSmallFilm(
             alternating.ms,
           );
     const rendered = await renderToFiles({
+      wallpaper: null,
       scene,
       bundle,
       store,
