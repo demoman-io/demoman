@@ -87,6 +87,21 @@ describe("readWallpaper", () => {
     );
   });
 
+  // An SVG is rasterised where it enters; none reaches the render.
+  it("refuses a vector by its extension, naming the path", async () => {
+    const h = await home();
+    const read = await readWallpaper(
+      h,
+      WALLPAPERS_DIR,
+      { kind: "image", ref: "assets/mark.svg" },
+      "landscape",
+    );
+    expect(read).toEqual({
+      ok: false,
+      error: `${join(h, "assets", "mark.svg")} is not a PNG, WebP or JPEG file (by its extension)`,
+    });
+  });
+
   it("answers null for a solid or gradient background", async () => {
     const h = await home();
     expect(

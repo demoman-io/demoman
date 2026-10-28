@@ -754,7 +754,7 @@ describe("runPipeline", () => {
     muxSpansMock.mockResolvedValue({ muxed: [], shortfall: 0 });
     renderPhaseMock.mockResolvedValueOnce({
       ...RENDERED,
-      wallpaperWarning: WARNING,
+      wallpaperWarning: { kind: "leftOut", sentence: WARNING },
     });
     const warned = await runPipeline({
       scene: SCENE,

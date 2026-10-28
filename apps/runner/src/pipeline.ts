@@ -409,7 +409,7 @@ export const runPipeline: RunPipeline = async (input) => {
         report(`demoman: ${renderedFile.logoWarning}`);
       }
       if (renderedFile.wallpaperWarning !== null) {
-        report(`demoman: ${renderedFile.wallpaperWarning}`);
+        report(`demoman: ${renderedFile.wallpaperWarning.sentence}`);
       }
     } catch (error) {
       // Whole-branch review finding 2: design §5's exit-5 render row was

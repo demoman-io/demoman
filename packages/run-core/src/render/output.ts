@@ -36,6 +36,7 @@ import {
   type FileType,
   MAX_STILL_SIDE,
   type StillsOptions,
+  type WallpaperWarning,
 } from "../export/target.js";
 import type { LogoSource } from "../logo.js";
 import { MAX_CAP_STEPS, nextCapStep } from "./mp4-cap.js";
@@ -128,7 +129,7 @@ export interface RenderFacts {
   logoWarning: string | null;
   /** Why the file shows the gradient instead of the scene's wallpaper, or
    *  that the image is too small for the deepest zoom; null when neither. */
-  wallpaperWarning: string | null;
+  wallpaperWarning: WallpaperWarning | null;
   clampedRanges: ClampedRange[];
   /** The size the file was rendered at. The target, except for a GIF with
    *  a budget, which may render wider (`gifBudget`), and an MP4 with a
@@ -321,7 +322,17 @@ export async function renderOutput(input: {
     at: RenderTarget,
   ): Promise<{ image: FrameImage | null; failed: string | null }> => {
     const load = input.wallpaper;
-    if (load === null) return { image: null, failed: null };
+    const kind = scene.branding.background.kind;
+    // A scene on an image with none handed in is one left out, not a
+    // scene with nothing to draw.
+    if (load === null)
+      return {
+        image: null,
+        failed:
+          kind === "wallpaper" || kind === "image"
+            ? "no wallpaper was supplied to the render"
+            : null,
+      };
     if (!load.ok) return { image: null, failed: load.error };
     const size = wallpaperRasterSize(at, load.image);
     if (size.width >= load.image.width)
@@ -356,9 +367,12 @@ export async function renderOutput(input: {
     at: RenderTarget,
     deepestScale: number,
     failed: string | null,
-  ): string | null => {
+  ): WallpaperWarning | null => {
     if (failed !== null) {
-      return `The wallpaper was left out: ${failed}; the video uses the plain gradient.`;
+      return {
+        kind: "leftOut",
+        sentence: `The wallpaper was left out: ${failed}; the ${fileType === "stills" ? "stills use" : "video uses"} the plain gradient.`,
+      };
     }
     const load = input.wallpaper;
     if (load === null || !load.ok) return null;
@@ -370,7 +384,10 @@ export async function renderOutput(input: {
       height: Math.round(height * scale),
     };
     return needs.width > width
-      ? `The wallpaper "${load.name}" is ${width}×${height}, smaller than this export's deepest zoom needs (${needs.width}×${needs.height}), so it will look soft.`
+      ? {
+          kind: "soft",
+          sentence: `The wallpaper "${load.name}" is ${width}×${height}, smaller than this export's deepest zoom needs (${needs.width}×${needs.height}), so it will look soft.`,
+        }
       : null;
   };
   /** A raster made for one output, freed once that output is rendered. */

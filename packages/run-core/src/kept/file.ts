@@ -42,6 +42,10 @@ export interface KeptVideo {
   script: DemoScript;
   scale: number;
   logo: string | null;
+  /** An uploaded image background's repo path, copied in by keep as the
+   *  logo is; null for a built-in, a colour, or a file kept before
+   *  wallpapers (the key is absent there). */
+  wallpaper: string | null;
   outputs: KeptOutput[];
   screens: KeptScreens;
   report: string | null;
@@ -91,6 +95,9 @@ export function parseKept(text: string, file: string): Parsed {
     return bad("scale must be a positive number");
   if (raw.logo !== null && !repoRelative(raw.logo))
     return bad("logo must be null or a repo-relative path without ..");
+  const wallpaper = raw.wallpaper ?? null;
+  if (wallpaper !== null && !repoRelative(wallpaper))
+    return bad("wallpaper must be null or a repo-relative path without ..");
   if (raw.report !== null && !repoRelative(raw.report))
     return bad("report must be null or a repo-relative path without ..");
   if (!Array.isArray(raw.outputs) || raw.outputs.length === 0)
@@ -166,6 +173,7 @@ export function parseKept(text: string, file: string): Parsed {
       script: script.data,
       scale: raw.scale,
       logo: raw.logo,
+      wallpaper,
       outputs,
       screens: { steps: sc.steps as number, moments },
       report: raw.report,
@@ -190,6 +198,8 @@ export function serializeKept(k: KeptVideo): string {
     script: k.script,
     scale: k.scale,
     logo: k.logo,
+    // Only when there is one: a file kept before wallpapers reads the same.
+    ...(k.wallpaper === null ? {} : { wallpaper: k.wallpaper }),
     outputs: k.outputs.map((o) => ({
       path: o.path,
       fileType: o.fileType,

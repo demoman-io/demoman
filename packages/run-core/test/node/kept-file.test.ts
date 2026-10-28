@@ -22,6 +22,7 @@ const kept: KeptVideo = {
   script,
   scale: 2,
   logo: null,
+  wallpaper: null,
   outputs: [
     {
       path: "docs/add-task.mp4",
@@ -58,6 +59,20 @@ describe("the kept file", () => {
     expect(text.endsWith("}\n")).toBe(true);
     expect(Object.keys(JSON.parse(text))[0]).toBe("keptVersion");
     expect(parseKept(text, "x.json")).toEqual({ ok: true, kept });
+  });
+
+  // A file kept before wallpapers has no key: it reads as none, and a
+  // file with none writes no key, so it stays byte for byte as it was.
+  it("reads an absent wallpaper as none, and round-trips one", () => {
+    expect(JSON.parse(serializeKept(kept))).not.toHaveProperty("wallpaper");
+    const own = { ...kept, wallpaper: ".demoman/videos/wallpapers/w.webp" };
+    expect(parseKept(serializeKept(own), "x.json")).toEqual({
+      ok: true,
+      kept: own,
+    });
+    expect(refusal(withChange({ wallpaper: "../w.webp" }))).toContain(
+      "wallpaper must be null or a repo-relative path",
+    );
   });
 
   it("refuses another keptVersion, naming it", () => {

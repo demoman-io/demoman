@@ -557,7 +557,8 @@ describe("a wallpaper the export cannot have", () => {
       );
       const { answer, bytes } = await exportOf(scene, WALLPAPERS_DIR);
       if (answer.outcome !== "saved") throw new Error("not saved");
-      expect(answer.warnings.wallpaperWarning).toMatch(
+      expect(answer.warnings.wallpaperWarning?.kind).toBe("leftOut");
+      expect(answer.warnings.wallpaperWarning?.sentence).toMatch(
         /^The wallpaper was left out: .*gone\.webp could not be read/,
       );
       expect(answer.summary).toContain("gone.webp");
@@ -634,7 +635,8 @@ describe("an upload smaller than the zoom needs", () => {
         WALLPAPERS_DIR,
       );
       if (answer.outcome !== "saved") throw new Error("not saved");
-      expect(answer.warnings.wallpaperWarning).toMatch(
+      expect(answer.warnings.wallpaperWarning?.kind).toBe("soft");
+      expect(answer.warnings.wallpaperWarning?.sentence).toMatch(
         /small\.webp" is 640×480, .*look soft\.$/,
       );
       expect(answer.summary).toContain("look soft");

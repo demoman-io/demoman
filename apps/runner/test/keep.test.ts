@@ -471,6 +471,116 @@ describe("keep refuses, writing nothing", () => {
   });
 });
 
+// The take's wallpaper, as keep reads it (ruling R13): an upload is copied
+// into the repo like the logo, so a refresh in CI films it; one that cannot
+// be had is refused, as a logo is; one that is only too small is kept.
+describe("keep and the take's wallpaper", () => {
+  const mp4 = (path: string) => ({
+    path,
+    fileType: "mp4" as const,
+    aspect: "16:9" as const,
+    quality: "share" as const,
+  });
+  /** A take of the clean frames on an uploaded image at `ref`. */
+  const onImage = async (takeId: string, name: string, ref: string) => {
+    const { scene } = await videoOf(takeId, name, (d) => ({
+      ...d,
+      branding: { ...d.branding, background: { kind: "image", ref } },
+    }));
+    await copyFrames(scene.meta.id);
+    return scene;
+  };
+
+  it(
+    "copies an uploaded image into the repo and names it in the script, though it is too small for the zoom",
+    async () => {
+      await mkdir(join(home, "assets"), { recursive: true });
+      const thumb = await readFile(join(WALLPAPERS_DIR, "vivid-1-thumb.webp"));
+      await writeFile(join(home, "assets", "thumb.webp"), thumb);
+      const scene = await onImage(
+        "scene-upload",
+        "On an upload",
+        "assets/thumb.webp",
+      );
+      // Premise: the 320x240 thumb is smaller than the export needs, so its
+      // export warns soft, not left out.
+      const outDir = await mkdtemp(join(tmpdir(), "demoman-keep-soft-"));
+      try {
+        const plain = await exportTake(
+          {
+            takeId: scene.meta.id,
+            fileType: "mp4",
+            aspect: "16:9",
+            quality: "share",
+            unlisted: true,
+          },
+          { ...deps().export, outDir },
+          () => undefined,
+        );
+        if (plain.outcome !== "saved") throw new Error(JSON.stringify(plain));
+        expect(plain.warnings.wallpaperWarning?.kind).toBe("soft");
+      } finally {
+        await rm(outDir, { recursive: true, force: true });
+      }
+      const out = await keepVideo(
+        { video: "On an upload", to: [mp4("docs/upload.mp4")], repoRoot: repo },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      const copy = ".demoman/videos/wallpapers/thumb.webp";
+      expect(out.kept.wallpaper).toBe(copy);
+      expect(out.kept.script.look?.branding?.background).toEqual({
+        kind: "image",
+        ref: copy,
+      });
+      expect((await readFile(join(repo, copy))).equals(thumb)).toBe(true);
+      expect(out.written).toContain(copy);
+    },
+    KEEP_MS,
+  );
+
+  // Red if keep stops reading the wallpaper before it renders: the export
+  // would leave it out, and the refusal would come after the render with
+  // the other detail.
+  it("refuses an upload that is gone, before rendering, naming the file", async () => {
+    await onImage("scene-gone", "On a gone upload", "assets/gone.webp");
+    const before = await repoFiles();
+    const out = await keepVideo(
+      { video: "On a gone upload", to: [mp4("docs/gone.mp4")], repoRoot: repo },
+      deps(),
+    );
+    expect(await repoFiles()).toEqual(before);
+    expect(out).toMatchObject({ ok: false, reason: "wallpaperUnreadable" });
+    if (out.ok) return;
+    expect(out.detail).toMatch(
+      /^the take's wallpaper: .*gone\.webp could not be read/,
+    );
+  });
+
+  // Red if keep keeps a video an export left on the gradient: the file is
+  // there to read, but will not decode.
+  it(
+    "refuses a video an export left on the gradient, naming the output",
+    async () => {
+      await mkdir(join(home, "assets"), { recursive: true });
+      await writeFile(join(home, "assets", "bad.webp"), "not an image");
+      await onImage("scene-bad", "On a bad upload", "assets/bad.webp");
+      const before = await repoFiles();
+      const out = await keepVideo(
+        { video: "On a bad upload", to: [mp4("docs/bad.mp4")], repoRoot: repo },
+        deps(),
+      );
+      expect(await repoFiles()).toEqual(before);
+      expect(out).toMatchObject({ ok: false, reason: "wallpaperUnreadable" });
+      if (out.ok) return;
+      expect(out.detail).toMatch(
+        /^docs\/bad\.mp4 was rendered without its wallpaper: The wallpaper was left out: .*bad\.webp/,
+      );
+    },
+    KEEP_MS,
+  );
+});
+
 // Kept apart from the cases above: a symlinked parent folder that does not
 // exist yet must still be resolved before the compare.
 describe("keep's repo check", () => {

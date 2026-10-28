@@ -5,7 +5,7 @@ import type { LogoInput } from "../render.js";
 import { messageOf } from "../report.js";
 
 /** The extension's four, by file extension (a path carries no MIME type). */
-export const IMAGE_TYPES: Record<string, string> = {
+const TYPES: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".webp": "image/webp",
@@ -28,7 +28,7 @@ export async function readLogo(home: string, ref: string): Promise<LogoInput> {
     };
   }
   const path = isAbsolute(ref) ? ref : join(home, ref);
-  const type = IMAGE_TYPES[extname(path).toLowerCase()];
+  const type = TYPES[extname(path).toLowerCase()];
   if (type === undefined) {
     return {
       ok: false,

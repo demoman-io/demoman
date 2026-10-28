@@ -26,6 +26,7 @@ const kept: KeptVideo = {
   } as KeptVideo["script"],
   scale: 1,
   logo: null,
+  wallpaper: null,
   outputs: [
     { path: "docs/o.mp4", fileType: "mp4", aspect: "16:9", quality: "share" },
   ],

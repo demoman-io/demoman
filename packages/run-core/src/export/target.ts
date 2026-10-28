@@ -84,6 +84,17 @@ export type RenderProgress =
   | { kind: "failed"; jobId: string; output: FileType; error: string }
   | { kind: "finished"; jobId: string };
 
+/**
+ * What an export says about its wallpaper, kept apart by what it costs:
+ * `leftOut` is a file on the gradient instead of the scene's image (keep
+ * and refresh refuse it, as a missing logo), `soft` is an image drawn but
+ * smaller than the deepest zoom needs. `sentence` is said as written.
+ */
+export interface WallpaperWarning {
+  kind: "leftOut" | "soft";
+  sentence: string;
+}
+
 export interface RenderedFile {
   ref: string;
   name: string;
@@ -99,7 +110,7 @@ export interface RenderedFile {
   logoWarning?: string;
   /** Why the file shows the gradient instead of its wallpaper, or that the
    *  image is too small for its deepest zoom (`RenderFacts`). */
-  wallpaperWarning?: string;
+  wallpaperWarning?: WallpaperWarning;
   /** Steps that got no still. See `StoredOutput.unplacedStills` for why this
    *  rides the row rather than a console. */
   unplacedStills?: UnplacedStill[];

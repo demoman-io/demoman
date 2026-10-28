@@ -53,6 +53,7 @@ import {
   type StillsOptions,
   targetFor,
   type VideoCap,
+  type WallpaperWarning,
 } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import type { Page } from "playwright";
@@ -243,7 +244,7 @@ export interface Rendered {
   /** "The logo was left out: …", or null when there was none to leave. */
   logoWarning: string | null;
   /** The wallpaper left out or too small (`RenderFacts`), or null. */
-  wallpaperWarning: string | null;
+  wallpaperWarning: WallpaperWarning | null;
   /** What the plan clamped. */
   clampedRanges: ClampedRange[];
   /** The size the file was rendered at: the target, or wider for a GIF

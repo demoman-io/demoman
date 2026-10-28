@@ -41,6 +41,7 @@ import { execGit } from "../src/executor/repo.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { listenOnLoopback } from "../src/loopback.js";
 import { WALLPAPERS_DIR } from "./fixture.js";
+import { sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): a refresh of both
 // videos (two runs, three exports, three comparisons) 13-21 s; of one video
@@ -230,6 +231,7 @@ function kept(
     } as KeptVideo["script"],
     scale,
     logo: null,
+    wallpaper: null,
     outputs,
     screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
     report: name === A ? "docs/order-report.json" : null,
@@ -242,8 +244,12 @@ const filmed: { name: string; display: string; scale: number | null }[] = [];
 /** Every run this file films: its name, and the gaps (source ms) between
  *  its consecutive step markers after the first. */
 const gaps: { name: string; gaps: number[]; settle: number }[] = [];
-/** Every saved export's screens, in order. */
-const exported: { fileType: string; screens: KeptScreens }[] = [];
+/** Every saved export's screens and wallpaper warning, in order. */
+const exported: {
+  fileType: string;
+  screens: KeptScreens;
+  wallpaper: "leftOut" | "soft" | null;
+}[] = [];
 /** The temp folders refresh makes, as they are in the system's temp now. */
 const refreshTemps = async () =>
   (await readdir(tmpdir())).filter((n) =>
@@ -307,8 +313,16 @@ const deps = (): RefreshDeps => ({
           });
         }
         if (op === "export" && answer.ok) {
-          const v = answer.value as { fileType: string; screens: KeptScreens };
-          exported.push({ fileType: v.fileType, screens: v.screens });
+          const v = answer.value as {
+            fileType: string;
+            screens: KeptScreens;
+            warnings: { wallpaperWarning?: { kind: "leftOut" | "soft" } };
+          };
+          exported.push({
+            fileType: v.fileType,
+            screens: v.screens,
+            wallpaper: v.warnings.wallpaperWarning?.kind ?? null,
+          });
           if (injectExport !== null)
             return {
               ok: true,
@@ -1087,6 +1101,141 @@ describe("refresh", () => {
       expect(r.videos[0]?.detail).toMatch(
         /^\.demoman\/videos\/broken\.json: script\./,
       );
+    },
+    ONE_MS,
+  );
+
+  // Ruling R13: keep copies an uploaded image into the repo and names it
+  // there (`kept.wallpaper`); a refresh in CI films it from that copy. A
+  // soft one (smaller than the zoom needs) is the picture the author kept.
+  // Red if refresh stops pointing the script at the repo's copy: the run
+  // would read the repo-relative ref from its own empty home, and the
+  // export would leave the image out.
+  it(
+    "films an uploaded image from its copy in the repo, soft or not",
+    async () => {
+      html = ORIGINAL;
+      const C = "On an upload";
+      const copy = `${KEPT_DIR}/wallpapers/green.webp`;
+      const green: [number, number, number] = [0, 160, 80];
+      const work = await session.openWorkPage();
+      if (!work.ok) throw new Error(work.detail);
+      let webp: Buffer;
+      try {
+        const base64 = await work.page.evaluate(async ([r, g, b]) => {
+          const canvas = new OffscreenCanvas(640, 480);
+          const ctx = canvas.getContext(
+            "2d",
+          ) as OffscreenCanvasRenderingContext2D;
+          ctx.fillStyle = `rgb(${r},${g},${b})`;
+          ctx.fillRect(0, 0, 640, 480);
+          const blob = await canvas.convertToBlob({ type: "image/webp" });
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          let binary = "";
+          for (const x of bytes) binary += String.fromCharCode(x);
+          return btoa(binary);
+        }, green);
+        webp = Buffer.from(base64, "base64");
+      } finally {
+        await work.page.close();
+      }
+      await mkdir(join(repo, KEPT_DIR, "wallpapers"), { recursive: true });
+      await writeFile(join(repo, copy), webp);
+      const base = kept(
+        C,
+        ["Place order"],
+        1,
+        [
+          {
+            path: "docs/upload.mp4",
+            fileType: "mp4",
+            aspect: "16:9",
+            quality: "share",
+          },
+        ],
+        0,
+        3500,
+      );
+      const video: KeptVideo = {
+        ...base,
+        wallpaper: copy,
+        script: {
+          ...base.script,
+          look: {
+            branding: {
+              background: { kind: "image", ref: copy },
+              logo: null,
+              padding: 0.15,
+            },
+          },
+        },
+      };
+      const before = exported.length;
+      try {
+        // The output is read before `withKept` removes it.
+        const { r, film } = await withKept(video, async () => {
+          const r = await refresh([C]);
+          return { r, film: await bytes("docs/upload.mp4").catch(() => null) };
+        });
+        const c = byName(r, C);
+        expect(c.outcome, JSON.stringify(r)).toBe("replaced");
+        // The premise: its export warned soft, and nothing else.
+        expect(exported.slice(before).map((e) => e.wallpaper)).toEqual([
+          "soft",
+        ]);
+        // The picture: the margin is the upload's green.
+        const [reading] = (
+          await sampleMp4(film ?? Buffer.alloc(0), {
+            colors: [],
+            blockPoints: [[0.03, 0.5]],
+          })
+        ).readings;
+        const block = reading?.blocks[0] ?? [0, 0, 0];
+        for (let i = 0; i < 3; i++)
+          expect(
+            Math.abs((block[i] as number) - (green[i] as number)),
+            JSON.stringify(block),
+          ).toBeLessThanOrEqual(12);
+      } finally {
+        await rm(join(repo, KEPT_DIR, "wallpapers"), {
+          recursive: true,
+          force: true,
+        });
+      }
+    },
+    ONE_MS,
+  );
+
+  // Ruling R13, as the logo: a video an export left on the gradient fails,
+  // and its committed files stay. Red if refresh reads only the logo.
+  it(
+    "fails a video an export left without its wallpaper, leaving its files",
+    async () => {
+      html = ORIGINAL;
+      const said =
+        "The wallpaper was left out: x could not be read; the video uses the plain gradient.";
+      const before = await Promise.all([out.aMp4, out.aGif].map(bytes));
+      injectExport = (v) => ({
+        ...v,
+        warnings: {
+          ...(v.warnings as object),
+          wallpaperWarning: { kind: "leftOut", sentence: said },
+        },
+      });
+      let r: RefreshResult;
+      try {
+        r = await refresh([A]);
+      } finally {
+        injectExport = null;
+      }
+      const a = byName(r, A);
+      expect(a.outcome, JSON.stringify(r)).toBe("failed");
+      expect(a.detail).toBe(
+        `${out.aMp4} was rendered without its wallpaper: ${said}`,
+      );
+      const after = await Promise.all([out.aMp4, out.aGif].map(bytes));
+      for (const [i, b] of after.entries())
+        expect(b.equals(before[i] as Buffer)).toBe(true);
     },
     ONE_MS,
   );

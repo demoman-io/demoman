@@ -189,6 +189,7 @@ export async function refreshKept(
       ...kept.outputs.map((o) => o.path),
       ...(kept.report === null ? [] : [kept.report]),
       ...(kept.logo === null ? [] : [kept.logo]),
+      ...(kept.wallpaper === null ? [] : [kept.wallpaper]),
     ]) {
       const at = await repoPath(root, rootReal, p, "refresh");
       if (typeof at !== "string") outside.push(at.outside);
@@ -287,9 +288,9 @@ export async function refreshKept(
 
 const notesOf = (job: Job): string[] => (job.ahead === null ? [] : [job.ahead]);
 
-/** The kept script as this refresh films it: the logo by its repo path
- *  (the runner reads a relative ref from DEMOMAN_HOME), and the target at
- *  `baseUrl`'s origin when one is given. */
+/** The kept script as this refresh films it: the logo and an uploaded
+ *  wallpaper by their repo paths (the runner reads a relative ref from
+ *  DEMOMAN_HOME), and the target at `baseUrl`'s origin when one is given. */
 function scriptFor(
   kept: KeptVideo,
   root: string,
@@ -299,6 +300,9 @@ function scriptFor(
   const logo = script.look?.branding?.logo;
   if (kept.logo !== null && logo !== undefined && logo !== null)
     logo.ref = join(root, kept.logo);
+  const background = script.look?.branding?.background;
+  if (kept.wallpaper !== null && background?.kind === "image")
+    background.ref = join(root, kept.wallpaper);
   if (baseUrl !== undefined) {
     const t = new URL(script.target);
     script.target = new URL(`${t.pathname}${t.search}${t.hash}`, baseUrl).href;
@@ -389,6 +393,11 @@ async function filmOne(
     if (exported.warnings.logo !== null)
       return {
         failed: `${o.path} was rendered without its logo: ${exported.warnings.logo}`,
+      };
+    // A soft wallpaper is the picture the author kept; a missing one is not.
+    if (exported.warnings.wallpaperWarning?.kind === "leftOut")
+      return {
+        failed: `${o.path} was rendered without its wallpaper: ${exported.warnings.wallpaperWarning.sentence}`,
       };
     rendered.push(exported.file.path);
     renderedScreens.push(exported.screens);

@@ -909,9 +909,55 @@ describe("renderOutput's wallpaper", () => {
       },
     });
     expect(renderScene.mock.calls[0]?.[0].wallpaper).toBeNull();
-    expect(out.facts.wallpaperWarning).toBe(
-      "The wallpaper was left out: /h/assets/gone.webp could not be read (ENOENT); the video uses the plain gradient.",
-    );
+    expect(out.facts.wallpaperWarning).toEqual({
+      kind: "leftOut",
+      sentence:
+        "The wallpaper was left out: /h/assets/gone.webp could not be read (ENOENT); the video uses the plain gradient.",
+    });
+  });
+
+  // Red if stills are told about "the video".
+  it("says the stills, not the video, use the gradient", async () => {
+    const out = await renderOutput({
+      ...base,
+      fileType: "stills",
+      target: { ...gifTarget, format: "png" } as never,
+      bundle: bundle(),
+      wallpaper: { ok: false, error: "x could not be read" },
+    });
+    expect(out.facts.wallpaperWarning).toEqual({
+      kind: "leftOut",
+      sentence:
+        "The wallpaper was left out: x could not be read; the stills use the plain gradient.",
+    });
+  });
+
+  // Red if a scene on a wallpaper with no image handed in is taken for a
+  // scene with nothing to draw.
+  it("says a wallpaper scene rendered with no image was left out", async () => {
+    renderScene.mockResolvedValue({
+      bytes: new Uint8Array([1]),
+      ...facts,
+      deepestScale: 1,
+    });
+    const out = await renderOutput({
+      ...base,
+      scene: {
+        ...scene,
+        branding: {
+          ...scene.branding,
+          background: { kind: "wallpaper", id: "vivid-1" },
+        },
+      },
+      fileType: "mp4",
+      target: { ...gifTarget, format: "mp4" } as never,
+      bundle: bundle(),
+    });
+    expect(out.facts.wallpaperWarning).toEqual({
+      kind: "leftOut",
+      sentence:
+        "The wallpaper was left out: no wallpaper was supplied to the render; the video uses the plain gradient.",
+    });
   });
 
   // Red if the warning ignores the render's own deepest zoom: 1600x1200
@@ -932,12 +978,16 @@ describe("renderOutput's wallpaper", () => {
       });
     };
     expect((await at(1)).facts.wallpaperWarning).toBeNull();
-    expect((await at(2.5)).facts.wallpaperWarning).toBe(
-      'The wallpaper "/h/assets/small.webp" is 1600×1200, smaller than this export\'s deepest zoom needs (2000×1500), so it will look soft.',
-    );
+    expect((await at(2.5)).facts.wallpaperWarning).toEqual({
+      kind: "soft",
+      sentence:
+        'The wallpaper "/h/assets/small.webp" is 1600×1200, smaller than this export\'s deepest zoom needs (2000×1500), so it will look soft.',
+    });
   });
 
+  // The gradient scene above, with nothing handed in: nothing to say.
   it("has no wallpaper warning without a wallpaper", async () => {
+    expect(scene.branding.background.kind).toBe("gradient");
     const out = await renderOutput({
       ...base,
       fileType: "mp4",

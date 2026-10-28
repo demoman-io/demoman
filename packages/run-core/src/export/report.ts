@@ -13,6 +13,7 @@ import type {
   FileType,
   RenderedFile,
   RenderProgress,
+  WallpaperWarning,
 } from "./target.js";
 
 /**
@@ -179,7 +180,7 @@ export interface ExportWarnings {
   logo: string | null;
   /** The wallpaper left out (the frame shows the gradient), or too small
    *  for the deepest zoom (`RenderFacts.wallpaperWarning`). Absent: neither. */
-  wallpaperWarning?: string;
+  wallpaperWarning?: WallpaperWarning;
   unavailableSpans: UnavailableSpan[];
   detailViolations: DetailViolation[];
   /** Steps a stills export made no file for (`UnplacedStill`). Present on
@@ -480,7 +481,7 @@ export function reportForSave(args: {
 function warningsOf(
   facts: {
     logoWarning: string | null;
-    wallpaperWarning?: string | null;
+    wallpaperWarning?: WallpaperWarning | null;
     unavailableSpans: UnavailableSpan[];
     detailViolations: DetailViolation[];
     unplacedStills?: UnplacedStill[];
@@ -551,7 +552,7 @@ export function reportForStillsSave(args: {
   target: { width: number; height: number; fps: number };
   facts: {
     logoWarning: string | null;
-    wallpaperWarning?: string | null;
+    wallpaperWarning?: WallpaperWarning | null;
     unavailableSpans: UnavailableSpan[];
     detailViolations: DetailViolation[];
     unplacedStills: UnplacedStill[];
@@ -785,7 +786,7 @@ export function exportCaveats(
     ...(wallpaperWarning === undefined
       ? []
       : [
-          `${wallpaperWarning.charAt(0).toLowerCase()}${wallpaperWarning.slice(1).replace(/\.$/, "")}`,
+          `${wallpaperWarning.sentence.charAt(0).toLowerCase()}${wallpaperWarning.sentence.slice(1).replace(/\.$/, "")}`,
         ]),
     ...(unavailableSpans.length === 0
       ? []

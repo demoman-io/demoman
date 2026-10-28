@@ -7,7 +7,15 @@ import {
 } from "@demoman/scene-schema";
 import type { WallpaperInput } from "../render.js";
 import { messageOf } from "../report.js";
-import { IMAGE_TYPES } from "./logo-ref.js";
+
+/** Rasters only: an SVG is rasterised where it enters (upload or run), so
+ *  none reaches the render as a vector. */
+const IMAGE_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+};
 
 /**
  * A take's wallpaper or uploaded image, as the export reads it: a built-in
@@ -46,7 +54,7 @@ export async function readWallpaper(
   if (contentType === undefined) {
     return {
       ok: false,
-      error: `${path} is not an SVG, PNG, WebP or JPEG file (by its extension)`,
+      error: `${path} is not a PNG, WebP or JPEG file (by its extension)`,
     };
   }
   try {

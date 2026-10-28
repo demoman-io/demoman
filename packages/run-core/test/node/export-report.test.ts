@@ -1019,8 +1019,11 @@ describe("file types", () => {
 
   // Report before you forgive. Red if the answer or the sentence drops it.
   it("says the wallpaper was left out, on the answer and in the sentence", () => {
-    const said =
-      "The wallpaper was left out: /h/assets/gone.webp could not be read (ENOENT); the video uses the plain gradient.";
+    const said = {
+      kind: "leftOut" as const,
+      sentence:
+        "The wallpaper was left out: /h/assets/gone.webp could not be read (ENOENT); the video uses the plain gradient.",
+    };
     const report = reportForSave({
       screens: NO_SCREENS,
       fileType: "mp4",
