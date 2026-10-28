@@ -41,19 +41,29 @@ describe("wallpaper and image backgrounds", () => {
     expect(new Set(WALLPAPERS.map((w) => w.id)).size).toBe(10);
   });
 
-  it("a script naming an unknown wallpaper is refused, naming the ids", () => {
-    const result = DemoScriptSchema.safeParse({
-      scriptVersion: 1,
-      name: "demo",
-      target: "https://app.example.com/",
-      steps: [{ do: "click", on: { stableId: "go" } }],
-      look: {
-        branding: {
-          background: { kind: "wallpaper", id: "vivid-99" },
-          logo: null,
-        },
-      },
+  const scriptOn = (id: string) => ({
+    scriptVersion: 1,
+    name: "demo",
+    target: "https://app.example.com/",
+    steps: [{ do: "click", on: { stableId: "go" } }],
+    look: {
+      branding: { background: { kind: "wallpaper", id }, logo: null },
+    },
+  });
+
+  // The positive control for the refusal below: the same script on a known
+  // id parses, so that refusal is the id's and not the script's.
+  it("a script naming a known wallpaper parses, keeping it", () => {
+    const result = DemoScriptSchema.safeParse(scriptOn("vivid-1"));
+    expect(result.error?.issues).toBeUndefined();
+    expect(result.data?.look?.branding?.background).toEqual({
+      kind: "wallpaper",
+      id: "vivid-1",
     });
+  });
+
+  it("a script naming an unknown wallpaper is refused, naming the ids", () => {
+    const result = DemoScriptSchema.safeParse(scriptOn("vivid-99"));
     expect(result.success).toBe(false);
     const messages = result.error?.issues.map((i) => i.message).join("\n");
     expect(messages).toContain("vivid-99");

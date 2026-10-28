@@ -758,8 +758,16 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     });
     try {
       const kits = await readKits(home);
+      // The kit the script named, kept for its image below.
+      let namedKit: { name: string; branding: SceneBranding } | null = null;
       if (script.look?.kit !== undefined) {
         const look = lookForRun(script, kits);
+        if (look.ok && look.look.branding === "kit" && look.look.kit !== null) {
+          namedKit = {
+            name: look.look.kit.name,
+            branding: look.startingBranding,
+          };
+        }
         if (!look.ok) {
           // The run page's own two reasons: a list it could not read, and a
           // name that is not in it (run/view.ts `start`).
@@ -815,6 +823,32 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             "wallpaperUnreadable",
             owned.detail,
             "look.branding.background",
+          );
+          job.final = out;
+          return out;
+        }
+      }
+      // A kit's image path is owned too, once per branding per call: the
+      // door and each film below ask for the same one, and one copy serves.
+      const ownedKits = new Map<string, ReturnType<typeof ownWallpaperImage>>();
+      const ownKit = (branding: SceneBranding) => {
+        const key = JSON.stringify(branding);
+        const known = ownedKits.get(key);
+        if (known !== undefined) return known;
+        const owning = ownWallpaperImage(branding, { home, work: session });
+        ownedKits.set(key, owning);
+        return owning;
+      };
+      // A kit the script named is the agent's choice, as its own branding
+      // is: an image of it that cannot be owned is refused, naming the path
+      // (spec 2026-10-28; ruling R19). The default kit's is reported instead.
+      if (namedKit !== null) {
+        const owned = await ownKit(namedKit.branding);
+        if (!owned.ok) {
+          const out = refusal(
+            "wallpaperUnreadable",
+            `the brand kit "${namedKit.name}" names an image that cannot be used: ${owned.detail}`,
+            "look.kit",
           );
           job.final = out;
           return out;
@@ -877,18 +911,18 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             ...(ownedScriptBranding === undefined
               ? {}
               : { ownedScriptBranding }),
-            // A kit's image path is owned too, for every take; one that
-            // cannot be is left as the kit has it, and its export says so.
+            // The default kit's image that cannot be owned is left as the
+            // kit has it, and the run report says so (`wallpaperError`).
             ownKitWallpaper: async (branding) => {
-              const owned = await ownWallpaperImage(branding, {
-                home,
-                work: session,
-              });
-              if (owned.ok) return owned.branding;
+              const owned = await ownKit(branding);
+              if (owned.ok) return { branding: owned.branding, error: null };
               log(
                 `the brand kit's image is left as the kit has it: ${owned.detail}`,
               );
-              return branding;
+              return {
+                branding,
+                error: `Your default brand kit's image could not be copied into this take, which keeps the kit's path to it: ${owned.detail}`,
+              };
             },
             ...(repoRead.ok && repoRead.repo.commit !== null
               ? { buildSha: repoRead.repo.commit }

@@ -13,7 +13,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { chromium } from "playwright";
 
 const scratch = process.argv[2];
@@ -21,8 +21,15 @@ if (!scratch) {
   console.error("usage: measure.mjs <scratch-dir> (outside the repo)");
   process.exit(2);
 }
-if (scratch.startsWith(join(import.meta.dirname, "../../../.."))) {
-  console.error(`refusing a scratch dir inside the repo: ${scratch}`);
+// Resolved first: a relative path from the repo root is inside it too.
+const inRepo = relative(
+  resolve(import.meta.dirname, "../../../.."),
+  resolve(scratch),
+);
+if (!inRepo.startsWith("..") && !isAbsolute(inRepo)) {
+  console.error(
+    `refusing a scratch dir inside the repo (Apple's images must not land in the work tree): ${resolve(scratch)}`,
+  );
   process.exit(2);
 }
 mkdirSync(scratch, { recursive: true });

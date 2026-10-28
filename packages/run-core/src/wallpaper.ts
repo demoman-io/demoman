@@ -37,7 +37,9 @@ export async function decodeWallpaper(
 
 /** What an upload (or an image named by path) becomes before it is stored. */
 const FITTED_TYPE = "image/webp";
-const FITTED_QUALITY = 0.92;
+// The built-ins' quality: at 0.92 the encoder banded soft gradients
+// (apps/studio/scripts/wallpapers/README.md, "Size").
+const FITTED_QUALITY = 0.97;
 
 /**
  * An image of any size made into what a wallpaper stores: a WebP whose long

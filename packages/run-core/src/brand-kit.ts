@@ -199,6 +199,11 @@ export interface RunLook {
    *  none. Reported even when the script's own branding made the kit moot:
    *  the author believes a kit is saved. */
   brandKitError: string | null;
+  /** Why the default kit's image could not be made the take's own copy, so
+   *  the take keeps the kit's path and an export may leave the image out;
+   *  null when it was, or there is none. A kit named in `look.kit` is
+   *  refused instead (`wallpaperUnreadable`). Set by the run, not here. */
+  wallpaperError: string | null;
 }
 
 export type RunLookResult =
@@ -233,6 +238,7 @@ export function lookForRun(
           fault === null
             ? null
             : `${fault.said}${fault.reason === null ? "" : ` (${fault.reason})`}; this take uses the script's own branding`,
+        wallpaperError: null,
       },
     };
   }
@@ -266,7 +272,12 @@ export function lookForRun(
     return {
       ok: true,
       startingBranding: structuredClone(entry.read.kit),
-      look: { branding: "kit", kit: { name: entry.name }, brandKitError: null },
+      look: {
+        branding: "kit",
+        kit: { name: entry.name },
+        brandKitError: null,
+        wallpaperError: null,
+      },
     };
   }
   const { branding, brandKitError } = brandingForTake(read);
@@ -280,8 +291,14 @@ export function lookForRun(
             branding: "defaultKit",
             kit: { name: entry.name },
             brandKitError: null,
+            wallpaperError: null,
           }
-        : { branding: "defaults", kit: null, brandKitError },
+        : {
+            branding: "defaults",
+            kit: null,
+            brandKitError,
+            wallpaperError: null,
+          },
   };
 }
 

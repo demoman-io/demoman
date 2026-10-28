@@ -354,9 +354,9 @@ A video kept current in the repo (.demoman/videos) is rewritten by each run into
 user's real app. A take zooms on every click and starts from `look.kit`, else the
 user's default brand kit; a derived draft keeps its take's branding. The report's `look.branding` says where it came from: `script`,
 `kit` (you named it; `look.kit.name` says which), `defaultKit`, or
-`defaults`. A non-null `look.brandKitError` means the default kit could not
-be read, and goes into your hand-back. The report's `size` is what the video
-was recorded at (section 2); a `size.error` goes into your hand-back too.
+`defaults`. A non-null `look.brandKitError` (default kit unreadable),
+`look.wallpaperError` (its image) or `size.error` goes into your hand-back;
+`size` is the recorded size (section 2).
 
 ## 5. Export and hand back
 
@@ -435,7 +435,7 @@ Hand back, on `saved`, two lines and nothing else: the `summary` as it is,
 then the `links` as markdown links on one line, in this order, only
 those present: `[Open in Studio](links.studio) · [<file name>](links.file) · [Copy video](links.copy)`
 (`Copy GIF` for a GIF). Add one line only for `look.brandKitError`,
-`size.error`, `linksError`, or something you could not fix. Any other
+`look.wallpaperError`, `size.error`, `linksError`, or something you could not fix. Any other
 outcome: quote its `error` or `detail`.
 
 When the `studio` tool is listed and there is no `links.studio`, **offer**
@@ -572,7 +572,7 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `nothingToRerecord` | `run` (`refusedBeforeRun`) | The take has no step left that acts; tell the user. |
 | `unknownKit` | `run` (`refusedBeforeRun`) | `look.kit` names no kit, or an unreadable one; `detail` lists the kits. Fix it from `snapshot`'s `kits`, or ask the user. |
 | `kitsUnreadable` | `run` (`refusedBeforeRun`) | The kits file would not read, so `look.kit` went unchecked. Quote `detail`; keep the name. |
-| `wallpaperUnreadable` | `run` (`refusedBeforeRun`) | The image would not open. Quote `detail`; fix or drop `look.branding`. |
+| `wallpaperUnreadable` | `run` (`refusedBeforeRun`) | The image would not open. Quote `detail`; fix or drop `look.branding`/`look.kit`. |
 | `invalidDevice` | `snapshot` | `device` is no phone or tablet Demoman has; `detail` lists them. |
 | `deviceFailed` | `snapshot`, `run` | The browser would not emulate the device; nothing was listed or recorded. Tell the user `detail`; do not run again. |
 | `nonHttpTarget` | `run`, `snapshot` | The target or url is not `http(s)`, or its host contains `*`. |

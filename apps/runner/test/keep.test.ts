@@ -10,12 +10,14 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { FrameBundle } from "@demoman/compositor";
+import { type FrameBundle, wallpaperShape } from "@demoman/compositor";
 import {
+  frameOf,
   keptFileName,
   notCarriedOf,
   parseKept,
   serializeKept,
+  targetFor,
 } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -576,6 +578,71 @@ describe("keep and the take's wallpaper", () => {
       expect(out.detail).toMatch(
         /^docs\/bad\.mp4 was rendered without its wallpaper: The wallpaper was left out: .*bad\.webp/,
       );
+    },
+    KEEP_MS,
+  );
+});
+
+// Red if keep decides an output's shape by its aspect rather than its
+// target (`wallpaperShape(targetFor(...))`, as the export does): an Auto take
+// filmed on a phone is checked as landscape, passes, and the export then
+// leaves the portrait file out after rendering, with the other detail.
+describe("keep checks an Auto phone take's wallpaper as portrait", () => {
+  it(
+    "refuses a missing portrait file before rendering, naming it",
+    async () => {
+      const id = "vivid-1";
+      const dir = await mkdtemp(join(tmpdir(), "demoman-keep-shape-"));
+      try {
+        for (const name of await readdir(WALLPAPERS_DIR)) {
+          if (name === `${id}-portrait.webp`) continue;
+          await writeFile(
+            join(dir, name),
+            await readFile(join(WALLPAPERS_DIR, name)),
+          );
+        }
+        const { scene } = await videoOf("scene-phone", "On a phone", (d) => ({
+          ...d,
+          canvas: { ...d.canvas, aspect: "auto" },
+          branding: { ...d.branding, background: { kind: "wallpaper", id } },
+        }));
+        await copyFrames(scene.meta.id);
+        const store = library.frameStore(scene.meta.id);
+        const bundle = await store.getBundle(scene.meta.id);
+        if (bundle === null) throw new Error("no bundle");
+        const phone = { ...bundle, viewport: { width: 390, height: 844 } };
+        await store.putBundle(scene.meta.id, phone);
+        // Premises: the export draws this output from the portrait master,
+        // the landscape one is there, and the portrait one is not.
+        const target = targetFor("mp4", "auto", phone, frameOf(scene), {
+          quality: "share",
+        });
+        expect(wallpaperShape(target)).toBe("portrait");
+        expect((await readdir(dir)).includes(`${id}-landscape.webp`)).toBe(
+          true,
+        );
+        expect((await readdir(dir)).includes(`${id}-portrait.webp`)).toBe(
+          false,
+        );
+        const before = await repoFiles();
+        const base = deps();
+        const out = await keepVideo(
+          {
+            video: "On a phone",
+            to: [{ path: "docs/phone.mp4", fileType: "mp4", quality: "share" }],
+            repoRoot: repo,
+          },
+          { ...base, export: { ...base.export, wallpapersDir: dir } },
+        );
+        expect(await repoFiles()).toEqual(before);
+        expect(out).toMatchObject({ ok: false, reason: "wallpaperUnreadable" });
+        if (out.ok) return;
+        expect(out.detail).toMatch(
+          /^the take's wallpaper: .*vivid-1-portrait\.webp/,
+        );
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
     },
     KEEP_MS,
   );

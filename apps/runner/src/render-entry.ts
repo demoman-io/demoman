@@ -268,6 +268,10 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
           ? report?.(done, total, width)
           : report?.(done, total, width, pass),
     ),
+    // The decoded master (9600px for a built-in) is freed once every output
+    // is rendered: the GIF ladder and the MP4 cap re-render inside this call.
+  }).finally(() => {
+    if (wallpaper?.ok === true) (wallpaper.image.image as ImageBitmap).close();
   });
   outputs = files.map((f) => f.bytes);
   return {

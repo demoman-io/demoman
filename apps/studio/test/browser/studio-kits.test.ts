@@ -304,6 +304,7 @@ describe("the Studio's Brand kit page, in a real window", () => {
         branding: "kit",
         kit: { name: "Launch" },
         brandKitError: null,
+        wallpaperError: null,
       });
       expect(look.startingBranding.background).toEqual(BACKGROUND);
       expect(look.startingBranding.logo?.ref).toBe(logo.ref);

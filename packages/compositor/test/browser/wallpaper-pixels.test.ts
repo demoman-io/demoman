@@ -52,6 +52,28 @@ function quadrantFixture(): OffscreenCanvas {
   return c;
 }
 
+/** Off-centre features, so a stretch and a cover crop put them in different
+ *  places: a 1px yellow column at STRIPE_X and a 1px cyan row at STRIPE_Y
+ *  on dark grey. Both sit inside every crop the position test asks for
+ *  (9:16 keeps source x 115.6–284.4; 21:9 keeps source y 64.3–235.7). */
+const STRIPE_X = 150;
+const STRIPE_Y = FH / 3;
+const GROUND = [30, 30, 30] as const;
+const YELLOW = [255, 255, 0] as const;
+const CYAN = [0, 255, 255] as const;
+
+function stripeFixture(): OffscreenCanvas {
+  const c = new OffscreenCanvas(FW, FH);
+  const g = c.getContext("2d") as OffscreenCanvasRenderingContext2D;
+  g.fillStyle = css(GROUND);
+  g.fillRect(0, 0, FW, FH);
+  g.fillStyle = css(YELLOW);
+  g.fillRect(STRIPE_X, 0, 1, FH);
+  g.fillStyle = css(CYAN);
+  g.fillRect(0, STRIPE_Y, FW, 1);
+  return c;
+}
+
 /** Left half fully transparent, right half opaque teal. */
 function halfTransparentFixture(): OffscreenCanvas {
   const c = new OffscreenCanvas(FW, FH);
@@ -177,6 +199,79 @@ describe("wallpaper pixels", () => {
     // The ring is 2px all round; most of it is away from a seam.
     expect(compared).toBeGreaterThan((2 * (w + h) * 2) / 2);
   });
+
+  it("the stripe fixture carries its column and its row, off centre", () => {
+    const px = pixels(stripeFixture());
+    expect(STRIPE_X).not.toBe(FW / 2);
+    expect(STRIPE_Y).not.toBe(FH / 2);
+    for (const y of [0, 50, FH - 1]) {
+      expect(px(STRIPE_X, y).slice(0, 3)).toEqual([...YELLOW]);
+      expect(px(STRIPE_X - 1, y).slice(0, 3)).toEqual([...GROUND]);
+      expect(px(STRIPE_X + 1, y).slice(0, 3)).toEqual([...GROUND]);
+    }
+    for (const x of [0, 50, FW - 1]) {
+      expect(px(x, STRIPE_Y).slice(0, 3)).toEqual([...CYAN]);
+      expect(px(x, STRIPE_Y - 1).slice(0, 3)).toEqual([...GROUND]);
+      expect(px(x, STRIPE_Y + 1).slice(0, 3)).toEqual([...GROUND]);
+    }
+  });
+
+  // Red if the draw stretches the image over the frame instead of cropping
+  // it: the column moves at 9:16, the row at 16:9 and 21:9.
+  it.each([
+    [1920, 1080],
+    [1080, 1920],
+    [2520, 1080],
+  ])(
+    "the off-centre column and row land where the cover crop puts them at %dx%d",
+    async (w, h) => {
+      const target = at(LANDSCAPE_1080P, w, h);
+      const painted = pixels(
+        paint(target, WALLPAPER, await asFrameImage(stripeFixture())),
+      );
+      const crop = coverRect({ width: FW, height: FH }, target);
+      const want = {
+        x: ((STRIPE_X + 0.5 - crop.sx) / crop.sw) * w,
+        y: ((STRIPE_Y + 0.5 - crop.sy) / crop.sh) * h,
+      };
+      const stretch = {
+        x: ((STRIPE_X + 0.5) / FW) * w,
+        y: ((STRIPE_Y + 0.5) / FH) * h,
+      };
+      // Premise: at this shape a stretch would put one of them somewhere else.
+      expect(
+        Math.max(Math.abs(want.x - stretch.x), Math.abs(want.y - stretch.y)),
+      ).toBeGreaterThan(30);
+      /** The centre of the run of pixels matching `colour` along a line. */
+      const centre = (
+        n: number,
+        sample: (i: number) => Rgba,
+        colour: readonly number[],
+      ) => {
+        const hits: number[] = [];
+        for (let i = 0; i < n; i++)
+          if (near(sample(i), colour, 60)) hits.push(i);
+        return hits.length === 0
+          ? Number.NaN
+          : (hits[0] as number) / 2 +
+              (hits[hits.length - 1] as number) / 2 +
+              0.5;
+      };
+      // A row and a column well clear of the other stripe.
+      const row = Math.round(h * 0.9);
+      const col = Math.round(w * 0.9);
+      const x = centre(w, (i) => painted(i, row), YELLOW);
+      const y = centre(h, (i) => painted(col, i), CYAN);
+      expect(
+        Math.abs(x - want.x),
+        `column at ${x}, cover ${want.x}, stretch ${stretch.x}`,
+      ).toBeLessThan(2);
+      expect(
+        Math.abs(y - want.y),
+        `row at ${y}, cover ${want.y}, stretch ${stretch.y}`,
+      ).toBeLessThan(2);
+    },
+  );
 
   it("transparent pixels show the neutral gradient", async () => {
     const target = LANDSCAPE_1080P;

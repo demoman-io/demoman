@@ -123,8 +123,9 @@ export function logoRasterHeight(
  * The presented frame: the authored background, with the app inset on it,
  * rounded and shadowed. Paints `branding` as stored — since schema v6 there
  * is no derived tint and no fallback: a document always carries a background
- * (`BRANDING_DEFAULTS` is an ordinary gradient), so there is no "nothing
- * set" branch to fall through silently.
+ * (`BRANDING_DEFAULTS` is a built-in wallpaper), so there is no "nothing
+ * set" branch to fall through silently. A wallpaper or image whose `wallpaper`
+ * frame is null paints `NEUTRAL_BACKGROUND`; the export says it was left out.
  */
 export function derivePresentation(
   branding: SceneBranding,

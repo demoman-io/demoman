@@ -20,8 +20,9 @@ import {
   resolve,
   sep,
 } from "node:path";
-import type { FrameBundle } from "@demoman/compositor";
+import { type FrameBundle, wallpaperShape } from "@demoman/compositor";
 import {
+  frameOf,
   judgedOutput,
   KEPT_DIR,
   KEPT_VERSION,
@@ -33,6 +34,7 @@ import {
   parseKept,
   type RefilmInfo,
   serializeKept,
+  targetFor,
 } from "@demoman/run-core";
 import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
@@ -390,13 +392,13 @@ async function buildKept(
     );
   }
   const { scene } = read;
+  const bundle = await deps.library
+    .frameStore(built.takeId)
+    .getBundle(built.takeId);
   // The run's own record first; takes filmed before it, their motion frames.
   const scale =
     scene.meta.capture.displayScale ??
-    filmedScale(
-      await deps.library.frameStore(built.takeId).getBundle(built.takeId),
-      scene.meta.capture.viewport.width,
-    );
+    filmedScale(bundle, scene.meta.capture.viewport.width);
   const scaleGuess =
     scale === null
       ? `1x is a guess: take ${built.takeId} records no filmed scale and has no motion frames to read one from, so refresh films it at 1x — if it was filmed at another scale, set "scale" in the kept file to it, or the first refresh replaces a video that did not change`
@@ -487,9 +489,19 @@ async function buildKept(
   let wallpaper: string | null = null;
   let wallpaperBytes: Uint8Array | null = null;
   const background = scene.branding.background;
+  // Each output's shape as its export decides it (`wallpaperShape` of its
+  // target), so an Auto take filmed on a phone is checked as portrait.
   const shapes = new Set(
     a.outputs.map((o) =>
-      (o.aspect ?? scene.canvas.aspect) === "9:16" ? "portrait" : "landscape",
+      wallpaperShape(
+        targetFor(
+          o.fileType,
+          o.aspect ?? scene.canvas.aspect,
+          bundle,
+          frameOf(scene),
+          { quality: o.quality },
+        ),
+      ),
     ),
   );
   for (const shape of shapes) {

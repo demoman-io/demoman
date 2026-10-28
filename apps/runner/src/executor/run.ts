@@ -134,10 +134,14 @@ export interface RunDeps {
    *  take's script.json keeps the script's own. Absent: the script's. */
   ownedScriptBranding?: SceneBranding;
   /** A kit's image path made into the take's own copy
-   *  (`ownWallpaperImage`). Never refuses: a kit's image that cannot be
-   *  owned is answered as the kit has it, and its export says so. Absent:
-   *  the kit's branding as it is. */
-  ownKitWallpaper?: (branding: SceneBranding) => Promise<SceneBranding>;
+   *  (`ownWallpaperImage`). Never refuses here: a kit named in `look.kit`
+   *  whose image cannot be owned was refused at the door, and the default
+   *  kit's is answered as the kit has it with `error`, the sentence the run
+   *  report carries as `look.wallpaperError`. Absent: the kit's branding as
+   *  it is. */
+  ownKitWallpaper?: (
+    branding: SceneBranding,
+  ) => Promise<{ branding: SceneBranding; error: string | null }>;
   /** Tests only: the mux, so a test can make it throw. Defaults to
    *  `muxSpans`. */
   muxSpans?: typeof muxSpans;
@@ -254,7 +258,7 @@ export async function runScript(
       `the run's brand kit could not be used: ${resolved.detail}`,
     );
   }
-  const { look } = resolved;
+  let { look } = resolved;
   // A script's own branding was owned at the door (executor.ts): the walk
   // films the owned copy, and script.json keeps what the script asked. A
   // kit's is owned here, for each take.
@@ -265,10 +269,12 @@ export async function runScript(
           ...script,
           look: { ...script.look, branding: deps.ownedScriptBranding },
         };
-  const startingBranding =
-    look.branding === "script" || deps.ownKitWallpaper === undefined
-      ? resolved.startingBranding
-      : await deps.ownKitWallpaper(resolved.startingBranding);
+  let startingBranding = resolved.startingBranding;
+  if (look.branding !== "script" && deps.ownKitWallpaper !== undefined) {
+    const owned = await deps.ownKitWallpaper(startingBranding);
+    startingBranding = owned.branding;
+    look = { ...look, wallpaperError: owned.error };
+  }
 
   // What the walk is measured against: every step but `pause`, which is a
   // duration and yields no beat. See `authoredTotal`.

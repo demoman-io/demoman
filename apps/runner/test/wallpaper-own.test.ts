@@ -123,6 +123,13 @@ describe("an image path in the default kit", () => {
       const first = await run(scriptOn(), "kit-2");
       expect(first.value.outcome, JSON.stringify(first.value)).toBe("complete");
       expect(first.background).toEqual({ kind: "image", ref: gone });
+      // Filmed, and the run report says why the image is not the take's own
+      // (ruling R19): in `look`, and in the summary an agent hands back.
+      expect(first.value.look?.branding).toBe("defaultKit");
+      expect(first.value.look?.wallpaperError).toContain(gone);
+      expect(first.value.summary).toContain(
+        first.value.look?.wallpaperError as string,
+      );
       // The premise of the re-film: the script it builds from the take
       // carries the take's branding as `look.branding`, a path no agent
       // wrote, and the path is still gone.
@@ -152,5 +159,48 @@ describe("an image path in the default kit", () => {
       ).toBe(true);
     },
     RUN_MS * 2,
+  );
+});
+
+describe("an image path in a kit the script names", () => {
+  it(
+    "a missing path is refused wallpaperUnreadable on look.kit, naming it, and makes no take",
+    async () => {
+      const gone = join(h.scratch, "named-kit-gone.png");
+      expect(await exists(gone)).toBe(false);
+      await kitOn(gone);
+      const before = (await createLibrary(h.home).list()).length;
+      const { value } = await run(
+        { ...scriptOn(), scriptVersion: 2, look: { kit: "Photo" } },
+        "named-kit-1",
+      );
+      expect(value).toMatchObject({
+        outcome: "refusedBeforeRun",
+        reason: "wallpaperUnreadable",
+        field: "look.kit",
+      });
+      expect(value.detail).toContain('"Photo"');
+      expect(value.detail).toContain(gone);
+      expect((await createLibrary(h.home).list()).length).toBe(before);
+    },
+    RUN_MS,
+  );
+
+  it(
+    "an existing path is owned for the take, and the report has no image error",
+    async () => {
+      const photo = join(h.scratch, "named-kit-photo.png");
+      await writeFile(photo, flatPng(32, 32, [220, 120, 20]));
+      await kitOn(photo);
+      const { value, background } = await run(
+        { ...scriptOn(), scriptVersion: 2, look: { kit: "Photo" } },
+        "named-kit-2",
+      );
+      expect(value.outcome, JSON.stringify(value)).toBe("complete");
+      expect(value.look?.branding).toBe("kit");
+      expect(value.look?.wallpaperError).toBeNull();
+      expect((background as { ref: string }).ref).toMatch(ASSET_REF);
+    },
+    RUN_MS,
   );
 });

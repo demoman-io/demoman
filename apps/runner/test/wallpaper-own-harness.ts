@@ -64,6 +64,8 @@ export interface RunAnswer {
   detail?: string;
   field?: string | null;
   provenance?: { takeId: string | null };
+  summary?: string;
+  look?: { branding: string; wallpaperError: string | null } | null;
 }
 
 /** Registers the file's beforeAll/afterAll; read its members inside tests. */
