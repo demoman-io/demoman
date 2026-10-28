@@ -19,6 +19,23 @@ export const STUDIO_NEEDED = [
   "studio-build.json",
 ];
 
+/** The built-in wallpaper ids. A copy of `WALLPAPERS` in scene-schema: this
+ *  file is plain .mjs and cli does not depend on that package; build.test.ts
+ *  fails when the two disagree. */
+export const WALLPAPER_IDS = [
+  "vivid-1",
+  "vivid-2",
+  "vivid-3",
+  "vivid-4",
+  "vivid-5",
+  "vivid-6",
+  "light-1",
+  "light-2",
+  "dark-1",
+  "dark-2",
+];
+const WALLPAPER_SHAPES = ["landscape", "portrait", "thumb"];
+
 /**
  * `{ ok: true }`, or `{ ok: false, reason }` with the sentence build.mjs
  * stops on: a page missing, a stamp that will not read or names another
@@ -31,6 +48,17 @@ export function checkStudioPages({ pagesDir, pagesSourceDir, version }) {
         ok: false,
         reason: `the Studio's pages are not built (no ${join(pagesDir, needed)}) — run \`pnpm -r build\`, which builds apps/studio's pages first`,
       };
+    }
+  }
+  for (const id of WALLPAPER_IDS) {
+    for (const shape of WALLPAPER_SHAPES) {
+      const file = join("wallpapers", `${id}-${shape}.webp`);
+      if (!existsSync(join(pagesDir, file))) {
+        return {
+          ok: false,
+          reason: `the Studio's pages lack the wallpaper ${join(pagesDir, file)} — run \`pnpm -r build\`, which copies apps/studio/pages/public/wallpapers`,
+        };
+      }
     }
   }
   const stampPath = join(pagesDir, "studio-build.json");

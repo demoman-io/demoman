@@ -3,8 +3,8 @@
 You write a DemoScript. Demoman runs it in a browser of its own on
 this machine and saves the take on disk; `export` renders that take to an
 MP4. Every tool answers JSON. A refusal is an error result carrying
-`reason`, a stable identifier to branch on, and `detail`, a sentence to tell
-the user; section 7 lists every reason.
+`reason`, a stable identifier to branch on, and `detail`, a sentence for the
+user; section 7 lists every reason.
 
 ## 1. Preflight
 
@@ -14,19 +14,19 @@ the user; section 7 lists every reason.
    `secretsFile`, `expiry` and `update`.
    `sessions` is `[{site, savedAt, refreshedAt, signInUrl}]`; it and
    `display` can be `{unreadable}`: tell the user why. `accounts` and
-   `secretsFile` are the demo accounts below. Say nothing about `update`.
-2. The browser is signed in wherever the user ran `npx demoman signin <url>`,
-   and nowhere else; `status`'s `sessions` lists those sites. A demo account records best. A page
+   `secretsFile` are the demo accounts below. Ignore `update`.
+2. The browser is signed in only where the user ran `npx demoman signin <url>`;
+   `status`'s `sessions` lists those sites. A demo account records best. A page
    that sends this browser to its sign-in page answers `signedOut` (section
    7) with the exact command in `detail`: give the user that command and
    spend no run until they say they have run it, unless a demo account can
    sign in (below). Only demo accounts: never ask for the
-   user's own password, and never type it. A sign-in or sign-up demo is not
-   signing in: when the user asks for one and gives you demo values, start
+   user's own password, or type it. A sign-in or sign-up demo is not
+   signing in: when the user asks for one and gives demo values, start
    the script at that form's page and type them; a password field's text is
-   hidden on disk and in the report.
+   hidden on disk and in reports.
 3. Takes are saved under `<DEMOMAN_HOME, default ~/.demoman>/takes/<id>/`.
-   Demoman keeps no telemetry.
+   No telemetry.
 
 ### Behind a login: demo accounts
 
@@ -34,8 +34,7 @@ the user; section 7 lists every reason.
 
 - `{file: null, searchedFrom}`: no `.demoman/accounts.json` was found from
   `searchedFrom` upward (`status` reads from the folder this server was
-  started in and takes no `project`). Create one (below), or pass `project`
-  on `snapshot` and `run`.
+  started in and takes no `project`). Create one (below), or pass `project` on `snapshot`/`run`.
 - `{file, invalid, field}`: the file exists and cannot be used; `invalid` is
   why and `field` where. Fix it; every snapshot and run from that project
   answers `accountsInvalid` until then.
@@ -43,8 +42,7 @@ the user; section 7 lists every reason.
   `{name, about, session}` with `session` `"saved"`, `"none"` or
   `"changed"` (saved before the account's `checkUrl` or `signIn` was
   edited). Both are fine: Demoman signs in.
-  `sessionsUnreadable`, when present, says the saved sessions could not be
-  read: tell the user.
+  `sessionsUnreadable`, when present: the saved sessions could not be read; tell the user.
 
 `status.sessions` lists an account's saved session with an `account` (and
 its `origin`) beside `site`; an entry without one is the site's manual
@@ -53,7 +51,7 @@ session from `npx demoman signin <url>`.
 `status.secretsFile` is `null` (no usable accounts file), `{path, absent:
 true}` (no secrets file: only `DEMOMAN_SECRET_*` can supply values),
 `{path, git: "ignored"}` (git ignores it: safe), `{path, git: "notGit"}`
-(not in git, so that could not be checked: tell the user), or `{path, refused}` (it cannot be read; `refused` is why,
+(not in git, so unchecked: tell the user), or `{path, refused}` (unreadable; `refused` is why,
 as `secretsFileNotIgnored` or `secretsFileInvalid` will be). Never a value.
 
 A page behind a login answers `signedOut` and `status` shows no account for
@@ -68,21 +66,19 @@ its site. Then, in this order:
    `db/seeds/demo.rb`). Generate a random password of 20 or more characters.
    Write `DEMOMAN_SECRET_<NAME>=…` and
    `DEMOMAN_SECRET_<NAME>_ORIGIN=<the site's origin>` to
-   `.demoman/secrets.env`, and add
-   `.demoman/secrets.env` to `.gitignore` if it is missing. Add the account
-   to `accounts.json`. Tell the user in one line.
-   Then `snapshot` again.
+   `.demoman/secrets.env`, and add it to `.gitignore` if missing. Add the
+   account to `accounts.json`. Tell the user in one line; `snapshot` again.
 3. **Two-factor or a magic link in the way:** add a dev-only "sign in as"
    route, reachable only in development, and make the account's `signIn` one
    `goto` to it. Phoenix:
    `if Mix.env() == :dev, do: get "/dev/sign-in-as/:email", DevController, :sign_in`; Rails: the same under `Rails.env.development?`.
-   The action starts a session; nothing else.
+   It starts a session only.
 4. **The database is not clearly local** (a remote `DATABASE_URL`, staging,
    production): create nothing. Ask the user, or give them
    `npx demoman signin <url>`, which signs in by hand in a window: it is the
    way for a real account, single sign-on and two-factor.
 
-Only demo accounts. Never put the user's own password in `secrets.env`.
+Only demo accounts; never the user's own password in `secrets.env`.
 
 The file, with one account:
 
@@ -117,16 +113,15 @@ The file, with one account:
   signed in to nothing cannot open (it redirects to sign-in, or shows a
   password form) and that shows no password field once signed in. Demoman
   opens it signed out first and treats where it lands as the sign-in page. `about` names who the account is and what data
-  it has, so the next agent reuses it.
+  it has.
 - `{secret:NAME}` goes in a `signIn` step's `text`, `NAME` being
   `[A-Z0-9_]+`, not ending in `_ORIGIN`. Demoman reads
-  `DEMOMAN_SECRET_NAME` from the environment, else the same line of
-  `.demoman/secrets.env`, which it reads only when git ignores it. A value
+  `DEMOMAN_SECRET_NAME` from the environment, else `.demoman/secrets.env`
+  (only when git ignores it). A value
   is at least 8 characters, typed only with `DEMOMAN_SECRET_NAME_ORIGIN`
   beside it, naming the account's site. In the environment the user sets
   both and you never change them; in `secrets.env` you write both.
-  A `{secret:…}` in a demo
-  script is refused (`invalidScript`): secrets work only in `signIn`.
+  A `{secret:…}` in a demo script is refused (`invalidScript`).
   Environment secrets serve only the accounts.json of the repo Demoman was
   started in; one reached through `project` reads only its own
   `.demoman/secrets.env`.
@@ -148,17 +143,17 @@ The file, with one account:
 ```
 
 - Demoman signs in by itself: when the account has no saved session, and
-  once more when a call lands on a sign-in page. `signedIn`
-  (`{account, steps, ms}`) in the snapshot or the report says it did. A
-  second failure answers `signInFailed`. A session that lapses mid-run keeps
-  no take; Demoman has signed in again: just run again.
+  once more when a call lands on a sign-in page; `signedIn`
+  (`{account, steps, ms}`) says it did. A second failure answers
+  `signInFailed`. A session that lapses mid-run keeps no take; Demoman has
+  signed in again: just run again.
 
 ## 2. Look at the page
 
 `snapshot(url)` opens `url` in Demoman's browser, lists the page's targets,
 and leaves the page open. Each entry is
-`{ target, kind, text, rect, inFirstViewport }`. Every `target` listed is one
-a run resolves to exactly that element: Demoman checked it.
+`{ target, kind, text, rect, inFirstViewport }`. Every `target` listed
+resolves in a run to exactly that element: Demoman checked it.
 
 - **Copy a `target` into a step verbatim. Never compose one**, and never
   translate a name from another tool's accessibility tree: Demoman's roles
@@ -167,7 +162,7 @@ a run resolves to exactly that element: Demoman checked it.
   `landedUrl` says where. If it is a sign-in page, this browser is not
   signed in there: see `session` below and spend no run. If it is
   not a sign-in page (a trailing slash, `https`, a locale prefix), use
-  `landedUrl` as the script's `target`, and this snapshot as it stands.
+  `landedUrl` as the script's `target`; this snapshot stands.
   `landedElsewhere: null` means the page's address could not be read: not an
   all-clear.
 - `session` - `"saved"`: a session is saved for this site; `"none"`: none
@@ -224,16 +219,14 @@ a run resolves to exactly that element: Demoman checked it.
 1. `snapshot` the page the flow starts on.
 2. Write each step with a `target` copied from that snapshot.
 3. A step that reveals hidden content (a FAQ answer, a panel) names its
-   targets from the same snapshot, followed by a `waitFor … until:
-   "visible"`. A step that navigates: snapshot the new page's URL and put a
+   targets from the same snapshot, then a `waitFor … until: "visible"`. A step that navigates: snapshot the new page's URL and put a
    `waitForLoad` after the step. A step on content a click creates: see
    section 2.
 4. `snapshot`'s `kits` lists the user's brand kits by name, the default
    marked. Use a name from it in `look.kit` only when the user asked for a
    look, and then write `"scriptVersion": 2` - a script that names a kit at
    version 1 is refused (`invalidScript`, `field` `scriptVersion`).
-   `{ "ok": false, "reason": … }` means the kits could not be read: say so,
-   and name none.
+   `{ "ok": false, "reason": … }`: the kits could not be read; say so, name none.
 
 ### From a take made earlier
 
@@ -351,16 +344,15 @@ A video kept current in the repo (.demoman/videos) is rewritten by each run into
    | stray arrival, `detour` | Demoman | leave it |
    | drift from the earlier take | the app | report it |
 
-   A finding that is Demoman's earns no run and is not passed on: the
-   user takes the video as it is or changes it in the Studio. A step's
+   A finding that is Demoman's earns no run and is not passed on (the
+   user can change it in the Studio). A step's
    `roomMs` is Demoman's own pacing, not a stall.
 4. Tighten a step whose `candidates` is above 1 or whose `strategy` is weaker
    than the target you named.
 
 **Stop after three runs**, done or not, then export: every run drives the
-user's real app. A take zooms on every click and starts from the kit named in `look.kit`, else the
-user's default brand kit; a draft derived from a take keeps that take's
-branding. The report's `look.branding` says where it came from: `script`,
+user's real app. A take zooms on every click and starts from `look.kit`, else the
+user's default brand kit; a derived draft keeps its take's branding. The report's `look.branding` says where it came from: `script`,
 `kit` (you named it; `look.kit.name` says which), `defaultKit`, or
 `defaults`. A non-null `look.brandKitError` means the default kit could not
 be read, and goes into your hand-back. The report's `size` is what the video
@@ -397,6 +389,8 @@ was recorded at (section 2); a `size.error` goes into your hand-back too.
    Demoman's own calls (`zooms`, `detailViolations`, a size cap's `steps`,
    a GIF's widths, `targetCheck`). They are
    not the user's to act on: do not pass them on. None is the script's to fix.
+   Except `wallpaperWarning.sentence` (wallpaper left out: plain
+   gradient; or will look soft): quote it.
    `warnings.editedSinceRecorded` lists steps whose `scene.json` no longer
    matches the frames; the summary names the re-recording
    (`run({ video: { id } })`, or `derive` then `run` when a verb changed).
@@ -506,8 +500,7 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 - `scrollTo` takes an optional `landing: { "top": <px> }`, the viewport y of
   the element's top edge when the scroll stops. Absent means centred.
 - `viewport` absent means the size the user chose: the screen's, which
-  `snapshot` measured `inFirstViewport` against. Leave `viewport`
-  out unless the user asked for a size.
+  `snapshot` measured `inFirstViewport` against. Leave `viewport` out unless the user asked.
 - `device` is `"phone"` or `"tablet"`: the page is recorded as a phone (393x852)
   or a tablet (820x1180), with touch and an iOS user agent. Name a device or a
   `viewport`, not both. A device has no hover, so a `hover` step under one is
@@ -518,13 +511,16 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
   `branding` is the whole of one: `background`, `logo` (or `null`) and
   `padding`, the margin as a fraction of the frame's shorter side (0 to
   0.2; left out is 0.08); a missing `background` or `logo` is refused.
+  A `background` may be `{ "kind": "wallpaper", "id" }` (`vivid-1` to
+  `vivid-6`, `light-1`, `light-2`, `dark-1`, `dark-2`; another id is refused,
+  naming them) or `{ "kind": "image", "ref": "<path>" }`, a file, absolute or
+  relative to the Demoman home; copied into the take.
   A `canvas` is `{ "aspect": "auto" | "16:9" | "9:16" }`; `auto`, the
   default, is the recording's own shape plus an even margin.
   A `motion` is how the camera moves, `{ "smoothness": 0-1, "blur": 0-1, "follow": true | false }`; a derived draft carries the take's own, so keep it.
 - Refused at the door: a script whose every step is a `pause`; a `target`
   that is not `http(s)`; a `click` with a `button`.
-- No branching, no loops, no assertions. Add `pause` only where a viewer
-  must read something.
+- No branching, loops or assertions. Add `pause` only where a viewer must read.
 
 ## 7. Every reason
 
