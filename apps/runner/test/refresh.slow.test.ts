@@ -194,7 +194,7 @@ function kept(
 const filmed: { name: string; display: string; scale: number | null }[] = [];
 /** Every run this file films: its name, and the gaps (source ms) between
  *  its consecutive step markers after the first. */
-const gaps: { name: string; gaps: number[]; act: number }[] = [];
+const gaps: { name: string; gaps: number[]; settle: number }[] = [];
 /** Every saved export's screens, in order. */
 const exported: { fileType: string; screens: KeptScreens }[] = [];
 /** The temp folders refresh makes, as they are in the system's temp now. */
@@ -242,10 +242,16 @@ const deps = (): RefreshDeps => ({
           gaps.push({
             name: String((args.script as { name: string }).name),
             gaps: at.slice(1).map((t, i) => t - (at[i] as number)),
-            // How long the first click's act lasted: the page's response.
-            act:
-              (marks[0]?.actEndSourceTimeMs ?? Number.NaN) -
-              (marks[0]?.sourceTimeMs ?? Number.NaN),
+            // When the page stopped moving after the first click, from its
+            // marker: the end of the last screencast span before the next.
+            settle: (() => {
+              const from = marks[0]?.sourceTimeMs ?? Number.NaN;
+              const to = marks[1]?.sourceTimeMs ?? Number.POSITIVE_INFINITY;
+              const ends = (bundle?.motionSpans ?? [])
+                .filter((m) => m.startMs >= from && m.startMs < to)
+                .map((m) => m.endMs);
+              return ends.length === 0 ? Number.NaN : Math.max(...ends) - from;
+            })(),
           });
           filmed.push({
             name: String((args.script as { name: string }).name),
@@ -488,17 +494,19 @@ describe("refresh", () => {
         screensOf(slowA),
         `unchanged: ${unchangedDetailA} | slower: ${slowA}`,
       ).toEqual(screensOf(unchangedDetailA));
-      // The premise: the first click's act ran longer than in the film before it by more than the
-      // films' own 20 ms jitter (the act is capped near 1.1 s, so not by 600), and neither sits near the camera's line.
+      // The premise: the page settled after the first click later than in the
+      // film before it, by most of the 600 ms (the click's act is capped near
+      // 1.1 s, and on CI it reached the cap in both films, so it cannot say),
+      // and neither film's gap sits near the camera's line.
       const bGaps = gaps.filter((g) => g.name === B);
       const [before, now] = [
         bGaps[fast - 1],
         bGaps[fast],
       ] as (typeof gaps)[0][];
       expect(
-        (now?.act as number) - (before?.act as number),
+        (now?.settle as number) - (before?.settle as number),
         JSON.stringify(gaps),
-      ).toBeGreaterThan(100);
+      ).toBeGreaterThan(300);
       for (const g of [before, now])
         expect(clearOfLine(g?.gaps[0] as number), JSON.stringify(g)).toBe(true);
     },
