@@ -110,6 +110,8 @@ export type RunPipeline = (input: {
   scene: SceneDocument;
   targetUrl: string;
   outPath: string;
+  /** The built-in wallpapers' folder, as `ExportDeps.wallpapersDir`. */
+  wallpapersDir: string;
   /** Tests only: the widest MP4 tier the render may use, so a lane can
    *  render landscape in software at 1080p where the keyframes back 4K.
    *  Production never sets it; the keyframes decide. */
@@ -401,12 +403,16 @@ export const runPipeline: RunPipeline = async (input) => {
         store,
         page: launched.page,
         outPath,
+        wallpapersDir: input.wallpapersDir,
         ...(input.maxTier === undefined ? {} : { maxTier: input.maxTier }),
       });
       // The file is whole; the logo is why it may not be what the scene
       // asked for, and `demoman render` says so.
       if (renderedFile.logoWarning !== null) {
         report(`demoman: ${renderedFile.logoWarning}`);
+      }
+      if (renderedFile.wallpaperWarning !== null) {
+        report(`demoman: ${renderedFile.wallpaperWarning.sentence}`);
       }
     } catch (error) {
       // Whole-branch review finding 2: design §5's exit-5 render row was

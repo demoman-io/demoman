@@ -36,7 +36,7 @@ const bundle = (degradations: FrameBundle["degradations"] = []) =>
   ({ keyframes: [], motionSpans: [], degradations }) as unknown as FrameBundle;
 const target = (format: "mp4" | "gif" | "png") =>
   ({ format, width: 800, height: 450, fps: 15 }) as never;
-const base = { scene, frames: {} as never, logo: null };
+const base = { scene, frames: {} as never, logo: null, wallpaper: null };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -44,6 +44,7 @@ beforeEach(() => {
   composeForTarget.mockReturnValue({
     violations: [],
     presentation: { frameRect: { width: 100 } },
+    resolved: { cameraKeys: [] },
   });
   renderScene.mockResolvedValue({ bytes: new Uint8Array([1, 2]), ...facts });
   renderStills.mockResolvedValue({
@@ -775,5 +776,273 @@ describe("renderOutput's stills size and framing", () => {
     expect(asked()?.target.width).toBe(2560);
     expect(asked()?.camera).toBeUndefined();
     expect(out.facts.rendered.width).toBe(2560);
+  });
+});
+
+describe("renderOutput's wallpaper", () => {
+  const gifTarget = {
+    format: "gif",
+    width: 800,
+    height: 450,
+    fps: 15,
+    bitrate: 0,
+    cornerRadius: 10,
+    fit: "contain",
+  } as const;
+  /** Node has no createImageBitmap: a stand-in that records each resize
+   *  and answers a bitmap of that size. */
+  const resized: { width: number; height: number; closed: boolean }[] = [];
+  beforeEach(() => {
+    resized.length = 0;
+    asked.length = 0;
+    vi.stubGlobal(
+      "createImageBitmap",
+      async (
+        _source: unknown,
+        o: { resizeWidth: number; resizeHeight: number },
+      ) => {
+        const made = {
+          width: o.resizeWidth,
+          height: o.resizeHeight,
+          closed: false,
+        };
+        resized.push(made);
+        return {
+          ...made,
+          close: () => {
+            made.closed = true;
+          },
+        };
+      },
+    );
+    return () => vi.unstubAllGlobals();
+  });
+  /** Each size a render asked the loader for. */
+  const asked: { width: number; height: number }[] = [];
+  /** A loader holding the image decoded whole, as one that is not a WebP. */
+  const decoded = (width: number, height: number) => ({
+    ok: true as const,
+    name: "vivid-1",
+    natural: { width, height },
+    image: async (size: { width: number; height: number }) => {
+      asked.push(size);
+      return {
+        image: { master: true } as never,
+        width,
+        height,
+        sourceTimeMs: 0,
+      };
+    },
+    close: () => undefined,
+  });
+  const drew = () =>
+    renderScene.mock.calls.map((c) => {
+      const w = c[0].wallpaper;
+      return w === null ? null : [c[0].target.width, w.width, w.height];
+    });
+
+  // Ruling R1: every rung of the GIF ladder draws the image at its own
+  // raster size. Red if the image is resized once for the manifest's target
+  // or passed as decoded.
+  it("rasterises the image per GIF rung, and frees each rung's raster", async () => {
+    renderScene.mockImplementation(
+      async (args: { target: { width: number } }) => {
+        if (args.target.width === 1600) throw new GifOverBudgetError(100, 150);
+        return { bytes: new Uint8Array([1]), ...facts, deepestScale: 1 };
+      },
+    );
+    const out = await renderOutput({
+      ...base,
+      fileType: "gif",
+      target: gifTarget,
+      bundle: bundle(),
+      gifBudget: { maxBytes: 100 },
+      wallpaper: decoded(9600, 7200),
+    });
+    // 1600 wide covers at 1/6 of 9600, 2.5x that is 4000; 1200 wide, 3000.
+    expect(drew()).toEqual([
+      [1600, 4000, 3000],
+      [1200, 3000, 2250],
+    ]);
+    // The loader is asked for each rung's raster, never the image's own size.
+    expect(asked).toEqual([
+      { width: 4000, height: 3000 },
+      { width: 3000, height: 2250 },
+    ]);
+    expect(resized.every((r) => r.closed)).toBe(true);
+    expect(out.facts.wallpaperWarning).toBeNull();
+  });
+
+  it("draws the decoded image itself when the target needs all of it", async () => {
+    renderScene.mockResolvedValue({
+      bytes: new Uint8Array([1]),
+      ...facts,
+      deepestScale: 2.5,
+    });
+    await renderOutput({
+      ...base,
+      fileType: "mp4",
+      target: {
+        ...gifTarget,
+        format: "mp4",
+        width: 3840,
+        height: 2160,
+      } as never,
+      bundle: bundle(),
+      wallpaper: decoded(9600, 7200),
+    });
+    expect(renderScene.mock.calls[0]?.[0].wallpaper.image).toEqual({
+      master: true,
+    });
+    expect(resized).toEqual([]);
+  });
+
+  it("passes the image to stills, and frees their raster", async () => {
+    await renderOutput({
+      ...base,
+      fileType: "stills",
+      target: { ...gifTarget, format: "png" } as never,
+      bundle: bundle(),
+      wallpaper: decoded(9600, 7200),
+    });
+    const w = renderStills.mock.calls[0]?.[0].wallpaper;
+    expect([w?.width, w?.height]).toEqual([2000, 1500]);
+    expect(resized.map((r) => r.closed)).toEqual([true]);
+  });
+
+  // Report before you forgive. Red if the reason is dropped.
+  it("renders the gradient for an image that could not be had, and says why", async () => {
+    renderScene.mockResolvedValue({
+      bytes: new Uint8Array([1]),
+      ...facts,
+      deepestScale: 1,
+    });
+    const out = await renderOutput({
+      ...base,
+      fileType: "mp4",
+      target: { ...gifTarget, format: "mp4" } as never,
+      bundle: bundle(),
+      wallpaper: {
+        ok: false,
+        error: "/h/assets/gone.webp could not be read (ENOENT)",
+      },
+    });
+    expect(renderScene.mock.calls[0]?.[0].wallpaper).toBeNull();
+    expect(out.facts.wallpaperWarning).toEqual({
+      kind: "leftOut",
+      sentence:
+        "The wallpaper was left out: /h/assets/gone.webp could not be read (ENOENT); the video uses the plain gradient.",
+    });
+  });
+
+  // Red if stills are told about "the video".
+  it("says the stills, not the video, use the gradient", async () => {
+    const out = await renderOutput({
+      ...base,
+      fileType: "stills",
+      target: { ...gifTarget, format: "png" } as never,
+      bundle: bundle(),
+      wallpaper: { ok: false, error: "x could not be read" },
+    });
+    expect(out.facts.wallpaperWarning).toEqual({
+      kind: "leftOut",
+      sentence:
+        "The wallpaper was left out: x could not be read; the stills use the plain gradient.",
+    });
+  });
+
+  // Red if a scene on a wallpaper with no image handed in is taken for a
+  // scene with nothing to draw.
+  it("says a wallpaper scene rendered with no image was left out", async () => {
+    renderScene.mockResolvedValue({
+      bytes: new Uint8Array([1]),
+      ...facts,
+      deepestScale: 1,
+    });
+    const out = await renderOutput({
+      ...base,
+      scene: {
+        ...scene,
+        branding: {
+          ...scene.branding,
+          background: { kind: "wallpaper", id: "vivid-1" },
+        },
+      },
+      fileType: "mp4",
+      target: { ...gifTarget, format: "mp4" } as never,
+      bundle: bundle(),
+    });
+    expect(out.facts.wallpaperWarning).toEqual({
+      kind: "leftOut",
+      sentence:
+        "The wallpaper was left out: no wallpaper was supplied to the render; the video uses the plain gradient.",
+    });
+  });
+
+  // Red if the warning ignores the render's own deepest zoom: 1600x1200
+  // covers 800x450 at zoom 1 (800x600) and not at 2.5 (2000x1500).
+  it("says an image too small for the deepest zoom will look soft, and only then", async () => {
+    const at = (deepestScale: number) => {
+      renderScene.mockResolvedValue({
+        bytes: new Uint8Array([1]),
+        ...facts,
+        deepestScale,
+      });
+      return renderOutput({
+        ...base,
+        fileType: "mp4",
+        target: { ...gifTarget, format: "mp4" } as never,
+        bundle: bundle(),
+        wallpaper: { ...decoded(1600, 1200), name: "/h/assets/small.webp" },
+      });
+    };
+    expect((await at(1)).facts.wallpaperWarning).toBeNull();
+    expect((await at(2.5)).facts.wallpaperWarning).toEqual({
+      kind: "soft",
+      sentence:
+        'The wallpaper "/h/assets/small.webp" is 1600×1200, smaller than this export\'s deepest zoom needs (2000×1500), so it will look soft.',
+    });
+  });
+
+  // Red if the warning measures the decoded raster instead of the image's
+  // own size: decoded at 400x300, a 9600x7200 image is never soft here.
+  it("judges soft by the image's own size, not the size it was decoded to", async () => {
+    renderScene.mockResolvedValue({
+      bytes: new Uint8Array([1]),
+      ...facts,
+      deepestScale: 2.5,
+    });
+    const small = {
+      image: {} as never,
+      width: 400,
+      height: 300,
+      sourceTimeMs: 0,
+    };
+    const out = await renderOutput({
+      ...base,
+      fileType: "mp4",
+      target: { ...gifTarget, format: "mp4" } as never,
+      bundle: bundle(),
+      wallpaper: {
+        ...decoded(9600, 7200),
+        image: async () => small,
+      },
+    });
+    // The premise: the loader answered smaller than the need's 2000x1500.
+    expect(small.width).toBeLessThan(2000);
+    expect(out.facts.wallpaperWarning).toBeNull();
+  });
+
+  // The gradient scene above, with nothing handed in: nothing to say.
+  it("has no wallpaper warning without a wallpaper", async () => {
+    expect(scene.branding.background.kind).toBe("gradient");
+    const out = await renderOutput({
+      ...base,
+      fileType: "mp4",
+      target: { ...gifTarget, format: "mp4" } as never,
+      bundle: bundle(),
+    });
+    expect(renderScene.mock.calls[0]?.[0].wallpaper).toBeNull();
+    expect(out.facts.wallpaperWarning).toBeNull();
   });
 });

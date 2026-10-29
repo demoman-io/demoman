@@ -1,4 +1,3 @@
-import { BRANDING_DEFAULTS } from "@demoman/scene-schema";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type FrameBundle,
@@ -208,7 +207,7 @@ describe("renderScene", () => {
       3840 /
       1280 /
       contentScale(
-        derivePresentation(BRANDING_DEFAULTS, target, plan.viewport).frameRect,
+        derivePresentation(scene.branding, target, plan.viewport).frameRect,
         plan.viewport,
       );
     expect(headroom).toBeGreaterThan(1);
@@ -224,6 +223,9 @@ describe("renderScene", () => {
       sourceWidth: 3840,
     });
     expect(cuts[0]?.grantedScale).toBeCloseTo(headroom, 6);
+    // The deepest scale is the clamped one, not the 2.5 asked for: it is how
+    // far the background was actually magnified.
+    expect(result.deepestScale).toBeCloseTo(headroom, 6);
     for (const v of result.detailViolations.filter((x) => !cuts.includes(x))) {
       expect(v.grantedScale).toBe(v.requestedScale);
       expect(v.sourceWidth).toBeLessThan(v.neededWidth);
@@ -1075,5 +1077,89 @@ describe("progress", () => {
     expect(calls).toEqual(
       bundle.markers.map((_, i) => [i + 1, bundle.markers.length]),
     );
+  });
+});
+
+describe("wallpaper threading", () => {
+  const base = sceneWithZoomOnClick();
+  const scene = {
+    ...base,
+    branding: {
+      ...base.branding,
+      background: { kind: "wallpaper" as const, id: "vivid-1" },
+    },
+  };
+  const bundle = proceduralBundle({
+    cursorSamples: [{ sourceTimeMs: 0, x: 640, y: 400 }],
+  });
+  const plan = planScene(scene);
+  const wallpaper: FrameImage = {
+    image: {} as never,
+    width: 4800,
+    height: 3600,
+    sourceTimeMs: 0,
+  };
+
+  beforeEach(() => {
+    vi.mocked(renderFrame).mockClear();
+  });
+
+  const drawnWallpapers = () =>
+    vi
+      .mocked(renderFrame)
+      .mock.calls.map(([call]) => call.presentation.wallpaper);
+
+  it("renderScene hands every frame the wallpaper it was given", async () => {
+    const result = await renderScene({
+      plan,
+      bundle,
+      scene,
+      target: LANDSCAPE_1080P,
+      ports: {
+        frames: countingFrameSource(),
+        surface: stubSurface,
+        video: createRecordingVideoSink(),
+      },
+      wallpaper,
+    });
+    expect(drawnWallpapers().length).toBeGreaterThan(0);
+    expect(new Set(drawnWallpapers())).toEqual(new Set([wallpaper]));
+    // The fixture zooms, so the deepest scale is past 1.
+    expect(result.deepestScale).toBeGreaterThan(1);
+  });
+
+  it("renderStills hands every still the wallpaper it was given", async () => {
+    await renderStills({
+      plan,
+      bundle,
+      scene,
+      target: STILL_1440,
+      ports: {
+        frames: countingFrameSource(),
+        surface: stubSurface,
+        images: createCollectingImageSink(),
+      },
+      wallpaper,
+    });
+    expect(drawnWallpapers().length).toBeGreaterThan(0);
+    expect(new Set(drawnWallpapers())).toEqual(new Set([wallpaper]));
+  });
+
+  it("a gradient background carries no wallpaper even when one is given", async () => {
+    await renderScene({
+      plan,
+      bundle,
+      scene: base,
+      target: LANDSCAPE_1080P,
+      ports: {
+        frames: countingFrameSource(),
+        surface: stubSurface,
+        video: createRecordingVideoSink(),
+      },
+      wallpaper,
+    });
+    expect(base.branding.background.kind).toBe("gradient");
+    expect(drawnWallpapers().length).toBeGreaterThan(0);
+    expect(new Set(drawnWallpapers())).toEqual(new Set([null]));
   });
 });

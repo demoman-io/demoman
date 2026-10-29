@@ -30,6 +30,7 @@ const handlers = () => ({
   onCommit: vi.fn(),
   onPreview: vi.fn(),
   onLogoFile: vi.fn(),
+  onWallpaperFile: vi.fn(),
 });
 const mount = (branding: SceneBranding, h = handlers(), extra = {}) => {
   renderBrandingControls(
@@ -40,6 +41,11 @@ const mount = (branding: SceneBranding, h = handlers(), extra = {}) => {
       logoPlacement: null,
       formatTitle: "Landscape video",
       logoNotes: [],
+      wallpaper: {
+        thumbUrl: (id: string) => `/wallpapers/${id}-thumb.webp`,
+        custom: null,
+        loadError: null,
+      },
       ...extra,
     },
     h,
@@ -641,6 +647,11 @@ describe("the gamut note across the commit's re-render", () => {
           logoPlacement: null,
           formatTitle: "Landscape video",
           logoNotes: [],
+          wallpaper: {
+            thumbUrl: (id: string) => `/wallpapers/${id}-thumb.webp`,
+            custom: null,
+            loadError: null,
+          },
         },
         {
           onCommit: (patch) =>
@@ -650,6 +661,7 @@ describe("the gamut note across the commit's re-render", () => {
             }),
           onPreview: vi.fn(),
           onLogoFile: vi.fn(),
+          onWallpaperFile: vi.fn(),
         },
       );
     rerender(solid);

@@ -125,6 +125,10 @@ vi.mock("#platform", async (importOriginal) => {
       put: async () => ({ ref: "assets/x.png" }),
       load: async () => ({ ok: false, error: "no logo in this test" }),
     },
+    wallpapers: {
+      put: async () => ({ ref: "assets/x.webp" }),
+      load: async () => ({ ok: false, error: "no wallpaper in this test" }),
+    },
     kits: {
       read: async () => ({
         state: "ready",

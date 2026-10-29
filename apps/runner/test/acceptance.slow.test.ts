@@ -23,7 +23,11 @@ import { DECODE_PROBE_GLOBAL } from "../src/entry-globals.js";
 import { type Launched, launch } from "../src/launch.js";
 import { installResolver } from "../src/page-agent.js";
 import { runPipeline } from "../src/pipeline.js";
-import { fixtureDriftComplaints, serveFixtureApp } from "./fixture.js";
+import {
+  fixtureDriftComplaints,
+  serveFixtureApp,
+  WALLPAPERS_DIR,
+} from "./fixture.js";
 
 /**
  * The whole runner, end to end: a scene document and a URL in, an mp4 on
@@ -453,6 +457,7 @@ async function runAndAssert(scenePath: string, outPath: string): Promise<void> {
     scene,
     targetUrl: server.url,
     outPath,
+    wallpapersDir: WALLPAPERS_DIR,
     // 1080p, not the 4K these keyframes back: the render is the run, and in
     // software 4K cost 308 of this test's 323 s (2026-10-17). What that
     // leaves uncovered, by choice (the author, 2026-10-17): no test renders

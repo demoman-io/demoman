@@ -5,7 +5,7 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import type { LocalExecutor } from "../src/executor/types.js";
-import { ownVideo } from "./fixture.js";
+import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 import { type LoginApp, serveLoginApp, sessionFor } from "./login-app.js";
 
 let app: LoginApp;
@@ -15,6 +15,7 @@ beforeAll(async () => {
   app = await serveLoginApp();
   home = await mkdtemp(join(tmpdir(), "demoman-exec-sessions-"));
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     log: () => undefined,

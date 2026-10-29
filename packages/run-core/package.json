@@ -20,6 +20,10 @@
       "types": "./dist/logo.d.ts",
       "default": "./dist/logo.js"
     },
+    "./wallpaper": {
+      "types": "./dist/wallpaper.d.ts",
+      "default": "./dist/wallpaper.js"
+    },
     "./render": {
       "types": "./dist/render/index.d.ts",
       "default": "./dist/render/index.js"

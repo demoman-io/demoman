@@ -431,8 +431,14 @@ describe("fit", () => {
       (frameRect.width * frameRect.height) /
       (VERTICAL_1080.width * VERTICAL_1080.height);
     // Letterboxed into the capture's aspect this was 0.30. The padding alone
-    // accounts for the rest: 0.88 at a 0.04 inset, 0.76 at the default 0.08.
-    expect(covered).toBeGreaterThan(0.75);
+    // accounts for the rest (0.88 at a 0.04 inset, 0.76 at 0.08, 0.66 at the
+    // default 0.12), so the app fills the padded box, all of it.
+    const box = padded(VERTICAL_1080);
+    const boxShare =
+      (box.width * box.height) / (VERTICAL_1080.width * VERTICAL_1080.height);
+    // Premise: the padded box is most of the canvas, far from 0.30.
+    expect(boxShare).toBeGreaterThan(0.6);
+    expect(covered).toBeGreaterThan(boxShare * 0.99);
   });
 
   it("still fits a contain target to the capture's aspect", () => {

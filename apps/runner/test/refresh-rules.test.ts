@@ -5,9 +5,12 @@ import { describe, expect, it } from "vitest";
 import { uncleanRun } from "../src/executor/refresh.js";
 import {
   comparePictures,
+  LOOKS,
+  PICTURE_OPTIONS,
   samePicture,
   sharedScreens,
 } from "../src/executor/same-picture.js";
+import { changedShare, type Drawn, insideOnly } from "../src/picture-diff.js";
 
 // Each condition of a clean run on its own: refresh.slow.test.ts's stopped
 // run also fails the verdict, so it cannot tell whether the stop is checked.
@@ -247,5 +250,139 @@ describe("comparePictures", () => {
     expect(comparePictures(diff([0, 0, 0], 6, 8), shared, 4)).toMatchObject({
       same: true,
     });
+  });
+});
+
+// The report's shape (2026-10-28): on a smooth blurred background the
+// encoder's error is a solid offset over a whole macroblock, which no block
+// average dilutes. Outside the window it is judged by the look, not here.
+describe("the window's pixels", () => {
+  const W = 320;
+  const H = 180;
+  const grey = (): Drawn => ({
+    width: W,
+    height: H,
+    rgba: new Uint8ClampedArray(W * H * 4).fill(128),
+  });
+  /** `base` with a solid `levels` offset over the 16x16 square at x, y. */
+  const offset = (base: Drawn, x: number, y: number, levels = 30): Drawn => {
+    const rgba = new Uint8ClampedArray(base.rgba);
+    for (let j = y; j < y + 16; j++)
+      for (let i = x; i < x + 16; i++)
+        for (let c = 0; c < 3; c++) {
+          const p = (j * W + i) * 4 + c;
+          rgba[p] = (rgba[p] as number) + levels;
+        }
+    return { ...base, rgba };
+  };
+  // In the film's own pixels, a film twice the drawn width.
+  const window = { x: 100, y: 60, width: 440, height: 240, radius: 24 };
+  const faintly = LOOKS[1];
+  const inset = PICTURE_OPTIONS.inset;
+  const share = (b: Drawn) =>
+    changedShare(grey(), insideOnly(grey(), b, window, 2 * W, inset), faintly);
+
+  it("a block changed only outside the window reads unchanged", () => {
+    const outside = offset(grey(), 10, 10);
+    // Premise: over the whole picture the same block reads changed.
+    expect(changedShare(grey(), outside, faintly)).toBeGreaterThan(
+      faintly.allowed,
+    );
+    expect(share(outside)).toBe(0);
+  });
+  it("the same block inside the window reads changed", () => {
+    expect(share(offset(grey(), 120, 80))).toBeGreaterThan(faintly.allowed);
+  });
+  // The window's rounded corner: its square holds background past the arc.
+  it("a block in a corner's square past the arc reads unchanged", () => {
+    // Drawn at half size and inset, the window's corner is at 52, 32 with
+    // a radius of 10: the 3x3 pixels there are inside its rect, past its arc.
+    const tiny = grey();
+    for (let j = 32; j < 35; j++)
+      for (let i = 52; i < 55; i++)
+        for (let c = 0; c < 3; c++) tiny.rgba[(j * W + i) * 4 + c] = 218;
+    expect(changedShare(grey(), tiny, LOOKS[0])).toBeGreaterThan(0);
+    expect(
+      changedShare(
+        grey(),
+        insideOnly(grey(), tiny, window, 2 * W, inset),
+        LOOKS[0],
+      ),
+    ).toBe(0);
+  });
+});
+
+describe("comparePictures with windows", () => {
+  const file = { width: 1920, height: 1080, length: 6, frame: 1 / 30 };
+  const diff = { a: file, b: file, changed: [[0, 0]] };
+  const w = { x: 230, y: 130, width: 1460, height: 820, radius: 18 };
+  it("a window drawn elsewhere is a change, naming where", () => {
+    const moved = { ...w, x: w.x + 3 };
+    const out = comparePictures(
+      diff,
+      [{ step: null, msA: 5000, msB: 5000, windowA: w, windowB: moved }],
+      2,
+    );
+    expect(out).toEqual({
+      same: false,
+      detail:
+        "the window moved on the final screen at 5.00s, from 230,130 1460x820 to 233,130 1460x820",
+    });
+  });
+  // 1 px at the 1280 drawn width is 1.5 px of a 1920 film.
+  it("a window within a pixel of where it was is the same window", () => {
+    const out = comparePictures(
+      diff,
+      [
+        {
+          step: null,
+          msA: 5000,
+          msB: 5000,
+          windowA: w,
+          windowB: { ...w, x: w.x + 1.4 },
+        },
+      ],
+      2,
+    );
+    expect(out).toMatchObject({ same: true });
+  });
+  it("a film without windows is compared whole, as before", () => {
+    const out = comparePictures(
+      diff,
+      [{ step: null, msA: 5000, msB: 5000, windowA: w }],
+      2,
+    );
+    expect(out).toMatchObject({ same: true });
+  });
+});
+
+describe("samePicture judges the look before it decodes", () => {
+  const none = {} as never;
+  const s = (look?: string) => ({
+    steps: 1,
+    moments: [{ step: null, ms: 500 }],
+    ...(look === undefined ? {} : { look }),
+  });
+  it("two looks are not the same", async () => {
+    const out = await samePicture("/x", "/y", "mp4", s("a1"), s("b2"), {
+      session: none,
+      log: () => undefined,
+    });
+    expect(out).toMatchObject({
+      same: false,
+      detail: expect.stringMatching(/^the look changed: /),
+    });
+  });
+  // No session: a look check that answered for a file kept before looks
+  // would never reach the page, which throws here.
+  // Going on to the pixels reads the committed file first, which is not
+  // there: that refusal is the proof it went on. A look verdict would not throw.
+  it("a committed file without a look goes on to the pixels", async () => {
+    await expect(
+      samePicture("/x", "/y", "mp4", s(), s("b2"), {
+        session: none,
+        log: () => undefined,
+      }),
+    ).rejects.toThrow(/ENOENT.*'\/x'/);
   });
 });

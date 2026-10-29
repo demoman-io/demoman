@@ -182,6 +182,7 @@ export {
 } from "./render/hover-verdict.js";
 export { detectKeyframeMotion } from "./render/motion-detect.js";
 export {
+  BACKGROUND_PAINT_VERSION,
   clipToFrame,
   contentScale,
   derivePresentation,
@@ -231,4 +232,16 @@ export {
   VERTICAL_1080,
   verticalCameraIntents,
 } from "./render/target.js";
+export {
+  coverRect,
+  WALLPAPER_LONG_SIDE,
+  wallpaperRasterSize,
+  wallpaperShape,
+} from "./render/wallpaper.js";
+export {
+  blurWallpaper,
+  WALLPAPER_BLUR_MAX,
+  wallpaperBlurPx,
+} from "./render/wallpaper-blur.js";
+export { sceneCameraAt, windowOnScreen } from "./render/window.js";
 export { COMPOSITOR_VERSION } from "./version.js";

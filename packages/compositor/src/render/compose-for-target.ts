@@ -96,14 +96,25 @@ export function composeForTarget(args: {
   /** Keyframe-diff motion, from `detectKeyframeMotion`. */
   hints?: TimeSpan[];
   logo?: FrameImage | null;
+  /** The decoded wallpaper or uploaded image (`wallpaperRasterSize`). */
+  wallpaper?: FrameImage | null;
 }): Composition {
-  const { plan, bundle, scene, target, hints, logo = null } = args;
+  const {
+    plan,
+    bundle,
+    scene,
+    target,
+    hints,
+    logo = null,
+    wallpaper = null,
+  } = args;
   const detailTarget = args.detailTarget ?? target;
   const presentation = derivePresentation(
     scene?.branding ?? BRANDING_DEFAULTS,
     target,
     plan.viewport,
     logo,
+    wallpaper,
   );
   const detailFrame =
     detailTarget === target

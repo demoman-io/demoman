@@ -13,7 +13,7 @@ import { createLibrary, type Library } from "../src/executor/library.js";
 import { samePicture } from "../src/executor/same-picture.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { makeDiskTake, putTake } from "./disk-take.js";
-import { LOGO_SVG } from "./fixture.js";
+import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): the disk take
 // about 2 s, each export 2-4 s, each comparison 2-6 s. x5 for CI
@@ -42,6 +42,7 @@ async function exported(
       ...(aspect === undefined ? {} : { aspect }),
     },
     {
+      wallpapersDir: WALLPAPERS_DIR,
       library,
       videos: createVideoStore(home, library),
       session,
@@ -137,6 +138,7 @@ describe("samePicture", () => {
     CASE_MS,
   );
 
+  // The logo is painted outside the window: its look says it changed.
   it(
     "an MP4 with a logo in one corner is not the same",
     async () => {
@@ -148,9 +150,43 @@ describe("samePicture", () => {
         of("mp4Logo"),
       );
       expect(out.same, out.detail).toBe(false);
+      expect(out.detail).toMatch(/^the look changed: /);
+    },
+    CASE_MS,
+  );
+
+  // A file kept before windows and looks were recorded: the whole picture,
+  // as before. Red if a missing window masks anything.
+  it(
+    "without windows and looks, the logo is seen in the whole picture",
+    async () => {
+      const bare = (k: KeptScreens): KeptScreens => ({
+        steps: k.steps,
+        moments: k.moments.map(({ step, ms }) => ({ step, ms })),
+      });
+      // The premise: these exports recorded both.
+      expect(of("mp4").look).toBeDefined();
+      expect(of("mp4").moments.every((m) => m.window !== undefined)).toBe(true);
+      const out = await compared(
+        files.mp4 as string,
+        files.mp4Logo as string,
+        "mp4",
+        bare(of("mp4")),
+        bare(of("mp4Logo")),
+      );
+      expect(out.same, out.detail).toBe(false);
       expect(out.detail).toMatch(
         /% of the picture changed \w+ (before action \d+|on the final screen) at [\d.]+s, over the 0\.0\d+% allowed, of \d+ of \d+ screens$/,
       );
+      // With the windows and no looks, the logo outside them is not seen.
+      const masked = await compared(
+        files.mp4 as string,
+        files.mp4Logo as string,
+        "mp4",
+        { ...of("mp4"), look: undefined },
+        { ...of("mp4Logo"), look: undefined },
+      );
+      expect(masked.same, masked.detail).toBe(true);
     },
     CASE_MS,
   );
@@ -170,7 +206,7 @@ describe("samePicture", () => {
         of("gifLogo"),
       );
       expect(out.same, out.detail).toBe(false);
-      expect(out.detail).toMatch(/% of the picture changed/);
+      expect(out.detail).toMatch(/^the look changed: /);
     },
     CASE_MS,
   );

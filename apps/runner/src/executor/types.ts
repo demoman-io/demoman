@@ -8,6 +8,8 @@ import type { GhRun } from "./gh.js";
 export interface ExecutorOptions {
   /** `demomanHome()`: takes under `<home>/takes`, kits at `<home>/kits.json`. */
   home: string;
+  /** The built-in wallpapers' folder, for exports (`ExportDeps`). */
+  wallpapersDir: string;
   /** Whether the browser has no window. The published package and
    *  `demoman-mcp` run headless unless started with `--headed` (author's
    *  ruling 2026-10-20: a window in front of the developer is in the way). */

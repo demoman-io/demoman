@@ -63,10 +63,10 @@ describe("the author's padding, in every format", () => {
   });
 
   // Spec §4: the logo keeps to the margin. The default mark (0.06) needs a
-  // padding of 0.06 + 0.02, which is why the default is 0.08; at 0 a
-  // recording that fills the frame leaves no margin and nothing is drawn.
-  // Red if the default padding drops below 0.08, or if a logo is drawn over
-  // a full-screen recording.
+  // padding of 0.06 + 0.02; the default 0.12 (2026-10-28) clears it, and at
+  // 0 a recording that fills the frame leaves no margin and nothing is
+  // drawn. Red if the default padding drops below 0.08, or if a logo is
+  // drawn over a full-screen recording.
   const image = {
     image: {} as never,
     width: 200,
@@ -77,9 +77,11 @@ describe("the author's padding, in every format", () => {
     ...BRANDING_DEFAULTS,
     logo: { ref: "logo:a", ...LOGO_DEFAULTS },
   };
-  it("draws the default logo uncapped at 8%, and no logo at 0", () => {
-    // Premise: the default mark is the size the comment reasons about.
+  it("draws the default logo uncapped at the default padding, and no logo at 0", () => {
+    // Premise: the default mark is the size the comment reasons about, and
+    // the default padding has room for it.
     expect(LOGO_DEFAULTS.size).toBe(0.06);
+    expect(BRANDING_DEFAULTS.padding).toBeGreaterThanOrEqual(0.08);
     for (const [target, viewport] of [
       [LANDSCAPE_1080P, { width: 1280, height: 720 }],
       [VERTICAL_1080, VIEWPORT],

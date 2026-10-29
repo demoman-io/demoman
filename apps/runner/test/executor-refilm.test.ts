@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
+import { WALLPAPERS_DIR } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 // Two runs and three exports of a short take, measured as
@@ -84,6 +85,7 @@ beforeAll(async () => {
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   home = await mkdtemp(join(tmpdir(), "demoman-refilm-"));
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir: join(home, "out"),

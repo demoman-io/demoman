@@ -30,7 +30,9 @@ export interface RefusedBeforeRun {
    *  `"invalidScript"`, `"unfilledHoles"`, `"nonHttpTarget"`,
    *  `"unknownKit"` (`look.kit` names no kit, or one that cannot be read;
    *  `field` is `"look.kit"`), `"kitsUnreadable"` (the kit list itself could
-   *  not be read — a fault, not a wrong name),
+   *  not be read — a fault, not a wrong name), `"wallpaperUnreadable"`
+   *  (`look.branding` names an image path that could not be read or
+   *  opened as an image; `field` is `"look.branding.background"`),
    *  `"agentRunsOff"`, `"agentRunsUnreadable"`, and, from Re-shoot,
    *  `"noTakeChosen"` (nothing is chosen in `#from-take`) and
    *  `"authoredTake"` (a script-made take has no recording to replay).

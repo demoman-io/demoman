@@ -31,6 +31,7 @@ import {
   makeDiskTake,
   putTake,
 } from "./disk-take.js";
+import { WALLPAPERS_DIR } from "./fixture.js";
 import { sampleImage, sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-15, M-series Mac, headless): a GIF export 2.2-2.7 s,
@@ -48,6 +49,7 @@ beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "demoman-filetypes-"));
   outDir = join(home, "out");
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir,

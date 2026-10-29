@@ -16,6 +16,7 @@ import { createLibrary } from "../src/executor/library.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { launch } from "../src/launch.js";
 import { makeDiskTake, putTake } from "./disk-take.js";
+import { WALLPAPERS_DIR } from "./fixture.js";
 
 const EXPORT_MS = 120_000;
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -46,6 +47,7 @@ function depsFor(
   const opened: Awaited<ReturnType<typeof launch>>[] = [];
   const library = createLibrary(home);
   return {
+    wallpapersDir: WALLPAPERS_DIR,
     library,
     videos: createVideoStore(home, library),
     door: "agent",

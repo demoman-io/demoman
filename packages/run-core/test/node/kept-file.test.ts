@@ -22,6 +22,7 @@ const kept: KeptVideo = {
   script,
   scale: 2,
   logo: null,
+  wallpaper: null,
   outputs: [
     {
       path: "docs/add-task.mp4",
@@ -58,6 +59,78 @@ describe("the kept file", () => {
     expect(text.endsWith("}\n")).toBe(true);
     expect(Object.keys(JSON.parse(text))[0]).toBe("keptVersion");
     expect(parseKept(text, "x.json")).toEqual({ ok: true, kept });
+  });
+
+  // A file kept before wallpapers has no key: it reads as none, and a
+  // file with none writes no key, so it stays byte for byte as it was.
+  it("reads an absent wallpaper as none, and round-trips one", () => {
+    expect(JSON.parse(serializeKept(kept))).not.toHaveProperty("wallpaper");
+    const own = { ...kept, wallpaper: ".demoman/videos/wallpapers/w.webp" };
+    expect(parseKept(serializeKept(own), "x.json")).toEqual({
+      ok: true,
+      kept: own,
+    });
+    expect(refusal(withChange({ wallpaper: "../w.webp" }))).toContain(
+      "wallpaper must be null or a repo-relative path",
+    );
+  });
+
+  // A file kept before windows and looks has neither key and stays as it
+  // was; one with them round-trips them.
+  it("round-trips a screen's window and the look, and leaves them out when absent", () => {
+    const text = serializeKept(kept);
+    expect(JSON.parse(text).screens).not.toHaveProperty("look");
+    expect(JSON.parse(text).screens.moments[0]).not.toHaveProperty("window");
+    const window = { x: 202.5, y: 86, width: 876, height: 548, radius: 12 };
+    const recorded: KeptVideo = {
+      ...kept,
+      screens: {
+        ...kept.screens,
+        moments: kept.screens.moments.map((m) => ({ ...m, window })),
+        look: "1a2b3c",
+      },
+    };
+    expect(parseKept(serializeKept(recorded), "x.json")).toEqual({
+      ok: true,
+      kept: recorded,
+    });
+    const screens = JSON.parse(serializeKept(recorded)).screens;
+    expect(
+      refusal(
+        withChange({
+          screens: {
+            ...screens,
+            moments: [{ step: 0, ms: 1, window: { ...window, width: 0 } }],
+          },
+        }),
+      ),
+    ).toContain("screens.moments[0].window");
+    expect(refusal(withChange({ screens: { ...screens, look: 7 } }))).toContain(
+      "screens.look",
+    );
+  });
+
+  // Red if a window's number is checked by a bare comparison: "876" > 0 is
+  // true, and 1e999 parses to Infinity.
+  it.each([
+    ["width", '"876"'],
+    ["height", "1e999"],
+    ["x", '"1"'],
+    ["y", "null"],
+    ["radius", "-1"],
+    ["radius", '"12"'],
+  ])("refuses a window whose %s is %s, naming it", (key, raw) => {
+    const window = { x: 202.5, y: 86, width: 876, height: 548, radius: 12 };
+    const screens = {
+      ...JSON.parse(serializeKept(kept)).screens,
+      moments: [{ step: 0, ms: 1, window: { ...window, [key]: "@" } }],
+    };
+    const text = withChange({ screens }).replace('"@"', raw);
+    // The premise: the text holds the value asked about, as JSON reads it.
+    expect(text).toContain(`"${key}":${raw}`);
+    expect(refusal(text)).toContain(
+      `screens.moments[0].window.${key} must be a finite number`,
+    );
   });
 
   it("refuses another keptVersion, naming it", () => {

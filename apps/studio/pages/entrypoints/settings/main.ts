@@ -21,6 +21,14 @@ import {
 } from "../../src/adapters/logo";
 import type { LogoThumb } from "../../src/branding/controls";
 import {
+  decodeBackground,
+  type ImageBackground,
+  isImageBackground,
+  uploadedBackground,
+  wallpaperKey,
+  wallpaperThumbOf,
+} from "../../src/branding/wallpaper";
+import {
   type BrandKitsRead,
   checkKitName,
   coerceBrandKit,
@@ -42,6 +50,7 @@ import { trackSectionNav } from "../../src/settings/section-nav";
 import type { Section, SettingsModel } from "../../src/settings/state";
 import { renderSettings } from "../../src/settings/view";
 import { askToConfirm } from "../../src/shell/confirm-dialog";
+import { icon } from "../../src/shell/icons";
 import {
   addNoticeAction,
   type NoticeText,
@@ -84,6 +93,89 @@ let kitLogoImage: FrameImage | null = null;
 let kitLogoThumb: LogoThumb | null = null;
 /** The JPEG note from the last upload, keyed on the ref it describes. */
 let kitUploadNote: { ref: string; note: string } | null = null;
+
+type KitWallpaper =
+  | { ok: true; image: FrameImage }
+  | { ok: false; error: string };
+/** Every background image this page has decoded, by `wallpaperKey`, at the
+ *  preview box's size: the hero and the kit tiles share them, and a kit is
+ *  decoded once however often the page paints. `kitWallpaperDone` holds
+ *  the settled ones for the painter, which does not wait. */
+const kitWallpapers = new Map<string, Promise<KitWallpaper>>();
+const kitWallpaperDone = new Map<string, KitWallpaper>();
+/** The last decode queued: one at a time, since each decodes a full-size
+ *  master first (hundreds of MB while it runs). */
+let kitDecodeQueue: Promise<unknown> = Promise.resolve();
+/** The uploaded image's tile: the selected kit's, or the last one shown. */
+let kitWallpaperCustom: { ref: string; thumb: LogoThumb | null } | null = null;
+
+function kitWallpaper(bg: ImageBackground): Promise<KitWallpaper> {
+  const key = wallpaperKey(bg, KIT_PREVIEW_BOX);
+  let decoding = kitWallpapers.get(key);
+  if (decoding === undefined) {
+    decoding = kitDecodeQueue
+      .then(() => decodeBackground(bg, KIT_PREVIEW_BOX, platform.wallpapers))
+      .then(
+        (d): KitWallpaper => ({ ok: true, image: d.image }),
+        (error: unknown): KitWallpaper => ({
+          ok: false,
+          error: describe(error),
+        }),
+      );
+    kitDecodeQueue = decoding;
+    kitWallpapers.set(key, decoding);
+    void decoding.then((done) => kitWallpaperDone.set(key, done));
+  }
+  return decoding;
+}
+
+/** A background's settled image, or null: not an image, not decoded yet,
+ *  or failed (which `brandKitWallpaper.loadError` says for the selected
+ *  kit, and the tile's title for the others). */
+function kitWallpaperImage(bg: SceneBranding["background"]): FrameImage | null {
+  if (!isImageBackground(bg)) return null;
+  const done = kitWallpaperDone.get(wallpaperKey(bg, KIT_PREVIEW_BOX));
+  return done?.ok ? done.image : null;
+}
+
+/** Decodes the selected kit's image, and its tile's thumbnail for an
+ *  upload; starts the other kits' for their tiles, repainting each one as
+ *  it lands. */
+async function refreshKitWallpaper(branding: SceneBranding): Promise<void> {
+  const bg = branding.background;
+  // The selected kit's first in the queue: the page waits for it.
+  const selected = isImageBackground(bg) ? kitWallpaper(bg) : null;
+  if (kitsRead.state === "ready") {
+    for (const kit of kitsRead.kits) {
+      if (kit.read.state !== "ready") continue;
+      const bg = kit.read.kit.background;
+      if (!isImageBackground(bg)) continue;
+      const key = wallpaperKey(bg, KIT_PREVIEW_BOX);
+      if (kitWallpapers.has(key)) continue;
+      void kitWallpaper(bg).then(() => paintTiles(kit.id));
+    }
+  }
+  if (selected === null) return;
+  const done = await selected;
+  if (bg.kind !== "image") return;
+  if (
+    kitWallpaperCustom?.ref === bg.ref &&
+    kitWallpaperCustom.thumb?.kind === "ready"
+  )
+    return;
+  let thumb: LogoThumb;
+  if (!done.ok) thumb = { kind: "failed", reason: done.error };
+  else {
+    try {
+      thumb = { kind: "ready", url: await wallpaperThumbOf(done.image) };
+    } catch (error) {
+      thumb = { kind: "failed", reason: describe(error) };
+    }
+  }
+  const old = kitWallpaperCustom?.thumb;
+  if (old?.kind === "ready" && old !== thumb) URL.revokeObjectURL(old.url);
+  kitWallpaperCustom = { ref: bg.ref, thumb };
+}
 
 const selectedEntry = (): KitEntry | null =>
   kitsRead.state === "ready"
@@ -283,7 +375,16 @@ function paintPreview(
   // The shell's corner, painted on the frame now that the canvas is a box
   // the frame need not fill. Unreadable, the corners are square.
   const radius = Number.parseFloat(root.getPropertyValue("--radius")) || 0;
-  if (!paintKitPreview(canvas, branding, kitLogoImage, card, radius)) {
+  if (
+    !paintKitPreview(
+      canvas,
+      branding,
+      kitLogoImage,
+      card,
+      radius,
+      kitWallpaperImage(branding.background),
+    )
+  ) {
     // jsdom, or a browser that refused a 2D context. The controls still
     // work; the preview is what is missing, and this says so.
     console.info("demoman settings: the brand kit preview has no 2D context");
@@ -302,10 +403,59 @@ function paintPreview(
         : undefined;
     if (entry?.read.state !== "ready") continue;
     const kit = id === selectedKitId ? branding : entry.read.kit;
-    if (!paintKitPreview(thumb, kit, null, card, radius)) {
-      console.info("demoman settings: a kit tile has no 2D context");
-    }
+    paintTile(thumb, kit, card, radius);
   }
+}
+
+/** One kit tile; a background image that failed is named on the tile. */
+function paintTile(
+  thumb: HTMLCanvasElement,
+  kit: SceneBranding,
+  card: string,
+  radius: number,
+): void {
+  const bg = kit.background;
+  const done = isImageBackground(bg)
+    ? kitWallpaperDone.get(wallpaperKey(bg, KIT_PREVIEW_BOX))
+    : undefined;
+  // Named on the tile: a glyph over the neutral it paints instead, and the
+  // reason in its title.
+  const pick = thumb.parentElement;
+  pick?.querySelector("[data-kit-thumb-alert]")?.remove();
+  if (done?.ok === false) {
+    thumb.title = `The image could not be loaded: ${done.error}`;
+    const alert = document.createElement("span");
+    alert.className = "kit-thumb-alert";
+    alert.setAttribute("data-kit-thumb-alert", "");
+    alert.setAttribute("role", "img");
+    alert.setAttribute("aria-label", thumb.title);
+    alert.append(icon("circleAlert"));
+    pick?.append(alert);
+  } else thumb.removeAttribute("title");
+  if (!paintKitPreview(thumb, kit, null, card, radius, kitWallpaperImage(bg))) {
+    console.info("demoman settings: a kit tile has no 2D context");
+  }
+}
+
+/** Repaints the tile of `id`, whose image just landed, as stored. The
+ *  selected kit's is `paint`'s, which waits for its image. */
+function paintTiles(id: string): void {
+  if (id === selectedKitId) return;
+  const thumb = document.querySelector<HTMLCanvasElement>(
+    `[data-kit-thumb="${CSS.escape(id)}"]`,
+  );
+  const entry =
+    kitsRead.state === "ready"
+      ? kitsRead.kits.find((k) => k.id === id)
+      : undefined;
+  if (thumb === null || entry?.read.state !== "ready") return;
+  const root = getComputedStyle(document.documentElement);
+  paintTile(
+    thumb,
+    entry.read.kit,
+    root.getPropertyValue("--card").trim() || "#ffffff",
+    Number.parseFloat(root.getPropertyValue("--radius")) || 0,
+  );
 }
 
 // The studio: the server asked this window to show another page (a second
@@ -468,6 +618,11 @@ async function paint({ keepNotice = false } = {}): Promise<void> {
   selectFallback();
   const branding = kitBranding();
   await refreshKitLogo(branding);
+  await refreshKitWallpaper(branding);
+  const kitBg = branding.background;
+  const kitBgDone = isImageBackground(kitBg)
+    ? kitWallpaperDone.get(wallpaperKey(kitBg, KIT_PREVIEW_BOX))
+    : undefined;
   const model: SettingsModel = {
     exportQuality:
       exportQuality === null || exportQuality.unreadable !== undefined
@@ -498,6 +653,10 @@ async function paint({ keepNotice = false } = {}): Promise<void> {
         ? kitUploadNote.note
         : null,
     ].filter((n): n is string => n !== null),
+    brandKitWallpaper: {
+      custom: kitWallpaperCustom,
+      loadError: kitBgDone?.ok === false ? kitBgDone.error : null,
+    },
   };
   renderSettings(root, model, actions, notices);
   sectionNav.mark();
@@ -694,6 +853,25 @@ const actions = {
           : LOGO_DEFAULTS;
         return applyBrandingPatch(kit, { logo: { ref, ...placement } });
       });
+    });
+  },
+  /** The kit's background image: checked, fitted and stored by the
+   *  platform, which refuses a file that is not a usable image and says
+   *  which of the two it was. */
+  uploadKitWallpaper: (file: File): void => {
+    const id = selectedKitId;
+    act("add the image", async () => {
+      let ref: string;
+      try {
+        ({ ref } = await platform.wallpapers.put(file));
+      } catch (error) {
+        return describe(error);
+      }
+      return writeKit(id, async (kit) =>
+        applyBrandingPatch(kit, {
+          background: uploadedBackground(ref, kit.background),
+        }),
+      );
     });
   },
   selectKit: (id: string): void => {

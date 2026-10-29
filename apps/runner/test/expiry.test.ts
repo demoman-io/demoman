@@ -29,6 +29,7 @@ import {
 import { exportTake } from "../src/executor/export.js";
 import { createLibrary, type Library } from "../src/executor/library.js";
 import { createVideoStore, type VideoStore } from "../src/executor/videos.js";
+import { WALLPAPERS_DIR } from "./fixture.js";
 import { readOnlySceneJson } from "./fixtures/scene.js";
 
 const DAY = 86_400_000;
@@ -400,6 +401,7 @@ describe("export of an expired version", () => {
     return exportTake(
       { takeId },
       {
+        wallpapersDir: WALLPAPERS_DIR,
         library: lib,
         session: {
           openWorkPage: () => {
@@ -471,6 +473,7 @@ describe("export of an expired version", () => {
 describe("the executor", () => {
   it("expires at the start of a run, even one refused, and status says it", async () => {
     const executor = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
       home,
       headless: true,
       outDir,

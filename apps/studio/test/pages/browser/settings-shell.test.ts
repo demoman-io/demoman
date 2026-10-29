@@ -84,6 +84,7 @@ const MODEL: SettingsModel = {
   brandKitPlacement: null,
   brandKitLogoThumb: null,
   brandKitNotes: [],
+  brandKitWallpaper: { custom: null, loadError: null },
   pullRequests: "off",
   exportQuality: "share",
   kitsUnwatched: null,
@@ -102,6 +103,7 @@ const noop = {
   renameKit() {},
   setDefaultKit() {},
   resetKits() {},
+  uploadKitWallpaper() {},
 };
 
 const PAGES = [

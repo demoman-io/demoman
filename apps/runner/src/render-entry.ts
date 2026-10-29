@@ -32,8 +32,13 @@ import {
   type LogoLoad,
   type RenderFacts,
   renderOutput,
+  type WallpaperLoad,
   wholePercent,
 } from "@demoman/run-core/render";
+import {
+  fitWallpaperImage,
+  wallpaperLoader,
+} from "@demoman/run-core/wallpaper";
 import type { SceneDocument } from "@demoman/scene-schema";
 import {
   RENDER_ENTRY_GLOBAL,
@@ -54,6 +59,12 @@ export interface RenderManifest {
   fileType: FileType;
   /** The logo's bytes as node read them, or null for no logo. */
   logo: { base64: string; contentType: string } | null;
+  /** The wallpaper's bytes as node read them, or why node could not; null
+   *  for a solid or gradient background. */
+  wallpaper:
+    | { base64: string; contentType: string; name: string }
+    | { error: string }
+    | null;
   /** GIF only: how many bytes the GIF may grow to before a narrower width
    *  is tried (`renderOutput`'s `gifBudget`). Absent: the target's width. */
   gifBudget?: { maxBytes: number };
@@ -81,6 +92,14 @@ export interface RenderEntry {
    *  base64 slices instead of risking the same crossing as one
    *  `page.evaluate` return value. */
   readChunk(index: number, offset: number, length: number): string;
+  /** `fitWallpaperImage` on an image node read from a path (the run door's
+   *  `ownWallpaperImage`). The WebP is held as output 0 for `readChunk`;
+   *  rejects with `fitWallpaperImage`'s sentence. */
+  fitWallpaper(
+    base64: string,
+    contentType: string,
+    name: string,
+  ): Promise<{ width: number; height: number; byteLength: number }>;
 }
 
 // Its own copy, not `./report.js`'s: this file is bundled into the render
@@ -171,6 +190,25 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
       logo = { ok: false, error: messageOf(error) };
     }
   }
+  // Decoration too: decoded once, at the size the outputs need
+  // (`wallpaperLoader`), and rasterised per output by `renderOutput`; one
+  // that will not decode is its wallpaperWarning, and the frame shows the
+  // gradient.
+  let wallpaper: WallpaperLoad | null = null;
+  const sent = manifest.wallpaper;
+  if (sent !== null && "error" in sent) {
+    wallpaper = { ok: false, error: sent.error };
+  } else if (sent !== null) {
+    try {
+      wallpaper = await wallpaperLoader(
+        bytesOf(sent.base64),
+        sent.contentType,
+        sent.name,
+      );
+    } catch (error) {
+      wallpaper = { ok: false, error: `${sent.name}: ${messageOf(error)}` };
+    }
+  }
   const report = (globalThis as unknown as Record<string, unknown>)[
     RENDER_PROGRESS_BINDING
   ] as
@@ -211,6 +249,7 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
     bundle,
     frames,
     logo,
+    wallpaper,
     ...(manifest.gifBudget === undefined
       ? {}
       : { gifBudget: manifest.gifBudget }),
@@ -230,6 +269,10 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
           ? report?.(done, total, width)
           : report?.(done, total, width, pass),
     ),
+    // The decoded image is freed once every output is rendered: the GIF
+    // ladder and the MP4 cap re-render inside this call.
+  }).finally(() => {
+    if (wallpaper?.ok === true) wallpaper.close();
   });
   outputs = files.map((f) => f.bytes);
   return {
@@ -259,5 +302,22 @@ function readChunk(index: number, offset: number, length: number): string {
   return btoa(binary);
 }
 
-const entry: RenderEntry = { render, readChunk };
+async function fitWallpaper(
+  base64: string,
+  contentType: string,
+  name: string,
+): Promise<{ width: number; height: number; byteLength: number }> {
+  const fitted = await fitWallpaperImage(
+    new File([bytesOf(base64).slice()], name, { type: contentType }),
+  );
+  const bytes = new Uint8Array(await fitted.blob.arrayBuffer());
+  outputs = [bytes];
+  return {
+    width: fitted.width,
+    height: fitted.height,
+    byteLength: bytes.byteLength,
+  };
+}
+
+const entry: RenderEntry = { render, readChunk, fitWallpaper };
 (globalThis as unknown as Record<string, unknown>)[RENDER_ENTRY_GLOBAL] = entry;

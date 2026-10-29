@@ -13,6 +13,7 @@ import {
   readLeases,
   readLogo,
   readUserSettings,
+  readWallpaper,
   summarise,
   VideoError,
   type VideoSummary,
@@ -36,7 +37,7 @@ import {
   type UnreadableTake,
   type VideoSummary as VideoListing,
 } from "@demoman/studio-protocol";
-import { saveLogo } from "./assets.js";
+import { saveLogo, saveWallpaper } from "./assets.js";
 import type { EventHub } from "./events.js";
 import { createChains, isMissing, messageOf, readIfPresent } from "./files.js";
 import { createKitsFile } from "./kits.js";
@@ -758,6 +759,68 @@ export function createRoutes(o: {
       }
       const read = await readLogo(home, ref);
       if (!read.ok) return refuse(422, "logoRefused", read.error);
+      return {
+        status: 200,
+        body: read.bytes,
+        contentType: read.contentType,
+        headers: { "Cache-Control": "no-cache" },
+      };
+    },
+
+    async wallpaperPut(req) {
+      const rawName = req.headers[FILE_NAME_HEADER.toLowerCase()];
+      if (typeof rawName !== "string" || rawName === "") {
+        return refuse(
+          400,
+          "wallpaperRefused",
+          `The image upload carried no file name (${FILE_NAME_HEADER}).`,
+        );
+      }
+      let name: string;
+      try {
+        name = decodeURIComponent(rawName);
+      } catch {
+        return refuse(
+          400,
+          "wallpaperRefused",
+          `The image upload's file name (${FILE_NAME_HEADER}) is not URI-encoded.`,
+        );
+      }
+      const type =
+        (req.headers["content-type"] ?? "").split(";")[0]?.trim() ?? "";
+      const saved = await saveWallpaper(home, {
+        name,
+        type,
+        bytes: await req.body(),
+      });
+      if (!saved.ok) return json(saved.status, saved.refusal);
+      return json(200, saved.answer);
+    },
+
+    async wallpaper(req) {
+      const ref = req.query.get("ref");
+      if (ref === null || ref === "") {
+        return refuse(
+          400,
+          "wallpaperRefused",
+          "The wallpaper request named no ref.",
+        );
+      }
+      // An uploaded image only; a built-in id is the pages' own file. The
+      // directory of built-ins is never read for an image.
+      const read = await readWallpaper(
+        home,
+        "",
+        { kind: "image", ref },
+        "landscape",
+      );
+      if (read === null || !read.ok) {
+        return refuse(
+          422,
+          "wallpaperRefused",
+          read === null ? `"${ref}" names no image.` : read.error,
+        );
+      }
       return {
         status: 200,
         body: read.bytes,

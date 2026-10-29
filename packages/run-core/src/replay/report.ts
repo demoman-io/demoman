@@ -737,7 +737,8 @@ function prClause(report: RunReport, clean: string): string {
     sessionOnly ||
     report.frames.degradations.length > 0 ||
     report.frames.storageRefused ||
-    (report.look?.brandKitError ?? null) !== null;
+    (report.look?.brandKitError ?? null) !== null ||
+    (report.look?.wallpaperError ?? null) !== null;
   return noted ? `${clean}, with notes` : clean;
 }
 
@@ -780,13 +781,15 @@ const NOT_KEPT: Record<Degradation["kind"], string> = {
     "a native drag's picture could not be drawn, so the dragged item jumps to its drop in the video instead of travelling",
 };
 
-/** An unreadable brand kit, said after everything else on the line: the take
+/** An unreadable brand kit, or a default kit's image the take could not
+ *  own (`look.wallpaperError`), said after everything else on the line: the take
  *  is made and correct by its own lights, but it is not in the colours the
  *  author saved, and a grey video with no reason reads as "no kit". Empty
  *  when there is nothing to say, so every other line is unchanged. */
 function lookClause(report: RunReport): string {
-  const error = report.look?.brandKitError ?? null;
-  return error === null ? "" : ` ${error}.`;
+  return [report.look?.brandKitError, report.look?.wallpaperError]
+    .map((error) => (error == null ? "" : ` ${error}.`))
+    .join("");
 }
 
 /**

@@ -1,5 +1,6 @@
 import { BRANDING_DEFAULTS } from "@demoman/scene-schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { StudioError } from "../../../pages/src/platform/http";
 import {
   createMemoryPlatform,
   type MemoryPlatform,
@@ -160,11 +161,11 @@ describe("settings main — the brand kits", () => {
     await boot();
     await ready();
     // Premise: no kit, and the controls start from the defaults, a
-    // gradient — so Solid is a real change.
+    // wallpaper — so Solid is a real change.
     expect(kits()).toBeUndefined();
     expect(lines()).toEqual(["Brand kits: none saved"]);
     expect(
-      q(`${section} [data-bg-kind="gradient"]`).getAttribute("aria-checked"),
+      q(`${section} [data-bg-kind="wallpaper"]`).getAttribute("aria-checked"),
     ).toBe("true");
     q(`${section} [data-bg-kind="solid"]`).click();
     await until(() => kits() !== undefined, "the kit write");
@@ -212,6 +213,10 @@ describe("settings main — the brand kits", () => {
 
   it("builds a second quick change on the first, not on the last render", async () => {
     await boot();
+    await ready();
+    // The defaults are a wallpaper: the first edit makes the kit a gradient
+    // (from the wallpaper's swatch), and the two quick changes follow it.
+    q(`${section} [data-bg-kind="gradient"]`).click();
     await until(
       () => document.querySelector(`${section} [data-angle]`) !== null,
       "the gradient controls",
@@ -545,5 +550,67 @@ describe("settings main — the brand kits", () => {
     await until(() => Array.isArray(bucket.brandKits), "the fresh list");
     expect(bucket.brandKits).toEqual([]);
     expect(confirmDialog.ask).toHaveBeenCalledOnce();
+  });
+
+  it("says a kit's uploaded image that cannot be loaded", async () => {
+    // The memory platform answers a ref it never stored with a reason, as
+    // the studio answers one that moved.
+    const ref = "assets/moved.webp";
+    await boot({
+      brandKits: [
+        {
+          id: "a",
+          name: "Photo",
+          branding: { ...KIT, background: { kind: "image", ref } },
+        },
+      ],
+      defaultKitId: "a",
+    });
+    const reason = `no wallpaper at ${ref} in the memory platform`;
+    await until(
+      () =>
+        document
+          .querySelector(`${section} [data-wallpaper-error]`)
+          ?.textContent?.includes(reason) ?? false,
+      "the load failure in the panel",
+    );
+    // The premise: the platform was asked for that image.
+    expect(
+      memory.calls.filter(
+        (c) => c.member === "wallpapers" && c.method === "load",
+      ),
+    ).toHaveLength(1);
+    expect(
+      q(`${section} [data-wallpaper-custom]`).getAttribute("aria-label"),
+    ).toContain(reason);
+  });
+
+  it("says why an upload was refused, and writes nothing", async () => {
+    const reason =
+      'The file "bg.gif" is a image/gif file — use SVG, PNG, WebP or JPEG';
+    memory.answer("wallpapers.put", async () => {
+      throw new StudioError("wallpaperRefused", reason, 400);
+    });
+    await boot();
+    await ready();
+    // The premise: no kit yet, so any write at all would make one.
+    expect(kits()).toBeUndefined();
+    const input = q(
+      `${section} input[data-wallpaper-file]`,
+    ) as HTMLInputElement;
+    const file = new File(["gif"], "bg.gif", { type: "image/gif" });
+    Object.defineProperty(input, "files", { value: [file] });
+    input.dispatchEvent(new Event("change"));
+    await until(
+      () => q("#notice").textContent?.includes(reason) ?? false,
+      "the refusal",
+    );
+    expect(q("#notice").textContent).toContain("Couldn't add the image");
+    expect(
+      memory.calls.filter(
+        (c) => c.member === "wallpapers" && c.method === "put",
+      ),
+    ).toHaveLength(1);
+    expect(kits()).toBeUndefined();
   });
 });

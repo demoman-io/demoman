@@ -32,7 +32,7 @@ import {
   useExecutor,
   writeAccounts,
 } from "./accounts-harness.js";
-import { ownVideo } from "./fixture.js";
+import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 import { sessionFor } from "./login-app.js";
 
 describe("environment secrets and project (security review, 2026-10-16)", () => {
@@ -260,6 +260,7 @@ it("looks for accounts in the client's CLAUDE_PROJECT_DIR, not its own folder", 
   // Premise: this process is not running in the repo.
   expect(process.cwd()).not.toBe(repo);
   const named = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     log: () => undefined,

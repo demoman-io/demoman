@@ -26,13 +26,15 @@ const launchMock = vi.fn();
 const replayPhaseMock = vi.fn();
 const muxSpansMock = vi.fn();
 const renderPhaseMock = vi.fn();
-/** What the real `renderPhase` resolves: the file's facts, no logo warning. */
+/** What the real `renderPhase` resolves: the file's facts, no logo or
+ *  wallpaper warning. */
 const RENDERED = {
   bytes: Buffer.alloc(0),
   detailViolations: [],
   unavailableSpans: [],
   loweredZooms: [],
   logoWarning: null,
+  wallpaperWarning: null,
 };
 const closeMock = vi.fn(async () => ({ crashed: false }));
 const cdpDetachMock = vi.fn(async () => undefined);
@@ -232,6 +234,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result).toMatchObject({
@@ -275,6 +278,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("renderFailed");
@@ -316,6 +320,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("muxFailed");
@@ -362,6 +367,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result).toEqual({
@@ -373,6 +379,10 @@ describe("runPipeline", () => {
       storageRefused: false,
     });
     expect(renderPhaseMock).toHaveBeenCalledTimes(1);
+    // The render reads the wallpapers folder it was handed.
+    expect(renderPhaseMock.mock.calls[0]?.[0].wallpapersDir).toBe(
+      "/wallpapers",
+    );
     expect(closeMock).toHaveBeenCalled();
 
     // Task 12 fix round 1: the deliverable is written, so the scratch
@@ -413,6 +423,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
     expect(result.kind).toBe("renderFailed");
     if (result.kind === "renderFailed") {
@@ -451,6 +462,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("internalError");
@@ -479,6 +491,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("startupFailed");
@@ -527,6 +540,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     // The navigation failure outranks the stop reason it caused: the stop
@@ -572,6 +586,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("rendered");
@@ -618,6 +633,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("muxFailed");
@@ -646,6 +662,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("startupFailed");
@@ -685,6 +702,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("rendered");
@@ -719,6 +737,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
     expect(warned.kind).toBe("rendered");
     expect(notesText(warned)).toContain(WARNING);
@@ -728,9 +747,48 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
     expect(clean.kind).toBe("rendered");
     expect(notesText(clean)).not.toContain("logo");
+  });
+
+  // As the logo: `demoman render` reads no wallpaper files, and says so.
+  // Red if pipeline.ts stops printing `wallpaperWarning`.
+  it("says on the notes why the file has no wallpaper, and only then", async () => {
+    const { runPipeline } = await import("../src/pipeline.js");
+    const WARNING =
+      "The wallpaper was left out: demoman render reads no wallpaper files; the video uses the plain gradient.";
+    replayPhaseMock.mockResolvedValue({
+      result: bareReplayResult({
+        outcome: "complete",
+        completed: 4,
+        total: 4,
+        bundle: bundleWith(),
+      }),
+      spans: [],
+      navigationError: null,
+    });
+    muxSpansMock.mockResolvedValue({ muxed: [], shortfall: 0 });
+    renderPhaseMock.mockResolvedValueOnce({
+      ...RENDERED,
+      wallpaperWarning: { kind: "leftOut", sentence: WARNING },
+    });
+    const warned = await runPipeline({
+      scene: SCENE,
+      targetUrl: TARGET_URL,
+      outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
+    });
+    expect(notesText(warned)).toContain(WARNING);
+    renderPhaseMock.mockResolvedValueOnce(RENDERED);
+    const clean = await runPipeline({
+      scene: SCENE,
+      targetUrl: TARGET_URL,
+      outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
+    });
+    expect(notesText(clean)).not.toContain("wallpaper");
   });
 
   it("says the browser crashed, on the notes, when close() reports it did not shut down cleanly", async () => {
@@ -749,6 +807,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("internalError");
@@ -778,6 +837,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("rendered");
@@ -807,6 +867,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
     expect(result.kind).toBe("rendered");
 
@@ -856,6 +917,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("rendered");
@@ -902,6 +964,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     // The run is still what it was: rendered, not an internal error.
@@ -941,6 +1004,7 @@ describe("runPipeline", () => {
       scene: SCENE,
       targetUrl: TARGET_URL,
       outPath: OUT_PATH,
+      wallpapersDir: "/wallpapers",
     });
 
     expect(result.kind).toBe("rendered");

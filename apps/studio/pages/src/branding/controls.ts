@@ -1,10 +1,15 @@
 import type { LogoPlacement } from "@demoman/compositor";
 import {
+  DEFAULT_WALLPAPER_BLUR,
+  DEFAULT_WALLPAPER_ID,
   LOGO_CORNERS,
   type LogoCorner,
+  NEUTRAL_BACKGROUND,
   parseColor,
   type SceneBackground,
   type SceneBranding,
+  WALLPAPERS,
+  wallpaperInfo,
 } from "@demoman/scene-schema";
 import {
   type BrandKitsRead,
@@ -14,6 +19,11 @@ import {
 import type { BrandingPatch, GradientAdjust } from "../editor/branding";
 import { el, paintSliderFill } from "../editor/dom";
 import { icon } from "../shell/icons";
+import {
+  type ImageBackground,
+  isImageBackground,
+  wallpaperThumbUrl,
+} from "./wallpaper";
 
 /**
  * The logo's thumbnail beside Replace and Remove, the way a file upload
@@ -39,6 +49,20 @@ export interface BrandingControlsProps {
   /** Titles over the Background, Logo and Frame groups: Settings, where the
    *  groups sit side by side; the editor's narrow panel reads without them. */
   groupTitles?: boolean;
+  wallpaper: WallpaperProps;
+}
+
+/** The Wallpaper style's grid. */
+export interface WallpaperProps {
+  /** A built-in's tile picture. */
+  thumbUrl(id: string): string;
+  /** The uploaded image the page holds — the background's, or the last one
+   *  this page showed — and its tile; null with none. */
+  custom: { ref: string; thumb: LogoThumb | null } | null;
+  /** Why the background's image could not be had: the frame is painting
+   *  the neutral gradient in its place. Said under the grid; null where the
+   *  page says it elsewhere (the editor's failure band). */
+  loadError: string | null;
 }
 
 /** The editor's kit picker (spec 2026-10-08 §3, mockup A): it names the kit
@@ -71,6 +95,131 @@ export interface BrandingControlsHandlers {
    *  colour picker). */
   onPreview(patch: BrandingPatch): void;
   onLogoFile(file: File): void;
+  onWallpaperFile(file: File): void;
+}
+
+/** What Solid and Gradient start from when the author leaves an image:
+ *  the built-in's own swatch, or the neutral's colours for an upload. */
+function coloursOf(bg: SceneBackground): { from: string; to: string } {
+  switch (bg.kind) {
+    case "solid":
+      return { from: bg.color, to: bg.color };
+    case "gradient":
+      return { from: bg.from, to: bg.to };
+    case "wallpaper":
+      return wallpaperInfo(bg.id)?.swatch ?? NEUTRAL_BACKGROUND;
+    case "image":
+      return NEUTRAL_BACKGROUND;
+  }
+}
+
+/** The background a style button switches to from `bg`, or null when
+ *  `bg` already has that style. */
+function switchTo(
+  kind: "solid" | "gradient" | "wallpaper",
+  bg: SceneBackground,
+): SceneBackground | null {
+  if (kind === "wallpaper") {
+    return isImageBackground(bg)
+      ? null
+      : {
+          kind: "wallpaper",
+          id: DEFAULT_WALLPAPER_ID,
+          blur: DEFAULT_WALLPAPER_BLUR,
+        };
+  }
+  if (bg.kind === kind) return null;
+  const { from, to } = coloursOf(bg);
+  if (kind === "solid") return { kind: "solid", color: from };
+  return {
+    kind: "gradient",
+    from,
+    // From a solid: white, the author's call on 2026-09-22 — a brand
+    // colour fading to white is the gradient most people mean.
+    to: bg.kind === "solid" ? "#ffffff" : to,
+    angle: 135,
+  };
+}
+
+const imageTileImg = (src: string): HTMLImageElement => {
+  const img = el("img", "wallpaper-tile-img");
+  img.src = src;
+  img.alt = "";
+  img.draggable = false;
+  return img;
+};
+
+/** The built-ins, the uploaded image, and the tile that uploads one. */
+function wallpaperGrid(
+  bg: ImageBackground,
+  props: WallpaperProps,
+  handlers: BrandingControlsHandlers,
+): HTMLElement {
+  const grid = el("div", "wallpaper-grid");
+  grid.setAttribute("role", "group");
+  grid.setAttribute("aria-label", "Wallpaper");
+  // Another image keeps the blur the author set; a take from before blur
+  // existed keeps having none.
+  const blur = bg.blur === undefined ? {} : { blur: bg.blur };
+  const tile = (pressed: boolean, label: string, next: SceneBackground) => {
+    const b = el("button", "wallpaper-tile");
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(pressed));
+    b.setAttribute("aria-label", label);
+    b.title = label;
+    b.addEventListener("click", () => {
+      if (!pressed) handlers.onCommit({ background: next });
+    });
+    return b;
+  };
+  for (const w of WALLPAPERS) {
+    const label = `${w.family[0]?.toUpperCase()}${w.family.slice(1)} ${w.id.split("-")[1]}`;
+    const b = tile(bg.kind === "wallpaper" && bg.id === w.id, label, {
+      kind: "wallpaper",
+      id: w.id,
+      ...blur,
+    });
+    b.setAttribute("data-wallpaper-id", w.id);
+    b.append(imageTileImg(props.thumbUrl(w.id)));
+    grid.append(b);
+  }
+  const custom = props.custom;
+  if (custom !== null) {
+    const b = tile(bg.kind === "image" && bg.ref === custom.ref, "Your image", {
+      kind: "image",
+      ref: custom.ref,
+      ...blur,
+    });
+    b.setAttribute("data-wallpaper-custom", custom.thumb?.kind ?? "none");
+    if (custom.thumb?.kind === "ready")
+      b.append(imageTileImg(custom.thumb.url));
+    else if (custom.thumb?.kind === "failed") {
+      b.append(icon("circleAlert"));
+      b.title = `Your image — could not be loaded: ${custom.thumb.reason}`;
+      b.setAttribute("aria-label", b.title);
+    } else b.append(icon("image"));
+    grid.append(b);
+  }
+  const file = el("input");
+  file.type = "file";
+  file.accept = "image/svg+xml,image/png,image/webp,image/jpeg";
+  // Opened by the tile; hidden, as a picker the tile stands for.
+  file.hidden = true;
+  file.setAttribute("data-wallpaper-file", "");
+  file.addEventListener("change", () => {
+    const chosen = file.files?.[0];
+    if (chosen) handlers.onWallpaperFile(chosen);
+    file.value = "";
+  });
+  const upload = el("button", "wallpaper-tile wallpaper-upload");
+  upload.type = "button";
+  upload.setAttribute("data-wallpaper-upload", "");
+  upload.setAttribute("aria-label", "Upload an image");
+  upload.title = "Upload an image";
+  upload.append(icon("plus"));
+  upload.addEventListener("click", () => file.click());
+  grid.append(upload, file);
+  return grid;
 }
 
 const CORNER_LABELS: Record<LogoCorner, string> = {
@@ -305,37 +454,25 @@ export function renderBrandingControls(
   const frame = group("frame", "Frame");
   if (props.kit !== undefined) box.append(kitRow(root, props.kit));
 
-  // Style: Solid | Gradient.
+  // Style: Solid | Gradient | Wallpaper. An uploaded image is a Wallpaper.
   const kinds = el("div", "segmented");
   kinds.setAttribute("role", "radiogroup");
   kinds.setAttribute("aria-label", "Background style");
-  for (const kind of ["solid", "gradient"] as const) {
-    const button = el(
-      "button",
-      "segment",
-      kind === "solid" ? "Solid" : "Gradient",
-    );
+  const styleOf = bg.kind === "image" ? "wallpaper" : bg.kind;
+  const STYLE_LABELS = {
+    solid: "Solid",
+    gradient: "Gradient",
+    wallpaper: "Wallpaper",
+  } as const;
+  for (const kind of ["solid", "gradient", "wallpaper"] as const) {
+    const button = el("button", "segment", STYLE_LABELS[kind]);
     button.type = "button";
     button.setAttribute("role", "radio");
     button.setAttribute("data-bg-kind", kind);
-    button.setAttribute("aria-checked", String(bg.kind === kind));
+    button.setAttribute("aria-checked", String(styleOf === kind));
     button.addEventListener("click", () => {
-      if (bg.kind === kind) return;
-      const next: SceneBackground =
-        kind === "gradient" && bg.kind === "solid"
-          ? {
-              kind: "gradient",
-              from: bg.color,
-              // White, the author's call on 2026-09-22: a brand colour
-              // fading to white is the gradient most people mean.
-              to: "#ffffff",
-              angle: 135,
-            }
-          : {
-              kind: "solid",
-              color: bg.kind === "gradient" ? bg.from : bg.color,
-            };
-      handlers.onCommit({ background: next });
+      const next = switchTo(kind, bg);
+      if (next !== null) handlers.onCommit({ background: next });
     });
     kinds.append(button);
   }
@@ -353,6 +490,30 @@ export function renderBrandingControls(
         (color) => ({ background: { kind: "solid", color } }),
         handlers,
         fieldDrafts,
+      ),
+    );
+  } else if (isImageBackground(bg)) {
+    background.append(wallpaperGrid(bg, props.wallpaper, handlers));
+    if (props.wallpaper.loadError !== null) {
+      const error = el(
+        "p",
+        "colour-error",
+        `The image could not be loaded: ${props.wallpaper.loadError}`,
+      );
+      error.setAttribute("data-wallpaper-error", "");
+      error.setAttribute("role", "alert");
+      background.append(error);
+    }
+    // Absent is sharp: a take saved before blur renders as it did.
+    background.append(
+      sliderRow(
+        "data-wallpaper-blur",
+        "Blur",
+        bg.blur ?? 0,
+        { min: 0, max: 1, step: 0.01 },
+        (v) => `${Math.round(v * 100)}%`,
+        (v) => ({ background: { ...bg, blur: Math.round(v * 100) / 100 } }),
+        handlers,
       ),
     );
   } else {
@@ -557,6 +718,7 @@ export function renderBrandingControls(
  *  rebuilds these controls on every session emit and export tick, and a
  *  menu that shut on each would be unusable. */
 const kitMenuOpen = new WeakMap<HTMLElement, boolean>();
+
 /** Roots whose outside-click closer is registered: once each. */
 const kitMenuWatched = new WeakSet<HTMLElement>();
 
@@ -565,10 +727,13 @@ function swatchFor(entry: KitEntry | null): HTMLElement {
   const swatch = el("span", "kit-swatch");
   if (entry?.read.state === "ready") {
     const bg = entry.read.kit.background;
-    swatch.style.background =
-      bg.kind === "solid"
-        ? bg.color
-        : `linear-gradient(${bg.angle}deg, ${bg.from}, ${bg.to})`;
+    if (bg.kind === "solid") swatch.style.background = bg.color;
+    else if (bg.kind === "gradient")
+      swatch.style.background = `linear-gradient(${bg.angle}deg, ${bg.from}, ${bg.to})`;
+    else if (bg.kind === "wallpaper")
+      swatch.style.background = `center / cover url("${wallpaperThumbUrl(bg.id)}")`;
+    // An upload has no small picture to hand here: its glyph says what it is.
+    else swatch.append(icon("image"));
   } else if (entry !== null) {
     swatch.append(icon("circleAlert"));
   }

@@ -44,6 +44,7 @@ import {
   type Screens,
   type UnavailableSpan,
   type UnplacedStill,
+  wallpaperShape,
 } from "@demoman/compositor";
 import {
   type CapRender,
@@ -53,6 +54,7 @@ import {
   type StillsOptions,
   targetFor,
   type VideoCap,
+  type WallpaperWarning,
 } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import type { Page } from "playwright";
@@ -61,6 +63,7 @@ import {
   RENDER_ENTRY_GLOBAL,
   RENDER_PROGRESS_BINDING,
 } from "./entry-globals.js";
+import { readWallpaper } from "./executor/wallpaper-read.js";
 import type { RunnerStore } from "./frame-store.js";
 import { listenOnLoopback } from "./loopback.js";
 import type {
@@ -225,6 +228,12 @@ export type LogoInput =
   | { ok: true; bytes: Uint8Array; contentType: string }
   | { ok: false; error: string };
 
+/** A wallpaper or uploaded image as node read it (`readWallpaper`): its
+ *  bytes and the id or path the warnings name it by, or why it is not. */
+export type WallpaperInput =
+  | { ok: true; bytes: Uint8Array; contentType: string; name: string }
+  | { ok: false; error: string };
+
 export interface Rendered {
   /** One file, `name: null`, for mp4 and gif; a named file per still. */
   files: { name: string | null; bytes: Buffer }[];
@@ -236,6 +245,8 @@ export interface Rendered {
   unplacedStills: UnplacedStill[];
   /** "The logo was left out: …", or null when there was none to leave. */
   logoWarning: string | null;
+  /** The wallpaper left out or too small (`RenderFacts`), or null. */
+  wallpaperWarning: WallpaperWarning | null;
   /** What the plan clamped. */
   clampedRanges: ClampedRange[];
   /** The size the file was rendered at: the target, or wider for a GIF
@@ -268,6 +279,9 @@ export async function renderToFiles(input: {
   target: RenderTarget;
   fileType: FileType;
   logo: LogoInput | null;
+  /** The scene's wallpaper or image; null for a solid or gradient. Never a
+   *  reason to throw: one that cannot be had is `wallpaperWarning`. */
+  wallpaper: WallpaperInput | null;
   /** See `renderOutput`'s `onFrame`: a budgeted GIF and a capped MP4 add
    *  their width, and a capped MP4 which render it is. */
   onFrame?: (
@@ -293,6 +307,7 @@ export async function renderToFiles(input: {
     target,
     fileType,
     logo,
+    wallpaper,
     onFrame,
     gifBudget,
     mp4Cap,
@@ -344,6 +359,19 @@ export async function renderToFiles(input: {
               contentType: logo.contentType,
             }
           : null,
+      // As base64 beside the logo: measured 2026-10-28, a 9600x7200 master
+      // (1.1 MB, 1.5 MB as base64) crosses `page.evaluate` in 15-20 ms,
+      // far under the 2 s that would call for serving it instead.
+      wallpaper:
+        wallpaper === null
+          ? null
+          : wallpaper.ok
+            ? {
+                base64: Buffer.from(wallpaper.bytes).toString("base64"),
+                contentType: wallpaper.contentType,
+                name: wallpaper.name,
+              }
+            : { error: wallpaper.error },
       ...(gifBudget === undefined ? {} : { gifBudget }),
       ...(mp4Cap === undefined ? {} : { mp4Cap }),
       ...(stills === undefined ? {} : { stills }),
@@ -374,6 +402,7 @@ export async function renderToFiles(input: {
         logo !== null && !logo.ok
           ? `The logo was left out: ${logo.error}`
           : facts.logoWarning,
+      wallpaperWarning: facts.wallpaperWarning,
       clampedRanges: facts.clampedRanges,
       rendered: facts.rendered,
       ...(facts.gifBudget === undefined ? {} : { gifBudget: facts.gifBudget }),
@@ -388,6 +417,56 @@ export async function renderToFiles(input: {
   }
 }
 
+/**
+ * An image's bytes made into a wallpaper's stored WebP (`fitWallpaperImage`)
+ * inside `page`, a blank work page. Rejects with the page's sentence (one
+ * that will not decode names the file) or the transport's.
+ */
+export async function fitWallpaperInPage(
+  page: Page,
+  image: { bytes: Uint8Array; contentType: string; name: string },
+): Promise<{ bytes: Buffer; width: number; height: number }> {
+  await page.addScriptTag({ content: await renderEntryBundle() });
+  const fitted = await page.evaluate(
+    ([globalName, base64, contentType, name]) => {
+      const entry = (
+        globalThis as unknown as Record<string, RenderEntry | undefined>
+      )[globalName as string];
+      if (entry === undefined) {
+        throw new Error(
+          `${globalName} is not installed on this page — render.ts must ` +
+            "inject render-entry.ts's bundle before calling into it",
+        );
+      }
+      return entry.fitWallpaper(
+        base64 as string,
+        contentType as string,
+        name as string,
+      );
+    },
+    [
+      RENDER_ENTRY_GLOBAL,
+      Buffer.from(image.bytes).toString("base64"),
+      image.contentType,
+      image.name,
+    ] as const,
+  );
+  const parts: Buffer[] = [];
+  for (let offset = 0; offset < fitted.byteLength; offset += CHUNK_BYTES) {
+    parts.push(
+      Buffer.from(
+        await readChunkInPage(page, 0, offset, CHUNK_BYTES),
+        "base64",
+      ),
+    );
+  }
+  return {
+    bytes: Buffer.concat(parts),
+    width: fitted.width,
+    height: fitted.height,
+  };
+}
+
 /** `demoman render`'s phase: the scene's own aspect through `targetFor`, then
  *  the whole file written to `outPath` or nothing written. */
 export async function renderPhase(input: {
@@ -396,16 +475,19 @@ export async function renderPhase(input: {
   store: RunnerStore;
   page: Page;
   outPath: string;
+  /** The built-in wallpapers' folder, as `ExportDeps.wallpapersDir`. */
+  wallpapersDir: string;
   /** Tests only: `RunPipeline`'s `maxTier`. */
   maxTier?: RenderTarget;
 }): Promise<Rendered> {
   const { scene, bundle, outPath, maxTier } = input;
+  const target = targetFor("mp4", scene.canvas.aspect, bundle, frameOf(scene), {
+    maxTier,
+  });
   const rendered = await renderToFiles({
     ...input,
     fileType: "mp4",
-    target: targetFor("mp4", scene.canvas.aspect, bundle, frameOf(scene), {
-      maxTier,
-    }),
+    target,
     // The runner's `render` command has no library to look a logo up in; a
     // scene that names one is told so rather than drawn without a word.
     logo:
@@ -415,6 +497,15 @@ export async function renderPhase(input: {
             ok: false,
             error: `demoman render reads no logo files (the scene names "${scene.branding.logo.ref}"); export through demoman-mcp --browser cli for a logo`,
           },
+    // Read as an export reads it. There is no home here, so an uploaded
+    // image's home-relative ref is read from the working folder, and one
+    // not there is said, naming the path, as any unreadable one is.
+    wallpaper: await readWallpaper(
+      "",
+      input.wallpapersDir,
+      scene.branding.background,
+      wallpaperShape(target),
+    ),
   });
   // Every byte is already back in node: a render that threw above never
   // touched the filesystem, so `outPath` is written whole or not at all.

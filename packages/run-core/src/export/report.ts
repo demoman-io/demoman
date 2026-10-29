@@ -13,6 +13,7 @@ import type {
   FileType,
   RenderedFile,
   RenderProgress,
+  WallpaperWarning,
 } from "./target.js";
 
 /**
@@ -177,6 +178,9 @@ export type ExportRefusal =
 
 export interface ExportWarnings {
   logo: string | null;
+  /** The wallpaper left out (the frame shows the gradient), or too small
+   *  for the deepest zoom (`RenderFacts.wallpaperWarning`). Absent: neither. */
+  wallpaperWarning?: WallpaperWarning;
   unavailableSpans: UnavailableSpan[];
   detailViolations: DetailViolation[];
   /** Steps a stills export made no file for (`UnplacedStill`). Present on
@@ -462,6 +466,9 @@ export function reportForSave(args: {
         warnings: warningsOf(
           {
             logoWarning: file.logoWarning ?? null,
+            ...(file.wallpaperWarning === undefined
+              ? {}
+              : { wallpaperWarning: file.wallpaperWarning }),
             unavailableSpans: file.unavailableSpans ?? [],
             detailViolations: file.detailViolations,
           },
@@ -474,6 +481,7 @@ export function reportForSave(args: {
 function warningsOf(
   facts: {
     logoWarning: string | null;
+    wallpaperWarning?: WallpaperWarning | null;
     unavailableSpans: UnavailableSpan[];
     detailViolations: DetailViolation[];
     unplacedStills?: UnplacedStill[];
@@ -493,6 +501,9 @@ function warningsOf(
 ): ExportWarnings {
   return {
     logo: facts.logoWarning,
+    ...(facts.wallpaperWarning == null
+      ? {}
+      : { wallpaperWarning: facts.wallpaperWarning }),
     unavailableSpans: facts.unavailableSpans,
     detailViolations: facts.detailViolations,
     ...(facts.unplacedStills === undefined
@@ -541,6 +552,7 @@ export function reportForStillsSave(args: {
   target: { width: number; height: number; fps: number };
   facts: {
     logoWarning: string | null;
+    wallpaperWarning?: WallpaperWarning | null;
     unavailableSpans: UnavailableSpan[];
     detailViolations: DetailViolation[];
     unplacedStills: UnplacedStill[];
@@ -754,6 +766,7 @@ export function exportCaveats(
 ): string[] {
   const {
     logo,
+    wallpaperWarning,
     unavailableSpans,
     migration,
     editedSinceRecorded,
@@ -769,6 +782,12 @@ export function exportCaveats(
           `it is ${videoSize.quality} quality, not your Export quality setting, which could not be read (${videoSize.settingUnreadable.replace(/\.$/, "")})`,
         ]),
     ...(logo === null ? [] : [`the logo is missing (${logo})`]),
+    // A whole sentence, said as a clause.
+    ...(wallpaperWarning === undefined
+      ? []
+      : [
+          `${wallpaperWarning.sentence.charAt(0).toLowerCase()}${wallpaperWarning.sentence.slice(1).replace(/\.$/, "")}`,
+        ]),
     ...(unavailableSpans.length === 0
       ? []
       : [

@@ -8,6 +8,7 @@ import {
   MotionSchema,
   type SceneCursor,
 } from "./document.js";
+import { WALLPAPERS } from "./wallpapers.js";
 
 /**
  * What an agent writes. A SIBLING of `SceneDocument`, never a version of it:
@@ -389,6 +390,14 @@ export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
       code: "custom",
       message: `a script that names look.kit declares scriptVersion ${SCRIPT_VERSION_KIT}: a build from before brand kits would drop the kit and record the default look`,
       path: ["scriptVersion"],
+    });
+  }
+  const bg = script.look?.branding?.background;
+  if (bg?.kind === "wallpaper" && !WALLPAPERS.some((w) => w.id === bg.id)) {
+    ctx.addIssue({
+      code: "custom",
+      message: `unknown wallpaper "${bg.id}" — one of ${WALLPAPERS.map((w) => w.id).join(", ")}`,
+      path: ["look", "branding", "background", "id"],
     });
   }
   // See `SCRIPT_VERSION_MOTION`, for the same reason.

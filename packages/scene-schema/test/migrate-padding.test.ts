@@ -49,8 +49,10 @@ describe("v7 -> v8: padding", () => {
     expect(migrateToCurrent(doc).branding.padding).toBe(0.15);
   });
 
-  it("defaults to 8%", () => {
-    expect(BRANDING_DEFAULTS.padding).toBe(0.08);
+  it("new takes default to 12%, while a v7 document still migrates to 8%", () => {
+    expect(BRANDING_DEFAULTS.padding).toBe(0.12);
+    // What old documents migrate to is not the new default: unchanged.
+    expect(migrateToCurrent(v7Document()).branding.padding).toBe(0.08);
   });
 });
 

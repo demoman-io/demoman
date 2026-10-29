@@ -4,7 +4,7 @@ import type {
   ExportQualityChoice,
   PullRequestsChoice,
 } from "@demoman/studio-protocol";
-import type { LogoThumb } from "../branding/controls";
+import type { LogoThumb, WallpaperProps } from "../branding/controls";
 import type { BrandKitsRead } from "../core/brand-kit";
 
 /**
@@ -31,6 +31,9 @@ export interface SettingsModel {
   brandKitPlacement: LogoPlacement | null;
   /** Muted notes under the kit's logo row: the JPEG note, a load failure. */
   brandKitNotes: string[];
+  /** The selected kit's Wallpaper grid: the uploaded image's tile, and why
+   *  its image could not be had. */
+  brandKitWallpaper: Omit<WallpaperProps, "thumbUrl">;
   /** The user's Pull requests default, or null when it could not be read:
    *  the section then says why and checks nothing, never "Off". Not set
    *  reads `PULL_REQUESTS_DEFAULT` ("ask"). */

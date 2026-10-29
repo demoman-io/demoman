@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -14,7 +16,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { REPLAY_TARGETS } from "@demoman/replay-engine";
 import { afterAll, describe, expect, it } from "vitest";
-import { checkStudioPages } from "../scripts/studio-pages.mjs";
+import {
+  WALLPAPERS,
+  wallpaperFile,
+} from "../../../packages/scene-schema/src/wallpapers.js";
+import { checkStudioPages, WALLPAPER_IDS } from "../scripts/studio-pages.mjs";
 
 const at = (p: string) => new URL(`../${p}`, import.meta.url);
 const read = (p: string) => readFileSync(at(p), "utf8");
@@ -173,6 +179,13 @@ it("ships the Studio's pages where studio --serve looks for them, and packs them
   expect(paths).toContain("dist/studio/editor.html");
   expect(paths).toContain("dist/studio/settings.html");
   expect(paths).toContain("dist/studio/studio-build.json");
+  for (const w of WALLPAPERS) {
+    for (const shape of ["landscape", "portrait", "thumb"] as const) {
+      expect(paths).toContain(
+        `dist/studio/wallpapers/${wallpaperFile(w.id, shape)}`,
+      );
+    }
+  }
   expect(
     paths.some((p) => /^dist\/studio\/assets\/editor-.*\.js$/.test(p)),
   ).toBe(true);
@@ -202,14 +215,26 @@ it("ships the package README and packs it", () => {
 // files; 1,249,382 B without it.
 // 25% headroom; red when something like compositor's 21 MB of fixtures
 // rides in.
+// Measured 2026-10-28 with the built-in wallpapers (the studio pages'
+// public/wallpapers, 30 WebP files, 20,107,026 B, already compressed):
+// 21,041,235 B, unpacked 26,191,809 B, 67 files. Their bytes are read from
+// disk and added to the ceiling, so retuning them does not move it and
+// everything else keeps the headroom it had.
 const MAX_TARBALL_BYTES = 1_755_000;
+const wallpapers = fileURLToPath(
+  new URL("../../studio/pages/public/wallpapers/", import.meta.url),
+);
 it("packs under its size ceiling", () => {
+  const wallpaperBytes = readdirSync(wallpapers).reduce(
+    (sum, f) => sum + statSync(join(wallpapers, f)).size,
+    0,
+  );
   const out = execFileSync("npm", ["pack", "--dry-run", "--json"], {
     cwd: fileURLToPath(new URL("../pkg", import.meta.url)),
     encoding: "utf8",
   });
   const [{ size }] = JSON.parse(out);
-  expect(size).toBeLessThan(MAX_TARBALL_BYTES);
+  expect(size).toBeLessThan(MAX_TARBALL_BYTES + wallpaperBytes);
 });
 
 // Final review I3: build.mjs step 3b packed whatever was in
@@ -239,6 +264,15 @@ describe("checkStudioPages (build.mjs step 3b)", () => {
     writeFileSync(join(pagesDir, "library.html"), "<p>library</p>");
     writeFileSync(join(pagesDir, "editor.html"), "<p>editor</p>");
     writeFileSync(join(pagesDir, "settings.html"), "<p>settings</p>");
+    mkdirSync(join(pagesDir, "wallpapers"));
+    for (const w of WALLPAPERS) {
+      for (const shape of ["landscape", "portrait", "thumb"] as const) {
+        writeFileSync(
+          join(pagesDir, "wallpapers", wallpaperFile(w.id, shape)),
+          "x",
+        );
+      }
+    }
     const stampPath = join(pagesDir, "studio-build.json");
     writeFileSync(stampPath, JSON.stringify(o.stamp));
     const source = join(pagesSourceDir, "src", "a.ts");
@@ -323,5 +357,25 @@ describe("checkStudioPages (build.mjs step 3b)", () => {
     expect(verdict.ok ? "" : verdict.reason).toContain(
       "the Studio's pages are not built (no ",
     );
+  });
+
+  it("refuses a folder missing a wallpaper file, and names it", () => {
+    const dirs = fixture({
+      stamp: { sha: "abc", version: "1.2.3" },
+      builtAt: 2_000_000,
+      editedAt: 1_000_000,
+    });
+    const file = join(dirs.pagesDir, "wallpapers", "vivid-1-landscape.webp");
+    expect(existsSync(file)).toBe(true);
+    rmSync(file);
+    const verdict = checkStudioPages({ ...dirs, version: "1.2.3" });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.ok ? "" : verdict.reason).toContain(
+      "vivid-1-landscape.webp",
+    );
+  });
+
+  it("knows the same ids as scene-schema's WALLPAPERS", () => {
+    expect(WALLPAPER_IDS).toEqual(WALLPAPERS.map((w) => w.id));
   });
 });

@@ -13,11 +13,31 @@ export type KeptOutput = {
   quality: ExportQuality;
 };
 
+/** The app's window on a screen, in the film's own output pixels, with its
+ *  corners' radius (the compositor's `ScreenMoment.window`). */
+export type KeptWindow = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  radius: number;
+};
 /** A still screen of the committed video: the step it follows (null for the
- *  opening) and when it ends, in output milliseconds. */
-export type KeptMoment = { step: number | null; ms: number };
-/** The same shape as the compositor's `Screens`: the file's format is owned here. */
-export type KeptScreens = { steps: number; moments: KeptMoment[] };
+ *  opening) and when it ends, in output milliseconds. `window` is absent
+ *  from a file kept before it was recorded (2026-10-28): refresh then
+ *  compares that screen's whole picture. */
+export type KeptMoment = {
+  step: number | null;
+  ms: number;
+  window?: KeptWindow;
+};
+/** The same shape as the compositor's `Screens`: the file's format is owned
+ *  here. `look` (`lookDigest`) is absent from a file kept before it. */
+export type KeptScreens = {
+  steps: number;
+  moments: KeptMoment[];
+  look?: string;
+};
 
 /** The output a refresh judges: the first non-9:16 MP4, else the first
  *  non-9:16, else the first MP4, else the first. */
@@ -42,6 +62,10 @@ export interface KeptVideo {
   script: DemoScript;
   scale: number;
   logo: string | null;
+  /** An uploaded image background's repo path, copied in by keep as the
+   *  logo is; null for a built-in, a colour, or a file kept before
+   *  wallpapers (the key is absent there). */
+  wallpaper: string | null;
   outputs: KeptOutput[];
   screens: KeptScreens;
   report: string | null;
@@ -91,6 +115,9 @@ export function parseKept(text: string, file: string): Parsed {
     return bad("scale must be a positive number");
   if (raw.logo !== null && !repoRelative(raw.logo))
     return bad("logo must be null or a repo-relative path without ..");
+  const wallpaper = raw.wallpaper ?? null;
+  if (wallpaper !== null && !repoRelative(wallpaper))
+    return bad("wallpaper must be null or a repo-relative path without ..");
   if (raw.report !== null && !repoRelative(raw.report))
     return bad("report must be null or a repo-relative path without ..");
   if (!Array.isArray(raw.outputs) || raw.outputs.length === 0)
@@ -148,8 +175,47 @@ export function parseKept(text: string, file: string): Parsed {
     } else if (seen.has(null))
       return bad(`${at}.step is a second final screen`);
     else seen.add(null);
-    moments.push({ step: m.step as number | null, ms: m.ms });
+    const w = m.window;
+    if (w !== undefined) {
+      if (!isObj(w)) return bad(`${at}.window is not an object`);
+      // Numbers, finite, each: a string or Infinity would pass a bare `> 0`.
+      for (const [key, least] of [
+        ["x", null],
+        ["y", null],
+        ["width", "positive"],
+        ["height", "positive"],
+        ["radius", "0 or more"],
+      ] as const) {
+        const v = w[key];
+        if (
+          typeof v !== "number" ||
+          !Number.isFinite(v) ||
+          (least === "positive" && v <= 0) ||
+          (least === "0 or more" && v < 0)
+        )
+          return bad(
+            `${at}.window.${key} must be a finite number${least === null ? "" : `, ${least}`}`,
+          );
+      }
+    }
+    moments.push({
+      step: m.step as number | null,
+      ms: m.ms,
+      ...(isObj(w)
+        ? {
+            window: {
+              x: w.x as number,
+              y: w.y as number,
+              width: w.width as number,
+              height: w.height as number,
+              radius: w.radius as number,
+            },
+          }
+        : {}),
+    });
   }
+  if (sc.look !== undefined && (typeof sc.look !== "string" || sc.look === ""))
+    return bad("screens.look must be a non-empty string");
   const f = raw.from;
   if (
     !isObj(f) ||
@@ -166,8 +232,13 @@ export function parseKept(text: string, file: string): Parsed {
       script: script.data,
       scale: raw.scale,
       logo: raw.logo,
+      wallpaper,
       outputs,
-      screens: { steps: sc.steps as number, moments },
+      screens: {
+        steps: sc.steps as number,
+        moments,
+        ...(typeof sc.look === "string" ? { look: sc.look } : {}),
+      },
       report: raw.report,
       from: {
         videoId: f.videoId,
@@ -190,15 +261,33 @@ export function serializeKept(k: KeptVideo): string {
     script: k.script,
     scale: k.scale,
     logo: k.logo,
+    // Only when there is one: a file kept before wallpapers reads the same.
+    ...(k.wallpaper === null ? {} : { wallpaper: k.wallpaper }),
     outputs: k.outputs.map((o) => ({
       path: o.path,
       fileType: o.fileType,
       aspect: o.aspect,
       quality: o.quality,
     })),
+    // `window` and `look` only when recorded: a file kept before reads the same.
     screens: {
       steps: k.screens.steps,
-      moments: k.screens.moments.map((m) => ({ step: m.step, ms: m.ms })),
+      moments: k.screens.moments.map((m) => ({
+        step: m.step,
+        ms: m.ms,
+        ...(m.window === undefined
+          ? {}
+          : {
+              window: {
+                x: m.window.x,
+                y: m.window.y,
+                width: m.window.width,
+                height: m.window.height,
+                radius: m.window.radius,
+              },
+            }),
+      })),
+      ...(k.screens.look === undefined ? {} : { look: k.screens.look }),
     },
     report: k.report,
     from: {

@@ -39,4 +39,5 @@ export type {
 export type { TelemetryEvent } from "./telemetry-event.js";
 export * from "./url.js";
 export * from "./video-name.js";
+export { webpSize } from "./webp-size.js";
 export * from "./zoom-defaults.js";

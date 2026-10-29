@@ -11,6 +11,7 @@ import type {
   PullRequestsChoice,
 } from "@demoman/studio-protocol";
 import { renderBrandingControls } from "../branding/controls";
+import { wallpaperThumbUrl } from "../branding/wallpaper";
 import {
   type BrandKitsRead,
   defaultKit,
@@ -32,6 +33,7 @@ export interface SettingsActions {
   /** A Brand kit control mid-gesture: repaint the preview, nothing else. */
   previewBrandKit(patch: BrandingPatch): void;
   uploadKitLogo(file: File): void;
+  uploadKitWallpaper(file: File): void;
   /** Which kit the card edits. */
   selectKit(id: string): void;
   /** Adds "Untitled kit" from the defaults, and selects it. */
@@ -315,11 +317,13 @@ function renderKits(
       formatTitle: deliverableTitle("mp4", CANVAS_DEFAULTS.aspect),
       logoNotes: model.brandKitNotes,
       groupTitles: true,
+      wallpaper: { thumbUrl: wallpaperThumbUrl, ...model.brandKitWallpaper },
     },
     {
       onCommit: (patch) => actions.setBrandKit(patch),
       onPreview: (patch) => actions.previewBrandKit(patch),
       onLogoFile: (file) => actions.uploadKitLogo(file),
+      onWallpaperFile: (file) => actions.uploadKitWallpaper(file),
     },
   );
   body.append(hero, controls);

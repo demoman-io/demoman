@@ -9,7 +9,12 @@ import {
   createLocalExecutor,
   type LocalExecutor,
 } from "../src/package-entry.js";
-import { makeFixtureTake, ownVideo, serveFixtureApp } from "./fixture.js";
+import {
+  makeFixtureTake,
+  ownVideo,
+  serveFixtureApp,
+  WALLPAPERS_DIR,
+} from "./fixture.js";
 
 // Measured locally (2026-10-12, M-series Mac, headless) inside the full
 // runner suite, x5 for CI (fff4505). A run: 6.2 s at the slowest. An export
@@ -36,6 +41,7 @@ beforeAll(async () => {
   // Never ~/Downloads: a test's export lands in its own temp folder.
   outDir = join(home, "out");
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir,
@@ -63,6 +69,7 @@ function executorWithPendingLaunch(): {
   let requested = false;
   let reject: ((error: Error) => void) | null = null;
   const pending = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir,
@@ -139,6 +146,7 @@ describe("createLocalExecutor", () => {
   // browserRunning: false cannot, without launching anything.
   it("says whether Chromium is installed, without launching it", async () => {
     const missing = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
       home,
       headless: true,
       log: () => undefined,
@@ -165,6 +173,7 @@ describe("createLocalExecutor", () => {
   // is where it can tell the user how to fix that.
   it("says, in status, the display headless films as, or why it cannot read one", async () => {
     const blind = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
       home,
       headless: true,
       standInDisplay: true,
@@ -172,6 +181,7 @@ describe("createLocalExecutor", () => {
       log: () => undefined,
     });
     const seeing = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
       home,
       headless: true,
       standInDisplay: true,
@@ -433,6 +443,7 @@ describe("createLocalExecutor", () => {
 
   it("says where exports go in status", async () => {
     const ex = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
       home: await freshHome(),
       headless: true,
       outDir: "/tmp/x",
@@ -461,6 +472,7 @@ describe("createLocalExecutor", () => {
       args: Record<string, unknown>,
     ) => {
       const ex = createLocalExecutor({
+        wallpapersDir: WALLPAPERS_DIR,
         home: await freshHome(),
         headless: true,
         outDir: "/tmp/x",
@@ -663,6 +675,7 @@ describe("an export in progress", () => {
     async () => {
       const workPages: Page[] = [];
       const closer = createLocalExecutor({
+        wallpapersDir: WALLPAPERS_DIR,
         home,
         headless: true,
         outDir,

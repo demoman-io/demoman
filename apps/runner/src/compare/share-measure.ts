@@ -16,6 +16,7 @@ import { execFile } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
   ENCODER_USED_GLOBAL,
@@ -25,12 +26,14 @@ import {
   type Mp4EncoderHints,
   type RenderTarget,
   VERTICAL_1080,
+  wallpaperShape,
 } from "@demoman/compositor";
 import { frameOf, messageOf, targetFor } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { createBrowserSession } from "../executor/browser.js";
 import { createLibrary } from "../executor/library.js";
 import { readLogo } from "../executor/logo-ref.js";
+import { readWallpaper } from "../executor/wallpaper-read.js";
 import { type LogoInput, renderToFiles } from "../render.js";
 import {
   type Candidate,
@@ -614,12 +617,26 @@ async function main(): Promise<void> {
         scene.branding.logo === null
           ? null
           : await readLogo(home, scene.branding.logo.ref);
+      // ...and its wallpaper, from the repo's studio pages.
+      const wallpaper = await readWallpaper(
+        home,
+        fileURLToPath(
+          new URL("../../../studio/pages/public/wallpapers", import.meta.url),
+        ),
+        scene.branding.background,
+        wallpaperShape(today),
+      );
       const renderNotes: string[] = [
         logo === null
           ? "no logo"
           : logo.ok
             ? "logo drawn"
             : `logo left out (${logo.error})`,
+        wallpaper === null
+          ? "no wallpaper"
+          : wallpaper.ok
+            ? "wallpaper drawn"
+            : `wallpaper left out (${wallpaper.error})`,
       ];
       let plan: CropPlan | null = null;
       let planFailed: string | null = null;
@@ -658,6 +675,7 @@ async function main(): Promise<void> {
             target,
             fileType: "mp4",
             logo,
+            wallpaper,
           });
           // The options the sink was really built with, read back from the
           // render page before it closes.

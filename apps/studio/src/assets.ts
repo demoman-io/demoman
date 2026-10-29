@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { checkLogoFile } from "@demoman/run-core";
+import {
+  checkLogoFile,
+  checkWallpaperFile,
+  WALLPAPER_MAX_BYTES,
+} from "@demoman/run-core";
+import { writeWallpaperAsset } from "@demoman/runner/studio";
 import type { AssetAnswer, Refusal } from "@demoman/studio-protocol";
 import { messageOf, writeAtomic } from "./files.js";
 
@@ -58,4 +63,54 @@ export async function saveLogo(
     };
   }
   return { ok: true, answer: { ref } };
+}
+
+/**
+ * A wallpaper upload: the page's resized WebP (`fitWallpaperImage`), written
+ * by the runner's `writeWallpaperAsset` to `<home>/assets/<uuid>.webp`, the
+ * ref `readWallpaper` resolves. Any size of picture is accepted because the
+ * page bounds it first; what is refused here is a body that is not that
+ * WebP, named by type, or one past `WALLPAPER_MAX_BYTES`, a sanity bound.
+ */
+export async function saveWallpaper(
+  home: string,
+  file: { name: string; type: string; bytes: Buffer },
+): Promise<
+  | { ok: true; answer: AssetAnswer }
+  | { ok: false; status: number; refusal: Refusal }
+> {
+  const refused = (detail: string) => ({
+    ok: false as const,
+    status: 400,
+    refusal: { reason: "wallpaperRefused" as const, detail },
+  });
+  const check = checkWallpaperFile(file);
+  if (!check.ok) return refused(check.reason);
+  if (file.type !== "image/webp") {
+    // An accepted type the page did not resize: stored as .webp it would
+    // be a lie, and unbounded.
+    return refused(
+      `The image "${file.name}" reached the studio as ${file.type}, not the resized WebP the page makes — upload it again`,
+    );
+  }
+  if (file.bytes.byteLength > WALLPAPER_MAX_BYTES) {
+    return refused(
+      `The image "${file.name}" is ${(file.bytes.byteLength / 1024 / 1024).toFixed(1)} MB after resizing — the studio stores at most ${WALLPAPER_MAX_BYTES / 1024 / 1024} MB`,
+    );
+  }
+  try {
+    return {
+      ok: true,
+      answer: { ref: await writeWallpaperAsset(home, file.bytes) },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 500,
+      refusal: {
+        reason: "studioUnwritable",
+        detail: `The image was not saved: ${messageOf(error)}.`,
+      },
+    };
+  }
 }

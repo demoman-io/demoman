@@ -20,6 +20,7 @@ import {
   verdictLine,
   withSummary,
 } from "@demoman/run-core";
+import type { SceneBranding } from "@demoman/scene-schema";
 import { chromium } from "playwright";
 import { displayUnreadSentence, readDisplay } from "../display.js";
 import { installResolver } from "../page-agent.js";
@@ -73,6 +74,7 @@ import {
   type VideoRepo,
 } from "./videos.js";
 import { matchesFor, videosOp } from "./videos-op.js";
+import { ownWallpaperImage } from "./wallpaper-own.js";
 
 /** `run`'s `video`, or null when it is neither `{ id }` nor `{ new }`. */
 function videoArg(
@@ -448,6 +450,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     session,
     door: "agent",
     home,
+    wallpapersDir: options.wallpapersDir,
     outDir,
     log,
     ...(options.onWorkPage === undefined
@@ -755,8 +758,16 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     });
     try {
       const kits = await readKits(home);
+      // The kit the script named, kept for its image below.
+      let namedKit: { name: string; branding: SceneBranding } | null = null;
       if (script.look?.kit !== undefined) {
         const look = lookForRun(script, kits);
+        if (look.ok && look.look.branding === "kit" && look.look.kit !== null) {
+          namedKit = {
+            name: look.look.kit.name,
+            branding: look.startingBranding,
+          };
+        }
         if (!look.ok) {
           // The run page's own two reasons: a list it could not read, and a
           // name that is not in it (run/view.ts `start`).
@@ -786,6 +797,67 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         const out = refusal(browser.reason, browser.detail);
         job.final = out;
         return out;
+      }
+      // A script's image path becomes the take's own copy before anything
+      // is filmed; one that cannot be read or decoded is the script's to
+      // fix, refused as a bad `look` is (spec 2026-10-28, "Uploads"). After
+      // the launch, so a browser that will not start is refused as that.
+      // A script built from a take carries the take's own branding, which
+      // no agent wrote: one that cannot be owned is kept as the take has
+      // it, as a kit's is, and its export says so.
+      let ownedScriptBranding: SceneBranding | undefined;
+      const scriptBranding = script.look?.branding;
+      if (scriptBranding !== undefined) {
+        const owned = await ownWallpaperImage(scriptBranding, {
+          home,
+          work: session,
+          log,
+        });
+        if (owned.ok) {
+          ownedScriptBranding = owned.branding;
+        } else if (builtFrom !== null) {
+          log(
+            `take ${builtFrom}'s image is left as the take has it: ${owned.detail}`,
+          );
+        } else {
+          const out = refusal(
+            "wallpaperUnreadable",
+            owned.detail,
+            "look.branding.background",
+          );
+          job.final = out;
+          return out;
+        }
+      }
+      // A kit's image path is owned too, once per branding per call: the
+      // door and each film below ask for the same one, and one copy serves.
+      const ownedKits = new Map<string, ReturnType<typeof ownWallpaperImage>>();
+      const ownKit = (branding: SceneBranding) => {
+        const key = JSON.stringify(branding);
+        const known = ownedKits.get(key);
+        if (known !== undefined) return known;
+        const owning = ownWallpaperImage(branding, {
+          home,
+          work: session,
+          log,
+        });
+        ownedKits.set(key, owning);
+        return owning;
+      };
+      // A kit the script named is the agent's choice, as its own branding
+      // is: an image of it that cannot be owned is refused, naming the path
+      // (spec 2026-10-28; ruling R19). The default kit's is reported instead.
+      if (namedKit !== null) {
+        const owned = await ownKit(namedKit.branding);
+        if (!owned.ok) {
+          const out = refusal(
+            "wallpaperUnreadable",
+            `the brand kit "${namedKit.name}" names an image that cannot be used: ${owned.detail}`,
+            "look.kit",
+          );
+          job.final = out;
+          return out;
+        }
       }
       // No page of an earlier call may run while this one's sessions load.
       await session.retire();
@@ -841,6 +913,22 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             log,
             refilm,
             joinVideo,
+            ...(ownedScriptBranding === undefined
+              ? {}
+              : { ownedScriptBranding }),
+            // The default kit's image that cannot be owned is left as the
+            // kit has it, and the run report says so (`wallpaperError`).
+            ownKitWallpaper: async (branding) => {
+              const owned = await ownKit(branding);
+              if (owned.ok) return { branding: owned.branding, error: null };
+              log(
+                `the brand kit's image is left as the kit has it: ${owned.detail}`,
+              );
+              return {
+                branding,
+                error: `Your default brand kit's image could not be copied into this take, which keeps the kit's path to it: ${owned.detail}`,
+              };
+            },
             ...(repoRead.ok && repoRead.repo.commit !== null
               ? { buildSha: repoRead.repo.commit }
               : {}),

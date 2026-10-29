@@ -17,7 +17,7 @@ import type { LocalExecutor } from "../src/executor/types.js";
 import { createVideoStore, type TakeVideo } from "../src/executor/videos.js";
 import type { VideoSummary } from "../src/executor/videos-op.js";
 import { launch } from "../src/launch.js";
-import { serveFixtureApp } from "./fixture.js";
+import { serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
 
 // A run here: about 3 s locally (headless), x5 for CI as executor.test.ts.
 const RUN_MS = 31_000;
@@ -60,6 +60,7 @@ beforeAll(async () => {
     .toString()
     .trim();
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir: join(home, "out"),
@@ -368,6 +369,7 @@ describe("run records into a video", () => {
       // take joins it: the record goes in between.
       let deleted = false;
       const deleting = createLocalExecutor({
+        wallpapersDir: WALLPAPERS_DIR,
         home,
         headless: true,
         outDir: join(home, "out"),

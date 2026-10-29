@@ -20,8 +20,9 @@ import {
   resolve,
   sep,
 } from "node:path";
-import type { FrameBundle } from "@demoman/compositor";
+import { type FrameBundle, wallpaperShape } from "@demoman/compositor";
 import {
+  frameOf,
   judgedOutput,
   KEPT_DIR,
   KEPT_VERSION,
@@ -33,6 +34,7 @@ import {
   parseKept,
   type RefilmInfo,
   serializeKept,
+  targetFor,
 } from "@demoman/run-core";
 import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
@@ -49,6 +51,7 @@ import {
   type VideoRepo,
   type VideoStore,
 } from "./videos.js";
+import { readWallpaper } from "./wallpaper-read.js";
 
 export type KeepRefusal =
   | "unknownVideo"
@@ -59,6 +62,10 @@ export type KeepRefusal =
   | "outputTaken"
   | "exportFailed"
   | "logoUnreadable"
+  /** The take's wallpaper or uploaded image cannot be had (read before
+   *  any export), or an export left it out: the video would be on the
+   *  gradient. One that is only too small (`soft`) is kept. */
+  | "wallpaperUnreadable"
   /** Any other reason a re-film of the video's version refuses (its own
    *  reason and sentence in the detail), or an accounts.json that will not
    *  choose an account: a refresh would refuse the same way. */
@@ -215,9 +222,9 @@ export async function keepVideo(
     deps,
   );
   if (!made.ok) return refuse(made.reason, made.detail);
-  const { built, logoBytes } = made;
+  const { built, logoBytes, wallpaperBytes } = made;
   const base = made.kept;
-  const { logo } = base;
+  const { logo, wallpaper } = base;
 
   const temp = await mkdtemp(join(tmpdir(), "demoman-keep-"));
   try {
@@ -248,6 +255,12 @@ export async function keepVideo(
           `${o.path} was rendered without its logo: ${answer.warnings.logo}`,
         );
       }
+      if (answer.warnings.wallpaperWarning?.kind === "leftOut") {
+        return refuse(
+          "wallpaperUnreadable",
+          `${o.path} was rendered without its wallpaper: ${answer.warnings.wallpaperWarning.sentence}`,
+        );
+      }
       if (i === judged) screens = answer.screens;
       rendered.push(await readFile(answer.file.path));
     }
@@ -272,6 +285,10 @@ export async function keepVideo(
       if (logo !== null && logoBytes !== null) {
         await place(join(root, logo), logoBytes);
         written.push(logo);
+      }
+      if (wallpaper !== null && wallpaperBytes !== null) {
+        await place(join(root, wallpaper), wallpaperBytes);
+        written.push(wallpaper);
       }
       if (report !== null && runReport !== null) {
         if ("value" in runReport) {
@@ -322,6 +339,8 @@ type Built =
       read: { revision: string };
       /** The logo's bytes when they are to be copied into the repo. */
       logoBytes: Uint8Array | null;
+      /** The uploaded image's, likewise. */
+      wallpaperBytes: Uint8Array | null;
       /** Why `kept.scale` is a guess, or null when the take said it. */
       scaleGuess: string | null;
     }
@@ -373,13 +392,13 @@ async function buildKept(
     );
   }
   const { scene } = read;
+  const bundle = await deps.library
+    .frameStore(built.takeId)
+    .getBundle(built.takeId);
   // The run's own record first; takes filmed before it, their motion frames.
   const scale =
     scene.meta.capture.displayScale ??
-    filmedScale(
-      await deps.library.frameStore(built.takeId).getBundle(built.takeId),
-      scene.meta.capture.viewport.width,
-    );
+    filmedScale(bundle, scene.meta.capture.viewport.width);
   const scaleGuess =
     scale === null
       ? `1x is a guess: take ${built.takeId} records no filmed scale and has no motion frames to read one from, so refresh films it at 1x — if it was filmed at another scale, set "scale" in the kept file to it, or the first refresh replaces a video that did not change`
@@ -411,6 +430,39 @@ async function buildKept(
     }
   }
 
+  // A file the script names, by its repo path: copied in under `folder`
+  // when it lives outside the repo, unless the same bytes are there.
+  const ownCopy = async (
+    abs: string,
+    bytes: Uint8Array,
+    folder: string,
+    noun: string,
+  ): Promise<
+    { path: string; bytes: Uint8Array | null } | { refused: Built }
+  > => {
+    const there = await inRepo(abs);
+    if (typeof there === "string") return { path: there, bytes: null };
+    const path = `${KEPT_DIR}/${folder}/${basename(abs)}`;
+    const copy = await inRepo(path);
+    if (typeof copy !== "string")
+      return { refused: refuse("outsideRepo", copy.outside) };
+    const existing = await readFile(join(root, path)).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return null;
+        throw error;
+      },
+    );
+    if (existing !== null && !existing.equals(bytes)) {
+      return {
+        refused: refuse(
+          "outputTaken",
+          `${path} already holds a different ${noun} than ${abs} — rename one of the two files`,
+        ),
+      };
+    }
+    return { path, bytes: existing === null ? bytes : null };
+  };
+
   // The logo: by its repo path, copied in when it lives outside the repo.
   let logo: string | null = null;
   let logoBytes: Uint8Array | null = null;
@@ -419,28 +471,64 @@ async function buildKept(
     const had = await readLogo(deps.home, ref);
     if (!had.ok)
       return refuse("logoUnreadable", `the take's logo: ${had.error}`);
-    const abs = isAbsolute(ref) ? ref : join(deps.home, ref);
-    const there = await inRepo(abs);
-    if (typeof there === "string") {
-      logo = there;
-    } else {
-      logo = `${KEPT_DIR}/logos/${basename(abs)}`;
-      const copy = await inRepo(logo);
-      if (typeof copy !== "string") return refuse("outsideRepo", copy.outside);
-      const existing = await readFile(join(root, logo)).catch(
-        (error: NodeJS.ErrnoException) => {
-          if (error.code === "ENOENT") return null;
-          throw error;
-        },
+    const own = await ownCopy(
+      isAbsolute(ref) ? ref : join(deps.home, ref),
+      had.bytes,
+      "logos",
+      "logo",
+    );
+    if ("refused" in own) return own.refused;
+    logo = own.path;
+    logoBytes = own.bytes;
+  }
+
+  // The wallpaper, read as each output's export will read it, so one that
+  // cannot be had is refused before anything renders. A built-in is in
+  // every install; an uploaded image is copied in as the logo is, or a
+  // refresh in CI would film every version on the gradient.
+  let wallpaper: string | null = null;
+  let wallpaperBytes: Uint8Array | null = null;
+  const background = scene.branding.background;
+  // Each output's shape as its export decides it (`wallpaperShape` of its
+  // target), so an Auto take filmed on a phone is checked as portrait.
+  const shapes = new Set(
+    a.outputs.map((o) =>
+      wallpaperShape(
+        targetFor(
+          o.fileType,
+          o.aspect ?? scene.canvas.aspect,
+          bundle,
+          frameOf(scene),
+          { quality: o.quality },
+        ),
+      ),
+    ),
+  );
+  for (const shape of shapes) {
+    const had = await readWallpaper(
+      deps.home,
+      deps.export.wallpapersDir,
+      background,
+      shape,
+    );
+    if (had === null) break;
+    if (!had.ok)
+      return refuse(
+        "wallpaperUnreadable",
+        `the take's wallpaper: ${had.error}`,
       );
-      if (existing !== null && !existing.equals(had.bytes)) {
-        return refuse(
-          "outputTaken",
-          `${logo} already holds a different logo than ${abs} — rename one of the two files`,
-        );
-      }
-      if (existing === null) logoBytes = had.bytes;
-    }
+    if (background.kind !== "image" || wallpaper !== null) continue;
+    const own = await ownCopy(
+      isAbsolute(background.ref)
+        ? background.ref
+        : join(deps.home, background.ref),
+      had.bytes,
+      "wallpapers",
+      "wallpaper",
+    );
+    if ("refused" in own) return own.refused;
+    wallpaper = own.path;
+    wallpaperBytes = own.bytes;
   }
 
   const look = (built.script.look ?? {}) as Record<string, unknown>;
@@ -450,14 +538,26 @@ async function buildKept(
     ...(scene.meta.capture.device === undefined
       ? { viewport: scene.meta.capture.viewport }
       : {}),
-    ...(logo === null || scene.branding.logo === null
+    ...(logo === null && wallpaper === null
       ? {}
       : {
           look: {
             ...look,
             branding: {
               ...scene.branding,
-              logo: { ...scene.branding.logo, ref: logo },
+              ...(logo === null || scene.branding.logo === null
+                ? {}
+                : { logo: { ...scene.branding.logo, ref: logo } }),
+              ...(wallpaper === null
+                ? {}
+                : {
+                    // The take's own blur with it, as wallpaper-own keeps it.
+                    background: {
+                      ...background,
+                      kind: "image",
+                      ref: wallpaper,
+                    },
+                  }),
             },
           },
         }),
@@ -475,6 +575,7 @@ async function buildKept(
     script: script.data,
     scale: scale ?? 1,
     logo,
+    wallpaper,
     outputs: a.outputs.map((o) => ({
       path: o.path,
       fileType: o.fileType,
@@ -489,7 +590,15 @@ async function buildKept(
       recordedRevision: read.revision,
     },
   };
-  return { ok: true, kept, built, read, logoBytes, scaleGuess };
+  return {
+    ok: true,
+    kept,
+    built,
+    read,
+    logoBytes,
+    wallpaperBytes,
+    scaleGuess,
+  };
 }
 
 export type RewriteAnswer =
@@ -564,6 +673,9 @@ export async function rewriteKept(
     try {
       if (made.kept.logo !== null && made.logoBytes !== null) {
         await place(join(root, made.kept.logo), made.logoBytes);
+      }
+      if (made.kept.wallpaper !== null && made.wallpaperBytes !== null) {
+        await place(join(root, made.kept.wallpaper), made.wallpaperBytes);
       }
       // The screens describe the committed files, which this does not replace.
       await place(

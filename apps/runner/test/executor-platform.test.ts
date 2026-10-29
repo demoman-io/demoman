@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { makeDiskTake } from "./disk-take.js";
-import { ownVideo } from "./fixture.js";
+import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 
 // arm64 Linux with the MCP server wired by hand (no setup): every call that
 // needs a browser answers unsupportedPlatform before launching one, never a
@@ -18,6 +18,7 @@ let launches = 0;
 beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "demoman-platform-"));
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir: join(home, "out"),

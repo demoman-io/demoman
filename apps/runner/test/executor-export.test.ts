@@ -28,6 +28,7 @@ import {
   makeFixtureTake,
   serveFixtureApp,
   videoOfTake,
+  WALLPAPERS_DIR,
 } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
@@ -57,6 +58,7 @@ beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "demoman-export-"));
   outDir = join(home, "out");
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     home,
     headless: true,
     outDir,
@@ -587,6 +589,7 @@ describe("export, when something is wrong", () => {
     );
     const workPages: unknown[] = [];
     const watched = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
       home,
       headless: true,
       outDir,

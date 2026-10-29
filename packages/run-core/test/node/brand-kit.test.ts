@@ -180,14 +180,24 @@ describe("lookForRun", () => {
     expect(lookForRun({ look: { branding: own } }, read)).toEqual({
       ok: true,
       startingBranding: kit,
-      look: { branding: "script", kit: null, brandKitError: null },
+      look: {
+        branding: "script",
+        kit: null,
+        brandKitError: null,
+        wallpaperError: null,
+      },
     });
   });
   it("takes a named kit, and says which", () => {
     expect(lookForRun({ look: { kit: "light" } }, read)).toEqual({
       ok: true,
       startingBranding: light.branding,
-      look: { branding: "kit", kit: { name: "Light" }, brandKitError: null },
+      look: {
+        branding: "kit",
+        kit: { name: "Light" },
+        brandKitError: null,
+        wallpaperError: null,
+      },
     });
   });
   it("takes the default kit when the script names none, and says which", () => {
@@ -198,6 +208,7 @@ describe("lookForRun", () => {
         branding: "defaultKit",
         kit: { name: "Dark" },
         brandKitError: null,
+        wallpaperError: null,
       },
     });
   });
@@ -205,7 +216,12 @@ describe("lookForRun", () => {
     expect(lookForRun({}, coerceBrandKits(undefined, undefined))).toEqual({
       ok: true,
       startingBranding: BRANDING_DEFAULTS,
-      look: { branding: "defaults", kit: null, brandKitError: null },
+      look: {
+        branding: "defaults",
+        kit: null,
+        brandKitError: null,
+        wallpaperError: null,
+      },
     });
   });
   // Red if an unknown name falls back to the default.

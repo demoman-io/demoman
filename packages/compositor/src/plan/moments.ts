@@ -19,6 +19,17 @@ export interface ScreenMoment {
   step: number | null;
   /** Output milliseconds on the rendered video's own clock. */
   ms: number;
+  /** The app's window at `ms`, in the render's output pixels, with its
+   *  corners' radius: drawn by the same camera the frame is (`renderScene`
+   *  fills it), so refresh compares the window's pixels and nothing round
+   *  it. Absent from `screenMoments`' own answer. */
+  window?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    radius: number;
+  };
 }
 
 /** The shortest still stretch a moment may sit in: a frame either side of
@@ -138,6 +149,11 @@ export interface Screens {
   steps: number;
   /** Only the still screens, in increasing ms. */
   moments: ScreenMoment[];
+  /** A digest of the branding painted round the window (its background,
+   *  padding and logo), for refresh to judge the background by. Set by
+   *  the runner's `exportTake`, which holds the files the render read
+   *  (run-core's `lookDigest`). */
+  look?: string;
 }
 
 /**

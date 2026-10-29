@@ -68,6 +68,26 @@ export function applyBrandingPatch(
   };
 }
 
+/** Key order aside, every field equal (backgrounds are flat records). A
+ *  blur left out is 0, as the compositor paints it and `lookDigest` reads
+ *  it, and a key holding `undefined` is a key left out. */
+export function sameBackground(
+  a: SceneBackground,
+  b: SceneBackground,
+): boolean {
+  const flat = (bg: SceneBackground): Record<string, unknown> => ({
+    ...(bg.kind === "wallpaper" || bg.kind === "image" ? { blur: 0 } : {}),
+    ...Object.fromEntries(
+      Object.entries(bg).filter(([, v]) => v !== undefined),
+    ),
+  });
+  const [fa, fb] = [flat(a), flat(b)];
+  const keys = Object.keys(fa);
+  return (
+    keys.length === Object.keys(fb).length && keys.every((k) => fa[k] === fb[k])
+  );
+}
+
 /**
  * Whether two brandings paint the same thing. Field by field rather than by
  * identity or JSON: a patch always builds a new object, and a kit's
@@ -78,14 +98,7 @@ export function sameBranding(a: SceneBranding, b: SceneBranding): boolean {
   if (a.padding !== b.padding) return false;
   const bgA = a.background;
   const bgB = b.background;
-  const sameBackground =
-    bgA.kind === "solid"
-      ? bgB.kind === "solid" && bgA.color === bgB.color
-      : bgB.kind === "gradient" &&
-        bgA.from === bgB.from &&
-        bgA.to === bgB.to &&
-        bgA.angle === bgB.angle;
-  if (!sameBackground) return false;
+  if (!sameBackground(bgA, bgB)) return false;
   if (a.logo === null || b.logo === null) return a.logo === b.logo;
   return (
     a.logo.ref === b.logo.ref &&

@@ -12,18 +12,36 @@ import {
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CAMERA_DEFAULTS, motionTimings } from "@demoman/compositor";
 import {
+  CAMERA_DEFAULTS,
+  motionTimings,
+  WALLPAPER_LONG_SIDE,
+} from "@demoman/compositor";
+import {
+  fileDigest,
   KEPT_DIR,
   type KeptScreens,
   type KeptVideo,
   keptFileName,
+  lookDigest,
   parseKept,
   type RunReport,
   serializeKept,
   verdictLine,
+  webpSize,
 } from "@demoman/run-core";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  BRANDING_DEFAULTS,
+  DEFAULT_WALLPAPER_BLUR,
+} from "@demoman/scene-schema";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it as vitestIt,
+} from "vitest";
 import {
   type BrowserSession,
   createBrowserSession,
@@ -40,13 +58,21 @@ import {
 import { execGit } from "../src/executor/repo.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { listenOnLoopback } from "../src/loopback.js";
+import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
+import { sampleMp4 } from "./mp4-probe.js";
 
-// Measured locally (2026-10-27, M-series Mac, headless): a refresh of both
-// videos (two runs, three exports, three comparisons) 13-21 s; of one video
-// 5-10 s. x5 for CI (fff4505) with margin.
+// Measured on CI (run 40820520425, 2026-10-29, ubuntu): a case that
+// refreshes both videos, or one video twice, took 122-142 s, and the first
+// film ran past 150 s; a single refresh 44-66 s, and the GIF swap (two)
+// past 90 s. Locally (M-series Mac) the first film takes 22 s, as CI's x5
+// (fff4505) would allow, but here the canvases draw on the GPU (`launch.ts`'s
+// `HEADLESS_GPU_ARGS`) and CI's draw on the CPU: with the GPU left off the
+// same case took 71 s, of it 10 s the wallpaper's per-frame draw (61 s on a
+// gradient), and the file's cases 26-81 s, 1168 s in all; CI took 1.5-2.5x
+// those. Each limit is at least 1.6x 2.5 times its slowest GPU-off case.
 const SETUP_MS = 60_000;
-const BOTH_MS = 150_000;
-const ONE_MS = 90_000;
+const BOTH_MS = 300_000;
+const ONE_MS = 180_000;
 
 const ORIGINAL = await readFile(
   new URL(
@@ -155,6 +181,27 @@ function noiseLine(name: string, detail: string): string {
   console.info(line);
   return line;
 }
+/** A 640x480 WebP of one colour, made in a work page. */
+async function webpOf(rgb: [number, number, number]): Promise<Buffer> {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    const base64 = await work.page.evaluate(async ([r, g, b]) => {
+      const canvas = new OffscreenCanvas(640, 480);
+      const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(0, 0, 640, 480);
+      const blob = await canvas.convertToBlob({ type: "image/webp" });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = "";
+      for (const x of bytes) binary += String.fromCharCode(x);
+      return btoa(binary);
+    }, rgb);
+    return Buffer.from(base64, "base64");
+  } finally {
+    await work.page.close();
+  }
+}
 /** Writes a kept file of its own into the repo, and removes it with every
  *  output it names when `body` is done. */
 async function withKept<T>(
@@ -229,6 +276,7 @@ function kept(
     } as KeptVideo["script"],
     scale,
     logo: null,
+    wallpaper: null,
     outputs,
     screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
     report: name === A ? "docs/order-report.json" : null,
@@ -241,8 +289,12 @@ const filmed: { name: string; display: string; scale: number | null }[] = [];
 /** Every run this file films: its name, and the gaps (source ms) between
  *  its consecutive step markers after the first. */
 const gaps: { name: string; gaps: number[]; settle: number }[] = [];
-/** Every saved export's screens, in order. */
-const exported: { fileType: string; screens: KeptScreens }[] = [];
+/** Every saved export's screens and wallpaper warning, in order. */
+const exported: {
+  fileType: string;
+  screens: KeptScreens;
+  wallpaper: "leftOut" | "soft" | null;
+}[] = [];
 /** The temp folders refresh makes, as they are in the system's temp now. */
 const refreshTemps = async () =>
   (await readdir(tmpdir())).filter((n) =>
@@ -254,6 +306,7 @@ const deps = (): RefreshDeps => ({
   videos: createVideoStore(home, createLibrary(home)),
   executor: (o) => {
     const e = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
       home: o.home,
       headless: true,
       standInDisplay: true,
@@ -305,8 +358,16 @@ const deps = (): RefreshDeps => ({
           });
         }
         if (op === "export" && answer.ok) {
-          const v = answer.value as { fileType: string; screens: KeptScreens };
-          exported.push({ fileType: v.fileType, screens: v.screens });
+          const v = answer.value as {
+            fileType: string;
+            screens: KeptScreens;
+            warnings: { wallpaperWarning?: { kind: "leftOut" | "soft" } };
+          };
+          exported.push({
+            fileType: v.fileType,
+            screens: v.screens,
+            wallpaper: v.warnings.wallpaperWarning?.kind ?? null,
+          });
           if (injectExport !== null)
             return {
               ok: true,
@@ -431,6 +492,43 @@ afterAll(async () => {
     if (dir) await rm(dir, { recursive: true, force: true });
 });
 
+/** The test body that ran last, and whether it has ended. vitest does not
+ *  stop a body that timed out: it runs on beside the next test and resets
+ *  `html`, `exported` and the repo's files under it. On CI (2026-10-29) a
+ *  timed-out slower-app refresh set `html` back to the original while "a
+ *  one-digit change" filmed, which then read unchanged. */
+let last = { done: Promise.resolve() as Promise<unknown>, ended: true };
+const it = (name: string, body: () => unknown, ms?: number) =>
+  vitestIt(
+    name,
+    () => {
+      const run = { done: Promise.resolve() as Promise<unknown>, ended: false };
+      run.done = Promise.resolve()
+        .then(body)
+        .finally(() => {
+          run.ended = true;
+        });
+      last = run;
+      return run.done;
+    },
+    ms,
+  );
+/** Each test starts once the one before it has really ended, and says so
+ *  when it had to wait. */
+beforeEach(async () => {
+  const previous = last;
+  if (previous.ended) return;
+  const from = performance.now();
+  const how = await previous.done.then(
+    () => "passed",
+    (error: unknown) =>
+      `failed: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  console.warn(
+    `refresh: the previous test ran ${((performance.now() - from) / 1000).toFixed(1)} s past its timeout and then ${how}; this test started after it`,
+  );
+}, BOTH_MS);
+
 describe("refresh", () => {
   it(
     "films each kept video and writes its outputs, the first time as new",
@@ -493,10 +591,29 @@ describe("refresh", () => {
         r.videos.map((v) => v.outcome),
         JSON.stringify(r),
       ).toEqual(["unchanged", "unchanged"]);
+      // The premise: these films are on the blurred wallpaper new takes
+      // default to, whose smooth field the window's split exists for.
+      expect(BRANDING_DEFAULTS.background).toMatchObject({
+        kind: "wallpaper",
+        blur: DEFAULT_WALLPAPER_BLUR,
+      });
       // The premise: samePicture answered same for the judged output
-      // alone, over k of n screens recorded from a real film.
+      // alone, over k of n screens recorded from a real film, each with
+      // a window inside its 1920x1080 frame and the look beside them.
       for (const name of [A, B]) {
         const { screens } = await keptOf(name);
+        expect(screens.look, name).toMatch(/^[0-9a-f]+$/);
+        for (const { window: w } of screens.moments) {
+          expect(w, JSON.stringify(screens)).toBeDefined();
+          const { x, y, width, height } = w as NonNullable<typeof w>;
+          expect(
+            x >= 0 && y >= 0 && x + width <= 1920 && y + height <= 1080,
+            JSON.stringify(w),
+          ).toBe(true);
+          expect(width * height, JSON.stringify(w)).toBeGreaterThan(
+            0.25 * 1920 * 1080,
+          );
+        }
         const m = byName(r, name).detail.match(
           /^docs\/\w+\.mp4: at most [\d.]+% sharply and [\d.]+% faintly of the picture changed, over (\d+) of (\d+) screens$/,
         );
@@ -868,7 +985,8 @@ describe("refresh", () => {
       for (const [i, b] of (await both()).entries())
         expect(b.equals(before[i] as Buffer)).toBe(false);
     },
-    ONE_MS,
+    // Two refreshes, as a two-video case is.
+    BOTH_MS,
   );
 
   it(
@@ -1087,6 +1205,271 @@ describe("refresh", () => {
       );
     },
     ONE_MS,
+  );
+
+  // Ruling R13: keep copies an uploaded image into the repo and names it
+  // there (`kept.wallpaper`); a refresh in CI films it from that copy. A
+  // soft one (smaller than the zoom needs) is the picture the author kept.
+  // Red if refresh stops pointing the script at the repo's copy: the run
+  // would read the repo-relative ref from its own empty home, and the
+  // export would leave the image out.
+  // Ruling R27: the copy is the take's own file, an already-fitted WebP,
+  // and the run door owns it byte for byte, so the export reads the bytes
+  // keep recorded and an unchanged video stays unchanged. Red if the door
+  // re-encodes it: the look is then the re-encode's, never keep's.
+  it(
+    "films an uploaded image from its copy in the repo, soft or not, and leaves it unchanged after",
+    async () => {
+      html = ORIGINAL;
+      const C = "On an upload";
+      const copy = `${KEPT_DIR}/wallpapers/green.webp`;
+      const green: [number, number, number] = [0, 160, 80];
+      const webp = await webpOf(green);
+      await mkdir(join(repo, KEPT_DIR, "wallpapers"), { recursive: true });
+      await writeFile(join(repo, copy), webp);
+      const base = kept(
+        C,
+        ["Place order"],
+        1,
+        [
+          {
+            path: "docs/upload.mp4",
+            fileType: "mp4",
+            aspect: "16:9",
+            quality: "share",
+          },
+        ],
+        0,
+        3500,
+      );
+      const video: KeptVideo = {
+        ...base,
+        wallpaper: copy,
+        script: {
+          ...base.script,
+          look: {
+            branding: {
+              background: { kind: "image", ref: copy },
+              logo: null,
+              padding: 0.15,
+            },
+          },
+        },
+      };
+      const before = exported.length;
+      try {
+        // The premise: the repo copy is what keep copies, the take's own
+        // file — a WebP already within the long side a fit makes.
+        const size = webpSize(webp);
+        expect(size).toEqual({ width: 640, height: 480 });
+        expect(Math.max(640, 480)).toBeLessThanOrEqual(WALLPAPER_LONG_SIDE);
+        // The output is read before `withKept` removes it.
+        const { r, film, look, again } = await withKept(video, async () => {
+          const r = await refresh([C]);
+          const film = await bytes("docs/upload.mp4").catch(() => null);
+          const look = (await keptOf(C)).screens.look;
+          return { r, film, look, again: await refresh([C]) };
+        });
+        const c = byName(r, C);
+        expect(c.outcome, JSON.stringify(r)).toBe("replaced");
+        // The look the export recorded is the one keep records for the
+        // take: its branding with the repo copy's own bytes.
+        expect(look).toBe(
+          lookDigest(
+            {
+              background: { kind: "image", ref: copy },
+              logo: null,
+              padding: 0.15,
+            },
+            { logo: null, wallpaper: fileDigest(webp) },
+          ),
+        );
+        expect((await bytes(copy)).equals(webp)).toBe(true);
+        // Nothing changed since: unchanged.
+        const second = byName(again, C);
+        expect(second.outcome, JSON.stringify(again)).toBe("unchanged");
+        // The premise: each refresh's export warned soft, and nothing else.
+        expect(exported.slice(before).map((e) => e.wallpaper)).toEqual([
+          "soft",
+          "soft",
+        ]);
+        // The picture: the margin is the upload's green.
+        const [reading] = (
+          await sampleMp4(film ?? Buffer.alloc(0), {
+            colors: [],
+            blockPoints: [[0.03, 0.5]],
+          })
+        ).readings;
+        const block = reading?.blocks[0] ?? [0, 0, 0];
+        for (let i = 0; i < 3; i++)
+          expect(
+            Math.abs((block[i] as number) - (green[i] as number)),
+            JSON.stringify(block),
+          ).toBeLessThanOrEqual(12);
+      } finally {
+        await rm(join(repo, KEPT_DIR, "wallpapers"), {
+          recursive: true,
+          force: true,
+        });
+      }
+    },
+    ONE_MS * 2,
+  );
+
+  // Ruling R13, as the logo: a video an export left on the gradient fails,
+  // and its committed files stay. Red if refresh reads only the logo.
+  it(
+    "fails a video an export left without its wallpaper, leaving its files",
+    async () => {
+      html = ORIGINAL;
+      const said =
+        "The wallpaper was left out: x could not be read; the video uses the plain gradient.";
+      const before = await Promise.all([out.aMp4, out.aGif].map(bytes));
+      injectExport = (v) => ({
+        ...v,
+        warnings: {
+          ...(v.warnings as object),
+          wallpaperWarning: { kind: "leftOut", sentence: said },
+        },
+      });
+      let r: RefreshResult;
+      try {
+        r = await refresh([A]);
+      } finally {
+        injectExport = null;
+      }
+      const a = byName(r, A);
+      expect(a.outcome, JSON.stringify(r)).toBe("failed");
+      expect(a.detail).toBe(
+        `${out.aMp4} was rendered without its wallpaper: ${said}`,
+      );
+      const after = await Promise.all([out.aMp4, out.aGif].map(bytes));
+      for (const [i, b] of after.entries())
+        expect(b.equals(before[i] as Buffer)).toBe(true);
+    },
+    ONE_MS,
+  );
+
+  // The background is judged by its look, not its pixels: a blur that
+  // changes only outside the window is a change. Red if the look is not
+  // compared, as the window's pixels are the same.
+  it(
+    "replaces a video whose look changed outside the window",
+    async () => {
+      html = ORIGINAL;
+      const before = await keptOf(B);
+      expect(before.screens.look, "premise: a look to compare").toBeDefined();
+      const file = join(repo, KEPT_DIR, keptFileName(B));
+      const blurred = {
+        ...before,
+        script: {
+          ...before.script,
+          look: {
+            branding: {
+              ...BRANDING_DEFAULTS,
+              background: { ...BRANDING_DEFAULTS.background, blur: 0.5 },
+            },
+          },
+        },
+      } as KeptVideo;
+      await writeFile(file, serializeKept(blurred));
+      const r = await refresh([B]);
+      const b = byName(r, B);
+      expect(b.outcome, JSON.stringify(r)).toBe("replaced");
+      expect(b.detail).toBe(
+        `${out.bMp4}: the look changed: the background, padding or logo round the window is not the one the committed video was filmed with`,
+      );
+      // The premise: only the look moved; the window is where it was.
+      const after = await keptOf(B);
+      expect(after.screens.look).not.toBe(before.screens.look);
+      const pairs = before.screens.moments.flatMap((m) => {
+        const n = after.screens.moments.find((x) => x.step === m.step);
+        return n === undefined ? [] : [[m.window, n.window]];
+      });
+      expect(pairs.length, "premise: a screen in both").toBeGreaterThan(0);
+      for (const [w0, w1] of pairs) expect(w1).toEqual(w0);
+    },
+    ONE_MS,
+  );
+
+  // Ruling R25: an image is in the look by its bytes. A logo or upload
+  // replaced in the repo under its own name is a new look, though the
+  // window's pixels are the same. Red if the bytes are not digested.
+  it(
+    "replaces a video whose logo or uploaded image changed under the same name",
+    async () => {
+      html = ORIGINAL;
+      const D = "On a branded upload";
+      const logo = `${KEPT_DIR}/logos/acme.svg`;
+      const upload = `${KEPT_DIR}/wallpapers/blue.webp`;
+      await mkdir(join(repo, KEPT_DIR, "logos"), { recursive: true });
+      await mkdir(join(repo, KEPT_DIR, "wallpapers"), { recursive: true });
+      await writeFile(join(repo, logo), LOGO_SVG);
+      await writeFile(join(repo, upload), await webpOf([30, 60, 200]));
+      const base = kept(
+        D,
+        ["Place order"],
+        1,
+        [
+          {
+            path: "docs/branded.mp4",
+            fileType: "mp4",
+            aspect: "16:9",
+            quality: "share",
+          },
+        ],
+        0,
+        3500,
+      );
+      const video: KeptVideo = {
+        ...base,
+        logo,
+        wallpaper: upload,
+        script: {
+          ...base.script,
+          look: {
+            branding: {
+              background: { kind: "image", ref: upload, blur: 1 },
+              logo: { ref: logo, corner: "top-right", size: 0.06, opacity: 1 },
+              padding: 0.12,
+            },
+          },
+        },
+      };
+      try {
+        await withKept(video, async () => {
+          const first = byName(await refresh([D]), D);
+          expect(first.outcome, first.detail).toBe("replaced");
+          for (const [what, path, bytes] of [
+            ["logo", logo, LOGO_SVG.replace("#ff00ff", "#00ffff")],
+            ["upload", upload, await webpOf([200, 60, 30])],
+          ] as const) {
+            const before = await keptOf(D);
+            await writeFile(join(repo, path), bytes);
+            const r = byName(await refresh([D]), D);
+            expect(r.outcome, `${what}: ${r.detail}`).toBe("replaced");
+            expect(r.detail, what).toBe(
+              "docs/branded.mp4: the look changed: the background, padding or logo round the window is not the one the committed video was filmed with",
+            );
+            // The premise: the same files by name, the window where it was,
+            // and only the look moved.
+            const after = await keptOf(D);
+            expect([after.logo, after.wallpaper], what).toEqual([logo, upload]);
+            expect(after.screens.look, what).not.toBe(before.screens.look);
+            const pairs = before.screens.moments.flatMap((m) => {
+              const n = after.screens.moments.find((x) => x.step === m.step);
+              return n === undefined ? [] : [[m.window, n.window]];
+            });
+            expect(pairs.length, what).toBeGreaterThan(0);
+            for (const [w0, w1] of pairs) expect(w1, what).toEqual(w0);
+          }
+        });
+      } finally {
+        for (const dir of ["logos", "wallpapers"])
+          await rm(join(repo, KEPT_DIR, dir), { recursive: true, force: true });
+      }
+    },
+    BOTH_MS,
   );
 
   it("keeps every click clear of the pan-or-pull-back line", () => {

@@ -30,15 +30,18 @@ export function coerceBrandKit(raw: unknown): BrandKitRead {
 
 /**
  * A kit saved before 2026-10-05 has no `padding`. It is the author's
- * working kit, not a broken one, so it reads as that kit at the default
- * padding — an upgrade of an absent key, never a stand-in for a bad value:
- * a present `padding` is passed through for the schema to judge. A copy, so
- * reading never writes; the stored kit gains the key on its next save.
+ * working kit, not a broken one, so it reads as that kit at 8%: the
+ * padding it has read at since then, kept when new kits moved to 12%
+ * (2026-10-28) so a saved kit does not change. An upgrade of an absent key,
+ * never a stand-in for a bad value: a present `padding` is passed through
+ * for the schema to judge. A copy, so reading never writes; the stored kit
+ * gains the key on its next save.
  */
+const LEGACY_KIT_PADDING = 0.08;
 function withPadding(raw: unknown): unknown {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
   if ("padding" in raw) return raw;
-  return { ...raw, padding: BRANDING_DEFAULTS.padding };
+  return { ...raw, padding: LEGACY_KIT_PADDING };
 }
 
 /** One kit as stored: the branding is checked on read, never trusted. */
@@ -199,6 +202,11 @@ export interface RunLook {
    *  none. Reported even when the script's own branding made the kit moot:
    *  the author believes a kit is saved. */
   brandKitError: string | null;
+  /** Why the default kit's image could not be made the take's own copy, so
+   *  the take keeps the kit's path and an export may leave the image out;
+   *  null when it was, or there is none. A kit named in `look.kit` is
+   *  refused instead (`wallpaperUnreadable`). Set by the run, not here. */
+  wallpaperError: string | null;
 }
 
 export type RunLookResult =
@@ -233,6 +241,7 @@ export function lookForRun(
           fault === null
             ? null
             : `${fault.said}${fault.reason === null ? "" : ` (${fault.reason})`}; this take uses the script's own branding`,
+        wallpaperError: null,
       },
     };
   }
@@ -266,7 +275,12 @@ export function lookForRun(
     return {
       ok: true,
       startingBranding: structuredClone(entry.read.kit),
-      look: { branding: "kit", kit: { name: entry.name }, brandKitError: null },
+      look: {
+        branding: "kit",
+        kit: { name: entry.name },
+        brandKitError: null,
+        wallpaperError: null,
+      },
     };
   }
   const { branding, brandKitError } = brandingForTake(read);
@@ -280,8 +294,14 @@ export function lookForRun(
             branding: "defaultKit",
             kit: { name: entry.name },
             brandKitError: null,
+            wallpaperError: null,
           }
-        : { branding: "defaults", kit: null, brandKitError },
+        : {
+            branding: "defaults",
+            kit: null,
+            brandKitError,
+            wallpaperError: null,
+          },
   };
 }
 

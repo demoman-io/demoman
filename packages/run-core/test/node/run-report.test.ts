@@ -213,6 +213,7 @@ function complete(): BuildArgs {
       branding: "defaultKit",
       kit: { name: "Dark" },
       brandKitError: null,
+      wallpaperError: null,
     },
   };
 }
@@ -229,6 +230,7 @@ function refused(reason: ReplayRefusal): BuildArgs {
       branding: "defaultKit",
       kit: { name: "Dark" },
       brandKitError: null,
+      wallpaperError: null,
     },
   };
 }
@@ -918,6 +920,7 @@ describe("the look on the line", () => {
         kit: null,
         brandKitError:
           "Your brand kit could not be read, so this take uses the default background: storage refused the read: boom",
+        wallpaperError: null,
       },
     });
     const line = verdictLine(report);
@@ -927,11 +930,36 @@ describe("the look on the line", () => {
     expect(line.indexOf(verdictLine(buildRunReport(complete())))).toBe(0);
   });
 
+  // Red if lookClause drops `wallpaperError` (ruling R19): the default
+  // kit's image is not the take's own, and the summary would not say so.
+  it("names a default kit's image the take could not own, after the run's own clause", () => {
+    const said =
+      "Your default brand kit's image could not be copied into this take, which keeps the kit's path to it: The image /x/gone.png could not be read (ENOENT)";
+    const report = buildRunReport({
+      ...complete(),
+      look: {
+        branding: "defaultKit",
+        kit: { name: "Photo" },
+        brandKitError: null,
+        wallpaperError: said,
+      },
+    });
+    const line = verdictLine(report);
+    expect(line).toContain(`${said}.`);
+    expect(line.indexOf(verdictLine(buildRunReport(complete())))).toBe(0);
+    expect(prVerdict(report).clause).toBe("matches all 3 steps, with notes");
+  });
+
   it("says nothing about the look when there is no fault", () => {
     const clean = buildRunReport(complete());
     const noKit = buildRunReport({
       ...complete(),
-      look: { branding: "defaults", kit: null, brandKitError: null },
+      look: {
+        branding: "defaults",
+        kit: null,
+        brandKitError: null,
+        wallpaperError: null,
+      },
     });
     expect(verdictLine(noKit)).toBe(verdictLine(clean));
   });
@@ -941,6 +969,7 @@ describe("the look on the line", () => {
       branding: "defaultKit",
       kit: { name: "Dark" },
       brandKitError: null,
+      wallpaperError: null,
     });
     expect(buildRunReport({ ...complete(), look: null }).look).toBeNull();
   });
@@ -1096,7 +1125,12 @@ describe("prVerdict", () => {
       "an unreadable brand kit",
       buildRunReport({
         ...complete(),
-        look: { branding: "defaults", kit: null, brandKitError: "kit boom" },
+        look: {
+          branding: "defaults",
+          kit: null,
+          brandKitError: "kit boom",
+          wallpaperError: null,
+        },
       }),
       "matches all 3 steps, with notes",
     ],

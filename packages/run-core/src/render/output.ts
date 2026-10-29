@@ -6,6 +6,7 @@
 // OffscreenCanvas and WebCodecs. Naming and storing the files are the
 // callers', since each door saves differently.
 import {
+  blurWallpaper,
   type ClampedRange,
   composeForTarget,
   createGifSink,
@@ -28,6 +29,8 @@ import {
   type Screens,
   type UnavailableSpan,
   type UnplacedStill,
+  wallpaperBlurPx,
+  wallpaperRasterSize,
 } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
 import type { CapRender, VideoCap } from "../export/report.js";
@@ -35,6 +38,7 @@ import {
   type FileType,
   MAX_STILL_SIDE,
   type StillsOptions,
+  type WallpaperWarning,
 } from "../export/target.js";
 import type { LogoSource } from "../logo.js";
 import { MAX_CAP_STEPS, nextCapStep } from "./mp4-cap.js";
@@ -47,6 +51,22 @@ export const RECLAIMED_SPAN_REASON = "motion reclaimed to free space";
 /** A logo as the caller could get it: decoded, or the reason it is not. */
 export type LogoLoad =
   | { ok: true; source: LogoSource }
+  | { ok: false; error: string };
+
+/** A wallpaper or uploaded image as the caller could get it
+ *  (`wallpaperLoader`), or the reason it is not. `natural` is the image's
+ *  own size, which each output's `wallpaperRasterSize` and the soft warning
+ *  are measured against; `image(size)` answers it decoded at least that
+ *  large and never above `natural` (the loader's, freed by its `close`).
+ *  `name` is the id or the path, for the warning. */
+export type WallpaperLoad =
+  | {
+      ok: true;
+      name: string;
+      natural: { width: number; height: number };
+      image(size: { width: number; height: number }): Promise<FrameImage>;
+      close(): void;
+    }
   | { ok: false; error: string };
 
 /** One frame by ref: encoded video bytes for a `span:` ref, an image for a
@@ -117,6 +137,9 @@ export interface RenderFacts {
   loweredZooms: LoweredZoom[];
   /** Why the file has no logo, when the scene has one. */
   logoWarning: string | null;
+  /** Why the file shows the gradient instead of the scene's wallpaper, or
+   *  that the image is too small for the deepest zoom; null when neither. */
+  wallpaperWarning: WallpaperWarning | null;
   clampedRanges: ClampedRange[];
   /** The size the file was rendered at. The target, except for a GIF with
    *  a budget, which may render wider (`gifBudget`), and an MP4 with a
@@ -246,6 +269,8 @@ export async function renderOutput(input: {
   bundle: FrameBundle;
   frames: FrameSource;
   logo: LogoLoad | null;
+  /** The scene's wallpaper or image; null for a solid or gradient. */
+  wallpaper: WallpaperLoad | null;
   /** Each frame handed to a sink. A budgeted GIF and a capped MP4 also
    *  pass the width they are rendering at, and a capped MP4 which render
    *  it is (`CapRender`): a re-render starts again from frame 0, and
@@ -299,6 +324,119 @@ export async function renderOutput(input: {
       };
     }
   };
+  // Rasterised per output, as the logo is: each target draws the image at
+  // its own `wallpaperRasterSize` (a GIF rung, a cap step, a stills size),
+  // never one decided for another. One that cannot be had never fails the
+  // output: the frame shows the gradient and the facts say why.
+  const wallpaperAt = async (
+    at: RenderTarget,
+  ): Promise<{
+    image: FrameImage | null;
+    failed: string | null;
+    held?: FrameImage;
+  }> => {
+    const load = input.wallpaper;
+    const kind = scene.branding.background.kind;
+    // A scene on an image with none handed in is one left out, not a
+    // scene with nothing to draw.
+    if (load === null)
+      return {
+        image: null,
+        failed:
+          kind === "wallpaper" || kind === "image"
+            ? "no wallpaper was supplied to the render"
+            : null,
+      };
+    if (!load.ok) return { image: null, failed: load.error };
+    const size = wallpaperRasterSize(at, load.natural);
+    let held: FrameImage;
+    try {
+      held = await load.image(size);
+    } catch (error) {
+      return {
+        image: null,
+        failed: `${load.name}: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    let sized = held;
+    if (size.width < held.width) {
+      try {
+        const bitmap = await createImageBitmap(held.image, {
+          resizeWidth: size.width,
+          resizeHeight: size.height,
+          resizeQuality: "high",
+        });
+        sized = {
+          ...held,
+          image: bitmap,
+          width: size.width,
+          height: size.height,
+        };
+      } catch (error) {
+        return {
+          image: null,
+          failed: `"${load.name}" could not be resized to ${size.width}×${size.height} (${
+            error instanceof Error ? error.message : String(error)
+          })`,
+        };
+      }
+    }
+    // Blurred here, once for this output, as the take records it: never
+    // per frame, and never re-decided from anything else.
+    const bg = scene.branding.background;
+    const blur = bg.kind === "wallpaper" || bg.kind === "image" ? bg.blur : 0;
+    const radius = wallpaperBlurPx(at, sized, blur ?? 0);
+    try {
+      return { image: blurWallpaper(sized, radius), failed: null, held };
+    } catch (error) {
+      return {
+        image: null,
+        failed: `"${load.name}" could not be blurred at ${sized.width}×${sized.height} (${
+          error instanceof Error ? error.message : String(error)
+        })`,
+      };
+    } finally {
+      // The sharp copy made for this output, once the blur has its own.
+      if (radius > 0 && sized !== held) (sized.image as ImageBitmap).close();
+    }
+  };
+  /** What the facts say about the wallpaper of a render at `at` whose
+   *  deepest camera scale was `deepestScale`. */
+  const wallpaperWarning = (
+    at: RenderTarget,
+    deepestScale: number,
+    failed: string | null,
+  ): WallpaperWarning | null => {
+    if (failed !== null) {
+      return {
+        kind: "leftOut",
+        sentence: `The wallpaper was left out: ${failed}; the ${fileType === "stills" ? "stills use" : "video uses"} the plain gradient.`,
+      };
+    }
+    const load = input.wallpaper;
+    if (load === null || !load.ok) return null;
+    // The image's own size against what covering `at` at that zoom needs:
+    // `natural`, never the smaller raster it was decoded to.
+    const { width, height } = load.natural;
+    const scale = Math.max(at.width / width, at.height / height) * deepestScale;
+    const needs = {
+      width: Math.round(width * scale),
+      height: Math.round(height * scale),
+    };
+    return needs.width > width
+      ? {
+          kind: "soft",
+          sentence: `The wallpaper "${load.name}" is ${width}×${height}, smaller than this export's deepest zoom needs (${needs.width}×${needs.height}), so it will look soft.`,
+        }
+      : null;
+  };
+  /** A raster made for one output, freed once that output is rendered;
+   *  the loader's own decode is the loader's to free. */
+  const release = (image: FrameImage | null, held: FrameImage | null): void => {
+    if (image !== null && image.image !== held?.image) {
+      (image.image as ImageBitmap).close();
+    }
+  };
   const plan = planScene(scene);
   const surface = createOffscreenSurface();
   // Ranges reclaimed before this render ran: the compositor draws them as
@@ -336,16 +474,35 @@ export async function renderOutput(input: {
           );
     const at = sized.target;
     const { logo, logoWarning } = await logoAt(at);
-    const result = await renderStills({
-      plan,
-      bundle,
-      scene,
-      target: at,
-      ports: { frames, surface, images: createPngSink() },
-      logo,
-      ...(options === undefined ? {} : { camera: options.zoom ?? "none" }),
-      ...(onFrame === undefined ? {} : { onFrame }),
-    });
+    const wallpaper = await wallpaperAt(at);
+    const camera = options === undefined ? undefined : (options.zoom ?? "none");
+    let result: Awaited<ReturnType<typeof renderStills>>;
+    try {
+      result = await renderStills({
+        plan,
+        bundle,
+        scene,
+        target: at,
+        ports: { frames, surface, images: createPngSink() },
+        logo,
+        wallpaper: wallpaper.image,
+        ...(camera === undefined ? {} : { camera }),
+        ...(onFrame === undefined ? {} : { onFrame }),
+      });
+    } finally {
+      release(wallpaper.image, wallpaper.held ?? null);
+    }
+    // `none` frames every still whole; otherwise a still may sit at any
+    // zoom the video reaches. Asked only when there is an image to judge.
+    const deepest =
+      camera === "none" || input.wallpaper?.ok !== true
+        ? 1
+        : composeForTarget({
+            plan,
+            bundle,
+            scene,
+            target: at,
+          }).resolved.cameraKeys.reduce((m, k) => Math.max(m, k.scale), 1);
     return {
       files: result.files.map((f) => ({ name: f.name, bytes: f.bytes })),
       facts: {
@@ -354,6 +511,7 @@ export async function renderOutput(input: {
         unplacedStills: result.unplacedStills,
         loweredZooms: result.loweredZooms,
         logoWarning,
+        wallpaperWarning: wallpaperWarning(at, deepest, wallpaper.failed),
         clampedRanges: result.clampedRanges,
         rendered: { width: at.width, height: at.height, fps: at.fps },
         ...(sized.cappedFrom === null
@@ -370,6 +528,7 @@ export async function renderOutput(input: {
     pass?: CapRender,
   ) => {
     const { logo, logoWarning } = await logoAt(at);
+    const wallpaper = await wallpaperAt(at);
     const ports =
       at.format === "gif"
         ? {
@@ -378,27 +537,42 @@ export async function renderOutput(input: {
             gif: createGifSink(at, maxBytes === undefined ? {} : { maxBytes }),
           }
         : { frames, surface, video: createMp4Sink(at) };
-    const result = await renderScene({
-      plan,
-      bundle,
-      scene,
-      target: at,
-      ports,
-      logo,
-      ...(onFrame === undefined
-        ? {}
-        : {
-            onFrame:
-              pass !== undefined
-                ? (done: number, total: number) =>
-                    onFrame(done, total, at.width, pass)
-                : saysWidth
+    let result: Awaited<ReturnType<typeof renderScene>>;
+    try {
+      result = await renderScene({
+        plan,
+        bundle,
+        scene,
+        target: at,
+        ports,
+        logo,
+        wallpaper: wallpaper.image,
+        ...(onFrame === undefined
+          ? {}
+          : {
+              onFrame:
+                pass !== undefined
                   ? (done: number, total: number) =>
-                      onFrame(done, total, at.width)
-                  : onFrame,
-          }),
-    });
-    return { result, logoWarning, at };
+                      onFrame(done, total, at.width, pass)
+                  : saysWidth
+                    ? (done: number, total: number) =>
+                        onFrame(done, total, at.width)
+                    : onFrame,
+            }),
+      });
+    } finally {
+      release(wallpaper.image, wallpaper.held ?? null);
+    }
+    return {
+      result,
+      logoWarning,
+      wallpaperWarning: wallpaperWarning(
+        at,
+        result.deepestScale,
+        wallpaper.failed,
+      ),
+      at,
+    };
   };
 
   const budget = target.format === "gif" ? input.gifBudget : undefined;
@@ -517,7 +691,7 @@ export async function renderOutput(input: {
   if (done === undefined) {
     throw new Error("the GIF width ladder ended without a render");
   }
-  const { result, logoWarning, at } = done;
+  const { result, logoWarning, wallpaperWarning: wallpaperSaid, at } = done;
   return {
     files: [{ name: null, bytes: result.bytes }],
     facts: {
@@ -526,6 +700,7 @@ export async function renderOutput(input: {
       unplacedStills: [],
       loweredZooms: result.loweredZooms,
       logoWarning,
+      wallpaperWarning: wallpaperSaid,
       clampedRanges: result.clampedRanges,
       rendered: { width: at.width, height: at.height, fps: at.fps },
       ...(budget === undefined

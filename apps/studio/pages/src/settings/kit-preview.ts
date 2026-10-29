@@ -9,6 +9,7 @@ import {
   type RenderTarget,
 } from "@demoman/compositor";
 import { BrandingSchema, type SceneBranding } from "@demoman/scene-schema";
+import { blurredBackground } from "../branding/wallpaper";
 
 /**
  * The Brand kit preview's tier: landscape's, at a 480-wide working size. The
@@ -81,6 +82,9 @@ export function paintKitPreview(
   logo: FrameImage | null,
   cardColour: string,
   outerRadius = 0,
+  /** The background's image, decoded for `KIT_PREVIEW_BOX`; without one a
+   *  wallpaper paints the neutral, which the caller must say. */
+  wallpaper: FrameImage | null = null,
 ): boolean {
   const ctx = canvas.getContext("2d");
   if (ctx === null) return false;
@@ -96,7 +100,24 @@ export function paintKitPreview(
   // The compositor's painters are typed for OffscreenCanvas; the 2D API
   // they use is the same on a DOM canvas.
   const paint2d = ctx as unknown as OffscreenCanvasRenderingContext2D;
-  const presentation = derivePresentation(branding, target, KIT_VIEWPORT, logo);
+  let drawn: FrameImage | null = null;
+  try {
+    drawn = blurredBackground(wallpaper, branding.background, target);
+  } catch (error) {
+    // The kit still paints, on the neutral; the console says why.
+    console.warn(
+      `demoman settings: the brand kit preview's image could not be blurred: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  const presentation = derivePresentation(
+    branding,
+    target,
+    KIT_VIEWPORT,
+    logo,
+    drawn,
+  );
   drawBackground(paint2d, target, presentation);
   const r = presentation.frameRect;
   ctx.save();

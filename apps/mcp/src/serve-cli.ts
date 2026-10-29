@@ -52,6 +52,8 @@ export interface ServeCliOptions {
   recipe: string;
   version: string;
   headless: boolean;
+  /** The built-in wallpapers' folder, for exports (`ExportDeps`). */
+  wallpapersDir: string;
   /** The browser to launch; absent, Playwright's own choice for the mode. */
   executablePath?: string;
   outDir?: string;
@@ -68,6 +70,7 @@ export interface ServeCliOptions {
 export async function serveCli(o: ServeCliOptions): Promise<void> {
   const executor = o.createLocalExecutor({
     home: demomanHome(),
+    wallpapersDir: o.wallpapersDir,
     headless: o.headless,
     // A headless run films as a visible window on this display would.
     ...(o.headless ? { standInDisplay: true } : {}),

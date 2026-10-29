@@ -1,11 +1,13 @@
-import type {
-  SceneBackground,
-  SceneBranding,
-  SceneLogo,
+import {
+  NEUTRAL_BACKGROUND,
+  type SceneBackground,
+  type SceneBranding,
+  type SceneLogo,
 } from "@demoman/scene-schema";
 import { containRect, type Rect, type Vec } from "../geometry.js";
 import type { FrameImage } from "../ports/types.js";
 import type { RenderTarget } from "./target.js";
+import { coverRect } from "./wallpaper.js";
 
 export interface LogoPlacement {
   rect: Rect;
@@ -102,6 +104,9 @@ export interface Presentation {
    *  and its image is decoded (the aspect comes from the image). The panel
    *  reads `capped` from here to say when the mark was shrunk. */
   logoPlacement: LogoPlacement | null;
+  /** The decoded image a `wallpaper` or `image` background draws, or null:
+   *  another kind, or no image supplied (which paints the neutral). */
+  wallpaper: FrameImage | null;
 }
 
 /** The pixel height to rasterise a logo at for `target`: the authored
@@ -118,14 +123,16 @@ export function logoRasterHeight(
  * The presented frame: the authored background, with the app inset on it,
  * rounded and shadowed. Paints `branding` as stored — since schema v6 there
  * is no derived tint and no fallback: a document always carries a background
- * (`BRANDING_DEFAULTS` is an ordinary gradient), so there is no "nothing
- * set" branch to fall through silently.
+ * (`BRANDING_DEFAULTS` is a built-in wallpaper), so there is no "nothing
+ * set" branch to fall through silently. A wallpaper or image whose `wallpaper`
+ * frame is null paints `NEUTRAL_BACKGROUND`; the export says it was left out.
  */
 export function derivePresentation(
   branding: SceneBranding,
   target: RenderTarget,
   viewport: { width: number; height: number },
   logo: FrameImage | null = null,
+  wallpaper: FrameImage | null = null,
 ): Presentation {
   const pad = Math.min(target.width, target.height) * branding.padding;
   const box = {
@@ -193,6 +200,11 @@ export function derivePresentation(
         ? { image: logo, opacity: spec.opacity, rect: logoPlacement.rect }
         : null,
     logoPlacement,
+    wallpaper:
+      branding.background.kind === "wallpaper" ||
+      branding.background.kind === "image"
+        ? wallpaper
+        : null,
   };
 }
 
@@ -289,6 +301,16 @@ export function gradientLine(
   };
 }
 
+/**
+ * How the composition round the app's window is painted, as a number to
+ * bump by hand: refresh judges that part of a video by its look
+ * (`lookDigest`), which folds this in, so a change here reads as a change
+ * there. Bump it when `drawBackground`, `drawFrameChrome`, `drawLogo` or
+ * `wallpaper-blur.ts` change what they paint. Not `COMPOSITOR_VERSION`:
+ * every release would replace every kept video.
+ */
+export const BACKGROUND_PAINT_VERSION = 1;
+
 export function drawBackground(
   ctx: OffscreenCanvasRenderingContext2D,
   target: RenderTarget,
@@ -298,17 +320,28 @@ export function drawBackground(
   if (bg.kind === "solid") {
     ctx.fillStyle = bg.color;
   } else {
+    // An image paints over the neutral: it shows through transparency, and
+    // is the whole picture when no image was supplied.
+    const g = bg.kind === "gradient" ? bg : NEUTRAL_BACKGROUND;
     const { x0, y0, x1, y1 } = gradientLine(
-      bg.angle,
+      g.angle,
       target.width,
       target.height,
     );
     const gradient = ctx.createLinearGradient(x0, y0, x1, y1);
-    gradient.addColorStop(0, bg.from);
-    gradient.addColorStop(1, bg.to);
+    gradient.addColorStop(0, g.from);
+    gradient.addColorStop(1, g.to);
     ctx.fillStyle = gradient;
   }
   ctx.fillRect(0, 0, target.width, target.height);
+  const image = presentation.wallpaper;
+  if (image === null || bg.kind === "solid" || bg.kind === "gradient") return;
+  const { sx, sy, sw, sh } = coverRect(image, target);
+  // Under the camera the image is magnified up to `maxScale`: ask for the
+  // best filter rather than whatever the context was left at.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(image.image, sx, sy, sw, sh, 0, 0, target.width, target.height);
 }
 
 function framePath(

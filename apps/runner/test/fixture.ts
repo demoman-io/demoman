@@ -452,6 +452,18 @@ export async function videoOfTake(
  *  is near it, so counting magenta pixels counts the logo. Asserted, not
  *  assumed: `executor-export.test.ts`'s missing-logo export counts zero
  *  magenta pixels in the same 9:16 frame where the logo counts over 50. */
+/** The built-in wallpapers, where the studio's pages ship them: what the
+ *  CLI and the studio hand `ExportDeps.wallpapersDir`. */
+export const WALLPAPERS_DIR = join(
+  import.meta.dirname,
+  "..",
+  "..",
+  "studio",
+  "pages",
+  "public",
+  "wallpapers",
+);
+
 export const LOGO_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="#ff00ff"/></svg>';
 

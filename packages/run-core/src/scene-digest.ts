@@ -1,4 +1,5 @@
-import type { SceneDocument } from "@demoman/scene-schema";
+import { BACKGROUND_PAINT_VERSION } from "@demoman/compositor";
+import type { SceneBranding, SceneDocument } from "@demoman/scene-schema";
 
 /**
  * A fingerprint of what a scene asks the video to be, so the Recent exports
@@ -31,6 +32,45 @@ export function sceneDigest(scene: SceneDocument): string {
   return cyrb53(canonical({ ...rest, meta })).toString(16);
 }
 
+/**
+ * A fingerprint of what paints round the app's window — the background,
+ * the padding and the logo — which refresh judges the background by
+ * (`same-picture.ts`), as its pixels cannot be.
+ *
+ * Each image is in it by the bytes the render read (`files`, each a
+ * `fileDigest`, null for none), never by its `ref`: keep reads the take's
+ * own file and refresh the repo's copy of it, the same bytes under two
+ * names, while a file replaced under the same name is a new look. A blur
+ * left out is 0, as the compositor paints it. `BACKGROUND_PAINT_VERSION`
+ * stands for how those bytes are painted.
+ */
+export function lookDigest(
+  branding: SceneBranding,
+  files: { logo: string | null; wallpaper: string | null },
+): string {
+  const { background: bg, logo, padding } = branding;
+  const background =
+    bg.kind === "wallpaper"
+      ? { kind: bg.kind, id: bg.id, blur: bg.blur ?? 0, file: files.wallpaper }
+      : bg.kind === "image"
+        ? { kind: bg.kind, blur: bg.blur ?? 0, file: files.wallpaper }
+        : bg;
+  const { ref: _ref, ...mark } = logo ?? { ref: "" };
+  return cyrb53(
+    canonical({
+      paint: BACKGROUND_PAINT_VERSION,
+      background,
+      padding,
+      logo: logo === null ? null : { ...mark, file: files.logo },
+    }),
+  ).toString(16);
+}
+
+/** A fingerprint of a file's bytes, for `lookDigest`. */
+export function fileDigest(bytes: Uint8Array): string {
+  return cyrb53(bytes).toString(16);
+}
+
 function canonical(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value) ?? "null";
@@ -44,11 +84,12 @@ function canonical(value: unknown): string {
 }
 
 /** cyrb53 (public domain): a fast 53-bit string hash. */
-function cyrb53(text: string): number {
+function cyrb53(text: string | Uint8Array): number {
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
   for (let i = 0; i < text.length; i++) {
-    const ch = text.charCodeAt(i);
+    const ch =
+      typeof text === "string" ? text.charCodeAt(i) : (text[i] as number);
     h1 = Math.imul(h1 ^ ch, 2654435761);
     h2 = Math.imul(h2 ^ ch, 1597334677);
   }

@@ -1,12 +1,14 @@
 // apps/studio/pages/src/platform/http.ts
 import type { FrameImage } from "@demoman/compositor";
 import {
+  checkWallpaperFile,
   type ExportAnswer,
   exportCaveats,
   type OutputListing,
 } from "@demoman/run-core";
 import { decodeLogo } from "@demoman/run-core/logo";
 import type { LogoLoad } from "@demoman/run-core/render";
+import { fitWallpaperImage } from "@demoman/run-core/wallpaper";
 import type { SceneDocument } from "@demoman/scene-schema";
 import {
   type AssetAnswer,
@@ -820,6 +822,40 @@ export function createPlatform(
             ok: true,
             source: await decodeLogo(bytes, type?.trim() ?? ""),
           };
+        } catch (error) {
+          return { ok: false, error: messageOf(error) };
+        }
+      },
+    },
+    wallpapers: {
+      async put(file) {
+        // Refused here as the studio refuses it (`saveWallpaper`), so the
+        // page meets one shape: the type first, then whether it decodes.
+        const check = checkWallpaperFile(file);
+        if (!check.ok) {
+          throw new StudioError("wallpaperRefused", check.reason, 400);
+        }
+        let fitted: Awaited<ReturnType<typeof fitWallpaperImage>>;
+        try {
+          fitted = await fitWallpaperImage(file);
+        } catch (error) {
+          throw new StudioError("wallpaperRefused", messageOf(error), 400);
+        }
+        const done = await answer<AssetAnswer>(
+          await request("wallpaperPut", {
+            raw: fitted.blob,
+            headers: {
+              [FILE_NAME_HEADER]: encodeURIComponent(file.name),
+              "Content-Type": fitted.blob.type,
+            },
+          }),
+        );
+        return { ref: done.ref };
+      },
+      async load(ref) {
+        try {
+          const res = await request("wallpaper", { query: { ref } });
+          return { ok: true, blob: await res.blob() };
         } catch (error) {
           return { ok: false, error: messageOf(error) };
         }

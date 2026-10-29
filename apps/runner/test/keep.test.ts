@@ -10,12 +10,14 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { FrameBundle } from "@demoman/compositor";
+import { type FrameBundle, wallpaperShape } from "@demoman/compositor";
 import {
+  frameOf,
   keptFileName,
   notCarriedOf,
   parseKept,
   serializeKept,
+  targetFor,
 } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -31,7 +33,7 @@ import { execGit, readRepo } from "../src/executor/repo.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import { createVideoStore, type VideoStore } from "../src/executor/videos.js";
 import { makeDiskTake, putTake } from "./disk-take.js";
-import { LOGO_SVG } from "./fixture.js";
+import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): the disk take
@@ -60,6 +62,7 @@ const deps = (): KeepDeps => ({
   git: execGit,
   log: (l) => void lines.push(l),
   export: {
+    wallpapersDir: WALLPAPERS_DIR,
     library,
     videos,
     session,
@@ -309,6 +312,9 @@ describe("keep, a clean take", () => {
           throw new Error(JSON.stringify(plain));
         // Premise: there are screens to carry, or equal empties prove nothing.
         expect(plain.screens.moments.length).toBeGreaterThan(0);
+        // ...and each its window, and the look: keep writes all of them.
+        expect(plain.screens.look).toBeDefined();
+        expect(plain.screens.moments.every((m) => m.window)).toBe(true);
         expect(kept.screens).toEqual(plain.screens);
         expect(out.screensNote).toBe(
           `${plain.screens.moments.length} of ${plain.screens.steps + 1} screens are still`,
@@ -468,6 +474,198 @@ describe("keep refuses, writing nothing", () => {
     expect(out.detail).toContain("Add a task");
     expect(out.detail).toContain("docs/hero.mp4");
   });
+});
+
+// The take's wallpaper, as keep reads it (ruling R13): an upload is copied
+// into the repo like the logo, so a refresh in CI films it; one that cannot
+// be had is refused, as a logo is; one that is only too small is kept.
+describe("keep and the take's wallpaper", () => {
+  const mp4 = (path: string) => ({
+    path,
+    fileType: "mp4" as const,
+    aspect: "16:9" as const,
+    quality: "share" as const,
+  });
+  /** A take of the clean frames on an uploaded image at `ref`. */
+  const onImage = async (
+    takeId: string,
+    name: string,
+    ref: string,
+    blur?: number,
+  ) => {
+    const { scene } = await videoOf(takeId, name, (d) => ({
+      ...d,
+      branding: {
+        ...d.branding,
+        background: {
+          kind: "image",
+          ref,
+          ...(blur === undefined ? {} : { blur }),
+        },
+      },
+    }));
+    await copyFrames(scene.meta.id);
+    return scene;
+  };
+
+  it(
+    "copies an uploaded image into the repo and names it in the script, though it is too small for the zoom",
+    async () => {
+      await mkdir(join(home, "assets"), { recursive: true });
+      const thumb = await readFile(join(WALLPAPERS_DIR, "vivid-1-thumb.webp"));
+      await writeFile(join(home, "assets", "thumb.webp"), thumb);
+      // Blurred: the copy carries the take's blur, or a refresh films it
+      // sharp with a clean report.
+      const scene = await onImage(
+        "scene-upload",
+        "On an upload",
+        "assets/thumb.webp",
+        0.3,
+      );
+      expect(scene.branding.background).toMatchObject({ blur: 0.3 });
+      // Premise: the 320x240 thumb is smaller than the export needs, so its
+      // export warns soft, not left out.
+      const outDir = await mkdtemp(join(tmpdir(), "demoman-keep-soft-"));
+      try {
+        const plain = await exportTake(
+          {
+            takeId: scene.meta.id,
+            fileType: "mp4",
+            aspect: "16:9",
+            quality: "share",
+            unlisted: true,
+          },
+          { ...deps().export, outDir },
+          () => undefined,
+        );
+        if (plain.outcome !== "saved") throw new Error(JSON.stringify(plain));
+        expect(plain.warnings.wallpaperWarning?.kind).toBe("soft");
+      } finally {
+        await rm(outDir, { recursive: true, force: true });
+      }
+      const out = await keepVideo(
+        { video: "On an upload", to: [mp4("docs/upload.mp4")], repoRoot: repo },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      const copy = ".demoman/videos/wallpapers/thumb.webp";
+      expect(out.kept.wallpaper).toBe(copy);
+      expect(out.kept.script.look?.branding?.background).toEqual({
+        kind: "image",
+        ref: copy,
+        blur: 0.3,
+      });
+      expect((await readFile(join(repo, copy))).equals(thumb)).toBe(true);
+      expect(out.written).toContain(copy);
+    },
+    KEEP_MS,
+  );
+
+  // Red if keep stops reading the wallpaper before it renders: the export
+  // would leave it out, and the refusal would come after the render with
+  // the other detail.
+  it("refuses an upload that is gone, before rendering, naming the file", async () => {
+    await onImage("scene-gone", "On a gone upload", "assets/gone.webp");
+    const before = await repoFiles();
+    const out = await keepVideo(
+      { video: "On a gone upload", to: [mp4("docs/gone.mp4")], repoRoot: repo },
+      deps(),
+    );
+    expect(await repoFiles()).toEqual(before);
+    expect(out).toMatchObject({ ok: false, reason: "wallpaperUnreadable" });
+    if (out.ok) return;
+    expect(out.detail).toMatch(
+      /^the take's wallpaper: .*gone\.webp could not be read/,
+    );
+  });
+
+  // Red if keep keeps a video an export left on the gradient: the file is
+  // there to read, but will not decode.
+  it(
+    "refuses a video an export left on the gradient, naming the output",
+    async () => {
+      await mkdir(join(home, "assets"), { recursive: true });
+      await writeFile(join(home, "assets", "bad.webp"), "not an image");
+      await onImage("scene-bad", "On a bad upload", "assets/bad.webp");
+      const before = await repoFiles();
+      const out = await keepVideo(
+        { video: "On a bad upload", to: [mp4("docs/bad.mp4")], repoRoot: repo },
+        deps(),
+      );
+      expect(await repoFiles()).toEqual(before);
+      expect(out).toMatchObject({ ok: false, reason: "wallpaperUnreadable" });
+      if (out.ok) return;
+      expect(out.detail).toMatch(
+        /^docs\/bad\.mp4 was rendered without its wallpaper: The wallpaper was left out: .*bad\.webp/,
+      );
+    },
+    KEEP_MS,
+  );
+});
+
+// Red if keep decides an output's shape by its aspect rather than its
+// target (`wallpaperShape(targetFor(...))`, as the export does): an Auto take
+// filmed on a phone is checked as landscape, passes, and the export then
+// leaves the portrait file out after rendering, with the other detail.
+describe("keep checks an Auto phone take's wallpaper as portrait", () => {
+  it(
+    "refuses a missing portrait file before rendering, naming it",
+    async () => {
+      const id = "vivid-1";
+      const dir = await mkdtemp(join(tmpdir(), "demoman-keep-shape-"));
+      try {
+        for (const name of await readdir(WALLPAPERS_DIR)) {
+          if (name === `${id}-portrait.webp`) continue;
+          await writeFile(
+            join(dir, name),
+            await readFile(join(WALLPAPERS_DIR, name)),
+          );
+        }
+        const { scene } = await videoOf("scene-phone", "On a phone", (d) => ({
+          ...d,
+          canvas: { ...d.canvas, aspect: "auto" },
+          branding: { ...d.branding, background: { kind: "wallpaper", id } },
+        }));
+        await copyFrames(scene.meta.id);
+        const store = library.frameStore(scene.meta.id);
+        const bundle = await store.getBundle(scene.meta.id);
+        if (bundle === null) throw new Error("no bundle");
+        const phone = { ...bundle, viewport: { width: 390, height: 844 } };
+        await store.putBundle(scene.meta.id, phone);
+        // Premises: the export draws this output from the portrait master,
+        // the landscape one is there, and the portrait one is not.
+        const target = targetFor("mp4", "auto", phone, frameOf(scene), {
+          quality: "share",
+        });
+        expect(wallpaperShape(target)).toBe("portrait");
+        expect((await readdir(dir)).includes(`${id}-landscape.webp`)).toBe(
+          true,
+        );
+        expect((await readdir(dir)).includes(`${id}-portrait.webp`)).toBe(
+          false,
+        );
+        const before = await repoFiles();
+        const base = deps();
+        const out = await keepVideo(
+          {
+            video: "On a phone",
+            to: [{ path: "docs/phone.mp4", fileType: "mp4", quality: "share" }],
+            repoRoot: repo,
+          },
+          { ...base, export: { ...base.export, wallpapersDir: dir } },
+        );
+        expect(await repoFiles()).toEqual(before);
+        expect(out).toMatchObject({ ok: false, reason: "wallpaperUnreadable" });
+        if (out.ok) return;
+        expect(out.detail).toMatch(
+          /^the take's wallpaper: .*vivid-1-portrait\.webp/,
+        );
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+    KEEP_MS,
+  );
 });
 
 // Kept apart from the cases above: a symlinked parent folder that does not

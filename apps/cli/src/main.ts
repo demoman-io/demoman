@@ -65,6 +65,11 @@ import { VERSION } from "./version.js";
 const log = (line: string): void => {
   process.stderr.write(`demoman: ${line}\n`);
 };
+/** The built-in wallpapers, shipped inside the studio pages, for every
+ *  mode that can export (`ExportDeps.wallpapersDir`). */
+const WALLPAPERS_DIR = fileURLToPath(
+  new URL("./studio/wallpapers", import.meta.url),
+);
 const REINSTALL = `reinstall with \`npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup\``;
 /** Every in-page bundle must be in `pages`: say which are missing and exit
  *  1, else point the runner at them (no esbuild in an install). */
@@ -169,6 +174,8 @@ async function mcp(args: string[]): Promise<void> {
     recipe,
     version: VERSION,
     headless: mode.headless,
+    // The studio pages ship them; this mode exports too.
+    wallpapersDir: WALLPAPERS_DIR,
     // Setup installs the full Chromium only (`--no-shell`); headless, with
     // no executable named, Playwright looks for the headless shell instead,
     // and every call would answer browserMissing while status said the
@@ -363,6 +370,7 @@ async function keep(args: string[]): Promise<void> {
           session,
           door: "agent",
           home,
+          wallpapersDir: WALLPAPERS_DIR,
           // Each output renders into a temp folder of keep's own.
           outDir: tmpdir(),
           log,
@@ -463,6 +471,7 @@ async function refresh(args: string[]): Promise<void> {
           createLocalExecutor({
             ...o,
             headless: true,
+            wallpapersDir: WALLPAPERS_DIR,
             // Films at the kept scale, which DEMOMAN_DISPLAY names.
             standInDisplay: true,
             executablePath: fullChromiumPath(),

@@ -113,6 +113,14 @@
         background: var(--error-soft); color: var(--error);
       }
       .kit-thumb-broken svg { width: 20px; height: 20px; }
+      /* A kit whose background image did not load: over the neutral the
+         tile paints in its place. */
+      .kit-thumb-alert {
+        position: absolute; top: 12px; left: 12px;
+        display: grid; place-items: center; width: 24px; height: 24px;
+        border-radius: 6px; background: var(--card); color: var(--error);
+      }
+      .kit-thumb-alert svg { width: 16px; height: 16px; }
       .kit-tile-name {
         font-size: 12px; font-weight: 600;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

@@ -66,8 +66,18 @@ function mountPanel(
         "Upscaled in a Landscape video export — an SVG or a larger PNG stays sharp",
       ],
       ...(kit === undefined ? {} : { kit }),
+      wallpaper: {
+        thumbUrl: (id: string) => `/wallpapers/${id}-thumb.webp`,
+        custom: null,
+        loadError: null,
+      },
     },
-    { onCommit: vi.fn(), onPreview: vi.fn(), onLogoFile: vi.fn() },
+    {
+      onCommit: vi.fn(),
+      onPreview: vi.fn(),
+      onLogoFile: vi.fn(),
+      onWallpaperFile: vi.fn(),
+    },
   );
   return host;
 }

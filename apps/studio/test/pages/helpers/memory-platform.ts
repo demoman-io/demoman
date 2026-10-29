@@ -108,6 +108,8 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
   const logos = new Map<string, File>();
   const ownJobs = new Set<string>();
   let logoCount = 0;
+  const wallpapers = new Map<string, File>();
+  let wallpaperCount = 0;
 
   /** Records the call, then runs the override if the test set one. */
   function member<A extends unknown[], R>(
@@ -254,6 +256,25 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
             error: error instanceof Error ? error.message : String(error),
           };
         }
+      }),
+    },
+    // What was put reads back as its bytes; a ref never put answers a
+    // reason, as `http.ts` answers one the studio could not serve.
+    wallpapers: {
+      put: member("wallpapers", "put", async (file: File) => {
+        wallpaperCount += 1;
+        const ref = `assets/wallpaper-${wallpaperCount}.webp`;
+        wallpapers.set(ref, file);
+        return { ref };
+      }),
+      load: member("wallpapers", "load", async (ref: string) => {
+        const file = wallpapers.get(ref);
+        return file === undefined
+          ? {
+              ok: false as const,
+              error: `no wallpaper at ${ref} in the memory platform`,
+            }
+          : { ok: true as const, blob: file as Blob };
       }),
     },
     kits: {

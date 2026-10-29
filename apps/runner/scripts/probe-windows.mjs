@@ -63,6 +63,15 @@ for (const mode of ["tab", "background", "minimized"]) {
   const home = mkdtempSync(join(tmpdir(), "probe-windows-"));
   const ex = createLocalExecutor({
     home,
+    wallpapersDir: join(
+      import.meta.dirname,
+      "..",
+      "..",
+      "studio",
+      "pages",
+      "public",
+      "wallpapers",
+    ),
     headless: false,
     log,
     workWindow: mode,

@@ -12,6 +12,7 @@ import { createLibrary } from "../src/executor/library.js";
 import { execGit } from "../src/executor/repo.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { createVideoStore } from "../src/executor/videos.js";
+import { WALLPAPERS_DIR } from "./fixture.js";
 
 // Short runs of a one-field page, as executor-refilm.test.ts (x5 for CI).
 const RUN_MS = 120_000;
@@ -71,6 +72,7 @@ beforeAll(async () => {
   expect((await execGit(["init", "-q"], repo)).code).toBe(0);
   const base = { headless: true, log: () => undefined };
   executor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     ...base,
     home,
     outDir: join(home, "out"),
@@ -78,6 +80,7 @@ beforeAll(async () => {
   });
   // Same library, a project folder that is no repo.
   bareExecutor = createLocalExecutor({
+    wallpapersDir: WALLPAPERS_DIR,
     ...base,
     home,
     outDir: join(home, "out"),
@@ -127,6 +130,7 @@ describe("a run's answer says whether its kept file was rewritten", () => {
           git: execGit,
           log: () => undefined,
           export: {
+            wallpapersDir: WALLPAPERS_DIR,
             library,
             videos,
             session,
