@@ -171,14 +171,15 @@ describe("editor main — the background's image", () => {
       decodes[1]?.reject(new Error("vivid-2 would not decode"));
       await flush();
       expect(failureText()).not.toContain("vivid-2 would not decode");
-      expect(
-        document.querySelector("[data-wallpaper-error]")?.textContent ?? "",
-      ).not.toContain("vivid-2 would not decode");
+      // The panel never says a load failure; the band is where it would be.
+      expect(document.querySelector("[data-wallpaper-error]")).toBeNull();
       expect(state.composed.at(-1)).toBe(a);
     });
   });
 
-  it("says an uploaded image that cannot be loaded, in the band and the panel", async () => {
+  // The band alone says it (the author, 2026-10-28): red if the panel's
+  // own line under the grid comes back.
+  it("says an uploaded image that cannot be loaded in the band, not again in the panel", async () => {
     // The memory platform answers a ref it never stored with a reason, as
     // the studio answers one that moved.
     memory.serveScene(() =>
@@ -201,12 +202,14 @@ describe("editor main — the background's image", () => {
       ),
     ).toHaveLength(1);
     await openBackground();
+    // The premise: the panel is open on this image's grid.
     await vi.waitFor(() => {
-      const text =
-        document.querySelector("[data-wallpaper-error]")?.textContent ?? "";
-      if (!text.includes(reason)) throw new Error(`panel: ${text}`);
+      if (document.querySelector("[data-wallpaper-custom]") === null)
+        throw new Error("no grid yet");
     });
-    // The custom tile says it too, to a screen reader as well.
+    expect(document.querySelector("[data-wallpaper-error]")).toBeNull();
+    expect(failureText()).toContain(reason);
+    // The custom tile says it, to a screen reader as well.
     expect(
       document
         .querySelector("[data-wallpaper-custom]")

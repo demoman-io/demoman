@@ -60,7 +60,8 @@ export interface WallpaperProps {
    *  this page showed — and its tile; null with none. */
   custom: { ref: string; thumb: LogoThumb | null } | null;
   /** Why the background's image could not be had: the frame is painting
-   *  the neutral gradient in its place. */
+   *  the neutral gradient in its place. Said under the grid; null where the
+   *  page says it elsewhere (the editor's failure band). */
   loadError: string | null;
 }
 

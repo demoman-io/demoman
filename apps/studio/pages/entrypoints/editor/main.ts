@@ -2667,9 +2667,9 @@ function render(snapshot: SessionSnapshot): void {
         wallpaper: {
           thumbUrl: wallpaperThumbUrl,
           custom: wallpaperCustomFor(snapshot.scene.branding.background),
-          loadError: isImageBackground(snapshot.scene.branding.background)
-            ? (wallpaperLoadError ?? wallpaperBlurError)
-            : null,
+          // Said in the failure band (`#failure`) only, not again under
+          // the grid (the author, 2026-10-28).
+          loadError: null,
         },
         kit: {
           read: kitsRead,
