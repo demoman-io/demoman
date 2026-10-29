@@ -23,7 +23,10 @@ import {
   serializeKept,
   verdictLine,
 } from "@demoman/run-core";
-import { BRANDING_DEFAULTS } from "@demoman/scene-schema";
+import {
+  BRANDING_DEFAULTS,
+  DEFAULT_WALLPAPER_BLUR,
+} from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type BrowserSession,
@@ -535,7 +538,7 @@ describe("refresh", () => {
       // default to, whose smooth field the window's split exists for.
       expect(BRANDING_DEFAULTS.background).toMatchObject({
         kind: "wallpaper",
-        blur: 1,
+        blur: DEFAULT_WALLPAPER_BLUR,
       });
       // The premise: samePicture answered same for the judged output
       // alone, over k of n screens recorded from a real film, each with

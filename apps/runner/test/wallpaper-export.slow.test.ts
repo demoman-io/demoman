@@ -25,6 +25,7 @@ import {
 import { type ExportAnswer, frameOf, targetFor } from "@demoman/run-core";
 import {
   BRANDING_DEFAULTS,
+  DEFAULT_WALLPAPER_BLUR,
   NEUTRAL_BACKGROUND,
   type SceneBackground,
   type SceneDocument,
@@ -553,15 +554,19 @@ describe("the default take's wallpaper", () => {
       const blurred = sceneOn(BRANDING_DEFAULTS.background, "16:9", false);
       const sharp = sceneOn(VIVID, "16:9", false);
       // The fixture: the default is vivid-1 at 1, the case below at 0.
-      expect(BRANDING_DEFAULTS.background).toEqual({ ...VIVID, blur: 1 });
+      expect(BRANDING_DEFAULTS.background).toEqual({
+        ...VIVID,
+        blur: DEFAULT_WALLPAPER_BLUR,
+      });
       const bundle = await takeBundle();
       const target = await targetOf(blurred);
       expect(await targetOf(sharp)).toEqual(target);
       const atRest = cameraAt(blurred, bundle, target, 0);
       expect(atRest.scale).toBe(1);
       // The left margin from 508 px down, where vivid-1's band edges cross
-      // it. Measured 2026-10-28: 5.0 sharp, 0.61 at blur 1 (0.73 at 0.5; the
-      // codec's own floor is 0.16-0.47); its top 300 px read 0.43-0.48
+      // it. Measured 2026-10-28: 5.0 sharp, 0.83 at the 0.3 default (0.61 at
+      // blur 1, 0.73 at 0.5; the codec's own floor is 0.16-0.47), so the
+      // 0.25 x sharp = 1.25 ceiling clears both sides; its top 300 px read 0.43-0.48
       // sharp, no edge.
       const region = marginRegion(atRest.window, target, 24, 500);
       expect(

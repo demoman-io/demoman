@@ -302,7 +302,7 @@ describe("the Background panel's Wallpaper", () => {
       },
     });
     expect(DEFAULT_WALLPAPER_ID).toBe("vivid-1");
-    expect(DEFAULT_WALLPAPER_BLUR).toBe(1);
+    expect(DEFAULT_WALLPAPER_BLUR).toBe(0.3);
   });
 
   it("Gradient to Wallpaper commits the default blur too", () => {
@@ -316,7 +316,11 @@ describe("the Background panel's Wallpaper", () => {
     );
     q<HTMLButtonElement>('[data-bg-kind="wallpaper"]').click();
     expect(handlers.onCommit).toHaveBeenCalledWith({
-      background: { kind: "wallpaper", id: DEFAULT_WALLPAPER_ID, blur: 1 },
+      background: {
+        kind: "wallpaper",
+        id: DEFAULT_WALLPAPER_ID,
+        blur: DEFAULT_WALLPAPER_BLUR,
+      },
     });
   });
 

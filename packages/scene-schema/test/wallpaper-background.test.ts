@@ -48,9 +48,9 @@ describe("wallpaper and image backgrounds", () => {
     expect(BRANDING_DEFAULTS.background).toEqual({
       kind: "wallpaper",
       id: "vivid-1",
-      blur: 1,
+      blur: DEFAULT_WALLPAPER_BLUR,
     });
-    expect(DEFAULT_WALLPAPER_BLUR).toBe(1);
+    expect(DEFAULT_WALLPAPER_BLUR).toBe(0.3);
     expect(wallpaperInfo("vivid-1")?.family).toBe("vivid");
   });
 
