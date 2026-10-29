@@ -16,6 +16,7 @@ import {
 import {
   applyBrandingPatch,
   resolveBrandingPreview,
+  sameBackground,
   sameBranding,
 } from "../../../pages/src/editor/branding";
 import { StudioError } from "../../../pages/src/platform/http";
@@ -195,6 +196,27 @@ describe("sameBranding", () => {
         },
       }),
     ).toBe(false);
+  });
+});
+
+// Red if a blur left out reads as other than 0, as `lookDigest` reads it.
+describe("sameBackground", () => {
+  it("reads a blur left out, or undefined, as 0, and any other blur as a change", () => {
+    const sharp = { kind: "wallpaper", id: "vivid-1" } as const;
+    expect(sameBackground(sharp, { ...sharp, blur: 0 })).toBe(true);
+    expect(sameBackground({ ...sharp, blur: undefined }, sharp)).toBe(true);
+    expect(
+      sameBackground(
+        { kind: "image", ref: "assets/a.webp", blur: 0 },
+        {
+          kind: "image",
+          ref: "assets/a.webp",
+        },
+      ),
+    ).toBe(true);
+    expect(sameBackground(sharp, { ...sharp, blur: 0.3 })).toBe(false);
+    expect(sameBackground({ ...sharp, blur: 0.3 }, sharp)).toBe(false);
+    expect(sameBackground(sharp, { ...sharp, id: "vivid-2" })).toBe(false);
   });
 });
 

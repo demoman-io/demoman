@@ -68,15 +68,23 @@ export function applyBrandingPatch(
   };
 }
 
-/** Key order aside, every field equal (backgrounds are flat records). */
+/** Key order aside, every field equal (backgrounds are flat records). A
+ *  blur left out is 0, as the compositor paints it and `lookDigest` reads
+ *  it, and a key holding `undefined` is a key left out. */
 export function sameBackground(
   a: SceneBackground,
   b: SceneBackground,
 ): boolean {
-  const keys = Object.keys(a) as (keyof typeof a)[];
+  const flat = (bg: SceneBackground): Record<string, unknown> => ({
+    ...(bg.kind === "wallpaper" || bg.kind === "image" ? { blur: 0 } : {}),
+    ...Object.fromEntries(
+      Object.entries(bg).filter(([, v]) => v !== undefined),
+    ),
+  });
+  const [fa, fb] = [flat(a), flat(b)];
+  const keys = Object.keys(fa);
   return (
-    keys.length === Object.keys(b).length &&
-    keys.every((k) => a[k] === b[k as keyof typeof b])
+    keys.length === Object.keys(fb).length && keys.every((k) => fa[k] === fb[k])
   );
 }
 
