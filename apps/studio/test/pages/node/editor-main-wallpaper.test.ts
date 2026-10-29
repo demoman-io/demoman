@@ -195,6 +195,12 @@ describe("editor main — the background's image", () => {
     expect(
       document.querySelector("[data-wallpaper-load-error]")?.textContent,
     ).toContain("The background image could not be loaded");
+    // Announced: the panel's alert line is gone, so the card carries it.
+    expect(
+      document
+        .querySelector("[data-wallpaper-load-error]")
+        ?.getAttribute("role"),
+    ).toBe("alert");
     // The premise: it was the platform's answer, not a decode, that failed.
     expect(
       memory.calls.filter(

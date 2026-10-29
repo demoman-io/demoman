@@ -26,12 +26,17 @@ export async function writeWallpaperAsset(
 ): Promise<string> {
   const ref = `assets/${name}.webp`;
   const path = join(home, ref);
-  const temp = `${path}.${process.pid}.tmp`;
+  const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
     // Owner-only, as everything under the home is.
     await mkdir(join(home, "assets"), { recursive: true, mode: 0o700 });
     await writeFile(temp, bytes, { mode: 0o600 });
-    await rename(temp, path);
+    await rename(temp, path).catch(async (error: unknown) => {
+      // Another own of the same bytes won the race: its copy is this one.
+      const there = await readFile(path).catch(() => null);
+      if (there === null || !Buffer.from(bytes).equals(there)) throw error;
+      await rm(temp, { force: true });
+    });
   } catch (error) {
     const left = await rm(temp, { force: true }).then(
       () => "",

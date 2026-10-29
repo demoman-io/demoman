@@ -334,6 +334,39 @@ describe("the take's own copy is named by its source", () => {
   );
 });
 
+describe("two owns of one source at once", () => {
+  it("both succeed with the same ref, each writing its own temp file", async () => {
+    const src = join(h.scratch, "twice.webp");
+    const b = Buffer.alloc(30);
+    b.write("RIFF", 0, "ascii");
+    b.writeUInt32LE(22, 4);
+    b.write("WEBPVP8X", 8, "ascii");
+    b.writeUInt32LE(10, 16);
+    b.writeUIntLE(99, 24, 3);
+    b.writeUIntLE(99, 27, 3);
+    await writeFile(src, b);
+    // The premise: small enough to be copied whole, so no browser is needed.
+    expect(webpSize(b)).toEqual({ width: 100, height: 100 });
+    const deps = {
+      home: h.home,
+      work: {
+        openWorkPage: async () => ({ ok: false, detail: "no page" }),
+      } as never,
+      log: () => {},
+    };
+    const branding = {
+      ...BRANDING_DEFAULTS,
+      background: { kind: "image" as const, ref: src },
+    };
+    const [a, c] = await Promise.all([
+      ownWallpaperImage(branding, deps),
+      ownWallpaperImage(branding, deps),
+    ]);
+    expect(a).toEqual(c);
+    expect(a.ok, JSON.stringify(a)).toBe(true);
+  });
+});
+
 describe("webpSize and the fit's failures, without a browser", () => {
   /** A RIFF/WEBP header with a VP8X chunk claiming `width`x`height`. */
   const vp8x = (width: number, height: number) => {

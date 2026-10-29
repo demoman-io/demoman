@@ -365,6 +365,10 @@ export function renderFailure(
   if (failure.wallpaperLoadError != null) {
     const box = el("div", "notice");
     box.setAttribute("data-wallpaper-load-error", "");
+    box.setAttribute("role", "alert");
+    // The panel's own alert line is gone (the band says it alone), so the
+    // band's card is what a screen reader hears.
+
     box.append(
       el("strong", undefined, "The background image could not be loaded"),
     );
