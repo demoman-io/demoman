@@ -243,7 +243,14 @@ if (decoded.length === 0) {
   console.error("no Apple wallpaper decoded; palette.json left as it is");
   process.exit(1);
 }
-const palette = { families, measuredFrom: measuredFrom.sort() };
+// The muted family is picked by eye, not measured (README.md): keep it.
+const { muted } = JSON.parse(
+  readFileSync(join(import.meta.dirname, "palette.json"), "utf8"),
+).families;
+const palette = {
+  families: { ...families, muted },
+  measuredFrom: measuredFrom.sort(),
+};
 if (missing.length) console.warn(`no image measured as ${missing.join(", ")}`);
 for (const st of stats)
   console.log(

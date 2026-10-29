@@ -687,9 +687,9 @@ export const BrandColorSchema = z.string().regex(/^#[0-9a-f]{6}$/);
  */
 const WallpaperBlurSchema = z.number().min(0).max(1).optional();
 
-/** The blur new takes and kits start on: the author's pick (2026-10-28),
- *  30% on the slider, 3.6% of the frame's short side. */
-export const DEFAULT_WALLPAPER_BLUR = 0.3;
+/** The blur new takes and kits start on: sharp, the author's pick
+ *  (2026-10-29; 0.3 from 2026-10-28, 1 before that). */
+export const DEFAULT_WALLPAPER_BLUR = 0;
 
 export const BackgroundSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("solid"), color: BrandColorSchema }),

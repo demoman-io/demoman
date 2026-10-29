@@ -47,8 +47,8 @@ describe("the built-in wallpaper files", () => {
         (shape) => statSync(`${dir}${wallpaperFile(id, shape)}`).size,
       ),
     );
-    // Thirty files, or the sum below is of fewer than it claims.
-    expect(sizes).toHaveLength(30);
+    // Forty-two files, or the sum below is of fewer than it claims.
+    expect(sizes).toHaveLength(42);
     const total = sizes.reduce((a, b) => a + b, 0);
     expect(total, `${total} bytes`).toBeLessThanOrEqual(BUDGET);
   });

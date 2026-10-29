@@ -17,6 +17,12 @@
       "saturation": [0.489, 1],
       "lightness": [0.012, 0.704],
       "contrast": 0.69
+    },
+    "muted": {
+      "hue": [[15, 60], [95, 260]],
+      "saturation": [0.08, 0.5],
+      "lightness": [0.06, 0.95],
+      "pickedFrom": "by eye from Golden Gate Light and Golden Gate Dark (macOS, 512pixels.net), not measured"
     }
   },
   "measuredFrom": [

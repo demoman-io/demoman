@@ -33,6 +33,10 @@ export const WALLPAPER_IDS = [
   "light-2",
   "dark-1",
   "dark-2",
+  "muted-1",
+  "muted-2",
+  "muted-3",
+  "muted-4",
 ];
 const WALLPAPER_SHAPES = ["landscape", "portrait", "thumb"];
 
