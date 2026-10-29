@@ -11,7 +11,12 @@ import {
   VERTICAL_1080,
 } from "@demoman/compositor";
 import { frameOf, targetFor } from "@demoman/run-core";
-import type { SceneAspect, SceneDocument } from "@demoman/scene-schema";
+import {
+  NEUTRAL_BACKGROUND,
+  type SceneAspect,
+  type SceneDocument,
+  wallpaperFile,
+} from "@demoman/scene-schema";
 import type { Page } from "playwright";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { readonlyScene } from "../../../packages/compositor/test/fixtures/scene.js";
@@ -26,6 +31,7 @@ import {
   renderPhase,
   renderToFiles,
 } from "../src/render.js";
+import { WALLPAPERS_DIR } from "./fixture.js";
 import { FIXTURE_HEIGHT, FIXTURE_WIDTH, jpeg } from "./fixtures/jpeg.js";
 import { sampleImage, sampleMp4 } from "./mp4-probe.js";
 import { keyframeOnlyBundle } from "./render-small.js";
@@ -184,7 +190,14 @@ describe("renderPhase stamps COMPOSITOR_VERSION before rendering", () => {
     const outPath = join(outDir, "demo.mp4");
 
     await expect(
-      renderPhase({ scene, bundle, store, page: fakePage, outPath }),
+      renderPhase({
+        scene,
+        bundle,
+        store,
+        page: fakePage,
+        outPath,
+        wallpapersDir: WALLPAPERS_DIR,
+      }),
     ).rejects.toThrow();
 
     expect(capturedScene?.meta.toolchain.compositorVersion).toBe(
@@ -197,10 +210,10 @@ describe("renderPhase stamps COMPOSITOR_VERSION before rendering", () => {
 });
 
 describe("renderPhase on a wallpaper", () => {
-  // `demoman render` has no wallpapers folder: a scene on one is told so in
-  // the page's warning (and pipeline.ts's report line), never drawn on the
-  // gradient without a word. Red if renderPhase passes no wallpaper.
-  it("hands the page the reason it has no wallpaper", async () => {
+  // `demoman render` reads the built-in file as an export does (review
+  // finding 4, 2026-10-28). Red if renderPhase hands the page a reason, or
+  // no wallpaper, instead of the file's bytes.
+  it("hands the page the wallpaper's own bytes", async () => {
     const store = createFileFrameStore(tempDir("demoman-wallpaper-phase-"));
     const scene: SceneDocument = {
       ...readonlyScene(),
@@ -226,13 +239,69 @@ describe("renderPhase on a wallpaper", () => {
         store,
         page: fakePage,
         outPath: join(tempDir("demoman-wallpaper-phase-out-"), "demo.mp4"),
+        wallpapersDir: WALLPAPERS_DIR,
       }),
     ).rejects.toThrow();
     expect(sent).toEqual({
-      error:
-        'demoman render reads no wallpaper files (the scene names "vivid-1"); export through demoman-mcp for a wallpaper',
+      base64: readFileSync(
+        join(WALLPAPERS_DIR, wallpaperFile("vivid-1", "landscape")),
+      ).toString("base64"),
+      contentType: "image/webp",
+      name: "vivid-1",
     });
   });
+
+  // The picture: the margin is vivid-1, not the neutral gradient a left-out
+  // wallpaper falls back to, and nothing is said left out.
+  it("paints it, and warns of nothing", async () => {
+    const store = createFileFrameStore(tempDir("demoman-wallpaper-paint-"));
+    const scene: SceneDocument = {
+      ...readonlyScene(),
+      camera: [],
+      branding: {
+        ...readonlyScene().branding,
+        background: { kind: "wallpaper", id: "vivid-1", blur: 0 },
+        padding: 0.15,
+      },
+    };
+    const bundle = await keyframeOnlyBundle(store, scene);
+    const out = join(tempDir("demoman-wallpaper-paint-out-"), "demo.mp4");
+    const launched = await launch();
+    try {
+      const rendered = await renderPhase({
+        scene,
+        bundle,
+        store,
+        page: launched.page,
+        outPath: out,
+        wallpapersDir: WALLPAPERS_DIR,
+      });
+      expect(rendered.wallpaperWarning).toBeNull();
+      const [reading] = (
+        await sampleMp4(readFileSync(out), {
+          colors: [],
+          blockPoints: [[0.04, 0.5]],
+        })
+      ).readings;
+      const got = reading?.blocks[0] as Rgb;
+      const hex = (h: string) =>
+        [1, 3, 5].map((i) => Number.parseInt(h.slice(i, i + 2), 16));
+      // Off both of the gradient's stops by more than any shade between them.
+      for (const stop of [NEUTRAL_BACKGROUND.from, NEUTRAL_BACKGROUND.to]) {
+        const want = hex(stop);
+        expect(
+          Math.max(
+            ...[0, 1, 2].map((c) =>
+              Math.abs((got[c] as number) - (want[c] as number)),
+            ),
+          ),
+          JSON.stringify({ got, stop }),
+        ).toBeGreaterThan(40);
+      }
+    } finally {
+      await launched.close();
+    }
+  }, 180_000);
 });
 
 describe("renderPhase", () => {
@@ -265,6 +334,7 @@ describe("renderPhase", () => {
         store,
         page: launched.page,
         outPath: out,
+        wallpapersDir: WALLPAPERS_DIR,
       });
 
       const bytes = readFileSync(out);
@@ -302,6 +372,7 @@ describe("renderPhase", () => {
         store,
         page: launched.page,
         outPath: out,
+        wallpapersDir: WALLPAPERS_DIR,
       });
       const probe = await probeInPage(launched.page, readFileSync(out));
       expect(probe.displayWidth).toBe(target.width);
@@ -365,6 +436,7 @@ describe("renderPhase", () => {
           store,
           page: launched.page,
           outPath: out,
+          wallpapersDir: WALLPAPERS_DIR,
         }),
       ).rejects.toThrow(/kf:.*missing|404|answered/);
       expect(existsSync(out)).toBe(false);
@@ -441,7 +513,14 @@ describe("renderToFiles", () => {
       });
       const page = await blankPage();
       const outPath = join(tempDir("demoman-vertical-out-"), "demo.mp4");
-      await renderPhase({ scene, bundle, store, page, outPath });
+      await renderPhase({
+        scene,
+        bundle,
+        store,
+        page,
+        outPath,
+        wallpapersDir: WALLPAPERS_DIR,
+      });
       const read = await sampleMp4(readFileSync(outPath), {
         colors: [MAGENTA],
       });

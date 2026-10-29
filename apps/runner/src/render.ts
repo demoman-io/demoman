@@ -44,6 +44,7 @@ import {
   type Screens,
   type UnavailableSpan,
   type UnplacedStill,
+  wallpaperShape,
 } from "@demoman/compositor";
 import {
   type CapRender,
@@ -62,6 +63,7 @@ import {
   RENDER_ENTRY_GLOBAL,
   RENDER_PROGRESS_BINDING,
 } from "./entry-globals.js";
+import { readWallpaper } from "./executor/wallpaper-read.js";
 import type { RunnerStore } from "./frame-store.js";
 import { listenOnLoopback } from "./loopback.js";
 import type {
@@ -465,15 +467,6 @@ export async function fitWallpaperInPage(
   };
 }
 
-function renderPhaseWallpaper(scene: SceneDocument): WallpaperInput | null {
-  const bg = scene.branding.background;
-  if (bg.kind !== "wallpaper" && bg.kind !== "image") return null;
-  return {
-    ok: false,
-    error: `demoman render reads no wallpaper files (the scene names "${bg.kind === "wallpaper" ? bg.id : bg.ref}"); export through demoman-mcp for a wallpaper`,
-  };
-}
-
 /** `demoman render`'s phase: the scene's own aspect through `targetFor`, then
  *  the whole file written to `outPath` or nothing written. */
 export async function renderPhase(input: {
@@ -482,16 +475,19 @@ export async function renderPhase(input: {
   store: RunnerStore;
   page: Page;
   outPath: string;
+  /** The built-in wallpapers' folder, as `ExportDeps.wallpapersDir`. */
+  wallpapersDir: string;
   /** Tests only: `RunPipeline`'s `maxTier`. */
   maxTier?: RenderTarget;
 }): Promise<Rendered> {
   const { scene, bundle, outPath, maxTier } = input;
+  const target = targetFor("mp4", scene.canvas.aspect, bundle, frameOf(scene), {
+    maxTier,
+  });
   const rendered = await renderToFiles({
     ...input,
     fileType: "mp4",
-    target: targetFor("mp4", scene.canvas.aspect, bundle, frameOf(scene), {
-      maxTier,
-    }),
+    target,
     // The runner's `render` command has no library to look a logo up in; a
     // scene that names one is told so rather than drawn without a word.
     logo:
@@ -501,8 +497,15 @@ export async function renderPhase(input: {
             ok: false,
             error: `demoman render reads no logo files (the scene names "${scene.branding.logo.ref}"); export through demoman-mcp --browser cli for a logo`,
           },
-    // Nor wallpaper files, said the same way.
-    wallpaper: renderPhaseWallpaper(scene),
+    // Read as an export reads it. There is no home here, so an uploaded
+    // image's home-relative ref is read from the working folder, and one
+    // not there is said, naming the path, as any unreadable one is.
+    wallpaper: await readWallpaper(
+      "",
+      input.wallpapersDir,
+      scene.branding.background,
+      wallpaperShape(target),
+    ),
   });
   // Every byte is already back in node: a render that threw above never
   // touched the filesystem, so `outPath` is written whole or not at all.
