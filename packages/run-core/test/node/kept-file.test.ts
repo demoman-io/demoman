@@ -110,6 +110,29 @@ describe("the kept file", () => {
     );
   });
 
+  // Red if a window's number is checked by a bare comparison: "876" > 0 is
+  // true, and 1e999 parses to Infinity.
+  it.each([
+    ["width", '"876"'],
+    ["height", "1e999"],
+    ["x", '"1"'],
+    ["y", "null"],
+    ["radius", "-1"],
+    ["radius", '"12"'],
+  ])("refuses a window whose %s is %s, naming it", (key, raw) => {
+    const window = { x: 202.5, y: 86, width: 876, height: 548, radius: 12 };
+    const screens = {
+      ...JSON.parse(serializeKept(kept)).screens,
+      moments: [{ step: 0, ms: 1, window: { ...window, [key]: "@" } }],
+    };
+    const text = withChange({ screens }).replace('"@"', raw);
+    // The premise: the text holds the value asked about, as JSON reads it.
+    expect(text).toContain(`"${key}":${raw}`);
+    expect(refusal(text)).toContain(
+      `screens.moments[0].window.${key} must be a finite number`,
+    );
+  });
+
   it("refuses another keptVersion, naming it", () => {
     expect(refusal(withChange({ keptVersion: 2 }))).toContain("keptVersion");
   });

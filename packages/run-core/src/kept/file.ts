@@ -177,19 +177,26 @@ export function parseKept(text: string, file: string): Parsed {
     else seen.add(null);
     const w = m.window;
     if (w !== undefined) {
-      const finite = (v: unknown) =>
-        typeof v === "number" && Number.isFinite(v);
-      if (
-        !isObj(w) ||
-        !finite(w.x) ||
-        !finite(w.y) ||
-        !((w.width as number) > 0) ||
-        !((w.height as number) > 0) ||
-        !((w.radius as number) >= 0)
-      )
-        return bad(
-          `${at}.window must be an object of finite x and y, positive width and height, and a radius of 0 or more`,
-        );
+      if (!isObj(w)) return bad(`${at}.window is not an object`);
+      // Numbers, finite, each: a string or Infinity would pass a bare `> 0`.
+      for (const [key, least] of [
+        ["x", null],
+        ["y", null],
+        ["width", "positive"],
+        ["height", "positive"],
+        ["radius", "0 or more"],
+      ] as const) {
+        const v = w[key];
+        if (
+          typeof v !== "number" ||
+          !Number.isFinite(v) ||
+          (least === "positive" && v <= 0) ||
+          (least === "0 or more" && v < 0)
+        )
+          return bad(
+            `${at}.window.${key} must be a finite number${least === null ? "" : `, ${least}`}`,
+          );
+      }
     }
     moments.push({
       step: m.step as number | null,
