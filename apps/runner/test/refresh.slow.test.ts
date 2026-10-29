@@ -34,7 +34,14 @@ import {
   BRANDING_DEFAULTS,
   DEFAULT_WALLPAPER_BLUR,
 } from "@demoman/scene-schema";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it as vitestIt,
+} from "vitest";
 import {
   type BrowserSession,
   createBrowserSession,
@@ -54,12 +61,18 @@ import { listenOnLoopback } from "../src/loopback.js";
 import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
-// Measured locally (2026-10-27, M-series Mac, headless): a refresh of both
-// videos (two runs, three exports, three comparisons) 13-21 s; of one video
-// 5-10 s. x5 for CI (fff4505) with margin.
+// Measured on CI (run 40820520425, 2026-10-29, ubuntu): a case that
+// refreshes both videos, or one video twice, took 122-142 s, and the first
+// film ran past 150 s; a single refresh 44-66 s, and the GIF swap (two)
+// past 90 s. Locally (M-series Mac) the first film takes 22 s, as CI's x5
+// (fff4505) would allow, but here the canvases draw on the GPU (`launch.ts`'s
+// `HEADLESS_GPU_ARGS`) and CI's draw on the CPU: with the GPU left off the
+// same case took 71 s, of it 10 s the wallpaper's per-frame draw (61 s on a
+// gradient), and the file's cases 26-81 s, 1168 s in all; CI took 1.5-2.5x
+// those. Each limit is at least 1.6x 2.5 times its slowest GPU-off case.
 const SETUP_MS = 60_000;
-const BOTH_MS = 150_000;
-const ONE_MS = 90_000;
+const BOTH_MS = 300_000;
+const ONE_MS = 180_000;
 
 const ORIGINAL = await readFile(
   new URL(
@@ -478,6 +491,43 @@ afterAll(async () => {
   for (const dir of [repo, home])
     if (dir) await rm(dir, { recursive: true, force: true });
 });
+
+/** The test body that ran last, and whether it has ended. vitest does not
+ *  stop a body that timed out: it runs on beside the next test and resets
+ *  `html`, `exported` and the repo's files under it. On CI (2026-10-29) a
+ *  timed-out slower-app refresh set `html` back to the original while "a
+ *  one-digit change" filmed, which then read unchanged. */
+let last = { done: Promise.resolve() as Promise<unknown>, ended: true };
+const it = (name: string, body: () => unknown, ms?: number) =>
+  vitestIt(
+    name,
+    () => {
+      const run = { done: Promise.resolve() as Promise<unknown>, ended: false };
+      run.done = Promise.resolve()
+        .then(body)
+        .finally(() => {
+          run.ended = true;
+        });
+      last = run;
+      return run.done;
+    },
+    ms,
+  );
+/** Each test starts once the one before it has really ended, and says so
+ *  when it had to wait. */
+beforeEach(async () => {
+  const previous = last;
+  if (previous.ended) return;
+  const from = performance.now();
+  const how = await previous.done.then(
+    () => "passed",
+    (error: unknown) =>
+      `failed: ${error instanceof Error ? error.message : String(error)}`,
+  );
+  console.warn(
+    `refresh: the previous test ran ${((performance.now() - from) / 1000).toFixed(1)} s past its timeout and then ${how}; this test started after it`,
+  );
+}, BOTH_MS);
 
 describe("refresh", () => {
   it(
@@ -935,7 +985,8 @@ describe("refresh", () => {
       for (const [i, b] of (await both()).entries())
         expect(b.equals(before[i] as Buffer)).toBe(false);
     },
-    ONE_MS,
+    // Two refreshes, as a two-video case is.
+    BOTH_MS,
   );
 
   it(

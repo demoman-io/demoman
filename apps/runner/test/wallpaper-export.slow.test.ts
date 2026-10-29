@@ -544,8 +544,16 @@ const VARIANCE_FLOOR = 1.5;
  * edge pixels per pixel. Measured 2026-10-28, 16:9 at 2.5x: 0.44 sharp,
  * 0.18 with `wallpaperRasterSize` halved (red); the master itself gives
  * 0.43-0.5 between native and 1/2.5. 9:16 at its 1.15x cap: 1.17.
+ *
+ * Those are GPU canvases (`HEADLESS_GPU_ARGS`). CI's draw on the CPU, whose
+ * scale-1 downsample keeps more edge, so the denominator rises and the
+ * zoomed shot does not fall: CI read 5.23 / 15.51 = 0.337 sharp (run
+ * 40820520425, 2026-10-29); this Mac with the GPU left off 5.29 / 16.21 =
+ * 0.327 sharp and 2.01 / 14.05 = 0.143 halved; with it on, 4.73 / 10.71
+ * = 0.442 sharp and 1.97 / 10.71 = 0.184 halved. 0.25 is under both sharp
+ * readings and over both halved ones.
  */
-const SHARP_RATIO = 0.35;
+const SHARP_RATIO = 0.25;
 
 describe("the default take's wallpaper", () => {
   it(
