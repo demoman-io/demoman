@@ -811,6 +811,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         const owned = await ownWallpaperImage(scriptBranding, {
           home,
           work: session,
+          log,
         });
         if (owned.ok) {
           ownedScriptBranding = owned.branding;
@@ -835,7 +836,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         const key = JSON.stringify(branding);
         const known = ownedKits.get(key);
         if (known !== undefined) return known;
-        const owning = ownWallpaperImage(branding, { home, work: session });
+        const owning = ownWallpaperImage(branding, {
+          home,
+          work: session,
+          log,
+        });
         ownedKits.set(key, owning);
         return owning;
       };

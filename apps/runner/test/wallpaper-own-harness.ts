@@ -18,7 +18,8 @@ import { ownVideo, serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
 // locally, x5 for CI.
 export const RUN_MS = 31_000;
 
-export const ASSET_REF = /^assets\/[0-9a-f-]{36}\.webp$/;
+// The run door names its copy by the source's sha256.
+export const ASSET_REF = /^assets\/[0-9a-f]{64}\.webp$/;
 
 /** A `width`x`height` PNG of one colour, encoded here (no browser), so the
  *  file on disk is the fixture the run is handed. */

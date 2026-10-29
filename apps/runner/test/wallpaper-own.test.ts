@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { WALLPAPER_LONG_SIDE } from "@demoman/compositor";
+import { webpSize } from "@demoman/run-core";
+import { BRANDING_DEFAULTS } from "@demoman/scene-schema";
+import type { Page } from "playwright";
 import { describe, expect, it } from "vitest";
 import { createLibrary } from "../src/executor/library.js";
+import { ownWallpaperImage } from "../src/executor/wallpaper-own.js";
 import { videoOfTake } from "./fixture.js";
 import {
   ASSET_REF,
@@ -221,4 +226,158 @@ describe("an image path in a kit the script names", () => {
     },
     RUN_MS,
   );
+});
+
+describe("the take's own copy is named by its source", () => {
+  it(
+    "the same file run twice answers one ref, named by its bytes, and writes one asset",
+    async () => {
+      const photo = join(h.scratch, "twice.png");
+      const original = flatPng(40, 30, [90, 200, 60]);
+      await writeFile(photo, original);
+      const first = await run(
+        scriptOn({ kind: "image", ref: photo }),
+        "twice-1",
+      );
+      expect(first.value.outcome, JSON.stringify(first.value)).toBe("complete");
+      const ref = (first.background as { ref: string }).ref;
+      expect(ref).toBe(`assets/${sha(original)}.webp`);
+      const assets = await readdir(join(h.home, "assets"));
+      const written = (await stat(join(h.home, ref))).mtimeMs;
+      const second = await run(
+        scriptOn({ kind: "image", ref: photo }),
+        "twice-2",
+      );
+      expect(second.value.outcome, JSON.stringify(second.value)).toBe(
+        "complete",
+      );
+      expect((second.background as { ref: string }).ref).toBe(ref);
+      expect(await readdir(join(h.home, "assets"))).toEqual(assets);
+      expect((await stat(join(h.home, ref))).mtimeMs).toBe(written);
+    },
+    RUN_MS * 2,
+  );
+
+  it(
+    "an already-fitted WebP outside the home is copied byte for byte, with no page",
+    async () => {
+      const photo = join(h.scratch, "to-fit.png");
+      await writeFile(photo, flatPng(48, 36, [10, 90, 210]));
+      const { value, background } = await run(
+        scriptOn({ kind: "image", ref: photo }),
+        "fitted-1",
+      );
+      expect(value.outcome, JSON.stringify(value)).toBe("complete");
+      const fittedBytes = await readFile(
+        join(h.home, (background as { ref: string }).ref),
+      );
+      // The premise: what a fit makes is a WebP within the long side.
+      const size = webpSize(fittedBytes);
+      expect(size).toEqual({ width: 48, height: 36 });
+      expect(Math.max(48, 36)).toBeLessThanOrEqual(WALLPAPER_LONG_SIDE);
+      // As a kept video's repo copy is: the take's bytes, under a new name.
+      const repoCopy = join(h.scratch, "repo-copy.webp");
+      await writeFile(repoCopy, fittedBytes);
+      const noPage = {
+        openWorkPage: () => {
+          throw new Error("no page may be opened for a fitted WebP");
+        },
+      };
+      const owned = await ownWallpaperImage(
+        {
+          ...BRANDING_DEFAULTS,
+          background: { kind: "image", ref: repoCopy, blur: 0.3 },
+        },
+        { home: h.home, work: noPage, log: () => undefined },
+      );
+      if (!owned.ok) throw new Error(owned.detail);
+      const ref = (owned.branding.background as { ref: string }).ref;
+      expect(ref).toBe(`assets/${sha(fittedBytes)}.webp`);
+      expect(sha(await readFile(join(h.home, ref)))).toBe(sha(fittedBytes));
+      expect(owned.branding.background).toMatchObject({ blur: 0.3 });
+      // One already under assets/ is the take's own: left as it is.
+      const inAssets = {
+        ...BRANDING_DEFAULTS,
+        background: { kind: "image" as const, ref },
+      };
+      expect(
+        await ownWallpaperImage(inAssets, {
+          home: h.home,
+          work: noPage,
+          log: () => undefined,
+        }),
+      ).toEqual({ ok: true, branding: inAssets });
+    },
+    RUN_MS,
+  );
+
+  it(
+    "an SVG under assets/ is fitted to a WebP, never passed on raw",
+    async () => {
+      await mkdir(join(h.home, "assets"), { recursive: true });
+      const svg = join(h.home, "assets", "x.svg");
+      await writeFile(
+        svg,
+        '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><rect width="40" height="30" fill="#c83"/></svg>',
+      );
+      const { value, background } = await run(
+        scriptOn({ kind: "image", ref: svg }),
+        "assets-svg",
+      );
+      expect(value.outcome, JSON.stringify(value)).toBe("complete");
+      const ref = (background as { ref: string }).ref;
+      expect(ref).toMatch(ASSET_REF);
+      const copy = await readFile(join(h.home, ref));
+      expect(webpSize(copy)).not.toBeNull();
+    },
+    RUN_MS,
+  );
+});
+
+describe("webpSize and the fit's failures, without a browser", () => {
+  /** A RIFF/WEBP header with a VP8X chunk claiming `width`x`height`. */
+  const vp8x = (width: number, height: number) => {
+    const b = Buffer.alloc(30);
+    b.write("RIFF", 0, "ascii");
+    b.writeUInt32LE(22, 4);
+    b.write("WEBPVP8X", 8, "ascii");
+    b.writeUInt32LE(10, 16);
+    b.writeUIntLE(width - 1, 24, 3);
+    b.writeUIntLE(height - 1, 27, 3);
+    return b;
+  };
+
+  it("reads a VP8X header's size, and nothing from a PNG", () => {
+    expect(webpSize(vp8x(9601, 10))).toEqual({ width: 9601, height: 10 });
+    expect(webpSize(flatPng(4, 4, [0, 0, 0]))).toBeNull();
+  });
+
+  it("a WebP over the long side is fitted, and a page that will not close is said", async () => {
+    const big = join(h.scratch, "big.webp");
+    await writeFile(big, vp8x(WALLPAPER_LONG_SIDE + 1, 10));
+    const lines: string[] = [];
+    let opened = 0;
+    const page = {
+      addScriptTag: () => Promise.reject(new Error("boom")),
+      close: () => Promise.reject(new Error("stuck")),
+    } as unknown as Page;
+    const owned = await ownWallpaperImage(
+      { ...BRANDING_DEFAULTS, background: { kind: "image", ref: big } },
+      {
+        home: h.home,
+        work: {
+          openWorkPage: async () => {
+            opened++;
+            return { ok: true, page };
+          },
+        },
+        log: (line) => void lines.push(line),
+      },
+    );
+    expect(opened).toBe(1);
+    expect(owned).toEqual({ ok: false, detail: `The image ${big}: boom` });
+    expect(lines).toEqual([
+      `the page that resized ${big} would not close (stuck)`,
+    ]);
+  });
 });

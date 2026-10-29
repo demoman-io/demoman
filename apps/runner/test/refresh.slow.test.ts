@@ -12,16 +12,23 @@ import {
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CAMERA_DEFAULTS, motionTimings } from "@demoman/compositor";
 import {
+  CAMERA_DEFAULTS,
+  motionTimings,
+  WALLPAPER_LONG_SIDE,
+} from "@demoman/compositor";
+import {
+  fileDigest,
   KEPT_DIR,
   type KeptScreens,
   type KeptVideo,
   keptFileName,
+  lookDigest,
   parseKept,
   type RunReport,
   serializeKept,
   verdictLine,
+  webpSize,
 } from "@demoman/run-core";
 import {
   BRANDING_DEFAULTS,
@@ -1155,8 +1162,12 @@ describe("refresh", () => {
   // Red if refresh stops pointing the script at the repo's copy: the run
   // would read the repo-relative ref from its own empty home, and the
   // export would leave the image out.
+  // Ruling R27: the copy is the take's own file, an already-fitted WebP,
+  // and the run door owns it byte for byte, so the export reads the bytes
+  // keep recorded and an unchanged video stays unchanged. Red if the door
+  // re-encodes it: the look is then the re-encode's, never keep's.
   it(
-    "films an uploaded image from its copy in the repo, soft or not",
+    "films an uploaded image from its copy in the repo, soft or not, and leaves it unchanged after",
     async () => {
       html = ORIGINAL;
       const C = "On an upload";
@@ -1196,15 +1207,39 @@ describe("refresh", () => {
       };
       const before = exported.length;
       try {
+        // The premise: the repo copy is what keep copies, the take's own
+        // file — a WebP already within the long side a fit makes.
+        const size = webpSize(webp);
+        expect(size).toEqual({ width: 640, height: 480 });
+        expect(Math.max(640, 480)).toBeLessThanOrEqual(WALLPAPER_LONG_SIDE);
         // The output is read before `withKept` removes it.
-        const { r, film } = await withKept(video, async () => {
+        const { r, film, look, again } = await withKept(video, async () => {
           const r = await refresh([C]);
-          return { r, film: await bytes("docs/upload.mp4").catch(() => null) };
+          const film = await bytes("docs/upload.mp4").catch(() => null);
+          const look = (await keptOf(C)).screens.look;
+          return { r, film, look, again: await refresh([C]) };
         });
         const c = byName(r, C);
         expect(c.outcome, JSON.stringify(r)).toBe("replaced");
-        // The premise: its export warned soft, and nothing else.
+        // The look the export recorded is the one keep records for the
+        // take: its branding with the repo copy's own bytes.
+        expect(look).toBe(
+          lookDigest(
+            {
+              background: { kind: "image", ref: copy },
+              logo: null,
+              padding: 0.15,
+            },
+            { logo: null, wallpaper: fileDigest(webp) },
+          ),
+        );
+        expect((await bytes(copy)).equals(webp)).toBe(true);
+        // Nothing changed since: unchanged.
+        const second = byName(again, C);
+        expect(second.outcome, JSON.stringify(again)).toBe("unchanged");
+        // The premise: each refresh's export warned soft, and nothing else.
         expect(exported.slice(before).map((e) => e.wallpaper)).toEqual([
+          "soft",
           "soft",
         ]);
         // The picture: the margin is the upload's green.
@@ -1227,7 +1262,7 @@ describe("refresh", () => {
         });
       }
     },
-    ONE_MS,
+    ONE_MS * 2,
   );
 
   // Ruling R13, as the logo: a video an export left on the gradient fails,
