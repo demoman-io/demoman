@@ -1,4 +1,4 @@
-import type { SceneDocument } from "@demoman/scene-schema";
+import type { SceneBranding, SceneDocument } from "@demoman/scene-schema";
 
 /**
  * A fingerprint of what a scene asks the video to be, so the Recent exports
@@ -29,6 +29,31 @@ export function sceneDigest(scene: SceneDocument): string {
   const { toolchain: _toolchain, name: _name, ...meta } = scene.meta;
   const { canvas: _canvas, ...rest } = scene;
   return cyrb53(canonical({ ...rest, meta })).toString(16);
+}
+
+/**
+ * A fingerprint of what paints round the app's window — the background,
+ * the padding and the logo — which refresh judges the background by
+ * (`same-picture.ts`), as its pixels cannot be.
+ *
+ * An image's and a logo's `ref` are left out: a ref names where the file
+ * was read from, and keep (the take's own file) and refresh (the repo's
+ * copy of it) read the same file from two places. So a file whose bytes
+ * change under the same name is not seen here. A blur left out is 0, as
+ * the compositor paints it.
+ */
+export function lookDigest(branding: SceneBranding): string {
+  const { background: bg, logo, padding } = branding;
+  const background =
+    bg.kind === "wallpaper"
+      ? { kind: bg.kind, id: bg.id, blur: bg.blur ?? 0 }
+      : bg.kind === "image"
+        ? { kind: bg.kind, blur: bg.blur ?? 0 }
+        : bg;
+  const { ref: _ref, ...mark } = logo ?? { ref: "" };
+  return cyrb53(
+    canonical({ background, padding, logo: logo === null ? null : mark }),
+  ).toString(16);
 }
 
 function canonical(value: unknown): string {

@@ -75,6 +75,41 @@ describe("the kept file", () => {
     );
   });
 
+  // A file kept before windows and looks has neither key and stays as it
+  // was; one with them round-trips them.
+  it("round-trips a screen's window and the look, and leaves them out when absent", () => {
+    const text = serializeKept(kept);
+    expect(JSON.parse(text).screens).not.toHaveProperty("look");
+    expect(JSON.parse(text).screens.moments[0]).not.toHaveProperty("window");
+    const window = { x: 202.5, y: 86, width: 876, height: 548, radius: 12 };
+    const recorded: KeptVideo = {
+      ...kept,
+      screens: {
+        ...kept.screens,
+        moments: kept.screens.moments.map((m) => ({ ...m, window })),
+        look: "1a2b3c",
+      },
+    };
+    expect(parseKept(serializeKept(recorded), "x.json")).toEqual({
+      ok: true,
+      kept: recorded,
+    });
+    const screens = JSON.parse(serializeKept(recorded)).screens;
+    expect(
+      refusal(
+        withChange({
+          screens: {
+            ...screens,
+            moments: [{ step: 0, ms: 1, window: { ...window, width: 0 } }],
+          },
+        }),
+      ),
+    ).toContain("screens.moments[0].window");
+    expect(refusal(withChange({ screens: { ...screens, look: 7 } }))).toContain(
+      "screens.look",
+    );
+  });
+
   it("refuses another keptVersion, naming it", () => {
     expect(refusal(withChange({ keptVersion: 2 }))).toContain("keptVersion");
   });

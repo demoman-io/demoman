@@ -41,6 +41,7 @@ import {
   type WallpaperWarning,
 } from "../export/target.js";
 import type { LogoSource } from "../logo.js";
+import { lookDigest } from "../scene-digest.js";
 import { MAX_CAP_STEPS, nextCapStep } from "./mp4-cap.js";
 
 /** The exact `reason` a reclaimed range's `UnavailableSpan` carries, so the
@@ -697,7 +698,7 @@ export async function renderOutput(input: {
       ...(videoCap === undefined ? {} : { videoCap }),
       // From `done`, the render kept: a capped or budgeted file is the
       // last rung that was kept, and its screens are that render's.
-      screens: result.screens,
+      screens: { ...result.screens, look: lookDigest(scene.branding) },
     },
   };
 }

@@ -312,6 +312,9 @@ describe("keep, a clean take", () => {
           throw new Error(JSON.stringify(plain));
         // Premise: there are screens to carry, or equal empties prove nothing.
         expect(plain.screens.moments.length).toBeGreaterThan(0);
+        // ...and each its window, and the look: keep writes all of them.
+        expect(plain.screens.look).toBeDefined();
+        expect(plain.screens.moments.every((m) => m.window)).toBe(true);
         expect(kept.screens).toEqual(plain.screens);
         expect(out.screensNote).toBe(
           `${plain.screens.moments.length} of ${plain.screens.steps + 1} screens are still`,

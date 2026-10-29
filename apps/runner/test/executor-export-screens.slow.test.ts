@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { KeptScreens } from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type BrowserSession,
@@ -64,8 +65,7 @@ afterAll(async () => {
 });
 
 const screensOf = (k: string) =>
-  (answers[k] as { screens?: { steps: number; moments: { ms: number }[] } })
-    .screens;
+  (answers[k] as { screens?: KeptScreens }).screens;
 
 describe("an export's answer carries the screens", () => {
   // Red if the answer drops the screens, or the render found none.
@@ -82,6 +82,28 @@ describe("an export's answer carries the screens", () => {
   it("gives a GIF the screens of the MP4", () => {
     // The premise: both have screens, so equality is not undefined === undefined.
     expect(screensOf("mp4")?.moments.length).toBeGreaterThan(0);
-    expect(screensOf("gif")).toEqual(screensOf("mp4"));
+    const times = (k: string) => {
+      const s = screensOf(k);
+      return {
+        steps: s?.steps,
+        look: s?.look,
+        moments: s?.moments.map(({ step, ms }) => ({ step, ms })),
+      };
+    };
+    expect(times("gif")).toEqual(times("mp4"));
+    // Each window is the same one, in each file's own pixels.
+    const k =
+      (answers.gif as { width: number }).width /
+      (answers.mp4 as { width: number }).width;
+    const gif = screensOf("gif")?.moments ?? [];
+    for (const [i, m] of (screensOf("mp4")?.moments ?? []).entries()) {
+      const [a, b] = [m.window, gif[i]?.window];
+      expect(a && b, JSON.stringify([a, b])).toBeTruthy();
+      for (const key of ["x", "y", "width", "height"] as const)
+        expect(
+          Math.abs((b?.[key] ?? 0) - (a?.[key] ?? 0) * k),
+          `${key} ${JSON.stringify([a, b])}`,
+        ).toBeLessThan(1);
+    }
   });
 });

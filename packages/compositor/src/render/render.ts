@@ -18,6 +18,7 @@ import { type DetailViolation, sourceWidthAt } from "./detail.js";
 import { detectKeyframeMotion } from "./motion-detect.js";
 import { contentScale } from "./presentation.js";
 import { cameraIntentsForTarget, type RenderTarget } from "./target.js";
+import { sceneCameraAt, windowOnScreen } from "./window.js";
 
 /**
  * `renderScene`'s bytes plus everything the render had to give up on the
@@ -205,6 +206,31 @@ export async function renderScene(args: {
     onFrame?.(i + 1, frameCount);
   }
 
+  const found: Screens = scene
+    ? screenMoments(composed, scene, bundle)
+    : { steps: 0, moments: [] };
+  // Each screen's window, by the camera that drew that frame.
+  const r = (v: number) => Math.round(v * 100) / 100;
+  const screens: Screens = {
+    ...found,
+    moments: found.moments.map((m) => {
+      const w = windowOnScreen(
+        presentation,
+        sceneCameraAt(composed, presentation, target, startMs + m.ms),
+      );
+      return {
+        ...m,
+        window: {
+          x: r(w.x),
+          y: r(w.y),
+          width: r(w.width),
+          height: r(w.height),
+          radius: r(w.radius),
+        },
+      };
+    }),
+  };
+
   // Bytes or a throw. An empty array here was the "dead Download button"
   // shape: a 0-byte output stored and listed as a success.
   const bytes = await (async () => {
@@ -229,9 +255,7 @@ export async function renderScene(args: {
     unavailableSpans: ports.frames.unavailable?.() ?? [],
     loweredZooms: composed.loweredZooms,
     clampedRanges: composed.clampedRanges,
-    screens: scene
-      ? screenMoments(composed, scene, bundle)
-      : { steps: 0, moments: [] },
+    screens,
     deepestScale: composed.cameraKeys.reduce((m, k) => Math.max(m, k.scale), 1),
   };
 }

@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { type KeptScreens, messageOf } from "@demoman/run-core";
+import {
+  type KeptScreens,
+  type KeptWindow,
+  messageOf,
+} from "@demoman/run-core";
 import { bundleEntry } from "../bundle-js.js";
 import type {
   DecodeProbeEntry,
@@ -51,6 +55,28 @@ import type { BrowserSession } from "./browser.js";
  * that moves its block average 13 levels or less, or covers fewer than
  * about 157 pixels at 1280 wide (a thin border's colour, a small icon's
  * tint).
+ *
+ * Only the app's window is looked at (2026-10-28). That table was measured
+ * on a sharp wallpaper. On the blurred one new takes default to, the same
+ * encoder leaves its error as a solid offset over a whole 16 px macroblock
+ * of the smooth background, which no block average dilutes: unchanged
+ * re-films read up to 0.081% faintly there, its 160th-largest move 21.6-25
+ * levels, above the grey text's 18, so no `levels` separates the two
+ * (refresh-debug-report.md). Each screen records its window
+ * (`KeptMoment.window`, drawn by the render's own camera), and pixels
+ * outside it, inset `WINDOW_INSET_PX`, count as unchanged. The share stays
+ * a share of the WHOLE picture, so `allowed` above means what it was
+ * measured to mean. Measured with the window and no inset: the 10 px
+ * inside its edge reads at most 31 sharply and 8.6 faintly on the
+ * unchanged films, under 60 and 13; the 2 px inset takes out the
+ * anti-aliased edge pixel and the resample's spread. Re-films then read
+ * 0.0000% sharply and at most 0.0003% faintly; the digit, grey text,
+ * button and panel read as in the table. What is outside the window (the
+ * background, padding and logo) is judged by its look (`KeptScreens.look`)
+ * instead, so a change painted there that the look does not record (an
+ * uploaded image's or logo's file changed under the same name, a renderer
+ * change to the background) is not seen. A file kept before windows were
+ * recorded is compared whole, as before.
  */
 /** The two ways a screen is looked at (above), each with the share of the
  *  picture it may count changed before the picture has. `sharply` sees a
@@ -60,10 +86,19 @@ export const LOOKS = [
   { name: "sharply", block: 2, levels: 60, allowed: 0.000008 },
   { name: "faintly", block: 8, levels: 13, allowed: 0.00017 },
 ] as const;
+/** How far inside the recorded window its pixels are compared, at
+ *  `PICTURE_OPTIONS.width`: past the anti-aliased rounded edge (measured in
+ *  the calibration comment above). */
+export const WINDOW_INSET_PX = 2;
 export const PICTURE_OPTIONS: PictureOptions = {
   width: 1280,
   looks: LOOKS.map(({ block, levels }) => ({ block, levels })),
+  inset: WINDOW_INSET_PX,
 };
+/** How far, in pixels at `PICTURE_OPTIONS.width`, a moved window edge may
+ *  be off and still be the same window: its rect is recorded to 0.01 px,
+ *  and an unchanged film's is the same to the last digit. */
+export const WINDOW_MOVED_PX = 1;
 
 const ENTRY_PATH = fileURLToPath(
   new URL(
@@ -108,6 +143,17 @@ export async function samePicture(
       detail: `the video's steps changed, ${committedScreens.steps} to ${freshScreens.steps}`,
     };
   }
+  if (
+    committedScreens.look !== undefined &&
+    freshScreens.look !== undefined &&
+    committedScreens.look !== freshScreens.look
+  ) {
+    return {
+      same: false,
+      detail:
+        "the look changed: the background, padding or logo round the window is not the one the committed video was filmed with",
+    };
+  }
   const shared = sharedScreens(committedScreens, freshScreens);
   if (shared.length === 0)
     return { uncomparable: "no screen of the video is still in both films" };
@@ -138,7 +184,7 @@ export async function samePicture(
     await work.page.goto(origin);
     await work.page.addScriptTag({ content: await bundleEntry(ENTRY_PATH) });
     diff = await work.page.evaluate(
-      ([name, mime, msA, msB, options]) => {
+      ([name, mime, msA, msB, windows, options]) => {
         const entry = (
           globalThis as unknown as Record<string, DecodeProbeEntry>
         )[name as string];
@@ -149,6 +195,7 @@ export async function samePicture(
           mime as "video/mp4" | "image/gif",
           msA as number[],
           msB as number[],
+          windows as (KeptWindow | null)[],
           options as PictureOptions,
         );
       },
@@ -157,6 +204,11 @@ export async function samePicture(
         type,
         shared.map((s) => s.msA),
         shared.map((s) => s.msB),
+        // The committed film's window: a fresh one that moved is a change
+        // (`comparePictures`), so either reads the same pixels.
+        shared.map((s) =>
+          s.windowB === undefined ? null : (s.windowA ?? null),
+        ),
         PICTURE_OPTIONS,
       ] as const,
     );
@@ -200,16 +252,31 @@ function before(action: number, steps?: readonly { do: string }[]): string {
   return i === null ? `before action ${action + 1}` : `before step ${i + 1}`;
 }
 
-/** The screens both films have, paired by `step`, in increasing ms. */
+/** The screens both films have, paired by `step`, in increasing ms, with
+ *  each film's window where it recorded one. */
 export function sharedScreens(
   a: KeptScreens,
   b: KeptScreens,
-): { step: number | null; msA: number; msB: number }[] {
+): {
+  step: number | null;
+  msA: number;
+  msB: number;
+  windowA?: KeptWindow;
+  windowB?: KeptWindow;
+}[] {
   return a.moments.flatMap((m) => {
     const other = b.moments.find((n) => n.step === m.step);
     return other === undefined
       ? []
-      : [{ step: m.step, msA: m.ms, msB: other.ms }];
+      : [
+          {
+            step: m.step,
+            msA: m.ms,
+            msB: other.ms,
+            ...(m.window === undefined ? {} : { windowA: m.window }),
+            ...(other.window === undefined ? {} : { windowB: other.window }),
+          },
+        ];
   });
 }
 
@@ -230,6 +297,21 @@ export function comparePictures(
     return {
       same: false,
       detail: `the frame size changed, ${a.width}x${a.height} to ${b.width}x${b.height}`,
+    };
+  }
+  // A window drawn elsewhere is a camera or layout change: a change.
+  const k = PICTURE_OPTIONS.width / a.width;
+  for (const s of shared) {
+    const [wa, wb] = [s.windowA, s.windowB];
+    if (wa === undefined || wb === undefined) continue;
+    const keys = ["x", "y", "width", "height", "radius"] as const;
+    if (keys.every((key) => Math.abs(wa[key] - wb[key]) * k <= WINDOW_MOVED_PX))
+      continue;
+    const place =
+      s.step === null ? "on the final screen" : before(s.step, steps);
+    return {
+      same: false,
+      detail: `the window moved ${place} at ${(s.msB / 1000).toFixed(2)}s, from ${rectText(wa)} to ${rectText(wb)}`,
     };
   }
   for (const [i, shares] of changed.entries()) {
@@ -268,3 +350,7 @@ export function comparePictures(
     detail: `${pct(most.share)} of the picture changed ${most.look.name} ${place} at ${(s.msB / 1000).toFixed(2)}s, over the ${pct(most.look.allowed)} allowed, of ${where}`,
   };
 }
+
+/** A window as `x,y widthxheight`, in its film's pixels. */
+const rectText = (w: KeptWindow) =>
+  `${Math.round(w.x)},${Math.round(w.y)} ${Math.round(w.width)}x${Math.round(w.height)}`;

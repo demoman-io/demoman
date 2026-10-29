@@ -242,4 +242,5 @@ export {
   WALLPAPER_BLUR_MAX,
   wallpaperBlurPx,
 } from "./render/wallpaper-blur.js";
+export { sceneCameraAt, windowOnScreen } from "./render/window.js";
 export { COMPOSITOR_VERSION } from "./version.js";

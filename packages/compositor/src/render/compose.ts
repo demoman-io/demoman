@@ -1,7 +1,5 @@
 import { CURSOR_POLISH_DEFAULTS } from "@demoman/scene-schema";
 import type { Rect, Vec } from "../geometry.js";
-import { frameCamera } from "../plan/camera.js";
-import { sampleTrack } from "../plan/camera-follow.js";
 import type { ResolvedPlan } from "../plan/resolve.js";
 import { cursorIdleAlpha, sampleCursor } from "../plan/resolve.js";
 import { toSourceMs } from "../plan/timeline.js";
@@ -28,6 +26,7 @@ import {
   type Presentation,
 } from "./presentation.js";
 import type { RenderTarget } from "./target.js";
+import { sceneCameraAt } from "./window.js";
 
 interface Camera {
   center: Vec;
@@ -195,13 +194,7 @@ export async function renderFrame(args: {
   // Clamp once, here, so the *same* camera value drives the scene, the image
   // draw, the cosmetic rects and the cursor. Clamping inside any one of them
   // would put the overlays somewhere the pixels underneath them are not.
-  const camera = frameCamera(
-    sampleTrack(resolved, outputTimeMs),
-    base,
-    frameRect,
-    viewport,
-    target,
-  );
+  const camera = sceneCameraAt(resolved, presentation, target, outputTimeMs);
   const fetchStartedAt = args.onStage ? performance.now() : 0;
   const frame = await frames.at(sourceMs);
   args.onStage?.("fetch", performance.now() - fetchStartedAt);

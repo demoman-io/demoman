@@ -23,6 +23,7 @@ import {
   serializeKept,
   verdictLine,
 } from "@demoman/run-core";
+import { BRANDING_DEFAULTS } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type BrowserSession,
@@ -509,10 +510,29 @@ describe("refresh", () => {
         r.videos.map((v) => v.outcome),
         JSON.stringify(r),
       ).toEqual(["unchanged", "unchanged"]);
+      // The premise: these films are on the blurred wallpaper new takes
+      // default to, whose smooth field the window's split exists for.
+      expect(BRANDING_DEFAULTS.background).toMatchObject({
+        kind: "wallpaper",
+        blur: 1,
+      });
       // The premise: samePicture answered same for the judged output
-      // alone, over k of n screens recorded from a real film.
+      // alone, over k of n screens recorded from a real film, each with
+      // a window inside its 1920x1080 frame and the look beside them.
       for (const name of [A, B]) {
         const { screens } = await keptOf(name);
+        expect(screens.look, name).toMatch(/^[0-9a-f]+$/);
+        for (const { window: w } of screens.moments) {
+          expect(w, JSON.stringify(screens)).toBeDefined();
+          const { x, y, width, height } = w as NonNullable<typeof w>;
+          expect(
+            x >= 0 && y >= 0 && x + width <= 1920 && y + height <= 1080,
+            JSON.stringify(w),
+          ).toBe(true);
+          expect(width * height, JSON.stringify(w)).toBeGreaterThan(
+            0.25 * 1920 * 1080,
+          );
+        }
         const m = byName(r, name).detail.match(
           /^docs\/\w+\.mp4: at most [\d.]+% sharply and [\d.]+% faintly of the picture changed, over (\d+) of (\d+) screens$/,
         );
@@ -1236,6 +1256,48 @@ describe("refresh", () => {
       const after = await Promise.all([out.aMp4, out.aGif].map(bytes));
       for (const [i, b] of after.entries())
         expect(b.equals(before[i] as Buffer)).toBe(true);
+    },
+    ONE_MS,
+  );
+
+  // The background is judged by its look, not its pixels: a blur that
+  // changes only outside the window is a change. Red if the look is not
+  // compared, as the window's pixels are the same.
+  it(
+    "replaces a video whose look changed outside the window",
+    async () => {
+      html = ORIGINAL;
+      const before = await keptOf(B);
+      expect(before.screens.look, "premise: a look to compare").toBeDefined();
+      const file = join(repo, KEPT_DIR, keptFileName(B));
+      const blurred = {
+        ...before,
+        script: {
+          ...before.script,
+          look: {
+            branding: {
+              ...BRANDING_DEFAULTS,
+              background: { ...BRANDING_DEFAULTS.background, blur: 0.5 },
+            },
+          },
+        },
+      } as KeptVideo;
+      await writeFile(file, serializeKept(blurred));
+      const r = await refresh([B]);
+      const b = byName(r, B);
+      expect(b.outcome, JSON.stringify(r)).toBe("replaced");
+      expect(b.detail).toBe(
+        `${out.bMp4}: the look changed: the background, padding or logo round the window is not the one the committed video was filmed with`,
+      );
+      // The premise: only the look moved; the window is where it was.
+      const after = await keptOf(B);
+      expect(after.screens.look).not.toBe(before.screens.look);
+      const pairs = before.screens.moments.flatMap((m) => {
+        const n = after.screens.moments.find((x) => x.step === m.step);
+        return n === undefined ? [] : [[m.window, n.window]];
+      });
+      expect(pairs.length, "premise: a screen in both").toBeGreaterThan(0);
+      for (const [w0, w1] of pairs) expect(w1).toEqual(w0);
     },
     ONE_MS,
   );

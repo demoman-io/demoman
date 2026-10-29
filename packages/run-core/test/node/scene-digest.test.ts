@@ -1,6 +1,7 @@
+import type { SceneBranding } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../replay-engine/test/helpers/scenes";
-import { sceneDigest } from "../../src/scene-digest.js";
+import { lookDigest, sceneDigest } from "../../src/scene-digest.js";
 
 describe("sceneDigest", () => {
   it("is the same for the same content in any key order", () => {
@@ -69,5 +70,63 @@ describe("sceneDigest", () => {
     expect(sceneDigest({ ...scene, canvas: { aspect: "auto" } })).toBe(
       sceneDigest(scene),
     );
+  });
+});
+
+describe("lookDigest", () => {
+  const look: SceneBranding = {
+    background: { kind: "wallpaper", id: "dunes", blur: 1 },
+    logo: {
+      ref: "/home/me/acme.svg",
+      corner: "top-right",
+      size: 0.06,
+      opacity: 0.9,
+    },
+    padding: 0.12,
+  };
+  it.each([
+    [
+      "the wallpaper",
+      { background: { kind: "wallpaper", id: "aurora", blur: 1 } },
+    ],
+    ["the blur", { background: { kind: "wallpaper", id: "dunes", blur: 0.5 } }],
+    ["the padding", { padding: 0.08 }],
+    ["the logo's corner", { logo: { ...look.logo, corner: "top-left" } }],
+    ["no logo", { logo: null }],
+    ["a colour", { background: { kind: "solid", color: "#112233" } }],
+  ] as const)("changes with %s", (_, change) => {
+    expect(lookDigest({ ...look, ...change } as SceneBranding)).not.toBe(
+      lookDigest(look),
+    );
+  });
+  // Keep reads the take's file and refresh the repo's copy: one file, two
+  // refs. Red if a ref is digested.
+  it("is the same for the same files read from elsewhere", () => {
+    const image: SceneBranding = {
+      ...look,
+      background: { kind: "image", ref: "/home/me/w.webp", blur: 1 },
+    };
+    const moved: SceneBranding = {
+      ...image,
+      background: {
+        kind: "image",
+        ref: "/repo/.demoman/videos/w.webp",
+        blur: 1,
+      },
+      logo: {
+        ...(look.logo as NonNullable<SceneBranding["logo"]>),
+        ref: "/repo/acme.svg",
+      },
+    };
+    expect(lookDigest(moved)).toBe(lookDigest(image));
+  });
+  it("reads a blur left out as 0, as it is painted", () => {
+    const sharp: SceneBranding = {
+      ...look,
+      background: { kind: "wallpaper", id: "dunes", blur: 0 },
+    };
+    expect(
+      lookDigest({ ...look, background: { kind: "wallpaper", id: "dunes" } }),
+    ).toBe(lookDigest(sharp));
   });
 });
