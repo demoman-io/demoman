@@ -182,6 +182,7 @@ export {
 } from "./render/hover-verdict.js";
 export { detectKeyframeMotion } from "./render/motion-detect.js";
 export {
+  BACKGROUND_PAINT_VERSION,
   clipToFrame,
   contentScale,
   derivePresentation,

@@ -14,9 +14,11 @@ import {
   exportBaseName,
   exportFileName,
   type FileType,
+  fileDigest,
   frameOf,
   GIF_BUDGET_BYTES,
   isExportQuality,
+  lookDigest,
   MAX_STILL_SIDE,
   messageOf,
   reportForSave,
@@ -628,7 +630,15 @@ async function exportLeased(a: {
       target: rendered.rendered,
       ...warnings,
       ...tagger.untagged,
-      screens: rendered.screens,
+      // The look is recorded here, beside the bytes the render was handed:
+      // a file's contents are part of it (`lookDigest`).
+      screens: {
+        ...rendered.screens,
+        look: lookDigest(scene.branding, {
+          logo: logo?.ok ? fileDigest(logo.bytes) : null,
+          wallpaper: wallpaper?.ok ? fileDigest(wallpaper.bytes) : null,
+        }),
+      },
       ...(rendered.gifBudget === undefined
         ? {}
         : { gifSize: rendered.gifBudget }),

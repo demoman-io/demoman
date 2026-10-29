@@ -375,12 +375,14 @@ describe("samePicture judges the look before it decodes", () => {
   });
   // No session: a look check that answered for a file kept before looks
   // would never reach the page, which throws here.
+  // Going on to the pixels reads the committed file first, which is not
+  // there: that refusal is the proof it went on. A look verdict would not throw.
   it("a committed file without a look goes on to the pixels", async () => {
     await expect(
       samePicture("/x", "/y", "mp4", s(), s("b2"), {
         session: none,
         log: () => undefined,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/ENOENT.*'\/x'/);
   });
 });

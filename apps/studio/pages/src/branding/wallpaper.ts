@@ -205,7 +205,8 @@ export function dragRaster(
   const width = Math.ceil(image.width * scale);
   const height = Math.ceil(image.height * scale);
   const held = dragRasters.get(image);
-  if (held !== undefined && held.width === width) return held;
+  if (held !== undefined && held.width === width && held.height === height)
+    return held;
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext("2d");
   if (ctx === null)

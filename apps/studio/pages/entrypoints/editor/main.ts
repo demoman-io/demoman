@@ -651,6 +651,16 @@ document.addEventListener(
 );
 const pointerReleased = (): void => {
   pointerHeld = false;
+  // A Blur drag released with no `change` (dragged back to where it began)
+  // commits nothing, so nothing redraws it: recompose, and the preview
+  // leaves the drag's small raster for the full one (`previewWallpaper`).
+  // A task later, as below; a commit by then has dropped the preview.
+  if (brandingPreview?.patch.background !== undefined) {
+    setTimeout(() => {
+      if (!pointerHeld && brandingPreview?.patch.background !== undefined)
+        recomposeForPreview();
+    }, 0);
+  }
   if (!renderOwed) return;
   // A task later, not now: Blink fires the slider's `change` — the commit,
   // and its own render — after the `pointerup` listeners, and a render
@@ -1205,7 +1215,8 @@ function wallpaperCustomFor(
  * `dragRaster`'s smaller copy: measured 2026-10-28 (headless, M-series), a
  * 1280×720 preview's 3200×2400 raster took 56-141 ms a blur, several frames;
  * its 1280×960 drag raster 9-12 ms. The release commits, and the full
- * raster is blurred once.
+ * raster is blurred once; a release that commits nothing recomposes
+ * (`pointerReleased`) for the same.
  */
 function previewWallpaper(
   bg: SceneDocument["branding"]["background"],

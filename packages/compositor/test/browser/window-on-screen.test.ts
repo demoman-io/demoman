@@ -1,10 +1,14 @@
 import { MOTION_DEFAULTS, type SceneDocument } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import { planScene } from "../../src/plan/plan";
-import { resolvePlan } from "../../src/plan/resolve";
+import type { ResolvedPlan } from "../../src/plan/resolve";
 import { renderFrame } from "../../src/render/compose";
-import { derivePresentation } from "../../src/render/presentation";
-import { LANDSCAPE_1080P } from "../../src/render/target";
+import { composeForTarget } from "../../src/render/compose-for-target";
+import {
+  LANDSCAPE_1080P,
+  type RenderTarget,
+  VERTICAL_1080,
+} from "../../src/render/target";
 import { sceneCameraAt, windowOnScreen } from "../../src/render/window";
 import { proceduralBundle } from "../fixtures/bundle";
 import { createProceduralFrameSource } from "../fixtures/procedural";
@@ -41,19 +45,21 @@ function zoomed(): SceneDocument {
   };
 }
 
+const LANDSCAPE = { ...LANDSCAPE_1080P, width: 960, height: 540 };
+
 async function edgesAt(
   scene: SceneDocument,
-  at: (r: ReturnType<typeof resolvePlan>) => number,
+  at: (r: ResolvedPlan) => number,
+  target: RenderTarget = LANDSCAPE,
 ) {
   const bundle = proceduralBundle();
-  const target = { ...LANDSCAPE_1080P, width: 960, height: 540 };
-  const resolved = resolvePlan(planScene(scene), bundle, scene);
-  const presentation = derivePresentation(
-    scene.branding,
+  // As `renderScene` composes: a `cover` target caps its zooms here.
+  const { resolved, presentation } = composeForTarget({
+    plan: planScene(scene),
+    bundle,
+    scene,
     target,
-    bundle.viewport,
-    null,
-  );
+  });
   const outputTimeMs = at(resolved);
   const canvas = new OffscreenCanvas(target.width, target.height);
   const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
@@ -125,5 +131,18 @@ describe("windowOnScreen", () => {
     expect(zoom.checked.length, JSON.stringify(zoom.w)).toBeGreaterThan(0);
     expect(zoom.wrong, JSON.stringify(zoom.w)).toEqual([]);
     expect(zoom.w.width).toBeCloseTo(plain.w.width * zoom.camera.scale, 6);
+  }, 60_000);
+
+  // 9:16: the window is the padded box and the recording covers it.
+  it("is where a cover frame paints the window", async () => {
+    const tall = { ...VERTICAL_1080, width: 540, height: 960 };
+    const plain = await edgesAt(zoomed(), () => 0, tall);
+    expect(tall.fit, "premise: a cover target").toBe("cover");
+    expect(plain.camera.scale, "premise: unzoomed at 0").toBe(1);
+    expect(plain.checked, "premise: all four edges in view").toHaveLength(12);
+    expect(plain.wrong, JSON.stringify(plain.w)).toEqual([]);
+    // The premise: the window is the padded box, portrait like the frame,
+    // not the landscape recording's contain fit.
+    expect(plain.w.width / plain.w.height).toBeLessThan(1);
   }, 60_000);
 });

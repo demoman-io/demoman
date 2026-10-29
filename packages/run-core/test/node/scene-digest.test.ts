@@ -1,7 +1,7 @@
 import type { SceneBranding } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../replay-engine/test/helpers/scenes";
-import { lookDigest, sceneDigest } from "../../src/scene-digest.js";
+import { fileDigest, lookDigest, sceneDigest } from "../../src/scene-digest.js";
 
 describe("sceneDigest", () => {
   it("is the same for the same content in any key order", () => {
@@ -84,6 +84,14 @@ describe("lookDigest", () => {
     },
     padding: 0.12,
   };
+  const files = {
+    logo: fileDigest(new TextEncoder().encode("<svg>acme</svg>")),
+    wallpaper: fileDigest(new Uint8Array([1, 2, 3])),
+  };
+  it("tells two files' bytes apart, and the premise of the cases below", () => {
+    expect(fileDigest(new Uint8Array([1, 2, 3]))).toBe(files.wallpaper);
+    expect(fileDigest(new Uint8Array([1, 2, 4]))).not.toBe(files.wallpaper);
+  });
   it.each([
     [
       "the wallpaper",
@@ -95,38 +103,45 @@ describe("lookDigest", () => {
     ["no logo", { logo: null }],
     ["a colour", { background: { kind: "solid", color: "#112233" } }],
   ] as const)("changes with %s", (_, change) => {
-    expect(lookDigest({ ...look, ...change } as SceneBranding)).not.toBe(
-      lookDigest(look),
+    expect(lookDigest({ ...look, ...change } as SceneBranding, files)).not.toBe(
+      lookDigest(look, files),
     );
   });
   // Keep reads the take's file and refresh the repo's copy: one file, two
   // refs. Red if a ref is digested.
-  it("is the same for the same files read from elsewhere", () => {
-    const image: SceneBranding = {
-      ...look,
-      background: { kind: "image", ref: "/home/me/w.webp", blur: 1 },
-    };
-    const moved: SceneBranding = {
-      ...image,
-      background: {
-        kind: "image",
-        ref: "/repo/.demoman/videos/w.webp",
-        blur: 1,
-      },
-      logo: {
-        ...(look.logo as NonNullable<SceneBranding["logo"]>),
-        ref: "/repo/acme.svg",
-      },
-    };
-    expect(lookDigest(moved)).toBe(lookDigest(image));
+  const image: SceneBranding = {
+    ...look,
+    background: { kind: "image", ref: "/home/me/w.webp", blur: 1 },
+  };
+  const moved: SceneBranding = {
+    ...image,
+    background: { kind: "image", ref: "/repo/.demoman/videos/w.webp", blur: 1 },
+    logo: {
+      ...(look.logo as NonNullable<SceneBranding["logo"]>),
+      ref: "/repo/acme.svg",
+    },
+  };
+  it("is the same for the same bytes read from elsewhere", () => {
+    expect(lookDigest(moved, files)).toBe(lookDigest(image, files));
   });
+  // A file replaced under its own name: red if the bytes are not digested.
+  it.each(["logo", "wallpaper"] as const)(
+    "changes with the %s's bytes under the same ref",
+    (which) => {
+      const other = { ...files, [which]: fileDigest(new Uint8Array([9])) };
+      expect(lookDigest(image, other)).not.toBe(lookDigest(image, files));
+    },
+  );
   it("reads a blur left out as 0, as it is painted", () => {
     const sharp: SceneBranding = {
       ...look,
       background: { kind: "wallpaper", id: "dunes", blur: 0 },
     };
     expect(
-      lookDigest({ ...look, background: { kind: "wallpaper", id: "dunes" } }),
-    ).toBe(lookDigest(sharp));
+      lookDigest(
+        { ...look, background: { kind: "wallpaper", id: "dunes" } },
+        files,
+      ),
+    ).toBe(lookDigest(sharp, files));
   });
 });

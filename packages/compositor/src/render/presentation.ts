@@ -301,6 +301,16 @@ export function gradientLine(
   };
 }
 
+/**
+ * How the composition round the app's window is painted, as a number to
+ * bump by hand: refresh judges that part of a video by its look
+ * (`lookDigest`), which folds this in, so a change here reads as a change
+ * there. Bump it when `drawBackground`, `drawFrameChrome`, `drawLogo` or
+ * `wallpaper-blur.ts` change what they paint. Not `COMPOSITOR_VERSION`:
+ * every release would replace every kept video.
+ */
+export const BACKGROUND_PAINT_VERSION = 1;
+
 export function drawBackground(
   ctx: OffscreenCanvasRenderingContext2D,
   target: RenderTarget,

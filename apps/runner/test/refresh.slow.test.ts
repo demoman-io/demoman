@@ -41,7 +41,7 @@ import {
 import { execGit } from "../src/executor/repo.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { listenOnLoopback } from "../src/loopback.js";
-import { WALLPAPERS_DIR } from "./fixture.js";
+import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): a refresh of both
@@ -157,6 +157,27 @@ function noiseLine(name: string, detail: string): string {
   const line = `screens noise: max ${shares} over ${k} screens on ${process.platform} (${name})`;
   console.info(line);
   return line;
+}
+/** A 640x480 WebP of one colour, made in a work page. */
+async function webpOf(rgb: [number, number, number]): Promise<Buffer> {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    const base64 = await work.page.evaluate(async ([r, g, b]) => {
+      const canvas = new OffscreenCanvas(640, 480);
+      const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(0, 0, 640, 480);
+      const blob = await canvas.convertToBlob({ type: "image/webp" });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = "";
+      for (const x of bytes) binary += String.fromCharCode(x);
+      return btoa(binary);
+    }, rgb);
+    return Buffer.from(base64, "base64");
+  } finally {
+    await work.page.close();
+  }
 }
 /** Writes a kept file of its own into the repo, and removes it with every
  *  output it names when `body` is done. */
@@ -1138,27 +1159,7 @@ describe("refresh", () => {
       const C = "On an upload";
       const copy = `${KEPT_DIR}/wallpapers/green.webp`;
       const green: [number, number, number] = [0, 160, 80];
-      const work = await session.openWorkPage();
-      if (!work.ok) throw new Error(work.detail);
-      let webp: Buffer;
-      try {
-        const base64 = await work.page.evaluate(async ([r, g, b]) => {
-          const canvas = new OffscreenCanvas(640, 480);
-          const ctx = canvas.getContext(
-            "2d",
-          ) as OffscreenCanvasRenderingContext2D;
-          ctx.fillStyle = `rgb(${r},${g},${b})`;
-          ctx.fillRect(0, 0, 640, 480);
-          const blob = await canvas.convertToBlob({ type: "image/webp" });
-          const bytes = new Uint8Array(await blob.arrayBuffer());
-          let binary = "";
-          for (const x of bytes) binary += String.fromCharCode(x);
-          return btoa(binary);
-        }, green);
-        webp = Buffer.from(base64, "base64");
-      } finally {
-        await work.page.close();
-      }
+      const webp = await webpOf(green);
       await mkdir(join(repo, KEPT_DIR, "wallpapers"), { recursive: true });
       await writeFile(join(repo, copy), webp);
       const base = kept(
@@ -1300,6 +1301,86 @@ describe("refresh", () => {
       for (const [w0, w1] of pairs) expect(w1).toEqual(w0);
     },
     ONE_MS,
+  );
+
+  // Ruling R25: an image is in the look by its bytes. A logo or upload
+  // replaced in the repo under its own name is a new look, though the
+  // window's pixels are the same. Red if the bytes are not digested.
+  it(
+    "replaces a video whose logo or uploaded image changed under the same name",
+    async () => {
+      html = ORIGINAL;
+      const D = "On a branded upload";
+      const logo = `${KEPT_DIR}/logos/acme.svg`;
+      const upload = `${KEPT_DIR}/wallpapers/blue.webp`;
+      await mkdir(join(repo, KEPT_DIR, "logos"), { recursive: true });
+      await mkdir(join(repo, KEPT_DIR, "wallpapers"), { recursive: true });
+      await writeFile(join(repo, logo), LOGO_SVG);
+      await writeFile(join(repo, upload), await webpOf([30, 60, 200]));
+      const base = kept(
+        D,
+        ["Place order"],
+        1,
+        [
+          {
+            path: "docs/branded.mp4",
+            fileType: "mp4",
+            aspect: "16:9",
+            quality: "share",
+          },
+        ],
+        0,
+        3500,
+      );
+      const video: KeptVideo = {
+        ...base,
+        logo,
+        wallpaper: upload,
+        script: {
+          ...base.script,
+          look: {
+            branding: {
+              background: { kind: "image", ref: upload, blur: 1 },
+              logo: { ref: logo, corner: "top-right", size: 0.06, opacity: 1 },
+              padding: 0.12,
+            },
+          },
+        },
+      };
+      try {
+        await withKept(video, async () => {
+          const first = byName(await refresh([D]), D);
+          expect(first.outcome, first.detail).toBe("replaced");
+          for (const [what, path, bytes] of [
+            ["logo", logo, LOGO_SVG.replace("#ff00ff", "#00ffff")],
+            ["upload", upload, await webpOf([200, 60, 30])],
+          ] as const) {
+            const before = await keptOf(D);
+            await writeFile(join(repo, path), bytes);
+            const r = byName(await refresh([D]), D);
+            expect(r.outcome, `${what}: ${r.detail}`).toBe("replaced");
+            expect(r.detail, what).toBe(
+              "docs/branded.mp4: the look changed: the background, padding or logo round the window is not the one the committed video was filmed with",
+            );
+            // The premise: the same files by name, the window where it was,
+            // and only the look moved.
+            const after = await keptOf(D);
+            expect([after.logo, after.wallpaper], what).toEqual([logo, upload]);
+            expect(after.screens.look, what).not.toBe(before.screens.look);
+            const pairs = before.screens.moments.flatMap((m) => {
+              const n = after.screens.moments.find((x) => x.step === m.step);
+              return n === undefined ? [] : [[m.window, n.window]];
+            });
+            expect(pairs.length, what).toBeGreaterThan(0);
+            for (const [w0, w1] of pairs) expect(w1, what).toEqual(w0);
+          }
+        });
+      } finally {
+        for (const dir of ["logos", "wallpapers"])
+          await rm(join(repo, KEPT_DIR, dir), { recursive: true, force: true });
+      }
+    },
+    BOTH_MS,
   );
 
   it("keeps every click clear of the pan-or-pull-back line", () => {

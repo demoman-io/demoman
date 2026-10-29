@@ -487,10 +487,22 @@ describe("keep and the take's wallpaper", () => {
     quality: "share" as const,
   });
   /** A take of the clean frames on an uploaded image at `ref`. */
-  const onImage = async (takeId: string, name: string, ref: string) => {
+  const onImage = async (
+    takeId: string,
+    name: string,
+    ref: string,
+    blur?: number,
+  ) => {
     const { scene } = await videoOf(takeId, name, (d) => ({
       ...d,
-      branding: { ...d.branding, background: { kind: "image", ref } },
+      branding: {
+        ...d.branding,
+        background: {
+          kind: "image",
+          ref,
+          ...(blur === undefined ? {} : { blur }),
+        },
+      },
     }));
     await copyFrames(scene.meta.id);
     return scene;
@@ -502,11 +514,15 @@ describe("keep and the take's wallpaper", () => {
       await mkdir(join(home, "assets"), { recursive: true });
       const thumb = await readFile(join(WALLPAPERS_DIR, "vivid-1-thumb.webp"));
       await writeFile(join(home, "assets", "thumb.webp"), thumb);
+      // Blurred: the copy carries the take's blur, or a refresh films it
+      // sharp with a clean report.
       const scene = await onImage(
         "scene-upload",
         "On an upload",
         "assets/thumb.webp",
+        0.3,
       );
+      expect(scene.branding.background).toMatchObject({ blur: 0.3 });
       // Premise: the 320x240 thumb is smaller than the export needs, so its
       // export warns soft, not left out.
       const outDir = await mkdtemp(join(tmpdir(), "demoman-keep-soft-"));
@@ -537,6 +553,7 @@ describe("keep and the take's wallpaper", () => {
       expect(out.kept.script.look?.branding?.background).toEqual({
         kind: "image",
         ref: copy,
+        blur: 0.3,
       });
       expect((await readFile(join(repo, copy))).equals(thumb)).toBe(true);
       expect(out.written).toContain(copy);

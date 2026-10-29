@@ -58,6 +58,24 @@ describe("an image path at the run door", () => {
     RUN_MS,
   );
 
+  // Only where the image lives changes: red if the copy drops the blur, as
+  // it did before blur was carried (a blurred take re-filmed sharp).
+  it(
+    "a script's blurred image keeps its blur on the take's own copy",
+    async () => {
+      const photo = join(h.scratch, "blurred.png");
+      await writeFile(photo, flatPng(64, 48, [40, 160, 200]));
+      const { value, background } = await run(
+        scriptOn({ kind: "image", ref: photo, blur: 0.3 }),
+        "own-blur",
+      );
+      expect(value.outcome, JSON.stringify(value)).toBe("complete");
+      expect((background as { ref: string }).ref).toMatch(ASSET_REF);
+      expect(background).toMatchObject({ kind: "image", blur: 0.3 });
+    },
+    RUN_MS,
+  );
+
   it(
     "a script naming a missing path is refused wallpaperUnreadable, naming it, and makes no take",
     async () => {

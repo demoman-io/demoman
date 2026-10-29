@@ -151,7 +151,8 @@ export interface Screens {
   moments: ScreenMoment[];
   /** A digest of the branding painted round the window (its background,
    *  padding and logo), for refresh to judge the background by. Set by
-   *  run-core's `renderOutput`, which owns the digest (`lookDigest`). */
+   *  the runner's `exportTake`, which holds the files the render read
+   *  (run-core's `lookDigest`). */
   look?: string;
 }
 
