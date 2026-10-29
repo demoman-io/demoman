@@ -324,7 +324,7 @@ describe("the Background panel's Wallpaper", () => {
       },
     });
     expect(DEFAULT_WALLPAPER_ID).toBe("vivid-1");
-    expect(DEFAULT_WALLPAPER_BLUR).toBe(0.3);
+    expect(DEFAULT_WALLPAPER_BLUR).toBe(0);
   });
 
   it("Gradient to Wallpaper commits the default blur too", () => {

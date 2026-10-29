@@ -1,4 +1,4 @@
-export type WallpaperFamily = "vivid" | "light" | "dark";
+export type WallpaperFamily = "vivid" | "light" | "dark" | "muted";
 
 export interface WallpaperInfo {
   id: string;
@@ -8,7 +8,7 @@ export interface WallpaperInfo {
   swatch: { from: string; to: string };
 }
 
-/** Display order: vivid, light, dark. The ids are the shipped file stems.
+/** Display order: vivid, light, dark, muted (light, dark, light, dark). The ids are the shipped file stems.
  *  Each swatch is sampled from its generated image: generate.mjs in
  *  apps/studio/scripts/wallpapers prints them. */
 export const WALLPAPERS: readonly WallpaperInfo[] = [
@@ -54,6 +54,26 @@ export const WALLPAPERS: readonly WallpaperInfo[] = [
   },
   { id: "dark-1", family: "dark", swatch: { from: "#150217", to: "#3d044b" } },
   { id: "dark-2", family: "dark", swatch: { from: "#02576e", to: "#023758" } },
+  {
+    id: "muted-1",
+    family: "muted",
+    swatch: { from: "#bfb5aa", to: "#a19486" },
+  },
+  {
+    id: "muted-2",
+    family: "muted",
+    swatch: { from: "#141422", to: "#26233e" },
+  },
+  {
+    id: "muted-3",
+    family: "muted",
+    swatch: { from: "#a3a299", to: "#cfcbc3" },
+  },
+  {
+    id: "muted-4",
+    family: "muted",
+    swatch: { from: "#1b1e1d", to: "#51625d" },
+  },
 ];
 
 export const DEFAULT_WALLPAPER_ID = "vivid-1";

@@ -50,15 +50,15 @@ describe("wallpaper and image backgrounds", () => {
       id: "vivid-1",
       blur: DEFAULT_WALLPAPER_BLUR,
     });
-    expect(DEFAULT_WALLPAPER_BLUR).toBe(0.3);
+    expect(DEFAULT_WALLPAPER_BLUR).toBe(0);
     expect(wallpaperInfo("vivid-1")?.family).toBe("vivid");
   });
 
-  it("the set is six vivid, two light, two dark with unique ids", () => {
-    const counts = { vivid: 0, light: 0, dark: 0 };
+  it("the set is six vivid, two light, two dark, four muted with unique ids", () => {
+    const counts = { vivid: 0, light: 0, dark: 0, muted: 0 };
     for (const w of WALLPAPERS) counts[w.family]++;
-    expect(counts).toEqual({ vivid: 6, light: 2, dark: 2 });
-    expect(new Set(WALLPAPERS.map((w) => w.id)).size).toBe(10);
+    expect(counts).toEqual({ vivid: 6, light: 2, dark: 2, muted: 4 });
+    expect(new Set(WALLPAPERS.map((w) => w.id)).size).toBe(14);
   });
 
   const scriptOn = (id: string, blur?: number) => ({

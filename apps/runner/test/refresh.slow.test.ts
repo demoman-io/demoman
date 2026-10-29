@@ -591,8 +591,8 @@ describe("refresh", () => {
         r.videos.map((v) => v.outcome),
         JSON.stringify(r),
       ).toEqual(["unchanged", "unchanged"]);
-      // The premise: these films are on the blurred wallpaper new takes
-      // default to, whose smooth field the window's split exists for.
+      // The premise: these films are on the wallpaper new takes default
+      // to, sharp, whose edges the window's split keeps out of the verdict.
       expect(BRANDING_DEFAULTS.background).toMatchObject({
         kind: "wallpaper",
         blur: DEFAULT_WALLPAPER_BLUR,

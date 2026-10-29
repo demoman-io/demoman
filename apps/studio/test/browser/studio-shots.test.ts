@@ -1299,7 +1299,7 @@ describe("the Studio's screenshot set", () => {
         if (pressed === undefined || other === undefined)
           throw new Error(`${at}: no pressed tile ${JSON.stringify(tiles)}`);
         // The panel's own ground: the empty cell after the upload tile, the
-        // grid's eleventh of twelve.
+        // grid's sixteenth of sixteen.
         const empty = await page.evaluate(() => {
           const grid = document
             .querySelector(".wallpaper-grid")
