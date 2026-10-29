@@ -1,8 +1,9 @@
 import {
+  type CameraTrack,
   contentScale,
   derivePresentation,
   type FrameBundle,
-  frameCamera,
+  frameTrack,
   inScreenSpace,
   LANDSCAPE_1080P,
   landscapeFrame,
@@ -11,7 +12,6 @@ import {
   type Rect,
   type RenderTarget,
   resolvePlan,
-  sampleTrack,
   toOutputMs,
   VERBS,
   type Vec,
@@ -119,14 +119,16 @@ const ZERO_SUMMARY: Record<FilmLabel, 0> = {
  * into the window frame and padding around it.
  */
 function visibleRegion(
-  sampled: { center: Vec; scale: number },
+  track: CameraTrack,
+  outputMs: number,
   viewport: { width: number; height: number },
   branding: SceneBranding,
   target: RenderTarget,
 ): { visible: Rect; shot: Rect } {
   const { frameRect } = derivePresentation(branding, target, viewport);
-  const camera = frameCamera(
-    sampled,
+  const camera = frameTrack(
+    track,
+    outputMs,
     contentScale(frameRect, viewport),
     frameRect,
     viewport,
@@ -342,7 +344,8 @@ export function filmQuality(
       return { ...blank, outputMs, unknown: "noRect", framing: null };
     }
     const { visible, shot } = visibleRegion(
-      sampleTrack(resolved, outputMs),
+      resolved,
+      outputMs,
       bundle.viewport,
       scene.branding,
       frame,

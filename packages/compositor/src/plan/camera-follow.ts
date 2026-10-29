@@ -1,5 +1,5 @@
-import { lerpVec, type Vec } from "../geometry.js";
-import { type CameraKey, sampleCamera } from "./camera.js";
+import { lerpVec, type Rect, type Vec } from "../geometry.js";
+import { type CameraKey, frameCamera, sampleCamera } from "./camera.js";
 
 /**
  * The follow spring's step, in output ms. The step is exact for a target
@@ -140,14 +140,29 @@ export function solveFollow(args: {
 /**
  * The camera at an output instant: the keys' scale, and while zoomed the
  * spring's centre (`solveFollow`). Through the pull-out the centre blends
- * from the spring back onto the keys by how far the scale has come down, so
+ * from the spring back onto the keys by the pull-out's own pivot weight, so
  * it leaves the spring without a jump and lands on the keys at full frame.
+ *
+ * `legal` moves a centre to where the camera can stand at a scale
+ * (`frameTrack` passes the canvas clamp). It is applied to the keys and the
+ * spring BEFORE they are blended, never after: `zoomBetween` moves every
+ * edge of the window on a straight line between its ends, so two ends that
+ * fit the canvas give a move that fits it throughout. Clamped after, per
+ * axis, a pull-out from a button near an edge grew about the button until
+ * one side met the canvas edge, slid along it, and turned when the other
+ * side met its own — the "bump" (2026-10-29). The default leaves centres
+ * as planned, for readers that ask how the plan moves, not how it is drawn.
  */
 export function sampleTrack(
   track: CameraTrack,
   outputTimeMs: number,
+  legal: (center: Vec, scale: number) => Vec = (center) => center,
 ): { center: Vec; scale: number } {
-  const base = sampleCamera(track.cameraKeys, outputTimeMs);
+  const keys = track.cameraKeys.map((key) => ({
+    ...key,
+    center: legal(key.center, key.scale),
+  }));
+  const base = sampleCamera(keys, outputTimeMs);
   if (base.scale <= 1) return base;
   // `endMs` included: a take that ends zoomed has no pull-out, and its last
   // instant is the spring's, not the keys' parked aim (a pull-out's own
@@ -176,10 +191,43 @@ export function sampleTrack(
           (outputTimeMs - timeOf(i)) / (timeOf(i + 1) - timeOf(i)),
         );
   if (outputTimeMs < stretch.pullOutDepartMs) {
-    return { center: spring, scale: base.scale };
+    return { center: legal(spring, base.scale), scale: base.scale };
   }
-  const from = sampleCamera(track.cameraKeys, stretch.pullOutDepartMs).scale;
+  const from = sampleCamera(keys, stretch.pullOutDepartMs).scale;
   if (from <= 1) return base;
-  const w = (base.scale - 1) / (from - 1);
-  return { center: lerpVec(base.center, spring, w), scale: base.scale };
+  // The spring held legal at the departure's scale and the pull-out's
+  // landing are the move's two ends; weighted as `zoomBetween` weights a
+  // centre, the window between them fits wherever both ends do.
+  const landing = sampleCamera(keys, stretch.endMs).center;
+  const w = (1 / from - 1 / base.scale) / (1 / from - 1);
+  return {
+    center: lerpVec(legal(spring, from), landing, w),
+    scale: base.scale,
+  };
+}
+
+/**
+ * The camera a frame is drawn with: `sampleTrack` with every centre held
+ * inside the canvas at its own scale, then `frameCamera`. Every reader that
+ * draws or overlays the picture goes through this one, so they all draw
+ * the same camera.
+ */
+export function frameTrack(
+  track: CameraTrack,
+  outputTimeMs: number,
+  /** Output pixels per CSS pixel at camera scale 1 — `contentScale(...)`. */
+  base: number,
+  frameRect: Rect,
+  viewport: { width: number; height: number },
+  canvas: { width: number; height: number },
+): ReturnType<typeof frameCamera> {
+  const legal = (center: Vec, scale: number) =>
+    frameCamera({ center, scale }, base, frameRect, viewport, canvas).center;
+  return frameCamera(
+    sampleTrack(track, outputTimeMs, legal),
+    base,
+    frameRect,
+    viewport,
+    canvas,
+  );
 }

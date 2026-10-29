@@ -40,6 +40,7 @@ export {
   type CameraTrack,
   FOLLOW_STEP_MS,
   type FollowStretch,
+  frameTrack,
   sampleTrack,
   solveFollow,
 } from "./plan/camera-follow.js";

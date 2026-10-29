@@ -2,8 +2,8 @@
 // apart from compose.ts so a render's screens (`renderScene`) read them
 // from the one place `renderFrame` does.
 import type { Rect, Vec } from "../geometry.js";
-import { frameCamera } from "../plan/camera.js";
-import { sampleTrack } from "../plan/camera-follow.js";
+import type { frameCamera } from "../plan/camera.js";
+import { frameTrack } from "../plan/camera-follow.js";
 import type { ResolvedPlan } from "../plan/resolve.js";
 import { contentScale, type Presentation } from "./presentation.js";
 
@@ -16,8 +16,9 @@ export function sceneCameraAt(
 ): ReturnType<typeof frameCamera> {
   const viewport = resolved.plan.viewport;
   const { frameRect } = presentation;
-  return frameCamera(
-    sampleTrack(resolved, outputTimeMs),
+  return frameTrack(
+    resolved,
+    outputTimeMs,
     contentScale(frameRect, viewport),
     frameRect,
     viewport,

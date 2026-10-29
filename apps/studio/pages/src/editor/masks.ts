@@ -1,14 +1,13 @@
 import {
   contentScale,
   cssRectToOutput,
-  frameCamera,
+  frameTrack,
   outputRectToCss,
   outputToCss,
   type Presentation,
   type Rect,
   type RenderTarget,
   type ResolvedPlan,
-  sampleTrack,
   type Vec,
 } from "@demoman/compositor";
 import type { ZoomSeg } from "./lanes";
@@ -30,8 +29,9 @@ export function cameraAt(args: {
   viewport: { width: number; height: number };
 }): { center: Vec; scale: number } {
   const { resolved, outputTimeMs, presentation, target, viewport } = args;
-  return frameCamera(
-    sampleTrack(resolved, outputTimeMs),
+  return frameTrack(
+    resolved,
+    outputTimeMs,
     contentScale(presentation.frameRect, viewport),
     presentation.frameRect,
     viewport,
