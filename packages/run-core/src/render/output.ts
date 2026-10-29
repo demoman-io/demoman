@@ -53,12 +53,20 @@ export type LogoLoad =
   | { ok: true; source: LogoSource }
   | { ok: false; error: string };
 
-/** A wallpaper or uploaded image as the caller could get it: decoded at
- *  its own size (each output rasterises it to its own
- *  `wallpaperRasterSize`), or the reason it is not. `name` is the id or the
- *  path, for the warning. */
+/** A wallpaper or uploaded image as the caller could get it
+ *  (`wallpaperLoader`), or the reason it is not. `natural` is the image's
+ *  own size, which each output's `wallpaperRasterSize` and the soft warning
+ *  are measured against; `image(size)` answers it decoded at least that
+ *  large and never above `natural` (the loader's, freed by its `close`).
+ *  `name` is the id or the path, for the warning. */
 export type WallpaperLoad =
-  | { ok: true; image: FrameImage; name: string }
+  | {
+      ok: true;
+      name: string;
+      natural: { width: number; height: number };
+      image(size: { width: number; height: number }): Promise<FrameImage>;
+      close(): void;
+    }
   | { ok: false; error: string };
 
 /** One frame by ref: encoded video bytes for a `span:` ref, an image for a
@@ -322,7 +330,11 @@ export async function renderOutput(input: {
   // output: the frame shows the gradient and the facts say why.
   const wallpaperAt = async (
     at: RenderTarget,
-  ): Promise<{ image: FrameImage | null; failed: string | null }> => {
+  ): Promise<{
+    image: FrameImage | null;
+    failed: string | null;
+    held?: FrameImage;
+  }> => {
     const load = input.wallpaper;
     const kind = scene.branding.background.kind;
     // A scene on an image with none handed in is one left out, not a
@@ -336,17 +348,26 @@ export async function renderOutput(input: {
             : null,
       };
     if (!load.ok) return { image: null, failed: load.error };
-    const size = wallpaperRasterSize(at, load.image);
-    let sized = load.image;
-    if (size.width < load.image.width) {
+    const size = wallpaperRasterSize(at, load.natural);
+    let held: FrameImage;
+    try {
+      held = await load.image(size);
+    } catch (error) {
+      return {
+        image: null,
+        failed: `${load.name}: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    let sized = held;
+    if (size.width < held.width) {
       try {
-        const bitmap = await createImageBitmap(load.image.image, {
+        const bitmap = await createImageBitmap(held.image, {
           resizeWidth: size.width,
           resizeHeight: size.height,
           resizeQuality: "high",
         });
         sized = {
-          ...load.image,
+          ...held,
           image: bitmap,
           width: size.width,
           height: size.height,
@@ -366,7 +387,7 @@ export async function renderOutput(input: {
     const blur = bg.kind === "wallpaper" || bg.kind === "image" ? bg.blur : 0;
     const radius = wallpaperBlurPx(at, sized, blur ?? 0);
     try {
-      return { image: blurWallpaper(sized, radius), failed: null };
+      return { image: blurWallpaper(sized, radius), failed: null, held };
     } catch (error) {
       return {
         image: null,
@@ -376,8 +397,7 @@ export async function renderOutput(input: {
       };
     } finally {
       // The sharp copy made for this output, once the blur has its own.
-      if (radius > 0 && sized !== load.image)
-        (sized.image as ImageBitmap).close();
+      if (radius > 0 && sized !== held) (sized.image as ImageBitmap).close();
     }
   };
   /** What the facts say about the wallpaper of a render at `at` whose
@@ -395,8 +415,9 @@ export async function renderOutput(input: {
     }
     const load = input.wallpaper;
     if (load === null || !load.ok) return null;
-    // The image's own size against what covering `at` at that zoom needs.
-    const { width, height } = load.image;
+    // The image's own size against what covering `at` at that zoom needs:
+    // `natural`, never the smaller raster it was decoded to.
+    const { width, height } = load.natural;
     const scale = Math.max(at.width / width, at.height / height) * deepestScale;
     const needs = {
       width: Math.round(width * scale),
@@ -409,13 +430,10 @@ export async function renderOutput(input: {
         }
       : null;
   };
-  /** A raster made for one output, freed once that output is rendered. */
-  const release = (image: FrameImage | null): void => {
-    if (
-      image !== null &&
-      input.wallpaper?.ok === true &&
-      image.image !== input.wallpaper.image.image
-    ) {
+  /** A raster made for one output, freed once that output is rendered;
+   *  the loader's own decode is the loader's to free. */
+  const release = (image: FrameImage | null, held: FrameImage | null): void => {
+    if (image !== null && image.image !== held?.image) {
       (image.image as ImageBitmap).close();
     }
   };
@@ -472,7 +490,7 @@ export async function renderOutput(input: {
         ...(onFrame === undefined ? {} : { onFrame }),
       });
     } finally {
-      release(wallpaper.image);
+      release(wallpaper.image, wallpaper.held ?? null);
     }
     // `none` frames every still whole; otherwise a still may sit at any
     // zoom the video reaches. Asked only when there is an image to judge.
@@ -543,7 +561,7 @@ export async function renderOutput(input: {
             }),
       });
     } finally {
-      release(wallpaper.image);
+      release(wallpaper.image, wallpaper.held ?? null);
     }
     return {
       result,

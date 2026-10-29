@@ -36,8 +36,8 @@ import {
   wholePercent,
 } from "@demoman/run-core/render";
 import {
-  decodeWallpaper,
   fitWallpaperImage,
+  wallpaperLoader,
 } from "@demoman/run-core/wallpaper";
 import type { SceneDocument } from "@demoman/scene-schema";
 import {
@@ -190,20 +190,21 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
       logo = { ok: false, error: messageOf(error) };
     }
   }
-  // Decoration too: decoded at its own size here, and rasterised per
-  // output by `renderOutput`; one that will not decode is its
-  // wallpaperWarning, and the frame shows the gradient.
+  // Decoration too: decoded once, at the size the outputs need
+  // (`wallpaperLoader`), and rasterised per output by `renderOutput`; one
+  // that will not decode is its wallpaperWarning, and the frame shows the
+  // gradient.
   let wallpaper: WallpaperLoad | null = null;
   const sent = manifest.wallpaper;
   if (sent !== null && "error" in sent) {
     wallpaper = { ok: false, error: sent.error };
   } else if (sent !== null) {
     try {
-      wallpaper = {
-        ok: true,
-        name: sent.name,
-        image: await decodeWallpaper(bytesOf(sent.base64), sent.contentType),
-      };
+      wallpaper = await wallpaperLoader(
+        bytesOf(sent.base64),
+        sent.contentType,
+        sent.name,
+      );
     } catch (error) {
       wallpaper = { ok: false, error: `${sent.name}: ${messageOf(error)}` };
     }
@@ -268,10 +269,10 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
           ? report?.(done, total, width)
           : report?.(done, total, width, pass),
     ),
-    // The decoded master (9600px for a built-in) is freed once every output
-    // is rendered: the GIF ladder and the MP4 cap re-render inside this call.
+    // The decoded image is freed once every output is rendered: the GIF
+    // ladder and the MP4 cap re-render inside this call.
   }).finally(() => {
-    if (wallpaper?.ok === true) (wallpaper.image.image as ImageBitmap).close();
+    if (wallpaper?.ok === true) wallpaper.close();
   });
   outputs = files.map((f) => f.bytes);
   return {

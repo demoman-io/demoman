@@ -794,6 +794,7 @@ describe("renderOutput's wallpaper", () => {
   const resized: { width: number; height: number; closed: boolean }[] = [];
   beforeEach(() => {
     resized.length = 0;
+    asked.length = 0;
     vi.stubGlobal(
       "createImageBitmap",
       async (
@@ -816,10 +817,23 @@ describe("renderOutput's wallpaper", () => {
     );
     return () => vi.unstubAllGlobals();
   });
+  /** Each size a render asked the loader for. */
+  const asked: { width: number; height: number }[] = [];
+  /** A loader holding the image decoded whole, as one that is not a WebP. */
   const decoded = (width: number, height: number) => ({
     ok: true as const,
     name: "vivid-1",
-    image: { image: { master: true } as never, width, height, sourceTimeMs: 0 },
+    natural: { width, height },
+    image: async (size: { width: number; height: number }) => {
+      asked.push(size);
+      return {
+        image: { master: true } as never,
+        width,
+        height,
+        sourceTimeMs: 0,
+      };
+    },
+    close: () => undefined,
   });
   const drew = () =>
     renderScene.mock.calls.map((c) => {
@@ -849,6 +863,11 @@ describe("renderOutput's wallpaper", () => {
     expect(drew()).toEqual([
       [1600, 4000, 3000],
       [1200, 3000, 2250],
+    ]);
+    // The loader is asked for each rung's raster, never the image's own size.
+    expect(asked).toEqual([
+      { width: 4000, height: 3000 },
+      { width: 3000, height: 2250 },
     ]);
     expect(resized.every((r) => r.closed)).toBe(true);
     expect(out.facts.wallpaperWarning).toBeNull();
@@ -983,6 +1002,35 @@ describe("renderOutput's wallpaper", () => {
       sentence:
         'The wallpaper "/h/assets/small.webp" is 1600×1200, smaller than this export\'s deepest zoom needs (2000×1500), so it will look soft.',
     });
+  });
+
+  // Red if the warning measures the decoded raster instead of the image's
+  // own size: decoded at 400x300, a 9600x7200 image is never soft here.
+  it("judges soft by the image's own size, not the size it was decoded to", async () => {
+    renderScene.mockResolvedValue({
+      bytes: new Uint8Array([1]),
+      ...facts,
+      deepestScale: 2.5,
+    });
+    const small = {
+      image: {} as never,
+      width: 400,
+      height: 300,
+      sourceTimeMs: 0,
+    };
+    const out = await renderOutput({
+      ...base,
+      fileType: "mp4",
+      target: { ...gifTarget, format: "mp4" } as never,
+      bundle: bundle(),
+      wallpaper: {
+        ...decoded(9600, 7200),
+        image: async () => small,
+      },
+    });
+    // The premise: the loader answered smaller than the need's 2000x1500.
+    expect(small.width).toBeLessThan(2000);
+    expect(out.facts.wallpaperWarning).toBeNull();
   });
 
   // The gradient scene above, with nothing handed in: nothing to say.

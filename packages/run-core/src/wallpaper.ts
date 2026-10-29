@@ -1,6 +1,8 @@
 // packages/run-core/src/wallpaper.ts
 import { type FrameImage, WALLPAPER_LONG_SIDE } from "@demoman/compositor";
 import { decodeLogo } from "./logo.js";
+import type { WallpaperLoad } from "./render/output.js";
+import { webpSize } from "./webp-size.js";
 
 // In-page only (createImageBitmap): its own subpath,
 // `@demoman/run-core/wallpaper`, as `./logo` is, so a node consumer of the
@@ -33,6 +35,55 @@ export async function decodeWallpaper(
   }
   // A background is not a timeline sample: it has no source instant.
   return { image, width: image.width, height: image.height, sourceTimeMs: 0 };
+}
+
+/**
+ * An image's bytes as a render loads them (`WallpaperLoad`): decoded once,
+ * at the first size an output asks for, not at its own size — a built-in
+ * master is 9600x7200, 276 MB decoded, where a 1080p export needs a
+ * quarter of it. Outputs ask largest first (the target, then a cap's or a
+ * GIF ladder's narrower rungs), so a later, smaller one resizes from that;
+ * one that asks for more decodes again, larger. A WebP's own size is read
+ * from its header (every built-in and every stored upload is one);
+ * anything else is decoded whole to learn it, and held at that size.
+ * Rejects, naming the type, on bytes that will not decode.
+ */
+export async function wallpaperLoader(
+  bytes: Uint8Array,
+  contentType: string,
+  name: string,
+): Promise<Extract<WallpaperLoad, { ok: true }>> {
+  let held: FrameImage | null = null;
+  let natural = webpSize(bytes);
+  if (natural === null) {
+    held = await decodeWallpaper(bytes, contentType);
+    natural = { width: held.width, height: held.height };
+  }
+  const own = natural;
+  const free = (image: FrameImage | null) => {
+    if (image !== null && "close" in image.image) image.image.close();
+  };
+  return {
+    ok: true,
+    name,
+    natural: own,
+    async image(size) {
+      if (held === null || held.width < size.width) {
+        const next = await decodeWallpaper(
+          bytes,
+          contentType,
+          size.width >= own.width ? undefined : size,
+        );
+        free(held);
+        held = next;
+      }
+      return held;
+    },
+    close: () => {
+      free(held);
+      held = null;
+    },
+  };
 }
 
 /** What an upload (or an image named by path) becomes before it is stored. */
