@@ -251,7 +251,7 @@ describe("the Brand kit section", () => {
     const { box } = section({});
     // The defaults' wallpaper, pressed in the grid.
     expect(
-      q(box, '[data-wallpaper-id="vivid-1"]').getAttribute("aria-pressed"),
+      q(box, '[data-wallpaper-id="muted-1"]').getAttribute("aria-pressed"),
     ).toBe("true");
     expect(box.querySelector("[data-kit-tile]")).toBeNull();
     expect(box.querySelector("[data-kit-new]")).not.toBeNull();

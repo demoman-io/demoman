@@ -323,7 +323,7 @@ describe("the Background panel's Wallpaper", () => {
         blur: DEFAULT_WALLPAPER_BLUR,
       },
     });
-    expect(DEFAULT_WALLPAPER_ID).toBe("vivid-1");
+    expect(DEFAULT_WALLPAPER_ID).toBe("muted-1");
     expect(DEFAULT_WALLPAPER_BLUR).toBe(0);
   });
 

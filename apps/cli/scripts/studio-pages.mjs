@@ -23,6 +23,10 @@ export const STUDIO_NEEDED = [
  *  file is plain .mjs and cli does not depend on that package; build.test.ts
  *  fails when the two disagree. */
 export const WALLPAPER_IDS = [
+  "muted-1",
+  "muted-2",
+  "muted-3",
+  "muted-4",
   "vivid-1",
   "vivid-2",
   "vivid-3",
@@ -33,10 +37,6 @@ export const WALLPAPER_IDS = [
   "light-2",
   "dark-1",
   "dark-2",
-  "muted-1",
-  "muted-2",
-  "muted-3",
-  "muted-4",
 ];
 const WALLPAPER_SHAPES = ["landscape", "portrait", "thumb"];
 

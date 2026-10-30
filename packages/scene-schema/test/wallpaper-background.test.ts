@@ -44,14 +44,15 @@ describe("wallpaper and image backgrounds", () => {
     ).toBe(false);
   });
 
-  it("new takes default to the vivid wallpaper", () => {
+  it("new takes default to the dark muted wallpaper, shown first", () => {
     expect(BRANDING_DEFAULTS.background).toEqual({
       kind: "wallpaper",
-      id: "vivid-1",
+      id: "muted-1",
       blur: DEFAULT_WALLPAPER_BLUR,
     });
     expect(DEFAULT_WALLPAPER_BLUR).toBe(0);
-    expect(wallpaperInfo("vivid-1")?.family).toBe("vivid");
+    expect(wallpaperInfo("muted-1")?.family).toBe("muted");
+    expect(WALLPAPERS[0]?.id).toBe("muted-1");
   });
 
   it("the set is six vivid, two light, two dark, four muted with unique ids", () => {

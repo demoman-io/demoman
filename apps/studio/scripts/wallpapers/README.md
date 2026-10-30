@@ -51,7 +51,7 @@ family's. `palette.json`'s `measuredFrom` lists them.
 
 ## The muted family is picked, not measured
 
-`muted-1` to `muted-4` are two light/dark pairs (1 and 2, 3 and 4 share a
+`muted-1` to `muted-4` are two dark/light pairs (1 and 2, 3 and 4 share a
 composition), added on 2026-10-29 for a backdrop that does not draw the eye
 from the recording. Their colours sit below every measured family's
 saturation floor, which is why the set had none. They were picked by eye

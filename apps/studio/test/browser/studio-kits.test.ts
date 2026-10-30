@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { kitNamed, lookForRun } from "@demoman/run-core";
 import { readKits, readLogo } from "@demoman/runner/studio";
+import { DEFAULT_WALLPAPER_ID } from "@demoman/scene-schema";
 import type { WindowAnswer } from "@demoman/studio-protocol";
 import type { Page } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -204,7 +205,7 @@ describe("the Studio's Brand kit page, in a real window", () => {
           () =>
             page
               .locator(
-                '[data-group="background"] [data-wallpaper-id="vivid-1"]',
+                `[data-group="background"] [data-wallpaper-id="${DEFAULT_WALLPAPER_ID}"]`,
               )
               .getAttribute("aria-pressed"),
           {

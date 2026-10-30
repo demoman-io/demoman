@@ -943,7 +943,7 @@
     ]
   },
   {
-    "id": "muted-1",
+    "id": "muted-2",
     "family": "muted",
     "seed": 131,
     "base": {
@@ -1074,7 +1074,7 @@
     ]
   },
   {
-    "id": "muted-2",
+    "id": "muted-1",
     "family": "muted",
     "seed": 131,
     "base": {
@@ -1235,7 +1235,7 @@
     ]
   },
   {
-    "id": "muted-3",
+    "id": "muted-4",
     "family": "muted",
     "seed": 173,
     "base": {
@@ -1334,7 +1334,7 @@
     ]
   },
   {
-    "id": "muted-4",
+    "id": "muted-3",
     "family": "muted",
     "seed": 173,
     "base": {

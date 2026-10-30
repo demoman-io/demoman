@@ -511,8 +511,8 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
   `branding` is the whole of one: `background`, `logo` (or `null`) and
   `padding`, the margin as a fraction of the frame's shorter side (0 to
   0.2; left out is 0.12); a missing `background` or `logo` is refused.
-  A `background` may be `{ "kind": "wallpaper", "id" }` (`vivid-1` to
-  `vivid-6`, `light-1`, `light-2`, `dark-1`, `dark-2`, `muted-1` to `muted-4`;
+  A `background` may be `{ "kind": "wallpaper", "id" }` (`muted-1` to
+  `muted-4`, `vivid-1` to `vivid-6`, `light-1`, `light-2`, `dark-1`, `dark-2`;
   another id is refused, naming them) or `{ "kind": "image", "ref": "<path>" }`, a file, absolute or
   relative to the Demoman home; copied into the take. Either takes
   `"blur"`, 0-1 (default 0, sharp).
