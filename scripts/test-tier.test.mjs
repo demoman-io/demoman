@@ -11,7 +11,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { slowExcludes, testTier, testWorkers } from "./test-tier.mjs";
+import {
+  ciRetry,
+  slowExcludes,
+  testTier,
+  testWorkers,
+} from "./test-tier.mjs";
 
 test("an unset tier is the full one, and skips nothing", () => {
   assert.equal(testTier({}), "full");
@@ -54,6 +59,35 @@ test("off CI, a package runs 2 files at once if it launches browsers, else 4", (
 
 test("CI keeps vitest's own default", () => {
   assert.deepEqual(testWorkers("heavy", { CI: "true" }), {});
+});
+
+test("off CI, a failure is not retried", () => {
+  assert.deepEqual(ciRetry({}), {});
+});
+
+test("on CI, one retry, and a pass on it or a noted skip is annotated", () => {
+  const lines = [];
+  const { retry, reporters } = ciRetry(
+    { CI: "true", GITHUB_ACTIONS: "true" },
+    (l) => lines.push(l),
+  );
+  assert.equal(retry, 1);
+  assert.deepEqual(reporters.slice(0, 2), ["default", "github-actions"]);
+  const { onTestCaseResult } = reporters[2];
+  const testCase = (result, flaky) => ({
+    module: { moduleId: "/a.test.ts" },
+    fullName: "it",
+    result: () => result,
+    diagnostic: () => ({ flaky }),
+  });
+  onTestCaseResult(testCase({ state: "passed" }, true));
+  onTestCaseResult(testCase({ state: "skipped", note: "too slow" }, false));
+  onTestCaseResult(testCase({ state: "passed" }, false));
+  onTestCaseResult(testCase({ state: "skipped" }, false));
+  assert.deepEqual(lines, [
+    "::warning title=Passed on retry::/a.test.ts > it",
+    "::warning title=Skipped::/a.test.ts > it: too slow",
+  ]);
 });
 
 test("DEMOMAN_TEST_WORKERS overrides both, and a bad one is refused", () => {

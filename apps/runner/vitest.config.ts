@@ -1,6 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { configDefaults, defineConfig } from "vitest/config";
-import { slowExcludes, testWorkers } from "../../scripts/test-tier.mjs";
+import {
+  ciRetry,
+  slowExcludes,
+  testWorkers,
+} from "../../scripts/test-tier.mjs";
 
 /**
  * One lane, and — unlike `apps/extension`'s — it deliberately does NOT alias
@@ -41,6 +45,9 @@ import { slowExcludes, testWorkers } from "../../scripts/test-tier.mjs";
  * `*.slow.test.ts` render video in software (4K SwiftShader exports, the
  * acceptance run). `pnpm test:fast` leaves them out and says how many;
  * `pnpm test` and CI run them (`scripts/test-tier.mjs`).
+ *
+ * On CI a failed test runs once more, and a pass on the retry is an
+ * annotation on the run (`ciRetry`).
  */
 /** Measurements, not gates: run by `bench`, never by `test`. */
 export const BENCH = "test/**/*.bench.test.ts";
@@ -48,6 +55,7 @@ export const BENCH = "test/**/*.bench.test.ts";
 export default defineConfig({
   test: {
     ...testWorkers("heavy"),
+    ...ciRetry(),
     name: "runner",
     environment: "node",
     include: ["test/**/*.test.ts"],

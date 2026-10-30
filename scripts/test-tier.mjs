@@ -69,3 +69,44 @@ export function testWorkers(weight, env = process.env) {
   if (env.CI) return {};
   return { minWorkers: 1, maxWorkers: weight === "heavy" ? 2 : 4 };
 }
+
+/**
+ * On CI, a test that fails once runs once more, as `{ retry, reporters }`
+ * to spread into a heavy package's `test` block. CI's machines are ~5x
+ * slower than a developer's Mac and shared: five red runs in two days
+ * (2026-10-27..29) failed seven different timing and pixel-threshold tests,
+ * none of them on a product bug.
+ *
+ * The retry forgives the run, not the reason. A test that passed on its
+ * retry, or skipped itself with a note (a premise the machine was too slow
+ * to set up), is one `::warning` annotation on the run's page. A real race
+ * still shows: `unhurried-beats`' late last key failed 1 in 5, and a
+ * retry fails twice in a row about 1 in 25.
+ *
+ * Off CI nothing changes: a local failure is the one to look at.
+ *
+ * @param {Record<string, string | undefined>} env
+ * @param {(line: string) => void} say
+ */
+export function ciRetry(env = process.env, say = (line) => console.log(line)) {
+  if (!env.CI) return {};
+  /** @param {any} test vitest's TestCase */
+  const onTestCaseResult = (test) => {
+    const name = `${test.module.moduleId} > ${test.fullName}`;
+    const result = test.result();
+    if (test.diagnostic()?.flaky) {
+      say(`::warning title=Passed on retry::${name}`);
+    } else if (result.state === "skipped" && result.note) {
+      say(`::warning title=Skipped::${name}: ${result.note}`);
+    }
+  };
+  return {
+    retry: 1,
+    // Naming any reporter drops the github-actions one vitest adds itself.
+    reporters: [
+      "default",
+      ...(env.GITHUB_ACTIONS === "true" ? ["github-actions"] : []),
+      { onTestCaseResult },
+    ],
+  };
+}
