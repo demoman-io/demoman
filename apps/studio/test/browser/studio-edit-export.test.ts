@@ -648,7 +648,7 @@ describe("the editor's size readout in the Studio", () => {
         { timeout: 30_000, interval: 100 },
       );
       expect(await said(), await pageEvidence(page)).toContain(
-        "Video 1920 × 1080",
+        "Video 2560 × 1440",
       );
       expect(await said()).not.toContain("3840");
 

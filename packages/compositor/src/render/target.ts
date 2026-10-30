@@ -126,16 +126,21 @@ export const VERTICAL_1080: RenderTarget = {
  * `RenderTarget` carries one, and `autoTarget` scales it by area. Nothing
  * may report it as the file's rate: the file's own byte length is that.
  *
- * Landscape: LANDSCAPE_1080P's frame and corner radius; its 10 Mbps at half
+ * Landscape: LANDSCAPE_1440P's frame and corner radius; its 18 Mbps at half
  * the frames. `targetFor` reshapes it for Auto through `landscapeFrame`.
+ * Long side 2560 since 2026-10-29 (the author, over 1920): zoomed out, a
+ * 1920 frame draws a 1280px page at ~1.3 px per CSS px and reads soft on a
+ * Retina screen. Measured on one take with `pnpm share:measure --qualities`,
+ * full-screen on a 14" MacBook: 16% more sharp text edges zoomed out, 4%
+ * zoomed in, for 63% more bytes (~0.4 MB a second, software encoder).
  */
 export const SHARE_LANDSCAPE: RenderTarget = {
   format: "mp4",
-  width: 1920,
-  height: 1080,
+  width: 2560,
+  height: 1440,
   fps: 30,
-  bitrate: 5_000_000,
-  cornerRadius: 18,
+  bitrate: 9_000_000,
+  cornerRadius: 24,
   fit: "contain",
   encoder: { quality: 0.5 },
 };

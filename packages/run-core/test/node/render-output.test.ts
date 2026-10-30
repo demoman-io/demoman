@@ -503,12 +503,12 @@ describe("renderOutput's MP4 size cap", () => {
   // Red if the ladder lowers more than it must, or keeps a file over the cap
   // when a later one fit.
   it("steps down while over, stops at the first that fits, and names each step", async () => {
-    sizes({ "3840@60": 300, "3840@30": 150, "1920@30q0.5": 80 });
+    sizes({ "3840@60": 300, "3840@30": 150, "2560@30q0.5": 80 });
     const out = await capped(100);
     expect(rendersAt()).toEqual([
       [3840, 2160, 60, null],
       [3840, 2160, 30, null],
-      [1920, 1080, 30, 0.5],
+      [2560, 1440, 30, 0.5],
     ]);
     expect(out.facts.videoCap).toEqual({
       maxBytes: 100,
@@ -518,13 +518,13 @@ describe("renderOutput's MP4 size cap", () => {
         {
           kind: "share",
           from: { width: 3840, height: 2160 },
-          to: { width: 1920, height: 1080 },
+          to: { width: 2560, height: 1440 },
           quality: 0.5,
         },
       ],
       keptQuality: 0.5,
     });
-    expect(out.facts.rendered).toEqual({ width: 1920, height: 1080, fps: 30 });
+    expect(out.facts.rendered).toEqual({ width: 2560, height: 1440, fps: 30 });
     expect(out.files[0]?.bytes.byteLength).toBe(80);
     // The sink was built for the target each render ran at.
     expect(sinks.mp4.mock.calls.map((c) => (c as unknown[])[0])).toEqual(
@@ -538,8 +538,8 @@ describe("renderOutput's MP4 size cap", () => {
     sizes({
       "3840@60": 400,
       "3840@30": 300,
-      "1920@30q0.5": 150,
-      "1920@30q0.35": 160,
+      "2560@30q0.5": 150,
+      "2560@30q0.35": 160,
     });
     const out = await capped(100);
     expect(renderScene).toHaveBeenCalledTimes(4);
@@ -551,7 +551,7 @@ describe("renderOutput's MP4 size cap", () => {
     ]);
     // The smallest is the share render, not the last: the facts name it.
     expect(out.files[0]?.bytes.byteLength).toBe(150);
-    expect(out.facts.rendered).toEqual({ width: 1920, height: 1080, fps: 30 });
+    expect(out.facts.rendered).toEqual({ width: 2560, height: 1440, fps: 30 });
     expect(out.facts.videoCap?.keptQuality).toBe(0.5);
   });
 
@@ -561,8 +561,8 @@ describe("renderOutput's MP4 size cap", () => {
     sizes({
       "3840@60": 400,
       "3840@30": 300,
-      "1920@30q0.5": 150,
-      "1920@30q0.35": 160,
+      "2560@30q0.5": 150,
+      "2560@30q0.35": 160,
     });
     const out = await capped(100);
     // The premise: four renders, each saying something different.
@@ -574,8 +574,8 @@ describe("renderOutput's MP4 size cap", () => {
       ),
     );
     expect(new Set(said).size, said.join(" ")).toBe(4);
-    expect(out.facts.loweredZooms).toEqual([{ from: "1920@30q0.5" }]);
-    expect(out.facts.detailViolations).toEqual([{ from: "1920@30q0.5" }]);
+    expect(out.facts.loweredZooms).toEqual([{ from: "2560@30q0.5" }]);
+    expect(out.facts.detailViolations).toEqual([{ from: "2560@30q0.5" }]);
   });
 
   // Ruling (2026-10-18): a later rung that throws must not cost the file an
@@ -661,8 +661,8 @@ describe("renderOutput's MP4 size cap", () => {
       (t) => t.encoder?.quality === 0.5,
     );
     expect(seen).toEqual([
-      [5, 10, 1920, { render: 1, upTo: 2 }],
-      [5, 10, 1920, { render: 2, upTo: 2 }],
+      [5, 10, 2560, { render: 1, upTo: 2 }],
+      [5, 10, 2560, { render: 2, upTo: 2 }],
     ]);
   });
 

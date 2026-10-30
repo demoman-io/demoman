@@ -1,7 +1,7 @@
 import {
   autoTarget,
   LANDSCAPE_4K,
-  LANDSCAPE_1080P,
+  LANDSCAPE_1440P,
   type RenderTarget,
   SHARE_LANDSCAPE,
   SHARE_QUALITY_FLOOR,
@@ -63,7 +63,7 @@ describe("nextCapStep", () => {
     expect(next?.step).toEqual({
       kind: "share",
       from: { width: 3840, height: 2160 },
-      to: { width: 1920, height: 1080 },
+      to: { width: 2560, height: 1440 },
       quality: 0.5,
     });
     expect(next?.target).toEqual(SHARE_LANDSCAPE);
@@ -72,12 +72,12 @@ describe("nextCapStep", () => {
   // Red if a full target already at the share frame is taken for share: it
   // is encoded by bitrate, and the step to quality 0.5 is what lowers it.
   it("a full target at the share frame still takes the share step", () => {
-    const at = { ...LANDSCAPE_1080P, fps: 30, bitrate: 5_000_000 };
+    const at = { ...LANDSCAPE_1440P, fps: 30, bitrate: 9_000_000 };
     const next = nextCapStep(at, SHARE_LANDSCAPE);
     expect(next?.step).toMatchObject({
       kind: "share",
-      from: { width: 1920, height: 1080 },
-      to: { width: 1920, height: 1080 },
+      from: { width: 2560, height: 1440 },
+      to: { width: 2560, height: 1440 },
     });
     expect(next?.target.encoder?.quality).toBe(0.5);
   });
@@ -109,7 +109,7 @@ describe("nextCapStep", () => {
     const taken = ladder(LANDSCAPE_4K, SHARE_LANDSCAPE);
     expect(taken.map((t) => t.step.kind)).toEqual(["fps", "share", "quality"]);
     const last = taken.at(-1)?.target;
-    expect([last?.width, last?.height, last?.fps]).toEqual([1920, 1080, 30]);
+    expect([last?.width, last?.height, last?.fps]).toEqual([2560, 1440, 30]);
     expect(last?.encoder?.quality).toBe(0.35);
   });
 

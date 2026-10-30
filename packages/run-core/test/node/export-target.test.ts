@@ -187,10 +187,10 @@ describe("targetFor", () => {
       expect(share).toEqual(SHARE_LANDSCAPE);
       // §8's pick, written out: red if the constant drifts from it.
       expect(share).toMatchObject({
-        width: 1920,
-        height: 1080,
+        width: 2560,
+        height: 1440,
         fps: 30,
-        bitrate: 5_000_000,
+        bitrate: 9_000_000,
         encoder: { quality: 0.5 },
         fit: "contain",
       });
@@ -240,13 +240,13 @@ describe("targetFor", () => {
           targetFor("mp4", "auto", bundle, FRAME).height,
         2,
       );
-      expect(Math.max(share.width, share.height)).toBe(1920);
+      expect(Math.max(share.width, share.height)).toBe(2560);
       expect(share).toMatchObject({ fps: 30, encoder: { quality: 0.5 } });
       // The nominal bitrate scales by area from the share frame's own.
       expect(share.bitrate).toBe(
         Math.round(
           (SHARE_LANDSCAPE.bitrate * share.width * share.height) /
-            (1920 * 1080),
+            (2560 * 1440),
         ),
       );
       // A portrait recording takes the long side along its height.
@@ -268,7 +268,7 @@ describe("targetFor", () => {
       expect(tall).toEqual(
         autoTarget(SHARE_LANDSCAPE, viewport, FRAME.padding),
       );
-      expect(tall.height).toBe(1920);
+      expect(tall.height).toBe(2560);
     });
 
     it("share 9:16 is SHARE_VERTICAL", () => {
