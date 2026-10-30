@@ -136,9 +136,9 @@ describe("a typed field and a far click, filmed unhurried", () => {
       const out = await executor.request("export", {
         takeId,
         callId: "unhurried-export",
-        // The film the ink thresholds below were measured on. At high
-        // (2026-10-23's default) the focus ring alone read 0.3 of the
-        // field's peak before the first key, past the 0.2 premise.
+        // The film the ink thresholds below were measured on (1920 then,
+        // 2560 since 2026-10-29). The crop below leaves the focus ring out:
+        // at 2560 it alone read 0.3 of the field's peak before the first key.
         quality: "share",
       });
       if (!out.ok) throw new Error(JSON.stringify(out));
@@ -193,8 +193,10 @@ describe("a typed field and a far click, filmed unhurried", () => {
       const crops = await readMp4Crops(
         bytes,
         sampled.map((f) => f.ms / 1000),
-        [40 / 1280, 40 / 800, 280 / 1280, 76 / 800],
-        { width: 240, height: 36 },
+        // Inside the field's border and focus ring, 4px in on every side:
+        // the glyphs alone.
+        [44 / 1280, 44 / 800, 276 / 1280, 72 / 800],
+        { width: 232, height: 28 },
         true,
       );
       // Dark pixels in the field: the glyphs. Not edge energy, which also

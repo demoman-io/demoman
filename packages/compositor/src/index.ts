@@ -226,7 +226,6 @@ export {
   pickMp4Tier,
   type RenderTarget,
   SHARE_LANDSCAPE,
-  SHARE_QUALITY_FLOOR,
   SHARE_VERTICAL,
   STILL_1440,
   STILL_VERTICAL_1080,

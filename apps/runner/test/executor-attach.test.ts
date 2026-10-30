@@ -445,12 +445,15 @@ describe("attach", () => {
       expect(answer.detail).toContain(
         (answer.export as { file: { path: string } }).file.path,
       );
-      // The file it saved may be over what GitHub takes: one attach with
-      // maxMB 9.5 first, and only if GitHub refuses again the file by hand.
-      expect(answer.detail).toContain("attach again with maxMB: 9.5, once");
+      // No maxMB is a 9.5 MB cap (spec 2026-10-29 §5): a refusal there
+      // would only come again, so the file goes by hand now.
+      expect(answer.export).toMatchObject({
+        warnings: { videoSize: { cap: { maxBytes: 9_500_000 } } },
+      });
       expect(answer.detail).toContain(
-        "if GitHub refuses again, give the user the file to drag into the PR",
+        "already capped at 9.5 MB, so do not call attach again",
       );
+      expect(answer.detail).not.toContain("attach again with maxMB");
       expect(answer.detail).not.toContain("export({ takeId, maxMB: 9.5 })");
       const edit = calls().findIndex((c) => c.startsWith("pr edit"));
       expect(edit).toBeGreaterThan(0);
@@ -513,6 +516,10 @@ describe("attach", () => {
         reason: "uploadRefused",
       });
       if (looser.outcome !== "notAttached") return;
+      // Review Focus 5: a caller's looser cap is kept, not the default.
+      expect(looser.export).toMatchObject({
+        warnings: { videoSize: { cap: { maxBytes: 50_000_000 } } },
+      });
       expect(looser.detail).toContain("attach again with maxMB: 9.5, once");
       expect(looser.detail).not.toContain("do not call attach again");
     },
@@ -534,8 +541,10 @@ describe("attach", () => {
       const seen: Attaching[] = [];
       const out = await executor.request(
         "attach",
-        // One byte: no render meets it, so every step of the ladder runs.
-        { takeId, callId: `a-${++n}`, into: "description", maxMB: 0.000001 },
+        // 10 KB: no render meets it, so every rung runs. (One byte made the
+        // fit rung ask for 1 bps, which the encoder refuses: a failed rung,
+        // not the missed cap this case is about.)
+        { takeId, callId: `a-${++n}`, into: "description", maxMB: 0.01 },
         (p) => void seen.push(p as Attaching),
       );
       if (!out.ok) throw new Error(JSON.stringify(out));
@@ -547,11 +556,31 @@ describe("attach", () => {
       if (answer.outcome !== "attached") return;
       // Premise: the cap was missed, with no step failing.
       expect(answer.export).toMatchObject({
-        warnings: { videoSize: { cap: { maxBytes: 1, met: false } } },
+        warnings: { videoSize: { cap: { maxBytes: 10_000, met: false } } },
+      });
+      expect(
+        (answer.export as { warnings: { videoSize: { cap: object } } }).warnings
+          .videoSize.cap,
+      ).not.toHaveProperty("failed");
+      // /code-review #1: the lane's tier is TINY, so the floor is TINY's
+      // share frame too. Red while the floor is worked out at 1080p and the
+      // ladder steps the video up to it.
+      const exported = answer.export as {
+        width: number;
+        warnings: { videoSize: { cap: { steps: { kind: string }[] } } };
+      };
+      expect(
+        exported.warnings.videoSize.cap.steps.some((s) => s.kind === "frame"),
+        JSON.stringify(exported.warnings.videoSize.cap.steps),
+      ).toBe(false);
+      expect(exported.width).toBeLessThanOrEqual(TINY.width);
+      // The premise of the sentence below: the file kept is the fit rung's.
+      expect(answer.export).toMatchObject({
+        warnings: { videoSize: { cap: { belowFloor: true } } },
       });
       const kb = Math.round(answer.byteLength / 1000);
       expect(answer.summary).toBe(
-        `Attached the video (${kb} KB) to the description of ${PR_URL}, but it is over the 0.000001 MB asked for even at the smallest it goes.`,
+        `Attached the video (${kb} KB) to the description of ${PR_URL}, but it is over the 0.01 MB asked for even after softening it.`,
       );
       const renders = seen.filter(
         (p) => p.phase === "rendering" && p.total > 0,
@@ -997,11 +1026,15 @@ describe("attach", () => {
       expect(answer.outcome, JSON.stringify(answer)).toBe("attached");
       if (answer.outcome !== "attached") return;
       const saved = (answer.export as { file: { path: string } }).file.path;
-      // No maxMB: GitHub's size all the same, not the export default.
+      // No maxMB: GitHub's size all the same, not the export default, and
+      // capped at the 9.5 MB a browser drag-in takes.
       expect(
         (answer.export as { warnings: { videoSize?: { quality: string } } })
           .warnings.videoSize?.quality,
       ).toBe("share");
+      expect(answer.export).toMatchObject({
+        warnings: { videoSize: { cap: { maxBytes: 9_500_000 } } },
+      });
       // Premise: the export's own name is not plain, so the copy is what
       // made it so.
       expect(basename(saved)).toBe("Orders walkthrough.mp4");
@@ -1526,6 +1559,37 @@ describe("capMissed", () => {
         saved({ maxBytes: 9_500_000, met: true, steps: [], keptQuality: null }),
       ),
     ).toBe("");
+  });
+  // Final review, Important 1: attach is the default way into the fit
+  // rung, and its summary is the sentence the agent relays. Red if a file
+  // softened to fit reads as one that simply fit.
+  it("says a met cap that softened the video", () => {
+    expect(
+      capMissed(
+        saved({
+          maxBytes: 9_500_000,
+          met: true,
+          steps: [{ kind: "fit", bitrate: 1_600_000, durationMs: 45_000 }],
+          keptQuality: null,
+          belowFloor: true,
+        }),
+      ),
+    ).toBe(", softer than usual to fit in 9.5 MB");
+  });
+  // /code-review #2 and #6: the fit rung is retried once, so a miss there
+  // is not "the smallest it goes"; the export's own summary says the same.
+  it("says a missed cap was softened, not that it is the smallest", () => {
+    expect(
+      capMissed(
+        saved({
+          maxBytes: 9_500_000,
+          met: false,
+          steps: [{ kind: "fit", bitrate: 1_600_000, durationMs: 45_000 }],
+          keptQuality: null,
+          belowFloor: true,
+        }),
+      ),
+    ).toBe(", but it is over the 9.5 MB asked for even after softening it");
   });
   it("names the cap and the failure when a step threw", () => {
     expect(

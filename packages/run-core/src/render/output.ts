@@ -41,7 +41,13 @@ import {
   type WallpaperWarning,
 } from "../export/target.js";
 import type { LogoSource } from "../logo.js";
-import { MAX_CAP_STEPS, nextCapStep } from "./mp4-cap.js";
+import {
+  type CapRung,
+  type CapTargets,
+  capLadder,
+  fitBitrate,
+  fitRetry,
+} from "./mp4-cap.js";
 
 /** The exact `reason` a reclaimed range's `UnavailableSpan` carries, so the
  *  extension's export row can tell "reclaimed to free space" from a decode
@@ -282,13 +288,14 @@ export async function renderOutput(input: {
    *  export panel, which names the size from `targetFor`, expects. */
   gifBudget?: { maxBytes: number };
   /** MP4 only: keep the file to `maxBytes`, rendering again down the
-   *  ladder `nextCapStep` gives (frame rate, then `share`, then quality)
-   *  while it is over, at most four renders. A file still over after the
-   *  last step, or when a later step's render throws, is the smallest one
-   *  made, kept and reported over (`RenderFacts.videoCap`, with `failed`
-   *  for the throw). A first render that throws rejects, as without a cap.
-   *  Without it the MP4 renders once, at `target`. */
-  mp4Cap?: { maxBytes: number; share: RenderTarget };
+   *  rungs `capLadder` lists (frame rate, `share`, the `floor`'s frame,
+   *  then a bitrate that fits, retried once) while it is over, at most six
+   *  renders. A file still over after the last, or when a later render
+   *  throws, is the smallest one made, kept and reported over
+   *  (`RenderFacts.videoCap`, with `failed` for the throw). A first render
+   *  that throws rejects, as without a cap. Without it the MP4 renders
+   *  once, at `target`. */
+  mp4Cap?: CapTargets & { maxBytes: number };
   /** Stills only: their size and framing (`StillsOptions`). Without it the
    *  stills render at `target`, framed as the video, as the extension's
    *  export panel — which names the size from `targetFor` — expects. */
@@ -581,18 +588,24 @@ export async function renderOutput(input: {
   let videoCap: VideoCap | undefined;
   let done: Awaited<ReturnType<typeof renderAt>> | undefined;
   if (cap !== undefined) {
-    const steps: VideoCap["steps"] = [];
-    // How many renders the ladder could take from here, for progress.
-    let upTo = 1;
-    for (
-      let at: RenderTarget | undefined = target;
-      upTo <= MAX_CAP_STEPS;
-      upTo++
-    ) {
-      const next = nextCapStep(at, cap.share);
-      if (next === null) break;
-      at = next.target;
-    }
+    // The output length, read once from the floor's resolved range (after
+    // trims and cuts): the fit rung's bitrate comes from it, and its retry
+    // reads that rung's record rather than measuring again.
+    const { startMs, endMs } = composeForTarget({
+      plan,
+      bundle,
+      scene,
+      target: cap.floor,
+    }).resolved.range;
+    const durationMs = endMs - startMs;
+    const ladder = capLadder(target, cap, {
+      bitrate: fitBitrate(cap.maxBytes, durationMs),
+      durationMs,
+    });
+    // As asked, every rung, and the fit's one retry.
+    const upTo = ladder.length + 2;
+    const over = (r: { result: { bytes: Uint8Array } }) =>
+      r.result.bytes.byteLength > cap.maxBytes;
     // The first render's failure is the export's, as without a cap: there
     // is no file to keep.
     let current = await renderAt(target, undefined, true, {
@@ -600,15 +613,12 @@ export async function renderOutput(input: {
       upTo,
     });
     let kept = current;
+    let keptStep: CapRung["step"] | undefined;
+    const steps: VideoCap["steps"] = [];
     let failed: VideoCap["failed"];
-    while (
-      current.result.bytes.byteLength > cap.maxBytes &&
-      steps.length < MAX_CAP_STEPS
-    ) {
-      const next = nextCapStep(current.at, cap.share);
-      if (next === null) break;
+    const take = async (rung: CapRung): Promise<boolean> => {
       try {
-        current = await renderAt(next.target, undefined, true, {
+        current = await renderAt(rung.target, undefined, true, {
           render: steps.length + 2,
           upTo,
         });
@@ -616,24 +626,36 @@ export async function renderOutput(input: {
         // A good file is already made: a lower rung that throws costs the
         // fit, never the export (ruling, 2026-10-18), and says why.
         failed = {
-          step: next.step,
+          step: rung.step,
           error: error instanceof Error ? error.message : String(error),
         };
-        break;
+        return false;
       }
-      steps.push(next.step);
-      // The smallest file made: the last one, unless a step came out
-      // larger (a quality the encoder could not honour below another's).
+      steps.push(rung.step);
+      // The smallest file made: a rung can come out larger than the one
+      // before it (a bitrate the encoder overshoots).
       if (current.result.bytes.byteLength <= kept.result.bytes.byteLength) {
         kept = current;
+        keptStep = rung.step;
       }
+      return true;
+    };
+    let last: CapRung | undefined;
+    for (const rung of ladder) {
+      if (!over(current)) break;
+      if (!(await take(rung))) break;
+      last = rung;
+    }
+    if (failed === undefined && last?.step.kind === "fit" && over(current)) {
+      await take(fitRetry(last, cap.maxBytes, current.result.bytes.byteLength));
     }
     done = kept;
     videoCap = {
       maxBytes: cap.maxBytes,
-      met: kept.result.bytes.byteLength <= cap.maxBytes,
+      met: !over(kept),
       steps,
       keptQuality: kept.at.encoder?.quality ?? null,
+      belowFloor: keptStep?.kind === "fit",
       ...(failed === undefined ? {} : { failed }),
     };
   } else if (budget === undefined) {

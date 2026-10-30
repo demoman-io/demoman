@@ -173,8 +173,8 @@ function landscapeTier(
  * own frame when that is the smaller, so share never draws more pixels than
  * the keyframes (or a cap) back. The smaller frame keeps share's frame rate
  * and encoder, and its nominal bitrate scales by area, as `autoTarget`'s
- * does. Every tier `pickMp4Tier` returns is at least SHARE_LANDSCAPE's 1920
- * wide, so today only a `maxTier` below it reaches the second branch.
+ * does. Since share became 2560 wide (2026-10-29), keyframes that back only
+ * the 1080p tier reach the second branch too, not only a `maxTier`.
  */
 function shareTier(tier: RenderTarget): RenderTarget {
   if (tier.width >= SHARE_LANDSCAPE.width) return SHARE_LANDSCAPE;

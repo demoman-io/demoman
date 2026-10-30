@@ -15,6 +15,7 @@ import { join } from "node:path";
 import {
   CAMERA_DEFAULTS,
   motionTimings,
+  SHARE_LANDSCAPE,
   WALLPAPER_LONG_SIDE,
 } from "@demoman/compositor";
 import {
@@ -599,7 +600,8 @@ describe("refresh", () => {
       });
       // The premise: samePicture answered same for the judged output
       // alone, over k of n screens recorded from a real film, each with
-      // a window inside its 1920x1080 frame and the look beside them.
+      // a window inside its share frame and the look beside them.
+      const { width: fw, height: fh } = SHARE_LANDSCAPE;
       for (const name of [A, B]) {
         const { screens } = await keptOf(name);
         expect(screens.look, name).toMatch(/^[0-9a-f]+$/);
@@ -607,11 +609,11 @@ describe("refresh", () => {
           expect(w, JSON.stringify(screens)).toBeDefined();
           const { x, y, width, height } = w as NonNullable<typeof w>;
           expect(
-            x >= 0 && y >= 0 && x + width <= 1920 && y + height <= 1080,
+            x >= 0 && y >= 0 && x + width <= fw && y + height <= fh,
             JSON.stringify(w),
           ).toBe(true);
           expect(width * height, JSON.stringify(w)).toBeGreaterThan(
-            0.25 * 1920 * 1080,
+            0.25 * fw * fh,
           );
         }
         const m = byName(r, name).detail.match(

@@ -307,7 +307,16 @@ describe("exportVerdict, an MP4 with a size cap", () => {
     to: { width: 1920, height: 1080 },
     quality: 0.5,
   };
-  const quality: VideoStep = { kind: "quality", from: 0.5, to: 0.35 };
+  const frame: VideoStep = {
+    kind: "frame",
+    from: { width: 2560, height: 1440 },
+    to: { width: 1920, height: 1080 },
+  };
+  const fit: VideoStep = {
+    kind: "fit",
+    bitrate: 1_600_000,
+    durationMs: 45_000,
+  };
 
   // Red if a cap that cost nothing is said anyway.
   it("cap met at first render says nothing extra", () => {
@@ -318,6 +327,7 @@ describe("exportVerdict, an MP4 with a size cap", () => {
           met: true,
           steps: [],
           keptQuality: null,
+          belowFloor: false,
         }),
       ),
     ).toBe("Saved /x.mp4 (1920×1080, 30 fps, 9.1 MB).");
@@ -330,15 +340,35 @@ describe("exportVerdict, an MP4 with a size cap", () => {
     const report = capped(9_100_000, {
       maxBytes: 9_500_000,
       met: true,
-      steps: [fps, share, quality],
-      keptQuality: 0.35,
+      steps: [fps, share, frame],
+      keptQuality: 0.5,
+      belowFloor: false,
     });
     expect(exportVerdict(report)).toBe(
       "Saved /x.mp4 (1920×1080, 30 fps, 9.1 MB).",
     );
     expect(
       report.outcome === "saved" && report.warnings.videoSize?.cap?.steps,
-    ).toEqual([fps, share, quality]);
+    ).toEqual([fps, share, frame]);
+  });
+
+  // Spec 2026-10-29 §3.3: below the share look is a cost the viewer sees,
+  // unlike a lower frame rate or frame. Red if a file softened to fit
+  // reads as one that simply fit.
+  it("met by a fit says it is softer", () => {
+    expect(
+      exportVerdict(
+        capped(9_100_000, {
+          maxBytes: 9_500_000,
+          met: true,
+          steps: [fps, share, frame, fit],
+          keptQuality: null,
+          belowFloor: true,
+        }),
+      ),
+    ).toBe(
+      "Saved /x.mp4 (1920×1080, 30 fps), 9.1 MB: softer than usual to fit in 9.5 MB.",
+    );
   });
 
   // Red if the share step names a frame that did not change: a full export
@@ -351,6 +381,7 @@ describe("exportVerdict, an MP4 with a size cap", () => {
           met: false,
           steps: [fps],
           keptQuality: null,
+          belowFloor: false,
           failed: {
             step: { ...share, from: { width: 1920, height: 1080 } },
             error: "the encoder died",
@@ -367,12 +398,13 @@ describe("exportVerdict, an MP4 with a size cap", () => {
     const report = capped(12_400_000, {
       maxBytes: 9_500_000,
       met: false,
-      steps: [fps, share, quality],
-      keptQuality: 0.35,
+      steps: [fps, share, frame, fit, fit],
+      keptQuality: null,
+      belowFloor: true,
     });
     expect(report.outcome).toBe("saved");
     expect(exportVerdict(report)).toBe(
-      "Saved /x.mp4 (1920×1080, 30 fps), 12.4 MB: over the 9.5 MB asked for even at the smallest it goes (30 fps, 1920×1080, quality 0.35).",
+      "Saved /x.mp4 (1920×1080, 30 fps), 12.4 MB: over the 9.5 MB asked for even after softening it (30 fps, 1920×1080).",
     );
   });
 
@@ -386,8 +418,9 @@ describe("exportVerdict, an MP4 with a size cap", () => {
           {
             maxBytes: 9_500_000,
             met: false,
-            steps: [fps, share, quality],
+            steps: [fps, share, frame, fit, fit],
             keptQuality: 0.5,
+            belowFloor: false,
           },
           { width: 1280, height: 900, fps: 30 },
         ),
@@ -409,6 +442,7 @@ describe("exportVerdict, an MP4 with a size cap", () => {
             met: false,
             steps: [fps],
             keptQuality: null,
+            belowFloor: false,
             failed: { step: share, error: "the encoder died." },
           },
           { width: 3840, height: 2160, fps: 30 },
@@ -416,6 +450,24 @@ describe("exportVerdict, an MP4 with a size cap", () => {
       ),
     ).toBe(
       "Saved /x.mp4 (3840×2160, 30 fps), 12.4 MB: over the 9.5 MB asked for; lowering it further failed at 1920×1080 at quality 0.5: the encoder died.",
+    );
+  });
+
+  // Red if a fit rung that threw is named as a frame or a quality.
+  it("a fit that failed names the bitrate it asked for", () => {
+    expect(
+      exportVerdict(
+        capped(12_400_000, {
+          maxBytes: 9_500_000,
+          met: false,
+          steps: [fps, share, frame, fit],
+          keptQuality: null,
+          belowFloor: true,
+          failed: { step: fit, error: "the encoder died." },
+        }),
+      ),
+    ).toBe(
+      "Saved /x.mp4 (1920×1080, 30 fps), 12.4 MB: over the 9.5 MB asked for; lowering it further failed at 1.6 Mbps: the encoder died.",
     );
   });
 
@@ -427,12 +479,13 @@ describe("exportVerdict, an MP4 with a size cap", () => {
         capped(400_000, {
           maxBytes: 50_000,
           met: false,
-          steps: [quality],
-          keptQuality: 0.35,
+          steps: [fit, fit],
+          keptQuality: null,
+          belowFloor: true,
         }),
       ),
     ).toBe(
-      "Saved /x.mp4 (1920×1080, 30 fps), 400 KB: over the 0.05 MB asked for even at the smallest it goes (30 fps, 1920×1080, quality 0.35).",
+      "Saved /x.mp4 (1920×1080, 30 fps), 400 KB: over the 0.05 MB asked for even after softening it (30 fps, 1920×1080).",
     );
   });
 
@@ -444,15 +497,16 @@ describe("exportVerdict, an MP4 with a size cap", () => {
           {
             maxBytes: 9_500_000,
             met: false,
-            steps: [fps, share, quality],
-            keptQuality: 0.35,
+            steps: [fps, share, frame, fit, fit],
+            keptQuality: null,
+            belowFloor: true,
           },
           undefined,
           "The logo was left out: x",
         ),
       ),
     ).toBe(
-      "Saved /x.mp4 (1920×1080, 30 fps), 12.4 MB: over the 9.5 MB asked for even at the smallest it goes (30 fps, 1920×1080, quality 0.35), but the logo is missing (The logo was left out: x).",
+      "Saved /x.mp4 (1920×1080, 30 fps), 12.4 MB: over the 9.5 MB asked for even after softening it (30 fps, 1920×1080), but the logo is missing (The logo was left out: x).",
     );
   });
 });

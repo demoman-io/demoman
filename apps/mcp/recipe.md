@@ -368,8 +368,8 @@ user's default brand kit; a derived draft keeps its take's branding. The report'
    if asked. An MP4 follows Settings
    (unset: ~1 MB/s); `quality: "full"` is largest.
    `export({ takeId, maxMB: 9.5 })` fits GitHub's 10 MB drag-in, or says
-   it could not (it lowers fps, then size, then quality: the summary says
-   what it cost).
+   it could not (it lowers fps, then size, then sharpness: the summary
+   says what it cost).
    A GIF is made as wide as the recording backs and fits 10 MB, up to twice
    its usual width; `warnings.gifSize` says how wide, its size, and which
    wider widths were refused (`limit`: `budget`, too big, or `detail`, too
@@ -423,7 +423,7 @@ push and open the PR, then `attach({ takeId, into: "description" })`, or
 tell the user the video lacks it, quoting why. A later `gh pr edit --body` drops the video. `ask`: offer once; on a no, nothing to see or a failed run (say why),
 the PR says nothing of it. `attach`: with no video, the PR description gets
 one line, `No demo: <why>`, and so does the user.
-`attach` takes `maxMB` as `export` does. On `stillRunning`, `report(id)`
+`attach` caps at 9.5 MB; `maxMB` sets another. On `stillRunning`, `report(id)`
 until the outcome is not `attaching` or `stillRunning`. On `busy`,
 `report(id)` on the export in flight, then `attach` again. On `ghMissing`,
 `ghOutdated`, `ghSignedOut`, `notGitHub` or `copyFailed`, call

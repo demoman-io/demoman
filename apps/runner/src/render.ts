@@ -293,7 +293,7 @@ export async function renderToFiles(input: {
   /** See `RenderManifest.gifBudget`. */
   gifBudget?: { maxBytes: number };
   /** See `RenderManifest.mp4Cap`. */
-  mp4Cap?: { maxBytes: number; share: RenderTarget };
+  mp4Cap?: { maxBytes: number; share: RenderTarget; floor: RenderTarget };
   /** See `RenderManifest.stills`. */
   stills?: StillsOptions;
   /** Marked at each of this render's stages (`stage-times.ts`). */

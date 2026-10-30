@@ -108,9 +108,10 @@ export const VERTICAL_1080: RenderTarget = {
  * The share targets: what an export is by default, sized for a chat, a
  * pull request or a 10 MB upload limit (spec 2026-10-18 §3). The author
  * picked them on 2026-10-18 from `pnpm share:measure` over three takes (§8):
- * long side 1920 at 30 fps, encoded by quality (`quality: 0.5`) rather than
- * by bitrate, over the smaller `0.35` for text that stays sharp. About
- * 0.1 MB a second measured, in the headed window the CLI renders in.
+ * 30 fps, encoded by quality (`quality: 0.5`) rather than by bitrate, over
+ * the smaller `0.35` for text that stays sharp; the long side was 1920 then
+ * (about 0.1 MB a second in the headed window) and is 2560 since 2026-10-29
+ * (below).
  *
  * What `quality` becomes depends on the browser. mediabunny maps it to a
  * constant quantizer where the encoder takes quantizer mode, and otherwise
@@ -126,16 +127,21 @@ export const VERTICAL_1080: RenderTarget = {
  * `RenderTarget` carries one, and `autoTarget` scales it by area. Nothing
  * may report it as the file's rate: the file's own byte length is that.
  *
- * Landscape: LANDSCAPE_1080P's frame and corner radius; its 10 Mbps at half
+ * Landscape: LANDSCAPE_1440P's frame and corner radius; its 18 Mbps at half
  * the frames. `targetFor` reshapes it for Auto through `landscapeFrame`.
+ * Long side 2560 since 2026-10-29 (the author, over 1920): zoomed out, a
+ * 1920 frame draws a 1280px page at ~1.3 px per CSS px and reads soft on a
+ * Retina screen. Measured on one take with `pnpm share:measure --qualities`,
+ * full-screen on a 14" MacBook: 16% more sharp text edges zoomed out, 4%
+ * zoomed in, for 63% more bytes (~0.4 MB a second, software encoder).
  */
 export const SHARE_LANDSCAPE: RenderTarget = {
   format: "mp4",
-  width: 1920,
-  height: 1080,
+  width: 2560,
+  height: 1440,
   fps: 30,
-  bitrate: 5_000_000,
-  cornerRadius: 18,
+  bitrate: 9_000_000,
+  cornerRadius: 24,
   fit: "contain",
   encoder: { quality: 0.5 },
 };
@@ -184,16 +190,6 @@ export const HIGH_VERTICAL: RenderTarget = {
   ...VERTICAL_1080,
   bitrate: HIGH_LANDSCAPE.bitrate,
 };
-
-/**
- * The lowest `encoder.quality` a size cap may lower a share export to (the
- * author, 2026-10-18: "drop long videos to 0.35 to fit"; spec §8). Of the
- * candidates the author judged, 0.35 at the share frame was the smallest on
- * every take, passed over as the default only for text that stays sharper
- * at 0.5. A cap never draws the frame smaller than the share target's, and
- * never asks for less than this.
- */
-export const SHARE_QUALITY_FLOOR = 0.35;
 
 export const GIF_800: RenderTarget = {
   format: "gif",

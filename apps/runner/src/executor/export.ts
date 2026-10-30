@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   type FrameBundle,
+  LANDSCAPE_1080P,
   type RenderTarget,
   wallpaperShape,
 } from "@demoman/compositor";
@@ -474,8 +475,9 @@ async function exportLeased(a: {
       // As wide as fits: sharp on a Retina screen when the take is short,
       // narrower (and said) when it is long.
       ...(asked === "gif" ? { gifBudget: { maxBytes: GIF_BUDGET_BYTES } } : {}),
-      // A cap steps down to the share target for this frame and no further
-      // in size (`nextCapStep`): Auto's share frame is its own, re-solved.
+      // A cap steps down to the share target, then this take's 1080p share
+      // frame (the floor), then a bitrate that fits (`capLadder`): Auto's
+      // frames are its own, re-solved.
       ...(maxBytes === null
         ? {}
         : {
@@ -483,6 +485,16 @@ async function exportLeased(a: {
               maxBytes,
               share: targetFor(asked, aspect, bundle, frameOf(scene), {
                 maxTier: deps.maxTier,
+                quality: "share",
+              }),
+              // Never above the tier the export may use: a floor larger
+              // than share would step the video up (/code-review #1).
+              floor: targetFor(asked, aspect, bundle, frameOf(scene), {
+                maxTier:
+                  deps.maxTier !== undefined &&
+                  deps.maxTier.width < LANDSCAPE_1080P.width
+                    ? deps.maxTier
+                    : LANDSCAPE_1080P,
                 quality: "share",
               }),
             },

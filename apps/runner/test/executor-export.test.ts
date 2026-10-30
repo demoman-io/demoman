@@ -453,10 +453,11 @@ describe("export, under a size cap", () => {
       // Progress names each render, across the render page's binding: the
       // fps step keeps the width, so without it render 2 would read as
       // render 1 starting over.
-      for (const render of [1, 2, 3, 4]) {
+      // 9:16: share is the floor, so fps, share, fit and its retry.
+      for (const render of [1, 2, 3, 4, 5]) {
         expect(
           said.some((line) =>
-            line.startsWith(`Exporting — render ${render} of up to 4 `),
+            line.startsWith(`Exporting — render ${render} of up to 5 `),
           ),
           said
             .filter((l) => l.includes("render"))
@@ -478,8 +479,18 @@ describe("export, under a size cap", () => {
           to: { width: 720, height: 1280 },
           quality: 0.5,
         },
-        { kind: "quality", from: 0.5, to: 0.35 },
+        {
+          kind: "fit",
+          bitrate: expect.any(Number),
+          durationMs: expect.any(Number),
+        },
+        {
+          kind: "fit",
+          bitrate: expect.any(Number),
+          durationMs: expect.any(Number),
+        },
       ]);
+      expect(cap?.belowFloor).toBe(true);
       expect([answer.width, answer.height, answer.fps]).toEqual([
         720, 1280, 30,
       ]);
@@ -490,7 +501,7 @@ describe("export, under a size cap", () => {
       const read = await sampleMp4(bytes, { colors: [MAGENTA] });
       expect([read.width, read.height]).toEqual([720, 1280]);
       expect(answer.summary).toMatch(
-        /^Saved .*\(720×1280, 30 fps\), [\d.]+ [KM]B: over the 0\.05 MB asked for even at the smallest it goes \(30 fps, 720×1280, quality 0\.(35|5)\)[.,]/,
+        /^Saved .*\(720×1280, 30 fps\), [\d.]+ [KM]B: over the 0\.05 MB asked for even after softening it \(30 fps, 720×1280\)[.,]/,
       );
     },
     CAPPED_EXPORT_MS,
@@ -509,6 +520,7 @@ describe("export, under a size cap", () => {
         met: true,
         steps: [],
         keptQuality: 0.5,
+        belowFloor: false,
       });
       expect(answer.summary).toContain(
         `(720×1280, 30 fps, ${fileSize(answer.file.byteLength)})`,

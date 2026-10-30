@@ -67,6 +67,16 @@ function cropHtml(label: string, crop: Crop): string {
   return `<figure class="crop"><figcaption>${esc(label)} (${crop.width}×${crop.height}, 1:1)</figcaption><img src="${esc(crop.file)}" width="${crop.width}" height="${crop.height}" alt="${esc(label)}"></figure>`;
 }
 
+/** Bits per pixel per frame, delivered and asked: the size budget's floor
+ *  is stated in asked terms (spec 2026-10-29 §4). */
+export function bitsPerPixel(c: Candidate): string {
+  const per = (mbps: number) => (mbps * 1e6) / (c.width * c.height * c.fps);
+  const real = per(c.realMbps).toFixed(4);
+  return c.askedMbps === null
+    ? `${real} delivered`
+    : `${real} delivered, ${per(c.askedMbps).toFixed(4)} asked`;
+}
+
 function cardHtml(c: Candidate | Refused): string {
   if (c.kind === "refused") {
     return `<article class="card refused"><h3>${esc(c.label)}</h3><p class="why">Refused: ${esc(c.error)}</p></article>`;
@@ -79,6 +89,7 @@ function cardHtml(c: Candidate | Refused): string {
 <dl>
 <div><dt>size</dt><dd>${mb(c.bytes)}</dd></div>
 <div><dt>real</dt><dd>${c.realMbps.toFixed(2)} Mbps (${asked})</dd></div>
+<div><dt>bits/px</dt><dd>${bitsPerPixel(c)}</dd></div>
 <div><dt>frame</dt><dd>${esc(c.frame)} ${c.width}×${c.height}</dd></div>
 <div><dt>fps</dt><dd>${c.fps}</dd></div>
 <div><dt>encoder</dt><dd>${esc(c.encoder)}</dd></div>
