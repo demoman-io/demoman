@@ -3,6 +3,17 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
+<Update label="0.8.1" description="Wallpapers, and videos that stay current">
+  - Fourteen built-in wallpapers for the background, in the Studio's Background panel and on the Brand kit page, and as `{ "kind": "wallpaper", "id" }` in a script's look. The muted ones come first, and new takes and kits start on `muted-1`, a dark one. Upload your own image instead, and blur either with the slider.
+  - `npx demoman keep <video> --to <path>` writes the video's re-film file to `.demoman/videos/` and exports it into your repo. Commit both. It refuses, writing nothing, a video with Studio edits a re-film cannot carry.
+  - `npx demoman refresh` films every kept video again with no agent and replaces only the outputs whose picture changed, so an unchanged app makes no commit. `--base-url` films a preview deployment; `--deliver pr|main` commits what changed.
+  - `npx demoman setup --ci` writes a GitHub Actions workflow that runs the refresh after each merge to main or each deployment.
+  - Your agent can play a script's steps without filming them, to see what a click opens before it writes the rest.
+  - A video attached to a pull request is 2560 pixels on the long side and kept under 10 MB: Demoman lowers the frame rate first, then the size, then the sharpness, and says what it lowered.
+  - When an export finishes after you have closed the Studio's window, a notification says so.
+  - The Studio's Recordings page drops its filter row.
+</Update>
+
 <Update label="0.8.0" description="Linux, and pull requests that say what was recorded">
   - Demoman runs on x86_64 Linux. When Chromium's system libraries are missing, `npx demoman setup` names the one `sudo` command that installs them: run it, then setup again. A run that finds them missing names the same command.
   - arm64 Linux is refused by name, with `unsupportedPlatform`, before anything runs.
