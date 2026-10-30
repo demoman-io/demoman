@@ -71,7 +71,14 @@ function installedDir(name) {
 const manifestOf = (dir) =>
   JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
 
-rmSync(pkg, { recursive: true, force: true });
+// Everything but node_modules, where internal/tools/dev-demoman.sh installs the
+// bundle's dependencies: a Studio that a running `demoman mcp` spawns from the
+// new dist needs them (2026-10-30). `files` keeps them out of the package.
+for (const entry of existsSync(pkg) ? readdirSync(pkg) : []) {
+  if (entry !== "node_modules") {
+    rmSync(join(pkg, entry), { recursive: true, force: true });
+  }
+}
 rmSync(meta, { recursive: true, force: true });
 mkdirSync(join(pkg, "dist", "page"), { recursive: true });
 mkdirSync(meta, { recursive: true });

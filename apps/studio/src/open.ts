@@ -131,7 +131,11 @@ async function livePing(s: StudioState): Promise<PingAnswer | null> {
 async function lastLines(path: string): Promise<string> {
   try {
     const text = await readFile(path, "utf8");
-    const lines = text.split("\n").filter((l) => l.trim() !== "");
+    // Stack frames out: node prints the error line above ten or more of them,
+    // and the tail would quote only the frames. The log keeps them.
+    const lines = text
+      .split("\n")
+      .filter((l) => l.trim() !== "" && !/^\s+at /.test(l));
     return lines.slice(-LOG_TAIL_LINES).join("\n");
   } catch (error) {
     return `(the log ${path} could not be read: ${messageOf(error)})`;

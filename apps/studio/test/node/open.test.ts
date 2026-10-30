@@ -162,6 +162,37 @@ describe("openStudio", () => {
   );
 
   it(
+    "names the error, not only its stack, when the script dies on a missing package",
+    async () => {
+      // The dev bundle after a build wiped pkg/node_modules (2026-10-30): the
+      // stack under node's error line outran the log tail and cut it off.
+      const a = await openStudio({
+        home,
+        version: "0.0.0-test",
+        serve: {
+          command: process.execPath,
+          args: [
+            "--input-type=module",
+            "-e",
+            "import 'demoman-no-such-package'",
+          ],
+        },
+      });
+      expect(a).toMatchObject({ reason: "studioDidNotStart" });
+      const log = await readFile(join(home, "studio.log"), "utf8");
+      // The premise: the error line has more than a tail's worth below it.
+      const below = log.split(/Cannot find package/)[1] ?? "";
+      expect(
+        below.split("\n").filter((l) => l.trim() !== "").length,
+      ).toBeGreaterThan(10);
+      expect((a as { detail: string }).detail).toContain(
+        "Cannot find package 'demoman-no-such-package'",
+      );
+    },
+    CASE_MS,
+  );
+
+  it(
     "answers studioDidNotStart when the script runs but never writes studio.json",
     async () => {
       const a = await openStudio({
