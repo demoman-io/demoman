@@ -562,9 +562,25 @@ describe("attach", () => {
         (answer.export as { warnings: { videoSize: { cap: object } } }).warnings
           .videoSize.cap,
       ).not.toHaveProperty("failed");
+      // /code-review #1: the lane's tier is TINY, so the floor is TINY's
+      // share frame too. Red while the floor is worked out at 1080p and the
+      // ladder steps the video up to it.
+      const exported = answer.export as {
+        width: number;
+        warnings: { videoSize: { cap: { steps: { kind: string }[] } } };
+      };
+      expect(
+        exported.warnings.videoSize.cap.steps.some((s) => s.kind === "frame"),
+        JSON.stringify(exported.warnings.videoSize.cap.steps),
+      ).toBe(false);
+      expect(exported.width).toBeLessThanOrEqual(TINY.width);
+      // The premise of the sentence below: the file kept is the fit rung's.
+      expect(answer.export).toMatchObject({
+        warnings: { videoSize: { cap: { belowFloor: true } } },
+      });
       const kb = Math.round(answer.byteLength / 1000);
       expect(answer.summary).toBe(
-        `Attached the video (${kb} KB) to the description of ${PR_URL}, but it is over the 0.01 MB asked for even at the smallest it goes.`,
+        `Attached the video (${kb} KB) to the description of ${PR_URL}, but it is over the 0.01 MB asked for even after softening it.`,
       );
       const renders = seen.filter(
         (p) => p.phase === "rendering" && p.total > 0,
@@ -1559,6 +1575,21 @@ describe("capMissed", () => {
         }),
       ),
     ).toBe(", softer than usual to fit in 9.5 MB");
+  });
+  // /code-review #2 and #6: the fit rung is retried once, so a miss there
+  // is not "the smallest it goes"; the export's own summary says the same.
+  it("says a missed cap was softened, not that it is the smallest", () => {
+    expect(
+      capMissed(
+        saved({
+          maxBytes: 9_500_000,
+          met: false,
+          steps: [{ kind: "fit", bitrate: 1_600_000, durationMs: 45_000 }],
+          keptQuality: null,
+          belowFloor: true,
+        }),
+      ),
+    ).toBe(", but it is over the 9.5 MB asked for even after softening it");
   });
   it("names the cap and the failure when a step threw", () => {
     expect(

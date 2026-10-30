@@ -143,8 +143,12 @@ export function capMissed(exported: ExportAnswer): string {
   if (cap.met && cap.failed === undefined) {
     return cap.belowFloor ? `, softer than usual to fit in ${max}` : "";
   }
-  return cap.failed !== undefined
-    ? `, but it is over the ${max} asked for: lowering it further failed (${cap.failed.error.trim().replace(/[.!?]+$/, "")})`
+  if (cap.failed !== undefined) {
+    return `, but it is over the ${max} asked for: lowering it further failed (${cap.failed.error.trim().replace(/[.!?]+$/, "")})`;
+  }
+  // As the export's own summary says it (`videoCapClause`).
+  return cap.belowFloor
+    ? `, but it is over the ${max} asked for even after softening it`
     : `, but it is over the ${max} asked for even at the smallest it goes`;
 }
 

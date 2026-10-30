@@ -487,8 +487,14 @@ async function exportLeased(a: {
                 maxTier: deps.maxTier,
                 quality: "share",
               }),
+              // Never above the tier the export may use: a floor larger
+              // than share would step the video up (/code-review #1).
               floor: targetFor(asked, aspect, bundle, frameOf(scene), {
-                maxTier: LANDSCAPE_1080P,
+                maxTier:
+                  deps.maxTier !== undefined &&
+                  deps.maxTier.width < LANDSCAPE_1080P.width
+                    ? deps.maxTier
+                    : LANDSCAPE_1080P,
                 quality: "share",
               }),
             },

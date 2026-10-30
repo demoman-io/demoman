@@ -404,7 +404,7 @@ describe("exportVerdict, an MP4 with a size cap", () => {
     });
     expect(report.outcome).toBe("saved");
     expect(exportVerdict(report)).toBe(
-      "Saved /x.mp4 (1920×1080, 30 fps), 12.4 MB: over the 9.5 MB asked for even softened as far as it goes (30 fps, 1920×1080).",
+      "Saved /x.mp4 (1920×1080, 30 fps), 12.4 MB: over the 9.5 MB asked for even after softening it (30 fps, 1920×1080).",
     );
   });
 
@@ -485,7 +485,7 @@ describe("exportVerdict, an MP4 with a size cap", () => {
         }),
       ),
     ).toBe(
-      "Saved /x.mp4 (1920×1080, 30 fps), 400 KB: over the 0.05 MB asked for even softened as far as it goes (30 fps, 1920×1080).",
+      "Saved /x.mp4 (1920×1080, 30 fps), 400 KB: over the 0.05 MB asked for even after softening it (30 fps, 1920×1080).",
     );
   });
 
@@ -506,7 +506,7 @@ describe("exportVerdict, an MP4 with a size cap", () => {
         ),
       ),
     ).toBe(
-      "Saved /x.mp4 (1920×1080, 30 fps), 12.4 MB: over the 9.5 MB asked for even softened as far as it goes (30 fps, 1920×1080), but the logo is missing (The logo was left out: x).",
+      "Saved /x.mp4 (1920×1080, 30 fps), 12.4 MB: over the 9.5 MB asked for even after softening it (30 fps, 1920×1080), but the logo is missing (The logo was left out: x).",
     );
   });
 });

@@ -108,9 +108,10 @@ export const VERTICAL_1080: RenderTarget = {
  * The share targets: what an export is by default, sized for a chat, a
  * pull request or a 10 MB upload limit (spec 2026-10-18 §3). The author
  * picked them on 2026-10-18 from `pnpm share:measure` over three takes (§8):
- * long side 1920 at 30 fps, encoded by quality (`quality: 0.5`) rather than
- * by bitrate, over the smaller `0.35` for text that stays sharp. About
- * 0.1 MB a second measured, in the headed window the CLI renders in.
+ * 30 fps, encoded by quality (`quality: 0.5`) rather than by bitrate, over
+ * the smaller `0.35` for text that stays sharp; the long side was 1920 then
+ * (about 0.1 MB a second in the headed window) and is 2560 since 2026-10-29
+ * (below).
  *
  * What `quality` becomes depends on the browser. mediabunny maps it to a
  * constant quantizer where the encoder takes quantizer mode, and otherwise

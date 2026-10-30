@@ -670,7 +670,9 @@ function videoCapClause(
     return `: over the ${max} asked for; lowering it further failed at ${capStepTarget(cap.failed.step)}: ${cap.failed.error.trim().replace(/[.!?]+$/, "")}`;
   }
   if (cap.belowFloor) {
-    return `: over the ${max} asked for even softened as far as it goes (${frame.fps} fps, ${frame.width}×${frame.height})`;
+    // Not "the smallest it goes": the fit rung is retried once, and a
+    // lower bitrate might still have fit (/code-review #2).
+    return `: over the ${max} asked for even after softening it (${frame.fps} fps, ${frame.width}×${frame.height})`;
   }
   const quality =
     cap.keptQuality === null ? "full quality" : `quality ${cap.keptQuality}`;

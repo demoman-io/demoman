@@ -501,7 +501,7 @@ describe("export, under a size cap", () => {
       const read = await sampleMp4(bytes, { colors: [MAGENTA] });
       expect([read.width, read.height]).toEqual([720, 1280]);
       expect(answer.summary).toMatch(
-        /^Saved .*\(720×1280, 30 fps\), [\d.]+ [KM]B: over the 0\.05 MB asked for even softened as far as it goes \(30 fps, 720×1280\)[.,]/,
+        /^Saved .*\(720×1280, 30 fps\), [\d.]+ [KM]B: over the 0\.05 MB asked for even after softening it \(30 fps, 720×1280\)[.,]/,
       );
     },
     CAPPED_EXPORT_MS,
