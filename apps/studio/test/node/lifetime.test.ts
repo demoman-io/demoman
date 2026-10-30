@@ -45,6 +45,8 @@ interface Serve {
   exits: { code: number; stateLeft: boolean }[];
   exited: Promise<number>;
   signals: EventEmitter;
+  /** Each notification asked for, as [title, body]. */
+  notices: [string, string][];
 }
 
 let home: string;
@@ -70,6 +72,10 @@ async function serve(
     waitForState?: boolean;
     /** Opens stay in flight until the test settles them (`held`). */
     holdOpens?: boolean;
+    /** The notification refuses with this message. */
+    notifyFails?: string;
+    /** The notification settles only once this does. */
+    notifyHeld?: Promise<void>;
   } = {},
 ): Promise<Serve> {
   const logs: string[] = [];
@@ -85,6 +91,7 @@ async function serve(
     exitWith = r;
   });
   const signals = new EventEmitter();
+  const notices: Serve["notices"] = [];
   const pagesDir = o.pagesDir ?? join(home, "pages");
   if (o.pagesDir === undefined) await writePages(pagesDir);
 
@@ -123,6 +130,11 @@ async function serve(
     signals,
     noWindowMs: o.noWindowMs ?? 60_000,
     run,
+    notify: async (title, body) => {
+      notices.push([title, body]);
+      await o.notifyHeld;
+      if (o.notifyFails !== undefined) throw new Error(o.notifyFails);
+    },
   });
 
   let state: StudioState | null = null;
@@ -151,6 +163,7 @@ async function serve(
     exits,
     exited,
     signals,
+    notices,
   };
   live = handle;
   return handle;
@@ -316,6 +329,70 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
     );
     expect(s.windowCloses()).toBe(1);
     expect(s.logs.join("\n")).toContain("finishing 1 export first");
+    // Red: drop tellIfUnseen from the queue's send — the person closed the
+    // window and nothing says the file was saved.
+    expect(s.notices).toEqual([["Demoman", `Saved ${takeId}.mp4`]]);
+  });
+
+  it("a window closed mid-export that then fails: the notification says why", async () => {
+    const s = await serve();
+    const { takeId } = await exportRunning(s);
+    s.fireAllClosed();
+    s.runs[0]?.finish({
+      outcome: "refusedBeforeExport",
+      reason: "takeNotFound",
+      detail: "gone",
+      summary: "Not exported: the take is gone.",
+      takeId,
+    } as unknown as ExportAnswer);
+    expect(await s.exited).toBe(0);
+    expect(s.notices).toEqual([["Demoman", "Not exported: the take is gone."]]);
+  });
+
+  it("an export that ends with a window open notifies nothing: the editor says it", async () => {
+    const s = await serve();
+    const { takeId, stream } = await exportRunning(s);
+    s.runs[0]?.finish(savedAnswer(takeId));
+    await stream.waitFor('"phase":"saved"');
+    // Red: notify whether or not a window is open.
+    expect(s.notices).toEqual([]);
+  });
+
+  it("the Studio waits for a notification still on its way before it exits", async () => {
+    let release: () => void = () => {};
+    const s = await serve({
+      notifyHeld: new Promise<void>((r) => {
+        release = r;
+      }),
+    });
+    const { takeId } = await exportRunning(s);
+    s.fireAllClosed();
+    s.runs[0]?.finish(savedAnswer(takeId));
+    await vi.waitFor(() => {
+      if (s.notices.length !== 1) throw new Error("no notification asked for");
+    });
+    for (let i = 0; i < 5; i += 1) await flush();
+    // Red: exit without awaiting `notices` — osascript's failure, if any,
+    // would never reach the log.
+    expect(s.exits, "exited with its notification still on its way").toEqual(
+      [],
+    );
+    release();
+    expect(await s.exited).toBe(0);
+  });
+
+  it("a notification that cannot show says so in the log, with the outcome, and the Studio still exits", async () => {
+    const s = await serve({ notifyFails: "osascript is not there" });
+    const { takeId } = await exportRunning(s);
+    s.fireAllClosed();
+    s.runs[0]?.finish(savedAnswer(takeId));
+    expect(await s.exited).toBe(0);
+    // The premise: the notification was asked for, and refused.
+    expect(s.notices).toHaveLength(1);
+    // Red: a `.catch(() => undefined)` on the notification.
+    expect(s.logs.join("\n")).toContain(
+      `its notification did not show (osascript is not there): Saved ${takeId}.mp4`,
+    );
   });
 
   it("a window asked for during that drain opens on the same process, which then outlives the drain", async () => {

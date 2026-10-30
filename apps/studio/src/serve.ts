@@ -1,6 +1,7 @@
+import { execFile } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   EXPORT_QUALITY_VALUES,
   type FileType,
@@ -19,6 +20,7 @@ import {
 import type {
   ExportStartAnswer,
   Refusal,
+  StudioEvent,
   StudioReason,
   WindowAnswer,
 } from "@demoman/studio-protocol";
@@ -251,6 +253,49 @@ export interface ServeOptions {
   /** Tests: the export itself; `exportTake` in a headless browser of the
    *  studio's own otherwise. */
   run?: RunExport;
+  /** Tests: a stand-in; `notifyOnMac` otherwise. */
+  notify?: (title: string, body: string) => Promise<void>;
+}
+
+/** A macOS notification through `osascript`; the text travels as argv, so
+ *  nothing in it is read as AppleScript. */
+export function notifyOnMac(title: string, body: string): Promise<void> {
+  if (process.platform !== "darwin") {
+    return Promise.reject(new Error("notifications are shown on macOS only"));
+  }
+  return new Promise((resolve, reject) => {
+    execFile(
+      "osascript",
+      [
+        "-e",
+        "on run argv",
+        "-e",
+        "display notification (item 2 of argv) with title (item 1 of argv)",
+        "-e",
+        "end run",
+        title,
+        body,
+      ],
+      (error, _stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr.trim() || error.message));
+          return;
+        }
+        resolve();
+      },
+    );
+  });
+}
+
+/** What a notification says for an export that ended; null for any other
+ *  event. */
+function endedSentence(e: StudioEvent): string | null {
+  if (e.type !== "export") return null;
+  if (e.phase === "failed") return e.detail;
+  if (e.phase !== "saved") return null;
+  const r = e.report;
+  if (r.outcome !== "saved") return r.summary;
+  return `Saved ${basename(r.fileType === "stills" ? r.folder.path : r.file.path)}`;
 }
 
 /** The build's sha, from `<pagesDir>/studio-build.json`, said either way. */
@@ -354,11 +399,38 @@ export async function runServe(o: ServeOptions): Promise<never> {
         door: "studio",
       },
     });
-  const queue = createExportQueue({ library, events, run, log });
-
   let everOpened = false;
   let windowOpen = false;
   let stopping = false;
+  const notify = o.notify ?? notifyOnMac;
+  /** Notifications still on their way, awaited before the process exits. */
+  const notices = new Set<Promise<void>>();
+  /** An export that ends with no window open would otherwise be said only
+   *  in studio.log; a notification that cannot show says so there. */
+  const tellIfUnseen = (e: StudioEvent): void => {
+    if (windowOpen) return;
+    const sentence = endedSentence(e);
+    if (sentence === null) return;
+    const notice = notify("Demoman", sentence)
+      .catch((error: unknown) => {
+        log(
+          `studio: an export ended with no window open, and its notification did not show (${messageOf(error)}): ${sentence}`,
+        );
+      })
+      .finally(() => notices.delete(notice));
+    notices.add(notice);
+  };
+  const queue = createExportQueue({
+    library,
+    events: {
+      send: (e) => {
+        events.send(e);
+        tellIfUnseen(e);
+      },
+    },
+    run,
+    log,
+  });
   /** Opens still in flight. A first Chrome launch can take longer than the
    *  no-window wait; the wait must not stop the studio underneath it. */
   let opening = 0;
@@ -506,6 +578,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
     } catch (error) {
       log(`studio: studio.json could not be removed (${messageOf(error)})`);
     }
+    await Promise.all(notices);
     exit(code);
   }
 
