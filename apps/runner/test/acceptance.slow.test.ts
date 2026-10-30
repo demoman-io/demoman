@@ -7,7 +7,11 @@ import {
   derivePresentation,
   LANDSCAPE_1080P,
 } from "@demoman/compositor";
-import { migrateToCurrent, type SceneDocument } from "@demoman/scene-schema";
+import {
+  MOTION_DEFAULTS,
+  migrateToCurrent,
+  type SceneDocument,
+} from "@demoman/scene-schema";
 import type { Page } from "playwright";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { fixtureScene } from "../../../packages/compositor/scripts/fixture-scene.js";
@@ -93,6 +97,16 @@ import {
  * so this copy closes the gaps to 1 s; the render runs 8.2-8.5 s (measured
  * 2026-10-17). The anchors, the camera and the branding are the shared
  * fixture's, which `fixture-guard` keeps true to `fixture-app.html`.
+ *
+ * Smoothness 0, so the camera pulls back between the checkout click and the
+ * nav click every run, which is where assertion 3 looks for the pointer. It
+ * pulls back only when the gap between those two zooms pays for zoom-in,
+ * zoom-out and a 250 ms plateau at each end (`returnsBetween`): 2725 ms at
+ * the default 0.5, 2200 at 0. The gap is the replay's own motion between
+ * the clicks (a longer recorded gap becomes a pace and does not widen it):
+ * 2650-2735 ms over twelve renders on 2026-10-29. At 0.5 that straddled the
+ * line, and the camera panned past the pointer in 4 of 5 runs; at 0 it is
+ * 450 ms or more clear, and a slower machine only lengthens the motion.
  */
 function acceptanceScene(): SceneDocument {
   const scene = fixtureScene();
@@ -102,6 +116,7 @@ function acceptanceScene(): SceneDocument {
       ...action,
       timestamp: 400 + i * 1000,
     })),
+    motion: { ...(scene.motion ?? MOTION_DEFAULTS), smoothness: 0 },
   };
 }
 
@@ -584,6 +599,32 @@ async function runAndAssert(scenePath: string, outPath: string): Promise<void> {
       "there is nowhere to look for the cursor — the sample rect " +
       `${JSON.stringify(CURSOR_RECT)} no longer lands on the panel`,
   ).toBeGreaterThan(0);
+  // And the camera pulled back to full frame while the panel that covered
+  // the button was still on screen, before panning anywhere: `CURSOR_RECT`
+  // is where the resting pointer lands on that path. Held zoomed, the camera
+  // pans on to the next beat and the pointer rests on the panel elsewhere in
+  // the frame, painted and outside the rect (`acceptanceScene`).
+  const fullFrame = (r: FrameReading) =>
+    HEADER_POINTS.every(
+      (_, i) => channelDelta(r.blocks[i] as Rgb, APP_HEADER) <= 12,
+    );
+  const covered = readings.indexOf(withPanelNoButton[0] as FrameReading);
+  const leaves = readings.findIndex(
+    (r, i) => i > covered && (r.colorCounts[1] as number) < PANEL_ON_SCREEN,
+  );
+  const panelUp = readings.slice(covered, leaves === -1 ? undefined : leaves);
+  expect(
+    panelUp.some(fullFrame),
+    "the camera never returned to full frame while the open panel was on " +
+      "screen, so the resting pointer is not where CURSOR_RECT looks:\n  " +
+      panelUp
+        .map(
+          (r) =>
+            `${r.tSec.toFixed(3)}s full=${fullFrame(r)} panel=${r.colorCounts[1]}`,
+        )
+        .join("\n  "),
+  ).toBe(true);
+
   // Count AND shape. A count on its own passed a render with the cursor
   // switched off, because as the camera pulls out the rect's left side
   // comes to rest on the panel's own left edge and a few columns of white
