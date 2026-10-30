@@ -20,6 +20,7 @@ import {
   renderStageBar,
   renderTransport,
 } from "../../../pages/entrypoints/editor/view";
+import type { ExportFile } from "../../../pages/src/editor/export-flow";
 import type {
   ExportReadiness,
   ExportRun,
@@ -74,7 +75,10 @@ const output = (ref: string, name: string, sceneDigest?: string) => ({
 interface Shot {
   name: string;
   aspect: SceneAspect;
-  fileType: FileType;
+  /** The ticked files, in `FILE_TYPES` order. */
+  fileTypes: FileType[];
+  /** The press's files; absent means none yet. */
+  files?: ExportFile[];
   run: ExportRun;
   save: SaveView | null;
   /** Absent means `exact`. */
@@ -89,7 +93,7 @@ const SHOTS: Shot[] = [
   {
     name: "rest-16x9",
     aspect: "16:9",
-    fileType: "mp4",
+    fileTypes: ["mp4"],
     run: { phase: "idle" },
     save: null,
     carrier: "[data-export-start]",
@@ -97,7 +101,7 @@ const SHOTS: Shot[] = [
   {
     name: "rest-9x16-gif",
     aspect: "9:16",
-    fileType: "gif",
+    fileTypes: ["gif"],
     run: { phase: "idle" },
     save: null,
     carrier: '#stage-tools [data-aspect="9:16"]',
@@ -105,7 +109,7 @@ const SHOTS: Shot[] = [
   {
     name: "exporting",
     aspect: "16:9",
-    fileType: "mp4",
+    fileTypes: ["mp4"],
     run: { phase: "encoding", done: 248, total: 576 },
     save: null,
     carrier: "[data-export-progress]",
@@ -113,7 +117,7 @@ const SHOTS: Shot[] = [
   {
     name: "saved",
     aspect: "16:9",
-    fileType: "mp4",
+    fileTypes: ["mp4"],
     run: { phase: "idle" },
     save: {
       kind: "saved",
@@ -128,7 +132,7 @@ const SHOTS: Shot[] = [
   {
     name: "cancelled",
     aspect: "16:9",
-    fileType: "mp4",
+    fileTypes: ["mp4"],
     run: { phase: "idle" },
     save: { kind: "cancelled", refs: ["r-now"], saved: 0, total: 1 },
     carrier: "[data-save-again]",
@@ -136,7 +140,7 @@ const SHOTS: Shot[] = [
   {
     name: "failed",
     aspect: "16:9",
-    fileType: "stills",
+    fileTypes: ["stills"],
     run: { phase: "idle" },
     save: {
       kind: "failed",
@@ -155,12 +159,66 @@ const SHOTS: Shot[] = [
   {
     name: "no-frames",
     aspect: "16:9",
-    fileType: "mp4",
+    fileTypes: ["mp4"],
     run: { phase: "idle" },
     save: null,
     readiness: { kind: "noFrames" },
     carrier: "[data-export-no-frames] [data-runs-route]",
     label: "Export MP4",
+  },
+  // Several files from one press (2026-10-30): the rows, a press part-way
+  // through, a file that failed, and nothing ticked.
+  {
+    name: "several-ticked",
+    aspect: "16:9",
+    fileTypes: ["mp4", "gif", "stills"],
+    run: { phase: "idle" },
+    save: null,
+    carrier: '[data-file-type="stills"]',
+    label: "Export MP4 + GIF + stills",
+  },
+  {
+    name: "several-exporting",
+    aspect: "16:9",
+    fileTypes: ["mp4", "gif", "stills"],
+    files: [
+      { fileType: "mp4", jobId: "a", ended: "saved" },
+      { fileType: "gif", jobId: "b", ended: null },
+      { fileType: "stills", jobId: null, ended: null },
+    ],
+    run: { phase: "encoding", done: 248, total: 576 },
+    save: null,
+    carrier: '[data-file-status="gif"]',
+    label: "Exporting GIF · 43%",
+  },
+  {
+    name: "several-one-failed",
+    aspect: "16:9",
+    fileTypes: ["mp4", "gif", "stills"],
+    files: [
+      { fileType: "mp4", jobId: "a", ended: "saved" },
+      { fileType: "gif", jobId: "b", ended: "failed" },
+      { fileType: "stills", jobId: "c", ended: "saved" },
+    ],
+    run: { phase: "idle" },
+    save: {
+      kind: "saved",
+      names: ["Checkout flow.mp4", "act-1.png", "act-2.png"],
+      byteLength: 15_002_342,
+      reveal: { kind: "path", path: "/Users/a/Downloads/Checkout flow.mp4" },
+      summary: null,
+      outputRefs: [],
+    },
+    carrier: '[data-file-failed="gif"] button',
+  },
+  {
+    name: "none-ticked",
+    aspect: "16:9",
+    fileTypes: [],
+    run: { phase: "idle" },
+    save: null,
+    carrier: "[data-export-none-ticked]",
+    label: "Export",
   },
 ];
 
@@ -219,15 +277,21 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
     },
     handlers(),
   );
-  // The studio's panel: an MP4 carries the Quality row, at the default.
-  const quality = shot.fileType === "mp4" ? DEFAULT_EXPORT_QUALITY : null;
-  const target = targetFor(
-    shot.fileType,
-    shot.aspect,
-    bundle,
-    frameOf(scene),
-    quality === null ? {} : { quality },
-  );
+  // The studio's panel: a ticked MP4 carries the Quality row, at the
+  // default.
+  const quality = shot.fileTypes.includes("mp4")
+    ? DEFAULT_EXPORT_QUALITY
+    : null;
+  const targetOf = (fileType: FileType) =>
+    targetFor(
+      fileType,
+      shot.aspect,
+      bundle,
+      frameOf(scene),
+      quality === null || fileType !== "mp4" ? {} : { quality },
+    );
+  // The preview's file: `main.ts`'s `previewFileType`.
+  const target = targetOf(shot.fileTypes[0] ?? "mp4");
   const sections = createSections();
   renderExport(
     node("[data-panel-export]"),
@@ -242,10 +306,15 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
           output: output("r-old", "Checkout flow (vertical).mp4", "d-then"),
         },
       ],
-      fileType: shot.fileType,
+      fileTypes: shot.fileTypes,
+      files: shot.files ?? [],
       quality,
       aspect: shot.aspect,
-      target,
+      targets: {
+        mp4: targetOf("mp4"),
+        gif: targetOf("gif"),
+        stills: targetOf("stills"),
+      },
       recording: bundle.viewport,
       durationMs: 24_400,
       run: shot.run,
@@ -403,8 +472,29 @@ describe("the export panel, painted", () => {
           );
           expect(links.length, shot.name).toBe(frameless ? 1 : 0);
           expect(start?.disabled, shot.name).toBe(
-            frameless || shot.run.phase !== "idle",
+            frameless ||
+              shot.run.phase !== "idle" ||
+              shot.fileTypes.length === 0,
           );
+          // Every file row's box is painted, ticked or not: across it the
+          // screenshot is not one flat colour. A box hidden by a stylesheet
+          // (the shortcuts overlay's keycaps, 2026-09-19) still has a rect.
+          for (const box of document.querySelectorAll<HTMLInputElement>(
+            "[data-file-type]",
+          )) {
+            const r = box.getBoundingClientRect();
+            const across = await pixelsAt(
+              Array.from({ length: 12 }, (_, i) => ({
+                x: r.left + ((i + 0.5) * r.width) / 12,
+                y: r.top + r.height / 2,
+              })),
+            );
+            const distinct = new Set(across.map((p) => p.join(",")));
+            expect(
+              distinct.size,
+              `${shot.name}: the ${box.dataset.fileType} box at ${JSON.stringify(r)} is one colour`,
+            ).toBeGreaterThan(1);
+          }
           const link = links[0];
           if (frameless && link !== undefined) {
             expect(link.getAttribute("href")).toBe(

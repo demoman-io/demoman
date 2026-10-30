@@ -428,7 +428,7 @@ const FILES: ReadonlyArray<{
   {
     rel: "../../../pages/src/editor/formats.ts",
     minStrings: 10,
-    anchor: "Export MP4",
+    anchor: "one per step",
   },
   // Joined on 2026-09-24 (Task 10): the rebuild phase's button label and the
   // export's own rebuild-failure row (`rebuildFailureHeading`) are written
@@ -444,7 +444,7 @@ const FILES: ReadonlyArray<{
   {
     rel: "../../../pages/src/editor/export-run.ts",
     minStrings: 8,
-    anchor: `Exporting · \${Math.floor((run.done * 100) / run.total)}%`,
+    anchor: `Exporting\${which} · \${Math.floor((run.done * 100) / run.total)}%`,
   },
 ];
 

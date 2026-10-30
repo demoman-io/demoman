@@ -55,6 +55,7 @@ const expectDrawnLine = (node: Element | null | undefined): void => {
 const handlers = {
   onExport: vi.fn(),
   onFileType: vi.fn(),
+  onRetry: vi.fn(),
   onQuality: vi.fn(),
   onDownload: vi.fn(),
   onSaveAgain: vi.fn(),
@@ -67,9 +68,14 @@ const handlers = {
 
 const base = {
   outputs: [] as OutputRow[],
-  fileType: "mp4" as const,
+  fileTypes: ["mp4" as const],
+  files: [],
   aspect: "16:9" as const,
-  target: LANDSCAPE_1440P,
+  targets: {
+    mp4: LANDSCAPE_1440P,
+    gif: LANDSCAPE_1440P,
+    stills: LANDSCAPE_1440P,
+  },
   recording: { width: 1512, height: 820 },
   durationMs: 24_400,
   run: { phase: "idle" as const },
@@ -382,10 +388,10 @@ describe("a queued export", () => {
   it("labels the button by how many are ahead", () => {
     const exact = { kind: "exact" as const };
     expect(
-      exportButtonLabel({ phase: "queued", position: 0 }, "mp4", exact),
+      exportButtonLabel({ phase: "queued", position: 0 }, ["mp4"], exact),
     ).toBe("Queued…");
     expect(
-      exportButtonLabel({ phase: "queued", position: 2 }, "mp4", exact),
+      exportButtonLabel({ phase: "queued", position: 2 }, ["mp4"], exact),
     ).toBe("Queued (2 ahead)");
   });
 

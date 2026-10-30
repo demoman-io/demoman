@@ -316,8 +316,10 @@ describe("editor main — Export waits for the edit being written", () => {
         throw new Error(`Quality shows ${checked() ?? "nothing"}`);
       }
     });
+    // The MP4 row's own size: the file the pick makes.
     const readout = () =>
-      document.querySelector("[data-size-readout]")?.textContent ?? "";
+      document.querySelector('[data-file-type="mp4"]')?.closest("label")
+        ?.textContent ?? "";
     const atShare = readout();
     (
       document.querySelector('[data-export-quality="full"]') as HTMLElement

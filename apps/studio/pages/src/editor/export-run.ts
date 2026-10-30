@@ -1,5 +1,5 @@
 import type { RevealTarget } from "../platform/types";
-import { EXPORT_LABELS } from "./formats";
+import { exportLabel, FILE_TYPE_TITLES } from "./formats";
 import type { FileType } from "./jobs";
 
 /** Where this page's own export is. Only this page's job moves it.
@@ -72,9 +72,12 @@ export type SaveView =
 
 /**
  * The button's words. A running export's label describes the run; at rest it
- * is the plain label for the file type, whatever the readiness — a frameless
- * take's button is disabled, and the reason is drawn beside it, not folded
- * into its label. Exhaustive on the phase, with no fallback.
+ * names the ticked files, whatever the readiness — a frameless take's button
+ * is disabled, and the reason is drawn beside it, not folded into its label.
+ * Exhaustive on the phase, with no fallback.
+ *
+ * `current` is the file being made when one press makes several, so the
+ * label says which; null for a press of one.
  *
  * The readiness is still taken, and deliberately ignored: every caller draws
  * the button from one, and a label rule that ever needs it again belongs
@@ -82,20 +85,22 @@ export type SaveView =
  */
 export function exportButtonLabel(
   run: ExportRun,
-  fileType: FileType,
+  fileTypes: readonly FileType[],
   _readiness: ExportReadiness,
+  current: FileType | null = null,
 ): string {
+  const which = current === null ? "" : ` ${FILE_TYPE_TITLES[current]}`;
   switch (run.phase) {
     case "idle":
-      return EXPORT_LABELS[fileType];
+      return exportLabel(fileTypes);
     case "queued":
       return run.position === 0 ? "Queued…" : `Queued (${run.position} ahead)`;
     case "encoding":
       return run.total > 0
-        ? `Exporting · ${Math.floor((run.done * 100) / run.total)}%`
-        : "Exporting…";
+        ? `Exporting${which} · ${Math.floor((run.done * 100) / run.total)}%`
+        : `Exporting${which}…`;
     case "saving":
-      return "Saving…";
+      return `Saving${which}…`;
   }
 }
 

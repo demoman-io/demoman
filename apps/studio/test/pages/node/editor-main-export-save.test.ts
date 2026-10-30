@@ -81,6 +81,21 @@ const savedEvent = (jobId: string, name: string) => ({
   summary: null,
 });
 
+/** Every job the page started, in the order it started them. */
+const startedJobs = (memory: MemoryPlatform) =>
+  memory.calls
+    .filter((c) => c.member === "exports" && c.method === "start")
+    .map((c) => c.args[1] as { fileType: string });
+
+/** A file row's checkbox; throws until the panel has drawn it. */
+const fileBox = (fileType: string) => {
+  const node = document.querySelector<HTMLInputElement>(
+    `[data-file-type="${fileType}"]`,
+  );
+  if (!node) throw new Error("file type not rendered yet");
+  return node;
+};
+
 const exportButton = () =>
   document.querySelector("[data-export-start]") as HTMLButtonElement;
 
@@ -136,21 +151,84 @@ describe("editor main — Export saves in one click", () => {
     expect(exportButton().textContent).toBe("Export MP4");
   });
 
-  it("picks GIF from the panel and exports a GIF", async () => {
+  it("unticks MP4, ticks GIF, and exports a GIF alone", async () => {
     await import("../../../pages/entrypoints/editor/main");
-    const gif = await vi.waitFor(() => {
-      const node = document.querySelector<HTMLButtonElement>(
-        '[data-file-type="gif"]',
-      );
-      if (!node) throw new Error("file type not rendered yet");
-      return node;
-    });
-    gif.click();
+    (await vi.waitFor(() => fileBox("mp4"))).click();
+    // Premise: nothing ticked is a state of its own, not "Export MP4".
+    await vi.waitFor(() => expect(exportButton().disabled).toBe(true));
+    fileBox("gif").click();
     await vi.waitFor(() =>
       expect(exportButton().textContent).toBe("Export GIF"),
     );
     await startExport(memory);
     expect(startedJob(memory)).toMatchObject({ fileType: "gif" });
+  });
+
+  // Red if a press of several starts one job, starts them out of order,
+  // frees the button after the first file, or says only the last save.
+  it("exports every ticked file from one press, one job each, in order", async () => {
+    let jobs = 0;
+    memory.answer("exports.start", async () => ({ jobId: `job-${++jobs}` }));
+    await import("../../../pages/entrypoints/editor/main");
+    (await vi.waitFor(() => fileBox("gif"))).click();
+    await vi.waitFor(() =>
+      expect(exportButton().textContent).toBe("Export MP4 + GIF"),
+    );
+    exportButton().click();
+    await vi.waitFor(() => expect(startedJobs(memory)).toHaveLength(2));
+    expect(startedJobs(memory).map((j) => j.fileType)).toEqual(["mp4", "gif"]);
+
+    memory.emitExport({ kind: "queued", jobId: "job-1", position: 0 });
+    memory.emitExport({ kind: "queued", jobId: "job-2", position: 1 });
+    memory.emitExport({ kind: "rendering", jobId: "job-1", done: 1, total: 2 });
+    await vi.waitFor(() =>
+      expect(exportButton().textContent).toBe("Exporting MP4 · 50%"),
+    );
+    memory.emitExport(savedEvent("job-1", "Checkout flow.mp4"));
+    await vi.waitFor(() =>
+      expect(exportButton().textContent).toBe("Exporting GIF…"),
+    );
+    expect(exportButton().disabled).toBe(true);
+    memory.emitExport(savedEvent("job-2", "Checkout flow.gif"));
+    await vi.waitFor(() =>
+      expect(exportButton().textContent).toBe("Export MP4 + GIF"),
+    );
+    expect(
+      document.querySelector('[data-save-outcome="saved"]')?.textContent,
+    ).toContain("Saved 2 files");
+  });
+
+  // Red if a refused start leaves the button "Exporting…" for a file that
+  // will never send an event, or says nothing about the file it refused.
+  it("ends a refused file and every file after it, and says so", async () => {
+    let jobs = 0;
+    memory.answer("exports.start", async () => {
+      jobs += 1;
+      if (jobs === 2)
+        throw new Error("The editor has changes that are not saved yet.");
+      return { jobId: `job-${jobs}` };
+    });
+    await import("../../../pages/entrypoints/editor/main");
+    (await vi.waitFor(() => fileBox("gif"))).click();
+    fileBox("stills").click();
+    exportButton().click();
+    await vi.waitFor(() => expect(startedJobs(memory)).toHaveLength(2));
+    // The MP4 was queued, so it runs on: the button waits for it alone.
+    await vi.waitFor(() =>
+      expect(document.querySelector("#failure")?.textContent).toContain(
+        "The editor has changes that are not saved yet.",
+      ),
+    );
+    expect(exportButton().disabled).toBe(true);
+    memory.emitExport(savedEvent("job-1", "Checkout flow.mp4"));
+    await vi.waitFor(() =>
+      expect(exportButton().textContent).toBe("Export MP4 + GIF + stills"),
+    );
+    expect(
+      [...document.querySelectorAll("[data-file-failed]")].map((f) =>
+        f.getAttribute("data-file-failed"),
+      ),
+    ).toEqual(["gif", "stills"]);
   });
 
   it("advances progress without re-rendering the page", async () => {
@@ -186,18 +264,12 @@ describe("editor main — Export saves in one click", () => {
   });
 
   it("leaves focus on the file type the keyboard just chose", async () => {
-    // The panel is rebuilt on a type change — the summary and aspect note
-    // above it both change — so the segment that was activated is
-    // destroyed and focus fell to `<body>`, losing a keyboard author their
-    // place in the radiogroup on every selection.
+    // The panel is rebuilt on a tick — the rows and the button both
+    // change — so the box that was activated is destroyed and focus fell
+    // to `<body>`, losing a keyboard author their place in the group on
+    // every tick.
     await import("../../../pages/entrypoints/editor/main");
-    const gif = await vi.waitFor(() => {
-      const node = document.querySelector<HTMLButtonElement>(
-        '[data-file-type="gif"]',
-      );
-      if (!node) throw new Error("file type not rendered yet");
-      return node;
-    });
+    const gif = await vi.waitFor(() => fileBox("gif"));
     gif.focus();
     // The premise, asserted: focus really is in the group before the
     // change. Without this the case below passes trivially in a DOM where
@@ -205,11 +277,9 @@ describe("editor main — Export saves in one click", () => {
     expect(document.activeElement).toBe(gif);
     gif.click();
     await vi.waitFor(() =>
-      expect(exportButton().textContent).toBe("Export GIF"),
+      expect(exportButton().textContent).toBe("Export MP4 + GIF"),
     );
-    const after = document.querySelector<HTMLButtonElement>(
-      '[data-file-type="gif"]',
-    );
+    const after = fileBox("gif");
     // A different node — the panel was rebuilt — carrying the focus.
     expect(after).not.toBe(gif);
     expect(document.activeElement).toBe(after);
@@ -219,19 +289,13 @@ describe("editor main — Export saves in one click", () => {
     // The positive control: restoring focus must not become "always focus
     // the segment". An author typing in the take's name field keeps it.
     await import("../../../pages/entrypoints/editor/main");
-    const stills = await vi.waitFor(() => {
-      const node = document.querySelector<HTMLButtonElement>(
-        '[data-file-type="stills"]',
-      );
-      if (!node) throw new Error("file type not rendered yet");
-      return node;
-    });
+    const stills = await vi.waitFor(() => fileBox("stills"));
     const name = document.getElementById("name") as HTMLInputElement;
     name.focus();
     expect(document.activeElement).toBe(name);
     stills.click();
     await vi.waitFor(() =>
-      expect(exportButton().textContent).toBe("Export PNG stills"),
+      expect(exportButton().textContent).toBe("Export MP4 + stills"),
     );
     expect(document.activeElement).toBe(name);
   });

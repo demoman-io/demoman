@@ -1067,10 +1067,24 @@ describe("editor main — preview transport", () => {
       4,
     );
 
-    document
-      .querySelector<HTMLButtonElement>('[data-file-type="gif"]')
-      ?.click();
+    const box = (fileType: string) =>
+      document.querySelector<HTMLInputElement>(
+        `[data-file-type="${fileType}"]`,
+      );
+    // Ticked beside MP4, GIF leaves the preview on the MP4: the preview
+    // shows the MP4 whenever it is ticked. Red if a tick moves it.
+    box("gif")?.click();
+    expect(radiusPerRow(composeCalls.at(-1))).toBeCloseTo(
+      radiusPerRow(LANDSCAPE_1080P),
+      4,
+    );
+    // Premise: the tick took (the button names both).
+    expect(document.querySelector("[data-export-start]")?.textContent).toBe(
+      "Export MP4 + GIF",
+    );
 
+    // MP4 unticked: GIF is the first ticked, so the preview is the GIF's.
+    box("mp4")?.click();
     expect(radiusPerRow(composeCalls.at(-1))).toBeCloseTo(
       radiusPerRow(GIF_800),
       4,

@@ -20,6 +20,7 @@ import {
   renderBrandingControls,
 } from "../../src/branding/controls";
 import { el, paintSliderFill } from "../../src/editor/dom";
+import { currentFile, type ExportFile } from "../../src/editor/export-flow";
 import {
   type ExportReadiness,
   type ExportRun,
@@ -29,8 +30,9 @@ import {
 } from "../../src/editor/export-run";
 import {
   aspectNote,
-  exportSummary,
   FILE_TYPE_TITLES,
+  FILE_TYPES,
+  fileFacts,
   sizeReadout,
 } from "../../src/editor/formats";
 import {
@@ -52,6 +54,7 @@ import {
   keyLabel,
   SHORTCUT_LEGEND,
 } from "../../src/editor/shortcuts";
+import { formatLength } from "../../src/library/length";
 import { whenLabel } from "../../src/library/state";
 import type { OutputRow, RevealTarget } from "../../src/platform/types";
 import { EXPORT_QUALITY_LABELS } from "../../src/settings/view";
@@ -921,16 +924,19 @@ export interface ExportState {
   /** What is stored for the take: the extension's rows hold their bytes
    *  (`stored`), the studio's are files on disk (`file`). */
   outputs: OutputRow[];
-  /** The file type this panel exports. Page-local; picked in this panel. */
-  fileType: FileType;
+  /** The file types ticked in this panel, in `FILE_TYPES` order.
+   *  Page-local. */
+  fileTypes: readonly FileType[];
+  /** The last press's files and how each ended (`ExportFlow.files`). */
+  files: readonly ExportFile[];
   /** An MP4's quality, picked here or the Export quality setting; null or
    *  absent where the platform has none (no Quality row). */
   quality?: ExportQualityChoice | null;
   /** The scene's aspect, picked under the preview. Named here, not set. */
   aspect: SceneAspect;
-  /** `targetFor(fileType, aspect, bundle, frame)` — the same target the
-   *  preview scales. */
-  target: RenderTarget;
+  /** `targetFor(fileType, aspect, bundle, frame)` for each file row; the
+   *  preview scales one of them. */
+  targets: Record<FileType, RenderTarget>;
   /** The recording's size: the frames' viewport, or the take's recorded one
    *  before any frames exist. For the size readout. */
   recording: { width: number; height: number };
@@ -985,9 +991,18 @@ function exportProgressBar(): HTMLProgressElement {
   return bar;
 }
 
-/** Busy, or nothing to export. One rule for the render and the patch. */
-function exportDisabled(run: ExportRun, readiness: ExportReadiness): boolean {
-  return run.phase !== "idle" || readiness.kind === "noFrames";
+/** Busy, nothing to export, or nothing ticked. One rule for the render and
+ *  the patch. */
+function exportDisabled(
+  run: ExportRun,
+  readiness: ExportReadiness,
+  fileTypes: readonly FileType[],
+): boolean {
+  return (
+    run.phase !== "idle" ||
+    readiness.kind === "noFrames" ||
+    fileTypes.length === 0
+  );
 }
 
 /**
@@ -1016,13 +1031,26 @@ function exportDisabled(run: ExportRun, readiness: ExportReadiness): boolean {
 export function patchExportProgress(
   root: HTMLElement,
   run: ExportRun,
-  fileType: FileType,
+  fileTypes: readonly FileType[],
   readiness: ExportReadiness,
+  files: readonly ExportFile[] = [],
 ): boolean {
   const start = root.querySelector<HTMLButtonElement>("[data-export-start]");
   if (start === null) return false;
-  start.textContent = exportButtonLabel(run, fileType, readiness);
-  start.disabled = exportDisabled(run, readiness);
+  start.textContent = exportButtonLabel(
+    run,
+    fileTypes,
+    readiness,
+    namedFile(files),
+  );
+  start.disabled = exportDisabled(run, readiness, fileTypes);
+  const current = currentFile(files);
+  if (current !== null && files.length > 1) {
+    const status = root.querySelector(
+      `[data-file-status="${current.fileType}"]`,
+    );
+    if (status !== null) status.textContent = fileStatus(current, run, files);
+  }
 
   const bar = root.querySelector<HTMLProgressElement>("[data-export-progress]");
   if (run.phase !== "encoding" || run.total === 0) {
@@ -1031,13 +1059,58 @@ export function patchExportProgress(
     return true;
   }
   const live = bar ?? exportProgressBar();
-  live.max = run.total;
-  live.value = run.done;
+  setPressProgress(live, run, files);
   // The first tick carrying a total is where the bar appears: the render
   // that started the export drew none, `total` still being 0, and waiting
   // for another render is the thing this function exists to avoid.
   if (bar === null) start.closest(".control-actions")?.after(live);
   return true;
+}
+
+/** The file the button names while a press of several makes it; null for a
+ *  press of one, whose label stays as it always was. */
+function namedFile(files: readonly ExportFile[]): FileType | null {
+  return files.length > 1 ? (currentFile(files)?.fileType ?? null) : null;
+}
+
+/** One bar for the whole press: the files already ended, then this one's
+ *  frames. Each file's frame count is its own, so it is a fraction. */
+function setPressProgress(
+  bar: HTMLProgressElement,
+  run: Extract<ExportRun, { phase: "encoding" }>,
+  files: readonly ExportFile[],
+): void {
+  const count = Math.max(1, files.length);
+  const before = Math.max(
+    0,
+    files.findIndex((f) => f.ended === null),
+  );
+  bar.max = run.total * count;
+  bar.value = run.total * before + run.done;
+}
+
+/** A file row's status while a press of several runs; `run` is the phase
+ *  of the file being made, so it is said on that row alone. */
+function fileStatus(
+  file: ExportFile,
+  run: ExportRun,
+  files: readonly ExportFile[],
+): string {
+  if (file.ended === "saved") return "Saved";
+  if (file.ended === "failed") return "Failed";
+  if (file !== currentFile(files)) return "Waiting";
+  switch (run.phase) {
+    case "idle":
+      return "Waiting";
+    case "queued":
+      return "Queued";
+    case "encoding":
+      return run.total > 0
+        ? `${Math.floor((run.done * 100) / run.total)}%`
+        : "Exporting";
+    case "saving":
+      return "Saving";
+  }
 }
 
 export function renderExport(
@@ -1046,7 +1119,10 @@ export function renderExport(
   handlers: {
     /** The button: encode, then save. */
     onExport(): void;
-    onFileType(next: FileType): void;
+    /** A file row's box ticked or unticked. */
+    onFileType(fileType: FileType, ticked: boolean): void;
+    /** A failed file's Retry: a press of that file alone. */
+    onRetry(fileType: FileType): void;
     onQuality(next: ExportQualityChoice): void;
     onSaveAgain(refs: string[]): void;
     onReveal(target: RevealTarget): void;
@@ -1065,74 +1141,93 @@ export function renderExport(
     box.append(notice);
   }
 
-  const summary = el(
-    "p",
-    "export-summary",
-    exportSummary(state.fileType, state.durationMs),
-  );
+  const summary = el("p", "export-summary", formatLength(state.durationMs));
   summary.setAttribute("data-export-summary", "");
   const note = el("p", "muted", aspectNote(state.aspect));
   note.setAttribute("data-aspect-note", "");
   box.append(summary, note);
-  const readout = el("p", "muted", sizeReadout(state.recording, state.target));
+  const readout = el("p", "muted", sizeReadout(state.recording));
   readout.setAttribute("data-size-readout", "");
   box.append(readout);
 
+  // A press of several says each file's progress on its row.
+  const pressed = busy && state.files.length > 1 ? state.files : [];
   const typeRow = el("div", "control-row");
-  typeRow.append(el("span", "control-label", "File type"));
-  const types = el("div", "segmented");
-  types.setAttribute("role", "radiogroup");
-  types.setAttribute("aria-label", "File type");
+  typeRow.append(el("span", "control-label", "Files"));
+  const types = el("div", "file-types");
+  types.setAttribute("role", "group");
+  types.setAttribute("aria-label", "Files");
   types.setAttribute("data-file-types", "");
-  for (const value of ["mp4", "gif", "stills"] as const) {
-    const button = el("button", "segment", FILE_TYPE_TITLES[value]);
-    button.type = "button";
-    button.setAttribute("role", "radio");
-    button.setAttribute("data-file-type", value);
-    button.setAttribute("aria-checked", String(value === state.fileType));
-    // Locked while an export runs: the running job's type is already fixed,
-    // and a control that moved would describe a file nobody is making.
-    button.disabled = busy;
-    button.addEventListener("click", () => handlers.onFileType(value));
-    types.append(button);
+  for (const value of FILE_TYPES) {
+    const row = el("label", "file-type");
+    const tick = el("input");
+    tick.type = "checkbox";
+    tick.checked = state.fileTypes.includes(value);
+    tick.setAttribute("data-file-type", value);
+    // Locked while an export runs: the running press's files are already
+    // fixed, and a box that moved would describe a file nobody is making.
+    tick.disabled = busy;
+    // From `click`, as the shell's switch: `checked` already holds the new
+    // state there, and jsdom's `.click()` reaches it where `change` did not.
+    tick.addEventListener("click", () =>
+      handlers.onFileType(value, tick.checked),
+    );
+    const file = pressed.find((f) => f.fileType === value);
+    const aside =
+      file === undefined
+        ? el(
+            "span",
+            "file-facts",
+            fileFacts(value, state.durationMs, state.targets[value]),
+          )
+        : el("span", "file-status", fileStatus(file, state.run, state.files));
+    if (file !== undefined) aside.setAttribute("data-file-status", value);
+    row.append(tick, el("span", "file-name", FILE_TYPE_TITLES[value]), aside);
+    types.append(row);
+
+    // Only an MP4 has a quality, so it sits under the MP4 row while that
+    // is ticked; a GIF and stills have one size each.
+    if (value === "mp4" && tick.checked && state.quality != null) {
+      const qualityRow = el("div", "file-quality");
+      qualityRow.append(el("span", "control-aside", "Quality"));
+      const qualities = el("div", "segmented");
+      qualities.setAttribute("role", "radiogroup");
+      qualities.setAttribute("aria-label", "Quality");
+      qualities.setAttribute("data-export-qualities", "");
+      for (const quality of EXPORT_QUALITY_VALUES) {
+        const button = el("button", "segment", EXPORT_QUALITY_LABELS[quality]);
+        button.type = "button";
+        button.setAttribute("role", "radio");
+        button.setAttribute("data-export-quality", quality);
+        button.setAttribute("aria-checked", String(quality === state.quality));
+        // Locked while an export runs, as the files are.
+        button.disabled = busy;
+        button.addEventListener("click", () => handlers.onQuality(quality));
+        qualities.append(button);
+      }
+      qualityRow.append(qualities);
+      types.append(qualityRow);
+    }
   }
   typeRow.append(types);
   box.append(typeRow);
 
-  // Only an MP4 has a quality; a GIF and stills have one size each.
-  if (state.quality != null && state.fileType === "mp4") {
-    const qualityRow = el("div", "control-row");
-    qualityRow.append(el("span", "control-label", "Quality"));
-    const qualities = el("div", "segmented");
-    qualities.setAttribute("role", "radiogroup");
-    qualities.setAttribute("aria-label", "Quality");
-    qualities.setAttribute("data-export-qualities", "");
-    for (const value of EXPORT_QUALITY_VALUES) {
-      const button = el("button", "segment", EXPORT_QUALITY_LABELS[value]);
-      button.type = "button";
-      button.setAttribute("role", "radio");
-      button.setAttribute("data-export-quality", value);
-      button.setAttribute("aria-checked", String(value === state.quality));
-      // Locked while an export runs, as the file type is.
-      button.disabled = busy;
-      button.addEventListener("click", () => handlers.onQuality(value));
-      qualities.append(button);
-    }
-    qualityRow.append(qualities);
-    box.append(qualityRow);
-  }
-
   const start = el(
     "button",
     "btn btn-primary export-start",
-    exportButtonLabel(state.run, state.fileType, state.readiness),
+    exportButtonLabel(
+      state.run,
+      state.fileTypes,
+      state.readiness,
+      namedFile(state.files),
+    ),
   );
   start.type = "button";
   start.setAttribute("data-export-start", "");
   start.setAttribute("data-readiness", state.readiness.kind);
   // Disabled for a frameless take too, and never alone: the line beneath
   // says why and where frames come from now.
-  start.disabled = exportDisabled(state.run, state.readiness);
+  start.disabled = exportDisabled(state.run, state.readiness, state.fileTypes);
   start.addEventListener("click", handlers.onExport);
   const startRow = el("div", "control-actions");
   startRow.append(start);
@@ -1141,15 +1236,36 @@ export function renderExport(
     line.setAttribute("data-export-no-frames", "");
     line.append(noFramesRoute(state.runsRoute));
     box.append(startRow, line);
+  } else if (state.fileTypes.length === 0) {
+    const line = el("p", "muted", "Tick at least one file.");
+    line.setAttribute("data-export-none-ticked", "");
+    box.append(startRow, line);
   } else box.append(startRow);
   if (state.run.phase === "encoding" && state.run.total > 0) {
     const bar = exportProgressBar();
-    bar.max = state.run.total;
-    bar.value = state.run.done;
+    setPressProgress(bar, state.run, state.files);
     box.append(bar);
   }
 
   if (state.save !== null) box.append(saveOutcomeRow(state.save, handlers));
+  // A file of the press that failed, once the press is over. Why is said in
+  // the failure band above the editor (`renderFailure`'s `renderError`),
+  // which every panel shows; here is the way to make it again.
+  if (!busy) {
+    for (const file of state.files.filter((f) => f.ended === "failed")) {
+      const row = el("div", "notice notice-error");
+      row.setAttribute("data-file-failed", file.fileType);
+      const retry = el("button", "btn btn-quiet", "Retry");
+      retry.type = "button";
+      retry.addEventListener("click", () => handlers.onRetry(file.fileType));
+      row.append(
+        el("span", undefined, `${FILE_TYPE_TITLES[file.fileType]} failed`),
+        " ",
+        retry,
+      );
+      box.append(row);
+    }
+  }
   // Under the outcome row, not inside a file row: the press can come from
   // either, and Recent exports may be folded by the time it answers.
   if (state.revealError != null) {

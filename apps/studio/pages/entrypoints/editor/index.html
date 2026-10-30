@@ -1932,6 +1932,16 @@
       .inspector .beat .btn-quiet, .inspector .notice .btn-quiet { flex: none; white-space: nowrap; }
       .inspector .beat .nowrap { white-space: nowrap; }
       .inspector .export-summary { font-weight: 600; font-variant-numeric: tabular-nums; margin: 0; }
+      /* Files: one row per file type, its box, its name, and the file it
+         makes (mid-press, how far it has got). MP4's Quality sits under it. */
+      .inspector .file-types { display: grid; }
+      .inspector .file-type { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer; }
+      .inspector .file-type:has(input:disabled) { cursor: default; }
+      .inspector .file-type input { margin: 0; }
+      .inspector .file-name { white-space: nowrap; }
+      .inspector .file-facts, .inspector .file-status { font-family: var(--font-mono); font-size: var(--row-label); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-muted); }
+      .inspector .file-status { color: var(--ink); }
+      .inspector .file-quality { display: flex; align-items: center; gap: 8px; padding: 2px 0 6px 24px; }
       .inspector .export-start { width: 100%; }
       .inspector .export-progress { width: 100%; accent-color: var(--primary); }
       .notice strong { display: block; margin-bottom: 4px; }

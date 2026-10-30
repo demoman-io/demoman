@@ -4,34 +4,64 @@ import {
   exportButtonLabel,
   formatBytes,
 } from "../../../pages/src/editor/export-run";
-import { EXPORT_LABELS } from "../../../pages/src/editor/formats";
+import { exportLabel } from "../../../pages/src/editor/formats";
 
 describe("exportButtonLabel", () => {
   const exact = { kind: "exact" } as const;
 
   it("names the file type at rest, then the phase", () => {
-    expect(exportButtonLabel({ phase: "idle" }, "gif", exact)).toBe(
+    expect(exportButtonLabel({ phase: "idle" }, ["gif"], exact)).toBe(
       "Export GIF",
     );
     // Before the first frame report there is no fraction to show, and "0%"
     // would claim a measurement that has not happened.
     expect(
-      exportButtonLabel({ phase: "encoding", done: 0, total: 0 }, "mp4", exact),
+      exportButtonLabel(
+        { phase: "encoding", done: 0, total: 0 },
+        ["mp4"],
+        exact,
+      ),
     ).toBe("Exporting…");
     expect(
       exportButtonLabel(
         { phase: "encoding", done: 248, total: 576 },
-        "mp4",
+        ["mp4"],
         exact,
       ),
     ).toBe("Exporting · 43%");
-    expect(exportButtonLabel({ phase: "saving" }, "mp4", exact)).toBe(
+    expect(exportButtonLabel({ phase: "saving" }, ["mp4"], exact)).toBe(
       "Saving…",
     );
   });
 
+  // Red if a press of several stops saying which file is being made, or a
+  // press of one starts saying it (its label is as it always was).
+  it("names the file being made when a press makes several", () => {
+    const run = { phase: "encoding", done: 248, total: 576 } as const;
+    expect(exportButtonLabel(run, ["mp4", "gif"], exact, "gif")).toBe(
+      "Exporting GIF · 43%",
+    );
+    expect(
+      exportButtonLabel(
+        { phase: "encoding", done: 0, total: 0 },
+        ["mp4", "gif"],
+        exact,
+        "mp4",
+      ),
+    ).toBe("Exporting MP4…");
+    expect(
+      exportButtonLabel(
+        { phase: "saving" },
+        ["gif", "stills"],
+        exact,
+        "stills",
+      ),
+    ).toBe("Saving PNG stills…");
+    expect(exportButtonLabel(run, ["gif"], exact)).toBe("Exporting · 43%");
+  });
+
   it("exports plainly when nothing is approximated", () => {
-    expect(exportButtonLabel({ phase: "idle" }, "gif", exact)).toBe(
+    expect(exportButtonLabel({ phase: "idle" }, ["gif"], exact)).toBe(
       "Export GIF",
     );
   });
@@ -42,8 +72,8 @@ describe("exportButtonLabel", () => {
     // panel, as the Runs route.
     for (const fileType of ["mp4", "gif", "stills"] as const) {
       expect(
-        exportButtonLabel({ phase: "idle" }, fileType, { kind: "noFrames" }),
-      ).toBe(EXPORT_LABELS[fileType]);
+        exportButtonLabel({ phase: "idle" }, [fileType], { kind: "noFrames" }),
+      ).toBe(exportLabel([fileType]));
     }
   });
 
@@ -59,7 +89,7 @@ describe("exportButtonLabel", () => {
     for (const fileType of ["mp4", "gif", "stills"] as const)
       for (const readiness of readinesses)
         for (const run of runs)
-          labels.push(exportButtonLabel(run, fileType, readiness));
+          labels.push(exportButtonLabel(run, [fileType], readiness));
     // Premise: every combination produced a label to inspect.
     expect(labels).toHaveLength(3 * 2 * 4);
     expect(labels.filter((l) => /rebuild|previewed/i.test(l))).toEqual([]);

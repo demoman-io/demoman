@@ -66,12 +66,15 @@ import {
 import type { EditCommand } from "../../src/editor/commands";
 import {
   applyExportEvent,
+  currentFile,
   type ExportFlow,
   IDLE_EXPORT,
+  pressedExport,
 } from "../../src/editor/export-flow";
 import type { ExportReadiness } from "../../src/editor/export-run";
 import {
   deliverableTitle,
+  FILE_TYPES,
   takeMeta,
   targetFor,
 } from "../../src/editor/formats";
@@ -404,14 +407,25 @@ let panelOpen = true;
 let railBeforeSelection: Exclude<RailEntry, "selection"> = "export";
 /** Which of the panels' disclosures the author has opened this session. */
 const sections = createSections();
-/** The file type the Export panel will produce. Page-local: which file to
- *  make is a question about this export, not about the demo. The frame's
- *  shape IS the demo's — `scene.canvas.aspect`, read through `deliverable`. */
-let fileType: FileType = "mp4";
+/** The file types the Export panel will produce, in `FILE_TYPES` order.
+ *  Page-local and MP4 on every load: which files to make is a question
+ *  about this export, not about the demo. The frame's shape IS the demo's
+ *  — `scene.canvas.aspect`, read through `deliverable`. */
+let fileTypes: readonly FileType[] = ["mp4"];
 
-/** The target an export would render right now, and the one the preview
- *  scales. One function, so the preview and the file cannot disagree. */
-function deliverable(bundle: FrameBundle | null): RenderTarget {
+/** The file the preview, the header's line and the logo notes describe:
+ *  the MP4 when it is ticked, else the first ticked (`FILE_TYPES` puts MP4
+ *  first). The frame's shape is the aspect's for all three, so only the
+ *  size differs. */
+const previewFileType = (): FileType => fileTypes[0] ?? "mp4";
+
+/** The target an export of `fileType` would render right now; the preview
+ *  scales `previewFileType`'s. One function, so the preview and the file
+ *  cannot disagree. */
+function deliverable(
+  bundle: FrameBundle | null,
+  fileType: FileType = previewFileType(),
+): RenderTarget {
   const scene = session.snapshot().scene;
   const quality = qualityNow();
   // The live branding, not the stored one: under Auto the frame's shape
@@ -1033,7 +1047,7 @@ function revealFile(target: RevealTarget): void {
 function renderTakeMeta(snapshot: SessionSnapshot, target: RenderTarget): void {
   const meta = takeMeta({
     durationMs: trimTail - trimHead,
-    fileType,
+    fileType: previewFileType(),
     target,
     hasFrames: readinessOf(snapshot).kind !== "noFrames",
   });
@@ -1381,7 +1395,7 @@ async function refreshLogo(snapshot: SessionSnapshot): Promise<void> {
     ? sharpnessNote(
         logoSource,
         logoRasterHeight(branding, deliverable(snapshot.bundle)),
-        deliverableTitle(fileType, snapshot.scene.canvas.aspect),
+        deliverableTitle(previewFileType(), snapshot.scene.canvas.aspect),
       )
     : null;
   const notes = [
@@ -1838,10 +1852,10 @@ function pickQuality(next: ExportQualityChoice): void {
   }
 }
 
-/** The Export panel's file type. Page-local, so no dispatch: swap the
+/** A file row ticked or unticked. Page-local, so no dispatch: swap the
  *  target inside `render`, then redraw the current frame. */
-function pickFileType(next: FileType): void {
-  if (next === fileType) return;
+function pickFileType(next: FileType, ticked: boolean): void {
+  if (fileTypes.includes(next) === ticked) return;
   // Read BEFORE the render that destroys it. A keyboard author moving
   // through the File type radiogroup had focus fall to `<body>` on every
   // selection — `render` rebuilds the panel wholesale, and the segment they
@@ -1852,7 +1866,9 @@ function pickFileType(next: FileType): void {
   const keyboard =
     document.activeElement instanceof HTMLElement &&
     document.activeElement.hasAttribute("data-file-type");
-  fileType = next;
+  fileTypes = FILE_TYPES.filter((t) =>
+    t === next ? ticked : fileTypes.includes(t),
+  );
   render(session.snapshot());
   if (keyboard) {
     document
@@ -2662,7 +2678,10 @@ function render(snapshot: SessionSnapshot): void {
         branding: snapshot.scene.branding,
         logoThumb: logoThumbFor(snapshot.scene.branding.logo?.ref ?? null),
         logoPlacement: presentation?.logoPlacement ?? null,
-        formatTitle: deliverableTitle(fileType, snapshot.scene.canvas.aspect),
+        formatTitle: deliverableTitle(
+          previewFileType(),
+          snapshot.scene.canvas.aspect,
+        ),
         logoNotes,
         wallpaper: {
           thumbUrl: wallpaperThumbUrl,
@@ -2761,10 +2780,15 @@ function render(snapshot: SessionSnapshot): void {
       exportPanel,
       {
         outputs,
-        fileType,
+        fileTypes,
+        files: exportFlow.files,
         quality: qualityNow(),
         aspect: snapshot.scene.canvas.aspect,
-        target: exported,
+        targets: {
+          mp4: deliverable(snapshot.bundle, "mp4"),
+          gif: deliverable(snapshot.bundle, "gif"),
+          stills: deliverable(snapshot.bundle, "stills"),
+        },
         // The size `targetFor` solved the Auto frame from.
         recording: recordingOf(snapshot.bundle, frameOf(snapshot.scene)),
         // Off the model this render built, not `trimHead`/`trimTail`:
@@ -2787,6 +2811,7 @@ function render(snapshot: SessionSnapshot): void {
       {
         onExport: () => startExport().catch(reportError),
         onFileType: pickFileType,
+        onRetry: (only) => startExport([only]).catch(reportError),
         onQuality: pickQuality,
         // The outcome row's Download again: the same save, for the rows
         // this page already lists.
@@ -3125,17 +3150,20 @@ async function saveNewKit(text: string): Promise<void> {
  *
  * A frameless take's button is disabled, with the Runs route drawn beside it
  * (`readinessOf`), so no press arrives here from one.
+ *
+ * One job per file, started in `FILE_TYPES` order: the studio admits each
+ * against the revision named here and makes them one at a time, and each
+ * job's own events end its file (`applyExportEvent`). `only` is a failed
+ * file's Retry.
  */
-async function startExport(): Promise<void> {
+async function startExport(
+  only: readonly FileType[] = fileTypes,
+): Promise<void> {
   revealError = null;
-  const pressed = session.snapshot();
-  const scene = pressed.scene;
-  exportFlow = {
-    run: { phase: "encoding", done: 0, total: 0 },
-    save: null,
-    error: null,
-  };
+  const scene = session.snapshot().scene;
+  exportFlow = pressedExport(only);
   render(session.snapshot());
+  let started = 0;
   try {
     // Every write this page still owes lands first (Review Focus 2). An
     // export pressed while an edit is being written would otherwise name the
@@ -3146,27 +3174,37 @@ async function startExport(): Promise<void> {
     // with the studio's own sentence below.
     await session.settled();
     const quality = qualityNow();
-    await platform.exports.start(sceneId, {
-      fileType,
-      aspect: scene.canvas.aspect,
-      revision: sceneRevision,
-      // What the panel shows, so the file is the size it named even if the
-      // setting changes before the job runs. Unread, nothing: the studio
-      // reads Settings and says why it could not. Only an MP4 has one.
-      ...(quality === null ||
-      fileType !== "mp4" ||
-      (pickedQuality === null && !exportQualityRead)
-        ? {}
-        : { quality }),
-    });
+    for (const fileType of only) {
+      await platform.exports.start(sceneId, {
+        fileType,
+        aspect: scene.canvas.aspect,
+        revision: sceneRevision,
+        // What the panel shows, so the file is the size it named even if the
+        // setting changes before the job runs. Unread, nothing: the studio
+        // reads Settings and says why it could not. Only an MP4 has one.
+        ...(quality === null ||
+        fileType !== "mp4" ||
+        (pickedQuality === null && !exportQualityRead)
+          ? {}
+          : { quality }),
+      });
+      started += 1;
+    }
   } catch (error) {
-    // The run is otherwise only reset by this job's end, and a job that
-    // never started sends none: without this the button reads "Exporting…"
-    // for the life of the page.
+    // The refused file and every one after it never started, so none will
+    // send the event that ends it: they end here, failed, or the button
+    // reads "Exporting…" for the life of the page. Files already queued
+    // run on and end themselves.
+    const refused = error instanceof Error ? error.message : String(error);
+    const files = exportFlow.files.map((f, i) =>
+      i >= started && f.ended === null ? { ...f, ended: "failed" as const } : f,
+    );
     exportFlow = {
       ...exportFlow,
-      run: { phase: "idle" },
-      error: error instanceof Error ? error.message : String(error),
+      files,
+      run: currentFile(files) === null ? { phase: "idle" } : exportFlow.run,
+      error:
+        exportFlow.error === null ? refused : `${exportFlow.error}; ${refused}`,
     };
     render(session.snapshot());
     throw error;
@@ -3225,8 +3263,9 @@ function showExportProgress(): void {
     !patchExportProgress(
       panel,
       exportFlow.run,
-      fileType,
+      fileTypes,
       readinessOf(session.snapshot()),
+      exportFlow.files,
     ) &&
     !progressMountComplained
   ) {

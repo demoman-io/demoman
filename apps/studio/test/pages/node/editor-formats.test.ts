@@ -1,37 +1,49 @@
-import { LANDSCAPE_1080P } from "@demoman/compositor";
 import { describe, expect, it } from "vitest";
 import {
   aspectNote,
   deliverableTitle,
-  EXPORT_LABELS,
-  exportSummary,
+  exportLabel,
   FILE_TYPE_TITLES,
+  FILE_TYPES,
+  fileFacts,
   sizeReadout,
   takeMeta,
 } from "../../../pages/src/editor/formats";
 
 describe("export copy", () => {
   it("labels every file type, and never says Render", () => {
-    expect(EXPORT_LABELS).toEqual({
-      mp4: "Export MP4",
-      gif: "Export GIF",
-      stills: "Export PNG stills",
-    });
+    expect(exportLabel(["mp4"])).toBe("Export MP4");
+    expect(exportLabel(["gif"])).toBe("Export GIF");
+    expect(exportLabel(["stills"])).toBe("Export PNG stills");
     for (const text of [
-      ...Object.values(EXPORT_LABELS),
+      ...FILE_TYPES.map((t) => exportLabel([t])),
       ...Object.values(FILE_TYPE_TITLES),
     ]) {
       expect(text).not.toMatch(/render/i);
     }
   });
 
-  // The file's size is the readout's (`sizeReadout`, spec 2026-10-06 §3),
-  // beside it in the same box; said twice it was said two ways.
-  it("sums up the file: type and length", () => {
-    expect(exportSummary("mp4", 24_400)).toBe("MP4 · 0:24");
-    expect(exportSummary("mp4", 61_000)).toBe("MP4 · 1:01");
+  // Red if a press of several names only one file, or names stills in full
+  // after another file ("Export MP4 + PNG stills" outgrows the button).
+  it("names every ticked file on the button, stills short after the first", () => {
+    expect(exportLabel(["mp4", "gif", "stills"])).toBe(
+      "Export MP4 + GIF + stills",
+    );
+    expect(exportLabel(["gif", "stills"])).toBe("Export GIF + stills");
+    // Nothing ticked: the button is disabled and the line under it says why.
+    expect(exportLabel([])).toBe("Export");
+  });
+
+  // Each row's own file: GIF is smaller than the MP4, so one line for both
+  // would describe a file nobody makes.
+  it("says each file row's length and size", () => {
+    const hd = { width: 1920, height: 1080 };
+    expect(fileFacts("mp4", 24_400, hd)).toBe("0:24 · 1920 × 1080");
+    expect(fileFacts("gif", 61_000, { width: 800, height: 450 })).toBe(
+      "1:01 · 800 × 450",
+    );
     // A still has no length; it has one file per step.
-    expect(exportSummary("stills", 61_000)).toBe("PNG stills · one per step");
+    expect(fileFacts("stills", 61_000, hd)).toBe("one per step · 1920 × 1080");
   });
 
   it("names the deliverable the logo notes talk about", () => {
@@ -57,15 +69,12 @@ describe("export copy", () => {
     );
   });
 
-  // Red if the readout reports the target in place of the recording, or
-  // drops the spacing the spec's copy fixes.
-  it("reads out the recording's size and the video's", () => {
-    expect(
-      sizeReadout(
-        { width: 1512, height: 820 },
-        { ...LANDSCAPE_1080P, width: 1920, height: 1042 },
-      ),
-    ).toBe("Recording 1512 × 820 · Video 1920 × 1042");
+  // Red if the readout drops the spacing the spec's copy fixes. The
+  // files' sizes are on their rows (`fileFacts`).
+  it("reads out the recording's size", () => {
+    expect(sizeReadout({ width: 1512, height: 820 })).toBe(
+      "Recording 1512 × 820",
+    );
   });
 });
 

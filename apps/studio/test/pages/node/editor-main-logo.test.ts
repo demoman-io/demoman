@@ -318,14 +318,16 @@ describe("editor main — the branding logo", () => {
     const rail = (entry: string) =>
       (document.querySelector(`[data-rail="${entry}"]`) as HTMLElement).click();
     rail("export");
-    const gif = await vi.waitFor(() => {
-      const node = document.querySelector<HTMLButtonElement>(
-        '[data-file-type="gif"]',
+    const box = (fileType: string) =>
+      document.querySelector<HTMLInputElement>(
+        `[data-file-type="${fileType}"]`,
       );
-      if (!node) throw new Error("file type not rendered yet");
-      return node;
+    await vi.waitFor(() => {
+      if (!box("gif")) throw new Error("file type not rendered yet");
     });
-    gif.click();
+    // GIF alone: beside a ticked MP4 the notes describe the MP4.
+    box("mp4")?.click();
+    box("gif")?.click();
     rail("background");
     await vi.waitFor(() => {
       // "GIF" and not "Landscape video": `deliverableTitle("gif", "16:9")`.

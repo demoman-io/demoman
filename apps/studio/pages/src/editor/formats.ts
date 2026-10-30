@@ -1,4 +1,3 @@
-import type { RenderTarget } from "@demoman/compositor";
 import type { SceneAspect } from "@demoman/scene-schema";
 import { formatLength } from "../library/length";
 import type { FileType } from "./jobs";
@@ -7,10 +6,11 @@ import { targetFor } from "./jobs";
 export { targetFor };
 
 /**
- * The export's copy, in one place. The file type is picked in the Export
- * panel; the aspect is the scene's, picked under the preview. `main.ts`
- * previews `targetFor(fileType, aspect, bundle, frame)` and the panel describes the
- * same target, so the framing scrubbed and the file saved are one answer.
+ * The export's copy, in one place. The file types are ticked in the Export
+ * panel; the aspect is the scene's, picked under the preview. Each file row
+ * describes `targetFor(fileType, aspect, bundle, frame)`, and `main.ts`
+ * previews one of them (`previewFileType`), so the framing scrubbed and the
+ * file saved are one answer.
  */
 
 export const FILE_TYPE_TITLES: Record<FileType, string> = {
@@ -19,20 +19,30 @@ export const FILE_TYPE_TITLES: Record<FileType, string> = {
   stills: "PNG stills",
 };
 
-/** "Export", never "Render": "Rebuild" names the replay. */
-export const EXPORT_LABELS: Record<FileType, string> = {
-  mp4: "Export MP4",
-  gif: "Export GIF",
-  stills: "Export PNG stills",
-};
+/** The panel's file rows, in the order they are drawn and exported. */
+export const FILE_TYPES: readonly FileType[] = ["mp4", "gif", "stills"];
 
-/** "MP4 · 0:24". A still has no length, so it says what it is. The file's
- *  size is `sizeReadout`'s, under it in the same box (review, 2026-10-06:
- *  said here too, it was said twice, two ways). */
-export function exportSummary(fileType: FileType, durationMs: number): string {
-  const tail =
+/** "Export MP4 + GIF + stills": the ticked files, the first named in full.
+ *  "Export", never "Render": "Rebuild" names the replay. Bare "Export"
+ *  with nothing ticked, where the button is disabled and the line under it
+ *  says why. */
+export function exportLabel(fileTypes: readonly FileType[]): string {
+  const names = fileTypes.map((t, i) =>
+    i > 0 && t === "stills" ? "stills" : FILE_TYPE_TITLES[t],
+  );
+  return ["Export", names.join(" + ")].filter(Boolean).join(" ");
+}
+
+/** "0:24 · 1920 × 1080": one file row's facts, the file it makes. A still
+ *  has no length, so it says what it is. */
+export function fileFacts(
+  fileType: FileType,
+  durationMs: number,
+  target: { width: number; height: number },
+): string {
+  const head =
     fileType === "stills" ? "one per step" : formatLength(durationMs);
-  return [FILE_TYPE_TITLES[fileType], tail].join(" · ");
+  return `${head} · ${target.width} × ${target.height}`;
 }
 
 /** The deliverable's name inside a sentence — the logo notes' "No room for
@@ -64,14 +74,14 @@ export function aspectNote(aspect: SceneAspect): string {
   }
 }
 
-/** "Recording 1512 × 820 · Video 1920 × 1042" — the captured page and the
- *  file the selected format makes (spec 2026-10-06 §3). In 16:9 and 9:16
- *  it is the reason any bars are there. */
-export function sizeReadout(
-  recording: { width: number; height: number },
-  target: RenderTarget,
-): string {
-  return `Recording ${recording.width} × ${recording.height} · Video ${target.width} × ${target.height}`;
+/** "Recording 1512 × 820" — the captured page (spec 2026-10-06 §3). Each
+ *  file's own size is on its row (`fileFacts`); beside those it is the
+ *  reason any bars are there. */
+export function sizeReadout(recording: {
+  width: number;
+  height: number;
+}): string {
+  return `Recording ${recording.width} × ${recording.height}`;
 }
 
 /** "0:10 · 1920 × 1080" — the header's line beside the take's name: how

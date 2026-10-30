@@ -545,6 +545,28 @@ describe("the Studio's screenshot set", () => {
           }
         }
       }
+      // Export's Files ticked by a real pointer (2026-10-30): one press
+      // makes every ticked file. Red if a click on a row does not tick it,
+      // or the button does not name what the press will make.
+      await sizeWindow(context, page, 1440, 900);
+      await openPage(page, studio, "editor", editorTake, thumbs);
+      await page.locator('[data-file-type="gif"]').click();
+      await page.locator('[data-file-type="stills"]').click();
+      const files = await page.evaluate(() => ({
+        ticked: [
+          ...document.querySelectorAll<HTMLInputElement>("[data-file-type]"),
+        ]
+          .filter((b) => b.checked)
+          .map((b) => b.dataset.fileType),
+        button: document.querySelector("[data-export-start]")?.textContent,
+      }));
+      expect(files, "editor: the Files rows after two clicks").toEqual({
+        ticked: ["mp4", "gif", "stills"],
+        button: "Export MP4 + GIF + stills",
+      });
+      const ticked = join(SHOTS, "editor-export-files-1440x900-dark.png");
+      await page.screenshot({ path: ticked });
+      shots.push(ticked);
       // The editor stacked (spec 2026-10-19 §5.3): the inspector under the
       // dock, each part over a hairline (studio-look asserts the lines).
       await sizeWindow(context, page, 900, 800);
@@ -623,7 +645,7 @@ describe("the Studio's screenshot set", () => {
         Math.abs(blocks?.gap ?? Number.NaN),
         `editor zoom hand-off: ${JSON.stringify(blocks)}`,
       ).toBeLessThan(1.5);
-      expect(shots).toHaveLength(10);
+      expect(shots).toHaveLength(11);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);

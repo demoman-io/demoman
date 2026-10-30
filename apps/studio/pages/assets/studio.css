@@ -578,6 +578,17 @@
 [data-studio] .kit-pick[aria-pressed="true"]:not(:focus-visible) {
   outline: 0;
 }
+/* Export's Files rows: each file's figures in the mono the header's line
+   uses, so the longest ("one per step · 2560 × 1440") leaves the name its
+   one line. */
+[data-studio] .inspector .file-facts,
+[data-studio] .inspector .file-status {
+  font: 400 11.5px / 1 var(--mono);
+  color: var(--ink-3);
+}
+[data-studio] .inspector .file-status {
+  color: var(--ink);
+}
 /* An export's progress is one of lime's places. */
 [data-studio] .inspector .export-progress {
   accent-color: var(--accent);

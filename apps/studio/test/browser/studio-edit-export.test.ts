@@ -464,13 +464,12 @@ describe("the Studio, in a real window", () => {
         { timeout: 15_000, interval: 100 },
       );
 
-      // 3e. GIF, Export, and the outcome row's summary.
+      // 3e. GIF alone (MP4 unticked), Export, and the outcome row's summary.
+      await page.locator('[data-file-type="mp4"]').click();
       await page.locator('[data-file-type="gif"]').click();
       await expect
-        .poll(() =>
-          page.locator('[data-file-type="gif"]').getAttribute("aria-checked"),
-        )
-        .toBe("true");
+        .poll(() => page.locator("[data-export-start]").textContent())
+        .toBe("Export GIF");
       await page.locator("[data-export-start]").click();
       const summaryLocator = page.locator(
         '[data-save-outcome="saved"] .muted[data-save-summary]',
@@ -638,18 +637,19 @@ describe("the editor's size readout in the Studio", () => {
       });
       await cdp.detach();
 
-      const readout = page.locator("[data-size-readout]");
+      // The MP4 row's own file: its length and the size it is made at.
+      const readout = page.locator(
+        'label:has([data-file-type="mp4"]) .file-facts',
+      );
       const said = async () => (await readout.textContent()) ?? "";
       await vi.waitFor(
         async () => {
-          if (!(await said()).includes("Video "))
+          if (!(await said()).includes(" × "))
             throw new Error(`no readout yet: ${await pageEvidence(page)}`);
         },
         { timeout: 30_000, interval: 100 },
       );
-      expect(await said(), await pageEvidence(page)).toContain(
-        "Video 2560 × 1440",
-      );
+      expect(await said(), await pageEvidence(page)).toContain("2560 × 1440");
       expect(await said()).not.toContain("3840");
 
       // The positive control, and the refresh: choose Full elsewhere, look at
@@ -662,7 +662,7 @@ describe("the editor's size readout in the Studio", () => {
       await page.evaluate(() => window.dispatchEvent(new Event("focus")));
       await vi.waitFor(
         async () => {
-          if (!(await said()).includes("Video 3840 × 2160")) {
+          if (!(await said()).includes("3840 × 2160")) {
             throw new Error(`the readout says "${await said()}"`);
           }
         },

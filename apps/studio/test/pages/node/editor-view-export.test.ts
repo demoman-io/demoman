@@ -6,7 +6,11 @@ import {
   renderExport,
   renderExportHistory,
 } from "../../../pages/entrypoints/editor/view";
-import { RECLAIMED_SPAN_REASON } from "../../../pages/src/editor/jobs";
+import type { ExportFile } from "../../../pages/src/editor/export-flow";
+import {
+  type FileType,
+  RECLAIMED_SPAN_REASON,
+} from "../../../pages/src/editor/jobs";
 import { createSections } from "../../../pages/src/editor/sections";
 import { runsHref, runsRouteLabel } from "../../../pages/src/shell/runs-link";
 
@@ -23,6 +27,7 @@ beforeEach(() => {
 const handlers = {
   onExport: vi.fn(),
   onFileType: vi.fn(),
+  onRetry: vi.fn(),
   onQuality: vi.fn(),
   onDownload: vi.fn(),
   onSaveAgain: vi.fn(),
@@ -30,9 +35,14 @@ const handlers = {
 };
 const idle = {
   outputs: [],
-  fileType: "mp4" as const,
+  fileTypes: ["mp4"] as FileType[],
+  files: [] as ExportFile[],
   aspect: "16:9" as const,
-  target: LANDSCAPE_1440P,
+  targets: {
+    mp4: LANDSCAPE_1440P,
+    gif: { ...LANDSCAPE_1080P, width: 800, height: 450 },
+    stills: LANDSCAPE_1080P,
+  },
   recording: { width: 1512, height: 820 },
   durationMs: 24_400,
   run: { phase: "idle" as const },
@@ -110,7 +120,7 @@ describe("renderExport", () => {
   it("sums up the file and names the type on the button", () => {
     renderExport(root, idle, handlers);
     expect(root.querySelector("[data-export-summary]")?.textContent).toBe(
-      "MP4 · 0:24",
+      "0:24",
     );
     expect(root.querySelector("[data-aspect-note]")?.textContent).toBe(
       "16:9, set under the preview",
@@ -122,30 +132,56 @@ describe("renderExport", () => {
     expect(handlers.onExport).toHaveBeenCalledTimes(1);
   });
 
-  it("picks the file type from three segments", () => {
-    renderExport(root, { ...idle, fileType: "gif" }, handlers);
-    const buttons = [
-      ...root.querySelectorAll<HTMLButtonElement>("[data-file-type]"),
+  // Red if a row stops being a checkbox, ticks one the state did not, or
+  // a tick or an untick does not reach the handler with its new state.
+  it("ticks the file types from three rows, each with its own file", () => {
+    renderExport(root, { ...idle, fileTypes: ["mp4", "gif"] }, handlers);
+    const boxes = [
+      ...root.querySelectorAll<HTMLInputElement>("[data-file-type]"),
     ];
     expect(
-      buttons.map((b) => [
+      boxes.map((b) => [
         b.dataset.fileType,
-        b.textContent,
-        b.getAttribute("aria-checked"),
+        b.type,
+        b.checked,
+        b.closest("label")?.textContent,
       ]),
     ).toEqual([
-      ["mp4", "MP4", "false"],
-      ["gif", "GIF", "true"],
-      ["stills", "PNG stills", "false"],
+      ["mp4", "checkbox", true, "MP40:24 · 2560 × 1440"],
+      ["gif", "checkbox", true, "GIF0:24 · 800 × 450"],
+      ["stills", "checkbox", false, "PNG stillsone per step · 1920 × 1080"],
     ]);
-    buttons[2]?.click();
-    expect(handlers.onFileType).toHaveBeenCalledWith("stills");
+    expect(root.querySelector("[data-export-start]")?.textContent).toBe(
+      "Export MP4 + GIF",
+    );
+    (boxes[2] as HTMLInputElement).click();
+    expect(handlers.onFileType).toHaveBeenLastCalledWith("stills", true);
+    (boxes[0] as HTMLInputElement).click();
+    expect(handlers.onFileType).toHaveBeenLastCalledWith("mp4", false);
+  });
+
+  // Red if the button stays pressable with nothing ticked, or is disabled
+  // with nothing said beside it.
+  it("disables Export with nothing ticked, and says why", () => {
+    renderExport(root, { ...idle, fileTypes: [] }, handlers);
+    const start = root.querySelector<HTMLButtonElement>("[data-export-start]");
+    expect([start?.textContent, start?.disabled]).toEqual(["Export", true]);
+    expect(root.querySelector("[data-export-none-ticked]")?.textContent).toBe(
+      "Tick at least one file.",
+    );
+    // Premise: a ticked panel draws no such line.
+    renderExport(root, idle, handlers);
+    expect(root.querySelector("[data-export-none-ticked]")).toBeNull();
   });
 
   // Red if the row stops naming the three qualities, checks one that is not
   // the state's, drops a click, shows on a GIF, or shows with no quality.
   it("picks an MP4's quality from three segments, and only for an MP4", () => {
-    renderExport(root, { ...idle, quality: "high" }, handlers);
+    renderExport(
+      root,
+      { ...idle, quality: "high", fileTypes: ["mp4", "gif"] },
+      handlers,
+    );
     const buttons = [
       ...root.querySelectorAll<HTMLButtonElement>("[data-export-quality]"),
     ];
@@ -180,7 +216,7 @@ describe("renderExport", () => {
     ).toBe(true);
 
     for (const state of [
-      { ...idle, quality: "high" as const, fileType: "gif" as const },
+      { ...idle, quality: "high" as const, fileTypes: ["gif" as const] },
       { ...idle, quality: null },
       idle,
     ]) {
@@ -236,7 +272,7 @@ describe("renderExport", () => {
       patchExportProgress(
         root,
         { phase: "encoding", done: 248, total: 576 },
-        "mp4",
+        ["mp4"],
         { kind: "exact" },
       ),
     ).toBe(true);
@@ -256,7 +292,7 @@ describe("renderExport", () => {
       patchExportProgress(
         root,
         { phase: "encoding", done: 512, total: 576 },
-        "mp4",
+        ["mp4"],
         { kind: "exact" },
       ),
     ).toBe(true);
@@ -273,7 +309,9 @@ describe("renderExport", () => {
     );
     expect(root.querySelector("[data-export-progress]")).not.toBeNull();
     expect(
-      patchExportProgress(root, { phase: "saving" }, "mp4", { kind: "exact" }),
+      patchExportProgress(root, { phase: "saving" }, ["mp4"], {
+        kind: "exact",
+      }),
     ).toBe(true);
     // `renderExport` draws no bar while saving, so neither may the patch
     // leave one behind at whatever fraction the encode stopped at.
@@ -293,7 +331,7 @@ describe("renderExport", () => {
       patchExportProgress(
         empty,
         { phase: "encoding", done: 1, total: 2 },
-        "mp4",
+        ["mp4"],
         { kind: "exact" },
       ),
     ).toBe(false);
@@ -318,7 +356,7 @@ describe("renderExport", () => {
     // not hand an idle, frameless button back as pressable.
     renderExport(root, { ...idle, readiness: { kind: "noFrames" } }, handlers);
     expect(
-      patchExportProgress(root, { phase: "idle" }, "mp4", {
+      patchExportProgress(root, { phase: "idle" }, ["mp4"], {
         kind: "noFrames",
       }),
     ).toBe(true);
@@ -1060,12 +1098,15 @@ describe("renderExport", () => {
       {
         ...idle,
         aspect: "auto",
-        target: { ...LANDSCAPE_1080P, width: 1920, height: 1042 },
+        targets: {
+          ...idle.targets,
+          mp4: { ...LANDSCAPE_1080P, width: 1920, height: 1042 },
+        },
       },
       handlers,
     );
     expect(root.querySelector("[data-size-readout]")?.textContent).toBe(
-      "Recording 1512 × 820 · Video 1920 × 1042",
+      "Recording 1512 × 820",
     );
     // Review 2026-10-06: the summary repeated the file's size as
     // "1920×1042". Red if the panel names it twice.
@@ -1168,5 +1209,119 @@ describe("an export that left the logo out", () => {
       handlers,
     );
     expect(root.querySelector("[data-logo-warning='r1']")).not.toBeNull();
+  });
+});
+
+describe("a press of several files", () => {
+  const three: FileType[] = ["mp4", "gif", "stills"];
+  const files = (...ended: ExportFile["ended"][]): ExportFile[] =>
+    three.map((fileType, i) => ({
+      fileType,
+      jobId: null,
+      ended: ended[i] ?? null,
+    }));
+  const statuses = () =>
+    [...root.querySelectorAll("[data-file-status]")].map((s) => [
+      s.getAttribute("data-file-status"),
+      s.textContent,
+    ]);
+
+  // Red if a row stops saying how far its file has got, the button stops
+  // naming the file being made, or the bar measures one file and not the
+  // press (it would fill three times).
+  it("says each file's progress on its row, and one bar for the press", () => {
+    renderExport(
+      root,
+      {
+        ...idle,
+        fileTypes: three,
+        files: files("saved"),
+        run: { phase: "encoding", done: 248, total: 576 },
+      },
+      handlers,
+    );
+    expect(statuses()).toEqual([
+      ["mp4", "Saved"],
+      ["gif", "43%"],
+      ["stills", "Waiting"],
+    ]);
+    expect(root.querySelector("[data-export-start]")?.textContent).toBe(
+      "Exporting GIF · 43%",
+    );
+    const bar = root.querySelector<HTMLProgressElement>(
+      "[data-export-progress]",
+    );
+    expect([bar?.value, bar?.max]).toEqual([576 + 248, 576 * 3]);
+    // Every box is locked while the press runs.
+    expect(
+      [...root.querySelectorAll<HTMLInputElement>("[data-file-type]")].map(
+        (b) => b.disabled,
+      ),
+    ).toEqual([true, true, true]);
+  });
+
+  // Red if the patch moves the button and bar but leaves the row's
+  // percentage where the last render put it.
+  it("moves the current row's status in place", () => {
+    const state = {
+      ...idle,
+      fileTypes: three,
+      files: files("saved"),
+      run: { phase: "encoding" as const, done: 0, total: 0 },
+    };
+    renderExport(root, state, handlers);
+    const status = root.querySelector('[data-file-status="gif"]');
+    // Premise: before the first frame the row has no fraction to show.
+    expect(status?.textContent).toBe("Exporting");
+    patchExportProgress(
+      root,
+      { phase: "encoding", done: 288, total: 576 },
+      three,
+      { kind: "exact" },
+      state.files,
+    );
+    expect(root.querySelector('[data-file-status="gif"]')).toBe(status);
+    expect(status?.textContent).toBe("50%");
+  });
+
+  // Red if a press of one grows row statuses: its button already says it.
+  it("draws no row status for a press of one", () => {
+    renderExport(
+      root,
+      {
+        ...idle,
+        files: [{ fileType: "mp4", jobId: null, ended: null }],
+        run: { phase: "encoding", done: 1, total: 2 },
+      },
+      handlers,
+    );
+    expect(statuses()).toEqual([]);
+    // Premise: the press is running, so the rows would have shown it.
+    expect(root.querySelector("[data-export-start]")?.textContent).toBe(
+      "Exporting · 50%",
+    );
+  });
+
+  // Red if a failed file is silent in the panel once the press is over, or
+  // its Retry is not a press of that file alone.
+  it("names a failed file once the press is over, with a Retry for it", () => {
+    renderExport(
+      root,
+      {
+        ...idle,
+        fileTypes: three,
+        files: files("saved", "failed", "saved"),
+        save: savedOf("a", "b"),
+      },
+      handlers,
+    );
+    const failed = [...root.querySelectorAll("[data-file-failed]")];
+    expect(failed.map((f) => f.textContent)).toEqual(["GIF failed Retry"]);
+    failed[0]?.querySelector("button")?.click();
+    expect(handlers.onRetry).toHaveBeenCalledWith("gif");
+    // The files that saved are still said.
+    expect(root.querySelector("[data-save-outcome]")).not.toBeNull();
+    // Rows read as files again once the press is over.
+    expect(statuses()).toEqual([]);
   });
 });
