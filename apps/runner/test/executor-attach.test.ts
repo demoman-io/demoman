@@ -1544,6 +1544,22 @@ describe("capMissed", () => {
       ),
     ).toBe("");
   });
+  // Final review, Important 1: attach is the default way into the fit
+  // rung, and its summary is the sentence the agent relays. Red if a file
+  // softened to fit reads as one that simply fit.
+  it("says a met cap that softened the video", () => {
+    expect(
+      capMissed(
+        saved({
+          maxBytes: 9_500_000,
+          met: true,
+          steps: [{ kind: "fit", bitrate: 1_600_000, durationMs: 45_000 }],
+          keptQuality: null,
+          belowFloor: true,
+        }),
+      ),
+    ).toBe(", softer than usual to fit in 9.5 MB");
+  });
   it("names the cap and the failure when a step threw", () => {
     expect(
       capMissed(

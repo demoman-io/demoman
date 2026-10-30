@@ -131,14 +131,18 @@ function afterRefusedUpload(
 }
 
 /** What an attached video's summary adds when its export missed the cap it
- *  was given: posted, but not at the size asked for. Empty when there was
- *  no cap, or the file met it. */
+ *  was given (posted, but not at the size asked for), or met it only by
+ *  going below the share look (spec 2026-10-29 §3.3). Empty when there was
+ *  no cap, or the file met it at the share look. */
 export function capMissed(exported: ExportAnswer): string {
   if (exported.outcome !== "saved") return "";
   const cap = exported.warnings.videoSize?.cap;
-  if (cap === undefined || (cap.met && cap.failed === undefined)) return "";
+  if (cap === undefined) return "";
   // The cap as it was asked for, as the export's own summary says it.
   const max = `${cap.maxBytes / 1_000_000} MB`;
+  if (cap.met && cap.failed === undefined) {
+    return cap.belowFloor ? `, softer than usual to fit in ${max}` : "";
+  }
   return cap.failed !== undefined
     ? `, but it is over the ${max} asked for: lowering it further failed (${cap.failed.error.trim().replace(/[.!?]+$/, "")})`
     : `, but it is over the ${max} asked for even at the smallest it goes`;
