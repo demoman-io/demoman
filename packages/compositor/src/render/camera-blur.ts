@@ -1,6 +1,5 @@
 import { clamp, type Rect, type Vec } from "../geometry.js";
-import { frameCamera } from "../plan/camera.js";
-import { type CameraTrack, sampleTrack } from "../plan/camera-follow.js";
+import { type CameraTrack, frameTrack } from "../plan/camera-follow.js";
 
 /**
  * The camera's exposure window at full blur, in OUTPUT milliseconds — about
@@ -103,7 +102,7 @@ export function cameraBlurTransforms(args: {
   outputTimeMs: number;
   /** `ResolvedPlan.motion.blur`, 0..1. */
   blur: number;
-  /** The camera this frame was drawn with: `frameCamera(...)` at now. */
+  /** The camera this frame was drawn with: `frameTrack(...)` at now. */
   current: { scale: number; focus: Vec };
   /** Output pixels per CSS pixel at camera scale 1 — `contentScale(...)`. */
   base: number;
@@ -126,8 +125,9 @@ export function cameraBlurTransforms(args: {
   ];
 
   const passAt = (at: number): CameraBlurPass => {
-    const then = frameCamera(
-      sampleTrack(args.camera, at),
+    const then = frameTrack(
+      args.camera,
+      at,
       args.base,
       frameRect,
       args.viewport,
