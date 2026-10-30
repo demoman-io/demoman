@@ -55,7 +55,6 @@ const base = {
   backToRecording: vi.fn(),
   remove: vi.fn(),
   preview: vi.fn(),
-  filter: vi.fn(),
   rename: vi.fn(),
   renameVideo: vi.fn(),
 };
@@ -254,7 +253,7 @@ describe("the library with the Studio's sizes and unreadable folders", () => {
     expect(row?.textContent).toContain("broken");
     expect(row?.textContent).toContain("scene.json is not valid");
     expect(row?.textContent).toContain(formatBytes(3 * MB));
-    // After the dated sections, and outside the filter.
+    // After the dated sections.
     const dated = root.querySelector("[data-section]");
     expect(dated).not.toBeNull();
     expect(

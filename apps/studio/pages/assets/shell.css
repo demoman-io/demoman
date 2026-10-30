@@ -518,11 +518,10 @@
 
   /* A pill: a filter, a choice in a segmented row. Pressed is ink on ink.
      On `--control` rather than `--card` since 2026-09-20 for the same
-     reason the field is: only the library's filter row and Settings'
-     theme choice use `.pill` now — the editor's own format pills that
-     motivated this are gone, replaced by a `select` — and both sit inside
-     a `.card`, which IS `--card`, so a card-coloured pill with no ring is
-     a pill nobody can see. */
+     reason the field is: only Settings' theme choice uses `.pill` now — the
+     editor's format pills went for a `select`, the library's filter row on
+     2026-10-30 — and it sits inside a `.card`, which IS `--card`, so a
+     card-coloured pill with no ring is a pill nobody can see. */
   .pill {
     display: inline-flex;
     align-items: center;
@@ -544,10 +543,6 @@
   .pill[aria-pressed="true"] {
     background: var(--secondary);
     color: var(--secondary-ink);
-  }
-  .pill-count {
-    font-variant-numeric: tabular-nums;
-    opacity: 0.7;
   }
 
   /* A switch: a real checkbox as the hit target, a track painted over it.

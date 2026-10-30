@@ -20,10 +20,9 @@
 
       /* Settings' shape since 2026-10-08: a left column with the title and
          a jump list of the sections, held in view on a wide window; the
-         filters and the list beside it. The list's column starts the
-         title's height lower — its 36px line and 28px under it — so the
-         filters sit level with the jump list and the title reads as the
-         page's. One column under 1024px, not Settings' 768: the list is a
+         list beside it. The list's column starts the title's height lower
+         — its 36px line and 28px under it — so the first section sits
+         level with the jump list and the title reads as the page's. One column under 1024px, not Settings' 768: the list is a
          grid of 270px cards, and beside a column at 800px it had room for
          one. The storage trigger is in the top bar. */
       .library { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
@@ -220,26 +219,6 @@
 
       [data-notices] > .notice { margin: 0 0 16px; }
 
-      /* The filter row: pills for hosts and for states over the list they
-         narrow, only when the view renders one (there has to be something
-         to choose between). On the dotted ground, not a card: the
-         ground's opaque control tones, or the dots show through a dark
-         theme's translucent ones. */
-      .filters {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 6px;
-        --control: var(--control-ground);
-        --control-hover: var(--control-hover-ground);
-      }
-      .filters-sep {
-        width: 1px;
-        height: 18px;
-        margin: 0 4px;
-        background: var(--ring-strong);
-      }
-
       /* The list, in sections by when the take was made: Today, Yesterday,
          the last week by weekday, then a month at a time (view.ts,
          state.ts's sectionsOf). Each section is a fold whose summary is
@@ -252,9 +231,6 @@
          list of lines. */
       .section { margin-top: 8px; }
       .library-content > .section:first-of-type { margin-top: 0; }
-      /* 28px under the filters, as under the title before 2026-10-08. At
-         the first section's own specificity, or the rule above wins. */
-      .library-content > .filters + .section { margin-top: 28px; }
       .section[open] + .section { margin-top: 40px; }
 
       /* A section's summary: Settings' chevron, the heading, its count. */

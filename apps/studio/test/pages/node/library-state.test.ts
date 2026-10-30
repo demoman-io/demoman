@@ -2,17 +2,11 @@
 import type { SceneDocument } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import type { StorageSummary } from "../../../pages/src/core/storage/types";
-import type {
-  LibraryFilter,
-  LibraryRow,
-} from "../../../pages/src/library/state";
+import type { LibraryRow } from "../../../pages/src/library/state";
 import {
   buildLibraryModel,
   cardsOf,
-  facetsOf,
-  filterRows,
   formatBytes,
-  NO_FILTER,
   reclaimSentence,
   repoLabel,
   sectionsOf,
@@ -203,54 +197,6 @@ describe("buildLibraryModel", () => {
       origin: "not a url",
       path: "",
     });
-  });
-
-  it("facets rows by host and state, and filters by either", () => {
-    const row = (
-      sceneId: string,
-      origin: string,
-      state: "Complete" | "Motion reclaimed" | "Keyframes only",
-    ) => ({
-      sceneId,
-      name: sceneId,
-      label: sceneId,
-      origin,
-      path: "",
-      createdAt: "2026-09-01T00:00:00Z",
-      when: "Sep 1, 12:00 AM",
-      time: "12:00 AM",
-      hosted: false,
-      recoverable: false,
-      frameBytes: 0,
-      outputBytes: 0,
-      state,
-      canRestore: state === "Motion reclaimed",
-      authored: false,
-      servesReshoot: false,
-      needsLook: false,
-    });
-    const rows = [
-      row("a", "localhost:4000", "Complete"),
-      row("b", "localhost:4000", "Motion reclaimed"),
-      row("c", "staging.test", "Complete"),
-    ];
-    expect(facetsOf(rows)).toEqual({
-      hosts: [
-        { value: "localhost:4000", count: 2 },
-        { value: "staging.test", count: 1 },
-      ],
-      states: [
-        { value: "Complete", count: 2 },
-        { value: "Motion reclaimed", count: 1 },
-      ],
-    });
-    const ids = (f: LibraryFilter) => filterRows(rows, f).map((r) => r.sceneId);
-    expect(ids(NO_FILTER)).toEqual(["a", "b", "c"]);
-    expect(ids({ host: "localhost:4000", state: null })).toEqual(["a", "b"]);
-    expect(ids({ host: null, state: "Motion reclaimed" })).toEqual(["b"]);
-    expect(ids({ host: "staging.test", state: "Motion reclaimed" })).toEqual(
-      [],
-    );
   });
 
   it("formats bytes for people", () => {

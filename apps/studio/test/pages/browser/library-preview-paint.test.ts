@@ -152,7 +152,6 @@ function mountRow(ports: PreviewPorts): {
     backToRecording() {},
     remove() {},
     preview: mounter.mount,
-    filter() {},
     rename() {},
     renameVideo() {},
     openReview() {},
@@ -161,14 +160,7 @@ function mountRow(ports: PreviewPorts): {
   // date: a take from a past month renders inside a folded section, where
   // no pointer reaches it and nothing of it is painted, and this test is
   // about the thumbnail, not the fold.
-  renderLibrary(
-    root,
-    model,
-    actions,
-    new Map(),
-    undefined,
-    new Date(FIXTURE_MADE),
-  );
+  renderLibrary(root, model, actions, new Map(), new Date(FIXTURE_MADE));
   const box = root.querySelector("[data-preview]") as HTMLElement;
   return {
     box,

@@ -50,7 +50,6 @@ describe("renderLibrary", () => {
       backToRecording: vi.fn(),
       remove: vi.fn(),
       preview: vi.fn(),
-      filter: vi.fn(),
       rename: vi.fn(),
       renameVideo: vi.fn(),
       openReview: vi.fn(),
@@ -87,7 +86,6 @@ describe("renderLibrary", () => {
         backToRecording() {},
         remove() {},
         preview() {},
-        filter() {},
         rename() {},
         renameVideo() {},
         openReview() {},
@@ -117,7 +115,6 @@ describe("renderLibrary", () => {
       backToRecording() {},
       remove() {},
       preview() {},
-      filter() {},
       rename() {},
       renameVideo() {},
       openReview() {},
@@ -140,7 +137,6 @@ describe("renderLibrary", () => {
     backToRecording() {},
     remove() {},
     preview() {},
-    filter() {},
     rename() {},
     renameVideo() {},
     openReview() {},
@@ -520,105 +516,6 @@ describe("renderLibrary", () => {
     ).toBe("app.test/checkout · Sep 1, 10:30 AM");
   });
 
-  // The filter row exists only when there is something to choose between:
-  // a developer with every take on one localhost and nothing reclaimed
-  // would otherwise see a row holding one pill. The production change that
-  // reddens the first case: rendering the row unconditionally.
-  it("offers no filter row for one host with every take complete", () => {
-    const root = document.createElement("div");
-    renderLibrary(
-      root,
-      { ...model, rows: [complete, { ...complete, sceneId: "d" }] },
-      noop,
-      new Map(),
-    );
-    expect(root.querySelector("[data-filters]")).toBeNull();
-  });
-
-  it("offers host and state pills with counts, and reports the pick", () => {
-    const root = document.createElement("div");
-    const filter = vi.fn();
-    const staging: LibraryRow = {
-      ...complete,
-      sceneId: "s",
-      origin: "staging.test",
-    };
-    renderLibrary(
-      root,
-      { ...model, rows: [complete, staging, reclaimedRow] },
-      { ...noop, filter },
-      new Map(),
-    );
-    const hosts = [...root.querySelectorAll("[data-filter-host]")].map(
-      (b) => b.textContent,
-    );
-    // app.test has two takes (complete + reclaimed), staging one: busiest
-    // first, and the count rides on the pill.
-    expect(hosts).toEqual(["app.test2", "staging.test1"]);
-    expect(
-      root.querySelector('[data-filter-state="Motion reclaimed"]')?.textContent,
-    ).toBe("Motion reclaimed1");
-    // Complete is the ordinary state, never a pill.
-    expect(root.querySelector('[data-filter-state="Complete"]')).toBeNull();
-    expect(
-      root.querySelector("[data-filter-all]")?.getAttribute("aria-pressed"),
-    ).toBe("true");
-    (
-      root.querySelector('[data-filter-host="staging.test"]') as HTMLElement
-    ).click();
-    expect(filter).toHaveBeenCalledWith({ host: "staging.test", state: null });
-  });
-
-  it("shows only the matching rows under a filter, and a way back from none", () => {
-    const root = document.createElement("div");
-    const staging: LibraryRow = {
-      ...complete,
-      sceneId: "s",
-      origin: "staging.test",
-    };
-    const rows = [complete, staging, reclaimedRow];
-    const filter = vi.fn();
-    renderLibrary(root, { ...model, rows }, { ...noop, filter }, new Map(), {
-      host: "staging.test",
-      state: null,
-    });
-    expect(
-      [...root.querySelectorAll("[data-row]")].map((r) =>
-        r.getAttribute("data-row"),
-      ),
-    ).toEqual(["s"]);
-    expect(
-      root
-        .querySelector('[data-filter-host="staging.test"]')
-        ?.getAttribute("aria-pressed"),
-    ).toBe("true");
-    // Pressing the active pill clears it.
-    (
-      root.querySelector('[data-filter-host="staging.test"]') as HTMLElement
-    ).click();
-    expect(filter).toHaveBeenLastCalledWith({ host: null, state: null });
-
-    // A filter nothing matches — the host's last take was deleted — must
-    // not read as an empty library.
-    renderLibrary(root, { ...model, rows }, { ...noop, filter }, new Map(), {
-      host: "gone.test",
-      state: null,
-    });
-    expect(root.querySelector("[data-row]")).toBeNull();
-    expect(root.querySelector("[data-empty]")).toBeNull();
-    const filtered = root.querySelector("[data-empty-filtered]") as HTMLElement;
-    expect([
-      filtered.querySelector("svg")?.getAttribute("data-icon"),
-      filtered.querySelector("strong")?.textContent,
-    ]).toEqual(["funnel", "No recordings match this filter"]);
-    (
-      root.querySelector(
-        "[data-empty-filtered] [data-filter-all]",
-      ) as HTMLElement
-    ).click();
-    expect(filter).toHaveBeenLastCalledWith({ host: null, state: null });
-  });
-
   it("heads the page Recordings, with the storage controls in a panel its trigger opens", () => {
     const root = document.createElement("div");
     renderLibrary(root, model, noop, new Map());
@@ -674,7 +571,6 @@ describe("renderLibrary page parts", () => {
     backToRecording() {},
     remove() {},
     preview() {},
-    filter() {},
     rename() {},
     renameVideo() {},
     openReview() {},
@@ -688,25 +584,6 @@ describe("renderLibrary page parts", () => {
     expect(root.querySelector("[data-storage-trigger]")?.textContent).toBe(
       "Storage250 B of 1000 B",
     );
-  });
-
-  // Every other pill carries its count; All carried none.
-  it("counts every take on the All pill", () => {
-    const root = document.createElement("div");
-    renderLibrary(
-      root,
-      {
-        ...model,
-        rows: [
-          { ...reclaimedRow, sceneId: "x", origin: "one.test" },
-          { ...reclaimedRow, sceneId: "y", origin: "two.test" },
-          { ...reclaimedRow, sceneId: "z", origin: "two.test" },
-        ],
-      },
-      noop,
-      new Map(),
-    );
-    expect(root.querySelector("[data-filter-all]")?.textContent).toBe("All3");
   });
 
   // Settings' empty state: a glyph beside a title and a hint, on a card,
@@ -738,7 +615,6 @@ describe("renderLibrary sections", () => {
     backToRecording() {},
     remove() {},
     preview() {},
-    filter() {},
     rename() {},
     renameVideo() {},
     openReview() {},
@@ -774,7 +650,7 @@ describe("renderLibrary sections", () => {
   // flat list again, or a heading that lists a row from another section.
   it("heads each section, counts it, and lists exactly its rows", () => {
     const root = document.createElement("div");
-    renderLibrary(root, dated, noop, new Map(), undefined, now);
+    renderLibrary(root, dated, noop, new Map(), now);
     const got = sections(root).map((s) => ({
       key: s.getAttribute("data-section"),
       heading: s.querySelector("h2")?.textContent,
@@ -806,7 +682,7 @@ describe("renderLibrary sections", () => {
   it("lists a jump to each section, and opens a folded month it jumps to", () => {
     const root = document.createElement("div");
     document.body.append(root);
-    renderLibrary(root, dated, noop, new Map(), undefined, now);
+    renderLibrary(root, dated, noop, new Map(), now);
     const links = [
       ...root.querySelectorAll<HTMLAnchorElement>("[data-jumps] a[data-nav]"),
     ];
@@ -841,7 +717,7 @@ describe("renderLibrary sections", () => {
   // corner drawn in CSS.
   it("opens each section with Settings' chevron", () => {
     const root = document.createElement("div");
-    renderLibrary(root, dated, noop, new Map(), undefined, now);
+    renderLibrary(root, dated, noop, new Map(), now);
     for (const s of sections(root)) {
       const first = s.querySelector("summary")?.firstElementChild;
       expect(first?.getAttribute("data-icon")).toBe("chevronRight");
@@ -855,7 +731,7 @@ describe("renderLibrary sections", () => {
   it("times a row under a day and dates a row under a month", () => {
     expect(reclaimedRow.when).not.toBe(reclaimedRow.time);
     const root = document.createElement("div");
-    renderLibrary(root, dated, noop, new Map(), undefined, now);
+    renderLibrary(root, dated, noop, new Map(), now);
     const meta = (id: string) =>
       root.querySelector(`[data-row="${id}"] .row-meta`)?.textContent;
     expect(meta("t1")).toBe(`app.test/checkout · ${reclaimedRow.time}`);
@@ -865,7 +741,7 @@ describe("renderLibrary sections", () => {
 
   it("starts a past month closed and everything newer open", () => {
     const root = document.createElement("div");
-    renderLibrary(root, dated, noop, new Map(), undefined, now);
+    renderLibrary(root, dated, noop, new Map(), now);
     expect(
       sections(root).map((s) => [s.getAttribute("data-section"), s.open]),
     ).toEqual([
@@ -875,75 +751,26 @@ describe("renderLibrary sections", () => {
     ]);
   });
 
-  // A rename, a delete or a filter re-renders the whole list. A month the
+  // A rename or a delete re-renders the whole list. A month the
   // author had opened must not fold back on them, and one they folded
   // must not spring open. The production change that reddens this:
   // rendering `open` from the section's default alone.
   it("carries each section's open or closed state across a re-render", () => {
     const root = document.createElement("div");
-    renderLibrary(root, dated, noop, new Map(), undefined, now);
+    renderLibrary(root, dated, noop, new Map(), now);
     const by = (key: string) =>
       root.querySelector<HTMLDetailsElement>(`[data-section="${key}"]`);
     (by("month:2026-08") as HTMLDetailsElement).open = true;
     (by("yesterday") as HTMLDetailsElement).open = false;
-    renderLibrary(root, dated, noop, new Map(), undefined, now);
+    renderLibrary(root, dated, noop, new Map(), now);
     expect(by("month:2026-08")?.open).toBe(true);
     expect(by("yesterday")?.open).toBe(false);
     expect(by("today")?.open).toBe(true);
   });
 
-  // A filter that matches nothing renders no sections, so the DOM has no
-  // state to read on the next render. The production change that reddens
-  // this: reading only the DOM in `sectionStates`.
-  it("keeps a month the author opened open across a filter that matched nothing", () => {
-    const root = document.createElement("div");
-    renderLibrary(root, dated, noop, new Map(), undefined, now);
-    const by = (key: string) =>
-      root.querySelector<HTMLDetailsElement>(`[data-section="${key}"]`);
-    (by("month:2026-08") as HTMLDetailsElement).open = true;
-    renderLibrary(
-      root,
-      dated,
-      noop,
-      new Map(),
-      { host: "nowhere.test", state: null },
-      now,
-    );
-    expect(root.querySelector("[data-empty-filtered]")).not.toBeNull();
-    renderLibrary(root, dated, noop, new Map(), undefined, now);
-    expect(by("month:2026-08")?.open).toBe(true);
-  });
-
-  it("applies a filter within sections, and drops a section it empties", () => {
-    const root = document.createElement("div");
-    const mixed: LibraryModel = {
-      ...dated,
-      rows: [
-        ...dated.rows,
-        { ...row("staging", at(2026, 9, 13)), origin: "staging.test" },
-      ],
-    };
-    renderLibrary(
-      root,
-      mixed,
-      noop,
-      new Map(),
-      { host: "staging.test", state: null },
-      now,
-    );
-    expect(sections(root).map((s) => s.getAttribute("data-section"))).toEqual([
-      "yesterday",
-    ]);
-    expect(
-      [...root.querySelectorAll("[data-row]")].map((r) =>
-        r.getAttribute("data-row"),
-      ),
-    ).toEqual(["staging"]);
-  });
-
   it("tells a screen reader the section a card is in", () => {
     const root = document.createElement("div");
-    renderLibrary(root, dated, noop, new Map(), undefined, now);
+    renderLibrary(root, dated, noop, new Map(), now);
     const section = root.querySelector('[data-section="today"]') as HTMLElement;
     const heading = section.querySelector("h2") as HTMLElement;
     expect(heading.id).not.toBe("");
@@ -994,7 +821,6 @@ describe("renderLibrary preview box", () => {
     backToRecording: vi.fn(),
     remove: vi.fn(),
     preview: vi.fn(),
-    filter: vi.fn(),
     rename: vi.fn(),
     renameVideo: vi.fn(),
     openReview: vi.fn(),

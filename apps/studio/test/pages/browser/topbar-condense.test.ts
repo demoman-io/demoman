@@ -56,7 +56,6 @@ async function mount(name: "library" | "settings") {
         preview() {},
       } as never,
       new Map(),
-      undefined,
       new Date(2026, 9, 8, 12),
     );
   }

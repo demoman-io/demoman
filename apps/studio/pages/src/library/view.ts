@@ -5,20 +5,15 @@ import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
 import { previewText } from "./preview";
 import type {
-  LibraryFilter,
   LibraryModel,
   LibraryRow,
   LibrarySection,
-  StateFacet,
   VideoGroup,
 } from "./state";
 import {
   BAD_BUDGET,
   cardsOf,
-  facetsOf,
-  filterRows,
   formatBytes,
-  NO_FILTER,
   repoLabel,
   sectionsOf,
 } from "./state";
@@ -72,8 +67,6 @@ export interface LibraryActions {
    * asserted in jsdom.
    */
   preview(sceneId: string, box: HTMLElement): void;
-  /** The author picked a pill. The page holds the filter and re-renders. */
-  filter(next: LibraryFilter): void;
   /** Open Needs a look, the drift review, from this card's flag. Named by
    *  the card so the page can let a rename on it land first, as Edit does. */
   openReview?(sceneId: string): void;
@@ -216,7 +209,7 @@ function createHeader(withStorage: boolean): Header {
   let actions: LibraryActions | null = null;
   // Settings' shape (2026-10-08): a column at the left, held in view on a
   // wide window, with the title and a jump list of the sections; the
-  // filters and the list in the column beside it. The storage trigger
+  // list in the column beside it. The storage trigger
   // goes in the top bar (see `storage` below).
   const box = el("div", { class: "library", "data-library": "" });
   const side = el("aside", { class: "library-side", "data-header": "" });
@@ -478,90 +471,6 @@ function headerNotices(model: LibraryModel): HTMLElement[] {
 const headers = new WeakMap<HTMLElement, Header>();
 
 /**
- * The filter row: one pill per host and per non-complete state, each with
- * its count, over the list it narrows (a stacked list in the left column
- * was tried on 2026-10-08 and read as places to go rather than a view of
- * the list). Rendered only when there is something to choose between — a
- * developer with every take on one localhost and nothing reclaimed would
- * otherwise see a row holding a single pill. Returns null in that case,
- * so the caller has nothing to append.
- */
-function filterRow(
-  rows: LibraryRow[],
-  filter: LibraryFilter,
-  actions: LibraryActions,
-): HTMLElement | null {
-  const facets = facetsOf(rows);
-  const states = facets.states.filter((s) => s.value !== "Complete");
-  if (facets.hosts.length <= 1 && states.length === 0) return null;
-
-  const bar = el("div", {
-    class: "filters",
-    role: "group",
-    "aria-label": "Filter",
-    "data-filters": "",
-  });
-  const pill = (
-    text: string,
-    count: number | null,
-    pressed: boolean,
-    next: LibraryFilter,
-    attrs: Record<string, string>,
-  ): HTMLButtonElement => {
-    const button = el("button", {
-      type: "button",
-      class: "pill",
-      "aria-pressed": pressed ? "true" : "false",
-      ...attrs,
-    });
-    button.append(text);
-    if (count !== null) {
-      button.append(el("span", { class: "pill-count" }, String(count)));
-    }
-    button.addEventListener("click", () => actions.filter(next));
-    return button;
-  };
-
-  const nothingChosen = filter.host === null && filter.state === null;
-  // All counts too, as every other pill does: every take in the library.
-  bar.append(
-    pill("All", rows.length, nothingChosen, NO_FILTER, {
-      "data-filter-all": "",
-    }),
-  );
-  if (facets.hosts.length > 1) {
-    for (const h of facets.hosts) {
-      const on = filter.host === h.value;
-      bar.append(
-        pill(
-          h.value,
-          h.count,
-          on,
-          { ...filter, host: on ? null : h.value },
-          { "data-filter-host": h.value },
-        ),
-      );
-    }
-  }
-  if (states.length > 0 && facets.hosts.length > 1) {
-    bar.append(el("span", { class: "filters-sep", "aria-hidden": "true" }));
-  }
-  for (const s of states) {
-    const on = filter.state === s.value;
-    bar.append(
-      pill(
-        s.value,
-        s.count,
-        on,
-        { ...filter, state: on ? null : s.value },
-        { "data-filter-state": s.value },
-      ),
-    );
-  }
-  return bar;
-}
-
-/**
  * The tags: only for what departs from the ordinary — "Complete" is what a
  * recording is unless something has happened to it, so it says nothing; the
  * two degraded states and a hosted copy each get a glyph and a word. Null
@@ -651,7 +560,7 @@ function previewBox(r: LibraryRow, actions: LibraryActions): HTMLElement {
   return box;
 }
 
-const STATE_ATTR: Record<StateFacet["value"], string> = {
+const STATE_ATTR: Record<LibraryRow["state"], string> = {
   Complete: "complete",
   "Motion reclaimed": "reclaimed",
   "Keyframes only": "keyframesOnly",
@@ -1073,8 +982,8 @@ const sectionHeadingId = (key: string): string =>
 
 /**
  * Which sections under `root` are open and which are closed, by key, so a
- * render can put each one back the way the author left it. A rename, a
- * delete or a filter re-renders the whole list; a month the author had
+ * render can put each one back the way the author left it. A rename or a
+ * delete re-renders the whole list; a month the author had
  * opened must not fold back on them, and one they folded must not spring
  * open. A section not in the map is new to this render and takes its own
  * default.
@@ -1085,19 +994,8 @@ function sectionStates(root: HTMLElement): Map<string, boolean> {
     const key = s.getAttribute("data-section");
     if (key !== null) states.set(key, s.open);
   }
-  if (states.size > 0) {
-    remembered.set(root, states);
-    return states;
-  }
-  // No sections on the page — a filter that matched nothing, or the empty
-  // library — so the DOM has nothing to say. The last render that did
-  // have sections still does: without this, "Show all" after an empty
-  // filter would fold every month back to its default.
-  return remembered.get(root) ?? states;
+  return states;
 }
-
-/** The section states of the last render that had any, per root. */
-const remembered = new WeakMap<HTMLElement, Map<string, boolean>>();
 
 /** The id of the unreadable folders' section, which its jump link names. */
 const UNREADABLE_ID = "unreadable";
@@ -1221,8 +1119,7 @@ function section(
 }
 
 /**
- * The folders the studio could not read, after the dated sections and
- * outside the filter: a filter narrows takes, and these are not takes. Each
+ * The folders the studio could not read, after the dated sections. Each
  * is a row with its name, the reason and the size — a folder that will not
  * read must be a row, never a missing card — and a Delete, the one thing
  * that can be done with it.
@@ -1303,13 +1200,12 @@ export function renderLibrary(
   model: LibraryModel,
   actions: LibraryActions,
   rowStatus: Map<string, string>,
-  filter: LibraryFilter = NO_FILTER,
   /** The clock the sections are measured from. Injected so a test can sit
    *  on midnight; the page takes the real one. */
   now: Date = new Date(),
 ): void {
   // A name the author is typing on one card survives a render another
-  // card's rename (or a filter) triggers: its text, focus and caret move
+  // card's rename triggers: its text, focus and caret move
   // into the new field for the same row. Every row is replaced below.
   const typing = typingName(root);
   const wasOpen = sectionStates(root);
@@ -1362,7 +1258,7 @@ export function renderLibrary(
     list.append(card);
     return;
   }
-  // One card per video: the filters and sections count cards, not takes.
+  // One card per video: the sections count cards, not takes.
   const cards = cardsOf(model);
   const leads = cards.map((c) => c.row);
   const groupOf = new Map(
@@ -1370,37 +1266,10 @@ export function renderLibrary(
       c.group === null ? [] : [[c.row.sceneId, c.group] as const],
     ),
   );
-  const filters = filterRow(leads, filter, actions);
-  if (filters !== null) list.append(filters);
-
-  const shown = filterRows(leads, filter);
-  if (shown.length === 0) {
-    // Reachable only through a stale filter — a host whose last take was
-    // deleted, say. Says so, and offers the way back, rather than showing
-    // the "no recordings yet" line over a library that has some.
-    const clear = el(
-      "button",
-      { type: "button", class: "btn btn-link", "data-filter-all": "" },
-      "Show all recordings",
-    );
-    clear.addEventListener("click", () => actions.filter(NO_FILTER));
-    const card = el("div", {
-      "data-empty-filtered": "",
-      class: "card empty-card",
-    });
-    card.append(
-      emptyState("funnel", "No recordings match this filter", [clear]),
-    );
-    list.append(card);
-    appendUnreadable();
-    return;
-  }
-
   // Sections by when the take was made — landmarks in a list that was one
-  // flat wall of equal cards. Filtered first, so a section the filter
-  // empties is not rendered at all.
+  // flat wall of equal cards.
   const articles: (readonly [string, HTMLElement])[] = [];
-  const sections = sectionsOf(shown, now);
+  const sections = sectionsOf(leads, now);
   head.jumps.append(jumpList(sections, unreadable.length));
   for (const s of sections) {
     const built = section(

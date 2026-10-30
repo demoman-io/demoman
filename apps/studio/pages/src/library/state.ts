@@ -310,52 +310,6 @@ export function whenLabel(at: Date, withYear: boolean): string {
   });
 }
 
-/** What the author has narrowed the list to. Both null is everything. */
-export interface LibraryFilter {
-  host: string | null;
-  state: LibraryRow["state"] | null;
-}
-
-export const NO_FILTER: LibraryFilter = { host: null, state: null };
-
-export interface HostFacet {
-  value: string;
-  count: number;
-}
-export interface StateFacet {
-  value: LibraryRow["state"];
-  count: number;
-}
-
-const STATE_ORDER: LibraryRow["state"][] = [
-  "Complete",
-  "Motion reclaimed",
-  "Keyframes only",
-];
-
-/** The pills the filter row can offer: every host and every state present,
- *  with counts. Hosts by count then name, so the busiest site leads. */
-export function facetsOf(rows: readonly LibraryRow[]): {
-  hosts: HostFacet[];
-  states: StateFacet[];
-} {
-  const hosts = new Map<string, number>();
-  const states = new Map<LibraryRow["state"], number>();
-  for (const r of rows) {
-    hosts.set(r.origin, (hosts.get(r.origin) ?? 0) + 1);
-    states.set(r.state, (states.get(r.state) ?? 0) + 1);
-  }
-  return {
-    hosts: [...hosts]
-      .map(([value, count]) => ({ value, count }))
-      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value)),
-    states: STATE_ORDER.filter((s) => states.has(s)).map((value) => ({
-      value,
-      count: states.get(value) ?? 0,
-    })),
-  };
-}
-
 /**
  * One section of the list: a heading, the rows under it, and whether it
  * starts folded. Keys are stable across renders so the page can carry an
@@ -446,17 +400,6 @@ export function sectionsOf(
     }
   }
   return [...sections.values()];
-}
-
-export function filterRows(
-  rows: readonly LibraryRow[],
-  filter: LibraryFilter,
-): LibraryRow[] {
-  return rows.filter(
-    (r) =>
-      (filter.host === null || r.origin === filter.host) &&
-      (filter.state === null || r.state === filter.state),
-  );
 }
 
 /**

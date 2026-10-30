@@ -6,8 +6,8 @@ import { createPlatform } from "#platform";
 import { editedLength } from "../../src/library/length";
 import type { PreviewMounter, PreviewPorts } from "../../src/library/preview";
 import { createPreviewMounter } from "../../src/library/preview";
-import type { LibraryFilter, LibraryModel } from "../../src/library/state";
-import { buildLibraryModel, NO_FILTER } from "../../src/library/state";
+import type { LibraryModel } from "../../src/library/state";
+import { buildLibraryModel } from "../../src/library/state";
 import {
   type LibraryActions,
   type RowKind,
@@ -223,10 +223,9 @@ const previewPorts: PreviewPorts<FrameBundle> = {
  */
 let mounter: PreviewMounter | null = null;
 
-/** The model of the last pass, so a filter change can repaint without
+/** The model of the last pass, so a refused rename can repaint without
  *  asking the background for the summary again. */
 let lastModel: LibraryModel | null = null;
-let filter: LibraryFilter = NO_FILTER;
 
 /** Drops a status whose row is gone. Keyed by the kind of row it was said
  *  on (`statusKey`), so a take that became a "Couldn't read" folder leaves
@@ -249,7 +248,7 @@ function paint(model: LibraryModel): void {
   dropStatusesWithNoRow(model);
   mounter?.dispose();
   mounter = createPreviewMounter(previewPorts);
-  renderLibrary(root, model, actions, rowStatus, filter);
+  renderLibrary(root, model, actions, rowStatus);
   jumps.mark();
 }
 
@@ -360,19 +359,6 @@ function isAuthored(sceneId: string): boolean {
 }
 
 const actions: LibraryActions = {
-  filter: (next: LibraryFilter): void => {
-    filter = next;
-    if (lastModel === null) {
-      // Unreachable as written — the pills only exist once a pass has
-      // rendered — but a pill that silently did nothing would look like a
-      // filter that does not work.
-      console.error(
-        "demoman library: a filter was picked before the page had rendered",
-      );
-      return;
-    }
-    paint(lastModel);
-  },
   preview: (sceneId: string, box: HTMLElement): void => {
     if (mounter === null) {
       // Unreachable as written — `render()` makes the mounter immediately

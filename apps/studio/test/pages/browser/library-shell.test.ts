@@ -97,7 +97,6 @@ const noop = {
   backToRecording() {},
   remove() {},
   preview() {},
-  filter() {},
   rename() {},
   renameVideo() {},
   openReview() {},
@@ -112,7 +111,7 @@ const NOW = new Date(2026, 8, 13, 20);
 function mount(scheme: "light" | "dark", model: LibraryModel = MODEL) {
   mountShell(scheme, css);
   document.body.innerHTML = bodyHtml;
-  renderLibrary(node("#root"), model, noop, new Map(), undefined, NOW);
+  renderLibrary(node("#root"), model, noop, new Map(), NOW);
   node("#notice").classList.remove("hidden");
   node("#notice").textContent = "Couldn't read storage: no reply.";
   return { surface, ink, radius };
@@ -265,25 +264,12 @@ describe.each(["light", "dark"] as const)(
       });
     });
 
-    it("tells a pressed filter pill from a resting one", () => {
-      const { surface, ink, radius } = mount(scheme);
-      const on = "[data-filter-all]";
-      const off = '[data-filter-host="localhost:4000"]';
-      // Pills, nav tabs and chips were fully round until 2026-09-14; they
-      // sit on the same control radius as everything else now.
-      expect(radius(on)).toBe(length("--radius"));
+    // Nav tabs and chips were fully round until 2026-09-14; they sit on the
+    // same control radius as everything else now.
+    it("keeps the tabs and tags on the control radius", () => {
+      const { radius } = mount(scheme);
       expect(radius("[data-tabs] a")).toBe(length("--radius"));
       expect(radius(`${CARD} .tag`)).toBe(length("--radius"));
-      expect(node(on).getAttribute("aria-pressed")).toBe("true");
-      expect(
-        contrast(surface("body", on), surface("body", off)),
-      ).toBeGreaterThanOrEqual(3);
-      expect(contrast(ink(on), surface("body", on))).toBeGreaterThanOrEqual(
-        4.5,
-      );
-      expect(contrast(ink(off), surface("body", off))).toBeGreaterThanOrEqual(
-        4.5,
-      );
     });
 
     // The card at rest is a thumbnail, a name, and where and when. The size
@@ -367,33 +353,27 @@ describe.each(["light", "dark"] as const)(
       ).toBe("pointer");
     });
 
-    // Settings' rhythm: the filters 16px under the title, so they read as
-    // its toolbar, and 28px from them to the first day. Before 2026-10-06
-    // they were 26 and 20, near enough equal that nothing grouped.
     // Settings' shape since 2026-10-08: the title and the jump list in a
-    // left column held in view; the filters over the list beside it, level
-    // with the jump list, and the first day 28px under them. The storage
-    // trigger is in the top bar.
-    it("holds the title and jump list in a column, the filters level with them over the list", async () => {
+    // left column held in view; the list beside it, its first day level
+    // with the jump list (the filter row sat there until 2026-10-30). The
+    // storage trigger is in the top bar.
+    it("holds the title and jump list in a column, the first day level with them", async () => {
       await page.viewport(1280, 900);
       mount(scheme);
       const side = node("[data-header]");
       const title = node("[data-header] h1").getBoundingClientRect();
       const jumps = node("[data-jumps]").getBoundingClientRect();
-      const filters = node("[data-filters]").getBoundingClientRect();
       const first = node('[data-section="today"]').getBoundingClientRect();
       expect(getComputedStyle(side).position).toBe("sticky");
       expect(jumps.top - title.bottom).toBeCloseTo(28, 0);
       expect(
-        Math.abs(filters.top - jumps.top),
-        `the filters at ${filters.top}, the jump list at ${jumps.top}`,
+        Math.abs(first.top - jumps.top),
+        `the first day at ${first.top}, the jump list at ${jumps.top}`,
       ).toBeLessThan(1);
-      expect(first.top - filters.bottom).toBeCloseTo(28, 0);
       expect(side.getBoundingClientRect().right).toBeLessThanOrEqual(
-        filters.left,
+        first.left,
       );
-      // The filters are over the list, not in the column.
-      expect(side.contains(node("[data-filters]"))).toBe(false);
+      expect(side.contains(node('[data-section="today"]'))).toBe(false);
       expect(
         node("[data-storage-trigger]").closest(".topbar"),
         "the storage trigger is not in the top bar",

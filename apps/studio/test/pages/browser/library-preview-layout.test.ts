@@ -55,7 +55,6 @@ const actions: LibraryActions = {
   backToRecording() {},
   remove() {},
   preview() {},
-  filter() {},
   rename() {},
   renameVideo() {},
   openReview() {},
@@ -79,14 +78,7 @@ function mountPage(
   // date: a take from a past month renders inside a folded section, where
   // no pointer reaches it and nothing of it is painted, and this test is
   // about the thumbnail, not the fold.
-  renderLibrary(
-    root,
-    model,
-    actions,
-    new Map(),
-    undefined,
-    new Date(FIXTURE_MADE),
-  );
+  renderLibrary(root, model, actions, new Map(), new Date(FIXTURE_MADE));
   return {
     box: root.querySelector("[data-preview]") as HTMLElement,
     article: root.querySelector("article") as HTMLElement,

@@ -113,7 +113,6 @@ const noop = {
   backToRecording() {},
   remove() {},
   preview() {},
-  filter() {},
   rename() {},
   renameVideo() {},
   openReview() {},
@@ -174,7 +173,7 @@ describe("the Recordings page, painted", () => {
         await page.viewport(viewport.width, viewport.height);
         mountShell(scheme, css);
         document.body.innerHTML = bodyHtml;
-        renderLibrary(node("#root"), MODEL, noop, new Map(), undefined, NOW);
+        renderLibrary(node("#root"), MODEL, noop, new Map(), NOW);
         // The premise the picture is for: every kind of heading the page
         // has, each with its chevron, and every card painted.
         const heads = [...document.querySelectorAll("[data-section] h2")].map(
@@ -204,32 +203,11 @@ describe("the Recordings page, painted", () => {
         { ...MODEL, usedBytes: 0, fraction: 0, rows: [] },
         noop,
         new Map(),
-        undefined,
         NOW,
       );
       expect(document.querySelector("[data-empty] .empty svg")).not.toBeNull();
       await page.screenshot({
         path: `__screenshots__/library/empty-${scheme}.png`,
-      });
-    });
-
-    it(`draws a filter that matches nothing in ${scheme}`, async () => {
-      await page.viewport(1280, 800);
-      mountShell(scheme, css);
-      document.body.innerHTML = bodyHtml;
-      renderLibrary(
-        node("#root"),
-        MODEL,
-        noop,
-        new Map(),
-        { host: "gone.test", state: null },
-        NOW,
-      );
-      expect(
-        document.querySelector("[data-empty-filtered] .empty svg"),
-      ).not.toBeNull();
-      await page.screenshot({
-        path: `__screenshots__/library/no-match-${scheme}.png`,
       });
     });
   }

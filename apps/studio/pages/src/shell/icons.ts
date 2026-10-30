@@ -306,11 +306,6 @@ const GLYPHS = {
   /** A closed fold — a Settings site, a Recordings day — turned a quarter
    *  to say open. Lucide `chevron-right`. */
   chevronRight: ["m9 18 6-6-6-6"],
-  /** A filter that matched nothing, in the Recordings empty state. Lucide
-   *  `funnel`. */
-  funnel: [
-    "M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z",
-  ],
   /** The Brand kit in the Settings nav. Lucide `palette`, its four dots
    *  written as zero-length round-capped strokes. */
   palette: [

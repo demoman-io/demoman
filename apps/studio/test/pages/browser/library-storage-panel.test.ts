@@ -74,7 +74,6 @@ function actions() {
     backToRecording: vi.fn(),
     remove: vi.fn(),
     preview: vi.fn(),
-    filter: vi.fn(),
     rename: vi.fn(),
     renameVideo: vi.fn(),
     openReview: vi.fn(),
@@ -90,7 +89,7 @@ function mount(
   mountShell(scheme, css);
   document.body.innerHTML = bodyHtml;
   const a = actions();
-  renderLibrary(node("#root"), model, a, new Map(), undefined, NOW);
+  renderLibrary(node("#root"), model, a, new Map(), NOW);
   return a;
 }
 
@@ -253,7 +252,6 @@ describe("the storage panel", () => {
       { ...MODEL, budgetBytes: 3 * 1024 ** 3, fraction: 0.041 },
       a,
       new Map(),
-      undefined,
       NOW,
     );
     expect(node('[data-row="r0"]')).not.toBe(oldRow);
@@ -288,7 +286,7 @@ describe("the storage panel", () => {
     const field = budget();
     expect(document.activeElement).toBe(field);
     // A render some other action triggered — a rename on a card, say.
-    renderLibrary(node("#root"), MODEL, a, new Map(), undefined, NOW);
+    renderLibrary(node("#root"), MODEL, a, new Map(), NOW);
     expect(isOpen()).toBe(true);
     expect(budget()).toBe(field);
     expect(document.activeElement).toBe(field);
