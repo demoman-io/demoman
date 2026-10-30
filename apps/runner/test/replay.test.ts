@@ -568,14 +568,25 @@ describe("replayPhase", () => {
         // Dark pixels inside the field, per frame, decoded in the page the
         // run already has. The screencast frame is the viewport at its own
         // scale, so the CSS rect is scaled by frame width over viewport.
-        const ink = await launched.page.evaluate(
+        //
+        // Only frames at their span's scale are counted (null otherwise). A
+        // span can hold one at another: a 3x frame arrives while a step's
+        // full still is taken (measured 2026-10-29, 19 ms after its
+        // neighbour). Counted at 3x it read 4433 against ~750 and stood in
+        // for the typing; drawn down to 1x, 46, as smoothing lightens the
+        // placeholder. Neither is a count the 1x frames can be compared to.
+        const counted = await launched.page.evaluate(
           async ({ frames, field, viewportWidth }) => {
-            const out: number[] = [];
+            const out: (number | null)[] = [];
             for (const f of frames) {
               const blob = new Blob([
                 Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0)),
               ]);
               const bitmap = await createImageBitmap(blob);
+              if (bitmap.width !== f.width) {
+                out.push(null);
+                continue;
+              }
               const k = bitmap.width / viewportWidth;
               const x = Math.round(field.x * k);
               const y = Math.round(field.y * k);
@@ -601,12 +612,16 @@ describe("replayPhase", () => {
           {
             frames: frames.map((f) => ({
               data: Buffer.from(f.bytes).toString("base64"),
+              width: f.width,
             })),
             field,
             viewportWidth: bundle.viewport.width,
           },
         );
-        const said = `${evidence}; ink per frame ${JSON.stringify(ink)}`;
+        const ink = counted.filter((n) => n !== null);
+        const said = `${evidence}; ink per frame ${JSON.stringify(counted)}`;
+        // The premise: setting the other scale aside left the typing.
+        expect(ink.length, said).toBeGreaterThan(frames.length / 2);
         // The field gains ink inside the window rather than holding the
         // whole value from its first frame — what one insert filmed
         // (measured: [901, 884] against [721 … 901] typed a key at a time).
