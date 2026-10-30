@@ -2,6 +2,7 @@ import { globSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { configDefaults, defineConfig } from "vitest/config";
 import {
+  ciRetry,
   slowExcludes,
   testTier,
   testWorkers,
@@ -39,6 +40,9 @@ if (fast) {
 // sequence meets a real browser. The in-page browser lane cannot hold a
 // debugger session, so it cannot cover this. Each file launches a Chromium
 // of its own, so the fast tier skips the lane whole, as it did there.
+// On CI a failed test here runs once more, and a pass on the retry is an
+// annotation on the run (`ciRetry`); the other lanes are not retried.
+const { retry, reporters } = ciRetry();
 const integration = {
   test: {
     name: "integration",
@@ -47,12 +51,14 @@ const integration = {
     exclude: [...configDefaults.exclude, ...slowExcludes(here)],
     testTimeout: 60_000,
     hookTimeout: 60_000,
+    ...(retry && { retry }),
   },
 };
 
 export default defineConfig({
   test: {
     ...testWorkers("heavy"),
+    ...(reporters && { reporters }),
     root: here,
     projects: [
       {
