@@ -449,18 +449,34 @@ describe("renderOutput's GIF size budget", () => {
 });
 
 const { LANDSCAPE_4K, SHARE_LANDSCAPE } = await import("@demoman/compositor");
+const { fitBitrate, HEADROOM } = await import("../../src/render/mp4-cap");
 describe("renderOutput's MP4 size cap", () => {
+  /** The floor: the share look at the 1080p tier's frame. */
+  const FLOOR = { ...SHARE_LANDSCAPE, width: 1920, height: 1080 };
+  /** The output range every capped case reads its length from, unless a
+   *  case trims it. */
+  const rangeIs = (startMs: number, endMs: number) =>
+    composeForTarget.mockReturnValue({
+      violations: [],
+      presentation: { frameRect: { width: 100 } },
+      resolved: { cameraKeys: [], range: { startMs, endMs } },
+    });
+  beforeEach(() => rangeIs(0, 10_000));
   /** Bytes per render, keyed by what the ladder lowers: the frame rate,
-   *  the frame's width, and the encoder's quality. */
-  const sizes = (bySpec: Record<string, number>) =>
+   *  the frame's width, and the encoder's quality. A list is taken one
+   *  render at a time (the fit rung and its retry share a key); an Error
+   *  in it is thrown by that render. */
+  const sizes = (bySpec: Record<string, number | (number | Error)[]>) =>
     renderScene.mockImplementation(
       async (args: {
         target: { width: number; fps: number; encoder?: { quality?: number } };
       }) => {
         const t = args.target;
         const key = `${t.width}@${t.fps}${t.encoder?.quality === undefined ? "" : `q${t.encoder.quality}`}`;
-        const n = bySpec[key];
+        const spec = bySpec[key];
+        const n = Array.isArray(spec) ? spec.shift() : spec;
         if (n === undefined) throw new Error(`no size for ${key}`);
+        if (n instanceof Error) throw n;
         // Each render's facts name it, so a case can tell whose facts the
         // output carries.
         return {
@@ -482,9 +498,15 @@ describe("renderOutput's MP4 size cap", () => {
       fileType: "mp4",
       target: LANDSCAPE_4K,
       bundle: bundle(),
-      mp4Cap: { maxBytes, share: SHARE_LANDSCAPE },
+      mp4Cap: { maxBytes, share: SHARE_LANDSCAPE, floor: FLOOR },
       ...extra,
     });
+  const DOWN_TO_FLOOR = {
+    "3840@60": 300,
+    "3840@30": 150,
+    "2560@30q0.5": 120,
+    "1920@30q0.5": 130,
+  };
 
   // Red if a cap that fit first time renders again or names a step.
   it("a file that fits at the first render is kept, with no steps", async () => {
@@ -496,6 +518,7 @@ describe("renderOutput's MP4 size cap", () => {
       met: true,
       steps: [],
       keptQuality: null,
+      belowFloor: false,
     });
     expect(out.files[0]?.bytes.byteLength).toBe(90);
   });
@@ -503,12 +526,13 @@ describe("renderOutput's MP4 size cap", () => {
   // Red if the ladder lowers more than it must, or keeps a file over the cap
   // when a later one fit.
   it("steps down while over, stops at the first that fits, and names each step", async () => {
-    sizes({ "3840@60": 300, "3840@30": 150, "2560@30q0.5": 80 });
+    sizes({ ...DOWN_TO_FLOOR, "1920@30q0.5": 80 });
     const out = await capped(100);
     expect(rendersAt()).toEqual([
       [3840, 2160, 60, null],
       [3840, 2160, 30, null],
       [2560, 1440, 30, 0.5],
+      [1920, 1080, 30, 0.5],
     ]);
     expect(out.facts.videoCap).toEqual({
       maxBytes: 100,
@@ -521,10 +545,16 @@ describe("renderOutput's MP4 size cap", () => {
           to: { width: 2560, height: 1440 },
           quality: 0.5,
         },
+        {
+          kind: "frame",
+          from: { width: 2560, height: 1440 },
+          to: { width: 1920, height: 1080 },
+        },
       ],
       keptQuality: 0.5,
+      belowFloor: false,
     });
-    expect(out.facts.rendered).toEqual({ width: 2560, height: 1440, fps: 30 });
+    expect(out.facts.rendered).toEqual({ width: 1920, height: 1080, fps: 30 });
     expect(out.files[0]?.bytes.byteLength).toBe(80);
     // The sink was built for the target each render ran at.
     expect(sinks.mp4.mock.calls.map((c) => (c as unknown[])[0])).toEqual(
@@ -532,40 +562,125 @@ describe("renderOutput's MP4 size cap", () => {
     );
   });
 
+  // Red if the fit rung keeps a quality, or its bitrate is not the cap over
+  // the output length read from the floor's resolved range.
+  it("fit: the bitrate the cap and the output length allow", async () => {
+    sizes({ ...DOWN_TO_FLOOR, "1920@30": [90] });
+    const out = await capped(100);
+    // The premise: the length is the floor's resolved range, 10 s here.
+    expect(composeForTarget).toHaveBeenCalledWith(
+      expect.objectContaining({ target: FLOOR }),
+    );
+    expect(rendersAt().at(-1)).toEqual([1920, 1080, 30, null]);
+    const bitrate = fitBitrate(100, 10_000);
+    expect(bitrate).toBe(74);
+    expect(renderScene.mock.calls.at(-1)?.[0].target.bitrate).toBe(bitrate);
+    expect(out.facts.videoCap).toMatchObject({
+      met: true,
+      belowFloor: true,
+      keptQuality: null,
+    });
+    expect(out.facts.videoCap?.steps.at(-1)).toEqual({
+      kind: "fit",
+      bitrate,
+      durationMs: 10_000,
+    });
+  });
+
+  // Review Focus 1. Red if the length comes from the source (or the whole
+  // take) rather than the output range after trims.
+  it("a trimmed take's fit uses the trimmed length", async () => {
+    rangeIs(2_500, 7_500);
+    sizes({ ...DOWN_TO_FLOOR, "1920@30": [90] });
+    const out = await capped(100);
+    expect(out.facts.videoCap?.steps.at(-1)).toEqual({
+      kind: "fit",
+      bitrate: fitBitrate(100, 5_000),
+      durationMs: 5_000,
+    });
+    expect(fitBitrate(100, 5_000)).toBe(147);
+  });
+
+  // Red if a fit that came out over is kept without the one retry, or the
+  // retry does not scale by the overshoot.
+  it("the fit retry: once, scaled by the overshoot", async () => {
+    sizes({ ...DOWN_TO_FLOOR, "1920@30": [130, 95] });
+    const out = await capped(100);
+    expect(renderScene).toHaveBeenCalledTimes(6);
+    const retry = Math.round((74 * 100 * HEADROOM) / 130);
+    expect(retry).toBe(52);
+    expect(out.facts.videoCap?.steps.slice(-2)).toEqual([
+      { kind: "fit", bitrate: 74, durationMs: 10_000 },
+      { kind: "fit", bitrate: retry, durationMs: 10_000 },
+    ]);
+    expect(out.facts.videoCap).toMatchObject({ met: true, belowFloor: true });
+    expect(out.files[0]?.bytes.byteLength).toBe(95);
+  });
+
   // Red if a cap that cannot be met loops, fails the render, or keeps the
   // last file rather than the smallest.
-  it("still over after the last step: four renders, the smallest kept, met false", async () => {
+  it("still over after the retry: six renders, the smallest kept, met false", async () => {
+    sizes({ ...DOWN_TO_FLOOR, "1920@30": [125, 140] });
+    const out = await capped(100);
+    expect(renderScene).toHaveBeenCalledTimes(6);
+    expect(out.files[0]?.bytes.byteLength).toBe(120);
+    expect(out.facts.videoCap).toMatchObject({
+      met: false,
+      keptQuality: 0.5,
+      belowFloor: false,
+    });
+    expect(out.facts.rendered).toEqual({ width: 2560, height: 1440, fps: 30 });
+  });
+
+  // Red if belowFloor is read off the last render rather than the kept one.
+  it("a fit file kept over the cap is below the floor", async () => {
+    sizes({ ...DOWN_TO_FLOOR, "1920@30": [110, 115] });
+    const out = await capped(100);
+    expect(out.files[0]?.bytes.byteLength).toBe(110);
+    expect(out.facts.videoCap).toMatchObject({
+      met: false,
+      keptQuality: null,
+      belowFloor: true,
+    });
+  });
+
+  // Review Focus 4. Red if a retry that throws costs the fit file, or its
+  // failure is kept quiet.
+  it("a retry that throws keeps the fit file and says why", async () => {
     sizes({
-      "3840@60": 400,
-      "3840@30": 300,
-      "2560@30q0.5": 150,
-      "2560@30q0.35": 160,
+      ...DOWN_TO_FLOOR,
+      "1920@30": [110, new Error("the encoder died.")],
     });
     const out = await capped(100);
-    expect(renderScene).toHaveBeenCalledTimes(4);
-    expect(out.facts.videoCap?.met).toBe(false);
+    expect(renderScene).toHaveBeenCalledTimes(6);
+    expect(out.files[0]?.bytes.byteLength).toBe(110);
+    expect(out.facts.videoCap).toMatchObject({
+      met: false,
+      belowFloor: true,
+      failed: {
+        step: {
+          kind: "fit",
+          bitrate: Math.round((74 * 100 * HEADROOM) / 110),
+          durationMs: 10_000,
+        },
+        error: "the encoder died.",
+      },
+    });
     expect(out.facts.videoCap?.steps.map((s) => s.kind)).toEqual([
       "fps",
       "share",
-      "quality",
+      "frame",
+      "fit",
     ]);
-    // The smallest is the share render, not the last: the facts name it.
-    expect(out.files[0]?.bytes.byteLength).toBe(150);
-    expect(out.facts.rendered).toEqual({ width: 2560, height: 1440, fps: 30 });
-    expect(out.facts.videoCap?.keptQuality).toBe(0.5);
   });
 
   // Red if the warnings come from the last render (or the first) rather
   // than the one whose file was kept: they describe a different video.
   it("the warnings are the kept render's", async () => {
-    sizes({
-      "3840@60": 400,
-      "3840@30": 300,
-      "2560@30q0.5": 150,
-      "2560@30q0.35": 160,
-    });
+    sizes({ ...DOWN_TO_FLOOR, "1920@30q0.5": 105, "1920@30": [130, 140] });
     const out = await capped(100);
-    // The premise: four renders, each saying something different.
+    // The premise: six renders, saying five different things (the fit
+    // render and its retry share a key).
     const said = await Promise.all(
       renderScene.mock.results.map(async (r) =>
         JSON.stringify(
@@ -573,24 +688,17 @@ describe("renderOutput's MP4 size cap", () => {
         ),
       ),
     );
-    expect(new Set(said).size, said.join(" ")).toBe(4);
-    expect(out.facts.loweredZooms).toEqual([{ from: "2560@30q0.5" }]);
-    expect(out.facts.detailViolations).toEqual([{ from: "2560@30q0.5" }]);
+    expect(said).toHaveLength(6);
+    expect(new Set(said).size, said.join(" ")).toBe(5);
+    expect(out.facts.loweredZooms).toEqual([{ from: "1920@30q0.5" }]);
+    expect(out.facts.detailViolations).toEqual([{ from: "1920@30q0.5" }]);
   });
 
   // Ruling (2026-10-18): a later rung that throws must not cost the file an
   // earlier one made. Red if the throw escapes (renderFailed), or the
   // failure is kept quiet.
   it("a later rung that throws keeps the smallest file so far, and says which rung failed", async () => {
-    sizes({ "3840@60": 400 });
-    renderScene
-      .mockImplementationOnce(async () => ({
-        bytes: new Uint8Array(400),
-        ...facts,
-      }))
-      .mockImplementationOnce(async () => {
-        throw new Error("the encoder died.");
-      });
+    sizes({ "3840@60": 400, "3840@30": [new Error("the encoder died.")] });
     const out = await capped(100);
     expect(renderScene).toHaveBeenCalledTimes(2);
     expect(out.files[0]?.bytes.byteLength).toBe(400);
@@ -600,6 +708,7 @@ describe("renderOutput's MP4 size cap", () => {
       met: false,
       steps: [],
       keptQuality: null,
+      belowFloor: false,
       failed: {
         step: { kind: "fps", from: 60, to: 30 },
         error: "the encoder died.",
@@ -615,7 +724,7 @@ describe("renderOutput's MP4 size cap", () => {
   });
 
   // Red if a re-render's progress reads as the same render going back:
-  // the fps step and the quality step keep the width, so the width alone
+  // the fps step and the fit step keep the width, so the width alone
   // cannot tell two renders apart (review, 2026-10-18).
   const progressOf = async (
     target: typeof LANDSCAPE_4K,
@@ -639,30 +748,31 @@ describe("renderOutput's MP4 size cap", () => {
       fileType: "mp4",
       target,
       bundle: bundle(),
-      mp4Cap: { maxBytes: 100, share: SHARE_LANDSCAPE },
+      mp4Cap: { maxBytes: 100, share: SHARE_LANDSCAPE, floor: FLOOR },
       onFrame: (...args: unknown[]) => seen.push(args),
     });
     return seen;
   };
 
+  // From 4K at 60: fps, share, frame and fit, and the fit's retry.
   it("says which render each frame of progress belongs to, out of how many it may take", async () => {
     const seen = await progressOf(LANDSCAPE_4K, (t) => t.fps === 60);
     expect(seen).toEqual([
-      [5, 10, 3840, { render: 1, upTo: 4 }],
-      [5, 10, 3840, { render: 2, upTo: 4 }],
+      [5, 10, 3840, { render: 1, upTo: 6 }],
+      [5, 10, 3840, { render: 2, upTo: 6 }],
     ]);
   });
 
-  // From the share default the quality step is the only one, and keeps
-  // both the width and the frame rate.
-  it("tells the share default's two renders apart", async () => {
+  // From the share default: frame, fit and its retry.
+  it("tells the share default's renders apart", async () => {
     const seen = await progressOf(
       SHARE_LANDSCAPE,
       (t) => t.encoder?.quality === 0.5,
     );
     expect(seen).toEqual([
-      [5, 10, 2560, { render: 1, upTo: 2 }],
-      [5, 10, 2560, { render: 2, upTo: 2 }],
+      [5, 10, 2560, { render: 1, upTo: 4 }],
+      [5, 10, 1920, { render: 2, upTo: 4 }],
+      [5, 10, 1920, { render: 3, upTo: 4 }],
     ]);
   });
 

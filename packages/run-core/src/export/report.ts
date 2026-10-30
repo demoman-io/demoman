@@ -246,9 +246,9 @@ export interface CapRender {
   upTo: number;
 }
 
-/** One step a size cap took to make a video fit (spec 2026-10-18 §8), in
- *  the order the ladder takes them: 60 to 30 fps, then the share target's
- *  frame, then quality 0.35. */
+/** One step a size cap took to make a video fit (spec 2026-10-29 §3.1), in
+ *  the order the ladder takes them: 60 to 30 fps, the share target, the
+ *  floor's frame, then a bitrate that fits (once more if it was over). */
 export type VideoStep =
   | { kind: "fps"; from: number; to: number }
   | {
@@ -260,7 +260,14 @@ export type VideoStep =
        *  and the summary names it then rather than an unchanged frame. */
       quality?: number;
     }
-  | { kind: "quality"; from: number; to: number };
+  | {
+      kind: "frame";
+      from: { width: number; height: number };
+      to: { width: number; height: number };
+    }
+  /** Encoded by `bitrate`, computed from the cap and the video's output
+   *  length (`durationMs`, read once): below the share look. */
+  | { kind: "fit"; bitrate: number; durationMs: number };
 
 /** A size cap on a video (`export({ maxMB })`): what it was, whether the
  *  kept file meets it, and the steps taken to try, in order. A cap that fit
@@ -275,6 +282,8 @@ export interface VideoCap {
    *  bitrate (a full-quality render). With the file's frame and fps it is
    *  what a cap that was not met names as the smallest it goes. */
   keptQuality: number | null;
+  /** The kept file came from a `fit` step: softer than the share look. */
+  belowFloor: boolean;
   /** A step whose render threw, and why. The ladder stopped there and kept
    *  the smallest file made before it, so `met` is false; `steps` holds
    *  only the steps that rendered. Absent: no render after the first
@@ -628,15 +637,18 @@ function capStepTarget(step: VideoStep): string {
         ? `quality ${step.quality}`
         : `${frame} at quality ${step.quality}`;
     }
-    case "quality":
-      return `quality ${step.to}`;
+    case "frame":
+      return `${step.to.width}×${step.to.height}`;
+    case "fit":
+      return `${(step.bitrate / 1e6).toFixed(1)} Mbps`;
   }
 }
 
 /**
  * A size cap the file misses, said right after the file's size: the kept
- * file's frame rate, frame and quality, or where lowering it failed. Null
- * when the cap was met (the head says the size as any MP4's does).
+ * file's frame rate, frame and quality, or where lowering it failed. A cap
+ * met below the share look says so (spec 2026-10-29 §3.3); one met any
+ * other way is null (the head says the size as any MP4's does).
  */
 function videoCapClause(
   videoSize: VideoSize | undefined,
@@ -647,13 +659,18 @@ function videoCapClause(
   // The cap as it was asked for (`maxMB`), never rounded or restated:
   // `fileSize` would call a 0.05 MB cap "50 KB" and a 9.96 MB one "10 MB".
   const max = `${cap.maxBytes / 1_000_000} MB`;
-  // Met, however it got there: the file is the size asked for, and what
-  // the ladder lowered stays in `warnings.videoSize.cap.steps`.
-  if (cap.met) return null;
+  // Met: the file is the size asked for, and what the ladder lowered stays
+  // in `warnings.videoSize.cap.steps` (author, 2026-10-20) — unless it is
+  // softer than the share look, which the viewer sees.
+  if (cap.met)
+    return cap.belowFloor ? `: softer than usual to fit in ${max}` : null;
   if (cap.failed !== undefined) {
     // The ladder stopped short: the kept file is not the smallest it goes,
     // and the reason it is not is said whole.
     return `: over the ${max} asked for; lowering it further failed at ${capStepTarget(cap.failed.step)}: ${cap.failed.error.trim().replace(/[.!?]+$/, "")}`;
+  }
+  if (cap.belowFloor) {
+    return `: over the ${max} asked for even softened as far as it goes (${frame.fps} fps, ${frame.width}×${frame.height})`;
   }
   const quality =
     cap.keptQuality === null ? "full quality" : `quality ${cap.keptQuality}`;

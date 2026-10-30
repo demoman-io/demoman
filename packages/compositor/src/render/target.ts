@@ -190,16 +190,6 @@ export const HIGH_VERTICAL: RenderTarget = {
   bitrate: HIGH_LANDSCAPE.bitrate,
 };
 
-/**
- * The lowest `encoder.quality` a size cap may lower a share export to (the
- * author, 2026-10-18: "drop long videos to 0.35 to fit"; spec §8). Of the
- * candidates the author judged, 0.35 at the share frame was the smallest on
- * every take, passed over as the default only for text that stays sharper
- * at 0.5. A cap never draws the frame smaller than the share target's, and
- * never asks for less than this.
- */
-export const SHARE_QUALITY_FLOOR = 0.35;
-
 export const GIF_800: RenderTarget = {
   format: "gif",
   width: 800,
