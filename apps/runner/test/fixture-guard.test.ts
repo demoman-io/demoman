@@ -24,7 +24,7 @@ import {
  * failing three anchors deep with no idea why.
  *
  * The checks themselves live in `fixture.ts`, because Task 13's
- * `acceptance.slow.test.ts` runs them too — before it renders anything, so that a
+ * `acceptance.test.ts` runs them too — before it renders anything, so that a
  * drifted fixture fails with one of their sentences instead of with a colour
  * comparison nobody can act on. This file is the one that exists to run
  * them; that one runs them to protect its own assertions.

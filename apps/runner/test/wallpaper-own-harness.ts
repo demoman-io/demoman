@@ -1,4 +1,4 @@
-// The harness `wallpaper-own.test.ts` and `wallpaper-own.slow.test.ts`
+// The harness `wallpaper-own.test.ts` and `wallpaper-own-export.test.ts`
 // share: an executor on a fresh home, the fixture app, a scratch folder
 // outside the home for the paths a script names, and the PNGs put there.
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";

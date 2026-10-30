@@ -48,7 +48,7 @@ beforeAll(async () => {
   session = createBrowserSession({ headless: true, log: () => undefined });
   const { takeId, original, bundle } = await makeDiskTake(home);
   actions = original.actions.length;
-  // The pointer holds still, as in same-picture.slow.test.ts: the disk
+  // The pointer holds still, as in same-picture.test.ts: the disk
   // take's own glides for all 9 s, and a film never still has no screens.
   const still = { sourceTimeMs: 0, x: 900, y: 600 };
   await putTake(home, takeId, original, {

@@ -1,5 +1,3 @@
-// Slow tier: renders the take's stills through a real browser.
-// `pnpm test:fast` skips it; `pnpm test` and CI run it.
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { exists, ownHarness, RUN_MS } from "./wallpaper-own-harness.js";

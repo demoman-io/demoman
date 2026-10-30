@@ -1,4 +1,3 @@
-// Slow tier: renders one Auto mp4 at the 4K tier in software. `pnpm test:fast` skips it; `pnpm test` and CI run it.
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +10,7 @@ import { sampleMp4 } from "./mp4-probe.js";
 
 /**
  * Auto at the uncapped tier, encoded for real. `executor-export.test.ts`
- * caps its executor at 1080p, and executor-export-4k.slow.test.ts proves
+ * caps its executor at 1080p, and executor-export-4k.test.ts proves
  * 16:9 at 3840x2160; Auto is the recording's shape plus an even margin, so
  * its 4K frame is taller than 16:9 and sits near the H.264 level 5.2 limit
  * `autoTarget` fits it under (36,864 macroblocks). A change that let that

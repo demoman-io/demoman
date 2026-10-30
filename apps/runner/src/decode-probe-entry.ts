@@ -15,7 +15,7 @@
  *
  * No run or export injects this file. `refresh`'s `samePicture` does, on a
  * work page of its own, and so the package prebuilds it (`PAGE_ENTRIES`).
- * `mux.test.ts` and `acceptance.slow.test.ts` do too, via the same
+ * `mux.test.ts` and `acceptance.test.ts` do too, via the same
  * `bundleEntry` + `page.addScriptTag` mechanism `mux.ts`/`render.ts` use for
  * their own entries — additively, so
  * `MUX_ENTRY_GLOBAL` (production) and `DECODE_PROBE_GLOBAL` (this file) can

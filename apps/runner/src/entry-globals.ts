@@ -34,7 +34,7 @@ export const MUX_ENTRY_GLOBAL = "__demomanMux";
 
 /**
  * Where `decode-probe-entry.ts` hangs its entry point. Test-only: only
- * `mux.test.ts` and `acceptance.slow.test.ts` bundle and inject this script,
+ * `mux.test.ts` and `acceptance.test.ts` bundle and inject this script,
  * never any production path. It exists as its own bundle, under its own
  * global, specifically so the decode side it carries (`mediabunny`'s demux
  * — `Input`/`ALL_FORMATS`/`CanvasSink`) never reaches the ~654 KB into the

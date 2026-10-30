@@ -33,7 +33,7 @@ import {
 import { sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-17, M-series Mac, headless), beside
-// executor-export-4k.slow.test.ts, x5 for CI (fff4505) with margin. A run
+// executor-export-4k.test.ts, x5 for CI (fff4505) with margin. A run
 // of the fixture take: about 6 s. Landscape is capped at 1080p
 // (`mp4MaxTier`, below): 16:9 26 s, Auto 36 s; uncapped they took the 4K
 // tier and 128 s and 107 s. A 9:16 export (1080x1920): 18 s at the slowest.
@@ -64,7 +64,7 @@ beforeAll(async () => {
     outDir,
     log: (l) => void lines.push(l),
     // Landscape at 1080p, not the 4K these keyframes back: 4K costs ~4x the
-    // pixels in SwiftShader (128 s an export). executor-export-4k.slow.test.ts
+    // pixels in SwiftShader (128 s an export). executor-export-4k.test.ts
     // is the one export that takes the uncapped tier.
     mp4MaxTier: LANDSCAPE_1080P,
   });

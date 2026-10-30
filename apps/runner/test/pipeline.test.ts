@@ -8,7 +8,7 @@
  * rather than accepting them as ports, so `vi.mock` on the local modules is
  * the seam a real browser is not needed to exercise it through.
  *
- * `apps/runner/test/acceptance.slow.test.ts` (a later task) is where the whole
+ * `apps/runner/test/acceptance.test.ts` (a later task) is where the whole
  * wiring runs for real, against a real browser, and asserts on decoded
  * pixels — this file is deliberately narrower than that.
  */

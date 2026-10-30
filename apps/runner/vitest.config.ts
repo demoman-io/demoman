@@ -42,9 +42,10 @@ import {
  * reports a number and gates nothing, and it cost ~18s and 158 MB of
  * parked JPEGs on every CI push (measured on the 2026-09-23 run).
  *
- * `*.slow.test.ts` render video in software (4K SwiftShader exports, the
- * acceptance run). `pnpm test:fast` leaves them out and says how many;
- * `pnpm test` and CI run them (`scripts/test-tier.mjs`).
+ * `*.slow.test.ts` are the files that take 30 s or more locally (`pnpm
+ * test:times`): the refresh lane and the longest renders. `pnpm test:fast`
+ * leaves them out and says how many; `pnpm test` and CI run them
+ * (`scripts/test-tier.mjs`).
  *
  * On CI a failed test runs once more, and a pass on the retry is an
  * annotation on the run (`ciRetry`).

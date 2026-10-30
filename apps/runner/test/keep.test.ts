@@ -170,7 +170,7 @@ beforeAll(async () => {
   // The clean take: frames on disk, and a logo outside the repo (in home).
   const { takeId, original, bundle } = await makeDiskTake(home);
   cleanTakeId = takeId;
-  // The pointer holds still, as in executor-export-screens.slow.test.ts: a
+  // The pointer holds still, as in executor-export-screens.test.ts: a
   // film that is never still has no screens, and keep refuses one.
   movingCursor = bundle.cursorSamples;
   const still = { sourceTimeMs: 0, x: 900, y: 600 };

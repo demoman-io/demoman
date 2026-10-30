@@ -43,7 +43,7 @@ function decodeProbeBundle(): Promise<string> {
  * node has no WebCodecs, and `about:blank` is not a secure context, so
  * `VideoDecoder` is undefined there (see `decode-probe-entry.ts`). Never on
  * the browser under test, whose pages and windows are what a case measures.
- * Same `DECODE_PROBE_GLOBAL` call as `acceptance.slow.test.ts`'s `sweep`.
+ * Same `DECODE_PROBE_GLOBAL` call as `acceptance.test.ts`'s `sweep`.
  */
 export async function sampleMp4(
   bytes: Uint8Array,

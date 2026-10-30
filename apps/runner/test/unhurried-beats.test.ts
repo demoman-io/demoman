@@ -1,4 +1,3 @@
-// Slow tier: runs a take and exports it in software. `pnpm test:fast` skips it; `pnpm test` and CI run it.
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";

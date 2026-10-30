@@ -1,4 +1,3 @@
-// Slow tier: replays and renders a 1080p mp4 in software, then decodes it. `pnpm test:fast` skips it; `pnpm test` and CI run it.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -478,7 +477,7 @@ async function runAndAssert(scenePath: string, outPath: string): Promise<void> {
     // leaves uncovered, by choice (the author, 2026-10-17): no test renders
     // a recorded replay at 4K. The encode itself is shared — `renderPhase`
     // and the CLI export both go through `renderToFiles` — and the export's
-    // 4K runs in executor-export-4k(-auto).slow.test.ts; `renderPhase`'s own
+    // 4K runs in executor-export-4k(-auto).test.ts; `renderPhase`'s own
     // choice of the 4K target is checked by nothing end to end.
     maxTier: LANDSCAPE_1080P,
   });

@@ -59,7 +59,7 @@ export async function serveFixtureApp(): Promise<{
  *
  * `fixture-guard.test.ts` (Task 9) is the file that exists to run them and
  * say what drifted. They live here rather than there because
- * `acceptance.slow.test.ts` has to run them too, BEFORE it renders anything: the
+ * `acceptance.test.ts` has to run them too, BEFORE it renders anything: the
  * acceptance test asserts on the colour of pixels at fractions of a frame,
  * and if `fixture-app.html` ever stops painting what `fixture-scene.ts`
  * describes, the honest failure is "anchor a-checkout has drifted 31px"

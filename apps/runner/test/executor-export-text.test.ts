@@ -1,4 +1,3 @@
-// Slow tier: exports three mp4s in software. `pnpm test:fast` skips it; `pnpm test` and CI run it.
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

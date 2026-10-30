@@ -1,4 +1,3 @@
-// Slow tier: renders one 3840x2160 mp4 in software. `pnpm test:fast` skips it; `pnpm test` and CI run it.
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

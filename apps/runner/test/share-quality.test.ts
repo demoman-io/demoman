@@ -1,4 +1,3 @@
-// Slow tier: renders the fixture take four times in software (full, share, and two share-sized controls). `pnpm test:fast` skips it; `pnpm test` and CI run it.
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

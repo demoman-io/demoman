@@ -18,7 +18,7 @@ import {
 } from "./wallpaper-own-harness.js";
 
 // The export half of the default kit's missing image is
-// `wallpaper-own.slow.test.ts`: it renders.
+// `wallpaper-own-export.test.ts`: it renders.
 
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 

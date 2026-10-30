@@ -2,7 +2,7 @@
 //
 // `full` (the default, and what `pnpm test` and CI pin) runs every file.
 // `fast` (`pnpm test:fast`, the development loop) skips files named
-// `*.slow.test.ts`, the ones that render video in software, and says so: a
+// `*.slow.test.ts`, the ones that take 30 s or more, and says so: a
 // fast run must never read as a full one.
 
 import { globSync } from "node:fs";
