@@ -1,5 +1,5 @@
 /**
- * `pnpm share:measure -- --take <id> [--take <id>…] --out <dir>`
+ * `pnpm share:measure -- --take <id> [--take <id>…] --out <dir> [--qualities 0.5,0.6 | --bpps 0.05,0.02]`
  *
  * Renders a take at a grid of candidate sizes, frame rates, bitrates and
  * encoder hints, through the CLI's own render path (`renderToFiles` on a
@@ -7,6 +7,9 @@
  * a card per candidate with the video, two 1:1 crops of the densest text, and
  * the file's real size and bitrate. Launch F1's go/no-go evidence
  * (spec 2026-10-18 §3.4). Manual: it needs a display and an existing take.
+ * `--qualities` renders only the share frame at each quality (`qualityGridFor`);
+ * `--bpps` renders each frame up to 2560 at each rate in bits per pixel per
+ * frame (`bppGridFor`), for the size budget's floor (spec 2026-10-29 §4).
  *
  * A combination the browser refuses is listed on the page with its error,
  * never dropped; a crop whose pixels hold no text says so on its card rather
@@ -203,6 +206,54 @@ export function gridFor(
     seen.add(key);
     return true;
   });
+}
+
+/** Each share-sized frame (every one below today's, else today's) at 30 fps
+ *  at each quality, and nothing else: a few renders a take, for one question
+ *  about the frame size or the encoder. */
+export function qualityGridFor(
+  frames: { name: string; target: RenderTarget }[],
+  qualities: number[],
+): Spec[] {
+  const shares = frames.length > 1 ? frames.slice(1) : frames;
+  if (shares.length === 0) throw new Error("no frame to render at");
+  return shares.flatMap((f) =>
+    qualities.map((quality) => ({
+      frame: f.name,
+      target: f.target,
+      fps: 30,
+      mult: null,
+      encoderLabel: `q${quality}`,
+      encoder: { quality },
+    })),
+  );
+}
+
+/** Each frame up to the share frame's long side (2560) at 30 fps, encoded
+ *  by bitrate at each rate in bits per pixel per frame, as asked of the
+ *  encoder: the size budget's sharpness floor is judged off these. */
+export function bppGridFor(
+  frames: { name: string; target: RenderTarget }[],
+  bpps: number[],
+): Spec[] {
+  const shares = frames.filter(
+    (f) =>
+      Math.max(f.target.width, f.target.height) <= LANDSCAPE_1440P.width,
+  );
+  if (shares.length === 0) throw new Error("no frame to render at");
+  return shares.flatMap((f) =>
+    bpps.map((bpp) => ({
+      frame: f.name,
+      target: {
+        ...f.target,
+        bitrate: Math.round(bpp * f.target.width * f.target.height * 30),
+      },
+      fps: 30,
+      mult: 1,
+      encoderLabel: `${bpp} bpp`,
+      encoder: undefined,
+    })),
+  );
 }
 
 export interface Probed {
@@ -483,7 +534,8 @@ async function cropAt(
 }
 
 /** What the sink should report for a spec: the same shape `createMp4Sink`
- *  leaves in `ENCODER_USED_GLOBAL`. */
+ *  leaves in `ENCODER_USED_GLOBAL`, with the software encoder that
+ *  `render-entry.ts`'s `softwareEncoded` pins when a spec names none. */
 export function expectedEncoder(
   encoder: Mp4EncoderHints | undefined,
   bitrate: number,
@@ -495,9 +547,7 @@ export function expectedEncoder(
     ...(encoder?.bitrateMode === undefined
       ? {}
       : { bitrateMode: encoder.bitrateMode }),
-    ...(encoder?.hardwareAcceleration === undefined
-      ? {}
-      : { hardwareAcceleration: encoder.hardwareAcceleration }),
+    hardwareAcceleration: encoder?.hardwareAcceleration ?? "prefer-software",
   };
 }
 
@@ -560,9 +610,13 @@ function parseArgs(argv: string[]): {
   takes: string[];
   out: string;
   home: string;
+  qualities: number[] | null;
+  bpps: number[] | null;
 } {
   const takes: string[] = [];
   let out: string | null = null;
+  let qualities: number[] | null = null;
+  let bpps: number[] | null = null;
   let home = join(homedir(), ".demoman");
   const args = argv[0] === "--" ? argv.slice(1) : argv;
   for (let i = 0; i < args.length; i += 2) {
@@ -574,18 +628,33 @@ function parseArgs(argv: string[]): {
     if (flag === "--take") takes.push(value);
     else if (flag === "--out") out = value;
     else if (flag === "--home") home = value;
-    else throw new Error(`share:measure: unknown argument "${flag}"`);
+    else if (flag === "--qualities") {
+      qualities = value.split(",").map(Number);
+      if (qualities.some((q) => !(q > 0 && q <= 1)))
+        throw new Error(
+          `share:measure: --qualities "${value}" is not a list of numbers in (0, 1]`,
+        );
+    } else if (flag === "--bpps") {
+      bpps = value.split(",").map(Number);
+      if (bpps.some((b) => !(b > 0 && b < 1)))
+        throw new Error(
+          `share:measure: --bpps "${value}" is not a list of numbers in (0, 1)`,
+        );
+    } else throw new Error(`share:measure: unknown argument "${flag}"`);
+  }
+  if (qualities !== null && bpps !== null) {
+    throw new Error("share:measure: --qualities and --bpps are two grids; ask for one");
   }
   if (takes.length === 0 || out === null) {
     throw new Error(
-      "usage: pnpm share:measure -- --take <id> [--take <id>…] --out <dir> [--home <dir>]",
+      "usage: pnpm share:measure -- --take <id> [--take <id>…] --out <dir> [--home <dir>] [--qualities 0.5,0.6 | --bpps 0.05,0.02]",
     );
   }
-  return { takes, out: resolve(out), home };
+  return { takes, out: resolve(out), home, qualities, bpps };
 }
 
 async function main(): Promise<void> {
-  const { takes, out, home } = parseArgs(process.argv.slice(2));
+  const { takes, out, home, qualities, bpps } = parseArgs(process.argv.slice(2));
   await preflightTools();
   await mkdir(out, { recursive: true });
   const library = createLibrary(home);
@@ -610,7 +679,13 @@ async function main(): Promise<void> {
         bundle,
         frameOf(scene),
       );
-      const specs = gridFor(framesFor(scene, viewport, today));
+      const frames = framesFor(scene, viewport, today);
+      const specs =
+        qualities !== null
+          ? qualityGridFor(frames, qualities)
+          : bpps !== null
+            ? bppGridFor(frames, bpps)
+            : gridFor(frames);
       // As a real export renders it: the take's own logo, so a candidate's
       // size includes what it costs.
       const logo: LogoInput | null =

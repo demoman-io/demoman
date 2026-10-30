@@ -3,14 +3,18 @@ import { describe, expect, it } from "vitest";
 import {
   densestRect,
   encoderCheck,
+  bppGridFor,
   expectedEncoder,
   gridFor,
   pickInstants,
+  qualityGridFor,
   scaleRect,
   strongEdgeShare,
   TEXT_EDGE_FLOOR,
 } from "../src/compare/share-measure";
-import { pageHtml, sortedBySize } from "../src/compare/share-page";
+import { bitsPerPixel, pageHtml, sortedBySize } from "../src/compare/share-page";
+
+const SOFT_Q = '{"quality":0.5,"hardwareAcceleration":"prefer-software"}';
 
 describe("share-measure's pure parts", () => {
   it("text clears the edge floor; a border, a ramp and a flat patch do not", () => {
@@ -40,8 +44,10 @@ describe("share-measure's pure parts", () => {
   });
 
   it("reports the encoder the sink should say it used", () => {
+    // A spec that names no encoder gets render-entry's software pin.
     expect(expectedEncoder(undefined, 5_000_000)).toEqual({
       bitrate: 5_000_000,
+      hardwareAcceleration: "prefer-software",
     });
     expect(
       expectedEncoder(
@@ -56,16 +62,35 @@ describe("share-measure's pure parts", () => {
   it("says what rate control the encoder ran, apart from what was asked", () => {
     const want = expectedEncoder({ quality: 0.5 }, 1);
     expect(
-      encoderCheck({ quality: 0.5, rateControl: "quantizer" }, want),
-    ).toEqual({ text: '{"quality":0.5}', ok: true, rateControl: "quantizer" });
+      encoderCheck(
+        {
+          quality: 0.5,
+          hardwareAcceleration: "prefer-software",
+          rateControl: "quantizer",
+        },
+        want,
+      ),
+    ).toEqual({ text: SOFT_Q, ok: true, rateControl: "quantizer" });
     expect(
-      encoderCheck({ quality: 0.5, rateControl: "bitrate 3225600" }, want),
+      encoderCheck(
+        {
+          quality: 0.5,
+          hardwareAcceleration: "prefer-software",
+          rateControl: "bitrate 3225600",
+        },
+        want,
+      ),
     ).toEqual({
-      text: '{"quality":0.5}',
+      text: SOFT_Q,
       ok: true,
       rateControl: "bitrate 3225600",
     });
-    expect(encoderCheck({ quality: 0.5 }, want)).toMatchObject({
+    expect(
+      encoderCheck(
+        { quality: 0.5, hardwareAcceleration: "prefer-software" },
+        want,
+      ),
+    ).toMatchObject({
       ok: false,
       rateControl: "NOT REPORTED",
     });
@@ -139,6 +164,85 @@ describe("share-measure's pure parts", () => {
     expect(two.filter((s) => key(s) === "1920|30|0.5|default")).toHaveLength(1);
     expect(two.length).toBeLessThan(three.length);
     expect(VERTICAL_1080.width).toBe(1080);
+  });
+
+  it("--qualities renders the share frame at 30 fps, once per quality", () => {
+    const today = {
+      name: "today",
+      target: { ...LANDSCAPE_1080P, width: 3840, height: 2160 },
+    };
+    const small = { name: "1080p", target: LANDSCAPE_1080P };
+    const got = qualityGridFor([today, small], [0.5, 0.6]);
+    expect(
+      got.map((s) => [s.target.width, s.fps, s.mult, s.encoder?.quality]),
+    ).toEqual([
+      [1920, 30, null, 0.5],
+      [1920, 30, null, 0.6],
+    ]);
+  });
+
+  it("--qualities renders every frame below today's, never today's", () => {
+    const today = {
+      name: "today",
+      target: { ...LANDSCAPE_1080P, width: 3840, height: 2160 },
+    };
+    const mid = {
+      name: "1440p",
+      target: { ...LANDSCAPE_1080P, width: 2560, height: 1440 },
+    };
+    const small = { name: "1080p", target: LANDSCAPE_1080P };
+    const got = qualityGridFor([today, mid, small], [0.5]);
+    expect(got.map((s) => [s.target.width, s.encoder?.quality])).toEqual([
+      [2560, 0.5],
+      [1920, 0.5],
+    ]);
+  });
+
+  // Red if the bitrate is not bpp × width × height × 30, if a frame over
+  // 2560 is rendered, or if a quality hint rides along.
+  it("--bpps renders each frame up to 2560 at 30 fps, by bitrate", () => {
+    const today = {
+      name: "today",
+      target: { ...LANDSCAPE_1080P, width: 3840, height: 2160 },
+    };
+    const mid = {
+      name: "1440p",
+      target: { ...LANDSCAPE_1080P, width: 2560, height: 1756 },
+    };
+    const small = { name: "1080p", target: LANDSCAPE_1080P };
+    const got = bppGridFor([today, mid, small], [0.05, 0.02]);
+    expect(
+      got.map((s) => [s.target.width, s.fps, s.target.bitrate, s.encoder]),
+    ).toEqual([
+      [2560, 30, 6_743_040, undefined],
+      [2560, 30, 2_697_216, undefined],
+      [1920, 30, 3_110_400, undefined],
+      [1920, 30, 1_244_160, undefined],
+    ]);
+    expect(got.every((s) => s.mult === 1)).toBe(true);
+  });
+
+  it("the page states bits per pixel per frame, delivered and asked", () => {
+    const crop = { kind: "none", why: "n" } as const;
+    const c = {
+      kind: "file",
+      file: "a.mp4",
+      frame: "1080p",
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      encoder: "0.05 bpp",
+      encoderUsed: { text: "", ok: true },
+      rateControl: "bitrate 3110400",
+      askedMbps: 3.1104,
+      bytes: 1,
+      realMbps: 1.5552,
+      durationSec: 5,
+      still: crop,
+      zoom: crop,
+    } as const;
+    expect(bitsPerPixel(c)).toBe("0.0250 delivered, 0.0500 asked");
+    expect(bitsPerPixel({ ...c, askedMbps: null })).toBe("0.0250 delivered");
   });
 
   it("the page lists a refused combination with its error, after the files", () => {
