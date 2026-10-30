@@ -1,9 +1,9 @@
 import { LANDSCAPE_1080P, VERTICAL_1080 } from "@demoman/compositor";
 import { describe, expect, it } from "vitest";
 import {
+  bppGridFor,
   densestRect,
   encoderCheck,
-  bppGridFor,
   expectedEncoder,
   gridFor,
   pickInstants,
@@ -12,7 +12,11 @@ import {
   strongEdgeShare,
   TEXT_EDGE_FLOOR,
 } from "../src/compare/share-measure";
-import { bitsPerPixel, pageHtml, sortedBySize } from "../src/compare/share-page";
+import {
+  bitsPerPixel,
+  pageHtml,
+  sortedBySize,
+} from "../src/compare/share-page";
 
 const SOFT_Q = '{"quality":0.5,"hardwareAcceleration":"prefer-software"}';
 

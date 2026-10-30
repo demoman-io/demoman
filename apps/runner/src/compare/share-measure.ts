@@ -237,8 +237,7 @@ export function bppGridFor(
   bpps: number[],
 ): Spec[] {
   const shares = frames.filter(
-    (f) =>
-      Math.max(f.target.width, f.target.height) <= LANDSCAPE_1440P.width,
+    (f) => Math.max(f.target.width, f.target.height) <= LANDSCAPE_1440P.width,
   );
   if (shares.length === 0) throw new Error("no frame to render at");
   return shares.flatMap((f) =>
@@ -643,7 +642,9 @@ function parseArgs(argv: string[]): {
     } else throw new Error(`share:measure: unknown argument "${flag}"`);
   }
   if (qualities !== null && bpps !== null) {
-    throw new Error("share:measure: --qualities and --bpps are two grids; ask for one");
+    throw new Error(
+      "share:measure: --qualities and --bpps are two grids; ask for one",
+    );
   }
   if (takes.length === 0 || out === null) {
     throw new Error(
@@ -654,7 +655,9 @@ function parseArgs(argv: string[]): {
 }
 
 async function main(): Promise<void> {
-  const { takes, out, home, qualities, bpps } = parseArgs(process.argv.slice(2));
+  const { takes, out, home, qualities, bpps } = parseArgs(
+    process.argv.slice(2),
+  );
   await preflightTools();
   await mkdir(out, { recursive: true });
   const library = createLibrary(home);

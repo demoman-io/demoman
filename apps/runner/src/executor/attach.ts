@@ -109,9 +109,11 @@ export interface AttachDeps {
 const BY_HAND =
   "To attach it by hand, export({ takeId, maxMB: 9.5 }) and give the user that file.path to drag into the PR; the browser refuses video over 10 MB on a free plan.";
 
-/** The cap a retry after a refused upload asks for: under the 10 MB a
- *  browser takes on a free plan. */
-const RETRY_MAX_MB = 9.5;
+/** The cap an attach exports at unless told otherwise, and a retry after a
+ *  refused upload asks for: under the 10 MB a browser takes on a free plan
+ *  (the author, 2026-10-29: "We should adhere to the browser limit even if
+ *  `gh` has a higher tolerance"). */
+const ATTACH_MAX_MB = 9.5;
 
 /** What to do when GitHub refused the upload. A file this attach saved
  *  uncapped, or under a looser cap, may be over what GitHub takes, so one
@@ -122,10 +124,10 @@ function afterRefusedUpload(
   path: string,
   size: string,
 ): string {
-  if (maxMB !== undefined && maxMB <= RETRY_MAX_MB) {
+  if (maxMB !== undefined && maxMB <= ATTACH_MAX_MB) {
     return `This attach was already capped at ${maxMB} MB, so do not call attach again: give the user ${path} (${size}) to drag into the PR; a browser refuses video over 10 MB on a free plan.`;
   }
-  return `Call attach again with maxMB: ${RETRY_MAX_MB}, once; if GitHub refuses again, give the user the file to drag into the PR (a browser refuses video over 10 MB on a free plan).`;
+  return `Call attach again with maxMB: ${ATTACH_MAX_MB}, once; if GitHub refuses again, give the user the file to drag into the PR (a browser refuses video over 10 MB on a free plan).`;
 }
 
 /** What an attached video's summary adds when its export missed the cap it
@@ -266,7 +268,7 @@ function args(raw: Record<string, unknown>):
     takeId,
     into: raw.into,
     pr: pr as number | undefined,
-    maxMB: raw.maxMB as number | undefined,
+    maxMB: (raw.maxMB as number | undefined) ?? ATTACH_MAX_MB,
   };
 }
 

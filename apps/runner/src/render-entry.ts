@@ -68,9 +68,10 @@ export interface RenderManifest {
   /** GIF only: how many bytes the GIF may grow to before a narrower width
    *  is tried (`renderOutput`'s `gifBudget`). Absent: the target's width. */
   gifBudget?: { maxBytes: number };
-  /** MP4 only: the size cap and the share target its ladder stops at
-   *  (`renderOutput`'s `mp4Cap`). Absent: one render at the target. */
-  mp4Cap?: { maxBytes: number; share: RenderTarget };
+  /** MP4 only: the size cap, the share target and the floor its ladder
+   *  steps through (`renderOutput`'s `mp4Cap`). Absent: one render at the
+   *  target. */
+  mp4Cap?: { maxBytes: number; share: RenderTarget; floor: RenderTarget };
   /** Stills only: their size and framing (`renderOutput`'s `stills`).
    *  Absent: the target, framed as the video. */
   stills?: StillsOptions;
@@ -158,8 +159,8 @@ let outputs: Uint8Array[] = [];
  * size files differently: on 2026-10-25 one take's export went from 9.0 to
  * 12.9 Mbps on VideoToolbox, and the share target opened quantizer mode its
  * thresholds were not measured under. Pinned, the file is the same whatever
- * the GPU, the window or the platform. Every cap step spreads `target` or
- * `share`, so pinning both reaches them all.
+ * the GPU, the window or the platform. Every cap rung spreads `target`,
+ * `share` or `floor`, so pinning all three reaches them all.
  */
 function softwareEncoded(target: RenderTarget): RenderTarget {
   return {
@@ -259,6 +260,7 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
           mp4Cap: {
             ...manifest.mp4Cap,
             share: softwareEncoded(manifest.mp4Cap.share),
+            floor: softwareEncoded(manifest.mp4Cap.floor),
           },
         }),
     ...(manifest.stills === undefined ? {} : { stills: manifest.stills }),
