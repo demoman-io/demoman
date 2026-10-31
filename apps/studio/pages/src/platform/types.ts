@@ -3,6 +3,7 @@ import type { LogoLoad } from "@demoman/run-core/render";
 import type { SceneAspect, SceneDocument } from "@demoman/scene-schema";
 import type {
   ExportQualityChoice,
+  LibraryViewChoice,
   PullRequestsChoice,
   TakesAnswer,
 } from "@demoman/studio-protocol";
@@ -88,6 +89,15 @@ export interface Platform {
     read(): Promise<{ quality: ExportQualityChoice; unreadable?: string }>;
     /** `replaced` as for `pullRequests.write`. */
     write(quality: ExportQualityChoice): Promise<{ replaced?: string }>;
+  };
+  /**
+   * The Library's layout and sort, kept by the studio in settings.json. With
+   * `unreadable` the view is the default and the page says why.
+   */
+  libraryView: {
+    read(): Promise<{ view: LibraryViewChoice; unreadable?: string }>;
+    /** `replaced` as for `pullRequests.write`. */
+    write(view: LibraryViewChoice): Promise<{ replaced?: string }>;
   };
   exports: {
     /**

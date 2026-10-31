@@ -853,6 +853,92 @@ describe("settings writes", () => {
   });
 });
 
+describe("libraryView", () => {
+  const get = async () =>
+    (await h.call(pathFor("libraryViewGet"))).json() as {
+      view: { layout: string; sort: { column: string; descending: boolean } };
+      unreadable?: string;
+    };
+  const put = (body: unknown) =>
+    h.call(pathFor("libraryViewPut"), {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  const settings = () => join(home, "settings.json");
+
+  it("is DEFAULT_LIBRARY_VIEW when settings.json has none", async () => {
+    const got = await get();
+    expect(got.view).toEqual({
+      layout: "list",
+      sort: { column: "recorded", descending: true },
+    });
+    expect(got.unreadable).toBeUndefined();
+  });
+
+  it("a stored library view is served back", async () => {
+    await writeFile(
+      settings(),
+      JSON.stringify({
+        libraryView: {
+          layout: "grid",
+          sort: { column: "name", descending: false },
+        },
+      }),
+    );
+    expect(await get()).toEqual({
+      view: { layout: "grid", sort: { column: "name", descending: false } },
+    });
+  });
+
+  it("a PUT then GET round-trips and keeps the file's other keys", async () => {
+    await writeFile(settings(), JSON.stringify({ pullRequests: "ask" }));
+    const view = { layout: "grid", sort: { column: "size", descending: true } };
+    const res = await put({ view });
+    expect(res.status, res.text).toBe(200);
+    expect((await get()).view).toEqual(view);
+    const file = JSON.parse(await readFile(settings(), "utf8"));
+    expect(file.pullRequests).toBe("ask");
+    expect(file.libraryView).toEqual(view);
+  });
+
+  it("a libraryView that is not a choice is served as the default with unreadable naming the file", async () => {
+    await writeFile(
+      settings(),
+      JSON.stringify({ libraryView: { layout: "table" } }),
+    );
+    const got = await get();
+    expect(got.view.layout).toBe("list");
+    expect(got.unreadable).toContain(settings());
+    expect(h.logs.some((l) => l.includes("Library view is the default"))).toBe(
+      true,
+    );
+  });
+
+  it("settings.json that is not JSON serves the default with unreadable", async () => {
+    await writeFile(settings(), "{");
+    const got = await get();
+    expect(got.view.sort).toEqual({ column: "recorded", descending: true });
+    expect(got.unreadable).toContain(settings());
+    expect(h.logs.some((l) => l.includes("Library view is the default"))).toBe(
+      true,
+    );
+  });
+
+  it("a PUT of a bad choice is 400 libraryViewInvalid and writes nothing", async () => {
+    const bad = [
+      { layout: "table", sort: { column: "name", descending: false } },
+      // Length never sorts (spec §3).
+      { layout: "list", sort: { column: "length", descending: false } },
+    ];
+    for (const view of bad) {
+      const res = await put({ view });
+      expect(res.status, JSON.stringify(view)).toBe(400);
+      expect(res.json()).toMatchObject({ reason: "libraryViewInvalid" });
+    }
+    await expect(stat(settings())).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
 describe("pullRequests", () => {
   it("no settings.json reads null, and an unreadable one says why", async () => {
     expect((await h.call(pathFor("pullRequestsGet"))).json()).toEqual({

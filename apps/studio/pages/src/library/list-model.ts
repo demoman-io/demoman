@@ -2,6 +2,7 @@
 //
 // The library's list view as data: the entries a treegrid draws, in order.
 // Spec 2026-10-31-library-list-view-design §2.1–2.3 and §3.
+import type { LibrarySortColumn } from "@demoman/studio-protocol";
 import type {
   LibraryCard,
   LibraryModel,
@@ -10,14 +11,7 @@ import type {
 } from "./state";
 import { cardsOf, repoLabel, sectionsOf } from "./state";
 
-// Task 3 moves this to @demoman/studio-protocol. Length is deliberately not
-// a sort column (spec §3).
-export type LibrarySortColumn =
-  | "name"
-  | "where"
-  | "videos"
-  | "recorded"
-  | "size";
+export type { LibrarySortColumn };
 
 export interface ListSort {
   column: LibrarySortColumn;

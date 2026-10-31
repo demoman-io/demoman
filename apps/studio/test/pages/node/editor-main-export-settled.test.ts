@@ -1,3 +1,4 @@
+import { DEFAULT_LIBRARY_VIEW } from "@demoman/studio-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Platform } from "../../../pages/src/platform/types";
 import { editorDom } from "../helpers/editor-dom";
@@ -148,6 +149,10 @@ vi.mock("#platform", async (importOriginal) => {
     },
     exportQuality: {
       read: async () => seen.qualityRead,
+      write: async () => ({}),
+    },
+    libraryView: {
+      read: async () => ({ view: DEFAULT_LIBRARY_VIEW }),
       write: async () => ({}),
     },
     exports: {
