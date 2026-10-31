@@ -1872,17 +1872,25 @@ export async function runWalk(
   /**
    * Before a click that waits: let the pending act finish painting, within
    * `ACT_CEILING_MS` of its verb, then settle it. Answers the time spent,
-   * which is room the replay added.
+   * which is room the replay added — 0 when it never slept, not the clock's
+   * movement across this bookkeeping: on `Date.now()` a millisecond tick
+   * there read as 1 ms of room before a click that had plenty (task 13,
+   * 2026-10-31). Whether it waited is whether it slept, and any wait is at
+   * least one 50 ms sleep, so the answer cannot jitter across 0.
    */
   const quietThenFinalize = async (): Promise<number> => {
     const from = at();
     const act = pendingAct;
+    let slept = false;
     if (act !== null) {
       const ceiling = act.verbEndMs + ACT_CEILING_MS;
-      while (recorder.isOpen() && at() < ceiling) await clock.sleep(50);
+      while (recorder.isOpen() && at() < ceiling) {
+        slept = true;
+        await clock.sleep(50);
+      }
     }
     finalizeAct();
-    return at() - from;
+    return slept ? at() - from : 0;
   };
   /**
    * Settle the pending act onto its marker: the verb's end, or the last

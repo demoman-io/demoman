@@ -4014,4 +4014,40 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     expect(asked[0]?.heldUntilMs).toBe(first.sourceTimeMs - 350);
     expect(asked[1]?.heldUntilMs).toBe(second.sourceTimeMs - 350);
   });
+
+  // Task 13, 2026-10-31: the executor's "waits nothing when there is already
+  // room" read `roomMs: 1` once in three full runs. The walk counted the
+  // clock's movement across its own bookkeeping as a wait for quiet; on
+  // `Date.now()` a millisecond tick inside that slice made it 1. This fake
+  // clock moves 10 ms on every read, so every read straddles a tick.
+  it("adds no room for a quiet it did not wait for", async () => {
+    const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
+    const room: RoomPolicy = {
+      settledAfterMs: (heldUntilMs) => heldUntilMs,
+      neededMs: (gap) => {
+        asked.push(gap);
+        return 0;
+      },
+      zooms: () => true,
+    };
+    const d = deps({ recording: "continuous", room });
+    const slept: number[] = [];
+    const sleep = d.clock.sleep;
+    d.clock.sleep = (ms) => {
+      slept.push(ms);
+      return sleep(ms);
+    };
+    const result = await runReplay(scene(), d);
+    expect(result.outcome, result.reason ?? "").toBe("complete");
+    const markers = result.bundle?.markers ?? [];
+    const [first, second] = markers;
+    if (!first || !second) throw new Error(JSON.stringify(markers));
+    // Premise: the second click took the zoomed path — its act before was
+    // settled onto the first marker and the room was asked — and no frame
+    // arrived, so the walk's 50 ms wait for quiet never ran.
+    expect(first.actEndSourceTimeMs, JSON.stringify(markers)).toBeDefined();
+    expect(asked).toHaveLength(1);
+    expect(slept, JSON.stringify(slept)).not.toContain(50);
+    expect(second.roomMs, JSON.stringify(markers)).toBeUndefined();
+  });
 });
