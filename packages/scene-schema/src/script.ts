@@ -310,19 +310,24 @@ const ScriptBrandingSchema = BrandingSchema.extend({
   padding: BrandingSchema.shape.padding.default(BRANDING_DEFAULTS.padding),
 });
 
+const ScriptVersionSchema = z.literal([
+  SCRIPT_VERSION,
+  SCRIPT_VERSION_KIT,
+  SCRIPT_VERSION_MOTION,
+  SCRIPT_VERSION_DEVICE,
+  SCRIPT_VERSION_ACCOUNT,
+  SCRIPT_VERSION_DRAG,
+  SCRIPT_VERSION_PRESS,
+]);
+export type ScriptVersion = z.infer<typeof ScriptVersionSchema>;
+
+/** The later of two versions. */
+const laterVersion = (a: ScriptVersion, b: ScriptVersion): ScriptVersion =>
+  b > a ? b : a;
+
 const DemoScriptShape = z.object({
   /** Optional: Demoman sets it (see `minimumScriptVersion`); a lower one is raised. */
-  scriptVersion: z
-    .literal([
-      SCRIPT_VERSION,
-      SCRIPT_VERSION_KIT,
-      SCRIPT_VERSION_MOTION,
-      SCRIPT_VERSION_DEVICE,
-      SCRIPT_VERSION_ACCOUNT,
-      SCRIPT_VERSION_DRAG,
-      SCRIPT_VERSION_PRESS,
-    ])
-    .optional(),
+  scriptVersion: ScriptVersionSchema.optional(),
   name: z.string().min(1),
   target: z.url(),
   /** Absent means the run's own window size, recorded into the document. */
@@ -468,13 +473,12 @@ export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
   });
 }).transform((script) => ({
   ...script,
-  scriptVersion: Math.max(
+  scriptVersion: laterVersion(
     script.scriptVersion ?? SCRIPT_VERSION,
     minimumScriptVersion(script),
-  ) as ScriptVersion,
+  ),
 }));
 
-export type ScriptVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export type DemoScriptInput = z.input<typeof DemoScriptShape>;
 
 /**
@@ -498,10 +502,10 @@ export function minimumScriptVersion(script: DemoScriptInput): ScriptVersion {
       SCRIPT_VERSION_PRESS,
     ],
   ];
-  return Math.max(
-    SCRIPT_VERSION,
-    ...rules.filter(([on]) => on).map(([, v]) => v),
-  ) as ScriptVersion;
+  return rules
+    .filter(([on]) => on)
+    .map(([, v]) => v)
+    .reduce(laterVersion, SCRIPT_VERSION);
 }
 
 export type ScriptTarget = z.infer<typeof ScriptTargetSchema>;
