@@ -304,6 +304,24 @@ describe("a redraw", () => {
     expect(document.activeElement, where()).toBe(toggle);
   });
 
+  // Red: the redraw's grid starting its Tab stop over at the first row, as
+  // a grid nobody had entered does.
+  it("while focus is outside the list keeps the Tab stop on the row it left", async () => {
+    mount();
+    const after = document.createElement("button");
+    after.textContent = "after";
+    document.body.append(after);
+    await enter();
+    await press("{ArrowDown}{ArrowDown}", "f:B");
+    await press("{Tab}", "outside: BUTTON after");
+    const old = row("f:B");
+    redraw();
+    // Premise: every row was replaced, and focus stayed out.
+    expect(old.isConnected, where()).toBe(false);
+    expect(document.activeElement, where()).toBe(after);
+    await press("{Shift>}{Tab}{/Shift}", "f:B");
+  });
+
   it("after a sort from the headings keeps focus on that sort", async () => {
     mount();
     await enter();

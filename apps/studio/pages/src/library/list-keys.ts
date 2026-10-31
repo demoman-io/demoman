@@ -84,40 +84,59 @@ function focusOn(stop: HTMLElement | null | undefined): void {
   stop.scrollIntoView({ block: "nearest" });
 }
 
-/** Where focus was in `grid`, read before a redraw replaces it: its row
- *  and column, and the row's place on screen. Null while focus is outside
- *  the grid, so a redraw never pulls it in (§4.5). */
-export function placeIn(
-  grid: HTMLElement | null,
-): { key: string; col: string | null; at: number } | null {
-  const was = grid === null ? undefined : listFocus.get(grid);
-  if (grid === null || was === undefined) return null;
-  if (!grid.contains(document.activeElement)) return null;
-  const at = visibleRows(grid).findIndex((r) => r.dataset.key === was.key);
-  return { ...was, at };
+/** Makes `stop` the grid's one Tab stop, and the place a redraw keeps. */
+function markStop(grid: HTMLElement, stop: HTMLElement): void {
+  for (const e of grid.querySelectorAll<HTMLElement>('[tabindex="0"]')) {
+    e.tabIndex = -1;
+  }
+  stop.tabIndex = 0;
+  const row = stop.closest<HTMLElement>(ROWS);
+  listFocus.set(grid, {
+    key: row === null ? HEAD_KEY : (row.dataset.key as string),
+    col: stop === row ? null : colOf(stop),
+  });
 }
 
-/** Puts focus back where `placeIn` read it, in the grid drawn since: the
- *  same row and column, else the row now in its place, else the one
- *  before. Without scrolling: the page stays where the author left it. */
+/** Where focus was last in `grid`, read before a redraw replaces it: its
+ *  row and column, the row's place on screen, and whether focus is still
+ *  there. Null when the grid was never entered. */
+export function placeIn(grid: HTMLElement | null): {
+  key: string;
+  col: string | null;
+  at: number;
+  inside: boolean;
+} | null {
+  const was = grid === null ? undefined : listFocus.get(grid);
+  if (grid === null || was === undefined) return null;
+  const at = visibleRows(grid).findIndex((r) => r.dataset.key === was.key);
+  return { ...was, at, inside: grid.contains(document.activeElement) };
+}
+
+/** Puts the place `placeIn` read back in the grid drawn since: the same
+ *  row and column, else the row now in its place, else the one before.
+ *  Focused, without scrolling, if focus was in the grid; else only the
+ *  Tab stop, so a redraw never pulls focus in (§4.5) and the next Tab in
+ *  lands where the author left. */
 export function restorePlace(
   grid: HTMLElement,
   place: ReturnType<typeof placeIn>,
 ): void {
   if (place === null) return;
-  if (place.key === HEAD_KEY) {
-    grid
-      .querySelector<HTMLElement>(
-        `[data-list-head] [data-col="${place.col}"] [data-sort]`,
-      )
-      ?.focus({ preventScroll: true });
-    return;
-  }
   const rows = visibleRows(grid);
   const row =
     rows.find((r) => r.dataset.key === place.key) ??
     rows[Math.min(place.at, rows.length - 1)];
-  if (row !== undefined) stopIn(row, place.col).focus({ preventScroll: true });
+  const stop =
+    place.key === HEAD_KEY
+      ? grid.querySelector<HTMLElement>(
+          `[data-list-head] [data-col="${place.col}"] [data-sort]`,
+        )
+      : row === undefined
+        ? null
+        : stopIn(row, place.col);
+  if (stop === null) return;
+  if (place.inside) stop.focus({ preventScroll: true });
+  else markStop(grid, stop);
 }
 
 export function attachListKeys(
@@ -140,14 +159,7 @@ export function attachListKeys(
     const row = stop.closest<HTMLElement>(ROWS);
     const sort = stop.matches(SORTS);
     if ((row === null && !sort) || stop.matches("[data-name]")) return;
-    for (const e of grid.querySelectorAll<HTMLElement>('[tabindex="0"]')) {
-      e.tabIndex = -1;
-    }
-    stop.tabIndex = 0;
-    listFocus.set(grid, {
-      key: row === null ? HEAD_KEY : (row.dataset.key as string),
-      col: stop === row ? null : colOf(stop),
-    });
+    markStop(grid, stop);
   });
 
   // The column headings, as APG's sortable grid: ← and → walk the sort
@@ -202,12 +214,14 @@ export function attachListKeys(
     const inCell = target !== row;
     const col = inCell ? colOf(target) : null;
 
-    if (key.length === 1 && key !== " " && !meta) {
-      // A pause, or focus moved since (a click), starts a new search.
-      if (
-        event.timeStamp - typedAt > TYPE_AHEAD_MS ||
-        document.activeElement !== left
-      ) {
+    // A pause, or focus moved since (a click), ends a search.
+    const searching =
+      event.timeStamp - typedAt <= TYPE_AHEAD_MS &&
+      document.activeElement === left;
+    // A Space inside a search is part of the name ("Export a…"); else it
+    // selects, below.
+    if (key.length === 1 && !meta && (key !== " " || searching)) {
+      if (!searching) {
         typed = "";
         from = at;
       }
@@ -232,10 +246,15 @@ export function attachListKeys(
     // page marks it on the root, as it shuts the boxes).
     const busy = grid.closest("[data-busy]") !== null;
     const flowId = row.dataset.flow;
-    // The selecting state hides a flow row's actions, and with them a
-    // control focused there: Space and Cmd+A move to the row first.
+    // The selecting state hides a flow or video row's actions, and with
+    // them a control focused there: Space and Cmd+A move to the row first.
     const offActions = (): void => {
-      if (flowId !== undefined && col === "actions") focusOn(row);
+      if (
+        col === "actions" &&
+        (flowId !== undefined || row.dataset.videoRow !== undefined)
+      ) {
+        focusOn(row);
+      }
     };
     // Enter folds what a click folds: a heading, or a row's chevron.
     const toggles =
@@ -275,7 +294,8 @@ export function attachListKeys(
             focusOn(next);
             const id = next?.dataset.flow;
             if (id !== undefined) {
-              actions.select?.(id, "range", flowsOnScreen(grid));
+              // With no anchor, the range grows from the row it left.
+              actions.select?.(id, "range", flowsOnScreen(grid), flowId);
             }
             return true;
           }

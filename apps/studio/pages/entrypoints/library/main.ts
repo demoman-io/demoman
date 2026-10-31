@@ -679,9 +679,9 @@ const actions: LibraryActions = {
       }
     })();
   },
-  select: (videoId, how, visibleOrder) => {
+  select: (videoId, how, visibleOrder, from) => {
     if (bulk?.busy === true) return;
-    selection = clickSelect(selection, videoId, how, visibleOrder);
+    selection = clickSelect(selection, videoId, how, visibleOrder, from);
     bulk = undefined;
     showSelection();
   },

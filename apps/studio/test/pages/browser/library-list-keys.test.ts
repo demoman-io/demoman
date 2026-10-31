@@ -123,10 +123,12 @@ function actions() {
     rename: vi.fn(),
     renameVideo: vi.fn(),
     setView: vi.fn(),
-    select: vi.fn<NonNullable<LibraryActions["select"]>>((id, how, order) => {
-      selection = clickSelect(selection, id, how, order);
-      show();
-    }),
+    select: vi.fn<NonNullable<LibraryActions["select"]>>(
+      (id, how, order, from) => {
+        selection = clickSelect(selection, id, how, order, from);
+        show();
+      },
+    ),
     selectAll: vi.fn<NonNullable<LibraryActions["selectAll"]>>((order) => {
       selection = selectAll(selection, order);
       show();
@@ -221,6 +223,36 @@ async function enter(): Promise<void> {
 async function press(keys: string, expected: string): Promise<void> {
   await userEvent.keyboard(keys);
   expect(focused(), `after ${keys}: ${where()}`).toBe(expected);
+}
+
+/**
+ * Records, from now until `stop`, where focus was after each key and when
+ * each key went down: a type-ahead's premise is that no two keys of one
+ * search are further apart than `TYPE_AHEAD_MS`, which only the keys' own
+ * times can say (CI's runner is about 5x slower than a laptop).
+ */
+function recordKeys() {
+  const after: string[] = [];
+  const at: number[] = [];
+  const down = (e: KeyboardEvent) => at.push(e.timeStamp);
+  const up = () => after.push(focused());
+  document.addEventListener("keydown", down, true);
+  document.addEventListener("keyup", up, true);
+  return {
+    after,
+    /** The longest pause between two keys, and the premise's message. */
+    pause(): { ms: number; said: string } {
+      const ms = Math.max(0, ...at.slice(1).map((t, i) => t - (at[i] ?? t)));
+      return {
+        ms,
+        said: `premise: the longest pause between keys was ${ms.toFixed(0)} ms, the search lapses after ${TYPE_AHEAD_MS}; ${where()}`,
+      };
+    },
+    stop() {
+      document.removeEventListener("keydown", down, true);
+      document.removeEventListener("keyup", up, true);
+    },
+  };
 }
 
 beforeEach(async () => {
@@ -510,6 +542,20 @@ describe("selecting", () => {
     expect(ticked(), where()).toEqual(["f:A", "f:B"]);
   });
 
+  // Red: the row the move started from left out (with no anchor the
+  // range was a toggle of the next flow alone), or `from` not sent.
+  it("Shift+↓ with nothing ticked ticks the row it starts from too; Shift+↑ shrinks back to it", async () => {
+    mount();
+    await enter();
+    await press("{ArrowDown}", "f:A");
+    // Premise: nothing is ticked, so there is no anchor.
+    expect(ticked(), where()).toEqual([]);
+    await press("{Shift>}{ArrowDown}{/Shift}", "f:B");
+    expect(ticked(), where()).toEqual(["f:A", "f:B"]);
+    await press("{Shift>}{ArrowUp}{/Shift}", "f:A");
+    expect(ticked(), where()).toEqual(["f:A"]);
+  });
+
   it("Cmd+A selects only the flows on screen", async () => {
     mount();
     await enter();
@@ -573,7 +619,14 @@ describe("type-ahead", () => {
     await enter();
     // Premise: "e" alone is Edit profile, before Export.
     await press("e", "f:B");
-    await press("{Home}ex", "f:E");
+    const keys = recordKeys();
+    try {
+      await press("{Home}ex", "f:E");
+      const { ms, said } = keys.pause();
+      expect(ms, said).toBeLessThanOrEqual(TYPE_AHEAD_MS);
+    } finally {
+      keys.stop();
+    }
     const typedAt = performance.now();
     // Not a fixed sleep: wait until the search has lapsed, however long
     // the lane took to get here.
@@ -591,36 +644,80 @@ describe("type-ahead", () => {
       expect(focused(), where()).toBe("f:A");
     });
   });
+
+  // Red: a Space inside a search falling through to Space's own case,
+  // which ticks the focused flow and ends the search, so the "a" after it
+  // starts a new one and jumps to Archive.
+  it('a Space inside a search is part of it: "export a" finds Export a report and ticks nothing', async () => {
+    mount();
+    await enter();
+    // The past month open, so Archive is on screen for a lone "a" to find.
+    await press("{End}{Enter}", onScreen().at(-1) as string);
+    expect(row("f:D").hidden, where()).toBe(false);
+    await press("{Home}", "h:today");
+    const keys = recordKeys();
+    try {
+      await userEvent.keyboard("export a");
+      const { ms, said } = keys.pause();
+      expect(ms, said).toBeLessThanOrEqual(TYPE_AHEAD_MS);
+    } finally {
+      keys.stop();
+    }
+    expect(focused(), where()).toBe("f:E");
+    expect(ticked(), where()).toEqual([]);
+    expect(acts.select, where()).not.toHaveBeenCalled();
+  });
 });
 
 describe("type-ahead after another key", () => {
-  it("a letter after an arrow or Space searches from where focus is", async () => {
+  it("a letter after an arrow or a fold searches from where focus is", async () => {
     mount();
     await enter();
-    const start = performance.now();
-    await press("e", "f:B");
-    await press("{ArrowDown}{ArrowUp}", "f:B");
-    // From B, the next "e" is Export.
-    await press("e", "f:E");
-    // A key that moves nothing ends the search too: from E, "e" wraps.
-    await press(" e", "f:B");
-    // Premise: all of it inside one search's pause.
-    expect(performance.now() - start, where()).toBeLessThan(TYPE_AHEAD_MS);
+    const keys = recordKeys();
+    try {
+      // "e" is Edit profile; ↓↑ ends the search, so from B the next "e" is
+      // Export; →← (open E, close it) moves nothing and ends it too, so
+      // from E "e" wraps round to Edit profile.
+      await userEvent.keyboard(
+        "e{ArrowDown}{ArrowUp}e{ArrowRight}{ArrowLeft}e",
+      );
+      expect(keys.after, where()).toEqual([
+        "f:B",
+        "f:E",
+        "f:B",
+        "f:E",
+        "f:E",
+        "f:E",
+        "f:B",
+      ]);
+      // Premise: all of it inside one search's pause, so it was the keys
+      // that ended each search, not a lapse.
+      const { ms, said } = keys.pause();
+      expect(ms, said).toBeLessThanOrEqual(TYPE_AHEAD_MS);
+    } finally {
+      keys.stop();
+    }
   });
 
   it("a letter after a click searches from where the click put focus", async () => {
     mount();
     await enter();
-    const start = performance.now();
-    await press("e", "f:B");
-    // E's chevron: it opens E and focuses its cell.
-    await userEvent.click(
-      row("f:E").querySelector('[data-col="open"]') as HTMLElement,
-    );
-    expect(focused(), where()).toBe("f:E/open");
-    // From E, the next "e" wraps round to Edit profile.
-    await press("e", "f:B/open");
-    expect(performance.now() - start, where()).toBeLessThan(TYPE_AHEAD_MS);
+    const keys = recordKeys();
+    try {
+      await press("e", "f:B");
+      // E's chevron: it opens E and focuses its cell.
+      await userEvent.click(
+        row("f:E").querySelector('[data-col="open"]') as HTMLElement,
+      );
+      expect(focused(), where()).toBe("f:E/open");
+      // From E, the next "e" wraps round to Edit profile.
+      await press("e", "f:B/open");
+      // Premise: the click, not a lapse, started the new search.
+      const { ms, said } = keys.pause();
+      expect(ms, said).toBeLessThanOrEqual(TYPE_AHEAD_MS);
+    } finally {
+      keys.stop();
+    }
   });
 });
 
@@ -647,6 +744,27 @@ describe("Space and Cmd+A on a flow's actions", () => {
         `${key}: ${where()}`,
       ).toBe(true);
     }
+  });
+});
+
+describe("Cmd+A on a video's actions", () => {
+  // Red: focus left on a control the selecting state hides (video rows'
+  // actions hide as flow rows' do).
+  it("moves focus to the video's row, which the selection does not hide", async () => {
+    mount();
+    await enter();
+    // The first → opens A; ↓ is its newest video.
+    await press("{ArrowDown}{ArrowRight}{ArrowDown}", "v:a2");
+    await press("{ArrowRight}{End}", "v:a2/actions");
+    await press("{Meta>}a{/Meta}", "v:a2");
+    // Premise: the video row's actions are hidden now.
+    const actionsCell = row("v:a2").querySelector(
+      '[data-col="actions"]',
+    ) as HTMLElement;
+    expect(
+      actionsCell.checkVisibility({ visibilityProperty: true }),
+      where(),
+    ).toBe(false);
   });
 });
 

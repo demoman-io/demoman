@@ -1,6 +1,6 @@
 // apps/studio/test/pages/node/library-main-bulk-delete.test.ts
 import type { SceneDocument } from "@demoman/scene-schema";
-import type { VideoSummary } from "@demoman/studio-protocol";
+import type { LibraryViewChoice, VideoSummary } from "@demoman/studio-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteFlows } from "../../../pages/src/shell/confirm-dialog";
 import {
@@ -55,9 +55,9 @@ const video = (id: string, name: string, versions: number): VideoSummary => ({
   exports: [],
 });
 
-function seed(): MemoryPlatform {
+function seed(libraryView: LibraryViewChoice = CARDS): MemoryPlatform {
   return createMemoryPlatform({
-    libraryView: CARDS,
+    libraryView,
     scenes: [
       take("inv-1", "Create an invoice"),
       take("inv-2", "Create an invoice"),
@@ -418,5 +418,53 @@ describe("library main — bulk delete", () => {
       if (bar() !== null) throw new Error("bar still up");
     });
     expect(box(SIGNUP)?.checked).toBe(false);
+  });
+
+  /**
+   * Shift+↓ in the list from a flow with nothing ticked ticks that flow
+   * and the next, as Finder does: the row the move started from is the
+   * anchor when there is none. Red if list.ts's keys stop sending that row
+   * (`from`) or main.ts stops passing it to `clickSelect` — either way
+   * only the next flow is ticked.
+   */
+  it("Shift+↓ in the list with nothing ticked ticks the flow it starts from and the next", async () => {
+    state.memory = seed({
+      layout: "list",
+      sort: { column: "name", descending: false },
+    });
+    // jsdom has no layout, and no scroll into view for the keys to call.
+    Element.prototype.scrollIntoView ??= () => undefined;
+    await open();
+    const rows = [
+      ...document.querySelectorAll<HTMLElement>(
+        "[role=treegrid] [role=row][data-flow]:not([hidden])",
+      ),
+    ];
+    // Premise: the list is drawn, and nothing is ticked.
+    expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual([
+      "Create an invoice",
+      "Export a report",
+      "Sign up",
+    ]);
+    expect(bar()).toBeNull();
+    const [first] = rows as [HTMLElement];
+    first.focus();
+    first.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        shiftKey: true,
+        bubbles: true,
+      }),
+    );
+    await vi.waitFor(() => {
+      if (bar() === null) throw new Error("nothing ticked yet");
+    });
+    expect(
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[role=treegrid] [role=row][aria-selected="true"]',
+        ),
+      ].map((r) => r.getAttribute("aria-label")),
+    ).toEqual(["Create an invoice", "Export a report"]);
   });
 });

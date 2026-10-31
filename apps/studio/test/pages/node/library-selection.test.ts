@@ -77,6 +77,23 @@ describe("library selection", () => {
     expect(ids(range(emptySelection(), "c"))).toEqual(["c"]);
   });
 
+  // Red: `from` ignored, so Shift+↓ from a with nothing ticked ticks b
+  // alone and leaves out the row it started from (Finder ticks both).
+  it("a range with no anchor on screen grows from `from`, the row the move started at", () => {
+    const down = clickSelect(emptySelection(), "b", "range", ORDER, "a");
+    expect(ids(down)).toEqual(["a", "b"]);
+    expect(down.anchor).toBe("a");
+    const up = clickSelect(down, "a", "range", ORDER, "b");
+    expect(ids(up)).toEqual(["a"]);
+    // An anchor on screen wins over `from`.
+    const anchored = toggle(emptySelection(), "c");
+    expect(ids(clickSelect(anchored, "e", "range", ORDER, "d"))).toEqual([
+      "c",
+      "d",
+      "e",
+    ]);
+  });
+
   it("selectAll ticks every visible id and keeps the anchor", () => {
     const s = toggle(emptySelection(), "b");
     const all = selectAll(s, ["a", "b", "c"]);

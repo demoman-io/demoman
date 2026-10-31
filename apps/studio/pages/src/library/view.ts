@@ -75,11 +75,14 @@ export interface LibraryActions {
   /** A flow's checkbox, or its card while anything is ticked: tick or
    *  untick it ("toggle"), or with Shift the range from the last one ticked
    *  over `visibleOrder`, the flows in open sections in page order
-   *  ("range"). Absent, and no card carries a checkbox. */
+   *  ("range"); `from`, the flow a Shift+arrow moved from, anchors a range
+   *  that has no anchor on screen (`clickSelect`). Absent, and no card
+   *  carries a checkbox. */
   select?(
     videoId: string,
     how: SelectHow,
     visibleOrder: readonly string[],
+    from?: string,
   ): void;
   /** Cmd+A: tick every flow in `visibleOrder`. */
   selectAll?(visibleOrder: readonly string[]): void;

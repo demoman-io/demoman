@@ -19,16 +19,22 @@ export const emptySelection = (): Selection => ({
 });
 
 /** "toggle" flips `id` and makes it the anchor. "range" replaces the last
- *  range with anchor..`id` over `visibleOrder`, the rows the page shows;
- *  with no anchor there it is a toggle, so it never ticks a range the author
- *  cannot see. */
+ *  range with anchor..`id` over `visibleOrder`, the rows the page shows.
+ *  With no anchor there, `start` is the anchor (Shift+arrow passes the row
+ *  it moved from, as Finder ranges from it); without one either it is a
+ *  toggle, so it never ticks a range the author cannot see. */
 export function clickSelect(
   s: Selection,
   id: string,
   how: SelectHow,
   visibleOrder: readonly string[],
+  start?: string,
 ): Selection {
-  const from = s.anchor === null ? -1 : visibleOrder.indexOf(s.anchor);
+  const anchor =
+    s.anchor !== null && visibleOrder.includes(s.anchor)
+      ? s.anchor
+      : (start ?? null);
+  const from = anchor === null ? -1 : visibleOrder.indexOf(anchor);
   const to = visibleOrder.indexOf(id);
   if (how === "range" && from >= 0 && to >= 0) {
     const ids = new Set(s.ids);
@@ -43,7 +49,7 @@ export function clickSelect(
         range.push(v);
       }
     }
-    return { ids, anchor: s.anchor, range };
+    return { ids, anchor, range };
   }
   const ids = new Set(s.ids);
   if (ids.has(id)) ids.delete(id);
