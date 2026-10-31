@@ -3,7 +3,7 @@ import {
   motionTimings,
   returnsBetween,
 } from "@demoman/compositor";
-import type { RoomPolicy } from "@demoman/replay-engine";
+import { type RoomPolicy, SETTLE_MS } from "@demoman/replay-engine";
 import type { SceneMotion } from "@demoman/scene-schema";
 import { decideZoom, type LastZoom } from "./auto-zoom.js";
 
@@ -51,6 +51,13 @@ export function createRoomPolicy(
       )
         ? 0
         : pushIn,
+    // `insertNeutralKeys`' pull-out for a zoom with none after it, plus a
+    // settle so the film ends on a still frame.
+    settledAfterMs: (heldUntilMs) =>
+      heldUntilMs +
+      CAMERA_DEFAULTS.neutral.zoomHoldMs +
+      timings.zoomOutMs +
+      SETTLE_MS,
     zooms({ anchorId, rect, unwaitedMs, scale }) {
       const id = `click-${++clicks}`;
       const decided = decideZoom(

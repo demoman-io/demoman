@@ -343,6 +343,13 @@ export interface RoomPolicy {
     unwaitedMs: number;
     scale: number;
   }): boolean;
+  /**
+   * Source ms by which the camera has pulled out of the take's last zoom and
+   * held still (spec 2026-10-30 F): its hold, its pull-out at the take's
+   * smoothness, and a settle. `heldUntilMs` as for `neededMs`. The take runs
+   * on until then, so the decision is recorded in its frames.
+   */
+  settledAfterMs(heldUntilMs: number): number;
 }
 
 export interface EngineDeps {
@@ -2518,11 +2525,17 @@ export async function runWalk(
     // Not after an occlusion timeout: the heartbeat says nothing is driving
     // the page any more, and a screenshot of it has no deadline.
     if (continuous && reason !== "occlusionTimeout" && reason !== "signedOut") {
-      // A finished take runs on for `TAKE_TAIL_MS` after its last action.
-      // Whatever the script slept after it is already on the clock.
+      // A finished take runs on for `TAKE_TAIL_MS` after its last action,
+      // and past its last zoom's pull-out, or the camera's own end clamp
+      // cuts that move off mid-way (spec 2026-10-30 F). Whatever the script
+      // slept after it is already on the clock.
       const lastMarkerAt = markers.at(-1)?.sourceTimeMs;
       if (reason === null && lastMarkerAt !== undefined) {
-        const tail = lastMarkerAt + TAKE_TAIL_MS - at();
+        const settledAt =
+          room !== undefined && lastHeldUntil !== null
+            ? room.settledAfterMs(lastHeldUntil)
+            : Number.NEGATIVE_INFINITY;
+        const tail = Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt) - at();
         if (tail > 0) await clock.sleep(tail);
       }
       await clock.sleep(SPAN_QUIET_MS);

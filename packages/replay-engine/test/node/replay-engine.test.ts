@@ -2511,6 +2511,89 @@ describe("continuous recording", () => {
     expect(tail, evidence).toBeGreaterThanOrEqual(2000);
   });
 
+  // Spec 2026-10-30 F: the last zoom's pull-out is clamped to the film's
+  // end, and the film ran a second past the last action, so a take that
+  // zoomed last ended mid-pan. The replay asks the policy when the camera
+  // has settled and runs on until then; the take's length is its last frame.
+  describe("a take's ending, asked of the room policy", () => {
+    /** Settles a distinctive 4321ms after the hold: far past the one-second
+     *  floor, so a tail that reaches it was asked for, not the floor's. */
+    const SETTLE_AFTER = 4321;
+    function endingPolicy(zooms: boolean) {
+      const asked: number[] = [];
+      const room: RoomPolicy = {
+        neededMs: () => 0,
+        zooms: () => zooms,
+        settledAfterMs: (heldUntilMs) => {
+          asked.push(heldUntilMs);
+          return heldUntilMs + SETTLE_AFTER;
+        },
+      };
+      return { room, asked };
+    }
+    const lastFrameAt = (result: { bundle: FrameBundle | null }) =>
+      result.bundle?.keyframes.at(-1)?.sourceTimeMs ?? 0;
+
+    it("a take whose last step zooms runs on until the pull-out has settled", async () => {
+      const { room, asked } = endingPolicy(true);
+      const d = deps({ recording: "continuous", room });
+      drainWithoutTimeout(d);
+      const result = await runReplay(scene(), d);
+      expect(result.outcome, result.reason ?? "").toBe("complete");
+      const { evidence } = lastFrameAfterLastMarker(result);
+      const lastMarker = result.bundle?.markers.at(-1)?.sourceTimeMs ?? 0;
+      // Asked of the last zoom as the camera counts it: its arrival, the
+      // lead-in before its click.
+      expect(asked, evidence).toEqual([lastMarker - 350]);
+      expect(lastFrameAt(result), evidence).toBeGreaterThanOrEqual(
+        lastMarker - 350 + SETTLE_AFTER,
+      );
+    });
+
+    it("a take that never zoomed keeps the one-second tail", async () => {
+      const { room, asked } = endingPolicy(false);
+      const d = deps({ recording: "continuous", room });
+      drainWithoutTimeout(d);
+      const result = await runReplay(scene(), d);
+      expect(result.outcome, result.reason ?? "").toBe("complete");
+      const { tail, evidence } = lastFrameAfterLastMarker(result);
+      expect(asked, evidence).toEqual([]);
+      expect(tail, evidence).toBeGreaterThanOrEqual(1000);
+      expect(tail, evidence).toBeLessThan(SETTLE_AFTER - 350);
+    });
+
+    it("a drag's release pushes the end out too", async () => {
+      const doc = scene();
+      const [a] = doc.actions as [(typeof doc.actions)[number]];
+      const drag = {
+        ...doc,
+        actions: [
+          {
+            ...a,
+            kind: "drag",
+            toAnchorId: null,
+            to: { by: { x: 300, y: 0 } },
+          },
+        ],
+      } as SceneDocument;
+      const { room, asked } = endingPolicy(true);
+      const d = deps({ recording: "continuous", room });
+      drainWithoutTimeout(d);
+      // The drag lets go where it was sent.
+      d.cdp.click = { ...(d.cdp.click as ClickSeen), up: { x: 360, y: 40 } };
+      const result = await runReplay(drag, d);
+      expect(result.outcome, result.reason ?? "").toBe("complete");
+      const { evidence } = lastFrameAfterLastMarker(result);
+      const pressed = result.bundle?.markers.at(-1)?.sourceTimeMs ?? 0;
+      // Held until the release, after the press — not the arrival before it.
+      expect(asked, evidence).toHaveLength(1);
+      expect(asked[0], evidence).toBeGreaterThan(pressed);
+      expect(lastFrameAt(result), evidence).toBeGreaterThanOrEqual(
+        (asked[0] ?? 0) + SETTLE_AFTER,
+      );
+    });
+  });
+
   // Between two markers, not at the end: the closing still lands after the
   // last marker whatever the recorder does, so a settled still asserted
   // there passed with `onSettled` disconnected (final review I4).
@@ -3765,6 +3848,7 @@ describe("a drag, asked of the room policy", () => {
     } as SceneDocument;
     const asked: { actionId: string; rect: unknown }[] = [];
     const room: RoomPolicy = {
+      settledAfterMs: (heldUntilMs) => heldUntilMs,
       neededMs: () => 0,
       zooms: ({ actionId, rect }) => {
         asked.push({ actionId, rect });
@@ -3824,6 +3908,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     } as SceneDocument;
     const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
     const room: RoomPolicy = {
+      settledAfterMs: (heldUntilMs) => heldUntilMs,
       neededMs: (gap) => {
         asked.push(gap);
         return 0;
@@ -3873,6 +3958,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     } as SceneDocument;
     const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
     const room: RoomPolicy = {
+      settledAfterMs: (heldUntilMs) => heldUntilMs,
       neededMs: (gap) => {
         asked.push(gap);
         return 0;
@@ -3898,6 +3984,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     const doc = scene({ anchorIds: ["a", "b", "c"] });
     const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
     const room: RoomPolicy = {
+      settledAfterMs: (heldUntilMs) => heldUntilMs,
       // Answers as the real policy would for a run this tight: a pan.
       neededMs: (gap) => {
         asked.push(gap);

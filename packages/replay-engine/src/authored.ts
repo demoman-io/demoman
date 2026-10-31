@@ -1317,6 +1317,7 @@ export async function runAuthored(
       ? undefined
       : {
           neededMs: policy.neededMs,
+          settledAfterMs: policy.settledAfterMs,
           zooms: (click) => {
             decided.set(click.actionId, {
               unwaitedMs: click.unwaitedMs,

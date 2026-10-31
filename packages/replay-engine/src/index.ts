@@ -101,6 +101,7 @@ export {
   REPLAY_DPR,
   REPLAY_HOLD_TTL_MS,
   REPLAY_TARGETS,
+  SETTLE_MS,
   SETTLE_PAINT_TIMEOUT_MS, // test-only, see header
   SETTLE_QUIET_TIMEOUT_MS, // test-only, see header
   SPAN_MAX_MS,
