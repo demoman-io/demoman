@@ -24,13 +24,39 @@ export const KEY_EVENTS: Record<
   },
 };
 
+/** The editor command Chromium on macOS runs for each key, from
+ *  Playwright's `macEditingCommands` (its `insert…` ones dropped, as it drops
+ *  them: the key's text inserts). A synthetic key event skips the native
+ *  key binding that would name it, so Playwright sends it on the event. */
+const MAC_COMMANDS: Partial<Record<PressKey, string>> = {
+  Backspace: "deleteBackward",
+  Delete: "deleteForward",
+  Escape: "cancelOperation",
+  ArrowUp: "moveUp",
+  ArrowDown: "moveDown",
+  ArrowLeft: "moveLeft",
+  ArrowRight: "moveRight",
+};
+
+/** Whether the browser runs on macOS: it is launched on this machine, which
+ *  is how Playwright decides it too. */
+const MAC_HOST =
+  (globalThis as { process?: { platform?: string } }).process?.platform ===
+  "darwin";
+
 /** A keyDown then a keyUp of one named key. */
-export async function pressKey(cdp: CdpSession, key: PressKey): Promise<void> {
+export async function pressKey(
+  cdp: CdpSession,
+  key: PressKey,
+  mac = MAC_HOST,
+): Promise<void> {
   const { text, ...event } = KEY_EVENTS[key];
+  const command = mac ? MAC_COMMANDS[key] : undefined;
   await cdp.send("Input.dispatchKeyEvent", {
     type: text === undefined ? "rawKeyDown" : "keyDown",
     ...event,
     ...(text === undefined ? {} : { text }),
+    ...(command === undefined ? {} : { commands: [command] }),
   });
   await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...event });
 }
