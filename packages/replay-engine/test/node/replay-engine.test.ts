@@ -531,6 +531,60 @@ describe("runReplay", () => {
     }
   });
 
+  const pressScene = (key: string): SceneDocument =>
+    ({
+      ...scene(),
+      actions: [
+        {
+          id: "act-1",
+          kind: "press",
+          anchorId: null,
+          timestamp: 0,
+          marker: "press:none",
+          key,
+        },
+      ],
+    }) as SceneDocument;
+
+  it("a press-only scene still gets a bundle, with its marker", async () => {
+    const doc = pressScene("Enter");
+    const d = deps({ madeFrom: madeFromOf(doc) });
+    const result = await runReplay(doc, d);
+    expect(result.outcome, String(result.reason)).toBe("complete");
+    // The premise: nothing in it moves the cursor or measures an anchor.
+    expect(result.bundle?.cursorSamples ?? []).toEqual([]);
+    expect(result.bundle?.anchorRects ?? []).toEqual([]);
+    expect(result.bundle?.markers.map((m) => m.actionId)).toEqual(["act-1"]);
+  });
+
+  it("press Tab sends rawKeyDown and keyUp with key Tab, code Tab, code 9 and no text", async () => {
+    const d = deps();
+    const result = await runReplay(pressScene("Tab"), d);
+    expect(result.outcome, String(result.reason)).toBe("complete");
+    const keys = d.cdp.calls.filter(
+      (c) => c.method === "Input.dispatchKeyEvent",
+    );
+    expect(keys.map((c) => c.params.type)).toEqual(["rawKeyDown", "keyUp"]);
+    for (const k of keys) {
+      expect(k.params).toMatchObject({
+        key: "Tab",
+        code: "Tab",
+        windowsVirtualKeyCode: 9,
+      });
+      expect("text" in k.params).toBe(false);
+    }
+  });
+
+  it("press Space carries text ' '", async () => {
+    const d = deps();
+    await runReplay(pressScene("Space"), d);
+    const down = d.cdp.calls.find(
+      (c) =>
+        c.method === "Input.dispatchKeyEvent" && c.params.type === "keyDown",
+    );
+    expect(down?.params).toMatchObject({ code: "Space", text: " " });
+  });
+
   it("press Enter sends keyDown and keyUp with key Enter and text \\r", async () => {
     const d = deps();
     const result = await runReplay(

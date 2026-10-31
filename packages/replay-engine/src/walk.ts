@@ -1787,6 +1787,7 @@ export async function runWalk(
   // reason, listeners still attached and a screencast still running. So the
   // throw becomes a *reported* stop, and teardown happens either way.
   let failureNote: string | null = null;
+  let pressMarked = false;
   // The step that was marked and then did not happen loses its marker and
   // anchor rect, and its keyframe stays as a picture of the page but no
   // longer claims the step (a tagged frame is what a marker's still is found
@@ -2070,6 +2071,7 @@ export async function runWalk(
         // No element: the key goes to whatever holds focus, where the cursor
         // rests. Marked, pictured and counted like any verb.
         const keyAction = step.action;
+        pressMarked = true;
         inFlight = keyAction.id;
         const marker: FrameBundle["markers"][number] = {
           actionId: keyAction.id,
@@ -2550,7 +2552,9 @@ export async function runWalk(
   // only when every marked step is of a kind whose cursor does not travel.
   const harvested =
     keyframes.length > 0 &&
-    (cursorSamples.length > 0 || anchorRects.length > 0);
+    // A key press names no element and moves no cursor, yet it is filmed: its
+    // marker is the evidence (a press-only take is a carousel or an Escape).
+    (cursorSamples.length > 0 || anchorRects.length > 0 || pressMarked);
 
   // Assembly and persistence are ports too, and `putBundle` writes to disk —
   // quota is the most plausible failure this extension has, since frames are

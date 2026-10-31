@@ -68,3 +68,54 @@ describe("resolvePlan: taps", () => {
     expect(resolved.taps).toEqual([]);
   });
 });
+
+describe("resolvePlan: a key press", () => {
+  /** The take with a press action and a marker for it, after its last marker. */
+  function withPress(scene: SceneDocument) {
+    const bundle = proceduralBundle();
+    const last = Math.max(...bundle.markers.map((m) => m.sourceTimeMs));
+    const press = {
+      id: "act-press",
+      kind: "press" as const,
+      anchorId: null,
+      timestamp: 99999,
+      marker: "press:none",
+      key: "Enter" as const,
+    };
+    return {
+      scene: { ...scene, actions: [...scene.actions, press] } as SceneDocument,
+      bundle: {
+        ...bundle,
+        markers: [
+          ...bundle.markers,
+          { actionId: press.id, sourceTimeMs: last + 100 },
+        ],
+      },
+      pressMs: last + 100,
+    };
+  }
+
+  it("pulses where the cursor rests on a replay, and not on a capture", () => {
+    const base = touchScene();
+    const plain = resolvePlan(planScene(base), proceduralBundle(), base);
+    const { scene, bundle, pressMs } = withPress(base);
+    // The premise: a replay, and the press is a marker of its own.
+    expect(bundle.source).toBe("replay");
+    expect(bundle.markers.some((m) => m.sourceTimeMs === pressMs)).toBe(true);
+
+    const replay = resolvePlan(planScene(scene), bundle, scene);
+    expect(replay.clickOutputMs).toHaveLength(plain.clickOutputMs.length + 1);
+    const tap = replay.taps.at(-1);
+    expect(tap?.at).toEqual(sampleCursor(replay.cursor, pressMs));
+    expect(tap?.at).not.toBeNull();
+
+    const captured = { ...bundle, source: "capture" as const };
+    const capture = resolvePlan(planScene(scene), captured, scene);
+    expect(
+      capture.taps.some((t) => t.outputMs === replay.taps.at(-1)?.outputMs),
+    ).toBe(false);
+    expect(capture.clickOutputMs.length).toBeLessThan(
+      replay.clickOutputMs.length,
+    );
+  });
+});

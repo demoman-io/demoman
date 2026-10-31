@@ -85,6 +85,12 @@ describe("the recipe's examples and snapshot reading", () => {
     }
   });
 
+  // Ruling M: click's optional `at` is taught in the verbs line, not only
+  // press through an example. Red if that text is removed.
+  it("documents click's optional at", () => {
+    expect(recipe).toMatch(/`click` \(optional `at: \{ x, y \}`/);
+  });
+
   it("shows every verb and every target shape at least once, and a scroll's landing", () => {
     const steps: ScriptStep[] = blocks().flatMap(
       (b) => DemoScriptSchema.parse(JSON.parse(b)).steps,
