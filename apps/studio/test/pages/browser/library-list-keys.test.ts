@@ -309,6 +309,28 @@ describe("the column headings", () => {
   });
 });
 
+// Red: list-keys.ts stepping by index over every sort button, so ← and →
+// land on a heading the narrow list does not draw and focus vanishes.
+it("at 560px ← and → skip the headings a narrow list drops", async () => {
+  await page.viewport(560, 900);
+  mount();
+  const drawn = (col: string) =>
+    node(`[data-list-head] [data-col="${col}"] [data-sort]`).checkVisibility();
+  // Premise: Videos and Size are dropped, Where and Recorded drawn.
+  expect(["where", "videos", "recorded", "size"].map(drawn)).toEqual([
+    true,
+    false,
+    true,
+    false,
+  ]);
+  await enter();
+  await press("{ArrowRight}{End}{ArrowLeft}", "h:today/recorded");
+  await press("{ArrowUp}", "head/recorded");
+  await press("{ArrowRight}", "head/recorded");
+  await press("{ArrowLeft}", "head/where");
+  await press("{ArrowRight}", "head/recorded");
+});
+
 describe("moving", () => {
   it("↓ and ↑ skip hidden rows", async () => {
     mount();

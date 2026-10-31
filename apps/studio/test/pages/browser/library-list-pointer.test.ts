@@ -320,12 +320,60 @@ describe("selecting in the list", () => {
     expect(acts.edit).toHaveBeenCalledWith("a1");
   });
 
-  it("with nothing selected the row's actions show", () => {
+  // Red: the selecting rule hiding them at rest too, or the row's hover
+  // and focus no longer revealing them (list spec §2.1: on hover or
+  // keyboard focus).
+  it("with nothing selected the row's actions show on its hover and its focus", async () => {
     mount();
+    const actions = cell("f:B", "actions").querySelector(
+      ".row-actions",
+    ) as HTMLElement;
+    const del = actions.querySelector('[data-action="delete"]') as HTMLElement;
+    const shows = () => [
+      getComputedStyle(actions).opacity,
+      getComputedStyle(del).visibility,
+    ];
+    // At rest they keep their cell, unseen.
+    expect(shows()).toEqual(["0", "visible"]);
+    await userEvent.hover(cell("f:B", "recorded"));
+    expect(shows()).toEqual(["1", "visible"]);
+    await userEvent.hover(cell("f:C", "recorded"));
+    expect(shows()).toEqual(["0", "visible"]);
+    // The keyboard on the row: Space and the keys need no pointer.
+    row("f:B").focus();
+    expect(shows()).toEqual(["1", "visible"]);
+  });
+
+  it("while anything is selected, the row's actions stay hidden under the pointer", async () => {
+    mount(ticked("A"));
+    await userEvent.hover(cell("f:B", "recorded"));
+    // Premise: the pointer is on the row.
+    expect(row("f:B").matches(":hover")).toBe(true);
     const del = row("f:B").querySelector(
       '[data-action="delete"]',
     ) as HTMLElement;
-    expect(getComputedStyle(del).visibility).toBe("visible");
+    expect(getComputedStyle(del).visibility).toBe("hidden");
+  });
+
+  // Red: dropping the rows' `user-select: none` (cells), or list.ts's
+  // clearing of the range a Shift-click makes (names, which stay
+  // selectable for the drag above).
+  it("Shift-click selects flows, not the text between them", async () => {
+    mount(ticked("A"));
+    for (const [from, to] of [
+      [cell("f:A", "where"), cell("f:E", "where")],
+      [nameText("f:A"), nameText("f:E")],
+    ] as const) {
+      await userEvent.click(from);
+      await userEvent.click(to, { modifiers: ["Shift"] });
+      expect(acts.select).toHaveBeenLastCalledWith("E", "range", [
+        "A",
+        "B",
+        "E",
+        "C",
+      ]);
+      expect(window.getSelection()?.toString(), from.dataset.col).toBe("");
+    }
   });
 
   it("Cmd-click with nothing selected starts a selection", async () => {

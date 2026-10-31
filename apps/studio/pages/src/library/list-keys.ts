@@ -156,7 +156,10 @@ export function attachListKeys(
     const target = event.target as HTMLElement;
     if (!target.matches(SORTS) || event.ctrlKey || event.altKey) return;
     if (event.metaKey || event.shiftKey) return;
-    const sorts = [...grid.querySelectorAll<HTMLElement>(SORTS)];
+    // Not the columns a narrow list drops.
+    const sorts = [...grid.querySelectorAll<HTMLElement>(SORTS)].filter((s) =>
+      s.checkVisibility(),
+    );
     const here = sorts.indexOf(target);
     switch (event.key) {
       case "ArrowLeft":

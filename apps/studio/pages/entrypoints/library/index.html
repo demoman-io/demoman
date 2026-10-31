@@ -508,14 +508,13 @@
       [data-selecting] article[data-video] :is([data-action="edit"], [data-action="delete"]) {
         display: none;
       }
-      /* The list's own: in its cell, not the thumbnail's corner. */
+      /* The list's own: in its cell, not the thumbnail's corner; shown as
+         the card's is, on its row's hover or focus (list spec §4.4). */
       .library-list .select-box {
         position: static;
       }
-      /* The list's flow rows likewise, by visibility: a row's actions keep
-         their cell, so nothing moves (list spec §2.1, §4.2). */
-      [data-selecting] .library-list [data-flow] > [data-col="actions"] {
-        visibility: hidden;
+      .library-list > [data-key]:is(:hover, :focus-within) .select-box {
+        opacity: 1;
       }
       article.card[data-selected] {
         box-shadow: inset 0 0 0 2px var(--ink);
@@ -694,6 +693,198 @@
         opacity: 1;
       }
       article.card[data-unreadable-row] [data-reason] { overflow-wrap: anywhere; }
+
+      /* The list view (list spec §2.1, §4.7): a treegrid whose rows are
+         subgrids of one column template, so a column lines up down the
+         list whatever its cells hold. Narrow lists drop columns rather
+         than scroll sideways — Size, then Length, then Videos — and Where,
+         the one track with no floor, truncates before any of them goes.
+         The widths are the list's own (a container), not the window's:
+         the side column comes and goes at 1024px. */
+      .library-content { container: library / inline-size; }
+      .layout-toggle {
+        display: flex;
+        justify-content: flex-end;
+        gap: 2px;
+        margin-bottom: 8px;
+      }
+      /* Above studio.css's transparent `.btn-quiet.btn-icon`. */
+      .layout-toggle .btn.btn-icon[aria-pressed="true"] {
+        background: var(--control-hover);
+        color: var(--ink);
+      }
+      .library-list {
+        --list-row: 34px;
+        display: grid;
+        grid-template-columns:
+          28px 20px minmax(160px, 3fr) minmax(0, 2fr)
+          56px 64px max-content 72px max-content;
+        column-gap: 12px;
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+      .library-list > [role="row"] {
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+        /* The hairline is the row's last pixel: 34 in all. */
+        grid-template-rows: calc(var(--list-row) - 1px);
+        border-bottom: 1px solid var(--ring);
+        /* Clear of the sticky head when the keys scroll a row into view. */
+        scroll-margin-top: var(--list-row);
+        /* A Shift-click selects flows, not the text between them. */
+        user-select: none;
+      }
+      .library-list [data-name-text] { user-select: text; }
+      /* Under the top bar, held while the list scrolls; opaque, so a row
+         never shows through it. */
+      .library-list > [data-list-head] {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--shell);
+        color: var(--ink-faint);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .library-list [data-list-head] [data-sort] {
+        padding: 0;
+        background: none;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+      }
+      .library-list [data-list-head] [aria-sort],
+      .library-list [data-list-head] [data-sort]:hover { color: var(--ink); }
+      .library-list :is([role="gridcell"], [role="columnheader"]) {
+        min-width: 0;
+        line-height: calc(var(--list-row) - 1px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .library-list [role="gridcell"]:focus-visible { outline-offset: -2px; }
+      .library-list :is([data-col="videos"], [data-col="length"], [data-col="size"]) {
+        text-align: right;
+      }
+      .library-list :is([data-col="select"], [data-col="open"], [data-col="name"], [data-col="actions"]) {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .library-list [data-col="select"] { justify-content: center; }
+      .library-list [data-col="actions"] { justify-content: flex-end; }
+      /* While flows are ticked, the flow rows' actions step aside as the
+         cards' do, by visibility: they keep their cell, so nothing moves
+         (list spec §2.1, §4.2), and the pointer's reveal below is opacity
+         only, so it cannot bring them back. */
+      [data-selecting] .library-list [data-flow] > [data-col="actions"] {
+        visibility: hidden;
+      }
+      .library-list [data-name-text] {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .library-list [data-video-row] [data-col="name"] { padding-left: 16px; }
+      .library-list .row-tags {
+        position: static;
+        flex: none;
+        flex-wrap: nowrap;
+      }
+      .library-list [data-heading] {
+        font-weight: 600;
+        color: var(--ink-muted);
+      }
+      .library-list [data-heading] .section-count { font-weight: 500; }
+      /* The video's exports as small labels; a file gone is struck. */
+      .library-list .version-exports {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        height: 100%;
+        margin: 0;
+      }
+      .library-list .version-exports .export-name { display: none; }
+      .library-list .version-exports .export-type {
+        padding: 1px 6px;
+        border-radius: var(--radius);
+        background: var(--control);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .library-list .version-exports [data-gone] .export-type {
+        text-decoration: line-through;
+      }
+      /* The row's line: under its cells, from the name column on. */
+      .library-list > [role="row"] > [data-status] {
+        grid-column: 3 / -1;
+        display: grid;
+        gap: 4px;
+        padding-bottom: 8px;
+        white-space: normal;
+      }
+      .library-list [data-status] > p { margin: 0; }
+      .library-list .row-rerun { font-size: 12px; color: var(--ink-muted); }
+      /* Video rows on a raised ground; hover and keyboard focus share one
+         background, and the keyboard's row adds its inset edge. */
+      .library-list > [data-video-row] { background: var(--control); }
+      .library-list > [data-key]:is(:hover, :focus-visible, :has(:focus-visible)) {
+        background: var(--control-hover);
+      }
+      .library-list > [data-key]:focus-visible {
+        outline: none;
+        box-shadow: inset 2px 0 0 var(--focus);
+      }
+      /* The actions keep their cell at rest and only fade, so nothing
+         moves and the keys still reach them; the selecting rule's
+         `visibility` above outranks this. */
+      .library-list .row-actions { opacity: 0; }
+      .library-list > [data-key]:is(:hover, :focus-within) .row-actions {
+        opacity: 1;
+      }
+      @media (hover: none) {
+        .library-list .row-actions { opacity: 1; }
+      }
+      .library-list > [aria-expanded="true"] .chev { transform: rotate(90deg); }
+      /* An opening flow's videos fade in; no height animation. */
+      .library-list > [data-video-row] { transition: opacity 120ms ease; }
+      @starting-style {
+        .library-list > [data-video-row] { opacity: 0; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .library-list > [data-video-row],
+        .library-list [data-col="open"] .chev,
+        .library-list .row-actions { transition: none; }
+      }
+      @container library (max-width: 759px) {
+        .library-list {
+          grid-template-columns:
+            28px 20px minmax(140px, 3fr) minmax(0, 2fr)
+            56px 64px max-content max-content;
+        }
+        .library-list [data-col="size"] { display: none; }
+      }
+      @container library (max-width: 639px) {
+        .library-list {
+          grid-template-columns:
+            28px 20px minmax(120px, 3fr) minmax(0, 2fr)
+            56px max-content max-content;
+        }
+        .library-list [data-col="length"] { display: none; }
+      }
+      @container library (max-width: 559px) {
+        .library-list {
+          grid-template-columns:
+            28px 20px minmax(120px, 3fr) minmax(0, 2fr)
+            max-content max-content;
+        }
+        .library-list [data-col="videos"] { display: none; }
+      }
+      /* Last: every `display` above loses to `hidden` (shell.css's note on
+         `.hidden`). */
+      .library-list [hidden],
+      .layout-toggle[hidden] { display: none; }
 
       /* The empty states: the shell's `.empty`, on a card, as on Settings. */
       .empty-card {

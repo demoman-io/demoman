@@ -143,6 +143,11 @@ function renameButton(label: string): HTMLElement {
   return rename;
 }
 
+/** What was said of a row (a refused delete or rename), in the card's
+ *  error tone. */
+const sentence = (text: string): HTMLElement =>
+  el("p", { class: "notice notice-error" }, text);
+
 /** One entry's row: its cells, then the line that says what happened to
  *  it, if anything was said. */
 function entryRow(
@@ -253,7 +258,7 @@ function entryRow(
     );
     cells.actions.append(buttons);
     if (rerunLine !== null) {
-      const rerun = el("p", { "data-rerun-line": "" });
+      const rerun = el("p", { "data-rerun-line": "", class: "row-rerun" });
       setCodeText(rerun, rerunLine);
       said.push(rerun);
     }
@@ -264,7 +269,7 @@ function entryRow(
       group === null
         ? rowStatus.get(statusKey("take", r.sceneId))
         : rowStatus.get(statusKey("video", group.video.id));
-    if (status !== undefined) said.push(el("p", {}, status));
+    if (status !== undefined) said.push(sentence(status));
   } else {
     const v = e.row;
     row.setAttribute("data-video-row", v.sceneId);
@@ -297,17 +302,15 @@ function entryRow(
       ),
     );
     const status = rowStatus.get(statusKey("take", v.sceneId));
-    if (status !== undefined) said.push(el("p", {}, status));
+    if (status !== undefined) said.push(sentence(status));
   }
   row.append(...COLUMNS.map(([col]) => cells[col]));
 
   if (said.length > 0) {
-    // Not a cell, so never a keyboard stop; the row's description.
-    const line = el("div", {
-      "data-status": "",
-      class: "notice notice-error",
-      id: `list-status-${e.key}`,
-    });
+    // Not a cell, so never a keyboard stop; the row's description. Each
+    // sentence carries its own tone: the rerun line is the card's quiet
+    // one, what was said of the row the card's error.
+    const line = el("div", { "data-status": "", id: `list-status-${e.key}` });
     line.append(...said);
     row.append(line);
     row.setAttribute("aria-describedby", line.id);
@@ -428,12 +431,16 @@ function listenForClicks(grid: HTMLElement, actions: LibraryActions): void {
     nameWasFocused = false;
     if (row === null) return;
     const flowId = row.dataset.flow;
-    const select = (): void =>
+    const select = (): void => {
+      // A Shift-click from one name to another still ranges the text
+      // between them, which the rows' `user-select: none` cannot stop.
+      if (event.shiftKey) window.getSelection()?.removeAllRanges();
       actions.select?.(
         flowId as string,
         event.shiftKey ? "range" : "toggle",
         flowsOnScreen(grid),
       );
+    };
     if (
       row.hasAttribute("aria-expanded") &&
       (row.dataset.heading !== undefined ||
