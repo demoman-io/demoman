@@ -1218,6 +1218,16 @@ describe("a typed field that does not hold its text", () => {
     expect(report.steps[0]?.fieldHolds).toEqual({ value: "", holds: false });
   });
 
+  it("says so when the step behind the divergence cannot be found", () => {
+    const built = buildRunReport(typedInto("", false));
+    const report = { ...built, steps: [] };
+    const line = verdictLine(report);
+    // The premise: the divergence is still there to be named.
+    expect(built.verdict.diverged[0]?.kind).toBe("fieldDoesNotHold");
+    expect(line).toContain("a step typed");
+    expect(line).not.toContain("step 0");
+  });
+
   it("a field that holds its text leaves the verdict a match", () => {
     const report = buildRunReport(typedInto("4,800", true));
     expect(report.steps[0]?.fieldHolds).toEqual({

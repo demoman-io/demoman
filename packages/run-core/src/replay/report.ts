@@ -99,6 +99,8 @@ export interface StepReport {
   /** A `type` whose text is kept: what the field held afterwards, and
    *  whether it holds the typed text. Never present with `textHidden`. */
   fieldHolds?: { value: string; holds: boolean };
+  /** A `type` whose field could not be read back: why. Not a divergence. */
+  fieldRead?: { unavailable: string };
   /** A `waitForLoad` that was met: false when no load started since the
    *  previous step began — a note, not a divergence. */
   loadSeen?: boolean;
@@ -359,6 +361,7 @@ function toStepReport(step: AuthoredStep): StepReport {
     ...(hidden === null ? {} : { textHidden: hidden }),
     ...(step.waitSaw === undefined ? {} : { waitSaw: step.waitSaw }),
     ...(step.fieldHolds === undefined ? {} : { fieldHolds: step.fieldHolds }),
+    ...(step.fieldRead === undefined ? {} : { fieldRead: step.fieldRead }),
     ...(step.loadSeen === undefined ? {} : { loadSeen: step.loadSeen }),
   };
 }
@@ -873,10 +876,11 @@ function runVerdictLine(report: RunReport): string {
   const n = report.verdict.diverged.length;
   const unheld = report.verdict.diverged
     .filter((d) => d.kind === "fieldDoesNotHold")
-    .map(
-      (d) =>
-        `step ${(report.steps.find((s) => s.actionId === d.actionId)?.index ?? -1) + 1} typed ${JSON.stringify(d.wanted)} and the field holds ${JSON.stringify(d.value)} (fieldDoesNotHold)`,
-    );
+    .map((d) => {
+      const index = report.steps.find((s) => s.actionId === d.actionId)?.index;
+      const which = index === undefined ? "a step" : `step ${index + 1}`;
+      return `${which} typed ${JSON.stringify(d.wanted)} and the field holds ${JSON.stringify(d.value)} (fieldDoesNotHold)`;
+    });
   const fields = unheld.length === 0 ? "" : ` ${unheld.join("; ")}.`;
   return `Complete: ${n} step${n === 1 ? "" : "s"} the video does not show the way ${asked} it.${fields}`;
 }

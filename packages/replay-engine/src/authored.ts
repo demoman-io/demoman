@@ -205,6 +205,8 @@ export interface AuthoredStep {
   /** On a `type` whose text is kept: what the field held after the keys went
    *  in, and whether that holds the typed text. Absent when not read. */
   fieldHolds?: { value: string; holds: boolean };
+  /** On a `type` whose field could not be read back: why. Not a divergence. */
+  fieldRead?: { unavailable: string };
   /** On a `waitForLoad` that was met: whether a load started since the
    *  previous step began. False is a wait that passed without a navigation. */
   loadSeen?: boolean;
@@ -940,8 +942,13 @@ export function createAuthoredRun(
           // Never read for a credential field: its value is kept nowhere.
           ...(step.do === "type" && record.textHidden === null
             ? {
-                onFieldRead: (read: { value: string; holds: boolean }) => {
-                  record.fieldHolds = read;
+                onFieldRead: (
+                  read:
+                    | { value: string; holds: boolean }
+                    | { unavailable: string },
+                ) => {
+                  if ("unavailable" in read) record.fieldRead = read;
+                  else record.fieldHolds = read;
                 },
               }
             : {}),

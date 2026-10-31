@@ -93,7 +93,7 @@ function fieldShows(cdp: CdpFake, shown: string): { asked: () => number } {
   cdp.send = async (method, params) => {
     if (
       method === "Runtime.callFunctionOn" &&
-      String(params?.functionDeclaration ?? "").includes('"value" in this')
+      String(params?.functionDeclaration ?? "").includes('"value" in field')
     ) {
       asked++;
       return { result: { type: "string", value: shown } };
@@ -122,6 +122,40 @@ describe("a typed field is read back", () => {
     const result = await runAuthored(typeScript("4800"), deps(cdp));
     expect(field.asked()).toBe(1);
     expect(result.steps[0]?.fieldHolds).toEqual({ value: "", holds: false });
+  });
+
+  it("a refused read leaves the run complete and says why on the step", async () => {
+    const cdp = createCdpFake();
+    const send = cdp.send.bind(cdp);
+    let refused = 0;
+    cdp.send = async (method, params) => {
+      if (
+        method === "Runtime.callFunctionOn" &&
+        String(params?.functionDeclaration ?? "").includes('"value" in field')
+      ) {
+        refused++;
+        throw new Error("Cannot find context with specified id");
+      }
+      return send(method, params);
+    };
+    const result = await runAuthored(typeScript("4800"), deps(cdp));
+    expect(refused, "the read was really refused").toBe(1);
+    expect(result.reason).toBeNull();
+    expect(result.completed).toBe(1);
+    expect(result.steps[0]?.fieldHolds).toBeUndefined();
+    expect(result.steps[0]?.fieldRead).toEqual({
+      unavailable: "Cannot find context with specified id",
+    });
+  });
+
+  it("clips a long value", async () => {
+    const cdp = createCdpFake();
+    fieldShows(cdp, `4800${"x".repeat(500)}`);
+    const result = await runAuthored(typeScript("4800"), deps(cdp));
+    const kept = result.steps[0]?.fieldHolds;
+    expect(kept?.holds).toBe(true);
+    expect(kept?.value.length).toBe(121);
+    expect(kept?.value.endsWith("…")).toBe(true);
   });
 
   it("never reads a credential field", async () => {

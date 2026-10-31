@@ -195,7 +195,9 @@ export interface WalkStep {
    * typed text (letters and digits, case-folded, contained). A field the page
    * reformats ("4,800") holds; one it empties does not.
    */
-  onFieldRead?(read: { value: string; holds: boolean }): void;
+  onFieldRead?(
+    read: { value: string; holds: boolean } | { unavailable: string },
+  ): void;
   /**
    * A re-shoot's recorded interval from the previous step's marker to this
    * one's, in ms — `to.timestamp - from.timestamp`, the number `planScene`
@@ -241,10 +243,24 @@ interface DragPlan {
 /** What a typed-into field shows now: an input or textarea's `value`, a
  *  contenteditable host's `textContent`. */
 const FIELD_READ = `function () {
-  return "value" in this && typeof this.value === "string"
-    ? this.value
-    : this.textContent ?? "";
+  // The focused element, through shadow roots: a type aimed at a label or a
+  // wrapper lands in the field inside it (or the label's control).
+  let active = document.activeElement;
+  while (active && active.shadowRoot && active.shadowRoot.activeElement) {
+    active = active.shadowRoot.activeElement;
+  }
+  const field =
+    active && (this.contains(active) || (this.control && active === this.control))
+      ? active
+      : this;
+  return "value" in field && typeof field.value === "string"
+    ? field.value
+    : field.textContent ?? "";
 }`;
+
+/** The longest value a report keeps of a field, so a contenteditable's whole
+ *  document does not reach the report or the verdict line. */
+const FIELD_VALUE_MAX = 120;
 
 /** Letters and digits only, case-folded: what "the field holds the text"
  *  compares, so a page's commas, spaces and capitals are not a failure. */
@@ -2811,19 +2827,32 @@ async function performVerb(
       const typed = typeof text === "string" ? text : "";
       await typeKeys(typed, cdp, sleep);
       if (onFieldRead !== undefined) {
-        const reply = await cdp.send("Runtime.callFunctionOn", {
-          objectId,
-          functionDeclaration: FIELD_READ,
-          returnByValue: true,
-        });
-        const value = (reply.result as { value?: unknown } | undefined)?.value;
-        if (typeof value !== "string") {
-          throw new Error("the typed-into field could not be read back");
+        // The read is a courtesy to the verdict: a refused one does not end
+        // the take, but the step says it could not be read and why.
+        try {
+          const reply = await cdp.send("Runtime.callFunctionOn", {
+            objectId,
+            functionDeclaration: FIELD_READ,
+            returnByValue: true,
+          });
+          const value = (reply.result as { value?: unknown } | undefined)
+            ?.value;
+          if (typeof value !== "string") {
+            onFieldRead({ unavailable: "the page answered with no text" });
+          } else {
+            onFieldRead({
+              value:
+                value.length > FIELD_VALUE_MAX
+                  ? `${value.slice(0, FIELD_VALUE_MAX)}…`
+                  : value,
+              holds: fieldKey(value).includes(fieldKey(typed)),
+            });
+          }
+        } catch (error) {
+          onFieldRead({
+            unavailable: error instanceof Error ? error.message : String(error),
+          });
         }
-        onFieldRead({
-          value,
-          holds: fieldKey(value).includes(fieldKey(typed)),
-        });
       }
       return verdict;
     }
