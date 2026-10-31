@@ -3,6 +3,7 @@ import { setCodeText } from "../shell/code-spans";
 import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
+import { whereOf } from "./list-model";
 import { previewText } from "./preview";
 import type { Selection } from "./selection";
 import type {
@@ -11,13 +12,7 @@ import type {
   LibrarySection,
   VideoGroup,
 } from "./state";
-import {
-  BAD_BUDGET,
-  cardsOf,
-  formatBytes,
-  repoLabel,
-  sectionsOf,
-} from "./state";
+import { BAD_BUDGET, cardsOf, formatBytes, sectionsOf } from "./state";
 
 /** Which kind of row a status was said on. A take's folder is named after
  *  it, so a card and the "Couldn't read" row its folder can become share an
@@ -909,8 +904,7 @@ function row(
   // the path is what tells the checkout flow from the settings page. The
   // full line is the title, for when it is clipped.
   // A video's line leads with its repo, when it is known.
-  const repo = group === null ? null : repoLabel(group.video.repo);
-  const where = `${repo === null ? "" : `${repo} · `}${r.origin}${r.path}`;
+  const where = whereOf({ row: r, group });
   const line = el("div", { class: "row-line" });
   // Under a heading that names the day the date would say it twice, so
   // the line keeps only the time; under a month it keeps both.
