@@ -480,6 +480,35 @@ describe("renaming", () => {
     expect(acts.renameVideo, where()).not.toHaveBeenCalled();
   });
 
+  it("the click that ends a rename opens nothing, and the field saves on the way", async () => {
+    for (const [what, target] of [
+      ["B's name", () => cell("f:B", "name")],
+      ["a blank part of A's row", () => cell("f:A", "size")],
+    ] as const) {
+      mount();
+      await enter();
+      await press(`${TO_A_NAME}{Enter}`, "f:A/name field");
+      await userEvent.keyboard("Invoices");
+      await userEvent.click(target());
+      expect(acts.edit, `${what}: ${where()}`).not.toHaveBeenCalled();
+      expect(field(), `${what}: ${where()}`).toBeNull();
+      expect(acts.renameVideo, `${what}: ${where()}`).toHaveBeenCalledWith(
+        "A",
+        "Invoices",
+      );
+      expect(nameText("f:A"), `${what}: ${where()}`).toBe("Invoices");
+    }
+  });
+
+  it("a click on the open field opens nothing and leaves it open", async () => {
+    mount();
+    await enter();
+    await press(`${TO_A_NAME}{Enter}`, "f:A/name field");
+    await userEvent.click(field() as HTMLInputElement);
+    expect(acts.edit, where()).not.toHaveBeenCalled();
+    expect(focused(), where()).toBe("f:A/name field");
+  });
+
   it("a refused rename's sentence shows on the row's status line", () => {
     mount();
     const said = "Couldn't rename: another video is called Edit profile.";
