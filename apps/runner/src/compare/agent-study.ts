@@ -265,45 +265,42 @@ async function main(): Promise<number> {
     say(`refused: ${stale}`);
     return 1;
   }
-  try {
-    const all = loadBriefs(BRIEFS);
-    const unknown = (values.brief ?? []).filter(
-      (n) => !all.some((b) => b.name === n),
+  const all = loadBriefs(BRIEFS);
+  const unknown = (values.brief ?? []).filter(
+    (n) => !all.some((b) => b.name === n),
+  );
+  if (unknown.length > 0) {
+    say(
+      `refused: no brief named ${unknown.join(", ")} (have ${all.map((b) => b.name).join(", ")})`,
     );
-    if (unknown.length > 0) {
-      say(
-        `refused: no brief named ${unknown.join(", ")} (have ${all.map((b) => b.name).join(", ")})`,
-      );
-      return 1;
-    }
-    const chosen = all.filter(
-      (b) => !values.brief || values.brief.includes(b.name),
-    );
-    const date = new Date().toLocaleDateString("en-CA");
-    const out = join(repo, "agent-study", date, `${model}-${pass}`);
-    mkdirSync(out, { recursive: true });
-    const rows: Row[] = [];
-    for (const brief of chosen) {
-      const skipped = await skipLine(brief);
-      if (skipped !== null) {
-        say(skipped);
-        rows.push({
-          brief,
-          skipped,
-          tally: null,
-          judged: null,
-          seconds: null,
-          note: "",
-        });
-        continue;
-      }
-      rows.push(await film(brief, model, out));
-    }
-    writeFileSync(join(out, "summary.md"), summary(rows, model));
-    say(`summary: ${join(out, "summary.md")}`);
-    return rows.some((r) => r.skipped === null) ? 0 : 1;
-  } finally {
+    return 1;
   }
+  const chosen = all.filter(
+    (b) => !values.brief || values.brief.includes(b.name),
+  );
+  const date = new Date().toLocaleDateString("en-CA");
+  const out = join(repo, "agent-study", date, `${model}-${pass}`);
+  mkdirSync(out, { recursive: true });
+  const rows: Row[] = [];
+  for (const brief of chosen) {
+    const skipped = await skipLine(brief);
+    if (skipped !== null) {
+      say(skipped);
+      rows.push({
+        brief,
+        skipped,
+        tally: null,
+        judged: null,
+        seconds: null,
+        note: "",
+      });
+      continue;
+    }
+    rows.push(await film(brief, model, out));
+  }
+  writeFileSync(join(out, "summary.md"), summary(rows, model));
+  say(`summary: ${join(out, "summary.md")}`);
+  return rows.some((r) => r.skipped === null) ? 0 : 1;
 }
 
 main().then(
