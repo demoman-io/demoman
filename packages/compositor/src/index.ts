@@ -32,6 +32,7 @@ export {
   MIN_PAN_MS,
   type MotionTimings,
   motionTimings,
+  pullOutLandsAt,
   returnsBetween,
   sampleCamera,
   solveCamera,

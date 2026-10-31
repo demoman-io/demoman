@@ -1,6 +1,7 @@
 import {
   CAMERA_DEFAULTS,
   motionTimings,
+  pullOutLandsAt,
   returnsBetween,
 } from "@demoman/compositor";
 import { type RoomPolicy, SETTLE_MS } from "@demoman/replay-engine";
@@ -51,13 +52,9 @@ export function createRoomPolicy(
       )
         ? 0
         : pushIn,
-    // `insertNeutralKeys`' pull-out for a zoom with none after it, plus a
-    // settle so the film ends on a still frame.
+    // The camera's own landing, plus a settle so the film ends still.
     settledAfterMs: (heldUntilMs) =>
-      heldUntilMs +
-      CAMERA_DEFAULTS.neutral.zoomHoldMs +
-      timings.zoomOutMs +
-      SETTLE_MS,
+      pullOutLandsAt(heldUntilMs, timings) + SETTLE_MS,
     zooms({ anchorId, rect, unwaitedMs, scale }) {
       const id = `click-${++clicks}`;
       const decided = decideZoom(
