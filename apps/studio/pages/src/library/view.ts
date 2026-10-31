@@ -1,8 +1,13 @@
 // apps/studio/pages/src/library/view.ts
+import type {
+  LibraryLayout,
+  LibraryViewChoice,
+} from "@demoman/studio-protocol";
 import { setCodeText } from "../shell/code-spans";
 import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
+import { collapsedKeys, renderList } from "./list";
 import { whereOf } from "./list-model";
 import { previewText } from "./preview";
 import type { SelectHow, Selection } from "./selection";
@@ -81,12 +86,17 @@ export interface LibraryActions {
   clearSelection?(): void;
   /** The selection bar's Delete: the page asks once, then deletes. */
   deleteSelected?(): void;
+  /** The List/Grid toggle and the list's sort headings. Absent: no toggle,
+   *  no sortable headings. */
+  setView?(view: LibraryViewChoice): void;
+  /** Fill a list row's Length cell with its video's edited length. */
+  measure?(sceneId: string, cell: HTMLElement): void;
 }
 
 /** An expired video's line leads with the fact (spec 2026-10-30
  *  flows-and-bulk-delete §1.1); the platform's line alone is how to film
  *  it again, which the editor also says for a video with no frames. */
-const expiredLine = (
+export const expiredLine = (
   expired: boolean | undefined,
   line: string | null | undefined,
 ): string | null =>
@@ -185,6 +195,7 @@ export function applySelection(
     box.checked = on;
     box.disabled = busy;
     box.closest("article")?.toggleAttribute("data-selected", on);
+    box.closest("[role=row]")?.setAttribute("aria-selected", String(on));
   }
   let bar = root.querySelector<HTMLElement>("[data-selection-bar]");
   if (selected.size === 0) {
@@ -202,7 +213,7 @@ export function applySelection(
 
 const GB = 1024 ** 3;
 
-function el<K extends keyof HTMLElementTagNameMap>(
+export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   attrs: Record<string, string> = {},
   text?: string,
@@ -313,10 +324,16 @@ interface Header {
   box: HTMLElement;
   /** Re-filled on every render: the jump list of sections. */
   jumps: HTMLElement;
-  /** The list's column. Its notices stay; the rest is replaced. */
+  /** The list's column. Its toggle and notices stay; the rest is
+   *  replaced. */
   content: HTMLElement;
+  toggle: HTMLElement;
   notices: HTMLElement;
-  update(model: LibraryModel, actions: LibraryActions): void;
+  update(
+    model: LibraryModel,
+    actions: LibraryActions,
+    view: LibraryViewChoice | undefined,
+  ): void;
 }
 
 /**
@@ -335,6 +352,7 @@ interface Header {
  */
 function createHeader(withStorage: boolean): Header {
   let actions: LibraryActions | null = null;
+  let view: LibraryViewChoice | undefined;
   // Settings' shape (2026-10-08): a column at the left, held in view on a
   // wide window, with the title and a jump list of the sections; the
   // list in the column beside it. The storage trigger
@@ -380,6 +398,32 @@ function createHeader(withStorage: boolean): Header {
   // author answers it — so the notices sit in the page, where they are
   // read without opening anything, and the trigger is one press away.
   const notices = el("div", { "data-notices": "" });
+
+  // List or Grid, at the top of the list column (list spec §1). Built once,
+  // so the button just pressed is still there to hold focus.
+  const toggle = el("div", {
+    class: "layout-toggle",
+    "data-layout-toggle": "",
+  });
+  const layouts: [LibraryLayout, "list" | "layoutGrid", string][] = [
+    ["list", "list", "List"],
+    ["grid", "layoutGrid", "Grid"],
+  ];
+  for (const [layout, glyph, label] of layouts) {
+    const button = el("button", {
+      type: "button",
+      class: "btn btn-quiet btn-icon",
+      "data-layout": layout,
+      "aria-label": label,
+      title: label,
+    });
+    button.append(icon(glyph));
+    button.addEventListener("click", () => {
+      if (view === undefined || view.layout === layout) return;
+      actions?.setView?.({ layout, sort: { ...view.sort } });
+    });
+    toggle.append(button);
+  }
 
   const panel = el("div", {
     id: STORAGE_PANEL,
@@ -484,7 +528,7 @@ function createHeader(withStorage: boolean): Header {
   );
   storage.append(trigger, panel);
   side.append(el("h1", {}, "Flows"), jumps);
-  content.append(notices);
+  content.append(toggle, notices);
   box.append(side, content);
   // The page's top bar carries a slot for it, left of the theme switch
   // (library/index.html). A document without one — a test that mounts the
@@ -497,9 +541,18 @@ function createHeader(withStorage: boolean): Header {
     box,
     jumps,
     content,
+    toggle,
     notices,
-    update(model, next) {
+    update(model, next, nextView) {
       actions = next;
+      view = nextView;
+      toggle.hidden = view === undefined || next.setView === undefined;
+      for (const b of toggle.querySelectorAll("button")) {
+        b.setAttribute(
+          "aria-pressed",
+          String(b.dataset.layout === view?.layout),
+        );
+      }
       if (model.totalBytes === undefined) {
         total.remove();
       } else {
@@ -604,7 +657,13 @@ const headers = new WeakMap<HTMLElement, Header>();
  * two degraded states and a hosted copy each get a glyph and a word. Null
  * when there are none, so the thumbnail carries no empty strip.
  */
-function tags(r: LibraryRow, actions: LibraryActions): HTMLElement | null {
+export function tags(
+  r: LibraryRow,
+  actions: LibraryActions,
+  /** The list leaves Hosted out: nothing sets it since the hosted server
+   *  was retired, and the word will mean paid links (list spec §2.1). */
+  withHosted = true,
+): HTMLElement | null {
   const strip = el("div", { class: "row-tags" });
   // First, and the one tag that is a control: a drift check flagged this
   // take, and the flag is the way to Needs a look — which the popup's
@@ -624,7 +683,7 @@ function tags(r: LibraryRow, actions: LibraryActions): HTMLElement | null {
     look.addEventListener("click", () => openReview(r.sceneId));
     strip.append(look);
   }
-  if (r.hosted) {
+  if (r.hosted && withHosted) {
     strip.append(
       tag("cloud", "Hosted", {
         "data-hosted": "",
@@ -837,66 +896,7 @@ function row(
   }
   article.append(preview);
 
-  const buttons = el("div", { class: "row-actions" });
-  if (r.servesReshoot) {
-    const back = el("button", {
-      type: "button",
-      "data-action": "back-to-recording",
-      class: "btn btn-quiet btn-icon",
-      "aria-label": `Back to the original footage: ${r.label}`,
-      title:
-        "Back to the original footage — this video plays its re-shot frames; its original footage is kept",
-    });
-    back.append(icon("undo"));
-    back.addEventListener("click", () => actions.backToRecording(r.sceneId));
-    buttons.append(back);
-  }
-  // An expired recording can only be recorded again, which the same line
-  // says.
-  const rerunLine =
-    r.canRestore || r.expired === true
-      ? expiredLine(r.expired, actions.rerunLine?.(r.sceneId, r.authored))
-      : null;
-  if (r.canRestore && rerunLine === null) {
-    const restore = el("button", {
-      type: "button",
-      "data-action": "restore",
-      class: "btn btn-quiet btn-icon",
-      "aria-label": `Restore motion: ${r.label}`,
-      title: r.authored
-        ? "Restore motion — run its script again in Runs; a script-made video cannot be re-shot, so this makes a new video"
-        : "Restore motion — re-shoot it in Runs",
-    });
-    restore.append(icon("restore"));
-    restore.addEventListener("click", () => actions.restore(r.sceneId));
-    buttons.append(restore);
-  }
-
-  const edit = el("button", {
-    type: "button",
-    "data-action": "edit",
-    class: "btn btn-quiet btn-icon",
-    "aria-label": `Edit ${r.label}`,
-    title: "Edit",
-  });
-  edit.append(icon("clapperboard"));
-  edit.addEventListener("click", () => actions.edit(r.sceneId));
-  if (r.expired !== true) buttons.append(edit);
-
-  const remove = el("button", {
-    type: "button",
-    "data-action": "delete",
-    class: "btn btn-quiet btn-icon btn-danger",
-    "aria-label": `Delete ${r.label}`,
-    title: "Delete",
-  });
-  remove.append(icon("trash"));
-  remove.addEventListener("click", () =>
-    group === null
-      ? actions.remove(r.sceneId, "take")
-      : actions.remove(group.video.id, "video"),
-  );
-  buttons.append(remove);
+  const { buttons, rerunLine } = cardButtons(r, actions, group);
 
   // The name and the actions share one row: the card has no footer, so
   // every card is the thumbnail and two lines of text, whatever it holds.
@@ -970,6 +970,77 @@ function row(
   return article;
 }
 
+/** A card's buttons — Back to the original footage, Restore, Edit, Delete,
+ *  whichever it has — and the sentence that stands where Restore would, or
+ *  null. The list row draws the same set (list.ts). */
+export function cardButtons(
+  r: LibraryRow,
+  actions: LibraryActions,
+  group: VideoGroup | null,
+): { buttons: HTMLElement; rerunLine: string | null } {
+  const buttons = el("div", { class: "row-actions" });
+  if (r.servesReshoot) {
+    const back = el("button", {
+      type: "button",
+      "data-action": "back-to-recording",
+      class: "btn btn-quiet btn-icon",
+      "aria-label": `Back to the original footage: ${r.label}`,
+      title:
+        "Back to the original footage — this video plays its re-shot frames; its original footage is kept",
+    });
+    back.append(icon("undo"));
+    back.addEventListener("click", () => actions.backToRecording(r.sceneId));
+    buttons.append(back);
+  }
+  // An expired recording can only be recorded again, which the same line
+  // says.
+  const rerunLine =
+    r.canRestore || r.expired === true
+      ? expiredLine(r.expired, actions.rerunLine?.(r.sceneId, r.authored))
+      : null;
+  if (r.canRestore && rerunLine === null) {
+    const restore = el("button", {
+      type: "button",
+      "data-action": "restore",
+      class: "btn btn-quiet btn-icon",
+      "aria-label": `Restore motion: ${r.label}`,
+      title: r.authored
+        ? "Restore motion — run its script again in Runs; a script-made video cannot be re-shot, so this makes a new video"
+        : "Restore motion — re-shoot it in Runs",
+    });
+    restore.append(icon("restore"));
+    restore.addEventListener("click", () => actions.restore(r.sceneId));
+    buttons.append(restore);
+  }
+
+  const edit = el("button", {
+    type: "button",
+    "data-action": "edit",
+    class: "btn btn-quiet btn-icon",
+    "aria-label": `Edit ${r.label}`,
+    title: "Edit",
+  });
+  edit.append(icon("clapperboard"));
+  edit.addEventListener("click", () => actions.edit(r.sceneId));
+  if (r.expired !== true) buttons.append(edit);
+
+  const remove = el("button", {
+    type: "button",
+    "data-action": "delete",
+    class: "btn btn-quiet btn-icon btn-danger",
+    "aria-label": `Delete ${r.label}`,
+    title: "Delete",
+  });
+  remove.append(icon("trash"));
+  remove.addEventListener("click", () =>
+    group === null
+      ? actions.remove(r.sceneId, "take")
+      : actions.remove(group.video.id, "video"),
+  );
+  buttons.append(remove);
+  return { buttons, rerunLine };
+}
+
 /**
  * A video's versions, newest first, under its card: a fold whose summary is
  * the count, so a video of one version (nothing to choose between) has
@@ -1005,34 +1076,11 @@ function versionList(
       el("span", { class: "version-number" }, `Video ${v.version ?? "?"}`),
       el("span", { class: "version-when", title: v.when }, v.when),
     );
-    const buttons = el("div", { class: "row-actions" });
     const line =
       v.expired === true
         ? expiredLine(true, actions.rerunLine?.(v.sceneId, v.authored))
         : null;
-    if (v.expired !== true) {
-      const edit = el("button", {
-        type: "button",
-        "data-action": "edit",
-        class: "btn btn-quiet btn-icon",
-        "aria-label": `Edit video ${v.version ?? ""} of ${group.video.name}`,
-        title: "Edit",
-      });
-      edit.append(icon("clapperboard"));
-      edit.addEventListener("click", () => actions.edit(v.sceneId));
-      buttons.append(edit);
-    }
-    const remove = el("button", {
-      type: "button",
-      "data-action": "delete",
-      class: "btn btn-quiet btn-icon btn-danger",
-      "aria-label": `Delete video ${v.version ?? ""} of ${group.video.name}`,
-      title: "Delete",
-    });
-    remove.append(icon("trash"));
-    remove.addEventListener("click", () => actions.remove(v.sceneId, "take"));
-    buttons.append(remove);
-    head.append(buttons);
+    head.append(versionButtons(v, group, actions, v.expired !== true));
     item.append(head);
     const files = exportsList(v.exports);
     if (files !== null) item.append(files);
@@ -1053,9 +1101,44 @@ function versionList(
   return box;
 }
 
+/** A version's Edit and Delete; Edit only where its footage is here. */
+export function versionButtons(
+  v: LibraryRow,
+  group: VideoGroup,
+  actions: LibraryActions,
+  editable: boolean,
+): HTMLElement {
+  const buttons = el("div", { class: "row-actions" });
+  if (editable) {
+    const edit = el("button", {
+      type: "button",
+      "data-action": "edit",
+      class: "btn btn-quiet btn-icon",
+      "aria-label": `Edit video ${v.version ?? ""} of ${group.video.name}`,
+      title: "Edit",
+    });
+    edit.append(icon("clapperboard"));
+    edit.addEventListener("click", () => actions.edit(v.sceneId));
+    buttons.append(edit);
+  }
+  const remove = el("button", {
+    type: "button",
+    "data-action": "delete",
+    class: "btn btn-quiet btn-icon btn-danger",
+    "aria-label": `Delete video ${v.version ?? ""} of ${group.video.name}`,
+    title: "Delete",
+  });
+  remove.append(icon("trash"));
+  remove.addEventListener("click", () => actions.remove(v.sceneId, "take"));
+  buttons.append(remove);
+  return buttons;
+}
+
 /** A version's exported files: each its name and type, a moved or deleted
  *  one marked gone; or why they could not be read. Null when it has none. */
-function exportsList(exports: LibraryRow["exports"]): HTMLElement | null {
+export function exportsList(
+  exports: LibraryRow["exports"],
+): HTMLElement | null {
   if (exports === undefined) return null;
   if ("unreadable" in exports) {
     return el(
@@ -1160,8 +1243,26 @@ function sectionStates(root: HTMLElement): Map<string, boolean> {
 /** The id of the unreadable folders' section, which its jump link names. */
 const UNREADABLE_ID = "unreadable";
 
-/** The id a section's `<details>` carries, which its jump link names. */
-const sectionId = (key: string): string => `when-${key.replace(/:/g, "-")}`;
+/** The id a section's `<details>` carries, which its jump link names; in
+ *  the list, its heading row's. */
+export const sectionId = (key: string): string =>
+  `when-${key.replace(/:/g, "-")}`;
+
+/** What was said of a card: a video's card says what was said of the
+ *  video. What was said of the take it shows is said on that take's
+ *  version row, when the card has them; a card of one version is that
+ *  version's row. */
+export const cardStatus = (
+  r: LibraryRow,
+  group: VideoGroup | null,
+  rowStatus: Map<string, string>,
+): string | undefined =>
+  group === null
+    ? rowStatus.get(statusKey("take", r.sceneId))
+    : (rowStatus.get(statusKey("video", group.video.id)) ??
+      (group.versions.length > 1
+        ? undefined
+        : rowStatus.get(statusKey("take", r.sceneId))));
 
 /**
  * The jump list: a link per section, with its count, marked current by
@@ -1257,15 +1358,7 @@ function section(
     const article = row(
       r,
       actions,
-      // A video's card says what was said of the video. What was said of
-      // the take it shows is said on that take's version row, when the
-      // card has them; a card of one version is that version's row.
-      group === null
-        ? rowStatus.get(statusKey("take", r.sceneId))
-        : (rowStatus.get(statusKey("video", group.video.id)) ??
-            (group.versions.length > 1
-              ? undefined
-              : rowStatus.get(statusKey("take", r.sceneId)))),
+      cardStatus(r, group, rowStatus),
       s.namesDay,
       group,
       rowStatus,
@@ -1367,6 +1460,8 @@ export function renderLibrary(
   selection?: Selection,
   /** A bulk delete under way, or what the last one left behind. */
   bulk?: { busy: boolean; said: string | null },
+  /** Absent draws cards: only the page passes a view, and it always does. */
+  view?: LibraryViewChoice,
 ): void {
   // A name the author is typing on one card survives a render another
   // card's rename triggers: its text, focus and caret move
@@ -1374,6 +1469,16 @@ export function renderLibrary(
   const typing = typingName(root);
   const wasOpen = sectionStates(root);
   const versionsOpen = openVersions(root);
+  // The list's folds, and which rows it drew: a row it did not draw is new
+  // and takes its own default (a past month folded, a flow closed).
+  const was = {
+    collapsed: collapsedKeys(root),
+    drawn: new Set(
+      [...root.querySelectorAll<HTMLElement>("[data-list] [data-key]")].map(
+        (r) => r.dataset.key as string,
+      ),
+    ),
+  };
   // Everything but the header is replaced. The header is updated in
   // place and never leaves the page: removing it would close an open
   // storage panel and blur a budget being typed (see `createHeader`).
@@ -1384,13 +1489,13 @@ export function renderLibrary(
     );
     headers.set(root, head);
   }
-  head.update(model, actions);
+  head.update(model, actions, view);
   for (const child of [...root.childNodes]) {
     if (child !== head.box) child.remove();
   }
   if (head.box.parentNode !== root) root.prepend(head.box);
   for (const child of [...head.content.childNodes]) {
-    if (child !== head.notices) child.remove();
+    if (child !== head.notices && child !== head.toggle) child.remove();
   }
   head.jumps.replaceChildren();
   // The list goes in the content column from here on.
@@ -1435,6 +1540,25 @@ export function renderLibrary(
   // flat wall of equal cards.
   const articles: (readonly [string, HTMLElement])[] = [];
   const sections = sectionsOf(leads, now);
+  if (view?.layout === "list") {
+    const grid = renderList(list, model, actions, rowStatus, now, view, was);
+    // The list's headings are the cards' sections; a flat sort has none,
+    // and no jump list (list spec §2.3).
+    if (grid.querySelector("[data-heading]") !== null) {
+      head.jumps.append(jumpList(sections, unreadable.length));
+    }
+    appendUnreadable();
+    // After the grid is in the page, as previews are: the measurer waits
+    // for a cell to be visible.
+    for (const row of grid.querySelectorAll<HTMLElement>("[data-scene]")) {
+      actions.measure?.(
+        row.dataset.scene as string,
+        row.querySelector('[data-col="length"]') as HTMLElement,
+      );
+    }
+    applySelection(root, actions, selection, bulk);
+    return;
+  }
   head.jumps.append(jumpList(sections, unreadable.length));
   for (const s of sections) {
     const built = section(
