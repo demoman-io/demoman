@@ -386,7 +386,9 @@ function listenForClicks(grid: HTMLElement, actions: LibraryActions): void {
   grid.addEventListener("click", (event) => {
     const target = event.target as Element;
     const row = target.closest<HTMLElement>("[role=row][data-key]");
-    if (row === null || nameWasFocused) return;
+    const typed = nameWasFocused;
+    nameWasFocused = false;
+    if (row === null) return;
     const flowId = row.dataset.flow;
     const select = (): void =>
       actions.select?.(
@@ -407,7 +409,8 @@ function listenForClicks(grid: HTMLElement, actions: LibraryActions): void {
       select();
       return;
     }
-    if (target.closest("button, input, a")) return;
+    // Below the row's own controls, which work while a name is typed.
+    if (typed || target.closest("button, input, a")) return;
     if (
       flowId !== undefined &&
       actions.select !== undefined &&

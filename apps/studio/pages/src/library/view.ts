@@ -858,8 +858,15 @@ function row(
     if (nameWasFocused) return;
     if (target.closest("button, input, a, [data-versions]")) return;
     // While flows are ticked a click on a flow's card ticks it too, as in
-    // a photo library; a take in no flow still opens.
-    if (flowId !== null && article.closest("[data-selecting]") !== null) {
+    // a photo library, and Cmd or Shift starts a selection as in Finder
+    // (list spec §4.2, both views); a take in no flow still opens.
+    if (
+      flowId !== null &&
+      actions.select !== undefined &&
+      (article.closest("[data-selecting]") !== null ||
+        event.metaKey ||
+        event.shiftKey)
+    ) {
       actions.select?.(
         flowId,
         event.shiftKey ? "range" : "toggle",

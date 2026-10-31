@@ -121,7 +121,7 @@ const actions = () => ({
 
 let acts: ReturnType<typeof actions>;
 
-function mount(selection?: Selection) {
+function mount(selection?: Selection, layout: "list" | "grid" = "list") {
   mountShell("dark", css);
   document.body.innerHTML = body;
   acts = actions();
@@ -134,7 +134,7 @@ function mount(selection?: Selection) {
     selection,
     undefined,
     {
-      layout: "list",
+      layout,
       sort: { column: "recorded", descending: true },
     },
   );
@@ -348,5 +348,51 @@ describe("selecting in the list", () => {
     await userEvent.click(nameText("f:E"), { modifiers: ["Shift"] });
     expect(acts.select).toHaveBeenCalledWith("E", "range", ["A", "B", "E"]);
     expect(acts.edit).not.toHaveBeenCalled();
+  });
+});
+
+describe("a click while a name is being typed", () => {
+  it("on the row's checkbox still selects", async () => {
+    mount();
+    // Stand-in for the rename field: a [data-name] input in the name cell,
+    // focused, so the press that follows starts with it focused.
+    const field = document.createElement("input");
+    field.setAttribute("data-name", "");
+    cell("f:A", "name").append(field);
+    field.focus();
+    expect(document.activeElement).toBe(field);
+    await userEvent.click(node('[data-list] [data-select="A"]'));
+    expect(acts.select).toHaveBeenCalledWith("A", "toggle", [
+      "A",
+      "B",
+      "E",
+      "C",
+    ]);
+  });
+});
+
+describe("a click on a card", () => {
+  it("with Cmd and nothing selected starts a selection", async () => {
+    mount(undefined, "grid");
+    const card = node('article[data-video="B"]');
+    // Premise: cards are drawn, and nothing is selected.
+    expect(node("#root").hasAttribute("data-selecting")).toBe(false);
+    await userEvent.click(card, { modifiers: ["Meta"] });
+    expect(acts.select).toHaveBeenCalledWith("B", "toggle", [
+      "A",
+      "B",
+      "E",
+      "C",
+    ]);
+    expect(acts.edit).not.toHaveBeenCalled();
+  });
+
+  it("on a take in no flow still opens it with Cmd", async () => {
+    mount(undefined, "grid");
+    await userEvent.click(node('article[data-row="loose"]'), {
+      modifiers: ["Meta"],
+    });
+    expect(acts.edit).toHaveBeenCalledWith("loose");
+    expect(acts.select).not.toHaveBeenCalled();
   });
 });
