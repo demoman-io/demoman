@@ -77,7 +77,7 @@ function clickAction(i: number): SceneDocument["actions"][number] {
  *  the same length would produce. */
 function sceneOf(steps: number): SceneDocument {
   return {
-    schemaVersion: 13,
+    schemaVersion: 14,
     meta: {
       id: "scene-run-report-fixture",
       name: "run report fixture",
@@ -1156,5 +1156,97 @@ describe("prVerdict", () => {
       clause: "matches all 3 steps",
       details: null,
     });
+  });
+});
+
+describe("a typed field that does not hold its text", () => {
+  /** `complete()` with step 1 turned into a `type` of "4800" whose field
+   *  read back as `value`. The scene and madeFrom agree on the text, so the
+   *  only thing that can diverge is the read-back. */
+  function typedInto(value: string, holds: boolean): BuildArgs {
+    const args = complete();
+    if (!("walk" in args)) throw new Error("the fixture is a walked run");
+    const [first, ...rest] = args.scene?.actions ?? [];
+    const scene = {
+      ...args.scene,
+      actions: [
+        {
+          id: "a1",
+          anchorId: "anchor1",
+          timestamp: 1000,
+          marker: "type:anchor1",
+          kind: "type" as const,
+          text: "4800",
+          redacted: false,
+        },
+        ...rest,
+      ],
+    } as SceneDocument;
+    expect(first?.kind, "the fixture replaces a click").toBe("click");
+    return {
+      ...args,
+      scene,
+      madeFrom: (args.madeFrom ?? []).map((m, i) =>
+        i === 0 ? { ...m, kind: "type", text: "4800" } : m,
+      ),
+      steps: args.steps.map((s, i) =>
+        i === 0
+          ? {
+              ...s,
+              step: {
+                do: "type" as const,
+                into: { stableId: "amount" },
+                text: "4800",
+              },
+              fieldHolds: { value, holds },
+            }
+          : s,
+      ),
+    };
+  }
+
+  it("the verdict line names a field that does not hold its text", () => {
+    const report = buildRunReport(typedInto("", false));
+    expect(report.verdict.kind).toBe("diverged");
+    expect(report.verdict.diverged).toEqual([
+      { kind: "fieldDoesNotHold", actionId: "a1", wanted: "4800", value: "" },
+    ]);
+    const line = verdictLine(report);
+    expect(line).toContain("step 1");
+    expect(line).toContain('"4800"');
+    expect(line).toContain("fieldDoesNotHold");
+    expect(report.steps[0]?.fieldHolds).toEqual({ value: "", holds: false });
+  });
+
+  it("says so when the step behind the divergence cannot be found", () => {
+    const built = buildRunReport(typedInto("", false));
+    const report = { ...built, steps: [] };
+    const line = verdictLine(report);
+    // The premise: the divergence is still there to be named.
+    expect(built.verdict.diverged[0]?.kind).toBe("fieldDoesNotHold");
+    expect(line).toContain("a step typed");
+    expect(line).not.toContain("step 0");
+  });
+
+  it("a field that holds its text leaves the verdict a match", () => {
+    const report = buildRunReport(typedInto("4,800", true));
+    expect(report.steps[0]?.fieldHolds).toEqual({
+      value: "4,800",
+      holds: true,
+    });
+    expect(report.verdict.kind).toBe("matches");
+  });
+
+  it("carries loadSeen false onto the step and leaves the verdict alone", () => {
+    const args = complete();
+    if (!("walk" in args)) throw new Error("the fixture is a walked run");
+    const report = buildRunReport({
+      ...args,
+      steps: args.steps.map((s, i) =>
+        i === 0 ? { ...s, loadSeen: false } : s,
+      ),
+    });
+    expect(report.steps[0]?.loadSeen).toBe(false);
+    expect(report.verdict.kind).toBe("matches");
   });
 });

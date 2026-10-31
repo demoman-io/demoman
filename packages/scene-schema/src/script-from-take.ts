@@ -1,5 +1,6 @@
 import type { DeviceId } from "./device.js";
 import {
+  type PressKey,
   type SceneAction,
   type SceneAnchor,
   type SceneBranding,
@@ -13,11 +14,13 @@ import { stepsInsideRemoved } from "./removed.js";
 import {
   cursorPolishNamed,
   type DragFrom,
+  type DragSpot,
   type DragTo,
   SCRIPT_VERSION,
   SCRIPT_VERSION_DEVICE,
   SCRIPT_VERSION_DRAG,
   SCRIPT_VERSION_MOTION,
+  SCRIPT_VERSION_PRESS,
   type ScriptTarget,
 } from "./script.js";
 
@@ -44,9 +47,11 @@ export type DraftStep =
   | {
       do: "click";
       on?: ScriptTarget;
+      at?: DragSpot;
       button?: "middle" | "right";
       recorded?: string;
     }
+  | { do: "press"; key: PressKey; recorded?: string }
   | {
       do: "type";
       into?: ScriptTarget;
@@ -87,7 +92,8 @@ export interface ScriptDraft {
     | typeof SCRIPT_VERSION
     | typeof SCRIPT_VERSION_MOTION
     | typeof SCRIPT_VERSION_DEVICE
-    | typeof SCRIPT_VERSION_DRAG;
+    | typeof SCRIPT_VERSION_DRAG
+    | typeof SCRIPT_VERSION_PRESS;
   name: string;
   /** Absent when capture scrubbed the origin — a `scrubbedTarget` hole. */
   target?: string;
@@ -361,6 +367,12 @@ export function scriptFromTake(doc: SceneDocument): Derivation {
       });
     }
 
+    // A key press names no element, so no anchor and no target.
+    if (action.kind === "press") {
+      steps.push({ do: "press", key: action.key, recorded: action.id });
+      return;
+    }
+
     // An anchorless wait is a navigation wait — the same reading the engine
     // makes (`walk.ts`, `waitFor` with `anchorId === null`).
     if (action.kind === "waitFor" && action.anchorId === null) {
@@ -408,7 +420,12 @@ export function scriptFromTake(doc: SceneDocument): Derivation {
             sentence: `Step ${n} was a ${action.button} click, and a script can only click with the left button. Deleting "button" makes it a left click — a different action from the one recorded.`,
           });
         } else {
-          steps.push({ do: "click", ...on, recorded: action.id });
+          steps.push({
+            do: "click",
+            ...on,
+            ...(action.at === undefined ? {} : { at: action.at }),
+            recorded: action.id,
+          });
         }
         return;
       }
@@ -553,13 +570,17 @@ export function scriptFromTake(doc: SceneDocument): Derivation {
       // the same version (`cursorPolishNamed`), motion block or not.
       // A phone take declares the device version, which is past motion's,
       // so it may carry the take's motion too.
-      scriptVersion: doc.actions.some((a) => a.kind === "drag")
-        ? SCRIPT_VERSION_DRAG
-        : doc.meta.capture.device !== undefined
-          ? SCRIPT_VERSION_DEVICE
-          : doc.motion === undefined && !cursorPolishNamed(doc.cursor)
-            ? SCRIPT_VERSION
-            : SCRIPT_VERSION_MOTION,
+      scriptVersion: doc.actions.some(
+        (a) => a.kind === "press" || (a.kind === "click" && a.at),
+      )
+        ? SCRIPT_VERSION_PRESS
+        : doc.actions.some((a) => a.kind === "drag")
+          ? SCRIPT_VERSION_DRAG
+          : doc.meta.capture.device !== undefined
+            ? SCRIPT_VERSION_DEVICE
+            : doc.motion === undefined && !cursorPolishNamed(doc.cursor)
+              ? SCRIPT_VERSION
+              : SCRIPT_VERSION_MOTION,
       name,
       ...(scrubbed ? {} : { target: origin }),
       ...(doc.meta.capture.device === undefined

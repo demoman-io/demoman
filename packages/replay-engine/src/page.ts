@@ -176,3 +176,4 @@ export async function resolveForReplay(
 /** Plan 2: the snapshot's walk turns each capture into a target and back
  *  with these, so it checks exactly the fingerprint a run will build. */
 export { fingerprintFromTarget, targetFromFingerprint } from "./target.js";
+export { seenNow } from "./visibility.js";

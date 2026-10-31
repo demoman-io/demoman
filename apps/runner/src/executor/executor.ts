@@ -37,6 +37,7 @@ import { createBrowserSession } from "./browser.js";
 import { deriveOp, takesOp } from "./derive.js";
 import { expireOld, expiryStatus } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
+import { finalStillFor } from "./final-still.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { rewriteKept } from "./keep.js";
 import { readKits } from "./kits.js";
@@ -907,6 +908,9 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         return runScript(
           script,
           {
+            ...(checked.versionRaisedFrom === undefined
+              ? {}
+              : { versionRaisedFrom: checked.versionRaisedFrom }),
             session,
             library,
             kits,
@@ -939,6 +943,13 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             sessionStore,
             signinCommand,
             scrub: sweep.scrubValue,
+            finalStill: finalStillFor({
+              session,
+              library,
+              home,
+              wallpapersDir: options.wallpapersDir,
+              log,
+            }),
             ...(chosen === null ? {} : { account: signInAgainAs(chosen) }),
           },
           (p: ReplayProgress) => {
@@ -1122,13 +1133,18 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         // Before its stage: no page of an earlier call may run while this
         // one's sessions load.
         await session.retire();
-        return snapshotOp(args, {
-          session,
-          home,
-          log,
-          loadSessions: (context) => sessions.load(context, choiceOf(choice)),
-          signinCommand,
-        });
+        try {
+          return await snapshotOp(args, {
+            session,
+            home,
+            log,
+            loadSessions: (context) => sessions.load(context, choiceOf(choice)),
+            signinCommand,
+          });
+        } finally {
+          // As after a probe: what this page left does not reach the next call.
+          sessions.forget();
+        }
       },
     );
 

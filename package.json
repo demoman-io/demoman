@@ -14,6 +14,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "share:measure": "pnpm --filter @demoman/runner share:measure",
+    "agent:study": "pnpm --filter @demoman/runner build && pnpm --filter @demoman/mcp build && node apps/runner/dist/compare/agent-study.js",
     "film:compare": "pnpm --filter @demoman/runner build && pnpm --filter @demoman/mcp build && node apps/runner/dist/compare/film-compare.js",
     "docs:live": "node scripts/docs-live.mjs",
     "test:package": "pnpm --filter @demoman/cli build && pnpm --filter @demoman/cli test:package",

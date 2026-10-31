@@ -6,6 +6,7 @@ import {
   CanvasSchema,
   CursorSchema,
   MotionSchema,
+  PRESS_KEYS,
   type SceneCursor,
 } from "./document.js";
 import { WALLPAPERS } from "./wallpapers.js";
@@ -86,6 +87,13 @@ export const SCRIPT_VERSION_ACCOUNT = 5;
  * gives that refusal the sentence a version gives.
  */
 export const SCRIPT_VERSION_DRAG = 6;
+
+/**
+ * The first version with a `press` step or a click's `at` (2026-10-30). An
+ * older build refuses both by their unknown keys; the bump gives that refusal
+ * the sentence a version gives.
+ */
+export const SCRIPT_VERSION_PRESS = 7;
 
 /** An account name: it becomes a file name under the sessions folder. */
 export const ACCOUNT_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -190,6 +198,8 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
     .object({
       do: z.literal("click"),
       on: ScriptTargetSchema,
+      /** Where in the target's box to click (its centre if absent). */
+      at: DragSpotSchema.optional(),
       /**
        * The recorded action this step was derived from (`scriptFromTake` writes
        * it). How the recording layer pairs a run's step with the author's —
@@ -253,6 +263,13 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
       recorded: RecordedSchema,
     })
     .strict(),
+  z
+    .object({
+      do: z.literal("press"),
+      key: z.enum(PRESS_KEYS),
+      recorded: RecordedSchema,
+    })
+    .strict(),
   z.object({ do: z.literal("waitForLoad"), recorded: RecordedSchema }).strict(),
   z.object({ do: z.literal("pause"), ms: z.number().positive() }).strict(),
 ]);
@@ -276,6 +293,7 @@ const ACTS_ON_THE_PAGE: Record<ScriptStep["do"], boolean> = {
   scrollTo: true,
   waitFor: true,
   drag: true,
+  press: true,
   waitForLoad: true,
   pause: false,
 };
@@ -292,15 +310,24 @@ const ScriptBrandingSchema = BrandingSchema.extend({
   padding: BrandingSchema.shape.padding.default(BRANDING_DEFAULTS.padding),
 });
 
+const ScriptVersionSchema = z.literal([
+  SCRIPT_VERSION,
+  SCRIPT_VERSION_KIT,
+  SCRIPT_VERSION_MOTION,
+  SCRIPT_VERSION_DEVICE,
+  SCRIPT_VERSION_ACCOUNT,
+  SCRIPT_VERSION_DRAG,
+  SCRIPT_VERSION_PRESS,
+]);
+export type ScriptVersion = z.infer<typeof ScriptVersionSchema>;
+
+/** The later of two versions. */
+const laterVersion = (a: ScriptVersion, b: ScriptVersion): ScriptVersion =>
+  b > a ? b : a;
+
 const DemoScriptShape = z.object({
-  scriptVersion: z.literal([
-    SCRIPT_VERSION,
-    SCRIPT_VERSION_KIT,
-    SCRIPT_VERSION_MOTION,
-    SCRIPT_VERSION_DEVICE,
-    SCRIPT_VERSION_ACCOUNT,
-    SCRIPT_VERSION_DRAG,
-  ]),
+  /** Optional: Demoman sets it (see `minimumScriptVersion`); a lower one is raised. */
+  scriptVersion: ScriptVersionSchema.optional(),
   name: z.string().min(1),
   target: z.url(),
   /** Absent means the run's own window size, recorded into the document. */
@@ -380,18 +407,6 @@ const DemoScriptShape = z.object({
  * one that did.
  */
 export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
-  // See `SCRIPT_VERSION_KIT`: refused, not upgraded, so a script that names
-  // a kit says so in its version, and only a build that knows kits runs it.
-  if (
-    script.look?.kit !== undefined &&
-    script.scriptVersion < SCRIPT_VERSION_KIT
-  ) {
-    ctx.addIssue({
-      code: "custom",
-      message: `a script that names look.kit declares scriptVersion ${SCRIPT_VERSION_KIT}: a build from before brand kits would drop the kit and record the default look`,
-      path: ["scriptVersion"],
-    });
-  }
   const bg = script.look?.branding?.background;
   if (bg?.kind === "wallpaper" && !WALLPAPERS.some((w) => w.id === bg.id)) {
     ctx.addIssue({
@@ -400,59 +415,8 @@ export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
       path: ["look", "branding", "background", "id"],
     });
   }
-  // See `SCRIPT_VERSION_MOTION`, for the same reason.
-  if (
-    script.look?.motion !== undefined &&
-    script.scriptVersion < SCRIPT_VERSION_MOTION
-  ) {
-    ctx.addIssue({
-      code: "custom",
-      message: `a script that names look.motion declares scriptVersion ${SCRIPT_VERSION_MOTION}: a build from before camera motion settings would drop them and record the default camera`,
-      path: ["scriptVersion"],
-    });
-  }
-  if (
-    cursorPolishNamed(script.look?.cursor) &&
-    script.scriptVersion < SCRIPT_VERSION_MOTION
-  ) {
-    ctx.addIssue({
-      code: "custom",
-      message: `a script that names look.cursor.tilt or look.cursor.clickBounce declares scriptVersion ${SCRIPT_VERSION_MOTION}: a build from before them would drop them and draw the default lean and press`,
-      path: ["scriptVersion"],
-    });
-  }
-  // See `SCRIPT_VERSION_DEVICE`.
-  if (
-    script.device !== undefined &&
-    script.scriptVersion < SCRIPT_VERSION_DEVICE
-  ) {
-    ctx.addIssue({
-      code: "custom",
-      message: `a script that names device declares scriptVersion ${SCRIPT_VERSION_DEVICE}: a build from before devices would drop it and record the desktop`,
-      path: ["scriptVersion"],
-    });
-  }
-  // See `SCRIPT_VERSION_ACCOUNT`.
-  if (
-    script.account !== undefined &&
-    script.scriptVersion < SCRIPT_VERSION_ACCOUNT
-  ) {
-    ctx.addIssue({
-      code: "custom",
-      message: `a script that names account declares scriptVersion ${SCRIPT_VERSION_ACCOUNT}: a build from before accounts would drop it and record as whoever is signed in`,
-      path: ["scriptVersion"],
-    });
-  }
-  // See `SCRIPT_VERSION_DRAG`.
   script.steps.forEach((step, index) => {
     if (step.do !== "drag") return;
-    if (script.scriptVersion < SCRIPT_VERSION_DRAG) {
-      ctx.addIssue({
-        code: "custom",
-        message: `a script that uses drag declares scriptVersion ${SCRIPT_VERSION_DRAG}: a build from before drag would refuse the step`,
-        path: ["scriptVersion"],
-      });
-    }
     // A drag that goes nowhere is a click, and filming it as a drag would
     // report a step the page never saw as a drag.
     const nowhere =
@@ -507,7 +471,42 @@ export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
       "a script needs at least one step that acts on the page; every step here is a pause, which is a duration and performs nothing, so this script can never produce a take",
     path: ["steps"],
   });
-});
+}).transform((script) => ({
+  ...script,
+  scriptVersion: laterVersion(
+    script.scriptVersion ?? SCRIPT_VERSION,
+    minimumScriptVersion(script),
+  ),
+}));
+
+export type DemoScriptInput = z.input<typeof DemoScriptShape>;
+
+/**
+ * The lowest version that carries everything the script uses. Demoman sets
+ * `scriptVersion` from this, so an agent never writes it; a build from before
+ * a feature refuses the higher number rather than dropping the feature. A new
+ * rule is one more line here.
+ */
+export function minimumScriptVersion(script: DemoScriptInput): ScriptVersion {
+  const rules: [boolean, ScriptVersion][] = [
+    [script.look?.kit !== undefined, SCRIPT_VERSION_KIT],
+    [script.look?.motion !== undefined, SCRIPT_VERSION_MOTION],
+    [cursorPolishNamed(script.look?.cursor), SCRIPT_VERSION_MOTION],
+    [script.device !== undefined, SCRIPT_VERSION_DEVICE],
+    [script.account !== undefined, SCRIPT_VERSION_ACCOUNT],
+    [script.steps.some((step) => step.do === "drag"), SCRIPT_VERSION_DRAG],
+    [
+      script.steps.some(
+        (step) => step.do === "press" || (step.do === "click" && step.at),
+      ),
+      SCRIPT_VERSION_PRESS,
+    ],
+  ];
+  return rules
+    .filter(([on]) => on)
+    .map(([, v]) => v)
+    .reduce(laterVersion, SCRIPT_VERSION);
+}
 
 export type ScriptTarget = z.infer<typeof ScriptTargetSchema>;
 export type DragSpot = z.infer<typeof DragSpotSchema>;

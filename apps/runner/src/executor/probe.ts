@@ -1,4 +1,6 @@
 // apps/runner/src/executor/probe.ts
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { failure, type Outcome } from "@demoman/agent-bridge";
 import {
   authoredTotal,
@@ -13,6 +15,9 @@ import {
 import {
   type BrandKitsRead,
   checkScript,
+  containsNoteFor,
+  type EndPage,
+  type FinalStill,
   kitsForSnapshot,
   landedElsewhere,
   lookForRun,
@@ -28,8 +33,10 @@ import {
   SNAPSHOT_MAX_TARGETS,
 } from "@demoman/run-core/page";
 import type { DemoScript, SceneBranding } from "@demoman/scene-schema";
+import { withinDeadline } from "../page-deadline.js";
 import type { Stage } from "./browser.js";
-import { pageSnapshotTargets } from "./page-ops.js";
+import { STILL_MAX_WIDTH } from "./final-still.js";
+import { pageEndPage, pageSnapshotTargets } from "./page-ops.js";
 import {
   type PlayDeps,
   playOnStage,
@@ -78,8 +85,18 @@ export interface ProbeReply extends Snapshot {
   sessionDetail: string | null;
   kits: SnapshotKits;
   steps: { played: number; of: number };
-  stopped: null | { at: number; reason: ReplayStopReason; detail: string };
+  stopped: null | {
+    at: number;
+    reason: ReplayStopReason | "pageDidNotLoad";
+    detail: string;
+  };
   endedUrl: string | null;
+  /** The viewport where the steps ended, a PNG at `<home>/probes/<id>.png`
+   *  (the newest KEPT_PROBE_STILLS kept), or why there is none (spec
+   *  2026-10-30 A1). */
+  still: FinalStill;
+  /** The page where the steps ended, as text (spec 2026-10-30 A2). */
+  endPage: EndPage | { unavailable: string };
 }
 
 /** A script the probe may play, or the refusal the run door gives it. */
@@ -130,11 +147,14 @@ export async function probeOp(
   if (!prepared.ok) return failure(prepared.reason, prepared.detail);
   const { stage, size } = prepared;
   const film = deps.film?.() ?? discardingFilm();
+  // Names this probe's still too: each probe keeps its own picture, so a
+  // `report` on an earlier probe never shows a later one's.
+  const probeId = newId("probe");
   const played = await playOnStage(
     script,
     prepared,
     deps,
-    { ...film, sceneId: newId("probe") },
+    { ...film, sceneId: probeId },
     { startingBranding: entry.startingBranding, onProgress: () => undefined },
   );
   const { result, arrival } = played;
@@ -178,12 +198,26 @@ export async function probeOp(
   if (!listed.ok && stopped === null) {
     return failure(listed.reason, listed.detail);
   }
+  // A page that did not load is the stop an agent must act on, whatever
+  // step the walk blamed: the step was fine, the app is not answering.
+  if (!listed.ok && listed.reason === "pageDidNotLoad" && stopped !== null) {
+    // The walk's own account stays in the detail: it may name the net error,
+    // and it is what the step itself reported.
+    stopped = {
+      at: stopped.at,
+      reason: "pageDidNotLoad",
+      detail: `${listed.detail}. The walk had stopped at step ${stopped.at}: ${stopped.reason}: ${stopped.detail}`,
+    };
+  }
   const { ready, endedUrl, walk } = listed.ok
     ? listed
     : {
         ready: {
           settled: false,
-          note: `the page it stopped on could not be listed (${listed.reason}): ${listed.detail}`,
+          note:
+            listed.reason === "pageDidNotLoad"
+              ? "the page it stopped on did not load; see stopped"
+              : `the page it stopped on could not be listed (${listed.reason}): ${listed.detail}`,
         },
         endedUrl: stage.page.isClosed() ? null : stage.page.url(),
         walk: {
@@ -217,6 +251,17 @@ export async function probeOp(
     }
   }
 
+  // A page that did not load has nothing of the app's to show or read.
+  const unloaded =
+    (!listed.ok && listed.reason === "pageDidNotLoad") ||
+    stopped?.reason === "pageDidNotLoad";
+  const endPage: ProbeReply["endPage"] = unloaded
+    ? { unavailable: "the page did not load" }
+    : await pageEndPage(stage.page);
+  const still: FinalStill = unloaded
+    ? { unavailable: "the page did not load" }
+    : await viewportStill(stage, join(deps.home, "probes"), probeId, log);
+
   const value: ProbeReply = {
     url: script.target,
     landedUrl,
@@ -228,6 +273,12 @@ export async function probeOp(
     targets: walk.targets,
     unresolvable: walk.unresolvable,
     notExamined: walk.notExamined,
+    containsNote: containsNoteFor(
+      contains,
+      walk.targets.length,
+      walk.notExamined,
+      walk.unresolvable,
+    ),
     walkMs: walk.walkMs,
     device: script.device ?? null,
     size,
@@ -237,8 +288,83 @@ export async function probeOp(
     steps: { played: completed, of },
     stopped,
     endedUrl,
+    still,
+    endPage,
   };
   return { ok: true, value };
+}
+
+/**
+ * The stage's viewport as a PNG at `path`, no wider than STILL_MAX_WIDTH in
+ * pixels whatever the device scale the walk set. Through CDP, as Playwright's
+ * own `scale: "css"` does it (clip in document coordinates, scaled by
+ * 1/devicePixelRatio), with the extra factor that caps the width.
+ */
+async function viewportStill(
+  stage: Stage,
+  dir: string,
+  probeId: string,
+  log: (line: string) => void,
+): Promise<FinalStill> {
+  const path = join(dir, `${probeId}.png`);
+  try {
+    const view = await withinDeadline(
+      stage.page.evaluate(() => ({
+        x: scrollX,
+        y: scrollY,
+        width: innerWidth,
+        height: innerHeight,
+        dpr: devicePixelRatio,
+      })),
+      "measuring the window for its still",
+    );
+    const fit = Math.min(1, STILL_MAX_WIDTH / view.width);
+    const shot = (await stage.cdp.send("Page.captureScreenshot", {
+      format: "png",
+      clip: {
+        x: view.x,
+        y: view.y,
+        width: view.width,
+        height: view.height,
+        scale: fit / view.dpr,
+      },
+    })) as { data: string };
+    await mkdir(dir, { recursive: true });
+    await writeFile(path, Buffer.from(shot.data, "base64"));
+    await keepNewestProbeStills(dir, log);
+    return { path };
+  } catch (error) {
+    return {
+      unavailable: `the page's viewport could not be captured (${messageOf(error)})`,
+    };
+  }
+}
+
+/** How many probe stills `<home>/probes/` keeps: enough for the `report`
+ *  calls an agent makes on recent probes, never a growing folder. */
+export const KEPT_PROBE_STILLS = 20;
+
+/**
+ * Removes all but the newest KEPT_PROBE_STILLS probe stills in `dir`, newest
+ * by name (`newId` puts the time first, at a fixed width). A removal that
+ * fails is logged and costs only space; the still just written is never
+ * the one removed.
+ */
+export async function keepNewestProbeStills(
+  dir: string,
+  log: (line: string) => void,
+): Promise<void> {
+  try {
+    const old = (await readdir(dir))
+      .filter((name) => /^probe-.*\.png$/.test(name))
+      .sort()
+      .slice(0, -KEPT_PROBE_STILLS);
+    for (const name of old) await rm(join(dir, name), { force: true });
+  } catch (error) {
+    log(
+      `old probe stills could not be removed from ${dir} (${messageOf(error)})`,
+    );
+  }
 }
 
 /** The page the steps ended on, once it is ready, listed as snapshot lists. */

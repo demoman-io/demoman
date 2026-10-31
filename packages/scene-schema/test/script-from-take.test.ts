@@ -564,3 +564,37 @@ describe("scriptFromTake: drag", () => {
     expect(issueFields(draft)).toEqual([]);
   });
 });
+
+describe("scriptFromTake: press and a click's spot", () => {
+  // Red if the switch drops `at`, or throws on a press (which has no anchor).
+  it("derives a press and a click's spot back into a script", () => {
+    const doc = take();
+    const click = doc.actions.find((a) => a.kind === "click");
+    if (click?.kind !== "click") throw new Error("fixture has no click");
+    click.at = { x: 0.2, y: 0.8 };
+    const last = doc.actions[doc.actions.length - 1] as SceneAction;
+    doc.actions.push({
+      id: "act-press-1",
+      kind: "press",
+      key: "Enter",
+      anchorId: null,
+      timestamp: last.timestamp + 1000,
+      marker: "m-press-1",
+    });
+    expectValidTake(doc);
+    const { draft } = derived(doc);
+    expect(draft.steps).toContainEqual(
+      expect.objectContaining({
+        do: "click",
+        at: { x: 0.2, y: 0.8 },
+        recorded: click.id,
+      }),
+    );
+    expect(draft.steps).toContainEqual({
+      do: "press",
+      key: "Enter",
+      recorded: "act-press-1",
+    });
+    expect(draft.scriptVersion).toBe(7);
+  });
+});

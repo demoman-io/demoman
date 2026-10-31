@@ -3,7 +3,7 @@ import { oklchToHex } from "./color.js";
 import { CaptureDeviceSchema } from "./device.js";
 import { DEFAULT_WALLPAPER_ID } from "./wallpapers.js";
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 
 const Rect = z.object({
   x: z.number(),
@@ -128,9 +128,30 @@ const MoveTo = z.object({
  */
 export const TEXT_LINES_MAX = 200;
 
+/** The keys a `press` can name: no modifiers, no free text. */
+export const PRESS_KEYS = [
+  "Enter",
+  "Tab",
+  "Escape",
+  "Backspace",
+  "Delete",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Space",
+] as const;
+export type PressKey = (typeof PRESS_KEYS)[number];
+
+const Spot = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+});
 const Click = z.object({
   ...actionBase,
   kind: z.literal("click"),
+  /** Where in the target's box the click lands, as fractions of it (v14); absent: its centre. */
+  at: Spot.optional(),
   button: z.enum(["left", "middle", "right"]).optional(),
   /**
    * The lines of text on screen when the click was measured, in the space
@@ -208,10 +229,12 @@ const WaitFor = z.object({
   kind: z.literal("waitFor"),
   condition: z.enum(["visible", "hidden", "loaded"]).optional(),
 });
-
-const Spot = z.object({
-  x: z.number().min(0).max(1),
-  y: z.number().min(0).max(1),
+/** A key press (v14). Names no element: it goes to whatever has focus. */
+const Press = z.object({
+  ...actionBase,
+  anchorId: z.null(),
+  kind: z.literal("press"),
+  key: z.enum(PRESS_KEYS),
 });
 /**
  * A press, a move with the button held, a release (v11, 2026-10-21).
@@ -246,6 +269,7 @@ const Action = z.discriminatedUnion("kind", [
   ScrollTo,
   WaitFor,
   Drag,
+  Press,
 ]);
 
 /**

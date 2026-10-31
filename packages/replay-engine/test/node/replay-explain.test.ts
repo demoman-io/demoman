@@ -1,5 +1,6 @@
 import type { SceneDocument } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
+import { REASON_TEXT } from "../../src/explain.js";
 import type { ReplayStatus } from "../../src/index.js";
 import { anchorLabel, failedStep, reasonSentence } from "../../src/index.js";
 
@@ -34,7 +35,7 @@ const status = (over: Partial<ReplayStatus> = {}): ReplayStatus => ({
 
 describe("reasonSentence", () => {
   it("maps a known reason to the author's language", () => {
-    expect(reasonSentence("unresolvedAnchor")).toMatch(/no longer on the page/);
+    expect(reasonSentence("unresolvedAnchor")).toMatch(/not on the page/);
   });
 
   // The orchestrator used to print the bare identifier, so a real take
@@ -58,7 +59,7 @@ describe("reasonSentence", () => {
   it("tells the author the page did not answer, not that the element is gone", () => {
     const sentence = reasonSentence("pageSilent");
     expect(sentence).toContain("did not answer");
-    expect(sentence).not.toContain("no longer on the page");
+    expect(sentence).not.toContain("not on the page");
     expect(sentence).not.toContain("pageSilent");
   });
 
@@ -73,7 +74,7 @@ describe("reasonSentence", () => {
     const sentence = reasonSentence("anchorUnreachable");
 
     expect(sentence).not.toBe("anchorUnreachable");
-    expect(sentence).toMatch(/nothing is wrong with (the anchor|that step)/i);
+    expect(sentence).toMatch(/nothing is wrong with the target/i);
   });
 
   /**
@@ -88,11 +89,11 @@ describe("reasonSentence", () => {
    * Asserted against the fallback and against the sentence it was split from,
    * so sharing that copy again goes red rather than passing on a match.
    */
-  it("tells an author to re-record a frame that moved, not to run it again", () => {
+  it("tells an author a moved frame needs a different target, not a rerun", () => {
     const sentence = reasonSentence("anchorFrameMismatch");
 
     expect(sentence).not.toBe("anchorFrameMismatch");
-    expect(sentence).toContain("re-record that step");
+    expect(sentence).toContain("running it again will fail the same way");
     expect(sentence).not.toContain("say so if it repeats");
     expect(reasonSentence("anchorUnreachable")).toContain(
       "say so if it repeats",
@@ -111,7 +112,7 @@ describe("reasonSentence", () => {
     const sentence = reasonSentence("portFailure");
 
     expect(sentence).not.toBe("portFailure");
-    expect(sentence).toContain("re-recording will not fix it");
+    expect(sentence).toContain("not a fault in the script");
     expect(sentence).toContain("run it once more");
     expect(sentence).toMatch(/if it stops the same way, report it$/);
     expect(sentence).not.toContain("usually worth simply running it again");
@@ -178,5 +179,15 @@ describe("anchorLabel", () => {
 
   it("calls a missing anchor a navigation", () => {
     expect(anchorLabel(undefined)).toBe("(navigation)");
+  });
+});
+
+describe("stop sentences", () => {
+  it("no stop sentence tells an agent to re-record or remap", () => {
+    // Premise: the table is the real one, not an empty stand-in.
+    expect(Object.keys(REASON_TEXT).length).toBeGreaterThan(20);
+    for (const [reason, text] of Object.entries(REASON_TEXT)) {
+      expect(text, reason).not.toMatch(/re-record|remap/i);
+    }
   });
 });

@@ -85,6 +85,12 @@ describe("the recipe's examples and snapshot reading", () => {
     }
   });
 
+  // Ruling M: click's optional `at` is taught in the verbs line, not only
+  // press through an example. Red if that text is removed.
+  it("documents click's optional at", () => {
+    expect(recipe).toMatch(/`click` \(optional `at: \{ x, y \}`/);
+  });
+
   it("shows every verb and every target shape at least once, and a scroll's landing", () => {
     const steps: ScriptStep[] = blocks().flatMap(
       (b) => DemoScriptSchema.parse(JSON.parse(b)).steps,
@@ -98,6 +104,7 @@ describe("the recipe's examples and snapshot reading", () => {
       scrollTo: false,
       waitFor: false,
       drag: false,
+      press: false,
       waitForLoad: false,
       pause: false,
     };
@@ -160,6 +167,16 @@ describe("the recipe's examples and snapshot reading", () => {
     expect(recipe).toMatch(/`probe`/);
     expect(recipe).toMatch(/acts on the app for real/);
     expect(recipe).not.toMatch(/cannot be scripted yet/);
+  });
+
+  // Spec 2026-10-30 A5: agents trusted `matches` over wrong videos. Red if
+  // the recipe says it again, or stops sending the agent to the still.
+  it("never says matches means the steps are right", () => {
+    expect(recipe).not.toMatch(/means the steps are right/);
+    expect(recipe).toMatch(
+      /the verdict says the actions happened; look at `still` against the brief before you export or run again/,
+    );
+    expect(recipe).toMatch(/`endPage`/);
   });
 });
 
@@ -258,7 +275,7 @@ describe("the CLI's recipe on demo accounts (launch C2)", () => {
       ".demoman/secrets.env",
       "checkUrl",
       '"account"',
-      "scriptVersion 5",
+      "Leave `scriptVersion` out",
     ]) {
       expect(RECIPE, phrase).toContain(phrase);
     }
@@ -305,7 +322,7 @@ describe("the CLI's recipe on demo accounts (launch C2)", () => {
       .map((b) => JSON.parse(b))
       .filter((j) => "account" in j);
     expect(scripts.length).toBeGreaterThan(0);
-    for (const j of scripts) expect(j.scriptVersion).toBe(5);
+    for (const j of scripts) expect(j.scriptVersion).toBeUndefined();
   });
 });
 
@@ -336,6 +353,41 @@ describe("the CLI's recipe", () => {
       ]),
     );
     expect(reasons.filter((r) => !RECIPE.includes(`\`${r}\``))).toEqual([]);
+  });
+
+  // A run can stop with any reason the replay engine has a sentence for, bar
+  // the ones only the Studio or the old extension raise (a write-flow policy
+  // refusal, a cancel, a withheld typed value, an attached debugger) and
+  // `noActions`, which a re-record answers as `nothingToRerecord`.
+  it("names every reason the replay engine can stop with", () => {
+    const table = readFileSync(
+      join(repo, "packages/replay-engine/src/explain.ts"),
+      "utf8",
+    ).match(/REASON_TEXT[^=]*=\s*\{([\s\S]*?)\n\};/)?.[1];
+    const keys = [...(table ?? "").matchAll(/^ {2}(\w+):/gm)].map(
+      (m) => m[1] as string,
+    );
+    const notACliStop = [
+      "mutating",
+      "cancelledByAuthor",
+      "redactedWithoutReplacement",
+      "debuggerUnavailable",
+      "noActions",
+    ];
+    // Premise: the scan found the table, and some of what it must demand.
+    expect(keys.length).toBeGreaterThan(20);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        "unresolvedAnchor",
+        "waitTimeout",
+        ...notACliStop,
+      ]),
+    );
+    expect(
+      keys
+        .filter((k) => !notACliStop.includes(k))
+        .filter((k) => !RECIPE.includes(`\`${k}\``)),
+    ).toEqual([]);
   });
 
   // Red if a `run({ takeId })` line comes back (run refuses takeId), or the

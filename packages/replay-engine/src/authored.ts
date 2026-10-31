@@ -52,7 +52,9 @@ import {
   type ScriptStep,
   type ScriptTarget,
   type StrategyName,
+  spotIn,
 } from "@demoman/scene-schema";
+import { WAIT_POLL_MS, WAIT_TIMEOUT_MS } from "./constants.js";
 import { rectCentre } from "./geometry.js";
 import { classifyOrigin } from "./origin.js";
 import { fingerprintFromTarget } from "./target.js";
@@ -62,6 +64,7 @@ import {
   type RoomPolicy,
   runWalk,
   stopForResolveFailure,
+  type WaitSaw,
   type WalkSource,
   type WalkStep,
 } from "./walk.js";
@@ -197,6 +200,17 @@ export interface AuthoredStep {
    *  The evidence behind `pageWentElsewhere`: without it that reason says a
    *  move happened and not where to. */
   pageUrl: string | null;
+  /** On a `waitFor` that timed out: what its last look found (`WaitSaw`).
+   *  Absent otherwise, or when that look could not reach the element. */
+  waitSaw?: WaitSaw;
+  /** On a `type` whose text is kept: what the field held after the keys went
+   *  in, and whether that holds the typed text. Absent when not read. */
+  fieldHolds?: { value: string; holds: boolean };
+  /** On a `type` whose field could not be read back: why. Not a divergence. */
+  fieldRead?: { unavailable: string };
+  /** On a `waitForLoad` that was met: whether a load started since the
+   *  previous step began. False is a wait that passed without a navigation. */
+  loadSeen?: boolean;
 }
 
 export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
@@ -335,6 +349,8 @@ function targetOf(step: ElementStep): ScriptTarget {
 
 type TypeStep = Extract<ScriptStep, { do: "type" }>;
 type DragStep = Extract<ScriptStep, { do: "drag" }>;
+/** A key press: it names no element. */
+type PressStep = Extract<ScriptStep, { do: "press" }>;
 /** Every step that acts on an element. */
 type ElementStep = PositionedStep | TypeStep | DragStep;
 
@@ -366,7 +382,7 @@ function reasonForCaptureFailure(
 }
 
 /** The document kind each script verb performs. */
-function kindOf(step: ElementStep): SceneAction["kind"] {
+function kindOf(step: ElementStep | PressStep): SceneAction["kind"] {
   switch (step.do) {
     case "click":
       return "click";
@@ -380,6 +396,8 @@ function kindOf(step: ElementStep): SceneAction["kind"] {
       return "waitFor";
     case "drag":
       return "drag";
+    case "press":
+      return "press";
     default: {
       // Exhaustive: a verb added to the script and not here must not film
       // as a wait.
@@ -392,15 +410,27 @@ function kindOf(step: ElementStep): SceneAction["kind"] {
 /** A `SceneAction` of the step's own kind. No `rect`: it is assigned when the
  *  run measures one, and absent means the sighting had no rect. */
 function synthesize(
-  step: ElementStep,
-  ids: { id: string; anchorId: string; timestamp: number; marker: string },
+  step: ElementStep | PressStep,
+  ids: {
+    id: string;
+    anchorId: string | null;
+    timestamp: number;
+    marker: string;
+  },
   hidden = false,
 ): SceneAction {
-  const base = { ...ids };
+  // A press names no element: its null anchor is typed here, not cast.
+  if (step.do === "press") {
+    return { ...ids, kind: "press", key: step.key, anchorId: null };
+  }
+  if (ids.anchorId === null) {
+    throw new Error(`synthesize: a ${step.do} step needs an anchor`);
+  }
+  const base = { ...ids, anchorId: ids.anchorId };
   switch (step.do) {
     case "click":
       // `button` deliberately omitted — see this module's own docblock.
-      return { ...base, kind: "click" };
+      return { ...base, kind: "click", ...(step.at ? { at: step.at } : {}) };
     case "type":
       // `redacted: false` and a real `text`: an agent's value is a demo value
       // by construction, and there is no sensor here to have declined to read
@@ -631,6 +661,28 @@ export function createAuthoredRun(
           // The document this lands on is a page nothing has measured yet, so
           // the next capture adopts whatever it reports.
           herePage = null;
+          yield {
+            action,
+            target: null,
+            segment: undefined,
+            text: null,
+            onLoadSeen: (seen) => {
+              record.loadSeen = seen;
+            },
+          };
+          commit(action, null, record, null);
+          continue;
+        }
+
+        if (step.do === "press") {
+          // No element to resolve: the action goes out with no anchor, as a
+          // navigation wait does. Performing it is Task 4's.
+          const action = synthesize(step, {
+            id: deps.newId("ac"),
+            anchorId: null,
+            timestamp: stamp(),
+            marker: markerFor("press", null),
+          });
           yield { action, target: null, segment: undefined, text: null };
           commit(action, null, record, null);
           continue;
@@ -656,9 +708,41 @@ export function createAuthoredRun(
           fingerprint: fingerprintFromTarget(targetOf(step)),
         };
 
+        // A target a client-rendered page has not drawn yet is waited for, as a
+        // `waitFor` waits, on the same clock and cadence. Only "not there yet"
+        // answers retry; a tie, a silent page or a fault says so at once.
+        const captureWaiting = async (
+          wanted: AnchorIntent,
+        ): Promise<IntentCapture> => {
+          const began = deps.clock.now();
+          for (;;) {
+            const answer = await deps.captureResolved(wanted);
+            const notThereYet =
+              answer.failureReason === "unresolved" ||
+              answer.failureReason === "notInTree";
+            // Waiting cannot help on a page the script is not on (an expired
+            // session): the failure carries that page, and the caller names it.
+            const elsewhere =
+              answer.pageUrl !== null &&
+              herePage !== null &&
+              pageKeyOf(answer.pageUrl) !== herePage;
+            if (
+              answer.anchor !== null ||
+              !notThereYet ||
+              elsewhere ||
+              deps.clock.now() - began >= WAIT_TIMEOUT_MS
+            ) {
+              return answer;
+            }
+            await deps.clock.sleep(WAIT_POLL_MS);
+          }
+        };
+
         let credential: boolean | null | undefined;
-        const capture = async (): Promise<SceneAnchor | null> => {
-          const answer = await deps.captureResolved(intent);
+        const capture = async (wait = false): Promise<SceneAnchor | null> => {
+          const answer = wait
+            ? await captureWaiting(intent)
+            : await deps.captureResolved(intent);
           credential = answer.credentialField;
           // Here, not at the action: a capture that fails, or a step that
           // stops after it (another page), still leaves the record knowing
@@ -735,6 +819,12 @@ export function createAuthoredRun(
             // generator it has already marked, photographed and counted the
             // step, and a refusal made then would leave the run reporting a
             // wait the take does not contain.
+            // The wait's own last look, not the capture above: that one was
+            // taken before the wait and cannot say what the page showed after.
+            onWaitTimedOut: (saw) => {
+              record.waitSaw = saw;
+              if (saw === "notVisible") record.failureReason = null;
+            },
             onConditionMet: async () => {
               if (anchor === null) anchor = await capture();
               if (anchor !== null) return null;
@@ -769,7 +859,7 @@ export function createAuthoredRun(
           continue;
         }
 
-        const anchor = await capture();
+        const anchor = await capture(true);
         if (anchor === null) {
           // Report, do not forgive: the walk needs a step to stop on, and the
           // REASON is what the author acts on. Yielding a step with a null
@@ -795,7 +885,7 @@ export function createAuthoredRun(
         // dropped on. An offset names nothing and has no anchor.
         let endAnchor: SceneAnchor | null = null;
         if (step.do === "drag" && "on" in step.to) {
-          const answer = await deps.captureResolved({
+          const answer = await captureWaiting({
             id: deps.newId("an"),
             fingerprint: fingerprintFromTarget(step.to.on),
           });
@@ -843,12 +933,26 @@ export function createAuthoredRun(
             ? segmentTo(
                 cursor,
                 anchor.fingerprint.boundingRect,
+                action.kind === "click" ? action.at : undefined,
                 segments,
                 previousActionId,
                 action.id,
               )
             : undefined,
           text: step.do === "type" ? step.text : null,
+          // Never read for a credential field: its value is kept nowhere.
+          ...(step.do === "type" && record.textHidden === null
+            ? {
+                onFieldRead: (
+                  read:
+                    | { value: string; holds: boolean }
+                    | { unavailable: string },
+                ) => {
+                  if ("unavailable" in read) record.fieldRead = read;
+                  else record.fieldHolds = read;
+                },
+              }
+            : {}),
           ...(step.do === "drag"
             ? {
                 drag: {
@@ -891,7 +995,10 @@ export function createAuthoredRun(
         // (VERBS), so the next move must be planned from there, not from the
         // scroll's anchor.
         if (VERBS[action.kind].cursorTravels) {
-          cursor = rectCentre(measured);
+          cursor = spotIn(
+            measured,
+            action.kind === "click" ? action.at : undefined,
+          );
           segments++;
           previousActionId = action.id;
         }
@@ -936,6 +1043,7 @@ export function createAuthoredRun(
 function segmentTo(
   from: Vec,
   rect: Rect | null,
+  at: DragSpot | undefined,
   index: number,
   fromActionId: string | null,
   toActionId: string,
@@ -943,7 +1051,7 @@ function segmentTo(
   if (rect === null) return undefined;
   return planCursorSegment({
     from,
-    to: rectCentre(rect),
+    to: spotIn(rect, at),
     index,
     fromActionId,
     toActionId,
@@ -1210,6 +1318,7 @@ export async function runAuthored(
       ? undefined
       : {
           neededMs: policy.neededMs,
+          settledAfterMs: policy.settledAfterMs,
           zooms: (click) => {
             decided.set(click.actionId, {
               unwaitedMs: click.unwaitedMs,

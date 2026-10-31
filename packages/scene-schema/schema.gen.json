@@ -4,7 +4,7 @@
   "properties": {
     "schemaVersion": {
       "type": "number",
-      "const": 13
+      "const": 14
     },
     "meta": {
       "type": "object",
@@ -569,6 +569,26 @@
                 "type": "string",
                 "const": "click"
               },
+              "at": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "y": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ],
+                "additionalProperties": false
+              },
               "button": {
                 "type": "string",
                 "enum": [
@@ -1018,6 +1038,80 @@
               "kind",
               "toAnchorId",
               "to"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "anchorId": {
+                "type": "null"
+              },
+              "timestamp": {
+                "type": "number",
+                "minimum": 0
+              },
+              "marker": {
+                "type": "string",
+                "minLength": 1
+              },
+              "rect": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  },
+                  "width": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "height": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "additionalProperties": false
+              },
+              "kind": {
+                "type": "string",
+                "const": "press"
+              },
+              "key": {
+                "type": "string",
+                "enum": [
+                  "Enter",
+                  "Tab",
+                  "Escape",
+                  "Backspace",
+                  "Delete",
+                  "ArrowUp",
+                  "ArrowDown",
+                  "ArrowLeft",
+                  "ArrowRight",
+                  "Space"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "anchorId",
+              "timestamp",
+              "marker",
+              "kind",
+              "key"
             ],
             "additionalProperties": false
           }

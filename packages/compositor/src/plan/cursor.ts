@@ -1,12 +1,6 @@
-import type { SceneDocument } from "@demoman/scene-schema";
+import { type SceneDocument, spotIn } from "@demoman/scene-schema";
 import { catmullRom } from "../easing.js";
-import {
-  clamp,
-  distance,
-  type Rect,
-  rectCenter,
-  type Vec,
-} from "../geometry.js";
+import { clamp, distance, type Rect, type Vec } from "../geometry.js";
 import type { CursorSegment } from "./types.js";
 import { VERBS } from "./verbs.js";
 
@@ -133,7 +127,17 @@ export function planCursorSegments(
       return [];
     }
     const rect = rectOf(action.anchorId, action.id);
-    return rect ? [{ action, point: rectCenter(rect) }] : [];
+    return rect
+      ? [
+          {
+            action,
+            point: spotIn(
+              rect,
+              action.kind === "click" ? action.at : undefined,
+            ),
+          },
+        ]
+      : [];
   });
   if (targets.length === 0) return [];
 

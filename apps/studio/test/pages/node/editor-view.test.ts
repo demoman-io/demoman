@@ -146,7 +146,7 @@ describe("renderFailure", () => {
     renderFailure(root, {
       error: null,
       replaySentence:
-        "The re-shoot reconstructed 2 of 5 steps, then stopped: the page never reached a state the take was waiting for.",
+        "The re-shoot reconstructed 2 of 5 steps, then stopped: what the step waited for (an element to show or hide, or the page to load) did not happen within 10 s — check the target, or what the step before it does.",
       captureSentence: null,
     });
     expect(root.querySelector("[data-replay-failure]")).not.toBeNull();
@@ -161,7 +161,7 @@ describe("renderFailure", () => {
     renderFailure(root, {
       error: null,
       replaySentence:
-        "The re-shoot reconstructed 2 of 5 steps, then stopped: the page never reached a state the take was waiting for.",
+        "The re-shoot reconstructed 2 of 5 steps, then stopped: what the step waited for (an element to show or hide, or the page to load) did not happen within 10 s — check the target, or what the step before it does.",
       captureSentence: null,
       runsRoute: {
         takeId: "take 1&x",

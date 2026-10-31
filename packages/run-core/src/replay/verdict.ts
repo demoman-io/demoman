@@ -38,7 +38,15 @@ export type Divergence =
   | { kind: "missing"; actionId: string; reason: string }
   /** A drag the page ignored: it arrived and changed nothing on screen. */
   | { kind: "ignored"; actionId: string; reason: string }
-  | { kind: "unverifiable"; reason: string };
+  | { kind: "unverifiable"; reason: string }
+  /** Typed text the field did not end up holding (the page cleared or
+   *  rewrote it): the video shows the typing, the app does not keep it. */
+  | {
+      kind: "fieldDoesNotHold";
+      actionId: string;
+      wanted: string;
+      value: string;
+    };
 
 export interface Verdict {
   kind: "matches" | "diverged";
@@ -68,6 +76,7 @@ export interface ResolvedIntent {
   intent: ScriptStep;
   strategy: StrategyName | null;
   candidates: number | null;
+  fieldHolds?: { value: string; holds: boolean };
 }
 
 /** The step's target, whichever key it lives under — `waitForLoad` and
@@ -143,6 +152,18 @@ export function compareToScript(
   }
 
   for (const step of resolved) {
+    if (
+      step.actionId !== null &&
+      step.fieldHolds?.holds === false &&
+      step.intent.do === "type"
+    ) {
+      found.push({
+        kind: "fieldDoesNotHold",
+        actionId: step.actionId,
+        wanted: step.intent.text,
+        value: step.fieldHolds.value,
+      });
+    }
     if (step.actionId === null || step.strategy === null) continue;
     const target = targetOfStep(step.intent);
     if (target === null) continue;

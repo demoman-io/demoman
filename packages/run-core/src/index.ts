@@ -32,6 +32,7 @@ export * from "./scene-label.js";
 export * from "./scene-name.js";
 export * from "./secrets.js";
 export type {
+  EndPage,
   SnapshotRequest,
   SnapshotTarget,
   SnapshotWalk,

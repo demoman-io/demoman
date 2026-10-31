@@ -36,4 +36,5 @@ export const VERBS: Record<SceneAction["kind"], VerbTraits> = {
   scrollTo: { cursorTravels: false, approach: "landing" },
   waitFor: { cursorTravels: false, approach: "none" },
   drag: { cursorTravels: true, approach: "nearest" },
+  press: { cursorTravels: false, approach: "none" },
 };

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Fields</title>
+<style>body{margin:0;padding:24px;font:16px system-ui,sans-serif}input{display:block;margin:0 0 16px;width:240px;height:32px}</style>
+</head>
+<body>
+  <!-- #fmt rewrites digits as "4,800" as they go in; #wipe empties itself. -->
+  <input id="fmt" type="text">
+  <input id="wipe" type="text">
+  <input id="plain" type="text">
+  <label id="wrap">Amount <input id="inner" type="text"></label>
+  <!-- A code box: once it holds a character, focus moves to the next box. -->
+  <input id="code1" type="text" maxlength="1">
+  <input id="code2" type="text" maxlength="1">
+  <script>
+    document.getElementById("fmt").addEventListener("input", (e) => {
+      const digits = e.target.value.replace(/\D/g, "");
+      e.target.value = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    });
+    document.getElementById("wipe").addEventListener("input", (e) => {
+      e.target.value = "";
+    });
+    document.getElementById("code1").addEventListener("input", (e) => {
+      if (e.target.value.length >= 1) document.getElementById("code2").focus();
+    });
+  </script>
+</body>
+</html>

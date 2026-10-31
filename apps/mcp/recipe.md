@@ -14,7 +14,7 @@ user; section 7 lists every reason.
    `secretsFile`, `expiry` and `update`.
    `sessions` is `[{site, savedAt, refreshedAt, signInUrl}]`; it and
    `display` can be `{unreadable}`: tell the user why. `accounts` and
-   `secretsFile` are the demo accounts below. Ignore `update`.
+   `secretsFile` are the demo accounts below.
 2. The browser is signed in only where the user ran `npx demoman signin <url>`;
    `status`'s `sessions` lists those sites. A demo account records best. A page
    that sends this browser to its sign-in page answers `signedOut` (section
@@ -78,8 +78,6 @@ its site. Then, in this order:
    `npx demoman signin <url>`, which signs in by hand in a window: it is the
    way for a real account, single sign-on and two-factor.
 
-Only demo accounts; never the user's own password in `secrets.env`.
-
 The file, with one account:
 
 ```jsonc
@@ -125,13 +123,11 @@ The file, with one account:
   Environment secrets serve only the accounts.json of the repo Demoman was
   started in; one reached through `project` reads only its own
   `.demoman/secrets.env`.
-- A script names its account: `"account": "seller"`, which needs
-  scriptVersion 5 (`"scriptVersion": 5`). `snapshot` takes `account` too. Both take `project`,
+- A script names its account: `"account": "seller"`. `snapshot` takes `account` too. Both take `project`,
   an absolute path, to use another checkout's `.demoman/`.
 
 ```json
 {
-  "scriptVersion": 5,
   "name": "Seller dashboard",
   "target": "http://localhost:4000/admin/dashboard",
   "account": "seller",
@@ -150,10 +146,9 @@ The file, with one account:
 
 ## 2. Look at the page
 
-`snapshot(url)` opens `url` in Demoman's browser, lists the page's targets,
-and leaves the page open. Each entry is
-`{ target, kind, text, rect, inFirstViewport }`. Every `target` listed
-resolves in a run to exactly that element: Demoman checked it.
+`snapshot(url)` opens `url` in Demoman's browser and lists the page's
+targets, leaving the page open. Each entry is
+`{ target, kind, text, value, rect, shown, inFirstViewport }`. Every `target` resolves in a run to exactly that element.
 
 - **Copy a `target` into a step verbatim. Never compose one**, and never
   translate a name from another tool's accessibility tree: Demoman's roles
@@ -169,46 +164,43 @@ resolves in a run to exactly that element: Demoman checked it.
   is (normal for a public page); `"signedOut"`: the page is a sign-in page,
   and `sessionDetail` holds the command to give the user (spend no run, or
   set up a demo account: section 1);
-  `"unchecked"`: the page could not be checked, and `sessionDetail` says
-  why. A sign-in page offering only "Continue with Google" may
-  not answer `signedOut`: a `landedUrl` that is plainly a sign-in page with
+  `"unchecked"`: `sessionDetail` says why. A sign-in page with only "Continue with Google" may
+  not answer `signedOut`: a plainly sign-in `landedUrl` with
   `"none"` or `"unchecked"` means the same. Tell the user to run
   `npx demoman signin <the page to record>` and spend no run. On
   `"unchecked"` otherwise, carry on only if `landedUrl` is not a sign-in
   page.
 - `settled: false` - the page was still loading; `settleNote` says what was
-  outstanding. Snapshot again before you conclude something is absent.
-- `rect` is in page coordinates; `inFirstViewport`: shown before any
-  scroll. `rect: null` means the element has no box yet (a closed
-  FAQ answer): still a valid target for `waitFor … until: "visible"` after
-  the step that opens it.
+  outstanding. Snapshot again before concluding something is absent.
+- `rect` is in page coordinates; `inFirstViewport`: in view before any
+  scroll. `rect: null`: no box yet (a closed FAQ answer), still a valid
+  `waitFor … until: "visible"` target after the step that opens it.
+  `shown: false`: transparent, hidden or a sliver now; `waitFor` waits.
 - `size` is `{ width, height, from, error }`: the size the page was laid out
   at, which a run records too. `from` is `screen` (this machine's screen),
   or `device`. `from: "window"` with an `error`: Demoman could not read the
   screen and listed the browser's smaller layout; tell the user the `error`.
-- `unresolvable` counts elements left out because no target names them
-  uniquely (two buttons with one label, say). `notExamined` above 0 means the
-  page had more than one answer holds: pass `contains` ("pay", "FAQ") to ask
-  for the part you need; with it given, a positive count means narrow it
-  further.
+- `positional: true`: the target is a `treePath` (shared or no name); snapshot
+  again after the page changes. `value`: a field's text, never a password's.
+  `unresolvable`: no target reaches it. `notExamined` above 0: pass `contains`
+  (name, text, stableId, kind, value); with it, narrow. `containsNote`: no match.
 - Iframe and shadow-root elements are not listed.
-- A snapshot sees only the page as it loads: hidden content already in the
-  page is listed; content a click creates (a menu or dialog built when it
-  opens, search results, a new row) is not. To list it, `probe` your script
+- A snapshot sees only the page as it loads: hidden content in the
+  page is listed; content a click creates (a menu, dialog, results, a new row) is not. To list it, `probe` your script
   with its steps cut off after the step that opens it, and copy targets from
-  that answer. A probe acts on the app for real, every time: "Add item" adds
-  one per probe and again in the run, so a target listed as unique can be
-  ambiguous by then; a delete deletes; in the Studio an edit saves into the
-  take. Prefer demo data. `stopped` means a step did not play: fix it as a
-  run's stop with that reason says, and probe again. A page the flow
-  navigates to has its own URL to snapshot.
+  that answer. A probe acts on the app for real: "Add item" adds one per
+  probe and again in the run, so a unique target can turn ambiguous;
+  a delete deletes; in the Studio an edit saves into the take. Server data
+  carries into the run; browser storage does not, except a signed-in
+  site's. Prefer demo data. `stopped`: a step did not play; fix it as a
+  run's stop with that reason says, and probe again.
 
 ### Recording a phone demo
 
 1. Call `snapshot` with `device` (`"phone"` or `"tablet"`), and
    copy targets from that answer only: a phone shows a different page, and a
    desktop target is often not on it.
-2. `run` a script that names the same `device`, at `scriptVersion` 4.
+2. `run` a script that names the same `device`.
 3. Leave `look.canvas` at `auto`, which comes out portrait, or name `9:16`.
 4. No `hover` steps: tap instead.
 
@@ -219,13 +211,10 @@ resolves in a run to exactly that element: Demoman checked it.
 1. `snapshot` the page the flow starts on.
 2. Write each step with a `target` copied from that snapshot.
 3. A step that reveals hidden content (a FAQ answer, a panel) names its
-   targets from the same snapshot, then a `waitFor … until: "visible"`. A step that navigates: snapshot the new page's URL and put a
-   `waitForLoad` after the step. A step on content a click creates: see
-   section 2.
+   targets from the same snapshot, then a `waitFor … until: "visible"`. A step that navigates: snapshot the new page's URL and put a `waitForLoad` after it; the step after that waits up to 10 s for its own target, so it needs no `waitFor`. Content a click creates: section 2.
 4. `snapshot`'s `kits` lists the user's brand kits by name, the default
    marked. Use a name from it in `look.kit` only when the user asked for a
-   look, and then write `"scriptVersion": 2` - a script that names a kit at
-   version 1 is refused (`invalidScript`, `field` `scriptVersion`).
+   look.
    `{ "ok": false, "reason": … }`: the kits could not be read; say so, name none.
 
 ### From a take made earlier
@@ -239,7 +228,7 @@ to change and run again.
 
   | Hole `reason` | What to do |
   | --- | --- |
-  | `scrubbedTarget` | `step` is null: the hole is the start URL. Demoman strips query values and secret-looking path segments from a take; `recorded` shows the page with `redacted` in their place. Set `target` to the real start URL - ask the user if you cannot tell. |
+  | `scrubbedTarget` | `step` is null: the hole is the start URL. Demoman strips query values and secret-looking path segments from a take; `recorded` shows `redacted` in their place. Set `target` to the real start URL - ask the user if unsure. |
   | `redacted` | Add `"text"` with a **demo** value, never a real credential. |
   | `unnameable`, `ambiguousAtCapture`, `brokenAtCapture` | Add the target, copied from a `snapshot` of that page. |
   | `buttonNotScriptable` | Delete `"button"` only if a left click is acceptable - it is a different action. Otherwise tell the user the step cannot be scripted. |
@@ -289,15 +278,14 @@ A video kept current in the repo (.demoman/videos) is rewritten by each run into
    - `stopped` - `stopped.at` names the step and `stopped.sentence` says why.
      A `steps[i].pageUrl` on a sign-in page means the app sent this browser
      to sign in mid-run: tell the user; do not rewrite targets.
-     `signInFailed` names the account, step and landing: fix the account's
-     file or secret, or tell the user. (A run
-     that stopped short on the site's recorded sign-in page is relabelled
+     (A run that stopped short on the site's recorded sign-in page is relabelled
      `signedOut` (section 7); its detail ends "The run itself stopped at script
      step N: ...".)
    - `complete` - read `verdict`: `verdict.kind` is `"matches"` or
      `"diverged"`, and `verdict.diverged[]` lists each step the video does not
-     show the way the script asked. `matches` with every
-     `steps[i].candidates` at 1 means the steps are right.
+     show the way the script asked. `still`, the image after the text, is
+     the film's last frame: the verdict says the actions happened; look at `still` against the brief before you export or run again.
+     `endPage`: the end page's `url`, `text` and `fields`.
    - In any outcome, a step whose `textHidden` is set typed into a credential
      field (`"credentialField"`, or `"credentialUnchecked"` if the page could
      not say): its text is kept nowhere. Re-recording or deriving that take
@@ -309,7 +297,7 @@ A video kept current in the repo (.demoman/videos) is rewritten by each run into
      about the video, not the script (`surfaceMismatch`: the browser handed
      back frames of the wrong size; `dragPictureMissing`: a native drag's item
      jumps). `notDragged`: a drag changed nothing; `verdict.diverged` lists
-     it. Name them to the user; spend no run. One is about a step: `clickUnconfirmed` means a click
+     it. Name them to the user; spend no run. `clickUnconfirmed` is about a step: a click
      could not be confirmed to have reached its target, and
      `frames.unconfirmedClicks` names each such step and says why; check in
      the video that the step did what it should before saying so.
@@ -363,32 +351,25 @@ user's default brand kit; a derived draft keeps its take's branding. The report'
 1. `export(takeId)` with the accepted run's `provenance.takeId`. It answers
    the export report, or `stillRunning` with an `id`; then call `report(id)`
    until the outcome is none of `exporting`, `stillRunning`.
-   `fileType` picks the file: `mp4` (the default), `gif` (plays inline in
-   a GitHub PR or issue), or `stills` (a PNG per step, in a folder); only
-   if asked. An MP4 follows Settings
+   `fileType`, only if asked: `mp4` (the default), `gif` (plays inline in
+   a GitHub PR or issue), or `stills` (a PNG per step, in a folder). An MP4 follows Settings
    (unset: ~1 MB/s); `quality: "full"` is largest.
    `export({ takeId, maxMB: 9.5 })` fits GitHub's 10 MB drag-in, or says
-   it could not (it lowers fps, then size, then sharpness: the summary
-   says what it cost).
-   A GIF is made as wide as the recording backs and fits 10 MB, up to twice
-   its usual width; `warnings.gifSize` says how wide, its size, and which
-   wider widths were refused (`limit`: `budget`, too big, or `detail`, too
-   few pixels); a GIF over 10 MB at its narrowest says so: offer the MP4.
-   Stills take `stills: { width, zoom }`, both optional. A
-   still is by default the whole window, up to 2560 px wide (not wider than the recording). `width` asks for a size in
-   px (320-3840) or `"native"`, the recording's own size; `zoom: "step"`
-   frames each step the way the video zooms on it, all the way in. Pass
+   it could not (the summary says what it cost).
+   A GIF is as wide as fits 10 MB (`warnings.gifSize` says how wide and
+   which widths were refused); one over 10 MB at its narrowest says so: offer the MP4.
+   Stills take `stills: { width, zoom }`, both optional; by
+   default a still is the whole window, up to 2560 px wide (no wider than the recording). `width` is px (320-3840) or `"native"`, the recording's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Pass
    them only when asked.
 2. `saved` - the file is at `file.path`, absolute: in `~/Downloads`, or the
-   folder the server was started with `--out-dir`. For `stills`, `fileType`
+   server's `--out-dir`. For `stills`, `fileType`
    is `stills` and the answer carries `folder: { path, files }` instead of
    `file`: give the user `folder.path`; `warnings.unplacedStills` lists steps
-   that got no still. `summary` is one
+   with no still. `summary` is one
    sentence: what was saved and anything the user asked for that the file
    lacks (a logo, motion, a still, an edit). `warnings` holds more:
-   Demoman's own calls (`zooms`, `detailViolations`, a size cap's `steps`,
-   a GIF's widths, `targetCheck`). They are
-   not the user's to act on: do not pass them on. None is the script's to fix.
+   Demoman's calls (`zooms`, `detailViolations`, a size cap's `steps`,
+   a GIF's widths, `targetCheck`). They are not the user's to act on: do not pass them on. None is the script's.
    Except `wallpaperWarning.sentence` (wallpaper left out: plain
    gradient; or will look soft): quote it.
    `warnings.editedSinceRecorded` lists steps whose `scene.json` no longer
@@ -400,8 +381,7 @@ user's default brand kit; a derived draft keeps its take's branding. The report'
    only where it works: `studio`, `file` (the file itself) and `copy` (the
    file to the clipboard; none for stills). `linksError`, set instead, says
    why there are none: tell the user in one line.
-   Every export report carries a `summary` (`stillRunning`, this server's
-   own answer, does not).
+   Every export report carries a `summary` (`stillRunning` does not).
 3. `renderFailed` - export **once** more; never re-run the script for an
    export failure. `saveFailed` - its `error` names the folder and the
    system's reason (a folder that cannot be written): tell the user;
@@ -448,11 +428,11 @@ quote `note` if set. Studio exports go to `~/Downloads`.
 
 ```json
 {
-  "scriptVersion": 1,
   "name": "Checkout with a coupon",
   "target": "https://app.example.com/cart",
   "steps": [
     { "do": "waitForLoad" },
+    { "do": "scrollTo", "on": { "treePath": "body:1/main:1/section:2/div:1" }, "landing": { "top": 280 } },
     { "do": "click", "on": { "role": "button", "name": "Apply coupon" } },
     { "do": "waitFor", "on": { "role": "textbox", "name": "Coupon code" }, "until": "visible" },
     { "do": "type", "into": { "role": "textbox", "name": "Coupon code" }, "text": "SPRING25" },
@@ -463,39 +443,30 @@ quote `note` if set. Studio exports go to `~/Downloads`.
 }
 ```
 
-A derived draft keeps where its scrolls stopped (`landing`) and which
-recorded action each step came from (`recorded`, in `recordedFrom`):
-
 ```json
-{
-  "scriptVersion": 1,
-  "name": "Landing page tour",
-  "target": "https://app.example.com/",
-  "steps": [
-    { "do": "scrollTo", "on": { "treePath": "body:1/main:1/section:2/div:1" }, "landing": { "top": 280 }, "recorded": "a-1" },
-    { "do": "click", "on": { "role": "link", "name": "Get started" }, "recorded": "a-2" }
-  ],
-  "recordedFrom": "take-7f3a"
-}
-```
-
-```json
-{"scriptVersion": 6, "name": "Move a card", "target": "https://app.example.com/board",
+{"name": "Move a card", "target": "https://app.example.com/board",
  "steps": [{ "do": "drag", "from": { "on": { "text": "Card A" } }, "to": { "on": { "text": "Done" } } }]}
 ```
 
-- `scriptVersion` and `name` are required; a step's verb is `do`.
-  `scriptVersion` is the highest that applies: `1`; `2` when `look` names
-  a `kit`; `3` when it carries `motion`; `4` when the script names a
-  `device`; `5` when it names an `account`; `6` when it has a `drag`.
+```json
+{"name": "Search", "target": "https://app.example.com/",
+ "steps": [
+   { "do": "type", "into": { "role": "searchbox", "name": "Search" }, "text": "invoices" },
+   { "do": "press", "key": "Enter" }
+ ]}
+```
+
+- `name` is required; a step's verb is `do`. Leave `scriptVersion` out: Demoman sets it. A derived draft also carries `recorded` on steps and `recordedFrom` on the script: keep them.
 - **Targets** name exactly one strategy: `{ "stableId" }`, `{ "role", "name" }`,
   `{ "text" }` or `{ "treePath" }`. Two in one target is refused. Copy them
   from `snapshot` or a derived draft. A `treePath` is a position in the
   page: it breaks when the structure changes, and the run stops there.
-- **Verbs:** `click`, `type` (replaces the field's contents), `hover`,
+- **Verbs:** `click` (optional `at: { x, y }`, a spot in the box, 0–1, as drag's; absent is the centre), `type` (replaces the field's contents), `hover`,
   `scrollTo`, `waitFor` (`until`: `visible` | `hidden`; visible means it can
   be seen, so an element at `opacity: 0` or `visibility: hidden` is hidden),
-  `waitForLoad`, `pause` (`ms`), and `drag` (`from: { on, at? }`, `to`
+  `waitForLoad`, `pause` (`ms`), `press` (`key`: `Enter` | `Tab` | `Escape` |
+  `Backspace` | `Delete` | `ArrowUp` | `ArrowDown` | `ArrowLeft` | `ArrowRight` |
+  `Space`; names no element, goes to whatever holds focus), and `drag` (`from: { on, at? }`, `to`
   the same or `{ "by": { x, y } }` px; `at` is a spot in the box, 0–1). An unknown key is refused and named.
 - `scrollTo` takes an optional `landing: { "top": <px> }`, the viewport y of
   the element's top edge when the scroll stops. Absent means centred.
@@ -506,8 +477,7 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
   `viewport`, not both. A device has no hover, so a `hover` step under one is
   refused. `look` takes `branding` or `kit`, plus `cursor`, `canvas` and
   `motion`; absent means the user's default brand kit. `kit` names one of
-  `snapshot`'s `kits` (case does not matter); name a kit or give a
-  branding, not both. An unknown key in `look` is refused and named. A
+  `snapshot`'s `kits` (any case); not both a kit and a branding. An unknown key in `look` is refused and named. A
   `branding` is the whole of one: `background`, `logo` (or `null`) and
   `padding`, the margin as a fraction of the frame's shorter side (0 to
   0.2; left out is 0.12); a missing `background` or `logo` is refused.
@@ -568,7 +538,7 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `noTag`, `unknownVideo`, `fileNotFound` | `videos` | The file has no Demoman tag; its video is not in this library; no file there. Use `query` instead. |
 | `invalidArgs` | `videos` | `file` with `query`, or not an absolute path. |
 | `versionExpired` | `export` (`refusedBeforeExport`) | The take's frames expired: `run({ video: { id } })`, then export. |
-| `failed` | `status` (`expiry`) | Not a refusal: `expiry` is the last cleanup `{ ranAt, expired, freedBytes, skippedLeased }`. Say nothing unless it is `{ failed }` or `{ unreadable }`: quote it. |
+| `failed` | `status` (`expiry`) | Not a refusal: `expiry` is the last cleanup. Say nothing unless it is `{ failed }` or `{ unreadable }`: quote it. |
 | `nothingToRerecord` | `run` (`refusedBeforeRun`) | The take has no step left that acts; tell the user. |
 | `unknownKit` | `run` (`refusedBeforeRun`) | `look.kit` names no kit, or an unreadable one; `detail` lists the kits. Fix it from `snapshot`'s `kits`, or ask the user. |
 | `kitsUnreadable` | `run` (`refusedBeforeRun`) | The kits file would not read, so `look.kit` went unchecked. Quote `detail`; keep the name. |
@@ -577,15 +547,19 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `deviceFailed` | `snapshot`, `run` | The browser would not emulate the device; nothing was listed or recorded. Tell the user `detail`; do not run again. |
 | `nonHttpTarget` | `run`, `snapshot` | The target or url is not `http(s)`, or its host contains `*`. |
 | `invalidFileType` | `export` (`refusedBeforeExport`) | Not answered here: the schema takes only `mp4`, `gif`, `stills`. |
-| `invalidStillsOptions` | `export` (`refusedBeforeExport`) | `stills` was given for an MP4 or GIF, or holds a width outside 320-3840 (or `"native"`), a zoom other than `"none"` or `"step"`, or another field; `detail` says which. Fix the call. |
+| `invalidStillsOptions` | `export` (`refusedBeforeExport`) | `stills` was given for an MP4 or GIF, or breaks section 5's width or zoom; `detail` says which. Fix the call. |
 | `invalidQuality`, `invalidMaxMB` | `export` (`refusedBeforeExport`), `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
 | `noTakeId`, `noFrames` | `export` (`refusedBeforeExport`) | No take id; the take has no frames to render. |
 | `takeNotFound`, `takeUnreadable` | `export` (`refusedBeforeExport`), `run` re-record (`refusedBeforeRun`), `studio` (`takeNotFound`: call `takes`) | No such take; it could not be read (or, for `run`, built into a script). |
+| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run` (`stopped.reason`) | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. |
+| `ambiguousAnchor` | `run` (`stopped.reason`) | Several elements matched; name the target more exactly. |
+| `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run` (`stopped.reason`) | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |
+| `pageWentElsewhere`, `unperformableStep` | `run` (`stopped.reason`) | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks for what a run cannot do. |
 | `dragEndOutOfView`, `dragNoDistance` | `run` (`stopped.reason`) | A drag's end was off screen (a drag cannot scroll), or on its start. Fix the script. |
 | `clickNotDelivered` | `run` (`stopped.reason`) | The browser put a click elsewhere than where it was sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |
 | `signedOut` | `run` (`stopped.reason`) | The app sent this browser to its sign-in page. Nothing was kept, and it is not a script fault. Give the user the command in `stopped.detail`; run again only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it says so. |
 | `windowClosed` | `run` (`stopped.reason`) | `--headed` only: the window was closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
-| `pageDidNotLoad` | `snapshot` | The url did not load. Ask the user whether the app is running at that address; spend no run. |
+| `pageDidNotLoad` | `snapshot`, `probe` stop | The url did not load. Ask whether the app runs at that address; spend no run. |
 | `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman's script; tell the user. |
 | `pageFaulted` | `snapshot` | The page's own code threw; quote `detail`. |
 | `snapshotThrew` | `snapshot` | A fault in the snapshot; quote `detail`. |

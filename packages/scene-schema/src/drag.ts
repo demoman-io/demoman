@@ -5,13 +5,27 @@ type Point = { x: number; y: number };
 type DragAction = Extract<SceneDocument["actions"][number], { kind: "drag" }>;
 
 /** A spot in `rect` as fractions of its box; its centre when absent, the
- *  point a click uses. */
+ *  point a click uses. Kept half a pixel inside: a box's far edge is
+ *  exclusive and hit-tests to its neighbour (final review 2026-10-30). */
 export function spotIn(rect: Rect, at: Point | undefined): Point {
   if (at === undefined) {
     return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
   }
-  return { x: rect.x + at.x * rect.width, y: rect.y + at.y * rect.height };
+  return {
+    x: inside(rect.x, rect.width, at.x),
+    y: inside(rect.y, rect.height, at.y),
+  };
 }
+
+function inside(start: number, size: number, fraction: number): number {
+  const inset = Math.min(EDGE_INSET_PX, size / 2);
+  return Math.min(
+    Math.max(start + fraction * size, start + inset),
+    start + size - inset,
+  );
+}
+
+const EDGE_INSET_PX = 0.5;
 
 /** Where a drag lets go: an offset from its start, or a spot in its end's
  *  box. Null when the end names a box nobody measured. */

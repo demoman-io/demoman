@@ -142,6 +142,7 @@ describe("snapshotOnStage", () => {
         targets: [],
         unresolvable: 3,
         notExamined: 0,
+        containsNote: null,
         walkMs: 12,
         device: null,
         size: { width: 1512, height: 982, from: "screen", error: null },
@@ -354,5 +355,55 @@ describe("snapshotOnStage on the desktop", () => {
     expect(error).toMatch(/1512x982/);
     expect(error).toMatch(/Not allowed/);
     expect(s.snapshotTargets).toHaveBeenCalled();
+  });
+});
+
+describe("containsNote", () => {
+  const ask = (contains: string | null, walk: object) =>
+    snapshotOnStage(
+      stage("http://a/", { walk: { ...WALK, ...walk } }),
+      "http://a/",
+      contains,
+      null,
+      SCREEN,
+    );
+
+  // Red if an empty answer to `contains` reads like "absent": the note is the
+  // only thing that says the question was asked of every field.
+  it("says nothing matched when contains finds nothing", async () => {
+    const outcome = await ask("zzz", {
+      targets: [],
+      notExamined: 0,
+      unresolvable: 0,
+    });
+    expect(outcome).toMatchObject({
+      ok: true,
+      value: {
+        containsNote:
+          'Nothing on the page matched "zzz" (name, text, stableId, kind or value).',
+      },
+    });
+  });
+
+  // Red if the note is said when more matches were left unexamined, or when
+  // nothing was asked.
+  it("says nothing of the kind when notExamined > 0 or contains was not given", async () => {
+    const more = await ask("zzz", { targets: [], notExamined: 4 });
+    expect(more).toMatchObject({ ok: true, value: { containsNote: null } });
+    const none = await ask(null, { targets: [], notExamined: 0 });
+    expect(none).toMatchObject({ ok: true, value: { containsNote: null } });
+  });
+
+  // Red if matches that could not be named read as "nothing matched".
+  it("says how many matched and could not be named, not that nothing matched", async () => {
+    const outcome = await ask("zzz", {
+      targets: [],
+      notExamined: 0,
+      unresolvable: 2,
+    });
+    if (!outcome.ok) throw new Error(outcome.detail);
+    expect(outcome.value.containsNote).toContain("2");
+    expect(outcome.value.containsNote).not.toContain("Nothing on the page");
+    expect(outcome.value.containsNote).toContain("different");
   });
 });

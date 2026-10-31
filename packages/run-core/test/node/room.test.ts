@@ -112,4 +112,20 @@ describe("createRoomPolicy", () => {
     expect(zoomsSkipped.map((z) => z.reason)).toEqual(["tooClose"]);
     expect(asked).toEqual([actions[0]?.id, actions[2]?.id]);
   });
+
+  // Spec 2026-10-30 F: the camera's last pull-out lands the zoom hold and
+  // the pull-out after what the zoom holds until (`insertNeutralKeys`), at
+  // the take's own smoothness; the take runs a settle past that.
+  it("settles after the hold, the pull-out at the take's smoothness, and SETTLE_MS", () => {
+    expect(
+      createRoomPolicy(viewport, MOTION_DEFAULTS).settledAfterMs(1000),
+    ).toBe(1000 + 1200 + 925 + 300);
+    expect(
+      createRoomPolicy(viewport, {
+        ...MOTION_DEFAULTS,
+        smoothness: 1,
+      }).settledAfterMs(1000),
+    ).toBe(1000 + 1200 + 1150 + 300);
+    expect(CAMERA_DEFAULTS.neutral.zoomHoldMs).toBe(1200);
+  });
 });

@@ -1,18 +1,29 @@
 // apps/runner/test/probe.test.ts
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { EndPage } from "@demoman/run-core";
 import { type BrandKitsRead, checkScript } from "@demoman/run-core";
 import type { BrowserContext, Page } from "playwright";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { Rgb } from "../src/decode-probe-entry.js";
 import { createBrowserSession } from "../src/executor/browser.js";
 import { readLandingFacts } from "../src/executor/landing.js";
 import { createLibrary } from "../src/executor/library.js";
 import { installExecutorEntry } from "../src/executor/page-ops.js";
 import {
   discardingFilm,
+  KEPT_PROBE_STILLS,
+  keepNewestProbeStills,
   type ProbeDeps,
   type ProbeReply,
   probeEntry,
@@ -22,6 +33,7 @@ import { runScript } from "../src/executor/run.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import { snapshotOp } from "../src/executor/snapshot.js";
 import { installResolver } from "../src/page-agent.js";
+import { sampleImage } from "./mp4-probe.js";
 
 /**
  * `probeOp` against a page whose menu exists only once a button is clicked
@@ -59,7 +71,9 @@ beforeAll(async () => {
     res.end(
       req.url === "/security"
         ? '<!doctype html><title>Security</title><input type="password" aria-label="New password"><button>Change password</button>'
-        : html,
+        : req.url === "/form"
+          ? '<!doctype html><title>Form</title><p>Order form</p><input aria-label="Name"><input type="password" aria-label="Card PIN" value="hunter2">'
+          : html,
     );
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -323,11 +337,35 @@ describe("probeOp", () => {
     expect(out, said).toMatchObject({ ok: true, value: { targets: [] } });
     const reply = (out.ok ? out.value : null) as ProbeReply;
     expect(reply.stopped, said).not.toBeNull();
-    expect(reply.settleNote, said).toContain(
-      "could not be listed (pageDidNotLoad)",
-    );
+    expect(reply.stopped?.reason, said).toBe("pageDidNotLoad");
+    // The walk's own reason is kept in the detail, not overwritten.
+    expect(reply.stopped?.detail, said).toContain("pageWentElsewhere");
+    expect(reply.settleNote, said).not.toContain("pageDidNotLoad");
     // The premise: the page it stopped on is the one that did not load.
-    expect(reply.settleNote, said).toContain("127.0.0.1:1");
+    expect(reply.stopped?.detail, said).toContain("127.0.0.1:1");
+  }, 120_000);
+
+  it("a probe whose target never loads stops with pageDidNotLoad, not unresolvedAnchor", async () => {
+    const down = "http://127.0.0.1:1/";
+    const out = await probeOp(
+      enter({
+        ...script([
+          { do: "click", on: { role: "button", name: "Open filters" } },
+        ]),
+        target: down,
+      }),
+      null,
+      deps(),
+    );
+    const said = JSON.stringify({ out, lines });
+    const reply = (out.ok ? out.value : null) as ProbeReply;
+    expect(reply, said).not.toBeNull();
+    // The premise: the page it ended on is the one that did not load.
+    expect(reply.endedUrl, said).toContain("chrome-error:");
+    expect(reply.stopped?.reason, said).toBe("pageDidNotLoad");
+    expect(reply.stopped?.detail, said).toContain("127.0.0.1:1");
+    expect(reply.stopped?.detail, said).toContain("ERR_");
+    expect(reply.settleNote, said).not.toContain("pageDidNotLoad");
   }, 120_000);
 
   it("a step that stopped is still said when its page is gone", async () => {
@@ -366,6 +404,105 @@ describe("probeOp", () => {
     );
     expect(reply.endedUrl, said).toBeNull();
   }, 120_000);
+
+  it("a probe answer carries a viewport still and the end page's fields", async () => {
+    const reply = await probe({
+      ...script([
+        { do: "type", into: { role: "textbox", name: "Name" }, text: "Ada" },
+      ]),
+      target: `${url}form`,
+    });
+    const said = JSON.stringify({ reply, lines });
+    expect(reply.stopped, said).toBeNull();
+    const stillPath = (reply.still as { path: string }).path;
+    expect(stillPath, said).toMatch(
+      new RegExp(`^${join(home, "probes")}/probe-[^/]+\\.png$`),
+    );
+    // The picture: the viewport, no wider than the cap, and not one flat
+    // colour — the page's black text on its white ground.
+    const BLACK: Rgb = [0, 0, 0];
+    const WHITE: Rgb = [255, 255, 255];
+    const read = await sampleImage(await readFile(stillPath), "image/png", {
+      colors: [BLACK, WHITE],
+    });
+    const [black = 0, white = 0] = read.readings.at(-1)?.colorCounts ?? [];
+    expect([read.width, read.height], said).toEqual([1280, 800]);
+    expect(black, said).toBeGreaterThan(0);
+    expect(white, said).toBeGreaterThan(black);
+    // The end page: where it is, what it says, and what each field holds.
+    const end = reply.endPage as EndPage;
+    expect(end.url, said).toBe(`${url}form`);
+    expect(end.text, said).toContain("Order form");
+    expect(
+      end.fields.map((f) => f.value),
+      said,
+    ).toEqual(["Ada"]);
+    expect(end.fields[0]?.target, said).toEqual({
+      role: "textbox",
+      name: "Name",
+    });
+    // A credential field is left out, value and all. The premise: the page
+    // holds that value.
+    expect(said).not.toContain("hunter2");
+    const page = await stagePage("/form");
+    expect(await page.locator('input[type="password"]').inputValue()).toBe(
+      "hunter2",
+    );
+  }, 120_000);
+
+  it("a probe that did not load carries no still and says why", async () => {
+    const out = await probeOp(
+      enter(
+        script([
+          { do: "click", on: { role: "link", name: "Down" } },
+          openFilters,
+        ]),
+      ),
+      null,
+      deps(),
+    );
+    const reply = (out.ok ? out.value : null) as ProbeReply;
+    const said = JSON.stringify({ out, lines });
+    // The premise: it stopped on the page that did not load.
+    expect(reply?.stopped?.reason, said).toBe("pageDidNotLoad");
+    expect(reply.still, said).toEqual({ unavailable: "the page did not load" });
+    expect(reply.endPage, said).toEqual({
+      unavailable: "the page did not load",
+    });
+  }, 120_000);
+
+  // Review round 1: every probe wrote one shared file, so report(A) after
+  // probe B attached B's picture to A's answer. Each probe keeps its own.
+  it("a later probe leaves an earlier probe's still as it was", async () => {
+    const first = await probe({ ...script([]), target: `${url}form` });
+    const firstPath = (first.still as { path: string }).path;
+    const firstBytes = await readFile(firstPath);
+    const second = await probe(script([openFilters]));
+    const secondPath = (second.still as { path: string }).path;
+    // The premise: the two pages look different, so a shared file would
+    // have changed under the first probe.
+    expect((await readFile(secondPath)).equals(firstBytes)).toBe(false);
+    expect(secondPath).not.toBe(firstPath);
+    expect((await readFile(firstPath)).equals(firstBytes)).toBe(true);
+  }, 120_000);
+
+  it("keeps only the newest probe stills", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "demoman-probes-"));
+    try {
+      await mkdir(dir, { recursive: true });
+      const names = Array.from(
+        { length: KEPT_PROBE_STILLS + 5 },
+        (_, i) => `probe-${1793400000000 + i}-x.png`,
+      );
+      for (const name of names) await writeFile(join(dir, name), "png");
+      await keepNewestProbeStills(dir, log);
+      expect((await readdir(dir)).sort()).toEqual(
+        names.slice(-KEPT_PROBE_STILLS),
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
   it("leaves no take behind", async () => {
     const fresh = await mkdtemp(join(tmpdir(), "demoman-probe-home-"));

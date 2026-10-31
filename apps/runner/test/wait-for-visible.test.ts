@@ -41,8 +41,13 @@ const PAGE = `<!doctype html><meta charset=utf-8>
 </style>
 <button id="save" style="margin: 100px; font-size: 24px">Save</button>
 <span id="badge">Draft badge</span>
+<button id="ghost" aria-label="Reveal toast" style="position: fixed; left: 400px; top: 100px; width: 120px; height: 40px; opacity: 0">x</button>
 <div id="toast">Invoice created</div>
+<p id="gone" style="display: none">Folded note</p>
 <script>
+  document.getElementById("ghost").addEventListener("click", () => {
+    document.getElementById("toast").classList.add("shown");
+  });
   document.getElementById("save").addEventListener("click", () => {
     document.getElementById("toast").classList.add("shown");
   });
@@ -150,6 +155,12 @@ describe("waitFor on an element that is laid out but cannot be seen", () => {
       expect(report.outcome, evidence).toBe("stopped");
       expect(report.stopped?.reason, evidence).toBe("waitTimeout");
       expect(report.stopped?.at?.index, evidence).toBe(1);
+      // What the wait's last look found, not the capture before it: the toast
+      // is in the tree, so "never found" would blame the wrong thing.
+      expect(report.steps.at(-1)?.waitSaw, evidence).toBe("notVisible");
+      expect(report.stopped?.detail, evidence).toContain(
+        "found but not visible",
+      );
     },
     TEST_TIMEOUT_MS,
   );
@@ -188,6 +199,112 @@ describe("waitFor on an element that is laid out but cannot be seen", () => {
       );
       const evidence = JSON.stringify({ report, lines });
       expect(report.outcome, evidence).toBe("complete");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // A click target may be transparent on purpose (a file input laid over a
+  // styled button): clicks keep the plain question, only waits ask "seen".
+  it(
+    "still clicks a transparent control, and the wait then sees what it showed",
+    async () => {
+      await plainCheckCallsBothVisible();
+      const probe = await (
+        (await session.ensure()) as {
+          ok: true;
+          launched: { context: BrowserContext };
+        }
+      ).launched.context.newPage();
+      try {
+        await probe.goto(origin);
+        // The fixture's claim: the control really paints at opacity 0.
+        expect(
+          await probe.evaluate(
+            () =>
+              getComputedStyle(document.getElementById("ghost") as Element)
+                .opacity,
+          ),
+        ).toBe("0");
+      } finally {
+        await probe.close();
+      }
+      const report = await runScript(
+        {
+          scriptVersion: 1,
+          name: "a transparent control",
+          target: origin,
+          viewport: { width: 800, height: 600 },
+          steps: [
+            { do: "waitForLoad" },
+            { do: "click", on: { role: "button", name: "Reveal toast" } },
+            { do: "waitFor", on: TOAST, until: "visible" },
+          ],
+        } as never,
+        {
+          session,
+          library: createLibrary(home),
+          kits,
+          log,
+          sessions: [],
+          sessionStore: createSessionStore(home),
+          signinCommand: "npx demoman signin",
+          loadSessions: async () => ({ ok: true as const, files: [] }),
+          sessionsContext: {} as BrowserContext,
+        },
+        () => undefined,
+      );
+      expect(report.outcome, JSON.stringify({ report, lines })).toBe(
+        "complete",
+      );
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "calls a display:none element found-but-not-visible, not absent",
+    async () => {
+      const ok = await session.ensure();
+      if (!ok.ok) throw new Error(JSON.stringify(ok));
+      const probe = await ok.launched.context.newPage();
+      try {
+        await probe.goto(origin);
+        // The fixture's claim: it is in the tree and has no box.
+        expect(
+          await probe.evaluate(() => {
+            const el = document.getElementById("gone") as Element;
+            return [el.isConnected, el.getClientRects().length];
+          }),
+        ).toEqual([true, 0]);
+      } finally {
+        await probe.close();
+      }
+      const report = await runScript(
+        {
+          scriptVersion: 1,
+          name: "a folded note",
+          target: origin,
+          viewport: { width: 800, height: 600 },
+          steps: [
+            { do: "waitForLoad" },
+            { do: "waitFor", on: { text: "Folded note" }, until: "visible" },
+          ],
+        } as never,
+        {
+          session,
+          library: createLibrary(home),
+          kits,
+          log,
+          sessions: [],
+          sessionStore: createSessionStore(home),
+          signinCommand: "npx demoman signin",
+          loadSessions: async () => ({ ok: true as const, files: [] }),
+          sessionsContext: {} as BrowserContext,
+        },
+        () => undefined,
+      );
+      const evidence = JSON.stringify({ report, lines });
+      expect(report.stopped?.reason, evidence).toBe("waitTimeout");
+      expect(report.steps.at(-1)?.waitSaw, evidence).toBe("notVisible");
     },
     TEST_TIMEOUT_MS,
   );

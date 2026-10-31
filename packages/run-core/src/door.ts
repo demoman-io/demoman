@@ -131,7 +131,14 @@ const plural = (n: number, one: string): string =>
 export function checkScript(
   raw: unknown,
   holePaths: readonly string[],
-): { ok: true; script: DemoScript } | { ok: false; refusal: RefusedBeforeRun } {
+):
+  | {
+      ok: true;
+      script: DemoScript;
+      /** The version the script stated, when Demoman raised it to what the script uses. */
+      versionRaisedFrom?: number;
+    }
+  | { ok: false; refusal: RefusedBeforeRun } {
   const refuse = (
     reason: string,
     detail: string,
@@ -177,5 +184,12 @@ export function checkScript(
       "target",
     );
   }
-  return { ok: true, script: parsed.data };
+  const stated = (raw as { scriptVersion?: unknown }).scriptVersion;
+  return {
+    ok: true,
+    script: parsed.data,
+    ...(typeof stated === "number" && stated < parsed.data.scriptVersion
+      ? { versionRaisedFrom: stated }
+      : {}),
+  };
 }

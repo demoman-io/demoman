@@ -492,6 +492,126 @@ describe("runReplay", () => {
     expect(selectAll).toHaveLength(1);
   });
 
+  it("a click at {x:0.25,y:0.5} sends its mouse events at that spot of the box", async () => {
+    const d = deps();
+    // The page sees the click where it is sent: not the default centre.
+    const seen = d.cdp.click;
+    if (seen === "unreadable" || seen === "unplaceable")
+      throw new Error("fake");
+    d.cdp.click = { ...seen, down: { x: 35, y: 40 }, up: { x: 35, y: 40 } };
+    const result = await runReplay(
+      {
+        ...scene(),
+        actions: [
+          {
+            id: "act-1",
+            kind: "click",
+            anchorId: "first-btn",
+            timestamp: 0,
+            marker: "click:first-btn",
+            at: { x: 0.25, y: 0.5 },
+          },
+        ],
+      } as SceneDocument,
+      d,
+    );
+    expect(result.outcome, String(result.reason)).toBe("complete");
+    const presses = d.cdp.calls.filter(
+      (c) =>
+        c.method === "Input.dispatchMouseEvent" &&
+        (c.params.type === "mousePressed" || c.params.type === "mouseReleased"),
+    );
+    // The fixture's border box is x 10, y 20, 100 x 40 (cdp-fake): the
+    // premise the coordinates below are read from.
+    expect(presses).toHaveLength(2);
+    for (const c of presses) {
+      expect([c.params.x, c.params.y], JSON.stringify(c.params)).toEqual([
+        35, 40,
+      ]);
+    }
+  });
+
+  const pressScene = (key: string): SceneDocument =>
+    ({
+      ...scene(),
+      actions: [
+        {
+          id: "act-1",
+          kind: "press",
+          anchorId: null,
+          timestamp: 0,
+          marker: "press:none",
+          key,
+        },
+      ],
+    }) as SceneDocument;
+
+  it("a press-only scene still gets a bundle, with its marker", async () => {
+    const doc = pressScene("Enter");
+    const d = deps({ madeFrom: madeFromOf(doc) });
+    const result = await runReplay(doc, d);
+    expect(result.outcome, String(result.reason)).toBe("complete");
+    // The premise: nothing in it moves the cursor or measures an anchor.
+    expect(result.bundle?.cursorSamples ?? []).toEqual([]);
+    expect(result.bundle?.anchorRects ?? []).toEqual([]);
+    expect(result.bundle?.markers.map((m) => m.actionId)).toEqual(["act-1"]);
+  });
+
+  it("press Tab sends rawKeyDown and keyUp with key Tab, code Tab, code 9 and no text", async () => {
+    const d = deps();
+    const result = await runReplay(pressScene("Tab"), d);
+    expect(result.outcome, String(result.reason)).toBe("complete");
+    const keys = d.cdp.calls.filter(
+      (c) => c.method === "Input.dispatchKeyEvent",
+    );
+    expect(keys.map((c) => c.params.type)).toEqual(["rawKeyDown", "keyUp"]);
+    for (const k of keys) {
+      expect(k.params).toMatchObject({
+        key: "Tab",
+        code: "Tab",
+        windowsVirtualKeyCode: 9,
+      });
+      expect("text" in k.params).toBe(false);
+    }
+  });
+
+  it("press Space carries text ' '", async () => {
+    const d = deps();
+    await runReplay(pressScene("Space"), d);
+    const down = d.cdp.calls.find(
+      (c) =>
+        c.method === "Input.dispatchKeyEvent" && c.params.type === "keyDown",
+    );
+    expect(down?.params).toMatchObject({ code: "Space", text: " " });
+  });
+
+  it("press Enter sends keyDown and keyUp with key Enter and text \\r", async () => {
+    const d = deps();
+    const result = await runReplay(
+      {
+        ...scene(),
+        actions: [
+          {
+            id: "act-1",
+            kind: "press",
+            anchorId: null,
+            timestamp: 0,
+            marker: "press:none",
+            key: "Enter",
+          },
+        ],
+      } as SceneDocument,
+      d,
+    );
+    expect(result.outcome, String(result.reason)).toBe("complete");
+    const keys = d.cdp.calls.filter(
+      (c) => c.method === "Input.dispatchKeyEvent",
+    );
+    expect(keys.map((c) => c.params.type)).toEqual(["keyDown", "keyUp"]);
+    expect(keys[0]?.params).toMatchObject({ key: "Enter", text: "\r" });
+    expect(keys[1]?.params).toMatchObject({ key: "Enter" });
+  });
+
   // The film records while the verb runs, so the text appears on screen as
   // fast as it goes in: one `insertText` of the whole string put it there
   // in a single frame. A key at a time, spaced, is what types it.
@@ -2391,6 +2511,89 @@ describe("continuous recording", () => {
     expect(tail, evidence).toBeGreaterThanOrEqual(2000);
   });
 
+  // Spec 2026-10-30 F: the last zoom's pull-out is clamped to the film's
+  // end, and the film ran a second past the last action, so a take that
+  // zoomed last ended mid-pan. The replay asks the policy when the camera
+  // has settled and runs on until then; the take's length is its last frame.
+  describe("a take's ending, asked of the room policy", () => {
+    /** Settles a distinctive 4321ms after the hold: far past the one-second
+     *  floor, so a tail that reaches it was asked for, not the floor's. */
+    const SETTLE_AFTER = 4321;
+    function endingPolicy(zooms: boolean) {
+      const asked: number[] = [];
+      const room: RoomPolicy = {
+        neededMs: () => 0,
+        zooms: () => zooms,
+        settledAfterMs: (heldUntilMs) => {
+          asked.push(heldUntilMs);
+          return heldUntilMs + SETTLE_AFTER;
+        },
+      };
+      return { room, asked };
+    }
+    const lastFrameAt = (result: { bundle: FrameBundle | null }) =>
+      result.bundle?.keyframes.at(-1)?.sourceTimeMs ?? 0;
+
+    it("a take whose last step zooms runs on until the pull-out has settled", async () => {
+      const { room, asked } = endingPolicy(true);
+      const d = deps({ recording: "continuous", room });
+      drainWithoutTimeout(d);
+      const result = await runReplay(scene(), d);
+      expect(result.outcome, result.reason ?? "").toBe("complete");
+      const { evidence } = lastFrameAfterLastMarker(result);
+      const lastMarker = result.bundle?.markers.at(-1)?.sourceTimeMs ?? 0;
+      // Asked of the last zoom as the camera counts it: its arrival, the
+      // lead-in before its click.
+      expect(asked, evidence).toEqual([lastMarker - 350]);
+      expect(lastFrameAt(result), evidence).toBeGreaterThanOrEqual(
+        lastMarker - 350 + SETTLE_AFTER,
+      );
+    });
+
+    it("a take that never zoomed keeps the one-second tail", async () => {
+      const { room, asked } = endingPolicy(false);
+      const d = deps({ recording: "continuous", room });
+      drainWithoutTimeout(d);
+      const result = await runReplay(scene(), d);
+      expect(result.outcome, result.reason ?? "").toBe("complete");
+      const { tail, evidence } = lastFrameAfterLastMarker(result);
+      expect(asked, evidence).toEqual([]);
+      expect(tail, evidence).toBeGreaterThanOrEqual(1000);
+      expect(tail, evidence).toBeLessThan(SETTLE_AFTER - 350);
+    });
+
+    it("a drag's release pushes the end out too", async () => {
+      const doc = scene();
+      const [a] = doc.actions as [(typeof doc.actions)[number]];
+      const drag = {
+        ...doc,
+        actions: [
+          {
+            ...a,
+            kind: "drag",
+            toAnchorId: null,
+            to: { by: { x: 300, y: 0 } },
+          },
+        ],
+      } as SceneDocument;
+      const { room, asked } = endingPolicy(true);
+      const d = deps({ recording: "continuous", room });
+      drainWithoutTimeout(d);
+      // The drag lets go where it was sent.
+      d.cdp.click = { ...(d.cdp.click as ClickSeen), up: { x: 360, y: 40 } };
+      const result = await runReplay(drag, d);
+      expect(result.outcome, result.reason ?? "").toBe("complete");
+      const { evidence } = lastFrameAfterLastMarker(result);
+      const pressed = result.bundle?.markers.at(-1)?.sourceTimeMs ?? 0;
+      // Held until the release, after the press — not the arrival before it.
+      expect(asked, evidence).toHaveLength(1);
+      expect(asked[0], evidence).toBeGreaterThan(pressed);
+      expect(lastFrameAt(result), evidence).toBeGreaterThanOrEqual(
+        (asked[0] ?? 0) + SETTLE_AFTER,
+      );
+    });
+  });
+
   // Between two markers, not at the end: the closing still lands after the
   // last marker whatever the recorder does, so a settled still asserted
   // there passed with `onSettled` disconnected (final review I4).
@@ -2822,6 +3025,46 @@ describe("review of 2026-10-03: continuous pacing and its pauses", () => {
     const timeline = buildTimeline(planScene(edited), bundle);
     const played = toOutputMs(timeline, to) - toOutputMs(timeline, from);
     expect(played, `source ${to - from} ms`).toBeCloseTo(to - from, 6);
+  });
+
+  // Review 2026-10-31, finding 5: a press skipped the author's rhythm, so a
+  // rebuilt take played it straight after the step before it.
+  it("waits an edited gap out before a press, and lists it", async () => {
+    const doc = recordedApart(5000);
+    const [a, b] = doc.actions as [
+      (typeof doc.actions)[number],
+      (typeof doc.actions)[number],
+    ];
+    const edited = {
+      ...doc,
+      actions: [
+        a,
+        {
+          id: b.id,
+          kind: "press",
+          anchorId: null,
+          timestamp: b.timestamp,
+          marker: "press:none",
+          key: "Tab",
+        },
+      ],
+      edits: {
+        ...doc.edits,
+        gaps: [{ id: "gap-1", afterActionId: a.id, durationMs: 2000 }],
+      },
+    } as SceneDocument;
+    const result = await runReplay(edited, deps({ recording: "continuous" }));
+    expect(result.outcome, String(result.reason)).toBe("complete");
+    const bundle = result.bundle as FrameBundle;
+    // The premise: the second marker is the press's.
+    expect(bundle.markers.map((m) => m.actionId)).toEqual([a.id, b.id]);
+    const [m1, m2] = bundle.markers.map((m) => m.sourceTimeMs);
+    const gap = (m2 ?? 0) - (m1 ?? 0);
+    expect(gap).toBeGreaterThanOrEqual(2000);
+    expect(gap).toBeLessThan(5000);
+    expect(bundle.pacedGaps).toEqual([
+      { afterActionId: a.id, durationMs: 2000 },
+    ]);
   });
 
   it("records no paced gap where the author edited none", async () => {
@@ -3645,6 +3888,7 @@ describe("a drag, asked of the room policy", () => {
     } as SceneDocument;
     const asked: { actionId: string; rect: unknown }[] = [];
     const room: RoomPolicy = {
+      settledAfterMs: (heldUntilMs) => heldUntilMs,
       neededMs: () => 0,
       zooms: ({ actionId, rect }) => {
         asked.push({ actionId, rect });
@@ -3704,6 +3948,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     } as SceneDocument;
     const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
     const room: RoomPolicy = {
+      settledAfterMs: (heldUntilMs) => heldUntilMs,
       neededMs: (gap) => {
         asked.push(gap);
         return 0;
@@ -3753,6 +3998,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     } as SceneDocument;
     const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
     const room: RoomPolicy = {
+      settledAfterMs: (heldUntilMs) => heldUntilMs,
       neededMs: (gap) => {
         asked.push(gap);
         return 0;
@@ -3778,6 +4024,7 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     const doc = scene({ anchorIds: ["a", "b", "c"] });
     const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
     const room: RoomPolicy = {
+      settledAfterMs: (heldUntilMs) => heldUntilMs,
       // Answers as the real policy would for a run this tight: a pan.
       neededMs: (gap) => {
         asked.push(gap);
@@ -3806,5 +4053,41 @@ describe("a run of zoomed clicks, asked of the room policy", () => {
     // lead-in before its click.
     expect(asked[0]?.heldUntilMs).toBe(first.sourceTimeMs - 350);
     expect(asked[1]?.heldUntilMs).toBe(second.sourceTimeMs - 350);
+  });
+
+  // Task 13, 2026-10-31: the executor's "waits nothing when there is already
+  // room" read `roomMs: 1` once in three full runs. The walk counted the
+  // clock's movement across its own bookkeeping as a wait for quiet; on
+  // `Date.now()` a millisecond tick inside that slice made it 1. This fake
+  // clock moves 10 ms on every read, so every read straddles a tick.
+  it("adds no room for a quiet it did not wait for", async () => {
+    const asked: { heldUntilMs: number | null; clickMs: number }[] = [];
+    const room: RoomPolicy = {
+      settledAfterMs: (heldUntilMs) => heldUntilMs,
+      neededMs: (gap) => {
+        asked.push(gap);
+        return 0;
+      },
+      zooms: () => true,
+    };
+    const d = deps({ recording: "continuous", room });
+    const slept: number[] = [];
+    const sleep = d.clock.sleep;
+    d.clock.sleep = (ms) => {
+      slept.push(ms);
+      return sleep(ms);
+    };
+    const result = await runReplay(scene(), d);
+    expect(result.outcome, result.reason ?? "").toBe("complete");
+    const markers = result.bundle?.markers ?? [];
+    const [first, second] = markers;
+    if (!first || !second) throw new Error(JSON.stringify(markers));
+    // Premise: the second click took the zoomed path — its act before was
+    // settled onto the first marker and the room was asked — and no frame
+    // arrived, so the walk's 50 ms wait for quiet never ran.
+    expect(first.actEndSourceTimeMs, JSON.stringify(markers)).toBeDefined();
+    expect(asked).toHaveLength(1);
+    expect(slept, JSON.stringify(slept)).not.toContain(50);
+    expect(second.roomMs, JSON.stringify(markers)).toBeUndefined();
   });
 });

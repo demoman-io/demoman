@@ -634,6 +634,20 @@ export function returnsBetween(
   );
 }
 
+/**
+ * Where the pull-out of a zoom with no zoom after it lands, unless the
+ * author ended it: the zoom's hold after what it holds until, then the
+ * pull-out. Exported because the replay asks it too (spec 2026-10-30 F): a
+ * take runs on until this has landed, so the walk and the camera must
+ * answer alike.
+ */
+export function pullOutLandsAt(
+  heldUntilMs: number,
+  timings: Pick<MotionTimings, "zoomOutMs">,
+): number {
+  return heldUntilMs + CAMERA_DEFAULTS.neutral.zoomHoldMs + timings.zoomOutMs;
+}
+
 function insertNeutralKeys(
   seeds: Seed[],
   outputDurationMs: number,
@@ -684,7 +698,7 @@ function insertNeutralKeys(
       holds,
     );
     const earliestMs = heldUntil + neutral.minPlateauMs + zoomOutMs;
-    const idealMs = heldUntil + neutral.zoomHoldMs + zoomOutMs;
+    const idealMs = pullOutLandsAt(heldUntil, timings);
     const wantedMs = seed.authoredEndMs ?? idealMs;
     // A resolved authored end can be clamped; an authored-but-unplaced one
     // falls back to `idealMs` and was never clamped — nothing was asked for

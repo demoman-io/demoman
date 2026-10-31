@@ -4,10 +4,11 @@ import { fileURLToPath } from "node:url";
 import type { IntentCapture } from "@demoman/replay-engine";
 import type { AnchorIntent } from "@demoman/resolver";
 import type { SnapshotRequest } from "@demoman/run-core";
-import { messageOf, type SnapshotReply } from "@demoman/run-core";
+import { type EndPage, messageOf, type SnapshotReply } from "@demoman/run-core";
 import type { BrowserContext, Page } from "playwright";
 import { bundleEntry } from "../bundle-js.js";
 import { EXECUTOR_ENTRY_GLOBAL } from "../entry-globals.js";
+import { isNavigationRace } from "../page-agent.js";
 import { withinDeadline } from "../page-deadline.js";
 
 // `fileURLToPath`, never `.pathname`: a space in the install path is `%20`
@@ -81,12 +82,41 @@ export function pageSnapshotTargets(
   };
 }
 
+/** The page as text (`endPageHere`), or why it could not be read. */
+export async function pageEndPage(
+  page: Page,
+): Promise<EndPage | { unavailable: string }> {
+  try {
+    return (await withinDeadline(
+      page.evaluate(
+        ([global, noEntry]) => {
+          const e = (globalThis as Record<string, unknown>)[global] as
+            | { endPageHere(): Promise<unknown> }
+            | undefined;
+          if (e === undefined) throw new Error(noEntry);
+          return e.endPageHere();
+        },
+        [EXECUTOR_ENTRY_GLOBAL, NO_ENTRY] as const,
+      ),
+      "reading the end page",
+    )) as EndPage;
+  } catch (error) {
+    return { unavailable: `the page could not be read (${messageOf(error)})` };
+  }
+}
+
 /**
  * `AuthoredDeps.captureResolved`: the sensor's `replayCapture`, as a
  * `page.evaluate`. A throw is `pageFaulted` with the page it happened on and
  * no `intentResolution` (nothing was measured), exactly as the sensor
  * answers; the message goes to the log, which is where the sensor's
  * `console.warn` would have put it.
+ *
+ * Except a context a navigation destroyed: that is `notInTree` on the page
+ * it went to, so a step waiting for its target keeps looking on the new
+ * document, and `pageWentElsewhere` still reads `pageUrl` (final review
+ * 2026-10-30, Important 2). `intentResolution` stays null: nothing was
+ * measured.
  */
 export function pageCapture(
   page: Page,
@@ -109,6 +139,16 @@ export function pageCapture(
       )) as IntentCapture;
     } catch (error) {
       const said = messageOf(error);
+      if (isNavigationRace(error) && !page.isClosed()) {
+        log(`a step's capture met a navigation, looking again — ${said}`);
+        return {
+          anchor: null,
+          failureReason: "notInTree",
+          intentResolution: null,
+          pageUrl: page.url(),
+          credentialField: null,
+        };
+      }
       // A page the init script never reached has no entry to ask: said in
       // those words, not as the `undefined` property read it would be.
       log(

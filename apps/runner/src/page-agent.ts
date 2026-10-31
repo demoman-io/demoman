@@ -144,7 +144,7 @@ type Routed =
 const NAVIGATION_RACE =
   /execution context was destroyed|frame (was |got )?detached|target (page|frame)?,? ?(context )?(was )?closed|navigating and changing the content/i;
 
-function isNavigationRace(error: unknown): boolean {
+export function isNavigationRace(error: unknown): boolean {
   return error instanceof Error && NAVIGATION_RACE.test(error.message);
 }
 

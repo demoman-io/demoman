@@ -15,6 +15,17 @@ describe("checkScript", () => {
     if (checked.ok) expect(checked.script.steps).toHaveLength(1);
   });
 
+  it("checkScript says the version was raised", () => {
+    const checked = checkScript({ ...good, device: "phone" }, []);
+    expect(checked.ok).toBe(true);
+    if (checked.ok) {
+      expect(checked.script.scriptVersion).toBe(4);
+      expect(checked.versionRaisedFrom).toBe(1);
+    }
+    const kept = checkScript(good, []);
+    if (kept.ok) expect(kept.versionRaisedFrom).toBeUndefined();
+  });
+
   it("refuses an array as notAnObject, naming the array", () => {
     const checked = checkScript([good], []);
     expect(checked).toEqual({

@@ -20,6 +20,11 @@ export const ZOOMED_FIXTURE_URL = pathToFileURL(
   join(import.meta.dirname, "..", "fixtures", "clicks-app.html"),
 ).href;
 
+/** A form that submits on Enter, and a pad that records where it was clicked. */
+export const PRESS_FIXTURE_URL = pathToFileURL(
+  join(import.meta.dirname, "..", "fixtures", "press-app.html"),
+).href;
+
 /**
  * What the browser context is created with — and deliberately **not** what
  * the engine emulates.

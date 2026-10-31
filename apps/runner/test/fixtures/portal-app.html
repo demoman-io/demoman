@@ -22,6 +22,8 @@
     <a id="security" href="/security">Security</a>
     <a id="down" href="http://127.0.0.1:1/">Down</a>
     <script>
+      // ?stamp: the page itself writes the key on load, as a snapshot sees it.
+      if (location.search === "?stamp") localStorage.setItem("filter", "stamped");
       document.getElementById("saved").textContent =
         `Saved: ${localStorage.getItem("filter") ?? "none"}`;
       // Mounted on open, as a portal is: the menu is not in the document

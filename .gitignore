@@ -19,6 +19,9 @@ spikes/**/node_modules/
 # `pnpm film:compare`'s films and numbers
 film-compare/
 
+# `pnpm agent:study`'s transcripts, final frames and summaries
+/agent-study/
+
 # Concurrent-session worktrees (see docs/superpowers/specs/2026-08-25-fanout-plan-design.md)
 .worktrees/
 

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Press</title>
+<style>
+  body { margin: 0; padding: 24px; font: 16px system-ui, sans-serif; }
+  #pad { display: block; width: 400px; height: 100px; background: #cde; }
+</style>
+</head>
+<body>
+  <!-- A form that submits only on Enter (no submit button), and a 400x100
+       pad that records where inside itself it was clicked. -->
+  <form id="f"><input id="q" type="text"></form>
+  <p id="done" hidden>submitted</p>
+  <canvas id="pad" width="400" height="100"></canvas>
+  <script>
+    window.__padClicks = [];
+    document.getElementById("f").addEventListener("submit", (e) => {
+      e.preventDefault();
+      document.getElementById("done").hidden = false;
+    });
+    document.getElementById("pad").addEventListener("click", (e) => {
+      window.__padClicks.push({ x: e.offsetX, y: e.offsetY });
+    });
+  </script>
+</body>
+</html>

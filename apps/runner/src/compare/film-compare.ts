@@ -9,7 +9,6 @@
  */
 import {
   copyFileSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -19,13 +18,11 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { createLibrary } from "../executor/library.js";
-import { listenOnLoopback } from "../loopback.js";
 import { messageOf } from "../report.js";
 import {
   type ExportAnswer,
@@ -36,7 +33,7 @@ import {
   type RunAnswer,
   type SnapshotAnswer,
 } from "./facts.js";
-import { connectMcp, type Mcp, staleBuild } from "./harness.js";
+import { connectMcp, type Mcp, serveSample, staleBuilds } from "./harness.js";
 import { createMeasurer, type Measurer } from "./measure.js";
 import {
   judge,
@@ -280,57 +277,15 @@ async function main(): Promise<number> {
       .map((f) => join(SCRIPTS_DIR, f));
 
   // 2. Preconditions.
-  const packages = readdirSync(join(repo, "packages"));
-  for (const [output, sources] of [
-    [MCP_BIN, [join(repo, "apps", "mcp", "src")]],
-    [
-      join(repo, "apps", "runner", "dist", "compare", "film-compare.js"),
-      [join(repo, "apps", "runner", "src")],
-    ],
-  ] as const) {
-    const fresh = staleBuild({ output, sources: [...sources] });
-    if (!fresh.ok) {
-      say(`refused: ${fresh.reason}`);
-      return 1;
-    }
-  }
-  // The CLI sides load the packages' dist through @demoman/runner.
-  for (const p of packages) {
-    const output = join(repo, "packages", p, "dist", "index.js");
-    if (!existsSync(join(repo, "packages", p, "src"))) continue;
-    const fresh = staleBuild({
-      output,
-      sources: [join(repo, "packages", p, "src")],
-    });
-    if (!fresh.ok) {
-      say(`refused: ${fresh.reason}`);
-      return 1;
-    }
+  const stale = staleBuilds(repo, "film-compare.js");
+  if (stale !== null) {
+    say(`refused: ${stale}`);
+    return 1;
   }
 
   // 3. Serve the sample app: its page and nothing else.
-  const sampleHtml = join(
-    repo,
-    "docs",
-    "store-assets",
-    "sample-app",
-    "index.html",
-  );
-  const sampleServer = createServer((req, res) => {
-    if (req.url !== "/index.html") {
-      res.writeHead(404).end();
-      return;
-    }
-    try {
-      res
-        .writeHead(200, { "content-type": "text/html; charset=utf-8" })
-        .end(readFileSync(sampleHtml));
-    } catch (error) {
-      say(`the sample app could not be read (${messageOf(error)})`);
-      res.writeHead(500).end(messageOf(error));
-    }
-  });
-  const sample = (await listenOnLoopback(sampleServer)).replace(/\/$/, "");
+  const sampleServer = serveSample(repo, say);
+  const sample = await sampleServer.origin;
 
   try {
     // 4. Load the scripts; refuse what cannot run before any browser opens.
@@ -572,7 +527,7 @@ async function main(): Promise<number> {
     for (const e of filmed) say(`numbers: ${join(e.out, "numbers.json")}`);
     return allCompared && filmed.length > 0 ? 0 : 1;
   } finally {
-    await new Promise<void>((r) => sampleServer.close(() => r()));
+    await new Promise<void>((r) => sampleServer.server.close(() => r()));
   }
 }
 

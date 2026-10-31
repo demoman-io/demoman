@@ -22,18 +22,13 @@ describe("a script's account", () => {
     expect(parsed.data?.account).toBe("seller");
   });
 
-  it("is refused below version 5, naming scriptVersion", () => {
+  it("raises a version below 5 to 5", () => {
     const parsed = DemoScriptSchema.safeParse({
       ...base,
       scriptVersion: 4,
       account: "seller",
     });
-    expect(parsed.success).toBe(false);
-    const issue = parsed.error?.issues.find(
-      (i) => i.path.join(".") === "scriptVersion",
-    );
-    expect(issue?.message).toContain("scriptVersion 5");
-    expect(issue?.message).toContain("account");
+    expect(parsed.data?.scriptVersion).toBe(5);
   });
 
   it("refuses a name that cannot be a file name", () => {

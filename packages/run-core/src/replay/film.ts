@@ -80,6 +80,10 @@ export type FilmReport =
       steps: FilmStep[];
       journeys: Journey[];
       noCursor: boolean;
+      /** Whether the film ends on a frame the camera has come to rest on
+       *  (spec 2026-10-30 F3): false when its last move has not arrived
+       *  before the last frame, the pull-out the end cut off. */
+      finalFrame: { settled: boolean };
     };
 
 /** A target nearer an edge than this is `atEdge`: the cursor arrow and a
@@ -504,6 +508,13 @@ export function filmQuality(
     steps,
     journeys,
     noCursor: bundle.cursorSamples.length === 0,
+    // `insertNeutralKeys` clamps the last pull-out onto the film's end, so
+    // a move the end cut off arrives at it, never after.
+    finalFrame: {
+      settled:
+        (resolved.cameraKeys.at(-1)?.outputTimeMs ?? 0) <
+        resolved.timeline.outputDurationMs,
+    },
   };
 }
 

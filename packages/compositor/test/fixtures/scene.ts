@@ -58,7 +58,7 @@ function baseMeta(id: string, mode: "record" | "retro"): SceneDocument["meta"] {
 
 export function readonlyScene(): SceneDocument {
   return {
-    schemaVersion: 13,
+    schemaVersion: 14,
     meta: baseMeta("scene-readonly-001", "record"),
     anchors: [
       anchor("a-search", null, { x: 40, y: 24, width: 320, height: 36 }, 0),

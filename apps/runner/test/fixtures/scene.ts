@@ -13,7 +13,7 @@ export function scene(
   writeUrls: string[] = [],
 ): SceneDocument {
   return {
-    schemaVersion: 13,
+    schemaVersion: 14,
     meta: {
       id: "s1",
       name: "s",

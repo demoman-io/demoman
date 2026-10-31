@@ -721,3 +721,66 @@ describe("filmQuality: a quick run of clicks, the camera trailing", () => {
     ).toBeLessThan(2);
   });
 });
+
+// Spec 2026-10-30 F3: the run report says whether the film's last frame is
+// one the camera has come to rest on. The last pull-out is clamped to the
+// film's end (`insertNeutralKeys`), so a film that stops short of it ends
+// mid-move.
+describe("filmQuality: the final frame", () => {
+  it("finalFrame is unsettled when the camera is still moving at the end", () => {
+    const take = {
+      ...takeOf(["click"]),
+      camera: [
+        {
+          id: "cam-1",
+          kind: "zoom",
+          anchorId: "a1",
+          marker: { actionId: "act-1", offsetMs: -350 },
+          scale: 2,
+        },
+      ],
+    } as SceneDocument;
+    const endingAt = (endMs: number) =>
+      framesOf({
+        markers: [{ actionId: "act-1", sourceTimeMs: 1000 }],
+        anchorRects: [
+          { actionId: "act-1", anchorId: "a1", rect: rect(600, 380) },
+        ],
+        keyframes: [0, endMs].map((sourceTimeMs, i) => ({
+          sourceTimeMs,
+          ref: `k-${i}`,
+          width: 3840,
+          height: 2400,
+          actionId: null,
+          byteLength: 0,
+        })),
+      });
+    const short = endingAt(2000);
+    const long = endingAt(4000);
+    // The premises: the pull-out wants 1000 - 350 + 1200 + 925 = 2775ms, so
+    // the short film's last key is clamped onto its end and the long one's
+    // lands before it.
+    const lastKey = (bundle: ReturnType<typeof framesOf>) => {
+      const resolved = resolvePlan(planScene(take), bundle, take);
+      return {
+        atMs: resolved.cameraKeys.at(-1)?.outputTimeMs,
+        scale: resolved.cameraKeys.at(-1)?.scale,
+        endMs: resolved.timeline.outputDurationMs,
+      };
+    };
+    expect(lastKey(short)).toEqual({ atMs: 2000, scale: 1, endMs: 2000 });
+    expect(lastKey(long)).toEqual({ atMs: 2775, scale: 1, endMs: 4000 });
+
+    const settled = (bundle: ReturnType<typeof framesOf>) => {
+      const film = filmQuality(take, bundle);
+      if ("unavailable" in film) throw new Error(film.unavailable);
+      return film.finalFrame;
+    };
+    expect(settled(short)).toEqual({ settled: false });
+    expect(settled(long)).toEqual({ settled: true });
+    // A film with no zoom has no camera move to end on.
+    const bare = filmQuality(takeOf(["click"]), short);
+    if ("unavailable" in bare) throw new Error(bare.unavailable);
+    expect(bare.finalFrame).toEqual({ settled: true });
+  });
+});

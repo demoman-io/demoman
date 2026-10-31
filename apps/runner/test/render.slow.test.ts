@@ -1,5 +1,7 @@
-// Slow tier: renders seven mp4s in software through renderPhase. `pnpm test:fast` skips it; `pnpm test` and CI run it.
+// Slow tier: renders seven mp4s in software through renderPhase, and runs and exports one agent take. `pnpm test:fast` skips it; `pnpm test` and CI run it.
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,7 +12,7 @@ import {
   pickLandscapeTarget,
   VERTICAL_1080,
 } from "@demoman/compositor";
-import { frameOf, targetFor } from "@demoman/run-core";
+import { type ExportAnswer, frameOf, targetFor } from "@demoman/run-core";
 import {
   NEUTRAL_BACKGROUND,
   type SceneAspect,
@@ -23,6 +25,7 @@ import { readonlyScene } from "../../../packages/compositor/test/fixtures/scene.
 import { bundleEntry } from "../src/bundle-js.js";
 import type { Rgb } from "../src/decode-probe-entry.js";
 import { RENDER_PROBE_GLOBAL } from "../src/entry-globals.js";
+import { createLocalExecutor } from "../src/executor/executor.js";
 import { createFileFrameStore, type RunnerStore } from "../src/frame-store.js";
 import { launch } from "../src/launch.js";
 import { listenOnLoopback } from "../src/loopback.js";
@@ -31,9 +34,14 @@ import {
   renderPhase,
   renderToFiles,
 } from "../src/render.js";
-import { WALLPAPERS_DIR } from "./fixture.js";
+import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 import { FIXTURE_HEIGHT, FIXTURE_WIDTH, jpeg } from "./fixtures/jpeg.js";
-import { sampleImage, sampleMp4 } from "./mp4-probe.js";
+import {
+  mp4FrameTimes,
+  readMp4Crops,
+  sampleImage,
+  sampleMp4,
+} from "./mp4-probe.js";
 import { keyframeOnlyBundle } from "./render-small.js";
 
 // The decode probe (mediabunny's demux side) lives in its own bundle, never
@@ -719,4 +727,141 @@ describe("renderToFiles", () => {
     },
     RENDER_TIMEOUT_MS,
   );
+});
+
+/**
+ * Spec 2026-10-30 F: Haiku's Excalidraw take ended mid-pan, blurred. The
+ * last zoom's pull-out is clamped to the film's end, and the film ran a
+ * second past the last click, so it stopped part-way out. A button small
+ * enough to zoom to, on a page striped edge to edge so any camera move
+ * changes most of the picture; widths and positions explicit, so no glyph
+ * advance moves a rect (CLAUDE.md, "The runner's fonts are not your fonts").
+ */
+const ENDING_APP = `<!doctype html><meta charset=utf-8><title>Ending</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { background: repeating-linear-gradient(45deg,
+    #ffffff 0 24px, #9aa8c4 24px 48px); }
+  button { position: absolute; left: 580px; top: 380px; width: 120px;
+    height: 48px; border: 0; padding: 0; background: #1e40af; color: #fff;
+    font: 16px sans-serif; }
+</style>
+<button>Go</button>`;
+
+/** Each consecutive pair's share of pixels whose grey level moved by more
+ *  than `ENDING_LEVELS` — the encoder's grain stays under it. */
+const ENDING_LEVELS = 12;
+function changedShares(greys: string[]): number[] {
+  const frames = greys.map((g) => Buffer.from(g, "base64"));
+  return frames.slice(1).map((b, i) => {
+    const a = frames[i] as Buffer;
+    let moved = 0;
+    for (let k = 0; k < b.length; k++) {
+      if (Math.abs((b[k] as number) - (a[k] as number)) > ENDING_LEVELS)
+        moved++;
+    }
+    return moved / b.length;
+  });
+}
+
+describe("an agent take that ends on a click", () => {
+  // A run of one click and a default export, through the CLI executor as an
+  // agent's take is made. Measured locally at ~20 s; x5 for CI.
+  it("the last 200 ms of an agent take that ends on a click are still", async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(ENDING_APP);
+    });
+    const url = await listenOnLoopback(server);
+    const home = mkdtempSync(join(tmpdir(), "demoman-ending-"));
+    const executor = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
+      home,
+      headless: true,
+      outDir: join(home, "out"),
+      log: () => undefined,
+    });
+    onTestFinished(async () => {
+      await executor.close();
+      server.close();
+      rmSync(home, { recursive: true, force: true });
+    });
+    const run = await executor.request("run", {
+      video: ownVideo(),
+      callId: "make-ending-take",
+      script: {
+        scriptVersion: 1,
+        name: "Ending",
+        target: url,
+        viewport: { width: 1280, height: 800 },
+        steps: [{ do: "waitForLoad" }, { do: "click", on: { text: "Go" } }],
+      },
+    });
+    const report = run.ok
+      ? (run.value as {
+          provenance?: { takeId?: unknown };
+          video?: {
+            steps?: { kind: string; outputMs: number | null }[];
+            finalFrame?: { settled: boolean };
+          };
+        })
+      : null;
+    const takeId = report?.provenance?.takeId;
+    const clickMs = report?.video?.steps?.find(
+      (s) => s.kind === "click",
+    )?.outputMs;
+    if (typeof takeId !== "string" || typeof clickMs !== "number") {
+      throw new Error(`the ending take was not made: ${JSON.stringify(run)}`);
+    }
+    const out = await executor.request("export", {
+      takeId,
+      callId: "e-ending",
+    });
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    const answer = out.value as ExportAnswer;
+    if (answer.outcome !== "saved" || answer.fileType === "stills") {
+      throw new Error(JSON.stringify(answer));
+    }
+    const bytes = await readFile(answer.file.path);
+    const { timesSec } = await mp4FrameTimes(bytes);
+    const endSec = timesSec.at(-1) ?? 0;
+    const between = (fromSec: number, toSec: number) =>
+      timesSec.filter((t) => t >= fromSec && t <= toSec);
+    const last = between(endSec - 0.2, endSec);
+    // The positive control: a second after the click the camera is on its
+    // way back out of the zoom (held 1.2 s from its arrival 350 ms before
+    // the click), and the picture moves.
+    const moving = between(clickMs / 1000 + 1, clickMs / 1000 + 1.2);
+    const evidence = JSON.stringify({ clickMs, endSec, last, moving });
+    // The premises: each window holds a run of decoded frames, and the
+    // film runs past the moving one.
+    expect(last.length, evidence).toBeGreaterThanOrEqual(5);
+    expect(moving.length, evidence).toBeGreaterThanOrEqual(5);
+    expect(endSec, evidence).toBeGreaterThan(clickMs / 1000 + 1.2);
+
+    const read = async (atSecs: number[]) => {
+      const crops = await readMp4Crops(
+        bytes,
+        atSecs,
+        [0, 0, 1, 1],
+        { width: 320, height: 180 },
+        true,
+      );
+      // Each a frame of its own, not one decoded twice.
+      expect(
+        new Set(crops.map((c) => c.frameSec)).size,
+        JSON.stringify(crops.map((c) => c.frameSec)),
+      ).toBe(atSecs.length);
+      return changedShares(crops.map((c) => c.grey as string));
+    };
+    const moved = await read(moving);
+    const settled = await read(last);
+    const said = JSON.stringify({ ...JSON.parse(evidence), moved, settled });
+    expect(Math.min(...moved), said).toBeGreaterThan(0.01);
+    expect(Math.max(...settled), said).toBeLessThan(0.01);
+    // And the run's report says so.
+    expect(report?.video?.finalFrame, JSON.stringify(report?.video)).toEqual({
+      settled: true,
+    });
+  }, 300_000);
 });

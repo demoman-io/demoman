@@ -15,6 +15,7 @@ import {
   reasonSentence,
   replayOutcome,
   TYPE_FIELD_UNFOCUSED,
+  type WaitSaw,
 } from "@demoman/replay-engine";
 import type {
   DemoScript,
@@ -23,6 +24,7 @@ import type {
 } from "@demoman/scene-schema";
 import type { RunLook } from "../brand-kit.js";
 import type { RefilmInfo } from "../refilm/merge.js";
+import type { EndPage } from "../snapshot-walk.js";
 import type { RecordingReport } from "./fidelity.js";
 import type { FilmReport } from "./film.js";
 import { frozenRoutes, type NoticeRoute } from "./routes.js";
@@ -53,6 +55,8 @@ export type ScriptRef =
   | {
       name: string;
       scriptVersion: DemoScript["scriptVersion"];
+      /** Set when the script stated a lower version than it needs and Demoman raised it. */
+      versionRaisedFrom?: number;
       steps: number;
     }
   | { takeId: string };
@@ -92,6 +96,16 @@ export interface StepReport {
    *  credential, or the page could not say. `intent.text` then reads
    *  HIDDEN_TEXT. */
   textHidden?: "credentialField" | "credentialUnchecked";
+  /** A `waitFor` that timed out: what its last look found. */
+  waitSaw?: WaitSaw;
+  /** A `type` whose text is kept: what the field held afterwards, and
+   *  whether it holds the typed text. Never present with `textHidden`. */
+  fieldHolds?: { value: string; holds: boolean };
+  /** A `type` whose field could not be read back: why. Not a divergence. */
+  fieldRead?: { unavailable: string };
+  /** A `waitForLoad` that was met: false when no load started since the
+   *  previous step began — a note, not a divergence. */
+  loadSeen?: boolean;
 }
 
 /** Which executor ran the script: the browser extension, or the CLI's own
@@ -105,6 +119,9 @@ export type Executor = "extension" | "cli";
 export type FilmedCode =
   | { commit: string | null; tree: string; dirty: boolean }
   | { none: string };
+
+/** A run's or probe's last picture on disk, or why there is none. */
+export type FinalStill = { path: string } | { unavailable: string };
 
 export interface RunReport {
   run: {
@@ -213,6 +230,13 @@ export interface RunReport {
   account?: string;
   /** Present when Demoman signed in as the account for this run. */
   signedIn?: { account: string; steps: number; ms: number };
+  /** The film's last frame as export frames it, a PNG beside the take, or
+   *  why there is none (spec 2026-10-30 A1). A path, never the bytes: the
+   *  MCP tool attaches the image. Absent on a report written before it. */
+  still?: FinalStill;
+  /** The page the run ended on, as text, or why it could not be read
+   *  (spec 2026-10-30 A2). Absent on a report written before it. */
+  endPage?: EndPage | { unavailable: string };
   steps: StepReport[];
   provenance: {
     takeId: string | null;
@@ -347,6 +371,10 @@ function toStepReport(step: AuthoredStep): StepReport {
     marker: step.marker,
     pageUrl: step.pageUrl,
     ...(hidden === null ? {} : { textHidden: hidden }),
+    ...(step.waitSaw === undefined ? {} : { waitSaw: step.waitSaw }),
+    ...(step.fieldHolds === undefined ? {} : { fieldHolds: step.fieldHolds }),
+    ...(step.fieldRead === undefined ? {} : { fieldRead: step.fieldRead }),
+    ...(step.loadSeen === undefined ? {} : { loadSeen: step.loadSeen }),
   };
 }
 
@@ -360,6 +388,7 @@ function toStepReport(step: AuthoredStep): StepReport {
  */
 function scriptStepLabel(step: AuthoredStep["step"]): string {
   const target = "into" in step ? step.into : "on" in step ? step.on : null;
+  if (step.do === "press") return `press ${step.key}`;
   if (target === null) return step.do;
   // Every member, then `never`: this chain used to end in a bare return that
   // printed a `treePath` target as `text "undefined"`.
@@ -857,7 +886,15 @@ function runVerdictLine(report: RunReport): string {
     return `Complete: the video matches every step ${asked}.`;
   }
   const n = report.verdict.diverged.length;
-  return `Complete: ${n} step${n === 1 ? "" : "s"} the video does not show the way ${asked} it.`;
+  const unheld = report.verdict.diverged
+    .filter((d) => d.kind === "fieldDoesNotHold")
+    .map((d) => {
+      const index = report.steps.find((s) => s.actionId === d.actionId)?.index;
+      const which = index === undefined ? "a step" : `step ${index + 1}`;
+      return `${which} typed ${JSON.stringify(d.wanted)} and the field holds ${JSON.stringify(d.value)} (fieldDoesNotHold)`;
+    });
+  const fields = unheld.length === 0 ? "" : ` ${unheld.join("; ")}.`;
+  return `Complete: ${n} step${n === 1 ? "" : "s"} the video does not show the way ${asked} it.${fields}`;
 }
 
 /** Why a run carrying a stop reason stopped: what the host saw where it said,

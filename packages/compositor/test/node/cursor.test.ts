@@ -64,6 +64,28 @@ describe("planCursorSegments", () => {
     expect(segments.map((s) => s.toActionId)).toEqual(["act-1", "act-3"]);
   });
 
+  it("the cursor travels to a click's spot, not the centre", () => {
+    const click = scene.actions.find((a) => a.kind === "click");
+    if (click === undefined || click.kind !== "click")
+      throw new Error("no click");
+    const box = rectOf(scene)(click.anchorId);
+    expect(box).not.toBeNull();
+    const at = { x: 0.25, y: 0.5 };
+    // The premise: the spot is not the centre of this box.
+    expect(rectCenter(box as never).x).not.toBe(
+      (box?.x ?? 0) + at.x * (box?.width ?? 0),
+    );
+    const spotted = {
+      ...scene,
+      actions: scene.actions.map((a) => (a === click ? { ...click, at } : a)),
+    };
+    const segments = planCursorSegments(spotted, rectOf(scene));
+    expect(segments.at(-1)?.to).toEqual({
+      x: (box?.x ?? 0) + at.x * (box?.width ?? 0),
+      y: (box?.y ?? 0) + at.y * (box?.height ?? 0),
+    });
+  });
+
   it("starts the first segment from nowhere in particular", () => {
     const [first] = planCursorSegments(scene, rectOf(scene));
     expect(first?.fromActionId).toBeNull();

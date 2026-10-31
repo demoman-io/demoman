@@ -85,12 +85,12 @@ import { type SeenFrame, standInFrame } from "./frame-change.js";
 import {
   type CdpFrameNode,
   hopsFromTreePath,
-  rectCentre,
   rectFromQuad,
   resolveCdpFrameId,
 } from "./geometry.js";
 import { decodeBase64, jpegSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
+import { pressKey } from "./keys.js";
 import { createMotionRecorder } from "./motion-recorder.js";
 import type { OcclusionGuard } from "./occlusion.js";
 import { pathPointAt, retargetSegment } from "./path.js";
@@ -117,6 +117,7 @@ import type {
   ResolveReport,
   TargetHandle,
 } from "./types.js";
+import { seenNow } from "./visibility.js";
 
 /**
  * One step of the walk, with everything that differs between replaying a
@@ -176,6 +177,28 @@ export interface WalkStep {
    */
   onConditionMet?(): Promise<ReplayStopReason | null>;
   /**
+   * A wait that timed out says what its LAST look at the page found: no such
+   * element, or one the page has but nobody could see. Asked once, before the
+   * walk stops with `waitTimeout`, so the source need not guess from a capture
+   * taken before the wait.
+   */
+  onWaitTimedOut?(saw: WaitSaw): void;
+  /**
+   * A navigation wait (`waitForLoad`) that was met says whether the top frame
+   * started a load since the previous step began: false means the page never
+   * navigated and the wait passed on a document that was already complete.
+   */
+  onLoadSeen?(seen: boolean): void;
+  /**
+   * Given only for a `type` into a field whose value may be kept. Called after
+   * the keys went in with what the field now holds and whether that holds the
+   * typed text (letters and digits, case-folded, contained). A field the page
+   * reformats ("4,800") holds; one it empties does not.
+   */
+  onFieldRead?(
+    read: { value: string; holds: boolean } | { unavailable: string },
+  ): void;
+  /**
    * A re-shoot's recorded interval from the previous step's marker to this
    * one's, in ms — `to.timestamp - from.timestamp`, the number `planScene`
    * uses for a recorded pace. In continuous recording the walk waits it out
@@ -216,6 +239,86 @@ interface DragPlan {
   end: { x: number; y: number };
   endRect: Rect;
 }
+
+/** What a timed-out wait's last look found: nothing matched, an element
+ *  nobody could see, several that tied, or a page that never answered or
+ *  threw. */
+export type WaitSaw =
+  | "absent"
+  | "notVisible"
+  | "ambiguous"
+  | "pageSilent"
+  | "pageFaulted";
+
+/** The resolver's last word as a `WaitSaw`; undefined where it is about
+ *  reaching a frame or a shadow root, which the generic stop says better. */
+const waitSawOf = (found: ResolveReport): WaitSaw | undefined => {
+  if (found.resolved) return "notVisible";
+  switch (found.failureReason) {
+    case null:
+    case "notInTree":
+    case "patchUnavailable":
+      return "absent";
+    case "ambiguousTie":
+      return "ambiguous";
+    case "pageSilent":
+    case "pageFaulted":
+      return found.failureReason;
+    default:
+      return undefined;
+  }
+};
+
+/** What a typed-into field shows now: an input or textarea's `value`, a
+ *  contenteditable host's `textContent`. Null when focus is no longer in the
+ *  target: a code box that hands focus to the next one, a field that moves
+ *  on when full. The keys went elsewhere, so the target says nothing. */
+const FIELD_READ = `function () {
+  // The focused element, through shadow roots: a type aimed at a label or a
+  // wrapper lands in the field inside it (or the label's control).
+  let active = document.activeElement;
+  while (active && active.shadowRoot && active.shadowRoot.activeElement) {
+    active = active.shadowRoot.activeElement;
+  }
+  let inside = false;
+  for (let n = active; n && !inside; n = n.parentNode || n.host) {
+    inside = n === this;
+  }
+  if (!inside && !(this.control && active === this.control)) return null;
+  return "value" in active && typeof active.value === "string"
+    ? active.value
+    : active.textContent ?? "";
+}`;
+
+/** The longest value a report keeps of a field, so a contenteditable's whole
+ *  document does not reach the report or the verdict line. */
+const FIELD_VALUE_MAX = 120;
+
+/** Letters and digits only, case-folded: what "the field holds the text"
+ *  compares, so a page's commas, spaces and capitals are not a failure. */
+const fieldKey = (s: string): string =>
+  s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+
+/** A field's text as a number, once currency symbols, thousands commas and
+ *  spaces are gone; null when what is left is not one. So "4800.00" typed
+ *  holds in a field showing "$4,800" (final review 2026-10-30). */
+const fieldNumber = (s: string): number | null => {
+  const bare = s.replace(/[\p{Sc}\s,]/gu, "");
+  return /^[+-]?(\d+\.?\d*|\.\d+)$/.test(bare) ? Number(bare) : null;
+};
+
+/** Whether a field showing `value` holds the `typed` text. Text with no
+ *  letters or digits has no key to compare, so it is compared raw: nothing
+ *  typed holds only in an empty field, punctuation where the field shows it. */
+const fieldHolds = (value: string, typed: string): boolean => {
+  if (fieldKey(typed) === "") {
+    const raw = typed.trim();
+    return raw === "" ? value.trim() === "" : value.includes(raw);
+  }
+  if (fieldKey(value).includes(fieldKey(typed))) return true;
+  const shown = fieldNumber(value);
+  return shown !== null && shown === fieldNumber(typed);
+};
 
 /** What a native `<input type="range">` says about its thumb; null for
  *  anything else. */
@@ -293,6 +396,13 @@ export interface RoomPolicy {
     unwaitedMs: number;
     scale: number;
   }): boolean;
+  /**
+   * Source ms by which the camera has pulled out of the take's last zoom and
+   * held still (spec 2026-10-30 F): its hold, its pull-out at the take's
+   * smoothness, and a settle. `heldUntilMs` as for `neededMs`. The take runs
+   * on until then, so the decision is recorded in its frames.
+   */
+  settledAfterMs(heldUntilMs: number): number;
 }
 
 export interface EngineDeps {
@@ -645,6 +755,11 @@ export async function runWalk(
   let topFrameId: string | null = null;
   let topLoading = false;
   let navigationsSeen = 0;
+  // `navigationsSeen` as it stood when the previous step began (for step 0,
+  // before the start navigation): a `waitForLoad` saw a load when the count
+  // has moved since.
+  let navsAtPreviousStep = 0;
+  let navsAtThisStep = 0;
   const isTop = (params: Record<string, unknown>): boolean =>
     topFrameId === null || params.frameId === topFrameId;
   const offNavigated = cdp.on("Page.frameNavigated", (params) => {
@@ -1052,7 +1167,7 @@ export async function runWalk(
             objectId,
             functionDeclaration:
               ask === "seen"
-                ? "function(){return this.checkVisibility({opacityProperty: true, visibilityProperty: true})}"
+                ? `function(){return (${seenNow.toString()})(this)}`
                 : "function(){return this.checkVisibility()}",
             returnByValue: true,
           })
@@ -1787,6 +1902,7 @@ export async function runWalk(
   // reason, listeners still attached and a screencast still running. So the
   // throw becomes a *reported* stop, and teardown happens either way.
   let failureNote: string | null = null;
+  let pressMarked = false;
   // The step that was marked and then did not happen loses its marker and
   // anchor rect, and its keyframe stays as a picture of the page but no
   // longer claims the step (a tagged frame is what a marker's still is found
@@ -1810,17 +1926,25 @@ export async function runWalk(
   /**
    * Before a click that waits: let the pending act finish painting, within
    * `ACT_CEILING_MS` of its verb, then settle it. Answers the time spent,
-   * which is room the replay added.
+   * which is room the replay added — 0 when it never slept, not the clock's
+   * movement across this bookkeeping: on `Date.now()` a millisecond tick
+   * there read as 1 ms of room before a click that had plenty (task 13,
+   * 2026-10-31). Whether it waited is whether it slept, and any wait is at
+   * least one 50 ms sleep, so the answer cannot jitter across 0.
    */
   const quietThenFinalize = async (): Promise<number> => {
     const from = at();
     const act = pendingAct;
+    let slept = false;
     if (act !== null) {
       const ceiling = act.verbEndMs + ACT_CEILING_MS;
-      while (recorder.isOpen() && at() < ceiling) await clock.sleep(50);
+      while (recorder.isOpen() && at() < ceiling) {
+        slept = true;
+        await clock.sleep(50);
+      }
     }
     finalizeAct();
-    return at() - from;
+    return slept ? at() - from : 0;
   };
   /**
    * Settle the pending act onto its marker: the verb's end, or the last
@@ -1940,6 +2064,9 @@ export async function runWalk(
     // so this is the first moment there is a page to wait for — and the
     // opening keyframe is the very next thing, which is what made a
     // half-drawn page the frame the video opens on.
+    // The start navigation is the load a step-0 `waitForLoad` waits for, so
+    // the count that step compares against is taken before it.
+    const navsBeforeStart = navigationsSeen;
     await deps.occlusion?.install();
     const unsettled = await settlePaint();
     if (unsettled !== null) degradations.push(unsettled);
@@ -1956,8 +2083,11 @@ export async function runWalk(
       filming = true;
     }
 
+    navsAtThisStep = navsBeforeStart;
     // --- the loop ----------------------------------------------------------
     for await (const step of signedOut === null ? source.steps() : NO_STEPS) {
+      navsAtPreviousStep = navsAtThisStep;
+      navsAtThisStep = navigationsSeen;
       // Unhurried beats: any step but a click begins at once, and the act
       // it follows ends where the page has got to. A click settles it once
       // it knows whether it will wait (below).
@@ -2009,8 +2139,30 @@ export async function runWalk(
 
       if (step.action.kind === "waitFor") {
         if (!(await awaitCondition(step.action, step.target))) {
+          // Only a wait for something to show can have found it unseen. The
+          // resolver's word decides (`waitSawOf`): an element it found with no box
+          // (display:none, a closed <details>) is there but not visible. The
+          // look is a courtesy to the report, so a page that fails it leaves
+          // `waitSaw` unset and the stop stays `waitTimeout`.
+          if (
+            step.action.anchorId !== null &&
+            step.action.condition !== "hidden" &&
+            step.target !== null
+          ) {
+            try {
+              const [found] = await page.resolve([step.target]);
+              const saw = found === undefined ? undefined : waitSawOf(found);
+              if (saw !== undefined) step.onWaitTimedOut?.(saw);
+            } catch {
+              // Said by absence: no `waitSaw`, so the stop keeps its generic
+              // `waitTimeout` sentence rather than claim what was not seen.
+            }
+          }
           reason = "waitTimeout";
           break;
+        }
+        if (step.action.anchorId === null) {
+          step.onLoadSeen?.(navigationsSeen > navsAtPreviousStep);
         }
         // The instant the condition was met, which is what the marker names —
         // taken before the source's veto, whose own round trip is not part of
@@ -2063,6 +2215,67 @@ export async function runWalk(
         if (room !== undefined) {
           pendingAct = { marker: waitMarker, verbEndMs: metAt };
         }
+        continue;
+      }
+
+      /** When the author's rhythm puts this step's marker (see below), or
+       *  null where the rhythm does not pace it. */
+      const rhythmDue = (): number | null => {
+        const lastMarkerAt = markers.at(-1)?.sourceTimeMs;
+        return continuous &&
+          step.recordedIntervalMs !== undefined &&
+          lastMarkerAt !== undefined
+          ? lastMarkerAt + step.recordedIntervalMs + pausedSince(lastMarkerAt)
+          : null;
+      };
+      /** The author's rhythm, live, just before a filmed step's marker: a
+       *  backwards or repeated timestamp gives a due time already past, and
+       *  nothing waits. Measured in the film's time, not the walk's: a
+       *  recovered pause since the last marker is removed from a real-time
+       *  film, so it is added back here — or the author's 3 s between two
+       *  steps plays as 1 s after a 2 s pause (review of 2026-10-03). */
+      const keepRhythm = async (): Promise<void> => {
+        const due = rhythmDue();
+        if (due === null) return;
+        const wait = due - at();
+        if (wait > 0) await clock.sleep(wait);
+        // Listed whether or not anything was left to wait: either way this
+        // pair's spacing is the engine's doing, already in source time.
+        if (step.pacedGap !== undefined) pacedGaps.push(step.pacedGap);
+      };
+
+      if (step.action.kind === "press") {
+        // No element: the key goes to whatever holds focus, where the cursor
+        // rests. Marked, pictured and counted like any verb.
+        const keyAction = step.action;
+        await keepRhythm();
+        pressMarked = true;
+        inFlight = keyAction.id;
+        const marker: FrameBundle["markers"][number] = {
+          actionId: keyAction.id,
+          sourceTimeMs: at(),
+        };
+        markers.push(marker);
+        await stepStill(keyAction.id);
+        if (!continuous) recorder.open();
+        await gate.section(() => pressKey(cdp, keyAction.key));
+        if (!continuous) {
+          await recorder.close();
+          await shot(null);
+        }
+        stillOwed = true;
+        verbs++;
+        if (room !== undefined) pendingAct = { marker, verbEndMs: at() };
+        completed++;
+        lastCompletedActionId = keyAction.id;
+        inFlight = null;
+        deps.onProgress?.({
+          step: completed,
+          total,
+          keyframes: keyframes.length,
+          state: "running",
+          note: null,
+        });
         continue;
       }
 
@@ -2160,16 +2373,9 @@ export async function runWalk(
       }
 
       const segment = step.segment;
-      /** When the author's rhythm puts this step's marker (see below), or
-       *  null where the rhythm does not pace it. */
-      const rhythmDue = (): number | null => {
-        const lastMarkerAt = markers.at(-1)?.sourceTimeMs;
-        return continuous &&
-          step.recordedIntervalMs !== undefined &&
-          lastMarkerAt !== undefined
-          ? lastMarkerAt + step.recordedIntervalMs + pausedSince(lastMarkerAt)
-          : null;
-      };
+      /** Where this step's verb lands in the box: a click's spot, else the centre. */
+      const clickPoint = (rect: Rect): { x: number; y: number } =>
+        spotIn(rect, step.action.kind === "click" ? step.action.at : undefined);
       // Unhurried beats, the second wait: before a click the camera will
       // zoom to, rest until the camera has room to set off after the last
       // act has settled. The cursor's journey and SETTLE_MS still to come
@@ -2195,7 +2401,7 @@ export async function runWalk(
             : retargetSegment(
                 segment,
                 cursor,
-                dragPlan?.start ?? rectCentre(handle.rect),
+                dragPlan?.start ?? clickPoint(handle.rect),
               ).durationMs) + SETTLE_MS;
         const zooms = room.zooms({
           actionId: step.action.id,
@@ -2241,7 +2447,7 @@ export async function runWalk(
       const pathFrom = at();
       if (segment !== undefined) {
         await gate.section(() =>
-          dispatchPath(segment, dragPlan?.start ?? rectCentre(handle.rect)),
+          dispatchPath(segment, dragPlan?.start ?? clickPoint(handle.rect)),
         );
       }
 
@@ -2256,20 +2462,7 @@ export async function runWalk(
         moveToWindows.push({ startMs: pathFrom, endMs: at() });
       }
 
-      // The author's rhythm, live: a backwards or repeated timestamp gives a
-      // due time already past, and nothing waits. Measured in the film's
-      // time, not the walk's: a recovered pause since the last marker is
-      // removed from a real-time film, so it is added back here — or the
-      // author's 3 s between two steps plays as 1 s after a 2 s pause
-      // (review of 2026-10-03).
-      const due = rhythmDue();
-      if (due !== null) {
-        const wait = due - at();
-        if (wait > 0) await clock.sleep(wait);
-        // Listed whether or not anything was left to wait: either way this
-        // pair's spacing is the engine's doing, already in source time.
-        if (step.pacedGap !== undefined) pacedGaps.push(step.pacedGap);
-      }
+      await keepRhythm();
 
       inFlight = step.action.id;
       anchorRects.push({
@@ -2316,6 +2509,7 @@ export async function runWalk(
                 handle.objectId,
                 sightings,
                 clock.sleep,
+                step.onFieldRead,
               ),
         );
         // The page may now look different however little it painted: the
@@ -2359,6 +2553,7 @@ export async function runWalk(
                 handle.objectId,
                 sightings,
                 clock.sleep,
+                step.onFieldRead,
               ),
         );
         const spansBefore = motionSpans.length;
@@ -2398,11 +2593,17 @@ export async function runWalk(
     // Not after an occlusion timeout: the heartbeat says nothing is driving
     // the page any more, and a screenshot of it has no deadline.
     if (continuous && reason !== "occlusionTimeout" && reason !== "signedOut") {
-      // A finished take runs on for `TAKE_TAIL_MS` after its last action.
-      // Whatever the script slept after it is already on the clock.
+      // A finished take runs on for `TAKE_TAIL_MS` after its last action,
+      // and past its last zoom's pull-out, or the camera's own end clamp
+      // cuts that move off mid-way (spec 2026-10-30 F). Whatever the script
+      // slept after it is already on the clock.
       const lastMarkerAt = markers.at(-1)?.sourceTimeMs;
       if (reason === null && lastMarkerAt !== undefined) {
-        const tail = lastMarkerAt + TAKE_TAIL_MS - at();
+        const settledAt =
+          room !== undefined && lastHeldUntil !== null
+            ? room.settledAfterMs(lastHeldUntil)
+            : Number.NEGATIVE_INFINITY;
+        const tail = Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt) - at();
         if (tail > 0) await clock.sleep(tail);
       }
       await clock.sleep(SPAN_QUIET_MS);
@@ -2514,7 +2715,9 @@ export async function runWalk(
   // only when every marked step is of a kind whose cursor does not travel.
   const harvested =
     keyframes.length > 0 &&
-    (cursorSamples.length > 0 || anchorRects.length > 0);
+    // A key press names no element and moves no cursor, yet it is filmed: its
+    // marker is the evidence (a press-only take is a carousel or an Escape).
+    (cursorSamples.length > 0 || anchorRects.length > 0 || pressMarked);
 
   // Assembly and persistence are ports too, and `putBundle` writes to disk —
   // quota is the most plausible failure this extension has, since frames are
@@ -2620,6 +2823,7 @@ async function performVerb(
   objectId: string,
   sightings: ClickSightings,
   sleep: (ms: number) => Promise<void>,
+  onFieldRead?: WalkStep["onFieldRead"],
 ): Promise<ClickVerdict | null> {
   // Every click is checked: the page is asked where the press and the
   // release arrived, against the point both were sent to (`click-probe.ts`).
@@ -2701,7 +2905,40 @@ async function performVerb(
           commands: ["selectAll"],
         });
       }
-      await typeKeys(typeof text === "string" ? text : "", cdp, sleep);
+      const typed = typeof text === "string" ? text : "";
+      await typeKeys(typed, cdp, sleep);
+      if (onFieldRead !== undefined) {
+        // The read is a courtesy to the verdict: a refused one does not end
+        // the take, but the step says it could not be read and why.
+        try {
+          const reply = await cdp.send("Runtime.callFunctionOn", {
+            objectId,
+            functionDeclaration: FIELD_READ,
+            returnByValue: true,
+          });
+          const value = (reply.result as { value?: unknown } | undefined)
+            ?.value;
+          if (value === null) {
+            onFieldRead({
+              unavailable: "focus moved to another element after typing",
+            });
+          } else if (typeof value !== "string") {
+            onFieldRead({ unavailable: "the page answered with no text" });
+          } else {
+            onFieldRead({
+              value:
+                value.length > FIELD_VALUE_MAX
+                  ? `${value.slice(0, FIELD_VALUE_MAX)}…`
+                  : value,
+              holds: fieldHolds(value, typed),
+            });
+          }
+        } catch (error) {
+          onFieldRead({
+            unavailable: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
       return verdict;
     }
     case "scrollTo":
@@ -2722,6 +2959,9 @@ async function performVerb(
     case "drag":
       // Never reaches here: the loop performs a drag with `performDrag`.
       throw new Error("performVerb: a drag is performed by performDrag");
+    case "press":
+      // Never reaches here: the loop presses a key before it locates anything.
+      throw new Error("performVerb: a press is performed by pressKey");
     default: {
       const unknown: never = action;
       throw new Error(`performVerb: no verb for ${JSON.stringify(unknown)}`);
