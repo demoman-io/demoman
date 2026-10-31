@@ -1434,6 +1434,8 @@ function unreadableSection(
   unreadable: NonNullable<LibraryModel["unreadable"]>,
   actions: LibraryActions,
   rowStatus: Map<string, string>,
+  /** Under the list, in its row style (list spec §2.3); else cards. */
+  asRows = false,
 ): HTMLElement {
   const box = el("section", {
     class: "section",
@@ -1447,6 +1449,10 @@ function unreadableSection(
     el("span", { class: "section-count" }, String(unreadable.length)),
   );
   box.append(head);
+  if (asRows) {
+    box.append(unreadableRows(unreadable, actions, rowStatus));
+    return box;
+  }
   const list = el("div", { class: "rows" });
   for (const u of unreadable) {
     const article = el("article", {
@@ -1458,21 +1464,9 @@ function unreadableSection(
     title.append(
       el("p", { class: "row-meta", "data-unreadable-name": "" }, u.folder),
     );
-    // A take folder's Delete removes the folder, a video record's the
-    // record alone; a failed join or expiry has nothing to delete.
     const kind = unreadableKind(u);
-    if (kind !== null) {
-      const remove = el("button", {
-        type: "button",
-        "data-action": "delete",
-        class: "btn btn-quiet btn-icon btn-danger",
-        "aria-label": `Delete ${u.folder}`,
-        title: "Delete",
-      });
-      remove.append(icon("trash"));
-      remove.addEventListener("click", () => actions.remove(u.folder, kind));
-      title.append(remove);
-    }
+    const remove = unreadableDelete(u, actions);
+    if (remove !== null) title.append(remove);
     text.append(
       title,
       el("p", { class: "row-meta", "data-reason": "" }, u.reason),
@@ -1499,6 +1493,77 @@ function unreadableSection(
   }
   box.append(list);
   return box;
+}
+
+/** A take folder's Delete removes the folder, a video record's the record
+ *  alone; a failed join or expiry has nothing to delete. */
+function unreadableDelete(
+  u: NonNullable<LibraryModel["unreadable"]>[number],
+  actions: LibraryActions,
+): HTMLElement | null {
+  const kind = unreadableKind(u);
+  if (kind === null) return null;
+  const remove = el("button", {
+    type: "button",
+    "data-action": "delete",
+    class: "btn btn-quiet btn-icon btn-danger",
+    "aria-label": `Delete ${u.folder}`,
+    title: "Delete",
+  });
+  remove.append(icon("trash"));
+  remove.addEventListener("click", () => actions.remove(u.folder, kind));
+  return remove;
+}
+
+/** The "Couldn't read" folders in the list's row style: name, the reason
+ *  clipped with its full text as the title, the size, Delete. Not part of
+ *  the treegrid's keys (they are not flows): Delete is a Tab stop, as on
+ *  the card. */
+function unreadableRows(
+  unreadable: NonNullable<LibraryModel["unreadable"]>,
+  actions: LibraryActions,
+  rowStatus: Map<string, string>,
+): HTMLElement {
+  const list = el("div", { class: "unreadable-list" });
+  for (const u of unreadable) {
+    const row = el("div", {
+      class: "unreadable-row",
+      "data-unreadable-row": u.folder,
+    });
+    // Shown at rest, as the card's is: the row's one way out.
+    const actionsCell = el("span", { "data-col": "actions" });
+    const remove = unreadableDelete(u, actions);
+    if (remove !== null) actionsCell.append(remove);
+    row.append(
+      el(
+        "span",
+        { "data-col": "name", "data-unreadable-name": "", title: u.folder },
+        u.folder,
+      ),
+      el(
+        "span",
+        { "data-col": "where", "data-reason": "", title: u.reason },
+        u.reason,
+      ),
+      // Unmeasured is unknown, never "0 B".
+      el(
+        "span",
+        { "data-col": "size", "data-size": "" },
+        u.sizeBytes === undefined ? "—" : formatBytes(u.sizeBytes),
+      ),
+      actionsCell,
+    );
+    const kind = unreadableKind(u);
+    const status =
+      kind === null ? undefined : rowStatus.get(statusKey(kind, u.folder));
+    if (status !== undefined) {
+      const line = el("div", { "data-status": "" });
+      line.append(el("p", { class: "notice notice-error" }, status));
+      row.append(line);
+    }
+    list.append(row);
+  }
+  return list;
 }
 
 export function renderLibrary(
@@ -1567,7 +1632,14 @@ export function renderLibrary(
   // After whatever the list drew, on every path out of it.
   const appendUnreadable = (): void => {
     if (unreadable.length > 0) {
-      list.append(unreadableSection(unreadable, actions, rowStatus));
+      list.append(
+        unreadableSection(
+          unreadable,
+          actions,
+          rowStatus,
+          view?.layout === "list",
+        ),
+      );
     }
   };
   if (model.rows.length === 0) {

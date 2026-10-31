@@ -713,7 +713,7 @@
         background: var(--control-hover);
         color: var(--ink);
       }
-      .library-list {
+      :is(.library-list, .unreadable-list) {
         --list-row: 34px;
         /* Wide enough for a video row's "Sep 26, 11:00 AM": as content
            width, opening a flow widened it and moved every column left. */
@@ -870,7 +870,7 @@
         .library-list .row-actions { transition: none; }
       }
       @container library (max-width: 759px) {
-        .library-list {
+        :is(.library-list, .unreadable-list) {
           grid-template-columns:
             28px 20px minmax(140px, 3fr) minmax(0, 2fr)
             56px 64px var(--recorded) max-content;
@@ -878,7 +878,7 @@
         .library-list [data-col="size"] { display: none; }
       }
       @container library (max-width: 639px) {
-        .library-list {
+        :is(.library-list, .unreadable-list) {
           grid-template-columns:
             28px 20px minmax(120px, 3fr) minmax(0, 2fr)
             56px var(--recorded) max-content;
@@ -886,13 +886,51 @@
         .library-list [data-col="length"] { display: none; }
       }
       @container library (max-width: 559px) {
-        .library-list {
+        :is(.library-list, .unreadable-list) {
           grid-template-columns:
             28px 20px minmax(120px, 3fr) minmax(0, 2fr)
             var(--recorded) max-content;
         }
         .library-list [data-col="videos"] { display: none; }
       }
+      /* "Couldn't read" under the list, in its rows (list spec §2.3): the
+         list's columns, so the name, reason and size stand under Name,
+         Where and Size. Delete's cell holds a flow's three actions' width,
+         or the actions track — max-content — would differ from the list's
+         and move every column. */
+      .unreadable-list > .unreadable-row {
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+        grid-template-rows: calc(var(--list-row) - 1px);
+        align-items: center;
+        border-bottom: 1px solid var(--ring);
+      }
+      .unreadable-list > .unreadable-row > [data-col] {
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .unreadable-list > .unreadable-row > [data-col="name"] { grid-column: 3; }
+      .unreadable-list > .unreadable-row > [data-col="where"] {
+        grid-column: 4 / -3;
+        color: var(--ink-muted);
+      }
+      .unreadable-list > .unreadable-row > [data-col="size"] { grid-column: -3; text-align: right; }
+      .unreadable-list > .unreadable-row > [data-col="actions"] {
+        grid-column: -2;
+        min-width: 88px;
+        display: flex;
+        justify-content: flex-end;
+      }
+      .unreadable-list > .unreadable-row > [data-status] {
+        grid-column: 3 / -1;
+        padding-bottom: 8px;
+        white-space: normal;
+      }
+      .unreadable-list > .unreadable-row > [data-status] > p { margin: 0; }
+
       /* Last: every `display` above loses to `hidden` (shell.css's note on
          `.hidden`). */
       .library-list [hidden],

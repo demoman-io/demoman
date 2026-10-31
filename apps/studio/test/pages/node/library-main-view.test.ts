@@ -139,7 +139,9 @@ describe("library main — the view", () => {
     expect(calls("libraryView", "write").map((c) => c.args[0])).toEqual([
       { layout: "grid", sort: DEFAULT_LIBRARY_VIEW.sort },
     ]);
-    await Promise.resolve();
+    // A whole turn, not a microtask: a render the toggle started reaches
+    // the folder only after the refresher's queue and the view read.
+    await new Promise((resolve) => setTimeout(resolve));
     expect(calls("folder", "read").length).toBe(reads);
   });
 

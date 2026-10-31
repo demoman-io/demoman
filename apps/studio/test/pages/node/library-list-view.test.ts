@@ -486,6 +486,66 @@ describe("the list view", () => {
     );
   });
 
+  // Red if the list draws the card section (spec §2.3: "in the list's row
+  // style, each row with its Delete").
+  it("List draws the Couldn't read folders as rows in the list's style, not cards", () => {
+    const reason = "scene.json is not a video (Unexpected end of JSON input)";
+    const { root, grid, acts } = draw(
+      LIST,
+      {
+        ...model,
+        unreadable: [
+          { folder: "broken", reason, sizeBytes: 2048 },
+          { folder: "unmeasured", reason: "Not JSON" },
+        ],
+      },
+      actions(),
+      new Map([["folder:broken", "Not deleted: a render is running."]]),
+    );
+    const section = root.querySelector<HTMLElement>("[data-unreadable]");
+    expect(section?.id).toBe("unreadable");
+    expect(section?.textContent).toContain("Couldn't read");
+    expect(section?.querySelector(".card")).toBeNull();
+    expect(section?.querySelector("article")).toBeNull();
+    // Outside the treegrid's keys: not inside it, and no row role.
+    expect(grid?.contains(section as Node)).toBe(false);
+    expect(section?.querySelector("[role]")).toBeNull();
+    const row = section?.querySelector<HTMLElement>(
+      '.unreadable-row[data-unreadable-row="broken"]',
+    );
+    expect(row?.querySelector('[data-col="name"]')?.textContent).toBe("broken");
+    const why = row?.querySelector<HTMLElement>('[data-col="where"]');
+    expect(why?.textContent).toBe(reason);
+    expect(why?.title).toBe(reason);
+    expect(row?.querySelector('[data-col="size"]')?.textContent).toBe("2 KB");
+    expect(
+      section?.querySelector(
+        '[data-unreadable-row="unmeasured"] [data-col="size"]',
+      )?.textContent,
+    ).toBe("—");
+    expect(row?.querySelector("[data-status]")?.textContent).toBe(
+      "Not deleted: a render is running.",
+    );
+    // A Tab stop, and the card's own action.
+    const remove = row?.querySelector<HTMLButtonElement>(
+      '[data-action="delete"]',
+    );
+    expect(remove?.tabIndex).toBe(0);
+    remove?.click();
+    expect(acts.remove).toHaveBeenCalledWith("broken", "folder");
+  });
+
+  it("Grid keeps the Couldn't read cards", () => {
+    const { root } = draw(
+      { ...LIST, layout: "grid" },
+      { ...model, unreadable: [{ folder: "broken", reason: "Not JSON" }] },
+    );
+    expect(
+      root.querySelector('article.card[data-unreadable-row="broken"]'),
+    ).not.toBeNull();
+    expect(root.querySelector(".unreadable-row")).toBeNull();
+  });
+
   it("without view, renderLibrary still draws cards", () => {
     const root = document.createElement("div");
     renderLibrary(root, model, actions(), new Map(), NOW);

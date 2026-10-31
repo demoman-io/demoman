@@ -1109,6 +1109,67 @@ describe("the Studio's screenshot set", () => {
           3,
         );
         expect(await rowsPainted(`${FLOWS}[aria-expanded="true"]`)).toEqual([]);
+        // "Couldn't read" in the list's rows (spec §2.3): in the list's
+        // column, with no card drawn there, its Delete painted.
+        await page
+          .locator(`[data-unreadable-row="${UNREADABLE}"]`)
+          .scrollIntoViewIfNeeded();
+        const unreadable = await page.evaluate((folder) => {
+          const grid = document.querySelector("[role=treegrid]");
+          const section = document.querySelector("[data-unreadable]");
+          const row = document.querySelector<HTMLElement>(
+            `[data-unreadable-row="${CSS.escape(folder)}"]`,
+          );
+          if (grid === null || section === null || row === null) return null;
+          const g = grid.getBoundingClientRect();
+          const r = row.getBoundingClientRect();
+          const lands = (sel: string): boolean => {
+            const el = row.querySelector(sel);
+            if (el === null) return false;
+            const b = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              b.left + Math.min(b.width / 2, 20),
+              b.top + b.height / 2,
+            );
+            let o = 1;
+            for (let n: Element | null = el; n !== null; n = n.parentElement) {
+              o *= Number(getComputedStyle(n).opacity);
+            }
+            return hit !== null && el.contains(hit) && o === 1;
+          };
+          // Each part under its list column's heading.
+          const under = (part: string, col: string): boolean => {
+            const a = row.querySelector(`[data-col="${part}"]`);
+            const h = grid.querySelector(
+              `[role=columnheader][data-col="${col}"]`,
+            );
+            if (a === null || h === null) return false;
+            const pa = a.getBoundingClientRect();
+            const ph = h.getBoundingClientRect();
+            return Math.abs(pa.left - ph.left) < 1;
+          };
+          return {
+            cards: section.querySelectorAll(".card, article").length,
+            columns: [under("name", "name"), under("where", "where")],
+            inColumn: r.left >= g.left - 0.5 && r.right <= g.right + 0.5,
+            below: r.top >= g.bottom - 0.5,
+            height: Math.round(r.height),
+            name: lands('[data-col="name"]'),
+            reason: lands('[data-col="where"]'),
+            remove: lands('[data-action="delete"]'),
+          };
+        }, UNREADABLE);
+        expect(unreadable, `${at}: Couldn't read, as painted`).toEqual({
+          cards: 0,
+          columns: [true, true],
+          inColumn: true,
+          below: true,
+          height: 34,
+          name: true,
+          reason: true,
+          remove: true,
+        });
+        await page.evaluate(() => window.scrollTo(0, 0));
 
         at = `library list open ${wh}`;
         const closedColumns = await columnsAt();
