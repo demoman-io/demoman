@@ -16,9 +16,9 @@ describe("drag points", () => {
     expect(spotIn(box, { x: 1, y: 1 })).toEqual({ x: 499.5, y: 299.5 });
     expect(spotIn(box, { x: 0, y: 0 })).toEqual({ x: 100.5, y: 200.5 });
     // A box under a pixel wide keeps its centre rather than crossing over.
-    expect(spotIn({ x: 10, y: 10, width: 0.5, height: 0 }, { x: 1, y: 0 })).toEqual(
-      { x: 10.25, y: 10 },
-    );
+    expect(
+      spotIn({ x: 10, y: 10, width: 0.5, height: 0 }, { x: 1, y: 0 }),
+    ).toEqual({ x: 10.25, y: 10 });
   });
 
   it("dragEndPoint adds by to the start, and takes a spot in an end box", () => {
