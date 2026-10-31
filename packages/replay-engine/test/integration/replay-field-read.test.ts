@@ -125,3 +125,58 @@ describe("a typed field, against a real page", () => {
     );
   });
 });
+
+describe("the editing keys, against a real page", () => {
+  // What a press does to a field. Measured 2026-10-31 on macOS with
+  // Playwright's Chromium (headless shell and headed alike), these pass with
+  // or without the editor commands `pressKey` sends there; Playwright sends
+  // them for the Chromium builds that need them, and so does `pressKey`
+  // (`keys.test.ts` fails without them). This is the behaviour they guard.
+  it("ArrowLeft then Backspace deletes the character before the caret", async () => {
+    await runTypes(
+      [
+        { do: "type", into: { stableId: "plain" }, text: "helo" },
+        { do: "press", key: "ArrowLeft" },
+        { do: "press", key: "Backspace" },
+      ],
+      async (_result, page) => {
+        expect(await page.inputValue("#plain")).toBe("heo");
+      },
+    );
+  });
+
+  it("two ArrowLefts then Delete deletes the character after the caret", async () => {
+    await runTypes(
+      [
+        { do: "type", into: { stableId: "plain" }, text: "helo" },
+        { do: "press", key: "ArrowLeft" },
+        { do: "press", key: "ArrowLeft" },
+        { do: "press", key: "Delete" },
+      ],
+      async (_result, page) => {
+        expect(await page.inputValue("#plain")).toBe("heo");
+      },
+    );
+  });
+});
+
+describe("a field that moves focus as it fills", () => {
+  it("is not judged when focus left it after typing", async () => {
+    await runTypes(
+      [{ do: "type", into: { stableId: "code1" }, text: "12" }],
+      async (result, page) => {
+        // The premises: the page really did move focus, so the second
+        // character went into the next box and the target holds only "1".
+        expect(await page.inputValue("#code1")).toBe("1");
+        expect(await page.inputValue("#code2")).toBe("2");
+        expect(
+          await page.evaluate(() => document.activeElement?.id ?? null),
+        ).toBe("code2");
+        expect(result.steps[0]?.fieldHolds).toBeUndefined();
+        expect(result.steps[0]?.fieldRead).toEqual({
+          unavailable: "focus moved to another element after typing",
+        });
+      },
+    );
+  });
+});

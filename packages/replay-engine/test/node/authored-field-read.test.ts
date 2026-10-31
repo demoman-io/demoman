@@ -93,7 +93,7 @@ function fieldShows(cdp: CdpFake, shown: string): { asked: () => number } {
   cdp.send = async (method, params) => {
     if (
       method === "Runtime.callFunctionOn" &&
-      String(params?.functionDeclaration ?? "").includes('"value" in field')
+      String(params?.functionDeclaration ?? "").includes('"value" in active')
     ) {
       asked++;
       return { result: { type: "string", value: shown } };
@@ -156,7 +156,7 @@ describe("a typed field is read back", () => {
     cdp.send = async (method, params) => {
       if (
         method === "Runtime.callFunctionOn" &&
-        String(params?.functionDeclaration ?? "").includes('"value" in field')
+        String(params?.functionDeclaration ?? "").includes('"value" in active')
       ) {
         refused++;
         throw new Error("Cannot find context with specified id");

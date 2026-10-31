@@ -241,7 +241,9 @@ interface DragPlan {
 }
 
 /** What a typed-into field shows now: an input or textarea's `value`, a
- *  contenteditable host's `textContent`. */
+ *  contenteditable host's `textContent`. Null when focus is no longer in the
+ *  target: a code box that hands focus to the next one, a field that moves
+ *  on when full. The keys went elsewhere, so the target says nothing. */
 const FIELD_READ = `function () {
   // The focused element, through shadow roots: a type aimed at a label or a
   // wrapper lands in the field inside it (or the label's control).
@@ -249,13 +251,14 @@ const FIELD_READ = `function () {
   while (active && active.shadowRoot && active.shadowRoot.activeElement) {
     active = active.shadowRoot.activeElement;
   }
-  const field =
-    active && (this.contains(active) || (this.control && active === this.control))
-      ? active
-      : this;
-  return "value" in field && typeof field.value === "string"
-    ? field.value
-    : field.textContent ?? "";
+  let inside = false;
+  for (let n = active; n && !inside; n = n.parentNode || n.host) {
+    inside = n === this;
+  }
+  if (!inside && !(this.control && active === this.control)) return null;
+  return "value" in active && typeof active.value === "string"
+    ? active.value
+    : active.textContent ?? "";
 }`;
 
 /** The longest value a report keeps of a field, so a contenteditable's whole
@@ -2877,7 +2880,11 @@ async function performVerb(
           });
           const value = (reply.result as { value?: unknown } | undefined)
             ?.value;
-          if (typeof value !== "string") {
+          if (value === null) {
+            onFieldRead({
+              unavailable: "focus moved to another element after typing",
+            });
+          } else if (typeof value !== "string") {
             onFieldRead({ unavailable: "the page answered with no text" });
           } else {
             onFieldRead({
