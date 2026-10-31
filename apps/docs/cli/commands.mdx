@@ -111,6 +111,18 @@ file lacks.
 | `--base-url <origin>` | Film the app at this origin instead of the one each video was recorded at, such as a preview deployment |
 | `--deliver pr\|main` | After refreshing, commit only the replaced files: `main` pushes one `Refresh demo videos` commit to the checked-out branch; `pr` force-pushes it to `demoman/refresh` and opens or updates one pull request (the workflow's `GITHUB_TOKEN` needs "Allow GitHub Actions to create and approve pull requests"). Exits 1 if delivery fails |
 
+## join-flow
+
+```bash
+npx demoman join-flow <from> <into>
+```
+
+Moves every video of this library's flow `<from>` into the flow `<into>` and
+removes `<from>`. A run that finds a kept flow's name already held by another
+flow in your library refuses and prints this command with both ids. It exits 1
+if either flow is missing, if the two are one flow, or if it stops partway
+(the message says how many videos moved and that `<from>` remains).
+
 ## mcp
 
 ```bash

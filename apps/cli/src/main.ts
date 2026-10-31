@@ -100,6 +100,8 @@ const USAGE = `demoman ${VERSION}
   npx demoman keep <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full] [--deliver commit|files]
                              keep a flow current: its re-film file in .demoman/videos/, its exports in the repo
                              (--deliver files writes the re-film file alone; outputs are file names for --out-dir)
+  npx demoman join-flow <from> <into>
+                             move a flow's videos into the kept flow that has its name, and remove the flow
   npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main]
                              film the kept flows again and replace the exports whose picture changed;
                              --deliver commits them on main, or opens a pull request (CI)
@@ -545,6 +547,38 @@ async function refresh(args: string[]): Promise<void> {
   process.exit(code === 0 && delivered.ok ? 0 : 1);
 }
 
+/** `demoman join-flow`: this library's flow `from` joins the kept flow `into`. */
+async function joinFlow(args: string[]): Promise<void> {
+  const [from, into, ...extra] = args;
+  if (from === undefined || into === undefined || extra.length > 0) {
+    process.stderr.write(
+      `demoman: join-flow takes the flow to move and the flow to move it into\n\n${USAGE}`,
+    );
+    process.exit(2);
+  }
+  const home = demomanHome();
+  const videos = createVideoStore(home, createLibrary(home), { log });
+  let said: string;
+  try {
+    const out = await videos.merge(from, into);
+    if (out.ok) {
+      process.stdout.write(
+        `moved ${out.moved} video${out.moved === 1 ? "" : "s"} from ${from} into ${into}\n`,
+      );
+      process.exit(0);
+    }
+    said =
+      out.reason === "sameFlow"
+        ? `${from} and ${into} are the same flow — name two different flows`
+        : `no flow in this library has the id ${out.id}`;
+  } catch (error) {
+    // A merge that stopped partway says how many moved and what remains.
+    said = error instanceof Error ? error.message : String(error);
+  }
+  process.stderr.write(`demoman: join-flow: ${said}\n`);
+  process.exit(1);
+}
+
 const [command, ...rest] = process.argv.slice(2);
 switch (command) {
   case "mcp":
@@ -558,6 +592,9 @@ switch (command) {
     break;
   case "refresh":
     await refresh(rest);
+    break;
+  case "join-flow":
+    await joinFlow(rest);
     break;
   case "setup": {
     if (rest.includes("--ci")) {

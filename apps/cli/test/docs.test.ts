@@ -260,6 +260,7 @@ describe("commands", () => {
       [
         "--version",
         "hook",
+        "join-flow",
         "keep",
         "mcp",
         "refresh",

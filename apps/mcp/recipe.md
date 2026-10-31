@@ -532,6 +532,7 @@ quote `note` if set. Studio exports go to `~/Downloads`.
 | `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-film of a video that did not keep a value. |
 | `flowRequired` | `run` (`refusedBeforeRun`) | No `flow` was given. Find one (section 4), or pass `{ new }`. |
 | `possibleDuplicate`, `nameTaken` | `run` (`refusedBeforeRun`) | A similar flow exists (`matches`) or the name is taken (`holder`). Section 4. |
+| `keptNameTaken`, `duplicateFlow` | `run` (`refusedBeforeRun`) | The flow is kept in the repo, but this library has another flow with its name (`detail` gives the `join-flow` command to tell the user), or two kept files name one flow (delete one). |
 | `flowNotFound` | `run` (`refusedBeforeRun`) | No flow has that `id`; call `flows`. |
 | `wrongIdKind` | any | Wrong kind of id; see `detail`. |
 | `flowUnreadable`, `flowUnwritable` | `run` (`refusedBeforeRun`), `flows` | The flow records could not be read or written; quote `detail`. Nothing was filmed. |

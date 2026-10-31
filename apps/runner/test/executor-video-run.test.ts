@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
   chmod,
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -9,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
-import type { RunReport } from "@demoman/run-core";
+import { KEPT_DIR, keptFileName, type RunReport } from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
@@ -18,6 +19,7 @@ import { createVideoStore, type TakeVideo } from "../src/executor/videos.js";
 import type { VideoSummary } from "../src/executor/videos-op.js";
 import { launch } from "../src/launch.js";
 import { serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
+import { type V1Kept, writeV1 } from "./kept-v1.js";
 
 // A run here: about 3 s locally (headless), x5 for CI as executor.test.ts.
 const RUN_MS = 31_000;
@@ -435,5 +437,126 @@ describe("run records into a video", () => {
       value: { outcome: "threw", error: expect.stringContaining("boom") },
     });
     expect(await executor.request("report", { id: "c-throw" })).toEqual(out);
+  });
+});
+
+describe("a run joins the kept flow", () => {
+  const U1 = "1a2b3c4d-0000-4000-8000-000000000001";
+  const U2 = "1a2b3c4d-0000-4000-8000-000000000002";
+  let checkout: string;
+  const keptFile = (name: string) => `${KEPT_DIR}/${keptFileName(name)}`;
+  const keptRecipe = (flow: string, name: string): V1Kept => ({
+    keptVersion: 2,
+    flow,
+    deliver: "commit",
+    name,
+    script: script(name) as V1Kept["script"],
+    scale: 1,
+    logo: null,
+    wallpaper: null,
+    outputs: [
+      {
+        path: `docs/${flow}.mp4`,
+        fileType: "mp4",
+        aspect: "16:9",
+        quality: "share",
+      },
+    ],
+    screens: { steps: 2, moments: [{ step: null, ms: 500 }] },
+    report: null,
+    from: { videoId: flow, takeId: "t1", recordedRevision: "r1" },
+  });
+  const writeRecipe = (flow: string, name: string) =>
+    writeFile(join(checkout, keptFile(name)), writeV1(keptRecipe(flow, name)));
+  const runIn = async (args: Record<string, unknown>) => {
+    const out = await executor.request("run", { project: checkout, ...args });
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    return out.value as Answer;
+  };
+
+  beforeAll(async () => {
+    checkout = await mkdtemp(join(tmpdir(), "demoman-kept-join-"));
+    execFileSync("git", ["init", "-q"], { cwd: checkout });
+    execFileSync(
+      "git",
+      ["remote", "add", "origin", "git@github.com:acme/shop.git"],
+      { cwd: checkout },
+    );
+    await mkdir(join(checkout, KEPT_DIR), { recursive: true });
+    await writeRecipe(U1, "Kept order flow");
+    await writeRecipe(U2, "Kept refund flow");
+  });
+  afterAll(() => rm(checkout, { recursive: true, force: true }));
+
+  it("run { new } with a kept flow's name is nameTaken naming the kept id", async () => {
+    const out = await runIn({
+      script: script("Kept order flow"),
+      video: { new: "kept ORDER flow", confirmedNew: true },
+    });
+    expect(out).toMatchObject({
+      outcome: "refusedBeforeRun",
+      reason: "nameTaken",
+      field: "video",
+    });
+    expect(out.holder?.id, JSON.stringify(out)).toBe(U1);
+    expect(out.detail).toContain(keptFile("Kept order flow"));
+    expect(out.detail).toContain(`flow: { id: "${U1}" }`);
+    // Premise: the kept flow is not in the store, so the refusal came from the file.
+    expect(await store().get(U1)).toBeNull();
+  });
+
+  it("run { id } with a same-named local flow refuses keptNameTaken with the join-flow command", async () => {
+    const local = await store().create({
+      name: "Kept refund flow",
+      repo: { key: REPO_KEY },
+      startPage: app.url,
+    });
+    if (!local.ok) throw new Error(JSON.stringify(local));
+    const out = await runIn({
+      script: script("Kept refund flow"),
+      video: { id: U2 },
+    });
+    expect(out).toMatchObject({
+      outcome: "refusedBeforeRun",
+      reason: "keptNameTaken",
+      field: "video",
+    });
+    expect(out.detail).toContain(`join-flow ${local.video.id} ${U2}`);
+    expect(await store().get(U2)).toBeNull();
+  });
+
+  it(
+    "run { id } of a kept flow absent here adopts it",
+    async () => {
+      expect(await store().get(U1)).toBeNull();
+      const out = await runIn({
+        script: script("Kept order flow"),
+        video: { id: U1 },
+      });
+      expect(out.outcome, JSON.stringify(out.stopped ?? out)).toBe("complete");
+      expect(out.videoVersion).toMatchObject({
+        id: U1,
+        name: "Kept order flow",
+      });
+      const named = (await store().list()).filter(
+        (v) => "name" in v && v.name === "Kept order flow",
+      );
+      expect(named.map((v) => v.id)).toEqual([U1]);
+      expect(await store().get(U1)).toMatchObject({
+        kept: { root: checkout, file: keptFile("Kept order flow") },
+      });
+    },
+    RUN_MS,
+  );
+
+  it("a duplicated kept file refuses duplicateFlow naming both files", async () => {
+    const U3 = "1a2b3c4d-0000-4000-8000-000000000003";
+    await writeRecipe(U3, "Kept copy one");
+    await writeRecipe(U3, "Kept copy two");
+    const out = await runIn({ script: script("x"), video: { id: U3 } });
+    expect(out).toMatchObject({ reason: "duplicateFlow", field: "video" });
+    expect(out.detail).toContain(keptFile("Kept copy one"));
+    expect(out.detail).toContain(keptFile("Kept copy two"));
+    expect(await store().get(U3)).toBeNull();
   });
 });

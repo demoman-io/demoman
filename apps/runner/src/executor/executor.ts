@@ -12,6 +12,7 @@ import {
 import { authoredTotal, type ReplayProgress } from "@demoman/replay-engine";
 import {
   checkScript,
+  isFlowId,
   isHttpUrl,
   lookForRun,
   messageOf,
@@ -40,6 +41,7 @@ import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { rewriteKept } from "./keep.js";
+import { adoptKept, findKept, readKeptFlows } from "./kept-flows.js";
 import { readKits } from "./kits.js";
 import { DEFAULT_SIGNIN_COMMAND } from "./landing.js";
 import { createLibrary, ownHome } from "./library.js";
@@ -597,6 +599,34 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       if ("failed" in expiry) log(`expiry failed: ${expiry.failed}`);
       if ("id" in asked) {
         into = isVideoId(asked.id) ? await videos.get(asked.id) : null;
+        if (into === null && isFlowId(asked.id)) {
+          // A flow kept in this checkout is one flow on every machine: join
+          // it by its committed id rather than refuse or mint another.
+          const found = await findKept(where.from, asked.id);
+          if (found !== null && "duplicate" in found) {
+            return refusal(
+              "duplicateFlow",
+              `${found.duplicate.join(" and ")} both name the flow ${asked.id} — delete one of them, then run again`,
+              "video",
+            );
+          }
+          if (found !== null) {
+            const adopted = await adoptKept(
+              videos,
+              where.from,
+              found,
+              videoRepo,
+            );
+            if (!adopted.ok) {
+              return refusal(
+                "keptNameTaken",
+                `flow "${found.kept.name}" is kept in ${found.file} as ${asked.id}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${asked.id}\` to move its videos into the kept flow`,
+                "video",
+              );
+            }
+            into = adopted.video;
+          }
+        }
         if (into === null) {
           return refusal(
             "videoNotFound",
@@ -618,6 +648,22 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           builtFrom = built.takeId;
         }
       } else {
+        // Refresh films a kept flow under its own name (`leaveKept`): exempt.
+        if (args.leaveKept !== true) {
+          const { entries } = await readKeptFlows(where.from);
+          const keptHolder = entries.find(
+            (e) => "kept" in e && sameName(e.kept.name, asked.new),
+          );
+          if (keptHolder !== undefined && "kept" in keptHolder) {
+            const { kept, file } = keptHolder;
+            return refusal(
+              "nameTaken",
+              `flow "${kept.name}" is kept in ${file} — add a video to it with flow: { id: "${kept.flow}" }, or name the new flow differently`,
+              "video",
+              { holder: { id: kept.flow, name: kept.name } },
+            );
+          }
+        }
         const matches = await matchesFor(videos, library, asked.new, videoRepo);
         const holder = matches.find((m) => sameName(m.name, asked.new));
         if (holder !== undefined) {
