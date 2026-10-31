@@ -176,7 +176,7 @@ describe("an image path in the default kit", () => {
         h.lines
           .slice(linesBefore)
           .some(
-            (l) => l.includes("left as the take has it") && l.includes(gone),
+            (l) => l.includes("left as the video has it") && l.includes(gone),
           ),
         h.lines.slice(linesBefore).join("\n"),
       ).toBe(true);

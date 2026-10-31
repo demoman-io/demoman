@@ -200,7 +200,7 @@ describe("zooms", () => {
     expect(model.notices.some((n) => /zoom "gen-1"/.test(n))).toBe(true);
   });
 
-  it("still draws a zoom with no render, from the take's own timestamps", () => {
+  it("still draws a zoom with no render, from the video's own timestamps", () => {
     const scene = applyCommand(
       readonlyScene(),
       {
@@ -296,7 +296,7 @@ describe("zooms", () => {
       timing: "estimated",
     });
     expect(model.notices).toContain(
-      'The end of zoom "gen-1" is placed from the take\'s own timestamp: the last render carried no marker for its step. Re-shoot it in Runs to give it measured timing.',
+      'The end of zoom "gen-1" is placed from the video\'s own timestamp: the last render carried no marker for its step. Re-shoot it in Runs to give it measured timing.',
     );
   });
 });
@@ -402,7 +402,7 @@ describe("masks", () => {
       "end",
     ]);
     expect(model.notices).toContain(
-      'The end of mask "gen-1" is placed from the take\'s own timestamp: the last render carried no marker for its step, so the mask covers more of the video than it was drawn to. Re-shoot it in Runs to give it measured timing.',
+      'The end of mask "gen-1" is placed from the video\'s own timestamp: the last render carried no marker for its step, so the mask covers more of the video than it was drawn to. Re-shoot it in Runs to give it measured timing.',
     );
   });
 
@@ -715,7 +715,7 @@ describe("lane notices for an authored take", () => {
       return scene;
     };
     const tail =
-      "is placed from the take's own timestamp: the last render carried no marker for its step.";
+      "is placed from the video's own timestamp: the last render carried no marker for its step.";
     for (const [scene, route] of [
       [zoomed(authoredScene(hoverScene())), "Run its script again in Runs"],
       [zoomed(hoverScene()), "Re-shoot it in Runs"],

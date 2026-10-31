@@ -573,6 +573,9 @@ describe("refresh", () => {
         (await bytes("docs/order-report.json")).toString(),
       );
       expect(report.outcome).toBe("complete");
+      // Written in the served words, as keep writes it.
+      expect(typeof report.provenance.videoId).toBe("string");
+      expect("takeId" in report.provenance).toBe(false);
       // A throwaway library: the user's was never touched, and every temp
       // folder refresh made was removed.
       expect(await readdir(home)).toEqual([]);

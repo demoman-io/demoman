@@ -372,7 +372,7 @@ function reduce(
     case "removePiece": {
       if (command.start === null && command.end === null) {
         throw new Error(
-          "Removing the whole take would leave nothing to export.",
+          "Removing the whole video would leave nothing to export.",
         );
       }
       if (command.start) indexOfAction(scene, command.start.actionId);
@@ -418,7 +418,7 @@ function reduce(
       };
       if (next.start === null && next.end === null) {
         throw new Error(
-          "Removing the whole take would leave nothing to export.",
+          "Removing the whole video would leave nothing to export.",
         );
       }
       return {

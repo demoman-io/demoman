@@ -30,7 +30,7 @@ type Client = Awaited<ReturnType<typeof connect>>;
 type Answer = {
   outcome: string;
   id?: string;
-  provenance?: { takeId?: string };
+  provenance?: { videoId?: string };
   frames?: { degradations: string[] };
   file?: { path: string };
 };
@@ -62,7 +62,7 @@ it("runs and exports the fixture take from the packed install, and the film show
   );
   try {
     const run = await finished(c, "run", {
-      video: { new: "Place an order", confirmedNew: true },
+      flow: { new: "Place an order", confirmedNew: true },
       script: {
         scriptVersion: 1,
         name: "Place an order",
@@ -94,7 +94,7 @@ it("runs and exports the fixture take from the packed install, and the film show
     expect(degradations, JSON.stringify(run)).toBeInstanceOf(Array);
     expect(degradations, JSON.stringify(run)).toEqual([]);
     const exported = await finished(c, "export", {
-      takeId: run.provenance?.takeId,
+      videoId: run.provenance?.videoId,
     });
     expect(exported.outcome, JSON.stringify(exported)).toBe("saved");
     const path = exported.file?.path;

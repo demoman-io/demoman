@@ -179,7 +179,7 @@ function renderStepPanel(
       el(
         "div",
         "muted",
-        "Not in the video: the frames have no marker for this step, so the timeline places it from the take's own timestamp.",
+        "Not in the video: the frames have no marker for this step, so the timeline places it from the video's own timestamp.",
       ),
     );
   }
@@ -306,7 +306,7 @@ function renderStepPanel(
         el(
           "span",
           undefined,
-          `A ${beat.gap.durationMs}ms pause is set here, but the re-shot frames already leave at least that long between these two steps, so it adds nothing to this video. Pacing only ever adds time — it never speeds your app up. Raise it, or go back to your recording from its Recordings card, where this number is the pause.`,
+          `A ${beat.gap.durationMs}ms pause is set here, but the re-shot frames already leave at least that long between these two steps, so it adds nothing to this video. Pacing only ever adds time — it never speeds your app up. Raise it, or go back to the original footage from its card on the Flows page, where this number is the pause.`,
         ),
       );
       panel.append(floored);
@@ -531,7 +531,7 @@ function renderMaskPanel(
   if (mask.wholeTake) {
     range.setAttribute("data-mask-whole-take", "");
     range.textContent =
-      "Covers the whole take (made before masks had a range).";
+      "Covers the whole video (made before masks had a range).";
   } else {
     range.textContent = `${formatClock(mask.startMs)} to ${formatClock(mask.endMs)}`;
   }

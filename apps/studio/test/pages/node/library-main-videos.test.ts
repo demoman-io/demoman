@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { refilmLine } from "../../../pages/src/platform/http";
 import {
   DELETE_RECORD,
-  DELETE_VERSION,
-  deleteVideo,
+  deleteFlow,
+  deleteVideoOf,
 } from "../../../pages/src/shell/confirm-dialog";
 import {
   createMemoryPlatform,
@@ -169,9 +169,7 @@ describe("library main — videos", () => {
     expect(inv.querySelector<HTMLInputElement>("[data-name]")?.value).toBe(
       "Create an invoice",
     );
-    expect(inv.querySelector(".versions-count")?.textContent).toBe(
-      "3 versions",
-    );
+    expect(inv.querySelector(".versions-count")?.textContent).toBe("3 videos");
     const rows = [...inv.querySelectorAll("[data-version-row]")];
     expect(rows.map((r) => r.getAttribute("data-version-row"))).toEqual([
       "inv-3",
@@ -192,7 +190,7 @@ describe("library main — videos", () => {
     // take (`run({ takeId })` is refused). Red: name the take.
     expect(expired?.querySelector("[data-rerun-line]")?.textContent).toBe(
       // The call is drawn as code, its backticks dropped.
-      refilmLine(INVOICE).replace(/`/g, ""),
+      `Expired — ${refilmLine(INVOICE).replace(/`/g, "").replace(/^A/, "a")}`,
     );
     expect(live?.querySelector("[data-rerun-line]")).toBeNull();
     expect(expired?.querySelector('[data-action="edit"]')).toBeNull();
@@ -203,7 +201,7 @@ describe("library main — videos", () => {
     // Red: send the card's rename to scenes.put — no videos.rename call, and
     // the studio's nameTaken sentence never reaches the card.
     memory.answer("videos.rename", async () => {
-      throw new Error('Another video is already called "Sign up".');
+      throw new Error('Another flow is already called "Sign up".');
     });
     await import("../../../pages/entrypoints/library/main");
     const field = (await invoiceCard()).querySelector(
@@ -217,7 +215,7 @@ describe("library main — videos", () => {
       return text;
     });
     expect(status).toBe(
-      'Couldn\'t rename: Another video is already called "Sign up".',
+      'Couldn\'t rename: Another flow is already called "Sign up".',
     );
     expect(
       card(INVOICE)?.querySelector<HTMLInputElement>("[data-name]")?.value,
@@ -257,7 +255,13 @@ describe("library main — videos", () => {
       ).toEqual([["inv-3"]]);
     });
     // Red: ask DELETE_DEMO for both ("removes the video").
-    expect(confirmDialog.ask.mock.calls[0]?.[0]).toEqual(DELETE_VERSION);
+    expect(confirmDialog.ask.mock.calls[0]?.[0]).toEqual(
+      deleteVideoOf(3, "Create an invoice"),
+    );
+    await vi.waitFor(() => {
+      const said = document.querySelector("[data-toast-text]")?.textContent;
+      if (said !== "Deleted the video") throw new Error(`toast: ${said}`);
+    });
     (
       (await invoiceCard()).querySelector(
         '.row-title [data-action="delete"]',
@@ -269,9 +273,13 @@ describe("library main — videos", () => {
       ).toEqual([[INVOICE]]);
     });
     // The card says how many recordings go: the video's three.
-    expect(confirmDialog.ask.mock.calls[1]?.[0]).toEqual(deleteVideo(3));
+    expect(confirmDialog.ask.mock.calls[1]?.[0]).toEqual(deleteFlow(3));
     await vi.waitFor(() => {
       if (card(INVOICE) !== null) throw new Error("the card is still drawn");
+    });
+    await vi.waitFor(() => {
+      const said = document.querySelector("[data-toast-text]")?.textContent;
+      if (said !== "Deleted the flow") throw new Error(`toast: ${said}`);
     });
   });
 
@@ -356,7 +364,7 @@ describe("library main — videos", () => {
     });
     expect(signup.querySelector('[data-action="edit"]')).toBeNull();
     expect(signup.querySelector("[data-rerun-line]")?.textContent).toBe(
-      refilmLine(SIGNUP).replace(/`/g, ""),
+      `Expired — ${refilmLine(SIGNUP).replace(/`/g, "").replace(/^A/, "a")}`,
     );
     try {
       signup.click();
@@ -375,7 +383,7 @@ describe("library main — videos", () => {
     memory.answer("scenes.remove", async () => ({
       ok: false,
       error: "takeBusy",
-      detail: "This take is being exported by an agent",
+      detail: "This video is being exported by an agent",
     }));
     await import("../../../pages/entrypoints/library/main");
     (
@@ -397,7 +405,7 @@ describe("library main — videos", () => {
     confirmDialog.ask.mockReset().mockResolvedValue(true);
     memory.answer("videos.remove", async () => ({
       ok: true,
-      partly: "only 1 of its 3 recordings went, then one was refused",
+      partly: "only 1 of its 3 videos went, then one was refused",
     }));
     await import("../../../pages/entrypoints/library/main");
     (
@@ -407,7 +415,7 @@ describe("library main — videos", () => {
     ).click();
     await vi.waitFor(() => {
       expect(document.querySelector("#notice")?.textContent).toBe(
-        "Partly deleted: only 1 of its 3 recordings went, then one was refused.",
+        "Partly deleted: only 1 of its 3 videos went, then one was refused.",
       );
     });
   });
@@ -416,8 +424,8 @@ describe("library main — videos", () => {
     confirmDialog.ask.mockReset().mockResolvedValue(true);
     memory = seed({
       unreadable: [
-        { folder: "joining takes to videos", reason: "EACCES", kind: "upkeep" },
-        { folder: "expiring old recordings", reason: "EACCES", kind: "upkeep" },
+        { folder: "joining videos to flows", reason: "EACCES", kind: "upkeep" },
+        { folder: "expiring old videos", reason: "EACCES", kind: "upkeep" },
         {
           folder: "0b5d2a6e-1c3f-4e8a-9b7d-2f4c6a8e0b1d",
           reason: "not JSON",
@@ -439,8 +447,8 @@ describe("library main — videos", () => {
         r.querySelector('[data-action="delete"]') !== null,
       ]),
     ).toEqual([
-      ["joining takes to videos", false],
-      ["expiring old recordings", false],
+      ["joining videos to flows", false],
+      ["expiring old videos", false],
       ["0b5d2a6e-1c3f-4e8a-9b7d-2f4c6a8e0b1d", true],
     ]);
     (

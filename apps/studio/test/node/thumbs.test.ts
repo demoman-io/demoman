@@ -367,7 +367,7 @@ describe("createThumbs", () => {
       status: 404,
       refusal: {
         reason: "takeNotFound",
-        detail: `There is no take "${doomed.takeId}" in ${real.root}.`,
+        detail: `There is no video "${doomed.takeId}" in ${real.root}.`,
       },
     });
     expect(await readdir(join(home, "takes"))).not.toContain(doomed.takeId);

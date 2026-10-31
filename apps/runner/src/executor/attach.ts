@@ -108,7 +108,7 @@ export interface AttachDeps {
 /** What a person can do when gh cannot be used, or the video cannot be
  *  copied to post: a capped export, whose file a drag-in takes. */
 const BY_HAND =
-  "To attach it by hand, export({ takeId, maxMB: 9.5 }) and give the user that file.path to drag into the PR; the browser refuses video over 10 MB on a free plan.";
+  "To attach it by hand, export({ videoId, maxMB: 9.5 }) and give the user that file.path to drag into the PR; the browser refuses video over 10 MB on a free plan.";
 
 const NO_PR_FOR_BRANCH = /no pull requests found for branch/;
 
@@ -293,7 +293,7 @@ function args(raw: Record<string, unknown>):
   const takeId = typeof raw.takeId === "string" ? raw.takeId.trim() : "";
   if (takeId === "") {
     return bad(
-      `takeId must name a take; got ${JSON.stringify(raw.takeId) ?? "nothing"}`,
+      `videoId must name a video; got ${JSON.stringify(raw.takeId) ?? "nothing"}`,
     );
   }
   if (raw.into !== "description" && raw.into !== "comment") {
@@ -746,7 +746,7 @@ export async function lineFor(
     .catch((error: unknown) => ({ threw: messageOf(error) }));
   if ("threw" in read) {
     deps.log(
-      `attach: take ${takeId}'s report.json could not be read (${read.threw})`,
+      `attach: video ${takeId}'s report.json could not be read (${read.threw})`,
     );
   } else if ("missing" in read) {
     verdict = { none: "no run report on disk, so no verdict" };
@@ -761,7 +761,7 @@ export async function lineFor(
     } catch (error) {
       // JSON, but not the shape prVerdict reads (an older or damaged report).
       deps.log(
-        `attach: take ${takeId}'s report.json is not a run report (${messageOf(error)})`,
+        `attach: video ${takeId}'s report.json is not a run report (${messageOf(error)})`,
       );
     }
   }
@@ -794,10 +794,10 @@ async function labelOf(
   try {
     const scene = await deps.export.library.getScene(takeId);
     if (scene !== null) return sceneLabel(scene.meta);
-    deps.log(`attach: take ${takeId}'s scene is gone; labelled by its file`);
+    deps.log(`attach: video ${takeId}'s scene is gone; labelled by its file`);
   } catch (error) {
     deps.log(
-      `attach: take ${takeId}'s scene could not be read for its label (${messageOf(error)}); labelled by its file`,
+      `attach: video ${takeId}'s scene could not be read for its label (${messageOf(error)}); labelled by its file`,
     );
   }
   return basename(path).replace(/\.mp4$/i, "");

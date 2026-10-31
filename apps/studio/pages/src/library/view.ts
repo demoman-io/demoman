@@ -4,6 +4,7 @@ import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
 import { previewText } from "./preview";
+import type { Selection } from "./selection";
 import type {
   LibraryModel,
   LibraryRow,
@@ -70,6 +71,136 @@ export interface LibraryActions {
   /** Open Needs a look, the drift review, from this card's flag. Named by
    *  the card so the page can let a rename on it land first, as Edit does. */
   openReview?(sceneId: string): void;
+  /** A flow's checkbox, or its card while anything is ticked: tick or
+   *  untick it, or with Shift the range from the last one ticked over
+   *  `visibleOrder`, the flows in open sections in page order. Absent, and
+   *  no card carries a checkbox. */
+  select?(
+    videoId: string,
+    shift: boolean,
+    visibleOrder: readonly string[],
+  ): void;
+  /** The selection bar's Cancel. */
+  clearSelection?(): void;
+  /** The selection bar's Delete: the page asks once, then deletes. */
+  deleteSelected?(): void;
+}
+
+/** An expired video's line leads with the fact (spec 2026-10-30
+ *  flows-and-bulk-delete §1.1); the platform's line alone is how to film
+ *  it again, which the editor also says for a video with no frames. */
+const expiredLine = (
+  expired: boolean | undefined,
+  line: string | null | undefined,
+): string | null =>
+  line == null
+    ? null
+    : expired === true
+      ? `Expired — ${line.charAt(0).toLowerCase()}${line.slice(1)}`
+      : line;
+
+/** The flows in open sections, in page order: what a shift-click ranges
+ *  over. Read at the click, so a section folded since the render counts. */
+function visibleFlows(from: Element): string[] {
+  const library = from.closest("[data-library]") ?? from.ownerDocument;
+  return [
+    ...library.querySelectorAll<HTMLInputElement>(
+      "details[open] [data-select]",
+    ),
+  ].map((box) => box.dataset.select as string);
+}
+
+/** The bar that stands over the list while flows are ticked: the count,
+ *  Cancel and Delete, and what a bulk delete left behind. Built once and
+ *  filled in place (`fillBar`), so a tick never replaces a control. */
+function selectionBar(actions: LibraryActions): HTMLElement {
+  const bar = el("div", { class: "selection-bar", "data-selection-bar": "" });
+  const cancel = el(
+    "button",
+    {
+      type: "button",
+      class: "btn btn-quiet",
+      "data-action": "cancel-selection",
+    },
+    "Cancel",
+  );
+  cancel.addEventListener("click", () => actions.clearSelection?.());
+  const remove = el(
+    "button",
+    {
+      type: "button",
+      class: "btn btn-danger",
+      "data-action": "delete-selected",
+    },
+    "Delete",
+  );
+  remove.addEventListener("click", () => actions.deleteSelected?.());
+  bar.append(
+    el("span", { class: "selection-count", "data-selection-count": "" }),
+    cancel,
+    remove,
+    el("p", {
+      class: "selection-said",
+      "data-selection-said": "",
+      role: "status",
+    }),
+  );
+  return bar;
+}
+
+function fillBar(
+  bar: HTMLElement,
+  count: number,
+  bulk: { busy: boolean; said: string | null } | undefined,
+): void {
+  const flows = `${count} ${count === 1 ? "flow" : "flows"}`;
+  const busy = bulk?.busy === true;
+  (bar.querySelector("[data-selection-count]") as HTMLElement).textContent =
+    busy ? `Deleting ${flows}…` : `${flows} selected`;
+  for (const b of bar.querySelectorAll("button")) b.disabled = busy;
+  const said = bar.querySelector("[data-selection-said]") as HTMLElement;
+  said.textContent = bulk?.said ?? "";
+  said.hidden = bulk?.said == null;
+}
+
+/**
+ * Shows `selection` on the cards already drawn — each flow's tick and ring,
+ * the page's selecting state, the bar — changing them in place. A tick is
+ * page state, not a new library: re-rendering the list for one replaced the
+ * box under the pointer, and Chrome then threw the page screens up, away
+ * from the card just ticked (the author, 2026-10-30, at the foot of the
+ * library); it also cleared every card's thumbnail.
+ */
+export function applySelection(
+  root: HTMLElement,
+  actions: LibraryActions,
+  selection: Selection | undefined,
+  bulk?: { busy: boolean; said: string | null },
+): void {
+  const selected: ReadonlySet<string> =
+    actions.select === undefined ? new Set() : (selection?.ids ?? new Set());
+  root.toggleAttribute("data-selecting", selected.size > 0);
+  // Shut while a bulk delete runs: a box unticked then would look spared
+  // while the run, which took its list at the start, deletes it.
+  const busy = bulk?.busy === true;
+  for (const box of root.querySelectorAll<HTMLInputElement>("[data-select]")) {
+    const on = selected.has(box.dataset.select as string);
+    box.checked = on;
+    box.disabled = busy;
+    box.closest("article")?.toggleAttribute("data-selected", on);
+  }
+  let bar = root.querySelector<HTMLElement>("[data-selection-bar]");
+  if (selected.size === 0) {
+    bar?.remove();
+    return;
+  }
+  if (bar === null) {
+    const notices = headers.get(root)?.notices;
+    if (notices === undefined) return;
+    bar = selectionBar(actions);
+    notices.after(bar);
+  }
+  fillBar(bar, selected.size, bulk);
 }
 
 const GB = 1024 ** 3;
@@ -343,7 +474,7 @@ function createHeader(withStorage: boolean): Header {
     el(
       "p",
       { class: "storage-hint" },
-      "Clears cached exports, then hosted takes' motion, oldest first, until the library fits its budget.",
+      "Clears cached exports, then hosted videos' motion, oldest first, until the library fits its budget.",
     ),
   );
 
@@ -355,7 +486,7 @@ function createHeader(withStorage: boolean): Header {
     foot,
   );
   storage.append(trigger, panel);
-  side.append(el("h1", {}, "Recordings"), jumps);
+  side.append(el("h1", {}, "Flows"), jumps);
   content.append(notices);
   box.append(side, content);
   // The page's top bar carries a slot for it, left of the theme switch
@@ -419,7 +550,7 @@ function headerNotices(model: LibraryModel): HTMLElement[] {
       el(
         "p",
         { "data-migrating": "", class: "notice" },
-        "Measuring existing demos…",
+        "Measuring existing videos…",
       ),
     );
   }
@@ -433,7 +564,7 @@ function headerNotices(model: LibraryModel): HTMLElement[] {
       el(
         "p",
         { "data-migration-failed": "", class: "notice notice-warn" },
-        "Measuring existing demos failed, so sizes below may be wrong. Open the extension's error log if this keeps happening.",
+        "Measuring existing videos failed, so sizes below may be wrong. Open the extension's error log if this keeps happening.",
       ),
     );
   }
@@ -451,7 +582,7 @@ function headerNotices(model: LibraryModel): HTMLElement[] {
       el(
         "p",
         { "data-unwatched": "", class: "notice notice-warn" },
-        `New takes will not show until you reload — ${model.unwatched}.`,
+        `New videos will not show until you reload — ${model.unwatched}.`,
       ),
     );
   }
@@ -510,7 +641,7 @@ function tags(r: LibraryRow, actions: LibraryActions): HTMLElement | null {
         "data-state-chip": "",
         class: "tag tag-warn",
         title: r.authored
-          ? "Its motion was reclaimed to free space; Restore opens Runs to run its script again, which makes a new take"
+          ? "Its motion was reclaimed to free space; Restore opens Runs to run its script again, which makes a new video"
           : "Its motion was reclaimed to free space; Restore re-shoots it in Runs",
       }),
     );
@@ -518,7 +649,7 @@ function tags(r: LibraryRow, actions: LibraryActions): HTMLElement | null {
     strip.append(
       tag("image", r.state, {
         "data-state-chip": "",
-        title: "No motion was recorded for this take",
+        title: "No motion was recorded for this video",
       }),
     );
   }
@@ -593,7 +724,7 @@ function nameField(
     type: "text",
     id: nameFieldId(r.sceneId),
     "data-name": "",
-    "aria-label": group === null ? "Demo name" : "Video name",
+    "aria-label": group === null ? "Video name" : "Flow name",
     // The full name, for the pointer: a long one is clipped at rest.
     title: name,
     placeholder: "Untitled",
@@ -638,6 +769,7 @@ function row(
   /** Whether the video's versions were open before this render. */
   versionsOpen: boolean,
 ): HTMLElement {
+  const flowId = group?.video.id ?? null;
   const article = el("article", {
     class: "card",
     "data-row": r.sceneId,
@@ -669,12 +801,36 @@ function row(
     const target = event.target as HTMLElement;
     if (nameWasFocused) return;
     if (target.closest("button, input, a, [data-versions]")) return;
+    // While flows are ticked a click on a flow's card ticks it too, as in
+    // a photo library; a take in no flow still opens.
+    if (flowId !== null && article.closest("[data-selecting]") !== null) {
+      actions.select?.(flowId, event.shiftKey, visibleFlows(article));
+      return;
+    }
     if ((window.getSelection()?.toString() ?? "") !== "") return;
     // An expired recording has nothing to open: its line says what to do.
     if (r.expired === true) return;
     actions.edit(r.sceneId);
   });
-  article.append(previewBox(r, actions));
+  const preview = previewBox(r, actions);
+  if (flowId !== null && actions.select !== undefined) {
+    const name = group?.video.name || r.label;
+    const box = el("input", {
+      type: "checkbox",
+      class: "select-box",
+      "data-select": flowId,
+      "aria-label": `Select ${name}`,
+    });
+    box.addEventListener("click", (event) => {
+      // The box toggles itself and the page sets every box from its
+      // selection in the same turn (`applySelection`). Not cancelled: a
+      // cancelled click puts the box's old state back after the handler,
+      // over the one just set.
+      actions.select?.(flowId, event.shiftKey, visibleFlows(box));
+    });
+    preview.append(box);
+  }
+  article.append(preview);
 
   const buttons = el("div", { class: "row-actions" });
   if (r.servesReshoot) {
@@ -682,9 +838,9 @@ function row(
       type: "button",
       "data-action": "back-to-recording",
       class: "btn btn-quiet btn-icon",
-      "aria-label": `Back to your recording: ${r.label}`,
+      "aria-label": `Back to the original footage: ${r.label}`,
       title:
-        "Back to your recording — this take plays its re-shot frames; its recording is kept",
+        "Back to the original footage — this video plays its re-shot frames; its original footage is kept",
     });
     back.append(icon("undo"));
     back.addEventListener("click", () => actions.backToRecording(r.sceneId));
@@ -694,7 +850,7 @@ function row(
   // says.
   const rerunLine =
     r.canRestore || r.expired === true
-      ? (actions.rerunLine?.(r.sceneId, r.authored) ?? null)
+      ? expiredLine(r.expired, actions.rerunLine?.(r.sceneId, r.authored))
       : null;
   if (r.canRestore && rerunLine === null) {
     const restore = el("button", {
@@ -703,7 +859,7 @@ function row(
       class: "btn btn-quiet btn-icon",
       "aria-label": `Restore motion: ${r.label}`,
       title: r.authored
-        ? "Restore motion — run its script again in Runs; a script-made take cannot be re-shot, so this makes a new take"
+        ? "Restore motion — run its script again in Runs; a script-made video cannot be re-shot, so this makes a new video"
         : "Restore motion — re-shoot it in Runs",
     });
     restore.append(icon("restore"));
@@ -831,7 +987,7 @@ function versionList(
   const summary = el("summary", { class: "versions-count" });
   const chev = icon("chevronRight");
   chev.classList.add("chev");
-  summary.append(chev, `${group.versions.length} versions`);
+  summary.append(chev, `${group.versions.length} videos`);
   box.append(summary);
   const list = el("ol", { class: "versions-list" });
   for (const v of group.versions) {
@@ -842,20 +998,20 @@ function versionList(
     });
     const head = el("div", { class: "version-head" });
     head.append(
-      el("span", { class: "version-number" }, `v${v.version ?? "?"}`),
+      el("span", { class: "version-number" }, `Video ${v.version ?? "?"}`),
       el("span", { class: "version-when", title: v.when }, v.when),
     );
     const buttons = el("div", { class: "row-actions" });
     const line =
       v.expired === true
-        ? (actions.rerunLine?.(v.sceneId, v.authored) ?? null)
+        ? expiredLine(true, actions.rerunLine?.(v.sceneId, v.authored))
         : null;
     if (v.expired !== true) {
       const edit = el("button", {
         type: "button",
         "data-action": "edit",
         class: "btn btn-quiet btn-icon",
-        "aria-label": `Edit version ${v.version ?? ""} of ${group.video.name}`,
+        "aria-label": `Edit video ${v.version ?? ""} of ${group.video.name}`,
         title: "Edit",
       });
       edit.append(icon("clapperboard"));
@@ -866,7 +1022,7 @@ function versionList(
       type: "button",
       "data-action": "delete",
       class: "btn btn-quiet btn-icon btn-danger",
-      "aria-label": `Delete version ${v.version ?? ""} of ${group.video.name}`,
+      "aria-label": `Delete video ${v.version ?? ""} of ${group.video.name}`,
       title: "Delete",
     });
     remove.append(icon("trash"));
@@ -1203,6 +1359,10 @@ export function renderLibrary(
   /** The clock the sections are measured from. Injected so a test can sit
    *  on midnight; the page takes the real one. */
   now: Date = new Date(),
+  /** The flows ticked for a bulk delete (`selection.ts`). */
+  selection?: Selection,
+  /** A bulk delete under way, or what the last one left behind. */
+  bulk?: { busy: boolean; said: string | null },
 ): void {
   // A name the author is typing on one card survives a render another
   // card's rename triggers: its text, focus and caret move
@@ -1239,6 +1399,7 @@ export function renderLibrary(
     }
   };
   if (model.rows.length === 0) {
+    applySelection(root, actions, undefined);
     // A library of only unreadable folders is not empty: the empty card
     // would hide the rows that say what is wrong.
     if (unreadable.length > 0) {
@@ -1251,7 +1412,7 @@ export function renderLibrary(
     card.append(
       emptyState(
         "monitorPlay",
-        "No recordings yet",
+        "No flows yet",
         model.emptyHint ?? EXTENSION_FIRST_TAKE_HINT,
       ),
     );
@@ -1295,4 +1456,5 @@ export function renderLibrary(
     );
   }
   restoreTyping(root, typing);
+  applySelection(root, actions, selection, bulk);
 }

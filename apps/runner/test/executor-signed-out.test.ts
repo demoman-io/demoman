@@ -150,7 +150,7 @@ it("re-labels a run that stopped on a sign-in page mid-run as signedOut, keeping
   expect(report.steps?.[3]?.pageUrl).toContain("/login");
   expect(report.stopped?.reason).toBe("signedOut");
   expect(report.stopped?.detail).not.toContain("Nothing was recorded.");
-  expect(report.stopped?.detail).toContain("The take was not kept");
+  expect(report.stopped?.detail).toContain("The video was not kept");
   // The run's own stop is not erased by the re-label.
   expect(report.stopped?.detail).toContain(
     `The run itself stopped at script step 4: ${reasonSentence("unresolvedAnchor")}.`,

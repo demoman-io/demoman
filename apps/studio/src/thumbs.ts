@@ -143,7 +143,7 @@ export function createThumbs(o: {
     refused(
       404,
       "takeNotFound",
-      `There is no take "${id}" in ${library.root}.`,
+      `There is no video "${id}" in ${library.root}.`,
     );
 
   return {
@@ -156,7 +156,7 @@ export function createThumbs(o: {
       } catch (error) {
         throw new LibraryError(
           "libraryUnreadable",
-          `could not read take ${id}'s frame bundle (${messageOf(error)})`,
+          `could not read video ${id}'s frame bundle (${messageOf(error)})`,
         );
       }
       // Only a keyframe the bundle lists: a motion span is not a picture.
@@ -164,7 +164,7 @@ export function createThumbs(o: {
         return refused(
           404,
           "frameNotFound",
-          `Take ${id} holds no frame "${ref}".`,
+          `Video ${id} holds no frame "${ref}".`,
         );
       }
       const dir = join(library.takeDir(id), "thumbs");

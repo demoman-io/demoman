@@ -50,11 +50,11 @@ import type { HomeFeeds } from "./watch.js";
 /** The Global Constraints sentence for a lost save race, with what to do
  *  (ruling R19): the page keeps refusing until it is reopened. */
 export const CHANGED_ELSEWHERE =
-  "This take changed in another window. Reopen it to keep editing.";
+  "This video changed in another window. Reopen it to keep editing.";
 /** The Global Constraints sentences for a delete during an export. */
 export const TAKE_BUSY = {
-  agent: "This take is being exported by an agent.",
-  studio: "This take is being exported by the Studio.",
+  agent: "This video is being exported by an agent.",
+  studio: "This video is being exported by the Studio.",
 } as const;
 
 /** What a delete cleared or left behind, each said as a clause. */
@@ -163,15 +163,15 @@ export function createRoutes(o: {
         }
         if (joined.deferred !== null) {
           rows.push({
-            folder: "joining takes to videos",
-            reason: `some takes are not in a video yet: ${joined.deferred}; they join next time`,
+            folder: "joining videos to flows",
+            reason: `some videos are not in a flow yet: ${joined.deferred}; they join next time`,
             kind: "upkeep",
           });
         }
       } catch (error) {
         rows.push({
-          folder: "joining takes to videos",
-          reason: `takes could not be grouped into videos (${messageOf(error)})`,
+          folder: "joining videos to flows",
+          reason: `videos could not be grouped into flows (${messageOf(error)})`,
           kind: "upkeep",
         });
       }
@@ -181,9 +181,9 @@ export function createRoutes(o: {
       const last = "skipped" in expiry ? await expiryStatus(library) : expiry;
       if ("failed" in last || "unreadable" in last) {
         rows.push({
-          folder: "expiring old recordings",
+          folder: "expiring old videos",
           kind: "upkeep",
-          reason: `old recordings could not be expired (${"failed" in last ? last.failed : last.unreadable})`,
+          reason: `old videos could not be expired (${"failed" in last ? last.failed : last.unreadable})`,
         });
       }
       for (const r of rows) log(`studio: ${r.folder}: ${r.reason}`);
@@ -249,7 +249,7 @@ export function createRoutes(o: {
       } catch (error) {
         say({
           folder: v.id,
-          reason: `the video "${v.name}" could not be read (${messageOf(error)})`,
+          reason: `the flow "${v.name}" could not be read (${messageOf(error)})`,
           kind: "video",
         });
       }
@@ -258,7 +258,11 @@ export function createRoutes(o: {
   }
 
   const noTake = (id: string): StudioResponse =>
-    refuse(404, "takeNotFound", `There is no take "${id}" in ${library.root}.`);
+    refuse(
+      404,
+      "takeNotFound",
+      `There is no video "${id}" in ${library.root}.`,
+    );
 
   /** Whether `id` names a take on disk; false for an id that could not. */
   async function takeExists(id: string): Promise<boolean> {
@@ -308,7 +312,7 @@ export function createRoutes(o: {
     };
 
   const noVideo = (id: string): StudioResponse =>
-    refuse(404, "videoNotFound", `There is no video "${id}".`);
+    refuse(404, "videoNotFound", `There is no flow "${id}".`);
 
   /** A delete refused over an export lease, by the first live holder's door. */
   const busy = (
@@ -343,7 +347,7 @@ export function createRoutes(o: {
         try {
           sizes[id] = await folderBytes(library.takeDir(id));
         } catch (error) {
-          log(`studio: take ${id}'s size is left out: ${messageOf(error)}`);
+          log(`studio: video ${id}'s size is left out: ${messageOf(error)}`);
         }
       };
       // Every take at once, then put back in the listing's order: each
@@ -417,7 +421,7 @@ export function createRoutes(o: {
         return refuse(
           428,
           "changedElsewhere",
-          "The save carried no revision (If-Match), so it could not be checked against the take on disk.",
+          "The save carried no revision (If-Match), so it could not be checked against the video on disk.",
         );
       }
       const body = await bodyJson(req);
@@ -442,7 +446,7 @@ export function createRoutes(o: {
         return refuse(
           400,
           "sceneInvalid",
-          `The scene was not saved: it is take "${doc.meta.id}", sent to take "${id}".`,
+          `The scene was not saved: it is video "${doc.meta.id}", sent to video "${id}".`,
         );
       }
       return sceneWrites(id, async () => {
@@ -483,7 +487,7 @@ export function createRoutes(o: {
           const parts = noteParts(done);
           if (unread !== null) {
             parts.push(
-              `which video this take was a version of could not be read (${unread}), so that video may be left with no versions`,
+              `which flow this video was in could not be read (${unread}), so that flow may be left with no videos`,
             );
           } else if (videoId !== null) {
             // Its last version gone, the video goes too: a video with no
@@ -494,7 +498,7 @@ export function createRoutes(o: {
               }
             } catch (error) {
               parts.push(
-                `its video could not be checked for versions left (${messageOf(error)})`,
+                `its flow could not be checked for videos left (${messageOf(error)})`,
               );
             }
           }
@@ -511,7 +515,7 @@ export function createRoutes(o: {
         return refuse(
           400,
           "videoNameInvalid",
-          `The video was not renamed: ${body.error}.`,
+          `The flow was not renamed: ${body.error}.`,
         );
       }
       const name = (body.value as { name?: unknown } | null)?.name;
@@ -519,7 +523,7 @@ export function createRoutes(o: {
         return refuse(
           400,
           "videoNameInvalid",
-          "The video was not renamed: a video needs a name.",
+          "The flow was not renamed: a flow needs a name.",
         );
       }
       const done = await onVideoChain(() => videos.rename(id, name.trim()));
@@ -528,7 +532,7 @@ export function createRoutes(o: {
       return refuse(
         409,
         "nameTaken",
-        `Another video is already called "${done.holder.name}".`,
+        `Another flow is already called "${done.holder.name}".`,
       );
     },
 
@@ -548,7 +552,7 @@ export function createRoutes(o: {
           // removes the record alone, and its recordings stay as takes.
           await videos.remove(id);
           const answer: DeleteAnswer = {
-            note: "Only the unreadable record was removed; its recordings stay as takes.",
+            note: "Only the unreadable record was removed; its videos stay.",
           };
           return json(200, answer);
         }
@@ -579,7 +583,7 @@ export function createRoutes(o: {
           const door = done.holders[0]?.door ?? "agent";
           const answer: DeleteAnswer = {
             note: noteOf(parts),
-            partly: `only ${deleted} of its ${total} recordings went, then one was refused — ${TAKE_BUSY[door].replace(/\.$/, "")}`,
+            partly: `only ${deleted} of its ${total} videos went, then one was refused — ${TAKE_BUSY[door].replace(/\.$/, "")}`,
           };
           return json(200, answer);
         }
@@ -591,7 +595,7 @@ export function createRoutes(o: {
       } catch (error) {
         const answer: DeleteAnswer = {
           note: noteOf(parts),
-          partly: `${total === 1 ? "its recording" : `its ${total} recordings`} went, but its record could not be removed (${messageOf(error)})`,
+          partly: `${total === 1 ? "its video" : `its ${total} videos`} went, but its record could not be removed (${messageOf(error)})`,
         };
         return json(200, answer);
       }
@@ -610,7 +614,7 @@ export function createRoutes(o: {
       } catch (error) {
         throw new LibraryError(
           "libraryUnreadable",
-          `could not read take ${id}'s frame bundle (${messageOf(error)})`,
+          `could not read video ${id}'s frame bundle (${messageOf(error)})`,
         );
       }
       const statusPath = join(library.takeDir(id), "status.json");
@@ -663,7 +667,7 @@ export function createRoutes(o: {
         return refuse(
           404,
           "frameNotFound",
-          `Take ${id} holds no frame "${ref}".`,
+          `Video ${id} holds no frame "${ref}".`,
         );
       }
       const bytes = await store.load(ref);
@@ -928,7 +932,7 @@ export function createRoutes(o: {
         return refuse(
           403,
           "revealRefused",
-          `${path} is not an export any take lists, so it is not shown.`,
+          `${path} is not an export any video lists, so it is not shown.`,
         );
       }
       if (listed === "gone") {
@@ -960,7 +964,7 @@ export function createRoutes(o: {
         rows = await library.outputs(entry.id);
       } catch (error) {
         log(
-          `studio: reveal could not check take ${entry.id}'s exports: ${messageOf(error)}`,
+          `studio: reveal could not check video ${entry.id}'s exports: ${messageOf(error)}`,
         );
         continue;
       }

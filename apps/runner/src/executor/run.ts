@@ -241,7 +241,7 @@ export async function recordEncodeLosses(
   }
   await store.putBundle(sceneId, bundle).catch((error: unknown) => {
     log(
-      `the take's bundle could not be rewritten after its motion was encoded — the bundle on disk does not say that ${losses.length} span(s) lost frames${removed.size > 0 ? `, and may still name ${removed.size} span(s) with no video behind them` : ""} (${messageOf(error)})`,
+      `the video's bundle could not be rewritten after its motion was encoded — the bundle on disk does not say that ${losses.length} span(s) lost frames${removed.size > 0 ? `, and may still name ${removed.size} span(s) with no video behind them` : ""} (${messageOf(error)})`,
     );
   });
 }
@@ -570,7 +570,7 @@ export async function runScript(
     // Frames with no take to belong to: removed, and said if they cannot be.
     await library.removeTake(sceneId).catch((error: unknown) => {
       log(
-        `the run's frames have no take and could not be removed from ${library.takeDir(sceneId)} (${messageOf(error)})`,
+        `the run's frames have no video and could not be removed from ${library.takeDir(sceneId)} (${messageOf(error)})`,
       );
     });
   } else {
@@ -579,7 +579,7 @@ export async function runScript(
     // the take.
     await store.dropParked(`${sceneId}:replay`).catch((error: unknown) => {
       log(
-        `the run's raw frames could not be removed from ${library.takeDir(sceneId)} after encoding; the take is whole, they only hold space (${messageOf(error)})`,
+        `the run's raw frames could not be removed from ${library.takeDir(sceneId)} after encoding; the video is whole, they only hold space (${messageOf(error)})`,
       );
     });
   }
@@ -652,7 +652,7 @@ export async function runScript(
   // After the take is whole (scene, frames muxed): the film as it exports.
   const still: FinalStill =
     takeId === null
-      ? { unavailable: "the run made no take, so there is no film to show" }
+      ? { unavailable: "the run made no video, so there is no film to show" }
       : deps.finalStill === undefined
         ? { unavailable: "this run was not asked to render a still" }
         : await withinDeadline(
@@ -686,7 +686,7 @@ export async function runScript(
       )
       .catch((error: unknown) => {
         log(
-          `the run's report could not be written beside the take (${messageOf(error)})`,
+          `the run's report could not be written beside the video (${messageOf(error)})`,
         );
       });
   }

@@ -20,6 +20,7 @@ import {
   prVerdict,
   type RunReport,
   serializeKept,
+  servedRunReport,
 } from "@demoman/run-core";
 import type { DemoScript } from "@demoman/scene-schema";
 import { codeClause, prLine } from "./attach.js";
@@ -372,7 +373,7 @@ async function filmOne(
   if (unclean !== null) return { failed: unclean };
   const report = answer as unknown as RunReport;
   const takeId = report.provenance.takeId;
-  if (takeId === null) return { failed: "the run is clean but made no take" };
+  if (takeId === null) return { failed: "the run is clean but made no video" };
 
   const rendered: string[] = [];
   const renderedScreens: KeptScreens[] = [];
@@ -409,7 +410,7 @@ async function filmOne(
       "value" in read
         ? { value: read.value }
         : {
-            not: `take ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
+            not: `video ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
           };
   }
   return {
@@ -534,7 +535,10 @@ async function replaceOne(
     if (changed) {
       if (kept.report !== null && stored !== null) {
         if ("value" in stored)
-          await put(kept.report, `${JSON.stringify(stored.value, null, 2)}\n`);
+          await put(
+            kept.report,
+            `${JSON.stringify(servedRunReport(stored.value as RunReport), null, 2)}\n`,
+          );
         else notes.push(`${kept.report} was not written: ${stored.not}`);
       }
       // Last: the kept file says what the committed video now shows.

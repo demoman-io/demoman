@@ -17,7 +17,7 @@ import {
  * - the Exports group drawn with no outputs: its absence case fails.
  */
 
-const REFILM = 'run({ video: { id: "scene-1" } })';
+const REFILM = 'run({ flow: { id: "scene-1" } })';
 
 const ROUTE = {
   takeId: "scene-1",
@@ -77,8 +77,8 @@ describe("Take info", () => {
     const facts = Object.fromEntries(rows());
     expect(facts.Site).toBe("northwind.example/checkout");
     expect(facts.Length).toBe("0:09 · 14 steps");
-    expect(facts.Recording).toBe("1280 × 800");
-    expect(facts.Video).toBe("1920 × 1080 · 16:9");
+    expect(facts.Source).toBe("1280 × 800");
+    expect(facts.Export).toBe("1920 × 1080 · 16:9");
     // In the reader's locale; the day and the minute are in any of them.
     expect(facts.Recorded).toMatch(/19/);
     expect(facts.Recorded).toMatch(/42/);
@@ -88,7 +88,7 @@ describe("Take info", () => {
     renderTakeInfo(root, { ...base(), steps: 1, aspect: "auto" }, handlers);
     const facts = Object.fromEntries(rows());
     expect(facts.Length).toBe("0:09 · 1 step");
-    expect(facts.Video).toBe("1920 × 1080 · Auto");
+    expect(facts.Export).toBe("1920 × 1080 · Auto");
   });
 
   it("shows a site it cannot parse as recorded, not blank", () => {
@@ -99,9 +99,9 @@ describe("Take info", () => {
   it("copies the take id, and says it did", async () => {
     handlers.onCopy.mockResolvedValue(undefined);
     renderTakeInfo(root, base(), handlers);
-    const id = root.querySelector<HTMLButtonElement>('[data-copy="take ID"]');
+    const id = root.querySelector<HTMLButtonElement>('[data-copy="video ID"]');
     // Premise: the row drew, its value shown.
-    expect(Object.fromEntries(rows())["Take ID"]).toBe("scene-1");
+    expect(Object.fromEntries(rows())["Video ID"]).toBe("scene-1");
     id?.click();
     expect(handlers.onCopy.mock.calls).toEqual([["scene-1"]]);
     await vi.waitFor(() => {
@@ -118,7 +118,7 @@ describe("Take info", () => {
   it("draws no Re-film row in the Studio", () => {
     renderTakeInfo(root, base(), handlers);
     // Premise: the id row drew, so the absence is in a drawn group.
-    expect(Object.fromEntries(rows())["Take ID"]).toBe("scene-1");
+    expect(Object.fromEntries(rows())["Video ID"]).toBe("scene-1");
     expect(Object.fromEntries(rows())["Re-record"]).toBeUndefined();
     expect(root.textContent).not.toContain("run(");
   });
@@ -127,19 +127,19 @@ describe("Take info", () => {
     handlers.onCopy.mockRejectedValue(new Error("Document is not focused."));
     renderTakeInfo(root, base(), handlers);
     const error = root.querySelector<HTMLElement>(
-      '[data-copy-error="take ID"]',
+      '[data-copy-error="video ID"]',
     );
     // Premise: nothing is said before the press.
     expect(error?.hidden).toBe(true);
-    root.querySelector<HTMLButtonElement>('[data-copy="take ID"]')?.click();
+    root.querySelector<HTMLButtonElement>('[data-copy="video ID"]')?.click();
     await vi.waitFor(() => {
       if (error?.hidden !== false) throw new Error("not said yet");
     });
     expect(error?.textContent).toBe("Couldn't copy: Document is not focused.");
     // And the button did not claim success.
     expect(
-      root.querySelector('[data-copy="take ID"]')?.getAttribute("aria-label"),
-    ).toBe("Copy take ID");
+      root.querySelector('[data-copy="video ID"]')?.getAttribute("aria-label"),
+    ).toBe("Copy video ID");
   });
 
   it("draws the extension's Runs link, not a copy, when the answer is a link", () => {
@@ -150,14 +150,14 @@ describe("Take info", () => {
         rerun: {
           kind: "link",
           href: "run.html?take=scene-1",
-          label: "Re-shoot this take in Runs",
+          label: "Re-shoot this video in Runs",
         },
       },
       handlers,
     );
     const link = root.querySelector<HTMLAnchorElement>("a[data-runs-route]");
     expect(link?.getAttribute("href")).toBe("run.html?take=scene-1");
-    expect(link?.textContent).toBe("Re-shoot this take in Runs");
+    expect(link?.textContent).toBe("Re-shoot this video in Runs");
     expect(root.querySelector('[data-copy="re-film call"]')).toBeNull();
   });
 

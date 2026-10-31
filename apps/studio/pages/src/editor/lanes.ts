@@ -327,7 +327,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
       };
   for (const side of resolved?.trimUnplaced ?? []) {
     notices.push(
-      `The trim's ${side} is placed from the take's own timestamp: the last render carried no marker for its step. ${advise("to give it measured timing")}`,
+      `The trim's ${side} is placed from the video's own timestamp: the last render carried no marker for its step. ${advise("to give it measured timing")}`,
     );
   }
 
@@ -385,7 +385,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
     // trim side gets above.
     if (segment?.endUnplaced) {
       notices.push(
-        `The end of zoom "${event.id}" is placed from the take's own timestamp: the last render carried no marker for its step. ${advise("to give it measured timing")}`,
+        `The end of zoom "${event.id}" is placed from the video's own timestamp: the last render carried no marker for its step. ${advise("to give it measured timing")}`,
       );
     }
     return [
@@ -471,7 +471,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
     // drew — so it cannot carry "this is now covering more of your video".
     for (const side of cosmetic?.unplaced ?? []) {
       notices.push(
-        `The ${side} of mask "${mask.id}" is placed from the take's own timestamp: the last render carried no marker for its step, so the mask covers more of the video than it was drawn to. ${advise("to give it measured timing")}`,
+        `The ${side} of mask "${mask.id}" is placed from the video's own timestamp: the last render carried no marker for its step, so the mask covers more of the video than it was drawn to. ${advise("to give it measured timing")}`,
       );
     }
     const startMs = wholeTake
@@ -525,7 +525,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
   if (unplacedPaces > 0) {
     const pauses = unplacedPaces === 1 ? "pause" : "pauses";
     notices.push(
-      `pacingUnplaced: ${unplacedPaces} recorded ${pauses} could not be placed. The last render carried no marker for the steps they sit between, so this video is shorter than the take by however long those ${pauses} were. ${advise("to restore them")}`,
+      `pacingUnplaced: ${unplacedPaces} recorded ${pauses} could not be placed. The last render carried no marker for the steps they sit between, so this export is shorter than the video by however long those ${pauses} were. ${advise("to restore them")}`,
     );
   }
 
@@ -539,7 +539,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
   if (backwardsPaces > 0) {
     const pairs = backwardsPaces === 1 ? "pair" : "pairs";
     notices.push(
-      `pacingBackwards: ${backwardsPaces} step ${pairs} in this take carry timestamps that run backwards, so the take's order is not its time order. A re-shoot counts the pause across ${backwardsPaces === 1 ? "it" : "them"} twice and comes out longer than the take. Re-record to straighten the order; the frames you already have are unaffected.`,
+      `pacingBackwards: ${backwardsPaces} step ${pairs} in this video carry timestamps that run backwards, so the video's order is not its time order. A re-shoot counts the pause across ${backwardsPaces === 1 ? "it" : "them"} twice and comes out longer than the video. Film it again to straighten the order; the frames you already have are unaffected.`,
     );
   }
 
@@ -630,7 +630,7 @@ export function markerAt(
   const ticks = model.clip.ticks;
   const first = ticks[0];
   if (!first)
-    throw new Error("a take with no steps has nothing to attach an edit to");
+    throw new Error("a video with no steps has nothing to attach an edit to");
   let best = first;
   for (const tick of ticks) {
     const d = Math.abs(tick.atMs - ms);

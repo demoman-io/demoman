@@ -136,6 +136,38 @@ export async function matchesFor(
   return out;
 }
 
+/** Readable takes in no video (spec §2.1 `outsideFlows`), newest first: one
+ *  still inside `JOIN_GRACE_MS`, or waiting on another process's lock, after
+ *  a run could not join it. A take already under `unreadable` is not repeated. */
+async function outsideFlows(
+  store: VideoStore,
+  library: Library,
+  records: Array<VideoRecord | { id: string }>,
+  unreadable: { id: string; unreadable: string }[],
+): Promise<{ takeId: string; name: string; createdAt: string }[]> {
+  const videoIds = new Set(records.map((v) => v.id));
+  const said = new Set(unreadable.map((u) => u.id));
+  const out: { takeId: string; name: string; createdAt: string }[] = [];
+  // library.list() is newest first.
+  for (const t of await library.list()) {
+    if ("unreadable" in t || said.has(t.id)) continue;
+    let member: Awaited<ReturnType<VideoStore["videoOf"]>>;
+    try {
+      member = await store.videoOf(t.id);
+    } catch (error) {
+      unreadable.push({
+        id: t.id,
+        unreadable: `its video.json will not read, so no video lists it (${messageOf(error)})`,
+      });
+      continue;
+    }
+    if (member === null || !videoIds.has(member.videoId)) {
+      out.push({ takeId: t.id, name: t.name, createdAt: t.createdAt });
+    }
+  }
+  return out;
+}
+
 export interface VideosDeps {
   store: VideoStore;
   library: Library;
@@ -202,7 +234,7 @@ export async function videosOp(
       if (video === null) {
         return failure(
           "unknownVideo",
-          `${file} was exported from video ${tag.found.video}, which is not in this library`,
+          `${file} was exported from flow ${tag.found.video}, which is not in this library`,
         );
       }
       // Which version the file is of: the tag names its take.
@@ -219,7 +251,7 @@ export async function videosOp(
             version === undefined
               ? {
                   takeId,
-                  notInVideo: `take ${takeId} is no longer a version of "${video.name}" (it was deleted, or its video.json will not read)`,
+                  notInVideo: `video ${takeId} is no longer in "${video.name}" (it was deleted, or its video.json will not read)`,
                 }
               : {
                   takeId,
@@ -262,7 +294,15 @@ export async function videosOp(
             .filter((v) => v.hits > 0)
             .sort((a, b) => b.hits - a.hits || byNewest(a, b))
     ).map((v) => v.summary);
-    return { ok: true, value: { videos, unreadable, deferred } };
+    return {
+      ok: true,
+      value: {
+        videos,
+        outsideFlows: await outsideFlows(store, library, records, unreadable),
+        unreadable,
+        deferred,
+      },
+    };
   } catch (error) {
     if (error instanceof VideoError)
       return failure(error.reason, error.message);

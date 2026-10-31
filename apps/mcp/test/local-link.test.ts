@@ -14,9 +14,9 @@ const fake = (version: string | null) => ({
 describe("localLink", () => {
   it("passes requests straight to the executor", async () => {
     const link = localLink(fake(null));
-    expect(await link.request("takes", { a: 1 })).toEqual({
+    expect(await link.request("videos", { a: 1 })).toEqual({
       ok: true,
-      value: { op: "takes", args: { a: 1 } },
+      value: { op: "videos", args: { a: 1 } },
     });
   });
   it("reports no browser until one has launched, then its version", () => {

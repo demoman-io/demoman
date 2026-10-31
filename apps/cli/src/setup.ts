@@ -1292,6 +1292,6 @@ function warmStart(d: SetupDeps, usable: AgentName[]): void {
   d.say(
     cold.length === 0
       ? "warm start: done"
-      : `warm start: skipped (${cold.join("; ")}); the first demo downloads Demoman as the agent starts it, which can take a minute`,
+      : `warm start: skipped (${cold.join("; ")}); the first run downloads Demoman as the agent starts it, which can take a minute`,
   );
 }

@@ -376,7 +376,7 @@ describe("mergeSkeleton", () => {
     });
     if (out.ok) return;
     expect(out.detail).toContain(
-      "derive the take, write the step as you want it, and run that draft",
+      "derive the video, write the step as you want it, and run that draft",
     );
   });
 
@@ -462,7 +462,7 @@ describe("refilmScript", () => {
       throw new Error("premise: the typed step has a hole");
     expect(out.detail).toContain(hole.sentence);
     expect(out.detail).toMatch(
-      /derive the take, fill the hole, and run the draft$/,
+      /derive the video, fill the hole, and run the draft$/,
     );
   });
 

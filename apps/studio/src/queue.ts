@@ -111,7 +111,7 @@ export function createExportQueue(o: {
       send(job, {
         phase: "failed",
         reason: "libraryUnreadable",
-        detail: `Not exported: the take could not be read (${messageOf(error)}).`,
+        detail: `Not exported: the video could not be read (${messageOf(error)}).`,
       });
       return;
     }
@@ -119,7 +119,7 @@ export function createExportQueue(o: {
       send(job, {
         phase: "failed",
         reason: "takeNotFound",
-        detail: "Not exported: the take was deleted before its turn came.",
+        detail: "Not exported: the video was deleted before its turn came.",
       });
       return;
     }
@@ -209,7 +209,7 @@ export function createExportQueue(o: {
     if (read === null) {
       return {
         reason: "takeNotFound",
-        detail: `There is no take "${takeId}" in ${library.root}.`,
+        detail: `There is no video "${takeId}" in ${library.root}.`,
       };
     }
     if (read.revision !== body.revision) {

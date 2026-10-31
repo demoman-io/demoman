@@ -33,7 +33,9 @@ import {
   notCarriedOf,
   parseKept,
   type RefilmInfo,
+  type RunReport,
   serializeKept,
+  servedRunReport,
   targetFor,
 } from "@demoman/run-core";
 import { DemoScriptSchema } from "@demoman/scene-schema";
@@ -147,7 +149,7 @@ export async function keepVideo(
     );
     return refuse(
       "unknownVideo",
-      `this repo has no video "${args.video}" (an id or an exact name)${mine.length > 0 ? `; its videos are ${mine.map((v) => `"${v.name}"`).join(", ")}` : ""}${unread.length > 0 ? `; ${unread.length} video record(s) could not be read (${unread.join("; ")})` : ""}`,
+      `this repo has no flow "${args.video}" (an id or an exact name)${mine.length > 0 ? `; its flows are ${mine.map((v) => `"${v.name}"`).join(", ")}` : ""}${unread.length > 0 ? `; ${unread.length} flow record(s) could not be read (${unread.join("; ")})` : ""}`,
     );
   }
 
@@ -195,7 +197,7 @@ export async function keepVideo(
       if (kept.from.videoId === video.id) continue;
       return refuse(
         "outputTaken",
-        `${rel} already keeps the video "${kept.name}" (${kept.from.videoId}), whose name makes the same file — rename one of the two videos`,
+        `${rel} already keeps the flow "${kept.name}" (${kept.from.videoId}), whose name makes the same file — rename one of the two flows`,
       );
     }
     const theirs = [...kept.outputs.map((o) => o.path), kept.report];
@@ -203,7 +205,7 @@ export async function keepVideo(
     if (clash !== undefined) {
       return refuse(
         "outputTaken",
-        `${clash} is already kept by the video "${kept.name}" in ${rel} — choose another path, or remove it from ${rel}`,
+        `${clash} is already kept by the flow "${kept.name}" in ${rel} — choose another path, or remove it from ${rel}`,
       );
     }
   }
@@ -294,12 +296,12 @@ export async function keepVideo(
         if ("value" in runReport) {
           await place(
             join(root, report),
-            `${JSON.stringify(runReport.value, null, 2)}\n`,
+            `${JSON.stringify(servedRunReport(runReport.value as RunReport), null, 2)}\n`,
           );
           written.push(report);
         } else {
           deps.log(
-            `keep: ${report} is written by the next refresh — take ${built.takeId}'s run report ${"missing" in runReport ? "is missing" : `could not be read (${runReport.unreadable})`}`,
+            `keep: ${report} is written by the next refresh — video ${built.takeId}'s run report ${"missing" in runReport ? "is missing" : `could not be read (${runReport.unreadable})`}`,
           );
         }
       }
@@ -381,14 +383,14 @@ async function buildKept(
   if (left.length > 0) {
     return refuse(
       "notCarried",
-      `take ${built.takeId} of "${video.name}" has edits a re-film does not carry, so a refresh would drop them: ${left.join(", ")} — remove them in the Studio, or record the video again, then keep it`,
+      `video ${built.takeId} of "${video.name}" has edits a re-film does not carry, so a refresh would drop them: ${left.join(", ")} — remove them in the Studio, or film the flow again, then keep it`,
     );
   }
   const read = await deps.library.getSceneRead(built.takeId);
   if (read === null) {
     return refuse(
       "cannotRefilm",
-      `take ${built.takeId} of "${video.name}" has no scene.json any more`,
+      `video ${built.takeId} of "${video.name}" has no scene.json any more`,
     );
   }
   const { scene } = read;
@@ -401,7 +403,7 @@ async function buildKept(
     filmedScale(bundle, scene.meta.capture.viewport.width);
   const scaleGuess =
     scale === null
-      ? `1x is a guess: take ${built.takeId} records no filmed scale and has no motion frames to read one from, so refresh films it at 1x — if it was filmed at another scale, set "scale" in the kept file to it, or the first refresh replaces a video that did not change`
+      ? `1x is a guess: video ${built.takeId} records no filmed scale and has no motion frames to read one from, so refresh films it at 1x — if it was filmed at another scale, set "scale" in the kept file to it, or the first refresh replaces a video that did not change`
       : null;
 
   // A site signed in to by hand cannot be signed in to by a refresh in CI.
@@ -425,7 +427,7 @@ async function buildKept(
     if (saved.some((f) => f.account === undefined && f.site === site)) {
       return refuse(
         "handSignIn",
-        `"${video.name}" films ${target}, which this machine signs in to with a session saved by hand (demoman signin, ${store.pathOf(site ?? "")}); a refresh in CI cannot sign in that way — add a demo account for ${new URL(target).origin} to .demoman/accounts.json, record the video again as it, then keep it`,
+        `"${video.name}" films ${target}, which this machine signs in to with a session saved by hand (demoman signin, ${store.pathOf(site ?? "")}); a refresh in CI cannot sign in that way — add a demo account for ${new URL(target).origin} to .demoman/accounts.json, film the flow again as it, then keep it`,
       );
     }
   }
@@ -470,7 +472,7 @@ async function buildKept(
     const { ref } = scene.branding.logo;
     const had = await readLogo(deps.home, ref);
     if (!had.ok)
-      return refuse("logoUnreadable", `the take's logo: ${had.error}`);
+      return refuse("logoUnreadable", `the video's logo: ${had.error}`);
     const own = await ownCopy(
       isAbsolute(ref) ? ref : join(deps.home, ref),
       had.bytes,
@@ -515,7 +517,7 @@ async function buildKept(
     if (!had.ok)
       return refuse(
         "wallpaperUnreadable",
-        `the take's wallpaper: ${had.error}`,
+        `the video's wallpaper: ${had.error}`,
       );
     if (background.kind !== "image" || wallpaper !== null) continue;
     const own = await ownCopy(
@@ -566,7 +568,7 @@ async function buildKept(
     const issue = script.error.issues[0];
     return refuse(
       "cannotRefilm",
-      `the script built from take ${built.takeId} is refused at script.${(issue?.path ?? []).join(".")}: ${issue?.message ?? "by the script schema"}`,
+      `the script built from video ${built.takeId} is refused at script.${(issue?.path ?? []).join(".")}: ${issue?.message ?? "by the script schema"}`,
     );
   }
   const kept: Omit<KeptVideo, "screens"> = {
@@ -684,7 +686,7 @@ export async function rewriteKept(
       );
     } catch (error) {
       return {
-        refused: `${rel} could not be written (${messageOf(error)}), so it still describes the earlier version`,
+        refused: `${rel} could not be written (${messageOf(error)}), so it still describes the earlier video`,
       };
     }
     for (const u of unreadable) deps.log(`kept: ${u}`);
@@ -729,7 +731,7 @@ export async function libraryAhead(
     if (current === undefined) return null;
     const read = await deps.library.getSceneRead(current.takeId);
     if (read === null) {
-      return `the library's current version of "${kept.name}" (take ${current.takeId}) has no scene.json, so whether it is ahead of ${file} cannot be told`;
+      return `the library's current video of "${kept.name}" (${current.takeId}) has no scene.json, so whether it is ahead of ${file} cannot be told`;
     }
     if (
       current.takeId === kept.from.takeId &&
@@ -744,7 +746,7 @@ export async function libraryAhead(
         sentence,
       })),
     });
-    return `the library has a newer version or Studio edits not in ${file}; run \`demoman keep ${kept.name}\` again to take them${left.length > 0 ? ` (keep will refuse the edits a re-film does not carry: ${left.join(", ")})` : ""}`;
+    return `the library has a newer video or Studio edits not in ${file}; run \`demoman keep ${kept.name}\` again to take them${left.length > 0 ? ` (keep will refuse the edits a re-film does not carry: ${left.join(", ")})` : ""}`;
   } catch (error) {
     return `whether the library is ahead of ${file} cannot be told: ${messageOf(error)}`;
   }

@@ -473,7 +473,7 @@ describe("settings main — the brand kits", () => {
       title: 'Delete "Dark"',
       danger: true,
       focus: "cancel",
-      body: '"Dark" will be deleted. "Light" becomes the default kit. Takes already made keep their look.',
+      body: '"Dark" will be deleted. "Light" becomes the default kit. Videos already made keep their look.',
     });
   });
 

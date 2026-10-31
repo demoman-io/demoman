@@ -424,7 +424,7 @@ describe("export of an expired version", () => {
       reason: "versionExpired",
     });
     if (answer.outcome !== "refusedBeforeExport") return;
-    expect(answer.detail).toContain(`run({ video: { id: "${videoId}" } })`);
+    expect(answer.detail).toContain(`run({ flow: { id: "${videoId}" } })`);
     expect(answer.summary).toMatch(/^Not exported: /);
   };
 
@@ -441,7 +441,7 @@ describe("export of an expired version", () => {
     // Read from the mark, not only from the missing folder.
     expect(JSON.stringify(answer)).toContain(`expired on ${NOW.toISOString()}`);
     expect((answer as { detail: string }).detail).toContain(
-      `the video "Checkout" (${one})`,
+      `the flow "Checkout" (${one})`,
     );
     expect(progress).toEqual([]);
   });

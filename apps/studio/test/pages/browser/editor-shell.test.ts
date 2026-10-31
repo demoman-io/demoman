@@ -873,7 +873,7 @@ describe.each(["light", "dark"] as const)("the editor shell, %s", (scheme) => {
     // The route to Runs under the sentence (final review I3) reads on the
     // card's tone in both schemes, not only in the one it was looked at in.
     const route = `${failure} a[data-runs-route]`;
-    expect(node(route).textContent).toBe("Re-shoot this take in Runs");
+    expect(node(route).textContent).toBe("Re-shoot this video in Runs");
     expect(contrast(ink(route), tone)).toBeGreaterThanOrEqual(4.5);
     // A note inside the inspector keeps body ink too.
     expect(ink("[data-reclaimed-motion-notice]")).toEqual(token("--ink"));

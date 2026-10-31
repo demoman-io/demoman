@@ -3,7 +3,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Recordings - Demoman</title>
+    <title>Flows - Demoman</title>
     <!-- The shell — tokens, faces, the top bar and tabs, cards, buttons, notices
          — is shared with the popup. Only this page's own rules are inline
          below. -->
@@ -479,6 +479,65 @@
         border-color: var(--accent);
         background: var(--control);
       }
+      /* A flow's checkbox, for a bulk delete (spec 2026-10-30
+         flows-and-bulk-delete §1.2): in the thumbnail's corner, shown on
+         the card's hover or its own focus, and on every flow card once
+         one is ticked. Opacity, not display: Tab still reaches it. */
+      .select-box {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 1;
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: var(--ink);
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 120ms ease;
+      }
+      article.card:hover .select-box,
+      .select-box:focus-visible,
+      [data-selecting] .select-box {
+        opacity: 1;
+      }
+      /* While flows are ticked the bar's Delete is the one Delete on the
+         page: a flow card's own Edit and Delete step aside. Hidden by the
+         selecting state, not left out of the render, so a tick changes
+         nothing but attributes (view.ts, applySelection). */
+      [data-selecting] article[data-video] :is([data-action="edit"], [data-action="delete"]) {
+        display: none;
+      }
+      article.card[data-selected] {
+        box-shadow: inset 0 0 0 2px var(--ink);
+      }
+      /* Stands over the list while flows are ticked, and stays in view as
+         the list scrolls under it. */
+      .selection-bar {
+        position: sticky;
+        top: 12px;
+        z-index: 2;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+        padding: 8px 8px 8px 14px;
+        border-radius: 10px;
+        background: var(--card);
+        box-shadow: inset 0 0 0 1px var(--ring);
+      }
+      .selection-count {
+        flex: 1;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+      }
+      .selection-said {
+        flex-basis: 100%;
+        margin: 0;
+        color: var(--ink-muted);
+        font-size: 13px;
+      }
       /* Quiet glyphs beside the name, not filled buttons: at rest the card
          is a picture and two lines, and four tinted squares would be the
          loudest thing on it. The tone comes with the pointer. */
@@ -560,6 +619,7 @@
           opacity: 1;
         }
         .row-line > .row-size { grid-area: 2 / 1; }
+        .select-box { opacity: 1; }
       }
       article.card [data-status] { margin: 0 12px 12px; }
       /* A video's versions, under its card: the count is the fold, and
@@ -663,7 +723,7 @@
           </span>
           <!-- Lucide outlines (MIT), decorative beside their words. -->
           <nav class="tabs" data-tabs aria-label="Pages">
-            <a href="library.html" data-tab="library" aria-current="page" title="Recordings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.033 9.44a.647.647 0 0 1 0 1.12l-4.065 2.352a.645.645 0 0 1-.968-.56V7.648a.645.645 0 0 1 .967-.56z"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg><span class="tab-label">Recordings</span></a>
+            <a href="library.html" data-tab="library" aria-current="page" title="Flows"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15.033 9.44a.647.647 0 0 1 0 1.12l-4.065 2.352a.645.645 0 0 1-.968-.56V7.648a.645.645 0 0 1 .967-.56z"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg><span class="tab-label">Flows</span></a>
             <a href="settings.html" data-tab="settings" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg><span class="tab-label">Settings</span></a>
           </nav>
         </div>

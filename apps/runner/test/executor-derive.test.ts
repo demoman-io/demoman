@@ -9,7 +9,7 @@ import {
 } from "@demoman/scene-schema";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../packages/compositor/test/fixtures/scene.js";
-import { deriveOp, takesOp } from "../src/executor/derive.js";
+import { deriveOp } from "../src/executor/derive.js";
 import { createLibrary } from "../src/executor/library.js";
 
 // The schema package's own take with actions (move, click, type, waitFor);
@@ -40,17 +40,6 @@ beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "demoman-derive-"));
 });
 afterEach(() => rm(home, { recursive: true, force: true }));
-
-describe("takesOp", () => {
-  it("answers the library's list", async () => {
-    const lib = createLibrary(home);
-    const doc = await takeWithActions();
-    await lib.putScene(doc);
-    const out = await takesOp(lib);
-    expect(out.ok).toBe(true);
-    if (out.ok) expect(out.value).toHaveLength(1);
-  });
-});
 
 describe("deriveOp", () => {
   it("keeps a take's pauses when it has a script.json, and its own name and look", async () => {

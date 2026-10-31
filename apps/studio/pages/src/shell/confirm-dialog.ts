@@ -29,32 +29,46 @@ export interface ConfirmQuestion {
  */
 export const DELETE_DEMO: ConfirmQuestion = {
   glyph: "trash",
-  title: "Delete demo",
+  title: "Delete video",
   body: "This permanently removes the video. It can’t be undone.",
   confirmLabel: "Delete",
   danger: true,
   focus: "cancel",
 };
 
-/** One version of a video, from its row under the video's card. */
-export const DELETE_VERSION: ConfirmQuestion = {
-  ...DELETE_DEMO,
-  title: "Delete recording",
-  body: "This permanently removes this recording. It can’t be undone.",
-};
-
-/** A whole video, from its card: every recording goes with it. */
-export const deleteVideo = (recordings: number): ConfirmQuestion => ({
+/** One video of a flow, from its row under the flow's card. */
+export const deleteVideoOf = (
+  number: number | undefined,
+  flow: string,
+): ConfirmQuestion => ({
   ...DELETE_DEMO,
   title: "Delete video",
-  body: `This permanently removes the video and ${recordings === 1 ? "its recording" : `its ${recordings} recordings`}. It can’t be undone.`,
+  body: `This permanently removes ${number === undefined ? "this video" : `Video ${number}`} of ${flow}. It can’t be undone.`,
 });
+
+/** A whole flow, from its card: every video goes with it. */
+export const deleteFlow = (videos: number): ConfirmQuestion => ({
+  ...DELETE_DEMO,
+  title: "Delete flow",
+  body: `This permanently removes the flow and ${videos === 1 ? "its video" : `its ${videos} videos`}. It can’t be undone.`,
+});
+
+/** The flows ticked in the library, every video of each going with it
+ *  (spec 2026-10-30 flows-and-bulk-delete §1.2). One question for all. */
+export const deleteFlows = (flows: number, videos: number): ConfirmQuestion => {
+  const f = `${flows} ${flows === 1 ? "flow" : "flows"}`;
+  return {
+    ...DELETE_DEMO,
+    title: `Delete ${f}`,
+    body: `This permanently removes ${f} and ${flows === 1 ? "its" : "their"} ${videos} ${videos === 1 ? "video" : "videos"}. It can’t be undone.`,
+  };
+};
 
 /** A video record that would not read: only the record goes. */
 export const DELETE_RECORD: ConfirmQuestion = {
   ...DELETE_DEMO,
-  title: "Delete video record",
-  body: "This removes the unreadable record. Its recordings stay.",
+  title: "Delete flow record",
+  body: "This removes the unreadable record. Its videos stay.",
 };
 
 let opened = 0;

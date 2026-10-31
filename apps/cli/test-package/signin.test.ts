@@ -110,7 +110,7 @@ it("signs in through the packed bin, films behind it, then stops when it expires
         outcome: string;
         id?: string;
         stopped?: { reason: string };
-        provenance?: { takeId: string | null };
+        provenance?: { videoId: string | null };
       };
       const pollDeadline = Date.now() + 120_000;
       while (["running", "stillRunning"].includes(v.outcome)) {
@@ -127,20 +127,20 @@ it("signs in through the packed bin, films behind it, then stops when it expires
     };
     const filmed = await finish({
       script,
-      video: { new: "Signed in", confirmedNew: true },
+      flow: { new: "Signed in", confirmedNew: true },
     });
     expect(filmed.outcome, JSON.stringify(filmed)).toBe("complete");
-    expect(filmed.provenance?.takeId).toBeTruthy();
+    expect(filmed.provenance?.videoId).toBeTruthy();
 
     app.expireAll();
     const expired = await finish({
       script,
-      video: { new: "Expired session", confirmedNew: true },
+      flow: { new: "Expired session", confirmedNew: true },
     });
     expect(expired.stopped?.reason, JSON.stringify(expired)).toBe("signedOut");
     expect(expired.outcome, JSON.stringify(expired)).toBe("stopped");
     expect(
-      expired.provenance?.takeId ?? null,
+      expired.provenance?.videoId ?? null,
       `an expired run kept a take: ${JSON.stringify(expired)}`,
     ).toBeNull();
     expect(JSON.stringify(expired)).toContain("signin");

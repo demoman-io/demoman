@@ -120,7 +120,7 @@ describe("library main — back to your recording", () => {
     (await control("back-to-recording")).click();
     await vi.waitFor(() =>
       expect(document.body.textContent).toContain(
-        "There is no recording of this take to go back to",
+        "There is no original footage of this video to go back to",
       ),
     );
     // An expected outcome that owes a reason: info, never warn or error.
@@ -136,7 +136,7 @@ describe("library main — back to your recording", () => {
     (await control("back-to-recording")).click();
     await vi.waitFor(() =>
       expect(document.body.textContent).toContain(
-        "Your recording could not be put back: no frames could be read",
+        "The original footage could not be put back: no frames could be read",
       ),
     );
   });

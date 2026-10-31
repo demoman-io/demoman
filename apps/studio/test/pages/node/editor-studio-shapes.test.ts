@@ -37,12 +37,11 @@ import { rerunAdvice, rerunLineOf } from "../../../pages/src/shell/runs-link";
  *   "Queued (2 ahead)" fails.
  */
 
-const REFILM =
-  'Ask your agent to re-record this take — `run({ video: { id: "v1" } })`';
+const REFILM = 'Ask your agent to film it again: `run({ flow: { id: "v1" } })`';
 const line = { kind: "line" as const, text: REFILM };
 /** What a reader sees: the words, the span's backticks gone (ruling R20). */
 const REFILM_WORDS = REFILM.replaceAll("`", "");
-const REFILM_CODE = 'run({ video: { id: "v1" } })';
+const REFILM_CODE = 'run({ flow: { id: "v1" } })';
 /** The drawn line: no literal backtick, and the call is a `code` element. */
 const expectDrawnLine = (node: Element | null | undefined): void => {
   expect(node, "the line was drawn").toBeTruthy();
@@ -87,7 +86,7 @@ const base = {
     rerun: {
       kind: "link" as const,
       href: "run.html?take=t1",
-      label: "Re-shoot this take in Runs",
+      label: "Re-shoot this video in Runs",
     },
   },
   replacementExposures: [],
@@ -351,7 +350,7 @@ describe("the re-film line", () => {
     const route = { takeId: "t1", authored: false, rerun: line };
     renderBundleBanner(root, { hasFrames: false, route });
     expectDrawnLine(root.querySelector("[data-rerun-line]"));
-    expect(root.textContent).toContain("This take has no frames — ");
+    expect(root.textContent).toContain("This video has no frames — ");
     expect(root.querySelector("a[data-runs-route]")).toBeNull();
 
     renderExport(
@@ -411,7 +410,7 @@ describe("the other places that name Runs", () => {
   const link = {
     kind: "link" as const,
     href: "run.html?take=t1",
-    label: "Re-shoot this take in Runs",
+    label: "Re-shoot this video in Runs",
   };
   // Said under the outcome row of the export just made (the history does
   // not repeat warnings since 2026-10-19).
@@ -516,12 +515,12 @@ describe("the other places that name Runs", () => {
     // Premise: the tooltip drew, as the no-frames one.
     expect(play?.title).toContain("nothing to play");
     expect(play?.title).toBe(
-      `This demo has no frames yet, so there is nothing to play. ${REFILM_WORDS}`,
+      `This video has no frames yet, so there is nothing to play. ${REFILM_WORDS}`,
     );
     // And the link side keeps today's words.
     renderTransport(transport, { ...state, rerunLine: null }, handlersT);
     expect(play?.title).toBe(
-      "This demo has no frames yet, so there is nothing to play. Re-shoot it in Runs first.",
+      "This video has no frames yet, so there is nothing to play. Re-shoot it in Runs first.",
     );
   });
 

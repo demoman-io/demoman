@@ -7,6 +7,10 @@
  */
 export const NOTE_PARAM = "note";
 
+/** The editor's clean Delete, said on the library as a toast; a delete with
+ *  a note to read carries the note instead, said on the notice line. */
+export const VIDEO_DELETED = "Deleted the video";
+
 /** `url` with `note` in its query; `url` unchanged when there is none. */
 export function withNote(url: string, note: string | null): string {
   if (note === null || note === "") return url;

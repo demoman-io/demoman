@@ -51,7 +51,7 @@ const parseTag = (text: string): TagRead => {
     if (typeof v.video === "string" && typeof v.take === "string") {
       return { found: { video: v.video, take: v.take } };
     }
-    return { unreadable: `the tag is not a video and a take: ${text}` };
+    return { unreadable: `the tag is not a flow and a video: ${text}` };
   } catch (error) {
     return { unreadable: `the tag is not JSON (${(error as Error).message})` };
   }

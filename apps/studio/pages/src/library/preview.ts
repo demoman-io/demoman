@@ -94,7 +94,7 @@ export function previewText(state: PreviewState): string | null {
     case "noBundle":
       return "No frames stored — nothing to preview.";
     case "noKeyframes":
-      return "This demo has no keyframes.";
+      return "This video has no keyframes.";
     case "failed":
       return `Preview unavailable — ${state.reason}`;
   }
@@ -236,7 +236,7 @@ export function createPreviewMounter<B extends PreviewBundle>(
       // `fail`, which names it in the box. A silently skipped frame would
       // freeze the flipbook with nothing saying why.
       if (frame === undefined) {
-        throw new Error(`preview frame ${i} is past the end of the take`);
+        throw new Error(`preview frame ${i} is past the end of the video`);
       }
       const bitmap = await ports.image(frame.ref);
       const small = document.createElement("canvas");

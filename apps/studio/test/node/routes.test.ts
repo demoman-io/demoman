@@ -131,7 +131,7 @@ describe("takes and scenes", () => {
         );
         const said = h.logs.filter((l) => l.includes(locked));
         expect(said, h.logs.join("\n")).toEqual([
-          expect.stringContaining(`take ${takeId}'s size is left out`),
+          expect.stringContaining(`video ${takeId}'s size is left out`),
         ]);
       } finally {
         await chmod(locked, 0o755);
@@ -199,7 +199,7 @@ describe("takes and scenes", () => {
       detail: CHANGED_ELSEWHERE,
     });
     expect(CHANGED_ELSEWHERE).toBe(
-      "This take changed in another window. Reopen it to keep editing.",
+      "This video changed in another window. Reopen it to keep editing.",
     );
     const onDisk = JSON.parse(await readFile(scenePath(), "utf8")) as {
       meta: { name: string };
@@ -466,7 +466,7 @@ describe("delete", () => {
       });
       expect(r.status).toBe(409);
       expect(r.json()).toEqual({ reason: "takeBusy", detail: TAKE_BUSY.agent });
-      expect(TAKE_BUSY.agent).toBe("This take is being exported by an agent.");
+      expect(TAKE_BUSY.agent).toBe("This video is being exported by an agent.");
       expect(await exists(scenePath())).toBe(true);
     } finally {
       await lease.release();
@@ -488,7 +488,7 @@ describe("delete", () => {
         detail: TAKE_BUSY.studio,
       });
       expect(TAKE_BUSY.studio).toBe(
-        "This take is being exported by the Studio.",
+        "This video is being exported by the Studio.",
       );
     } finally {
       await lease.release();

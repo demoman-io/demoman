@@ -122,13 +122,13 @@ export async function exportTake(
   ): ExportAnswer =>
     told(withSummary({ outcome: "refusedBeforeExport", reason, detail }));
   const takeId = typeof args.takeId === "string" ? args.takeId.trim() : "";
-  if (takeId === "") return refused("noTakeId", "no take id was given");
+  if (takeId === "") return refused("noTakeId", "no video id was given");
   // An id that cannot name a folder under takes/ names no take: not a
   // library that could not be read.
   if (!library.isTakeId(takeId)) {
     return refused(
       "takeNotFound",
-      `there is no take ${takeId} in the library — "${takeId}" is not a take id`,
+      `there is no video ${takeId} in the library — "${takeId}" is not a video id`,
     );
   }
   // Only an absent argument means MP4: a `null` or a number is a caller's
@@ -176,11 +176,14 @@ export async function exportTake(
   } catch (error) {
     return refused(
       "takeUnreadable",
-      `the library could not be read for take ${takeId} (${messageOf(error)})`,
+      `the library could not be read for video ${takeId} (${messageOf(error)})`,
     );
   }
   if (sceneRead === null) {
-    return refused("takeNotFound", `there is no take ${takeId} in the library`);
+    return refused(
+      "takeNotFound",
+      `there is no video ${takeId} in the library`,
+    );
   }
   const { scene, notes } = sceneRead;
   // `keep` and `refresh` ask for each output's own aspect (never the MCP
@@ -204,18 +207,18 @@ export async function exportTake(
   try {
     expired = await expiredVideoOf(takeId, deps);
   } catch (error) {
-    videoUnread = ` (and its video.json could not be read, so whether its recording expired cannot be told: ${messageOf(error)})`;
+    videoUnread = ` (and its video.json could not be read, so whether its footage expired cannot be told: ${messageOf(error)})`;
   }
   if (expired !== null) {
     return refused(
       "versionExpired",
-      `take ${takeId} is a version of the video ${expired.name} (${expired.videoId}) whose recording expired on ${expired.at} (over 30 days old, its frames were removed) — record it again with run({ video: { id: "${expired.videoId}" } })`,
+      `video ${takeId} of the flow ${expired.name} (${expired.videoId}) expired on ${expired.at} (over 30 days old, its frames were removed) — film it again with run({ flow: { id: "${expired.videoId}" } })`,
     );
   }
   if (bundle === null) {
     return refused(
       "noFrames",
-      `take ${takeId} has no frames to render — run its script again${videoUnread}`,
+      `video ${takeId} has no frames to render — run its script again${videoUnread}`,
     );
   }
   // Only a take that exists: a lease on a missing one would make its folder.
@@ -229,7 +232,7 @@ export async function exportTake(
   } catch (error) {
     return refused(
       "takeUnreadable",
-      `take ${takeId} could not be marked as being exported (${messageOf(error)})`,
+      `video ${takeId} could not be marked as being exported (${messageOf(error)})`,
     );
   }
   try {
@@ -310,7 +313,7 @@ async function listed(
     return answer;
   } catch (error) {
     const said = messageOf(error);
-    deps.log(`take ${takeId}: the export is saved but not listed (${said})`);
+    deps.log(`video ${takeId}: the export is saved but not listed (${said})`);
     return withSummary({
       ...report,
       warnings: { ...report.warnings, notListed: { error: said } },
@@ -334,14 +337,14 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
     videoId = member?.videoId ?? null;
     if (member !== null) tag = { video: member.videoId, take: takeId };
   } catch (e) {
-    error = `the take's video could not be read (${messageOf(e)})`;
+    error = `the video's flow could not be read (${messageOf(e)})`;
   }
   if (videoId) {
     try {
       videoName = (await deps.videos.get(videoId))?.name ?? null;
     } catch (e) {
       deps.log(
-        `take ${takeId}: the export is named after the take, as its video's record would not read (${messageOf(e)})`,
+        `video ${takeId}: the export is named after the video, as its flow's record would not read (${messageOf(e)})`,
       );
     }
   }
@@ -354,7 +357,7 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
       const tagged = write(type, bytes, tag);
       if (tagged.ok) return tagged.bytes;
       error ??= tagged.error;
-      deps.log(`take ${takeId}: an export is not tagged (${tagged.error})`);
+      deps.log(`video ${takeId}: an export is not tagged (${tagged.error})`);
       return bytes;
     },
     get untagged(): { untagged: { error: string } } | Record<string, never> {
@@ -410,7 +413,7 @@ async function exportLeased(a: {
     const free = targetFor(asked, aspect, bundle, frameOf(scene), { quality });
     if (free.width !== target.width || free.height !== target.height) {
       deps.log(
-        `take ${takeId}: export capped at ${target.width}x${target.height}, not ${free.width}x${free.height} (tests only)`,
+        `video ${takeId}: export capped at ${target.width}x${target.height}, not ${free.width}x${free.height} (tests only)`,
       );
     }
   }
@@ -781,7 +784,7 @@ function stillsOptionsOf(
     ) {
       options.width = width;
     } else {
-      return `a still's width is a whole number of pixels from ${MIN_STILL_WIDTH} to ${MAX_STILL_SIDE}, or "native" for the recording's own size — not ${JSON.stringify(width)}`;
+      return `a still's width is a whole number of pixels from ${MIN_STILL_WIDTH} to ${MAX_STILL_SIDE}, or "native" for the video's own size — not ${JSON.stringify(width)}`;
     }
   }
   if (zoom !== undefined) {

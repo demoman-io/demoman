@@ -139,7 +139,7 @@ describe("the top bar", () => {
 describe("the library with the Studio's sizes and unreadable folders", () => {
   const MB = 1024 ** 2;
   const STUDIO_HINT =
-    "Ask your agent for a demo video. Each take shows up here, grouped by the day you made it.";
+    "Ask your agent for a demo video. Each flow shows up here, grouped by the day it was last filmed.";
   const scene = (id: string, name: string) =>
     ({
       meta: {
@@ -287,7 +287,7 @@ describe("the library with the Studio's sizes and unreadable folders", () => {
     expect(m.rows.length).toBe(0);
     renderLibrary(root, m, base, new Map());
     const card = root.querySelector("[data-empty]");
-    expect(card?.textContent).toContain("No recordings yet");
+    expect(card?.textContent).toContain("No flows yet");
     expect(card?.textContent).toContain(STUDIO_HINT);
     expect(card?.textContent).not.toContain("toolbar");
   });
@@ -301,7 +301,7 @@ describe("the library with the Studio's sizes and unreadable folders", () => {
       new Map(),
     );
     expect(root.querySelector("[data-unwatched]")?.textContent).toBe(
-      "New takes will not show until you reload — takes could not be watched (EMFILE).",
+      "New videos will not show until you reload — takes could not be watched (EMFILE).",
     );
   });
 });

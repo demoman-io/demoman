@@ -91,16 +91,16 @@ const USAGE = `demoman ${VERSION}
     [--yes] [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
   npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
   npx demoman setup --ci [--trigger push|<environment>] [--route pr|main]
-                             write .github/workflows/demoman.yml, which refreshes the kept videos on each merge
+                             write .github/workflows/demoman.yml, which refreshes the kept flows on each merge
   npx demoman signin <url>   sign in to your app once, so agents can record behind the login
   npx demoman signin --account <name> [--site <origin>] [--project <dir>]
                              sign in as a demo account from .demoman/accounts.json (CI, or a check)
-  npx demoman studio [take]  open the Studio, to look over and edit takes and export them
+  npx demoman studio [video] open the Studio, to look over and edit flows and export them
   npx demoman studio --stop  close the Studio
-  npx demoman keep <video> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
-                             keep a video current: its re-film file in .demoman/videos/, its exports in the repo
-  npx demoman refresh [<video>…] [--base-url <origin>] [--deliver pr|main]
-                             film the kept videos again and replace the exports whose picture changed;
+  npx demoman keep <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
+                             keep a flow current: its re-film file in .demoman/videos/, its exports in the repo
+  npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main]
+                             film the kept flows again and replace the exports whose picture changed;
                              --deliver commits them on main, or opens a pull request (CI)
   demoman mcp [--headed]     serve Demoman's tools on stdio (your agent runs this);
                              --headed shows the browser while it records
@@ -305,7 +305,7 @@ async function keep(args: string[]): Promise<void> {
     ...(values.gif ?? []).map((a) => ["gif", a] as const),
   ];
   if (video === undefined || extra.length > 0 || asked.length === 0) {
-    return usage("keep takes one video and at least one --to or --gif");
+    return usage("keep takes one flow and at least one --to or --gif");
   }
   // Share by default: every refresh commits these files again.
   const quality = values.quality ?? "share";
@@ -437,7 +437,7 @@ async function refresh(args: string[]): Promise<void> {
   const repo = await readRepo(process.cwd(), execGit);
   if (!repo.ok) {
     return fail(
-      `${repo.none} — run refresh inside the repo the videos are kept in`,
+      `${repo.none} — run refresh inside the repo the flows are kept in`,
     );
   }
   requirePageBundles(

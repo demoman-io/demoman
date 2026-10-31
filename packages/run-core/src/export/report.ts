@@ -685,7 +685,7 @@ function gifOverBudget(gifSize: GifSize | undefined, width: number): string[] {
   if (gifSize === undefined || gifSize.byteLength <= gifSize.maxBytes)
     return [];
   return [
-    `it is ${fileSize(gifSize.byteLength)}, over the ${fileSize(gifSize.maxBytes)} a GIF is kept under even at ${width} px wide; an MP4 of this take is much smaller`,
+    `it is ${fileSize(gifSize.byteLength)}, over the ${fileSize(gifSize.maxBytes)} a GIF is kept under even at ${width} px wide; an MP4 of this video is much smaller`,
   ];
 }
 
@@ -735,13 +735,13 @@ function editedClauses(
   const move =
     changed === undefined
       ? typeof videoId === "string"
-        ? ` — run({ video: { id: "${videoId}" } }) re-records it`
-        : " — re-record it with run's video: { id }"
+        ? ` — run({ flow: { id: "${videoId}" } }) re-films it`
+        : " — re-film it with run's flow: { id }"
       : changed === first
         ? ""
-        : ` — ${changed.actionId}'s step changed from ${changed.was ?? ""} to ${changed.now ?? ""}, so derive this take, check the step, and run the draft`;
+        : ` — ${changed.actionId}'s step changed from ${changed.was ?? ""} to ${changed.now ?? ""}, so derive this video, check the step, and run the draft`;
   return [
-    `${plural(edited.length, "step was", "steps were")} edited after recording (${editedWhat(first)})${move}`,
+    `${plural(edited.length, "step was", "steps were")} edited after filming (${editedWhat(first)})${move}`,
     ...(masks > 0
       ? [`a re-recording leaves its ${plural(masks, "mask", "masks")} behind`]
       : []),
@@ -854,7 +854,7 @@ export function exportVerdict(report: ExportReport): string {
       const listing =
         notListed === undefined
           ? said
-          : `${said} It was saved, but not listed in the take's exports: ${notListed.error}.`;
+          : `${said} It was saved, but not listed in the video's exports: ${notListed.error}.`;
       return untagged === undefined
         ? listing
         : `${listing} It was saved, but not tagged with its video: ${sentence(untagged.error)}`;

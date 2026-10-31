@@ -28,11 +28,11 @@ export function parseStudioArgs(args: string[]): StudioCommand {
   if (flags.length === 1 && positionals.length > 0) {
     return {
       kind: "error",
-      message: `studio ${flags[0]} takes no take id`,
+      message: `studio ${flags[0]} takes no video id`,
     };
   }
   if (positionals.length > 1) {
-    return { kind: "error", message: "studio takes one take id" };
+    return { kind: "error", message: "studio takes one video id" };
   }
   if (flags[0] === "--stop") return { kind: "stop" };
   if (flags[0] === "--serve") return { kind: "serve" };

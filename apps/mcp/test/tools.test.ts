@@ -129,7 +129,7 @@ describe("the links on a saved export", () => {
     });
     const result = await client.callTool({
       name: "export",
-      arguments: { takeId: "t1" },
+      arguments: { videoId: "t1" },
     });
     expect(textOf(result)).toMatchObject({
       outcome: "saved",
@@ -145,7 +145,7 @@ describe("the links on a saved export", () => {
     const answer = textOf(
       await failed.client.callTool({
         name: "export",
-        arguments: { takeId: "t1" },
+        arguments: { videoId: "t1" },
       }),
     );
     expect(answer).not.toHaveProperty("links");
@@ -162,7 +162,7 @@ describe("the links on a saved export", () => {
     });
     expect(
       textOf(
-        await client.callTool({ name: "export", arguments: { takeId: "t1" } }),
+        await client.callTool({ name: "export", arguments: { videoId: "t1" } }),
       ),
     ).toMatchObject({ linksError: "the links could not be served" });
     expect(asked.at(-1)).toMatchObject({ isFile: false });
@@ -177,14 +177,13 @@ describe("demoman-mcp's tools", () => {
       "attach",
       "derive",
       "export",
+      "flows",
       "probe",
       "recipe",
       "report",
       "run",
       "snapshot",
       "status",
-      "takes",
-      "videos",
     ]);
   });
 
@@ -232,25 +231,32 @@ describe("demoman-mcp's tools", () => {
     ]);
   });
 
-  // Red if the tool's schema still requires `script`, or drops `video` on
-  // the way to the executor.
-  it("passes run({ video }) through to the CLI's executor, with no script", async () => {
+  // Red if the tool's schema still requires `script`, or drops `flow` on
+  // the way to the executor (which keeps its own name for it, `video`).
+  it("passes run({ flow }) through to the CLI's executor as its video, with no script", async () => {
     const { client, calls } = await connect(
       { run: async () => ({ ok: true, value: { outcome: "complete" } }) },
       200,
       undefined,
     );
-    for (const video of [{ id: "v-1" }, { new: "Pay", confirmedNew: true }]) {
+    for (const flow of [
+      { id: "11111111-1111-4111-8111-111111111111" },
+      { new: "Pay", confirmedNew: true },
+    ]) {
       const result = await client.callTool({
         name: "run",
-        arguments: { video },
+        arguments: { flow },
       });
       expect(result.isError).toBeFalsy();
     }
     expect(calls).toEqual([
       {
         op: "run",
-        args: { video: { id: "v-1" }, callId: "id-1", agent: AGENT },
+        args: {
+          video: { id: "11111111-1111-4111-8111-111111111111" },
+          callId: "id-1",
+          agent: AGENT,
+        },
       },
       {
         op: "run",
@@ -263,23 +269,195 @@ describe("demoman-mcp's tools", () => {
     ]);
   });
 
-  // Red if the schema stops being strict: run's old takeId would be dropped
-  // on the way and the run would answer videoRequired, never saying why.
-  it("refuses run({ takeId }) and a video of neither shape before the executor", async () => {
+  // Red if an old name is dropped or read with its new meaning: until
+  // 2026-10-30 an agent's "video" was a flow (spec 2026-10-30
+  // flows-and-bulk-delete §2.3).
+  it("refuses run's old names with the new one, and a flow of neither shape, before the executor", async () => {
     const { client, calls } = await connect({
       run: async () => ({ ok: true, value: { outcome: "complete" } }),
     });
+    const said = async (args: Record<string, unknown>) => {
+      const result = await client.callTool({ name: "run", arguments: args });
+      expect(result.isError, JSON.stringify(args)).toBe(true);
+      return textOf(result) as { reason: string; detail: string };
+    };
+    expect(
+      await said({ video: { id: "11111111-1111-4111-8111-111111111111" } }),
+    ).toEqual({
+      reason: "invalidArgs",
+      detail:
+        "`video` is now `flow`: a flow is what you film; a video is one recording of it.",
+    });
+    expect(await said({ takeId: "scene-1" })).toEqual({
+      reason: "invalidArgs",
+      detail: "`takeId` is now `videoId`.",
+    });
+    // A flow of neither shape is the schema's to refuse.
     for (const args of [
-      { takeId: "scene-1" },
-      { video: { id: "v-1", new: "Pay" } },
-      { video: { name: "Pay" } },
+      { flow: { id: "11111111-1111-4111-8111-111111111111", new: "Pay" } },
+      { flow: { name: "Pay" } },
     ]) {
       const result = await client.callTool({ name: "run", arguments: args });
       expect(result.isError, JSON.stringify(args)).toBe(true);
     }
     // Premise: the same server forwards a run it accepts.
-    await client.callTool({ name: "run", arguments: { video: { id: "v" } } });
-    expect(calls.map((c) => c.args.video)).toEqual([{ id: "v" }]);
+    await client.callTool({
+      name: "run",
+      arguments: { flow: { id: "11111111-1111-4111-8111-111111111111" } },
+    });
+    expect(calls.map((c) => c.args.video)).toEqual([
+      { id: "11111111-1111-4111-8111-111111111111" },
+    ]);
+  });
+
+  it("flow id given a video id: wrongIdKind, never sent", async () => {
+    const { client, calls } = await connect({
+      run: async () => ({ ok: true, value: { outcome: "complete" } }),
+    });
+    const result = await client.callTool({
+      name: "run",
+      arguments: { flow: { id: "scene-1793-abc" } },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toEqual({
+      reason: "wrongIdKind",
+      detail:
+        "scene-1793-abc is not a flow's id (a flow's id is a UUID); if it is a video's, pass its flow's id — flows({}) lists them",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("videoId given a flow id: wrongIdKind, never sent", async () => {
+    const { client, calls } = await connect({
+      export: async () => ({ ok: true, value: { outcome: "saved" } }),
+    });
+    for (const name of ["export", "derive"]) {
+      const result = await client.callTool({
+        name,
+        arguments: { videoId: "11111111-1111-4111-8111-111111111111" },
+      });
+      expect(textOf(result), name).toEqual({
+        reason: "wrongIdKind",
+        detail:
+          "11111111-1111-4111-8111-111111111111 is a flow's id; pass one of its videos' ids — flows({}) lists them",
+      });
+    }
+    const old = await client.callTool({
+      name: "export",
+      arguments: { takeId: "scene-1" },
+    });
+    expect(textOf(old)).toEqual({
+      reason: "invalidArgs",
+      detail: "`takeId` is now `videoId`.",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("a run's answer is served in the new words", async () => {
+    const { client } = await connect({
+      run: async () => ({
+        ok: true,
+        value: {
+          outcome: "complete",
+          run: { script: { name: "s", scriptVersion: 5, steps: 1 } },
+          provenance: { takeId: "scene-1", bundleId: "b", madeFrom: [] },
+          videoVersion: {
+            id: "11111111-1111-4111-8111-111111111111",
+            name: "Pay",
+            version: 2,
+            created: false,
+          },
+          steps: [],
+        },
+      }),
+    });
+    const said = textOf(
+      await client.callTool({
+        name: "run",
+        arguments: { flow: { id: "11111111-1111-4111-8111-111111111111" } },
+      }),
+    ) as Record<string, unknown>;
+    expect(said.provenance).toEqual({
+      videoId: "scene-1",
+      bundleId: "b",
+      madeFrom: [],
+    });
+    expect(said.flow).toEqual({
+      id: "11111111-1111-4111-8111-111111111111",
+      name: "Pay",
+      video: 2,
+      created: false,
+    });
+    expect("videoVersion" in said).toBe(false);
+  });
+
+  it("derive's answer is served in the new words", async () => {
+    const { client } = await connect({
+      derive: async () => ({
+        ok: true,
+        value: {
+          report: { outcome: "takeNotFound", takeId: "scene-1" },
+          script: null,
+        },
+      }),
+    });
+    expect(
+      textOf(
+        await client.callTool({
+          name: "derive",
+          arguments: { videoId: "scene-1" },
+        }),
+      ),
+    ).toEqual({
+      report: { outcome: "videoNotFound", videoId: "scene-1" },
+      script: null,
+    });
+  });
+
+  it("status serves its runPage — the last run's report — in the new words", async () => {
+    const { client } = await connect({
+      status: async () => ({
+        ok: true,
+        value: {
+          runPage: {
+            outcome: "complete",
+            provenance: { takeId: "scene-1", bundleId: null, madeFrom: [] },
+            videoVersion: { id: "f", name: "Pay", version: 1, created: true },
+            steps: [],
+          },
+        },
+      }),
+    });
+    const said = textOf(
+      await client.callTool({ name: "status", arguments: {} }),
+    ) as { runPage: Record<string, unknown> };
+    expect(said.runPage.provenance).toEqual({
+      videoId: "scene-1",
+      bundleId: null,
+      madeFrom: [],
+    });
+    expect(said.runPage.flow).toEqual({
+      id: "f",
+      name: "Pay",
+      video: 1,
+      created: true,
+    });
+    expect("videoVersion" in said.runPage).toBe(false);
+  });
+
+  it("a refusal's reason is served in the new words", async () => {
+    const { client } = await connect({
+      export: async () => failure("takeNotFound", "no video scene-1"),
+    });
+    const result = await client.callTool({
+      name: "export",
+      arguments: { videoId: "scene-1" },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toEqual({
+      reason: "videoNotFound",
+      detail: "no video scene-1",
+    });
   });
 
   // Red if the tool drops quality on its way to the CLI's executor.
@@ -291,9 +469,9 @@ describe("demoman-mcp's tools", () => {
     );
     await client.callTool({
       name: "export",
-      arguments: { takeId: "t1", quality: "full" },
+      arguments: { videoId: "t1", quality: "full" },
     });
-    await client.callTool({ name: "export", arguments: { takeId: "t1" } });
+    await client.callTool({ name: "export", arguments: { videoId: "t1" } });
     expect(calls).toHaveLength(2);
     expect(calls[0]).toMatchObject({
       op: "export",
@@ -312,12 +490,12 @@ describe("demoman-mcp's tools", () => {
     );
     await client.callTool({
       name: "export",
-      arguments: { takeId: "t1", maxMB: 9.5 },
+      arguments: { videoId: "t1", maxMB: 9.5 },
     });
-    await client.callTool({ name: "export", arguments: { takeId: "t1" } });
+    await client.callTool({ name: "export", arguments: { videoId: "t1" } });
     const zero = await client.callTool({
       name: "export",
-      arguments: { takeId: "t1", maxMB: 0 },
+      arguments: { videoId: "t1", maxMB: 0 },
     });
     expect(zero.isError).toBe(true);
     expect(calls).toHaveLength(2);
@@ -337,7 +515,7 @@ describe("demoman-mcp's tools", () => {
     );
     await client.callTool({
       name: "export",
-      arguments: { takeId: "t1", fileType: "stills" },
+      arguments: { videoId: "t1", fileType: "stills" },
     });
     expect(calls).toEqual([
       {
@@ -359,7 +537,7 @@ describe("demoman-mcp's tools", () => {
     for (const stills of [{ widht: 1920 }, { width: 100 }, { zoom: "video" }]) {
       await client.callTool({
         name: "export",
-        arguments: { takeId: "t1", fileType: "stills", stills },
+        arguments: { videoId: "t1", fileType: "stills", stills },
       });
     }
     expect(calls.map((c) => (c.args as { stills?: unknown }).stills)).toEqual([
@@ -379,7 +557,7 @@ describe("demoman-mcp's tools", () => {
     await client.callTool({
       name: "export",
       arguments: {
-        takeId: "t1",
+        videoId: "t1",
         fileType: "stills",
         stills: { width: "native", zoom: "step" },
       },
@@ -461,7 +639,7 @@ describe("demoman-mcp's tools", () => {
     });
     const lost = await client.callTool({
       name: "export",
-      arguments: { takeId: "t1" },
+      arguments: { videoId: "t1" },
     });
     expect(textOf(lost)).toMatchObject({ reason: "bridgeLost" });
     const after = await client.callTool({
@@ -657,7 +835,7 @@ describe("demoman-mcp's tools", () => {
     const seen: Array<{ progress: number; total?: number; message?: string }> =
       [];
     await client.callTool(
-      { name: "export", arguments: { takeId: "t" } },
+      { name: "export", arguments: { videoId: "t" } },
       undefined,
       { onprogress: (p) => seen.push(p) },
     );
@@ -693,7 +871,7 @@ describe("demoman-mcp's tools", () => {
     const seen: Array<{ progress: number; total?: number; message?: string }> =
       [];
     await client.callTool(
-      { name: "export", arguments: { takeId: "t" } },
+      { name: "export", arguments: { videoId: "t" } },
       undefined,
       { onprogress: (p) => seen.push(p) },
     );
@@ -733,7 +911,7 @@ describe("demoman-mcp's tools", () => {
     const seen: Array<{ progress: number; total?: number; message?: string }> =
       [];
     await client.callTool(
-      { name: "export", arguments: { takeId: "t", maxMB: 9.5 } },
+      { name: "export", arguments: { videoId: "t", maxMB: 9.5 } },
       undefined,
       { onprogress: (p) => seen.push(p) },
     );
@@ -858,19 +1036,21 @@ describe("demoman-mcp's tools", () => {
     expect(progressOnWire.length, "progress after report answered").toBe(sent);
   });
 
-  it("registers videos read-only and forwards file, query and project", async () => {
+  it("registers flows read-only, forwards file, query and project, and serves a list of flows", async () => {
     const { client, calls } = await connect({
       videos: async () => ({ ok: true, value: { videos: [], unreadable: [] } }),
     });
     const tool = (await client.listTools()).tools.find(
-      (t) => t.name === "videos",
+      (t) => t.name === "flows",
     );
     expect(tool?.annotations?.readOnlyHint).toBe(true);
     await client.callTool({
-      name: "videos",
+      name: "flows",
       arguments: { file: "/a.mp4", query: "q", project: "/p" },
     });
-    await client.callTool({ name: "videos", arguments: {} });
+    expect(
+      textOf(await client.callTool({ name: "flows", arguments: {} })),
+    ).toEqual({ flows: [], unreadable: [] });
     expect(calls).toEqual([
       {
         op: "videos",
@@ -880,24 +1060,21 @@ describe("demoman-mcp's tools", () => {
     ]);
   });
 
-  it("passes takeId through for derive and export, and takes needs no arguments", async () => {
+  it("passes videoId through for derive and export as the executor's takeId", async () => {
     const { client, calls } = await connect({
       derive: async () => ({ ok: true, value: { outcome: "derived" } }),
       export: async () => ({
         ok: true,
         value: { outcome: "saved", file: { path: "/x.mp4" } },
       }),
-      takes: async () => ({ ok: true, value: [] }),
       status: async () => ({ ok: true, value: { allowAgentRuns: true } }),
     });
-    await client.callTool({ name: "derive", arguments: { takeId: "t1" } });
-    await client.callTool({ name: "export", arguments: { takeId: "t1" } });
-    await client.callTool({ name: "takes", arguments: {} });
+    await client.callTool({ name: "derive", arguments: { videoId: "t1" } });
+    await client.callTool({ name: "export", arguments: { videoId: "t1" } });
     await client.callTool({ name: "status", arguments: {} });
     expect(calls).toEqual([
       { op: "derive", args: { takeId: "t1", agent: AGENT } },
       { op: "export", args: { takeId: "t1", callId: "id-1", agent: AGENT } },
-      { op: "takes", args: { agent: AGENT } },
       { op: "status", args: { agent: AGENT } },
     ]);
   });
@@ -908,13 +1085,13 @@ describe("demoman-mcp's tools", () => {
   // (the extension shows a title as given).
   it("names the agent with the client's own name when it gives no title", async () => {
     const { client, calls } = await connect(
-      { takes: async () => ({ ok: true, value: [] }) },
+      { videos: async () => ({ ok: true, value: { videos: [] } }) },
       200,
       { name: "cursor-vscode", version: "1.0.0" },
     );
-    await client.callTool({ name: "takes", arguments: {} });
+    await client.callTool({ name: "flows", arguments: {} });
     expect(calls).toEqual([
-      { op: "takes", args: { agent: { name: "cursor-vscode" } } },
+      { op: "videos", args: { agent: { name: "cursor-vscode" } } },
     ]);
   });
 
@@ -1064,7 +1241,7 @@ describe("demoman-mcp's tools", () => {
       ]),
     );
     // Premise: the tools compared below are listed.
-    for (const name of ["snapshot", "status", "run", "export", "takes"]) {
+    for (const name of ["snapshot", "status", "run", "export", "flows"]) {
       expect(cli[name], name).toBeTruthy();
     }
     const all = Object.values(cli).join("\n");
@@ -1085,7 +1262,9 @@ describe("demoman-mcp's tools", () => {
     expect(cli.export).toContain("--out-dir");
     expect(cli.export).toContain('"saved"');
     expect(cli.export).not.toContain("exportNotBuilt");
-    expect(cli.takes).toContain("this demoman-mcp's own browser made");
+    expect(cli.flows).toContain(
+      "a flow is what you film, a video one recording of it",
+    );
     // An export opens the window too (it renders in that browser).
     expect(cli.status).toContain("first snapshot, run or export");
   });
@@ -1154,13 +1333,13 @@ describe("demoman-mcp's tools", () => {
     );
     const out = await client.callTool({
       name: "attach",
-      arguments: { takeId: "t1", into: "comment", pr: 12, project: "/repo" },
+      arguments: { videoId: "t1", into: "comment", pr: 12, project: "/repo" },
     });
     expect(out.isError).toBeUndefined();
     expect(textOf(out)).toMatchObject({ outcome: "attached" });
     await client.callTool({
       name: "attach",
-      arguments: { takeId: "t1", into: "description" },
+      arguments: { videoId: "t1", into: "description" },
     });
     expect(calls).toEqual([
       {
@@ -1201,15 +1380,15 @@ describe("demoman-mcp's tools", () => {
     );
     await client.callTool({
       name: "attach",
-      arguments: { takeId: "t1", into: "description", maxMB: 9.5 },
+      arguments: { videoId: "t1", into: "description", maxMB: 9.5 },
     });
     await client.callTool({
       name: "attach",
-      arguments: { takeId: "t1", into: "description" },
+      arguments: { videoId: "t1", into: "description" },
     });
     const zero = await client.callTool({
       name: "attach",
-      arguments: { takeId: "t1", into: "description", maxMB: 0 },
+      arguments: { videoId: "t1", into: "description", maxMB: 0 },
     });
     expect(zero.isError).toBe(true);
     expect(calls).toHaveLength(2);
@@ -1229,7 +1408,7 @@ describe("demoman-mcp's tools", () => {
     );
     const first = await client.callTool({
       name: "attach",
-      arguments: { takeId: "t1", into: "description" },
+      arguments: { videoId: "t1", into: "description" },
     });
     expect(textOf(first)).toEqual({ outcome: "stillRunning", id: "id-1" });
     finish({ ok: true, value: { outcome: "attached", summary: "Attached." } });
@@ -1445,24 +1624,26 @@ describe("demoman-mcp's tools", () => {
   }, async () => {
     const never = () => new Promise<Outcome>(() => {});
     const { client, calls } = await connect(
-      { status: never, takes: never, derive: never },
+      { status: never, videos: never, derive: never },
       150,
       undefined,
     );
     for (const [name, args] of [
       ["status", {}],
-      ["takes", {}],
-      ["derive", { takeId: "t1" }],
+      ["flows", {}],
+      ["derive", { videoId: "t1" }],
     ] as const) {
       const result = await client.callTool({ name, arguments: args });
       expect(result.isError, name).toBe(true);
       const said = textOf(result) as { reason: string; detail: string };
       expect(said.reason, name).toBe("browserSilent");
-      expect(said.detail).toContain(`did not answer ${name}`);
+      expect(said.detail).toContain(
+        `did not answer ${name === "flows" ? "videos" : name}`,
+      );
       expect(said.detail).not.toMatch(/extension/i);
     }
     // Premise: each request reached the link, so the cap is what answered.
-    expect(calls.map((c) => c.op)).toEqual(["status", "takes", "derive"]);
+    expect(calls.map((c) => c.op)).toEqual(["status", "videos", "derive"]);
   });
 
   // Replaces "answers snapshotTimedOut at the cap". Red if a slow snapshot
@@ -1560,7 +1741,7 @@ describe("demoman-mcp's tools", () => {
     const table = TOOL_ANNOTATIONS as Record<string, Record<string, unknown>>;
     expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(table).sort());
     for (const t of tools) expect(t.annotations, t.name).toEqual(table[t.name]);
-    for (const n of ["recipe", "status", "takes", "derive", "report"]) {
+    for (const n of ["recipe", "status", "flows", "derive", "report"]) {
       expect(table[n]?.readOnlyHint, n).toBe(true);
     }
     for (const n of ["snapshot", "run"]) {
@@ -1611,7 +1792,7 @@ describe("demoman-mcp's tools", () => {
     ).toContain("studio");
   });
 
-  it("passes takeId to the Studio and answers what it answered", async () => {
+  it("passes videoId to the Studio and answers what it answered, in the new words", async () => {
     const calls: Array<{ takeId?: string }> = [];
     const { client } = await connect(
       {},
@@ -1629,12 +1810,12 @@ describe("demoman-mcp's tools", () => {
     );
     const r = await client.callTool({
       name: "studio",
-      arguments: { takeId: "take-1" },
+      arguments: { videoId: "take-1" },
     });
     expect(calls).toEqual([{ takeId: "take-1" }]);
     expect(textOf(r)).toEqual({
       outcome: "opened",
-      takeId: "take-1",
+      videoId: "take-1",
       note: "A stale Studio record was replaced.",
     });
     expect(r.isError).not.toBe(true);
@@ -1650,17 +1831,18 @@ describe("demoman-mcp's tools", () => {
       undefined,
       async () => ({
         reason: "takeNotFound",
-        detail: "No take has the id nope.",
+        detail: "No video has the id nope.",
       }),
     );
     const r = await client.callTool({
       name: "studio",
-      arguments: { takeId: "nope" },
+      arguments: { videoId: "nope" },
     });
     expect(r.isError).toBe(true);
+    // The reason in the words agents are served.
     expect(textOf(r)).toEqual({
-      reason: "takeNotFound",
-      detail: "No take has the id nope.",
+      reason: "videoNotFound",
+      detail: "No video has the id nope.",
     });
   });
 });

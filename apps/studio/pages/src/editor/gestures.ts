@@ -118,7 +118,7 @@ function cursorAt(
     return { reason: "nothing has rendered yet" };
   }
   if (ctx.bundle.cursorSamples.length === 0) {
-    return { reason: "this take has no recorded pointer" };
+    return { reason: "this video has no recorded pointer" };
   }
   const sourceMs = toSourceMs(ctx.resolved.timeline, atMs);
   if (
@@ -489,7 +489,7 @@ export function resolveGesture(
   // uncaught throw would reach the author as a stack trace instead of a
   // refusal. One guard here instead of one in each branch.
   if (model.clip.ticks.length === 0) {
-    return refuse("This take has no steps to attach an edit to.");
+    return refuse("This video has no steps to attach an edit to.");
   }
   switch (gesture.kind) {
     case "pieceEdge":
@@ -582,7 +582,7 @@ export function resolveGesture(
         : null;
       if (!fallback || !anchorId) {
         return refuse(
-          `There is nothing to aim at here: ${cursor.reason}, and no step on this take has an element on screen.`,
+          `There is nothing to aim at here: ${cursor.reason}, and no step on this video has an element on screen.`,
         );
       }
       const target: ZoomTarget = { kind: "element", anchorId };
@@ -605,9 +605,9 @@ export function resolveGesture(
       const startMs = z.startMs + gesture.deltaMs;
       const endMs = z.endMs + gesture.deltaMs;
       if (startMs < 0)
-        return refuse("A zoom cannot start before the take does.");
+        return refuse("A zoom cannot start before the video does.");
       if (endMs > durationMs)
-        return refuse("A zoom cannot end after the take does.");
+        return refuse("A zoom cannot end after the video does.");
       // An automatic end moves with the compositor, so only an authored one
       // is checked against the zooms after it.
       const crowding = collides(
@@ -661,7 +661,7 @@ export function resolveGesture(
         return { kind: "setZoomRange", id: z.id, start, end };
       }
       if (gesture.toMs > durationMs)
-        return refuse("A zoom cannot end after the take does.");
+        return refuse("A zoom cannot end after the video does.");
       if (gesture.toMs < z.startMs + MIN_SEGMENT_MS) {
         return refuse(
           "A zoom's end cannot cross its start; it would end before it starts. Drag the start earlier first.",
@@ -721,16 +721,16 @@ export function resolveGesture(
       if (!m) return refuse(`There is no mask "${gesture.id}" to move.`);
       if (m.wholeTake || m.startMarker === null || m.endMarker === null) {
         return refuse(
-          "This mask covers the whole take, so it has no ends to move. Add a new mask to cover a stretch.",
+          "This mask covers the whole video, so it has no ends to move. Add a new mask to cover a stretch.",
         );
       }
       if (gesture.deltaMs === 0) return null;
       const startMs = m.startMs + gesture.deltaMs;
       const endMs = m.endMs + gesture.deltaMs;
       if (startMs < 0)
-        return refuse("A mask cannot start before the take does.");
+        return refuse("A mask cannot start before the video does.");
       if (endMs > durationMs)
-        return refuse("A mask cannot end after the take does.");
+        return refuse("A mask cannot end after the video does.");
       const start = maskPointAt(model, ctx, startMs, gesture.snapMs);
       const end = maskPointAt(model, ctx, endMs, gesture.snapMs);
       if (maskCollapsed(start, end)) return refuseNoLength("mask");
@@ -742,12 +742,12 @@ export function resolveGesture(
       if (!m) return refuse(`There is no mask "${gesture.id}" to resize.`);
       if (m.wholeTake || m.startMarker === null || m.endMarker === null) {
         return refuse(
-          "This mask covers the whole take, so it has no ends to move. Add a new mask to cover a stretch.",
+          "This mask covers the whole video, so it has no ends to move. Add a new mask to cover a stretch.",
         );
       }
       if (gesture.edge === "start") {
         if (gesture.toMs < 0)
-          return refuse("A mask cannot start before the take does.");
+          return refuse("A mask cannot start before the video does.");
         if (gesture.toMs > m.endMs - MIN_SEGMENT_MS) {
           return refuse(
             "A mask cannot start after it ends; drag its end later first.",
@@ -759,7 +759,7 @@ export function resolveGesture(
         return { kind: "setMaskRange", id: m.id, start, end };
       }
       if (gesture.toMs > durationMs)
-        return refuse("A mask cannot end after the take does.");
+        return refuse("A mask cannot end after the video does.");
       if (gesture.toMs < m.startMs + MIN_SEGMENT_MS) {
         return refuse(
           "A mask cannot end before it starts; drag its start earlier first.",

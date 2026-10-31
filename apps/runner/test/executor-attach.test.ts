@@ -376,7 +376,7 @@ describe("attach", () => {
     });
     if (answer.outcome !== "refusedBeforeAttach") return;
     expect(answer.detail).toContain("git.corp.example");
-    expect(answer.detail).toContain("export({ takeId, maxMB: 9.5 })");
+    expect(answer.detail).toContain("export({ videoId, maxMB: 9.5 })");
     expect(answer.detail).toContain("file.path to drag into the PR");
     expect(answer.detail).toContain("10 MB on a free plan");
     expect(answer.summary).toMatch(/^Not attached: /);
@@ -454,7 +454,7 @@ describe("attach", () => {
         "already capped at 9.5 MB, so do not call attach again",
       );
       expect(answer.detail).not.toContain("attach again with maxMB");
-      expect(answer.detail).not.toContain("export({ takeId, maxMB: 9.5 })");
+      expect(answer.detail).not.toContain("export({ videoId, maxMB: 9.5 })");
       const edit = calls().findIndex((c) => c.startsWith("pr edit"));
       expect(edit).toBeGreaterThan(0);
       expect(calls().slice(edit + 1)).toEqual([
@@ -892,7 +892,7 @@ describe("attach", () => {
     );
     // Red if a PR that is not there yet is sent straight to a drag-in.
     expect(answer.detail).toContain("Open the pull request, then attach again");
-    expect(answer.detail).not.toContain("export({ takeId, maxMB: 9.5 })");
+    expect(answer.detail).not.toContain("export({ videoId, maxMB: 9.5 })");
     expect(workPages).toBe(0);
   });
 
@@ -931,7 +931,7 @@ describe("attach", () => {
       });
       if (answer.outcome !== "refusedBeforeAttach") return;
       expect(answer.detail).toContain(names);
-      expect(answer.detail).toContain("export({ takeId, maxMB: 9.5 })");
+      expect(answer.detail).toContain("export({ videoId, maxMB: 9.5 })");
       expect(answer.detail).toContain("file.path to drag into the PR");
       // Red if an outage tells the agent to open a PR: it could open a
       // second one.
@@ -970,7 +970,7 @@ describe("attach", () => {
     expect(answer.detail).toContain("bitbucket.org,");
     expect(answer.detail).not.toContain("brew install gh");
     expect(answer.detail).not.toMatch(/\.\.[,\s]/);
-    expect(answer.detail).toContain("export({ takeId, maxMB: 9.5 })");
+    expect(answer.detail).toContain("export({ videoId, maxMB: 9.5 })");
     // Premise: gh was asked and was missing; the remotes decided the reason.
     expect(calls()).toEqual(["--version"]);
 
@@ -1047,7 +1047,7 @@ describe("attach", () => {
       });
       if (answer.outcome !== "refusedBeforeAttach") return;
       expect(answer.detail).toContain(names);
-      expect(answer.detail).toContain("export({ takeId, maxMB: 9.5 })");
+      expect(answer.detail).toContain("export({ videoId, maxMB: 9.5 })");
       expect(answer.detail).toContain("file.path to drag into the PR");
       expect(answer.detail).toContain("10 MB on a free plan");
       expect(workPages).toBe(0);
@@ -1063,7 +1063,7 @@ describe("attach", () => {
       [{ into: "body" }, "into"],
       [{ into: "comment", pr: 0 }, "pr"],
       [{ into: "comment", pr: "12" }, "pr"],
-      [{ into: "comment", takeId: " " }, "takeId"],
+      [{ into: "comment", takeId: " " }, "videoId"],
       [{ into: "comment", quality: "full" }, "quality"],
       [{ into: "comment", fileType: "gif" }, "fileType"],
     ] as const) {
@@ -1731,7 +1731,7 @@ describe("copyFailedDetail", () => {
     const detail = copyFailedDetail("/out/a.mp4", "/tmp/x/a.mp4", "EACCES");
     expect(detail).toContain("saved at /out/a.mp4");
     expect(detail).toContain("nothing was posted");
-    expect(detail).toContain("export({ takeId, maxMB: 9.5 })");
+    expect(detail).toContain("export({ videoId, maxMB: 9.5 })");
     expect(detail).toContain("file.path to drag into the PR");
     expect(detail).not.toContain("Give the user that file");
   });

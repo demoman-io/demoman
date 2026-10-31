@@ -281,7 +281,7 @@ describe("editor main — preview transport", () => {
       // Premise: the trim refusal actually drew (`i` is the head trim key).
       expect(said[3]).toMatch(/nothing to trim to/);
       for (const text of said) {
-        expect(text).toContain("Ask your agent to re-record this take");
+        expect(text).toContain("Ask your agent to film");
         expect(text).not.toMatch(/in Runs|re-shoot/i);
       }
     });
@@ -292,7 +292,7 @@ describe("editor main — preview transport", () => {
       const said = surfaces();
       expect(said[3]).toMatch(/nothing to trim to/);
       for (const text of said) {
-        expect(text).toContain("Ask your agent to re-record this take");
+        expect(text).toContain("Ask your agent to film");
       }
     });
   });

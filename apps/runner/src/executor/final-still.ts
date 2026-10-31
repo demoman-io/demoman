@@ -58,12 +58,12 @@ export async function renderFinalStill(args: {
   try {
     const read = await library.getSceneRead(takeId);
     if (read === null) {
-      return { unavailable: `there is no take ${takeId} in the library` };
+      return { unavailable: `there is no video ${takeId} in the library` };
     }
     const store = library.frameStore(takeId);
     const bundle = await store.getBundle(takeId);
     if (bundle === null) {
-      return { unavailable: `take ${takeId} has no frames to show` };
+      return { unavailable: `video ${takeId} has no frames to show` };
     }
     const { scene } = read;
     const target = stillTarget(

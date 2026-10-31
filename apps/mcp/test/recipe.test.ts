@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { servedReason } from "@demoman/run-core";
 import { DemoScriptSchema, type ScriptStep } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import { INSTRUCTIONS_CLI } from "../src/instructions";
@@ -352,7 +353,11 @@ describe("the CLI's recipe", () => {
         "unsupportedPlatform",
       ]),
     );
-    expect(reasons.filter((r) => !RECIPE.includes(`\`${r}\``))).toEqual([]);
+    // The recipe names a reason as agents are served it (served-words.ts):
+    // the code keeps the library's own names.
+    expect(
+      reasons.map(servedReason).filter((r) => !RECIPE.includes(`\`${r}\``)),
+    ).toEqual([]);
   });
 
   // A run can stop with any reason the replay engine has a sentence for, bar
@@ -392,12 +397,12 @@ describe("the CLI's recipe", () => {
 
   // Red if a `run({ takeId })` line comes back (run refuses takeId), or the
   // order the spec teaches (find the video first) is lost.
-  it("records into videos: finds the video first, and never passes takeId to run", () => {
-    expect(RECIPE.match(/run\([^)]*takeId/g) ?? []).toEqual([]);
+  it("records into flows: finds the flow first, and never passes takeId or video to run", () => {
+    expect(RECIPE.match(/run\([^)]*(takeId|video:)/g) ?? []).toEqual([]);
     const at = (needle: string) => RECIPE.indexOf(needle);
-    expect(at("videos({ file")).toBeGreaterThan(-1);
-    expect(at("videos({ file")).toBeLessThan(at("videos({ query"));
-    expect(at("videos({ query")).toBeLessThan(at("video: { new"));
+    expect(at("flows({ file")).toBeGreaterThan(-1);
+    expect(at("flows({ file")).toBeLessThan(at("flows({ query"));
+    expect(at("flows({ query")).toBeLessThan(at("flow: { new"));
     expect(RECIPE).toContain("confirmedNew: true");
   });
 

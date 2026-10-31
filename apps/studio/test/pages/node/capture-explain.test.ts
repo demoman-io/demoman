@@ -13,7 +13,7 @@ describe("captureSentence after the split", () => {
     // prints an unmapped key verbatim, so `/attach/i` would pass with and
     // without the mapping. See CLAUDE.md, "Tests must be able to fail".
     expect(sentence).not.toBe("attachFailed");
-    expect(sentence).toContain("no video");
+    expect(sentence).toContain("no motion");
   });
 
   it("says nothing for a genuinely static page", () => {
@@ -224,7 +224,7 @@ describe("captureSentence for the reasons a take loses its debugger", () => {
       } as never);
       expect(sentence).not.toBeNull();
       expect(sentence).not.toContain(reason);
-      expect(sentence).toMatch(/video|recording|stills|frames/i);
+      expect(sentence).toMatch(/video|film|stills|frames/i);
     });
   }
 });
@@ -241,7 +241,7 @@ describe("a detach carries Chrome's own reason", () => {
     // old fixed sentence said it probably was. Both halves are asserted —
     // the base sentence still arrives, and the reason is named — so neither
     // a lost mapping nor a lost detail passes.
-    expect(sentence).toContain("Recording stopped partway through");
+    expect(sentence).toContain("Filming stopped partway through");
     expect(sentence).toContain("DevTools");
     expect(sentence).not.toContain("most likely");
   });
@@ -255,7 +255,7 @@ describe("a detach carries Chrome's own reason", () => {
       coveredMs: 2_000,
       takeMs: 12_000,
     });
-    expect(sentence).toContain("Recording stopped partway through");
+    expect(sentence).toContain("Filming stopped partway through");
     expect(sentence).toContain("some_future_reason");
   });
 
@@ -267,7 +267,7 @@ describe("a detach carries Chrome's own reason", () => {
       takeMs: 12_000,
     });
     expect(sentence).not.toBe("debuggerDetached");
-    expect(sentence).toContain("Recording stopped partway through");
+    expect(sentence).toContain("Filming stopped partway through");
   });
 });
 
@@ -298,7 +298,7 @@ it("does not claim the tab was closed when the target merely went away", () => {
     coveredMs: 2_000,
     takeMs: 16_000,
   });
-  expect(sentence).toContain("Recording stopped partway through");
+  expect(sentence).toContain("Filming stopped partway through");
   // Both causes named, neither asserted.
   expect(sentence).toContain("the page was replaced");
   expect(sentence).not.toMatch(/\bthe tab was closed\b/);

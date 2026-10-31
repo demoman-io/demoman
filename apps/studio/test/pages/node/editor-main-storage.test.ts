@@ -123,7 +123,7 @@ describe("editor main — storage lifecycle wiring", () => {
       });
       expect(
         document.querySelector("[data-navigation-error]")?.textContent,
-      ).toContain("The Recordings page did not open");
+      ).toContain("The Flows page did not open");
     } finally {
       errorSpy.mockRestore();
     }
@@ -224,8 +224,8 @@ describe("editor main — storage lifecycle wiring", () => {
     // the editor in place: `window.close()` is refused for a tab the page
     // did not open, so that pairing left the author on a deleted demo with
     // a second Recordings tab behind it.
-    // No `note` in this reply, so the URL is the bare Recordings page.
-    expect(nav.assigned.at(-1)).toBe("/");
+    // No `note` in this reply: the plain sentence the library toasts.
+    expect(nav.assigned.at(-1)).toBe("/?note=Deleted%20the%20video");
   });
 
   // Final review I1. On the studio, a delete's reply can carry a note — a
@@ -252,7 +252,7 @@ describe("editor main — storage lifecycle wiring", () => {
       const url = new URL(nav.assigned.at(-1) ?? "", "http://x.invalid");
       expect(url.pathname).toBe("/");
       expect(url.searchParams.get("note")).toBe(
-        `This demo was deleted. ${NOTE}`,
+        `This video was deleted. ${NOTE}`,
       );
       // Premise: the delete went through the platform, once.
       expect(
@@ -272,7 +272,7 @@ describe("editor main — storage lifecycle wiring", () => {
           const text =
             document.querySelector("[data-navigation-error]")?.textContent ??
             "";
-          if (!text.includes(`This demo was deleted. ${NOTE} assign broke`))
+          if (!text.includes(`This video was deleted. ${NOTE} assign broke`))
             throw new Error(`not shown: ${text}`);
         });
       } finally {
@@ -430,7 +430,7 @@ describe("editor main — storage lifecycle wiring", () => {
       await vi.waitFor(() => {
         const text =
           document.querySelector("[data-navigation-error]")?.textContent ?? "";
-        if (!text.includes("This demo was deleted. assign broke"))
+        if (!text.includes("This video was deleted. assign broke"))
           throw new Error(`not shown: ${text}`);
       });
     } finally {

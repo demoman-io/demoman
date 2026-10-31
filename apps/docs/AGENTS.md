@@ -4,8 +4,10 @@ Mintlify site served at demoman.io/docs. Pages are `.mdx`; the sidebar is
 `docs.json`. `apps/docs` is not a pnpm package; `apps/cli/test/docs.test.ts`
 is its test.
 
-- **Terms:** Demoman (the product), the Studio (the editor), a take (one
-  recording). Do not say "plugin" for the npm package or "clip" for a take.
+- **Terms:** Demoman (the product), the Studio (the editor), a flow (what
+  is filmed), a video (one filming of a flow), an export (a file). Do not say
+  "plugin" for the npm package, "clip" for a video, or the retired words
+  `scripts/old-words.test.mjs` lists for either.
 - **No scripts.** The reader asks their agent for a demo. No page tells
   them to write or edit a script, or shows script syntax.
 - **Pins.** Every MCP block on the site runs `demoman@latest`, so it
@@ -32,10 +34,10 @@ is its test.
 | Agents | what `npx demoman setup` adds per agent (`apps/cli/src/setup.ts`), then one tab per manual agent: its server block and skills folder. Say anything shared by every agent once, outside the tabs |
 | Prompts | New writing, no script syntax |
 | Authentication | README "For an app behind a login" and "Demo accounts", `signin` from `USAGE`, CI secrets |
-| Phone and tablet recording | recipe "Recording a phone demo", as what to ask for |
+| Phone and tablet videos | recipe "Recording a phone demo", as what to ask for |
 | Export | MP4 (16:9, 9:16), GIF, stills; `~/Downloads` or `--out-dir` |
 | Commands | `USAGE` and the flags `main.ts` parses; the `DEMOMAN_*` variables the package reads |
-| Overview, Editing | `npx demoman studio [take]`, `--stop`, the `studio` tool; the Studio's own labels |
+| Overview, Editing | `npx demoman studio [video]`, `--stop`, the `studio` tool; the Studio's own labels |
 | Data | `docs/disclosure-cli.md` |
 | License | FSL-1.1-ALv2 |
 | Troubleshooting | recipe section 7, the human-actionable subset |

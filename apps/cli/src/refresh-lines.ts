@@ -9,7 +9,7 @@ export function refreshLines(result: RefreshResult): {
   code: 0 | 1;
 } {
   if (result.videos.length === 0)
-    return { lines: ["No videos are kept in .demoman/videos/."], code: 0 };
+    return { lines: ["No flows are kept in .demoman/videos/."], code: 0 };
   return {
     lines: result.videos.map((v) => {
       const said = v.detail === "" ? v.outcome : `${v.outcome}: ${v.detail}`;

@@ -1,20 +1,8 @@
-import { failure, type Outcome } from "@demoman/agent-bridge";
+import type { Outcome } from "@demoman/agent-bridge";
 import { mergeSkeleton } from "@demoman/run-core";
 import { scriptFromTake } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
-import { type Library, LibraryError } from "./library.js";
-
-/** The `takes` op: the extension's shape (`bridge/handle.ts` `takes`). */
-export async function takesOp(library: Library): Promise<Outcome> {
-  try {
-    return { ok: true, value: await library.list() };
-  } catch (error) {
-    return failure(
-      "libraryUnreadable",
-      error instanceof LibraryError ? error.message : messageOf(error),
-    );
-  }
-}
+import type { Library } from "./library.js";
 
 /**
  * The `derive` op, in the run page's shape (`run/view.ts` `deriveFromTake`,

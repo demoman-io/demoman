@@ -1,7 +1,7 @@
 # Recording a demo with Demoman
 
 You write a DemoScript. Demoman runs it in a browser of its own on
-this machine and saves the take on disk; `export` renders that take to an
+this machine and saves the video on disk; `export` renders that video to an
 MP4. Every tool answers JSON. A refusal is an error result carrying
 `reason`, a stable identifier to branch on, and `detail`, a sentence for the
 user; section 7 lists every reason.
@@ -25,7 +25,7 @@ user; section 7 lists every reason.
    signing in: when the user asks for one and gives demo values, start
    the script at that form's page and type them; a password field's text is
    hidden on disk and in reports.
-3. Takes are saved under `<DEMOMAN_HOME, default ~/.demoman>/takes/<id>/`.
+3. Videos are saved under `<DEMOMAN_HOME, default ~/.demoman>/takes/<id>/`.
    No telemetry.
 
 ### Behind a login: demo accounts
@@ -141,7 +141,7 @@ The file, with one account:
 - Demoman signs in by itself: when the account has no saved session, and
   once more when a call lands on a sign-in page; `signedIn`
   (`{account, steps, ms}`) says it did. A second failure answers
-  `signInFailed`. A session that lapses mid-run keeps no take; Demoman has
+  `signInFailed`. A session that lapses mid-run keeps no video; Demoman has
   signed in again: just run again.
 
 ## 2. Look at the page
@@ -190,7 +190,7 @@ targets, leaving the page open. Each entry is
   with its steps cut off after the step that opens it, and copy targets from
   that answer. A probe acts on the app for real: "Add item" adds one per
   probe and again in the run, so a unique target can turn ambiguous;
-  a delete deletes; in the Studio an edit saves into the take. Server data
+  a delete deletes; in the Studio an edit saves into the video. Server data
   carries into the run; browser storage does not, except a signed-in
   site's. Prefer demo data. `stopped`: a step did not play; fix it as a
   run's stop with that reason says, and probe again.
@@ -217,9 +217,9 @@ targets, leaving the page open. Each entry is
    look.
    `{ "ok": false, "reason": … }`: the kits could not be read; say so, name none.
 
-### From a take made earlier
+### From a video made earlier
 
-`derive(takeId)` answers `{ report, script }`: the take's steps as a script
+`derive(videoId)` answers `{ report, script }`: the video's steps as a script
 to change and run again.
 
 - `report.outcome: "derived"` - `script` is a draft, with `holes[]` and
@@ -228,46 +228,45 @@ to change and run again.
 
   | Hole `reason` | What to do |
   | --- | --- |
-  | `scrubbedTarget` | `step` is null: the hole is the start URL. Demoman strips query values and secret-looking path segments from a take; `recorded` shows `redacted` in their place. Set `target` to the real start URL - ask the user if unsure. |
+  | `scrubbedTarget` | `step` is null: the hole is the start URL. Demoman strips query values and secret-looking path segments from a video; `recorded` shows `redacted` in their place. Set `target` to the real start URL - ask the user if unsure. |
   | `redacted` | Add `"text"` with a **demo** value, never a real credential. |
   | `unnameable`, `ambiguousAtCapture`, `brokenAtCapture` | Add the target, copied from a `snapshot` of that page. |
   | `buttonNotScriptable` | Delete `"button"` only if a left click is acceptable - it is a different action. Otherwise tell the user the step cannot be scripted. |
   | `hostField` | Deleting `"host"` makes the step **replace the whole rich-text editor's contents** on the live app. Ask the user first. |
 
-  `notes[]` lists steps the take cut or trimmed; they are kept. A
+  `notes[]` lists steps the video cut or trimmed; they are kept. A
   `landingOffscreen` note names a scroll that will centre its element. **Keep each step's `recorded`, each
   scroll's `landing`, and the script's `recordedFrom`**: they are how the
-  report compares the new run with the take. A step you add has no
+  report compares the new run with the video. A step you add has no
   `recorded`.
-  `report.skeleton` is what the merge with the take's saved script said:
+  `report.skeleton` is what the merge with the video's saved script said:
   `noSkeleton` or `skeletonUnreadable` (the original's pauses were not
   kept), `stepDropped`, `actionAdded` (kept in place), `verbChanged` (the
   draft takes the verb in `scene.json` - check that step before running).
-- `takeNotFound` - no take has that id; call `takes`.
-- `unreadable` - a stored take cannot be read; report its `reason`.
+- `videoNotFound` - no video has that id; `flows()` lists them.
+- `unreadable` - a stored video cannot be read; report its `reason`.
 - `threw` - report its `error`.
 
-**Re-recording an edited take.** `run({ video: { id } })` with no `script`
-records the video's current version again from its saved script and current
-`scene.json` (steps, name, look, pauses, added steps), as a new version and a
-run toward the three. Refused with `unfilledHoles` when the take did not keep
+**Re-filming an edited video.** `run({ flow: { id } })` with no `script`
+re-films the flow's current video from its saved script and current
+`scene.json` (steps, name, look, pauses, added steps), as a new video and a
+run toward the three. Refused with `unfilledHoles` when the video did not keep
 a value: `derive`, fill, `run`. `invalidScript` (`field` `steps.<i>.do`): a
 verb was changed by hand: `derive`, check it, `run` the draft.
 
-A video kept current in the repo (.demoman/videos) is rewritten by each run into it: commit that file with the change. To keep one current, run `npx demoman keep <video> --to <path>` in the repo.
+A flow kept current in the repo (.demoman/videos) is rewritten by each run into it: commit that file with the change. To keep one current, run `npx demoman keep <flow> --to <path>` in the repo.
 
 ## 4. Run and read
 
-0. Name the video first: every run adds a version to one. If the repo
-   has an exported file of it, `videos({ file:
-   <absolute path> })`. Else `videos({ query: "<what the flow shows>" })`;
-   `videos()` lists the repo's. Then `run({ script, video:
-   { id } })` adds a version; `video: { new: "<name>" }` starts one.
+0. Name the flow first: every run adds a video to one. If the repo
+   has an exported file of it, `flows({ file: <absolute path> })`. Else
+   `flows({ query: "<what the flow shows>" })`; `flows()` lists the repo's. Then `run({ script, flow:
+   { id } })` adds a video; `flow: { new: "<name>" }` starts one.
    `possibleDuplicate` lists `matches`: use one's `id`, or repeat with
    `confirmedNew: true` for a different flow. `nameTaken` names the
-   `holder`: use its `id` or another name. The report's `videoVersion`
+   `holder`: use its `id` or another name. The report's `flow`
    says what was made.
-1. `run(script, video)`. It answers the run's report, or
+1. `run(script, flow)`. It answers the run's report, or
    `{ "outcome": "stillRunning", "id": … }` after about 50 s; then call
    `report(id)` until the outcome is neither `running` nor `stillRunning`.
 2. The report's `outcome`:
@@ -288,7 +287,7 @@ A video kept current in the repo (.demoman/videos) is rewritten by each run into
      `endPage`: the end page's `url`, `text` and `fields`.
    - In any outcome, a step whose `textHidden` is set typed into a credential
      field (`"credentialField"`, or `"credentialUnchecked"` if the page could
-     not say): its text is kept nowhere. Re-recording or deriving that take
+     not say): its text is kept nowhere. Re-filming or deriving that video
      asks for a demo value. `landing.startedElsewhere` names where the start URL went; `landing.unchecked`: the page could not be checked for a
      sign-in page. `notStored` with `what: "session"` means the saved
      session could not be refreshed: name it to the user.
@@ -301,28 +300,28 @@ A video kept current in the repo (.demoman/videos) is rewritten by each run into
      could not be confirmed to have reached its target, and
      `frames.unconfirmedClicks` names each such step and says why; check in
      the video that the step did what it should before saying so.
-   - A re-recording's report carries `rerecord`: `from` (the take), `notes`
+   - A re-film's report carries `rerecord`: `from` (the old video), `notes`
      (as `report.skeleton` above, `stepDropped` with `why` `actionGone` or
      `neverPerformed`; `migrated`: a `sentence`) and `notCarried` (each `removed`, `split`,
-     mask, hold, gap or trim the old take had and the new one lacks, and
+     mask, hold, gap or trim the old video had and the new one lacks, and
      each zoom the editor aimed or ended by hand, `zoom`; every other zoom
-     the new take makes again from its own clicks). Name every
+     the new video makes again from its own clicks). Name every
      one to the user; a mask not carried may show what the old video hid.
 3. **Read the video.** The report carries `video` and `recording`. Read
    `video.summary` first (a count per label: `inside`, `atEdge`, `cutOff`,
    `outOfFrame`, `strayArrival`, `detour`, `longStill`), then
    `video.steps[i].framing.label`, and `video.journeys[j].arrival` /
    `video.journeys[j].detour` for the cursor.
-   - **Which script step a video step is:** `video.steps` lists the take's
+   - **Which script step a video step is:** `video.steps` lists the video's
      actions, and a `pause` makes no action. Find the report's `steps[k]`
      whose `actionId` equals `video.steps[i].actionId`; `steps[k].index` is
      its 0-based position in your script.
-   - `video` may be `{ "unavailable": … }` (`refused`, `noTake`, `noFrames`,
+   - `video` may be `{ "unavailable": … }` (`refused`, `noVideo`, `noFrames`,
      `checkFailed` with `error`): not a clean bill; say so, do not retry. Likewise
      `video.steps[i].unknown` and `video.noCursor: true`.
    - `recording` is `{ "unavailable": … }` or
-     `{ recordingTakeId, steps[], notInRecording[] }`, comparing the run with
-     the take a derived script came from. `unavailable` is again an answer.
+     `{ recordingVideoId, steps[], notInRecording[] }`, comparing the run with
+     the video a derived script came from. `unavailable` is again an answer.
 
    | Finding | Whose | The move |
    | --- | --- | --- |
@@ -330,7 +329,7 @@ A video kept current in the repo (.demoman/videos) is rewritten by each run into
    | `atEdge` | the script, if a run remains | as above; otherwise leave it |
    | `longStill` beyond what a `pause` asked for | Demoman | leave it; do not rewrite steps |
    | stray arrival, `detour` | Demoman | leave it |
-   | drift from the earlier take | the app | report it |
+   | drift from the earlier video | the app | report it |
 
    A finding that is Demoman's earns no run and is not passed on (the
    user can change it in the Studio). A step's
@@ -339,8 +338,8 @@ A video kept current in the repo (.demoman/videos) is rewritten by each run into
    than the target you named.
 
 **Stop after three runs**, done or not, then export: every run drives the
-user's real app. A take zooms on every click and starts from `look.kit`, else the
-user's default brand kit; a derived draft keeps its take's branding. The report's `look.branding` says where it came from: `script`,
+user's real app. A video zooms on every click and starts from `look.kit`, else the
+user's default brand kit; a derived draft keeps its video's branding. The report's `look.branding` says where it came from: `script`,
 `kit` (you named it; `look.kit.name` says which), `defaultKit`, or
 `defaults`. A non-null `look.brandKitError` (default kit unreadable),
 `look.wallpaperError` (its image) or `size.error` goes into your hand-back;
@@ -348,18 +347,18 @@ user's default brand kit; a derived draft keeps its take's branding. The report'
 
 ## 5. Export and hand back
 
-1. `export(takeId)` with the accepted run's `provenance.takeId`. It answers
+1. `export(videoId)` with the accepted run's `provenance.videoId`. It answers
    the export report, or `stillRunning` with an `id`; then call `report(id)`
    until the outcome is none of `exporting`, `stillRunning`.
    `fileType`, only if asked: `mp4` (the default), `gif` (plays inline in
    a GitHub PR or issue), or `stills` (a PNG per step, in a folder). An MP4 follows Settings
    (unset: ~1 MB/s); `quality: "full"` is largest.
-   `export({ takeId, maxMB: 9.5 })` fits GitHub's 10 MB drag-in, or says
+   `export({ videoId, maxMB: 9.5 })` fits GitHub's 10 MB drag-in, or says
    it could not (the summary says what it cost).
    A GIF is as wide as fits 10 MB (`warnings.gifSize` says how wide and
    which widths were refused); one over 10 MB at its narrowest says so: offer the MP4.
    Stills take `stills: { width, zoom }`, both optional; by
-   default a still is the whole window, up to 2560 px wide (no wider than the recording). `width` is px (320-3840) or `"native"`, the recording's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Pass
+   default a still is the whole window, up to 2560 px wide (no wider than the video). `width` is px (320-3840) or `"native"`, the video's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Pass
    them only when asked.
 2. `saved` - the file is at `file.path`, absolute: in `~/Downloads`, or the
    server's `--out-dir`. For `stills`, `fileType`
@@ -373,9 +372,9 @@ user's default brand kit; a derived draft keeps its take's branding. The report'
    Except `wallpaperWarning.sentence` (wallpaper left out: plain
    gradient; or will look soft): quote it.
    `warnings.editedSinceRecorded` lists steps whose `scene.json` no longer
-   matches the frames; the summary names the re-recording
-   (`run({ video: { id } })`, or `derive` then `run` when a verb changed).
-   Re-record only on request. `warnings.untagged`: the file has no video
+   matches the frames; the summary names the re-film
+   (`run({ flow: { id } })`, or `derive` then `run` when a verb changed).
+   Re-film only on request. `warnings.untagged`: the file has no flow
    tag (`error` says why); not the user's to act on.
    `links` holds the export's one-click actions, each present
    only where it works: `studio`, `file` (the file itself) and `copy` (the
@@ -398,7 +397,7 @@ Before opening a PR, read `status.pullRequests` (`project` for
 another checkout): `attach`, `ask`, `off`, or `{ unreadable, file }`,
 which is not `off`: tell the user. `off`: only when asked. If the diff
 changes what a user sees, record that one flow (only the change),
-push and open the PR, then `attach({ takeId, into: "description" })`, or
+push and open the PR, then `attach({ videoId, into: "description" })`, or
 `"comment"` on a PR that is not yours. The video carries its own line; write no other. On `line.notWritten`,
 tell the user the video lacks it, quoting why. A later `gh pr edit --body` drops the video. `ask`: offer once; on a no, nothing to see or a failed run (say why),
 the PR says nothing of it. `attach`: with no video, the PR description gets
@@ -407,7 +406,7 @@ one line, `No demo: <why>`, and so does the user.
 until the outcome is not `attaching` or `stillRunning`. On `busy`,
 `report(id)` on the export in flight, then `attach` again. On `ghMissing`,
 `ghOutdated`, `ghSignedOut`, `notGitHub`, `prUnreadable` or `copyFailed`, call
-`export({ takeId, maxMB: 9.5 })` and give the user its `file.path` to drag
+`export({ videoId, maxMB: 9.5 })` and give the user its `file.path` to drag
 into the PR, saying why. On `uploadRefused` or `prNotFound`, do as its `detail` says. On `partial` or `unconfirmed`, do not
 post again; tell the user to check the PR. Other reasons: section 7. An unsaved export answers as `export` does.
 
@@ -419,9 +418,9 @@ those present: `[Open in Studio](links.studio) · [<file name>](links.file) · [
 outcome: quote its `error` or `detail`.
 
 When the `studio` tool is listed and there is no `links.studio`, **offer**
-it; never open it unasked. `studio({ takeId })`
-opens a window to edit and export the take.
-`{ outcome: "opened", takeId?, note? }`: say it is open;
+it; never open it unasked. `studio({ videoId })`
+opens a window to edit and export the video.
+`{ outcome: "opened", videoId?, note? }`: say it is open;
 quote `note` if set. Studio exports go to `~/Downloads`.
 
 ## 6. The format
@@ -484,11 +483,11 @@ quote `note` if set. Studio exports go to `~/Downloads`.
   A `background` may be `{ "kind": "wallpaper", "id" }` (`muted-1` to
   `muted-4`, `vivid-1` to `vivid-6`, `light-1`, `light-2`, `dark-1`, `dark-2`;
   another id is refused, naming them) or `{ "kind": "image", "ref": "<path>" }`, a file, absolute or
-  relative to the Demoman home; copied into the take. Either takes
+  relative to the Demoman home; copied into the video. Either takes
   `"blur"`, 0-1 (default 0, sharp).
   A `canvas` is `{ "aspect": "auto" | "16:9" | "9:16" }`; `auto`, the
-  default, is the recording's own shape plus an even margin.
-  A `motion` is how the camera moves, `{ "smoothness": 0-1, "blur": 0-1, "follow": true | false }`; a derived draft carries the take's own, so keep it.
+  default, is the source's own shape plus an even margin.
+  A `motion` is how the camera moves, `{ "smoothness": 0-1, "blur": 0-1, "follow": true | false }`; a derived draft carries the video's own, so keep it.
 - Refused at the door: a script whose every step is a `pause`; a `target`
   that is not `http(s)`; a `click` with a `button`.
 - No branching, loops or assertions. Add `pause` only where a viewer must read.
@@ -523,23 +522,24 @@ quote `note` if set. Studio exports go to `~/Downloads`.
 | `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
 | `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. Call `report(id)` on it; try again when it settles. |
 | `busy` | `export` (`refusedBeforeExport`) | A run, probe or snapshot is in progress. Call `report(id)` on it first. |
-| `browserSilent` | `status`, `takes`, `derive`, `report` | The browser did not answer within about 50 s. Call `status` once; if again, tell the user. From `report`, the run may still be going: call `report(id)` again. |
-| `libraryUnreadable` | `takes`, `studio` | The library could not be read; report it. |
-| `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: the report has a `notStored` entry `{ "what": "take", "error": … }` and a null `provenance.takeId`. Nothing was saved; quote the `error`. |
+| `browserSilent` | `status`, `flows`, `derive`, `report` | The browser did not answer within about 50 s. Call `status` once; if again, tell the user. From `report`, the run may still be going: call `report(id)` again. |
+| `libraryUnreadable` | `flows`, `studio` | The library could not be read; report it. |
+| `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: the report has a `notStored` entry `{ "what": "video", "error": … }` and a null `provenance.videoId`. Nothing was saved; quote the `error`. |
 | `unknownRun` | `report` | This demoman-mcp never issued that id (ids do not survive a server restart). |
 | `noReport` | `report` | No report for that id: this server keeps only its latest; `detail` says which. Do not run again. |
 | `notAnObject` | `run` | The script is not a JSON object. |
 | `invalidScript` | `run` | The schema refused the script; `field` names where. |
-| `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-record of a take that did not keep a value. |
-| `videoRequired` | `run` (`refusedBeforeRun`) | No `video` was given. Find one (section 4), or pass `{ new }`. |
-| `possibleDuplicate`, `nameTaken` | `run` (`refusedBeforeRun`) | A similar video exists (`matches`) or the name is taken (`holder`). Section 4. |
-| `videoNotFound` | `run` (`refusedBeforeRun`) | No video has that `id`; call `videos`. |
-| `videoUnreadable`, `videoUnwritable` | `run` (`refusedBeforeRun`), `videos` | The video records could not be read or written; quote `detail`. Nothing was recorded. |
-| `noTag`, `unknownVideo`, `fileNotFound` | `videos` | The file has no Demoman tag; its video is not in this library; no file there. Use `query` instead. |
-| `invalidArgs` | `videos` | `file` with `query`, or not an absolute path. |
-| `versionExpired` | `export` (`refusedBeforeExport`) | The take's frames expired: `run({ video: { id } })`, then export. |
+| `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-film of a video that did not keep a value. |
+| `flowRequired` | `run` (`refusedBeforeRun`) | No `flow` was given. Find one (section 4), or pass `{ new }`. |
+| `possibleDuplicate`, `nameTaken` | `run` (`refusedBeforeRun`) | A similar flow exists (`matches`) or the name is taken (`holder`). Section 4. |
+| `flowNotFound` | `run` (`refusedBeforeRun`) | No flow has that `id`; call `flows`. |
+| `wrongIdKind` | any | Wrong kind of id; see `detail`. |
+| `flowUnreadable`, `flowUnwritable` | `run` (`refusedBeforeRun`), `flows` | The flow records could not be read or written; quote `detail`. Nothing was filmed. |
+| `noTag`, `unknownFlow`, `fileNotFound` | `flows` | The file has no Demoman tag; its flow is not in this library; no file there. Use `query` instead. |
+| `invalidArgs` | any | `file` with `query`, not absolute; an old name (`video`, `takeId`): `detail` gives the new. |
+| `videoExpired` | `export` (`refusedBeforeExport`) | The video's frames expired: `run({ flow: { id } })`, then export. |
 | `failed` | `status` (`expiry`) | Not a refusal: `expiry` is the last cleanup. Say nothing unless it is `{ failed }` or `{ unreadable }`: quote it. |
-| `nothingToRerecord` | `run` (`refusedBeforeRun`) | The take has no step left that acts; tell the user. |
+| `nothingToRerecord` | `run` (`refusedBeforeRun`) | The video has no step left that acts; tell the user. |
 | `unknownKit` | `run` (`refusedBeforeRun`) | `look.kit` names no kit, or an unreadable one; `detail` lists the kits. Fix it from `snapshot`'s `kits`, or ask the user. |
 | `kitsUnreadable` | `run` (`refusedBeforeRun`) | The kits file would not read, so `look.kit` went unchecked. Quote `detail`; keep the name. |
 | `wallpaperUnreadable` | `run` (`refusedBeforeRun`) | The image would not open. Quote `detail`; fix or drop `look.branding`/`look.kit`. |
@@ -549,8 +549,8 @@ quote `note` if set. Studio exports go to `~/Downloads`.
 | `invalidFileType` | `export` (`refusedBeforeExport`) | Not answered here: the schema takes only `mp4`, `gif`, `stills`. |
 | `invalidStillsOptions` | `export` (`refusedBeforeExport`) | `stills` was given for an MP4 or GIF, or breaks section 5's width or zoom; `detail` says which. Fix the call. |
 | `invalidQuality`, `invalidMaxMB` | `export` (`refusedBeforeExport`), `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
-| `noTakeId`, `noFrames` | `export` (`refusedBeforeExport`) | No take id; the take has no frames to render. |
-| `takeNotFound`, `takeUnreadable` | `export` (`refusedBeforeExport`), `run` re-record (`refusedBeforeRun`), `studio` (`takeNotFound`: call `takes`) | No such take; it could not be read (or, for `run`, built into a script). |
+| `noVideoId`, `noFrames` | `export` (`refusedBeforeExport`) | No video id; the video has no frames to render. |
+| `videoNotFound`, `videoUnreadable` | `export` (`refusedBeforeExport`), `run` re-film (`refusedBeforeRun`), `studio` (`videoNotFound`: call `flows`) | No such video; it could not be read (or, for `run`, built into a script). |
 | `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run` (`stopped.reason`) | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. |
 | `ambiguousAnchor` | `run` (`stopped.reason`) | Several elements matched; name the target more exactly. |
 | `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run` (`stopped.reason`) | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |

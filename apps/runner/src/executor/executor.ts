@@ -34,7 +34,7 @@ import {
 } from "./accounts.js";
 import { attachProjectRefused, attachTake, attachThrew } from "./attach.js";
 import { createBrowserSession } from "./browser.js";
-import { deriveOp, takesOp } from "./derive.js";
+import { deriveOp } from "./derive.js";
 import { expireOld, expiryStatus } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
@@ -152,7 +152,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
   // awaited: nothing is written before the first call, and a failure says so.
   ownHome(home).catch((error: unknown) => {
     log(
-      `${home} could not be made owner-only (${messageOf(error)}), so other users on this machine may read its takes`,
+      `${home} could not be made owner-only (${messageOf(error)}), so other users on this machine may read its videos`,
     );
   });
   const env = options.env ?? process.env;
@@ -515,8 +515,8 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       op: "run",
       latest: {
         outcome: "running",
-        summary: "Running — finding its video.",
-        doing: "finding its video",
+        summary: "Running — finding its flow.",
+        doing: "finding its flow",
         step: 0,
         of: 0,
         keyframes: 0,
@@ -559,7 +559,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     if (asked === null) {
       return refusal(
         "videoRequired",
-        `run needs video: { id } to add a version to a video, or { new: "<name>" } to start one; got ${JSON.stringify(args.video) ?? "none"}${args.takeId === undefined ? "" : " (takeId is gone: re-record a take with video: { id } of its video and no script)"}`,
+        `run needs flow: { id } to add a video to a flow, or { new: "<name>" } to start one; got ${JSON.stringify(args.video) ?? "none"}`,
         "video",
       );
     }
@@ -567,7 +567,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     if ("new" in asked && !hasScript) {
       return refusal(
         "invalidScript",
-        `a new video needs a script to record its first version`,
+        `a new flow needs a script to film its first video`,
         "script",
       );
     }
@@ -589,7 +589,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       }
       if (migrated.deferred !== null) {
         log(
-          `takes waiting to join a video were not joined: ${migrated.deferred}; a later run joins them`,
+          `videos waiting to join a flow were not joined: ${migrated.deferred}; a later run joins them`,
         );
       }
       // Never refuses the run: a failure is logged here and said by status.
@@ -600,7 +600,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         if (into === null) {
           return refusal(
             "videoNotFound",
-            `no video has the id ${JSON.stringify(asked.id)}`,
+            `no flow has the id ${JSON.stringify(asked.id)}`,
             "video",
           );
         }
@@ -623,7 +623,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         if (holder !== undefined) {
           return refusal(
             "nameTaken",
-            `video "${holder.name}" (${holder.id}) already has that name in this repo — add a version to it with video: { id: "${holder.id}" }, or name the new video differently`,
+            `flow "${holder.name}" (${holder.id}) already has that name in this repo — add a video to it with flow: { id: "${holder.id}" }, or name the new flow differently`,
             "video",
             { holder },
           );
@@ -631,7 +631,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         if (matches.length > 0 && !asked.confirmedNew) {
           return refusal(
             "possibleDuplicate",
-            `${matches.length === 1 ? "a video" : `${matches.length} videos`} in this repo may already show this: ${matches.map((m) => `"${m.name}" (${m.id})`).join(", ")} — add a version to one with video: { id }, or call again with video: { new, confirmedNew: true } if this is a different flow`,
+            `${matches.length === 1 ? "a flow" : `${matches.length} flows`} in this repo may already show this: ${matches.map((m) => `"${m.name}" (${m.id})`).join(", ")} — add a video to one with flow: { id }, or call again with flow: { new, confirmedNew: true } if this is a different flow`,
             "video",
             { matches },
           );
@@ -655,7 +655,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           builtFrom !== null
             ? {
                 ...checked.refusal,
-                detail: `the script built from take ${builtFrom}'s script.json and scene.json is not valid — ${checked.refusal.detail}`,
+                detail: `the script built from video ${builtFrom}'s script.json and scene.json is not valid — ${checked.refusal.detail}`,
               }
             : checked.refusal,
       };
@@ -692,14 +692,14 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           });
           if (!started.ok) {
             throw new Error(
-              `video "${started.holder.name}" (${started.holder.id}) took the name "${name}" while the run played`,
+              `flow "${started.holder.name}" (${started.holder.id}) took the name "${name}" while the run played`,
             );
           }
           video = started.video;
           created = true;
         }
       } catch (error) {
-        throw new Error(`the take is not in any video: ${messageOf(error)}`);
+        throw new Error(`the video is not in any flow: ${messageOf(error)}`);
       }
       try {
         const read = await library.getSceneRead(takeId);
@@ -713,17 +713,17 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         if (created) {
           await videos.remove(video.id).catch((e: unknown) => {
             log(
-              `video ${video.id} has no version and could not be removed (${messageOf(e)})`,
+              `flow ${video.id} has no video and could not be removed (${messageOf(e)})`,
             );
           });
         }
         throw new Error(
-          `the take is not in any video: it could not join "${video.name}" (${messageOf(error)})`,
+          `the video is not in any flow: it could not join "${video.name}" (${messageOf(error)})`,
         );
       }
       // The take is in the video either way: a version number that cannot
       // be read back is logged and left out, never a failed join.
-      const unread = `the take joined video "${video.name}" (${video.id}), but its version number could not be read back`;
+      const unread = `the video joined flow "${video.name}" (${video.id}), but its number could not be read back`;
       let version: number | undefined;
       try {
         version = (await videos.versions(video.id)).find(
@@ -818,7 +818,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           ownedScriptBranding = owned.branding;
         } else if (builtFrom !== null) {
           log(
-            `take ${builtFrom}'s image is left as the take has it: ${owned.detail}`,
+            `video ${builtFrom}'s image is left as the video has it: ${owned.detail}`,
           );
         } else {
           const out = refusal(
@@ -930,7 +930,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               );
               return {
                 branding,
-                error: `Your default brand kit's image could not be copied into this take, which keeps the kit's path to it: ${owned.detail}`,
+                error: `Your default brand kit's image could not be copied into this video, which keeps the kit's path to it: ${owned.detail}`,
               };
             },
             ...(repoRead.ok && repoRead.repo.commit !== null
@@ -1278,8 +1278,6 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             }
             return { ok: true, value: job.latest };
           }
-          case "takes":
-            return takesOp(library);
           case "videos": {
             const where = await projectFolder(args.project);
             if ("kind" in where) return failure(where.reason, where.detail);

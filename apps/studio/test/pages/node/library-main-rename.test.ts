@@ -184,7 +184,7 @@ describe("library main — a rename on the card reaches the store, or says why n
     await typeName("Signup flow");
 
     const status = await waitForStatus((t) => t !== null && t.length > 0);
-    expect(status).toBe("Couldn't rename: the take is no longer stored.");
+    expect(status).toBe("Couldn't rename: the video is no longer stored.");
     expect(memory.putCalls()).toEqual([]);
   });
 });

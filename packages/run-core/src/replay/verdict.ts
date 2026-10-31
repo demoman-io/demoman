@@ -61,7 +61,7 @@ export interface Verdict {
  *  which is frames that exist and carry no provenance: here there is no
  *  intended log to compare anything to, which is the stronger absence. */
 export const NO_TAKE =
-  "the run produced no take, so there is nothing for the script's steps to be compared against";
+  "the run produced no video, so there is nothing for the script's steps to be compared against";
 
 export const NO_RECORD =
   "these frames carry no record of what produced them, so which of the script's steps they show cannot be checked";

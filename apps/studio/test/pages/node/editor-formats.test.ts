@@ -65,16 +65,14 @@ describe("export copy", () => {
     expect(deliverableTitle("gif", "auto")).toBe("GIF");
     expect(deliverableTitle("stills", "auto")).toBe("PNG stills");
     expect(aspectNote("auto")).toBe(
-      "Auto, set under the preview — the video takes the recording's shape",
+      "Auto, set under the preview — the export takes the source's shape",
     );
   });
 
   // Red if the readout drops the spacing the spec's copy fixes. The
   // files' sizes are on their rows (`fileFacts`).
   it("reads out the recording's size", () => {
-    expect(sizeReadout({ width: 1512, height: 820 })).toBe(
-      "Recording 1512 × 820",
-    );
+    expect(sizeReadout({ width: 1512, height: 820 })).toBe("Source 1512 × 820");
   });
 });
 

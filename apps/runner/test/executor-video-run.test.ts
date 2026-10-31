@@ -295,9 +295,9 @@ describe("run records into a video", () => {
       expect(out.videoVersion).toBeUndefined();
       const entry = out.notStored?.find((n) => n.what === "video");
       expect(entry?.error, JSON.stringify(out.notStored)).toMatch(
-        /^the take is not in any video: /,
+        /^the video is not in any flow: /,
       );
-      expect(out.summary).toContain("video (the take is not in any video");
+      expect(out.summary).toContain("video (the video is not in any flow");
       expect((await store().list()).length).toBe(before);
     },
     RUN_MS,
@@ -395,7 +395,7 @@ describe("run records into a video", () => {
         expect(answer.videoVersion).toBeUndefined();
         const entry = answer.notStored?.find((n) => n.what === "video");
         expect(entry?.error, JSON.stringify(answer.notStored)).toMatch(
-          /^the take is not in any video: .*was deleted/,
+          /^the video is not in any flow: .*was deleted/,
         );
         await expect(
           readFile(join(home, "takes", take as string, "video.json")),

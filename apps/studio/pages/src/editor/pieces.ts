@@ -285,7 +285,7 @@ export function resolveSplit(
     );
   }
   if (outputMs <= 0 || outputMs >= timeline.outputDurationMs) {
-    return refuse("A split at the take's start or end splits nothing.");
+    return refuse("A split at the video's start or end splits nothing.");
   }
   const at = sourcePointAt(bundle, timeline, outputMs);
   if (at === null) {

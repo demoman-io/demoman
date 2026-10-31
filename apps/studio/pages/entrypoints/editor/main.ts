@@ -149,7 +149,7 @@ import type {
   RevealTarget,
 } from "../../src/platform/types";
 import { EXPORT_QUALITY_LABELS } from "../../src/settings/view";
-import { withNote } from "../../src/shell/carried-note";
+import { VIDEO_DELETED, withNote } from "../../src/shell/carried-note";
 import { askToConfirm, DELETE_DEMO } from "../../src/shell/confirm-dialog";
 import {
   isAuthoredScene,
@@ -1055,7 +1055,7 @@ function renderTakeMeta(snapshot: SessionSnapshot, target: RenderTarget): void {
   button.textContent = meta;
   // What it opens, then what it says: a bare "Take info" hid the length
   // and size the button shows from a screen reader.
-  button.setAttribute("aria-label", `Take info: ${meta}`);
+  button.setAttribute("aria-label", `Video info: ${meta}`);
 }
 
 /** The cursor block the canvas was last drawn with. See the render tail. */
@@ -3049,14 +3049,14 @@ async function updateKit(): Promise<void> {
   if (standing === null || !standing.edited) {
     logoError =
       standing === null
-        ? "No brand kit was updated: this demo is no longer on a kit."
-        : `No brand kit was updated: this demo already matches "${standing.kit.name}".`;
+        ? "No brand kit was updated: this video is no longer on a kit."
+        : `No brand kit was updated: this video already matches "${standing.kit.name}".`;
     logoErrorScene = session.snapshot().scene;
     render(session.snapshot());
     return;
   }
   const target = standing.kit;
-  const body = `This demo's background, logo and padding will replace the brand kit "${target.name}".`;
+  const body = `This video's background, logo and padding will replace the brand kit "${target.name}".`;
   try {
     // Inside the try: a dialog that could not open says so in the same
     // line a failed write does, rather than reading as a No.
@@ -3344,14 +3344,14 @@ $("redo").addEventListener(
  *  no shared runtime module between them, and four string literals are
  *  cheaper than a new one. */
 const REFUSAL_TEXT: Record<string, string> = {
-  recording: "a take is recording",
+  recording: "a video is being recorded",
   rendering: "a render is running",
   sharing: "a share is in progress",
   // A hold the background takes while a take is being replayed — since
   // 2026-09-28 only by a re-shoot on the run page: `src/run/develop.ts` is
   // the one sender of `replay:gate`, which takes it. An authored script run
   // sends no `replay:gate` and takes no hold, and this editor takes none.
-  replaying: "a take is being run in Runs",
+  replaying: "a video is being run in Runs",
 };
 
 /**
@@ -3412,11 +3412,7 @@ function leaveFor(page: string, url: () => string, already = ""): void {
 /** Opens the Recordings page in this tab, or says why it did not. A
  *  `note` goes with it, for the Recordings page to say (`carried-note`). */
 function openLibrary(already = "", note: string | null = null): void {
-  leaveFor(
-    "Recordings page",
-    () => withNote(platform.nav.library(), note),
-    already,
-  );
+  leaveFor("Flows page", () => withNote(platform.nav.library(), note), already);
 }
 
 /**
@@ -3619,7 +3615,7 @@ $("delete").addEventListener("click", () => {
     if (reply.result !== undefined && !reply.result.ok) {
       const failedStep = reply.result.steps.find((s) => !s.ok);
       showDeleteFailure(
-        `Partly deleted: ${failedStep?.step ?? "a step"} could not be removed — ${failedStep?.error ?? "unknown error"}. Open Your demos to retry.`,
+        `Partly deleted: ${failedStep?.step ?? "a step"} could not be removed — ${failedStep?.error ?? "unknown error"}. Open Flows to retry.`,
       );
       return;
     }
@@ -3646,9 +3642,9 @@ $("delete").addEventListener("click", () => {
     const note = reply.note ?? null;
     openLibrary(
       note === null
-        ? "This demo was deleted. "
-        : `This demo was deleted. ${note} `,
-      note === null ? null : `This demo was deleted. ${note}`,
+        ? "This video was deleted. "
+        : `This video was deleted. ${note} `,
+      note === null ? VIDEO_DELETED : `This video was deleted. ${note}`,
     );
   })();
 });
@@ -3929,7 +3925,7 @@ function runShortcut(
       const view = lastView;
       if (model === null || view === null || resolved === null || !hasBundle) {
         const route = runsRouteOf(snapshot);
-        refusal = `This take has not been rendered yet, so there is nothing to trim to. ${rerunAdvice(route.authored, rerunLineOf(route), "first")}`;
+        refusal = `This video has not been rendered yet, so there is nothing to trim to. ${rerunAdvice(route.authored, rerunLineOf(route), "first")}`;
         render(snapshot);
         return;
       }

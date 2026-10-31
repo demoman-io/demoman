@@ -375,7 +375,7 @@ describe("RunReport", () => {
    * quietly make this one claim a step either — `steps` is empty here, so a
    * `lastAttempted` that forgot its own null check would have nothing to read.
    */
-  it("says no step can be named when no take was assembled", () => {
+  it("says no step can be named when no video was assembled", () => {
     const report = buildRunReport({
       ...NOT_CHECKED,
       run: baseRun(),
@@ -392,7 +392,7 @@ describe("RunReport", () => {
       scene: null,
       madeFrom: null,
     });
-    expect(report.stopped?.at.label).toMatch(/no take was assembled/);
+    expect(report.stopped?.at.label).toMatch(/no video was assembled/);
     // And the line agrees with the count rather than claiming step 1 was
     // attempted, which is what `at.index + 1` would have printed here.
     expect(verdictLine(report)).toMatch(/stopped after step 0 of 3/i);
@@ -753,7 +753,7 @@ describe("RunReport", () => {
   // A run that produced no take at all — the agent door's two cases, a policy
   // refusal and a run that performed no step. `scene: null` is the fact rather
   // than a missing argument, and the verdict has to say it cannot tell.
-  it("never reads as a match when the run produced no take", () => {
+  it("never reads as a match when the run produced no video", () => {
     // Premise: a COMPLETE walk and a COMPLETE provenance record, so every
     // other input says "clean run". Only the absent take can make this
     // diverge, which is what makes the test able to fail.
@@ -791,7 +791,7 @@ describe("RunReport", () => {
     expect(stopped.stopped?.at).toEqual({
       index: 0,
       of: 3,
-      label: "(no take was assembled, so no step can be named)",
+      label: "(no video was assembled, so no step can be named)",
     });
   });
 
@@ -810,7 +810,7 @@ describe("RunReport", () => {
         notStored: [{ what: "take", error: "QuotaExceededError" }],
       }),
     );
-    expect(line).toMatch(/^The run's take did not reach the library/);
+    expect(line).toMatch(/^The run's video did not reach the library/);
     expect(line).toContain("QuotaExceededError");
     // What the run itself had to say still follows it, rather than replacing
     // it: the frames exist, and that is what the author acts on next.
@@ -874,7 +874,7 @@ describe("RunReport", () => {
         notStored: [{ what: "status", error: "the write was refused" }],
       }),
     );
-    expect(line).toMatch(/^The run's take is in the library/);
+    expect(line).toMatch(/^The run's video is in the library/);
     expect(line).toContain("status (the write was refused)");
   });
 
@@ -889,7 +889,7 @@ describe("RunReport", () => {
       }),
     );
     expect(line).toMatch(
-      /^The run's take is in the library, but the site's session could not be saved back/,
+      /^The run's video is in the library, but the site's session could not be saved back/,
     );
     expect(line).toContain("session (EACCES: permission denied)");
     expect(line).not.toContain("part of its record");
@@ -905,7 +905,7 @@ describe("RunReport", () => {
       }),
     );
     expect(both).toMatch(
-      /^The run's take is in the library, but part of its record is not/,
+      /^The run's video is in the library, but part of its record is not/,
     );
     expect(both).toContain("session (EACCES)");
   });
@@ -919,7 +919,7 @@ describe("the look on the line", () => {
         branding: "defaults",
         kit: null,
         brandKitError:
-          "Your brand kit could not be read, so this take uses the default background: storage refused the read: boom",
+          "Your brand kit could not be read, so this video uses the default background: storage refused the read: boom",
         wallpaperError: null,
       },
     });
@@ -934,7 +934,7 @@ describe("the look on the line", () => {
   // kit's image is not the take's own, and the summary would not say so.
   it("names a default kit's image the take could not own, after the run's own clause", () => {
     const said =
-      "Your default brand kit's image could not be copied into this take, which keeps the kit's path to it: The image /x/gone.png could not be read (ENOENT)";
+      "Your default brand kit's image could not be copied into this video, which keeps the kit's path to it: The image /x/gone.png could not be read (ENOENT)";
     const report = buildRunReport({
       ...complete(),
       look: {

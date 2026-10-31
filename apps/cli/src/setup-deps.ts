@@ -269,10 +269,10 @@ export function claudePaths(
 export const SETUP_HINTS: Record<ExportQuality | PullRequestsValue, string> = {
   share: "Small enough for a chat or a pull request.",
   high: "1440p at 60 fps, about 30 MB for 30 seconds.",
-  full: "The largest size the recording supports.",
-  off: "Never attach a demo to a pull request.",
-  ask: "Ask to attach a demo each time your agent creates a PR.",
-  attach: "Always attach a demo whenever your agent creates a PR.",
+  full: "The largest size the source supports.",
+  off: "Never attach a video to a pull request.",
+  ask: "Ask to attach a video each time your agent creates a PR.",
+  attach: "Always attach a video whenever your agent creates a PR.",
 };
 
 /** Setup's questions as terminal menus, in order; any cancel cancels all. */

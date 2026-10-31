@@ -33,12 +33,12 @@ export interface RunsRoute {
     | { kind: "line"; text: string };
 }
 
-/** The same, as a link's own label: "Re-shoot this take in Runs" or "Run
+/** The same, as a link's own label: "Re-shoot this video in Runs" or "Run
  *  its script again in Runs". */
 export function runsRouteLabel(authored: boolean): string {
   return authored
     ? "Run its script again in Runs"
-    : "Re-shoot this take in Runs";
+    : "Re-shoot this video in Runs";
 }
 
 /** The clause opening a sentence: "Re-shoot it in Runs" or "Run its script

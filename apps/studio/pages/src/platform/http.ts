@@ -99,17 +99,18 @@ export const KITS_BUSY =
 
 /** The empty library's hint in the studio, which has no toolbar icon. */
 const STUDIO_FIRST_TAKE_HINT =
-  "Ask your agent for a demo video. Each take shows up here, grouped by the day you made it.";
+  "Ask your agent for a demo video. Each flow shows up here, grouped by the day it was last filmed.";
 
 /** The line that replaces every Runs link in the studio (spec §5): the
- *  agent call that records the take's video again, as a new version. */
+ *  agent call that films the flow again, as a new video (spec 2026-10-30
+ *  flows-and-bulk-delete §1.1). */
 export const refilmLine = (videoId: string): string =>
-  `Ask your agent to re-record this take — \`run({ video: { id: "${videoId}" } })\``;
-/** The same, for a take in no video yet: there is no call to name. */
-export const REFILM_NO_VIDEO = "Ask your agent to re-record this take.";
-/** The same, for a take whose video.json would not read: why, not "in no video". */
+  `Ask your agent to film it again: \`run({ flow: { id: "${videoId}" } })\``;
+/** The same, for a video in no flow yet: there is no call to name. */
+export const REFILM_NO_VIDEO = "Ask your agent to film this again.";
+/** The same, for a video whose video.json would not read: why, not "in no flow". */
 export const refilmVideoUnread = (why: string): string =>
-  `Couldn't read which video this take is in: ${why}`;
+  `Couldn't read which flow this video is in: ${why}`;
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -749,7 +750,7 @@ export function createPlatform(
         const id = takeOfRef.get(ref);
         if (id === undefined) {
           throw new Error(
-            `the frame "${ref}" is in no take this page has read a bundle for, so its preview cannot be asked for`,
+            `the frame "${ref}" is in no video this page has read a bundle for, so its preview cannot be asked for`,
           );
         }
         const res = await request("thumb", { params: { id, ref } });
@@ -775,7 +776,7 @@ export function createPlatform(
         const id = takeOfRef.get(ref);
         if (id === undefined) {
           throw new Error(
-            `the frame "${ref}" is in no take this page has read a bundle for`,
+            `the frame "${ref}" is in no video this page has read a bundle for`,
           );
         }
         const res = await request("frame", { params: { id, ref } });
@@ -899,7 +900,7 @@ export function createPlatform(
         if (revision === null) {
           throw new StudioError(
             "sceneNotSaved",
-            "The export was not started: this page has no saved revision of the take to name.",
+            "The export was not started: this page has no saved revision of the video to name.",
             0,
           );
         }

@@ -19,6 +19,7 @@ import {
   seller,
   sellerAndCustomer,
   signedInSince,
+  takes,
   writeAccounts,
 } from "./accounts-harness.js";
 import { ownVideo } from "./fixture.js";
@@ -161,13 +162,12 @@ it("refuses a missing brand kit before signing in or opening anything", async ()
 }, 120_000);
 
 it("a probe makes no take", async () => {
-  const before = await executor.request("takes", {});
-  expect(before.ok, JSON.stringify(before)).toBe(true);
+  const before = await takes();
   const out = await probe(
     portalScript([
       { do: "click", on: { role: "button", name: "Open filters" } },
     ]),
   );
   expect(out.ok, JSON.stringify(out)).toBe(true);
-  expect(await executor.request("takes", {})).toEqual(before);
+  expect(await takes()).toEqual(before);
 }, 120_000);

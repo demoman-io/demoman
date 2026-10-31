@@ -177,10 +177,10 @@ describe("renderLibrary", () => {
     // accessible name, and the explanation stays on the tooltip.
     expect(back.textContent?.trim()).toBe("");
     expect(back.getAttribute("aria-label")).toBe(
-      `Back to your recording: ${serving.label}`,
+      `Back to the original footage: ${serving.label}`,
     );
     expect(back.title).toContain(
-      "this take plays its re-shot frames; its recording is kept",
+      "this video plays its re-shot frames; its original footage is kept",
     );
     back.click();
     expect(actions.backToRecording).toHaveBeenCalledExactlyOnceWith("s");
@@ -365,7 +365,7 @@ describe("renderLibrary", () => {
       '[data-row="a"] [data-name]',
     ) as HTMLInputElement;
     expect(field.value).toBe("Checkout");
-    expect(field.getAttribute("aria-label")).toBe("Demo name");
+    expect(field.getAttribute("aria-label")).toBe("Video name");
     // The full name rides on the tooltip: a long one is clipped at rest.
     expect(field.title).toBe("Checkout");
     field.value = "  Signup flow ";
@@ -523,7 +523,7 @@ describe("renderLibrary", () => {
     // and the trigger sits at that column's foot. It names the numbers,
     // for a screen reader as well as on its face.
     const side = root.querySelector("[data-header]") as HTMLElement;
-    expect(side.querySelector("h1")?.textContent).toBe("Recordings");
+    expect(side.querySelector("h1")?.textContent).toBe("Flows");
     const trigger = side.querySelector(
       "[data-storage-trigger]",
     ) as HTMLButtonElement;
@@ -598,7 +598,7 @@ describe("renderLibrary page parts", () => {
       empty.querySelector("svg")?.getAttribute("data-icon"),
       empty.querySelector("strong")?.textContent,
       empty.querySelectorAll("button").length,
-    ]).toEqual([true, "monitorPlay", "No recordings yet", 0]);
+    ]).toEqual([true, "monitorPlay", "No flows yet", 0]);
     expect(empty.querySelector(".hint")?.textContent).toMatch(
       /toolbar.*Record/,
     );

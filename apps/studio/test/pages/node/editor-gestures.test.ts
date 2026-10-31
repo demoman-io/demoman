@@ -719,7 +719,7 @@ describe("zoom edges and bodies", () => {
           snapMs: 0,
         }),
       ),
-    ).toMatch(/after the take/);
+    ).toMatch(/after the video/);
   });
 
   // `collides` used to only look FORWARD — a zoom starting after the
@@ -1161,7 +1161,7 @@ describe("mask edges", () => {
           snapMs: 0,
         }),
       ),
-    ).toMatch(/whole take/);
+    ).toMatch(/whole video/);
   });
 
   // F1: dragging the end edge into the start's own snap band collapses both
