@@ -79,6 +79,20 @@ it("the next call starts from the saved session, not from what a probe left", as
   expect(listed).not.toContain("Saved: live");
 }, 120_000);
 
+it("the next call starts from the saved session, not from what a snapshot left", async () => {
+  const first = (await executor.request("snapshot", {
+    url: `${portalUrl}?stamp`,
+  })) as Answer;
+  expect(first.ok, JSON.stringify(first)).toBe(true);
+  // The premise: the page wrote the key while the snapshot was on it.
+  expect(JSON.stringify(first.value.targets)).toContain("Saved: stamped");
+  const next = await probe(portalScript([]));
+  expect(next.ok, JSON.stringify(next)).toBe(true);
+  const listed = JSON.stringify(next.value.targets);
+  expect(listed).toContain("Saved: none");
+  expect(listed).not.toContain("Saved: stamped");
+}, 120_000);
+
 it("a probe while a run holds the slot is alreadyRunning", async () => {
   const running = executor.request("run", {
     video: ownVideo(),

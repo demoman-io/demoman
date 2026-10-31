@@ -185,14 +185,14 @@ targets, leaving the page open. Each entry is
   `unresolvable`: no target reaches it. `notExamined` above 0: pass `contains`
   (name, text, stableId, kind, value); with it, narrow. `containsNote`: no match.
 - Iframe and shadow-root elements are not listed.
-- A snapshot sees only the page as it loads: hidden content already in the
-  page is listed; content a click creates (a menu, dialog, search
-  results, a new row) is not. To list it, `probe` your script
+- A snapshot sees only the page as it loads: hidden content in the
+  page is listed; content a click creates (a menu, dialog, results, a new row) is not. To list it, `probe` your script
   with its steps cut off after the step that opens it, and copy targets from
-  that answer. A probe acts on the app for real, every time: "Add item" adds
-  one per probe and again in the run, so a target listed as unique can be
-  ambiguous by then; a delete deletes; in the Studio an edit saves into the
-  take. Prefer demo data. `stopped` means a step did not play: fix it as a
+  that answer. A probe acts on the app for real: "Add item" adds one per
+  probe and again in the run, so a unique target can turn ambiguous;
+  a delete deletes; in the Studio an edit saves into the take. Server data
+  carries into the run; browser storage does not, except a signed-in
+  site's. Prefer demo data. `stopped`: a step did not play; fix it as a
   run's stop with that reason says, and probe again.
 
 ### Recording a phone demo

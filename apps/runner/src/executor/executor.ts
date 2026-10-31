@@ -1133,13 +1133,18 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         // Before its stage: no page of an earlier call may run while this
         // one's sessions load.
         await session.retire();
-        return snapshotOp(args, {
-          session,
-          home,
-          log,
-          loadSessions: (context) => sessions.load(context, choiceOf(choice)),
-          signinCommand,
-        });
+        try {
+          return await snapshotOp(args, {
+            session,
+            home,
+            log,
+            loadSessions: (context) => sessions.load(context, choiceOf(choice)),
+            signinCommand,
+          });
+        } finally {
+          // As after a probe: what this page left does not reach the next call.
+          sessions.forget();
+        }
       },
     );
 
