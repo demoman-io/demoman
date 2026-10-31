@@ -686,7 +686,14 @@ describe("exports carry their video and version", () => {
     async () => {
       await putTake(home, take.takeId, take.original, take.bundle);
       await join1();
-      const want = { found: { video: "video-under-test", take: take.takeId } };
+      const want = {
+        found: {
+          flow: "video-under-test",
+          video: take.takeId,
+          commit: null,
+          dirty: null,
+        },
+      };
 
       const mp4 = await exportAs("mp4");
       if (mp4.outcome !== "saved" || mp4.fileType === "stills")

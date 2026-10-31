@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { readTag, tagBytes } from "../src/executor/export-tag.js";
 
-const tag = { video: "v-1234", take: "take-5678" };
+const tag = {
+  flow: "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90",
+  video: "take-5678",
+  commit: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+  dirty: false,
+};
 const enc = new TextEncoder();
 const be32 = (n: number) => Uint8Array.of(n >>> 24, n >>> 16, n >>> 8, n);
 const cat = (...p: Uint8Array[]) => Uint8Array.from(p.flatMap((x) => [...x]));
@@ -126,9 +131,13 @@ describe("tagBytes and readTag", () => {
 
   it("round-trips a GIF, including a tag over 255 bytes", () => {
     expect(readTag(tagged("gif", gif))).toEqual({ found: tag });
-    const long = { video: "v".repeat(400), take: "t" };
+    const long = { ...tag, flow: "v".repeat(400) };
     const out = tagBytes("gif", gif, long);
     if (!out.ok) throw new Error(out.error);
+    expect(
+      JSON.stringify(long).length,
+      "the tag spans sub-blocks",
+    ).toBeGreaterThan(255);
     expect(readTag(out.bytes)).toEqual({ found: long });
     expect(out.bytes.at(-1)).toBe(0x3b);
   });
@@ -163,5 +172,32 @@ describe("tagBytes and readTag", () => {
     expect(readTag(tagged("png", png).subarray(0, 50))).toHaveProperty(
       "unreadable",
     );
+  });
+
+  it("a new tag round-trips in mp4, gif and png", () => {
+    for (const [type, bytes] of [
+      ["mp4", moovLast],
+      ["gif", gif],
+      ["png", png],
+    ] as const) {
+      expect(readTag(tagged(type, bytes)), type).toEqual({ found: tag });
+    }
+    // Null commit and dirty (the report would not say) also round-trip.
+    const unknown = { ...tag, commit: null, dirty: null };
+    const out = tagBytes("png", png, unknown);
+    if (!out.ok) throw new Error(out.error);
+    expect(readTag(out.bytes)).toEqual({ found: unknown });
+  });
+
+  it("an old tag reads as flow and video", () => {
+    // Fixture: the pre-share-links JSON shape, written by hand into a PNG.
+    const old = JSON.stringify({ video: "old-flow", take: "old-take" });
+    expect(old).not.toContain('"flow"');
+    const body = cat(enc.encode("tEXtdemoman\0"), enc.encode(old));
+    const chunkBytes = cat(be32(body.length - 4), body, be32(0));
+    const withOld = cat(png.subarray(0, 33), chunkBytes, png.subarray(33));
+    expect(readTag(withOld)).toEqual({
+      found: { flow: "old-flow", video: "old-take", commit: null, dirty: null },
+    });
   });
 });

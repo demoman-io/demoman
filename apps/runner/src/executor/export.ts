@@ -335,7 +335,26 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
   try {
     const member = await deps.videos.videoOf(takeId);
     videoId = member?.videoId ?? null;
-    if (member !== null) tag = { video: member.videoId, take: takeId };
+    if (member !== null) {
+      tag = { flow: member.videoId, video: takeId, commit: null, dirty: null };
+      // The commit is the run's record (`filmedCode`), never re-read from git.
+      const report = await deps.library.getJson(takeId, "report.json");
+      const code =
+        "value" in report
+          ? (report.value as { filmedCode?: unknown }).filmedCode
+          : undefined;
+      if (code && typeof code === "object" && "commit" in code) {
+        const c = code as { commit: unknown; dirty: unknown };
+        tag.commit = typeof c.commit === "string" ? c.commit : null;
+        tag.dirty = typeof c.dirty === "boolean" ? c.dirty : null;
+      } else if ("unreadable" in report) {
+        error = `the file is tagged without its commit, as the take's report.json would not read (${report.unreadable})`;
+      } else if ("missing" in report) {
+        deps.log(
+          `video ${takeId}: the export is tagged without a commit, as the take has no report.json`,
+        );
+      }
+    }
   } catch (e) {
     error = `the video's flow could not be read (${messageOf(e)})`;
   }

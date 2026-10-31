@@ -1,12 +1,16 @@
 /**
  * Writes which video and version an export came from into the file itself,
  * so a person (or `readTag`) can tell later. MP4: `moov/udta/dmvi`; GIF: a
- * comment extension; PNG: a `tEXt` chunk. The take id is the version: numbers
- * are positions and move when a version is deleted.
+ * comment extension; PNG: a `tEXt` chunk. `flow` is the kept flow's id and
+ * `video` the take (the version: numbers are positions and move when a
+ * version is deleted). `commit` and `dirty` are what the take filmed, from
+ * its report; null when not known.
  */
 export interface VideoTag {
+  flow: string;
   video: string;
-  take: string;
+  commit: string | null;
+  dirty: boolean | null;
 }
 
 export type Tagged =
@@ -47,9 +51,22 @@ const isMp4 = (b: Uint8Array) => ascii(b, 4, 4) === "ftyp";
 
 const parseTag = (text: string): TagRead => {
   try {
-    const v = JSON.parse(text) as Partial<VideoTag>;
+    const v = JSON.parse(text) as Partial<VideoTag> & { take?: unknown };
+    if (typeof v.flow === "string" && typeof v.video === "string") {
+      return {
+        found: {
+          flow: v.flow,
+          video: v.video,
+          commit: typeof v.commit === "string" ? v.commit : null,
+          dirty: typeof v.dirty === "boolean" ? v.dirty : null,
+        },
+      };
+    }
+    // Exports made before shared ids: { video: <flow>, take }.
     if (typeof v.video === "string" && typeof v.take === "string") {
-      return { found: { video: v.video, take: v.take } };
+      return {
+        found: { flow: v.video, video: v.take, commit: null, dirty: null },
+      };
     }
     return { unreadable: `the tag is not a flow and a video: ${text}` };
   } catch (error) {

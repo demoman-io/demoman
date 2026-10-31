@@ -3,6 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Outcome } from "@demoman/agent-bridge";
 import {
+  KEPT_DIR,
+  type KeptVideo,
+  keptFileName,
+  serializeKept,
+} from "@demoman/run-core";
+import {
   CURRENT_SCHEMA_VERSION,
   type SceneDocument,
 } from "@demoman/scene-schema";
@@ -61,6 +67,13 @@ async function video(name: string, at: string, repo: VideoRepo, id = name) {
   return r.video;
 }
 
+const tag = (flow: string, video: string, commit: string | null = null) => ({
+  flow,
+  video,
+  commit,
+  dirty: commit === null ? null : false,
+});
+
 const ask = async (args: { file?: unknown; query?: unknown } = {}) => {
   const lib = createLibrary(home);
   // `home` is no git checkout, so "this repo" is { none }.
@@ -109,7 +122,7 @@ describe("videosOp", () => {
       unknown: true,
     });
     await video("Beta", "2026-10-02T00:00:00.000Z", { unknown: true });
-    const tagged = tagBytes("png", png, { video: a.id, take: "take-Alpha" });
+    const tagged = tagBytes("png", png, tag(a.id, "take-Alpha"));
     if (!tagged.ok) throw new Error(tagged.error);
     const file = join(home, "alpha.png");
     await writeFile(file, tagged.bytes);
@@ -126,7 +139,7 @@ describe("videosOp", () => {
   });
 
   it("answers unknownVideo, naming the id, for another machine's video", async () => {
-    const tagged = tagBytes("png", png, { video: "other-machine", take: "t" });
+    const tagged = tagBytes("png", png, tag("other-machine", "t"));
     if (!tagged.ok) throw new Error(tagged.error);
     const file = join(home, "theirs.png");
     await writeFile(file, tagged.bytes);
@@ -265,7 +278,7 @@ describe("videosOp", () => {
     const a = await video("Alpha", "2026-10-01T00:00:00.000Z", {
       unknown: true,
     });
-    const tagged = tagBytes("png", png, { video: a.id, take: "take-Alpha" });
+    const tagged = tagBytes("png", png, tag(a.id, "take-Alpha"));
     if (!tagged.ok) throw new Error(tagged.error);
     const file = join(home, "alpha.png");
     await writeFile(file, tagged.bytes);
@@ -280,7 +293,7 @@ describe("videosOp", () => {
         },
       },
     });
-    const gone = tagBytes("png", png, { video: a.id, take: "take-deleted" });
+    const gone = tagBytes("png", png, tag(a.id, "take-deleted"));
     if (!gone.ok) throw new Error(gone.error);
     await writeFile(file, gone.bytes);
     expect((await ask({ file })) as unknown).toMatchObject({
@@ -385,5 +398,69 @@ describe("videosOp", () => {
     expect(got.unreadable).toEqual([]);
     expect(got.deferred).toContain(lock);
     expect(got.videos.map((v) => v.name)).toEqual(["Alpha"]);
+  });
+
+  it("a file from a kept flow not in this library opens the kept flow", async () => {
+    const FLOW = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
+    const NAME = "Place an order";
+    const kept: KeptVideo = {
+      keptVersion: 2,
+      flow: FLOW,
+      deliver: "commit",
+      name: NAME,
+      script: {
+        scriptVersion: 1,
+        name: NAME,
+        target: "http://localhost:1/app",
+        viewport: { width: 1280, height: 800 },
+        steps: [{ do: "waitForLoad" }],
+      } as KeptVideo["script"],
+      scale: 1,
+      logo: null,
+      wallpaper: null,
+      outputs: [
+        {
+          path: "docs/o.mp4",
+          fileType: "mp4",
+          aspect: "16:9",
+          quality: "share",
+        },
+      ],
+      report: null,
+    };
+    await mkdir(join(home, KEPT_DIR), { recursive: true });
+    await writeFile(
+      join(home, KEPT_DIR, `${keptFileName(NAME)}`),
+      serializeKept(kept),
+    );
+    const tagged = tagBytes("png", png, tag(FLOW, "take-elsewhere"));
+    if (!tagged.ok) throw new Error(tagged.error);
+    const file = join(home, "theirs.png");
+    await writeFile(file, tagged.bytes);
+    // Premise: this library has no such flow before the ask.
+    expect(
+      await createVideoStore(home, createLibrary(home)).get(FLOW),
+    ).toBeNull();
+    const got = value(await ask({ file })) as unknown as {
+      videos: { id: string; name: string }[];
+    };
+    expect(got.videos.map((v) => [v.id, v.name])).toEqual([[FLOW, NAME]]);
+  });
+
+  it("a CI-made video says where it was made", async () => {
+    const a = await video("Alpha", "2026-10-01T00:00:00.000Z", {
+      unknown: true,
+    });
+    const sha = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
+    const tagged = tagBytes("png", png, tag(a.id, "take-on-ci", sha));
+    if (!tagged.ok) throw new Error(tagged.error);
+    const file = join(home, "ci.png");
+    await writeFile(file, tagged.bytes);
+    const got = (await ask({ file })) as {
+      ok: true;
+      value: { file: { notInVideo: string } };
+    };
+    expect(got.value.file.notInVideo).toContain("on CI at commit a1b2c3d");
+    expect(got.value.file.notInVideo).not.toContain(sha);
   });
 });

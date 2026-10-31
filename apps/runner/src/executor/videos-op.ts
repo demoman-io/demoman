@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { failure, type Outcome } from "@demoman/agent-bridge";
-import type { FileType } from "@demoman/run-core";
+import { type FileType, isFlowId } from "@demoman/run-core";
 import { messageOf } from "../report.js";
 import { readTag } from "./export-tag.js";
+import { adoptKept, findKept } from "./kept-flows.js";
 import { type Library, LibraryError } from "./library.js";
 import { ensureVideos, startPage } from "./migrate-videos.js";
 import { readRepo } from "./repo.js";
@@ -230,15 +231,49 @@ export async function videosOp(
           `${file} carries no readable Demoman tag (${"none" in tag ? tag.none : tag.unreadable})`,
         );
       }
-      const video = await store.get(tag.found.video);
+      let video = await store.get(tag.found.flow);
+      let notKept = "";
+      if (video === null && isFlowId(tag.found.flow)) {
+        // A flow kept in this checkout is one flow on every machine: open it
+        // by its committed id, as a run does.
+        const found = await findKept(deps.dir, tag.found.flow);
+        if (found !== null && "duplicate" in found) {
+          return failure(
+            "duplicateFlow",
+            `${found.duplicate.join(" and ")} both name the flow ${tag.found.flow} — delete one of them, then ask again`,
+          );
+        }
+        if (found !== null && "unreadable" in found) {
+          notKept = `; a kept file that would not read might keep it — ${found.unreadable.join("; ")}`;
+        } else if (found !== null) {
+          const read = await readRepo(deps.dir);
+          const adopted = await adoptKept(
+            store,
+            deps.dir,
+            found,
+            read.ok ? { key: read.repo.key } : { none: read.none },
+          );
+          if (!adopted.ok) {
+            return failure(
+              "keptNameTaken",
+              `flow "${found.kept.name}" is kept in ${found.file} as ${tag.found.flow}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${tag.found.flow}\` to move its videos into the kept flow`,
+            );
+          }
+          video = adopted.video;
+        }
+      }
       if (video === null) {
         return failure(
           "unknownVideo",
-          `${file} was exported from flow ${tag.found.video}, which is not in this library`,
+          `${file} was exported from flow ${tag.found.flow}, which is not in this library${notKept}`,
         );
       }
       // Which version the file is of: the tag names its take.
-      const takeId = tag.found.take;
+      const takeId = tag.found.video;
+      const madeAt =
+        tag.found.commit === null
+          ? ""
+          : ` — made on another machine or on CI at commit ${tag.found.commit.slice(0, 7)}`;
       const summary = await summarise(store, library, video);
       const version = (await store.versions(video.id)).find(
         (v) => v.takeId === takeId,
@@ -251,7 +286,7 @@ export async function videosOp(
             version === undefined
               ? {
                   takeId,
-                  notInVideo: `video ${takeId} is no longer in "${video.name}" (it was deleted, or its video.json will not read)`,
+                  notInVideo: `video ${takeId} is no longer in "${video.name}" (it was deleted, or its video.json will not read)${madeAt}`,
                 }
               : {
                   takeId,
