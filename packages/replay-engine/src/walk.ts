@@ -267,6 +267,21 @@ const FIELD_VALUE_MAX = 120;
 const fieldKey = (s: string): string =>
   s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 
+/** A field's text as a number, once currency symbols, thousands commas and
+ *  spaces are gone; null when what is left is not one. So "4800.00" typed
+ *  holds in a field showing "$4,800" (final review 2026-10-30). */
+const fieldNumber = (s: string): number | null => {
+  const bare = s.replace(/[\p{Sc}\s,]/gu, "");
+  return /^[+-]?(\d+\.?\d*|\.\d+)$/.test(bare) ? Number(bare) : null;
+};
+
+/** Whether a field showing `value` holds the `typed` text. */
+const fieldHolds = (value: string, typed: string): boolean => {
+  if (fieldKey(value).includes(fieldKey(typed))) return true;
+  const shown = fieldNumber(value);
+  return shown !== null && shown === fieldNumber(typed);
+};
+
 /** What a native `<input type="range">` says about its thumb; null for
  *  anything else. */
 const RANGE_READ = `function () {
@@ -2870,7 +2885,7 @@ async function performVerb(
                 value.length > FIELD_VALUE_MAX
                   ? `${value.slice(0, FIELD_VALUE_MAX)}…`
                   : value,
-              holds: fieldKey(value).includes(fieldKey(typed)),
+              holds: fieldHolds(value, typed),
             });
           }
         } catch (error) {

@@ -116,6 +116,31 @@ describe("a typed field is read back", () => {
     });
   });
 
+  // Final review 2026-10-30, Minor 3: an app that formats a number as money
+  // keeps the typed number. Red without the numeric comparison: "480000" is
+  // not inside "4800".
+  it("typing 4800.00 into a field that shows $4,800 holds", async () => {
+    const cdp = createCdpFake();
+    const field = fieldShows(cdp, "$4,800");
+    const result = await runAuthored(typeScript("4800.00"), deps(cdp));
+    expect(field.asked()).toBe(1);
+    expect(result.steps[0]?.fieldHolds).toEqual({
+      value: "$4,800",
+      holds: true,
+    });
+  });
+
+  it("typing 4800 into a field that shows $4,801 does not hold", async () => {
+    const cdp = createCdpFake();
+    const field = fieldShows(cdp, "$4,801");
+    const result = await runAuthored(typeScript("4800"), deps(cdp));
+    expect(field.asked()).toBe(1);
+    expect(result.steps[0]?.fieldHolds).toEqual({
+      value: "$4,801",
+      holds: false,
+    });
+  });
+
   it("typing into a field the app clears records holds false", async () => {
     const cdp = createCdpFake();
     const field = fieldShows(cdp, "");
