@@ -179,6 +179,27 @@ async function nameTarget(
   return { target: { treePath }, positional: true, anchor };
 }
 
+/**
+ * `el`'s stable id as its target, when the run resolves that id to `el`
+ * alone; null otherwise. The id is the target `nameTarget` would choose
+ * then (its first tier wins), at one resolve of an attribute query instead
+ * of a capture and one or two whole-document walks.
+ */
+async function byStableId(
+  el: Element,
+  i: number,
+  scan: ResolveEnv,
+): Promise<ScriptTarget | null> {
+  const stableId = readStableId(el);
+  if (stableId === null) return null;
+  const target = { stableId };
+  const back = await resolveAnchor(
+    { id: `end-page-${i}`, fingerprint: fingerprintFromTarget(target) },
+    scan,
+  );
+  return back.element === el && back.candidates === 1 ? target : null;
+}
+
 /** The most characters of the end page's text an answer carries. */
 export const END_PAGE_TEXT_MAX = 2_000;
 
@@ -195,10 +216,11 @@ export interface EndPage {
 }
 
 /**
- * The most fields an end page lists. Naming one captures it and resolves it
- * back, each a walk of the whole document, so the cost is this many walks:
- * linear in the page, whatever its field count (uncapped it grew with
- * fields x elements). A form an agent films rarely has more.
+ * The most fields an end page lists. Naming one without a unique stable id
+ * captures it and resolves it back, each a walk of the whole document, so the
+ * cost is at most this many walks: linear in the page, whatever its field
+ * count (uncapped it grew with fields x elements). A form an agent films
+ * rarely has more.
  */
 export const END_PAGE_MAX_FIELDS = 30;
 
@@ -230,10 +252,13 @@ export async function readEndPage(env: ResolveEnv): Promise<EndPage> {
           ? "checked"
           : "not checked"
         : fieldValue(el);
-    const named = await nameTarget(el, i, scan);
+    if (value === null) continue;
+    const target =
+      (await byStableId(el, i, scan)) ??
+      (await nameTarget(el, i, scan))?.target;
     // A field no target reaches is one no script can name or act on.
-    if (value === null || named === null) continue;
-    fields.push({ target: named.target, value });
+    if (target === undefined) continue;
+    fields.push({ target, value });
   }
   const notListed = candidates.length - END_PAGE_MAX_FIELDS;
   return {
