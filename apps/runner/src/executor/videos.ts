@@ -102,7 +102,7 @@ export interface VideoStore {
     intoId: string,
   ): Promise<
     | { ok: true; moved: number }
-    | { ok: false; reason: "videoNotFound"; id: string }
+    | { ok: false; reason: "videoNotFound" | "sameFlow"; id: string }
   >;
   get(id: string): Promise<VideoRecord | null>;
   list(): Promise<Array<VideoRecord | { id: string; unreadable: string }>>;
@@ -562,6 +562,8 @@ export function createVideoStore(
     }
     const existing = await get(a.id);
     if (existing) {
+      const holder = await holderOf(a.name, existing.repo, a.id);
+      if (holder) return { ok: false, reason: "keptNameTaken", holder };
       const video = { ...existing, name: a.name, kept: a.kept };
       await write(recordPath(a.id), video);
       return { ok: true, video, created: false };
@@ -587,6 +589,7 @@ export function createVideoStore(
     return { ok: true };
   };
   const mergeUnlocked: VideoStore["merge"] = async (fromId, intoId) => {
+    if (fromId === intoId) return { ok: false, reason: "sameFlow", id: fromId };
     for (const id of [fromId, intoId]) {
       if (!(await get(id))) return { ok: false, reason: "videoNotFound", id };
     }
@@ -602,14 +605,21 @@ export function createVideoStore(
       }
     }
     let moved = 0;
-    for (const entry of entries) {
-      if (!entry.isDirectory() || !library.isTakeId(entry.name)) continue;
-      // An unreadable video.json throws here, naming the file, before the
-      // source record is removed.
-      const member = await readJson<TakeVideo>(memberPath(entry.name));
-      if (member?.videoId !== fromId) continue;
-      await joinUnlocked(entry.name, { ...member, videoId: intoId });
-      moved++;
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    try {
+      for (const entry of entries) {
+        if (!entry.isDirectory() || !library.isTakeId(entry.name)) continue;
+        const member = await readJson<TakeVideo>(memberPath(entry.name));
+        if (member?.videoId !== fromId) continue;
+        await joinUnlocked(entry.name, { ...member, videoId: intoId });
+        moved++;
+      }
+    } catch (error) {
+      // The source record stays; say how far the merge got.
+      throw new VideoError(
+        error instanceof VideoError ? error.reason : "videoUnwritable",
+        `merge of ${fromId} into ${intoId} stopped after moving ${moved} take${moved === 1 ? "" : "s"} into ${intoId}; ${fromId} still exists: ${messageOf(error)}`,
+      );
     }
     await rm(recordPath(fromId), { force: true });
     return { ok: true, moved };

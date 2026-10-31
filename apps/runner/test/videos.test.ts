@@ -676,4 +676,72 @@ describe("adopt", () => {
     });
     expect(await s.get(b.video.id)).not.toBeNull();
   });
+
+  it("merge of a flow into itself is refused and removes nothing", async () => {
+    const s = createVideoStore(home, createLibrary(home));
+    const a = await s.create({ name: "A", repo: repoA, startPage: "x" });
+    if (!a.ok) throw new Error("setup");
+    expect(await s.merge(a.video.id, a.video.id)).toEqual({
+      ok: false,
+      reason: "sameFlow",
+      id: a.video.id,
+    });
+    expect(await s.get(a.video.id)).not.toBeNull();
+  });
+
+  it("adopt of an existing id onto a name another flow holds refuses", async () => {
+    const s = createVideoStore(home, createLibrary(home));
+    const other = await s.create({
+      name: "Taken",
+      repo: repoA,
+      startPage: "x",
+    });
+    if (!other.ok) throw new Error("setup");
+    await s.adopt({ id: U1, name: "Mine", repo: repoA, startPage: "x", kept });
+    const r = await s.adopt({
+      id: U1,
+      name: "Taken",
+      repo: repoA,
+      startPage: "x",
+      kept: { root: "/r", file: "other.json" },
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.holder.id).toBe(other.video.id);
+    const stored = await s.get(U1);
+    expect(stored?.name).toBe("Mine");
+    expect(stored?.kept).toEqual(kept);
+  });
+
+  it("a merge that stops partway says how many takes moved and keeps the source", async () => {
+    const lib = createLibrary(home);
+    const s = createVideoStore(home, lib);
+    const a = await s.create({ name: "A", repo: repoA, startPage: "x" });
+    const b = await s.create({ name: "B", repo: repoA, startPage: "x" });
+    if (!a.ok || !b.ok) throw new Error("setup");
+    for (const [id, at] of [
+      ["t1", "2026-10-01T00:00:00.000Z"],
+      ["t2", "2026-10-02T00:00:00.000Z"],
+    ] as const) {
+      await takeAt(lib, id, at);
+      await s.join(id, {
+        videoId: a.video.id,
+        made: made(refOf("github.com/acme/a")),
+        recordedRevision: null,
+      });
+    }
+    // Premise: t2 is a member of A before its video.json goes bad.
+    expect((await s.videoOf("t2"))?.videoId).toBe(a.video.id);
+    await writeFile(join(lib.takeDir("t2"), "video.json"), "{nope");
+    const err = await s.merge(a.video.id, b.video.id).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(VideoError);
+    expect((err as VideoError).message).toContain("after moving 1 take into");
+    expect((err as VideoError).message).toContain(b.video.id);
+    expect((err as VideoError).message).toContain("video.json");
+    expect(await s.get(a.video.id)).not.toBeNull();
+    expect((await s.videoOf("t1"))?.videoId).toBe(b.video.id);
+  });
 });
