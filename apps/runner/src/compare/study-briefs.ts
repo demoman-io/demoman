@@ -13,14 +13,13 @@ export interface Brief {
 }
 
 /** `---` front matter of `key: value` lines (and `endState:` with `- ` lines),
- *  then the body. `places.sample` fills `{sample}` everywhere. */
-export function loadBriefs(dir: string, places?: { sample: string }): Brief[] {
+ *  then the body. */
+export function loadBriefs(dir: string): Brief[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith(".md"))
     .sort()
     .map((file) => {
-      let text = readFileSync(join(dir, file), "utf8");
-      if (places) text = text.replaceAll("{sample}", places.sample);
+      const text = readFileSync(join(dir, file), "utf8");
       const m = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text);
       if (!m) throw new Error(`${file} has no --- front matter ---`);
       const f: Record<string, string> = {};
@@ -29,6 +28,8 @@ export function loadBriefs(dir: string, places?: { sample: string }): Brief[] {
         if (line.startsWith("- ")) endState.push(line.slice(2).trim());
         else {
           const i = line.indexOf(":");
+          if (i < 0)
+            throw new Error(`${file}: front matter line has no ':': ${line}`);
           f[line.slice(0, i)] = line.slice(i + 1).trim();
         }
       }
@@ -66,6 +67,9 @@ Report back, in this order:
 `;
 }
 
+/** The apps scripts/samples.sh starts. */
+const SAMPLES_APPS = ["tremor", "excalidraw", "chatbot", "actual"];
+
 /** The skip line when the brief's app does not answer; null when it does. */
 export async function skipLine(brief: Brief): Promise<string | null> {
   try {
@@ -74,5 +78,8 @@ export async function skipLine(brief: Brief): Promise<string | null> {
   } catch {
     // unreachable: the line below says so
   }
-  return `skipped ${brief.name}: ${brief.reach} did not answer (start it with scripts/samples.sh start ${brief.name})`;
+  const how = SAMPLES_APPS.includes(brief.name)
+    ? ` (start it with scripts/samples.sh start ${brief.name})`
+    : "";
+  return `skipped ${brief.name}: ${brief.reach} did not answer${how}`;
 }

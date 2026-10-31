@@ -13,7 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { messageOf } from "../report.js";
-import { serveSample, staleBuilds } from "./harness.js";
+import { staleBuilds } from "./harness.js";
 import {
   type Brief,
   loadBriefs,
@@ -34,7 +34,12 @@ function claude(
   args: string[],
   prompt: string,
   timeoutMs: number,
-): Promise<{ lines: string[]; code: number | null; stderr: string }> {
+): Promise<{
+  lines: string[];
+  code: number | null;
+  stderr: string;
+  timedOut: boolean;
+}> {
   return new Promise((done) => {
     const child = spawn("claude", ["-p", ...args], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -47,14 +52,23 @@ function claude(
     child.stderr.on("data", (d) => {
       stderr += d;
     });
-    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
     child.on("error", (error) => {
       clearTimeout(timer);
-      done({ lines: [], code: null, stderr: messageOf(error) });
+      done({ lines: [], code: null, stderr: messageOf(error), timedOut });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      done({ lines: out.split("\n").filter((l) => l !== ""), code, stderr });
+      done({
+        lines: out.split("\n").filter((l) => l !== ""),
+        code,
+        stderr,
+        timedOut,
+      });
     });
     child.stdin.end(prompt);
   });
@@ -66,7 +80,7 @@ type Judged = { correct: boolean | null; reason: string };
 function finalFrame(
   mp4: string,
   png: string,
-): { seconds: number | null; error: string | null } {
+): { seconds: number | null; error: string | null; probeNote: string } {
   const f = spawnSync(
     "ffmpeg",
     ["-y", "-sseof", "-0.3", "-i", mp4, "-frames:v", "1", "-update", "1", png],
@@ -76,6 +90,7 @@ function finalFrame(
     return {
       seconds: null,
       error: `ffmpeg exited ${f.status}: ${f.stderr.slice(-200)}`,
+      probeNote: "",
     };
   const p = spawnSync(
     "ffprobe",
@@ -83,9 +98,13 @@ function finalFrame(
     { encoding: "utf8" },
   );
   const seconds = Number.parseFloat(p.stdout);
+  const ok = Number.isFinite(seconds);
   return {
-    seconds: Number.isFinite(seconds) ? Math.round(seconds * 10) / 10 : null,
+    seconds: ok ? Math.round(seconds * 10) / 10 : null,
     error: null,
+    probeNote: ok
+      ? ""
+      : `length unknown: ffprobe exited ${p.status} ${(p.stderr || p.stdout).slice(-120)}`,
   };
 }
 
@@ -185,7 +204,8 @@ async function film(brief: Brief, model: string, out: string): Promise<Row> {
     seconds: null,
     note: "",
   };
-  if (r.code !== 0)
+  if (r.timedOut) row.note = "timed out after 45 min";
+  else if (r.code !== 0)
     row.note = `claude exited ${r.code} ${r.stderr.slice(0, 200)}`;
   if (tally.exportPath === null) {
     row.judged = { correct: null, reason: "no export, so no frame to judge" };
@@ -193,6 +213,7 @@ async function film(brief: Brief, model: string, out: string): Promise<Row> {
     const png = join(dir, "final.png");
     const f = finalFrame(tally.exportPath, png);
     row.seconds = f.seconds;
+    row.note = `${row.note} ${f.probeNote}`.trim();
     row.judged = f.error
       ? { correct: null, reason: f.error }
       : await judge(brief, dir, png);
@@ -244,10 +265,8 @@ async function main(): Promise<number> {
     say(`refused: ${stale}`);
     return 1;
   }
-  const sampleServer = serveSample(repo, say);
-  const sample = await sampleServer.origin;
   try {
-    const all = loadBriefs(BRIEFS, { sample });
+    const all = loadBriefs(BRIEFS);
     const unknown = (values.brief ?? []).filter(
       (n) => !all.some((b) => b.name === n),
     );
@@ -284,7 +303,6 @@ async function main(): Promise<number> {
     say(`summary: ${join(out, "summary.md")}`);
     return rows.some((r) => r.skipped === null) ? 0 : 1;
   } finally {
-    await new Promise<void>((r) => sampleServer.server.close(() => r()));
   }
 }
 
