@@ -10,9 +10,9 @@ import type { LibraryActions } from "./view";
 /** How long a pause ends a type-ahead search. */
 export const TYPE_AHEAD_MS = 500;
 
-/** Where focus last was in each grid: a row's key, and the column of the
- *  cell in it (null on the row itself). Read to put focus back after a
- *  redraw. */
+/** Where focus last was in each grid: a row's key (`HEAD_KEY` for the
+ *  column headings), and the column of the cell in it (null on the row
+ *  itself). Read to put focus back after a redraw. */
 export const listFocus = new WeakMap<
   HTMLElement,
   { key: string; col: string | null }
@@ -34,6 +34,9 @@ export function typeAheadMatch(
 }
 
 const ROWS = "[role=row][data-key]";
+/** The head row's key in `listFocus`; no row's key is bare. */
+export const HEAD_KEY = "head";
+const SORTS = "[data-list-head] [data-sort]";
 const CONTROLS = "button, input, a[href]";
 
 const visibleRows = (grid: HTMLElement): HTMLElement[] => [
@@ -41,7 +44,8 @@ const visibleRows = (grid: HTMLElement): HTMLElement[] => [
 ];
 
 const colOf = (stop: HTMLElement): string | null =>
-  stop.closest<HTMLElement>("[role=gridcell]")?.dataset.col ?? null;
+  stop.closest<HTMLElement>("[role=gridcell], [role=columnheader]")?.dataset
+    .col ?? null;
 
 /** Where focus stops in a row's cells, in order: a cell's controls, or the
  *  cell itself when it has none. The name cell is a stop of its own as
@@ -88,29 +92,58 @@ export function attachListKeys(
   grid: HTMLElement,
   actions: LibraryActions,
 ): void {
-  // APG's roving tabindex: one stop in the rows, everything else in them
-  // reached by the keys. The head's sort buttons keep their own.
+  // APG's roving tabindex: one stop in the grid, the head's sort buttons
+  // and everything in the rows reached by the keys.
   for (const e of grid.querySelectorAll<HTMLElement>(
-    `${ROWS}, ${ROWS} > [role=gridcell], ${ROWS} :is(${CONTROLS})`,
+    `${SORTS}, ${ROWS}, ${ROWS} > [role=gridcell], ${ROWS} :is(${CONTROLS})`,
   )) {
     e.tabIndex = -1;
   }
   const first = visibleRows(grid)[0];
   if (first !== undefined) first.tabIndex = 0;
 
-  // Wherever focus lands in the rows, by key or pointer, is the stop.
+  // Wherever focus lands in the grid, by key or pointer, is the stop.
   grid.addEventListener("focusin", (event) => {
     const stop = event.target as HTMLElement;
     const row = stop.closest<HTMLElement>(ROWS);
-    if (row === null || stop.matches("[data-name]")) return;
+    const sort = stop.matches(SORTS);
+    if ((row === null && !sort) || stop.matches("[data-name]")) return;
     for (const e of grid.querySelectorAll<HTMLElement>('[tabindex="0"]')) {
       e.tabIndex = -1;
     }
     stop.tabIndex = 0;
     listFocus.set(grid, {
-      key: row.dataset.key as string,
+      key: row === null ? HEAD_KEY : (row.dataset.key as string),
       col: stop === row ? null : colOf(stop),
     });
+  });
+
+  // The column headings, as APG's sortable grid: ← and → walk the sort
+  // buttons, ↓ goes back to the rows. Enter and Space are the button's own.
+  grid.addEventListener("keydown", (event) => {
+    const target = event.target as HTMLElement;
+    if (!target.matches(SORTS) || event.ctrlKey || event.altKey) return;
+    if (event.metaKey || event.shiftKey) return;
+    const sorts = [...grid.querySelectorAll<HTMLElement>(SORTS)];
+    const here = sorts.indexOf(target);
+    switch (event.key) {
+      case "ArrowLeft":
+        focusOn(sorts[here - 1]);
+        break;
+      case "ArrowRight":
+        focusOn(sorts[here + 1]);
+        break;
+      case "ArrowDown":
+        focusOn(visibleRows(grid)[0]);
+        break;
+      case "ArrowUp":
+      case "Home":
+      case "End":
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
   });
 
   // What was typed, when, and the row the search started from.
@@ -179,6 +212,16 @@ export function attachListKeys(
             return true;
           }
           const next = rows[at + step];
+          // Above the first row are the headings: this column's sort, else
+          // Name's.
+          if (next === undefined && step < 0 && !shift) {
+            focusOn(
+              grid.querySelector<HTMLElement>(
+                `[data-list-head] [data-col="${col}"] [data-sort]`,
+              ) ?? grid.querySelector<HTMLElement>('[data-sort="name"]'),
+            );
+            return true;
+          }
           if (shift) {
             if (inCell) return false;
             if (busy) return true;

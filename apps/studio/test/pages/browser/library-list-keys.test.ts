@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // move over are the rows the page renders.
 import shell from "../../../pages/entrypoints/library/index.html?raw";
 import { TYPE_AHEAD_MS } from "../../../pages/src/library/list-keys";
+import { nextSort } from "../../../pages/src/library/list-model";
 import {
   clickSelect,
   emptySelection,
@@ -135,8 +136,12 @@ function actions() {
   };
 }
 
-/** A focusable stop after the list, to see a Tab leave it. */
+/** Focusable stops just before and after the list, to see a Tab enter
+ *  and leave it. */
+let before: HTMLButtonElement;
 let after: HTMLButtonElement;
+
+const SORT = { column: "recorded", descending: true } as const;
 
 function mount(ticked: readonly string[] = [], withBulk?: Bulk) {
   mountShell("dark", css);
@@ -150,8 +155,11 @@ function mount(ticked: readonly string[] = [], withBulk?: Bulk) {
   acts = actions();
   renderLibrary(node("#root"), MODEL, acts, new Map(), NOW, selection, bulk, {
     layout: "list",
-    sort: { column: "recorded", descending: true },
+    sort: SORT,
   });
+  before = document.createElement("button");
+  before.textContent = "before";
+  grid().before(before);
 }
 
 const grid = (): HTMLElement => node("[data-list]");
@@ -164,9 +172,13 @@ const onScreen = (): string[] =>
     ),
   ].map((r) => r.dataset.key as string);
 /** Where focus is: a row's key, `key/col` for a cell or a control in it,
- *  else what holds it outside the list. */
+ *  `head/col` for a column heading, else what holds it outside the list. */
 function focused(): string {
   const a = document.activeElement as HTMLElement | null;
+  const head = a?.closest<HTMLElement>("[data-list] [data-list-head]");
+  if (a != null && head != null) {
+    return `head/${a.closest<HTMLElement>("[role=columnheader]")?.dataset.col}`;
+  }
   const r = a?.closest<HTMLElement>("[data-list] [role=row][data-key]");
   if (a == null || r == null) {
     return `outside: ${a?.tagName ?? "nothing"} ${a?.textContent ?? ""}`;
@@ -180,18 +192,29 @@ const ticked = (): string[] =>
   [
     ...grid().querySelectorAll<HTMLElement>('[role=row][aria-selected="true"]'),
   ].map((r) => r.dataset.key as string);
+/** Everything in the grid a Tab can land on, by its tab order rather than
+ *  its attribute: a button with no `tabindex` is a stop too. */
 const tabStops = (): string[] =>
-  [...grid().querySelectorAll<HTMLElement>('[tabindex="0"]')].map(
-    (e) =>
-      e.dataset.key ??
-      e.closest<HTMLElement>("[data-key]")?.dataset.key ??
-      e.tagName,
-  );
+  [...grid().querySelectorAll<HTMLElement>("*")]
+    .filter(
+      (e) =>
+        e.tabIndex >= 0 &&
+        !(e as HTMLButtonElement).disabled &&
+        e.closest("[hidden]") === null,
+    )
+    .map(
+      (e) =>
+        e.dataset.key ??
+        e.closest<HTMLElement>("[data-key]")?.dataset.key ??
+        (e.closest("[data-list-head]") !== null
+          ? `head/${e.closest<HTMLElement>("[role=columnheader]")?.dataset.col}`
+          : e.tagName),
+    );
 
-/** Enters the list the way the author does: Tab from the last sort
- *  heading, the stop before the rows. */
+/** Enters the list the way the author does: one Tab from the stop before
+ *  it. */
 async function enter(): Promise<void> {
-  node('[data-list] [data-sort="size"]').focus();
+  before.focus();
   await userEvent.keyboard("{Tab}");
 }
 
@@ -245,6 +268,44 @@ describe("Tab", () => {
     // Back in, at the row last focused.
     await press("{Shift>}{Tab}{/Shift}", "f:B");
     expect(tabStops(), where()).toEqual(["f:B"]);
+    // And out the other way, past the head.
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(document.activeElement, where()).toBe(before);
+  });
+});
+
+describe("the column headings", () => {
+  it("↑ from the first row reaches Name; Enter sorts by it; ↓ returns", async () => {
+    mount();
+    await enter();
+    await press("{ArrowUp}", "head/name");
+    // The head holds the one Tab stop while it has focus.
+    expect(tabStops(), where()).toEqual(["head/name"]);
+    await press("{Enter}", "head/name");
+    expect(acts.setView, where()).toHaveBeenCalledWith({
+      layout: "list",
+      sort: nextSort(SORT, "name"),
+    });
+    await press("{ArrowDown}", "h:today");
+    expect(tabStops(), where()).toEqual(["h:today"]);
+  });
+
+  it("↑ from a cell keeps a sortable column; ← and → walk the headings; Home, End and letters do nothing", async () => {
+    mount();
+    await enter();
+    // Today is open, so → enters its cells: select, open, name, …, actions.
+    await press("{ArrowRight}", "h:today/select");
+    await press("{End}", "h:today/actions");
+    await press("{ArrowLeft}{ArrowLeft}", "h:today/recorded");
+    await press("{ArrowUp}", "head/recorded");
+    await press("{ArrowRight}", "head/size");
+    await press("{ArrowRight}", "head/size");
+    await press("{ArrowLeft}{ArrowLeft}", "head/videos");
+    await press("{Home}{End}e", "head/videos");
+    // A column with no sort button goes to Name's.
+    await press("{ArrowDown}{ArrowRight}{ArrowRight}", "h:today/open");
+    await press("{ArrowUp}", "head/name");
+    expect(acts.setView, where()).not.toHaveBeenCalled();
   });
 });
 
