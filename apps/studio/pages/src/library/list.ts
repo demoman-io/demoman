@@ -262,14 +262,23 @@ function entryRow(
       setCodeText(rerun, rerunLine);
       said.push(rerun);
     }
-    // A flow's own status only: what was said of one of its takes is said
-    // on that take's video row, which every flow has here (not the card's
-    // fallback for a one-version flow, which would say it twice).
+    // What was said of one of a flow's takes is said on that take's video
+    // row, which every flow has here. Its lead's is said on the flow row
+    // too, where the row's Back was pressed, while the flow is closed and
+    // that video row hidden; `refold` hides it while open, so it is never
+    // said twice.
     const status =
       group === null
         ? rowStatus.get(statusKey("take", r.sceneId))
         : rowStatus.get(statusKey("video", group.video.id));
     if (status !== undefined) said.push(sentence(status));
+    const lead =
+      group === null ? undefined : rowStatus.get(statusKey("take", r.sceneId));
+    if (lead !== undefined) {
+      const line = sentence(lead);
+      line.setAttribute("data-lead-status", "");
+      said.push(line);
+    }
   } else {
     const v = e.row;
     row.setAttribute("data-video-row", v.sceneId);
@@ -389,6 +398,18 @@ function refold(grid: HTMLElement): void {
     const level = Number(row.getAttribute("aria-level"));
     row.hidden = level > 1 && shown[level - 1] !== true;
     shown[level] = !row.hidden && row.getAttribute("aria-expanded") !== "false";
+    const lead = row.querySelector<HTMLElement>(
+      ":scope > [data-status] > [data-lead-status]",
+    );
+    if (lead !== null) {
+      // Said on the video row while the flow is open (`entryRow`); the line
+      // goes, and the row's description with it, when nothing else is on it.
+      lead.hidden = row.getAttribute("aria-expanded") === "true";
+      const line = lead.parentElement as HTMLElement;
+      line.hidden = [...line.children].every((c) => (c as HTMLElement).hidden);
+      if (line.hidden) row.removeAttribute("aria-describedby");
+      else row.setAttribute("aria-describedby", line.id);
+    }
   }
 }
 
@@ -420,8 +441,10 @@ export const flowsOnScreen = (grid: HTMLElement): string[] =>
  * A click opens, as a card's does (§4.2), with the card's exceptions
  * (view.ts `row()`): the chevron or a heading only folds; a checkbox,
  * button or link does its own thing; a click that ends a text selection or
- * a rename does nothing; a video with no footage here does nothing. While
- * flows are ticked, or with Cmd or Shift, a click on a flow selects it.
+ * a rename does nothing; a video with no footage here does nothing; a
+ * click on a row's line does nothing. While flows are ticked, or with Cmd
+ * or Shift, a click on a flow selects it; while they are ticked, a click on
+ * a video's row does nothing.
  */
 function listenForClicks(grid: HTMLElement, actions: LibraryActions): void {
   // The click that ends a rename: the press blurs the field before the
@@ -437,7 +460,8 @@ function listenForClicks(grid: HTMLElement, actions: LibraryActions): void {
     const row = target.closest<HTMLElement>("[role=row][data-key]");
     const typed = nameWasFocused;
     nameWasFocused = false;
-    if (row === null) return;
+    // The row's line is text to read and copy: a click on it does nothing.
+    if (row === null || target.closest("[data-status]") !== null) return;
     const flowId = row.dataset.flow;
     const select = (): void => {
       // A Shift-click from one name to another still ranges the text
@@ -472,6 +496,14 @@ function listenForClicks(grid: HTMLElement, actions: LibraryActions): void {
         event.shiftKey)
     ) {
       select();
+      return;
+    }
+    // While flows are ticked a video row opens nothing: the editor would
+    // lose the selection, and a video is not a flow to tick.
+    if (
+      row.dataset.videoRow !== undefined &&
+      grid.closest("[data-selecting]") !== null
+    ) {
       return;
     }
     if ((window.getSelection()?.toString() ?? "") !== "") return;

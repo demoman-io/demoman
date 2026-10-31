@@ -278,4 +278,81 @@ describe("library main — back to your recording", () => {
     // are served: a null bundle would say "could not be put back" too.
     expect(document.body.textContent).not.toContain("could not be put back");
   });
+
+  /**
+   * The list (its default view): Back on a flow's row, the flow closed,
+   * reports where it was pressed. Its take's sentence used to go only on
+   * the lead's video row, which a closed flow hides, so a refused Back
+   * said nothing the author could see. Red without the flow row drawing
+   * its lead's take status while closed (list.ts, `data-lead-status`).
+   */
+  it("on a closed flow's row in the list, says it on that row", async () => {
+    const videoId = "11111111-1111-4111-8111-111111111111";
+    memory = createMemoryPlatform({
+      // By name: no headings, so the flow is not under its folded month.
+      libraryView: {
+        layout: "list",
+        sort: { column: "name", descending: false },
+      },
+      scenes: [stored as unknown as SceneDocument],
+      videos: [
+        {
+          id: videoId,
+          name: "Checkout",
+          repo: { unknown: true },
+          startPage: "https://app.test/",
+          versions: 1,
+          current: null,
+          pages: [],
+          steps: [],
+          exports: [],
+        },
+      ],
+      videoOf: {
+        [SCENE_ID]: { videoId, version: 1, expired: false, exports: [] },
+      },
+    });
+    state.memory = memory;
+    memory.serveBundle(null);
+    await import("../../../pages/entrypoints/library/main");
+    const flowRow = () =>
+      document.querySelector<HTMLElement>(
+        `[role=treegrid] [role=row][data-flow="${videoId}"]`,
+      );
+    const back = await vi.waitFor(() => {
+      const b = flowRow()?.querySelector<HTMLButtonElement>(
+        '[data-action="back-to-recording"]',
+      );
+      if (!b) throw new Error("no flow row with a Back drawn yet");
+      return b;
+    });
+    // Premise: the flow is on screen and closed, so its video row is hidden.
+    expect(flowRow()?.hidden).toBe(false);
+    expect(flowRow()?.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          "[role=treegrid] [data-video-row]",
+        ),
+      ].map((r) => [r.dataset.videoRow, r.hidden]),
+    ).toEqual([[SCENE_ID, true]]);
+    back.click();
+    const said = await vi.waitFor(() => {
+      const p = [
+        ...(flowRow()?.querySelectorAll<HTMLElement>(
+          "[data-status] > .notice",
+        ) ?? []),
+      ].find((n) => n.textContent?.includes("could not be put back"));
+      if (!p) {
+        throw new Error(
+          `the flow row says ${JSON.stringify(flowRow()?.textContent)}`,
+        );
+      }
+      return p;
+    });
+    expect(said.closest("[hidden]"), "the sentence is on screen").toBeNull();
+    expect(flowRow()?.getAttribute("aria-describedby")).toBe(
+      said.closest("[data-status]")?.id,
+    );
+  });
 });

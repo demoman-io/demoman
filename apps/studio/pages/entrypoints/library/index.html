@@ -509,11 +509,12 @@
         display: none;
       }
       /* The list's own: in its cell, not the thumbnail's corner; shown as
-         the card's is, on its row's hover or focus (list spec §4.4). */
+         the card's is, on its row's hover or keyboard focus (list spec
+         §4.4) — not a click's focus, which outlasts the pointer. */
       .library-list .select-box {
         position: static;
       }
-      .library-list > [data-key]:is(:hover, :focus-within) .select-box {
+      .library-list > [data-key]:is(:hover, :focus-visible, :has(:focus-visible)) .select-box {
         opacity: 1;
       }
       article.card[data-selected] {
@@ -738,7 +739,7 @@
         /* A Shift-click selects flows, not the text between them. */
         user-select: none;
       }
-      .library-list [data-name-text] { user-select: text; }
+      .library-list :is([data-name-text], [data-status]) { user-select: text; }
       /* Under the top bar, held while the list scrolls; opaque, so a row
          never shows through it. */
       .library-list > [data-list-head] {
@@ -786,23 +787,28 @@
       }
       .library-list [data-col="select"] { justify-content: center; }
       .library-list [data-col="actions"] { justify-content: flex-end; }
-      /* While flows are ticked, the flow rows' actions step aside as the
-         cards' do, by visibility: they keep their cell, so nothing moves
-         (list spec §2.1, §4.2), and the pointer's reveal below is opacity
-         only, so it cannot bring them back. */
-      [data-selecting] .library-list [data-flow] > [data-col="actions"] {
+      /* While flows are ticked, the flow and video rows' actions step aside
+         as the cards' do, by visibility: they keep their cell, so nothing
+         moves (list spec §2.1, §4.2), and the pointer's reveal below is
+         opacity only, so it cannot bring them back. */
+      [data-selecting] .library-list :is([data-flow], [data-video-row]) > [data-col="actions"] {
         visibility: hidden;
       }
+      /* The name keeps its width while a tag beside it is clipped, and
+         only a name wider than the cell is cut, at the cell's edge. */
       .library-list [data-name-text] {
-        min-width: 0;
+        flex: none;
+        max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
       }
       .library-list [data-video-row] [data-col="name"] { padding-left: 16px; }
       .library-list .row-tags {
         position: static;
-        flex: none;
+        flex: 0 1 auto;
         flex-wrap: nowrap;
+        min-width: 0;
+        overflow: hidden;
       }
       .library-list [data-heading] {
         font-weight: 600;
@@ -852,7 +858,7 @@
          moves and the keys still reach them; the selecting rule's
          `visibility` above outranks this. */
       .library-list .row-actions { opacity: 0; }
-      .library-list > [data-key]:is(:hover, :focus-within) .row-actions {
+      .library-list > [data-key]:is(:hover, :focus-visible, :has(:focus-visible)) .row-actions {
         opacity: 1;
       }
       @media (hover: none) {
@@ -875,7 +881,7 @@
             28px 20px minmax(140px, 3fr) minmax(0, 2fr)
             56px 64px var(--recorded) max-content;
         }
-        .library-list [data-col="size"] { display: none; }
+        :is(.library-list, .unreadable-list) [data-col="size"] { display: none; }
       }
       @container library (max-width: 639px) {
         :is(.library-list, .unreadable-list) {
@@ -934,6 +940,7 @@
       /* Last: every `display` above loses to `hidden` (shell.css's note on
          `.hidden`). */
       .library-list [hidden],
+      .library-list > [role="row"] > [data-status][hidden],
       .layout-toggle[hidden] { display: none; }
 
       /* The empty states: the shell's `.empty`, on a card, as on Settings. */

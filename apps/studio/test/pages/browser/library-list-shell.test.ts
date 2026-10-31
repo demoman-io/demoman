@@ -603,6 +603,37 @@ describe("the list's look", () => {
     );
   });
 
+  // Red: the tag strip kept at full width (`flex: none`), which crushes
+  // the name beside it to "R." here.
+  it("at 720px a tagged name keeps its words and the tag is the one clipped", async () => {
+    await page.viewport(720, 900);
+    mount();
+    const name = cell("f:R", "name").querySelector(
+      "[data-name-text]",
+    ) as HTMLElement;
+    const strip = row("f:R").querySelector(".row-tags") as HTMLElement;
+    const em = Number.parseFloat(getComputedStyle(name).fontSize);
+    const said = JSON.stringify({
+      name: [name.clientWidth, name.scrollWidth],
+      strip: [strip.clientWidth, strip.scrollWidth],
+      cell: cell("f:R", "name").clientWidth,
+    });
+    // Premise: the cell is too narrow for the name and the whole tag.
+    expect(
+      name.scrollWidth + strip.scrollWidth,
+      `the cell fits both: ${said}`,
+    ).toBeGreaterThan(cell("f:R", "name").clientWidth);
+    expect(name.getBoundingClientRect().width, said).toBeGreaterThanOrEqual(
+      4 * em,
+    );
+    expect(name.scrollWidth, `the name is cut: ${said}`).toBeLessThanOrEqual(
+      name.clientWidth,
+    );
+    expect(strip.scrollWidth, `the tag is not cut: ${said}`).toBeGreaterThan(
+      strip.clientWidth,
+    );
+  });
+
   it("at 560px Length and Videos are gone too", async () => {
     await page.viewport(560, 900);
     mount();

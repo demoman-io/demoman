@@ -1363,6 +1363,29 @@ describe("the Studio's screenshot set", () => {
           hit: true,
         })),
       );
+      // Red: the unreadable row's size kept where the list drops its Size
+      // column, so the grid puts it under Recorded.
+      const underRecorded = await page.evaluate((folder) => {
+        const head = document.querySelector(
+          "[data-list-head] [role=columnheader][data-col='recorded']",
+        );
+        const row = document.querySelector(
+          `[data-unreadable-row="${CSS.escape(folder)}"]`,
+        );
+        if (head === null || row === null) return null;
+        const h = head.getBoundingClientRect();
+        // Its cells; a status line under them spans every column.
+        return [...row.querySelectorAll(":scope > [data-col]")].flatMap((c) => {
+          const b = c.getBoundingClientRect();
+          return b.width > 0 && b.left < h.right && b.right > h.left
+            ? [`${(c as HTMLElement).dataset.col} "${c.textContent}"`]
+            : [];
+        });
+      }, UNREADABLE);
+      expect(
+        underRecorded,
+        `${at}: what the unreadable row puts under Recorded`,
+      ).toEqual([]);
 
       expect(shots).toHaveLength(SIZES.length * 4 + 2);
       // The refused rename's 409 is the browser's own line for a refusal

@@ -366,19 +366,40 @@ describe("the list view", () => {
     expect(c.hasAttribute("aria-describedby")).toBe(false);
   });
 
-  // Red: the flow row falling back to its take's status as the card does,
-  // which says it a second time beside the video row that owns it.
-  it("a one-video flow's take status is said once, on its video row", () => {
+  // Red: an open flow row keeping its lead's sentence beside the video row
+  // that owns it (said twice), or a closed one leaving it to that video
+  // row, which is hidden (Back pressed on the flow row said nothing the
+  // author could see).
+  it("a flow's lead take status is said once on screen: on the flow row while closed, on its video row while open", () => {
     expect(groups[2]?.versions).toHaveLength(1);
     const status = new Map([["take:c1", "Could not delete: it is open."]]);
-    const { grid } = draw(LIST, model, actions(), status);
-    const lines = [
-      ...rowOf(grid, "f:C").querySelectorAll("[data-status]"),
-      ...rowOf(grid, "v:c1").querySelectorAll("[data-status]"),
-    ];
-    expect(lines).toHaveLength(1);
-    expect(lines[0]?.closest("[role=row]")).toBe(rowOf(grid, "v:c1"));
-    expect(lines[0]?.textContent).toBe("Could not delete: it is open.");
+    // By name: no headings, so C is not under its folded month.
+    const { grid } = draw(BY_NAME, model, actions(), status);
+    const flowRow = rowOf(grid, "f:C");
+    const shown = () =>
+      [
+        ...(grid as HTMLElement).querySelectorAll<HTMLElement>(
+          "[data-status] > .notice",
+        ),
+      ].filter((p) => p.closest("[hidden]") === null);
+    // Premise: C is on screen and starts closed, its video row hidden.
+    expect(flowRow.hidden).toBe(false);
+    expect(flowRow.getAttribute("aria-expanded")).toBe("false");
+    expect(rowOf(grid, "v:c1").hidden).toBe(true);
+    expect(shown()).toHaveLength(1);
+    expect(shown()[0]?.closest("[role=row]")).toBe(flowRow);
+    expect(shown()[0]?.textContent).toBe("Could not delete: it is open.");
+    expect(flowRow.getAttribute("aria-describedby")).toBe(
+      flowRow.querySelector("[data-status]")?.id,
+    );
+    cell(flowRow, "open").click();
+    expect(flowRow.getAttribute("aria-expanded")).toBe("true");
+    expect(shown()).toHaveLength(1);
+    expect(shown()[0]?.closest("[role=row]")).toBe(rowOf(grid, "v:c1"));
+    // Nothing else is said of the flow, so it has no description now.
+    expect(flowRow.hasAttribute("aria-describedby")).toBe(false);
+    cell(flowRow, "open").click();
+    expect(shown()[0]?.closest("[role=row]")).toBe(flowRow);
   });
 
   it("the rerun line where Restore has no button is the row's line too", () => {

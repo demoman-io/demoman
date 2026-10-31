@@ -79,11 +79,12 @@ const flow = (id: string, versions: LibraryRow[]): VideoGroup => {
   };
 };
 
-// Today: A (two videos), B, E (its lead expired); Yesterday: C; a past
-// month, folded by default: D. And a take in no flow, today.
+// Today: A (two videos), B (its motion reclaimed: a rerun line), E (its
+// lead expired); Yesterday: C; a past month, folded by default: D. And a
+// take in no flow, today.
 const a2 = take("a2", new Date(2026, 9, 30, 9));
 const a1 = take("a1", new Date(2026, 9, 30, 8, 30));
-const b1 = take("b1", new Date(2026, 9, 30, 8));
+const b1 = take("b1", new Date(2026, 9, 30, 8), { canRestore: true });
 const e1 = take("e1", new Date(2026, 9, 30, 7), { expired: true });
 const c1 = take("c1", new Date(2026, 9, 29, 10));
 const d1 = take("d1", new Date(2026, 8, 1, 9));
@@ -116,7 +117,7 @@ const actions = () => ({
   renameVideo: vi.fn(),
   select: vi.fn(),
   setView: vi.fn(),
-  rerunLine: () => "Run it again to film it.",
+  rerunLine: () => "Run `run({ flow })` again to film it.",
 });
 
 let acts: ReturnType<typeof actions>;
@@ -174,6 +175,12 @@ describe("the fixture", () => {
     // A flow row carries a checkbox and a Delete.
     expect(row("f:A").querySelector("[data-select]")).not.toBeNull();
     expect(row("f:A").querySelector('[data-action="delete"]')).not.toBeNull();
+    // B, which has footage here, says its rerun line, with a code span.
+    expect(row("f:B").hasAttribute("data-absent")).toBe(false);
+    expect(
+      row("f:B").querySelector("[data-status] [data-rerun-line] code")
+        ?.textContent,
+    ).toBe("run({ flow })");
   });
 });
 
@@ -255,6 +262,35 @@ describe("a click in the list", () => {
     expect(acts.edit).not.toHaveBeenCalled();
   });
 
+  // Red: the rows' `user-select: none` reaching the status line (the drag
+  // selects nothing, and the click it ends opens the editor), or a click
+  // on the line opening the editor or ticking the flow.
+  it("on the status line selects its text and opens nothing, with nothing ticked or with flows ticked", async () => {
+    mount();
+    const code = row("f:B").querySelector(
+      "[data-status] [data-rerun-line] code",
+    ) as HTMLElement;
+    code.scrollIntoView({ block: "center" });
+    const r = code.getBoundingClientRect();
+    const y = r.top + r.height / 2;
+    await commands.pressBetween({ x: r.left + 1, y }, { x: r.right - 1, y });
+    expect(window.getSelection()?.toString(), "the drag's text").toContain(
+      "run({",
+    );
+    expect(acts.edit).not.toHaveBeenCalled();
+    window.getSelection()?.removeAllRanges();
+    await userEvent.click(code);
+    expect(acts.edit).not.toHaveBeenCalled();
+    mount({ ids: new Set(["A"]), anchor: "A", range: [] });
+    await userEvent.click(
+      row("f:B").querySelector(
+        "[data-status] [data-rerun-line]",
+      ) as HTMLElement,
+    );
+    expect(acts.select).not.toHaveBeenCalled();
+    expect(acts.edit).not.toHaveBeenCalled();
+  });
+
   it("on a flow whose lead video has no footage does nothing, and its chevron still opens it", async () => {
     mount();
     await userEvent.click(nameText("f:E"));
@@ -314,10 +350,31 @@ describe("selecting in the list", () => {
     for (const b of buttons) {
       expect(getComputedStyle(b).visibility, b.dataset.action).toBe("hidden");
     }
-    // A video row still opens its video.
+  });
+
+  // Red: a video row opening the editor while flows are ticked (the
+  // selection lost), or its Edit and Delete left showing beside the bar's.
+  it("while anything is selected, a click on a video row does nothing, and its actions are hidden", async () => {
+    mount(ticked("A"));
     await userEvent.click(cell("f:A", "open"));
+    // Premise: A is open, its videos on screen.
+    expect(row("v:a1").hidden).toBe(false);
     await userEvent.click(nameText("v:a1"));
-    expect(acts.edit).toHaveBeenCalledWith("a1");
+    await userEvent.click(cell("v:a1", "recorded"));
+    expect(acts.edit).not.toHaveBeenCalled();
+    expect(acts.select).not.toHaveBeenCalled();
+    await userEvent.hover(cell("v:a1", "recorded"));
+    expect(row("v:a1").matches(":hover")).toBe(true);
+    const buttons = [
+      ...cell("v:a1", "actions").querySelectorAll<HTMLElement>("button"),
+    ];
+    expect(
+      buttons.map((b) => b.dataset.action),
+      "premise: the video row has its Edit and Delete",
+    ).toEqual(expect.arrayContaining(["edit", "delete"]));
+    for (const b of buttons) {
+      expect(getComputedStyle(b).visibility, b.dataset.action).toBe("hidden");
+    }
   });
 
   // Red: the selecting rule hiding them at rest too, or the row's hover
@@ -339,9 +396,36 @@ describe("selecting in the list", () => {
     expect(shows()).toEqual(["1", "visible"]);
     await userEvent.hover(cell("f:C", "recorded"));
     expect(shows()).toEqual(["0", "visible"]);
-    // The keyboard on the row: Space and the keys need no pointer.
-    row("f:B").focus();
+    // The keyboard on the row: Space and the keys need no pointer. From
+    // A, ↓ is B.
+    row("f:A").focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(row("f:B"));
     expect(shows()).toEqual(["1", "visible"]);
+  });
+
+  // Red: `:focus-within` revealing them, which a chevron's click (it
+  // focuses the cell) holds on after the pointer has gone.
+  it("a click's focus does not hold the row's actions and checkbox on screen; the keyboard's does", async () => {
+    mount();
+    const actions = cell("f:B", "actions").querySelector(
+      ".row-actions",
+    ) as HTMLElement;
+    const box = row("f:B").querySelector("[data-select]") as HTMLElement;
+    const shows = () => [
+      getComputedStyle(actions).opacity,
+      getComputedStyle(box).opacity,
+    ];
+    await userEvent.click(cell("f:B", "open"));
+    // Premise: the click put focus in the row.
+    expect(row("f:B").contains(document.activeElement)).toBe(true);
+    await userEvent.hover(cell("f:C", "recorded"));
+    expect(row("f:B").matches(":hover")).toBe(false);
+    expect(shows()).toEqual(["0", "0"]);
+    // Escape in a cell goes back to the row, by the keyboard.
+    await userEvent.keyboard("{Escape}");
+    expect(document.activeElement).toBe(row("f:B"));
+    expect(shows()).toEqual(["1", "1"]);
   });
 
   it("while anything is selected, the row's actions stay hidden under the pointer", async () => {
