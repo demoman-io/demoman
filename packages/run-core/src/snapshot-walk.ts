@@ -91,7 +91,8 @@ function isInteractive(el: Element): boolean {
   if (el.hasAttribute("tabindex") || el.hasAttribute("onclick")) return true;
   if ((el as HTMLElement).onclick !== null && "onclick" in el) return true;
   const view = el.ownerDocument.defaultView;
-  if (view === null || getComputedStyle(el).cursor !== "pointer") return false;
+  if (view === null || view.getComputedStyle(el).cursor !== "pointer")
+    return false;
   const parent = el.parentElement;
   return parent === null || view.getComputedStyle(parent).cursor !== "pointer";
 }

@@ -54,10 +54,14 @@ export function containsNoteFor(
   contains: string | null,
   listed: number,
   notExamined: number,
+  unresolvable: number,
 ): string | null {
-  return contains !== null && listed === 0 && notExamined === 0
-    ? `Nothing on the page matched "${contains}" (name, text, stableId, kind or value).`
-    : null;
+  if (contains === null || listed > 0 || notExamined > 0) return null;
+  // Only elements that passed `contains` are ever counted unresolvable, so
+  // these matched; saying "nothing matched" would be false.
+  if (unresolvable > 0)
+    return `"${contains}" matched ${unresolvable} element(s) on the page, but none could be named as a target; try a different filter.`;
+  return `Nothing on the page matched "${contains}" (name, text, stableId, kind or value).`;
 }
 
 export type SnapshotOutcome =
@@ -237,6 +241,7 @@ export async function snapshotOnStage(
         contains,
         walk.targets.length,
         walk.notExamined,
+        walk.unresolvable,
       ),
       walkMs: walk.walkMs,
       device,

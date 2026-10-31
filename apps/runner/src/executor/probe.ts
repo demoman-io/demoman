@@ -251,6 +251,7 @@ export async function probeOp(
       contains,
       walk.targets.length,
       walk.notExamined,
+      walk.unresolvable,
     ),
     walkMs: walk.walkMs,
     device: script.device ?? null,

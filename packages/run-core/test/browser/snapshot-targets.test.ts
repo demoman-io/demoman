@@ -414,4 +414,62 @@ describe("what an agent needs listed (spec B)", () => {
     expect(input, JSON.stringify(after.targets)).toBeDefined();
     expect(input?.value).toBe("42.00");
   });
+
+  // Red if a select is not a credential field: its chosen option would be
+  // listed and matched by contains.
+  it("never lists or matches a credential select's value", async () => {
+    const html = `<select data-testid="exp" autocomplete="cc-exp-month"><option value="07" selected>seven-secret</option></select><select data-testid="plainsel"><option selected>visible-opt</option></select>`;
+    const w = await walkHtml(html);
+    const exp = w.targets.find(
+      (t) => "stableId" in t.target && t.target.stableId === "exp",
+    );
+    const plain = w.targets.find(
+      (t) => "stableId" in t.target && t.target.stableId === "plainsel",
+    );
+    expect(exp, "the select is still listed").toBeDefined();
+    expect(exp?.value).toBeNull();
+    // Premise: an ordinary select does show its value.
+    expect(plain?.value).toBe("visible-opt");
+    const matched = await walkHtml(html, { ...ALL, contains: "07" });
+    expect(matched.targets).toEqual([]);
+  });
+
+  // Ruling X: the candidate filter reads styles for every element before the
+  // cap and budget apply. Measured, printed; the bound is generous on purpose.
+  it("filters a page of 20,000 plain elements within a generous bound", async () => {
+    const html = `<div>${"<div><span></span></div>".repeat(10_000)}</div>`;
+    document.body.innerHTML = html;
+    expect(document.body.querySelectorAll("*")).toHaveLength(20_001);
+    const t0 = performance.now();
+    const w = await snapshotTargets(
+      env(),
+      { contains: null, maxTargets: 0, budgetMs: 60_000 },
+      clock,
+    );
+    const ms = Math.round(performance.now() - t0);
+    console.info(`MEASURED candidates-filter 20,001 plain elements: ${ms} ms`);
+    expect(w.notExamined).toBe(0);
+    expect(ms).toBeLessThan(5_000);
+    // The worst case for the style test: every element's cursor is pointer, so
+    // each also reads its parent's.
+    document.body.innerHTML = html.replace(
+      "<div>",
+      '<div style="cursor:pointer">',
+    );
+    const t1 = performance.now();
+    await snapshotTargets(
+      env(),
+      { contains: null, maxTargets: 0, budgetMs: 60_000 },
+      clock,
+    );
+    const pointerMs = Math.round(performance.now() - t1);
+    console.info(`MEASURED candidates-filter, all pointer: ${pointerMs} ms`);
+    expect(pointerMs).toBeLessThan(5_000);
+    await walk();
+    const t2 = performance.now();
+    await snapshotTargets(env(), { ...ALL, maxTargets: 0 }, clock);
+    console.info(
+      `MEASURED candidates-filter, existing fixture: ${Math.round(performance.now() - t2)} ms`,
+    );
+  });
 });

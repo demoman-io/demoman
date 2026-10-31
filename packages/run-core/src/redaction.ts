@@ -32,8 +32,13 @@ const HINT_ATTRS = ["name", "id", "placeholder", "aria-label"] as const;
  */
 export function isCredentialField(el: Element): boolean {
   const tag = el.tagName.toLowerCase();
+  // A select is no typing target, but it holds a card's expiry; the
+  // snapshot must not list it, and over-inclusion is this rule's direction.
   const editable =
-    tag === "input" || tag === "textarea" || el.hasAttribute("contenteditable");
+    tag === "input" ||
+    tag === "textarea" ||
+    tag === "select" ||
+    el.hasAttribute("contenteditable");
   if (!editable) return false;
 
   if ((el.getAttribute("type") ?? "").toLowerCase() === "password") return true;

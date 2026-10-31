@@ -371,7 +371,11 @@ describe("containsNote", () => {
   // Red if an empty answer to `contains` reads like "absent": the note is the
   // only thing that says the question was asked of every field.
   it("says nothing matched when contains finds nothing", async () => {
-    const outcome = await ask("zzz", { targets: [], notExamined: 0 });
+    const outcome = await ask("zzz", {
+      targets: [],
+      notExamined: 0,
+      unresolvable: 0,
+    });
     expect(outcome).toMatchObject({
       ok: true,
       value: {
@@ -388,5 +392,18 @@ describe("containsNote", () => {
     expect(more).toMatchObject({ ok: true, value: { containsNote: null } });
     const none = await ask(null, { targets: [], notExamined: 0 });
     expect(none).toMatchObject({ ok: true, value: { containsNote: null } });
+  });
+
+  // Red if matches that could not be named read as "nothing matched".
+  it("says how many matched and could not be named, not that nothing matched", async () => {
+    const outcome = await ask("zzz", {
+      targets: [],
+      notExamined: 0,
+      unresolvable: 2,
+    });
+    if (!outcome.ok) throw new Error(outcome.detail);
+    expect(outcome.value.containsNote).toContain("2");
+    expect(outcome.value.containsNote).not.toContain("Nothing on the page");
+    expect(outcome.value.containsNote).toContain("different");
   });
 });
