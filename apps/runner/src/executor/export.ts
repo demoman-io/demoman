@@ -327,6 +327,8 @@ async function listed(
 async function taggerFor(takeId: string, deps: ExportDeps) {
   let tag: VideoTag | null = null;
   let error: string | undefined;
+  // The file is tagged, but the commit is not known: why.
+  let noCommit: string | undefined;
   // Unknown (absent) when the take's video.json will not read.
   let videoId: string | null | undefined;
   // The file is named after the video (author, 2026-10-24); without one,
@@ -338,7 +340,11 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
     if (member !== null) {
       tag = { flow: member.videoId, video: takeId, commit: null, dirty: null };
       // The commit is the run's record (`filmedCode`), never re-read from git.
-      const report = await deps.library.getJson(takeId, "report.json");
+      const report = await deps.library
+        .getJson(takeId, "report.json")
+        .catch((e: unknown) => ({
+          unreadable: `the run report could not be read: ${messageOf(e)}`,
+        }));
       const code =
         "value" in report
           ? (report.value as { filmedCode?: unknown }).filmedCode
@@ -348,10 +354,14 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
         tag.commit = typeof c.commit === "string" ? c.commit : null;
         tag.dirty = typeof c.dirty === "boolean" ? c.dirty : null;
       } else if ("unreadable" in report) {
-        error = `the file is tagged without its commit, as the take's report.json would not read (${report.unreadable})`;
+        noCommit = `the take's report.json would not read (${report.unreadable})`;
       } else if ("missing" in report) {
         deps.log(
           `video ${takeId}: the export is tagged without a commit, as the take has no report.json`,
+        );
+      } else {
+        deps.log(
+          `video ${takeId}: the export is tagged without a commit, as its report.json has no usable filmedCode (${"value" in report ? JSON.stringify(code ?? null) : "no value"})`,
         );
       }
     }
@@ -378,6 +388,13 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
       error ??= tagged.error;
       deps.log(`video ${takeId}: an export is not tagged (${tagged.error})`);
       return bytes;
+    },
+    get taggedWithoutCommit():
+      | { taggedWithoutCommit: { error: string } }
+      | Record<string, never> {
+      return noCommit === undefined
+        ? {}
+        : { taggedWithoutCommit: { error: noCommit } };
     },
     get untagged(): { untagged: { error: string } } | Record<string, never> {
       return error === undefined ? {} : { untagged: { error } };
@@ -610,6 +627,7 @@ async function exportLeased(a: {
         },
         ...warnings,
         ...tagger.untagged,
+        ...tagger.taggedWithoutCommit,
         ...(rendered.stillsCapped === undefined
           ? {}
           : { stillsCapped: rendered.stillsCapped }),
@@ -664,6 +682,7 @@ async function exportLeased(a: {
       target: rendered.rendered,
       ...warnings,
       ...tagger.untagged,
+      ...tagger.taggedWithoutCommit,
       // The look is recorded here, beside the bytes the render was handed:
       // a file's contents are part of it (`lookDigest`).
       screens: {

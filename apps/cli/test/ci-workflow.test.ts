@@ -30,7 +30,7 @@ describe("ciWorkflow artifact", () => {
       l.includes("uses: actions/upload-artifact@v4"),
     );
     // Premise: the step exists and follows the refresh step.
-    expect(at).toBeGreaterThan(lines(art).findIndex((l) => l === refresh));
+    expect(at).toBeGreaterThan(lines(art).indexOf(refresh ?? ""));
     const step = lines(art).slice(at, at + 5);
     expect(step).toContain("        if: always()");
     expect(step).toContain("          name: demoman-videos");

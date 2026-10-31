@@ -376,6 +376,8 @@ user's default brand kit; a derived draft keeps its video's branding. The report
    (`run({ flow: { id } })`, or `derive` then `run` when a verb changed).
    Re-film only on request. `warnings.untagged`: the file has no flow
    tag (`error` says why); not the user's to act on.
+   `warnings.taggedWithoutCommit`: the file is tagged, only its filmed commit
+   is unknown (`error` says why).
    `links` holds the export's one-click actions, each present
    only where it works: `studio`, `file` (the file itself) and `copy` (the
    file to the clipboard; none for stills). `linksError`, set instead, says

@@ -239,12 +239,12 @@ describe("export tagging", () => {
 
   /** Exports a gif of the take with `report.json` set to `text`; the tag
    *  the export tried to write, and the answer. */
-  const tagWith = async (text: string) => {
+  const tagWith = async (text: string, log: string[] = []) => {
     await putTake(home, take.takeId, take.original, take.bundle);
     await writeFile(join(home, "takes", take.takeId, "report.json"), text);
     const tags: unknown[] = [];
     const deps = {
-      ...depsFor(),
+      ...depsFor(log),
       videos: {
         videoOf: async () => ({ videoId: "flow-1" }) as never,
         get: async () => null,
@@ -281,7 +281,28 @@ describe("export tagging", () => {
       expect(tags).toEqual([
         { flow: "flow-1", video: take.takeId, commit: null, dirty: null },
       ]);
-      expect(answer.warnings.untagged?.error).toContain("report.json");
+      expect(answer.warnings.taggedWithoutCommit?.error).toContain(
+        "report.json",
+      );
+      expect(answer.warnings.untagged, "the file was tagged").toBeUndefined();
+    },
+    EXPORT_MS,
+  );
+
+  it(
+    "tags without a commit, and logs it, when filmedCode has none",
+    async () => {
+      const log: string[] = [];
+      const { tags, answer } = await tagWith(
+        JSON.stringify({ filmedCode: { none: "not a checkout" } }),
+        log,
+      );
+      expect(answer.outcome).toBe("saved");
+      expect(tags).toEqual([
+        { flow: "flow-1", video: take.takeId, commit: null, dirty: null },
+      ]);
+      expect(log.join("\n")).toContain(take.takeId);
+      expect(log.join("\n")).toContain("filmedCode");
     },
     EXPORT_MS,
   );
