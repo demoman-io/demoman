@@ -448,7 +448,7 @@ describe("reclaimSentence", () => {
   it("warns when it could free nothing and the library is still over", () => {
     const said = reclaimSentence({ freedBytes: 0, pressureRemains: true });
     expect(said.text).toBe(
-      "Nothing could be freed. Every recording left is one Demoman will not delete on its own.",
+      "Nothing could be freed. Every video left is one Demoman will not delete on its own.",
     );
     expect(said.level).toBe("warn");
   });
@@ -625,5 +625,62 @@ describe("repoLabel", () => {
     expect(repoLabel({ key: "local:/Users/me/code/shop/.git" })).toBe("shop");
     expect(repoLabel({ none: "not a git checkout" })).toBe("no repo");
     expect(repoLabel({ unknown: true })).toBeNull();
+  });
+});
+
+describe("bulkSentence", () => {
+  it("all gone", async () => {
+    const { bulkSentence } = await import("../../../pages/src/library/state");
+    expect(
+      bulkSentence([
+        { id: "1", name: "A", gone: true },
+        { id: "2", name: "B", gone: true },
+        { id: "3", name: "C", gone: true },
+      ]),
+    ).toEqual({ text: "Deleted 3 flows.", level: "info" });
+    expect(
+      bulkSentence([
+        {
+          id: "1",
+          name: "A",
+          gone: true,
+          note: "Cleared a stale export lock left by process 12.",
+        },
+      ]),
+    ).toEqual({
+      text: "Deleted 1 flow. Cleared a stale export lock left by process 12.",
+      level: "info",
+    });
+  });
+
+  it("some stayed", async () => {
+    const { bulkSentence } = await import("../../../pages/src/library/state");
+    expect(
+      bulkSentence([
+        { id: "1", name: "Export a report", gone: true },
+        {
+          id: "2",
+          name: "Create an invoice",
+          stayed: "This video is being exported by an agent.",
+        },
+        { id: "3", name: "Sign up", gone: true },
+      ]),
+    ).toEqual({
+      text: "Deleted 2 of 3 flows. Create an invoice stayed: This video is being exported by an agent.",
+      level: "warn",
+    });
+  });
+
+  it("none gone", async () => {
+    const { bulkSentence } = await import("../../../pages/src/library/state");
+    expect(
+      bulkSentence([
+        { id: "1", name: "A", stayed: "the studio did not answer" },
+        { id: "2", name: "B", stayed: "it is being exported" },
+      ]),
+    ).toEqual({
+      text: "No flows were deleted. A stayed: the studio did not answer. B stayed: it is being exported.",
+      level: "warn",
+    });
   });
 });

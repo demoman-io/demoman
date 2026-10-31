@@ -729,6 +729,6 @@ describe("the Recordings page's type", () => {
     expect(outfit.map((f) => f.status)).toEqual(["loaded"]);
     expect(getComputedStyle(node("body")).fontFamily).toMatch(/Manrope/);
     expect(getComputedStyle(node("h1")).fontFamily).toMatch(/Outfit/);
-    expect(node("h1").textContent).toBe("Recordings");
+    expect(node("h1").textContent).toBe("Flows");
   });
 });

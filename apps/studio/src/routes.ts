@@ -53,8 +53,8 @@ export const CHANGED_ELSEWHERE =
   "This take changed in another window. Reopen it to keep editing.";
 /** The Global Constraints sentences for a delete during an export. */
 export const TAKE_BUSY = {
-  agent: "This take is being exported by an agent.",
-  studio: "This take is being exported by the Studio.",
+  agent: "This video is being exported by an agent.",
+  studio: "This video is being exported by the Studio.",
 } as const;
 
 /** What a delete cleared or left behind, each said as a clause. */

@@ -6,9 +6,16 @@ import { createPlatform } from "#platform";
 import { editedLength } from "../../src/library/length";
 import type { PreviewMounter, PreviewPorts } from "../../src/library/preview";
 import { createPreviewMounter } from "../../src/library/preview";
-import type { LibraryModel } from "../../src/library/state";
-import { buildLibraryModel } from "../../src/library/state";
 import {
+  clickSelect,
+  emptySelection,
+  pruneSelection,
+  type Selection,
+} from "../../src/library/selection";
+import type { BulkOutcome, LibraryModel } from "../../src/library/state";
+import { buildLibraryModel, bulkSentence } from "../../src/library/state";
+import {
+  applySelection,
   type LibraryActions,
   type RowKind,
   renderLibrary,
@@ -16,16 +23,18 @@ import {
   unreadableKind,
 } from "../../src/library/view";
 import { trackSectionNav } from "../../src/settings/section-nav";
-import { takeNote } from "../../src/shell/carried-note";
+import { takeNote, VIDEO_DELETED } from "../../src/shell/carried-note";
 import {
   askToConfirm,
   type ConfirmQuestion,
   DELETE_DEMO,
   DELETE_RECORD,
-  DELETE_VERSION,
-  deleteVideo,
+  deleteFlow,
+  deleteFlows,
+  deleteVideoOf,
 } from "../../src/shell/confirm-dialog";
 import { createRefresher } from "../../src/shell/refresher";
+import { showToast } from "../../src/shell/toast";
 import { mountTopbar } from "../../src/shell/topbar";
 
 const root = document.querySelector("#root") as HTMLElement;
@@ -244,12 +253,34 @@ function dropStatusesWithNoRow(model: LibraryModel): void {
   }
 }
 
+/** The flows ticked for a bulk delete, and the bulk delete under way or
+ *  what the last one left behind (spec 2026-10-30 flows-and-bulk-delete
+ *  §1.2). */
+let selection: Selection = emptySelection();
+let bulk: { busy: boolean; said: string | null } | undefined;
+
 function paint(model: LibraryModel): void {
   dropStatusesWithNoRow(model);
+  // A ticked flow another window or an agent deleted leaves the selection.
+  // Not while a bulk delete runs: its own deletes would empty the bar under
+  // it, and it settles the selection itself when it ends.
+  if (bulk?.busy !== true) {
+    selection = pruneSelection(
+      selection,
+      new Set((model.groups ?? []).map((g) => g.video.id)),
+    );
+  }
   mounter?.dispose();
   mounter = createPreviewMounter(previewPorts);
-  renderLibrary(root, model, actions, rowStatus);
+  renderLibrary(root, model, actions, rowStatus, undefined, selection, bulk);
   jumps.mark();
+}
+
+/** Shows the selection on the cards in place: a tick is this page's own
+ *  state, and re-rendering the list for it moved the page (view.ts,
+ *  `applySelection`). */
+function showSelection(): void {
+  applySelection(root, actions, selection, bulk);
 }
 
 /** Renders run one at a time, in the order asked (src/shell/refresher.ts).
@@ -293,14 +324,14 @@ async function paintFresh({ keepNotice = false } = {}): Promise<void> {
  *  send needs a line here: an unmapped one falls through to the raw
  *  identifier below. */
 const REFUSAL_TEXT: Record<string, string> = {
-  recording: "a take is recording",
+  recording: "a video is being recorded",
   rendering: "a render is running",
   sharing: "a share is in progress",
   // A hold the background takes while a take is being replayed — since
   // 2026-09-28 only by a re-shoot on the run page: `src/run/develop.ts` is
   // the one sender of `replay:gate`, which takes it. An authored script run
   // sends no `replay:gate` and takes no hold, and the editor takes none.
-  replaying: "a take is being run in Runs",
+  replaying: "a video is being run in Runs",
 };
 
 /** A rename in flight, per row, resolving to whether it landed. A Delete on
@@ -338,20 +369,34 @@ function videoOf(sceneId: string): string | undefined {
   )?.video.id;
 }
 
-/** What Delete asks, by what it removes: one recording of a video, a whole
- *  video and how many recordings go with it, an unreadable record alone,
- *  or (a take in no video, a folder) the demo. */
+/** What Delete asks, by what it removes: one video of a flow, a whole
+ *  flow and how many videos go with it, an unreadable record alone, or (a
+ *  take in no flow, a folder) the video. */
 function questionFor(id: string, kind: RowKind): ConfirmQuestion {
   if (kind === "record") return DELETE_RECORD;
   if (kind === "video") {
     const group = lastModel?.groups?.find((g) => g.video.id === id);
-    return group === undefined
-      ? DELETE_DEMO
-      : deleteVideo(group.video.versions);
+    return group === undefined ? DELETE_DEMO : deleteFlow(group.video.versions);
   }
-  if (kind === "take" && videoOf(id) !== undefined) return DELETE_VERSION;
+  if (kind === "take") {
+    const group = lastModel?.groups?.find((g) =>
+      g.versions.some((v) => v.sceneId === id),
+    );
+    if (group !== undefined) {
+      const number = group.versions.find((v) => v.sceneId === id)?.version;
+      return deleteVideoOf(number, group.video.name);
+    }
+  }
   return DELETE_DEMO;
 }
+
+/** What a clean single Delete says, by what it removed. */
+const DELETED: Record<RowKind, string> = {
+  video: "Deleted the flow",
+  take: "Deleted the video",
+  folder: "Deleted the folder",
+  record: "Deleted the flow record",
+};
 
 /** Whether a take was made by a script, for the route that films it again. */
 function isAuthored(sceneId: string): boolean {
@@ -400,7 +445,7 @@ const actions: LibraryActions = {
         try {
           const got = await scenes.get(sceneId);
           if (got === null) {
-            why = "the take is no longer stored";
+            why = "the video is no longer stored";
           } else {
             const scene = {
               ...got.scene,
@@ -427,7 +472,7 @@ const actions: LibraryActions = {
         // shows the name the author typed, so the row says it was not saved
         // and the repaint puts the stored name back; the page banner alone
         // left a name nothing saved on the card.
-        reportError("renaming this demo", error);
+        reportError("renaming it", error);
         rowStatus.set(
           statusKey("take", sceneId),
           `Couldn't rename: ${error instanceof Error ? error.message : String(error)}.`,
@@ -503,7 +548,7 @@ const actions: LibraryActions = {
       const renameWhy = renamed === false ? rowStatus.get(key) : undefined;
       try {
         const got = await scenes.get(sceneId);
-        if (got === null) throw new Error("the take is no longer stored");
+        if (got === null) throw new Error("the video is no longer stored");
         const scene = {
           ...got.scene,
           meta: { ...got.scene.meta, renderMode: "screen" as const },
@@ -515,15 +560,15 @@ const actions: LibraryActions = {
         if (served?.source !== "capture") {
           why =
             served === null
-              ? "Your recording could not be put back: no frames could be read for this take."
-              : "There is no recording of this take to go back to, so it keeps its re-shot frames. Takes rebuilt before recordings were kept have none.";
+              ? "The original footage could not be put back: no frames could be read for this video."
+              : "There is no original footage of this video to go back to, so it keeps its re-shot frames. Videos rebuilt before original footage was kept have none.";
           console.info(
-            `[demoman] library: back to your recording — not served (${served === null ? "no bundle" : `serving ${served.source}`})`,
+            `[demoman] library: back to the original footage — not served (${served === null ? "no bundle" : `serving ${served.source}`})`,
           );
         }
       } catch (error) {
-        reportError("going back to the recording", error);
-        why = `Couldn't go back to the recording: ${error instanceof Error ? error.message : String(error)}.`;
+        reportError("going back to the original footage", error);
+        why = `Couldn't go back to the original footage: ${error instanceof Error ? error.message : String(error)}.`;
       }
       const said = [renameWhy, why].filter((s) => s != null).join(" ");
       if (said === "") rowStatus.delete(key);
@@ -537,6 +582,21 @@ const actions: LibraryActions = {
         reportError("refreshing the library", error);
       }
     })();
+  },
+  select: (videoId, shift, visibleOrder) => {
+    if (bulk?.busy === true) return;
+    selection = clickSelect(selection, videoId, shift, visibleOrder);
+    bulk = undefined;
+    showSelection();
+  },
+  clearSelection: () => {
+    if (bulk?.busy === true) return;
+    selection = emptySelection();
+    bulk = undefined;
+    showSelection();
+  },
+  deleteSelected: () => {
+    void deleteSelected();
   },
   remove: (sceneId: string, kind: RowKind): void => {
     const key = statusKey(kind, sceneId);
@@ -605,12 +665,110 @@ const actions: LibraryActions = {
         await render();
         if (pageMessage !== null) fail(pageMessage);
         else if (r.ok && r.note !== undefined) say(r.note, "info");
+        // Clean: nothing refused, partial or noted. A toast, then gone.
+        else if (r.ok && r.partly === undefined && r.result?.ok !== false) {
+          showToast(DELETED[kind]);
+        }
       } catch (error) {
-        reportError("deleting this demo", error);
+        reportError("deleting it", error);
       }
     })();
   },
 };
+
+/** The ticked flows, asked about once and deleted one at a time through
+ *  the flow's own route, which checks every video for an export before any
+ *  goes. A flow that stays is named with its reason and stays ticked, so
+ *  trying again is one press; one that is already gone counts as gone. */
+async function deleteSelected(): Promise<void> {
+  const groups = new Map(
+    (lastModel?.groups ?? []).map((g) => [g.video.id, g.video] as const),
+  );
+  const ids = [...selection.ids].filter((id) => groups.has(id));
+  if (ids.length === 0 || bulk?.busy === true) return;
+  const videos = ids.reduce((n, id) => n + (groups.get(id)?.versions ?? 0), 0);
+  let go: boolean;
+  try {
+    go = await askToConfirm(deleteFlows(ids.length, videos));
+  } catch (error) {
+    console.error("demoman library: asking before a bulk delete —", error);
+    bulk = {
+      busy: false,
+      said: `Not deleted: the confirmation could not open — ${
+        error instanceof Error ? error.message : String(error)
+      }.`,
+    };
+    showSelection();
+    return;
+  }
+  if (!go) return;
+  bulk = { busy: true, said: null };
+  showSelection();
+  const outcomes: BulkOutcome[] = [];
+  for (const id of ids) {
+    const name = groups.get(id)?.name ?? id;
+    try {
+      const r = await platform.videos.remove(id);
+      if (r.ok && r.partly !== undefined) {
+        outcomes.push({
+          id,
+          name,
+          stayed: `only part of it went: ${r.partly}`,
+        });
+      } else if (r.ok) {
+        outcomes.push({
+          id,
+          name,
+          gone: true,
+          ...(r.note === undefined ? {} : { note: r.note }),
+        });
+      } else if (r.error === "videoNotFound") {
+        outcomes.push({ id, name, gone: true });
+      } else {
+        outcomes.push({
+          id,
+          name,
+          stayed: r.detail ?? REFUSAL_TEXT[r.error] ?? r.error,
+        });
+      }
+    } catch (error) {
+      outcomes.push({
+        id,
+        name,
+        stayed: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const said = bulkSentence(outcomes);
+  const stayed = new Set(
+    outcomes.flatMap((o) => ("stayed" in o ? [o.id] : [])),
+  );
+  selection = pruneSelection(selection, stayed);
+  bulk = stayed.size === 0 ? undefined : { busy: false, said: said.text };
+  try {
+    await render();
+  } catch (error) {
+    reportError("refreshing the library", error);
+  }
+  // A clean delete toasts and goes; a note on what it cleared or left
+  // behind stays on the notice line, where it can be read and acted on.
+  if (stayed.size === 0) {
+    const noted = outcomes.some((o) => "gone" in o && o.note !== undefined);
+    if (noted) say(said.text, said.level);
+    else showToast(said.text);
+  }
+}
+
+// Esc clears the selection, as it closes the panels. Not while a dialog
+// is open (it answers Esc itself) or a field has the key.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || selection.ids.size === 0) return;
+  if (document.querySelector("dialog[open]") !== null) return;
+  if (document.activeElement?.matches("input:not([type=checkbox]), textarea")) {
+    return;
+  }
+  actions.clearSelection?.();
+});
 
 // A take landed, changed or went in the studio's folder: read again. The
 // extension has no folder, and its page changes only by its own actions.
@@ -624,11 +782,13 @@ platform.folder?.onChange(() => refresher.soon());
 const carried = takeNote();
 render().then(
   () => {
-    if (carried !== null) say(carried, "info");
+    // A clean delete toasts; a note on what it left behind stays to be read.
+    if (carried === VIDEO_DELETED) showToast(carried);
+    else if (carried !== null) say(carried, "info");
   },
   (error: unknown) => {
     // The load failure takes the notice line; the note is not dropped.
     if (carried !== null) console.info(`demoman library: ${carried}`);
-    reportError("loading your demos", error);
+    reportError("loading your flows", error);
   },
 );

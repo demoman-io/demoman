@@ -953,7 +953,7 @@ function segmentNode(
   } else {
     if (wholeTake) node.setAttribute("data-whole-take", "");
     node.append(
-      el("span", "seg-label", wholeTake ? "mask · whole take" : "mask"),
+      el("span", "seg-label", wholeTake ? "mask · whole video" : "mask"),
     );
   }
   node.addEventListener("click", (event) => {
@@ -1195,8 +1195,8 @@ export function renderTimeline(
     setCodeText(
       timing,
       model.rerunLine === null
-        ? `Timing from the take, not from a render — ${runsRouteClause(model.authored)} to see the timing this demo will actually have.`
-        : `Timing from the take, not from a render. ${model.rerunLine}`,
+        ? `Timing from the video, not from a render — ${runsRouteClause(model.authored)} to see the timing this video will actually have.`
+        : `Timing from the video, not from a render. ${model.rerunLine}`,
     );
     box.append(timing);
   }
@@ -1575,7 +1575,7 @@ export function renderTimelineTools(
   fit.disabled = fitted;
   nameTool(
     fit,
-    fitted ? "The whole take is already in view" : "Fit the whole take",
+    fitted ? "The whole video is already in view" : "Fit the whole video",
     ["Shift", "Z"],
   );
   fit.onclick = () => handlers.onViewport(whole);
@@ -1596,7 +1596,7 @@ export function renderTimelineTools(
   zoom.disabled = !travels;
   zoom.title = travels
     ? "Zoom the timeline (⌘-scroll, ⇧Z to fit)"
-    : "This take is too short to zoom into.";
+    : "This video is too short to zoom into.";
   zoom.oninput = () => {
     const wanted = zoomToSpan(model.durationMs, Number(zoom.value));
     // Anchored on the playhead when it is in the window, on the window's

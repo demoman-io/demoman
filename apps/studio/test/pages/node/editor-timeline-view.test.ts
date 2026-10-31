@@ -805,7 +805,7 @@ describe("the timeline tools", () => {
     const expected: Record<string, RegExp> = {
       "[data-split-tool]": /^Split at playhead$/,
       "[data-snap]": /^Snapping o(n|ff) — /,
-      "[data-fit]": /whole take/,
+      "[data-fit]": /whole video/,
       '[data-zoom-step="out"]': /^Zoom out$/,
       '[data-zoom-step="in"]': /^Zoom in$/,
     };

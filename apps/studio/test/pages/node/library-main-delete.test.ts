@@ -213,7 +213,7 @@ describe("library main — the three demo:delete outcomes read differently", () 
   // A fourth refusal reason arrived with the replay hold, and an unmapped
   // reason falls through to `?? r.error` — the author would read the raw
   // identifier "replaying". The mapping is what makes it a sentence.
-  it("says a take is being run in Runs when demo:delete refuses on that ground", async () => {
+  it("says a video is being run in Runs when demo:delete refuses on that ground", async () => {
     memory.answer("scenes.remove", async () => ({
       ok: false,
       error: "replaying",
@@ -223,7 +223,7 @@ describe("library main — the three demo:delete outcomes read differently", () 
     await clickDelete();
 
     const status = await waitForStatus((t) => t.length > 0);
-    expect(status).toBe("Not deleted: a take is being run in Runs.");
+    expect(status).toBe("Not deleted: a video is being run in Runs.");
   });
 
   it("says which step failed for a partial delete, and never claims success", async () => {
@@ -291,6 +291,52 @@ describe("library main — the three demo:delete outcomes read differently", () 
     expect(document.querySelector('[data-row="a"] [data-status]')).toBeNull();
   });
 
+  it("toasts a clean delete of a video in no flow, and never a partial one", async () => {
+    memory.answer("scenes.remove", async () => ({ ok: true }));
+    await import("../../../pages/entrypoints/library/main");
+    await currentRow();
+    await clickDelete();
+    await vi.waitFor(() => {
+      const said = document.querySelector("[data-toast-text]")?.textContent;
+      if (said !== "Deleted the video") throw new Error(`toast: ${said}`);
+    });
+    expect(
+      document.querySelector("#notice")?.classList.contains("hidden"),
+    ).toBe(true);
+  });
+
+  it("a partial delete says so on the row and toasts nothing", async () => {
+    memory.answer("scenes.remove", async () => ({
+      ok: true,
+      result: {
+        ok: false,
+        steps: [{ step: "outputs", ok: false, error: "outputs db closed" }],
+      },
+    }));
+    await import("../../../pages/entrypoints/library/main");
+    await currentRow();
+    await clickDelete();
+    await waitForStatus((t) => /Partly deleted/.test(t));
+    expect(document.querySelector("[data-toast]")).toBeNull();
+  });
+
+  it("a delete with a note says the note on the notice line, not in a toast", async () => {
+    memory.answer("scenes.remove", async () => ({
+      ok: true,
+      note: "Cleared a stale export lock left by process 42.",
+    }));
+    await import("../../../pages/entrypoints/library/main");
+    await currentRow();
+    await clickDelete();
+    await vi.waitFor(() => {
+      const t = document.querySelector("#notice")?.textContent;
+      if (t !== "Cleared a stale export lock left by process 42.") {
+        throw new Error(`notice: ${t}`);
+      }
+    });
+    expect(document.querySelector("[data-toast]")).toBeNull();
+  });
+
   // FINDING 5 (whole-branch review). `deleteDemo` deletes the scene
   // document before its LAST step (`drift`). A failure at "drift" (or any
   // step after "scene") still writes a row-level status here, but the row
@@ -352,7 +398,7 @@ describe("library main — the three demo:delete outcomes read differently", () 
 // URL's `note` and is said once the page has drawn.
 describe("library main — a note carried from the editor's Delete", () => {
   const NOTE =
-    "This demo was deleted. /h/.demoman/takes/.trash-a could not be removed — delete it by hand.";
+    "This video was deleted. /h/.demoman/takes/.trash-a could not be removed — delete it by hand.";
   let memory: MemoryPlatform;
 
   beforeEach(() => {
@@ -399,6 +445,23 @@ describe("library main — a note carried from the editor's Delete", () => {
     });
     expect(notice.className).toBe("notice");
     // A reload must not say it again.
+    expect(window.location.search).toBe("");
+  });
+
+  it("toasts the editor's clean delete, and leaves the notice line empty", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      `/library.html?note=${encodeURIComponent("Deleted the video")}`,
+    );
+    await import("../../../pages/entrypoints/library/main");
+    await currentRow();
+    await vi.waitFor(() => {
+      const said = document.querySelector("[data-toast-text]")?.textContent;
+      if (said !== "Deleted the video") throw new Error(`toast: ${said}`);
+    });
+    const notice = document.querySelector("#notice") as HTMLElement;
+    expect(notice.classList.contains("hidden")).toBe(true);
     expect(window.location.search).toBe("");
   });
 

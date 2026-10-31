@@ -174,7 +174,7 @@ export function renderBundleBanner(
 function noFramesRoute(route: RunsRoute): DocumentFragment {
   const fragment = document.createDocumentFragment();
   fragment.append(
-    "This take has no frames — ",
+    "This video has no frames — ",
     runsRouteLink(route, runsRouteClause(route.authored)),
   );
   return fragment;
@@ -291,7 +291,7 @@ export function renderFailure(
   if (failure.openError != null) {
     const box = el("div", "notice");
     box.setAttribute("data-open-error", "");
-    box.append(el("strong", undefined, "This take could not be opened"));
+    box.append(el("strong", undefined, "This video could not be opened"));
     box.append(el("div", undefined, failure.openError));
     parts.push(box);
   }
@@ -336,7 +336,7 @@ export function renderFailure(
   if (failure.captureSentence != null) {
     const box = el("div", "notice");
     box.setAttribute("data-capture-note", "");
-    box.append(el("strong", undefined, "What this take recorded"));
+    box.append(el("strong", undefined, "What this video recorded"));
     box.append(el("div", undefined, failure.captureSentence));
     parts.push(box);
   }
@@ -390,7 +390,7 @@ export function renderFailure(
   if (failure.deleteError != null) {
     const box = el("div", "notice");
     box.setAttribute("data-delete-error", "");
-    box.append(el("strong", undefined, "This demo was not deleted"));
+    box.append(el("strong", undefined, "This video was not deleted"));
     box.append(el("div", undefined, failure.deleteError));
     parts.push(box);
   }
@@ -1471,7 +1471,7 @@ function drawOutputReports(
         // motion spans exactly where they were. This line said a higher
         // device pixel ratio was the fix, and for half the footage it is
         // not. The window's CSS width is the lever that moves both.
-        "A wider recording window is what gives the camera more to work with: both the stills and the motion scale with it. A smaller export size is the other way to close the gap.",
+        "A wider browser window is what gives the camera more to work with: both the stills and the motion scale with it. A smaller export size is the other way to close the gap.",
       ),
     );
     body.append(report);
@@ -1946,7 +1946,7 @@ export function renderTransport(
   else {
     withoutTip(skip);
     skip.title = withoutTicks(
-      `This demo has no frames yet, so there is nothing to play. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
+      `This video has no frames yet, so there is nothing to play. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
     );
   }
   repeat.onclick = () => handlers.onLooping(!state.looping);
@@ -1995,7 +1995,7 @@ export function renderTransport(
   else {
     withoutTip(play);
     play.title = withoutTicks(
-      `This demo has no frames yet, so there is nothing to play. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
+      `This video has no frames yet, so there is nothing to play. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
     );
   }
 
@@ -2113,7 +2113,7 @@ export function renderStageBar(
       button.setAttribute("data-aspect", value);
       button.title =
         value === "auto"
-          ? "Auto: the video takes the recording's shape"
+          ? "Auto: the export takes the source's shape"
           : value === "9:16"
             ? "Vertical: the camera follows each step, cropped for a phone"
             : "Landscape";
@@ -2184,7 +2184,7 @@ export function renderStageBar(
     zoom.title = state.enabled
       ? "Switch between fitting the window and actual pixels"
       : withoutTicks(
-          `This demo has no frames yet, so there is nothing to zoom into. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
+          `This video has no frames yet, so there is nothing to zoom into. ${rerunAdvice(state.authored, state.rerunLine ?? null, "first")}`,
         );
     zoom.onclick = () => handlers.onZoom();
   }
@@ -2237,10 +2237,10 @@ const HEADER_KEYS: Record<string, readonly string[]> = {
 
 export function renderHeaderIcons(root: ParentNode = document): void {
   const controls: Array<[string, GlyphName, string]> = [
-    ["back", "chevronLeft", "Back to your demos"],
+    ["back", "chevronLeft", "Back to your flows"],
     ["undo", "undo", "Undo"],
     ["redo", "redo", "Redo"],
-    ["delete", "trash", "Delete this demo"],
+    ["delete", "trash", "Delete this video"],
     ["shortcuts-open", "circleQuestionMark", "Keyboard shortcuts"],
   ];
   for (const [id, glyph, name] of controls) {
@@ -2305,7 +2305,7 @@ export function renderNotesButton(
   const level: NotesLevel =
     panel.querySelector(ERROR_CARDS) !== null ? "error" : "warn";
   button.setAttribute("data-level", level);
-  const name = `${count} ${count === 1 ? "note" : "notes"} on this take${
+  const name = `${count} ${count === 1 ? "note" : "notes"} on this video${
     level === "error" ? ", with an error" : ""
   }`;
   button.setAttribute("aria-label", name);

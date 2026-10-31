@@ -299,7 +299,7 @@ describe("capNote", () => {
         },
         "Vertical cut",
       ),
-    ).toBe("Shown at 8% in Vertical cut to stay clear of your recording");
+    ).toBe("Shown at 8% in Vertical cut to stay clear of your video");
   });
   it("says there is no room when nothing can be drawn", () => {
     expect(
@@ -311,9 +311,7 @@ describe("capNote", () => {
         },
         "GIF preview",
       ),
-    ).toBe(
-      "No room for the logo in GIF preview — the recording fills the frame",
-    );
+    ).toBe("No room for the logo in GIF preview — the video fills the frame");
   });
 });
 

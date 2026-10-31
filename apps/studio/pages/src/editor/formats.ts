@@ -66,7 +66,7 @@ export function deliverableTitle(
 export function aspectNote(aspect: SceneAspect): string {
   switch (aspect) {
     case "auto":
-      return "Auto, set under the preview — the video takes the recording's shape";
+      return "Auto, set under the preview — the export takes the source's shape";
     case "9:16":
       return "9:16, set under the preview — the camera follows each step";
     case "16:9":
@@ -74,14 +74,14 @@ export function aspectNote(aspect: SceneAspect): string {
   }
 }
 
-/** "Recording 1512 × 820" — the captured page (spec 2026-10-06 §3). Each
+/** "Source 1512 × 820" — the captured page (spec 2026-10-06 §3). Each
  *  file's own size is on its row (`fileFacts`); beside those it is the
  *  reason any bars are there. */
 export function sizeReadout(recording: {
   width: number;
   height: number;
 }): string {
-  return `Recording ${recording.width} × ${recording.height}`;
+  return `Source ${recording.width} × ${recording.height}`;
 }
 
 /** "0:10 · 1920 × 1080" — the header's line beside the take's name: how

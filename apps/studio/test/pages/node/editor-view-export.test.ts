@@ -342,7 +342,7 @@ describe("renderExport", () => {
     const link = root.querySelector<HTMLAnchorElement>("[data-runs-route]");
     expect(link?.getAttribute("href")).toBe("run.html?take=take%201%26x");
     expect(root.textContent).toContain(
-      "This take has no frames — re-shoot it in Runs",
+      "This video has no frames — re-shoot it in Runs",
     );
     const start = root.querySelector<HTMLButtonElement>("[data-export-start]");
     // Disabled WITH its reason beside it — never a disabled Export alone.
@@ -409,7 +409,7 @@ describe("renderExport", () => {
     );
     const noFrames = root.querySelector("[data-export-no-frames]");
     expect(noFrames?.textContent).toBe(
-      "This take has no frames — run its script again in Runs",
+      "This video has no frames — run its script again in Runs",
     );
     expect(noFrames?.textContent).not.toMatch(/re-shoot/i);
     expect(
@@ -1106,7 +1106,7 @@ describe("renderExport", () => {
       handlers,
     );
     expect(root.querySelector("[data-size-readout]")?.textContent).toBe(
-      "Recording 1512 × 820",
+      "Source 1512 × 820",
     );
     // Review 2026-10-06: the summary repeated the file's size as
     // "1920×1042". Red if the panel names it twice.

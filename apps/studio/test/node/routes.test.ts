@@ -466,7 +466,7 @@ describe("delete", () => {
       });
       expect(r.status).toBe(409);
       expect(r.json()).toEqual({ reason: "takeBusy", detail: TAKE_BUSY.agent });
-      expect(TAKE_BUSY.agent).toBe("This take is being exported by an agent.");
+      expect(TAKE_BUSY.agent).toBe("This video is being exported by an agent.");
       expect(await exists(scenePath())).toBe(true);
     } finally {
       await lease.release();
@@ -488,7 +488,7 @@ describe("delete", () => {
         detail: TAKE_BUSY.studio,
       });
       expect(TAKE_BUSY.studio).toBe(
-        "This take is being exported by the Studio.",
+        "This video is being exported by the Studio.",
       );
     } finally {
       await lease.release();

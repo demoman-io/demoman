@@ -57,6 +57,7 @@ import {
   showNotice,
 } from "../../src/shell/notice-line";
 import { createRefresher } from "../../src/shell/refresher";
+import { showToast } from "../../src/shell/toast";
 import { mountTopbar } from "../../src/shell/topbar";
 
 const root = document.querySelector("#root") as HTMLElement;
@@ -466,8 +467,8 @@ platform.nav.onOpen?.((path) =>
     path,
     () => location.assign(path),
     new URL(path, location.href).searchParams.has("scene")
-      ? "Open the take"
-      : "Open Recordings",
+      ? "Open the video"
+      : "Open Flows",
   ),
 );
 
@@ -702,7 +703,7 @@ function act(context: string, run: () => Promise<Said>): void {
       return "failed";
     }
     if ("warn" in why) say(why.warn, "warn");
-    else say(why.info, "info");
+    else showToast(why.info);
     return "done";
   })();
   owed.add(work);
@@ -948,7 +949,7 @@ const actions = {
         !(await askToConfirm({
           glyph: "trash",
           title: `Delete "${entry.name}"`,
-          body: `"${entry.name}" will be deleted.${handover} Takes already made keep their look.`,
+          body: `"${entry.name}" will be deleted.${handover} Videos already made keep their look.`,
           confirmLabel: "Delete",
           danger: true,
           focus: "cancel",
@@ -972,7 +973,7 @@ const actions = {
         !(await askToConfirm({
           glyph: "trash",
           title: "Start a fresh kit list",
-          body: "Your brand kits could not be read. Starting fresh replaces them with an empty list; takes already made keep their look.",
+          body: "Your brand kits could not be read. Starting fresh replaces them with an empty list; videos already made keep their look.",
           confirmLabel: "Start fresh",
           danger: true,
           focus: "cancel",

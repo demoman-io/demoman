@@ -260,7 +260,7 @@ export function reclaimSentence(result: {
     // outcome, and the one worth the most words. It ran, it succeeded,
     // and the meter did not move.
     return {
-      text: "Nothing could be freed. Every recording left is one Demoman will not delete on its own.",
+      text: "Nothing could be freed. Every video left is one Demoman will not delete on its own.",
       level: "warn",
     };
   }
@@ -551,4 +551,39 @@ export function buildLibraryModel(args: {
       ? {}
       : { groups: videoGroupsOf(rows, videoOf, args.videos) }),
   };
+}
+
+/** One flow a bulk delete tried: gone (with the studio's note on what it
+ *  cleared or left), or stayed, and why. */
+export type BulkOutcome = { id: string; name: string } & (
+  | { gone: true; note?: string }
+  | { stayed: string }
+);
+
+/**
+ * What a bulk delete says (spec 2026-10-30 flows-and-bulk-delete §1.2):
+ * every flow that stayed is named with its reason, so a run that freed
+ * nothing never reads like one that freed everything.
+ */
+export function bulkSentence(outcomes: readonly BulkOutcome[]): {
+  text: string;
+  level: "info" | "warn";
+} {
+  const flows = (n: number) => `${n} ${n === 1 ? "flow" : "flows"}`;
+  const gone = outcomes.filter((o) => "gone" in o);
+  const stayed = outcomes.flatMap((o) =>
+    "stayed" in o ? [`${o.name} stayed: ${o.stayed.replace(/\.$/, "")}.`] : [],
+  );
+  if (stayed.length === 0) {
+    const notes = gone.flatMap((o) => (o.note === undefined ? [] : [o.note]));
+    return {
+      text: [`Deleted ${flows(gone.length)}.`, ...notes].join(" "),
+      level: "info",
+    };
+  }
+  const lead =
+    gone.length === 0
+      ? "No flows were deleted."
+      : `Deleted ${gone.length} of ${flows(outcomes.length)}.`;
+  return { text: [lead, ...stayed].join(" "), level: "warn" };
 }

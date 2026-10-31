@@ -323,7 +323,7 @@ describe("scenes", () => {
       c.method === "DELETE" && c.url === "/api/takes/busy"
         ? json(409, {
             reason: "takeBusy",
-            detail: "This take is being exported by an agent.",
+            detail: "This video is being exported by an agent.",
           })
         : c.method === "DELETE"
           ? json(200, {
@@ -335,7 +335,7 @@ describe("scenes", () => {
       ok: false,
       error: "takeBusy",
       // The library adds its own full stop ("Not deleted: <detail>.").
-      detail: "This take is being exported by an agent",
+      detail: "This video is being exported by an agent",
     });
     expect(await platform.scenes.remove("t1")).toEqual({
       ok: true,
@@ -774,7 +774,7 @@ describe("frames, outputs, nav", () => {
           : undefined,
     );
     await expect(platform.bundles.load("span:t1:0")).rejects.toThrow(
-      /no take this page has read/,
+      /no video this page has read/,
     );
     await platform.bundles.active("t1");
     expect(await platform.bundles.load("span:t1:0")).toEqual(
@@ -922,7 +922,7 @@ describe("frames, outputs, nav", () => {
     // A take not read yet, or in no video: no call can name it.
     expect(platform.nav.rerun("t1", false)).toEqual({
       kind: "line",
-      text: "Ask your agent to re-record this take.",
+      text: "Ask your agent to film this again.",
     });
   });
 
@@ -944,13 +944,13 @@ describe("frames, outputs, nav", () => {
     await platform.scenes.get("t1");
     expect(platform.nav.rerun("t1", false)).toEqual({
       kind: "line",
-      text: `Ask your agent to re-record this take — \`run({ video: { id: "${VIDEO}" } })\``,
+      text: `Ask your agent to film it again: \`run({ flow: { id: "${VIDEO}" } })\``,
     });
   });
 
   it("says why the take's video could not be read where the re-record line goes", async () => {
     // Red (second review 6): drop videoError on the floor — the editor
-    // reads "Ask your agent to re-record this take." as if it were in no
+    // reads "Ask your agent to film this again." as if it were in no
     // video.
     const platform = createPlatform();
     const why = "/h/takes/t1/video.json is not JSON (Unexpected token)";
@@ -968,7 +968,7 @@ describe("frames, outputs, nav", () => {
     await platform.scenes.get("t1");
     expect(platform.nav.rerun("t1", false)).toEqual({
       kind: "line",
-      text: `Couldn't read which video this take is in: ${why}`,
+      text: `Couldn't read which flow this video is in: ${why}`,
     });
   });
 
@@ -1152,7 +1152,7 @@ describe("the take folder and the kit feed", () => {
 
   it("names the Studio's empty-library hint", () => {
     expect(createPlatform().nav.firstTakeHint()).toBe(
-      "Ask your agent for a demo video. Each take shows up here, grouped by the day you made it.",
+      "Ask your agent for a demo video. Each flow shows up here, grouped by the day it was last filmed.",
     );
   });
 });

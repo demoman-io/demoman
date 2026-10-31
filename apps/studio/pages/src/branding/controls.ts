@@ -264,9 +264,9 @@ export function capNote(
 ): string | null {
   if (placement === null || !placement.capped) return null;
   if (placement.effectiveSize === 0) {
-    return `No room for the logo in ${formatTitle} — the recording fills the frame`;
+    return `No room for the logo in ${formatTitle} — the video fills the frame`;
   }
-  return `Shown at ${Math.round(placement.effectiveSize * 100)}% in ${formatTitle} to stay clear of your recording`;
+  return `Shown at ${Math.round(placement.effectiveSize * 100)}% in ${formatTitle} to stay clear of your video`;
 }
 
 /**

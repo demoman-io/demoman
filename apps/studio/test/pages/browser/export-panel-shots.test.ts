@@ -464,7 +464,7 @@ describe("the export panel, painted", () => {
           // The panel draws a route to Runs only where it is the way on: the
           // no-frames line in the shots whose readiness is `noFrames` (the
           // button disabled with it). A take with frames had one quiet
-          // "Re-shoot this take in Runs" here too (final review I3) until
+          // "Re-shoot this video in Runs" here too (final review I3) until
           // 2026-10-19; that is Take info's Re-film row now.
           const frameless = shot.readiness?.kind === "noFrames";
           const links = document.querySelectorAll<HTMLAnchorElement>(
@@ -501,7 +501,7 @@ describe("the export panel, painted", () => {
               "run.html?take=take%201%26x",
             );
             expect(link.closest("[data-export-no-frames]")?.textContent).toBe(
-              "This take has no frames — re-shoot it in Runs",
+              "This video has no frames — re-shoot it in Runs",
             );
             // On screen and not covered, the same test the carrier gets.
             const r0 = link.getBoundingClientRect();

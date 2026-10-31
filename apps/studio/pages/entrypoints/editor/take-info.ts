@@ -117,13 +117,13 @@ export function renderTakeInfo(
     row("Recorded", shortTime(state.recordedAt)),
     row("Site", siteLabel(state.site)),
     row("Length", length),
-    row("Recording", `${state.recording.width} × ${state.recording.height}`),
-    row("Video", `${state.target.width} × ${state.target.height} · ${aspect}`),
+    row("Source", `${state.recording.width} × ${state.recording.height}`),
+    row("Export", `${state.target.width} × ${state.target.height} · ${aspect}`),
   );
 
   const ids = el("div", "info-group");
   ids.setAttribute("data-info-ids", "");
-  ids.append(copyRow("Take ID", state.takeId, "take ID", handlers.onCopy));
+  ids.append(copyRow("Video ID", state.takeId, "video ID", handlers.onCopy));
   // How a studio take is filmed again is parked (the author, 2026-10-19):
   // the agent call this row copied read as plumbing, and re-filming is not
   // a priority. The extension keeps its link to Runs, the one way there for

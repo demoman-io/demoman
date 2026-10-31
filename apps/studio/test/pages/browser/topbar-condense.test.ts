@@ -204,7 +204,7 @@ describe("the ladder", () => {
         for (const tab of document.querySelectorAll<HTMLAnchorElement>(
           "[data-tabs] a",
         )) {
-          expect(tab.textContent?.trim()).toMatch(/^(Recordings|Settings)$/);
+          expect(tab.textContent?.trim()).toMatch(/^(Flows|Settings)$/);
           expect(tab.title).toBe(tab.textContent?.trim());
         }
         const mark = node(".logomark").getBoundingClientRect();

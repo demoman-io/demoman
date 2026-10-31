@@ -118,7 +118,7 @@ describe("editor main — the Take info button", () => {
       if (button.textContent === "") throw new Error("no meta yet");
     });
     expect(button.getAttribute("aria-label")).toBe(
-      `Take info: ${button.textContent}`,
+      `Video info: ${button.textContent}`,
     );
     expect(button.getAttribute("aria-expanded")).toBe("false");
     const closedLook = getComputedStyle(button).backgroundColor;

@@ -458,22 +458,20 @@ describe("the Studio's Settings page", () => {
     });
     expect(kitSection().textContent).toContain("kits.json is not valid JSON");
     reset.click();
-    const notice = document.querySelector<HTMLElement>("#notice");
+    // The fresh start is what the author asked for: a toast, not a notice.
     await vi.waitFor(() => {
+      const said = document.querySelector("[data-toast-text]")?.textContent;
       if (
-        notice?.textContent !==
-        "Started a fresh kit list. The old list is kept at /h/kits.json.bak-1."
+        said !==
+        "Started a fresh kit list. The old list is kept at /h/kits.json.bak-1"
       ) {
-        throw new Error(`notice: ${notice?.textContent}`);
+        throw new Error(`toast: ${said}`);
       }
     });
     expect(confirmDialog.ask).toHaveBeenCalledTimes(1);
-    // Said at info: the fresh start is what the author asked for.
     expect(
-      [...(notice?.classList ?? [])].filter((c) =>
-        ["notice-error", "notice-warn", "hidden"].includes(c),
-      ),
-    ).toEqual([]);
+      document.querySelector("#notice")?.classList.contains("hidden"),
+    ).toBe(true);
     expect(storedKits(fake)).toEqual([]);
   });
 
@@ -598,7 +596,7 @@ describe("the Studio's Settings page", () => {
       details?.querySelector("[data-notice-reason]")?.textContent,
     ).toContain("the disk is full");
     expect(offer.parentElement?.className).toBe("notice-actions");
-    expect(offer.textContent).toBe("Open the take");
+    expect(offer.textContent).toBe("Open the video");
     offer.click();
     expect(nav.assigned).toEqual(["/editor.html?scene=take-1"]);
   });
@@ -655,7 +653,7 @@ describe("the Studio's Settings page", () => {
     });
     expect(notice?.classList.contains("hidden")).toBe(false);
     expect(nav.assigned).toEqual([]);
-    expect(offer.textContent).toBe("Open the take");
+    expect(offer.textContent).toBe("Open the video");
     expect(notice?.querySelector(".notice-title")?.textContent).toBe(
       "A change here didn't save, so this window stayed on Settings.",
     );

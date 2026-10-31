@@ -60,7 +60,7 @@ import {
 //   first block ending where the second sets off.
 //
 // A second case shoots Settings with a take it was asked to open while a kit
-// save failed: the notice and its "Open the take", with Details closed and
+// save failed: the notice and its "Open the video", with Details closed and
 // open.
 //
 // darwin only: the library's thumbnails are made by `sips` (spec §7.1),
@@ -156,7 +156,7 @@ function unreadableRowPaint(page: Page, folder: string) {
 }
 
 /** The Settings notice as painted: its height, its title, its Details
- *  (open or not, and the reason inside), and the "Open the take" button —
+ *  (open or not, and the reason inside), and the "Open the video" button —
  *  for each part, whether the point at its centre lands on it, whether it
  *  sits inside the notice and the viewport, and its opacity as drawn (its
  *  own times its ancestors'). */
@@ -798,9 +798,9 @@ describe("the Studio's screenshot set", () => {
           rows.map((r) => [r.id, r.number]),
           said,
         ).toEqual([
-          [v3, "v3"],
-          [v2, "v2"],
-          [v1, "v1"],
+          [v3, "Video 3"],
+          [v2, "Video 2"],
+          [v1, "Video 1"],
         ]);
         const row = (id: string) =>
           `[data-versions="${videoId}"] [data-version-row="${id}"]`;
@@ -836,11 +836,13 @@ describe("the Studio's screenshot set", () => {
           [v1, false, true],
         ]);
         const expired = rows[2];
-        expect(expired?.line, said).toContain("Ask your agent to re-record");
-        // The call names the video, which a run records again; never the
-        // take, which the runner refuses.
         expect(expired?.line, said).toContain(
-          `run({ video: { id: "${videoId}" } })`,
+          "Expired — ask your agent to film it again",
+        );
+        // The call names the flow, which a run films again; never the
+        // video, which the runner refuses.
+        expect(expired?.line, said).toContain(
+          `run({ flow: { id: "${videoId}" } })`,
         );
         expect(
           await shown([`${row(v1)} [data-rerun-line]`]),
@@ -943,6 +945,168 @@ describe("the Studio's screenshot set", () => {
       ).toBe(false);
       expect(shots).toHaveLength(4);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
+
+  // Bulk delete (spec 2026-10-30 flows-and-bulk-delete §1.2): two flows
+  // ticked, the bar over the list, at both sizes; then, at the laptop size,
+  // a bulk delete one flow of which an agent's export holds, and the bar
+  // naming the flow that stayed. Asserted on the paint.
+  it.runIf(process.platform === "darwin")(
+    "shoots flows ticked for a bulk delete, and what a partial one left, each asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-bulk-"));
+      homes.push(home);
+      const { editorTake } = await seedHome(home, VIDEO_TAKES);
+      const invoice = await joinVideo(home);
+      const neighbour = (VIDEO_TAKES[3] as PlainTake).id;
+      const report = (
+        JSON.parse(
+          await readFile(join(home, "takes", neighbour, "video.json"), "utf8"),
+        ) as { videoId: string }
+      ).videoId;
+      expect(report, "premise: the neighbour is a flow of its own").not.toBe(
+        invoice,
+      );
+      await mkdir(SHOTS, { recursive: true });
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+        200,
+      );
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      const shots: string[] = [];
+      const visible = { onScreen: true, hit: true, opacity: 1 };
+      const shown = (selectors: string[]) =>
+        page.evaluate((sels) => {
+          const opacity = (el: Element): number => {
+            let o = 1;
+            for (let n: Element | null = el; n !== null; n = n.parentElement) {
+              o *= Number(getComputedStyle(n).opacity);
+            }
+            return Math.round(o * 100) / 100;
+          };
+          return sels.map((sel) => {
+            const el = document.querySelector(sel);
+            if (el === null) return null;
+            const r = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            return {
+              onScreen:
+                r.width > 0 &&
+                r.height > 0 &&
+                r.top >= 0 &&
+                r.bottom <= innerHeight,
+              hit: hit !== null && el.contains(hit),
+              opacity: opacity(el),
+            };
+          });
+        }, selectors);
+      const box = (flow: string) =>
+        `article[data-video="${flow}"] [data-select]`;
+      // Smallest last: the partial delete runs there, and it deletes.
+      for (const size of [...SIZES].sort((a, b) => b.height - a.height)) {
+        await sizeWindow(context, page, size.width, size.height);
+        await openPage(page, studio, "library", editorTake, new Set(), 6);
+        const at = `library bulk ${size.width}x${size.height}`;
+        await page.locator(box(invoice)).click();
+        await page.locator(box(report)).click();
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        const file = join(
+          SHOTS,
+          `library-selecting-${size.width}x${size.height}-dark.png`,
+        );
+        await page.screenshot({ path: file });
+        shots.push(file);
+        expect(
+          await page.locator("[data-selection-count]").textContent(),
+          at,
+        ).toBe("2 flows selected");
+        expect(
+          await shown([
+            "[data-selection-bar]",
+            '[data-action="delete-selected"]',
+            box(invoice),
+            box(report),
+          ]),
+          `${at}: the bar and both ticks, with the pointer away`,
+        ).toEqual([visible, visible, visible, visible]);
+        expect(
+          await page.evaluate(
+            (sel) =>
+              [...document.querySelectorAll(sel)].map(
+                (b) => getComputedStyle(b).display,
+              ),
+            `article[data-video="${report}"] :is([data-action="edit"], [data-action="delete"])`,
+          ),
+          `${at}: a flow's own Edit and Delete step aside while selecting`,
+        ).toEqual(["none", "none"]);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        if (size.height >= 900) {
+          await page.keyboard.press("Escape");
+          await vi.waitFor(async () => {
+            if ((await page.locator("[data-selection-bar]").count()) !== 0) {
+              throw new Error(`${at}: Esc left the bar up`);
+            }
+          });
+          continue;
+        }
+        // An agent's export holds the report's one video.
+        const busy = join(home, "takes", neighbour, ".busy");
+        await mkdir(busy, { recursive: true });
+        await writeFile(
+          join(busy, "lease.json"),
+          JSON.stringify({
+            pid: process.pid,
+            op: "export",
+            door: "agent",
+            jobId: "shots",
+            startedAt: new Date().toISOString(),
+          }),
+        );
+        await page.locator('[data-action="delete-selected"]').click();
+        await page.locator("[data-confirm-go]").click();
+        const said = page.locator("[data-selection-said]");
+        await said.waitFor({ timeout: PAINT_MS });
+        expect(await said.textContent(), at).toBe(
+          "Deleted 1 of 2 flows. Export a report stayed: This video is being exported by an agent.",
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, `${at} after`);
+        const after = join(
+          SHOTS,
+          `library-partly-deleted-${size.width}x${size.height}-dark.png`,
+        );
+        await page.screenshot({ path: after });
+        shots.push(after);
+        expect(
+          await shown(["[data-selection-said]", box(report)]),
+          `${at}: the sentence, and the flow that stayed still ticked`,
+        ).toEqual([visible, visible]);
+        expect(
+          await page.locator(`article[data-video="${invoice}"]`).count(),
+        ).toBe(0);
+      }
+      expect(shots).toHaveLength(SIZES.length + 1);
+      // The refused delete's 409 is the browser's own console line for a
+      // refusal the page answered; nothing else may fault.
+      expect(
+        console_.faults().filter((l) => !l.includes(`/api/videos/${report}`)),
+        console_.lines.join("\n"),
+      ).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
     },
@@ -1837,7 +2001,7 @@ describe("the Studio's screenshot set", () => {
         expect(offer?.detailsOpen, said).toBe(false);
         expect(offer?.reasonText, said).toMatch(/The kits were not saved/);
         expect(offer?.button, said).toMatchObject({
-          text: "Open the take",
+          text: "Open the video",
           ...shown,
         });
         // Compact: the button at the end of the title's row, not on a row

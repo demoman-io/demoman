@@ -15,34 +15,34 @@ import type { CaptureStatus } from "./storage/types";
  * can work with a literal.
  */
 const CAPTURE_REASON_TEXT: Record<string, string> = {
-  attachFailed: "Couldn't record the screen, so this take has no video",
-  debuggerDetached: "Recording stopped partway through",
+  attachFailed: "Couldn't record the screen, so this video has no motion",
+  debuggerDetached: "Filming stopped partway through",
   // Its fought-for sibling. Both stop the video; only this one has already
   // tried to get it back, and the difference is what tells an author whether
   // to record again or to look at their browser.
-  debuggerLost: "Recording stopped and couldn't restart",
+  debuggerLost: "Filming stopped and couldn't restart",
   // Recovered: the frames resume, so this one is about a hole rather than an
   // ending, and the coverage figure beside it says how big.
   debuggerRecovered: "A stretch in the middle is missing",
   workerRestarted:
-    "The extension restarted mid-take, so this take has no video",
+    "The extension restarted mid-film, so this video has no motion",
   noKeyframes: "Nothing could be photographed, so there's no video",
-  screencastUnavailable: "Motion couldn't be recorded, so this take is stills",
-  muxFailed: "The motion couldn't be encoded, so this take is stills",
+  screencastUnavailable: "Motion couldn't be recorded, so this video is stills",
+  muxFailed: "The motion couldn't be encoded, so this video is stills",
   muxUnavailable:
-    "There was nowhere to encode the motion, so this take is stills",
-  budgetSpent: "The take outran its motion budget, so the rest is stills",
+    "There was nowhere to encode the motion, so this video is stills",
+  budgetSpent: "The video outran its motion budget, so the rest is stills",
   credentialSuspended: "Motion paused while you typed in a password field",
   motionIncomplete: "Some motion couldn't be saved, so parts are stills",
-  motionInterrupted: "Recording was interrupted, so parts are stills",
+  motionInterrupted: "Filming was interrupted, so parts are stills",
   spansDiscarded:
     "Some motion couldn't be encoded, so those moments are stills",
   storageRefused:
-    "This take's frames couldn't be saved — free up space and record it again",
+    "This video's frames couldn't be saved — free up space and film it again",
   // Not the disk: the frames were recorded and the bundle that indexes them
   // failed validation, so there was nothing valid to store. Recording again
   // may well hit it again, and the detail after the colon is what to report.
-  bundleInvalid: "This take's video couldn't be put together",
+  bundleInvalid: "This video couldn't be put together",
 };
 
 /**

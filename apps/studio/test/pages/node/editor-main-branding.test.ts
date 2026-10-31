@@ -289,7 +289,7 @@ describe("editor main — the brand kit", () => {
       danger: false,
       // Enter replaces: the author's call on 2026-10-04.
       focus: "confirm",
-      body: 'This demo\'s background, logo and padding will replace the brand kit "Light".',
+      body: 'This video\'s background, logo and padding will replace the brand kit "Light".',
     });
     expect(kitsOf(memory)[0]).toEqual(DARK);
     // The take matches its kit again.

@@ -27,7 +27,7 @@ import { editorDom } from "../helpers/editor-dom";
  */
 
 const LINE =
-  'Ask your agent to re-record this take — `run({ video: { id: "scene-readonly-001" } })`';
+  'Ask your agent to film it again: `run({ flow: { id: "scene-readonly-001" } })`';
 const LINE_WORDS = LINE.replaceAll("`", "");
 
 vi.mock("@demoman/compositor", async (importOriginal) => {
@@ -168,7 +168,7 @@ vi.mock("#platform", async (importOriginal) => {
       firstTakeHint: () => "",
       rerun: (id) => ({
         kind: "line",
-        text: `Ask your agent to re-record this take — \`run({ video: { id: "${id}" } })\``,
+        text: `Ask your agent to film it again: \`run({ flow: { id: "${id}" } })\``,
       }),
       kits: () => "/settings.html",
       onOpen: () => undefined,
@@ -382,20 +382,20 @@ describe("editor main — no frames, on a platform with no Runs page", () => {
     // Premise: the take has no frames, so both carry their no-frames title.
     expect(play?.title).toContain("no frames yet");
     expect(play?.title).toBe(
-      `This demo has no frames yet, so there is nothing to play. ${LINE_WORDS}`,
+      `This video has no frames yet, so there is nothing to play. ${LINE_WORDS}`,
     );
     expect(zoom?.title).toBe(
-      `This demo has no frames yet, so there is nothing to zoom into. ${LINE_WORDS}`,
+      `This video has no frames yet, so there is nothing to zoom into. ${LINE_WORDS}`,
     );
     // The timeline's own note on an unrendered take.
     expect(document.body.textContent).toContain(
-      `Timing from the take, not from a render. ${LINE_WORDS}`,
+      `Timing from the video, not from a render. ${LINE_WORDS}`,
     );
     // Drawn as code, not as literal backticks (R20).
     expect(document.body.textContent ?? "").not.toContain("`");
     expect(
       [...document.querySelectorAll("code")].map((c) => c.textContent),
-    ).toContain('run({ video: { id: "scene-readonly-001" } })');
+    ).toContain('run({ flow: { id: "scene-readonly-001" } })');
     const titled = [...document.querySelectorAll<HTMLElement>("[title]")];
     expect(titled.length, "premise: titles were drawn").toBeGreaterThan(3);
     const runs = titled

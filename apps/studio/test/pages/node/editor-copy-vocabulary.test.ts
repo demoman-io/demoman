@@ -367,7 +367,7 @@ const FILES: ReadonlyArray<{
     // trim refusal's re-shoot wording.
     rel: "../../../pages/entrypoints/editor/main.ts",
     minStrings: 50,
-    anchor: `This take has not been rendered yet, so there is nothing to trim to. \${rerunAdvice(route.authored, rerunLineOf(route), "first")}`,
+    anchor: `This video has not been rendered yet, so there is nothing to trim to. \${rerunAdvice(route.authored, rerunLineOf(route), "first")}`,
   },
   // Joined the list on 2026-09-08. It is not an editor entry point and was
   // not in the original five, but `renderFailure`'s body — the sentence
@@ -389,7 +389,7 @@ const FILES: ReadonlyArray<{
   {
     rel: "../../../pages/entrypoints/editor/timeline-view.ts",
     minStrings: 13,
-    anchor: `Timing from the take, not from a render — \${runsRouteClause(model.authored)} to see the timing this demo will actually have.`,
+    anchor: `Timing from the video, not from a render — \${runsRouteClause(model.authored)} to see the timing this video will actually have.`,
   },
   {
     // 21 was carried from 2026-09-08. Re-measured at plan 3's final review:
@@ -418,7 +418,7 @@ const FILES: ReadonlyArray<{
     // Restore step, Replace on-screen text and its warnings went.
     minStrings: 59,
     anchor:
-      "Not in the video: the frames have no marker for this step, so the timeline places it from the take's own timestamp.",
+      "Not in the video: the frames have no marker for this step, so the timeline places it from the video's own timestamp.",
   },
   // Joined on 2026-09-14 with the format switch: the export button's label
   // and the Export panel's first line are written here now, so the one file

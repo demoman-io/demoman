@@ -1264,3 +1264,37 @@ input:is([type="text"], [type="search"], [type="number"], :not([type])):not(
   height: 20px;
   fill: currentColor;
 }
+
+/* The library's bulk selection (spec 2026-10-30 flows-and-bulk-delete
+   §1.2): the bar on the panel tone, a ticked card ringed in ink. */
+[data-studio] .selection-bar {
+  background: var(--bg-1);
+  box-shadow: inset 0 0 0 1px var(--line-3);
+}
+[data-studio] article.card[data-selected],
+[data-studio] article.card[data-selected]:hover {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+/* The bar's Delete reads as the confirmation's own destructive answer. */
+[data-studio] .selection-bar .btn-danger {
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.4);
+}
+[data-studio] .selection-bar .btn-danger:not(:disabled):hover {
+  background: rgba(248, 113, 113, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.6);
+}
+/* The toast on the studio's panel tone and hairline, under its 56px
+   header; the check in the teal the studio keeps for success. */
+[data-studio] .toast {
+  top: 68px;
+  border-radius: var(--r-field-lg);
+  background: var(--bg-2);
+  box-shadow:
+    inset 0 0 0 1px var(--line-3),
+    var(--shadow-pop);
+  color: var(--ink);
+}
+[data-studio] .toast > svg {
+  color: var(--ok);
+}

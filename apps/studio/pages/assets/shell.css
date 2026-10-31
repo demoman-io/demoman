@@ -1702,3 +1702,44 @@
 body {
   font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
 }
+
+/* A toast (src/shell/toast.ts): a plain success, held top right under
+   the header until it goes by itself, its check in the success tone.
+   Never a failure — those stay put. Unlayered, as the confirm dialog is:
+   it is dropped into pages it does not own. */
+.toast {
+  position: fixed;
+  top: 72px;
+  right: 16px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow:
+    0 0 0 1px var(--ring),
+    0 8px 24px rgba(0, 0, 0, 0.25);
+  color: var(--ink);
+  font-size: 13px;
+  animation: toast-in 180ms ease-out;
+}
+.toast > svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ok, #16a34a);
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}

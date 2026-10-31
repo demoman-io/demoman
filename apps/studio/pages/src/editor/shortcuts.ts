@@ -435,7 +435,7 @@ export const SHORTCUT_LEGEND: readonly ShortcutEntry[] = [
   {
     group: "Timeline",
     combos: [["Shift", "Z"]],
-    description: "Fit the whole take",
+    description: "Fit the whole video",
     action: "zoomFit",
   },
   {

@@ -61,7 +61,7 @@ describe("renderBundleBanner", () => {
     const link = root.querySelector<HTMLAnchorElement>("a[data-runs-route]");
     expect(link?.getAttribute("href")).toBe("run.html?take=t1");
     expect(root.textContent).toContain(
-      "This take has no frames — re-shoot it in Runs",
+      "This video has no frames — re-shoot it in Runs",
     );
     // The editor offers no rebuild, so the banner must not promise one.
     expect(root.textContent).not.toMatch(/rebuil/i);
@@ -84,7 +84,7 @@ describe("renderBundleBanner", () => {
       },
     });
     expect(root.textContent).toBe(
-      "This take has no frames — run its script again in Runs",
+      "This video has no frames — run its script again in Runs",
     );
     expect(root.querySelector("a[data-runs-route]")?.getAttribute("href")).toBe(
       "run.html?take=t1",
@@ -177,7 +177,7 @@ describe("renderFailure", () => {
       "[data-replay-failure] [data-replay-runs-route] a[data-runs-route]",
     );
     expect(link?.getAttribute("href")).toBe("run.html?take=take%201%26x");
-    expect(link?.textContent).toBe("Re-shoot this take in Runs");
+    expect(link?.textContent).toBe("Re-shoot this video in Runs");
   });
 
   it("draws no route to Runs where there is no replay sentence", () => {
@@ -324,7 +324,7 @@ describe("renderFailure", () => {
     expect(box?.textContent).toContain(
       "The re-shoot reconstructed 1 of 3 steps",
     );
-    expect(box?.textContent).toContain("Re-shoot this take in Runs");
+    expect(box?.textContent).toContain("Re-shoot this video in Runs");
   });
 
   it("renders the action error when present", () => {
@@ -879,9 +879,7 @@ describe("renderStageBar", () => {
       "false",
       "false",
     ]);
-    expect(buttons[0]?.title).toBe(
-      "Auto: the video takes the recording's shape",
-    );
+    expect(buttons[0]?.title).toBe("Auto: the export takes the source's shape");
     expect(bar.querySelector("[data-format-select]")).toBeNull();
   });
 
@@ -1388,7 +1386,7 @@ describe("renderShortcuts", () => {
   // end. Red: put the keys first again.
   it("puts what a row does first, and its keys after", () => {
     const row = rowForChord(open(), [SHIFT, "Z"]);
-    expect(row.firstElementChild?.textContent).toBe("Fit the whole take");
+    expect(row.firstElementChild?.textContent).toBe("Fit the whole video");
     expect(row.lastElementChild?.querySelector("[data-combo]")).not.toBeNull();
   });
 
@@ -1675,7 +1673,7 @@ describe("renderNotesButton", () => {
     expect(button.getAttribute("data-level")).toBe("error");
     expect(button.querySelector("[data-count]")?.textContent).toBe("1");
     expect(button.getAttribute("aria-label")).toBe(
-      "1 note on this take, with an error",
+      "1 note on this video, with an error",
     );
   });
 

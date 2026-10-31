@@ -171,7 +171,7 @@ export function violationReport(
   const short = violations.some((v) => v.sourceWidth < v.neededWidth);
   const heading =
     cut && short
-      ? "This export asked for more detail than the recording holds"
+      ? "This export asked for more detail than the video holds"
       : cut
         ? "Camera zoom was reduced on this export"
         : "This export is drawn from fewer pixels than it has";

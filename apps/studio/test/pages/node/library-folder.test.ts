@@ -25,7 +25,8 @@ import type {
  * make the empty card ignore `unreadable`; route `image` past `folder.thumb`.
  */
 
-const STUDIO_HINT = "Ask your agent for a demo video. Each take shows up here.";
+const STUDIO_HINT =
+  "Ask your agent for a demo video. Each video shows up here.";
 
 const confirmDialog = vi.hoisted(() => ({
   ask: vi.fn<(question: unknown) => Promise<boolean>>(),
@@ -246,7 +247,7 @@ describe("the library page on a platform with a take folder", () => {
       return node;
     });
     expect(line.textContent).toBe(
-      "New takes will not show until you reload — /Users/a/takes could not be watched (EMFILE).",
+      "New videos will not show until you reload — /Users/a/takes could not be watched (EMFILE).",
     );
     expect(line.classList.contains("notice-warn")).toBe(true);
   });
@@ -273,7 +274,7 @@ describe("the library page on a platform with a take folder", () => {
           })
         : listing([t1]),
     );
-    const BUSY = "This take is being exported by an agent.";
+    const BUSY = "This video is being exported by an agent.";
     fake.platform.scenes.remove = async (id: string) => {
       fake.removed.push(id);
       return { ok: false, error: "takeBusy", detail: BUSY };
