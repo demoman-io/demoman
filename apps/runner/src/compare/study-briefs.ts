@@ -72,14 +72,22 @@ const SAMPLES_APPS = ["tremor", "excalidraw", "chatbot", "actual"];
 
 /** The skip line when the brief's app does not answer; null when it does. */
 export async function skipLine(brief: Brief): Promise<string | null> {
+  let why: string;
   try {
-    const res = await fetch(brief.reach, { signal: AbortSignal.timeout(5000) });
-    if (res.ok) return null;
-  } catch {
-    // unreachable: the line below says so
+    // Any HTTP answer, a redirect or an error status included, means the app
+    // is up; 30 s covers a dev server's first compile.
+    await fetch(brief.reach, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(30_000),
+    });
+    return null;
+  } catch (error) {
+    const cause = (error as { cause?: { code?: string; message?: string } })
+      .cause;
+    why = `${(error as Error).message}${cause ? `: ${cause.code ?? cause.message}` : ""}`;
   }
   const how = SAMPLES_APPS.includes(brief.name)
     ? ` (start it with scripts/samples.sh start ${brief.name})`
     : "";
-  return `skipped ${brief.name}: ${brief.reach} did not answer${how}`;
+  return `skipped ${brief.name}: ${brief.reach} did not answer (${why})${how}`;
 }

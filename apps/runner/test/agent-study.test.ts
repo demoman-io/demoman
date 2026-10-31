@@ -83,7 +83,7 @@ it("names an unreachable app and how to start it", async () => {
     reach: `http://127.0.0.1:${port}/`,
   };
   expect(await skipLine(brief)).toBe(
-    `skipped ${brief.name}: http://127.0.0.1:${port}/ did not answer (start it with scripts/samples.sh start ${brief.name})`,
+    `skipped ${brief.name}: http://127.0.0.1:${port}/ did not answer (fetch failed: ECONNREFUSED) (start it with scripts/samples.sh start ${brief.name})`,
   );
 });
 
@@ -94,7 +94,9 @@ it("names samples.sh only for the apps it starts", async () => {
   await new Promise<void>((r) => s.close(() => r()));
   const reach = `http://127.0.0.1:${port}/`;
   const nylon = { ...named("nylon"), reach };
-  expect(await skipLine(nylon)).toBe(`skipped nylon: ${reach} did not answer`);
+  expect(await skipLine(nylon)).toBe(
+    `skipped nylon: ${reach} did not answer (fetch failed: ECONNREFUSED)`,
+  );
   const tremor = { ...named("tremor"), reach };
   expect(await skipLine(tremor)).toContain("scripts/samples.sh start tremor");
 });
@@ -113,4 +115,18 @@ it("refuses a front matter line with no colon, naming file and line", () => {
   const dir = mkdtempSync(join(tmpdir(), "briefs-"));
   writeFileSync(join(dir, "x.md"), "---\nurl: u\nreach r\n---\nbody\n");
   expect(() => loadBriefs(dir)).toThrow(/x\.md.*reach r/);
+});
+
+it("counts any HTTP answer, a redirect included, as reachable", async () => {
+  const s = createServer((_req, res) => {
+    res.writeHead(307, { location: "/loop" }).end();
+  });
+  await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
+  const port = (s.address() as { port: number }).port;
+  try {
+    const brief = { ...named("chatbot"), reach: `http://127.0.0.1:${port}/` };
+    expect(await skipLine(brief)).toBeNull();
+  } finally {
+    await new Promise<void>((r) => s.close(() => r()));
+  }
 });
