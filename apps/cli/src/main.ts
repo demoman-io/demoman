@@ -50,6 +50,7 @@ import { ciSetup } from "./ci-workflow.js";
 import { deliver } from "./deliver.js";
 import { keepLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
+import { parseRefreshArgs } from "./refresh-args.js";
 import { refreshLines } from "./refresh-lines.js";
 import { parseSetupArgs, setup } from "./setup.js";
 import {
@@ -299,8 +300,6 @@ async function keep(args: string[]): Promise<void> {
         report: { type: "string" },
         quality: { type: "string" },
         deliver: { type: "string" },
-        "out-dir": { type: "string" },
-        previous: { type: "string" },
       },
       allowPositionals: true,
       strict: true,
@@ -419,40 +418,9 @@ async function refresh(args: string[]): Promise<void> {
     process.stderr.write(`demoman: ${said}\n\n${USAGE}`);
     process.exit(2);
   };
-  let values: {
-    "base-url"?: string;
-    deliver?: string;
-    "out-dir"?: string;
-    previous?: string;
-  };
-  let positionals: string[];
-  try {
-    ({ values, positionals } = parseArgs({
-      args,
-      options: {
-        "base-url": { type: "string" },
-        deliver: { type: "string" },
-      },
-      allowPositionals: true,
-      strict: true,
-    }));
-  } catch (error) {
-    return usage(error instanceof Error ? error.message : String(error));
-  }
-  if (values.deliver !== undefined && !/^(pr|main)$/.test(values.deliver))
-    return usage(`--deliver is pr or main, not "${values.deliver}"`);
-  const route = values.deliver as "pr" | "main" | undefined;
-  let baseUrl: string | undefined;
-  if (values["base-url"] !== undefined) {
-    const url = URL.canParse(values["base-url"])
-      ? new URL(values["base-url"])
-      : null;
-    if (url === null || !/^https?:$/.test(url.protocol))
-      return usage(
-        `--base-url is an http(s) origin such as http://localhost:3000, not "${values["base-url"]}"`,
-      );
-    baseUrl = url.origin;
-  }
+  const parsed = parseRefreshArgs(args);
+  if ("error" in parsed) return usage(parsed.error);
+  const { only, route, baseUrl, outDir, previous } = parsed;
   const fail = (detail: string): never => {
     process.stderr.write(`demoman refresh: ${detail}\n`);
     process.exit(1);
@@ -481,12 +449,10 @@ async function refresh(args: string[]): Promise<void> {
     result = await refreshKept(
       {
         repoRoot: repo.repo.root,
-        ...(positionals.length > 0 ? { only: positionals } : {}),
+        ...(only.length > 0 ? { only } : {}),
         ...(baseUrl === undefined ? {} : { baseUrl }),
-        ...(values["out-dir"] === undefined
-          ? {}
-          : { outDir: values["out-dir"] }),
-        ...(values.previous === undefined ? {} : { previous: values.previous }),
+        ...(outDir === undefined ? {} : { outDir }),
+        ...(previous === undefined ? {} : { previous }),
         library: process.env.CI === "true" ? "throwaway" : "local",
       },
       {
@@ -523,6 +489,8 @@ async function refresh(args: string[]): Promise<void> {
   if ("threw" in result) return fail(result.threw);
   const { lines, code } = refreshLines(result);
   for (const line of lines) process.stdout.write(`${line}\n`);
+  // The finished flows are said first; the list's failure then fails the run.
+  if (result.listError !== undefined) return fail(result.listError);
   if (route === undefined) process.exit(code);
   const {
     GITHUB_SERVER_URL: server,
@@ -534,7 +502,7 @@ async function refresh(args: string[]): Promise<void> {
       route,
       repoRoot: repo.repo.root,
       result,
-      named: positionals.length > 0,
+      named: only.length > 0,
       runUrl:
         server && slug && id ? `${server}/${slug}/actions/runs/${id}` : null,
     },

@@ -536,13 +536,41 @@ describe("the files route", () => {
     expect(runs).toEqual([]);
   });
 
-  it("a previous folder that is not there fails, naming it", async () => {
+  it("a previous folder that is not there means no previous: uncompared, naming it", async () => {
     await writeV2(filesRecipe(), null);
     const gone = join(prev, "nope");
+    // Premise: it is not there.
+    expect(existsSync(gone)).toBe(false);
     const [v] = await refreshInto({ previous: gone });
+    expect(v?.outcome, JSON.stringify(v)).toBe("uncompared");
+    expect(v?.notes).toEqual([
+      `${gone} does not exist, so there was nothing to compare against`,
+    ]);
+    expect(compared).toEqual([]);
+    expect(await readFile(join(out, BARE), "utf8")).toBe("new mp4");
+  });
+
+  it("a previous that exists but cannot be read as a folder fails, naming it", async () => {
+    await writeV2(filesRecipe(), null);
+    const file = join(prev, "a-file");
+    await writeFile(file, "not a folder");
+    const [v] = await refreshInto({ previous: file });
     expect(v?.outcome).toBe("failed");
-    expect(v?.detail).toContain(gone);
+    expect(v?.detail).toContain(file);
+    expect(v?.detail).toContain("is not a folder");
     expect(runs).toEqual([]);
+  });
+
+  it("a list that cannot be written is reported with the finished videos", async () => {
+    await writeV2(filesRecipe(), null);
+    // The list's path is a folder: the rename onto it cannot succeed.
+    await mkdir(join(out, REFRESH_LIST_FILE));
+    const r = await refreshKept(
+      { repoRoot: repo, library: "throwaway", outDir: out },
+      deps(),
+    );
+    expect(r.videos[0]?.outcome).toBe("uncompared");
+    expect(r.listError).toContain(join(out, REFRESH_LIST_FILE));
   });
 
   it("a files flow without --out-dir fails and the commit flow still refreshes", async () => {

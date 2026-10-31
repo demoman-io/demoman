@@ -82,6 +82,8 @@ export interface RefreshVideo {
 
 export interface RefreshResult {
   videos: RefreshVideo[];
+  /** Why the list under --out-dir could not be written; the videos stand. */
+  listError?: string;
 }
 
 export interface RefreshDeps {
@@ -243,20 +245,30 @@ export async function refreshKept(
       continue;
     }
     const to = toFolder ? resolve(args.outDir as string) : root;
-    const from = toFolder
+    let from: string | null = toFolder
       ? args.previous === undefined
         ? null
         : resolve(args.previous)
       : root;
+    // A --previous folder that is not there is "no previous" (the first run
+    // of a bucket), said in a note; one that is there and unreadable fails.
+    let noPrevious = "no --previous folder was given";
     if (toFolder && from !== null) {
-      const dir = await stat(from).then(
+      const gone = from;
+      const dir = await stat(gone).then(
         (st) => (st.isDirectory() ? null : "is not a folder"),
-        (error: unknown) => `cannot be read (${messageOf(error)})`,
+        (error: unknown) =>
+          (error as NodeJS.ErrnoException).code === "ENOENT"
+            ? "missing"
+            : `cannot be read (${messageOf(error)})`,
       );
-      if (dir !== null) {
+      if (dir === "missing") {
+        noPrevious = `${gone} does not exist, so there was nothing to compare against`;
+        from = null;
+      } else if (dir !== null) {
         failed(
           who,
-          `--previous ${from} ${dir}, so what was delivered is unknown`,
+          `--previous ${gone} ${dir}, so what was delivered is unknown`,
         );
         continue;
       }
@@ -309,7 +321,7 @@ export async function refreshKept(
     if (previous === null)
       notes.push(
         receiptAt === null
-          ? "no --previous folder was given"
+          ? noPrevious
           : `${toFolder ? receiptAt : receiptFile} is missing`,
       );
     const script = scriptFor(kept, root, args.baseUrl);
@@ -385,9 +397,10 @@ export async function refreshKept(
     try {
       await place(list, serializeRefreshList(refreshListOf({ videos })));
     } catch (error) {
-      throw new Error(
-        `the refresh list ${list} could not be written (${messageOf(error)})`,
-      );
+      return {
+        videos,
+        listError: `the refresh list ${list} could not be written (${messageOf(error)})`,
+      };
     }
   }
   return { videos };
