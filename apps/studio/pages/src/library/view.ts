@@ -179,6 +179,9 @@ function fillBar(
  * from the card just ticked (the author, 2026-10-30, at the foot of the
  * library); it also cleared every card's thumbnail.
  */
+/** Each page's watch on its selection bar's height (`applySelection`). */
+const barHeights = new WeakMap<HTMLElement, ResizeObserver>();
+
 export function applySelection(
   root: HTMLElement,
   actions: LibraryActions,
@@ -203,6 +206,8 @@ export function applySelection(
   let bar = root.querySelector<HTMLElement>("[data-selection-bar]");
   if (selected.size === 0) {
     bar?.remove();
+    barHeights.get(root)?.disconnect();
+    root.style.removeProperty("--selection-bar");
     return;
   }
   if (bar === null) {
@@ -212,6 +217,24 @@ export function applySelection(
     notices.after(bar);
   }
   fillBar(bar, selected.size, bulk);
+  // The list's sticky head stands under the bar, so it needs the bar's
+  // height, which wraps with the window and the sentence it holds. A
+  // render replaces the bar, so the watch moves to whichever is shown.
+  const say = (shown: Element): void =>
+    root.style.setProperty(
+      "--selection-bar",
+      `${shown.getBoundingClientRect().height}px`,
+    );
+  say(bar);
+  let heights = barHeights.get(root);
+  if (heights === undefined) {
+    heights = new ResizeObserver((entries) => {
+      for (const e of entries) say(e.target);
+    });
+    barHeights.set(root, heights);
+  }
+  heights.disconnect();
+  heights.observe(bar);
 }
 
 const GB = 1024 ** 3;

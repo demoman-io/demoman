@@ -747,6 +747,15 @@
         font-size: 12px;
         font-weight: 500;
       }
+      /* While flows are ticked the selection bar holds the top (from its
+         own 12px, `.selection-bar`), and the head stands beneath it;
+         `--selection-bar` is the bar's height, measured by view.ts. */
+      [data-selecting] .library-list > [data-list-head] {
+        top: calc(12px + var(--selection-bar, 0px));
+      }
+      [data-selecting] .library-list > [role="row"] {
+        scroll-margin-top: calc(12px + var(--selection-bar, 0px) + var(--list-row));
+      }
       .library-list [data-list-head] [data-sort] {
         padding: 0;
         background: none;
@@ -850,7 +859,7 @@
       /* An opening flow's videos fade in; no height animation. */
       .library-list > [data-video-row] { transition: opacity 120ms ease; }
       @starting-style {
-        .library-list > [data-video-row] { opacity: 0; }
+        .library-list > [data-video-row][data-opening] { opacity: 0; }
       }
       @media (prefers-reduced-motion: reduce) {
         .library-list > [data-video-row],

@@ -396,7 +396,15 @@ function refold(grid: HTMLElement): void {
 export function setExpanded(row: HTMLElement, open: boolean): void {
   row.setAttribute("aria-expanded", String(open));
   const grid = row.closest<HTMLElement>("[data-list]");
-  if (grid !== null) refold(grid);
+  if (grid === null) return;
+  const videos = [...grid.querySelectorAll<HTMLElement>("[data-video-row]")];
+  const was = videos.map((v) => v.hidden);
+  refold(grid);
+  // The videos this fold brought on screen fade in (§4.7); a redraw's rows
+  // never carry the mark, so a redraw never fades. Cleared at the next fold.
+  for (const [i, v] of videos.entries()) {
+    v.toggleAttribute("data-opening", was[i] === true && !v.hidden);
+  }
 }
 
 /** The flows on screen, in page order: what a Shift-click or Shift+arrow

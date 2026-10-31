@@ -135,7 +135,7 @@ const REFUSED = "Couldn't delete: it is open.";
 /** The page as the studio serves it: dark, `data-studio`, studio.css. With
  *  `motion`, the transitions the lane's helper switches off are left on,
  *  for the cases that read them. */
-function mount(motion = false) {
+function mount(motion = false, ticked: readonly string[] = []) {
   mountShell("dark", `${css}\n${studioCss}`);
   const sheet = document.head.querySelector("[data-shell]") as HTMLElement;
   if (motion) {
@@ -145,13 +145,19 @@ function mount(motion = false) {
   }
   document.documentElement.setAttribute("data-studio", "");
   document.body.innerHTML = body;
+  draw(ticked);
+}
+
+/** The page's render, as main.ts calls it on every change: first draw or
+ *  redraw. */
+function draw(ticked: readonly string[] = []) {
   renderLibrary(
     node("#root"),
     MODEL,
     ACTIONS,
     new Map([[statusKey("video", "S"), REFUSED]]),
     NOW,
-    undefined,
+    { ids: new Set(ticked), anchor: ticked[0] ?? null, range: [] },
     undefined,
     { layout: "list", sort: { column: "recorded", descending: true } },
   );
@@ -447,6 +453,65 @@ describe("the list's look", () => {
         head(),
       );
     }
+    // And it is opaque, on the page's own ground: the hit test finds the
+    // head whatever its background, so a see-through head that shows the
+    // rows under it would pass the lines above (Red: no `background`).
+    const ground = getComputedStyle(document.body).backgroundColor;
+    expect(parse(ground)[3], ground).toBe(1);
+    expect(getComputedStyle(head()).backgroundColor).toBe(ground);
+  });
+
+  it("while flows are ticked the head sticks under the selection bar, and the keyboard's row clears both", async () => {
+    mount(false, ["N0"]);
+    const bar = node("[data-selection-bar]");
+    const target = row("f:N4");
+    // N4 put 14px under the bar's bottom, so once both stick it is half
+    // under the head.
+    window.scrollTo(
+      0,
+      window.scrollY +
+        target.getBoundingClientRect().top -
+        (bar.getBoundingClientRect().height + 12 + 14),
+    );
+    const b = bar.getBoundingClientRect();
+    const h = head().getBoundingClientRect();
+    // Premise: the bar is stuck at its 12px, and the list ran under it.
+    expect(b.top).toBeCloseTo(12, 1);
+    expect(row("f:N0").getBoundingClientRect().top).toBeLessThan(0);
+    // The head sits beneath the bar, and is what paints at its middle.
+    expect(h.top).toBeCloseTo(b.bottom, 1);
+    expect(at(h.left + 200, h.top + h.height / 2)?.closest("[role=row]")).toBe(
+      head(),
+    );
+    // Premise: N4 is on screen but under the head.
+    expect(target.getBoundingClientRect().top).toBeGreaterThan(h.top);
+    expect(target.getBoundingClientRect().top).toBeLessThan(h.bottom);
+    const next = shown()[shown().indexOf(target) + 1] as HTMLElement;
+    next.focus({ preventScroll: true });
+    await userEvent.keyboard("{ArrowUp}");
+    expect(document.activeElement).toBe(target);
+    expect(target.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      head().getBoundingClientRect().bottom - 0.5,
+    );
+  });
+
+  it("the selection bar's height follows the bar as it wraps, and goes with it", async () => {
+    mount(false, ["N0"]);
+    const root = node("#root");
+    const bar = node("[data-selection-bar]");
+    const said = () => root.style.getPropertyValue("--selection-bar");
+    expect(said()).toBe(`${bar.getBoundingClientRect().height}px`);
+    // A narrower window wraps the bar's line under its buttons.
+    const before = bar.getBoundingClientRect().height;
+    bar.style.width = "200px";
+    await expect
+      .poll(() => bar.getBoundingClientRect().height)
+      .toBeGreaterThan(before);
+    await expect.poll(said).toBe(`${bar.getBoundingClientRect().height}px`);
+    // Nothing ticked: no bar, and no height left behind.
+    draw();
+    expect(document.querySelector("[data-selection-bar]")).toBeNull();
+    expect(said()).toBe("");
   });
 
   it("the keyboard's row moves clear of the head", async () => {
@@ -587,6 +652,28 @@ describe("the list's look", () => {
 });
 
 describe("the list's motion", () => {
+  // Red: the fade on every video row's first style, which a redraw gives
+  // each open video row again, though nothing opened.
+  it("fades the videos of a flow being opened, never on a redraw", async () => {
+    mount(true);
+    const runs: string[] = [];
+    grid().addEventListener("transitionrun", (event) => {
+      const r = (event.target as HTMLElement).closest<HTMLElement>(
+        "[role=row]",
+      );
+      if (event.target === r) runs.push(r?.dataset.key as string);
+    });
+    await userEvent.click(cell("f:A", "open"));
+    await expect.poll(() => runs).toEqual(["v:a2", "v:a1"]);
+    draw();
+    // Premise: the redraw drew A open, with new rows.
+    expect(row("f:A").getAttribute("aria-expanded")).toBe("true");
+    expect(row("v:a2").hidden).toBe(false);
+    for (const key of ["v:a2", "v:a1"]) {
+      expect(row(key).getAnimations(), key).toHaveLength(0);
+    }
+  });
+
   it("turns the chevron and fades video rows in 120ms", async () => {
     mount(true);
     const chev = cell("f:A", "open").querySelector(".chev") as Element;
