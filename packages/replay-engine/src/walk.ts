@@ -702,8 +702,9 @@ export async function runWalk(
   let topFrameId: string | null = null;
   let topLoading = false;
   let navigationsSeen = 0;
-  // `navigationsSeen` as it stood when the previous step began: a
-  // `waitForLoad` saw a load when the count has moved since.
+  // `navigationsSeen` as it stood when the previous step began (for step 0,
+  // before the start navigation): a `waitForLoad` saw a load when the count
+  // has moved since.
   let navsAtPreviousStep = 0;
   let navsAtThisStep = 0;
   const isTop = (params: Record<string, unknown>): boolean =>
@@ -2010,6 +2011,9 @@ export async function runWalk(
     // so this is the first moment there is a page to wait for — and the
     // opening keyframe is the very next thing, which is what made a
     // half-drawn page the frame the video opens on.
+    // The start navigation is the load a step-0 `waitForLoad` waits for, so
+    // the count that step compares against is taken before it.
+    const navsBeforeStart = navigationsSeen;
     await deps.occlusion?.install();
     const unsettled = await settlePaint();
     if (unsettled !== null) degradations.push(unsettled);
@@ -2026,7 +2030,7 @@ export async function runWalk(
       filming = true;
     }
 
-    navsAtThisStep = navigationsSeen;
+    navsAtThisStep = navsBeforeStart;
     // --- the loop ----------------------------------------------------------
     for await (const step of signedOut === null ? source.steps() : NO_STEPS) {
       navsAtPreviousStep = navsAtThisStep;

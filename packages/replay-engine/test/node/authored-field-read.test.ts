@@ -210,4 +210,45 @@ describe("a waitForLoad says whether a load happened", () => {
     expect(loads).toBe(1);
     expect(result.steps[1]?.loadSeen).toBe(true);
   });
+
+  // The recipe's own opening: a `waitForLoad` as step 0. The start
+  // navigation happens in `occlusion.install()`, before any step; it is the
+  // load that step waited for.
+  const openingWait: DemoScript = {
+    scriptVersion: 1,
+    name: "opening wait",
+    target: PAGE,
+    steps: [{ do: "waitForLoad" }],
+  };
+  const navigatingGuard = (cdp: CdpFake, loads: { n: number }) => ({
+    install: async () => {
+      loads.n++;
+      cdp.emit("Page.frameStartedLoading", { frameId: "top" });
+      cdp.emit("Page.frameStoppedLoading", { frameId: "top" });
+    },
+    ensureVisible: async () => true,
+    pauses: () => 0,
+    pausedMs: () => 0,
+    stalledSince: () => null,
+  });
+
+  it("says loadSeen true on an opening waitForLoad after the start navigation", async () => {
+    const cdp = createCdpFake();
+    const loads = { n: 0 };
+    const result = await runAuthored(openingWait, {
+      ...deps(cdp),
+      occlusion: navigatingGuard(cdp, loads),
+    });
+    // The premise: the start navigation really started a load.
+    expect(loads.n).toBe(1);
+    expect(result.completed).toBe(1);
+    expect(result.steps[0]?.loadSeen).toBe(true);
+  });
+
+  it("says loadSeen false on an opening waitForLoad when nothing loaded", async () => {
+    const cdp = createCdpFake();
+    const result = await runAuthored(openingWait, deps(cdp));
+    expect(result.completed).toBe(1);
+    expect(result.steps[0]?.loadSeen).toBe(false);
+  });
 });
