@@ -364,6 +364,28 @@ describe("what an agent needs listed (spec B)", () => {
     expect(JSON.stringify(w)).not.toContain("hunter2");
   });
 
+  // Final review 2026-10-30, Minor 4: a hidden input often carries a token
+  // (view state, a nonce) whose name escapes the credential hints. Red if
+  // the listing reads its value, or `contains` matches on it.
+  it("never lists or matches a hidden input's value", async () => {
+    const html = `<input type="hidden" id="viewstate" value="tok-SECRET-123"><input data-testid="q" value="shown">`;
+    const w = await walkHtml(html);
+    const hidden = w.targets.find(
+      (t) => "stableId" in t.target && t.target.stableId === "viewstate",
+    );
+    const q = w.targets.find(
+      (t) => "stableId" in t.target && t.target.stableId === "q",
+    );
+    // Premise: the hidden input is a candidate (its id makes it one), and an
+    // ordinary input beside it does show its value.
+    expect(hidden, "the hidden input is still listed").toBeDefined();
+    expect(q?.value).toBe("shown");
+    expect(hidden?.value).toBeNull();
+    expect(JSON.stringify(w)).not.toContain("SECRET");
+    const byValue = await walkHtml(html, { ...ALL, contains: "SECRET" });
+    expect(byValue.targets).toEqual([]);
+  });
+
   // Red if contains tests only name and text.
   it("contains matches a stableId and a kind", async () => {
     const html = `<div data-testid="payee-cell" style="width:80px;height:20px"></div><button type="button">Save</button><p>Unrelated</p>`;

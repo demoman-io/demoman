@@ -97,7 +97,8 @@ function isInteractive(el: Element): boolean {
   return parent === null || view.getComputedStyle(parent).cursor !== "pointer";
 }
 
-/** The value of a field, never a credential's. */
+/** The value of a field, never a credential's, and never a `NOT_FIELDS`
+ *  input's (a hidden one often carries a token). */
 function fieldValue(el: Element): string | null {
   const tag = el.tagName;
   const field =
@@ -106,6 +107,8 @@ function fieldValue(el: Element): string | null {
     tag === "SELECT" ||
     el.hasAttribute("contenteditable");
   if (!field || isCredentialField(el)) return null;
+  if (NOT_FIELDS.has((el.getAttribute("type") ?? "").toLowerCase()))
+    return null;
   const value = (el as HTMLInputElement).value;
   return clip(
     typeof value === "string" ? value : normalizeText(el.textContent),
