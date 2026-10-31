@@ -875,7 +875,7 @@ describe("the authored source and its assembler", () => {
     // itself happened on is the only witness.
     const authored = fiveStepScript();
     const driven = await drive(authored, {
-      captures: [{}, { failureReason: "unresolved" }],
+      captures: [{}, ...absent()],
       navigatesAwayAfterCall: 1,
     });
 
@@ -884,6 +884,12 @@ describe("the authored source and its assembler", () => {
     expect(driven.captures.answers[1]?.anchor).toBeNull();
     expect(driven.captures.answers[1]?.pageUrl).toBe(OTHER_PAGE);
     expect(driven.captures.answers[0]?.anchor?.resolution.url).toBe(PAGE);
+    // Premise: it failed once and was not retried (waiting cannot help on a
+    // page the script is not on), so no anchor ever reached the page comparison.
+    expect(driven.captures.calls).toHaveLength(2);
+    expect(
+      driven.captures.answers.every((a, i) => i === 0 || a.anchor === null),
+    ).toBe(true);
 
     // Not `unresolvedAnchor`, which would send the author to re-record a step
     // that is fine, and not four of them.
@@ -1490,10 +1496,11 @@ describe("typing into a credential field", () => {
   });
 
   it("leaves a failed type step's text alone when the port does not check", async () => {
-    const driven = await drive(typing(), {
-      captures: [{ failureReason: "unresolved" }],
-    });
+    const driven = await drive(typing(), { captures: absent() });
     expect(driven.captures.answers[0]?.anchor).toBeNull();
+    // Premise: it stayed failed to the end, so the step never performed.
+    expect(driven.captures.answers.every((a) => a.anchor === null)).toBe(true);
+    expect(driven.run.actions).toHaveLength(0);
     expect(driven.captures.answers[0]?.credentialField).toBeUndefined();
     expect(driven.run.steps[0]?.textHidden ?? null).toBeNull();
   });

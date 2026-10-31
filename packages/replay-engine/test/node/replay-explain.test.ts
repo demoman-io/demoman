@@ -35,9 +35,7 @@ const status = (over: Partial<ReplayStatus> = {}): ReplayStatus => ({
 
 describe("reasonSentence", () => {
   it("maps a known reason to the author's language", () => {
-    expect(reasonSentence("unresolvedAnchor")).toMatch(
-      /not on the page, even after waiting 10 s/,
-    );
+    expect(reasonSentence("unresolvedAnchor")).toMatch(/not on the page/);
   });
 
   // The orchestrator used to print the bare identifier, so a real take

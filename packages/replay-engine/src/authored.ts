@@ -700,9 +700,16 @@ export function createAuthoredRun(
             const notThereYet =
               answer.failureReason === "unresolved" ||
               answer.failureReason === "notInTree";
+            // Waiting cannot help on a page the script is not on (an expired
+            // session): the failure carries that page, and the caller names it.
+            const elsewhere =
+              answer.pageUrl !== null &&
+              herePage !== null &&
+              pageKeyOf(answer.pageUrl) !== herePage;
             if (
               answer.anchor !== null ||
               !notThereYet ||
+              elsewhere ||
               deps.clock.now() - began >= WAIT_TIMEOUT_MS
             ) {
               return answer;

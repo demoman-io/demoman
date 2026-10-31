@@ -14,7 +14,7 @@ user; section 7 lists every reason.
    `secretsFile`, `expiry` and `update`.
    `sessions` is `[{site, savedAt, refreshedAt, signInUrl}]`; it and
    `display` can be `{unreadable}`: tell the user why. `accounts` and
-   `secretsFile` are the demo accounts below. Ignore `update`.
+   `secretsFile` are the demo accounts below.
 2. The browser is signed in only where the user ran `npx demoman signin <url>`;
    `status`'s `sessions` lists those sites. A demo account records best. A page
    that sends this browser to its sign-in page answers `signedOut` (section
@@ -196,8 +196,7 @@ resolves in a run to exactly that element: Demoman checked it.
   one per probe and again in the run, so a target listed as unique can be
   ambiguous by then; a delete deletes; in the Studio an edit saves into the
   take. Prefer demo data. `stopped` means a step did not play: fix it as a
-  run's stop with that reason says, and probe again. A page the flow
-  navigates to has its own URL to snapshot.
+  run's stop with that reason says, and probe again.
 
 ### Recording a phone demo
 
@@ -215,7 +214,7 @@ resolves in a run to exactly that element: Demoman checked it.
 1. `snapshot` the page the flow starts on.
 2. Write each step with a `target` copied from that snapshot.
 3. A step that reveals hidden content (a FAQ answer, a panel) names its
-   targets from the same snapshot, then a `waitFor … until: "visible"`. A step that navigates: snapshot the new page's URL. A step waits up to 10 s for its own target, so `waitForLoad` is needed only before a step whose target is also on the old page. Content a click creates: section 2.
+   targets from the same snapshot, then a `waitFor … until: "visible"`. A step that navigates: snapshot the new page's URL and put a `waitForLoad` after it; the step after that waits up to 10 s for its own target, so it needs no `waitFor`. Content a click creates: section 2.
 4. `snapshot`'s `kits` lists the user's brand kits by name, the default
    marked. Use a name from it in `look.kit` only when the user asked for a
    look.
@@ -415,7 +414,7 @@ until the outcome is not `attaching` or `stillRunning`. On `busy`,
 `ghOutdated`, `ghSignedOut`, `notGitHub` or `copyFailed`, call
 `export({ takeId, maxMB: 9.5 })` and give the user its `file.path` to drag
 into the PR, saying why. On `uploadRefused`, do as its `detail` says. On `partial` or `unconfirmed`, do not
-post again; tell the user to check the PR. Other reasons: section 7.
+post again; tell the user to check the PR. Other reasons: section 7. An unsaved export answers as `export` does.
 
 Hand back, on `saved`, two lines and nothing else: the `summary` as it is,
 then the `links` as markdown links on one line, in this order, only
@@ -558,9 +557,9 @@ quote `note` if set. Studio exports go to `~/Downloads`.
 | `invalidQuality`, `invalidMaxMB` | `export` (`refusedBeforeExport`), `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
 | `noTakeId`, `noFrames` | `export` (`refusedBeforeExport`) | No take id; the take has no frames to render. |
 | `takeNotFound`, `takeUnreadable` | `export` (`refusedBeforeExport`), `run` re-record (`refusedBeforeRun`), `studio` (`takeNotFound`: call `takes`) | No such take; it could not be read (or, for `run`, built into a script). |
-| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run` (`stopped.reason`) | The target never appeared in the 10 s the step waits. Check it against a `snapshot` of that page and the step before; `scrollTo` first in a long list. |
+| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run` (`stopped.reason`) | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. |
 | `ambiguousAnchor` | `run` (`stopped.reason`) | Several elements matched; name the target more exactly. |
-| `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run` (`stopped.reason`) | Its frame changed: pick another target. Or it could not be measured, or the window was covered: not the script; run again once. |
+| `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run` (`stopped.reason`) | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |
 | `pageWentElsewhere`, `unperformableStep` | `run` (`stopped.reason`) | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks for what a run cannot do. |
 | `dragEndOutOfView`, `dragNoDistance` | `run` (`stopped.reason`) | A drag's end was off screen (a drag cannot scroll), or on its start. Fix the script. |
 | `clickNotDelivered` | `run` (`stopped.reason`) | The browser put a click elsewhere than where it was sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |

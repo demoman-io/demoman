@@ -1,4 +1,5 @@
 import type { SceneAnchor, SceneDocument } from "@demoman/scene-schema";
+import { WAIT_TIMEOUT_MS } from "./constants.js";
 import type { ReplayStatus, ReplayStopReason } from "./types.js";
 
 /**
@@ -27,20 +28,20 @@ export const REASON_TEXT: Record<ReplayStopReason, string> = {
   // Genuinely gone. The only one of these three that means the demo is
   // actually broken.
   unresolvedAnchor:
-    "an element this demo depends on was not on the page, even after waiting 10 s for it — check the step's target names something the page really shows, or what the step before it does",
+    "an element this demo depends on was not on the page — check the step's target names something the page really shows, or what the step before it does",
   // NOT "could not find it". Several WERE found, and replay stopped rather
   // than guess, because guessing is how a replay clicks the wrong row of a
   // table. The author's problem is upstream: the element is not identified
   // well enough to be found again.
   ambiguousAnchor:
-    "several elements matched this step, so replay stopped rather than risk clicking the wrong one — name the target more precisely (a role and a fuller name, or a label)",
+    "several elements matched this step, so replay stopped rather than risk clicking the wrong one — name the target more precisely (a stableId, or a role with a fuller name, from a snapshot of the page)",
   // Usually nothing is wrong with the take. A virtualized row that has not
   // been rendered yet; the app can be asked to scroll it into view. The
   // resolver reports it separately precisely because it is recoverable, and
   // collapsing it into "could not be found" used to send authors off to
   // re-record something that was fine.
   anchorNotRendered:
-    "an element was in the page's data but never rendered, even after waiting 10 s — the page probably needs scrolling further first, so add a scrollTo step before this one",
+    "an element was in the page's data but not rendered — the page probably needs scrolling further first, so add a scrollTo step before this one",
   // Not a verdict about any element. Before this had its own sentence the
   // silence read as `unresolvedAnchor`, and an author whose app was down
   // was sent off to re-record a step that was fine.
@@ -63,7 +64,7 @@ export const REASON_TEXT: Record<ReplayStopReason, string> = {
   // which is why it must not inherit "run it again, and say so if it
   // repeats". It always repeats.
   anchorFrameMismatch:
-    "replay found the element this step needs and the frame holding it is not the one recorded — the page's frames have changed since the take, so running it again will fail the same way; change the step's target to one outside that frame, or rebuild the take from a fresh recording",
+    "replay found the element this step needs and the frame holding it is not the one recorded — the page's frames have changed since the take, so running it again will fail the same way; change the step to target an element outside that frame",
   // Names the surface that exists. The replacements panel this used to send
   // authors to was deleted with the Steps disclosure on 2026-09-14; a
   // replacement is authored on the step itself now.
@@ -93,8 +94,7 @@ export const REASON_TEXT: Record<ReplayStopReason, string> = {
     "a drag's start or end was off the page once its start was in view, and a drag cannot scroll while it moves, so it was not begun; drag to a target on the same screen, or scroll first",
   dragNoDistance:
     "a drag's two ends landed on the same point once measured, which is a click, not a drag, so it was not begun; give the drag's end another target, spot or offset",
-  waitTimeout:
-    "the element the step waited for never became visible within 10 s — check the target, or what the step before it does",
+  waitTimeout: `what the step waited for (an element to show or hide, or the page to load) did not happen within ${WAIT_TIMEOUT_MS / 1000} s — check the target, or what the step before it does`,
   occlusionTimeout:
     "the render window stayed covered, so the frames would not have been usable — leave the window uncovered while it runs, then run it again",
   windowClosed:

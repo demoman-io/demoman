@@ -76,7 +76,7 @@ describe("replaySentence and replayRecoverable", () => {
       ALLOWED,
     );
     expect(new Set([gone, several, notYet]).size).toBe(3);
-    expect(gone).toMatch(/not on the page, even after waiting 10 s/);
+    expect(gone).toMatch(/was not on the page/);
     expect(gone).not.toMatch(/re-record|remap/);
   });
 
