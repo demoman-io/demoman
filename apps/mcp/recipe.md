@@ -146,10 +146,10 @@ The file, with one account:
 
 ## 2. Look at the page
 
-`snapshot(url)` opens `url` in Demoman's browser, lists the page's targets,
-and leaves the page open. Each entry is
-`{ target, kind, text, rect, inFirstViewport }`. Every `target` listed
-resolves in a run to exactly that element: Demoman checked it.
+`snapshot(url)` opens `url` in Demoman's browser and lists the page's
+targets, leaving the page open. Each entry is
+`{ target, kind, text, rect, shown, inFirstViewport }`. Every `target` listed
+resolves in a run to exactly that element.
 
 - **Copy a `target` into a step verbatim. Never compose one**, and never
   translate a name from another tool's accessibility tree: Demoman's roles
@@ -165,19 +165,18 @@ resolves in a run to exactly that element: Demoman checked it.
   is (normal for a public page); `"signedOut"`: the page is a sign-in page,
   and `sessionDetail` holds the command to give the user (spend no run, or
   set up a demo account: section 1);
-  `"unchecked"`: the page could not be checked, and `sessionDetail` says
-  why. A sign-in page offering only "Continue with Google" may
-  not answer `signedOut`: a `landedUrl` that is plainly a sign-in page with
+  `"unchecked"`: `sessionDetail` says why. A sign-in page offering only "Continue with Google" may
+  not answer `signedOut`: a plainly sign-in `landedUrl` with
   `"none"` or `"unchecked"` means the same. Tell the user to run
   `npx demoman signin <the page to record>` and spend no run. On
   `"unchecked"` otherwise, carry on only if `landedUrl` is not a sign-in
   page.
 - `settled: false` - the page was still loading; `settleNote` says what was
-  outstanding. Snapshot again before you conclude something is absent.
-- `rect` is in page coordinates; `inFirstViewport`: shown before any
-  scroll. `rect: null` means no box yet (a closed
-  FAQ answer): still a valid target for `waitFor … until: "visible"` after
-  the step that opens it.
+  outstanding. Snapshot again before concluding something is absent.
+- `rect` is in page coordinates; `inFirstViewport`: in view before any
+  scroll. `rect: null`: no box yet (a closed FAQ answer), still a valid
+  `waitFor … until: "visible"` target after the step that opens it.
+  `shown: false`: transparent, hidden or a sliver; `waitFor` never sees it.
 - `size` is `{ width, height, from, error }`: the size the page was laid out
   at, which a run records too. `from` is `screen` (this machine's screen),
   or `device`. `from: "window"` with an `error`: Demoman could not read the

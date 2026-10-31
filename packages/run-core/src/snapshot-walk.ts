@@ -1,5 +1,6 @@
 import {
   fingerprintFromTarget,
+  seenNow,
   targetFromFingerprint,
 } from "@demoman/replay-engine/page";
 import {
@@ -44,6 +45,10 @@ export interface SnapshotTarget {
   /** Document coordinates (scroll included). Null when it is not shown:
    *  no box, `display: none`, or inside a closed `<details>`. */
   rect: SnapshotRect | null;
+  /** Whether it can be SEEN: not transparent, not `visibility: hidden`, more
+   *  than a sliver. A `waitFor visible` on a target with `shown: false` can
+   *  never pass; `rect` is the plain question a click is aimed by. */
+  shown: boolean;
   inFirstViewport: boolean;
 }
 
@@ -202,6 +207,7 @@ export async function snapshotTargets(
         (anchor.fingerprint.textContent !== null ? "text" : "element"),
       text: clip(text),
       rect,
+      shown: seenNow(el),
       inFirstViewport:
         rect !== null &&
         rect.x < width &&

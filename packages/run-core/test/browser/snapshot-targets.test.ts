@@ -204,4 +204,61 @@ describe("the snapshot's walk", () => {
       { text: "How do customers pay me?" },
     ]);
   });
+
+  // Spec E: one visibility question. `rect` stays the plain one (a click may
+  // aim at a transparent file input); `shown` is what a `waitFor` can see.
+  describe("shown", () => {
+    const list = async (html: string): Promise<SnapshotWalk> => {
+      document.body.innerHTML = html;
+      window.scrollTo(0, 0);
+      return snapshotTargets(env(), ALL, clock);
+    };
+    const byText = (w: SnapshotWalk, text: string) =>
+      w.targets.find((t) => t.text === text);
+
+    it("lists an opacity-0 button as not shown, with its rect", async () => {
+      const w = await list(
+        '<button type="button" data-fixture="ghost" style="opacity:0">Upvote</button><button type="button">Plain</button>',
+      );
+      // Premises: the button really paints at opacity 0, and the plain
+      // question still calls it visible (else this tests nothing).
+      const ghost = document.querySelector("[data-fixture=ghost]") as Element;
+      expect(getComputedStyle(ghost).opacity).toBe("0");
+      expect(ghost.checkVisibility()).toBe(true);
+      const t = byText(w, "Upvote");
+      expect(t, JSON.stringify(w.targets)).toBeDefined();
+      expect(t?.shown).toBe(false);
+      expect(t?.rect).not.toBeNull();
+      expect(byText(w, "Plain")?.shown).toBe(true);
+    });
+
+    it("lists a 1x1 native select as not shown", async () => {
+      const w = await list(
+        '<select aria-label="Range" data-fixture="tiny" style="width:1px;height:1px;padding:0;border:0;appearance:none;overflow:hidden"><option>Day</option><option>Week</option></select>',
+      );
+      const box = (
+        document.querySelector("[data-fixture=tiny]") as Element
+      ).getBoundingClientRect();
+      expect([box.width, box.height]).toEqual([1, 1]);
+      const t = w.targets.find(
+        (x) => x.kind === "combobox" || x.kind === "listbox",
+      );
+      expect(t, JSON.stringify(w.targets)).toBeDefined();
+      expect(t?.shown).toBe(false);
+    });
+
+    it("keeps a transparent control laid over a button listed, with its rect", async () => {
+      const w = await list(
+        '<div style="position:relative;width:120px;height:40px"><button type="button">Choose file</button><button type="button" aria-label="Upload" data-fixture="file" style="position:absolute;inset:0;width:100%;height:100%;opacity:0"></button></div>',
+      );
+      const input = document.querySelector("[data-fixture=file]") as Element;
+      expect(getComputedStyle(input).opacity).toBe("0");
+      const t = w.targets.find(
+        (x) => x.text === null && x.rect !== null && x.rect.width >= 100,
+      );
+      expect(t, JSON.stringify(w.targets)).toBeDefined();
+      expect(t?.rect).not.toBeNull();
+      expect(t?.shown).toBe(false);
+    });
+  });
 });

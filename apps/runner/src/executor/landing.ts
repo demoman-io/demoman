@@ -1,6 +1,7 @@
 // Whether a page a run or snapshot landed on is a sign-in page (launch C,
 // spec 2026-10-15 §3.3). The facts are read off the page; the verdict is
 // pure, so every rule is a unit test.
+import { seenNow } from "@demoman/replay-engine/page";
 import { landedElsewhere } from "@demoman/run-core";
 import type { Page } from "playwright";
 import { withinDeadline } from "../page-deadline.js";
@@ -52,30 +53,30 @@ export async function readLandingFacts(
   // The URL is read in the same evaluate as the field, so both describe one
   // document: `page.url()` after it could already name the next page.
   const { landedUrl, passwordFieldVisible } = await withinDeadline(
-    page.evaluate(() => ({
-      landedUrl: location.href,
-      passwordFieldVisible: [
-        ...document.querySelectorAll('input[type="password" i]'),
-      ].some((el) => {
-        if (
-          !el.checkVisibility({
-            opacityProperty: true,
-            visibilityProperty: true,
-          })
-        ) {
-          return false;
-        }
-        const r = el.getBoundingClientRect();
-        return (
-          r.width > 0 &&
-          r.height > 0 &&
-          r.bottom > 0 &&
-          r.right > 0 &&
-          r.top < innerHeight &&
-          r.left < innerWidth
-        );
-      }),
-    })),
+    // A string, not a function: `seenNow` is sent as source (it is
+    // self-contained for that), and a string runs where a page's CSP would
+    // refuse an `eval` of it.
+    page.evaluate<{
+      landedUrl: string;
+      passwordFieldVisible: boolean;
+    }>(`(() => {
+      const seenNow = ${seenNow.toString()};
+      return {
+        landedUrl: location.href,
+        passwordFieldVisible: [
+          ...document.querySelectorAll('input[type="password" i]'),
+        ].some((el) => {
+          if (!seenNow(el)) return false;
+          const r = el.getBoundingClientRect();
+          return (
+            r.bottom > 0 &&
+            r.right > 0 &&
+            r.top < innerHeight &&
+            r.left < innerWidth
+          );
+        }),
+      };
+    })()`),
     "checking the page for a sign-in form",
   );
   return { askedUrl, landedUrl, passwordFieldVisible };

@@ -301,6 +301,9 @@ async function walkThrough(
     scrolledRect?: (step: WalkStep, index: number) => Rect | null;
     /** The 0-based walk step whose wait times out. */
     failWaitAt?: number;
+    /** What the timed-out wait's last look found, said to the step as the
+     *  walk does before it stops. */
+    waitSaw?: "absent" | "notVisible";
     /** The 0-based walk step that throws after `onResolved`. */
     failAfterResolvedAt?: number;
   } = {},
@@ -317,6 +320,7 @@ async function walkThrough(
     pulled.push(step);
     if (step.action.kind === "waitFor") {
       if (opts.failWaitAt === index) {
+        if (opts.waitSaw !== undefined) step.onWaitTimedOut?.(opts.waitSaw);
         reason = "waitTimeout";
         break;
       }
@@ -382,6 +386,7 @@ async function drive(
     captures?: ScriptedCapture[];
     navigatesAwayAfterCall?: number;
     failWaitAt?: number;
+    waitSaw?: "absent" | "notVisible";
     failAfterResolvedAt?: number;
     scrolledRect?: (step: WalkStep, index: number) => Rect | null;
   } = {},
@@ -1046,6 +1051,38 @@ describe("the authored source and its assembler", () => {
     expect(driven.run.actions.map((a) => a.kind)).toEqual(["click"]);
     expect(driven.run.steps[1]?.actionId).toBeNull();
     expect(driven.run.steps[1]?.marker).toBeNull();
+  });
+
+  it("a waitFor that finds its element but never sees it reports notVisible", async () => {
+    const authored = script([
+      { do: "waitFor", on: { text: "Upvoted" }, until: "visible" },
+    ]);
+    // The capture before the wait missed it (a stale reason a report would
+    // otherwise blame); the wait's own last look found it, unseen.
+    const driven = await drive(authored, {
+      captures: [{ failureReason: "notInTree" }],
+      failWaitAt: 0,
+      waitSaw: "notVisible",
+    });
+    // Premises: the wait was pulled, timed out, and carried the stale reason
+    // from the pre-wait capture before the walk spoke.
+    expect(driven.walk.reason).toBe("waitTimeout");
+    expect(driven.captures.answers[0]?.failureReason).toBe("notInTree");
+    expect(driven.run.steps[0]?.waitSaw).toBe("notVisible");
+    expect(driven.run.steps[0]?.failureReason).toBeNull();
+  });
+
+  it("a waitFor that finds nothing reports absent and keeps the capture's reason", async () => {
+    const authored = script([
+      { do: "waitFor", on: { text: "Upvoted" }, until: "visible" },
+    ]);
+    const driven = await drive(authored, {
+      captures: [{ failureReason: "notInTree" }],
+      failWaitAt: 0,
+      waitSaw: "absent",
+    });
+    expect(driven.run.steps[0]?.waitSaw).toBe("absent");
+    expect(driven.run.steps[0]?.failureReason).toBe("notInTree");
   });
 
   it("commits nothing for a step that failed after the walk resolved it", async () => {

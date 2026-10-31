@@ -94,6 +94,8 @@ export interface StepReport {
    *  credential, or the page could not say. `intent.text` then reads
    *  HIDDEN_TEXT. */
   textHidden?: "credentialField" | "credentialUnchecked";
+  /** A `waitFor` that timed out: what its last look found. */
+  waitSaw?: "absent" | "notVisible";
 }
 
 /** Which executor ran the script: the browser extension, or the CLI's own
@@ -349,6 +351,7 @@ function toStepReport(step: AuthoredStep): StepReport {
     marker: step.marker,
     pageUrl: step.pageUrl,
     ...(hidden === null ? {} : { textHidden: hidden }),
+    ...(step.waitSaw === undefined ? {} : { waitSaw: step.waitSaw }),
   };
 }
 

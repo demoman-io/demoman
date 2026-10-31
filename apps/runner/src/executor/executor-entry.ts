@@ -1,6 +1,6 @@
 // apps/runner/src/executor/executor-entry.ts
 
-import { fingerprintFromTarget } from "@demoman/replay-engine/page";
+import { fingerprintFromTarget, seenNow } from "@demoman/replay-engine/page";
 import type { AnchorIntent, ResolveEnv } from "@demoman/resolver";
 import { createCanvasMatcher, resolveAnchor } from "@demoman/resolver";
 import {
@@ -56,10 +56,7 @@ const entry: ExecutorEntry = {
     report.element.setAttribute(SIGN_IN_MARK, mark);
     return {
       found: true,
-      visible: report.element.checkVisibility({
-        opacityProperty: true,
-        visibilityProperty: true,
-      }),
+      visible: seenNow(report.element),
     };
   },
 };

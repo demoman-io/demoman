@@ -199,6 +199,9 @@ export interface AuthoredStep {
    *  The evidence behind `pageWentElsewhere`: without it that reason says a
    *  move happened and not where to. */
   pageUrl: string | null;
+  /** On a `waitFor` that timed out: what its last look found — nothing, or an
+   *  element the page has but nobody could see. Absent otherwise. */
+  waitSaw?: "absent" | "notVisible";
 }
 
 export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
@@ -799,6 +802,12 @@ export function createAuthoredRun(
             // generator it has already marked, photographed and counted the
             // step, and a refusal made then would leave the run reporting a
             // wait the take does not contain.
+            // The wait's own last look, not the capture above: that one was
+            // taken before the wait and cannot say what the page showed after.
+            onWaitTimedOut: (saw) => {
+              record.waitSaw = saw;
+              if (saw === "notVisible") record.failureReason = null;
+            },
             onConditionMet: async () => {
               if (anchor === null) anchor = await capture();
               if (anchor !== null) return null;

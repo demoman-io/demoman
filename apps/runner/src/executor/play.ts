@@ -410,9 +410,12 @@ export function stopDetail(target: string, played: Played): string | undefined {
           ? failedNote
           : result.reason === "clickNotDelivered" && failedNote !== undefined
             ? clickNotDeliveredDetail(failedNote)
-            : navigationError !== null && result.outcome !== "complete"
-              ? `${target} did not load (${navigationError}) — check that the app is running at that address`
-              : undefined;
+            : result.reason === "waitTimeout" &&
+                result.steps.at(-1)?.waitSaw === "notVisible"
+              ? "the step waited for an element that was found but not visible (transparent, hidden or a sliver), so it could never show — wait for something that does show, or act on the element that reveals it"
+              : navigationError !== null && result.outcome !== "complete"
+                ? `${target} did not load (${navigationError}) — check that the app is running at that address`
+                : undefined;
   return signedOutAfter !== null && result.reason !== null
     ? `${signedOutAfter} The take was not kept: it would end on the sign-in page. ${ownStop(result, ownDetail ?? reasonSentence(result.reason))}`
     : walkedReason(played) === "signedOut" && failedNote !== undefined

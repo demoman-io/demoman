@@ -117,6 +117,7 @@ import type {
   ResolveReport,
   TargetHandle,
 } from "./types.js";
+import { seenNow } from "./visibility.js";
 
 /**
  * One step of the walk, with everything that differs between replaying a
@@ -175,6 +176,13 @@ export interface WalkStep {
    * A document source has no such hook and pays nothing.
    */
   onConditionMet?(): Promise<ReplayStopReason | null>;
+  /**
+   * A wait that timed out says what its LAST look at the page found: no such
+   * element, or one the page has but nobody could see. Asked once, before the
+   * walk stops with `waitTimeout`, so the source need not guess from a capture
+   * taken before the wait.
+   */
+  onWaitTimedOut?(saw: "absent" | "notVisible"): void;
   /**
    * A re-shoot's recorded interval from the previous step's marker to this
    * one's, in ms — `to.timestamp - from.timestamp`, the number `planScene`
@@ -1052,7 +1060,7 @@ export async function runWalk(
             objectId,
             functionDeclaration:
               ask === "seen"
-                ? "function(){return this.checkVisibility({opacityProperty: true, visibilityProperty: true})}"
+                ? `function(){return (${seenNow.toString()})(this)}`
                 : "function(){return this.checkVisibility()}",
             returnByValue: true,
           })
@@ -2010,6 +2018,15 @@ export async function runWalk(
 
       if (step.action.kind === "waitFor") {
         if (!(await awaitCondition(step.action, step.target))) {
+          // Only a wait for something to show can have found it unseen; the
+          // plain question is the one a click's target is listed by.
+          if (
+            step.action.anchorId !== null &&
+            step.action.condition !== "hidden"
+          ) {
+            const { handle } = await locate(step.target, "rendered");
+            step.onWaitTimedOut?.(handle === null ? "absent" : "notVisible");
+          }
           reason = "waitTimeout";
           break;
         }
