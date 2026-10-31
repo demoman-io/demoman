@@ -352,7 +352,7 @@ describe("editor session", () => {
     const session = createSession(d);
     await session.load();
     expect(session.snapshot().replaySentence).toMatch(/1 of 3/);
-    expect(session.snapshot().replaySentence).toMatch(/waiting for/);
+    expect(session.snapshot().replaySentence).toMatch(/did not happen within/);
     // A wait that timed out is a break to fix, and the page's headline says
     // so off this flag rather than deciding again for itself.
     expect(session.snapshot().replayRecoverable).toBe(false);
