@@ -147,10 +147,11 @@ it("hides text typed into a field the page could not be asked about", async () =
   expect(reply).toContain('"textHidden":"credentialUnchecked"');
 }, 120_000);
 
-// Final review 1: a snapshot lists no target for a bare password input (no
-// role, no text), so an agent following the recipe types into its label.
-// The walk clicks the label, the browser focuses the input, and the value
-// must be hidden as if the input had been named.
+// Final review 1: a bare password input (no role, no text) is listed only by
+// its stableId (spec B1, 2026-10-30), never as a textbox, so an agent
+// following the recipe may type into its label instead. The walk clicks the
+// label, the browser focuses the input, and the value must be hidden as if
+// the input had been named.
 it("hides a demo password typed through the label a snapshot lists for it", async () => {
   type Target = {
     target: Record<string, unknown>;
@@ -165,11 +166,20 @@ it("hides a demo password typed through the label a snapshot lists for it", asyn
   const label = targets.find(
     (t) => t.kind === "text" && t.target.text === "Account password",
   );
-  // Premise: the snapshot lists the label, and no target names the input
-  // itself — the only field it lists is the nickname — so the label is how
-  // a script reaches it.
+  // Premise: the snapshot lists the label; the input itself only as a bare
+  // element by its stableId, its value withheld — the only textbox is the
+  // nickname — so the label is a way a script reaches it.
   expect(label, JSON.stringify(targets)).toBeDefined();
-  expect(JSON.stringify(targets)).not.toContain("acct-pw");
+  expect(
+    targets.filter((t) => JSON.stringify(t).includes("acct-pw")),
+    JSON.stringify(targets),
+  ).toEqual([
+    expect.objectContaining({
+      target: { stableId: "acct-pw" },
+      kind: "element",
+      value: null,
+    }),
+  ]);
   expect(
     targets.filter((t) => t.kind === "textbox").map((t) => t.target),
     JSON.stringify(targets),
