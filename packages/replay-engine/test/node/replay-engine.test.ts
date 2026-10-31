@@ -3027,6 +3027,46 @@ describe("review of 2026-10-03: continuous pacing and its pauses", () => {
     expect(played, `source ${to - from} ms`).toBeCloseTo(to - from, 6);
   });
 
+  // Review 2026-10-31, finding 5: a press skipped the author's rhythm, so a
+  // rebuilt take played it straight after the step before it.
+  it("waits an edited gap out before a press, and lists it", async () => {
+    const doc = recordedApart(5000);
+    const [a, b] = doc.actions as [
+      (typeof doc.actions)[number],
+      (typeof doc.actions)[number],
+    ];
+    const edited = {
+      ...doc,
+      actions: [
+        a,
+        {
+          id: b.id,
+          kind: "press",
+          anchorId: null,
+          timestamp: b.timestamp,
+          marker: "press:none",
+          key: "Tab",
+        },
+      ],
+      edits: {
+        ...doc.edits,
+        gaps: [{ id: "gap-1", afterActionId: a.id, durationMs: 2000 }],
+      },
+    } as SceneDocument;
+    const result = await runReplay(edited, deps({ recording: "continuous" }));
+    expect(result.outcome, String(result.reason)).toBe("complete");
+    const bundle = result.bundle as FrameBundle;
+    // The premise: the second marker is the press's.
+    expect(bundle.markers.map((m) => m.actionId)).toEqual([a.id, b.id]);
+    const [m1, m2] = bundle.markers.map((m) => m.sourceTimeMs);
+    const gap = (m2 ?? 0) - (m1 ?? 0);
+    expect(gap).toBeGreaterThanOrEqual(2000);
+    expect(gap).toBeLessThan(5000);
+    expect(bundle.pacedGaps).toEqual([
+      { afterActionId: a.id, durationMs: 2000 },
+    ]);
+  });
+
   it("records no paced gap where the author edited none", async () => {
     const result = await runReplay(
       recordedApart(3000),

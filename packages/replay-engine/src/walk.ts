@@ -2190,10 +2190,37 @@ export async function runWalk(
         continue;
       }
 
+      /** When the author's rhythm puts this step's marker (see below), or
+       *  null where the rhythm does not pace it. */
+      const rhythmDue = (): number | null => {
+        const lastMarkerAt = markers.at(-1)?.sourceTimeMs;
+        return continuous &&
+          step.recordedIntervalMs !== undefined &&
+          lastMarkerAt !== undefined
+          ? lastMarkerAt + step.recordedIntervalMs + pausedSince(lastMarkerAt)
+          : null;
+      };
+      /** The author's rhythm, live, just before a filmed step's marker: a
+       *  backwards or repeated timestamp gives a due time already past, and
+       *  nothing waits. Measured in the film's time, not the walk's: a
+       *  recovered pause since the last marker is removed from a real-time
+       *  film, so it is added back here — or the author's 3 s between two
+       *  steps plays as 1 s after a 2 s pause (review of 2026-10-03). */
+      const keepRhythm = async (): Promise<void> => {
+        const due = rhythmDue();
+        if (due === null) return;
+        const wait = due - at();
+        if (wait > 0) await clock.sleep(wait);
+        // Listed whether or not anything was left to wait: either way this
+        // pair's spacing is the engine's doing, already in source time.
+        if (step.pacedGap !== undefined) pacedGaps.push(step.pacedGap);
+      };
+
       if (step.action.kind === "press") {
         // No element: the key goes to whatever holds focus, where the cursor
         // rests. Marked, pictured and counted like any verb.
         const keyAction = step.action;
+        await keepRhythm();
         pressMarked = true;
         inFlight = keyAction.id;
         const marker: FrameBundle["markers"][number] = {
@@ -2321,16 +2348,6 @@ export async function runWalk(
       /** Where this step's verb lands in the box: a click's spot, else the centre. */
       const clickPoint = (rect: Rect): { x: number; y: number } =>
         spotIn(rect, step.action.kind === "click" ? step.action.at : undefined);
-      /** When the author's rhythm puts this step's marker (see below), or
-       *  null where the rhythm does not pace it. */
-      const rhythmDue = (): number | null => {
-        const lastMarkerAt = markers.at(-1)?.sourceTimeMs;
-        return continuous &&
-          step.recordedIntervalMs !== undefined &&
-          lastMarkerAt !== undefined
-          ? lastMarkerAt + step.recordedIntervalMs + pausedSince(lastMarkerAt)
-          : null;
-      };
       // Unhurried beats, the second wait: before a click the camera will
       // zoom to, rest until the camera has room to set off after the last
       // act has settled. The cursor's journey and SETTLE_MS still to come
@@ -2417,20 +2434,7 @@ export async function runWalk(
         moveToWindows.push({ startMs: pathFrom, endMs: at() });
       }
 
-      // The author's rhythm, live: a backwards or repeated timestamp gives a
-      // due time already past, and nothing waits. Measured in the film's
-      // time, not the walk's: a recovered pause since the last marker is
-      // removed from a real-time film, so it is added back here — or the
-      // author's 3 s between two steps plays as 1 s after a 2 s pause
-      // (review of 2026-10-03).
-      const due = rhythmDue();
-      if (due !== null) {
-        const wait = due - at();
-        if (wait > 0) await clock.sleep(wait);
-        // Listed whether or not anything was left to wait: either way this
-        // pair's spacing is the engine's doing, already in source time.
-        if (step.pacedGap !== undefined) pacedGaps.push(step.pacedGap);
-      }
+      await keepRhythm();
 
       inFlight = step.action.id;
       anchorRects.push({
