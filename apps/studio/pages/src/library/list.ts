@@ -2,13 +2,15 @@
 //
 // The library's list view, drawn: an APG treegrid of headings, flows and
 // their videos (spec 2026-10-31-library-list-view §2, §4.1). Clicks, keys,
-// rename and lengths are filled in on this DOM by later work.
+// rename and lengths are filled in on this DOM by later work; the keys
+// are list-keys.ts.
 import type {
   LibrarySortColumn,
   LibraryViewChoice,
 } from "@demoman/studio-protocol";
 import { setCodeText, withoutTicks } from "../shell/code-spans";
 import { icon } from "../shell/icons";
+import { attachListKeys } from "./list-keys";
 import { type ListEntry, listEntries, nextSort, whereOf } from "./list-model";
 import type { LibraryModel, LibraryRow, VideoGroup } from "./state";
 import { formatBytes } from "./state";
@@ -334,6 +336,7 @@ export function renderList(
   }
   refold(grid);
   listenForClicks(grid, actions);
+  attachListKeys(grid, actions);
   list.append(grid);
   return grid;
 }
@@ -359,8 +362,9 @@ export function setExpanded(row: HTMLElement, open: boolean): void {
   if (grid !== null) refold(grid);
 }
 
-/** The flows on screen, in page order: what a Shift-click ranges over. */
-const onScreen = (grid: HTMLElement): string[] =>
+/** The flows on screen, in page order: what a Shift-click or Shift+arrow
+ *  ranges over, and what Cmd+A ticks. */
+export const flowsOnScreen = (grid: HTMLElement): string[] =>
   [
     ...grid.querySelectorAll<HTMLElement>(
       "[role=row][data-flow]:not([hidden])",
@@ -394,7 +398,7 @@ function listenForClicks(grid: HTMLElement, actions: LibraryActions): void {
       actions.select?.(
         flowId as string,
         event.shiftKey ? "range" : "toggle",
-        onScreen(grid),
+        flowsOnScreen(grid),
       );
     if (
       row.hasAttribute("aria-expanded") &&

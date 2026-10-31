@@ -387,6 +387,16 @@ describe("library main — bulk delete", () => {
         (b) => b.disabled,
       ),
     ).toEqual([true, true, true]);
+    // A flow's own Delete (the list's Cmd+Backspace takes the same road)
+    // asks nothing while the run goes: one question, the run's.
+    expect(confirmDialog.ask).toHaveBeenCalledTimes(1);
+    (
+      document.querySelector(
+        `article[data-video="${INVOICE}"] [data-action="delete"]`,
+      ) as HTMLButtonElement
+    ).click();
+    // `remove` asks before its first await: a call would be seen here.
+    expect(confirmDialog.ask).toHaveBeenCalledTimes(1);
     release();
     await vi.waitFor(() => {
       if (bar() !== null) throw new Error("bar still up");

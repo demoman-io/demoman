@@ -606,6 +606,9 @@ const actions: LibraryActions = {
     void deleteSelected();
   },
   remove: (sceneId: string, kind: RowKind): void => {
+    // The run in flight owns the deletes; a second dialog over it would
+    // race its list.
+    if (bulk?.busy === true) return;
     const key = statusKey(kind, sceneId);
     void (async () => {
       try {
