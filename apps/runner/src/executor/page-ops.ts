@@ -8,6 +8,7 @@ import { type EndPage, messageOf, type SnapshotReply } from "@demoman/run-core";
 import type { BrowserContext, Page } from "playwright";
 import { bundleEntry } from "../bundle-js.js";
 import { EXECUTOR_ENTRY_GLOBAL } from "../entry-globals.js";
+import { isNavigationRace } from "../page-agent.js";
 import { withinDeadline } from "../page-deadline.js";
 
 // `fileURLToPath`, never `.pathname`: a space in the install path is `%20`
@@ -110,6 +111,12 @@ export async function pageEndPage(
  * no `intentResolution` (nothing was measured), exactly as the sensor
  * answers; the message goes to the log, which is where the sensor's
  * `console.warn` would have put it.
+ *
+ * Except a context a navigation destroyed: that is `notInTree` on the page
+ * it went to, so a step waiting for its target keeps looking on the new
+ * document, and `pageWentElsewhere` still reads `pageUrl` (final review
+ * 2026-10-30, Important 2). `intentResolution` stays null: nothing was
+ * measured.
  */
 export function pageCapture(
   page: Page,
@@ -132,6 +139,16 @@ export function pageCapture(
       )) as IntentCapture;
     } catch (error) {
       const said = messageOf(error);
+      if (isNavigationRace(error) && !page.isClosed()) {
+        log(`a step's capture met a navigation, looking again — ${said}`);
+        return {
+          anchor: null,
+          failureReason: "notInTree",
+          intentResolution: null,
+          pageUrl: page.url(),
+          credentialField: null,
+        };
+      }
       // A page the init script never reached has no entry to ask: said in
       // those words, not as the `undefined` property read it would be.
       log(
