@@ -602,7 +602,7 @@ describe("a run joins the kept flow", () => {
         outcome: "refusedBeforeRun",
         reason: "videoUnreadable",
       });
-      expect(v.detail).toContain(".demoman");
+      expect(v.detail).toContain(join(odd, KEPT_DIR));
     } finally {
       await rm(odd, { recursive: true, force: true });
     }
