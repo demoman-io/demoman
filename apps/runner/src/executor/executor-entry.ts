@@ -6,7 +6,9 @@ import { createCanvasMatcher, resolveAnchor } from "@demoman/resolver";
 import {
   type CaptureForIntentResult,
   captureForIntent,
+  type EndPage,
   focusesCredentialField,
+  readEndPage,
   type SnapshotRequest,
   type SnapshotWalk,
   snapshotTargets,
@@ -24,6 +26,9 @@ export interface ExecutorEntry {
     target: ScriptTarget,
     mark: string,
   ): Promise<{ found: true; visible: boolean } | { found: false; why: string }>;
+  /** The page as text: its URL, what it shows and each field's value, a
+   *  credential's left out (spec 2026-10-30 A2). */
+  endPageHere(): Promise<EndPage>;
 }
 
 // The sensor's env minus what only an extension has: no shadow hook (a
@@ -36,6 +41,7 @@ const env = (): ResolveEnv => ({
 });
 
 const entry: ExecutorEntry = {
+  endPageHere: () => readEndPage(env()),
   snapshotHere: (request) =>
     snapshotTargets(env(), request, () => performance.now()),
   // The field the action will type into, not only the element it resolved

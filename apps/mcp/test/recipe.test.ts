@@ -168,6 +168,16 @@ describe("the recipe's examples and snapshot reading", () => {
     expect(recipe).toMatch(/acts on the app for real/);
     expect(recipe).not.toMatch(/cannot be scripted yet/);
   });
+
+  // Spec 2026-10-30 A5: agents trusted `matches` over wrong videos. Red if
+  // the recipe says it again, or stops sending the agent to the still.
+  it("never says matches means the steps are right", () => {
+    expect(recipe).not.toMatch(/means the steps are right/);
+    expect(recipe).toMatch(
+      /the verdict says the actions happened; look at `still` against the brief before you export or run again/,
+    );
+    expect(recipe).toMatch(/`endPage`/);
+  });
 });
 
 describe("the sign-in rule", () => {

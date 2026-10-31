@@ -75,6 +75,9 @@ export interface RenderManifest {
   /** Stills only: their size and framing (`renderOutput`'s `stills`).
    *  Absent: the target, framed as the video. */
   stills?: StillsOptions;
+  /** Stills only: the output instants to take (`renderOutput`'s). Absent:
+   *  one per step. */
+  outputTimesMs?: number[];
 }
 
 export interface RenderedFacts extends RenderFacts {
@@ -264,6 +267,9 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
           },
         }),
     ...(manifest.stills === undefined ? {} : { stills: manifest.stills }),
+    ...(manifest.outputTimesMs === undefined
+      ? {}
+      : { outputTimesMs: manifest.outputTimesMs }),
     onFrame: wholePercent((done, total, width, pass) =>
       width === undefined
         ? report?.(done, total)

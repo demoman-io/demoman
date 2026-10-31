@@ -121,6 +121,111 @@ function clip(text: string | null): string | null {
 }
 
 /**
+ * `el` as a target the run resolves back to it (steps 2 and 3 of
+ * `snapshotTargets`): its winning strategy's target, else its `treePath`
+ * (`positional`), else null when no strategy reaches it.
+ */
+async function nameTarget(
+  el: Element,
+  i: number,
+  scan: ResolveEnv,
+): Promise<{
+  target: ScriptTarget;
+  positional: boolean;
+  anchor: Awaited<ReturnType<typeof captureAnchor>>["anchor"];
+} | null> {
+  const { anchor } = await captureAnchor(
+    el,
+    // Only `fingerprint` and `resolution.strategy` are read: nothing here
+    // is stored, so no url, action index or entry state is claimed.
+    { anchorId: `snapshot-${i}`, url: "", actionIndex: 0, entryState: false },
+    scan,
+  );
+  const named = targetFromFingerprint(
+    anchor.resolution.strategy,
+    anchor.fingerprint,
+  );
+  const namedBack =
+    named === null
+      ? null
+      : await resolveAnchor(
+          { id: anchor.id, fingerprint: fingerprintFromTarget(named) },
+          scan,
+        );
+  if (
+    named !== null &&
+    namedBack?.element === el &&
+    namedBack.candidates === 1
+  ) {
+    return { target: named, positional: false, anchor };
+  }
+  // Its name is shared (or it has none): its position names it, and a
+  // bare treePath resolves to at most one element. Resolved back all the
+  // same, so a listed target is still one the run resolves.
+  const treePath = anchor.fingerprint.treePath;
+  const byPath =
+    treePath === null
+      ? null
+      : await resolveAnchor(
+          { id: anchor.id, fingerprint: fingerprintFromTarget({ treePath }) },
+          scan,
+        );
+  if (treePath === null || byPath?.element !== el || byPath.candidates !== 1) {
+    return null;
+  }
+  return { target: { treePath }, positional: true, anchor };
+}
+
+/** The most characters of the end page's text an answer carries. */
+export const END_PAGE_TEXT_MAX = 2_000;
+
+/** The page a run or probe ended on, as text (spec 2026-10-30 A2). */
+export interface EndPage {
+  url: string;
+  /** What the page shows (`innerText`), cut to END_PAGE_TEXT_MAX with "…". */
+  text: string;
+  /** Each form field and what it holds now, in document order; a
+   *  credential field is left out, value and all. */
+  fields: { target: ScriptTarget; value: string }[];
+}
+
+/** Fields whose `value` is not something a user typed or chose. */
+const NOT_FIELDS = new Set(["hidden", "submit", "button", "reset", "image"]);
+
+export async function readEndPage(env: ResolveEnv): Promise<EndPage> {
+  const doc = env.root;
+  const scan: ResolveEnv = { ...env, patch: NO_PATCH };
+  const all = (doc.body?.innerText ?? "").trim();
+  const text =
+    all.length <= END_PAGE_TEXT_MAX
+      ? all
+      : `${all.slice(0, END_PAGE_TEXT_MAX - 1)}…`;
+  const fields: EndPage["fields"] = [];
+  const candidates = Array.from(
+    doc.body?.querySelectorAll("input, textarea, select, [contenteditable]") ??
+      [],
+  ).filter(
+    (el) =>
+      !NOT_FIELDS.has((el.getAttribute("type") ?? "").toLowerCase()) &&
+      !isCredentialField(el),
+  );
+  for (const [i, el] of candidates.entries()) {
+    const kind = (el.getAttribute("type") ?? "").toLowerCase();
+    const value =
+      kind === "checkbox" || kind === "radio"
+        ? (el as HTMLInputElement).checked
+          ? "checked"
+          : "not checked"
+        : fieldValue(el);
+    const named = await nameTarget(el, i, scan);
+    // A field no target reaches is one no script can name or act on.
+    if (value === null || named === null) continue;
+    fields.push({ target: named.target, value });
+  }
+  return { url: doc.location?.href ?? "", text, fields };
+}
+
+/**
  * Every element a script could act on or scroll to, as a target the run
  * resolves (spec 2026-10-01-agent-bridge §4.1):
  *
@@ -216,58 +321,12 @@ export async function snapshotTargets(
     }
     const text = normalizeText(el.textContent);
     if (!passes(el, text)) continue;
-    const { anchor } = await captureAnchor(
-      el,
-      // Only `fingerprint` and `resolution.strategy` are read: nothing here
-      // is stored, so no url, action index or entry state is claimed.
-      { anchorId: `snapshot-${i}`, url: "", actionIndex: 0, entryState: false },
-      scan,
-    );
-    const named = targetFromFingerprint(
-      anchor.resolution.strategy,
-      anchor.fingerprint,
-    );
-    const namedBack =
-      named === null
-        ? null
-        : await resolveAnchor(
-            { id: anchor.id, fingerprint: fingerprintFromTarget(named) },
-            scan,
-          );
-    let target: ScriptTarget;
-    let positional = false;
-    if (
-      named !== null &&
-      namedBack?.element === el &&
-      namedBack.candidates === 1
-    ) {
-      target = named;
-    } else {
-      // Its name is shared (or it has none): its position names it, and a
-      // bare treePath resolves to at most one element. Resolved back all the
-      // same, so a listed target is still one the run resolves.
-      const treePath = anchor.fingerprint.treePath;
-      const byPath =
-        treePath === null
-          ? null
-          : await resolveAnchor(
-              {
-                id: anchor.id,
-                fingerprint: fingerprintFromTarget({ treePath }),
-              },
-              scan,
-            );
-      if (
-        treePath === null ||
-        byPath?.element !== el ||
-        byPath.candidates !== 1
-      ) {
-        unresolvable += 1;
-        continue;
-      }
-      target = { treePath };
-      positional = true;
+    const named = await nameTarget(el, i, scan);
+    if (named === null) {
+      unresolvable += 1;
+      continue;
     }
+    const { target, positional, anchor } = named;
     // Not shown means no rect, whatever layout says: a closed <details>'s
     // content keeps a real box under content-visibility: hidden (measured on
     // Chrome 151), and listing that box would put the hidden answer in the

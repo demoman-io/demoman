@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Degradation, FrameBundle } from "@demoman/compositor";
 import { replayPolicy } from "@demoman/replay-engine";
-import type { BrandKitsRead } from "@demoman/run-core";
+import type { BrandKitsRead, EndPage, RunReport } from "@demoman/run-core";
 import type { BrowserContext } from "playwright";
 import {
   afterAll,
@@ -17,6 +17,7 @@ import {
 } from "vitest";
 import { readDisplay } from "../src/display.js";
 import { createBrowserSession } from "../src/executor/browser.js";
+import { finalStillFor } from "../src/executor/final-still.js";
 import { createLibrary } from "../src/executor/library.js";
 import { installExecutorEntry } from "../src/executor/page-ops.js";
 import {
@@ -31,7 +32,8 @@ import {
 } from "../src/executor/sessions.js";
 import type { RunnerStore } from "../src/frame-store.js";
 import { installResolver } from "../src/page-agent.js";
-import { serveFixtureApp } from "./fixture.js";
+import { serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
+import { sampleImage } from "./mp4-probe.js";
 
 const lines: string[] = [];
 const log = (line: string) => void lines.push(line);
@@ -900,4 +902,87 @@ describe("a click the check could not pass, in the report", () => {
       },
     ]);
   }, 180_000);
+});
+
+// Spec 2026-10-30 A1/A2: a run's answer shows where it ended — the film's
+// own last frame on disk, and the page as text — so an agent can judge it
+// against its brief without pulling frames itself.
+describe("a run's end state", () => {
+  let report: RunReport;
+  let library: ReturnType<typeof createLibrary>;
+  beforeAll(async () => {
+    library = createLibrary(home);
+    report = await runScript(
+      script() as never,
+      {
+        session,
+        library,
+        kits,
+        log,
+        sessions: [],
+        sessionStore: createSessionStore(home),
+        signinCommand: "npx demoman signin",
+        loadSessions: async () => ({ ok: true as const, files: [] }),
+        sessionsContext: {} as BrowserContext,
+        finalStill: finalStillFor({
+          session,
+          library,
+          home,
+          wallpapersDir: WALLPAPERS_DIR,
+          log,
+        }),
+      },
+      () => undefined,
+    );
+  }, 180_000);
+
+  it("a run answer names its final still and its end page", async () => {
+    const said = JSON.stringify({ report, lines });
+    expect(report.outcome, said).toBe("complete");
+    const takeId = report.provenance.takeId as string;
+    expect(report.still, said).toEqual({
+      path: join(library.takeDir(takeId), "final-still.png"),
+    });
+    // The picture: a PNG no wider than 1280 px that is not one flat colour
+    // — the page's dark header (and the panel the click opened) beside the
+    // light table. Which frame it is, the last, is final-still.test.ts's.
+    const DARK: [number, number, number] = [17, 24, 39];
+    const WHITE: [number, number, number] = [255, 255, 255];
+    const read = await sampleImage(
+      await readFile(join(library.takeDir(takeId), "final-still.png")),
+      "image/png",
+      { colors: [DARK, WHITE] },
+    );
+    const [dark = 0, white = 0] = read.readings.at(-1)?.colorCounts ?? [];
+    const seen = JSON.stringify({ width: read.width, dark, white });
+    expect(read.width, seen).toBeLessThanOrEqual(1280);
+    expect(dark, seen).toBeGreaterThan(1000);
+    expect(white, seen).toBeGreaterThan(1000);
+
+    const end = report.endPage as EndPage;
+    expect(end.url, said).toBe(`${app.url}/`);
+    expect(end.text, said).toContain("Invoice 8891");
+    // The one field on the page, the search box, empty.
+    expect(
+      end.fields.map((f) => f.value),
+      said,
+    ).toEqual([""]);
+  }, 120_000);
+
+  it("report.json carries the path, never image bytes", async () => {
+    const takeId = report.provenance.takeId as string;
+    const text = await readFile(
+      join(library.takeDir(takeId), "report.json"),
+      "utf8",
+    );
+    // The premise: the run made a still, so there is a path to carry.
+    expect(report.still, JSON.stringify(report.still)).toHaveProperty("path");
+    expect(JSON.parse(text).still).toEqual(report.still);
+    // The premise: the still is a PNG, whose base64 starts with this.
+    const png = await readFile(
+      join(library.takeDir(takeId), "final-still.png"),
+    );
+    expect(png.toString("base64").startsWith("iVBORw0KGgo")).toBe(true);
+    expect(text).not.toContain("iVBORw0KGgo");
+  });
 });

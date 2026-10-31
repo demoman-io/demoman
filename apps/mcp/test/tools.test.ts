@@ -1,8 +1,19 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { failure, type Outcome, RUN_TOOL_CAP_MS } from "@demoman/agent-bridge";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { TOOL_ANNOTATIONS } from "../src/annotations";
 import { INSTRUCTIONS_CLI } from "../src/instructions";
 import type { Link } from "../src/local-link";
@@ -1651,5 +1662,131 @@ describe("demoman-mcp's tools", () => {
       reason: "takeNotFound",
       detail: "No take has the id nope.",
     });
+  });
+});
+
+// Spec 2026-10-30 A1: a run or probe answer shows its end as an image, after
+// the text that names the still's file — a client that drops images still
+// has the path, and the text says whether one was attached.
+describe("the final still on a run or probe answer", () => {
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  let dir: string;
+  let stillPath: string;
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "demoman-tools-still-"));
+    stillPath = join(dir, "final-still.png");
+    await writeFile(stillPath, PNG);
+  });
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+  const ran = (still: unknown): Outcome => ({
+    ok: true,
+    value: { summary: "Ran.", outcome: "complete", still },
+  });
+  type Block = {
+    type: string;
+    text?: string;
+    data?: string;
+    mimeType?: string;
+  };
+  const blocks = (r: unknown) => (r as { content: Block[] }).content;
+
+  // Review Focus 4. Red if the image goes first (every client reads
+  // content[0] as the answer), or is not attached.
+  it("run answers text first, naming the still, then the image", async () => {
+    const { client } = await connect({
+      run: async () => ran({ path: stillPath }),
+    });
+    const r = await client.callTool({ name: "run", arguments: { script: {} } });
+    expect(textOf(r)).toMatchObject({
+      outcome: "complete",
+      still: { path: stillPath, attached: true },
+    });
+    expect(blocks(r)[1]).toEqual({
+      type: "image",
+      data: PNG.toString("base64"),
+      mimeType: "image/png",
+    });
+    expect(blocks(r)).toHaveLength(2);
+  });
+
+  it("a probe's answer carries its still too", async () => {
+    const { client } = await connect({
+      probe: async () => ({
+        ok: true,
+        value: { targets: [], still: { path: stillPath } },
+      }),
+    });
+    const r = await client.callTool({
+      name: "probe",
+      arguments: { script: {} },
+    });
+    expect(blocks(r)[1]?.type).toBe("image");
+  });
+
+  it("report on a finished run carries the still", async () => {
+    let finish: (o: Outcome) => void = () => {};
+    const { client } = await connect(
+      {
+        run: () =>
+          new Promise<Outcome>((r) => {
+            finish = r;
+          }),
+      },
+      150,
+    );
+    await client.callTool({ name: "run", arguments: { script: {} } });
+    finish(ran({ path: stillPath }));
+    const later = await client.callTool({
+      name: "report",
+      arguments: { id: "id-1" },
+    });
+    expect(textOf(later)).toMatchObject({
+      still: { path: stillPath, attached: true },
+    });
+    expect(blocks(later)[1]?.type).toBe("image");
+  });
+
+  // Report before you forgive: a still file gone by now is said in the text.
+  it("says so in the text when the still's file cannot be read", async () => {
+    const gone = join(dir, "gone.png");
+    const { client } = await connect({ run: async () => ran({ path: gone }) });
+    const r = await client.callTool({ name: "run", arguments: { script: {} } });
+    expect(blocks(r)).toHaveLength(1);
+    const still = (textOf(r) as { still: Record<string, unknown> }).still;
+    expect(still.path).toBe(gone);
+    expect(still.attached).toBe(false);
+    expect(String(still.error)).toContain("ENOENT");
+  });
+
+  it("an unavailable still attaches nothing and keeps its reason", async () => {
+    const { client } = await connect({
+      run: async () => ran({ unavailable: "the run made no take" }),
+    });
+    const r = await client.callTool({ name: "run", arguments: { script: {} } });
+    expect(blocks(r)).toHaveLength(1);
+    expect(textOf(r)).toMatchObject({
+      still: { unavailable: "the run made no take" },
+    });
+  });
+
+  // Red if status were routed through the still: it echoes the last run.
+  it("status.runPage carries no image", async () => {
+    const { client } = await connect({
+      status: async () => ({
+        ok: true,
+        value: { runPage: { outcome: "complete", still: { path: stillPath } } },
+      }),
+    });
+    const r = await client.callTool({ name: "status", arguments: {} });
+    // The premise: the run page it echoes names a still.
+    expect(textOf(r)).toMatchObject({
+      runPage: { still: { path: stillPath } },
+    });
+    expect(blocks(r).map((b) => b.type)).toEqual(["text"]);
   });
 });

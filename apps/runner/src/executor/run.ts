@@ -10,6 +10,7 @@ import {
   type BrandKitsRead,
   buildRunReport,
   type FilmedCode,
+  type FinalStill,
   filmForRun,
   linksOf,
   loadRecording,
@@ -38,6 +39,7 @@ import {
   readLandingFacts,
 } from "./landing.js";
 import { type Library, LibraryError } from "./library.js";
+import { pageEndPage } from "./page-ops.js";
 import { playOnStage, prepareStage, stopDetail, walkedReason } from "./play.js";
 import type { SessionsLoaded } from "./session-loader.js";
 import {
@@ -147,6 +149,9 @@ export interface RunDeps {
   /** Tests only: the mux, so a test can make it throw. Defaults to
    *  `muxSpans`. */
   muxSpans?: typeof muxSpans;
+  /** Renders the take's film at its end (`finalStillFor`), never throwing.
+   *  Absent, the report says no still was made. */
+  finalStill?: (takeId: string) => Promise<FinalStill>;
 }
 
 /** One span's encode loss: `refused` of its `span.frames`, and whether
@@ -466,6 +471,8 @@ export async function runScript(
     throw error;
   }
   const { result, signedOutAfter, landingNote } = filmed;
+  // Read before anything else touches the page: where the steps left it.
+  const endPage = await pageEndPage(page);
 
   const signedOut = result.reason === "signedOut" || signedOutAfter !== null;
   // The walk as the report and the take's bookkeeping read it: re-labelled
@@ -631,8 +638,17 @@ export async function runScript(
     ...(detail === undefined ? {} : { detail }),
     size,
   });
+  // After the take is whole (scene, frames muxed): the film as it exports.
+  const still: FinalStill =
+    takeId === null
+      ? { unavailable: "the run made no take, so there is no film to show" }
+      : deps.finalStill === undefined
+        ? { unavailable: "this run was not asked to render a still" }
+        : await deps.finalStill(takeId);
   const report: RunReport = {
     ...built,
+    still,
+    endPage,
     ...(landingNote === undefined ? {} : { landing: landingNote }),
     ...(deps.refilm === undefined ? {} : { rerecord: deps.refilm }),
     ...(videoVersion === undefined ? {} : { videoVersion }),

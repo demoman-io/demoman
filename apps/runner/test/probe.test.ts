@@ -4,9 +4,11 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { EndPage } from "@demoman/run-core";
 import { type BrandKitsRead, checkScript } from "@demoman/run-core";
 import type { BrowserContext, Page } from "playwright";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { Rgb } from "../src/decode-probe-entry.js";
 import { createBrowserSession } from "../src/executor/browser.js";
 import { readLandingFacts } from "../src/executor/landing.js";
 import { createLibrary } from "../src/executor/library.js";
@@ -22,6 +24,7 @@ import { runScript } from "../src/executor/run.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import { snapshotOp } from "../src/executor/snapshot.js";
 import { installResolver } from "../src/page-agent.js";
+import { sampleImage } from "./mp4-probe.js";
 
 /**
  * `probeOp` against a page whose menu exists only once a button is clicked
@@ -59,7 +62,9 @@ beforeAll(async () => {
     res.end(
       req.url === "/security"
         ? '<!doctype html><title>Security</title><input type="password" aria-label="New password"><button>Change password</button>'
-        : html,
+        : req.url === "/form"
+          ? '<!doctype html><title>Form</title><p>Order form</p><input aria-label="Name"><input type="password" aria-label="Card PIN" value="hunter2">'
+          : html,
     );
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -389,6 +394,68 @@ describe("probeOp", () => {
       "could not be listed (probeThrew)",
     );
     expect(reply.endedUrl, said).toBeNull();
+  }, 120_000);
+
+  it("a probe answer carries a viewport still and the end page's fields", async () => {
+    const reply = await probe({
+      ...script([
+        { do: "type", into: { role: "textbox", name: "Name" }, text: "Ada" },
+      ]),
+      target: `${url}form`,
+    });
+    const said = JSON.stringify({ reply, lines });
+    expect(reply.stopped, said).toBeNull();
+    expect(reply.still, said).toEqual({ path: join(home, "probe-still.png") });
+    // The picture: the viewport, no wider than the cap, and not one flat
+    // colour — the page's black text on its white ground.
+    const BLACK: Rgb = [0, 0, 0];
+    const WHITE: Rgb = [255, 255, 255];
+    const read = await sampleImage(
+      await readFile(join(home, "probe-still.png")),
+      "image/png",
+      { colors: [BLACK, WHITE] },
+    );
+    const [black = 0, white = 0] = read.readings.at(-1)?.colorCounts ?? [];
+    expect([read.width, read.height], said).toEqual([1280, 800]);
+    expect(black, said).toBeGreaterThan(0);
+    expect(white, said).toBeGreaterThan(black);
+    // The end page: where it is, what it says, and what each field holds.
+    const end = reply.endPage as EndPage;
+    expect(end.url, said).toBe(`${url}form`);
+    expect(end.text, said).toContain("Order form");
+    expect(
+      end.fields.map((f) => f.value),
+      said,
+    ).toEqual(["Ada"]);
+    expect(end.fields[0]?.target, said).toEqual({
+      role: "textbox",
+      name: "Name",
+    });
+    // A credential field is left out, value and all. The premise: the page
+    // holds that value.
+    expect(said).not.toContain("hunter2");
+    const page = await stagePage("/form");
+    expect(await page.locator('input[type="password"]').inputValue()).toBe(
+      "hunter2",
+    );
+  }, 120_000);
+
+  it("a probe that did not load carries no still and says why", async () => {
+    const out = await probeOp(
+      enter(
+        script([
+          { do: "click", on: { role: "link", name: "Down" } },
+          openFilters,
+        ]),
+      ),
+      null,
+      deps(),
+    );
+    const reply = (out.ok ? out.value : null) as ProbeReply;
+    const said = JSON.stringify({ out, lines });
+    // The premise: it stopped on the page that did not load.
+    expect(reply?.stopped?.reason, said).toBe("pageDidNotLoad");
+    expect(reply.still, said).toEqual({ unavailable: "the page did not load" });
   }, 120_000);
 
   it("leaves no take behind", async () => {

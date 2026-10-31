@@ -296,6 +296,8 @@ export async function renderToFiles(input: {
   mp4Cap?: { maxBytes: number; share: RenderTarget; floor: RenderTarget };
   /** See `RenderManifest.stills`. */
   stills?: StillsOptions;
+  /** See `RenderManifest.outputTimesMs`. */
+  outputTimesMs?: number[];
   /** Marked at each of this render's stages (`stage-times.ts`). */
   times?: StageTimes;
 }): Promise<Rendered> {
@@ -312,6 +314,7 @@ export async function renderToFiles(input: {
     gifBudget,
     mp4Cap,
     stills,
+    outputTimesMs,
     times,
   } = input;
   const stamped: SceneDocument = {
@@ -375,6 +378,7 @@ export async function renderToFiles(input: {
       ...(gifBudget === undefined ? {} : { gifBudget }),
       ...(mp4Cap === undefined ? {} : { mp4Cap }),
       ...(stills === undefined ? {} : { stills }),
+      ...(outputTimesMs === undefined ? {} : { outputTimesMs }),
     });
     times?.mark("render");
     const { renderMs, framesMs, frameReads } = facts.timing;

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { IntentCapture } from "@demoman/replay-engine";
 import type { AnchorIntent } from "@demoman/resolver";
 import type { SnapshotRequest } from "@demoman/run-core";
-import { messageOf, type SnapshotReply } from "@demoman/run-core";
+import { type EndPage, messageOf, type SnapshotReply } from "@demoman/run-core";
 import type { BrowserContext, Page } from "playwright";
 import { bundleEntry } from "../bundle-js.js";
 import { EXECUTOR_ENTRY_GLOBAL } from "../entry-globals.js";
@@ -79,6 +79,29 @@ export function pageSnapshotTargets(
         : { failed: "pageFaulted", detail: said };
     }
   };
+}
+
+/** The page as text (`endPageHere`), or why it could not be read. */
+export async function pageEndPage(
+  page: Page,
+): Promise<EndPage | { unavailable: string }> {
+  try {
+    return (await withinDeadline(
+      page.evaluate(
+        ([global, noEntry]) => {
+          const e = (globalThis as Record<string, unknown>)[global] as
+            | { endPageHere(): Promise<unknown> }
+            | undefined;
+          if (e === undefined) throw new Error(noEntry);
+          return e.endPageHere();
+        },
+        [EXECUTOR_ENTRY_GLOBAL, NO_ENTRY] as const,
+      ),
+      "reading the end page",
+    )) as EndPage;
+  } catch (error) {
+    return { unavailable: `the page could not be read (${messageOf(error)})` };
+  }
 }
 
 /**

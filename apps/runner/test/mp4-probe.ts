@@ -117,13 +117,13 @@ export interface ImageSample {
 }
 
 /**
- * Decodes a GIF or PNG with WebCodecs' `ImageDecoder` and reads its frames
+ * Decodes a GIF, PNG or JPEG with WebCodecs' `ImageDecoder` and reads its frames
  * (first, last and about two dozen between) like `sampleMp4` reads a film.
  * Same page, same door.
  */
 export async function sampleImage(
   bytes: Uint8Array,
-  type: "image/gif" | "image/png",
+  type: "image/gif" | "image/png" | "image/jpeg",
   req: { colors: Rgb[]; blockPoints?: Point[] },
 ): Promise<ImageSample> {
   const request = sampleRequest(req);

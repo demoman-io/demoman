@@ -283,8 +283,9 @@ A video kept current in the repo (.demoman/videos) is rewritten by each run into
      step N: ...".)
    - `complete` - read `verdict`: `verdict.kind` is `"matches"` or
      `"diverged"`, and `verdict.diverged[]` lists each step the video does not
-     show the way the script asked. `matches` with every
-     `steps[i].candidates` at 1 means the steps are right.
+     show the way the script asked. `still`, the image after the text, is
+     the film's last frame: the verdict says the actions happened; look at `still` against the brief before you export or run again.
+     `endPage`: the end page's `url`, `text` and `fields`.
    - In any outcome, a step whose `textHidden` is set typed into a credential
      field (`"credentialField"`, or `"credentialUnchecked"` if the page could
      not say): its text is kept nowhere. Re-recording or deriving that take
@@ -350,23 +351,21 @@ user's default brand kit; a derived draft keeps its take's branding. The report'
 1. `export(takeId)` with the accepted run's `provenance.takeId`. It answers
    the export report, or `stillRunning` with an `id`; then call `report(id)`
    until the outcome is none of `exporting`, `stillRunning`.
-   `fileType` picks the file: `mp4` (the default), `gif` (plays inline in
-   a GitHub PR or issue), or `stills` (a PNG per step, in a folder); only
-   if asked. An MP4 follows Settings
+   `fileType`, only if asked: `mp4` (the default), `gif` (plays inline in
+   a GitHub PR or issue), or `stills` (a PNG per step, in a folder). An MP4 follows Settings
    (unset: ~1 MB/s); `quality: "full"` is largest.
    `export({ takeId, maxMB: 9.5 })` fits GitHub's 10 MB drag-in, or says
    it could not (the summary says what it cost).
-   A GIF is made as wide as the recording backs and fits 10 MB, up to twice
-   its usual width; `warnings.gifSize` says how wide, its size, and which
-   wider widths were refused; a GIF over 10 MB at its narrowest says so: offer the MP4.
-   Stills take `stills: { width, zoom }`, both optional. A
-   still is by default the whole window, up to 2560 px wide (no wider than the recording). `width` is px (320-3840) or `"native"`, the recording's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Pass
+   A GIF is as wide as fits 10 MB (`warnings.gifSize` says how wide and
+   which widths were refused); one over 10 MB at its narrowest says so: offer the MP4.
+   Stills take `stills: { width, zoom }`, both optional; by
+   default a still is the whole window, up to 2560 px wide (no wider than the recording). `width` is px (320-3840) or `"native"`, the recording's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Pass
    them only when asked.
 2. `saved` - the file is at `file.path`, absolute: in `~/Downloads`, or the
-   folder the server was started with `--out-dir`. For `stills`, `fileType`
+   server's `--out-dir`. For `stills`, `fileType`
    is `stills` and the answer carries `folder: { path, files }` instead of
    `file`: give the user `folder.path`; `warnings.unplacedStills` lists steps
-   that got no still. `summary` is one
+   with no still. `summary` is one
    sentence: what was saved and anything the user asked for that the file
    lacks (a logo, motion, a still, an edit). `warnings` holds more:
    Demoman's calls (`zooms`, `detailViolations`, a size cap's `steps`,
@@ -382,8 +381,7 @@ user's default brand kit; a derived draft keeps its take's branding. The report'
    only where it works: `studio`, `file` (the file itself) and `copy` (the
    file to the clipboard; none for stills). `linksError`, set instead, says
    why there are none: tell the user in one line.
-   Every export report carries a `summary` (`stillRunning`, this server's
-   own answer, does not).
+   Every export report carries a `summary` (`stillRunning` does not).
 3. `renderFailed` - export **once** more; never re-run the script for an
    export failure. `saveFailed` - its `error` names the folder and the
    system's reason (a folder that cannot be written): tell the user;

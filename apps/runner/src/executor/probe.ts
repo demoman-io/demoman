@@ -1,4 +1,6 @@
 // apps/runner/src/executor/probe.ts
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { failure, type Outcome } from "@demoman/agent-bridge";
 import {
   authoredTotal,
@@ -14,6 +16,8 @@ import {
   type BrandKitsRead,
   checkScript,
   containsNoteFor,
+  type EndPage,
+  type FinalStill,
   kitsForSnapshot,
   landedElsewhere,
   lookForRun,
@@ -29,8 +33,10 @@ import {
   SNAPSHOT_MAX_TARGETS,
 } from "@demoman/run-core/page";
 import type { DemoScript, SceneBranding } from "@demoman/scene-schema";
+import { withinDeadline } from "../page-deadline.js";
 import type { Stage } from "./browser.js";
-import { pageSnapshotTargets } from "./page-ops.js";
+import { STILL_MAX_WIDTH } from "./final-still.js";
+import { pageEndPage, pageSnapshotTargets } from "./page-ops.js";
 import {
   type PlayDeps,
   playOnStage,
@@ -85,6 +91,11 @@ export interface ProbeReply extends Snapshot {
     detail: string;
   };
   endedUrl: string | null;
+  /** The viewport where the steps ended, a PNG at `<home>/probe-still.png`
+   *  (one file, overwritten), or why there is none (spec 2026-10-30 A1). */
+  still: FinalStill;
+  /** The page where the steps ended, as text (spec 2026-10-30 A2). */
+  endPage: EndPage | { unavailable: string };
 }
 
 /** A script the probe may play, or the refusal the run door gives it. */
@@ -236,6 +247,17 @@ export async function probeOp(
     }
   }
 
+  // A page that did not load has nothing of the app's to show or read.
+  const unloaded =
+    (!listed.ok && listed.reason === "pageDidNotLoad") ||
+    stopped?.reason === "pageDidNotLoad";
+  const endPage: ProbeReply["endPage"] = unloaded
+    ? { unavailable: "the page did not load" }
+    : await pageEndPage(stage.page);
+  const still: FinalStill = unloaded
+    ? { unavailable: "the page did not load" }
+    : await viewportStill(stage, join(deps.home, "probe-still.png"));
+
   const value: ProbeReply = {
     url: script.target,
     landedUrl,
@@ -262,8 +284,48 @@ export async function probeOp(
     steps: { played: completed, of },
     stopped,
     endedUrl,
+    still,
+    endPage,
   };
   return { ok: true, value };
+}
+
+/**
+ * The stage's viewport as a PNG at `path`, no wider than STILL_MAX_WIDTH in
+ * pixels whatever the device scale the walk set. Through CDP, as Playwright's
+ * own `scale: "css"` does it (clip in document coordinates, scaled by
+ * 1/devicePixelRatio), with the extra factor that caps the width.
+ */
+async function viewportStill(stage: Stage, path: string): Promise<FinalStill> {
+  try {
+    const view = await withinDeadline(
+      stage.page.evaluate(() => ({
+        x: scrollX,
+        y: scrollY,
+        width: innerWidth,
+        height: innerHeight,
+        dpr: devicePixelRatio,
+      })),
+      "measuring the window for its still",
+    );
+    const fit = Math.min(1, STILL_MAX_WIDTH / view.width);
+    const shot = (await stage.cdp.send("Page.captureScreenshot", {
+      format: "png",
+      clip: {
+        x: view.x,
+        y: view.y,
+        width: view.width,
+        height: view.height,
+        scale: fit / view.dpr,
+      },
+    })) as { data: string };
+    await writeFile(path, Buffer.from(shot.data, "base64"));
+    return { path };
+  } catch (error) {
+    return {
+      unavailable: `the page's viewport could not be captured (${messageOf(error)})`,
+    };
+  }
 }
 
 /** The page the steps ended on, once it is ready, listed as snapshot lists. */

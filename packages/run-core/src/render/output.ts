@@ -300,6 +300,9 @@ export async function renderOutput(input: {
    *  stills render at `target`, framed as the video, as the extension's
    *  export panel — which names the size from `targetFor` — expects. */
   stills?: StillsOptions;
+  /** Stills only: the output instants to take, honoured exactly
+   *  (`renderStills`' own). Absent: one still per step. */
+  outputTimesMs?: number[];
 }): Promise<RenderOutput> {
   const { fileType, target, scene, bundle, frames, onFrame } = input;
   // Rasterised per output: an SVG is drawn at each target's own size. A
@@ -494,6 +497,9 @@ export async function renderOutput(input: {
         logo,
         wallpaper: wallpaper.image,
         ...(camera === undefined ? {} : { camera }),
+        ...(input.outputTimesMs === undefined
+          ? {}
+          : { outputTimesMs: input.outputTimesMs }),
         ...(onFrame === undefined ? {} : { onFrame }),
       });
     } finally {

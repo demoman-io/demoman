@@ -23,6 +23,7 @@ import type {
 } from "@demoman/scene-schema";
 import type { RunLook } from "../brand-kit.js";
 import type { RefilmInfo } from "../refilm/merge.js";
+import type { EndPage } from "../snapshot-walk.js";
 import type { RecordingReport } from "./fidelity.js";
 import type { FilmReport } from "./film.js";
 import { frozenRoutes, type NoticeRoute } from "./routes.js";
@@ -117,6 +118,9 @@ export type Executor = "extension" | "cli";
 export type FilmedCode =
   | { commit: string | null; tree: string; dirty: boolean }
   | { none: string };
+
+/** A run's or probe's last picture on disk, or why there is none. */
+export type FinalStill = { path: string } | { unavailable: string };
 
 export interface RunReport {
   run: {
@@ -225,6 +229,13 @@ export interface RunReport {
   account?: string;
   /** Present when Demoman signed in as the account for this run. */
   signedIn?: { account: string; steps: number; ms: number };
+  /** The film's last frame as export frames it, a PNG beside the take, or
+   *  why there is none (spec 2026-10-30 A1). A path, never the bytes: the
+   *  MCP tool attaches the image. Absent on a report written before it. */
+  still?: FinalStill;
+  /** The page the run ended on, as text, or why it could not be read
+   *  (spec 2026-10-30 A2). Absent on a report written before it. */
+  endPage?: EndPage | { unavailable: string };
   steps: StepReport[];
   provenance: {
     takeId: string | null;

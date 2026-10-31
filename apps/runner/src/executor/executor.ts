@@ -37,6 +37,7 @@ import { createBrowserSession } from "./browser.js";
 import { deriveOp, takesOp } from "./derive.js";
 import { expireOld, expiryStatus } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
+import { finalStillFor } from "./final-still.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { rewriteKept } from "./keep.js";
 import { readKits } from "./kits.js";
@@ -942,6 +943,13 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             sessionStore,
             signinCommand,
             scrub: sweep.scrubValue,
+            finalStill: finalStillFor({
+              session,
+              library,
+              home,
+              wallpapersDir: options.wallpapersDir,
+              log,
+            }),
             ...(chosen === null ? {} : { account: signInAgainAs(chosen) }),
           },
           (p: ReplayProgress) => {
