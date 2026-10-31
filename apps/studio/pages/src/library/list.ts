@@ -174,6 +174,7 @@ function entryRow(
       group === null ? r.name || r.label : group.video.name || r.label;
     row.setAttribute("data-scene", r.sceneId);
     row.setAttribute("aria-label", label);
+    if (footageOf(r, actions) !== "here") row.setAttribute("data-absent", "");
     if (group === null) {
       row.setAttribute("data-take", r.sceneId);
     } else {
@@ -236,6 +237,7 @@ function entryRow(
     row.setAttribute("aria-label", name);
     cells.name.append(el("span", { "data-name-text": "" }, name));
     const footage = footageOf(v, actions);
+    if (footage !== "here") row.setAttribute("data-absent", "");
     if (footage === "here") {
       const files = exportsList(v.exports);
       if (files !== null) cells.where.append(files);
@@ -307,8 +309,6 @@ export function renderList(
   for (const e of entries)
     setSize.set(e.parent, (setSize.get(e.parent) ?? 0) + 1);
   const seen = new Map<string | null, number>();
-  // Keys whose rows below are not shown: closed, or hidden themselves.
-  const shut = new Set<string>();
   const flows = new Map<string, VideoGroup>();
 
   for (const e of entries) {
@@ -318,8 +318,6 @@ export function renderList(
     row.setAttribute("aria-level", String(e.level));
     row.setAttribute("aria-posinset", String(pos));
     row.setAttribute("aria-setsize", String(setSize.get(e.parent)));
-    const hidden = e.parent !== null && shut.has(e.parent);
-    row.hidden = hidden;
     const opens =
       e.kind === "heading" || (e.kind === "flow" && e.flowId !== null);
     if (opens) {
@@ -328,14 +326,102 @@ export function renderList(
         was.collapsed.has(e.key) ||
         (byDefault && !(was.drawn?.has(e.key) ?? false));
       row.setAttribute("aria-expanded", String(!closed));
-      if (closed) shut.add(e.key);
     }
-    if (hidden) shut.add(e.key);
     if (e.kind === "flow" && e.flowId !== null) {
       row.setAttribute("aria-selected", "false");
     }
     grid.append(row);
   }
+  refold(grid);
+  listenForClicks(grid, actions);
   list.append(grid);
   return grid;
+}
+
+/** Hides every row under a closed row and shows the rest, from each row's
+ *  `aria-expanded`, in place: a redraw would cost focus and scroll. */
+function refold(grid: HTMLElement): void {
+  // shown[n]: whether the last row at level n shows its children.
+  const shown: boolean[] = [];
+  for (const row of grid.querySelectorAll<HTMLElement>(
+    "[role=row][data-key]",
+  )) {
+    const level = Number(row.getAttribute("aria-level"));
+    row.hidden = level > 1 && shown[level - 1] !== true;
+    shown[level] = !row.hidden && row.getAttribute("aria-expanded") !== "false";
+  }
+}
+
+/** Opens or closes a heading or flow row, and shows or hides its rows. */
+export function setExpanded(row: HTMLElement, open: boolean): void {
+  row.setAttribute("aria-expanded", String(open));
+  const grid = row.closest<HTMLElement>("[data-list]");
+  if (grid !== null) refold(grid);
+}
+
+/** The flows on screen, in page order: what a Shift-click ranges over. */
+const onScreen = (grid: HTMLElement): string[] =>
+  [
+    ...grid.querySelectorAll<HTMLElement>(
+      "[role=row][data-flow]:not([hidden])",
+    ),
+  ].map((r) => r.dataset.flow as string);
+
+/**
+ * A click opens, as a card's does (§4.2), with the card's exceptions
+ * (view.ts `row()`): the chevron or a heading only folds; a checkbox,
+ * button or link does its own thing; a click that ends a text selection or
+ * a rename does nothing; a video with no footage here does nothing. While
+ * flows are ticked, or with Cmd or Shift, a click on a flow selects it.
+ */
+function listenForClicks(grid: HTMLElement, actions: LibraryActions): void {
+  // The click that ends a rename: the press blurs the field before the
+  // click lands, so what was focused at the press decides.
+  let nameWasFocused = false;
+  grid.addEventListener("pointerdown", () => {
+    const active = document.activeElement;
+    nameWasFocused =
+      active?.matches("[data-name]") === true && grid.contains(active);
+  });
+  grid.addEventListener("click", (event) => {
+    const target = event.target as Element;
+    const row = target.closest<HTMLElement>("[role=row][data-key]");
+    if (row === null || nameWasFocused) return;
+    const flowId = row.dataset.flow;
+    const select = (): void =>
+      actions.select?.(
+        flowId as string,
+        event.shiftKey ? "range" : "toggle",
+        onScreen(grid),
+      );
+    if (
+      row.hasAttribute("aria-expanded") &&
+      (row.dataset.heading !== undefined ||
+        target.closest('[data-col="open"]') !== null)
+    ) {
+      setExpanded(row, row.getAttribute("aria-expanded") === "false");
+      return;
+    }
+    // The box toggles itself; not cancelled, as the card's is not.
+    if (target.matches("[data-select]")) {
+      select();
+      return;
+    }
+    if (target.closest("button, input, a")) return;
+    if (
+      flowId !== undefined &&
+      actions.select !== undefined &&
+      (grid.closest("[data-selecting]") !== null ||
+        event.metaKey ||
+        event.shiftKey)
+    ) {
+      select();
+      return;
+    }
+    if ((window.getSelection()?.toString() ?? "") !== "") return;
+    // Nothing to open: the Where cell says what to do.
+    if (row.hasAttribute("data-absent")) return;
+    const scene = row.dataset.scene;
+    if (scene !== undefined) actions.edit(scene);
+  });
 }

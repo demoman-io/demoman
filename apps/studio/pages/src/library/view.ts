@@ -7,7 +7,7 @@ import { setCodeText } from "../shell/code-spans";
 import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
-import { collapsedKeys, renderList } from "./list";
+import { collapsedKeys, renderList, setExpanded } from "./list";
 import { whereOf } from "./list-model";
 import { previewText } from "./preview";
 import type { SelectHow, Selection } from "./selection";
@@ -1290,6 +1290,9 @@ function jumpList(
     link.addEventListener("click", () => {
       const target = document.getElementById(id);
       if (target instanceof HTMLDetailsElement) target.open = true;
+      else if (target?.getAttribute("aria-expanded") === "false") {
+        setExpanded(target, true);
+      }
     });
     list.append(link);
   }

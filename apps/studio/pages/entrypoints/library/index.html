@@ -508,6 +508,15 @@
       [data-selecting] article[data-video] :is([data-action="edit"], [data-action="delete"]) {
         display: none;
       }
+      /* The list's own: in its cell, not the thumbnail's corner. */
+      .library-list .select-box {
+        position: static;
+      }
+      /* The list's flow rows likewise, by visibility: a row's actions keep
+         their cell, so nothing moves (list spec §2.1, §4.2). */
+      [data-selecting] .library-list [data-flow] > [data-col="actions"] {
+        visibility: hidden;
+      }
       article.card[data-selected] {
         box-shadow: inset 0 0 0 2px var(--ink);
       }
