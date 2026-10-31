@@ -46,9 +46,9 @@ export async function deliver(
   deps: { git: GitRunner; gh: Gh },
 ): Promise<Delivered> {
   const { route, repoRoot, result, named, runUrl } = args;
-  const replaced = result.videos.filter(toCommit);
-  if (replaced.length === 0) {
-    const nothing = "no video was replaced";
+  const updated = result.videos.filter(toCommit);
+  if (updated.length === 0) {
+    const nothing = "no video changed";
     if (route === "main")
       return { delivered: "nothing", ok: true, detail: nothing };
     // A failed video may still be out of date: the open PR's proposal for it stands.
@@ -80,7 +80,7 @@ export async function deliver(
       "close",
       String(found.open),
       "--comment",
-      `Demoman's latest refresh replaced no video, so the videos proposed here are out of date.${runUrl === null ? "" : ` Run: ${runUrl}`}`,
+      `Demoman's latest refresh changed no video, so the videos proposed here are out of date.${runUrl === null ? "" : ` Run: ${runUrl}`}`,
     ]);
     if (close.code !== 0)
       return failed(`closing pull request #${found.open} (gh pr close)`, close);
@@ -101,8 +101,8 @@ export async function deliver(
     }) as Delivered;
   const git = (a: string[]) => deps.git(a, repoRoot);
 
-  const paths = [...new Set(replaced.flatMap((v) => v.outputs))];
-  const bodyText = replaced.map((v) => `- ${v.name}`).join("\n");
+  const paths = [...new Set(updated.flatMap((v) => v.outputs))];
+  const bodyText = updated.map((v) => `- ${v.name}`).join("\n");
   const here = await git(["rev-parse", "--abbrev-ref", "HEAD"]);
   if (here.code !== 0) return fail("git rev-parse", here);
   const base = here.stdout.trim();
@@ -159,7 +159,7 @@ export async function deliver(
     return {
       delivered: "main",
       ok: true,
-      detail: `committed ${replaced.length} video(s) on ${base}`,
+      detail: `committed ${updated.length} video(s) on ${base}`,
     };
   }
 
@@ -167,11 +167,11 @@ export async function deliver(
   if (push.code !== 0) return fail("git push", push);
 
   const body = [
-    `Demoman filmed the kept flows again and replaced ${replaced.length}.`,
+    `Demoman filmed the kept flows again and updated ${updated.length}.`,
     "",
     'Videos cannot be attached with the workflow\'s token: open each file under "Files changed" to play it.',
     "",
-    ...replaced.flatMap((v) => [
+    ...updated.flatMap((v) => [
       `- ${v.line ?? `\`${v.name}\``}`,
       ...v.outputs.map((o) => `  - \`${o}\``),
       ...v.notes.map((n) => `  - ${n}`),

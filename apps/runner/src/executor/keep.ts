@@ -8,6 +8,7 @@ import {
   realpath,
   rename,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -340,6 +341,7 @@ export async function keepVideo(
             receiptVersion: 1,
             flow: video.id,
             video: built.takeId,
+            filmedAt: filmedAtOf(runReport),
             filmedCode: filmedCodeOf(runReport),
             screens,
             recordedRevision: made.from.recordedRevision,
@@ -851,6 +853,19 @@ function filmedCodeOf(
   );
 }
 
+/** When the run started (ISO), from its report; null when not known. */
+export function filmedAtOf(
+  report: Awaited<ReturnType<Library["getJson"]>> | null,
+): string | null {
+  const at =
+    report !== null && "value" in report
+      ? (report.value as Partial<RunReport>).run?.startedAt
+      : undefined;
+  return typeof at === "number" && Number.isFinite(at)
+    ? new Date(at).toISOString()
+    : null;
+}
+
 /** What a re-film does not carry, named the way `keep` refuses it. */
 export function leftBehind(refilm: RefilmInfo): string[] {
   return [
@@ -866,7 +881,11 @@ export function leftBehind(refilm: RefilmInfo): string[] {
  * Studio edits, the kept file lacks; null when it does not. Edited is read
  * against the scene revision `keep` recorded, not the membership's `edited`
  * flag, which is also true for edits carried into the file at keep time.
- * A library that cannot be read is said, never taken for "nothing newer".
+ * A receipt whose video this library does not hold (a refresh filmed it in a
+ * library thrown away after) is read by time: the library is ahead only
+ * when its current version was made, or its scene saved, after the
+ * receipt's video was filmed. A library that cannot be read, or a receipt
+ * that does not say when, is said, never taken for "nothing newer".
  */
 export async function libraryAhead(
   kept: KeptVideo,
@@ -888,11 +907,25 @@ export async function libraryAhead(
     if (read === null) {
       return `the library's current video of "${kept.name}" (${current.takeId}) has no scene.json, so whether it is ahead of ${file} cannot be told`;
     }
-    if (
-      current.takeId === receipt.video &&
-      read.revision === receipt.recordedRevision
-    )
-      return null;
+    let since = "";
+    if (all.some((v) => v.takeId === receipt.video)) {
+      if (
+        current.takeId === receipt.video &&
+        read.revision === receipt.recordedRevision
+      )
+        return null;
+    } else {
+      if (receipt.filmedAt === null) {
+        return `whether the library is ahead of ${file} cannot be told: its receipt names video ${receipt.video}, which this library does not have, and does not say when it was filmed`;
+      }
+      const filmed = Date.parse(receipt.filmedAt);
+      const saved = (
+        await stat(join(deps.library.takeDir(current.takeId), "scene.json"))
+      ).mtimeMs;
+      if (!(Date.parse(current.createdAt) > filmed || saved > filmed))
+        return null;
+      since = ` since it was filmed at ${receipt.filmedAt}`;
+    }
     const left = leftBehind({
       from: current.takeId,
       notCarried: notCarriedOf(read.scene),
@@ -901,7 +934,7 @@ export async function libraryAhead(
         sentence,
       })),
     });
-    return `the library has a newer video or Studio edits not in ${file}; run \`demoman keep ${kept.name}\` again to take them${left.length > 0 ? ` (keep will refuse the edits a re-film does not carry: ${left.join(", ")})` : ""}`;
+    return `the library has a newer video or Studio edits not in ${file}${since}; run \`demoman keep ${kept.name}\` again to take them${left.length > 0 ? ` (keep will refuse the edits a re-film does not carry: ${left.join(", ")})` : ""}`;
   } catch (error) {
     return `whether the library is ahead of ${file} cannot be told: ${messageOf(error)}`;
   }

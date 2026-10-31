@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,7 +23,7 @@ import {
 } from "@demoman/run-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type RefreshDeps, refreshKept } from "../src/executor/refresh.js";
-import type { VideoStore } from "../src/executor/videos.js";
+import type { Version, VideoStore } from "../src/executor/videos.js";
 
 const FLOW = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
 const NAME = "Place an order";
@@ -25,6 +32,8 @@ const RECEIPT = `${RECEIPT_DIR}/${keptFileName(NAME)}`;
 const MP4 = "docs/o.mp4";
 const GIF = "docs/o.gif";
 const FILMED = "a".repeat(40);
+/** When the fake run started: what a refresh-written receipt's filmedAt says. */
+const STARTED = "2026-10-31T12:00:00.000Z";
 const OLD: KeptScreens = { steps: 1, moments: [{ step: null, ms: 500 }] };
 const NEW: KeptScreens = { steps: 1, moments: [{ step: null, ms: 700 }] };
 
@@ -55,6 +64,7 @@ const receipt = (more: Partial<KeptReceipt> = {}): KeptReceipt => ({
   receiptVersion: 1,
   flow: FLOW,
   video: "t1",
+  filmedAt: null,
   filmedCode: { none: "test" },
   screens: OLD,
   recordedRevision: "r1",
@@ -72,6 +82,8 @@ let compared: { committed: KeptScreens; fresh: KeptScreens }[];
 let same: boolean;
 /** Run while filming: what changes in the repo between the read and the write. */
 let duringRun: (() => Promise<void>) | null;
+/** Whether the fake run filmed uncommitted changes. */
+let dirty: boolean;
 
 beforeEach(async () => {
   repo = await mkdtemp(join(tmpdir(), "demoman-receipt-"));
@@ -98,6 +110,7 @@ beforeEach(async () => {
   compared = [];
   same = true;
   duringRun = null;
+  dirty = false;
 });
 afterEach(() => rm(repo, { recursive: true, force: true }));
 
@@ -125,11 +138,12 @@ const deps = (): RefreshDeps => ({
               verdict: { kind: "matches" },
               frames: { degradations: [] },
               steps: [{}],
+              run: { startedAt: Date.parse(STARTED) },
               provenance: { takeId: "t-new" },
               filmedCode: {
                 commit: FILMED,
                 tree: "b".repeat(40),
-                dirty: false,
+                dirty,
               },
             },
           };
@@ -307,5 +321,106 @@ describe("a refresh against the receipt", () => {
     expect(v.outcome, JSON.stringify(v)).toBe("failed");
     expect(v.detail).toContain(`wrote ${MP4}, then could not write`);
     expect(v.outputs).toEqual([MP4]);
+  });
+  it("a dirty film's PR line says it filmed uncommitted changes", async () => {
+    await writeV2();
+    same = false;
+    dirty = true;
+    const v = await one();
+    // Premise: the report the line reads says dirty.
+    expect(v.filmedCode).toMatchObject({ commit: FILMED, dirty: true });
+    expect(v.line).toContain("uncommitted");
+  });
+});
+
+describe("a local refresh after a refresh wrote the receipt", () => {
+  const version = (takeId: string, createdAt: string): Version => ({
+    takeId,
+    number: 1,
+    createdAt,
+    complete: true,
+    edited: false,
+    hasScript: true,
+    expired: null,
+  });
+  /** The user's library: the flow, its one version, and a scene.json
+   *  last saved at `saved`. */
+  const local = async (createdAt: string, saved: string) => {
+    const take = join(repo, "user-take");
+    await mkdir(take, { recursive: true });
+    await writeFile(join(take, "scene.json"), "{}");
+    await utimes(join(take, "scene.json"), new Date(saved), new Date(saved));
+    const d = deps();
+    d.videos = {
+      get: async () => ({ id: FLOW, name: NAME }),
+      versions: async () => [version("t-user", createdAt)],
+    } as unknown as VideoStore;
+    d.library = {
+      takeDir: () => take,
+      getSceneRead: async () => ({
+        scene: { edits: { masks: [], holds: [] }, camera: [] },
+        revision: "r-user",
+        notes: [],
+      }),
+    } as unknown as RefreshDeps["library"];
+    return d;
+  };
+  const refreshedOnce = async () => {
+    await writeV2();
+    same = false;
+    await one();
+    const r = parseReceipt(
+      await readFile(join(repo, RECEIPT), "utf8"),
+      RECEIPT,
+    );
+    if (!r.ok) throw new Error(r.detail);
+    // Premise: the receipt names a take the user's library does not hold,
+    // and when it was filmed.
+    expect(r.receipt).toMatchObject({ video: "t-new", filmedAt: STARTED });
+  };
+  const localNotes = async (d: RefreshDeps) =>
+    (await refreshKept({ repoRoot: repo, library: "local" }, d)).videos[0]
+      ?.notes;
+
+  it("says nothing about the user's older video", async () => {
+    await refreshedOnce();
+    expect(
+      await localNotes(
+        await local("2026-10-30T09:00:00.000Z", "2026-10-30T09:00:01.000Z"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("says the library is ahead when its version was made after the film", async () => {
+    await refreshedOnce();
+    const [note, ...rest] =
+      (await localNotes(
+        await local("2026-10-31T13:00:00.000Z", "2026-10-31T13:00:01.000Z"),
+      )) ?? [];
+    expect(note).toContain(`not in ${FILE} since it was filmed at ${STARTED}`);
+    expect(rest).toEqual([]);
+  });
+
+  it("says the library is ahead when its scene was saved after the film", async () => {
+    await refreshedOnce();
+    expect(
+      (
+        await localNotes(
+          await local("2026-10-30T09:00:00.000Z", "2026-10-31T13:00:00.000Z"),
+        )
+      )?.[0],
+    ).toContain("Studio edits");
+  });
+
+  it("with no filmedAt, says it cannot be told, never that the library is ahead", async () => {
+    await writeV2(recipe(), receipt({ video: "t-gone", filmedAt: null }));
+    const [note] =
+      (await localNotes(
+        await local("2026-10-31T13:00:00.000Z", "2026-10-31T13:00:01.000Z"),
+      )) ?? [];
+    expect(note).toContain(
+      `whether the library is ahead of ${FILE} cannot be told`,
+    );
+    expect(note).not.toContain("has a newer video");
   });
 });

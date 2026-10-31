@@ -10,6 +10,7 @@ const receipt: KeptReceipt = {
   receiptVersion: 1,
   flow: "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90",
   video: "t1",
+  filmedAt: "2026-10-31T12:00:00.000Z",
   filmedCode: { commit: "abc123", tree: "def456", dirty: false },
   screens: {
     steps: 2,
@@ -48,6 +49,18 @@ describe("the receipt", () => {
     const text = serializeReceipt(none);
     expect(JSON.parse(text).filmedCode).toEqual({ none: "x" });
     expect(parseReceipt(text, "r.json")).toEqual({ ok: true, receipt: none });
+  });
+
+  it("reads a receipt without filmedAt as unknown, and refuses one that is no time", () => {
+    const { filmedAt: _gone, ...older } = JSON.parse(serializeReceipt(receipt));
+    expect(_gone, "premise: the fixture has a filmedAt").toBe(receipt.filmedAt);
+    expect(parseReceipt(JSON.stringify(older), "r.json")).toEqual({
+      ok: true,
+      receipt: { ...receipt, filmedAt: null },
+    });
+    expect(refusal(withChange({ filmedAt: "yesterday" }))).toContain(
+      "filmedAt must be an ISO time or null",
+    );
   });
 
   it("refuses a flow that is not a flow id, naming flow", () => {

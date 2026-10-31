@@ -141,7 +141,7 @@ describe("deliver", () => {
     return r;
   };
 
-  it("delivers nothing when nothing was replaced: no commit; pr only looks for an open PR", async () => {
+  it("delivers nothing when nothing changed: no commit; pr only looks for an open PR", async () => {
     const before = count();
     script = { "pr list": { stdout: "[]" } };
     const a = await run("pr", unchanged());
@@ -151,18 +151,18 @@ describe("deliver", () => {
     expect(a).toEqual({
       delivered: "nothing",
       ok: true,
-      detail: "no video was replaced",
+      detail: "no video changed",
     });
     expect(b).toEqual({
       delivered: "nothing",
       ok: true,
-      detail: "no video was replaced",
+      detail: "no video changed",
     });
     expect(count()).toBe(before);
     expect(calls()).toEqual([]);
   });
 
-  it("pr with nothing replaced closes the open refresh PR, whose videos are now wrong", async () => {
+  it("pr with nothing changed closes the open refresh PR, whose videos are now wrong", async () => {
     script = {
       "pr list": { stdout: '[{"number":12}]' },
       "pr close": { stdout: "closed" },
@@ -172,19 +172,20 @@ describe("deliver", () => {
     expect(close).toHaveLength(1);
     expect(close[0]?.[2]).toBe("12");
     expect(close[0]).toContain("--comment");
+    expect(close[0]?.join(" ")).toContain("changed no video");
     expect(a.ok).toBe(true);
     expect(a.delivered).toBe("nothing");
-    expect(a.detail).toContain("no video was replaced");
+    expect(a.detail).toContain("no video changed");
     expect(a.detail).toContain("closed pull request #12");
   });
 
-  it("pr with nothing replaced but a video failed leaves the open refresh PR alone", async () => {
+  it("pr with nothing changed but a video failed leaves the open refresh PR alone", async () => {
     const r = unchanged();
     r.videos = [
       ...r.videos,
       { ...r.videos[0], name: "Broken", outcome: "failed", detail: "x" },
     ] as typeof r.videos;
-    // Premise: nothing was replaced, and one video failed.
+    // Premise: nothing changed, and one video failed.
     expect(r.videos.map((v) => v.outcome)).toEqual(["unchanged", "failed"]);
     script = { "pr list": { stdout: '[{"number":12}]' } };
     const a = await run("pr", r);
@@ -193,11 +194,11 @@ describe("deliver", () => {
       delivered: "nothing",
       ok: true,
       detail:
-        "no video was replaced; the open refresh pull request stays, because a flow failed",
+        "no video changed; the open refresh pull request stays, because a flow failed",
     });
   });
 
-  it("pr with nothing replaced in a refresh of named videos leaves the open refresh PR alone", async () => {
+  it("pr with nothing changed in a refresh of named videos leaves the open refresh PR alone", async () => {
     script = { "pr list": { stdout: '[{"number":12}]' } };
     const a = await run("pr", unchanged(), true);
     expect(calls().filter((c) => c[1] === "close")).toEqual([]);
@@ -205,11 +206,11 @@ describe("deliver", () => {
       delivered: "nothing",
       ok: true,
       detail:
-        "no video was replaced; the open refresh pull request stays, because only the named flows were filmed",
+        "no video changed; the open refresh pull request stays, because only the named flows were filmed",
     });
   });
 
-  it("pr with nothing replaced reports a gh failure while listing or closing", async () => {
+  it("pr with nothing changed reports a gh failure while listing or closing", async () => {
     script = { "pr list": { code: 1, stderr: "HTTP 502 bad gateway" } };
     const a = await run("pr", unchanged());
     expect(a.ok).toBe(false);
@@ -313,6 +314,9 @@ describe("deliver", () => {
     ).toContain("[skip demoman]");
     expect(create[0]).toContain("demoman/refresh");
     const body = bodyOf(create[0]);
+    expect(body).toContain(
+      "Demoman filmed the kept flows again and updated 1.",
+    );
     expect(body).toContain("Demo: `Add a task` · 4.5 s · matches");
     expect(body).toContain("docs/add-task.mp4");
     expect(body).toContain("https://github.com/o/r/actions/runs/9");

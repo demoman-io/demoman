@@ -201,6 +201,7 @@ export function parseKept(text: string, file: string): Parsed {
       receiptVersion: RECEIPT_VERSION,
       flow,
       video: f.takeId as string,
+      filmedAt: null,
       filmedCode: { none: "kept before receipts were recorded" },
       screens: sc.screens,
       recordedRevision: f.recordedRevision as string,

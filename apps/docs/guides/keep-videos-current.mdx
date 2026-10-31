@@ -106,7 +106,7 @@ opens no pull request, says so, and exits 1.
 
 Refresh force-pushes `demoman/refresh` and opens one pull request titled
 "Refresh demo videos", or updates the open one. The description lists each
-replaced video and its files, and any flow that failed. A workflow token
+updated video and its files, and any flow that failed. A workflow token
 cannot attach a video, so open the files under "Files changed" to play
 them. Commits that were on `demoman/refresh` before the run are replaced,
 and the description says so.
@@ -125,7 +125,7 @@ message and does nothing when it finds any of them. A rebase merge keeps
 the bot's commit message. If you rename the pull request before squashing
 it, one more refresh runs; it replaces only a video whose picture changed.
 
-When no video was replaced, nothing is committed. On the pull request
+When no video changed, nothing is committed. On the pull request
 route, when every kept video was filmed and came back unchanged, an open
 refresh pull request is then closed with a comment: its videos are out of
 date. When a video failed, or only named videos were refreshed, the pull

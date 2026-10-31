@@ -21,7 +21,13 @@ import {
 import type { DemoScript } from "@demoman/scene-schema";
 import { codeClause, prLine } from "./attach.js";
 import type { BrowserSession } from "./browser.js";
-import { libraryAhead, place, readReceiptFile, repoPath } from "./keep.js";
+import {
+  filmedAtOf,
+  libraryAhead,
+  place,
+  readReceiptFile,
+  repoPath,
+} from "./keep.js";
 import { readKeptFlows } from "./kept-flows.js";
 import { createLibrary, type Library } from "./library.js";
 import { samePicture } from "./same-picture.js";
@@ -563,6 +569,7 @@ async function deliverOne(
           receiptVersion: 1,
           flow: kept.flow,
           video: takeId,
+          filmedAt: filmedAtOf({ value: report }),
           filmedCode: filmedCode ?? {
             none: "the run report records no filmed code",
           },

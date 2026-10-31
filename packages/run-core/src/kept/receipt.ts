@@ -12,6 +12,9 @@ export type KeptReceipt = {
   flow: string;
   /** The take id of the video the files were rendered from. */
   video: string;
+  /** When that video's run started (ISO), from its report; null when it is
+   *  not known, which is never read as "now". */
+  filmedAt: string | null;
   filmedCode: FilmedCode;
   screens: KeptScreens;
   /** The scene revision the files were built from; `libraryAhead` reads it. */
@@ -131,6 +134,13 @@ export function parseReceipt(text: string, file: string): Parsed {
     return bad("flow must be a flow id");
   if (typeof raw.video !== "string" || raw.video === "")
     return bad("video must be a non-empty string");
+  // Missing in a receipt written before it was recorded: unknown.
+  const filmedAt = raw.filmedAt ?? null;
+  if (
+    filmedAt !== null &&
+    (typeof filmedAt !== "string" || Number.isNaN(Date.parse(filmedAt)))
+  )
+    return bad("filmedAt must be an ISO time or null");
   const fc = raw.filmedCode;
   let filmedCode: FilmedCode;
   if (isObj(fc) && typeof fc.none === "string" && fc.none !== "")
@@ -155,6 +165,7 @@ export function parseReceipt(text: string, file: string): Parsed {
       receiptVersion: RECEIPT_VERSION,
       flow: raw.flow,
       video: raw.video,
+      filmedAt,
       filmedCode,
       screens: screens.screens,
       recordedRevision,
@@ -167,6 +178,7 @@ export function serializeReceipt(r: KeptReceipt): string {
     receiptVersion: r.receiptVersion,
     flow: r.flow,
     video: r.video,
+    filmedAt: r.filmedAt,
     filmedCode: r.filmedCode,
     recordedRevision: r.recordedRevision,
     // `window` and `look` only when recorded, as the recipe once wrote them.

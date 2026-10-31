@@ -44,6 +44,7 @@ const committed: KeptReceipt = {
   receiptVersion: 1,
   flow: FLOW_ID,
   video: "t1",
+  filmedAt: null,
   filmedCode: { none: "test" },
   screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
   recordedRevision: "r1",
@@ -82,7 +83,11 @@ const deps = (): RefreshDeps => ({
       reads++;
       return { id: FLOW_ID, name: NAME };
     },
-    versions: async () => [version(current.takeId)],
+    // The flow's versions: the kept t1, and any newer one after it.
+    versions: async () =>
+      current.takeId === "t1"
+        ? [version("t1")]
+        : [version("t1"), version(current.takeId)],
   } as unknown as VideoStore,
   library: {
     getSceneRead: async () => ({
