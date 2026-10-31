@@ -891,9 +891,8 @@ describe("attach", () => {
       'no pull requests found for branch "feat/x"',
     );
     // Red if a PR that is not there yet is sent straight to a drag-in.
-    expect(answer.detail).toContain(
-      "If there is no pull request yet, open it and attach again",
-    );
+    expect(answer.detail).toContain("Open the pull request, then attach again");
+    expect(answer.detail).not.toContain("export({ takeId, maxMB: 9.5 })");
     expect(workPages).toBe(0);
   });
 
@@ -934,6 +933,9 @@ describe("attach", () => {
       expect(answer.detail).toContain(names);
       expect(answer.detail).toContain("export({ takeId, maxMB: 9.5 })");
       expect(answer.detail).toContain("file.path to drag into the PR");
+      // Red if an outage tells the agent to open a PR: it could open a
+      // second one.
+      expect(answer.detail).not.toContain("Open the pull request");
       expect(workPages).toBe(0);
     },
   );
@@ -948,10 +950,13 @@ describe("attach", () => {
     git("init", "-q");
     git("remote", "add", "origin", "git@gitlab.com:acme/web.git");
     git("remote", "add", "mirror", "https://bitbucket.org:8443/acme/web.git");
+    // A path remote names no host, and must not keep gh's refusal alive.
+    git("remote", "add", "local", "../upstream.git");
     // Premise: git lists both remotes, and neither is on GitHub.
     const listed = git("remote", "-v");
     expect(listed).toContain("gitlab.com");
     expect(listed).toContain("bitbucket.org");
+    expect(listed).toContain("../upstream.git");
     expect(listed).not.toContain("github");
     await writeFile(scriptPath, JSON.stringify({}));
     missingOn = "--version";
@@ -964,6 +969,7 @@ describe("attach", () => {
     expect(answer.detail).toContain("gitlab.com");
     expect(answer.detail).toContain("bitbucket.org,");
     expect(answer.detail).not.toContain("brew install gh");
+    expect(answer.detail).not.toMatch(/\.\.[,\s]/);
     expect(answer.detail).toContain("export({ takeId, maxMB: 9.5 })");
     // Premise: gh was asked and was missing; the remotes decided the reason.
     expect(calls()).toEqual(["--version"]);
@@ -982,6 +988,24 @@ describe("attach", () => {
       const kept = await attach({ into: "description", project: gitlab });
       expect(kept, url).toMatchObject({ reason: "ghMissing" });
     }
+  });
+
+  // Red if remotes git could not read are taken for remotes elsewhere, or
+  // the reason goes unsaid.
+  it("a project git cannot read keeps gh's refusal, and logs why", async () => {
+    const plain = await mkdtemp(join(dir, "plain-"));
+    // Premise: not a git checkout, so `git remote -v` fails there.
+    expect(() =>
+      execFileSync("git", ["remote", "-v"], { cwd: plain, stdio: "pipe" }),
+    ).toThrow();
+    await writeFile(scriptPath, JSON.stringify({}));
+    missingOn = "--version";
+    lines.length = 0;
+    const answer = await attach({ into: "description", project: plain });
+    expect(answer, JSON.stringify(answer)).toMatchObject({
+      reason: "ghMissing",
+    });
+    expect(lines.join("\n")).toContain("could not read the remotes");
   });
 
   // Red if a gh refusal stops saying how to attach by hand with a file a

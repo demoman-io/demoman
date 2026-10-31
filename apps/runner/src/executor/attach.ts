@@ -110,6 +110,8 @@ export interface AttachDeps {
 const BY_HAND =
   "To attach it by hand, export({ takeId, maxMB: 9.5 }) and give the user that file.path to drag into the PR; the browser refuses video over 10 MB on a free plan.";
 
+const NO_PR_FOR_BRANCH = /no pull requests found for branch/;
+
 /** The hosts of the checkout's remotes when none of them can be GitHub;
  *  null when one may be, there are none, or git cannot say (logged). Any
  *  host naming github, or with no dot, may be: gh resolves ssh aliases
@@ -135,7 +137,9 @@ async function remotesElsewhere(
   for (const line of r.stdout.split("\n")) {
     const url = line.split(/\s+/)[1];
     if (url === undefined || url === "") continue;
-    hosts.add(normaliseRemote(url).split(/[/:]/)[0] ?? "");
+    const host = normaliseRemote(url).split(/[/:]/)[0] ?? "";
+    // A path remote (`/srv/r.git`, `../r.git`) names no host to judge.
+    if (host !== "" && !host.startsWith(".")) hosts.add(host);
   }
   if (hosts.size === 0) return null;
   for (const h of hosts)
@@ -354,8 +358,11 @@ export async function attachTake(
   if ("reason" in pr) {
     return refuse(
       pr.reason,
-      pr.reason === "prNotFound"
-        ? `${pr.detail} If there is no pull request yet, open it and attach again; otherwise: ${BY_HAND}`
+      // gh's words for a branch with no PR (2.102.0). A timeout, an outage
+      // or a reworded gh gets the by-hand advice alone: told to open a PR
+      // then, an agent could open a second one.
+      pr.reason === "prNotFound" && NO_PR_FOR_BRANCH.test(pr.detail)
+        ? `${pr.detail} Open the pull request, then attach again.`
         : `${pr.detail} ${BY_HAND}`,
     );
   }

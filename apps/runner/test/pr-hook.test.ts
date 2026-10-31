@@ -122,6 +122,7 @@ describe("postToolUseAnswer", () => {
     for (const stdout of [
       `see https://git.corp.example/x/y/pull/3\n${URL7}\n`,
       "https://GitHub.com/o/r/pull/7\n",
+      "https://github.com:443/o/r/pull/7\n",
     ]) {
       const text = context(
         await postToolUseAnswer(
