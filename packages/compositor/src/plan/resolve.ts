@@ -1026,9 +1026,10 @@ export function resolvePlan(
   // does (`performVerb`), so it gets the same press and pulse. Not on a
   // capture: the author may have tabbed in, and a click they made is a step
   // of its own.
-  // A drag presses at its marker too; its release is in `heldPresses`.
+  // A drag presses at its marker too; its release is in `heldPresses`. A key
+  // press pulses where the cursor rests.
   const clickKinds = new Set(
-    bundle.source === "replay" ? ["click", "type", "drag"] : ["click"],
+    bundle.source === "replay" ? ["click", "type", "drag", "press"] : ["click"],
   );
   const clickActionIds = new Set(
     (scene?.actions ?? [])

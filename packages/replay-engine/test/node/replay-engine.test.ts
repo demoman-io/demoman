@@ -492,6 +492,72 @@ describe("runReplay", () => {
     expect(selectAll).toHaveLength(1);
   });
 
+  it("a click at {x:0.25,y:0.5} sends its mouse events at that spot of the box", async () => {
+    const d = deps();
+    // The page sees the click where it is sent: not the default centre.
+    const seen = d.cdp.click;
+    if (seen === "unreadable" || seen === "unplaceable")
+      throw new Error("fake");
+    d.cdp.click = { ...seen, down: { x: 35, y: 40 }, up: { x: 35, y: 40 } };
+    const result = await runReplay(
+      {
+        ...scene(),
+        actions: [
+          {
+            id: "act-1",
+            kind: "click",
+            anchorId: "first-btn",
+            timestamp: 0,
+            marker: "click:first-btn",
+            at: { x: 0.25, y: 0.5 },
+          },
+        ],
+      } as SceneDocument,
+      d,
+    );
+    expect(result.outcome, String(result.reason)).toBe("complete");
+    const presses = d.cdp.calls.filter(
+      (c) =>
+        c.method === "Input.dispatchMouseEvent" &&
+        (c.params.type === "mousePressed" || c.params.type === "mouseReleased"),
+    );
+    // The fixture's border box is x 10, y 20, 100 x 40 (cdp-fake): the
+    // premise the coordinates below are read from.
+    expect(presses).toHaveLength(2);
+    for (const c of presses) {
+      expect([c.params.x, c.params.y], JSON.stringify(c.params)).toEqual([
+        35, 40,
+      ]);
+    }
+  });
+
+  it("press Enter sends keyDown and keyUp with key Enter and text \\r", async () => {
+    const d = deps();
+    const result = await runReplay(
+      {
+        ...scene(),
+        actions: [
+          {
+            id: "act-1",
+            kind: "press",
+            anchorId: null,
+            timestamp: 0,
+            marker: "press:none",
+            key: "Enter",
+          },
+        ],
+      } as SceneDocument,
+      d,
+    );
+    expect(result.outcome, String(result.reason)).toBe("complete");
+    const keys = d.cdp.calls.filter(
+      (c) => c.method === "Input.dispatchKeyEvent",
+    );
+    expect(keys.map((c) => c.params.type)).toEqual(["keyDown", "keyUp"]);
+    expect(keys[0]?.params).toMatchObject({ key: "Enter", text: "\r" });
+    expect(keys[1]?.params).toMatchObject({ key: "Enter" });
+  });
+
   // The film records while the verb runs, so the text appears on screen as
   // fast as it goes in: one `insertText` of the whole string put it there
   // in a single frame. A key at a time, spaced, is what types it.

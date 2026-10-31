@@ -479,15 +479,25 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
  "steps": [{ "do": "drag", "from": { "on": { "text": "Card A" } }, "to": { "on": { "text": "Done" } } }]}
 ```
 
+```json
+{"name": "Search", "target": "https://app.example.com/",
+ "steps": [
+   { "do": "type", "into": { "role": "searchbox", "name": "Search" }, "text": "invoices" },
+   { "do": "press", "key": "Enter" }
+ ]}
+```
+
 - `name` is required; a step's verb is `do`. Leave `scriptVersion` out: Demoman sets it.
 - **Targets** name exactly one strategy: `{ "stableId" }`, `{ "role", "name" }`,
   `{ "text" }` or `{ "treePath" }`. Two in one target is refused. Copy them
   from `snapshot` or a derived draft. A `treePath` is a position in the
   page: it breaks when the structure changes, and the run stops there.
-- **Verbs:** `click`, `type` (replaces the field's contents), `hover`,
+- **Verbs:** `click` (optional `at: { x, y }`, a spot in the box, 0–1, as drag's; absent is the centre), `type` (replaces the field's contents), `hover`,
   `scrollTo`, `waitFor` (`until`: `visible` | `hidden`; visible means it can
   be seen, so an element at `opacity: 0` or `visibility: hidden` is hidden),
-  `waitForLoad`, `pause` (`ms`), and `drag` (`from: { on, at? }`, `to`
+  `waitForLoad`, `pause` (`ms`), `press` (`key`: `Enter` | `Tab` | `Escape` |
+  `Backspace` | `Delete` | `ArrowUp` | `ArrowDown` | `ArrowLeft` | `ArrowRight` |
+  `Space`; names no element, goes to whatever holds focus), and `drag` (`from: { on, at? }`, `to`
   the same or `{ "by": { x, y } }` px; `at` is a spot in the box, 0–1). An unknown key is refused and named.
 - `scrollTo` takes an optional `landing: { "top": <px> }`, the viewport y of
   the element's top edge when the scroll stops. Absent means centred.

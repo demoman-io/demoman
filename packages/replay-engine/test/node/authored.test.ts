@@ -455,6 +455,34 @@ describe("the authored source and its assembler", () => {
     expect(click?.segment?.from, JSON.stringify(click?.segment)).toEqual(entry);
   });
 
+  it("a press step needs no target and commits an action of kind press", async () => {
+    const driven = await drive(
+      script([
+        { do: "press", key: "Enter" },
+        { do: "click", on: { stableId: "c" }, at: { x: 0.25, y: 0.5 } },
+      ]),
+    );
+    const [press, click] = driven.walk.pulled;
+    expect(driven.walk.pulled.map((p) => p.action.kind)).toEqual([
+      "press",
+      "click",
+    ]);
+    expect(press?.target).toBeNull();
+    expect(press?.action).toMatchObject({ key: "Enter", anchorId: null });
+    expect(press?.segment).toBeUndefined();
+    expect(driven.run.actions.map((a) => a.kind)).toEqual(["press", "click"]);
+    // The click's spot is on the action, and the cursor is aimed at it: the
+    // premise is a box whose spot is not its centre.
+    const box = driven.captures.answers[0]?.anchor?.fingerprint
+      .boundingRect as Rect;
+    expect(box.width).toBeGreaterThan(0);
+    expect(click?.action).toMatchObject({ at: { x: 0.25, y: 0.5 } });
+    expect(click?.segment?.to, JSON.stringify(click?.segment)).toEqual({
+      x: box.x + 0.25 * box.width,
+      y: box.y + 0.5 * box.height,
+    });
+  });
+
   // A derived scroll carries where the author's scroll stopped; the walk can
   // only aim at it if the step it pulls carries it too. `synthesize` stays
   // rect-less — the landing is intent, not a measurement the run made.

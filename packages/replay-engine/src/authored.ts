@@ -52,6 +52,7 @@ import {
   type ScriptStep,
   type ScriptTarget,
   type StrategyName,
+  spotIn,
 } from "@demoman/scene-schema";
 import { rectCentre } from "./geometry.js";
 import { classifyOrigin } from "./origin.js";
@@ -405,12 +406,18 @@ function synthesize(
   },
   hidden = false,
 ): SceneAction {
-  // Only a press has no anchor, and it takes none of `base`.
-  const base = { ...ids, anchorId: ids.anchorId as string };
+  // A press names no element: its null anchor is typed here, not cast.
+  if (step.do === "press") {
+    return { ...ids, kind: "press", key: step.key, anchorId: null };
+  }
+  if (ids.anchorId === null) {
+    throw new Error(`synthesize: a ${step.do} step needs an anchor`);
+  }
+  const base = { ...ids, anchorId: ids.anchorId };
   switch (step.do) {
     case "click":
       // `button` deliberately omitted — see this module's own docblock.
-      return { ...base, kind: "click" };
+      return { ...base, kind: "click", ...(step.at ? { at: step.at } : {}) };
     case "type":
       // `redacted: false` and a real `text`: an agent's value is a demo value
       // by construction, and there is no sensor here to have declined to read
@@ -428,8 +435,6 @@ function synthesize(
       return { ...base, kind: "scrollTo" };
     case "waitFor":
       return { ...base, kind: "waitFor", condition: step.until };
-    case "press":
-      return { ...ids, kind: "press", key: step.key, anchorId: null };
     case "drag":
       // The end's anchor and rect are the walk's to measure.
       return {
@@ -869,6 +874,7 @@ export function createAuthoredRun(
             ? segmentTo(
                 cursor,
                 anchor.fingerprint.boundingRect,
+                action.kind === "click" ? action.at : undefined,
                 segments,
                 previousActionId,
                 action.id,
@@ -917,7 +923,10 @@ export function createAuthoredRun(
         // (VERBS), so the next move must be planned from there, not from the
         // scroll's anchor.
         if (VERBS[action.kind].cursorTravels) {
-          cursor = rectCentre(measured);
+          cursor = spotIn(
+            measured,
+            action.kind === "click" ? action.at : undefined,
+          );
           segments++;
           previousActionId = action.id;
         }
@@ -962,6 +971,7 @@ export function createAuthoredRun(
 function segmentTo(
   from: Vec,
   rect: Rect | null,
+  at: DragSpot | undefined,
   index: number,
   fromActionId: string | null,
   toActionId: string,
@@ -969,7 +979,7 @@ function segmentTo(
   if (rect === null) return undefined;
   return planCursorSegment({
     from,
-    to: rectCentre(rect),
+    to: spotIn(rect, at),
     index,
     fromActionId,
     toActionId,

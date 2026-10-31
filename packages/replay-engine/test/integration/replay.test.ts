@@ -8,6 +8,7 @@ import {
   CONTEXT_DPR,
   CONTEXT_VIEWPORT,
   FIXTURE_URL,
+  PRESS_FIXTURE_URL,
   selectorPageAgent,
   withReplayBrowser,
 } from "../helpers/cdp-playwright";
@@ -383,6 +384,96 @@ describe("replay against a real browser", () => {
       );
     });
   });
+  it("press Enter submits the focused form", async () => {
+    await withReplayBrowser(
+      async ({ cdp, page }) => {
+        const store = createMemoryFrameStore();
+        const base = scene({ anchorIds: ["q"] });
+        const doc = {
+          ...base,
+          actions: [
+            {
+              id: "act-1",
+              kind: "type" as const,
+              anchorId: "q",
+              timestamp: 0,
+              marker: "type:q",
+              text: "hello",
+              redacted: false,
+            },
+            {
+              id: "act-2",
+              kind: "press" as const,
+              anchorId: null,
+              timestamp: 900,
+              marker: "press:none",
+              key: "Enter" as const,
+            },
+          ],
+        };
+        // The premise: nothing is submitted before the walk runs.
+        expect(await page.locator("#done").isHidden()).toBe(true);
+        const result = await runReplay(doc, {
+          cdp,
+          page: selectorPageAgent(page, { q: "#q" }),
+          encoder: createNodeFrameEncoder(store, doc.meta.id),
+          store,
+          clock: clock(),
+          mayReplay: true,
+          madeFrom: madeFromOf(doc),
+        });
+        expect(result.outcome, String(result.reason)).toBe("complete");
+        expect(await page.locator("#q").inputValue()).toBe("hello");
+        expect(await page.locator("#done").isVisible()).toBe(true);
+      },
+      { url: PRESS_FIXTURE_URL, readySelector: "#pad" },
+    );
+  });
+
+  it("a click at a spot lands there", async () => {
+    await withReplayBrowser(
+      async ({ cdp, page }) => {
+        const store = createMemoryFrameStore();
+        const base = scene({ anchorIds: ["pad"] });
+        const doc = {
+          ...base,
+          actions: [
+            {
+              id: "act-1",
+              kind: "click" as const,
+              anchorId: "pad",
+              timestamp: 0,
+              marker: "click:pad",
+              at: { x: 0.1, y: 0.5 },
+            },
+          ],
+        };
+        // The premise: the pad is the 400 x 100 box the offsets are read in.
+        const box = await page.locator("#pad").boundingBox();
+        expect([box?.width, box?.height]).toEqual([400, 100]);
+        const result = await runReplay(doc, {
+          cdp,
+          page: selectorPageAgent(page, { pad: "#pad" }),
+          encoder: createNodeFrameEncoder(store, doc.meta.id),
+          store,
+          clock: clock(),
+          mayReplay: true,
+          madeFrom: madeFromOf(doc),
+        });
+        expect(result.outcome, String(result.reason)).toBe("complete");
+        const clicks = await page.evaluate(
+          () =>
+            (window as unknown as { __padClicks: { x: number; y: number }[] })
+              .__padClicks,
+        );
+        expect(clicks, JSON.stringify(clicks)).toHaveLength(1);
+        expect(Math.abs((clicks[0]?.x ?? -99) - 40)).toBeLessThanOrEqual(2);
+        expect(Math.abs((clicks[0]?.y ?? -99) - 50)).toBeLessThanOrEqual(2);
+      },
+      { url: PRESS_FIXTURE_URL, readySelector: "#pad" },
+    );
+  });
+
   // Bug A's control, and the half that was NOT loosened. Where capture
   // genuinely observed a `name` attribute, Chrome reports the same string and
   // the hop is still corroborated strictly. Without this, "an empty recorded

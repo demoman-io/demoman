@@ -85,12 +85,12 @@ import { type SeenFrame, standInFrame } from "./frame-change.js";
 import {
   type CdpFrameNode,
   hopsFromTreePath,
-  rectCentre,
   rectFromQuad,
   resolveCdpFrameId,
 } from "./geometry.js";
 import { decodeBase64, jpegSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
+import { pressKey } from "./keys.js";
 import { createMotionRecorder } from "./motion-recorder.js";
 import type { OcclusionGuard } from "./occlusion.js";
 import { pathPointAt, retargetSegment } from "./path.js";
@@ -2066,6 +2066,39 @@ export async function runWalk(
         continue;
       }
 
+      if (step.action.kind === "press") {
+        // No element: the key goes to whatever holds focus, where the cursor
+        // rests. Marked, pictured and counted like any verb.
+        const keyAction = step.action;
+        inFlight = keyAction.id;
+        const marker: FrameBundle["markers"][number] = {
+          actionId: keyAction.id,
+          sourceTimeMs: at(),
+        };
+        markers.push(marker);
+        await stepStill(keyAction.id);
+        if (!continuous) recorder.open();
+        await gate.section(() => pressKey(cdp, keyAction.key));
+        if (!continuous) {
+          await recorder.close();
+          await shot(null);
+        }
+        stillOwed = true;
+        verbs++;
+        if (room !== undefined) pendingAct = { marker, verbEndMs: at() };
+        completed++;
+        lastCompletedActionId = keyAction.id;
+        inFlight = null;
+        deps.onProgress?.({
+          step: completed,
+          total,
+          keyframes: keyframes.length,
+          state: "running",
+          note: null,
+        });
+        continue;
+      }
+
       const located = await locate(step.target);
       // The approach is part of the take, so it is recorded. The span opens
       // BEFORE the scroll and closes after it, and it is a span of its own
@@ -2160,6 +2193,9 @@ export async function runWalk(
       }
 
       const segment = step.segment;
+      /** Where this step's verb lands in the box: a click's spot, else the centre. */
+      const clickPoint = (rect: Rect): { x: number; y: number } =>
+        spotIn(rect, step.action.kind === "click" ? step.action.at : undefined);
       /** When the author's rhythm puts this step's marker (see below), or
        *  null where the rhythm does not pace it. */
       const rhythmDue = (): number | null => {
@@ -2195,7 +2231,7 @@ export async function runWalk(
             : retargetSegment(
                 segment,
                 cursor,
-                dragPlan?.start ?? rectCentre(handle.rect),
+                dragPlan?.start ?? clickPoint(handle.rect),
               ).durationMs) + SETTLE_MS;
         const zooms = room.zooms({
           actionId: step.action.id,
@@ -2241,7 +2277,7 @@ export async function runWalk(
       const pathFrom = at();
       if (segment !== undefined) {
         await gate.section(() =>
-          dispatchPath(segment, dragPlan?.start ?? rectCentre(handle.rect)),
+          dispatchPath(segment, dragPlan?.start ?? clickPoint(handle.rect)),
         );
       }
 
@@ -2723,7 +2759,8 @@ async function performVerb(
       // Never reaches here: the loop performs a drag with `performDrag`.
       throw new Error("performVerb: a drag is performed by performDrag");
     case "press":
-      throw new Error("press is performed from Task 4");
+      // Never reaches here: the loop presses a key before it locates anything.
+      throw new Error("performVerb: a press is performed by pressKey");
     default: {
       const unknown: never = action;
       throw new Error(`performVerb: no verb for ${JSON.stringify(unknown)}`);

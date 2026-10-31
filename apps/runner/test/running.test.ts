@@ -31,6 +31,10 @@ describe("the running line", () => {
     expect(runningWords(script, 4, 4)).toBe("finishing the video");
   });
 
+  it("stepWords says press Enter", () => {
+    expect(stepWords({ do: "press", key: "Enter" })).toBe("press Enter");
+  });
+
   it("never shows what a type step types: it may be a secret", () => {
     const words = stepWords({
       do: "type",

@@ -362,6 +362,7 @@ function toStepReport(step: AuthoredStep): StepReport {
  */
 function scriptStepLabel(step: AuthoredStep["step"]): string {
   const target = "into" in step ? step.into : "on" in step ? step.on : null;
+  if (step.do === "press") return `press ${step.key}`;
   if (target === null) return step.do;
   // Every member, then `never`: this chain used to end in a bare return that
   // printed a `treePath` target as `text "undefined"`.

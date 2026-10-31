@@ -1149,6 +1149,8 @@ export const STEP_GLYPH: Readonly<Record<string, GlyphName>> = {
   scrollTo: "moveVertical",
   waitFor: "hourglass",
   drag: "handGrab",
+  // No keyboard glyph is vendored, and a hand-drawn path is a shape nothing checks.
+  press: "type",
 };
 
 export function renderTimeline(
