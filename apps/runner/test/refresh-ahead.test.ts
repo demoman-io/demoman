@@ -1,21 +1,19 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  KEPT_DIR,
-  type KeptVideo,
-  keptFileName,
-  serializeKept,
-} from "@demoman/run-core";
+import { KEPT_DIR, keptFileName } from "@demoman/run-core";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Library } from "../src/executor/library.js";
 import { type RefreshDeps, refreshKept } from "../src/executor/refresh.js";
 import type { Version, VideoStore } from "../src/executor/videos.js";
+import { FLOW_ID, type V1Kept, writeV1 } from "./kept-v1.js";
 
 const NAME = "Place an order";
 const FILE = `${KEPT_DIR}/${keptFileName(NAME)}`;
-const kept: KeptVideo = {
-  keptVersion: 1,
+const kept: V1Kept = {
+  keptVersion: 2,
+  flow: FLOW_ID,
+  deliver: "commit",
   name: NAME,
   script: {
     scriptVersion: 1,
@@ -23,7 +21,7 @@ const kept: KeptVideo = {
     target: "http://localhost:1/app",
     viewport: { width: 1280, height: 800 },
     steps: [{ do: "waitForLoad" }],
-  } as KeptVideo["script"],
+  } as V1Kept["script"],
   scale: 1,
   logo: null,
   wallpaper: null,
@@ -32,7 +30,7 @@ const kept: KeptVideo = {
   ],
   screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
   report: null,
-  from: { videoId: "v1", takeId: "t1", recordedRevision: "r1" },
+  from: { videoId: FLOW_ID, takeId: "t1", recordedRevision: "r1" },
 };
 const version = (takeId: string): Version => ({
   takeId,
@@ -52,7 +50,7 @@ let reads: number;
 beforeEach(async () => {
   repo = await mkdtemp(join(tmpdir(), "demoman-ahead-"));
   await mkdir(join(repo, KEPT_DIR), { recursive: true });
-  await writeFile(join(repo, FILE), serializeKept(kept));
+  await writeFile(join(repo, FILE), writeV1(kept));
   current = { takeId: "t1", revision: "r1", masks: [] };
   reads = 0;
 });
@@ -61,7 +59,7 @@ const deps = (): RefreshDeps => ({
   videos: {
     get: async () => {
       reads++;
-      return { id: "v1", name: NAME };
+      return { id: FLOW_ID, name: NAME };
     },
     versions: async () => [version(current.takeId)],
   } as unknown as VideoStore,
@@ -179,7 +177,7 @@ describe("a local refresh films outside the user's library", () => {
     libraries.clear();
     runs.length = 0;
     libraries.set(repo, {
-      ids: new Set(userHas ? ["v1"] : []),
+      ids: new Set(userHas ? [FLOW_ID] : []),
       names: new Set(userHas ? [NAME] : []),
     });
     const d = deps();

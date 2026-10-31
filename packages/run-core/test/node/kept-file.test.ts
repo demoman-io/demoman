@@ -8,6 +8,7 @@ import {
   parseKept,
   serializeKept,
 } from "../../src/kept/file.js";
+import { isFlowId } from "../../src/served-words.js";
 
 const script = DemoScriptSchema.parse({
   scriptVersion: 5,
@@ -16,13 +17,17 @@ const script = DemoScriptSchema.parse({
   steps: [{ do: "waitForLoad" }],
 });
 
+const FLOW = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
+
 const kept: KeptVideo = {
-  keptVersion: 1,
+  keptVersion: 2,
+  flow: FLOW,
   name: "Add a task",
   script,
   scale: 2,
   logo: null,
   wallpaper: null,
+  deliver: "commit",
   outputs: [
     {
       path: "docs/add-task.mp4",
@@ -31,6 +36,19 @@ const kept: KeptVideo = {
       quality: "share",
     },
   ],
+  report: null,
+};
+
+const withChange = (change: Record<string, unknown>) =>
+  JSON.stringify({ ...JSON.parse(serializeKept(kept)), ...change });
+
+// The v1 shape (apps/runner/test/refresh-ahead.test.ts): screens and `from`
+// lived in the recipe. parseKept still reads it.
+const v1 = {
+  ...JSON.parse(serializeKept(kept)),
+  keptVersion: 1,
+  flow: undefined,
+  deliver: undefined,
   screens: {
     steps: 3,
     moments: [
@@ -39,12 +57,10 @@ const kept: KeptVideo = {
       { step: 2, ms: 1500 },
     ],
   },
-  report: null,
-  from: { videoId: "v1", takeId: "t1", recordedRevision: "abc123" },
+  from: { videoId: FLOW, takeId: "t1", recordedRevision: "r1" },
 };
-
-const withChange = (change: Record<string, unknown>) =>
-  JSON.stringify({ ...JSON.parse(serializeKept(kept)), ...change });
+const withV1 = (change: Record<string, unknown>) =>
+  JSON.stringify({ ...v1, ...change });
 
 const refusal = (text: string) => {
   const r = parseKept(text, "x.json");
@@ -58,7 +74,69 @@ describe("the kept file", () => {
     const text = serializeKept(kept);
     expect(text.endsWith("}\n")).toBe(true);
     expect(Object.keys(JSON.parse(text))[0]).toBe("keptVersion");
-    expect(parseKept(text, "x.json")).toEqual({ ok: true, kept });
+    expect(parseKept(text, "x.json")).toEqual({
+      ok: true,
+      kept,
+      migrated: null,
+    });
+  });
+
+  it("a v1 file reads as a v2 recipe with its receipt migrated", () => {
+    expect(isFlowId(v1.from.videoId)).toBe(true);
+    // The premise: the fixture is v1 and has no v2 keys.
+    expect(v1.keptVersion).toBe(1);
+    const text = withV1({});
+    expect(JSON.parse(text)).not.toHaveProperty("flow");
+    expect(JSON.parse(text)).not.toHaveProperty("deliver");
+    const r = parseKept(text, "x.json");
+    if (!r.ok) throw new Error(r.detail);
+    expect(r.kept).toEqual(kept);
+    expect(r.kept.flow).toBe(v1.from.videoId);
+    expect(r.migrated?.screens).toEqual(v1.screens);
+    expect(r.migrated?.video).toBe("t1");
+    expect(r.migrated?.recordedRevision).toBe("r1");
+    expect(r.migrated?.flow).toBe(FLOW);
+    expect(r.migrated?.filmedCode).toEqual({
+      none: "kept before receipts were recorded",
+    });
+  });
+
+  it("a v2 file round-trips and carries no screens", () => {
+    const text = serializeKept(kept);
+    expect(JSON.parse(text)).not.toHaveProperty("screens");
+    expect(JSON.parse(text)).not.toHaveProperty("from");
+    expect(parseKept(text, "x.json")).toEqual({
+      ok: true,
+      kept,
+      migrated: null,
+    });
+  });
+
+  it("a files recipe refuses a path with a slash", () => {
+    const o = { ...kept.outputs[0], path: "docs/a.mp4" };
+    expect(refusal(withChange({ deliver: "files", outputs: [o] }))).toMatch(
+      /outputs\[0\]\.path/,
+    );
+    const bare = { ...kept.outputs[0], path: "a.mp4" };
+    const ok = parseKept(
+      withChange({ deliver: "files", outputs: [bare], report: "r.json" }),
+      "x.json",
+    );
+    expect(ok.ok).toBe(true);
+    expect(
+      refusal(withChange({ deliver: "files", outputs: [bare], report: "d/r" })),
+    ).toContain("report");
+  });
+
+  it("a flow id that is not a uuid is refused", () => {
+    expect(refusal(withChange({ flow: "v1" }))).toContain("flow");
+    expect(refusal(withV1({ from: { ...v1.from, videoId: "v1" } }))).toContain(
+      "from.videoId",
+    );
+  });
+
+  it("refuses a deliver that is neither commit nor files", () => {
+    expect(refusal(withChange({ deliver: "ftp" }))).toContain("deliver");
   });
 
   // A file kept before wallpapers has no key: it reads as none, and a
@@ -69,35 +147,20 @@ describe("the kept file", () => {
     expect(parseKept(serializeKept(own), "x.json")).toEqual({
       ok: true,
       kept: own,
+      migrated: null,
     });
     expect(refusal(withChange({ wallpaper: "../w.webp" }))).toContain(
       "wallpaper must be null or a repo-relative path",
     );
   });
 
-  // A file kept before windows and looks has neither key and stays as it
-  // was; one with them round-trips them.
-  it("round-trips a screen's window and the look, and leaves them out when absent", () => {
-    const text = serializeKept(kept);
-    expect(JSON.parse(text).screens).not.toHaveProperty("look");
-    expect(JSON.parse(text).screens.moments[0]).not.toHaveProperty("window");
+  // A v1 file's screens keep their per-field messages (parseScreens).
+  it("refuses a migrated screen's window and look, naming them", () => {
     const window = { x: 202.5, y: 86, width: 876, height: 548, radius: 12 };
-    const recorded: KeptVideo = {
-      ...kept,
-      screens: {
-        ...kept.screens,
-        moments: kept.screens.moments.map((m) => ({ ...m, window })),
-        look: "1a2b3c",
-      },
-    };
-    expect(parseKept(serializeKept(recorded), "x.json")).toEqual({
-      ok: true,
-      kept: recorded,
-    });
-    const screens = JSON.parse(serializeKept(recorded)).screens;
+    const screens = { ...v1.screens };
     expect(
       refusal(
-        withChange({
+        withV1({
           screens: {
             ...screens,
             moments: [{ step: 0, ms: 1, window: { ...window, width: 0 } }],
@@ -105,7 +168,7 @@ describe("the kept file", () => {
         }),
       ),
     ).toContain("screens.moments[0].window");
-    expect(refusal(withChange({ screens: { ...screens, look: 7 } }))).toContain(
+    expect(refusal(withV1({ screens: { ...screens, look: 7 } }))).toContain(
       "screens.look",
     );
   });
@@ -122,10 +185,10 @@ describe("the kept file", () => {
   ])("refuses a window whose %s is %s, naming it", (key, raw) => {
     const window = { x: 202.5, y: 86, width: 876, height: 548, radius: 12 };
     const screens = {
-      ...JSON.parse(serializeKept(kept)).screens,
+      ...v1.screens,
       moments: [{ step: 0, ms: 1, window: { ...window, [key]: "@" } }],
     };
-    const text = withChange({ screens }).replace('"@"', raw);
+    const text = withV1({ screens }).replace('"@"', raw);
     // The premise: the text holds the value asked about, as JSON reads it.
     expect(text).toContain(`"${key}":${raw}`);
     expect(refusal(text)).toContain(
@@ -134,7 +197,7 @@ describe("the kept file", () => {
   });
 
   it("refuses another keptVersion, naming it", () => {
-    expect(refusal(withChange({ keptVersion: 2 }))).toContain("keptVersion");
+    expect(refusal(withChange({ keptVersion: 3 }))).toContain("keptVersion");
   });
 
   it("names the file when the JSON is invalid", () => {
@@ -168,7 +231,7 @@ describe("the kept file", () => {
   });
 
   it("refuses a file without screens, naming the video and demoman keep", () => {
-    const { screens: _s, ...rest } = JSON.parse(serializeKept(kept));
+    const { screens: _s, ...rest } = v1;
     const d = refusal(JSON.stringify(rest));
     expect(d).toContain("screens");
     expect(d).toContain("`demoman keep Add a task`");
@@ -176,7 +239,7 @@ describe("the kept file", () => {
   });
 
   const moments = (...m: unknown[]) =>
-    withChange({ screens: { steps: 3, moments: m } });
+    withV1({ screens: { steps: 3, moments: m } });
   it.each([
     [
       "a negative ms",
@@ -221,7 +284,7 @@ describe("the kept file", () => {
     expect(refusal(moments())).toContain("screens.moments");
     expect(
       refusal(
-        withChange({ screens: { steps: 2.5, moments: [{ step: 0, ms: 1 }] } }),
+        withV1({ screens: { steps: 2.5, moments: [{ step: 0, ms: 1 }] } }),
       ),
     ).toContain("screens.steps");
   });

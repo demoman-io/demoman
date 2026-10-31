@@ -9,6 +9,7 @@ export * from "./export/outputs.js";
 export * from "./export/report.js";
 export * from "./export/target.js";
 export * from "./kept/file.js";
+export * from "./kept/receipt.js";
 export * from "./logo-file.js";
 export * from "./pull-requests.js";
 export * from "./redaction.js";

@@ -15,8 +15,6 @@ import {
   frameOf,
   keptFileName,
   notCarriedOf,
-  parseKept,
-  serializeKept,
   targetFor,
 } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
@@ -34,6 +32,7 @@ import { createSessionStore } from "../src/executor/sessions.js";
 import { createVideoStore, type VideoStore } from "../src/executor/videos.js";
 import { makeDiskTake, putTake } from "./disk-take.js";
 import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
+import { readV1, writeV1 } from "./kept-v1.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): the disk take
@@ -244,10 +243,13 @@ describe("keep, a clean take", () => {
       );
       const file = join(".demoman/videos", keptFileName("Add a task"));
       expect(out.file).toBe(file);
-      const parsed = parseKept(await readFile(join(repo, file), "utf8"), file);
-      if (!parsed.ok) throw new Error(parsed.detail);
-      const kept = parsed.kept;
-      expect(kept).toEqual(out.kept);
+      const kept = readV1(await readFile(join(repo, file), "utf8"), file);
+      expect({ ...kept, screens: undefined, from: undefined }).toEqual({
+        ...out.kept,
+        screens: undefined,
+        from: undefined,
+      });
+      expect(kept.from).toEqual(out.from);
       expect(kept.name).toBe("Add a task");
       expect(kept.script.viewport).toEqual(scene.meta.capture.viewport);
       expect(kept.scale).toBe(1);
@@ -930,9 +932,7 @@ describe("a run into a kept video rewrites its file", () => {
     return scene;
   }
   const keptOf = async (file: string) => {
-    const parsed = parseKept(await readFile(join(repo, file), "utf8"), file);
-    if (!parsed.ok) throw new Error(parsed.detail);
-    return parsed.kept;
+    return readV1(await readFile(join(repo, file), "utf8"), file);
   };
 
   it(
@@ -960,7 +960,7 @@ describe("a run into a kept video rewrites its file", () => {
         },
       };
       expect(tampered.screens).not.toEqual(before.screens);
-      await writeFile(join(repo, out.file), serializeKept(tampered));
+      await writeFile(join(repo, out.file), writeV1(tampered));
       const gifBefore = await readFile(join(repo, "docs/rw.gif"));
       const filesBefore = await repoFiles();
 

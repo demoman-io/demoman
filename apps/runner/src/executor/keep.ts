@@ -27,6 +27,7 @@ import {
   KEPT_DIR,
   KEPT_VERSION,
   type KeptOutput,
+  type KeptReceipt,
   type KeptScreens,
   type KeptVideo,
   keptFileName,
@@ -34,7 +35,6 @@ import {
   parseKept,
   type RefilmInfo,
   type RunReport,
-  serializeKept,
   servedRunReport,
   targetFor,
 } from "@demoman/run-core";
@@ -42,6 +42,7 @@ import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import { chooseAccount, findAccounts } from "./accounts.js";
 import { type ExportDeps, exportTake } from "./export.js";
+import { type KeptFrom, serializeKeptV1 } from "./kept-v1.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
 import { refilmFromVideo } from "./refilm.js";
@@ -89,6 +90,8 @@ export type KeepAnswer =
       ok: true;
       file: string;
       kept: KeptVideo;
+      /** What the file was built from. */
+      from: KeptFrom;
       /** "k of n screens are still": what a refresh compares at. */
       screensNote: string;
       written: string[];
@@ -194,10 +197,10 @@ export async function keepVideo(
     }
     const { kept } = other;
     if (rel === fileRel) {
-      if (kept.from.videoId === video.id) continue;
+      if (kept.flow === video.id) continue;
       return refuse(
         "outputTaken",
-        `${rel} already keeps the flow "${kept.name}" (${kept.from.videoId}), whose name makes the same file — rename one of the two flows`,
+        `${rel} already keeps the flow "${kept.name}" (${kept.flow}), whose name makes the same file — rename one of the two flows`,
       );
     }
     const theirs = [...kept.outputs.map((o) => o.path), kept.report];
@@ -272,7 +275,7 @@ export async function keepVideo(
         `${base.outputs[judged]?.path}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
       );
     }
-    const kept: KeptVideo = { ...base, screens };
+    const kept: KeptVideo = base;
     const runReport =
       report === null
         ? null
@@ -305,7 +308,10 @@ export async function keepVideo(
           );
         }
       }
-      await place(join(root, fileRel), serializeKept(kept));
+      await place(
+        join(root, fileRel),
+        serializeKeptV1(kept, screens, made.from),
+      );
       written.push(fileRel);
     } catch (error) {
       return refuse(
@@ -317,6 +323,7 @@ export async function keepVideo(
       ok: true,
       file: fileRel,
       kept,
+      from: made.from,
       screensNote: `${screens.moments.length} of ${screens.steps + 1} screens are still`,
       written,
       ...(made.scaleGuess === null ? {} : { scaleGuess: made.scaleGuess }),
@@ -336,7 +343,8 @@ export async function keepVideo(
 type Built =
   | {
       ok: true;
-      kept: Omit<KeptVideo, "screens">;
+      kept: KeptVideo;
+      from: KeptFrom;
       built: { takeId: string };
       read: { revision: string };
       /** The logo's bytes when they are to be copied into the repo. */
@@ -571,13 +579,15 @@ async function buildKept(
       `the script built from video ${built.takeId} is refused at script.${(issue?.path ?? []).join(".")}: ${issue?.message ?? "by the script schema"}`,
     );
   }
-  const kept: Omit<KeptVideo, "screens"> = {
+  const kept: KeptVideo = {
     keptVersion: KEPT_VERSION,
+    flow: video.id,
     name: video.name,
     script: script.data,
     scale: scale ?? 1,
     logo,
     wallpaper,
+    deliver: "commit",
     outputs: a.outputs.map((o) => ({
       path: o.path,
       fileType: o.fileType,
@@ -585,16 +595,16 @@ async function buildKept(
       quality: o.quality,
     })),
     report: a.report,
+  };
+  return {
+    ok: true,
+    kept,
     // The revision this file was built from: a later Studio edit changes it.
     from: {
       videoId: video.id,
       takeId: built.takeId,
       recordedRevision: read.revision,
     },
-  };
-  return {
-    ok: true,
-    kept,
     built,
     read,
     logoBytes,
@@ -652,7 +662,7 @@ export async function rewriteKept(
       continue;
     }
     const old = parsed.kept;
-    if (old.from.videoId !== videoId) continue;
+    if (old.flow !== videoId) continue;
     const own = await repoPath(root, rootReal, rel, "keep");
     if (typeof own !== "string") return { refused: own.outside };
     if (notNow !== undefined) {
@@ -664,6 +674,13 @@ export async function rewriteKept(
     if (video === null) {
       return {
         refused: `${rel} keeps video ${videoId}, which the library no longer has`,
+      };
+    }
+    // Stopgap: keep writes no receipt yet, so a file without screens (a v2
+    // one) cannot be rewritten without losing what a refresh compares.
+    if (parsed.migrated === null) {
+      return {
+        refused: `${rel} is a v2 recipe and keep writes no receipt yet, so it was not rewritten`,
       };
     }
     const made = await buildKept(
@@ -682,7 +699,7 @@ export async function rewriteKept(
       // The screens describe the committed files, which this does not replace.
       await place(
         join(root, rel),
-        serializeKept({ ...made.kept, screens: old.screens }),
+        serializeKeptV1(made.kept, parsed.migrated.screens, made.from),
       );
     } catch (error) {
       return {
@@ -719,11 +736,12 @@ export function leftBehind(refilm: RefilmInfo): string[] {
  */
 export async function libraryAhead(
   kept: KeptVideo,
+  receipt: KeptReceipt,
   file: string,
   deps: { videos: VideoStore; library: Library },
 ): Promise<string | null> {
   try {
-    const video = await deps.videos.get(kept.from.videoId);
+    const video = await deps.videos.get(kept.flow);
     // Kept on another machine: this library has nothing to be ahead of.
     if (video === null) return null;
     const all = await deps.videos.versions(video.id);
@@ -734,8 +752,8 @@ export async function libraryAhead(
       return `the library's current video of "${kept.name}" (${current.takeId}) has no scene.json, so whether it is ahead of ${file} cannot be told`;
     }
     if (
-      current.takeId === kept.from.takeId &&
-      read.revision === kept.from.recordedRevision
+      current.takeId === receipt.video &&
+      read.revision === receipt.recordedRevision
     )
       return null;
     const left = leftBehind({

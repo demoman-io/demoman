@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseKept, type RunReport } from "@demoman/run-core";
+import type { RunReport } from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createBrowserSession } from "../src/executor/browser.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
@@ -13,6 +13,7 @@ import { execGit } from "../src/executor/repo.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { WALLPAPERS_DIR } from "./fixture.js";
+import { readV1 } from "./kept-v1.js";
 
 // Short runs of a one-field page, as executor-refilm.test.ts (x5 for CI).
 const RUN_MS = 120_000;
@@ -54,9 +55,7 @@ const run = async (ex: LocalExecutor, args: Record<string, unknown>) => {
   return out.value as RunReport;
 };
 const keptOf = async (file: string) => {
-  const parsed = parseKept(await readFile(join(repo, file), "utf8"), file);
-  if (!parsed.ok) throw new Error(parsed.detail);
-  return parsed.kept;
+  return readV1(await readFile(join(repo, file), "utf8"), file);
 };
 
 beforeAll(async () => {

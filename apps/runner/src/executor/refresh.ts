@@ -12,6 +12,7 @@ import {
   type ExportAnswer,
   judgedOutput,
   KEPT_DIR,
+  type KeptReceipt,
   type KeptScreens,
   type KeptVideo,
   keptFileName,
@@ -19,13 +20,13 @@ import {
   parseKept,
   prVerdict,
   type RunReport,
-  serializeKept,
   servedRunReport,
 } from "@demoman/run-core";
 import type { DemoScript } from "@demoman/scene-schema";
 import { codeClause, prLine } from "./attach.js";
 import type { BrowserSession } from "./browser.js";
 import { libraryAhead, place, repoPath } from "./keep.js";
+import { serializeKeptV1 } from "./kept-v1.js";
 import { createLibrary, type Library } from "./library.js";
 import type { GitRunner } from "./repo.js";
 import { samePicture } from "./same-picture.js";
@@ -82,6 +83,8 @@ const DEVICE_DISPLAY = { width: 1280, height: 800 };
 
 type Job = {
   kept: KeptVideo;
+  /** What the committed files show; from the v1 file's own screens. */
+  receipt: KeptReceipt;
   file: string;
   script: DemoScript;
   /** What the user's library has that the file lacks (local only). */
@@ -182,6 +185,17 @@ export async function refreshKept(
       continue;
     }
     const { kept } = parsed;
+    // Stopgap until Task 5: only a v1 file carries a receipt in it.
+    if (parsed.migrated === null) {
+      failed(
+        kept.name,
+        file,
+        `${file} is a v2 recipe, and its receipt is not read yet`,
+      );
+      found.add(n);
+      continue;
+    }
+    const receipt = parsed.migrated;
     const slug = keptFileName(kept.name);
     if (asked !== undefined && !asked.includes(slug)) continue;
     found.add(slug);
@@ -206,11 +220,12 @@ export async function refreshKept(
       ...(groups.get(display) ?? []),
       {
         kept,
+        receipt,
         file,
         script,
         ahead:
           args.library === "local"
-            ? await libraryAhead(kept, file, deps)
+            ? await libraryAhead(kept, receipt, file, deps)
             : null,
       },
     ]);
@@ -350,11 +365,12 @@ type Filmed = {
 };
 
 async function filmOne(
-  { kept, file, script, ahead }: Job,
+  job: Job,
   root: string,
   executor: LocalExecutor,
   home: string,
 ): Promise<Filmed | { failed: string }> {
+  const { kept, script } = job;
   const run = async () => {
     const out = await executor.request("run", {
       script,
@@ -414,7 +430,7 @@ async function filmOne(
           };
   }
   return {
-    job: { kept, file, script, ahead },
+    job,
     report,
     rendered,
     renderedScreens,
@@ -433,7 +449,7 @@ async function replaceOne(
   head: { commit: string | null; tree: string | null },
   deps: RefreshDeps,
 ): Promise<RefreshVideo> {
-  const { kept, file } = job;
+  const { kept, receipt, file } = job;
   const said: string[] = [];
   const notes: string[] = notesOf(job);
   const answer = (
@@ -473,7 +489,7 @@ async function replaceOne(
         join(root, judged.path),
         rendered[j] as string,
         judged.fileType,
-        kept.screens,
+        receipt.screens,
         renderedScreens[j] as KeptScreens,
         { session: deps.session, steps: kept.script.steps, log: deps.log },
       );
@@ -544,7 +560,11 @@ async function replaceOne(
       // Last: the kept file says what the committed video now shows.
       await put(
         file,
-        serializeKept({ ...kept, screens: renderedScreens[j] as KeptScreens }),
+        serializeKeptV1(kept, renderedScreens[j] as KeptScreens, {
+          videoId: kept.flow,
+          takeId: receipt.video,
+          recordedRevision: receipt.recordedRevision ?? "",
+        }),
       );
     }
   } catch (error) {

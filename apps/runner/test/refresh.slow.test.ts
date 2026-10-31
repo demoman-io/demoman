@@ -23,12 +23,9 @@ import {
   fileDigest,
   KEPT_DIR,
   type KeptScreens,
-  type KeptVideo,
   keptFileName,
   lookDigest,
-  parseKept,
   type RunReport,
-  serializeKept,
   verdictLine,
   webpSize,
 } from "@demoman/run-core";
@@ -61,6 +58,7 @@ import { execGit } from "../src/executor/repo.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { listenOnLoopback } from "../src/loopback.js";
 import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
+import { FLOW_ID, readV1, type V1Kept, writeV1 } from "./kept-v1.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 // Measured on CI (run 40820520425, 2026-10-29, ubuntu): a case that
@@ -206,12 +204,9 @@ async function webpOf(rgb: [number, number, number]): Promise<Buffer> {
 }
 /** Writes a kept file of its own into the repo, and removes it with every
  *  output it names when `body` is done. */
-async function withKept<T>(
-  video: KeptVideo,
-  body: () => Promise<T>,
-): Promise<T> {
+async function withKept<T>(video: V1Kept, body: () => Promise<T>): Promise<T> {
   const file = join(repo, KEPT_DIR, keptFileName(video.name));
-  await writeFile(file, serializeKept(video));
+  await writeFile(file, writeV1(video));
   try {
     return await body();
   } finally {
@@ -249,16 +244,18 @@ function kept(
   name: string,
   clicks: string[],
   scale: number,
-  outputs: KeptVideo["outputs"],
+  outputs: V1Kept["outputs"],
   /** A pause before the last click, to move the gap between clicks off the
    *  camera's line (the guard test at the end). */
   pauseMs = 0,
   /** A pause after the last click, so the film ends on a still screen
    *  (1500 ms is the short ending a slower app is measured on, below). */
   endMs = 0,
-): KeptVideo {
+): V1Kept {
   return {
-    keptVersion: 1,
+    keptVersion: 2,
+    flow: FLOW_ID,
+    deliver: "commit",
     name,
     script: {
       scriptVersion: 1,
@@ -275,14 +272,14 @@ function kept(
         ]),
         ...(endMs > 0 ? [{ do: "pause", ms: endMs }] : []),
       ],
-    } as KeptVideo["script"],
+    } as V1Kept["script"],
     scale,
     logo: null,
     wallpaper: null,
     outputs,
     screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
     report: name === A ? "docs/order-report.json" : null,
-    from: { videoId: "video-x", takeId: "scene-x", recordedRevision: "r" },
+    from: { videoId: FLOW_ID, takeId: "scene-x", recordedRevision: "r" },
   };
 }
 
@@ -404,11 +401,9 @@ const screensOf = (detail: string): [number, number] => {
 /** A's detail from the unchanged run, for the slower app's to match. */
 let unchangedDetailA = "";
 const bytes = (p: string) => readFile(join(repo, p));
-const keptOf = async (name: string): Promise<KeptVideo> => {
+const keptOf = async (name: string): Promise<V1Kept> => {
   const file = `${KEPT_DIR}/${keptFileName(name)}`;
-  const parsed = parseKept(await readFile(join(repo, file), "utf8"), file);
-  if (!parsed.ok) throw new Error(parsed.detail);
-  return parsed.kept;
+  return readV1(await readFile(join(repo, file), "utf8"), file);
 };
 /** How far a gap between two clicks is from the pan-or-pull-back line: the
  *  room `returnsBetween` finds between the camera's hold after the first
@@ -448,7 +443,7 @@ beforeAll(async () => {
   await mkdir(join(repo, KEPT_DIR), { recursive: true });
   await writeFile(
     join(repo, KEPT_DIR, keptFileName(A)),
-    serializeKept(
+    writeV1(
       kept(
         A,
         ["Place order"],
@@ -464,7 +459,7 @@ beforeAll(async () => {
   );
   await writeFile(
     join(repo, KEPT_DIR, keptFileName(B)),
-    serializeKept(
+    writeV1(
       kept(
         B,
         ["Place order", "Reports"],
@@ -923,7 +918,8 @@ describe("refresh", () => {
     "fails a kept file with no screens, saying keep it again",
     async () => {
       const kf = join(repo, KEPT_DIR, "no-screens.json");
-      const { screens: _gone, ...bare } = await keptOf(A);
+      const { screens: _gone, ...bare } = JSON.parse(writeV1(await keptOf(A)));
+      expect(bare.keptVersion, "premise: a v1 file").toBe(1);
       await writeFile(kf, JSON.stringify({ ...bare, name: "No screens" }));
       try {
         const r = await refresh([A]);
@@ -1162,7 +1158,7 @@ describe("refresh", () => {
         await symlink(outside, join(repo, "linked"));
         await writeFile(
           join(repo, KEPT_DIR, keptFileName("Linked out")),
-          serializeKept(
+          writeV1(
             kept("Linked out", ["Place order"], 1, [
               {
                 path: "linked/c.mp4",
@@ -1254,7 +1250,7 @@ describe("refresh", () => {
         0,
         3500,
       );
-      const video: KeptVideo = {
+      const video: V1Kept = {
         ...base,
         wallpaper: copy,
         script: {
@@ -1383,8 +1379,8 @@ describe("refresh", () => {
             },
           },
         },
-      } as KeptVideo;
-      await writeFile(file, serializeKept(blurred));
+      } as V1Kept;
+      await writeFile(file, writeV1(blurred));
       const r = await refresh([B]);
       const b = byName(r, B);
       expect(b.outcome, JSON.stringify(r)).toBe("replaced");
@@ -1433,7 +1429,7 @@ describe("refresh", () => {
         0,
         3500,
       );
-      const video: KeptVideo = {
+      const video: V1Kept = {
         ...base,
         logo,
         wallpaper: upload,

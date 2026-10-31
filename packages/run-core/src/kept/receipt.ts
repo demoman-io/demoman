@@ -1,0 +1,193 @@
+// The receipt: what a kept flow's committed files show, written beside the
+// recipe (.demoman/videos/) under .demoman/receipts/.
+import type { FilmedCode } from "../replay/report.js";
+import type { KeptMoment, KeptScreens } from "./file.js";
+
+export const RECEIPT_VERSION = 1;
+export const RECEIPT_DIR = ".demoman/receipts";
+
+export type KeptReceipt = {
+  receiptVersion: 1;
+  flow: string;
+  /** The take id of the video the files were rendered from. */
+  video: string;
+  filmedCode: FilmedCode;
+  screens: KeptScreens;
+  /** The scene revision the files were built from; `libraryAhead` reads it. */
+  recordedRevision: string | null;
+};
+
+type Screens =
+  | { ok: true; screens: KeptScreens }
+  | { ok: false; detail: string };
+
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** The one check of a screens object, whichever file holds it. `at` names
+ *  the field in each message ("screens"). */
+export function parseScreens(sc: unknown, at: string): Screens {
+  const bad = (what: string): Screens => ({ ok: false, detail: what });
+  if (!isObj(sc)) return bad(`${at} is not an object`);
+  if (!Number.isInteger(sc.steps) || (sc.steps as number) < 0)
+    return bad(`${at}.steps must be a whole number of steps`);
+  if (!Array.isArray(sc.moments) || sc.moments.length === 0)
+    return bad(`${at}.moments must list at least one still screen`);
+  const moments: KeptMoment[] = [];
+  const seen = new Set<number | null>();
+  for (const [i, m] of sc.moments.entries()) {
+    const mAt = `${at}.moments[${i}]`;
+    if (!isObj(m)) return bad(`${mAt} is not an object`);
+    if (typeof m.ms !== "number" || !Number.isFinite(m.ms) || m.ms < 0)
+      return bad(`${mAt}.ms must be a non-negative number`);
+    if (m.ms <= (moments[i - 1]?.ms ?? -1))
+      return bad(`${mAt}.ms must be greater than the one before it`);
+    if (m.step !== null) {
+      if (!Number.isInteger(m.step) || (m.step as number) < 0)
+        return bad(`${mAt}.step must be null or a whole step number`);
+      if ((m.step as number) >= (sc.steps as number))
+        return bad(
+          `${mAt}.step ${m.step} is not below ${at}.steps ${sc.steps}`,
+        );
+      if (seen.has(m.step as number))
+        return bad(`${mAt}.step ${m.step} is named by an earlier moment`);
+      seen.add(m.step as number);
+    } else if (seen.has(null))
+      return bad(`${mAt}.step is a second final screen`);
+    else seen.add(null);
+    const w = m.window;
+    if (w !== undefined) {
+      if (!isObj(w)) return bad(`${mAt}.window is not an object`);
+      // Numbers, finite, each: a string or Infinity would pass a bare `> 0`.
+      for (const [key, least] of [
+        ["x", null],
+        ["y", null],
+        ["width", "positive"],
+        ["height", "positive"],
+        ["radius", "0 or more"],
+      ] as const) {
+        const v = w[key];
+        if (
+          typeof v !== "number" ||
+          !Number.isFinite(v) ||
+          (least === "positive" && v <= 0) ||
+          (least === "0 or more" && v < 0)
+        )
+          return bad(
+            `${mAt}.window.${key} must be a finite number${least === null ? "" : `, ${least}`}`,
+          );
+      }
+    }
+    moments.push({
+      step: m.step as number | null,
+      ms: m.ms,
+      ...(isObj(w)
+        ? {
+            window: {
+              x: w.x as number,
+              y: w.y as number,
+              width: w.width as number,
+              height: w.height as number,
+              radius: w.radius as number,
+            },
+          }
+        : {}),
+    });
+  }
+  if (sc.look !== undefined && (typeof sc.look !== "string" || sc.look === ""))
+    return bad(`${at}.look must be a non-empty string`);
+  return {
+    ok: true,
+    screens: {
+      steps: sc.steps as number,
+      moments,
+      ...(typeof sc.look === "string" ? { look: sc.look } : {}),
+    },
+  };
+}
+
+type Parsed =
+  | { ok: true; receipt: KeptReceipt }
+  | { ok: false; detail: string };
+
+export function parseReceipt(text: string, file: string): Parsed {
+  const bad = (what: string): Parsed => ({
+    ok: false,
+    detail: `${file}: ${what}`,
+  });
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return bad(`is not valid JSON (${e instanceof Error ? e.message : e})`);
+  }
+  if (!isObj(raw)) return bad("is not a JSON object");
+  if (raw.receiptVersion !== RECEIPT_VERSION)
+    return bad(
+      `receiptVersion is ${JSON.stringify(raw.receiptVersion)}; this Demoman reads ${RECEIPT_VERSION}`,
+    );
+  if (typeof raw.flow !== "string" || raw.flow === "")
+    return bad("flow must be a non-empty string");
+  if (typeof raw.video !== "string" || raw.video === "")
+    return bad("video must be a non-empty string");
+  const fc = raw.filmedCode;
+  let filmedCode: FilmedCode;
+  if (isObj(fc) && typeof fc.none === "string" && fc.none !== "")
+    filmedCode = { none: fc.none };
+  else if (
+    isObj(fc) &&
+    (fc.commit === null || typeof fc.commit === "string") &&
+    typeof fc.tree === "string" &&
+    typeof fc.dirty === "boolean"
+  )
+    filmedCode = { commit: fc.commit, tree: fc.tree, dirty: fc.dirty };
+  else
+    return bad("filmedCode must be { commit, tree, dirty } or { none: <why> }");
+  const recordedRevision = raw.recordedRevision;
+  if (recordedRevision !== null && typeof recordedRevision !== "string")
+    return bad("recordedRevision must be a string or null");
+  const screens = parseScreens(raw.screens, "screens");
+  if (!screens.ok) return bad(screens.detail);
+  return {
+    ok: true,
+    receipt: {
+      receiptVersion: RECEIPT_VERSION,
+      flow: raw.flow,
+      video: raw.video,
+      filmedCode,
+      screens: screens.screens,
+      recordedRevision,
+    },
+  };
+}
+
+export function serializeReceipt(r: KeptReceipt): string {
+  const ordered = {
+    receiptVersion: r.receiptVersion,
+    flow: r.flow,
+    video: r.video,
+    filmedCode: r.filmedCode,
+    recordedRevision: r.recordedRevision,
+    // `window` and `look` only when recorded, as the recipe once wrote them.
+    screens: {
+      steps: r.screens.steps,
+      moments: r.screens.moments.map((m) => ({
+        step: m.step,
+        ms: m.ms,
+        ...(m.window === undefined
+          ? {}
+          : {
+              window: {
+                x: m.window.x,
+                y: m.window.y,
+                width: m.window.width,
+                height: m.window.height,
+                radius: m.window.radius,
+              },
+            }),
+      })),
+      ...(r.screens.look === undefined ? {} : { look: r.screens.look }),
+    },
+  };
+  return `${JSON.stringify(ordered, null, 2)}\n`;
+}

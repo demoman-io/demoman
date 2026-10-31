@@ -1,10 +1,18 @@
 // The kept-video file: everything a re-film needs, committed under .demoman/videos/.
 import { type DemoScript, DemoScriptSchema } from "@demoman/scene-schema";
 import { EXPORT_QUALITY_VALUES, type ExportQuality } from "../export/target.js";
+import { isFlowId } from "../served-words.js";
 import { normaliseName } from "../video-name.js";
+import { type KeptReceipt, parseScreens, RECEIPT_VERSION } from "./receipt.js";
 
-export const KEPT_VERSION = 1;
+export const KEPT_VERSION = 2;
+/** The first format: screens and `from` lived in the recipe. Read, never written. */
+const KEPT_V1 = 1;
 export const KEPT_DIR = ".demoman/videos";
+
+/** Where a flow's files go: into the repo at the recipe's paths, or into the
+ *  caller's out dir by bare file name. */
+export type KeptDeliver = "commit" | "files";
 
 export type KeptOutput = {
   path: string;
@@ -57,7 +65,9 @@ export function judgedOutput(outputs: KeptOutput[]): number {
 }
 
 export interface KeptVideo {
-  keptVersion: 1;
+  keptVersion: 2;
+  /** The flow's id. */
+  flow: string;
   name: string;
   script: DemoScript;
   scale: number;
@@ -66,13 +76,16 @@ export interface KeptVideo {
    *  logo is; null for a built-in, a colour, or a file kept before
    *  wallpapers (the key is absent there). */
   wallpaper: string | null;
+  deliver: KeptDeliver;
+  /** Paths are repo-relative for `commit`, bare file names for `files`. */
   outputs: KeptOutput[];
-  screens: KeptScreens;
+  /** Likewise: a repo path, or a file name, or null. */
   report: string | null;
-  from: { videoId: string; takeId: string; recordedRevision: string };
 }
 
-type Parsed = { ok: true; kept: KeptVideo } | { ok: false; detail: string };
+type Parsed =
+  | { ok: true; kept: KeptVideo; migrated: KeptReceipt | null }
+  | { ok: false; detail: string };
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
@@ -86,6 +99,10 @@ const repoRelative = (p: unknown): p is string =>
   !p.includes("\\") &&
   !p.split("/").includes("..");
 
+/** A bare file name: what a `files` recipe's outputs are. */
+const bareName = (p: unknown): p is string =>
+  repoRelative(p) && !p.includes("/");
+
 export function parseKept(text: string, file: string): Parsed {
   const bad = (what: string): Parsed => ({
     ok: false,
@@ -98,9 +115,10 @@ export function parseKept(text: string, file: string): Parsed {
     return bad(`is not valid JSON (${e instanceof Error ? e.message : e})`);
   }
   if (!isObj(raw)) return bad("is not a JSON object");
-  if (raw.keptVersion !== KEPT_VERSION)
+  const v1 = raw.keptVersion === KEPT_V1;
+  if (!v1 && raw.keptVersion !== KEPT_VERSION)
     return bad(
-      `keptVersion is ${JSON.stringify(raw.keptVersion)}; this Demoman reads ${KEPT_VERSION}`,
+      `keptVersion is ${JSON.stringify(raw.keptVersion)}; this Demoman reads ${KEPT_V1} and ${KEPT_VERSION}`,
     );
   if (typeof raw.name !== "string" || raw.name === "")
     return bad("name must be a non-empty string");
@@ -118,16 +136,42 @@ export function parseKept(text: string, file: string): Parsed {
   const wallpaper = raw.wallpaper ?? null;
   if (wallpaper !== null && !repoRelative(wallpaper))
     return bad("wallpaper must be null or a repo-relative path without ..");
-  if (raw.report !== null && !repoRelative(raw.report))
-    return bad("report must be null or a repo-relative path without ..");
+  const deliver = v1 ? "commit" : raw.deliver;
+  if (deliver !== "commit" && deliver !== "files")
+    return bad('deliver must be "commit" or "files"');
+  const pathOk = deliver === "files" ? bareName : repoRelative;
+  const pathRule =
+    deliver === "files"
+      ? "a bare file name (no /, no ..)"
+      : "repo-relative, posix, without ..";
+  if (raw.report !== null && !pathOk(raw.report))
+    return bad(`report must be null or ${pathRule}`);
+  let flow: string;
+  if (v1) {
+    const f = raw.from;
+    if (
+      !isObj(f) ||
+      typeof f.videoId !== "string" ||
+      typeof f.takeId !== "string" ||
+      typeof f.recordedRevision !== "string"
+    )
+      return bad("from needs string videoId, takeId and recordedRevision");
+    if (!isFlowId(f.videoId))
+      return bad(`from.videoId ${JSON.stringify(f.videoId)} is not a flow id`);
+    flow = f.videoId;
+  } else {
+    if (typeof raw.flow !== "string" || !isFlowId(raw.flow))
+      return bad(`flow ${JSON.stringify(raw.flow)} is not a flow id`);
+    flow = raw.flow;
+  }
   if (!Array.isArray(raw.outputs) || raw.outputs.length === 0)
     return bad("outputs must list at least one output");
   const outputs: KeptOutput[] = [];
   for (const [i, o] of raw.outputs.entries()) {
     if (!isObj(o)) return bad(`outputs[${i}] is not an object`);
-    if (!repoRelative(o.path))
+    if (!pathOk(o.path))
       return bad(
-        `outputs[${i}].path must be repo-relative, posix, without ..; got ${JSON.stringify(o.path)}`,
+        `outputs[${i}].path must be ${pathRule}; got ${JSON.stringify(o.path)}`,
       );
     if (o.fileType !== "mp4" && o.fileType !== "gif")
       return bad(`outputs[${i}].fileType must be "mp4" or "gif"`);
@@ -144,108 +188,39 @@ export function parseKept(text: string, file: string): Parsed {
       quality: o.quality as ExportQuality,
     });
   }
-  const sc = raw.screens;
-  if (!isObj(sc))
-    return bad(
-      `${raw.name} has no screens — it was kept before they were recorded; run \`demoman keep ${raw.name}\` again to record them`,
-    );
-  if (!Number.isInteger(sc.steps) || (sc.steps as number) < 0)
-    return bad("screens.steps must be a whole number of steps");
-  if (!Array.isArray(sc.moments) || sc.moments.length === 0)
-    return bad("screens.moments must list at least one still screen");
-  const moments: KeptMoment[] = [];
-  const seen = new Set<number | null>();
-  for (const [i, m] of sc.moments.entries()) {
-    const at = `screens.moments[${i}]`;
-    if (!isObj(m)) return bad(`${at} is not an object`);
-    if (typeof m.ms !== "number" || !Number.isFinite(m.ms) || m.ms < 0)
-      return bad(`${at}.ms must be a non-negative number`);
-    if (m.ms <= (moments[i - 1]?.ms ?? -1))
-      return bad(`${at}.ms must be greater than the one before it`);
-    if (m.step !== null) {
-      if (!Number.isInteger(m.step) || (m.step as number) < 0)
-        return bad(`${at}.step must be null or a whole step number`);
-      if ((m.step as number) >= (sc.steps as number))
-        return bad(
-          `${at}.step ${m.step} is not below screens.steps ${sc.steps}`,
-        );
-      if (seen.has(m.step as number))
-        return bad(`${at}.step ${m.step} is named by an earlier moment`);
-      seen.add(m.step as number);
-    } else if (seen.has(null))
-      return bad(`${at}.step is a second final screen`);
-    else seen.add(null);
-    const w = m.window;
-    if (w !== undefined) {
-      if (!isObj(w)) return bad(`${at}.window is not an object`);
-      // Numbers, finite, each: a string or Infinity would pass a bare `> 0`.
-      for (const [key, least] of [
-        ["x", null],
-        ["y", null],
-        ["width", "positive"],
-        ["height", "positive"],
-        ["radius", "0 or more"],
-      ] as const) {
-        const v = w[key];
-        if (
-          typeof v !== "number" ||
-          !Number.isFinite(v) ||
-          (least === "positive" && v <= 0) ||
-          (least === "0 or more" && v < 0)
-        )
-          return bad(
-            `${at}.window.${key} must be a finite number${least === null ? "" : `, ${least}`}`,
-          );
-      }
-    }
-    moments.push({
-      step: m.step as number | null,
-      ms: m.ms,
-      ...(isObj(w)
-        ? {
-            window: {
-              x: w.x as number,
-              y: w.y as number,
-              width: w.width as number,
-              height: w.height as number,
-              radius: w.radius as number,
-            },
-          }
-        : {}),
-    });
+  let migrated: KeptReceipt | null = null;
+  if (v1) {
+    if (!isObj(raw.screens))
+      return bad(
+        `${raw.name} has no screens — it was kept before they were recorded; run \`demoman keep ${raw.name}\` again to record them`,
+      );
+    const sc = parseScreens(raw.screens, "screens");
+    if (!sc.ok) return bad(sc.detail);
+    const f = raw.from as Record<string, string>;
+    migrated = {
+      receiptVersion: RECEIPT_VERSION,
+      flow,
+      video: f.takeId as string,
+      filmedCode: { none: "kept before receipts were recorded" },
+      screens: sc.screens,
+      recordedRevision: f.recordedRevision as string,
+    };
   }
-  if (sc.look !== undefined && (typeof sc.look !== "string" || sc.look === ""))
-    return bad("screens.look must be a non-empty string");
-  const f = raw.from;
-  if (
-    !isObj(f) ||
-    typeof f.videoId !== "string" ||
-    typeof f.takeId !== "string" ||
-    typeof f.recordedRevision !== "string"
-  )
-    return bad("from needs string videoId, takeId and recordedRevision");
   return {
     ok: true,
     kept: {
       keptVersion: KEPT_VERSION,
+      flow,
       name: raw.name,
       script: script.data,
       scale: raw.scale,
       logo: raw.logo,
       wallpaper,
+      deliver,
       outputs,
-      screens: {
-        steps: sc.steps as number,
-        moments,
-        ...(typeof sc.look === "string" ? { look: sc.look } : {}),
-      },
       report: raw.report,
-      from: {
-        videoId: f.videoId,
-        takeId: f.takeId,
-        recordedRevision: f.recordedRevision,
-      },
     },
+    migrated,
   };
 }
 
@@ -257,44 +232,21 @@ export function keptFileName(name: string): string {
 export function serializeKept(k: KeptVideo): string {
   const ordered = {
     keptVersion: k.keptVersion,
+    flow: k.flow,
     name: k.name,
     script: k.script,
     scale: k.scale,
     logo: k.logo,
     // Only when there is one: a file kept before wallpapers reads the same.
     ...(k.wallpaper === null ? {} : { wallpaper: k.wallpaper }),
+    deliver: k.deliver,
     outputs: k.outputs.map((o) => ({
       path: o.path,
       fileType: o.fileType,
       aspect: o.aspect,
       quality: o.quality,
     })),
-    // `window` and `look` only when recorded: a file kept before reads the same.
-    screens: {
-      steps: k.screens.steps,
-      moments: k.screens.moments.map((m) => ({
-        step: m.step,
-        ms: m.ms,
-        ...(m.window === undefined
-          ? {}
-          : {
-              window: {
-                x: m.window.x,
-                y: m.window.y,
-                width: m.window.width,
-                height: m.window.height,
-                radius: m.window.radius,
-              },
-            }),
-      })),
-      ...(k.screens.look === undefined ? {} : { look: k.screens.look }),
-    },
     report: k.report,
-    from: {
-      videoId: k.from.videoId,
-      takeId: k.from.takeId,
-      recordedRevision: k.from.recordedRevision,
-    },
   };
   return `${JSON.stringify(ordered, null, 2)}\n`;
 }
