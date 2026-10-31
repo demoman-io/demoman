@@ -16,6 +16,32 @@ const deploy = ciWorkflow({
 const lines = (y: string) => y.split("\n");
 const npx = (y: string) => lines(y).filter((l) => l.includes("npx --prefix"));
 
+describe("ciWorkflow artifact", () => {
+  const art = ciWorkflow({
+    version: "0.2.0",
+    trigger: "push",
+    route: "pr",
+    artifact: true,
+  });
+  it("artifact adds out-dir and the upload step, always", () => {
+    const refresh = lines(art).find((l) => l.includes(" refresh --deliver"));
+    expect(refresh).toContain("--out-dir demoman-out");
+    const at = lines(art).findIndex((l) =>
+      l.includes("uses: actions/upload-artifact@v4"),
+    );
+    // Premise: the step exists and follows the refresh step.
+    expect(at).toBeGreaterThan(lines(art).findIndex((l) => l === refresh));
+    const step = lines(art).slice(at, at + 5);
+    expect(step).toContain("        if: always()");
+    expect(step).toContain("          name: demoman-videos");
+    expect(step).toContain("          path: demoman-out");
+  });
+  it("without artifact, neither appears", () => {
+    expect(push).not.toContain("--out-dir");
+    expect(push).not.toContain("upload-artifact");
+  });
+});
+
 describe("ciWorkflow", () => {
   it("pins the version in both npx lines", () => {
     expect(npx(push)).toHaveLength(2);

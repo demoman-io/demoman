@@ -65,6 +65,7 @@ const filmed = {
   video: null,
   filmedCode: null,
   sameAs: null,
+  files: [] as Video["files"],
   screens: null,
   report: null,
 } as const;

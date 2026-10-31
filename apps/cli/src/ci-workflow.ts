@@ -12,6 +12,8 @@ export interface CiOptions {
   route: "pr" | "main";
   /** The branch a push trigger watches; `main` when not given. */
   branch?: string;
+  /** Write the files flows to demoman-out and upload it as an artifact. */
+  artifact?: boolean;
 }
 
 export const CI_WORKFLOW_PATH = ".github/workflows/demoman.yml";
@@ -85,6 +87,7 @@ export function ciWorkflow(o: CiOptions): string {
       ? ""
       : `\n          DEMOMAN_BASE_URL: ${expr("github.event.deployment_status.environment_url")}`;
   const run = expr("steps.guard.outputs.skip != 'true'");
+  const outDir = o.artifact === true ? " --out-dir demoman-out" : "";
   const script = GUARD_SCRIPT.split("\n")
     .map((l) => `          ${l}`)
     .join("\n");
@@ -130,7 +133,7 @@ ${script}
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
 ${start}      - name: Refresh the kept videos
         if: ${run}
-        run: ${npx} refresh --deliver ${o.route}${baseUrl}
+        run: ${npx} refresh --deliver ${o.route}${baseUrl}${outDir}
         env:
           GH_TOKEN: ${expr("github.token")}${baseUrlEnv}
           # One pair per demo account: NAME is what a kept script's { secret: NAME }
@@ -138,7 +141,16 @@ ${start}      - name: Refresh the kept videos
           # run refuses the secret).
           # DEMOMAN_SECRET_SELLER: ${expr("secrets.DEMOMAN_SECRET_SELLER")}
           # DEMOMAN_SECRET_SELLER_ORIGIN: https://app.example.com
-`;
+${
+  o.artifact === true
+    ? `      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: demoman-videos
+          path: demoman-out
+`
+    : ""
+}`;
 }
 
 export const DEPLOYMENT_MAIN =
@@ -178,13 +190,18 @@ export interface CiIo {
   say(line: string): void;
 }
 
-/** `setup --ci [--trigger push|<environment>] [--route pr|main]`: returns the exit code. */
+/** `setup --ci [--trigger push|<environment>] [--route pr|main] [--artifact]`: returns the exit code. */
 export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   const stop = (why: string): number => {
     io.say(`Demoman setup stopped: ${why}`);
     return 1;
   };
-  let values: { ci?: boolean; trigger?: string; route?: string };
+  let values: {
+    ci?: boolean;
+    trigger?: string;
+    route?: string;
+    artifact?: boolean;
+  };
   try {
     ({ values } = parseArgs({
       args,
@@ -192,6 +209,7 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
         ci: { type: "boolean" },
         trigger: { type: "string" },
         route: { type: "string" },
+        artifact: { type: "boolean" },
       },
       strict: true,
       allowPositionals: false,
@@ -245,6 +263,7 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
     trigger: trigger === "push" ? "push" : { deployment: trigger },
     route,
     branch,
+    ...(values.artifact === true ? { artifact: true } : {}),
   };
   let text: string;
   try {

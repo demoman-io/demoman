@@ -26,7 +26,7 @@ terminal (a script, CI) nothing is asked.
 ### setup --ci
 
 ```bash
-npx demoman setup --ci [--trigger push|<environment>] [--route pr|main]
+npx demoman setup --ci [--trigger push|<environment>] [--route pr|main] [--artifact]
 ```
 
 Writes `.github/workflows/demoman.yml`, which runs `demoman refresh --deliver`
@@ -34,7 +34,7 @@ on each merge to main (`push`) or after each successful deployment to the named
 environment. `--route pr` opens a pull request with the changed files, and
 needs "Allow GitHub Actions to create and approve pull requests" on in the
 repository's Actions settings; `--route main` commits them. A trigger or route
-not given is asked. For `push`, fill in the workflow's "Start your app" step.
+not given is asked. `--artifact` refreshes with `--out-dir demoman-out` and uploads that folder as the `demoman-videos` artifact. For `push`, fill in the workflow's "Start your app" step.
 
 ## signin
 
@@ -94,7 +94,7 @@ hand with `signin` rather than as a demo account.
 ## refresh
 
 ```bash
-npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main]
+npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main] [--out-dir <folder>] [--previous <folder>]
 ```
 
 Films every flow kept in `.demoman/videos/` again, or only those named, with
@@ -110,6 +110,8 @@ file lacks.
 | --- | --- |
 | `--base-url <origin>` | Film the app at this origin instead of the one each video was recorded at, such as a preview deployment |
 | `--deliver pr\|main` | After refreshing, commit only the replaced files: `main` pushes one `Refresh demo videos` commit to the checked-out branch; `pr` force-pushes it to `demoman/refresh` and opens or updates one pull request (the workflow's `GITHUB_TOKEN` needs "Allow GitHub Actions to create and approve pull requests"). Exits 1 if delivery fails |
+| `--out-dir <folder>` | Write the flows kept with `--deliver files` into this folder, with their receipts and `demoman-refresh.json`, which lists what each flow made. Nothing is committed. A `files` flow fails without it, and the others still refresh |
+| `--previous <folder>` | The folder an earlier `--out-dir` was kept in: a `files` flow is compared with the receipt and film there, and is `unchanged` when the picture matches |
 
 ## join-flow
 

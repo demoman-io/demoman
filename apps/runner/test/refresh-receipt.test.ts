@@ -18,6 +18,7 @@ import {
   keptFileName,
   parseReceipt,
   RECEIPT_DIR,
+  REFRESH_LIST_FILE,
   serializeKept,
   serializeReceipt,
 } from "@demoman/run-core";
@@ -30,6 +31,9 @@ const NAME = "Place an order";
 const FILE = `${KEPT_DIR}/${keptFileName(NAME)}`;
 const RECEIPT = `${RECEIPT_DIR}/${keptFileName(NAME)}`;
 const MP4 = "docs/o.mp4";
+/** A files flow's output: a bare name, written beside the list. */
+const BARE = "o.mp4";
+const OTHER_FLOW = "1a2b3c4d-0000-4000-8000-000000000001";
 const GIF = "docs/o.gif";
 const FILMED = "a".repeat(40);
 /** When the fake run started: what a refresh-written receipt's filmedAt says. */
@@ -422,5 +426,142 @@ describe("a local refresh after a refresh wrote the receipt", () => {
       `whether the library is ahead of ${FILE} cannot be told`,
     );
     expect(note).not.toContain("has a newer video");
+  });
+});
+
+describe("the files route", () => {
+  let out: string;
+  let prev: string;
+  beforeEach(async () => {
+    out = await mkdtemp(join(tmpdir(), "demoman-out-"));
+    prev = await mkdtemp(join(tmpdir(), "demoman-prev-"));
+  });
+  afterEach(async () => {
+    await rm(out, { recursive: true, force: true });
+    await rm(prev, { recursive: true, force: true });
+  });
+  const stem = keptFileName(NAME).replace(/\.json$/, "");
+  const RECEIPT_NAME = `${stem}.receipt.json`;
+  const filesRecipe = (): KeptVideo => ({
+    ...recipe([BARE]),
+    deliver: "files",
+  });
+  const commitAll = () => {
+    execFileSync("git", ["add", "-A"], { cwd: repo });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "-m",
+        "kept",
+      ],
+      { cwd: repo },
+    );
+  };
+  const status = () =>
+    execFileSync("git", ["status", "--porcelain"], { cwd: repo }).toString();
+  const refreshInto = async (
+    more: { previous?: string; outDir?: string } = {},
+  ) =>
+    (
+      await refreshKept(
+        { repoRoot: repo, library: "throwaway", outDir: out, ...more },
+        deps(),
+      )
+    ).videos;
+  const listIn = async () =>
+    JSON.parse(await readFile(join(out, REFRESH_LIST_FILE), "utf8"));
+
+  it("a files flow writes into out-dir and commits nothing", async () => {
+    await writeV2(filesRecipe(), null);
+    commitAll();
+    // Premise: the checkout is clean before, so a dirty one after is the refresh's doing.
+    expect(status()).toBe("");
+    const [v] = await refreshInto();
+    expect(v?.outcome, JSON.stringify(v)).toBe("uncompared");
+    expect(status()).toBe("");
+    expect(await readFile(join(out, BARE), "utf8")).toBe("new mp4");
+    const r = parseReceipt(
+      await readFile(join(out, RECEIPT_NAME), "utf8"),
+      RECEIPT_NAME,
+    );
+    expect(r).toMatchObject({
+      ok: true,
+      receipt: { video: "t-new", flow: FLOW },
+    });
+    const list = await listIn();
+    expect(list.refreshVersion).toBe(1);
+    expect(list.videos[0]).toMatchObject({
+      outcome: "uncompared",
+      video: "t-new",
+      kept: FILE,
+      files: [
+        { path: BARE, fileType: "mp4", aspect: "16:9" },
+        { path: RECEIPT_NAME, fileType: "json", aspect: null },
+      ],
+    });
+  });
+
+  it("a files flow with a previous receipt can be unchanged", async () => {
+    await writeV2(filesRecipe(), null);
+    await writeFile(join(prev, BARE), "delivered film");
+    await writeFile(join(prev, RECEIPT_NAME), serializeReceipt(receipt()));
+    const [v] = await refreshInto({ previous: prev });
+    expect(v?.outcome, JSON.stringify(v)).toBe("unchanged");
+    expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
+    // Nothing to deliver: the previous folder's film stands.
+    expect(existsSync(join(out, BARE))).toBe(false);
+    expect((await listIn()).videos[0]).toMatchObject({
+      outcome: "unchanged",
+      sameAs: { video: "t1", commit: FILMED },
+      files: [],
+    });
+  });
+
+  it("a previous receipt for another flow fails, naming both", async () => {
+    await writeV2(filesRecipe(), null);
+    await writeFile(
+      join(prev, RECEIPT_NAME),
+      serializeReceipt(receipt({ flow: OTHER_FLOW })),
+    );
+    const [v] = await refreshInto({ previous: prev });
+    expect(v?.outcome).toBe("failed");
+    expect(v?.detail).toContain(OTHER_FLOW);
+    expect(v?.detail).toContain(FLOW);
+    expect(runs).toEqual([]);
+  });
+
+  it("a previous folder that is not there fails, naming it", async () => {
+    await writeV2(filesRecipe(), null);
+    const gone = join(prev, "nope");
+    const [v] = await refreshInto({ previous: gone });
+    expect(v?.outcome).toBe("failed");
+    expect(v?.detail).toContain(gone);
+    expect(runs).toEqual([]);
+  });
+
+  it("a files flow without --out-dir fails and the commit flow still refreshes", async () => {
+    await writeV2(recipe(), null);
+    const other = {
+      ...filesRecipe(),
+      flow: OTHER_FLOW,
+      name: "Upload me",
+    } satisfies KeptVideo;
+    const otherFile = `${KEPT_DIR}/${keptFileName(other.name)}`;
+    await writeFile(join(repo, otherFile), serializeKept(other));
+    const videos = await refresh();
+    const by = (f: string) => videos.find((v) => v.file === f);
+    expect(by(otherFile)).toMatchObject({
+      outcome: "failed",
+      detail: "deliver files needs --out-dir",
+    });
+    expect(by(FILE)?.outcome, JSON.stringify(videos)).toBe("uncompared");
+    // Premise: only the commit flow was filmed.
+    expect(runs.map((a) => a.video)).toEqual([{ id: FLOW }]);
   });
 });

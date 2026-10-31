@@ -1,4 +1,11 @@
-import { access, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import {
@@ -14,8 +21,12 @@ import {
   messageOf,
   prVerdict,
   RECEIPT_DIR,
+  REFRESH_LIST_FILE,
+  type RefreshListEntry,
   type RunReport,
+  refreshListOf,
   serializeReceipt,
+  serializeRefreshList,
   servedRunReport,
 } from "@demoman/run-core";
 import type { DemoScript } from "@demoman/scene-schema";
@@ -58,8 +69,12 @@ export interface RefreshVideo {
   /** The new film's take id and the code it filmed, once there is a film. */
   video: string | null;
   filmedCode: FilmedCode | null;
-  /** For `unchanged`: the previous receipt's video, which the picture matched. */
+  /** For `unchanged` and `added`: the previous receipt's video, which the
+   *  picture matched. */
   sameAs: { video: string } | null;
+  /** What this refresh wrote, with each output's type and aspect; the
+   *  receipt and report are json. */
+  files: RefreshListEntry["files"];
   /** The new film's judged-output screens, and its served run report. */
   screens: KeptScreens | null;
   report: unknown | null;
@@ -108,6 +123,10 @@ type Job = {
   /** What a reader must hear before the film: the library ahead (local
    *  only), no receipt. */
   notes: string[];
+  /** Where the committed files are read (the checkout, or `previous` for a
+   *  files flow; null when none was given) and where new ones are written. */
+  from: string | null;
+  to: string;
 };
 
 /**
@@ -153,6 +172,11 @@ export async function refreshKept(
     only?: string[];
     baseUrl?: string;
     library: "local" | "throwaway";
+    /** Where `files` flows are written, with the list of what was made. */
+    outDir?: string;
+    /** A folder an earlier `outDir` was kept in: what `files` flows are
+     *  compared against. */
+    previous?: string;
   },
   deps: RefreshDeps,
 ): Promise<RefreshResult> {
@@ -177,6 +201,7 @@ export async function refreshKept(
       video: null,
       filmedCode: null,
       sameAs: null,
+      files: [],
       screens: null,
       report: null,
     });
@@ -212,19 +237,45 @@ export async function refreshKept(
       );
       continue;
     }
-    if (kept.deliver === "files") {
+    const toFolder = kept.deliver === "files";
+    if (toFolder && args.outDir === undefined) {
       failed(who, "deliver files needs --out-dir");
       continue;
     }
-    const receiptFile = `${RECEIPT_DIR}/${slug}`;
+    const to = toFolder ? resolve(args.outDir as string) : root;
+    const from = toFolder
+      ? args.previous === undefined
+        ? null
+        : resolve(args.previous)
+      : root;
+    if (toFolder && from !== null) {
+      const dir = await stat(from).then(
+        (st) => (st.isDirectory() ? null : "is not a folder"),
+        (error: unknown) => `cannot be read (${messageOf(error)})`,
+      );
+      if (dir !== null) {
+        failed(
+          who,
+          `--previous ${from} ${dir}, so what was delivered is unknown`,
+        );
+        continue;
+      }
+    }
+    // A files flow's receipt sits beside its outputs, not under the repo.
+    const receiptFile = toFolder
+      ? `${slug.replace(/\.json$/, "")}.receipt.json`
+      : `${RECEIPT_DIR}/${slug}`;
     const outside: string[] = [];
-    for (const p of [
-      ...kept.outputs.map((o) => o.path),
-      ...(kept.report === null ? [] : [kept.report]),
-      ...(kept.logo === null ? [] : [kept.logo]),
-      ...(kept.wallpaper === null ? [] : [kept.wallpaper]),
-      receiptFile,
-    ]) {
+    // A files flow's names are bare (the parser holds them to it).
+    for (const p of toFolder
+      ? []
+      : [
+          ...kept.outputs.map((o) => o.path),
+          ...(kept.report === null ? [] : [kept.report]),
+          ...(kept.logo === null ? [] : [kept.logo]),
+          ...(kept.wallpaper === null ? [] : [kept.wallpaper]),
+          receiptFile,
+        ]) {
       const at = await repoPath(root, rootReal, p, "refresh");
       if (typeof at !== "string") outside.push(at.outside);
     }
@@ -232,7 +283,11 @@ export async function refreshKept(
       failed(who, outside.join("; "));
       continue;
     }
-    const had = await readReceiptFile(join(root, receiptFile), receiptFile);
+    const receiptAt = from === null ? null : join(from, receiptFile);
+    const had =
+      receiptAt === null
+        ? ({ missing: true } as const)
+        : await readReceiptFile(receiptAt, toFolder ? receiptAt : receiptFile);
     if ("detail" in had) {
       failed(who, `${had.detail}, so what its outputs show is unknown`);
       continue;
@@ -240,7 +295,7 @@ export async function refreshKept(
     if ("receipt" in had && had.receipt.flow !== kept.flow) {
       failed(
         who,
-        `${receiptFile} is the receipt of flow ${had.receipt.flow}, but ${file} keeps flow ${kept.flow}, so what its outputs show is unknown`,
+        `${receiptAt} is the receipt of flow ${had.receipt.flow}, but ${file} keeps flow ${kept.flow}, so what its outputs show is unknown`,
       );
       continue;
     }
@@ -251,13 +306,18 @@ export async function refreshKept(
       const ahead = await libraryAhead(kept, previous, file, deps);
       if (ahead !== null) notes.push(ahead);
     }
-    if (previous === null) notes.push(`${receiptFile} is missing`);
+    if (previous === null)
+      notes.push(
+        receiptAt === null
+          ? "no --previous folder was given"
+          : `${toFolder ? receiptAt : receiptFile} is missing`,
+      );
     const script = scriptFor(kept, root, args.baseUrl);
     const { width, height } = script.viewport ?? DEVICE_DISPLAY;
     const display = `${width}x${height}@${kept.scale}`;
     groups.set(display, [
       ...(groups.get(display) ?? []),
-      { kept, previous, receiptFile, file, script, notes },
+      { kept, previous, receiptFile, file, script, notes, from, to },
     ]);
   }
   for (const a of args.only ?? []) {
@@ -308,7 +368,7 @@ export async function refreshKept(
     }
     for (const one of filmed) {
       try {
-        videos.push(await deliverOne(one, root, deps));
+        videos.push(await deliverOne(one, deps));
       } catch (error) {
         failed(
           { name: one.job.kept.name, file: one.job.file, kept: one.job.kept },
@@ -320,6 +380,16 @@ export async function refreshKept(
     for (const dir of outDirs) await remove(dir, deps);
   }
   videos.sort((a, b) => a.file.localeCompare(b.file));
+  if (args.outDir !== undefined) {
+    const list = join(resolve(args.outDir), REFRESH_LIST_FILE);
+    try {
+      await place(list, serializeRefreshList(refreshListOf({ videos })));
+    } catch (error) {
+      throw new Error(
+        `the refresh list ${list} could not be written (${messageOf(error)})`,
+      );
+    }
+  }
   return { videos };
 }
 
@@ -440,10 +510,9 @@ async function filmOne(
  */
 async function deliverOne(
   { job, report, takeId, rendered, renderedScreens, stored }: Filmed,
-  root: string,
   deps: RefreshDeps,
 ): Promise<RefreshVideo> {
-  const { kept, previous, receiptFile, file } = job;
+  const { kept, previous, receiptFile, file, from, to } = job;
   const said: string[] = [];
   const notes: string[] = [...job.notes];
   const j = judgedOutput(kept.outputs);
@@ -467,9 +536,15 @@ async function deliverOne(
     video: takeId,
     filmedCode,
     sameAs:
-      outcome === "unchanged" && previous !== null
+      (outcome === "unchanged" || outcome === "added") && previous !== null
         ? { video: previous.video }
         : null,
+    files: outputs.map((path) => {
+      const o = kept.outputs.find((k) => k.path === path);
+      return o === undefined
+        ? { path, fileType: "json" as const, aspect: null }
+        : { path, fileType: o.fileType, aspect: o.aspect };
+    }),
     screens,
     report: "value" in stored ? stored.value : null,
   });
@@ -480,10 +555,12 @@ async function deliverOne(
     return answer("failed", [], null);
   };
   const exists = (p: string) =>
-    access(join(root, p)).then(
-      () => true,
-      () => false,
-    );
+    from === null
+      ? Promise.resolve(false)
+      : access(join(from, p)).then(
+          () => true,
+          () => false,
+        );
   // null: nothing to compare against, so the film is delivered as new.
   let same: boolean | null = null;
   if (previous === null) {
@@ -494,7 +571,7 @@ async function deliverOne(
     let cmp: Awaited<ReturnType<typeof samePicture>>;
     try {
       cmp = await (deps.samePicture ?? samePicture)(
-        join(root, judged.path),
+        join(from as string, judged.path),
         rendered[j] as string,
         judged.fileType,
         previous.screens,
@@ -547,8 +624,8 @@ async function deliverOne(
 
   const written: string[] = [];
   const put = async (path: string, bytes: Uint8Array | string) => {
-    const from = await place(join(root, path), bytes);
-    deps.log(`refresh: renamed ${relative(root, from)} over ${path}`);
+    const temp = await place(join(to, path), bytes);
+    deps.log(`refresh: renamed ${relative(to, temp)} over ${path}`);
     written.push(path);
   };
   try {
@@ -582,7 +659,7 @@ async function deliverOne(
     }
   } catch (error) {
     said.push(
-      `${written.length > 0 ? `wrote ${written.join(", ")}, then ` : ""}could not write into ${root} (${messageOf(error)})`,
+      `${written.length > 0 ? `wrote ${written.join(", ")}, then ` : ""}could not write into ${to} (${messageOf(error)})`,
     );
     return answer("failed", written, null);
   }

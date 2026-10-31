@@ -90,7 +90,7 @@ const USAGE = `demoman ${VERSION}
   npx demoman setup          install the browser and connect your coding agents
     [--yes] [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
   npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
-  npx demoman setup --ci [--trigger push|<environment>] [--route pr|main]
+  npx demoman setup --ci [--trigger push|<environment>] [--route pr|main] [--artifact]
                              write .github/workflows/demoman.yml, which refreshes the kept flows on each merge
   npx demoman signin <url>   sign in to your app once, so agents can record behind the login
   npx demoman signin --account <name> [--site <origin>] [--project <dir>]
@@ -102,9 +102,11 @@ const USAGE = `demoman ${VERSION}
                              (--deliver files writes the re-film file alone; outputs are file names for --out-dir)
   npx demoman join-flow <from> <into>
                              move a flow's videos into the kept flow that has its name, and remove the flow
-  npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main]
+  npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main] [--out-dir <folder>] [--previous <folder>]
                              film the kept flows again and replace the exports whose picture changed;
-                             --deliver commits them on main, or opens a pull request (CI)
+                             --deliver commits them on main, or opens a pull request (CI);
+                             --out-dir writes the files flows and demoman-refresh.json there,
+                             --previous is the folder the last --out-dir was kept in
   demoman mcp [--headed]     serve Demoman's tools on stdio (your agent runs this);
                              --headed shows the browser while it records
   demoman hook post-tool-use answer Claude Code's PostToolUse hook on stdin (the plugin runs this)
@@ -297,6 +299,8 @@ async function keep(args: string[]): Promise<void> {
         report: { type: "string" },
         quality: { type: "string" },
         deliver: { type: "string" },
+        "out-dir": { type: "string" },
+        previous: { type: "string" },
       },
       allowPositionals: true,
       strict: true,
@@ -415,7 +419,12 @@ async function refresh(args: string[]): Promise<void> {
     process.stderr.write(`demoman: ${said}\n\n${USAGE}`);
     process.exit(2);
   };
-  let values: { "base-url"?: string; deliver?: string };
+  let values: {
+    "base-url"?: string;
+    deliver?: string;
+    "out-dir"?: string;
+    previous?: string;
+  };
   let positionals: string[];
   try {
     ({ values, positionals } = parseArgs({
@@ -474,6 +483,10 @@ async function refresh(args: string[]): Promise<void> {
         repoRoot: repo.repo.root,
         ...(positionals.length > 0 ? { only: positionals } : {}),
         ...(baseUrl === undefined ? {} : { baseUrl }),
+        ...(values["out-dir"] === undefined
+          ? {}
+          : { outDir: values["out-dir"] }),
+        ...(values.previous === undefined ? {} : { previous: values.previous }),
         library: process.env.CI === "true" ? "throwaway" : "local",
       },
       {

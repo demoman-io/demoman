@@ -11,6 +11,7 @@ const video = (name: string, more: Partial<Video>): Video => ({
   video: null,
   filmedCode: null,
   sameAs: null,
+  files: [],
   screens: null,
   report: null,
   outcome: "changed",
