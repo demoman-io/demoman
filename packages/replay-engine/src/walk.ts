@@ -184,6 +184,19 @@ export interface WalkStep {
    */
   onWaitTimedOut?(saw: "absent" | "notVisible"): void;
   /**
+   * A navigation wait (`waitForLoad`) that was met says whether the top frame
+   * started a load since the previous step began: false means the page never
+   * navigated and the wait passed on a document that was already complete.
+   */
+  onLoadSeen?(seen: boolean): void;
+  /**
+   * Given only for a `type` into a field whose value may be kept. Called after
+   * the keys went in with what the field now holds and whether that holds the
+   * typed text (letters and digits, case-folded, contained). A field the page
+   * reformats ("4,800") holds; one it empties does not.
+   */
+  onFieldRead?(read: { value: string; holds: boolean }): void;
+  /**
    * A re-shoot's recorded interval from the previous step's marker to this
    * one's, in ms — `to.timestamp - from.timestamp`, the number `planScene`
    * uses for a recorded pace. In continuous recording the walk waits it out
@@ -224,6 +237,19 @@ interface DragPlan {
   end: { x: number; y: number };
   endRect: Rect;
 }
+
+/** What a typed-into field shows now: an input or textarea's `value`, a
+ *  contenteditable host's `textContent`. */
+const FIELD_READ = `function () {
+  return "value" in this && typeof this.value === "string"
+    ? this.value
+    : this.textContent ?? "";
+}`;
+
+/** Letters and digits only, case-folded: what "the field holds the text"
+ *  compares, so a page's commas, spaces and capitals are not a failure. */
+const fieldKey = (s: string): string =>
+  s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 
 /** What a native `<input type="range">` says about its thumb; null for
  *  anything else. */
@@ -653,6 +679,10 @@ export async function runWalk(
   let topFrameId: string | null = null;
   let topLoading = false;
   let navigationsSeen = 0;
+  // `navigationsSeen` as it stood when the previous step began: a
+  // `waitForLoad` saw a load when the count has moved since.
+  let navsAtPreviousStep = 0;
+  let navsAtThisStep = 0;
   const isTop = (params: Record<string, unknown>): boolean =>
     topFrameId === null || params.frameId === topFrameId;
   const offNavigated = cdp.on("Page.frameNavigated", (params) => {
@@ -1965,8 +1995,11 @@ export async function runWalk(
       filming = true;
     }
 
+    navsAtThisStep = navigationsSeen;
     // --- the loop ----------------------------------------------------------
     for await (const step of signedOut === null ? source.steps() : NO_STEPS) {
+      navsAtPreviousStep = navsAtThisStep;
+      navsAtThisStep = navigationsSeen;
       // Unhurried beats: any step but a click begins at once, and the act
       // it follows ends where the page has got to. A click settles it once
       // it knows whether it will wait (below).
@@ -2040,6 +2073,9 @@ export async function runWalk(
           }
           reason = "waitTimeout";
           break;
+        }
+        if (step.action.kind === "waitFor" && step.action.anchorId === null) {
+          step.onLoadSeen?.(navigationsSeen > navsAtPreviousStep);
         }
         // The instant the condition was met, which is what the marker names —
         // taken before the source's veto, whose own round trip is not part of
@@ -2382,6 +2418,7 @@ export async function runWalk(
                 handle.objectId,
                 sightings,
                 clock.sleep,
+                step.onFieldRead,
               ),
         );
         // The page may now look different however little it painted: the
@@ -2425,6 +2462,7 @@ export async function runWalk(
                 handle.objectId,
                 sightings,
                 clock.sleep,
+                step.onFieldRead,
               ),
         );
         const spansBefore = motionSpans.length;
@@ -2688,6 +2726,7 @@ async function performVerb(
   objectId: string,
   sightings: ClickSightings,
   sleep: (ms: number) => Promise<void>,
+  onFieldRead?: WalkStep["onFieldRead"],
 ): Promise<ClickVerdict | null> {
   // Every click is checked: the page is asked where the press and the
   // release arrived, against the point both were sent to (`click-probe.ts`).
@@ -2769,7 +2808,23 @@ async function performVerb(
           commands: ["selectAll"],
         });
       }
-      await typeKeys(typeof text === "string" ? text : "", cdp, sleep);
+      const typed = typeof text === "string" ? text : "";
+      await typeKeys(typed, cdp, sleep);
+      if (onFieldRead !== undefined) {
+        const reply = await cdp.send("Runtime.callFunctionOn", {
+          objectId,
+          functionDeclaration: FIELD_READ,
+          returnByValue: true,
+        });
+        const value = (reply.result as { value?: unknown } | undefined)?.value;
+        if (typeof value !== "string") {
+          throw new Error("the typed-into field could not be read back");
+        }
+        onFieldRead({
+          value,
+          holds: fieldKey(value).includes(fieldKey(typed)),
+        });
+      }
       return verdict;
     }
     case "scrollTo":

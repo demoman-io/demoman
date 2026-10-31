@@ -96,6 +96,12 @@ export interface StepReport {
   textHidden?: "credentialField" | "credentialUnchecked";
   /** A `waitFor` that timed out: what its last look found. */
   waitSaw?: "absent" | "notVisible";
+  /** A `type` whose text is kept: what the field held afterwards, and
+   *  whether it holds the typed text. Never present with `textHidden`. */
+  fieldHolds?: { value: string; holds: boolean };
+  /** A `waitForLoad` that was met: false when no load started since the
+   *  previous step began — a note, not a divergence. */
+  loadSeen?: boolean;
 }
 
 /** Which executor ran the script: the browser extension, or the CLI's own
@@ -352,6 +358,8 @@ function toStepReport(step: AuthoredStep): StepReport {
     pageUrl: step.pageUrl,
     ...(hidden === null ? {} : { textHidden: hidden }),
     ...(step.waitSaw === undefined ? {} : { waitSaw: step.waitSaw }),
+    ...(step.fieldHolds === undefined ? {} : { fieldHolds: step.fieldHolds }),
+    ...(step.loadSeen === undefined ? {} : { loadSeen: step.loadSeen }),
   };
 }
 
@@ -863,7 +871,14 @@ function runVerdictLine(report: RunReport): string {
     return `Complete: the video matches every step ${asked}.`;
   }
   const n = report.verdict.diverged.length;
-  return `Complete: ${n} step${n === 1 ? "" : "s"} the video does not show the way ${asked} it.`;
+  const unheld = report.verdict.diverged
+    .filter((d) => d.kind === "fieldDoesNotHold")
+    .map(
+      (d) =>
+        `step ${(report.steps.find((s) => s.actionId === d.actionId)?.index ?? -1) + 1} typed ${JSON.stringify(d.wanted)} and the field holds ${JSON.stringify(d.value)} (fieldDoesNotHold)`,
+    );
+  const fields = unheld.length === 0 ? "" : ` ${unheld.join("; ")}.`;
+  return `Complete: ${n} step${n === 1 ? "" : "s"} the video does not show the way ${asked} it.${fields}`;
 }
 
 /** Why a run carrying a stop reason stopped: what the host saw where it said,

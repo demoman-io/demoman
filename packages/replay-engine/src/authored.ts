@@ -202,6 +202,12 @@ export interface AuthoredStep {
   /** On a `waitFor` that timed out: what its last look found — nothing, or an
    *  element the page has but nobody could see. Absent otherwise. */
   waitSaw?: "absent" | "notVisible";
+  /** On a `type` whose text is kept: what the field held after the keys went
+   *  in, and whether that holds the typed text. Absent when not read. */
+  fieldHolds?: { value: string; holds: boolean };
+  /** On a `waitForLoad` that was met: whether a load started since the
+   *  previous step began. False is a wait that passed without a navigation. */
+  loadSeen?: boolean;
 }
 
 export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
@@ -652,7 +658,15 @@ export function createAuthoredRun(
           // The document this lands on is a page nothing has measured yet, so
           // the next capture adopts whatever it reports.
           herePage = null;
-          yield { action, target: null, segment: undefined, text: null };
+          yield {
+            action,
+            target: null,
+            segment: undefined,
+            text: null,
+            onLoadSeen: (seen) => {
+              record.loadSeen = seen;
+            },
+          };
           commit(action, null, record, null);
           continue;
         }
@@ -923,6 +937,14 @@ export function createAuthoredRun(
               )
             : undefined,
           text: step.do === "type" ? step.text : null,
+          // Never read for a credential field: its value is kept nowhere.
+          ...(step.do === "type" && record.textHidden === null
+            ? {
+                onFieldRead: (read: { value: string; holds: boolean }) => {
+                  record.fieldHolds = read;
+                },
+              }
+            : {}),
           ...(step.do === "drag"
             ? {
                 drag: {
