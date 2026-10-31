@@ -36,6 +36,9 @@ export interface Snapshot {
   targets: SnapshotTarget[];
   unresolvable: number;
   notExamined: number;
+  /** Set when `contains` was given and nothing matched it at all (no target,
+   *  nothing left unexamined): an empty answer that must not read as "absent". */
+  containsNote: string | null;
   walkMs: number;
   /** The phone or tablet the page was seen as; null for the desktop
    *  (spec 2026-10-10 §3). */
@@ -44,6 +47,17 @@ export interface Snapshot {
    *  against — the size a run with the same device, or none, films. Null
    *  only when even the window's own size could not be read. */
   size: RunSize | null;
+}
+
+/** What an empty answer to `contains` says, so it cannot read as "absent". */
+export function containsNoteFor(
+  contains: string | null,
+  listed: number,
+  notExamined: number,
+): string | null {
+  return contains !== null && listed === 0 && notExamined === 0
+    ? `Nothing on the page matched "${contains}" (name, text, stableId, kind or value).`
+    : null;
 }
 
 export type SnapshotOutcome =
@@ -219,6 +233,11 @@ export async function snapshotOnStage(
       targets: walk.targets,
       unresolvable: walk.unresolvable,
       notExamined: walk.notExamined,
+      containsNote: containsNoteFor(
+        contains,
+        walk.targets.length,
+        walk.notExamined,
+      ),
       walkMs: walk.walkMs,
       device,
       size,

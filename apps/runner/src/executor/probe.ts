@@ -13,6 +13,7 @@ import {
 import {
   type BrandKitsRead,
   checkScript,
+  containsNoteFor,
   kitsForSnapshot,
   landedElsewhere,
   lookForRun,
@@ -246,6 +247,11 @@ export async function probeOp(
     targets: walk.targets,
     unresolvable: walk.unresolvable,
     notExamined: walk.notExamined,
+    containsNote: containsNoteFor(
+      contains,
+      walk.targets.length,
+      walk.notExamined,
+    ),
     walkMs: walk.walkMs,
     device: script.device ?? null,
     size,

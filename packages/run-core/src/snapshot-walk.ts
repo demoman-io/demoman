@@ -11,9 +11,11 @@ import {
   NO_PATCH,
   normalizeText,
   type ResolveEnv,
+  readStableId,
   resolveAnchor,
 } from "@demoman/resolver";
 import type { ScriptTarget } from "@demoman/scene-schema";
+import { isCredentialField } from "./redaction.js";
 
 /** The most targets one answer lists. An agent reads every one of them, and
  *  250 entries is already some 50 KB of JSON. `contains` is how it asks for
@@ -42,6 +44,14 @@ export interface SnapshotTarget {
   kind: string;
   /** The element's text, normalized and cut to SNAPSHOT_TEXT_MAX. */
   text: string | null;
+  /** A field's current value (`input`, `textarea`, `select`,
+   *  `[contenteditable]`), cut like `text`. Null for anything else, and for a
+   *  credential field, whose value is never listed. */
+  value: string | null;
+  /** True when no stable id, role or text names this element uniquely, so the
+   *  target is its position in the document (`treePath`). It is exact for
+   *  this page as it is now: a row added above moves it. */
+  positional?: true;
   /** Document coordinates (scroll included). Null when it is not shown:
    *  no box, `display: none`, or inside a closed `<details>`. */
   rect: SnapshotRect | null;
@@ -53,7 +63,8 @@ export interface SnapshotTarget {
 }
 
 export interface SnapshotRequest {
-  /** Case-insensitive; matched against the element's text and its name. */
+  /** Case-insensitive; matched against the element's name, text, stable id,
+   *  kind and value. */
   contains: string | null;
   maxTargets: number;
   budgetMs: number;
@@ -62,8 +73,8 @@ export interface SnapshotRequest {
 export interface SnapshotWalk {
   title: string;
   targets: SnapshotTarget[];
-  /** Examined and left out: the run would not resolve it to exactly that
-   *  element (a duplicate label, an unnamed element no other tier picks). */
+  /** Examined and left out: not even its position names it (a capture that
+   *  carries no treePath). */
   unresolvable: number;
   /** Never examined: the cap or the budget ran out first. With `contains`,
    *  only the candidates that pass it count — its cheap name/text test is run
@@ -71,6 +82,33 @@ export interface SnapshotWalk {
    *  the page, never merely more page. */
   notExamined: number;
   walkMs: number;
+}
+
+/** Something a user can act on although it has no role: a tabindex, an
+ *  onclick, or a pointer cursor its parent does not already have (so a
+ *  pointer subtree lists its root, not every descendant). */
+function isInteractive(el: Element): boolean {
+  if (el.hasAttribute("tabindex") || el.hasAttribute("onclick")) return true;
+  if ((el as HTMLElement).onclick !== null && "onclick" in el) return true;
+  const view = el.ownerDocument.defaultView;
+  if (view === null || getComputedStyle(el).cursor !== "pointer") return false;
+  const parent = el.parentElement;
+  return parent === null || view.getComputedStyle(parent).cursor !== "pointer";
+}
+
+/** The value of a field, never a credential's. */
+function fieldValue(el: Element): string | null {
+  const tag = el.tagName;
+  const field =
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    el.hasAttribute("contenteditable");
+  if (!field || isCredentialField(el)) return null;
+  const value = (el as HTMLInputElement).value;
+  return clip(
+    typeof value === "string" ? value : normalizeText(el.textContent),
+  );
 }
 
 /** Elements whose text is not page text. */
@@ -98,7 +136,9 @@ function clip(text: string | null): string | null {
  * Step 3 is what makes a listed target one the run resolves, by
  * construction: a capture breaks a tie with every signal it measured, while
  * a script names one, so a capture can succeed where the script's target
- * would be ambiguous. Those are counted `unresolvable`, never listed.
+ * would be ambiguous. Those are listed by their `treePath` instead, marked
+ * `positional`, and resolved back the same way; only an element no strategy
+ * reaches is counted `unresolvable`.
  *
  * The image-patch tier is skipped (`NO_PATCH`) on both sides. A run reaches
  * it only when tiers 1–4 found nothing, and a kept target was found in tiers
@@ -127,14 +167,26 @@ export async function snapshotTargets(
       !SKIP.has(el.tagName) &&
       el.closest("script,style,noscript,template") === null &&
       (computeRole(el) !== null ||
-        (isTextLeaf(el) && normalizeText(el.textContent) !== null)),
+        (isTextLeaf(el) && normalizeText(el.textContent) !== null) ||
+        readStableId(el) !== null ||
+        isInteractive(el)),
   );
 
-  /** The `contains` test: the element's name and its text. Cheap next to a
-   *  capture and a resolve, which each walk the whole document. */
+  /** The `contains` test: name, text, stable id, kind and value. Cheap next
+   *  to a capture and a resolve, which each walk the whole document. The kind
+   *  here is the role, else "text" for a text leaf, else "element". */
   const passes = (el: Element, text: string | null): boolean =>
     wanted === null ||
-    `${computeName(el) ?? ""} ${text ?? ""}`.toLowerCase().includes(wanted);
+    [
+      computeName(el),
+      text,
+      readStableId(el),
+      computeRole(el) ?? (isTextLeaf(el) && text !== null ? "text" : "element"),
+      fieldValue(el),
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(wanted);
 
   const targets: SnapshotTarget[] = [];
   let unresolvable = 0;
@@ -170,21 +222,50 @@ export async function snapshotTargets(
       { anchorId: `snapshot-${i}`, url: "", actionIndex: 0, entryState: false },
       scan,
     );
-    const target = targetFromFingerprint(
+    const named = targetFromFingerprint(
       anchor.resolution.strategy,
       anchor.fingerprint,
     );
-    if (target === null) {
-      unresolvable += 1;
-      continue;
-    }
-    const back = await resolveAnchor(
-      { id: anchor.id, fingerprint: fingerprintFromTarget(target) },
-      scan,
-    );
-    if (back.element !== el || back.candidates !== 1) {
-      unresolvable += 1;
-      continue;
+    const namedBack =
+      named === null
+        ? null
+        : await resolveAnchor(
+            { id: anchor.id, fingerprint: fingerprintFromTarget(named) },
+            scan,
+          );
+    let target: ScriptTarget;
+    let positional = false;
+    if (
+      named !== null &&
+      namedBack?.element === el &&
+      namedBack.candidates === 1
+    ) {
+      target = named;
+    } else {
+      // Its name is shared (or it has none): its position names it, and a
+      // bare treePath resolves to at most one element. Resolved back all the
+      // same, so a listed target is still one the run resolves.
+      const treePath = anchor.fingerprint.treePath;
+      const byPath =
+        treePath === null
+          ? null
+          : await resolveAnchor(
+              {
+                id: anchor.id,
+                fingerprint: fingerprintFromTarget({ treePath }),
+              },
+              scan,
+            );
+      if (
+        treePath === null ||
+        byPath?.element !== el ||
+        byPath.candidates !== 1
+      ) {
+        unresolvable += 1;
+        continue;
+      }
+      target = { treePath };
+      positional = true;
     }
     // Not shown means no rect, whatever layout says: a closed <details>'s
     // content keeps a real box under content-visibility: hidden (measured on
@@ -206,6 +287,8 @@ export async function snapshotTargets(
         computeRole(el) ??
         (anchor.fingerprint.textContent !== null ? "text" : "element"),
       text: clip(text),
+      value: fieldValue(el),
+      ...(positional ? { positional: true as const } : {}),
       rect,
       shown: seenNow(el),
       inFirstViewport:

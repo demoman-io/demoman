@@ -148,8 +148,7 @@ The file, with one account:
 
 `snapshot(url)` opens `url` in Demoman's browser and lists the page's
 targets, leaving the page open. Each entry is
-`{ target, kind, text, rect, shown, inFirstViewport }`. Every `target` listed
-resolves in a run to exactly that element.
+`{ target, kind, text, value, rect, shown, inFirstViewport }`. Every `target` resolves in a run to exactly that element.
 
 - **Copy a `target` into a step verbatim. Never compose one**, and never
   translate a name from another tool's accessibility tree: Demoman's roles
@@ -165,7 +164,7 @@ resolves in a run to exactly that element.
   is (normal for a public page); `"signedOut"`: the page is a sign-in page,
   and `sessionDetail` holds the command to give the user (spend no run, or
   set up a demo account: section 1);
-  `"unchecked"`: `sessionDetail` says why. A sign-in page offering only "Continue with Google" may
+  `"unchecked"`: `sessionDetail` says why. A sign-in page with only "Continue with Google" may
   not answer `signedOut`: a plainly sign-in `landedUrl` with
   `"none"` or `"unchecked"` means the same. Tell the user to run
   `npx demoman signin <the page to record>` and spend no run. On
@@ -181,15 +180,14 @@ resolves in a run to exactly that element.
   at, which a run records too. `from` is `screen` (this machine's screen),
   or `device`. `from: "window"` with an `error`: Demoman could not read the
   screen and listed the browser's smaller layout; tell the user the `error`.
-- `unresolvable` counts elements left out because no target names them
-  uniquely (two buttons with one label, say). `notExamined` above 0 means the
-  page had more than one answer holds: pass `contains` ("pay", "FAQ") to ask
-  for the part you need; with it given, a positive count means narrow it
-  further.
+- `positional: true`: the target is a `treePath` (shared or no name); snapshot
+  again after the page changes. `value`: a field's text, never a password's.
+  `unresolvable`: no target reaches it. `notExamined` above 0: pass `contains`
+  (name, text, stableId, kind, value); with it, narrow. `containsNote`: no match.
 - Iframe and shadow-root elements are not listed.
 - A snapshot sees only the page as it loads: hidden content already in the
-  page is listed; content a click creates (a menu or dialog built when it
-  opens, search results, a new row) is not. To list it, `probe` your script
+  page is listed; content a click creates (a menu, dialog, search
+  results, a new row) is not. To list it, `probe` your script
   with its steps cut off after the step that opens it, and copy targets from
   that answer. A probe acts on the app for real, every time: "Add item" adds
   one per probe and again in the run, so a target listed as unique can be

@@ -10,6 +10,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type SnapshotRequest,
+  type SnapshotTarget,
   type SnapshotWalk,
   snapshotTargets,
 } from "../../src/page.js";
@@ -135,7 +136,7 @@ describe("the snapshot's walk", () => {
 
   // Red if a shape is listed in Chrome's vocabulary instead of the
   // resolver's, or if a duplicate is listed instead of counted.
-  it("names a summary by its text, an img by its role, a stable id by itself, and leaves the duplicate out", async () => {
+  it("names a summary by its text, an img by its role, a stable id by itself, and the duplicate by position", async () => {
     const w = await walk();
     expect(find(w, { text: "How do customers pay me?" })).toMatchObject({
       kind: "text",
@@ -149,11 +150,12 @@ describe("the snapshot's walk", () => {
     expect(find(w, { role: "button", name: "Show the answer" })).toMatchObject({
       inFirstViewport: true,
     });
-    expect(
-      w.targets.filter((t) => t.text === "Delete"),
-      JSON.stringify(w.targets.filter((t) => t.text === "Delete")),
-    ).toEqual([]);
-    expect(w.unresolvable).toBeGreaterThanOrEqual(2);
+    // Both Deletes are listed, each by its position, and none is counted
+    // unresolvable: a treePath names exactly one element.
+    const deletes = w.targets.filter((t) => t.text === "Delete");
+    expect(deletes, JSON.stringify(deletes)).toHaveLength(2);
+    for (const d of deletes) expect(d.positional).toBe(true);
+    expect(w.unresolvable).toBe(0);
     expect(w.notExamined).toBe(0);
     expect(w.title).toBe(document.title);
   });
@@ -267,5 +269,149 @@ describe("the snapshot's walk", () => {
       expect(t?.rect).not.toBeNull();
       expect(t?.shown).toBe(false);
     });
+  });
+});
+
+async function walkHtml(
+  html: string,
+  request: SnapshotRequest = ALL,
+): Promise<SnapshotWalk> {
+  document.body.innerHTML = html;
+  window.scrollTo(0, 0);
+  return snapshotTargets(env(), request, clock);
+}
+
+describe("what an agent needs listed (spec B)", () => {
+  // Red if a div with a stable id but no role and no text is not a candidate.
+  it("lists a div with only a data-testid", async () => {
+    const html = `<div data-testid="payee" style="width:80px;height:20px"></div>`;
+    await walkHtml(html);
+    const div = document.querySelector("div") as Element;
+    expect(computeRole(div)).toBeNull();
+    expect(div.textContent).toBe("");
+    const w = await walkHtml(html);
+    expect(w.targets).toHaveLength(1);
+    expect(w.targets[0]).toMatchObject({
+      target: { stableId: "payee" },
+      kind: "element",
+    });
+    expect(w.targets[0]?.positional).toBeFalsy();
+  });
+
+  // Red if every descendant of a pointer subtree is listed, or the root is not.
+  it("lists a cursor-pointer div with no role, once, not its children", async () => {
+    const html = `<div data-fixture="card" style="cursor:pointer"><div data-fixture="a" style="width:20px;height:20px"></div><div data-fixture="b" style="width:20px;height:20px"></div></div>`;
+    await walkHtml(html);
+    const root = document.querySelector("[data-fixture=card]") as Element;
+    const kid = document.querySelector("[data-fixture=a]") as Element;
+    expect(getComputedStyle(root).cursor).toBe("pointer");
+    expect(getComputedStyle(kid).cursor).toBe("pointer");
+    expect(computeRole(root)).toBeNull();
+    const w = await walkHtml(html);
+    expect(w.targets, JSON.stringify(w.targets)).toHaveLength(1);
+    expect(w.targets[0]).toMatchObject({ kind: "element" });
+  });
+
+  // Red if the second Delete is dropped, or both are named alike.
+  it("lists the second of two Delete buttons by its treePath, marked positional", async () => {
+    const w = await walkHtml(
+      `<button type="button">Delete</button><button type="button">Delete</button>`,
+    );
+    const buttons = [...document.querySelectorAll("button")];
+    expect(buttons).toHaveLength(2);
+    expect(w.targets).toHaveLength(2);
+    for (const t of w.targets) {
+      expect(t.positional, JSON.stringify(t)).toBe(true);
+      expect(Object.keys(t.target)).toEqual(["treePath"]);
+      const report = await resolveAnchor(
+        { id: "check", fingerprint: fingerprintFromTarget(t.target) },
+        env(),
+      );
+      expect(report.candidates).toBe(1);
+    }
+    const second = await resolveAnchor(
+      {
+        id: "check",
+        fingerprint: fingerprintFromTarget(
+          (w.targets[1] as SnapshotTarget).target,
+        ),
+      },
+      env(),
+    );
+    expect(second.element).toBe(buttons[1]);
+    expect(w.unresolvable).toBe(0);
+  });
+
+  // Red if a value is not read, or a password's is.
+  it("shows a field's value and never a password's", async () => {
+    const w = await walkHtml(
+      `<input data-testid="amount" value="12.50"><input type="password" data-testid="pw" value="hunter2"><div data-testid="plain"></div>`,
+    );
+    expect(document.querySelectorAll("input")).toHaveLength(2);
+    const amount = w.targets.find(
+      (t) => "stableId" in t.target && t.target.stableId === "amount",
+    );
+    const pw = w.targets.find(
+      (t) => "stableId" in t.target && t.target.stableId === "pw",
+    );
+    const plain = w.targets.find(
+      (t) => "stableId" in t.target && t.target.stableId === "plain",
+    );
+    expect(amount?.value).toBe("12.50");
+    expect(pw, "the password field is still listed").toBeDefined();
+    expect(pw?.value).toBeNull();
+    expect(plain?.value).toBeNull();
+    expect(JSON.stringify(w)).not.toContain("hunter2");
+  });
+
+  // Red if contains tests only name and text.
+  it("contains matches a stableId and a kind", async () => {
+    const html = `<div data-testid="payee-cell" style="width:80px;height:20px"></div><button type="button">Save</button><p>Unrelated</p>`;
+    const byId = await walkHtml(html, { ...ALL, contains: "PAYEE" });
+    expect(byId.targets.map((t) => t.target)).toEqual([
+      { stableId: "payee-cell" },
+    ]);
+    const byKind = await walkHtml(html, { ...ALL, contains: "button" });
+    expect(byKind.targets.map((t) => t.kind)).toEqual(["button"]);
+    const byValue = await walkHtml(
+      `<input data-testid="q" value="needle"><p>hay</p>`,
+      { ...ALL, contains: "needle" },
+    );
+    expect(byValue.targets.map((t) => t.value)).toEqual(["needle"]);
+  });
+
+  // Ruling E: Actual Budget's transaction row. Cells are role-less, textless
+  // divs; only the focused cell renders an input.
+  it("lists an Actual-shaped row's empty cells, and the input a click renders", async () => {
+    const row = (i: number) =>
+      `<div data-fixture="row${i}"><div data-testid="payee" style="width:80px;height:20px"></div><div data-testid="debit" style="width:80px;height:20px"></div></div>`;
+    const html = `${row(1)}${row(2)}<div data-testid="notes" style="width:80px;height:20px"></div>`;
+    await walkHtml(html);
+    for (const cell of document.querySelectorAll("[data-testid]")) {
+      expect(computeRole(cell)).toBeNull();
+      expect(cell.textContent).toBe("");
+    }
+    expect(document.querySelectorAll("[data-testid=payee]")).toHaveLength(2);
+    const w = await walkHtml(html);
+    const listed = (id: string) =>
+      w.targets.filter(
+        (t) => "stableId" in t.target && t.target.stableId === id,
+      );
+    expect(listed("notes")).toHaveLength(1);
+    expect(listed("notes")[0]?.positional).toBeFalsy();
+    // Two cells share a stableId: named by position, both.
+    const positional = w.targets.filter((t) => t.positional === true);
+    expect(positional).toHaveLength(4);
+    expect(w.unresolvable).toBe(0);
+
+    // A click on the second row's debit cell renders an input inside it.
+    const cell = document.querySelectorAll(
+      "[data-testid=debit]",
+    )[1] as HTMLElement;
+    cell.innerHTML = `<input value="42.00">`;
+    const after = await snapshotTargets(env(), ALL, clock);
+    const input = after.targets.find((t) => t.kind === "textbox");
+    expect(input, JSON.stringify(after.targets)).toBeDefined();
+    expect(input?.value).toBe("42.00");
   });
 });
