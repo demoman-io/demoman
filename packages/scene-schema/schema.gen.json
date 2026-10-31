@@ -1049,15 +1049,7 @@
                 "minLength": 1
               },
               "anchorId": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "type": "null"
               },
               "timestamp": {
                 "type": "number",

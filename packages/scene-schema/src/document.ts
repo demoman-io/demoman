@@ -232,7 +232,7 @@ const WaitFor = z.object({
 /** A key press (v14). Names no element: it goes to whatever has focus. */
 const Press = z.object({
   ...actionBase,
-  anchorId: z.string().min(1).nullable(),
+  anchorId: z.null(),
   kind: z.literal("press"),
   key: z.enum(PRESS_KEYS),
 });
