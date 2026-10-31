@@ -149,6 +149,23 @@ describe("a typed field is read back", () => {
     expect(result.steps[0]?.fieldHolds).toEqual({ value: "", holds: false });
   });
 
+  // Review 2026-10-31, finding 4: text with no letters or digits used to
+  // hold in any field, so clearing one could never fail.
+  it.each([
+    ["", "abc", false],
+    ["", "", true],
+    ["", "   ", true],
+    ["--", "--", true],
+    ["--", "a--b", true],
+    ["--", "x", false],
+  ])("typing %j into a field that shows %j holds: %s", async (typed, shown, holds) => {
+    const cdp = createCdpFake();
+    const field = fieldShows(cdp, shown);
+    const result = await runAuthored(typeScript(typed), deps(cdp));
+    expect(field.asked()).toBe(1);
+    expect(result.steps[0]?.fieldHolds).toEqual({ value: shown, holds });
+  });
+
   it("a refused read leaves the run complete and says why on the step", async () => {
     const cdp = createCdpFake();
     const send = cdp.send.bind(cdp);

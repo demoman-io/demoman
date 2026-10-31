@@ -278,8 +278,14 @@ const fieldNumber = (s: string): number | null => {
   return /^[+-]?(\d+\.?\d*|\.\d+)$/.test(bare) ? Number(bare) : null;
 };
 
-/** Whether a field showing `value` holds the `typed` text. */
+/** Whether a field showing `value` holds the `typed` text. Text with no
+ *  letters or digits has no key to compare, so it is compared raw: nothing
+ *  typed holds only in an empty field, punctuation where the field shows it. */
 const fieldHolds = (value: string, typed: string): boolean => {
+  if (fieldKey(typed) === "") {
+    const raw = typed.trim();
+    return raw === "" ? value.trim() === "" : value.includes(raw);
+  }
   if (fieldKey(value).includes(fieldKey(typed))) return true;
   const shown = fieldNumber(value);
   return shown !== null && shown === fieldNumber(typed);
