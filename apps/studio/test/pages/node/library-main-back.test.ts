@@ -3,6 +3,7 @@ import type { FrameBundle } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CARDS,
   createMemoryPlatform,
   type MemoryPlatform,
 } from "../helpers/memory-platform";
@@ -61,6 +62,7 @@ describe("library main — back to your recording", () => {
     vi.resetModules();
     mountLibraryDom();
     memory = createMemoryPlatform({
+      libraryView: CARDS,
       scenes: [stored as unknown as SceneDocument],
     });
     state.memory = memory;

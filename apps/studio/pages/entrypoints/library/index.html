@@ -715,10 +715,13 @@
       }
       .library-list {
         --list-row: 34px;
+        /* Wide enough for a video row's "Sep 26, 11:00 AM": as content
+           width, opening a flow widened it and moved every column left. */
+        --recorded: 9em;
         display: grid;
         grid-template-columns:
           28px 20px minmax(160px, 3fr) minmax(0, 2fr)
-          56px 64px max-content 72px max-content;
+          56px 64px var(--recorded) 72px max-content;
         column-gap: 12px;
         font-size: 13px;
         font-variant-numeric: tabular-nums;
@@ -870,7 +873,7 @@
         .library-list {
           grid-template-columns:
             28px 20px minmax(140px, 3fr) minmax(0, 2fr)
-            56px 64px max-content max-content;
+            56px 64px var(--recorded) max-content;
         }
         .library-list [data-col="size"] { display: none; }
       }
@@ -878,7 +881,7 @@
         .library-list {
           grid-template-columns:
             28px 20px minmax(120px, 3fr) minmax(0, 2fr)
-            56px max-content max-content;
+            56px var(--recorded) max-content;
         }
         .library-list [data-col="length"] { display: none; }
       }
@@ -886,7 +889,7 @@
         .library-list {
           grid-template-columns:
             28px 20px minmax(120px, 3fr) minmax(0, 2fr)
-            max-content max-content;
+            var(--recorded) max-content;
         }
         .library-list [data-col="videos"] { display: none; }
       }

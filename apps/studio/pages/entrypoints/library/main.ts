@@ -2,6 +2,10 @@
 
 import type { FrameBundle } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
+import {
+  DEFAULT_LIBRARY_VIEW,
+  type LibraryViewChoice,
+} from "@demoman/studio-protocol";
 import { createPlatform } from "#platform";
 import { editedLength } from "../../src/library/length";
 import { createLengthCache, paintLength } from "../../src/library/length-cache";
@@ -261,6 +265,30 @@ function dropStatusesWithNoRow(model: LibraryModel): void {
 let selection: Selection = emptySelection();
 let bulk: { busy: boolean; said: string | null } | undefined;
 
+/**
+ * List or Grid and the list's sort, as the studio serves it (list spec §1),
+ * read once before the first paint. The studio decides the default; a read
+ * that fails outright draws that same default and says why.
+ */
+let view: LibraryViewChoice = DEFAULT_LIBRARY_VIEW;
+const viewRead = platform.libraryView.read().then(
+  (got) => {
+    view = got.view;
+    if (got.unreadable !== undefined) {
+      console.warn(
+        `demoman library: the stored view could not be used, so it is the default: ${got.unreadable}`,
+      );
+    }
+  },
+  (error: unknown) => {
+    console.warn(
+      `demoman library: the stored view could not be read, so it is the default: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  },
+);
+
 function paint(model: LibraryModel): void {
   dropStatusesWithNoRow(model);
   // A ticked flow another window or an agent deleted leaves the selection.
@@ -275,7 +303,16 @@ function paint(model: LibraryModel): void {
   mounter?.dispose();
   for (const stop of lengthWaits.splice(0)) stop();
   mounter = createPreviewMounter(previewPorts);
-  renderLibrary(root, model, actions, rowStatus, undefined, selection, bulk);
+  renderLibrary(
+    root,
+    model,
+    actions,
+    rowStatus,
+    undefined,
+    selection,
+    bulk,
+    view,
+  );
   jumps.mark();
 }
 
@@ -301,6 +338,7 @@ function render(): Promise<void> {
 
 async function paintFresh({ keepNotice = false } = {}): Promise<void> {
   if (!keepNotice) clearNotice();
+  await viewRead;
   const studio = await platform.folder.read();
   const listed = studio.scenes;
   scenesById = new Map(listed.map((scene) => [scene.meta.id, scene]));
@@ -412,6 +450,24 @@ const lengths = createLengthCache();
 const lengthWaits: (() => void)[] = [];
 
 const actions: LibraryActions = {
+  /** Kept for this session at once; a write that fails or replaced the
+   *  settings file is said, and the view stays as chosen. */
+  setView: (next) => {
+    view = next;
+    if (lastModel !== null) paint(lastModel);
+    platform.libraryView.write(next).then(
+      (done) => {
+        if (done.replaced === undefined) return;
+        console.warn(`demoman library: ${done.replaced}`);
+        say(done.replaced, "warn");
+      },
+      (error: unknown) => {
+        const why = error instanceof Error ? error.message : String(error);
+        console.warn(`demoman library: the view was not saved: ${why}`);
+        say(`The view was not saved: ${why.replace(/\.$/, "")}.`, "warn");
+      },
+    );
+  },
   measure: (sceneId: string, cell: HTMLElement): void => {
     const scene = scenesById.get(sceneId);
     if (scene === undefined) return;

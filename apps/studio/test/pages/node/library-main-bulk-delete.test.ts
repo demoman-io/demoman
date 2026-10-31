@@ -4,6 +4,7 @@ import type { VideoSummary } from "@demoman/studio-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteFlows } from "../../../pages/src/shell/confirm-dialog";
 import {
+  CARDS,
   createMemoryPlatform,
   type MemoryPlatform,
 } from "../helpers/memory-platform";
@@ -56,6 +57,7 @@ const video = (id: string, name: string, versions: number): VideoSummary => ({
 
 function seed(): MemoryPlatform {
   return createMemoryPlatform({
+    libraryView: CARDS,
     scenes: [
       take("inv-1", "Create an invoice"),
       take("inv-2", "Create an invoice"),

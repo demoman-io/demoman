@@ -18,21 +18,6 @@ vi.mock("#platform", async (importOriginal) => ({
   createPlatform: () => state.memory,
 }));
 
-// The page does not pass a view to `renderLibrary` yet, so the list is
-// asked for here, in the call the page makes.
-vi.mock("../../../pages/src/library/view", async (importOriginal) => {
-  const real =
-    await importOriginal<typeof import("../../../pages/src/library/view")>();
-  return {
-    ...real,
-    renderLibrary: (...a: Parameters<typeof real.renderLibrary>) =>
-      real.renderLibrary(a[0], a[1], a[2], a[3], a[4], a[5], a[6], {
-        layout: "list",
-        sort: { column: "recorded", descending: true },
-      }),
-  };
-});
-
 const take = (id: string, createdAt: string): SceneDocument =>
   ({
     meta: {
@@ -98,6 +83,12 @@ describe("library main — length cells", () => {
 
   it("observes no Length cell of a drawing the page has since replaced", async () => {
     await import("../../../pages/entrypoints/library/main");
+    // Premise: the memory platform serves the studio's default, the list.
+    await vi.waitFor(() => {
+      if (document.querySelector("[role=treegrid]") === null) {
+        throw new Error("no list drawn yet");
+      }
+    });
     const lengthCells = () => [
       ...document.querySelectorAll<HTMLElement>('[data-col="length"]'),
     ];

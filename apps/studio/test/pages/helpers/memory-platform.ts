@@ -2,7 +2,10 @@ import type { FrameBundle, FrameImage } from "@demoman/compositor";
 import type { ReplayStatus } from "@demoman/replay-engine";
 import { decodeLogo } from "@demoman/run-core/logo";
 import type { SceneDocument } from "@demoman/scene-schema";
-import { DEFAULT_LIBRARY_VIEW } from "@demoman/studio-protocol";
+import {
+  DEFAULT_LIBRARY_VIEW,
+  type LibraryViewChoice,
+} from "@demoman/studio-protocol";
 import { createBrandKitStore } from "../../../pages/src/adapters/brand-kit-store";
 import { REFILM_NO_VIDEO, refilmLine } from "../../../pages/src/platform/http";
 import type {
@@ -52,7 +55,15 @@ export interface MemorySeed {
   videoOf?: FolderListing["videoOf"];
   /** The "Couldn't read" rows the folder answers. */
   unreadable?: FolderListing["unreadable"];
+  /** The Library view the studio serves; its default (the list) unnamed. */
+  libraryView?: LibraryViewChoice;
 }
+
+/** The view a card test's premise needs: Grid, the studio's sort. */
+export const CARDS: LibraryViewChoice = {
+  layout: "grid",
+  sort: { ...DEFAULT_LIBRARY_VIEW.sort },
+};
 
 type Impl = (...args: never[]) => unknown;
 
@@ -312,7 +323,7 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
     },
     libraryView: {
       read: member("libraryView", "read", async () => ({
-        view: DEFAULT_LIBRARY_VIEW,
+        view: seed.libraryView ?? DEFAULT_LIBRARY_VIEW,
       })),
       write: member("libraryView", "write", async () => ({})),
     },

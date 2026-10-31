@@ -2,6 +2,7 @@
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CARDS,
   createMemoryPlatform,
   type MemoryPlatform,
 } from "../helpers/memory-platform";
@@ -118,7 +119,7 @@ describe("library main — the three demo:delete outcomes read differently", () 
     vi.resetModules();
     mountLibraryDom();
     sceneStoreState.deleted = false;
-    memory = createMemoryPlatform();
+    memory = createMemoryPlatform({ libraryView: CARDS });
     state.memory = memory;
     // The take folder as the studio lists it: the one take, until a test
     // says its scene is already gone.
@@ -405,7 +406,7 @@ describe("library main — a note carried from the editor's Delete", () => {
     vi.resetModules();
     mountLibraryDom();
     sceneStoreState.deleted = false;
-    memory = createMemoryPlatform();
+    memory = createMemoryPlatform({ libraryView: CARDS });
     state.memory = memory;
     // The take folder as the studio lists it: the one take, until a test
     // says its scene is already gone.
