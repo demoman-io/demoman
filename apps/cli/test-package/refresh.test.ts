@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { createLibrary } from "../../runner/src/executor/library.js";
 import { sampleMp4 } from "../../runner/test/mp4-probe.js";
@@ -204,9 +204,16 @@ it(
     expect(keptPath, said(k)).toBeDefined();
     const keptFile = JSON.parse(
       await readFile(join(repo, keptPath as string), "utf8"),
-    ) as { scale: number; from: { takeId: string } };
+    ) as { scale: number };
+    // The take keep read is in the receipt beside the recipe (v2 has no `from`).
+    const receipt = JSON.parse(
+      await readFile(
+        join(repo, ".demoman/receipts", basename(keptPath as string)),
+        "utf8",
+      ),
+    ) as { video: string };
     const library = createLibrary(home);
-    const takeId = keptFile.from.takeId;
+    const takeId = receipt.video;
     const scene = await library.getScene(takeId);
     const spans = (await library.frameStore(takeId).getBundle(takeId))
       ?.motionSpans;

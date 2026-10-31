@@ -449,6 +449,72 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
   );
 
   it(
+    "keep --deliver files refuses a name that is not plain",
+    async () => {
+      await freshVideo("scene-files-3", "Files plain");
+      const before = await repoFiles();
+      for (const args of [
+        { to: [gif("..")] },
+        { to: [gif("a\\b.gif")] },
+        { to: [gif("x.gif")], report: "." },
+      ]) {
+        const out = await keepVideo(
+          { video: "Files plain", deliver: "files", repoRoot: repo, ...args },
+          deps(),
+        );
+        expect(out).toMatchObject({ ok: false, reason: "keepRefused" });
+      }
+      expect(await repoFiles()).toEqual(before);
+    },
+    KEEP_MS,
+  );
+
+  it(
+    "keep --deliver files with a logo writes the recipe and the logo, and nothing else",
+    async () => {
+      const logoRel = ".demoman/videos/logos/acme.svg";
+      await videoOf("scene-files-4", "Files logo", (d) => ({
+        ...d,
+        branding: {
+          ...d.branding,
+          logo: {
+            ref: "acme.svg",
+            corner: "top-right",
+            size: 0.06,
+            opacity: 1,
+          },
+        },
+      }));
+      await copyFrames("scene-files-4");
+      // Premise: no copy in the repo yet, so a write is visible.
+      await rm(join(repo, logoRel), { force: true });
+      const before = await repoFiles();
+      const out = await keepVideo(
+        {
+          video: "Files logo",
+          to: [gif("logo.gif")],
+          report: "r.json",
+          deliver: "files",
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      expect([...out.written].sort()).toEqual([logoRel, out.file].sort());
+      const added = (await repoFiles()).filter((f) => !before.includes(f));
+      expect(
+        added.filter((f) => !f.endsWith("videos") && !f.endsWith("logos")),
+      ).toEqual([logoRel, out.file].sort());
+      expect(
+        added.some(
+          (f) => f.includes("receipts") || f.endsWith(".gif") || f === "r.json",
+        ),
+      ).toBe(false);
+    },
+    KEEP_MS,
+  );
+
+  it(
     "a flow the library cannot mark kept is said on the answer, and the keep stands",
     async () => {
       const videoId = await freshVideo("scene-mark-1", "Mark fails");
@@ -867,6 +933,25 @@ describe("keep's own files stay in the repo", () => {
       await rm(target, { recursive: true, force: true });
     }
   }
+  it(
+    "a receipts folder that is a link out of the repo is refused, writing nothing",
+    async () => {
+      const receipts = join(repo, ".demoman/receipts");
+      await mkdir(receipts, { recursive: true });
+      await linkedOut(".demoman/receipts", async (target) => {
+        const before = await repoFiles();
+        const out = await keepTo("docs/linked-receipt.gif");
+        expect(out).toMatchObject({ ok: false, reason: "outsideRepo" });
+        expect(
+          await readdir(target),
+          "nothing written through the link",
+        ).toEqual([]);
+        expect(await repoFiles()).toEqual(before);
+      });
+    },
+    KEEP_MS,
+  );
+
   const keepTo = (path: string) =>
     keepVideo(
       {

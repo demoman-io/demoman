@@ -152,13 +152,13 @@ export async function keepVideo(
   const platform = deps.platform ?? process.platform;
   const deliver = args.deliver ?? "commit";
   if (deliver === "files") {
-    const path = [...args.to.map((o) => o.path), args.report ?? ""].find((p) =>
-      p.includes("/"),
+    const path = [...args.to.map((o) => o.path), args.report ?? ""].find(
+      (p) => /[/\\]/.test(p) || p === "." || p === "..",
     );
     if (path !== undefined) {
       return refuse(
         "keepRefused",
-        `files outputs are file names, not paths (got "${path}")`,
+        `files outputs are file names, not paths (got "${path}": no /, no \\, not . or ..)`,
       );
     }
   }
@@ -191,6 +191,14 @@ export async function keepVideo(
   // The kept file itself: `.demoman` or its `videos` can be a link too.
   const own = await inRepo(fileRel);
   if (typeof own !== "string") return refuse("outsideRepo", own.outside);
+  // Its receipt too: `.demoman/receipts` can be a link out of the repo.
+  if (deliver === "commit") {
+    const receiptAt = await inRepo(
+      `${RECEIPT_DIR}/${keptFileName(video.name)}`,
+    );
+    if (typeof receiptAt !== "string")
+      return refuse("outsideRepo", receiptAt.outside);
+  }
   const paths: string[] = [];
   // `files` outputs are names for --out-dir, not places in this repo.
   for (const asked of deliver === "files"
