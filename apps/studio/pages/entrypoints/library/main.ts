@@ -273,6 +273,7 @@ function paint(model: LibraryModel): void {
     );
   }
   mounter?.dispose();
+  for (const stop of lengthWaits.splice(0)) stop();
   mounter = createPreviewMounter(previewPorts);
   renderLibrary(root, model, actions, rowStatus, undefined, selection, bulk);
   jumps.mark();
@@ -406,6 +407,9 @@ function isAuthored(sceneId: string): boolean {
 }
 
 const lengths = createLengthCache();
+/** Let-goes for the current pass's unmeasured Length cells; `paint` runs
+ *  them before the next draw so a replaced cell is not held observed. */
+const lengthWaits: (() => void)[] = [];
 
 const actions: LibraryActions = {
   measure: (sceneId: string, cell: HTMLElement): void => {
@@ -417,7 +421,7 @@ const actions: LibraryActions = {
       paintLength(cell, known);
       return;
     }
-    whenVisible(cell, () => {
+    const stop = whenVisible(cell, () => {
       void lengths
         .measure(scene, async () => {
           const { bundle } = await bundles.active(sceneId);
@@ -438,6 +442,7 @@ const actions: LibraryActions = {
           },
         );
     });
+    lengthWaits.push(stop);
   },
   preview: (sceneId: string, box: HTMLElement): void => {
     if (mounter === null) {
