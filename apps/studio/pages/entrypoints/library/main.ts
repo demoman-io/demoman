@@ -4,6 +4,7 @@ import type { FrameBundle } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { createPlatform } from "#platform";
 import { editedLength } from "../../src/library/length";
+import { createLengthCache, paintLength } from "../../src/library/length-cache";
 import type { PreviewMounter, PreviewPorts } from "../../src/library/preview";
 import { createPreviewMounter } from "../../src/library/preview";
 import {
@@ -404,7 +405,40 @@ function isAuthored(sceneId: string): boolean {
   return scenesById.get(sceneId)?.meta.capture.mode === "authored";
 }
 
+const lengths = createLengthCache();
+
 const actions: LibraryActions = {
+  measure: (sceneId: string, cell: HTMLElement): void => {
+    const scene = scenesById.get(sceneId);
+    if (scene === undefined) return;
+    // A known length paints at once: a redraw never blanks it.
+    const known = lengths.get(scene);
+    if (known !== undefined) {
+      paintLength(cell, known);
+      return;
+    }
+    whenVisible(cell, () => {
+      void lengths
+        .measure(scene, async () => {
+          const { bundle } = await bundles.active(sceneId);
+          // A video without frames (expired) has no length: a state, not a fault.
+          if (bundle === null) {
+            return { kind: "nothing", reason: "it has no frames" } as const;
+          }
+          return editedLength(scene, bundle, bundles.load);
+        })
+        .then(
+          (got) => paintLength(cell, got),
+          (err: unknown) => {
+            const e = err instanceof Error ? err : new Error(String(err));
+            console.warn(
+              `demoman library: length of ${sceneId} could not be measured: ${e.message}`,
+            );
+            paintLength(cell, e);
+          },
+        );
+    });
+  },
   preview: (sceneId: string, box: HTMLElement): void => {
     if (mounter === null) {
       // Unreachable as written — `render()` makes the mounter immediately
