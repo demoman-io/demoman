@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import {
+  type Brief,
   loadBriefs,
   skipLine,
   studyPrompt,
@@ -13,6 +14,11 @@ import { tallyStream } from "../src/compare/study-tally.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const BRIEFS = join(here, "..", "compare", "briefs");
+const named = (name: string): Brief => {
+  const b = loadBriefs(BRIEFS).find((x) => x.name === name);
+  if (b === undefined) throw new Error(`no brief named ${name}`);
+  return b;
+};
 
 it("loads all five briefs, each with a url, reach, video and at least one endState line", () => {
   const briefs = loadBriefs(BRIEFS);
@@ -32,7 +38,7 @@ it("loads all five briefs, each with a url, reach, video and at least one endSta
 });
 
 it("puts the study's rules after the brief", () => {
-  const b = loadBriefs(BRIEFS)[0];
+  const b = named("actual");
   const p = studyPrompt(b);
   const at = (s: string) => p.indexOf(s);
   expect(at(b.body)).toBe(0);
@@ -73,7 +79,7 @@ it("names an unreachable app and how to start it", async () => {
   const port = (s.address() as { port: number }).port;
   await new Promise<void>((r) => s.close(() => r()));
   const brief = {
-    ...loadBriefs(BRIEFS)[0],
+    ...named("actual"),
     reach: `http://127.0.0.1:${port}/`,
   };
   expect(await skipLine(brief)).toBe(
@@ -87,15 +93,14 @@ it("names samples.sh only for the apps it starts", async () => {
   const port = (s.address() as { port: number }).port;
   await new Promise<void>((r) => s.close(() => r()));
   const reach = `http://127.0.0.1:${port}/`;
-  const all = loadBriefs(BRIEFS);
-  const nylon = { ...(all.find((b) => b.name === "nylon") as Brief), reach };
+  const nylon = { ...named("nylon"), reach };
   expect(await skipLine(nylon)).toBe(`skipped nylon: ${reach} did not answer`);
-  const tremor = { ...(all.find((b) => b.name === "tremor") as Brief), reach };
+  const tremor = { ...named("tremor"), reach };
   expect(await skipLine(tremor)).toContain("scripts/samples.sh start tremor");
 });
 
 it("points Nylon at the public sample page", () => {
-  const n = loadBriefs(BRIEFS).find((b) => b.name === "nylon") as Brief;
+  const n = named("nylon");
   expect([n.url, n.reach]).toEqual([
     "https://demoman.io/sample/",
     "https://demoman.io/sample/",
