@@ -158,13 +158,16 @@ describe("a typed field is read back", () => {
     ["--", "--", true],
     ["--", "a--b", true],
     ["--", "x", false],
-  ])("typing %j into a field that shows %j holds: %s", async (typed, shown, holds) => {
-    const cdp = createCdpFake();
-    const field = fieldShows(cdp, shown);
-    const result = await runAuthored(typeScript(typed), deps(cdp));
-    expect(field.asked()).toBe(1);
-    expect(result.steps[0]?.fieldHolds).toEqual({ value: shown, holds });
-  });
+  ])(
+    "typing %j into a field that shows %j holds: %s",
+    async (typed, shown, holds) => {
+      const cdp = createCdpFake();
+      const field = fieldShows(cdp, shown);
+      const result = await runAuthored(typeScript(typed), deps(cdp));
+      expect(field.asked()).toBe(1);
+      expect(result.steps[0]?.fieldHolds).toEqual({ value: shown, holds });
+    },
+  );
 
   it("a refused read leaves the run complete and says why on the step", async () => {
     const cdp = createCdpFake();
@@ -292,5 +295,79 @@ describe("a waitForLoad says whether a load happened", () => {
     const result = await runAuthored(openingWait, deps(cdp));
     expect(result.completed).toBe(1);
     expect(result.steps[0]?.loadSeen).toBe(false);
+  });
+});
+
+// Review 2026-10-31, finding 2: every unresolved last look read as "absent",
+// a tie and a silent page included.
+describe("a timed-out wait says what its last look found", () => {
+  const waitScript: DemoScript = {
+    scriptVersion: 1,
+    name: "wait",
+    target: PAGE,
+    steps: [{ do: "waitFor", on: { stableId: "toast" }, until: "visible" }],
+  };
+
+  it.each([
+    ["ambiguousTie", "ambiguous"],
+    ["pageSilent", "pageSilent"],
+    ["pageFaulted", "pageFaulted"],
+    ["notInTree", "absent"],
+    [null, "absent"],
+  ] as const)("a last look answering %s records %s", async (verdict, saw) => {
+    const cdp = createCdpFake();
+    const d = deps(cdp);
+    let looks = 0;
+    d.page = {
+      resolve: async (anchors) =>
+        anchors.map((a) => {
+          looks++;
+          return {
+            anchorId: a.id,
+            strategy: "broken" as const,
+            resolved: false,
+            failureReason: verdict,
+          };
+        }),
+    };
+    d.captureResolved = async () => ({
+      anchor: null,
+      failureReason: "notInTree",
+      intentResolution: null,
+      pageUrl: PAGE,
+    });
+    const result = await runAuthored(waitScript, d);
+    // The premise: the wait polled and timed out on that verdict.
+    expect(result.reason).toBe("waitTimeout");
+    expect(looks).toBeGreaterThan(1);
+    expect(result.steps[0]?.waitSaw).toBe(saw);
+  });
+
+  it("a last look that could not reach the frame records nothing", async () => {
+    const cdp = createCdpFake();
+    const d = deps(cdp);
+    let looks = 0;
+    d.page = {
+      resolve: async (anchors) =>
+        anchors.map((a) => {
+          looks++;
+          return {
+            anchorId: a.id,
+            strategy: "broken" as const,
+            resolved: false,
+            failureReason: "frameGone" as const,
+          };
+        }),
+    };
+    d.captureResolved = async () => ({
+      anchor: null,
+      failureReason: "notInTree",
+      intentResolution: null,
+      pageUrl: PAGE,
+    });
+    const result = await runAuthored(waitScript, d);
+    expect(result.reason).toBe("waitTimeout");
+    expect(looks).toBeGreaterThan(1);
+    expect(result.steps[0]?.waitSaw).toBeUndefined();
   });
 });

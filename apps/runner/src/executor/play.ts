@@ -399,6 +399,8 @@ export function stopDetail(target: string, played: Played): string | undefined {
     signedOutAfter,
     lostHeadlessPage,
   } = played;
+  const waitSaw =
+    result.reason === "waitTimeout" ? result.steps.at(-1)?.waitSaw : undefined;
   // `ownDetail` is the run's own, read off the walk before any re-label: a
   // run re-labelled `signedOut` after it stopped still says why it stopped.
   const ownDetail =
@@ -410,12 +412,15 @@ export function stopDetail(target: string, played: Played): string | undefined {
           ? failedNote
           : result.reason === "clickNotDelivered" && failedNote !== undefined
             ? clickNotDeliveredDetail(failedNote)
-            : result.reason === "waitTimeout" &&
-                result.steps.at(-1)?.waitSaw === "notVisible"
+            : waitSaw === "notVisible"
               ? "the step waited for an element that was found but not visible (transparent, hidden or a sliver), so it could never show — wait for something that does show, or act on the element that reveals it"
-              : navigationError !== null && result.outcome !== "complete"
-                ? `${target} did not load (${navigationError}) — check that the app is running at that address`
-                : undefined;
+              : waitSaw === "ambiguous"
+                ? "the step waited for an element whose target matched more than one element on the page, so the wait could not tell which to watch — name a more precise target (a stableId, or a role with a fuller name, from a snapshot of the page)"
+                : waitSaw === "pageSilent" || waitSaw === "pageFaulted"
+                  ? reasonSentence(waitSaw)
+                  : navigationError !== null && result.outcome !== "complete"
+                    ? `${target} did not load (${navigationError}) — check that the app is running at that address`
+                    : undefined;
   return signedOutAfter !== null && result.reason !== null
     ? `${signedOutAfter} The take was not kept: it would end on the sign-in page. ${ownStop(result, ownDetail ?? reasonSentence(result.reason))}`
     : walkedReason(played) === "signedOut" && failedNote !== undefined

@@ -29,12 +29,15 @@ describe("pressKey's editor commands", () => {
     ["ArrowUp", "moveUp"],
     ["ArrowDown", "moveDown"],
     ["Escape", "cancelOperation"],
-  ] as const)("%s carries %s on macOS, on its keyDown only", async (key, command) => {
-    const [down, up] = await sent(key, true);
-    expect(down?.commands).toEqual([command]);
-    expect(up?.type).toBe("keyUp");
-    expect(up && "commands" in up).toBe(false);
-  });
+  ] as const)(
+    "%s carries %s on macOS, on its keyDown only",
+    async (key, command) => {
+      const [down, up] = await sent(key, true);
+      expect(down?.commands).toEqual([command]);
+      expect(up?.type).toBe("keyUp");
+      expect(up && "commands" in up).toBe(false);
+    },
+  );
 
   it("Enter, Tab and Space carry none on macOS: their text does the work", async () => {
     for (const key of ["Enter", "Tab", "Space"] as const) {

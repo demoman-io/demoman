@@ -64,6 +64,7 @@ import {
   type RoomPolicy,
   runWalk,
   stopForResolveFailure,
+  type WaitSaw,
   type WalkSource,
   type WalkStep,
 } from "./walk.js";
@@ -199,9 +200,9 @@ export interface AuthoredStep {
    *  The evidence behind `pageWentElsewhere`: without it that reason says a
    *  move happened and not where to. */
   pageUrl: string | null;
-  /** On a `waitFor` that timed out: what its last look found — nothing, or an
-   *  element the page has but nobody could see. Absent otherwise. */
-  waitSaw?: "absent" | "notVisible";
+  /** On a `waitFor` that timed out: what its last look found (`WaitSaw`).
+   *  Absent otherwise, or when that look could not reach the element. */
+  waitSaw?: WaitSaw;
   /** On a `type` whose text is kept: what the field held after the keys went
    *  in, and whether that holds the typed text. Absent when not read. */
   fieldHolds?: { value: string; holds: boolean };

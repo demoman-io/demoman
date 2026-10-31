@@ -26,7 +26,7 @@
  * package. Unlike the test-only group, these are meant to stay.
  */
 export { actEndOf } from "./act-end.js";
-export type { RoomPolicy } from "./walk.js";
+export type { RoomPolicy, WaitSaw } from "./walk.js";
 /**
  * The authored door. `runAuthored` is the entry point; the types beside it are
  * what a host has to satisfy and read (`apps/extension`'s authored runner, and

@@ -15,6 +15,7 @@ import {
   reasonSentence,
   replayOutcome,
   TYPE_FIELD_UNFOCUSED,
+  type WaitSaw,
 } from "@demoman/replay-engine";
 import type {
   DemoScript,
@@ -96,7 +97,7 @@ export interface StepReport {
    *  HIDDEN_TEXT. */
   textHidden?: "credentialField" | "credentialUnchecked";
   /** A `waitFor` that timed out: what its last look found. */
-  waitSaw?: "absent" | "notVisible";
+  waitSaw?: WaitSaw;
   /** A `type` whose text is kept: what the field held afterwards, and
    *  whether it holds the typed text. Never present with `textHidden`. */
   fieldHolds?: { value: string; holds: boolean };

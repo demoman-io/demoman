@@ -182,7 +182,7 @@ export interface WalkStep {
    * walk stops with `waitTimeout`, so the source need not guess from a capture
    * taken before the wait.
    */
-  onWaitTimedOut?(saw: "absent" | "notVisible"): void;
+  onWaitTimedOut?(saw: WaitSaw): void;
   /**
    * A navigation wait (`waitForLoad`) that was met says whether the top frame
    * started a load since the previous step began: false means the page never
@@ -239,6 +239,35 @@ interface DragPlan {
   end: { x: number; y: number };
   endRect: Rect;
 }
+
+/** What a timed-out wait's last look found: nothing matched, an element
+ *  nobody could see, several that tied, or a page that never answered or
+ *  threw. */
+export type WaitSaw =
+  | "absent"
+  | "notVisible"
+  | "ambiguous"
+  | "pageSilent"
+  | "pageFaulted";
+
+/** The resolver's last word as a `WaitSaw`; undefined where it is about
+ *  reaching a frame or a shadow root, which the generic stop says better. */
+const waitSawOf = (found: ResolveReport): WaitSaw | undefined => {
+  if (found.resolved) return "notVisible";
+  switch (found.failureReason) {
+    case null:
+    case "notInTree":
+    case "patchUnavailable":
+      return "absent";
+    case "ambiguousTie":
+      return "ambiguous";
+    case "pageSilent":
+    case "pageFaulted":
+      return found.failureReason;
+    default:
+      return undefined;
+  }
+};
 
 /** What a typed-into field shows now: an input or textarea's `value`, a
  *  contenteditable host's `textContent`. Null when focus is no longer in the
@@ -2111,7 +2140,7 @@ export async function runWalk(
       if (step.action.kind === "waitFor") {
         if (!(await awaitCondition(step.action, step.target))) {
           // Only a wait for something to show can have found it unseen. The
-          // resolver's word decides: an element it found that has no box
+          // resolver's word decides (`waitSawOf`): an element it found with no box
           // (display:none, a closed <details>) is there but not visible. The
           // look is a courtesy to the report, so a page that fails it leaves
           // `waitSaw` unset and the stop stays `waitTimeout`.
@@ -2122,9 +2151,8 @@ export async function runWalk(
           ) {
             try {
               const [found] = await page.resolve([step.target]);
-              step.onWaitTimedOut?.(
-                found?.resolved === true ? "notVisible" : "absent",
-              );
+              const saw = found === undefined ? undefined : waitSawOf(found);
+              if (saw !== undefined) step.onWaitTimedOut?.(saw);
             } catch {
               // Said by absence: no `waitSaw`, so the stop keeps its generic
               // `waitTimeout` sentence rather than claim what was not seen.
@@ -2133,7 +2161,7 @@ export async function runWalk(
           reason = "waitTimeout";
           break;
         }
-        if (step.action.kind === "waitFor" && step.action.anchorId === null) {
+        if (step.action.anchorId === null) {
           step.onLoadSeen?.(navigationsSeen > navsAtPreviousStep);
         }
         // The instant the condition was met, which is what the marker names —
