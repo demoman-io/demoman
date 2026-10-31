@@ -7,14 +7,13 @@ import type {
   LibrarySortColumn,
   LibraryViewChoice,
 } from "@demoman/studio-protocol";
-import { setCodeText } from "../shell/code-spans";
+import { setCodeText, withoutTicks } from "../shell/code-spans";
 import { icon } from "../shell/icons";
 import { type ListEntry, listEntries, nextSort, whereOf } from "./list-model";
 import type { LibraryModel, LibraryRow, VideoGroup } from "./state";
 import { formatBytes } from "./state";
 import {
   cardButtons,
-  cardStatus,
   el,
   expiredLine,
   exportsList,
@@ -221,7 +220,13 @@ function entryRow(
       setCodeText(rerun, rerunLine);
       said.push(rerun);
     }
-    const status = cardStatus(r, group, rowStatus);
+    // A flow's own status only: what was said of one of its takes is said
+    // on that take's video row, which every flow has here (not the card's
+    // fallback for a one-version flow, which would say it twice).
+    const status =
+      group === null
+        ? rowStatus.get(statusKey("take", r.sceneId))
+        : rowStatus.get(statusKey("video", group.video.id));
     if (status !== undefined) said.push(el("p", {}, status));
   } else {
     const v = e.row;
@@ -235,7 +240,9 @@ function entryRow(
       const files = exportsList(v.exports);
       if (files !== null) cells.where.append(files);
     } else {
-      textCell(cells, "where", footage.absent);
+      // The platform's line may carry a code span, drawn as the card does.
+      setCodeText(cells.where, footage.absent);
+      cells.where.title = withoutTicks(footage.absent);
     }
     // Its own moment: an older video may be from another day than the
     // heading it sits under.

@@ -132,7 +132,7 @@ const actions = () => ({
   setView: vi.fn(),
   measure: vi.fn(),
   rerunLine: (_sceneId: string, _authored: boolean) =>
-    "Run its script again to film it.",
+    "Run `run({ flow })` again to film it.",
 });
 
 const draw = (
@@ -270,9 +270,14 @@ describe("the list view", () => {
   it("a video with no footage says why and has no Edit", () => {
     const { grid } = draw();
     const row = rowOf(grid, "v:a1");
-    expect(cell(row, "where").textContent).toBe(
-      "Expired — run its script again to film it.",
+    const where = cell(row, "where");
+    // The platform's line carries a code span, drawn as code, not ticks.
+    expect(where.textContent).toBe(
+      "Expired — run run({ flow }) again to film it.",
     );
+    expect(where.querySelector("code")?.textContent).toBe("run({ flow })");
+    expect(where.textContent).not.toContain("`");
+    expect(where.title).toBe("Expired — run run({ flow }) again to film it.");
     const buttons = cell(row, "actions");
     expect(buttons.querySelector('[data-action="edit"]')).toBeNull();
     expect(buttons.querySelector('[data-action="delete"]')).not.toBeNull();
@@ -361,6 +366,21 @@ describe("the list view", () => {
     expect(c.hasAttribute("aria-describedby")).toBe(false);
   });
 
+  // Red: the flow row falling back to its take's status as the card does,
+  // which says it a second time beside the video row that owns it.
+  it("a one-video flow's take status is said once, on its video row", () => {
+    expect(groups[2]?.versions).toHaveLength(1);
+    const status = new Map([["take:c1", "Could not delete: it is open."]]);
+    const { grid } = draw(LIST, model, actions(), status);
+    const lines = [
+      ...rowOf(grid, "f:C").querySelectorAll("[data-status]"),
+      ...rowOf(grid, "v:c1").querySelectorAll("[data-status]"),
+    ];
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.closest("[role=row]")).toBe(rowOf(grid, "v:c1"));
+    expect(lines[0]?.textContent).toBe("Could not delete: it is open.");
+  });
+
   it("the rerun line where Restore has no button is the row's line too", () => {
     expect(a3.canRestore).toBe(true);
     const { grid } = draw();
@@ -369,7 +389,7 @@ describe("the list view", () => {
       cell(row, "actions").querySelector('[data-action="restore"]'),
     ).toBeNull();
     const line = row.querySelector("[data-status] [data-rerun-line]");
-    expect(line?.textContent).toBe("Run its script again to film it.");
+    expect(line?.textContent).toBe("Run run({ flow }) again to film it.");
     expect(row.getAttribute("aria-describedby")).toBe(
       line?.closest("[data-status]")?.id,
     );

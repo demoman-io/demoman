@@ -1252,7 +1252,7 @@ export const sectionId = (key: string): string =>
  *  video. What was said of the take it shows is said on that take's
  *  version row, when the card has them; a card of one version is that
  *  version's row. */
-export const cardStatus = (
+const cardStatus = (
   r: LibraryRow,
   group: VideoGroup | null,
   rowStatus: Map<string, string>,
