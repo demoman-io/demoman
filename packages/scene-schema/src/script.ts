@@ -6,6 +6,7 @@ import {
   CanvasSchema,
   CursorSchema,
   MotionSchema,
+  PRESS_KEYS,
   type SceneCursor,
 } from "./document.js";
 import { WALLPAPERS } from "./wallpapers.js";
@@ -86,6 +87,13 @@ export const SCRIPT_VERSION_ACCOUNT = 5;
  * gives that refusal the sentence a version gives.
  */
 export const SCRIPT_VERSION_DRAG = 6;
+
+/**
+ * The first version with a `press` step or a click's `at` (2026-10-30). An
+ * older build refuses both by their unknown keys; the bump gives that refusal
+ * the sentence a version gives.
+ */
+export const SCRIPT_VERSION_PRESS = 7;
 
 /** An account name: it becomes a file name under the sessions folder. */
 export const ACCOUNT_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -190,6 +198,8 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
     .object({
       do: z.literal("click"),
       on: ScriptTargetSchema,
+      /** Where in the target's box to click (its centre if absent). */
+      at: DragSpotSchema.optional(),
       /**
        * The recorded action this step was derived from (`scriptFromTake` writes
        * it). How the recording layer pairs a run's step with the author's —
@@ -253,6 +263,13 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
       recorded: RecordedSchema,
     })
     .strict(),
+  z
+    .object({
+      do: z.literal("press"),
+      key: z.enum(PRESS_KEYS),
+      recorded: RecordedSchema,
+    })
+    .strict(),
   z.object({ do: z.literal("waitForLoad"), recorded: RecordedSchema }).strict(),
   z.object({ do: z.literal("pause"), ms: z.number().positive() }).strict(),
 ]);
@@ -276,6 +293,7 @@ const ACTS_ON_THE_PAGE: Record<ScriptStep["do"], boolean> = {
   scrollTo: true,
   waitFor: true,
   drag: true,
+  press: true,
   waitForLoad: true,
   pause: false,
 };
@@ -302,6 +320,7 @@ const DemoScriptShape = z.object({
       SCRIPT_VERSION_DEVICE,
       SCRIPT_VERSION_ACCOUNT,
       SCRIPT_VERSION_DRAG,
+      SCRIPT_VERSION_PRESS,
     ])
     .optional(),
   name: z.string().min(1),
@@ -455,7 +474,7 @@ export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
   ) as ScriptVersion,
 }));
 
-export type ScriptVersion = 1 | 2 | 3 | 4 | 5 | 6;
+export type ScriptVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export type DemoScriptInput = z.input<typeof DemoScriptShape>;
 
 /**
@@ -472,6 +491,12 @@ export function minimumScriptVersion(script: DemoScriptInput): ScriptVersion {
     [script.device !== undefined, SCRIPT_VERSION_DEVICE],
     [script.account !== undefined, SCRIPT_VERSION_ACCOUNT],
     [script.steps.some((step) => step.do === "drag"), SCRIPT_VERSION_DRAG],
+    [
+      script.steps.some(
+        (step) => step.do === "press" || (step.do === "click" && step.at),
+      ),
+      SCRIPT_VERSION_PRESS,
+    ],
   ];
   return Math.max(
     SCRIPT_VERSION,

@@ -49,6 +49,8 @@ export {
   // at build time. Not a stray export to be withdrawn as dead.
   ORIGIN_CLASSES,
   type OriginClass,
+  PRESS_KEYS,
+  type PressKey,
   ResolutionStrategy,
   SCENE_ASPECTS,
   type SceneAction,
@@ -100,6 +102,7 @@ export {
   SCRIPT_VERSION_DRAG,
   SCRIPT_VERSION_KIT,
   SCRIPT_VERSION_MOTION,
+  SCRIPT_VERSION_PRESS,
   type ScriptStep,
   ScriptStepSchema,
   type ScriptTarget,

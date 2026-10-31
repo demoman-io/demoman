@@ -301,6 +301,10 @@ const steps: Record<number, MigrationStep> = {
       : e.masks;
     return { ...doc, edits: { ...e, masks }, schemaVersion: 13 };
   },
+  // v13 -> v14 (2026-10-30): a click may carry `at`, and a `press` action
+  // exists. Nothing in a v13 document changes; the bump makes an older build
+  // refuse a take it would play with the click at the centre.
+  13: (doc) => ({ ...doc, schemaVersion: 14 }),
 };
 
 /**

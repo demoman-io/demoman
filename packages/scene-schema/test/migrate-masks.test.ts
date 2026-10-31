@@ -56,3 +56,16 @@ describe("schema 13: masks in the frames' own time (audit run 1)", () => {
     ]);
   });
 });
+
+describe("schema 14: click at a spot, and press", () => {
+  it("migrates a v13 scene to v14 unchanged but its version", () => {
+    const before = readonly();
+    before.schemaVersion = 13;
+    const doc = migrateToCurrent(before);
+    expect(doc.schemaVersion).toBe(14);
+    expect({ ...doc, schemaVersion: 0 }).toEqual({
+      ...before,
+      schemaVersion: 0,
+    });
+  });
+});

@@ -113,6 +113,7 @@ const VERBS: Record<Exclude<Verb, "pause">, true> = {
   waitFor: true,
   // Its digest is the start's anchor: the end is re-measured from the script.
   drag: true,
+  press: true,
   waitForLoad: true,
 };
 const isObject = (v: unknown): v is Record<string, unknown> =>

@@ -2722,6 +2722,8 @@ async function performVerb(
     case "drag":
       // Never reaches here: the loop performs a drag with `performDrag`.
       throw new Error("performVerb: a drag is performed by performDrag");
+    case "press":
+      throw new Error("press is performed from Task 4");
     default: {
       const unknown: never = action;
       throw new Error(`performVerb: no verb for ${JSON.stringify(unknown)}`);

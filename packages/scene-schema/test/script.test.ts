@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import { BRANDING_DEFAULTS } from "../src/document";
 import {
   DemoScriptSchema,
+  minimumScriptVersion,
   SCRIPT_VERSION,
+  SCRIPT_VERSION_ACCOUNT,
   SCRIPT_VERSION_DEVICE,
   SCRIPT_VERSION_DRAG,
   SCRIPT_VERSION_KIT,
+  SCRIPT_VERSION_MOTION,
+  SCRIPT_VERSION_PRESS,
   type ScriptTarget,
   targetStrategy,
 } from "../src/script";
@@ -583,5 +587,77 @@ describe("scriptVersion is inferred", () => {
   });
   it("gives a script that needs nothing version 1", () => {
     expect(DemoScriptSchema.safeParse(bare).data?.scriptVersion).toBe(1);
+  });
+});
+
+describe("click at a spot, and press", () => {
+  const withSteps = (steps: unknown[]) => ({ ...ok, steps });
+  const fields = (raw: unknown) => {
+    const r = DemoScriptSchema.safeParse(raw);
+    return r.success ? [] : r.error.issues.map((i) => i.path.join("."));
+  };
+  const click = { do: "click", on: { role: "button", name: "Go" } };
+
+  it("accepts a click at a spot and refuses one outside 0-1", () => {
+    expect(fields(withSteps([{ ...click, at: { x: 0.2, y: 0.9 } }]))).toEqual(
+      [],
+    );
+    expect(fields(withSteps([{ ...click, at: { x: 1.5, y: 0.5 } }]))).toContain(
+      "steps.0.at.x",
+    );
+  });
+
+  it("accepts press with a named key and refuses an unnamed one", () => {
+    expect(fields(withSteps([click, { do: "press", key: "Enter" }]))).toEqual(
+      [],
+    );
+    expect(fields(withSteps([{ do: "press", key: "F5" }]))).toContain(
+      "steps.0.key",
+    );
+  });
+
+  it("minimumScriptVersion is 7 for a click at a spot or a press", () => {
+    expect(SCRIPT_VERSION_PRESS).toBe(7);
+    // Premise: the same click without `at` needs nothing.
+    expect(minimumScriptVersion(withSteps([click]) as never)).toBe(1);
+    expect(
+      minimumScriptVersion(
+        withSteps([{ ...click, at: { x: 0.5, y: 0.5 } }]) as never,
+      ),
+    ).toBe(7);
+    expect(
+      minimumScriptVersion(
+        withSteps([click, { do: "press", key: "Tab" }]) as never,
+      ),
+    ).toBe(7);
+    const r = DemoScriptSchema.safeParse(
+      withSteps([click, { do: "press", key: "Tab" }]),
+    );
+    expect(r.data?.scriptVersion).toBe(7);
+  });
+});
+
+describe("minimumScriptVersion: the older rules", () => {
+  const base = { ...ok } as never as Parameters<typeof minimumScriptVersion>[0];
+  it("is 3 for look.motion", () => {
+    expect(minimumScriptVersion(base)).toBe(1);
+    expect(
+      minimumScriptVersion({
+        ...base,
+        look: { motion: { ease: "linear" } },
+      } as never),
+    ).toBe(SCRIPT_VERSION_MOTION);
+  });
+  it("is 3 for a cursor with tilt or clickBounce", () => {
+    for (const cursor of [{ tilt: 0.1 }, { clickBounce: 0.2 }]) {
+      expect(minimumScriptVersion({ ...base, look: { cursor } } as never)).toBe(
+        SCRIPT_VERSION_MOTION,
+      );
+    }
+  });
+  it("is 5 for an account", () => {
+    expect(minimumScriptVersion({ ...base, account: "demo" } as never)).toBe(
+      SCRIPT_VERSION_ACCOUNT,
+    );
   });
 });

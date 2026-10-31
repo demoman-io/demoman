@@ -98,6 +98,9 @@ describe("the recipe's examples and snapshot reading", () => {
       scrollTo: false,
       waitFor: false,
       drag: false,
+      // Not taught yet: the recipe gains `press` in the task that rewrites it,
+      // which must turn this to false so the recipe is held to showing it.
+      press: true,
       waitForLoad: false,
       pause: false,
     };

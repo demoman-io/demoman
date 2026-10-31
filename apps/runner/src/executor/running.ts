@@ -51,6 +51,8 @@ export function stepWords(step: ScriptStep): string {
         : `wait for ${nameOf(step.on)} to go`;
     case "drag":
       return `drag ${nameOf(step.from.on)} to ${"on" in step.to ? nameOf(step.to.on) : "a point"}`;
+    case "press":
+      return `press ${step.key}`;
     case "waitForLoad":
       return "wait for the page to load";
     case "pause":

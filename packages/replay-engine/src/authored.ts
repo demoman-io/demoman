@@ -335,6 +335,8 @@ function targetOf(step: ElementStep): ScriptTarget {
 
 type TypeStep = Extract<ScriptStep, { do: "type" }>;
 type DragStep = Extract<ScriptStep, { do: "drag" }>;
+/** A key press: it names no element. */
+type PressStep = Extract<ScriptStep, { do: "press" }>;
 /** Every step that acts on an element. */
 type ElementStep = PositionedStep | TypeStep | DragStep;
 
@@ -366,7 +368,7 @@ function reasonForCaptureFailure(
 }
 
 /** The document kind each script verb performs. */
-function kindOf(step: ElementStep): SceneAction["kind"] {
+function kindOf(step: ElementStep | PressStep): SceneAction["kind"] {
   switch (step.do) {
     case "click":
       return "click";
@@ -380,6 +382,8 @@ function kindOf(step: ElementStep): SceneAction["kind"] {
       return "waitFor";
     case "drag":
       return "drag";
+    case "press":
+      return "press";
     default: {
       // Exhaustive: a verb added to the script and not here must not film
       // as a wait.
@@ -392,11 +396,17 @@ function kindOf(step: ElementStep): SceneAction["kind"] {
 /** A `SceneAction` of the step's own kind. No `rect`: it is assigned when the
  *  run measures one, and absent means the sighting had no rect. */
 function synthesize(
-  step: ElementStep,
-  ids: { id: string; anchorId: string; timestamp: number; marker: string },
+  step: ElementStep | PressStep,
+  ids: {
+    id: string;
+    anchorId: string | null;
+    timestamp: number;
+    marker: string;
+  },
   hidden = false,
 ): SceneAction {
-  const base = { ...ids };
+  // Only a press has no anchor, and it takes none of `base`.
+  const base = { ...ids, anchorId: ids.anchorId as string };
   switch (step.do) {
     case "click":
       // `button` deliberately omitted — see this module's own docblock.
@@ -418,6 +428,8 @@ function synthesize(
       return { ...base, kind: "scrollTo" };
     case "waitFor":
       return { ...base, kind: "waitFor", condition: step.until };
+    case "press":
+      return { ...ids, kind: "press", key: step.key, anchorId: null };
     case "drag":
       // The end's anchor and rect are the walk's to measure.
       return {
@@ -631,6 +643,20 @@ export function createAuthoredRun(
           // The document this lands on is a page nothing has measured yet, so
           // the next capture adopts whatever it reports.
           herePage = null;
+          yield { action, target: null, segment: undefined, text: null };
+          commit(action, null, record, null);
+          continue;
+        }
+
+        if (step.do === "press") {
+          // No element to resolve: the action goes out with no anchor, as a
+          // navigation wait does. Performing it is Task 4's.
+          const action = synthesize(step, {
+            id: deps.newId("ac"),
+            anchorId: null,
+            timestamp: stamp(),
+            marker: markerFor("press", null),
+          });
           yield { action, target: null, segment: undefined, text: null };
           commit(action, null, record, null);
           continue;

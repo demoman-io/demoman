@@ -170,7 +170,7 @@ describe("the motion block", () => {
 
   it("is a widening, not a new version", () => {
     // 13 is mask ends in source time (audit run 1), not the motion block.
-    expect(CURRENT_SCHEMA_VERSION).toBe(13);
+    expect(CURRENT_SCHEMA_VERSION).toBe(14);
   });
 });
 
@@ -225,13 +225,10 @@ describe("an agent script's look.motion", () => {
 
   // `SCRIPT_VERSION_MOTION`: a build from before 2026-10-08 reads `look`
   // loosely and would drop the block and record the default camera.
-  it("refuses a motion block at a version from before it, naming scriptVersion", () => {
+  it("raises a motion block's version from before it to SCRIPT_VERSION_MOTION", () => {
     for (const v of [SCRIPT_VERSION, SCRIPT_VERSION_KIT]) {
       const r = DemoScriptSchema.safeParse(script(v, { motion: TUNED }));
-      expect(r.error?.issues.map((i) => i.path.join("."))).toEqual([
-        "scriptVersion",
-      ]);
-      expect(r.error?.issues[0]?.message).toMatch(/look\.motion/);
+      expect(r.data?.scriptVersion, String(v)).toBe(SCRIPT_VERSION_MOTION);
     }
   });
 
@@ -271,15 +268,13 @@ describe("an agent script's cursor tilt and click bounce", () => {
     look: { cursor: { ...CURSOR_DEFAULTS, ...cursor } },
   });
 
-  it("refuses either key at a version from before it, naming scriptVersion", () => {
+  it("raises either key's version from before it to SCRIPT_VERSION_MOTION", () => {
     for (const v of [SCRIPT_VERSION, SCRIPT_VERSION_KIT]) {
       for (const cursor of [{ tilt: 0 }, { clickBounce: 0 }]) {
         const r = DemoScriptSchema.safeParse(script(v, cursor));
-        expect(
-          r.error?.issues.map((i) => i.path.join(".")),
-          JSON.stringify({ v, cursor }),
-        ).toEqual(["scriptVersion"]);
-        expect(r.error?.issues[0]?.message).toMatch(/look\.cursor/);
+        expect(r.data?.scriptVersion, JSON.stringify({ v, cursor })).toBe(
+          SCRIPT_VERSION_MOTION,
+        );
       }
     }
   });

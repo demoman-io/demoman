@@ -189,8 +189,8 @@ describe("the current schema version", () => {
   // "schema v4 — uncovered origins" until 2026-09-20, where its name said
   // nothing about what it guards and the next bump would have read it as
   // part of that block's subject.
-  it("is 13", () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(13);
+  it("is 14", () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(14);
   });
 });
 
@@ -673,7 +673,7 @@ describe("schema v7 — authored capture mode", () => {
     const doc = validDocument();
     (doc.meta.capture as { mode: string }).mode = "synthesised";
     expect(SceneDocumentSchema.safeParse(doc).success).toBe(false);
-    expect(CURRENT_SCHEMA_VERSION).toBe(13);
+    expect(CURRENT_SCHEMA_VERSION).toBe(14);
   });
 });
 
@@ -688,7 +688,7 @@ describe("meta.capture.displayScale", () => {
     doc.meta.capture.displayScale = 2;
     const parsed = SceneDocumentSchema.parse(doc);
     expect(parsed.meta.capture.displayScale).toBe(2);
-    expect(CURRENT_SCHEMA_VERSION).toBe(13);
+    expect(CURRENT_SCHEMA_VERSION).toBe(14);
   });
 
   it("refuses a display scale that is not positive", () => {
