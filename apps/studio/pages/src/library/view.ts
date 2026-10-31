@@ -7,7 +7,8 @@ import { setCodeText } from "../shell/code-spans";
 import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
-import { collapsedKeys, renderList, setExpanded } from "./list";
+import { collapsedKeys, openRename, renderList, setExpanded } from "./list";
+import { placeIn, restorePlace } from "./list-keys";
 import { whereOf } from "./list-model";
 import { previewText } from "./preview";
 import type { SelectHow, Selection } from "./selection";
@@ -770,7 +771,7 @@ const nameFieldId = (sceneId: string): string => `name-${sceneId}`;
  * name, not the one the row was rendered with — the page re-renders the
  * row once the store answers, and until then this is the truth.
  */
-function nameField(
+export function nameField(
   r: LibraryRow,
   actions: LibraryActions,
   /** A video's card names the video: its own name, and a blank puts it
@@ -1180,6 +1181,12 @@ export function exportsList(
   return list;
 }
 
+/** Each page's list folds, as the last render knew them (`renderLibrary`). */
+const listFolds = new WeakMap<
+  HTMLElement,
+  { collapsed: ReadonlySet<string>; drawn: ReadonlySet<string> }
+>();
+
 /** The ids of the videos whose versions are open under `root`. */
 const openVersions = (root: HTMLElement): Set<string> =>
   new Set(
@@ -1188,9 +1195,10 @@ const openVersions = (root: HTMLElement): Set<string> =>
       .map((d) => d.getAttribute("data-versions") as string),
   );
 
-/** The name field being edited under `root`, if any, and what it holds. */
+/** The name field being edited under `root`, if any, and what it holds:
+ *  its row, a card's or the list's, as a selector into the next render. */
 function typingName(root: HTMLElement): {
-  sceneId: string;
+  row: string;
   value: string;
   start: number | null;
   end: number | null;
@@ -1200,31 +1208,41 @@ function typingName(root: HTMLElement): {
     return null;
   }
   if (!root.contains(active)) return null;
-  const sceneId = active.closest("[data-row]")?.getAttribute("data-row");
-  if (!sceneId) return null;
+  const card = active.closest("[data-row]")?.getAttribute("data-row");
+  const key = active.closest<HTMLElement>("[data-list] [data-key]")?.dataset
+    .key;
+  const row = card
+    ? `[data-row="${CSS.escape(card)}"]`
+    : key
+      ? `[data-list] [data-key="${CSS.escape(key)}"]`
+      : null;
+  if (row === null) return null;
   return {
-    sceneId,
+    row,
     value: active.value,
     start: active.selectionStart,
     end: active.selectionEnd,
   };
 }
 
-/** Puts a name being typed back into the row's new field after a render. */
+/** Puts a name being typed back into the row's new field after a render,
+ *  opening the list's, which is not always there; whether it did. */
 function restoreTyping(
   root: HTMLElement,
   typing: ReturnType<typeof typingName>,
-): void {
-  if (typing === null) return;
-  const field = root.querySelector<HTMLInputElement>(
-    `[data-row="${CSS.escape(typing.sceneId)}"] [data-name]`,
-  );
-  if (field === null) return;
+): boolean {
+  if (typing === null) return false;
+  const row = root.querySelector<HTMLElement>(typing.row);
+  if (row === null) return false;
+  if (row.querySelector("[data-name]") === null) openRename(row);
+  const field = row.querySelector<HTMLInputElement>("[data-name]");
+  if (field === null) return false;
   field.value = typing.value;
   field.focus();
   if (typing.start !== null && typing.end !== null) {
     field.setSelectionRange(typing.start, typing.end);
   }
+  return true;
 }
 
 /** The id the section's heading carries, which its `aria-labelledby`
@@ -1481,16 +1499,26 @@ export function renderLibrary(
   const typing = typingName(root);
   const wasOpen = sectionStates(root);
   const versionsOpen = openVersions(root);
-  // The list's folds, and which rows it drew: a row it did not draw is new
-  // and takes its own default (a past month folded, a flow closed).
-  const was = {
-    collapsed: collapsedKeys(root),
-    drawn: new Set(
-      [...root.querySelectorAll<HTMLElement>("[data-list] [data-key]")].map(
-        (r) => r.dataset.key as string,
-      ),
+  // The list's folds, and which rows it drew: a row it never drew is new
+  // and takes its own default (a past month folded, a flow closed). A row
+  // this draw left out — a heading under a flat sort, every row under
+  // Grid — keeps the fold it last had.
+  const drawn = new Set(
+    [...root.querySelectorAll<HTMLElement>("[data-list] [data-key]")].map(
+      (r) => r.dataset.key as string,
     ),
+  );
+  const last = listFolds.get(root);
+  const was = {
+    collapsed: new Set([
+      ...[...(last?.collapsed ?? [])].filter((k) => !drawn.has(k)),
+      ...collapsedKeys(root),
+    ]),
+    drawn: new Set([...(last?.drawn ?? []), ...drawn]),
   };
+  listFolds.set(root, was);
+  // Where the keyboard was in the list, if it was there.
+  const place = placeIn(root.querySelector<HTMLElement>("[data-list]"));
   // Everything but the header is replaced. The header is updated in
   // place and never leaves the page: removing it would close an open
   // storage panel and blur a budget being typed (see `createHeader`).
@@ -1568,7 +1596,10 @@ export function renderLibrary(
         row.querySelector('[data-col="length"]') as HTMLElement,
       );
     }
+    // Folds are back already; then a name being typed, else the focus.
+    const typed = restoreTyping(root, typing);
     applySelection(root, actions, selection, bulk);
+    if (!typed) restorePlace(grid, place);
     return;
   }
   head.jumps.append(jumpList(sections, unreadable.length));

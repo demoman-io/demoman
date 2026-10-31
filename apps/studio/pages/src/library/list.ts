@@ -20,6 +20,7 @@ import {
   expiredLine,
   exportsList,
   type LibraryActions,
+  nameField,
   sectionId,
   statusKey,
   tags,
@@ -122,6 +123,14 @@ const chevron = (): SVGSVGElement => {
   return chev;
 };
 
+/** Each flow row's rename, and each take's in no flow: what Enter on the
+ *  name cell and the row's Rename button open (§4.6). */
+const renamers = new WeakMap<HTMLElement, () => void>();
+
+/** Swaps the row's name field in, focused, if the row has one and it is
+ *  not open already. */
+export const openRename = (row: HTMLElement): void => renamers.get(row)?.();
+
 function renameButton(label: string): HTMLElement {
   const rename = el("button", {
     type: "button",
@@ -212,9 +221,34 @@ function entryRow(
         cells.size.title = `${missed} ${missed === 1 ? "video" : "videos"} could not be measured`;
       }
     }
+    // The card's own field, swapped in for the name while it is renamed,
+    // and out again when it saves or cancels.
+    const nameCell = cells.name;
+    renamers.set(row, () => {
+      const text = nameCell.querySelector<HTMLElement>("[data-name-text]");
+      if (text === null) return;
+      const field = nameField(r, actions, group);
+      field.addEventListener("blur", () => {
+        text.textContent = field.value || r.label;
+        text.title = text.textContent;
+        field.replaceWith(text);
+      });
+      // After the field's own, which saves or cancels and blurs it.
+      field.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== "Escape") return;
+        nameCell.focus({ preventScroll: true });
+        // The field's Escape: the page's clears the selection.
+        event.stopPropagation();
+      });
+      text.replaceWith(field);
+      field.focus({ preventScroll: true });
+      field.select();
+    });
     const { buttons, rerunLine } = cardButtons(r, actions, group);
+    const rename = renameButton(label);
+    rename.addEventListener("click", () => openRename(row));
     buttons.insertBefore(
-      renameButton(label),
+      rename,
       buttons.querySelector('[data-action="edit"], [data-action="delete"]'),
     );
     cells.actions.append(buttons);

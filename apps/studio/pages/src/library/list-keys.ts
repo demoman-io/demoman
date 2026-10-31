@@ -4,7 +4,7 @@
 // (https://www.w3.org/WAI/ARIA/apg/patterns/treegrid/) with the Mac's keys
 // (spec 2026-10-31-library-list-view §4.3). Rows take focus until → moves
 // into their cells; one Tab stop enters the grid and the next leaves it.
-import { flowsOnScreen, setExpanded } from "./list";
+import { flowsOnScreen, openRename, setExpanded } from "./list";
 import type { LibraryActions } from "./view";
 
 /** How long a pause ends a type-ahead search. */
@@ -84,9 +84,41 @@ function focusOn(stop: HTMLElement | null | undefined): void {
   stop.scrollIntoView({ block: "nearest" });
 }
 
-/** Enter on a name cell. Renaming is the name field's, swapped in here by
- *  the rename work (§4.6); until then it does nothing. */
-function renameFromKeys(_row: HTMLElement): void {}
+/** Where focus was in `grid`, read before a redraw replaces it: its row
+ *  and column, and the row's place on screen. Null while focus is outside
+ *  the grid, so a redraw never pulls it in (§4.5). */
+export function placeIn(
+  grid: HTMLElement | null,
+): { key: string; col: string | null; at: number } | null {
+  const was = grid === null ? undefined : listFocus.get(grid);
+  if (grid === null || was === undefined) return null;
+  if (!grid.contains(document.activeElement)) return null;
+  const at = visibleRows(grid).findIndex((r) => r.dataset.key === was.key);
+  return { ...was, at };
+}
+
+/** Puts focus back where `placeIn` read it, in the grid drawn since: the
+ *  same row and column, else the row now in its place, else the one
+ *  before. Without scrolling: the page stays where the author left it. */
+export function restorePlace(
+  grid: HTMLElement,
+  place: ReturnType<typeof placeIn>,
+): void {
+  if (place === null) return;
+  if (place.key === HEAD_KEY) {
+    grid
+      .querySelector<HTMLElement>(
+        `[data-list-head] [data-col="${place.col}"] [data-sort]`,
+      )
+      ?.focus({ preventScroll: true });
+    return;
+  }
+  const rows = visibleRows(grid);
+  const row =
+    rows.find((r) => r.dataset.key === place.key) ??
+    rows[Math.min(place.at, rows.length - 1)];
+  if (row !== undefined) stopIn(row, place.col).focus({ preventScroll: true });
+}
 
 export function attachListKeys(
   grid: HTMLElement,
@@ -146,10 +178,12 @@ export function attachListKeys(
     event.preventDefault();
   });
 
-  // What was typed, when, and the row the search started from.
+  // What was typed, when, the row the search started from, and where it
+  // left focus.
   let typed = "";
   let typedAt = Number.NEGATIVE_INFINITY;
   let from = -1;
+  let left: Element | null = null;
 
   grid.addEventListener("keydown", (event) => {
     const target = event.target as HTMLElement;
@@ -166,7 +200,11 @@ export function attachListKeys(
     const col = inCell ? colOf(target) : null;
 
     if (key.length === 1 && key !== " " && !meta) {
-      if (event.timeStamp - typedAt > TYPE_AHEAD_MS) {
+      // A pause, or focus moved since (a click), starts a new search.
+      if (
+        event.timeStamp - typedAt > TYPE_AHEAD_MS ||
+        document.activeElement !== left
+      ) {
         typed = "";
         from = at;
       }
@@ -180,6 +218,7 @@ export function attachListKeys(
       );
       const found = typeAheadMatch(names, from, typed);
       if (found !== null) focusOn(stopIn(rows[found] as HTMLElement, col));
+      left = document.activeElement;
       event.preventDefault();
       return;
     }
@@ -190,6 +229,11 @@ export function attachListKeys(
     // page marks it on the root, as it shuts the boxes).
     const busy = grid.closest("[data-busy]") !== null;
     const flowId = row.dataset.flow;
+    // The selecting state hides a flow row's actions, and with them a
+    // control focused there: Space and Cmd+A move to the row first.
+    const offActions = (): void => {
+      if (flowId !== undefined && col === "actions") focusOn(row);
+    };
     // Enter folds what a click folds: a heading, or a row's chevron.
     const toggles =
       row.hasAttribute("aria-expanded") &&
@@ -276,7 +320,7 @@ export function attachListKeys(
           if (toggles) {
             setExpanded(row, row.getAttribute("aria-expanded") === "false");
           } else if (col === "name") {
-            renameFromKeys(row);
+            openRename(row);
           } else if (!inCell && !row.hasAttribute("data-absent")) {
             const scene = row.dataset.scene;
             if (scene !== undefined) actions.edit(scene);
@@ -285,6 +329,7 @@ export function attachListKeys(
         case " ":
           if (busy) return true;
           if (flowId !== undefined) {
+            offActions();
             actions.select?.(flowId, "toggle", flowsOnScreen(grid));
             return true;
           }
@@ -292,7 +337,10 @@ export function attachListKeys(
           return !(inCell && target.matches(CONTROLS));
         case "a":
         case "A":
-          if (!busy) actions.selectAll?.(flowsOnScreen(grid));
+          if (!busy) {
+            offActions();
+            actions.selectAll?.(flowsOnScreen(grid));
+          }
           return true;
         case "Backspace": {
           if (!meta) return false;
@@ -320,7 +368,9 @@ export function attachListKeys(
     })();
     if (handled) {
       event.preventDefault();
-      typed = "";
+      // Any other key ends the search: the next letter starts a new one
+      // from where focus is.
+      typedAt = Number.NEGATIVE_INFINITY;
     }
   });
 }

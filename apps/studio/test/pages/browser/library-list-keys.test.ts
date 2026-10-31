@@ -432,11 +432,14 @@ describe("Enter", () => {
     expect(acts.edit).not.toHaveBeenCalled();
   });
 
-  it("on the name cell does not open the editor (renaming is the field's)", async () => {
+  it("on the name cell opens the field, focused", async () => {
     mount();
     await enter();
     await press("{ArrowDown}{ArrowRight}{ArrowRight}{ArrowRight}", "f:A/open");
     await press("{ArrowRight}{Enter}", "f:A/name");
+    const field = document.activeElement as HTMLInputElement;
+    expect(field.matches("[data-name]"), where()).toBe(true);
+    expect(field.value, where()).toBe("Create an invoice");
     expect(acts.edit, where()).not.toHaveBeenCalled();
   });
 });
@@ -568,6 +571,63 @@ describe("type-ahead", () => {
   });
 });
 
+describe("type-ahead after another key", () => {
+  it("a letter after an arrow or Space searches from where focus is", async () => {
+    mount();
+    await enter();
+    const start = performance.now();
+    await press("e", "f:B");
+    await press("{ArrowDown}{ArrowUp}", "f:B");
+    // From B, the next "e" is Export.
+    await press("e", "f:E");
+    // A key that moves nothing ends the search too: from E, "e" wraps.
+    await press(" e", "f:B");
+    // Premise: all of it inside one search's pause.
+    expect(performance.now() - start, where()).toBeLessThan(TYPE_AHEAD_MS);
+  });
+
+  it("a letter after a click searches from where the click put focus", async () => {
+    mount();
+    await enter();
+    const start = performance.now();
+    await press("e", "f:B");
+    // E's chevron: it opens E and focuses its cell.
+    await userEvent.click(
+      row("f:E").querySelector('[data-col="open"]') as HTMLElement,
+    );
+    expect(focused(), where()).toBe("f:E/open");
+    // From E, the next "e" wraps round to Edit profile.
+    await press("e", "f:B/open");
+    expect(performance.now() - start, where()).toBeLessThan(TYPE_AHEAD_MS);
+  });
+});
+
+describe("Space and Cmd+A on a flow's actions", () => {
+  it("move focus to the row, which the selection does not hide", async () => {
+    for (const key of [" ", "{Meta>}a{/Meta}"]) {
+      mount();
+      await enter();
+      await press("{ArrowDown}{ArrowRight}{ArrowRight}{End}", "f:A/actions");
+      await press(key, "f:A");
+      // Premise: the row's actions are hidden now.
+      expect(ticked(), `${key}: ${where()}`).toContain("f:A");
+      const actionsCell = row("f:A").querySelector(
+        '[data-col="actions"]',
+      ) as HTMLElement;
+      expect(
+        actionsCell.checkVisibility({ visibilityProperty: true }),
+        `${key}: ${where()}`,
+      ).toBe(false);
+      expect(
+        (document.activeElement as HTMLElement).checkVisibility({
+          visibilityProperty: true,
+        }),
+        `${key}: ${where()}`,
+      ).toBe(true);
+    }
+  });
+});
+
 describe("while a bulk delete runs", () => {
   it("Space, Cmd+A, Shift+↓ and Cmd+Backspace change nothing", async () => {
     mount(["A"], { busy: true, said: null });
@@ -596,13 +656,19 @@ describe("while a bulk delete runs", () => {
 describe("while a name is being typed", () => {
   it("the grid's keys stand down", async () => {
     mount();
-    // Stand-in for the rename field (Task 7 draws the real one).
-    const field = document.createElement("input");
-    field.setAttribute("data-name", "");
-    row("f:A").querySelector('[data-col="name"]')?.append(field);
-    field.focus();
-    await userEvent.keyboard("{ArrowDown}{Home} e{Meta>}a{/Meta}{Enter}");
+    await enter();
+    // The first → opens A; the next three walk to its name.
+    await press(
+      "{ArrowDown}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{Enter}",
+      "f:A/name",
+    );
+    const field = document.activeElement as HTMLInputElement;
+    expect(field.matches("[data-name]"), where()).toBe(true);
+    await userEvent.keyboard("{ArrowDown}{Home} e{Meta>}a{/Meta}");
     expect(document.activeElement, where()).toBe(field);
+    // Enter is the field's: it saves, and opens nothing.
+    await userEvent.keyboard("{Enter}");
+    expect(acts.renameVideo, where()).toHaveBeenCalledTimes(1);
     expect(acts.select).not.toHaveBeenCalled();
     expect(acts.selectAll).not.toHaveBeenCalled();
     expect(acts.edit).not.toHaveBeenCalled();
