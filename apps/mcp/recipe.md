@@ -565,7 +565,7 @@ quote `note` if set. Studio exports go to `~/Downloads`.
 | `clickNotDelivered` | `run` (`stopped.reason`) | The browser put a click elsewhere than where it was sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |
 | `signedOut` | `run` (`stopped.reason`) | The app sent this browser to its sign-in page. Nothing was kept, and it is not a script fault. Give the user the command in `stopped.detail`; run again only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it says so. |
 | `windowClosed` | `run` (`stopped.reason`) | `--headed` only: the window was closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
-| `pageDidNotLoad` | `snapshot` | The url did not load. Ask the user whether the app is running at that address; spend no run. |
+| `pageDidNotLoad` | `snapshot`, `probe` stop | The url did not load. Ask whether the app runs at that address; spend no run. |
 | `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman's script; tell the user. |
 | `pageFaulted` | `snapshot` | The page's own code threw; quote `detail`. |
 | `snapshotThrew` | `snapshot` | A fault in the snapshot; quote `detail`. |

@@ -323,11 +323,33 @@ describe("probeOp", () => {
     expect(out, said).toMatchObject({ ok: true, value: { targets: [] } });
     const reply = (out.ok ? out.value : null) as ProbeReply;
     expect(reply.stopped, said).not.toBeNull();
-    expect(reply.settleNote, said).toContain(
-      "could not be listed (pageDidNotLoad)",
-    );
+    expect(reply.stopped?.reason, said).toBe("pageDidNotLoad");
+    expect(reply.settleNote, said).not.toContain("pageDidNotLoad");
     // The premise: the page it stopped on is the one that did not load.
-    expect(reply.settleNote, said).toContain("127.0.0.1:1");
+    expect(reply.stopped?.detail, said).toContain("127.0.0.1:1");
+  }, 120_000);
+
+  it("a probe whose target never loads stops with pageDidNotLoad, not unresolvedAnchor", async () => {
+    const down = "http://127.0.0.1:1/";
+    const out = await probeOp(
+      enter({
+        ...script([
+          { do: "click", on: { role: "button", name: "Open filters" } },
+        ]),
+        target: down,
+      }),
+      null,
+      deps(),
+    );
+    const said = JSON.stringify({ out, lines });
+    const reply = (out.ok ? out.value : null) as ProbeReply;
+    expect(reply, said).not.toBeNull();
+    // The premise: the page it ended on is the one that did not load.
+    expect(reply.endedUrl, said).toContain("chrome-error:");
+    expect(reply.stopped?.reason, said).toBe("pageDidNotLoad");
+    expect(reply.stopped?.detail, said).toContain("127.0.0.1:1");
+    expect(reply.stopped?.detail, said).toContain("ERR_");
+    expect(reply.settleNote, said).not.toContain("pageDidNotLoad");
   }, 120_000);
 
   it("a step that stopped is still said when its page is gone", async () => {

@@ -78,7 +78,11 @@ export interface ProbeReply extends Snapshot {
   sessionDetail: string | null;
   kits: SnapshotKits;
   steps: { played: number; of: number };
-  stopped: null | { at: number; reason: ReplayStopReason; detail: string };
+  stopped: null | {
+    at: number;
+    reason: ReplayStopReason | "pageDidNotLoad";
+    detail: string;
+  };
   endedUrl: string | null;
 }
 
@@ -178,12 +182,26 @@ export async function probeOp(
   if (!listed.ok && stopped === null) {
     return failure(listed.reason, listed.detail);
   }
+  // A page that did not load is the stop an agent must act on, whatever
+  // step the walk blamed: the step was fine, the app is not answering.
+  if (!listed.ok && listed.reason === "pageDidNotLoad" && stopped !== null) {
+    stopped = {
+      at: stopped.at,
+      reason: "pageDidNotLoad",
+      detail: stopped.detail.includes("did not load")
+        ? stopped.detail
+        : listed.detail,
+    };
+  }
   const { ready, endedUrl, walk } = listed.ok
     ? listed
     : {
         ready: {
           settled: false,
-          note: `the page it stopped on could not be listed (${listed.reason}): ${listed.detail}`,
+          note:
+            listed.reason === "pageDidNotLoad"
+              ? "the page it stopped on did not load; see stopped"
+              : `the page it stopped on could not be listed (${listed.reason}): ${listed.detail}`,
         },
         endedUrl: stage.page.isClosed() ? null : stage.page.url(),
         walk: {
