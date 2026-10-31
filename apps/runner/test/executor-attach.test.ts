@@ -890,7 +890,98 @@ describe("attach", () => {
     expect(answer.detail).toContain(
       'no pull requests found for branch "feat/x"',
     );
+    // Red if a PR that is not there yet is sent straight to a drag-in.
+    expect(answer.detail).toContain(
+      "If there is no pull request yet, open it and attach again",
+    );
     expect(workPages).toBe(0);
+  });
+
+  // Red if a PR gh cannot find or read, as when GitHub does not answer,
+  // stops saying how to hand the video over by hand.
+  it.each([
+    [
+      "prNotFound",
+      {
+        "pr view --json number,url,headRefOid": {
+          code: 1,
+          stderr: "HTTP 503: Service Unavailable\n",
+        },
+      },
+      "HTTP 503",
+    ],
+    [
+      "prUnreadable",
+      {
+        "pr view --json number,url,headRefOid": prView,
+        "pr view 12 --json body,comments": {
+          code: 1,
+          stderr: "HTTP 503: Service Unavailable\n",
+        },
+      },
+      "HTTP 503",
+    ],
+  ] as const)(
+    "%s says how to attach by hand",
+    async (reason, answers, names) => {
+      await script(answers);
+      const answer = await attach({ into: "description" });
+      expect(answer, JSON.stringify(answer)).toMatchObject({
+        outcome: "refusedBeforeAttach",
+        reason,
+      });
+      if (answer.outcome !== "refusedBeforeAttach") return;
+      expect(answer.detail).toContain(names);
+      expect(answer.detail).toContain("export({ takeId, maxMB: 9.5 })");
+      expect(answer.detail).toContain("file.path to drag into the PR");
+      expect(workPages).toBe(0);
+    },
+  );
+
+  // Red if a gh that is not ready, in a checkout whose remotes are all
+  // elsewhere, names gh's fix (brew install gh) for a PR attach cannot
+  // reach.
+  it("a GitLab checkout with no gh is notGitHub, not ghMissing", async () => {
+    const gitlab = await mkdtemp(join(dir, "gitlab-"));
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: gitlab, encoding: "utf8" });
+    git("init", "-q");
+    git("remote", "add", "origin", "git@gitlab.com:acme/web.git");
+    git("remote", "add", "mirror", "https://bitbucket.org:8443/acme/web.git");
+    // Premise: git lists both remotes, and neither is on GitHub.
+    const listed = git("remote", "-v");
+    expect(listed).toContain("gitlab.com");
+    expect(listed).toContain("bitbucket.org");
+    expect(listed).not.toContain("github");
+    await writeFile(scriptPath, JSON.stringify({}));
+    missingOn = "--version";
+    const answer = await attach({ into: "description", project: gitlab });
+    expect(answer, JSON.stringify(answer)).toMatchObject({
+      outcome: "refusedBeforeAttach",
+      reason: "notGitHub",
+    });
+    if (answer.outcome !== "refusedBeforeAttach") return;
+    expect(answer.detail).toContain("gitlab.com");
+    expect(answer.detail).toContain("bitbucket.org,");
+    expect(answer.detail).not.toContain("brew install gh");
+    expect(answer.detail).toContain("export({ takeId, maxMB: 9.5 })");
+    // Premise: gh was asked and was missing; the remotes decided the reason.
+    expect(calls()).toEqual(["--version"]);
+
+    // A remote on GitHub, or an ssh alias gh may resolve to it, keeps gh's
+    // own refusal.
+    for (const url of [
+      "git@github.com:o/r.git",
+      "git@github-work:o/r.git",
+      "git@github.com-work:o/r.git",
+      "ssh://git@ssh.github.com:443/o/r.git",
+      "github.com:o/r.git",
+    ]) {
+      git("remote", "set-url", "mirror", url);
+      logged = [];
+      const kept = await attach({ into: "description", project: gitlab });
+      expect(kept, url).toMatchObject({ reason: "ghMissing" });
+    }
   });
 
   // Red if a gh refusal stops saying how to attach by hand with a file a

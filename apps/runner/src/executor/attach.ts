@@ -25,6 +25,7 @@ import {
   maxBytesOf,
 } from "./export.js";
 import type { Gh, GhRefusal, PullRequestText } from "./gh.js";
+import { normaliseRemote } from "./repo.js";
 
 export type AttachRefusal =
   | GhRefusal["reason"]
@@ -108,6 +109,39 @@ export interface AttachDeps {
  *  copied to post: a capped export, whose file a drag-in takes. */
 const BY_HAND =
   "To attach it by hand, export({ takeId, maxMB: 9.5 }) and give the user that file.path to drag into the PR; the browser refuses video over 10 MB on a free plan.";
+
+/** The hosts of the checkout's remotes when none of them can be GitHub;
+ *  null when one may be, there are none, or git cannot say (logged). Any
+ *  host naming github, or with no dot, may be: gh resolves ssh aliases
+ *  (`github.com-work`) and ssh.github.com, and this cannot. Null keeps gh's
+ *  own refusal, which still says why attach cannot go on. */
+async function remotesElsewhere(
+  git: AttachDeps["git"],
+  log: (line: string) => void,
+): Promise<string[] | null> {
+  if (git === undefined) return null;
+  const r = await git(["remote", "-v"]).catch((error: unknown) => ({
+    code: -1,
+    stdout: "",
+    stderr: messageOf(error),
+  }));
+  if (r.code !== 0) {
+    log(
+      `attach: could not read the remotes (${r.stderr.trim() || `exit ${r.code}`}); gh's refusal stands`,
+    );
+    return null;
+  }
+  const hosts = new Set<string>();
+  for (const line of r.stdout.split("\n")) {
+    const url = line.split(/\s+/)[1];
+    if (url === undefined || url === "") continue;
+    hosts.add(normaliseRemote(url).split(/[/:]/)[0] ?? "");
+  }
+  if (hosts.size === 0) return null;
+  for (const h of hosts)
+    if (h.includes("github") || !h.includes(".")) return null;
+  return [...hosts];
+}
 
 /** The cap an attach exports at unless told otherwise, and a retry after a
  *  refused upload asks for: under the 10 MB a browser takes on a free plan
@@ -303,13 +337,26 @@ export async function attachTake(
 
   const notReady = await gh.ready();
   if (notReady !== null) {
+    // A checkout whose remotes are all elsewhere is notGitHub: fixing gh
+    // would not make attach work there, so its fix is not the one named.
+    const elsewhere = await remotesElsewhere(deps.git, log);
+    if (elsewhere !== null) {
+      return refuse(
+        "notGitHub",
+        `this checkout's remotes are on ${elsewhere.join(", ")}, not github.com, and video attachments work only there. ${BY_HAND}`,
+      );
+    }
     return refuse(notReady.reason, `${notReady.detail} ${BY_HAND}`);
   }
+  // A GitHub that does not answer leaves the video to go by hand; a PR that
+  // is not there yet is the agent's to open.
   const pr = await gh.pr(a.pr);
   if ("reason" in pr) {
     return refuse(
       pr.reason,
-      pr.reason === "notGitHub" ? `${pr.detail} ${BY_HAND}` : pr.detail,
+      pr.reason === "prNotFound"
+        ? `${pr.detail} If there is no pull request yet, open it and attach again; otherwise: ${BY_HAND}`
+        : `${pr.detail} ${BY_HAND}`,
     );
   }
   // The baseline the read-back after posting is compared against. Taken
@@ -318,7 +365,7 @@ export async function attachTake(
   if ("unreadable" in before) {
     return refuse(
       "prUnreadable",
-      `pull request ${pr.url} could not be read (${before.unreadable}); attach reads it before posting so it can tell afterwards what landed. Nothing was exported or posted.`,
+      `pull request ${pr.url} could not be read (${before.unreadable}); attach reads it before posting so it can tell afterwards what landed. Nothing was exported or posted. ${BY_HAND}`,
     );
   }
 

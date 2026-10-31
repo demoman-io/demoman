@@ -426,9 +426,9 @@ one line, `No demo: <why>`, and so does the user.
 `attach` caps at 9.5 MB; `maxMB` sets another. On `stillRunning`, `report(id)`
 until the outcome is not `attaching` or `stillRunning`. On `busy`,
 `report(id)` on the export in flight, then `attach` again. On `ghMissing`,
-`ghOutdated`, `ghSignedOut`, `notGitHub` or `copyFailed`, call
+`ghOutdated`, `ghSignedOut`, `notGitHub`, `prUnreadable` or `copyFailed`, call
 `export({ takeId, maxMB: 9.5 })` and give the user its `file.path` to drag
-into the PR, saying why. On `uploadRefused`, do as its `detail` says. On `partial` or `unconfirmed`, do not
+into the PR, saying why. On `uploadRefused` or `prNotFound`, do as its `detail` says. On `partial` or `unconfirmed`, do not
 post again; tell the user to check the PR. Other reasons: section 7. An unsaved export answers as `export` does.
 
 Hand back, on `saved`, two lines and nothing else: the `summary` as it is,
@@ -543,8 +543,7 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 | `accountsInvalid` | `snapshot`, `run` (`refusedBeforeRun`) | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names the field and the rule. Fix the file. |
 | `unknownAccount` | `snapshot`, `run` (`refusedBeforeRun`) | The script names an account the site does not have, or names none and the site has no `default`; `detail` lists the site's accounts. Name one, or add it (section 1). |
 | `invalidProject` | `snapshot`, `run` (`refusedBeforeRun`), `attach` | `project` is not an absolute path to a folder. Pass one, or leave it out. |
-| `ghMissing`, `ghOutdated`, `ghSignedOut` | `attach` (`refusedBeforeAttach`) | `gh` is missing, too old or signed out; `detail` gives the fix. Hand the user the file (section 5). |
-| `notGitHub`, `prNotFound`, `prUnreadable` | `attach` (`refusedBeforeAttach`) | Not a GitHub remote; no such PR; the PR could not be read. Nothing was posted: quote `detail` to the user. |
+| `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach` (`refusedBeforeAttach`) | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing was posted; do as `detail` says. |
 | `invalidAttach` | `attach` (`refusedBeforeAttach`) | The call is malformed; `detail` says how. Fix it. |
 | `uploadRefused` | `attach` (`notAttached`) | GitHub refused the video. Retry as the Pull requests text says. |
 | `partial` | `attach` (`notAttached`) | `gh` failed but the video is on the PR; do not post again. |

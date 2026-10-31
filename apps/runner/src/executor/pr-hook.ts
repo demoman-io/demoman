@@ -10,7 +10,9 @@
 // could not check (docs/superpowers/specs/2026-10-25-pr-reminder-and-verdict-design.md).
 import { resolvePullRequests } from "./pull-requests.js";
 
-export const PR_URL = /https:\/\/github\.com\/[^/\s"]+\/[^/\s"]+\/pull\/\d+/;
+/** A pull request's URL on any host, so one opened on a GitHub Enterprise
+ *  host is answered rather than read as an `off` repo. */
+export const PR_URL = /https:\/\/([^/\s"]+)\/[^/\s"]+\/[^/\s"]+\/pull\/\d+/g;
 
 const GH_PR_CREATE = /\bgh\s+pr\s+create\b/;
 const MCP_CREATE = /^mcp__.*github.*__create_pull_request$/i;
@@ -55,8 +57,15 @@ export async function postToolUseAnswer(
       GH_PR_CREATE.test(call.tool_input.command)) ||
     (typeof call.tool_name === "string" && MCP_CREATE.test(call.tool_name));
   if (!opens) return null;
-  const url = JSON.stringify(call.tool_response ?? null).match(PR_URL)?.[0];
-  if (url === undefined) return null;
+  // A github.com URL wins over another host's the output merely mentions.
+  const found = [
+    ...JSON.stringify(call.tool_response ?? null).matchAll(PR_URL),
+  ];
+  const pick =
+    found.find((m) => m[1]?.toLowerCase() === "github.com") ?? found[0];
+  if (pick === undefined) return null;
+  const url = pick[0];
+  const host = (pick[1] ?? "").toLowerCase();
   if (typeof call.cwd !== "string")
     return couldNotCheck("the hook's input names no cwd");
   let setting: Awaited<ReturnType<typeof resolvePullRequests>>;
@@ -73,6 +82,11 @@ export async function postToolUseAnswer(
     );
   }
   if (setting.value === "off") return null;
+  if (host !== "github.com") {
+    return answer(
+      `Demoman: that call names pull request ${url}, on ${host}, and this repo's Demoman pullRequests setting is "${setting.value}", but attach works only on github.com. If that pull request was opened now, follow the recipe's Pull requests section with export({ takeId, maxMB: 9.5 }) in place of attach, giving the user its file.path to drag into the PR.`,
+    );
+  }
   return answer(
     `Demoman: that call names pull request ${url}, and this repo's Demoman pullRequests setting is "${setting.value}". If that pull request was opened now, follow the recipe's Pull requests section (call the recipe tool if it is not in context).`,
   );

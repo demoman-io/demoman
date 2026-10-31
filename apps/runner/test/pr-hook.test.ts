@@ -89,6 +89,51 @@ describe("postToolUseAnswer", () => {
     expect(text).toContain(URL7);
   });
 
+  // Red if a PR on another host goes back to no answer, which reads exactly
+  // like an `off` repo.
+  it("a PR on a GitHub Enterprise host is answered, naming the host and the export", async () => {
+    const ghe = "https://git.corp.example/o/r/pull/7";
+    const { repo, home } = await setup('{"pullRequests":"attach"}');
+    const text = context(
+      await postToolUseAnswer(
+        bash(repo, "gh pr create --fill", `${ghe}\n`),
+        home,
+      ),
+    );
+    expect(text).toContain(ghe);
+    expect(text).toContain("on git.corp.example");
+    expect(text).toContain("attach works only on github.com");
+    expect(text).toContain("export({ takeId, maxMB: 9.5 })");
+    expect(text).toContain('"attach"');
+    // Off is still off, on any host.
+    const off = await setup('{"pullRequests":"off"}');
+    expect(
+      await postToolUseAnswer(
+        bash(off.repo, "gh pr create --fill", `${ghe}\n`),
+        off.home,
+      ),
+    ).toBeNull();
+  });
+
+  // Red if another host's URL the output mentions first, or a github.com
+  // URL in other case, turns a github.com PR into "use export".
+  it("a github.com PR is answered as one, whatever else the output names", async () => {
+    const { repo, home } = await setup('{"pullRequests":"attach"}');
+    for (const stdout of [
+      `see https://git.corp.example/x/y/pull/3\n${URL7}\n`,
+      "https://GitHub.com/o/r/pull/7\n",
+    ]) {
+      const text = context(
+        await postToolUseAnswer(
+          bash(repo, "gh pr create --fill", stdout),
+          home,
+        ),
+      );
+      expect(text, stdout).not.toContain("attach works only on github.com");
+      expect(text, stdout).toContain("/o/r/pull/7");
+    }
+  });
+
   it("matches gh pr create inside a chained command", async () => {
     const { repo, home } = await setup('{"pullRequests":"attach"}');
     expect(
