@@ -2018,14 +2018,25 @@ export async function runWalk(
 
       if (step.action.kind === "waitFor") {
         if (!(await awaitCondition(step.action, step.target))) {
-          // Only a wait for something to show can have found it unseen; the
-          // plain question is the one a click's target is listed by.
+          // Only a wait for something to show can have found it unseen. The
+          // resolver's word decides: an element it found that has no box
+          // (display:none, a closed <details>) is there but not visible. The
+          // look is a courtesy to the report, so a page that fails it leaves
+          // `waitSaw` unset and the stop stays `waitTimeout`.
           if (
             step.action.anchorId !== null &&
-            step.action.condition !== "hidden"
+            step.action.condition !== "hidden" &&
+            step.target !== null
           ) {
-            const { handle } = await locate(step.target, "rendered");
-            step.onWaitTimedOut?.(handle === null ? "absent" : "notVisible");
+            try {
+              const [found] = await page.resolve([step.target]);
+              step.onWaitTimedOut?.(
+                found?.resolved === true ? "notVisible" : "absent",
+              );
+            } catch {
+              // Said by absence: no `waitSaw`, so the stop keeps its generic
+              // `waitTimeout` sentence rather than claim what was not seen.
+            }
           }
           reason = "waitTimeout";
           break;

@@ -176,7 +176,7 @@ resolves in a run to exactly that element.
 - `rect` is in page coordinates; `inFirstViewport`: in view before any
   scroll. `rect: null`: no box yet (a closed FAQ answer), still a valid
   `waitFor … until: "visible"` target after the step that opens it.
-  `shown: false`: transparent, hidden or a sliver; `waitFor` never sees it.
+  `shown: false`: transparent, hidden or a sliver now; `waitFor` waits.
 - `size` is `{ width, height, from, error }`: the size the page was laid out
   at, which a run records too. `from` is `screen` (this machine's screen),
   or `device`. `from: "window"` with an `error`: Demoman could not read the

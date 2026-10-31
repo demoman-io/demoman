@@ -240,6 +240,13 @@ describe("the snapshot's walk", () => {
         document.querySelector("[data-fixture=tiny]") as Element
       ).getBoundingClientRect();
       expect([box.width, box.height]).toEqual([1, 1]);
+      // Premise: the plain question calls it visible, so it is the size rule
+      // that makes `shown` false.
+      expect(
+        (
+          document.querySelector("[data-fixture=tiny]") as Element
+        ).checkVisibility(),
+      ).toBe(true);
       const t = w.targets.find(
         (x) => x.kind === "combobox" || x.kind === "listbox",
       );

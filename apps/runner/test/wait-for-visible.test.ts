@@ -43,6 +43,7 @@ const PAGE = `<!doctype html><meta charset=utf-8>
 <span id="badge">Draft badge</span>
 <button id="ghost" aria-label="Reveal toast" style="position: fixed; left: 400px; top: 100px; width: 120px; height: 40px; opacity: 0">x</button>
 <div id="toast">Invoice created</div>
+<p id="gone" style="display: none">Folded note</p>
 <script>
   document.getElementById("ghost").addEventListener("click", () => {
     document.getElementById("toast").classList.add("shown");
@@ -255,6 +256,55 @@ describe("waitFor on an element that is laid out but cannot be seen", () => {
       expect(report.outcome, JSON.stringify({ report, lines })).toBe(
         "complete",
       );
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "calls a display:none element found-but-not-visible, not absent",
+    async () => {
+      const ok = await session.ensure();
+      if (!ok.ok) throw new Error(JSON.stringify(ok));
+      const probe = await ok.launched.context.newPage();
+      try {
+        await probe.goto(origin);
+        // The fixture's claim: it is in the tree and has no box.
+        expect(
+          await probe.evaluate(() => {
+            const el = document.getElementById("gone") as Element;
+            return [el.isConnected, el.getClientRects().length];
+          }),
+        ).toEqual([true, 0]);
+      } finally {
+        await probe.close();
+      }
+      const report = await runScript(
+        {
+          scriptVersion: 1,
+          name: "a folded note",
+          target: origin,
+          viewport: { width: 800, height: 600 },
+          steps: [
+            { do: "waitForLoad" },
+            { do: "waitFor", on: { text: "Folded note" }, until: "visible" },
+          ],
+        } as never,
+        {
+          session,
+          library: createLibrary(home),
+          kits,
+          log,
+          sessions: [],
+          sessionStore: createSessionStore(home),
+          signinCommand: "npx demoman signin",
+          loadSessions: async () => ({ ok: true as const, files: [] }),
+          sessionsContext: {} as BrowserContext,
+        },
+        () => undefined,
+      );
+      const evidence = JSON.stringify({ report, lines });
+      expect(report.stopped?.reason, evidence).toBe("waitTimeout");
+      expect(report.steps.at(-1)?.waitSaw, evidence).toBe("notVisible");
     },
     TEST_TIMEOUT_MS,
   );

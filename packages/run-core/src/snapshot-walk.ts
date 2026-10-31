@@ -46,8 +46,8 @@ export interface SnapshotTarget {
    *  no box, `display: none`, or inside a closed `<details>`. */
   rect: SnapshotRect | null;
   /** Whether it can be SEEN: not transparent, not `visibility: hidden`, more
-   *  than a sliver. A `waitFor visible` on a target with `shown: false` can
-   *  never pass; `rect` is the plain question a click is aimed by. */
+   *  than a sliver. This is the page as listed: a `waitFor visible` passes
+   *  once the target shows; `rect` is the plain question a click is aimed by. */
   shown: boolean;
   inFirstViewport: boolean;
 }
