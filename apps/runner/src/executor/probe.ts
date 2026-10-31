@@ -185,12 +185,12 @@ export async function probeOp(
   // A page that did not load is the stop an agent must act on, whatever
   // step the walk blamed: the step was fine, the app is not answering.
   if (!listed.ok && listed.reason === "pageDidNotLoad" && stopped !== null) {
+    // The walk's own account stays in the detail: it may name the net error,
+    // and it is what the step itself reported.
     stopped = {
       at: stopped.at,
       reason: "pageDidNotLoad",
-      detail: stopped.detail.includes("did not load")
-        ? stopped.detail
-        : listed.detail,
+      detail: `${listed.detail}. The walk had stopped at step ${stopped.at}: ${stopped.reason}: ${stopped.detail}`,
     };
   }
   const { ready, endedUrl, walk } = listed.ok

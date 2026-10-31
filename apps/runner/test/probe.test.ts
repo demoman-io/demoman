@@ -324,6 +324,8 @@ describe("probeOp", () => {
     const reply = (out.ok ? out.value : null) as ProbeReply;
     expect(reply.stopped, said).not.toBeNull();
     expect(reply.stopped?.reason, said).toBe("pageDidNotLoad");
+    // The walk's own reason is kept in the detail, not overwritten.
+    expect(reply.stopped?.detail, said).toContain("pageWentElsewhere");
     expect(reply.settleNote, said).not.toContain("pageDidNotLoad");
     // The premise: the page it stopped on is the one that did not load.
     expect(reply.stopped?.detail, said).toContain("127.0.0.1:1");
