@@ -97,8 +97,9 @@ const USAGE = `demoman ${VERSION}
                              sign in as a demo account from .demoman/accounts.json (CI, or a check)
   npx demoman studio [video] open the Studio, to look over and edit flows and export them
   npx demoman studio --stop  close the Studio
-  npx demoman keep <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
+  npx demoman keep <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full] [--deliver commit|files]
                              keep a flow current: its re-film file in .demoman/videos/, its exports in the repo
+                             (--deliver files writes the re-film file alone; outputs are file names for --out-dir)
   npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main]
                              film the kept flows again and replace the exports whose picture changed;
                              --deliver commits them on main, or opens a pull request (CI)
@@ -282,6 +283,7 @@ async function keep(args: string[]): Promise<void> {
     gif?: string[];
     report?: string;
     quality?: string;
+    deliver?: string;
   };
   let positionals: string[];
   try {
@@ -292,6 +294,7 @@ async function keep(args: string[]): Promise<void> {
         gif: { type: "string", multiple: true },
         report: { type: "string" },
         quality: { type: "string" },
+        deliver: { type: "string" },
       },
       allowPositionals: true,
       strict: true,
@@ -312,6 +315,10 @@ async function keep(args: string[]): Promise<void> {
   if (!isExportQuality(quality)) {
     return usage(`--quality is share, high or full, not "${quality}"`);
   }
+  const deliver = values.deliver ?? "commit";
+  if (deliver !== "commit" && deliver !== "files") {
+    return usage(`--deliver is commit or files, not "${deliver}"`);
+  }
   const fail = (detail: string): never => {
     process.stderr.write(`demoman keep: ${detail}\n`);
     process.exit(1);
@@ -325,7 +332,8 @@ async function keep(args: string[]): Promise<void> {
   const to: KeepOutput[] = asked.map(([fileType, arg]) => {
     const m = /^(.*):(auto|16:9|9:16)$/.exec(arg);
     return {
-      path: inRoot(m?.[1] ?? arg),
+      // `files` outputs are names, not places: left as given.
+      path: deliver === "files" ? (m?.[1] ?? arg) : inRoot(m?.[1] ?? arg),
       fileType,
       quality,
       ...(m?.[2] === undefined
@@ -355,7 +363,11 @@ async function keep(args: string[]): Promise<void> {
         to,
         ...(values.report === undefined
           ? {}
-          : { report: inRoot(values.report) }),
+          : {
+              report:
+                deliver === "files" ? values.report : inRoot(values.report),
+            }),
+        deliver,
         repoRoot: root,
       },
       {

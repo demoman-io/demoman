@@ -50,6 +50,14 @@ describe("the receipt", () => {
     expect(parseReceipt(text, "r.json")).toEqual({ ok: true, receipt: none });
   });
 
+  it("refuses a flow that is not a flow id, naming flow", () => {
+    // Premise: the fixture's own flow passes, so only the change can refuse.
+    expect(parseReceipt(serializeReceipt(receipt), "r.json").ok).toBe(true);
+    expect(refusal(withChange({ flow: "../../etc" }))).toContain(
+      "flow must be a flow id",
+    );
+  });
+
   it("refuses empty moments, naming screens.moments", () => {
     expect(
       refusal(withChange({ screens: { steps: 2, moments: [] } })),

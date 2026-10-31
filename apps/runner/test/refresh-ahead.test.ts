@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { KEPT_DIR, keptFileName } from "@demoman/run-core";
+import { KEPT_DIR, type KeptReceipt, keptFileName } from "@demoman/run-core";
 import { beforeEach, describe, expect, it } from "vitest";
+import { libraryAhead } from "../src/executor/keep.js";
 import type { Library } from "../src/executor/library.js";
 import { type RefreshDeps, refreshKept } from "../src/executor/refresh.js";
 import type { Version, VideoStore } from "../src/executor/videos.js";
@@ -239,5 +240,42 @@ describe("a local refresh films outside the user's library", () => {
     expect(await refreshOnce(d).then((v) => v?.notes)).toEqual([]);
     expect(runs.length, "premise: the refresh filmed").toBeGreaterThan(0);
     expect((await refreshOnce(d))?.notes, JSON.stringify(runs)).toEqual([]);
+  });
+});
+
+describe("libraryAhead, given the receipt", () => {
+  const receipt: KeptReceipt = {
+    receiptVersion: 1,
+    flow: FLOW_ID,
+    video: "t1",
+    filmedCode: { none: "test" },
+    screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
+    recordedRevision: "r1",
+  };
+  const ahead = (r: KeptReceipt | null, d = deps()) =>
+    libraryAhead(kept, r, FILE, d);
+
+  it("says nothing when the receipt names the library's current video and revision", async () => {
+    expect(await ahead(receipt)).toBeNull();
+  });
+  it("says to keep again when the receipt's revision is older", async () => {
+    current.revision = "r2";
+    expect(await ahead(receipt)).toContain(
+      `run \`demoman keep ${NAME}\` again`,
+    );
+  });
+  it("says to keep again when the receipt's video is older", async () => {
+    current.takeId = "t2";
+    expect(await ahead(receipt)).toContain("demoman keep");
+  });
+  it("with no receipt, says there is none to compare when the library holds the flow", async () => {
+    expect(await ahead(null)).toBe(
+      `${FILE} has no receipt to compare the library with; run \`demoman keep ${NAME}\` again`,
+    );
+  });
+  it("with no receipt, says nothing when the library has no such flow", async () => {
+    const d = deps();
+    d.videos = { get: async () => null } as unknown as VideoStore;
+    expect(await ahead(null, d)).toBeNull();
   });
 });

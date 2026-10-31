@@ -20,4 +20,20 @@ describe("keepLines", () => {
       "  kept on macOS: x",
     ]);
   });
+
+  // Red if markNote is left off, or screensNote printed as "undefined".
+  it("prints a files keep without screens, and says when the flow was not marked kept", () => {
+    const lines = keepLines({
+      ok: true,
+      kept: { name: "Add a task" },
+      file: ".demoman/videos/add-a-task.json",
+      written: [".demoman/videos/add-a-task.json"],
+      receipt: null,
+      markNote: 'the library could not mark "Add a task" as kept (x)',
+    } as Extract<KeepAnswer, { ok: true }>);
+    expect(lines).toEqual([
+      'Kept "Add a task" in .demoman/videos/add-a-task.json',
+      '  the library could not mark "Add a task" as kept (x)',
+    ]);
+  });
 });

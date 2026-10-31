@@ -22,10 +22,12 @@ import {
 } from "node:path";
 import { type FrameBundle, wallpaperShape } from "@demoman/compositor";
 import {
+  type FilmedCode,
   frameOf,
   judgedOutput,
   KEPT_DIR,
   KEPT_VERSION,
+  type KeptDeliver,
   type KeptOutput,
   type KeptReceipt,
   type KeptScreens,
@@ -33,8 +35,12 @@ import {
   keptFileName,
   notCarriedOf,
   parseKept,
+  parseReceipt,
+  RECEIPT_DIR,
   type RefilmInfo,
   type RunReport,
+  serializeKept,
+  serializeReceipt,
   servedRunReport,
   targetFor,
 } from "@demoman/run-core";
@@ -42,7 +48,6 @@ import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import { chooseAccount, findAccounts } from "./accounts.js";
 import { type ExportDeps, exportTake } from "./export.js";
-import { type KeptFrom, serializeKeptV1 } from "./kept-v1.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
 import { refilmFromVideo } from "./refilm.js";
@@ -72,7 +77,12 @@ export type KeepRefusal =
   /** Any other reason a re-film of the video's version refuses (its own
    *  reason and sentence in the detail), or an accounts.json that will not
    *  choose an account: a refresh would refuse the same way. */
-  | "cannotRefilm";
+  | "cannotRefilm"
+  /** The request itself is refused (a `files` output given as a path). */
+  | "keepRefused";
+
+/** What a built kept file was made from. */
+type KeptFrom = { takeId: string; recordedRevision: string };
 
 export interface KeepDeps {
   home: string;
@@ -90,10 +100,14 @@ export type KeepAnswer =
       ok: true;
       file: string;
       kept: KeptVideo;
-      /** What the file was built from. */
-      from: KeptFrom;
-      /** "k of n screens are still": what a refresh compares at. */
-      screensNote: string;
+      /** What `deliver: "commit"` wrote beside the recipe; null for `files`. */
+      receipt: KeptReceipt | null;
+      /** "k of n screens are still": what a refresh compares at. Said for
+       *  `commit` only: `files` renders nothing here. */
+      screensNote?: string;
+      /** Said when the library could not mark the flow kept: the keep
+       *  stands, and the Library will not show it as kept until it does. */
+      markNote?: string;
       written: string[];
       /** Said when `kept.scale` is a guess: the take records none. */
       scaleGuess?: string;
@@ -122,6 +136,9 @@ export async function keepVideo(
     to: KeepOutput[];
     report?: string;
     repoRoot: string;
+    /** `commit` (the default) renders the outputs into the repo; `files`
+     *  writes the recipe alone and leaves delivery to `--out-dir`. */
+    deliver?: KeptDeliver;
   },
   deps: KeepDeps,
 ): Promise<KeepAnswer> {
@@ -133,6 +150,18 @@ export async function keepVideo(
   const root = resolve(args.repoRoot);
   const rootReal = await realpath(root);
   const platform = deps.platform ?? process.platform;
+  const deliver = args.deliver ?? "commit";
+  if (deliver === "files") {
+    const path = [...args.to.map((o) => o.path), args.report ?? ""].find((p) =>
+      p.includes("/"),
+    );
+    if (path !== undefined) {
+      return refuse(
+        "keepRefused",
+        `files outputs are file names, not paths (got "${path}")`,
+      );
+    }
+  }
 
   // The video: by id or exact name, among this repo's.
   const repo = await readRepo(root, deps.git);
@@ -163,7 +192,10 @@ export async function keepVideo(
   const own = await inRepo(fileRel);
   if (typeof own !== "string") return refuse("outsideRepo", own.outside);
   const paths: string[] = [];
-  for (const asked of [...args.to.map((o) => o.path), args.report]) {
+  // `files` outputs are names for --out-dir, not places in this repo.
+  for (const asked of deliver === "files"
+    ? []
+    : [...args.to.map((o) => o.path), args.report]) {
     if (asked === undefined) continue;
     const p = await inRepo(asked);
     if (typeof p !== "string") return refuse("outsideRepo", p.outside);
@@ -175,8 +207,16 @@ export async function keepVideo(
     }
     paths.push(p);
   }
-  const outputPaths = paths.slice(0, args.to.length);
-  const report = args.report === undefined ? null : (paths.at(-1) ?? null);
+  const outputPaths =
+    deliver === "files"
+      ? args.to.map((o) => o.path)
+      : paths.slice(0, args.to.length);
+  const report =
+    args.report === undefined
+      ? null
+      : deliver === "files"
+        ? args.report
+        : (paths.at(-1) ?? null);
 
   // The paths other kept videos already write.
   const keptDir = join(root, KEPT_DIR);
@@ -223,6 +263,7 @@ export async function keepVideo(
         path: outputPaths[i] as string,
       })),
       report,
+      deliver,
     },
     deps,
   );
@@ -236,7 +277,7 @@ export async function keepVideo(
     const rendered: Uint8Array[] = [];
     let screens: KeptScreens | undefined;
     const judged = judgedOutput(base.outputs);
-    for (const [i, o] of base.outputs.entries()) {
+    for (const [i, o] of deliver === "files" ? [] : base.outputs.entries()) {
       deps.log(`keep: exporting ${o.path}`);
       const answer = await exportTake(
         {
@@ -269,7 +310,10 @@ export async function keepVideo(
       if (i === judged) screens = answer.screens;
       rendered.push(await readFile(answer.file.path));
     }
-    if (screens === undefined || screens.moments.length === 0) {
+    if (
+      deliver === "commit" &&
+      (screens === undefined || screens.moments.length === 0)
+    ) {
       return refuse(
         "exportFailed",
         `${base.outputs[judged]?.path}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
@@ -277,13 +321,24 @@ export async function keepVideo(
     }
     const kept: KeptVideo = base;
     const runReport =
-      report === null
+      deliver === "files"
         ? null
         : await deps.library.getJson(built.takeId, "report.json");
 
+    const receipt: KeptReceipt | null =
+      deliver === "files" || screens === undefined
+        ? null
+        : {
+            receiptVersion: 1,
+            flow: video.id,
+            video: built.takeId,
+            filmedCode: filmedCodeOf(runReport),
+            screens,
+            recordedRevision: made.from.recordedRevision,
+          };
     const written: string[] = [];
     try {
-      for (const [i, o] of kept.outputs.entries()) {
+      for (const [i, o] of deliver === "files" ? [] : kept.outputs.entries()) {
         await place(join(root, o.path), rendered[i] as Uint8Array);
         written.push(o.path);
       }
@@ -295,7 +350,7 @@ export async function keepVideo(
         await place(join(root, wallpaper), wallpaperBytes);
         written.push(wallpaper);
       }
-      if (report !== null && runReport !== null) {
+      if (deliver === "commit" && report !== null && runReport !== null) {
         if ("value" in runReport) {
           await place(
             join(root, report),
@@ -308,10 +363,15 @@ export async function keepVideo(
           );
         }
       }
-      await place(
-        join(root, fileRel),
-        serializeKeptV1(kept, screens, made.from),
-      );
+      if (receipt !== null) {
+        await place(
+          join(root, RECEIPT_DIR, keptFileName(video.name)),
+          serializeReceipt(receipt),
+        );
+        written.push(`${RECEIPT_DIR}/${keptFileName(video.name)}`);
+      }
+      // Last: the recipe never names a render that is not there.
+      await place(join(root, fileRel), serializeKept(kept));
       written.push(fileRel);
     } catch (error) {
       return refuse(
@@ -319,12 +379,31 @@ export async function keepVideo(
         `${written.length > 0 ? `wrote ${written.join(", ")}, then ` : ""}could not write into ${root} (${messageOf(error)}), so ${fileRel} was not written`,
       );
     }
+    // The Library lists a flow as kept from this mark. A failure is said on
+    // the answer; the keep itself stands, its files are written.
+    let markNote: string | undefined;
+    try {
+      const marked = await deps.videos.setKept(video.id, {
+        root,
+        file: fileRel,
+      });
+      if (!marked.ok) {
+        markNote = `the library could not mark "${video.name}" as kept (${marked.reason}), so it will not show as kept until you keep it again`;
+      }
+    } catch (error) {
+      markNote = `the library could not mark "${video.name}" as kept (${messageOf(error)}), so it will not show as kept until you keep it again`;
+    }
     return {
       ok: true,
       file: fileRel,
       kept,
-      from: made.from,
-      screensNote: `${screens.moments.length} of ${screens.steps + 1} screens are still`,
+      receipt,
+      ...(receipt === null
+        ? {}
+        : {
+            screensNote: `${receipt.screens.moments.length} of ${receipt.screens.steps + 1} screens are still`,
+          }),
+      ...(markNote === undefined ? {} : { markNote }),
       written,
       ...(made.scaleGuess === null ? {} : { scaleGuess: made.scaleGuess }),
       ...(platform === "linux"
@@ -368,6 +447,7 @@ async function buildKept(
     video: VideoRecord;
     outputs: (Omit<KeptOutput, "aspect"> & { aspect?: KeptOutput["aspect"] })[];
     report: string | null;
+    deliver: KeptDeliver;
   },
   deps: KeepDeps,
 ): Promise<Built> {
@@ -587,7 +667,7 @@ async function buildKept(
     scale: scale ?? 1,
     logo,
     wallpaper,
-    deliver: "commit",
+    deliver: a.deliver,
     outputs: a.outputs.map((o) => ({
       path: o.path,
       fileType: o.fileType,
@@ -600,11 +680,7 @@ async function buildKept(
     ok: true,
     kept,
     // The revision this file was built from: a later Studio edit changes it.
-    from: {
-      videoId: video.id,
-      takeId: built.takeId,
-      recordedRevision: read.revision,
-    },
+    from: { takeId: built.takeId, recordedRevision: read.revision },
     built,
     read,
     logoBytes,
@@ -676,19 +752,38 @@ export async function rewriteKept(
         refused: `${rel} keeps video ${videoId}, which the library no longer has`,
       };
     }
-    // Stopgap: keep writes no receipt yet, so a file without screens (a v2
-    // one) cannot be rewritten without losing what a refresh compares.
-    if (parsed.migrated === null) {
-      return {
-        refused: `${rel} is a v2 recipe and keep writes no receipt yet, so it was not rewritten`,
-      };
-    }
     const made = await buildKept(
-      { root, rootReal, video, outputs: old.outputs, report: old.report },
+      {
+        root,
+        rootReal,
+        video,
+        outputs: old.outputs,
+        report: old.report,
+        deliver: old.deliver,
+      },
       deps,
     );
     if (!made.ok)
       return { refused: `${rel} was not rewritten: ${made.detail}` };
+    // The receipt keeps what the committed files show (their screens and
+    // filmed code), which a rewrite does not replace; only the video and
+    // revision it points at follow the recipe. A v1 file carries its own.
+    let receipt: KeptReceipt | null = null;
+    if (old.deliver === "commit") {
+      const receiptFile = `${RECEIPT_DIR}/${name}`;
+      const had = await readReceiptFile(join(root, receiptFile), receiptFile);
+      const prior = "receipt" in had ? had.receipt : parsed.migrated;
+      if (prior === null) {
+        return {
+          refused: `${rel} was not rewritten: ${"detail" in had ? had.detail : `${receiptFile} is missing`}, so what its outputs show is unknown`,
+        };
+      }
+      receipt = {
+        ...prior,
+        video: made.from.takeId,
+        recordedRevision: made.from.recordedRevision,
+      };
+    }
     try {
       if (made.kept.logo !== null && made.logoBytes !== null) {
         await place(join(root, made.kept.logo), made.logoBytes);
@@ -696,11 +791,10 @@ export async function rewriteKept(
       if (made.kept.wallpaper !== null && made.wallpaperBytes !== null) {
         await place(join(root, made.kept.wallpaper), made.wallpaperBytes);
       }
-      // The screens describe the committed files, which this does not replace.
-      await place(
-        join(root, rel),
-        serializeKeptV1(made.kept, parsed.migrated.screens, made.from),
-      );
+      if (receipt !== null) {
+        await place(join(root, RECEIPT_DIR, name), serializeReceipt(receipt));
+      }
+      await place(join(root, rel), serializeKept(made.kept));
     } catch (error) {
       return {
         refused: `${rel} could not be written (${messageOf(error)}), so it still describes the earlier video`,
@@ -715,6 +809,38 @@ export async function rewriteKept(
         refused: `${unreadable.join("; ")} — so whether a kept file follows this run is unknown`,
       }
     : { none: true };
+}
+
+async function readReceiptFile(
+  path: string,
+  rel: string,
+): Promise<{ receipt: KeptReceipt } | { missing: true } | { detail: string }> {
+  let text: string;
+  try {
+    text = await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      return { missing: true };
+    return { detail: `${rel} could not be read (${messageOf(error)})` };
+  }
+  const parsed = parseReceipt(text, rel);
+  return parsed.ok ? { receipt: parsed.receipt } : { detail: parsed.detail };
+}
+
+/** The code the run filmed, from its report; never re-read from git. */
+function filmedCodeOf(
+  report: Awaited<ReturnType<Library["getJson"]>> | null,
+): FilmedCode {
+  if (report === null) return { none: "no run report was read" };
+  if ("missing" in report)
+    return { none: "the run report is missing from the library" };
+  if ("unreadable" in report)
+    return { none: `the run report could not be read (${report.unreadable})` };
+  return (
+    (report.value as RunReport).filmedCode ?? {
+      none: "the run report records no filmed code",
+    }
+  );
 }
 
 /** What a re-film does not carry, named the way `keep` refuses it. */
@@ -736,7 +862,7 @@ export function leftBehind(refilm: RefilmInfo): string[] {
  */
 export async function libraryAhead(
   kept: KeptVideo,
-  receipt: KeptReceipt,
+  receipt: KeptReceipt | null,
   file: string,
   deps: { videos: VideoStore; library: Library },
 ): Promise<string | null> {
@@ -744,6 +870,9 @@ export async function libraryAhead(
     const video = await deps.videos.get(kept.flow);
     // Kept on another machine: this library has nothing to be ahead of.
     if (video === null) return null;
+    if (receipt === null) {
+      return `${file} has no receipt to compare the library with; run \`demoman keep ${kept.name}\` again`;
+    }
     const all = await deps.videos.versions(video.id);
     const current = all.filter((v) => v.complete).at(-1) ?? all.at(-1);
     if (current === undefined) return null;

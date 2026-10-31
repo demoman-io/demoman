@@ -8,7 +8,8 @@ export function keepLines(answer: Extract<KeepAnswer, { ok: true }>): string[] {
       .filter((p) => p !== answer.file)
       .map((p) => `  wrote ${p}`),
     ...(answer.scaleGuess === undefined ? [] : [`  ${answer.scaleGuess}`]),
-    `  ${answer.screensNote}`,
+    ...(answer.screensNote === undefined ? [] : [`  ${answer.screensNote}`]),
+    ...(answer.markNote === undefined ? [] : [`  ${answer.markNote}`]),
     ...(answer.platformNote === undefined ? [] : [`  ${answer.platformNote}`]),
   ];
 }

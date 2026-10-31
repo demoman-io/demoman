@@ -13,7 +13,7 @@ import { execGit } from "../src/executor/repo.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { WALLPAPERS_DIR } from "./fixture.js";
-import { readV1 } from "./kept-v1.js";
+import { readKeptV2 } from "./kept-v2.js";
 
 // Short runs of a one-field page, as executor-refilm.test.ts (x5 for CI).
 const RUN_MS = 120_000;
@@ -54,9 +54,7 @@ const run = async (ex: LocalExecutor, args: Record<string, unknown>) => {
   if (!out.ok) throw new Error(JSON.stringify(out));
   return out.value as RunReport;
 };
-const keptOf = async (file: string) => {
-  return readV1(await readFile(join(repo, file), "utf8"), file);
-};
+const keptOf = async (file: string) => readKeptV2(repo, file);
 
 beforeAll(async () => {
   server = createServer((_q, res) => {
@@ -143,7 +141,7 @@ describe("a run's answer says whether its kept file was rewritten", () => {
       await session.close();
       if (!kept.ok) throw new Error(JSON.stringify(kept));
       const file = kept.file;
-      expect((await keptOf(file)).from.takeId).toBe(first.provenance.takeId);
+      expect((await keptOf(file)).receipt.video).toBe(first.provenance.takeId);
 
       // A script run into it: the file follows, and the answer says so.
       const second = await run(executor, {
@@ -154,8 +152,8 @@ describe("a run's answer says whether its kept file was rewritten", () => {
       expect(second.outcome).toBe("complete");
       expect(second.kept).toEqual({ rewritten: file });
       const afterSecond = await keptOf(file);
-      expect(afterSecond.from.takeId).toBe(second.provenance.takeId);
-      expect(afterSecond.from.takeId).not.toBe(first.provenance.takeId);
+      expect(afterSecond.receipt.video).toBe(second.provenance.takeId);
+      expect(afterSecond.receipt.video).not.toBe(first.provenance.takeId);
 
       // A refilm (no script) is a run into it too.
       const third = await run(executor, {
@@ -164,7 +162,7 @@ describe("a run's answer says whether its kept file was rewritten", () => {
       });
       expect(third.outcome).toBe("complete");
       expect(third.kept).toEqual({ rewritten: file });
-      expect((await keptOf(file)).from.takeId).toBe(third.provenance.takeId);
+      expect((await keptOf(file)).receipt.video).toBe(third.provenance.takeId);
 
       // A run that stops: the file stays as it was, and the answer says why.
       const before = await readFile(join(repo, file));

@@ -1,6 +1,7 @@
 // The receipt: what a kept flow's committed files show, written beside the
 // recipe (.demoman/videos/) under .demoman/receipts/.
 import type { FilmedCode } from "../replay/report.js";
+import { isFlowId } from "../served-words.js";
 import type { KeptMoment, KeptScreens } from "./file.js";
 
 export const RECEIPT_VERSION = 1;
@@ -126,8 +127,8 @@ export function parseReceipt(text: string, file: string): Parsed {
     return bad(
       `receiptVersion is ${JSON.stringify(raw.receiptVersion)}; this Demoman reads ${RECEIPT_VERSION}`,
     );
-  if (typeof raw.flow !== "string" || raw.flow === "")
-    return bad("flow must be a non-empty string");
+  if (typeof raw.flow !== "string" || !isFlowId(raw.flow))
+    return bad("flow must be a flow id");
   if (typeof raw.video !== "string" || raw.video === "")
     return bad("video must be a non-empty string");
   const fc = raw.filmedCode;

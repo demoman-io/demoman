@@ -15,6 +15,8 @@ import {
   frameOf,
   keptFileName,
   notCarriedOf,
+  parseKept,
+  serializeReceipt,
   targetFor,
 } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
@@ -32,7 +34,7 @@ import { createSessionStore } from "../src/executor/sessions.js";
 import { createVideoStore, type VideoStore } from "../src/executor/videos.js";
 import { makeDiskTake, putTake } from "./disk-take.js";
 import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
-import { readV1, writeV1 } from "./kept-v1.js";
+import { readKeptV2 } from "./kept-v2.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): the disk take
@@ -243,13 +245,10 @@ describe("keep, a clean take", () => {
       );
       const file = join(".demoman/videos", keptFileName("Add a task"));
       expect(out.file).toBe(file);
-      const kept = readV1(await readFile(join(repo, file), "utf8"), file);
-      expect({ ...kept, screens: undefined, from: undefined }).toEqual({
-        ...out.kept,
-        screens: undefined,
-        from: undefined,
-      });
-      expect(kept.from).toEqual(out.from);
+      const { kept, receipt } = await readKeptV2(repo, file);
+      expect(kept).toEqual(out.kept);
+      expect(receipt).toEqual(out.receipt);
+      expect("screens" in kept, "the recipe holds no screens").toBe(false);
       expect(kept.name).toBe("Add a task");
       expect(kept.script.viewport).toEqual(scene.meta.capture.viewport);
       expect(kept.scale).toBe(1);
@@ -258,7 +257,8 @@ describe("keep, a clean take", () => {
       expect(out.scaleGuess).toContain(
         `1x is a guess: video ${cleanTakeId} records no filmed scale and has no motion frames to read one from`,
       );
-      expect(kept.from.takeId).toBe(cleanTakeId);
+      expect(receipt.video).toBe(cleanTakeId);
+      expect(kept.flow).toBe(receipt.flow);
       expect(kept.report).toBe("docs/hero-report.json");
       // A file a person reads in their repo: in the words agents are served
       // (spec 2026-10-30 flows-and-bulk-delete §2.1), not the stored ones.
@@ -284,6 +284,7 @@ describe("keep, a clean take", () => {
           "docs/hero.gif",
           "docs/hero-report.json",
           ".demoman/videos/logos/acme.svg",
+          `.demoman/receipts/${keptFileName("Add a task")}`,
           file,
         ].sort(),
       );
@@ -323,13 +324,154 @@ describe("keep, a clean take", () => {
         // ...and each its window, and the look: keep writes all of them.
         expect(plain.screens.look).toBeDefined();
         expect(plain.screens.moments.every((m) => m.window)).toBe(true);
-        expect(kept.screens).toEqual(plain.screens);
+        expect(receipt.screens).toEqual(plain.screens);
         expect(out.screensNote).toBe(
           `${plain.screens.moments.length} of ${plain.screens.steps + 1} screens are still`,
         );
       } finally {
         await rm(outDir, { recursive: true, force: true });
       }
+    },
+    KEEP_MS,
+  );
+});
+
+describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
+  const gif = (path: string) => ({
+    path,
+    fileType: "gif" as const,
+    quality: "share" as const,
+  });
+  const freshVideo = async (takeId: string, name: string) => {
+    const made = await videoOf(takeId, name);
+    await copyFrames(takeId);
+    return made.videoId;
+  };
+
+  it(
+    "keep writes recipe v2, the receipt, and marks the flow kept",
+    async () => {
+      const videoId = await freshVideo("scene-v2-1", "Recipe v2");
+      const out = await keepVideo(
+        { video: "Recipe v2", to: [gif("docs/v2.gif")], repoRoot: repo },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      const { kept, receipt, receiptFile } = await readKeptV2(repo, out.file);
+      expect(kept.flow).toBe(videoId);
+      expect(kept.deliver).toBe("commit");
+      expect("screens" in kept).toBe(false);
+      expect(receiptFile).toBe(
+        `.demoman/receipts/${keptFileName("Recipe v2")}`,
+      );
+      expect(receipt.video).toBe("scene-v2-1");
+      expect(receipt.flow).toBe(videoId);
+      expect(
+        receipt.screens.moments.length,
+        "premise: screens",
+      ).toBeGreaterThan(0);
+      expect(out.written).toContain(receiptFile);
+      expect((await videos.get(videoId))?.kept).toEqual({
+        root: repo,
+        file: out.file,
+      });
+      expect(out.markNote).toBeUndefined();
+    },
+    KEEP_MS,
+  );
+
+  it(
+    "keep --deliver files writes the recipe alone",
+    async () => {
+      const videoId = await freshVideo("scene-files-1", "Files only");
+      const before = await repoFiles();
+      const out = await keepVideo(
+        {
+          video: "Files only",
+          to: [gif("only.gif")],
+          deliver: "files",
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      const after = await repoFiles();
+      expect(
+        after.filter((f) => !before.includes(f) && !f.endsWith("/")),
+        "the recipe is the only new file",
+      ).toEqual([out.file]);
+      expect(out.receipt).toBeNull();
+      expect(out.written).toEqual([out.file]);
+      const parsed = parseKept(
+        await readFile(join(repo, out.file), "utf8"),
+        out.file,
+      );
+      if (!parsed.ok) throw new Error(parsed.detail);
+      expect(parsed.kept.deliver).toBe("files");
+      expect(parsed.kept.outputs.map((o) => o.path)).toEqual(["only.gif"]);
+      expect((await videos.get(videoId))?.kept).toEqual({
+        root: repo,
+        file: out.file,
+      });
+    },
+    KEEP_MS,
+  );
+
+  it(
+    "keep --deliver files refuses a path",
+    async () => {
+      await freshVideo("scene-files-2", "Files path");
+      const before = await repoFiles();
+      for (const args of [
+        { to: [gif("docs/x.gif")] },
+        { to: [gif("x.gif")], report: "docs/r.json" },
+      ]) {
+        const out = await keepVideo(
+          {
+            video: "Files path",
+            deliver: "files",
+            repoRoot: repo,
+            ...args,
+          },
+          deps(),
+        );
+        expect(out).toEqual({
+          ok: false,
+          reason: "keepRefused",
+          detail: expect.stringContaining(
+            "files outputs are file names, not paths",
+          ),
+        });
+      }
+      expect(await repoFiles()).toEqual(before);
+    },
+    KEEP_MS,
+  );
+
+  it(
+    "a flow the library cannot mark kept is said on the answer, and the keep stands",
+    async () => {
+      const videoId = await freshVideo("scene-mark-1", "Mark fails");
+      for (const [i, setKept] of [
+        async () => ({ ok: false as const, reason: "videoNotFound" as const }),
+        async (): Promise<never> => {
+          throw new Error("videos.json is locked");
+        },
+      ].entries()) {
+        const d = deps();
+        d.videos = { ...videos, setKept } as VideoStore;
+        const out = await keepVideo(
+          { video: videoId, to: [gif(`docs/mark${i}.gif`)], repoRoot: repo },
+          d,
+        );
+        if (!out.ok) throw new Error(JSON.stringify(out));
+        expect(out.markNote).toContain("could not mark");
+        expect(out.markNote).toContain(
+          i === 0 ? "videoNotFound" : "videos.json is locked",
+        );
+        await readKeptV2(repo, out.file);
+      }
+      expect((await videos.get(videoId))?.kept, "never marked").toBeUndefined();
     },
     KEEP_MS,
   );
@@ -931,9 +1073,7 @@ describe("a run into a kept video rewrites its file", () => {
     });
     return scene;
   }
-  const keptOf = async (file: string) => {
-    return readV1(await readFile(join(repo, file), "utf8"), file);
-  };
+  const keptOf = async (file: string) => readKeptV2(repo, file);
 
   it(
     "follows the new version, keeps the outputs, and touches nothing else",
@@ -951,16 +1091,19 @@ describe("a run into a kept video rewrites its file", () => {
       if (!out.ok) throw new Error(JSON.stringify(out));
       const before = await keptOf(out.file);
       // The screens describe the committed files, which a rewrite does not
-      // replace: give the file screens no render of the new take would give.
+      // replace: give the receipt screens no render of the new take would give.
       const tampered = {
-        ...before,
+        ...before.receipt,
         screens: {
-          steps: before.screens.steps,
+          steps: before.receipt.screens.steps,
           moments: [{ step: null, ms: 1 }],
         },
       };
-      expect(tampered.screens).not.toEqual(before.screens);
-      await writeFile(join(repo, out.file), writeV1(tampered));
+      expect(tampered.screens).not.toEqual(before.receipt.screens);
+      await writeFile(
+        join(repo, before.receiptFile),
+        serializeReceipt(tampered),
+      );
       const gifBefore = await readFile(join(repo, "docs/rw.gif"));
       const filesBefore = await repoFiles();
 
@@ -972,14 +1115,14 @@ describe("a run into a kept video rewrites its file", () => {
       const answer = await rewriteKept(repo, first.videoId, deps());
       expect(answer).toEqual({ rewritten: out.file });
       const after = await keptOf(out.file);
-      expect(after.from.takeId).toBe("scene-rw-2");
-      expect(after.script.target).toBe("https://example.test/second");
-      expect(after.script).not.toEqual(before.script);
-      expect(after.outputs).toEqual(before.outputs);
-      expect(JSON.stringify(after.screens)).toBe(
-        JSON.stringify(tampered.screens),
-      );
-      expect(after.report).toBe(before.report);
+      expect(after.receipt.video).toBe("scene-rw-2");
+      expect(after.kept.flow).toBe(before.kept.flow);
+      expect(after.kept.deliver).toBe("commit");
+      expect(after.kept.script.target).toBe("https://example.test/second");
+      expect(after.kept.script).not.toEqual(before.kept.script);
+      expect(after.kept.outputs).toEqual(before.kept.outputs);
+      expect(after.receipt.screens).toEqual(tampered.screens);
+      expect(after.kept.report).toBe(before.kept.report);
       expect(await readFile(join(repo, "docs/rw.gif"))).toEqual(gifBefore);
       expect(await repoFiles(), "no stray temp file").toEqual(filesBefore);
     },
