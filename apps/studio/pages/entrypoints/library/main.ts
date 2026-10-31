@@ -11,6 +11,7 @@ import {
   emptySelection,
   pruneSelection,
   type Selection,
+  selectAll,
 } from "../../src/library/selection";
 import type { BulkOutcome, LibraryModel } from "../../src/library/state";
 import { buildLibraryModel, bulkSentence } from "../../src/library/state";
@@ -583,9 +584,15 @@ const actions: LibraryActions = {
       }
     })();
   },
-  select: (videoId, shift, visibleOrder) => {
+  select: (videoId, how, visibleOrder) => {
     if (bulk?.busy === true) return;
-    selection = clickSelect(selection, videoId, shift, visibleOrder);
+    selection = clickSelect(selection, videoId, how, visibleOrder);
+    bulk = undefined;
+    showSelection();
+  },
+  selectAll: (visibleOrder) => {
+    if (bulk?.busy === true) return;
+    selection = selectAll(selection, visibleOrder);
     bulk = undefined;
     showSelection();
   },

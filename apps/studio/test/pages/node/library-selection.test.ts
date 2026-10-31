@@ -4,45 +4,94 @@ import {
   clickSelect,
   emptySelection,
   pruneSelection,
+  type Selection,
+  selectAll,
 } from "../../../pages/src/library/selection";
 
-const ORDER = ["a", "b", "c", "d"] as const;
+const ORDER = ["a", "b", "c", "d", "e"] as const;
 const ids = (s: { ids: ReadonlySet<string> }) => [...s.ids].sort();
+const toggle = (s: Selection, id: string) =>
+  clickSelect(s, id, "toggle", ORDER);
+const range = (s: Selection, id: string) => clickSelect(s, id, "range", ORDER);
 
 describe("library selection", () => {
-  it("plain click ticks then unticks", () => {
-    const once = clickSelect(emptySelection(), "b", false, ORDER);
+  it("emptySelection has an empty range", () => {
+    expect(emptySelection().range).toEqual([]);
+  });
+
+  it("a toggle ticks then unticks", () => {
+    const once = toggle(emptySelection(), "b");
     expect(ids(once)).toEqual(["b"]);
     expect(once.anchor).toBe("b");
-    expect(ids(clickSelect(once, "b", false, ORDER))).toEqual([]);
+    expect(ids(toggle(once, "b"))).toEqual([]);
   });
 
-  it("shift-click ticks the range between anchor and target in visible order", () => {
-    const s = clickSelect(emptySelection(), "b", false, ORDER);
-    expect(ids(clickSelect(s, "d", true, ORDER))).toEqual(["b", "c", "d"]);
-  });
-
-  it("shift-click upward ticks the same range", () => {
-    const s = clickSelect(emptySelection(), "d", false, ORDER);
-    expect(ids(clickSelect(s, "b", true, ORDER))).toEqual(["b", "c", "d"]);
-  });
-
-  it("range with a missing anchor ticks only the target", () => {
-    const s = { ids: new Set(["x"]), anchor: "x" };
-    expect(ids(clickSelect(s, "c", true, ORDER))).toEqual(["c", "x"]);
-    expect(ids(clickSelect(emptySelection(), "c", true, ORDER))).toEqual(["c"]);
-  });
-
-  it("prune drops vanished ids and an anchor that vanished", () => {
-    const s = clickSelect(
-      clickSelect(emptySelection(), "a", false, ORDER),
+  it("a range ticks anchor..target in visible order, either direction", () => {
+    expect(ids(range(toggle(emptySelection(), "b"), "d"))).toEqual([
+      "b",
       "c",
-      false,
-      ORDER,
-    );
-    const pruned = pruneSelection(s, new Set(["a", "b"]));
-    expect(ids(pruned)).toEqual(["a"]);
+      "d",
+    ]);
+    expect(ids(range(toggle(emptySelection(), "d"), "b"))).toEqual([
+      "b",
+      "c",
+      "d",
+    ]);
+  });
+
+  it("a range replaces the last range", () => {
+    const first = range(toggle(emptySelection(), "b"), "d");
+    expect(ids(first)).toEqual(["b", "c", "d"]); // premise
+    expect(first.range).toEqual(["c", "d"]);
+    expect(ids(range(first, "c"))).toEqual(["b", "c"]);
+  });
+
+  it("Shift+down then Shift+up shrinks back to the anchor", () => {
+    const down = range(range(toggle(emptySelection(), "b"), "c"), "d");
+    expect(ids(down)).toEqual(["b", "c", "d"]); // premise
+    const up = range(range(down, "c"), "b");
+    expect(ids(up)).toEqual(["b"]);
+  });
+
+  it("a toggle outside the range survives the next range", () => {
+    const s = toggle(toggle(emptySelection(), "a"), "c");
+    expect(s.anchor).toBe("c"); // premise
+    const wide = range(s, "e");
+    expect(ids(wide)).toEqual(["a", "c", "d", "e"]);
+    expect(ids(range(wide, "d"))).toEqual(["a", "c", "d"]);
+  });
+
+  it("a toggle moves the anchor and clears the range", () => {
+    const ranged = range(toggle(emptySelection(), "a"), "c");
+    expect(ranged.range.length).toBeGreaterThan(0); // premise
+    const t = toggle(ranged, "e");
+    expect(t.anchor).toBe("e");
+    expect(t.range).toEqual([]);
+    expect(ids(t)).toEqual(["a", "b", "c", "e"]);
+  });
+
+  it("a range with no anchor on screen is a toggle", () => {
+    const s: Selection = { ids: new Set(["x"]), anchor: "x", range: [] };
+    expect(ids(range(s, "c"))).toEqual(["c", "x"]);
+    expect(range(s, "c").anchor).toBe("c");
+    expect(ids(range(emptySelection(), "c"))).toEqual(["c"]);
+  });
+
+  it("selectAll ticks every visible id and keeps the anchor", () => {
+    const s = toggle(emptySelection(), "b");
+    const all = selectAll(s, ["a", "b", "c"]);
+    expect(ids(all)).toEqual(["a", "b", "c"]);
+    expect(all.anchor).toBe("b");
+    expect(all.range).toEqual([]);
+  });
+
+  it("prune drops vanished ids, range ids and an anchor that vanished", () => {
+    const s = range(toggle(emptySelection(), "a"), "c");
+    expect(s.range).toEqual(["b", "c"]); // premise
+    const pruned = pruneSelection(s, new Set(["b"]));
+    expect(ids(pruned)).toEqual(["b"]);
+    expect(pruned.range).toEqual(["b"]);
     expect(pruned.anchor).toBeNull();
-    expect(pruneSelection(s, new Set(["a", "c"])).anchor).toBe("c");
+    expect(pruneSelection(s, new Set(["a", "c"])).anchor).toBe("a");
   });
 });

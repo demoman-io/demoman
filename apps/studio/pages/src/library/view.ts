@@ -5,7 +5,7 @@ import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
 import { whereOf } from "./list-model";
 import { previewText } from "./preview";
-import type { Selection } from "./selection";
+import type { SelectHow, Selection } from "./selection";
 import type {
   LibraryModel,
   LibraryRow,
@@ -67,14 +67,16 @@ export interface LibraryActions {
    *  the card so the page can let a rename on it land first, as Edit does. */
   openReview?(sceneId: string): void;
   /** A flow's checkbox, or its card while anything is ticked: tick or
-   *  untick it, or with Shift the range from the last one ticked over
-   *  `visibleOrder`, the flows in open sections in page order. Absent, and
-   *  no card carries a checkbox. */
+   *  untick it ("toggle"), or with Shift the range from the last one ticked
+   *  over `visibleOrder`, the flows in open sections in page order
+   *  ("range"). Absent, and no card carries a checkbox. */
   select?(
     videoId: string,
-    shift: boolean,
+    how: SelectHow,
     visibleOrder: readonly string[],
   ): void;
+  /** Cmd+A: tick every flow in `visibleOrder`. */
+  selectAll?(visibleOrder: readonly string[]): void;
   /** The selection bar's Cancel. */
   clearSelection?(): void;
   /** The selection bar's Delete: the page asks once, then deletes. */
@@ -799,7 +801,11 @@ function row(
     // While flows are ticked a click on a flow's card ticks it too, as in
     // a photo library; a take in no flow still opens.
     if (flowId !== null && article.closest("[data-selecting]") !== null) {
-      actions.select?.(flowId, event.shiftKey, visibleFlows(article));
+      actions.select?.(
+        flowId,
+        event.shiftKey ? "range" : "toggle",
+        visibleFlows(article),
+      );
       return;
     }
     if ((window.getSelection()?.toString() ?? "") !== "") return;
@@ -821,7 +827,11 @@ function row(
       // selection in the same turn (`applySelection`). Not cancelled: a
       // cancelled click puts the box's old state back after the handler,
       // over the one just set.
-      actions.select?.(flowId, event.shiftKey, visibleFlows(box));
+      actions.select?.(
+        flowId,
+        event.shiftKey ? "range" : "toggle",
+        visibleFlows(box),
+      );
     });
     preview.append(box);
   }
