@@ -355,11 +355,12 @@ export interface LibraryViewChoice {
   layout: LibraryLayout;
   sort: { column: LibrarySortColumn; descending: boolean };
 }
-/** Decided here once; the studio serves it when nothing is stored. */
-export const DEFAULT_LIBRARY_VIEW: LibraryViewChoice = {
+/** Decided here once; the studio serves it when nothing is stored. Frozen:
+ *  every reader is handed this one object. */
+export const DEFAULT_LIBRARY_VIEW: LibraryViewChoice = Object.freeze({
   layout: "list",
-  sort: { column: "recorded", descending: true },
-};
+  sort: Object.freeze({ column: "recorded", descending: true }),
+});
 const LAYOUTS: readonly string[] = ["list", "grid"];
 const SORT_COLUMNS: readonly string[] = [
   "name",

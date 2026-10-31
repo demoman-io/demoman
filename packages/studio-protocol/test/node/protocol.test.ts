@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { matchRoute, pathFor, ROUTES, type RouteId } from "../../src/index.js";
+import {
+  DEFAULT_LIBRARY_VIEW,
+  matchRoute,
+  pathFor,
+  ROUTES,
+  type RouteId,
+} from "../../src/index.js";
 
 const SAMPLE = { id: "take 1", ref: "kf:1/2" };
 
@@ -54,5 +60,14 @@ describe("matchRoute", () => {
     expect(matchRoute("GET", "/api/takes/..%2Fx/scene")?.params.id).toBe(
       "../x",
     );
+  });
+});
+
+describe("DEFAULT_LIBRARY_VIEW", () => {
+  // Red: an unfrozen default, which a consumer that writes to the view it
+  // was handed (its sort, say) would change for every later reader.
+  it("is frozen, its sort too", () => {
+    expect(Object.isFrozen(DEFAULT_LIBRARY_VIEW)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_LIBRARY_VIEW.sort)).toBe(true);
   });
 });
