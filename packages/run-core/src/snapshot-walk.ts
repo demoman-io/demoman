@@ -187,7 +187,17 @@ export interface EndPage {
   /** Each form field and what it holds now, in document order; a
    *  credential field is left out, value and all. */
   fields: { target: ScriptTarget; value: string }[];
+  /** Fields past END_PAGE_MAX_FIELDS, not listed. Absent when none were. */
+  fieldsNotListed?: number;
 }
+
+/**
+ * The most fields an end page lists. Naming one captures it and resolves it
+ * back, each a walk of the whole document, so the cost is this many walks:
+ * linear in the page, whatever its field count (uncapped it grew with
+ * fields x elements). A form an agent films rarely has more.
+ */
+export const END_PAGE_MAX_FIELDS = 30;
 
 /** Fields whose `value` is not something a user typed or chose. */
 const NOT_FIELDS = new Set(["hidden", "submit", "button", "reset", "image"]);
@@ -209,7 +219,7 @@ export async function readEndPage(env: ResolveEnv): Promise<EndPage> {
       !NOT_FIELDS.has((el.getAttribute("type") ?? "").toLowerCase()) &&
       !isCredentialField(el),
   );
-  for (const [i, el] of candidates.entries()) {
+  for (const [i, el] of candidates.slice(0, END_PAGE_MAX_FIELDS).entries()) {
     const kind = (el.getAttribute("type") ?? "").toLowerCase();
     const value =
       kind === "checkbox" || kind === "radio"
@@ -222,7 +232,13 @@ export async function readEndPage(env: ResolveEnv): Promise<EndPage> {
     if (value === null || named === null) continue;
     fields.push({ target: named.target, value });
   }
-  return { url: doc.location?.href ?? "", text, fields };
+  const notListed = candidates.length - END_PAGE_MAX_FIELDS;
+  return {
+    url: doc.location?.href ?? "",
+    text,
+    fields,
+    ...(notListed > 0 ? { fieldsNotListed: notListed } : {}),
+  };
 }
 
 /**

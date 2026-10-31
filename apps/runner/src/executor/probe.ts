@@ -1,5 +1,5 @@
 // apps/runner/src/executor/probe.ts
-import { writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { failure, type Outcome } from "@demoman/agent-bridge";
 import {
@@ -91,8 +91,9 @@ export interface ProbeReply extends Snapshot {
     detail: string;
   };
   endedUrl: string | null;
-  /** The viewport where the steps ended, a PNG at `<home>/probe-still.png`
-   *  (one file, overwritten), or why there is none (spec 2026-10-30 A1). */
+  /** The viewport where the steps ended, a PNG at `<home>/probes/<id>.png`
+   *  (the newest KEPT_PROBE_STILLS kept), or why there is none (spec
+   *  2026-10-30 A1). */
   still: FinalStill;
   /** The page where the steps ended, as text (spec 2026-10-30 A2). */
   endPage: EndPage | { unavailable: string };
@@ -146,11 +147,14 @@ export async function probeOp(
   if (!prepared.ok) return failure(prepared.reason, prepared.detail);
   const { stage, size } = prepared;
   const film = deps.film?.() ?? discardingFilm();
+  // Names this probe's still too: each probe keeps its own picture, so a
+  // `report` on an earlier probe never shows a later one's.
+  const probeId = newId("probe");
   const played = await playOnStage(
     script,
     prepared,
     deps,
-    { ...film, sceneId: newId("probe") },
+    { ...film, sceneId: probeId },
     { startingBranding: entry.startingBranding, onProgress: () => undefined },
   );
   const { result, arrival } = played;
@@ -256,7 +260,7 @@ export async function probeOp(
     : await pageEndPage(stage.page);
   const still: FinalStill = unloaded
     ? { unavailable: "the page did not load" }
-    : await viewportStill(stage, join(deps.home, "probe-still.png"));
+    : await viewportStill(stage, join(deps.home, "probes"), probeId, log);
 
   const value: ProbeReply = {
     url: script.target,
@@ -296,7 +300,13 @@ export async function probeOp(
  * own `scale: "css"` does it (clip in document coordinates, scaled by
  * 1/devicePixelRatio), with the extra factor that caps the width.
  */
-async function viewportStill(stage: Stage, path: string): Promise<FinalStill> {
+async function viewportStill(
+  stage: Stage,
+  dir: string,
+  probeId: string,
+  log: (line: string) => void,
+): Promise<FinalStill> {
+  const path = join(dir, `${probeId}.png`);
   try {
     const view = await withinDeadline(
       stage.page.evaluate(() => ({
@@ -319,12 +329,41 @@ async function viewportStill(stage: Stage, path: string): Promise<FinalStill> {
         scale: fit / view.dpr,
       },
     })) as { data: string };
+    await mkdir(dir, { recursive: true });
     await writeFile(path, Buffer.from(shot.data, "base64"));
+    await keepNewestProbeStills(dir, log);
     return { path };
   } catch (error) {
     return {
       unavailable: `the page's viewport could not be captured (${messageOf(error)})`,
     };
+  }
+}
+
+/** How many probe stills `<home>/probes/` keeps: enough for the `report`
+ *  calls an agent makes on recent probes, never a growing folder. */
+export const KEPT_PROBE_STILLS = 20;
+
+/**
+ * Removes all but the newest KEPT_PROBE_STILLS probe stills in `dir`, newest
+ * by name (`newId` puts the time first, at a fixed width). A removal that
+ * fails is logged and costs only space; the still just written is never
+ * the one removed.
+ */
+export async function keepNewestProbeStills(
+  dir: string,
+  log: (line: string) => void,
+): Promise<void> {
+  try {
+    const old = (await readdir(dir))
+      .filter((name) => /^probe-.*\.png$/.test(name))
+      .sort()
+      .slice(0, -KEPT_PROBE_STILLS);
+    for (const name of old) await rm(join(dir, name), { force: true });
+  } catch (error) {
+    log(
+      `old probe stills could not be removed from ${dir} (${messageOf(error)})`,
+    );
   }
 }
 

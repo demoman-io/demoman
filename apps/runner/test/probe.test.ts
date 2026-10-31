@@ -1,5 +1,12 @@
 // apps/runner/test/probe.test.ts
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -15,6 +22,8 @@ import { createLibrary } from "../src/executor/library.js";
 import { installExecutorEntry } from "../src/executor/page-ops.js";
 import {
   discardingFilm,
+  KEPT_PROBE_STILLS,
+  keepNewestProbeStills,
   type ProbeDeps,
   type ProbeReply,
   probeEntry,
@@ -405,16 +414,17 @@ describe("probeOp", () => {
     });
     const said = JSON.stringify({ reply, lines });
     expect(reply.stopped, said).toBeNull();
-    expect(reply.still, said).toEqual({ path: join(home, "probe-still.png") });
+    const stillPath = (reply.still as { path: string }).path;
+    expect(stillPath, said).toMatch(
+      new RegExp(`^${join(home, "probes")}/probe-[^/]+\\.png$`),
+    );
     // The picture: the viewport, no wider than the cap, and not one flat
     // colour — the page's black text on its white ground.
     const BLACK: Rgb = [0, 0, 0];
     const WHITE: Rgb = [255, 255, 255];
-    const read = await sampleImage(
-      await readFile(join(home, "probe-still.png")),
-      "image/png",
-      { colors: [BLACK, WHITE] },
-    );
+    const read = await sampleImage(await readFile(stillPath), "image/png", {
+      colors: [BLACK, WHITE],
+    });
     const [black = 0, white = 0] = read.readings.at(-1)?.colorCounts ?? [];
     expect([read.width, read.height], said).toEqual([1280, 800]);
     expect(black, said).toBeGreaterThan(0);
@@ -456,7 +466,43 @@ describe("probeOp", () => {
     // The premise: it stopped on the page that did not load.
     expect(reply?.stopped?.reason, said).toBe("pageDidNotLoad");
     expect(reply.still, said).toEqual({ unavailable: "the page did not load" });
+    expect(reply.endPage, said).toEqual({
+      unavailable: "the page did not load",
+    });
   }, 120_000);
+
+  // Review round 1: every probe wrote one shared file, so report(A) after
+  // probe B attached B's picture to A's answer. Each probe keeps its own.
+  it("a later probe leaves an earlier probe's still as it was", async () => {
+    const first = await probe({ ...script([]), target: `${url}form` });
+    const firstPath = (first.still as { path: string }).path;
+    const firstBytes = await readFile(firstPath);
+    const second = await probe(script([openFilters]));
+    const secondPath = (second.still as { path: string }).path;
+    // The premise: the two pages look different, so a shared file would
+    // have changed under the first probe.
+    expect((await readFile(secondPath)).equals(firstBytes)).toBe(false);
+    expect(secondPath).not.toBe(firstPath);
+    expect((await readFile(firstPath)).equals(firstBytes)).toBe(true);
+  }, 120_000);
+
+  it("keeps only the newest probe stills", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "demoman-probes-"));
+    try {
+      await mkdir(dir, { recursive: true });
+      const names = Array.from(
+        { length: KEPT_PROBE_STILLS + 5 },
+        (_, i) => `probe-${1793400000000 + i}-x.png`,
+      );
+      for (const name of names) await writeFile(join(dir, name), "png");
+      await keepNewestProbeStills(dir, log);
+      expect((await readdir(dir)).sort()).toEqual(
+        names.slice(-KEPT_PROBE_STILLS),
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
   it("leaves no take behind", async () => {
     const fresh = await mkdtemp(join(tmpdir(), "demoman-probe-home-"));

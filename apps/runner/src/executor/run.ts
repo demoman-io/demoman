@@ -31,6 +31,7 @@ import type { BrowserContext, Page } from "playwright";
 import { createParkingEncoder, type ParkedSpan } from "../encoder.js";
 import type { RunnerStore } from "../frame-store.js";
 import { type MuxOutcome, muxSpans } from "../mux.js";
+import { withinDeadline } from "../page-deadline.js";
 import { stageTimes } from "../stage-times.js";
 import type { BrowserSession } from "./browser.js";
 import {
@@ -153,6 +154,15 @@ export interface RunDeps {
    *  Absent, the report says no still was made. */
   finalStill?: (takeId: string) => Promise<FinalStill>;
 }
+
+/**
+ * How long a run waits for its final still. Measured 2026-10-30: 0.58 s
+ * for a 1710x1107 take (one frame, one work page); 30 s is the page
+ * deadline every other call into a page gets, and a render past it is stuck,
+ * not slow. It holds the run's answer and its slot, so it is bounded; the
+ * render it gives up on is not cancelled, and closes its page when it ends.
+ */
+export const FINAL_STILL_DEADLINE_MS = 30_000;
 
 /** One span's encode loss: `refused` of its `span.frames`, and whether
  *  the whole span left the bundle (the mux removed it) or stays with holes. */
@@ -638,13 +648,25 @@ export async function runScript(
     ...(detail === undefined ? {} : { detail }),
     size,
   });
+  times.mark("store");
   // After the take is whole (scene, frames muxed): the film as it exports.
   const still: FinalStill =
     takeId === null
       ? { unavailable: "the run made no take, so there is no film to show" }
       : deps.finalStill === undefined
         ? { unavailable: "this run was not asked to render a still" }
-        : await deps.finalStill(takeId);
+        : await withinDeadline(
+            // Its own throw said as such, so the catch below is only the
+            // deadline's.
+            deps.finalStill(takeId).catch((error: unknown) => ({
+              unavailable: `rendering the final still threw (${messageOf(error)})`,
+            })),
+            "the final still",
+            FINAL_STILL_DEADLINE_MS,
+          ).catch(() => ({
+            unavailable: `rendering the final still took longer than ${FINAL_STILL_DEADLINE_MS / 1000} s`,
+          }));
+  times.mark("still");
   const report: RunReport = {
     ...built,
     still,
@@ -654,7 +676,6 @@ export async function runScript(
     ...(videoVersion === undefined ? {} : { videoVersion }),
     ...(deps.filmedCode === undefined ? {} : { filmedCode: deps.filmedCode }),
   };
-  times.mark("store");
   log(times.line(`run ${takeId ?? sceneId}`));
   if (takeId !== null) {
     await library

@@ -17,7 +17,10 @@ import {
 } from "vitest";
 import { readDisplay } from "../src/display.js";
 import { createBrowserSession } from "../src/executor/browser.js";
-import { finalStillFor } from "../src/executor/final-still.js";
+import {
+  finalStillFor,
+  renderFinalStill,
+} from "../src/executor/final-still.js";
 import { createLibrary } from "../src/executor/library.js";
 import { installExecutorEntry } from "../src/executor/page-ops.js";
 import {
@@ -985,4 +988,71 @@ describe("a run's end state", () => {
     expect(png.toString("base64").startsWith("iVBORw0KGgo")).toBe(true);
     expect(text).not.toContain("iVBORw0KGgo");
   });
+
+  // A still that cannot be rendered is said, and never costs the run.
+  it("a still whose render throws is unavailable with the reason, and the run completes", async () => {
+    const launched = await session.ensure();
+    if (!launched.ok) throw new Error(JSON.stringify(launched));
+    const gone = await launched.launched.context.newPage();
+    await gone.close();
+    const lib = createLibrary(home);
+    const failed = await runScript(
+      script() as never,
+      {
+        session,
+        library: lib,
+        kits,
+        log,
+        sessions: [],
+        sessionStore: createSessionStore(home),
+        signinCommand: "npx demoman signin",
+        loadSessions: async () => ({ ok: true as const, files: [] }),
+        sessionsContext: {} as BrowserContext,
+        // The render's page is closed before it starts: renderToFiles throws.
+        finalStill: (takeId) =>
+          renderFinalStill({
+            library: lib,
+            takeId,
+            page: gone,
+            home,
+            wallpapersDir: WALLPAPERS_DIR,
+          }),
+      },
+      () => undefined,
+    );
+    const said = JSON.stringify({ still: failed.still, lines });
+    expect(failed.outcome, said).toBe("complete");
+    expect(failed.verdict.kind, said).toBe("matches");
+    const why = (failed.still as { unavailable: string }).unavailable;
+    expect(why, said).toMatch(
+      /^the film's last frame could not be rendered \(.*closed/,
+    );
+  }, 180_000);
+
+  // A finalStill that breaks its never-throw contract is named as a throw,
+  // not as the deadline's "took longer" (review round 1 found the mislabel).
+  it("a still that throws says it threw, not that it was slow", async () => {
+    const thrown = await runScript(
+      script() as never,
+      {
+        session,
+        library: createLibrary(home),
+        kits,
+        log,
+        sessions: [],
+        sessionStore: createSessionStore(home),
+        signinCommand: "npx demoman signin",
+        loadSessions: async () => ({ ok: true as const, files: [] }),
+        sessionsContext: {} as BrowserContext,
+        finalStill: async () => {
+          throw new Error("boom");
+        },
+      },
+      () => undefined,
+    );
+    expect(thrown.outcome).toBe("complete");
+    expect(thrown.still).toEqual({
+      unavailable: "rendering the final still threw (boom)",
+    });
+  }, 180_000);
 });
