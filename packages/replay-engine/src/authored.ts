@@ -54,6 +54,7 @@ import {
   type StrategyName,
   spotIn,
 } from "@demoman/scene-schema";
+import { WAIT_POLL_MS, WAIT_TIMEOUT_MS } from "./constants.js";
 import { rectCentre } from "./geometry.js";
 import { classifyOrigin } from "./origin.js";
 import { fingerprintFromTarget } from "./target.js";
@@ -687,9 +688,34 @@ export function createAuthoredRun(
           fingerprint: fingerprintFromTarget(targetOf(step)),
         };
 
+        // A target a client-rendered page has not drawn yet is waited for, as a
+        // `waitFor` waits, on the same clock and cadence. Only "not there yet"
+        // answers retry; a tie, a silent page or a fault says so at once.
+        const captureWaiting = async (
+          wanted: AnchorIntent,
+        ): Promise<IntentCapture> => {
+          const began = deps.clock.now();
+          for (;;) {
+            const answer = await deps.captureResolved(wanted);
+            const notThereYet =
+              answer.failureReason === "unresolved" ||
+              answer.failureReason === "notInTree";
+            if (
+              answer.anchor !== null ||
+              !notThereYet ||
+              deps.clock.now() - began >= WAIT_TIMEOUT_MS
+            ) {
+              return answer;
+            }
+            await deps.clock.sleep(WAIT_POLL_MS);
+          }
+        };
+
         let credential: boolean | null | undefined;
-        const capture = async (): Promise<SceneAnchor | null> => {
-          const answer = await deps.captureResolved(intent);
+        const capture = async (wait = false): Promise<SceneAnchor | null> => {
+          const answer = wait
+            ? await captureWaiting(intent)
+            : await deps.captureResolved(intent);
           credential = answer.credentialField;
           // Here, not at the action: a capture that fails, or a step that
           // stops after it (another page), still leaves the record knowing
@@ -800,7 +826,7 @@ export function createAuthoredRun(
           continue;
         }
 
-        const anchor = await capture();
+        const anchor = await capture(true);
         if (anchor === null) {
           // Report, do not forgive: the walk needs a step to stop on, and the
           // REASON is what the author acts on. Yielding a step with a null
@@ -826,7 +852,7 @@ export function createAuthoredRun(
         // dropped on. An offset names nothing and has no anchor.
         let endAnchor: SceneAnchor | null = null;
         if (step.do === "drag" && "on" in step.to) {
-          const answer = await deps.captureResolved({
+          const answer = await captureWaiting({
             id: deps.newId("an"),
             fingerprint: fingerprintFromTarget(step.to.on),
           });

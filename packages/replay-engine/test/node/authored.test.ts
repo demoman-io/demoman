@@ -223,6 +223,14 @@ function fakeCaptures(opts: {
   };
 }
 
+/** A target that stays absent past the 10 s wait (about 67 polls at 150 ms). */
+function absent(extra: Partial<ScriptedCapture> = {}): ScriptedCapture[] {
+  return Array.from({ length: 100 }, () => ({
+    failureReason: "unresolved" as const,
+    ...extra,
+  }));
+}
+
 function fakeDeps(opts: {
   clock: Clock;
   captureResolved: AuthoredDeps["captureResolved"];
@@ -706,6 +714,75 @@ describe("the authored source and its assembler", () => {
     expect(step?.anchorId).toBeNull();
   });
 
+  it("a click waits for a target that renders 2 s late", async () => {
+    // 150 ms polls from t=0: 14 misses reach 2100 ms of fake time, then it renders.
+    const driven = await drive(oneStepScript(), {
+      captures: [...absent().slice(0, 14), {}],
+    });
+
+    // Premise: it was absent for at least 2 s of the injected clock, then present.
+    expect(
+      driven.captures.answers.slice(0, 14).every((a) => a.anchor === null),
+    ).toBe(true);
+    expect(driven.captures.answers[14]?.anchor).not.toBeNull();
+    expect(
+      (driven.deps.clock as ReturnType<typeof fakeClock>).at() - 10_000,
+    ).toBeGreaterThanOrEqual(2000);
+
+    expect(driven.run.stop()).toBeNull();
+    expect(driven.walk.completed).toBe(1);
+  });
+
+  it("a click stops with unresolvedAnchor after 10 s when the target never comes", async () => {
+    const driven = await drive(oneStepScript(), { captures: absent() });
+
+    expect(driven.run.stop()).toBe("unresolvedAnchor");
+    // Premise: it asked many times and gave up on the clock, not on a count.
+    expect(driven.captures.calls.length).toBeGreaterThan(50);
+    expect(driven.captures.calls.length).toBeLessThan(100);
+    expect(
+      (driven.deps.clock as ReturnType<typeof fakeClock>).at() - 10_000,
+    ).toBeGreaterThanOrEqual(10_000);
+  });
+
+  it("an ambiguous target stops at once, without waiting", async () => {
+    const driven = await drive(oneStepScript(), {
+      captures: [
+        { strategy: "ambiguous", candidates: 4, failureReason: "ambiguousTie" },
+      ],
+    });
+
+    expect(driven.run.stop()).toBe("ambiguousAnchor");
+    expect(driven.captures.calls).toHaveLength(1);
+    expect(
+      (driven.deps.clock as ReturnType<typeof fakeClock>).at() - 10_000,
+    ).toBeLessThan(1000);
+  });
+
+  it("a drag waits for its end target as for its start", async () => {
+    const driven = await drive(
+      script([
+        {
+          do: "drag",
+          from: { on: { role: "button", name: "Card" } },
+          to: { on: { role: "button", name: "Lane" } },
+        } as never,
+      ]),
+      {
+        captures: [
+          {},
+          { failureReason: "unresolved" },
+          { failureReason: "unresolved" },
+          {},
+        ],
+      },
+    );
+
+    expect(driven.captures.answers[1]?.anchor).toBeNull();
+    expect(driven.captures.answers[3]?.anchor).not.toBeNull();
+    expect(driven.captures.calls.length).toBeGreaterThanOrEqual(4);
+  });
+
   it("keeps a silent page apart from a page that answered and found nothing", async () => {
     const driven = await drive(oneStepScript(), {
       captures: [{ failureReason: "pageSilent" }],
@@ -820,7 +897,7 @@ describe("the authored source and its assembler", () => {
     // The control for the case above: same failure, same script, same
     // everything except the page — which is what the reason turns on.
     const driven = await drive(fiveStepScript(), {
-      captures: [{}, { failureReason: "unresolved" }],
+      captures: [{}, ...absent()],
     });
 
     expect(driven.captures.answers[1]?.pageUrl).toBe(PAGE);
@@ -1171,7 +1248,7 @@ describe("the authored source and its assembler", () => {
   it("assembles no take from a run that performed nothing, and says nothing failed to assemble", async () => {
     const authored = oneStepScript();
     const driven = await drive(authored, {
-      captures: [{ failureReason: "unresolved" }],
+      captures: absent(),
     });
     const { document, error } = assemble(authored, driven);
 
@@ -1403,7 +1480,7 @@ describe("typing into a credential field", () => {
 
   it("hides a type step whose capture failed, when the port checks", async () => {
     const driven = await drive(typing(), {
-      captures: [{ failureReason: "unresolved", credentialField: null }],
+      captures: absent({ credentialField: null }),
     });
     // Premise: the capture found nothing, so no action was written for it.
     expect(driven.captures.answers[0]?.anchor).toBeNull();

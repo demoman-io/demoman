@@ -19,7 +19,7 @@ import type { ReplayStatus, ReplayStopReason } from "./types.js";
  * this surface has never heard of), which is exactly why the table it backs
  * has to be exhaustive by construction.
  */
-const REASON_TEXT: Record<ReplayStopReason, string> = {
+export const REASON_TEXT: Record<ReplayStopReason, string> = {
   mutating:
     "this flow writes data and rebuilding is switched off for it, so what you have is what this take itself recorded — turn on rebuilds for write flows, then rebuild it",
   cancelledByAuthor:
@@ -27,20 +27,20 @@ const REASON_TEXT: Record<ReplayStopReason, string> = {
   // Genuinely gone. The only one of these three that means the demo is
   // actually broken.
   unresolvedAnchor:
-    "an element this demo depends on is no longer on the page — re-record that step, or remap its anchor",
+    "an element this demo depends on was not on the page, even after waiting 10 s for it — check the step's target names something the page really shows, or what the step before it does",
   // NOT "could not find it". Several WERE found, and replay stopped rather
   // than guess, because guessing is how a replay clicks the wrong row of a
   // table. The author's problem is upstream: the element is not identified
   // well enough to be found again.
   ambiguousAnchor:
-    "several elements matched this step, so replay stopped rather than risk clicking the wrong one — that target needs identifying more precisely",
+    "several elements matched this step, so replay stopped rather than risk clicking the wrong one — name the target more precisely (a role and a fuller name, or a label)",
   // Usually nothing is wrong with the take. A virtualized row that has not
   // been rendered yet; the app can be asked to scroll it into view. The
   // resolver reports it separately precisely because it is recoverable, and
   // collapsing it into "could not be found" used to send authors off to
   // re-record something that was fine.
   anchorNotRendered:
-    "an element had not been rendered yet — the page probably just needs scrolling further, and the take itself is likely fine",
+    "an element was in the page's data but never rendered, even after waiting 10 s — the page probably needs scrolling further first, so add a scrollTo step before this one",
   // Not a verdict about any element. Before this had its own sentence the
   // silence read as `unresolvedAnchor`, and an author whose app was down
   // was sent off to re-record a step that was fine.
@@ -56,14 +56,14 @@ const REASON_TEXT: Record<ReplayStopReason, string> = {
   // Folded into `unresolvedAnchor` until 2026-09-07, which sent authors off
   // to re-record a step whose anchor the resolver had just found cleanly.
   anchorUnreachable:
-    "replay found the element this step needs and then could not reach it to measure — nothing is wrong with the anchor, so re-recording that step will not help; run it again, and say so if it repeats",
+    "replay found the element this step needs and then could not reach it to measure — nothing is wrong with the target, so changing the step will not help; run it again, and say so if it repeats",
   // The sibling of the reason above, and the opposite instruction. Both say
   // the anchor is fine; only this one is permanent, because the corroboration
   // that refused the frame will refuse it identically on every future run —
   // which is why it must not inherit "run it again, and say so if it
   // repeats". It always repeats.
   anchorFrameMismatch:
-    "replay found the element this step needs and the frame holding it is not the one recorded — the page's frames have changed since the take, so running it again will fail the same way; re-record that step",
+    "replay found the element this step needs and the frame holding it is not the one recorded — the page's frames have changed since the take, so running it again will fail the same way; change the step's target to one outside that frame, or rebuild the take from a fresh recording",
   // Names the surface that exists. The replacements panel this used to send
   // authors to was deleted with the Steps disclosure on 2026-09-14; a
   // replacement is authored on the step itself now.
@@ -93,9 +93,10 @@ const REASON_TEXT: Record<ReplayStopReason, string> = {
     "a drag's start or end was off the page once its start was in view, and a drag cannot scroll while it moves, so it was not begun; drag to a target on the same screen, or scroll first",
   dragNoDistance:
     "a drag's two ends landed on the same point once measured, which is a click, not a drag, so it was not begun; give the drag's end another target, spot or offset",
-  waitTimeout: "the page never reached a state the take was waiting for",
+  waitTimeout:
+    "the element the step waited for never became visible within 10 s — check the target, or what the step before it does",
   occlusionTimeout:
-    "the render window stayed covered, so the frames would not have been usable",
+    "the render window stayed covered, so the frames would not have been usable — leave the window uncovered while it runs, then run it again",
   windowClosed:
     "the replay window was closed before the run finished — nothing is wrong with the take, run it again",
   debuggerUnavailable:
@@ -107,7 +108,7 @@ const REASON_TEXT: Record<ReplayStopReason, string> = {
   deviceFailed:
     "the browser refused to emulate the device, so nothing was recorded — the note says which command and why",
   portFailure:
-    "something underneath the run gave way — not a fault in the take, so re-recording will not fix it; run it once more, and if it stops the same way, report it",
+    "something underneath the run gave way — not a fault in the script, so changing it will not fix it; run it once more, and if it stops the same way, report it",
   // Reported by the caller, not the engine: there was nothing to perform.
   noActions:
     "this take has no step that acts on the page, so there is nothing to record",

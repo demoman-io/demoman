@@ -345,6 +345,41 @@ describe("the CLI's recipe", () => {
     expect(reasons.filter((r) => !RECIPE.includes(`\`${r}\``))).toEqual([]);
   });
 
+  // A run can stop with any reason the replay engine has a sentence for, bar
+  // the ones only the Studio or the old extension raise (a write-flow policy
+  // refusal, a cancel, a withheld typed value, an attached debugger) and
+  // `noActions`, which a re-record answers as `nothingToRerecord`.
+  it("names every reason the replay engine can stop with", () => {
+    const table = readFileSync(
+      join(repo, "packages/replay-engine/src/explain.ts"),
+      "utf8",
+    ).match(/REASON_TEXT[^=]*=\s*\{([\s\S]*?)\n\};/)?.[1];
+    const keys = [...(table ?? "").matchAll(/^ {2}(\w+):/gm)].map(
+      (m) => m[1] as string,
+    );
+    const notACliStop = [
+      "mutating",
+      "cancelledByAuthor",
+      "redactedWithoutReplacement",
+      "debuggerUnavailable",
+      "noActions",
+    ];
+    // Premise: the scan found the table, and some of what it must demand.
+    expect(keys.length).toBeGreaterThan(20);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        "unresolvedAnchor",
+        "waitTimeout",
+        ...notACliStop,
+      ]),
+    );
+    expect(
+      keys
+        .filter((k) => !notACliStop.includes(k))
+        .filter((k) => !RECIPE.includes(`\`${k}\``)),
+    ).toEqual([]);
+  });
+
   // Red if a `run({ takeId })` line comes back (run refuses takeId), or the
   // order the spec teaches (find the video first) is lost.
   it("records into videos: finds the video first, and never passes takeId to run", () => {

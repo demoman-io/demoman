@@ -76,8 +76,8 @@ describe("replaySentence and replayRecoverable", () => {
       ALLOWED,
     );
     expect(new Set([gone, several, notYet]).size).toBe(3);
-    expect(gone).toMatch(/no longer on the page/);
-    expect(gone).toMatch(/re-record|remap/);
+    expect(gone).toMatch(/not on the page, even after waiting 10 s/);
+    expect(gone).not.toMatch(/re-record|remap/);
   });
 
   it("does not claim an element was missing when several were found", () => {
@@ -94,7 +94,7 @@ describe("replaySentence and replayRecoverable", () => {
       ALLOWED,
     );
     expect(sentence).not.toMatch(/could not be found/i);
-    expect(sentence).toMatch(/identifying more precisely/);
+    expect(sentence).toMatch(/name the target more precisely/);
   });
 
   it("does not accuse the take when the take is probably fine", () => {
