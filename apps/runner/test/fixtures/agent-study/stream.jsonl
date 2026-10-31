@@ -1,0 +1,12 @@
+{"type":"system","subtype":"init"}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__demoman__probe","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"{\"outcome\":\"played\"}"}]}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"mcp__demoman__probe","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":[{"type":"text","text":"{\"outcome\":\"played\"}"}]}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Running."},{"type":"tool_use","id":"t3","name":"mcp__demoman__run","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":[{"type":"text","text":"{\"outcome\":\"stopped\",\"stopped\":{\"reason\":\"targetNotFound\"}}"}]}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t4","name":"mcp__demoman__run","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t4","content":[{"type":"text","text":"{\"outcome\":\"complete\",\"verdict\":{\"kind\":\"matches\",\"diverged\":[]}}"}]}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t5","name":"mcp__demoman__export","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t5","content":[{"type":"text","text":"{\"outcome\":\"saved\",\"fileType\":\"mp4\",\"file\":{\"path\":\"/tmp/x.mp4\"}}"}]}]}}
+{"type":"result","subtype":"success","result":"Done. The video is at /tmp/x.mp4."}

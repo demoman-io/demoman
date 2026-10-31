@@ -4,10 +4,13 @@
 // spawned `demoman-mcp`, and the check that a build is newer than its
 // source. Both lived in the extension's scripts (extension-side.mjs,
 // browser-launcher.mjs) until it was archived on 2026-10-20.
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { listenOnLoopback } from "../loopback.js";
+import { messageOf } from "../report.js";
 
 export interface Mcp {
   callTool(req: {
@@ -112,4 +115,59 @@ export function staleBuild(o: {
     };
   }
   return { ok: true };
+}
+
+/** The refusal when the MCP build, this entry's runner build or any package
+ *  `dist` is older than its source (the CLI sides load the packages' dist
+ *  through @demoman/runner); null when all are fresh. */
+export function staleBuilds(repo: string, runnerEntry: string): string | null {
+  const checks: { output: string; sources: string[] }[] = [
+    {
+      output: join(repo, "apps", "mcp", "dist", "index.js"),
+      sources: [join(repo, "apps", "mcp", "src")],
+    },
+    {
+      output: join(repo, "apps", "runner", "dist", "compare", runnerEntry),
+      sources: [join(repo, "apps", "runner", "src")],
+    },
+  ];
+  for (const p of readdirSync(join(repo, "packages"))) {
+    if (!existsSync(join(repo, "packages", p, "src"))) continue;
+    checks.push({
+      output: join(repo, "packages", p, "dist", "index.js"),
+      sources: [join(repo, "packages", p, "src")],
+    });
+  }
+  for (const c of checks) {
+    const fresh = staleBuild(c);
+    if (!fresh.ok) return fresh.reason;
+  }
+  return null;
+}
+
+/** The store-assets sample app's page and nothing else, on a loopback port. */
+export function serveSample(
+  repo: string,
+  say: (line: string) => void,
+): { server: Server; origin: Promise<string> } {
+  const html = join(repo, "docs", "store-assets", "sample-app", "index.html");
+  const server = createServer((req, res) => {
+    if (req.url !== "/index.html") {
+      res.writeHead(404).end();
+      return;
+    }
+    try {
+      const page = readFileSync(html); // read first: a throw after writeHead cannot send a 500
+      res
+        .writeHead(200, { "content-type": "text/html; charset=utf-8" })
+        .end(page);
+    } catch (error) {
+      say(`the sample app could not be read (${messageOf(error)})`);
+      res.writeHead(500).end(messageOf(error));
+    }
+  });
+  return {
+    server,
+    origin: listenOnLoopback(server).then((o) => o.replace(/\/$/, "")),
+  };
 }

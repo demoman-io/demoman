@@ -71,3 +71,14 @@ software one (`render-entry.ts`'s `softwareEncoded`): one take then rendered
 in 5.7 s against 92.6 s at 12,243,149 against 12,307,207 bytes. Linux has no
 entry in `HEADLESS_GPU_ARGS` yet; this script, run there with and without
 one, is the measurement that adds it.
+
+## `pnpm agent:study`
+
+Runs a model as an agent against the five briefs in `compare/briefs/` (one per sample app: Nylon, Tremor, Chatbot, Actual, Excalidraw), through this repo's own `apps/mcp/dist`, then has opus judge each export's last frame against the brief's `endState`.
+
+    pnpm agent:study --model haiku [--brief tremor]… [--pass 0]
+
+- Start the apps first: `scripts/samples.sh start tremor|chatbot|actual|excalidraw`, one terminal each. Nylon is served by the command itself. An app that does not answer is named and skipped in `summary.md`.
+- It costs real tokens: one agent session of tens of minutes per brief, plus one opus judge call. By hand only, never CI. It needs the `claude` CLI on the PATH, ffmpeg and ffprobe.
+- It never uses `bypassPermissions`: the agent gets `mcp__demoman__*` and `ToolSearch`, nothing else.
+- Output, gitignored: `agent-study/<date>/<model>-<pass>/<brief>/{transcript.jsonl,final.png,judge.json}` and `summary.md` beside them (App, Judge, Runs, Probes, Length, Agent's claim, Judge's reason). "unjudged" means the judge could not be read or there was no export; the reason says which.
