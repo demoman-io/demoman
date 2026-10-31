@@ -53,6 +53,8 @@ export type ScriptRef =
   | {
       name: string;
       scriptVersion: DemoScript["scriptVersion"];
+      /** Set when the script stated a lower version than it needs and Demoman raised it. */
+      versionRaisedFrom?: number;
       steps: number;
     }
   | { takeId: string };

@@ -89,6 +89,8 @@ function blankWalk(total: number, reason: ReplayStopReason): WalkResultLike {
 }
 
 export interface RunDeps {
+  /** From the door: the version the script stated before it was raised. */
+  versionRaisedFrom?: number;
   session: BrowserSession;
   library: Library;
   kits: BrandKitsRead;
@@ -244,6 +246,9 @@ export async function runScript(
     script: {
       name: script.name,
       scriptVersion: script.scriptVersion,
+      ...(deps.versionRaisedFrom === undefined
+        ? {}
+        : { versionRaisedFrom: deps.versionRaisedFrom }),
       steps: script.steps.length,
     },
   };

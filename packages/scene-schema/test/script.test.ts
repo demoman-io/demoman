@@ -90,11 +90,15 @@ describe("DemoScript", () => {
   // assertion is added: the guarantee this test exists for is that a
   // document-shaped paste is refused NAMING `scriptVersion`, and that holds
   // whether or not the paste would have parsed as a document.
-  it("refuses a document-shaped paste as a script, naming scriptVersion", () => {
+  it("refuses a document-shaped paste as a script, naming what it lacks", () => {
     const document = { schemaVersion: 9, meta: {}, actions: [], anchors: [] };
     const result = DemoScriptSchema.safeParse(document);
     expect(result.success).toBe(false);
-    expect(JSON.stringify(result.error?.issues)).toContain("scriptVersion");
+    // `scriptVersion` is optional now, so the paste is refused for the
+    // script fields a document does not have.
+    expect(result.error?.issues.map((i) => i.path.join("."))).toEqual(
+      expect.arrayContaining(["name", "target", "steps"]),
+    );
   });
 
   // A step beside the pause, so the ONLY thing that can refuse this script is
@@ -354,23 +358,19 @@ describe("look.kit", () => {
   // Review 2026-10-08. Red if the version check goes: a version-1 script
   // naming a kit parses, and an older build (whose look drops `kit`)
   // records it on the default brand.
-  it("refuses a kit in a version-1 script, naming scriptVersion", () => {
+  it("raises a version-1 script that names a kit to 2", () => {
     const r = DemoScriptSchema.safeParse({ ...ok, look: { kit: "Dark" } });
-    expect(r.success).toBe(false);
-    expect(r.error?.issues).toHaveLength(1);
-    expect(r.error?.issues[0]?.path).toEqual(["scriptVersion"]);
-    expect(r.error?.issues[0]?.message).toMatch(
-      /names look\.kit declares scriptVersion 2/,
-    );
+    expect(r.success).toBe(true);
+    expect(r.data?.scriptVersion).toBe(2);
   });
   // Every script written before kits stays valid, and a version-2 script
   // need not name one. Version 3 is `SCRIPT_VERSION_MOTION` since
   // 2026-10-09 and version 4 is `SCRIPT_VERSION_DEVICE` since 2026-10-10,
   // version 5 is `SCRIPT_VERSION_ACCOUNT` since 2026-10-15, so the first version past this build's is 6.
-  it("accepts version 1 and version 2 without a kit, and refuses version 7", () => {
+  it("accepts version 1 and version 2 without a kit, and refuses an unknown version", () => {
     expect(DemoScriptSchema.safeParse(ok).success).toBe(true);
     expect(DemoScriptSchema.safeParse(v2).success).toBe(true);
-    const v7 = DemoScriptSchema.safeParse({ ...ok, scriptVersion: 7 });
+    const v7 = DemoScriptSchema.safeParse({ ...ok, scriptVersion: 99 });
     expect(v7.success).toBe(false);
     expect(v7.error?.issues[0]?.path).toEqual(["scriptVersion"]);
   });
@@ -408,19 +408,14 @@ describe("device", () => {
     expect(parsed.data?.device).toBe("phone");
   });
 
-  // Red if the version gate goes: an older build strips the unknown
-  // top-level key and records the desktop, reporting success.
-  it("refuses a device in a version-3 script, naming scriptVersion", () => {
+  it("raises a version-3 script that names a device to 4", () => {
     const r = DemoScriptSchema.safeParse({
       ...ok,
       scriptVersion: 3,
       device: "phone",
     });
-    expect(r.success).toBe(false);
-    expect(r.error?.issues[0]?.path).toEqual(["scriptVersion"]);
-    expect(r.error?.issues[0]?.message).toMatch(
-      /names device declares scriptVersion 4/,
-    );
+    expect(r.success).toBe(true);
+    expect(r.data?.scriptVersion).toBe(4);
   });
 
   it("refuses an unknown device, naming the ones there are", () => {
@@ -493,10 +488,8 @@ describe("drag", () => {
     expect(SCRIPT_VERSION_DRAG).toBe(6);
   });
 
-  // Red if the version gate goes: a build from before drag refuses the step
-  // by an unknown `do`, which is a worse sentence than the version's.
-  it("refuses a drag in a version-5 script", () => {
-    const found = issues({
+  it("raises a version-5 script that drags to 6", () => {
+    const r = DemoScriptSchema.safeParse({
       ...v6([
         {
           do: "drag",
@@ -506,9 +499,7 @@ describe("drag", () => {
       ]),
       scriptVersion: 5,
     });
-    expect(found.map((i) => i.message).join("\n")).toContain(
-      "declares scriptVersion 6",
-    );
+    expect(r.data?.scriptVersion).toBe(6);
   });
 
   it("refuses a spot outside the box", () => {
@@ -563,5 +554,34 @@ describe("drag", () => {
       device: "phone",
     });
     expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+  });
+});
+
+describe("scriptVersion is inferred", () => {
+  const drag = {
+    do: "drag",
+    from: { on: { text: "A" } },
+    to: { on: { text: "B" } },
+  };
+  const { scriptVersion: _v, ...bare } = ok;
+  it("infers the version a drag needs when none is given", () => {
+    const r = DemoScriptSchema.safeParse({
+      ...bare,
+      steps: [...ok.steps, drag],
+    });
+    expect(r.data?.scriptVersion).toBe(6);
+  });
+  it("raises a stated version that is too low instead of refusing it", () => {
+    const r = DemoScriptSchema.safeParse({ ...ok, device: "phone" });
+    expect(r.data?.scriptVersion).toBe(4);
+  });
+  it("keeps a stated version above the minimum", () => {
+    expect(
+      DemoScriptSchema.safeParse({ ...ok, scriptVersion: 5 }).data
+        ?.scriptVersion,
+    ).toBe(5);
+  });
+  it("gives a script that needs nothing version 1", () => {
+    expect(DemoScriptSchema.safeParse(bare).data?.scriptVersion).toBe(1);
   });
 });

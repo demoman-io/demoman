@@ -907,6 +907,9 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         return runScript(
           script,
           {
+            ...(checked.versionRaisedFrom === undefined
+              ? {}
+              : { versionRaisedFrom: checked.versionRaisedFrom }),
             session,
             library,
             kits,

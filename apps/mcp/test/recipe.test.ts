@@ -258,7 +258,7 @@ describe("the CLI's recipe on demo accounts (launch C2)", () => {
       ".demoman/secrets.env",
       "checkUrl",
       '"account"',
-      "scriptVersion 5",
+      "Leave `scriptVersion` out",
     ]) {
       expect(RECIPE, phrase).toContain(phrase);
     }
@@ -305,7 +305,7 @@ describe("the CLI's recipe on demo accounts (launch C2)", () => {
       .map((b) => JSON.parse(b))
       .filter((j) => "account" in j);
     expect(scripts.length).toBeGreaterThan(0);
-    for (const j of scripts) expect(j.scriptVersion).toBe(5);
+    for (const j of scripts) expect(j.scriptVersion).toBeUndefined();
   });
 });
 

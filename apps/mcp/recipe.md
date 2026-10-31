@@ -125,13 +125,11 @@ The file, with one account:
   Environment secrets serve only the accounts.json of the repo Demoman was
   started in; one reached through `project` reads only its own
   `.demoman/secrets.env`.
-- A script names its account: `"account": "seller"`, which needs
-  scriptVersion 5 (`"scriptVersion": 5`). `snapshot` takes `account` too. Both take `project`,
+- A script names its account: `"account": "seller"`. `snapshot` takes `account` too. Both take `project`,
   an absolute path, to use another checkout's `.demoman/`.
 
 ```json
 {
-  "scriptVersion": 5,
   "name": "Seller dashboard",
   "target": "http://localhost:4000/admin/dashboard",
   "account": "seller",
@@ -208,7 +206,7 @@ resolves in a run to exactly that element: Demoman checked it.
 1. Call `snapshot` with `device` (`"phone"` or `"tablet"`), and
    copy targets from that answer only: a phone shows a different page, and a
    desktop target is often not on it.
-2. `run` a script that names the same `device`, at `scriptVersion` 4.
+2. `run` a script that names the same `device`.
 3. Leave `look.canvas` at `auto`, which comes out portrait, or name `9:16`.
 4. No `hover` steps: tap instead.
 
@@ -224,8 +222,7 @@ resolves in a run to exactly that element: Demoman checked it.
    section 2.
 4. `snapshot`'s `kits` lists the user's brand kits by name, the default
    marked. Use a name from it in `look.kit` only when the user asked for a
-   look, and then write `"scriptVersion": 2` - a script that names a kit at
-   version 1 is refused (`invalidScript`, `field` `scriptVersion`).
+   look.
    `{ "ok": false, "reason": … }`: the kits could not be read; say so, name none.
 
 ### From a take made earlier
@@ -448,7 +445,6 @@ quote `note` if set. Studio exports go to `~/Downloads`.
 
 ```json
 {
-  "scriptVersion": 1,
   "name": "Checkout with a coupon",
   "target": "https://app.example.com/cart",
   "steps": [
@@ -468,7 +464,6 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 
 ```json
 {
-  "scriptVersion": 1,
   "name": "Landing page tour",
   "target": "https://app.example.com/",
   "steps": [
@@ -480,14 +475,11 @@ recorded action each step came from (`recorded`, in `recordedFrom`):
 ```
 
 ```json
-{"scriptVersion": 6, "name": "Move a card", "target": "https://app.example.com/board",
+{"name": "Move a card", "target": "https://app.example.com/board",
  "steps": [{ "do": "drag", "from": { "on": { "text": "Card A" } }, "to": { "on": { "text": "Done" } } }]}
 ```
 
-- `scriptVersion` and `name` are required; a step's verb is `do`.
-  `scriptVersion` is the highest that applies: `1`; `2` when `look` names
-  a `kit`; `3` when it carries `motion`; `4` when the script names a
-  `device`; `5` when it names an `account`; `6` when it has a `drag`.
+- `name` is required; a step's verb is `do`. Leave `scriptVersion` out: Demoman sets it.
 - **Targets** name exactly one strategy: `{ "stableId" }`, `{ "role", "name" }`,
   `{ "text" }` or `{ "treePath" }`. Two in one target is refused. Copy them
   from `snapshot` or a derived draft. A `treePath` is a position in the

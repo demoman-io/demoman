@@ -85,6 +85,7 @@ export {
   ACCOUNT_NAME,
   ACCOUNT_NAME_RULE,
   type DemoScript,
+  type DemoScriptInput,
   DemoScriptSchema,
   type DragFrom,
   DragFromSchema,
@@ -92,6 +93,7 @@ export {
   DragSpotSchema,
   type DragTo,
   DragToSchema,
+  minimumScriptVersion,
   SCRIPT_VERSION,
   SCRIPT_VERSION_ACCOUNT,
   SCRIPT_VERSION_DEVICE,
@@ -102,6 +104,7 @@ export {
   ScriptStepSchema,
   type ScriptTarget,
   ScriptTargetSchema,
+  type ScriptVersion,
   targetStrategy,
 } from "./script.js";
 export {
