@@ -660,29 +660,26 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           builtFrom = built.takeId;
         }
       } else {
-        // Refresh films a kept flow under its own name (`leaveKept`): exempt.
-        if (args.leaveKept !== true) {
-          const { entries } = await readKeptFlows(where.from);
-          const unreadable = unreadableOf(entries);
-          const keptHolder = entries.find(
-            (e) => "kept" in e && sameName(e.kept.name, asked.new),
+        const { entries } = await readKeptFlows(where.from);
+        const unreadable = unreadableOf(entries);
+        const keptHolder = entries.find(
+          (e) => "kept" in e && sameName(e.kept.name, asked.new),
+        );
+        if (keptHolder === undefined && unreadable.length > 0) {
+          return refusal(
+            "keptUnreadable",
+            `a kept file in this repo would not read, so Demoman cannot tell whether it keeps "${asked.new}" — fix or remove it before starting a new flow here: ${unreadable.join("; ")}`,
+            "video",
           );
-          if (keptHolder === undefined && unreadable.length > 0) {
-            return refusal(
-              "keptUnreadable",
-              `a kept file in this repo would not read, so Demoman cannot tell whether it keeps "${asked.new}" — fix or remove it before starting a new flow here: ${unreadable.join("; ")}`,
-              "video",
-            );
-          }
-          if (keptHolder !== undefined && "kept" in keptHolder) {
-            const { kept, file } = keptHolder;
-            return refusal(
-              "nameTaken",
-              `flow "${kept.name}" is kept in ${file} — add a video to it with flow: { id: "${kept.flow}" }, or name the new flow differently`,
-              "video",
-              { holder: { id: kept.flow, name: kept.name } },
-            );
-          }
+        }
+        if (keptHolder !== undefined && "kept" in keptHolder) {
+          const { kept, file } = keptHolder;
+          return refusal(
+            "nameTaken",
+            `flow "${kept.name}" is kept in ${file} — add a video to it with flow: { id: "${kept.flow}" }, or name the new flow differently`,
+            "video",
+            { holder: { id: kept.flow, name: kept.name } },
+          );
         }
         const matches = await matchesFor(videos, library, asked.new, videoRepo);
         const holder = matches.find((m) => sameName(m.name, asked.new));

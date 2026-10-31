@@ -36,7 +36,9 @@ Films every kept flow again, with no agent. It prints a line per flow:
 
 | Line | Meaning |
 | --- | --- |
-| `<name>: replaced: <what changed>` | The picture changed: how much, and when in the video. The files are overwritten |
+| `<name>: changed: <what changed>` | The picture changed: how much, and when in the video. The files are overwritten |
+| `<name>: added: <which file>` | It looks the same, and an output that was not there yet is written |
+| `<name>: uncompared: nothing to compare against; delivered as new` | No earlier film to compare with (no receipt, or no committed file). The files are written |
 | `<name>: unchanged: <how much changed>` | It looks the same. The files are left as they are |
 | `<name>: failed: <why>` | The run was not clean. The committed files stay, and the command exits 1 |
 
@@ -44,10 +46,10 @@ Refresh compares the screen before each step, and the final screen when the
 video rests at the end, in the video it judges: the first MP4 that is not
 9:16, else the first file that is not 9:16, else the first MP4. Where the kept
 file recorded a still screen, the new film is read at the same step. If the
-picture changed, every file of the video is replaced, with the kept file's
-record of its screens. Videos are not compared byte for byte, so an unchanged
-app makes no commit. On a compared screen, a change as small as one digit
-of body text is seen, and so is a colour change alone: grey text a few
+picture changed, every file of the video is replaced, with its receipt in
+`.demoman/receipts/`; the kept file itself is never rewritten. Videos are
+not compared byte for byte, so an unchanged app makes no commit. On a
+compared screen, a change as small as one digit of body text is seen, and so is a colour change alone: grey text a few
 shades lighter, a button turned another colour of the same lightness. Five
 gaps are accepted:
 

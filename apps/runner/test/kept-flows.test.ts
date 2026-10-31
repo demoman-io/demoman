@@ -1,14 +1,19 @@
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { KEPT_DIR, keptFileName } from "@demoman/run-core";
+import {
+  KEPT_DIR,
+  type KeptVideo,
+  keptFileName,
+  serializeKept,
+} from "@demoman/run-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findKept, readKeptFlows } from "../src/executor/kept-flows.js";
-import { FLOW_ID, type V1Kept, writeV1 } from "./kept-v1.js";
 
+const FLOW_ID = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
 const NAME = "Place an order";
 const FILE = `${KEPT_DIR}/${keptFileName(NAME)}`;
-const kept: V1Kept = {
+const kept: KeptVideo = {
   keptVersion: 2,
   flow: FLOW_ID,
   deliver: "commit",
@@ -19,23 +24,21 @@ const kept: V1Kept = {
     target: "http://localhost:1/app",
     viewport: { width: 1280, height: 800 },
     steps: [{ do: "waitForLoad" }],
-  } as V1Kept["script"],
+  } as KeptVideo["script"],
   scale: 1,
   logo: null,
   wallpaper: null,
   outputs: [
     { path: "docs/o.mp4", fileType: "mp4", aspect: "16:9", quality: "share" },
   ],
-  screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
   report: null,
-  from: { videoId: FLOW_ID, takeId: "t1", recordedRevision: "r1" },
 };
 
 let root: string;
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "demoman-kept-flows-"));
   await mkdir(join(root, KEPT_DIR), { recursive: true });
-  await writeFile(join(root, FILE), writeV1(kept));
+  await writeFile(join(root, FILE), serializeKept(kept));
 });
 afterEach(() => rm(root, { recursive: true, force: true }));
 

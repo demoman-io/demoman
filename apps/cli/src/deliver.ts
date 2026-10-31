@@ -21,9 +21,19 @@ export interface Delivered {
 const said = (r: { stderr: string; stdout: string; code: number }) =>
   r.stderr.trim() || r.stdout.trim() || `exit ${r.code}`;
 
-/** Puts the files a refresh replaced into the repo's history: one commit on
+/** A video whose files a refresh wrote and the repo should take: a `commit`
+ *  flow whose film changed, added an output, or was delivered as new. A
+ *  failure that wrote some files partway is not one. */
+const toCommit = (v: RefreshResult["videos"][number]): boolean =>
+  v.deliver === "commit" &&
+  (v.outcome === "changed" ||
+    v.outcome === "added" ||
+    v.outcome === "uncompared");
+
+/** Puts the files a refresh wrote into the repo's history: one commit on
  *  the checked-out branch (`main`), or one commit on `demoman/refresh` with a
- *  pull request opened or updated (`pr`). Only the result's outputs are staged. */
+ *  pull request opened or updated (`pr`). Only those videos' outputs (with
+ *  their receipts) are staged. */
 export async function deliver(
   args: {
     route: "pr" | "main";
@@ -36,7 +46,7 @@ export async function deliver(
   deps: { git: GitRunner; gh: Gh },
 ): Promise<Delivered> {
   const { route, repoRoot, result, named, runUrl } = args;
-  const replaced = result.videos.filter((v) => v.outcome === "replaced");
+  const replaced = result.videos.filter(toCommit);
   if (replaced.length === 0) {
     const nothing = "no video was replaced";
     if (route === "main")

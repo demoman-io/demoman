@@ -1,8 +1,9 @@
 import type { RefreshResult } from "@demoman/runner/package";
 
 /** What `demoman refresh` prints and exits with: a line per video with what
- *  its comparison found (why a video was replaced, how near an unchanged one
- *  came), its notes beside it, and 1 when any video failed (CI's only
+ *  its comparison found (one word per outcome: changed, added, uncompared,
+ *  unchanged or failed; then why, or how near an unchanged one came), its
+ *  notes beside it, and 1 when any video failed (CI's only
  *  signal). */
 export function refreshLines(result: RefreshResult): {
   lines: string[];

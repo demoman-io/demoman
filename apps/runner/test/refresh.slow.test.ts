@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   mkdir,
@@ -23,9 +24,12 @@ import {
   fileDigest,
   KEPT_DIR,
   type KeptScreens,
+  type KeptVideo,
   keptFileName,
   lookDigest,
+  RECEIPT_DIR,
   type RunReport,
+  serializeKept,
   verdictLine,
   webpSize,
 } from "@demoman/run-core";
@@ -54,11 +58,10 @@ import {
   refreshKept,
   uncleanRun,
 } from "../src/executor/refresh.js";
-import { execGit } from "../src/executor/repo.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { listenOnLoopback } from "../src/loopback.js";
 import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
-import { FLOW_ID, readV1, type V1Kept, writeV1 } from "./kept-v1.js";
+import { readKeptV2 } from "./kept-v2.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 // Measured on CI (run 40820520425, 2026-10-29, ubuntu): a case that
@@ -204,13 +207,19 @@ async function webpOf(rgb: [number, number, number]): Promise<Buffer> {
 }
 /** Writes a kept file of its own into the repo, and removes it with every
  *  output it names when `body` is done. */
-async function withKept<T>(video: V1Kept, body: () => Promise<T>): Promise<T> {
+async function withKept<T>(
+  video: KeptVideo,
+  body: () => Promise<T>,
+): Promise<T> {
   const file = join(repo, KEPT_DIR, keptFileName(video.name));
-  await writeFile(file, writeV1(video));
+  await writeFile(file, serializeKept(video));
   try {
     return await body();
   } finally {
     await rm(file, { force: true });
+    await rm(join(repo, RECEIPT_DIR, keptFileName(video.name)), {
+      force: true,
+    });
     for (const o of video.outputs)
       await rm(join(repo, o.path), { force: true });
   }
@@ -244,17 +253,18 @@ function kept(
   name: string,
   clicks: string[],
   scale: number,
-  outputs: V1Kept["outputs"],
+  outputs: KeptVideo["outputs"],
   /** A pause before the last click, to move the gap between clicks off the
    *  camera's line (the guard test at the end). */
   pauseMs = 0,
   /** A pause after the last click, so the film ends on a still screen
    *  (1500 ms is the short ending a slower app is measured on, below). */
   endMs = 0,
-): V1Kept {
+): KeptVideo {
   return {
     keptVersion: 2,
-    flow: FLOW_ID,
+    // One flow per kept file: two files naming one flow both fail.
+    flow: randomUUID(),
     deliver: "commit",
     name,
     script: {
@@ -272,14 +282,12 @@ function kept(
         ]),
         ...(endMs > 0 ? [{ do: "pause", ms: endMs }] : []),
       ],
-    } as V1Kept["script"],
+    } as KeptVideo["script"],
     scale,
     logo: null,
     wallpaper: null,
     outputs,
-    screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
     report: name === A ? "docs/order-report.json" : null,
-    from: { videoId: FLOW_ID, takeId: "scene-x", recordedRevision: "r" },
   };
 }
 
@@ -383,7 +391,6 @@ const deps = (): RefreshDeps => ({
   },
   session,
   env: process.env,
-  git: execGit,
   log: (l) => void lines.push(l),
 });
 
@@ -401,9 +408,15 @@ const screensOf = (detail: string): [number, number] => {
 /** A's detail from the unchanged run, for the slower app's to match. */
 let unchangedDetailA = "";
 const bytes = (p: string) => readFile(join(repo, p));
-const keptOf = async (name: string): Promise<V1Kept> => {
-  const file = `${KEPT_DIR}/${keptFileName(name)}`;
-  return readV1(await readFile(join(repo, file), "utf8"), file);
+/** The recipe, with the screens its receipt says the committed files show. */
+const keptOf = async (
+  name: string,
+): Promise<KeptVideo & { screens: KeptScreens }> => {
+  const { kept, receipt } = await readKeptV2(
+    repo,
+    `${KEPT_DIR}/${keptFileName(name)}`,
+  );
+  return { ...kept, screens: receipt.screens };
 };
 /** How far a gap between two clicks is from the pan-or-pull-back line: the
  *  room `returnsBetween` finds between the camera's hold after the first
@@ -443,7 +456,7 @@ beforeAll(async () => {
   await mkdir(join(repo, KEPT_DIR), { recursive: true });
   await writeFile(
     join(repo, KEPT_DIR, keptFileName(A)),
-    writeV1(
+    serializeKept(
       kept(
         A,
         ["Place order"],
@@ -459,7 +472,7 @@ beforeAll(async () => {
   );
   await writeFile(
     join(repo, KEPT_DIR, keptFileName(B)),
-    writeV1(
+    serializeKept(
       kept(
         B,
         ["Place order", "Reports"],
@@ -528,7 +541,7 @@ beforeEach(async () => {
 
 describe("refresh", () => {
   it(
-    "films each kept video and writes its outputs, the first time as new",
+    "films each kept video and writes its outputs and receipt, the first time as new",
     async () => {
       madeDirs.length = 0;
       const r = await refresh();
@@ -536,8 +549,8 @@ describe("refresh", () => {
         r.videos.map((v) => [v.name, v.outcome]),
         JSON.stringify(r),
       ).toEqual([
-        [B, "replaced"],
-        [A, "replaced"],
+        [B, "uncompared"],
+        [A, "uncompared"],
       ]);
       // Each scale films in a browser of its own, at that scale.
       expect(filmed).toEqual([
@@ -550,10 +563,17 @@ describe("refresh", () => {
           out.aGif,
           out.aMp4,
           "docs/order-report.json",
-          `${KEPT_DIR}/${keptFileName(A)}`,
+          `${RECEIPT_DIR}/${keptFileName(A)}`,
         ].sort(),
       );
-      expect(a.detail).toContain(`${out.aMp4} is new`);
+      expect(a.detail).toBe("nothing to compare against; delivered as new");
+      expect(a.notes).toEqual([`${RECEIPT_DIR}/${keptFileName(A)} is missing`]);
+      // The recipe is the committed one, byte for byte.
+      expect(
+        execFileSync("git", ["status", "--porcelain", KEPT_DIR], { cwd: repo })
+          .toString()
+          .trim(),
+      ).toBe("");
       // The line attach would put above it, filmed at the checkout's HEAD.
       const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo })
         .toString()
@@ -688,7 +708,7 @@ describe("refresh", () => {
   );
 
   it(
-    "a one-digit change reads replaced",
+    "a one-digit change reads changed",
     async () => {
       // The premise: exactly one cell's text differs, by one character.
       const [was, now] = await Promise.all([ORIGINAL, ONE_DIGIT].map(cellsOf));
@@ -714,21 +734,21 @@ describe("refresh", () => {
       }
       const a = byName(r, A);
       noiseLine("one digit", a.detail);
-      expect(a.outcome, JSON.stringify(r)).toBe("replaced");
+      expect(a.outcome, JSON.stringify(r)).toBe("changed");
       expect(a.detail).toMatch(
         /% of the picture changed sharply before step \d+ at /,
       );
-      // And back: the digit restored reads replaced too, a second reading.
+      // And back: the digit restored reads changed too, a second reading.
       const back = byName(await refresh([A]), A);
       noiseLine("one digit, back", back.detail);
-      expect(back.outcome, back.detail).toBe("replaced");
+      expect(back.outcome, back.detail).toBe("changed");
     },
     BOTH_MS,
   );
 
   for (const restyle of RESTYLES) {
     it(
-      `a colour restyle reads replaced: ${restyle.name}`,
+      `a colour restyle reads changed: ${restyle.name}`,
       async () => {
         // The premise: the rule names that colour once, and only the colour
         // changes; the button keeps its lightness (grey alone cannot tell).
@@ -753,12 +773,12 @@ describe("refresh", () => {
         }
         const a = byName(r, A);
         noiseLine(restyle.name, a.detail);
-        expect(a.outcome, JSON.stringify(r)).toBe("replaced");
+        expect(a.outcome, JSON.stringify(r)).toBe("changed");
         expect(a.detail).toMatch(restyle.where);
         // And back to the committed colours, a second reading.
         const back = byName(await refresh([A]), A);
         noiseLine(`${restyle.name}, back`, back.detail);
-        expect(back.outcome, back.detail).toBe("replaced");
+        expect(back.outcome, back.detail).toBe("changed");
       },
       BOTH_MS,
     );
@@ -779,7 +799,7 @@ describe("refresh", () => {
       );
       await withKept(video, async () => {
         const first = byName(await refresh([name]), name);
-        expect(first.outcome, first.detail).toBe("replaced");
+        expect(first.outcome, first.detail).toBe("uncompared");
         // The premise: both films end on a still screen, so the final screen
         // is compared (the slower film's screens, from its export).
         const final = (sc: KeptScreens) =>
@@ -819,7 +839,7 @@ describe("refresh", () => {
       );
       await withKept(video, async () => {
         const first = byName(await refresh([name]), name);
-        expect(first.outcome, first.detail).toBe("replaced");
+        expect(first.outcome, first.detail).toBe("uncompared");
         // The premise: the GIF is the output judged, and it has screens.
         const { screens } = await keptOf(name);
         expect(screens.moments.length, JSON.stringify(screens)).toBeGreaterThan(
@@ -918,9 +938,23 @@ describe("refresh", () => {
     "fails a kept file with no screens, saying keep it again",
     async () => {
       const kf = join(repo, KEPT_DIR, "no-screens.json");
-      const { screens: _gone, ...bare } = JSON.parse(writeV1(await keptOf(A)));
-      expect(bare.keptVersion, "premise: a v1 file").toBe(1);
-      await writeFile(kf, JSON.stringify({ ...bare, name: "No screens" }));
+      // A v1 file, kept before screens were recorded: no screens, and a
+      // flow of its own in `from`.
+      const {
+        flow: _flow,
+        deliver: _deliver,
+        ...bare
+      } = JSON.parse(serializeKept(await keptOf(A)));
+      expect(bare.screens, "premise: no screens").toBeUndefined();
+      const from = {
+        videoId: randomUUID(),
+        takeId: "t",
+        recordedRevision: "r",
+      };
+      await writeFile(
+        kf,
+        JSON.stringify({ ...bare, keptVersion: 1, name: "No screens", from }),
+      );
       try {
         const r = await refresh([A]);
         const v = r.videos.find((x) => x.file.endsWith("no-screens.json"));
@@ -935,12 +969,12 @@ describe("refresh", () => {
   );
 
   it(
-    "replaces a committed file that is not a decodable video, saying so",
+    "delivers as new over a committed file that is not a decodable video, saying so",
     async () => {
       await writeFile(join(repo, out.bMp4), "not a video");
       const r = await refresh([B]);
       const b = byName(r, B);
-      expect(b.outcome, JSON.stringify(r)).toBe("replaced");
+      expect(b.outcome, JSON.stringify(r)).toBe("uncompared");
       expect(b.notes).toEqual([
         expect.stringMatching(
           /^docs\/reports\.mp4 was replaced without a comparison: the committed file could not be decoded \(.+\)$/,
@@ -954,7 +988,7 @@ describe("refresh", () => {
   );
 
   it(
-    "replaces a change seen only on the final screen",
+    "reads a change seen only on the final screen as changed",
     async () => {
       // The premise: the change is in a panel that is off-screen until the
       // last step opens it, and the page really changed.
@@ -963,7 +997,7 @@ describe("refresh", () => {
       expect(PANEL_CHANGED).not.toContain(PANEL_BG);
       html = PANEL_CHANGED;
       const r = await refresh([A]);
-      expect(byName(r, A).outcome, JSON.stringify(r)).toBe("replaced");
+      expect(byName(r, A).outcome, JSON.stringify(r)).toBe("changed");
       expect(byName(r, A).detail).toMatch(
         /% of the picture changed \w+ on the final screen at [\d.]+s/,
       );
@@ -985,7 +1019,7 @@ describe("refresh", () => {
       expect(html).not.toContain(HEADING);
       const r = await refresh([A]);
       const a = byName(r, A);
-      expect(a.outcome, JSON.stringify(r)).toBe("replaced");
+      expect(a.outcome, JSON.stringify(r)).toBe("changed");
       // Judged by its MP4 alone, and the GIF went with it.
       expect(a.detail).toContain(out.aMp4);
       expect(a.detail).not.toContain(out.aGif);
@@ -998,16 +1032,20 @@ describe("refresh", () => {
   );
 
   it(
-    "rewrites the kept file's screens when it replaces, and lists it",
+    "writes the receipt's screens when it changes, and lists it, never the recipe",
     async () => {
       const file = `${KEPT_DIR}/${keptFileName(A)}`;
+      const receiptFile = `${RECEIPT_DIR}/${keptFileName(A)}`;
+      const recipe = await bytes(file);
       const before = (await keptOf(A)).screens;
       html = PANEL_CHANGED.replace(HEADING, "<h1>Overdue invoices</h1>");
       expect(html).not.toContain(HEADING);
       exported.length = 0;
       const r = await refresh([A]);
-      expect(byName(r, A).outcome, JSON.stringify(r)).toBe("replaced");
-      expect(byName(r, A).outputs).toContain(file);
+      expect(byName(r, A).outcome, JSON.stringify(r)).toBe("changed");
+      expect(byName(r, A).outputs).toContain(receiptFile);
+      expect(byName(r, A).outputs).not.toContain(file);
+      expect((await bytes(file)).equals(recipe)).toBe(true);
       const judged = exported.find((e) => e.fileType === "mp4");
       expect(judged, JSON.stringify(exported)).toBeDefined();
       const after = (await keptOf(A)).screens;
@@ -1035,7 +1073,7 @@ describe("refresh", () => {
       expect(
         r.videos.map((v) => v.outcome),
         JSON.stringify(r),
-      ).toEqual(["replaced", "replaced"]);
+      ).toEqual(["changed", "changed"]);
       expect(byName(r, A).detail).toMatch(
         /% of the picture changed \w+ (before step \d+|on the final screen) at [\d.]+s/,
       );
@@ -1075,7 +1113,7 @@ describe("refresh", () => {
       expect(b.line).toBeNull();
       expect((await bytes(out.bMp4)).equals(before)).toBe(true);
       // The nav lost a link, so the other video's picture changed too.
-      expect(byName(r, A).outcome).toBe("replaced");
+      expect(byName(r, A).outcome).toBe("changed");
     },
     BOTH_MS,
   );
@@ -1083,11 +1121,14 @@ describe("refresh", () => {
   it(
     "fails a replace whose new film has no still screen, writing nothing",
     async () => {
-      // The committed MP4 is gone, so the video is replaced without a
+      // The committed MP4 is gone, so the video is delivered without a
       // comparison, and its new film recorded no still screen.
       const file = `${KEPT_DIR}/${keptFileName(A)}`;
+      const receiptFile = `${RECEIPT_DIR}/${keptFileName(A)}`;
       const mp4 = await bytes(out.aMp4);
-      const before = await Promise.all([out.aGif, file].map(bytes));
+      const before = await Promise.all(
+        [out.aGif, file, receiptFile].map(bytes),
+      );
       await rm(join(repo, out.aMp4));
       injectExport = (v) =>
         v.fileType === "mp4"
@@ -1111,7 +1152,7 @@ describe("refresh", () => {
         exported.some((e) => e.fileType === "mp4"),
         JSON.stringify(exported),
       ).toBe(true);
-      const after = await Promise.all([out.aGif, file].map(bytes));
+      const after = await Promise.all([out.aGif, file, receiptFile].map(bytes));
       for (const [i, b] of after.entries())
         expect(b.equals(before[i] as Buffer)).toBe(true);
     },
@@ -1158,7 +1199,7 @@ describe("refresh", () => {
         await symlink(outside, join(repo, "linked"));
         await writeFile(
           join(repo, KEPT_DIR, keptFileName("Linked out")),
-          writeV1(
+          serializeKept(
             kept("Linked out", ["Place order"], 1, [
               {
                 path: "linked/c.mp4",
@@ -1206,7 +1247,7 @@ describe("refresh", () => {
         JSON.stringify(r),
       ).toEqual([
         [`${KEPT_DIR}/broken.json`, "failed"],
-        [`${KEPT_DIR}/${keptFileName(A)}`, "replaced"],
+        [`${KEPT_DIR}/${keptFileName(A)}`, "changed"],
       ]);
       expect(r.videos[0]?.detail).toMatch(
         /^\.demoman\/videos\/broken\.json: script\./,
@@ -1250,7 +1291,7 @@ describe("refresh", () => {
         0,
         3500,
       );
-      const video: V1Kept = {
+      const video: KeptVideo = {
         ...base,
         wallpaper: copy,
         script: {
@@ -1279,7 +1320,7 @@ describe("refresh", () => {
           return { r, film, look, again: await refresh([C]) };
         });
         const c = byName(r, C);
-        expect(c.outcome, JSON.stringify(r)).toBe("replaced");
+        expect(c.outcome, JSON.stringify(r)).toBe("uncompared");
         // The look the export recorded is the one keep records for the
         // take: its branding with the repo copy's own bytes.
         expect(look).toBe(
@@ -1379,11 +1420,11 @@ describe("refresh", () => {
             },
           },
         },
-      } as V1Kept;
-      await writeFile(file, writeV1(blurred));
+      } as KeptVideo;
+      await writeFile(file, serializeKept(blurred));
       const r = await refresh([B]);
       const b = byName(r, B);
-      expect(b.outcome, JSON.stringify(r)).toBe("replaced");
+      expect(b.outcome, JSON.stringify(r)).toBe("changed");
       expect(b.detail).toBe(
         `${out.bMp4}: the look changed: the background, padding or logo round the window is not the one the committed video was filmed with`,
       );
@@ -1429,7 +1470,7 @@ describe("refresh", () => {
         0,
         3500,
       );
-      const video: V1Kept = {
+      const video: KeptVideo = {
         ...base,
         logo,
         wallpaper: upload,
@@ -1447,7 +1488,7 @@ describe("refresh", () => {
       try {
         await withKept(video, async () => {
           const first = byName(await refresh([D]), D);
-          expect(first.outcome, first.detail).toBe("replaced");
+          expect(first.outcome, first.detail).toBe("uncompared");
           for (const [what, path, bytes] of [
             ["logo", logo, LOGO_SVG.replace("#ff00ff", "#00ffff")],
             ["upload", upload, await webpOf([200, 60, 30])],
@@ -1455,7 +1496,7 @@ describe("refresh", () => {
             const before = await keptOf(D);
             await writeFile(join(repo, path), bytes);
             const r = byName(await refresh([D]), D);
-            expect(r.outcome, `${what}: ${r.detail}`).toBe("replaced");
+            expect(r.outcome, `${what}: ${r.detail}`).toBe("changed");
             expect(r.detail, what).toBe(
               "docs/branded.mp4: the look changed: the background, padding or logo round the window is not the one the committed video was filmed with",
             );

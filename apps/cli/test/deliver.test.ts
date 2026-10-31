@@ -58,20 +58,30 @@ const gh = (args: string[]) =>
     );
   });
 
-const result = (
-  extra: Partial<RefreshResult["videos"][number]>[] = [],
-): RefreshResult => ({
+type Video = RefreshResult["videos"][number];
+const filmed = {
+  flow: null,
+  deliver: "commit",
+  video: null,
+  filmedCode: null,
+  sameAs: null,
+  screens: null,
+  report: null,
+} as const;
+const result = (extra: Partial<Video>[] = []): RefreshResult => ({
   videos: [
     {
+      ...filmed,
       name: "Add a task",
       file: ".demoman/videos/add-task.json",
-      outcome: "replaced",
+      outcome: "changed",
       detail: "",
       outputs: ["docs/add-task.mp4"],
       line: "Demo: `Add a task` · 4.5 s · matches",
       notes: [],
     },
     ...extra.map((e) => ({
+      ...filmed,
       name: "x",
       file: ".demoman/videos/x.json",
       outcome: "unchanged" as const,
@@ -230,6 +240,44 @@ describe("deliver", () => {
     expect(git(remote, "rev-parse", "main")).toBe(
       git(repo, "rev-parse", "HEAD"),
     );
+  });
+
+  it("an unchanged or failed video is not staged; a files video is never staged", async () => {
+    for (const p of ["docs/a.mp4", "docs/b.mp4", "docs/f.mp4", "docs/n.mp4"])
+      writeFileSync(join(repo, p), "written");
+    const r = result([
+      { name: "Added", outcome: "added", outputs: ["docs/a.mp4"] },
+      {
+        name: "New",
+        outcome: "uncompared",
+        outputs: ["docs/n.mp4", ".demoman/receipts/n.json"],
+      },
+      // A failure that wrote some files partway, and a files flow that
+      // changed: neither belongs in the commit.
+      { name: "Broken", outcome: "failed", outputs: ["docs/b.mp4"] },
+      {
+        name: "Files",
+        deliver: "files",
+        outcome: "changed",
+        outputs: ["docs/f.mp4"],
+      },
+      { name: "Same", outcome: "unchanged", outputs: ["docs/b.mp4"] },
+    ]);
+    mkdirSync(join(repo, ".demoman/receipts"), { recursive: true });
+    writeFileSync(join(repo, ".demoman/receipts/n.json"), "{}");
+    const a = await run("main", r);
+    expect(a).toMatchObject({ delivered: "main", ok: true });
+    expect(
+      git(repo, "show", "--name-only", "--format=", "HEAD").split("\n").sort(),
+    ).toEqual(
+      [
+        ".demoman/receipts/n.json",
+        "docs/a.mp4",
+        "docs/add-task.mp4",
+        "docs/n.mp4",
+      ].sort(),
+    );
+    expect(a.detail).toBe("committed 3 video(s) on main");
   });
 
   it("main: a failed push is reported, not delivered", async () => {

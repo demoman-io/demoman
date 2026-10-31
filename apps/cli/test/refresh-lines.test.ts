@@ -6,7 +6,14 @@ type Video = RefreshResult["videos"][number];
 const video = (name: string, more: Partial<Video>): Video => ({
   name,
   file: `.demoman/videos/${name}.json`,
-  outcome: "replaced",
+  flow: null,
+  deliver: "commit",
+  video: null,
+  filmedCode: null,
+  sameAs: null,
+  screens: null,
+  report: null,
+  outcome: "changed",
   detail: "docs/x.mp4: 0.200% of the picture changed",
   outputs: [],
   line: null,
@@ -30,7 +37,7 @@ describe("refreshLines", () => {
       }),
     ).toEqual({
       lines: [
-        "a: replaced: docs/x.mp4: 0.200% of the picture changed",
+        "a: changed: docs/x.mp4: 0.200% of the picture changed",
         `b: unchanged: ${near}`,
       ],
       code: 0,
@@ -49,7 +56,7 @@ describe("refreshLines", () => {
       }),
     ).toEqual({
       lines: [
-        "a: replaced: docs/x.mp4: 0.200% of the picture changed",
+        "a: changed: docs/x.mp4: 0.200% of the picture changed",
         "b: failed: Stopped after step 1 of 2",
       ],
       code: 1,
@@ -62,8 +69,22 @@ describe("refreshLines", () => {
     ];
     expect(refreshLines({ videos: [video("a", { notes })] })).toEqual({
       lines: [
-        `a: replaced: docs/x.mp4: 0.200% of the picture changed (${notes.join("; ")})`,
+        `a: changed: docs/x.mp4: 0.200% of the picture changed (${notes.join("; ")})`,
       ],
+      code: 0,
+    });
+  });
+  it("names an added and an uncompared video by their own words", () => {
+    const fresh = "nothing to compare against; delivered as new";
+    expect(
+      refreshLines({
+        videos: [
+          video("a", { outcome: "added", detail: "docs/x.gif is new" }),
+          video("b", { outcome: "uncompared", detail: fresh }),
+        ],
+      }),
+    ).toEqual({
+      lines: ["a: added: docs/x.gif is new", `b: uncompared: ${fresh}`],
       code: 0,
     });
   });

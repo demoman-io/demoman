@@ -819,7 +819,7 @@ export async function rewriteKept(
     : { none: true };
 }
 
-async function readReceiptFile(
+export async function readReceiptFile(
   path: string,
   rel: string,
 ): Promise<{ receipt: KeptReceipt } | { missing: true } | { detail: string }> {

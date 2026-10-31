@@ -10,7 +10,13 @@ import {
 } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
-import { KEPT_DIR, keptFileName, type RunReport } from "@demoman/run-core";
+import {
+  KEPT_DIR,
+  type KeptVideo,
+  keptFileName,
+  type RunReport,
+  serializeKept,
+} from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
@@ -19,7 +25,6 @@ import { createVideoStore, type TakeVideo } from "../src/executor/videos.js";
 import type { VideoSummary } from "../src/executor/videos-op.js";
 import { launch } from "../src/launch.js";
 import { serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
-import { type V1Kept, writeV1 } from "./kept-v1.js";
 
 // A run here: about 3 s locally (headless), x5 for CI as executor.test.ts.
 const RUN_MS = 31_000;
@@ -445,12 +450,12 @@ describe("a run joins the kept flow", () => {
   const U2 = "1a2b3c4d-0000-4000-8000-000000000002";
   let checkout: string;
   const keptFile = (name: string) => `${KEPT_DIR}/${keptFileName(name)}`;
-  const keptRecipe = (flow: string, name: string): V1Kept => ({
+  const keptRecipe = (flow: string, name: string): KeptVideo => ({
     keptVersion: 2,
     flow,
     deliver: "commit",
     name,
-    script: script(name) as V1Kept["script"],
+    script: script(name) as KeptVideo["script"],
     scale: 1,
     logo: null,
     wallpaper: null,
@@ -462,12 +467,13 @@ describe("a run joins the kept flow", () => {
         quality: "share",
       },
     ],
-    screens: { steps: 2, moments: [{ step: null, ms: 500 }] },
     report: null,
-    from: { videoId: flow, takeId: "t1", recordedRevision: "r1" },
   });
   const writeRecipe = (flow: string, name: string) =>
-    writeFile(join(checkout, keptFile(name)), writeV1(keptRecipe(flow, name)));
+    writeFile(
+      join(checkout, keptFile(name)),
+      serializeKept(keptRecipe(flow, name)),
+    );
   const runIn = async (args: Record<string, unknown>) => {
     const out = await executor.request("run", { project: checkout, ...args });
     if (!out.ok) throw new Error(JSON.stringify(out));

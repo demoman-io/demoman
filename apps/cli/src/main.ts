@@ -495,7 +495,6 @@ async function refresh(args: string[]): Promise<void> {
           }),
         session,
         env: process.env,
-        git: execGit,
         log,
       },
     );

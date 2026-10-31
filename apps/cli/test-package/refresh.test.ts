@@ -160,7 +160,7 @@ it(
     const changed = await cli("refresh");
     console.info(`[refresh] replaced: ${changed.stdout.trim()}`);
     expect(changed.code, said(changed)).toBe(0);
-    expect(changed.stdout, said(changed)).toContain(`${NAME}: replaced`);
+    expect(changed.stdout, said(changed)).toContain(`${NAME}: changed`);
     const replaced = await kept();
     expect(replaced.equals(original), said(changed)).toBe(false);
     expect(

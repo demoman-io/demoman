@@ -1,17 +1,25 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { KEPT_DIR, type KeptReceipt, keptFileName } from "@demoman/run-core";
+import {
+  KEPT_DIR,
+  type KeptReceipt,
+  type KeptVideo,
+  keptFileName,
+  RECEIPT_DIR,
+  serializeKept,
+  serializeReceipt,
+} from "@demoman/run-core";
 import { beforeEach, describe, expect, it } from "vitest";
 import { libraryAhead } from "../src/executor/keep.js";
 import type { Library } from "../src/executor/library.js";
 import { type RefreshDeps, refreshKept } from "../src/executor/refresh.js";
 import type { Version, VideoStore } from "../src/executor/videos.js";
-import { FLOW_ID, type V1Kept, writeV1 } from "./kept-v1.js";
 
+const FLOW_ID = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
 const NAME = "Place an order";
 const FILE = `${KEPT_DIR}/${keptFileName(NAME)}`;
-const kept: V1Kept = {
+const kept: KeptVideo = {
   keptVersion: 2,
   flow: FLOW_ID,
   deliver: "commit",
@@ -22,16 +30,23 @@ const kept: V1Kept = {
     target: "http://localhost:1/app",
     viewport: { width: 1280, height: 800 },
     steps: [{ do: "waitForLoad" }],
-  } as V1Kept["script"],
+  } as KeptVideo["script"],
   scale: 1,
   logo: null,
   wallpaper: null,
   outputs: [
     { path: "docs/o.mp4", fileType: "mp4", aspect: "16:9", quality: "share" },
   ],
-  screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
   report: null,
-  from: { videoId: FLOW_ID, takeId: "t1", recordedRevision: "r1" },
+};
+/** What the committed files show: video t1 at revision r1. */
+const committed: KeptReceipt = {
+  receiptVersion: 1,
+  flow: FLOW_ID,
+  video: "t1",
+  filmedCode: { none: "test" },
+  screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
+  recordedRevision: "r1",
 };
 const version = (takeId: string): Version => ({
   takeId,
@@ -51,7 +66,12 @@ let reads: number;
 beforeEach(async () => {
   repo = await mkdtemp(join(tmpdir(), "demoman-ahead-"));
   await mkdir(join(repo, KEPT_DIR), { recursive: true });
-  await writeFile(join(repo, FILE), writeV1(kept));
+  await writeFile(join(repo, FILE), serializeKept(kept));
+  await mkdir(join(repo, RECEIPT_DIR), { recursive: true });
+  await writeFile(
+    join(repo, RECEIPT_DIR, keptFileName(NAME)),
+    serializeReceipt(committed),
+  );
   current = { takeId: "t1", revision: "r1", masks: [] };
   reads = 0;
 });
@@ -85,7 +105,6 @@ const deps = (): RefreshDeps => ({
     }) as unknown as ReturnType<RefreshDeps["executor"]>,
   session: {} as RefreshDeps["session"],
   env: {},
-  git: async () => ({ code: 0, stdout: "abc\n", stderr: "" }),
   log: () => undefined,
 });
 
@@ -170,8 +189,9 @@ describe("a kept file that does not parse", () => {
 
 describe("a local refresh films outside the user's library", () => {
   /** Each executor's library, by its home, under the run's own rules for
-   *  `video` (executor.ts): an unknown id is videoNotFound, a name this repo
-   *  already has is nameTaken, and a run into a video adds a version. */
+   *  `video` (executor.ts): an id the repo keeps is adopted, any other
+   *  unknown id is videoNotFound, a name this repo already has is
+   *  nameTaken, and a run into a video adds a version. */
   const libraries = new Map<string, { ids: Set<string>; names: Set<string> }>();
   const runs: { home: string; video: Record<string, unknown> }[] = [];
   const filming = (userHas: boolean): RefreshDeps => {
@@ -202,6 +222,7 @@ describe("a local refresh films outside the user's library", () => {
             value: { outcome: "refusedBeforeRun", reason, detail },
           });
           if ("id" in video) {
+            if (video.id === FLOW_ID) lib.ids.add(FLOW_ID);
             if (!lib.ids.has(String(video.id)))
               return refuse("videoNotFound", `no video has the id ${video.id}`);
             // A new version of the user's video: the take a refresh made.
@@ -244,14 +265,7 @@ describe("a local refresh films outside the user's library", () => {
 });
 
 describe("libraryAhead, given the receipt", () => {
-  const receipt: KeptReceipt = {
-    receiptVersion: 1,
-    flow: FLOW_ID,
-    video: "t1",
-    filmedCode: { none: "test" },
-    screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
-    recordedRevision: "r1",
-  };
+  const receipt = committed;
   const ahead = (r: KeptReceipt | null, d = deps()) =>
     libraryAhead(kept, r, FILE, d);
 
