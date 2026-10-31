@@ -275,7 +275,7 @@ describe("scenes", () => {
         ? json(409, {
             reason: "changedElsewhere",
             detail:
-              "This take changed in another window. Reopen it to keep editing.",
+              "This video changed in another window. Reopen it to keep editing.",
           })
         : undefined,
     );
@@ -285,7 +285,7 @@ describe("scenes", () => {
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(StudioError);
     expect((error as StudioError).message).toBe(
-      "This take changed in another window. Reopen it to keep editing.",
+      "This video changed in another window. Reopen it to keep editing.",
     );
     expect((error as StudioError).reason).toBe("changedElsewhere");
     // Premise: the PUT went, with the revision as If-Match.
@@ -456,13 +456,13 @@ describe("an expired session", () => {
       c.url === "/api/reveal"
         ? json(403, {
             reason: "revealRefused",
-            detail: "/x is not an export any take lists, so it is not shown.",
+            detail: "/x is not an export any video lists, so it is not shown.",
           })
         : undefined,
     );
     await expect(
       platform.files.reveal({ kind: "path", path: "/x" }),
-    ).rejects.toThrow("is not an export any take lists");
+    ).rejects.toThrow("is not an export any video lists");
     expect(gone()).toBeNull();
   });
 });
@@ -743,7 +743,7 @@ describe("exports", () => {
       jobId: "j3",
       phase: "failed",
       reason: "takeNotFound",
-      detail: "Not exported: the take was deleted before its turn came.",
+      detail: "Not exported: the video was deleted before its turn came.",
     });
     await vi.waitFor(() => {
       if (!events.some((e) => e.kind === "failed")) throw new Error("not yet");
@@ -752,7 +752,7 @@ describe("exports", () => {
       {
         kind: "failed",
         jobId: "j3",
-        detail: "Not exported: the take was deleted before its turn came.",
+        detail: "Not exported: the video was deleted before its turn came.",
       },
       { kind: "outputsChanged" },
     ]);
@@ -948,7 +948,7 @@ describe("frames, outputs, nav", () => {
     });
   });
 
-  it("says why the take's video could not be read where the re-record line goes", async () => {
+  it("says why the video's flow could not be read where the re-record line goes", async () => {
     // Red (second review 6): drop videoError on the floor — the editor
     // reads "Ask your agent to film this again." as if it were in no
     // video.

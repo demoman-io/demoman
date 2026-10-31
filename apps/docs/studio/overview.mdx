@@ -1,19 +1,19 @@
 ---
 title: "Overview"
-description: "Look over a take, change it, and export it."
+description: "Look over a video, change it, and export it."
 ---
 
-The Studio is a window where you look over a take, change it, and export it.
-Your agent offers it after a take. Or open it yourself:
+The Studio is a window where you look over a video, change it, and export
+it. Your agent offers it after a run. Or open it yourself:
 
 ```bash
 npx demoman studio
 ```
 
-Name a take to open it directly:
+Name a video to open it directly:
 
 ```bash
-npx demoman studio <take>
+npx demoman studio <video>
 ```
 
 Close the Studio from the terminal:
@@ -22,22 +22,30 @@ Close the Studio from the terminal:
 npx demoman studio --stop
 ```
 
-Your takes, their sizes and your brand kits are listed in the Studio's
-Recordings and Settings pages. When you are done editing, export from the
+Your flows, their sizes and your brand kits are listed in the Studio's
+Flows and Settings pages. When you are done editing, export from the
 studio, or ask your agent to. See [Export](/guides/export).
 
-## Videos and versions
+## Flows, videos and exports
 
-Every take is a version of a video. Your agent names the video when it
-records, and each new recording of the same flow adds a version.
+A **flow** is something in your app you want to show, like "Create an
+invoice". Each time Demoman films it you get a new **video** of that flow,
+numbered 1, 2, 3. Editing a video in the Studio changes that video; filming
+again adds a new one. The Flows page shows each flow with its newest video.
+After 30 days Demoman frees the footage of older videos you never edited or
+exported from; they stay listed as expired and can be filmed again from
+their script. Deleting a flow deletes all its videos. Files you exported
+are never touched.
 
-The Recordings page shows one card per video, with its current version: the
-newest one that finished. Open **versions** on the card to see each one, its
-date and the files exported from it. A file that was moved or deleted is
-marked gone. Rename a video by its name on the card. Delete on the card
-deletes the whole video; Delete on a version deletes that take.
+Your agent names the flow when it films. Open **videos** on a flow's card to
+see each one, its date and the files exported from it. A file that was moved
+or deleted is marked gone. Rename a flow by its name on the card. Delete on
+the card deletes the whole flow; Delete on a video's row deletes that video.
 
-Recordings over 30 days old are removed on their own, except the current
-version, any version you edited, and the one your newest export came from.
-A removed version keeps its steps and says how to ask your agent to record
-it again. See [Data](/security/data).
+To delete many flows at once, tick the box in a card's corner (it shows on
+hover), then tick the others, or Shift-click to tick a range. **Delete** in
+the bar above the list asks once. A flow that cannot go, such as one being
+exported, stays ticked and is named with the reason.
+
+An expired video keeps its steps and says how to ask your agent to film it
+again. See [Data](/security/data).

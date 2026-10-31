@@ -25,7 +25,7 @@ const savedArgs = () => ({
   screens: { steps: 0, moments: [] },
 });
 
-describe("an export of a take edited after recording", () => {
+describe("an export of a take edited after filming", () => {
   it("says which step, what it was and is, and names the re-record of its video", () => {
     // Red: build the call from the take id — `run({ takeId })`, which run
     // refuses (videoRequired).
@@ -40,9 +40,9 @@ describe("an export of a take edited after recording", () => {
     });
     expect(report.outcome).toBe("saved");
     const line = exportVerdict(report);
-    expect(line).toMatch(/1 step was edited after recording/);
+    expect(line).toMatch(/1 step was edited after filming/);
     expect(line).toContain(`ac-7: "Lumen" → "Maple"`);
-    expect(line).toContain(`run({ video: { id: "${VIDEO}" } }) re-records it`);
+    expect(line).toContain(`run({ flow: { id: "${VIDEO}" } }) re-films it`);
     expect(line).not.toContain("takeId");
     // A take in no video (or one whose video will not read) names the shape.
     for (const videoId of [null, undefined]) {
@@ -53,7 +53,7 @@ describe("an export of a take edited after recording", () => {
           ...(videoId === undefined ? {} : { videoId }),
         }),
       );
-      expect(none).toContain("re-record it with run's video: { id }");
+      expect(none).toContain("re-film it with run's flow: { id }");
       expect(none).not.toContain("takeId");
     }
   });
@@ -97,9 +97,9 @@ describe("an export of a take edited after recording", () => {
     );
     // Premise: the first entry said whole is the text one.
     expect(line).toContain(`ac-7: "Lumen" → "Maple"`);
-    expect(line).toMatch(/2 steps were edited after recording/);
+    expect(line).toMatch(/2 steps were edited after filming/);
     expect(line).toContain(
-      "ac-4's step changed from type to click, so derive this take, check the step, and run the draft",
+      "ac-4's step changed from type to click, so derive this video, check the step, and run the draft",
     );
     expect(line).not.toMatch(/re-records? it/);
   });
@@ -150,7 +150,7 @@ describe("an export of a take edited after recording", () => {
     const none = exportVerdict(
       reportForSave({ ...savedArgs(), editedSinceRecorded: edited, masks: 0 }),
     );
-    expect(none).toMatch(/edited after recording/);
+    expect(none).toMatch(/edited after filming/);
     expect(none).not.toMatch(/mask/);
     const untouched = exportVerdict(
       reportForSave({ ...savedArgs(), editedSinceRecorded: [], masks: 2 }),
@@ -186,7 +186,7 @@ describe("an export of a take edited after recording", () => {
     const clean = exportVerdict(
       reportForSave({ ...savedArgs(), editedSinceRecorded: [] }),
     );
-    expect(clean).not.toMatch(/edited after recording/);
+    expect(clean).not.toMatch(/edited after filming/);
     // Premise: the clean line is the plain saved sentence.
     expect(clean).toMatch(/^Saved /);
   });

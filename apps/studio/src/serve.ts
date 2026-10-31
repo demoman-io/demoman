@@ -108,7 +108,11 @@ export function buildHandlers(o: {
 }): StudioHandlers {
   const { library } = o;
   const noTake = (id: string): StudioResponse =>
-    refuse(404, "takeNotFound", `There is no take "${id}" in ${library.root}.`);
+    refuse(
+      404,
+      "takeNotFound",
+      `There is no video "${id}" in ${library.root}.`,
+    );
 
   /** Whether `id` is a take now; a library that will not read throws. */
   const exists = async (id: string): Promise<boolean> =>
@@ -211,7 +215,7 @@ export function buildHandlers(o: {
         return refuse(
           428,
           "sceneNotSaved",
-          "The export carried no revision, so it could not be checked against the take on disk.",
+          "The export carried no revision, so it could not be checked against the video on disk.",
         );
       }
       const started = await o.queue.start(id, {
@@ -351,7 +355,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
     await ownHome(home);
   } catch (error) {
     log(
-      `studio: ${home} could not be made owner-only (${messageOf(error)}), so other users on this machine may read its takes`,
+      `studio: ${home} could not be made owner-only (${messageOf(error)}), so other users on this machine may read its videos`,
     );
   }
   try {

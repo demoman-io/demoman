@@ -93,7 +93,7 @@ export async function postToolUseAnswer(
   if (setting.value === "off") return null;
   if (host !== "github.com") {
     return answer(
-      `Demoman: that call names pull request ${url}, on ${host}, and this repo's Demoman pullRequests setting is "${setting.value}", but attach works only on github.com. If that pull request was opened now, follow the recipe's Pull requests section with export({ takeId, maxMB: 9.5 }) in place of attach, giving the user its file.path to drag into the PR (call the recipe tool if it is not in context).`,
+      `Demoman: that call names pull request ${url}, on ${host}, and this repo's Demoman pullRequests setting is "${setting.value}", but attach works only on github.com. If that pull request was opened now, follow the recipe's Pull requests section with export({ videoId, maxMB: 9.5 }) in place of attach, giving the user its file.path to drag into the PR (call the recipe tool if it is not in context).`,
     );
   }
   return answer(

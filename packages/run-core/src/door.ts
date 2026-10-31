@@ -167,7 +167,7 @@ export function checkScript(
           : `; and besides the holes — ${others.map((i) => `${issueFields(i).join(", ")}: ${i.message}`).join("; ")}`;
       return refuse(
         "unfilledHoles",
-        `the script derived from a take still has ${plural(open.length, "hole")} to fill (${open.join(", ")}) — the derive report says what each one needs${rest}`,
+        `the script derived from a video still has ${plural(open.length, "hole")} to fill (${open.join(", ")}) — the derive report says what each one needs${rest}`,
         fields.join(", "),
       );
     }

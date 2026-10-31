@@ -146,14 +146,14 @@ describe("brandingForTake", () => {
     const out = brandingForTake(coerceBrandKits([dark], "kit-gone"));
     expect(out.branding).toEqual(BRANDING_DEFAULTS);
     expect(out.brandKitError).toBe(
-      "Your default brand kit is missing, so this take uses the default background",
+      "Your default brand kit is missing, so this video uses the default background",
     );
   });
   it("names the default kit that could not be read", () => {
     const out = brandingForTake(coerceBrandKits([broken, dark], "kit-broken"));
     expect(out.branding).toEqual(BRANDING_DEFAULTS);
     expect(out.brandKitError).toMatch(
-      /^Your default brand kit "Broken" could not be read, so this take uses the default background: background/,
+      /^Your default brand kit "Broken" could not be read, so this video uses the default background: background/,
     );
   });
   it("says the list could not be read", () => {
@@ -161,7 +161,7 @@ describe("brandingForTake", () => {
       brandingForTake({ state: "invalid", reason: "storage refused" })
         .brandKitError,
     ).toBe(
-      "Your brand kits could not be read, so this take uses the default background: storage refused",
+      "Your brand kits could not be read, so this video uses the default background: storage refused",
     );
   });
   it("hands out a copy, never the stored kit object itself", () => {
@@ -271,7 +271,7 @@ describe("lookForRun", () => {
     expect(out.ok && out.startingBranding).toEqual(BRANDING_DEFAULTS);
     expect(out.ok && out.look.branding).toBe("defaults");
     expect(out.ok && out.look.brandKitError).toMatch(
-      /^Your default brand kit "Broken" could not be read, so this take uses the default background: /,
+      /^Your default brand kit "Broken" could not be read, so this video uses the default background: /,
     );
   });
   it("reports the default kit's failure even when the script's branding made it moot", () => {
@@ -280,7 +280,7 @@ describe("lookForRun", () => {
       coerceBrandKits([broken], "kit-broken"),
     );
     expect(out.ok && out.look.brandKitError).toMatch(
-      /^Your default brand kit "Broken" could not be read \(.+\); this take uses the script's own branding$/,
+      /^Your default brand kit "Broken" could not be read \(.+\); this video uses the script's own branding$/,
     );
     expect(out.ok && out.look.brandKitError).not.toMatch(/default background/);
   });

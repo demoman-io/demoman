@@ -504,7 +504,7 @@ function buildStopped(
       label: step
         ? `${step.kind} ${step.label}`
         : scene === null
-          ? "(no take was assembled, so no step can be named)"
+          ? "(no video was assembled, so no step can be named)"
           : lastAttempted !== null
             ? `script step ${lastAttempted.index + 1}: ${scriptStepLabel(lastAttempted.step)}`
             : // Reached only with a document AND no attempted step, which the
@@ -714,14 +714,14 @@ export function verdictLine(report: RunReport): string {
   if (unstored.length > 0) {
     const said = unstored.map((w) => `${w.what} (${w.error})`).join("; ");
     const take = unstored.some((w) => w.what === "take")
-      ? "The run's take did not reach the library"
+      ? "The run's video did not reach the library"
       : unstored.some((w) => w.what === "renderMode")
-        ? "The re-shoot's frames are stored, but the take still plays its recording"
+        ? "The re-shoot's frames are stored, but the video still plays its original footage"
         : // Launch C: a session file is not part of the take's record, so a
           // write-back alone does not call the take incomplete.
           unstored.every((w) => w.what === "session")
-          ? "The run's take is in the library, but the site's session could not be saved back"
-          : "The run's take is in the library, but part of its record is not";
+          ? "The run's video is in the library, but the site's session could not be saved back"
+          : "The run's video is in the library, but part of its record is not";
     return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${lookClause(report)}`;
   }
   return `${runVerdictLine(report)}${framesClause(report)}${lookClause(report)}`;
@@ -880,7 +880,7 @@ function runVerdictLine(report: RunReport): string {
   // A re-shoot names a take, not a script: `run.script` is `{ takeId }`.
   const asked =
     "takeId" in report.run.script
-      ? "the take recorded"
+      ? "the original footage showed"
       : "the script asked for";
   if (report.verdict.kind === "matches") {
     return `Complete: the video matches every step ${asked}.`;

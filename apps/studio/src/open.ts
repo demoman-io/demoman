@@ -291,14 +291,14 @@ export async function openStudio(o: {
     if (!library.isTakeId(o.takeId)) {
       return {
         reason: "takeNotFound",
-        detail: `${JSON.stringify(o.takeId)} is not a take id, so no take has it.`,
+        detail: `${JSON.stringify(o.takeId)} is not a video id, so no video has it.`,
       };
     }
     try {
       if ((await library.getScene(o.takeId)) === null) {
         return {
           reason: "takeNotFound",
-          detail: `No take has the id ${o.takeId}.`,
+          detail: `No video has the id ${o.takeId}.`,
         };
       }
     } catch (error) {

@@ -288,7 +288,7 @@ describe("videosOp", () => {
       value: {
         file: {
           takeId: "take-deleted",
-          notInVideo: expect.stringContaining("no longer a version"),
+          notInVideo: expect.stringContaining("no longer in"),
         },
       },
     });
@@ -345,6 +345,29 @@ describe("videosOp", () => {
       ]),
     );
     expect(got.unreadable).toHaveLength(2);
+  });
+
+  it("lists a take in no flow under outsideFlows", async () => {
+    // Red: drop outsideFlows — a run that could not join its flow is listed
+    // by no tool until JOIN_GRACE_MS passes.
+    await video("Alpha", "2026-10-01T00:00:00.000Z", { unknown: true });
+    const lib = createLibrary(home);
+    const doc = structuredClone(readOnlySceneJson()) as SceneDocument;
+    doc.meta.id = "take-loose";
+    doc.meta.createdAt = new Date().toISOString();
+    await lib.putScene(doc);
+    // Premise: the loose take is young enough that the join leaves it out.
+    const got = (await ask()) as Outcome & {
+      value: { outsideFlows: unknown[]; videos: { versions: number }[] };
+    };
+    expect(value(got).videos).toMatchObject([{ name: "Alpha", versions: 1 }]);
+    expect(got.value.outsideFlows).toEqual([
+      {
+        takeId: "take-loose",
+        name: doc.meta.name,
+        createdAt: doc.meta.createdAt,
+      },
+    ]);
   });
 
   it("says a lock another process holds as deferred, never as unreadable takes", async () => {

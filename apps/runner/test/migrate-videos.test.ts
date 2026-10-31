@@ -354,7 +354,7 @@ describe("ensureVideos re-joins, skips and keeps apart", () => {
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(VideoError);
     expect(err).toMatchObject({ reason: "videoUnwritable" });
-    expect((err as Error).message).toContain("take a is gone");
+    expect((err as Error).message).toContain("video a is gone");
     await expect(stat(lib.takeDir("a"))).rejects.toMatchObject({
       code: "ENOENT",
     });

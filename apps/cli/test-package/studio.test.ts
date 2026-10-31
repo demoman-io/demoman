@@ -45,7 +45,7 @@ afterAll(async () => {
 type Answer = {
   outcome: string;
   id?: string;
-  provenance?: { takeId?: string };
+  provenance?: { videoId?: string };
 };
 
 async function takeId(): Promise<string> {
@@ -60,7 +60,7 @@ async function takeId(): Promise<string> {
         await c.callTool({
           name: "run",
           arguments: {
-            video: { new: "Place an order", confirmedNew: true },
+            flow: { new: "Place an order", confirmedNew: true },
             script: {
               scriptVersion: 1,
               name: "Place an order",
@@ -82,7 +82,7 @@ async function takeId(): Promise<string> {
       ) as Answer;
     }
     expect(v.outcome, JSON.stringify(v)).toBe("complete");
-    const id = v.provenance?.takeId;
+    const id = v.provenance?.videoId;
     if (id === undefined)
       throw new Error(`the run names no take: ${JSON.stringify(v)}`);
     return id;

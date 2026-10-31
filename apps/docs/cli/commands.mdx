@@ -61,32 +61,32 @@ sign in on CI. See [Authentication](/guides/authentication).
 ## studio
 
 ```bash
-npx demoman studio [take]
+npx demoman studio [video]
 npx demoman studio --stop
 ```
 
-Opens the Studio, on a take when you name one, or closes it with `--stop`.
+Opens the Studio, on a video when you name one, or closes it with `--stop`.
 See [Overview](/studio/overview).
 
 ## keep
 
 ```bash
-npx demoman keep <video> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
+npx demoman keep <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
 ```
 
-Keeps a video current. Run it in the repo, naming one of its videos by id or
+Keeps a flow current. Run it in the repo, naming one of its flows by id or
 exact name. It writes `.demoman/videos/<name>.json`, everything a re-film
-needs, and exports the video to each path. Commit both. A logo from outside
+needs, and exports its current video to each path. Commit both. A logo from outside
 the repo is copied to `.demoman/videos/logos/`.
 
-It refuses, writing nothing, a video whose current version has Studio edits
+It refuses, writing nothing, a flow whose current video has Studio edits
 a re-film does not carry (a mask, a trim, a cut, a split, a hold, a gap, a
-placed zoom), typed text the recording never read, or a site signed in to by
+placed zoom), typed text the video never read, or a site signed in to by
 hand with `signin` rather than as a demo account.
 
 | Flag | |
 | --- | --- |
-| `--to <path>[:<aspect>]` | An MP4 to write, repeatable; the aspect is `auto`, `16:9` or `9:16`, the take's own by default |
+| `--to <path>[:<aspect>]` | An MP4 to write, repeatable; the aspect is `auto`, `16:9` or `9:16`, the video's own by default |
 | `--gif <path>[:<aspect>]` | A GIF to write, repeatable |
 | `--report <path>` | Where to write the run report |
 | `--quality <quality>` | The MP4s' quality: `share` (the default, small to commit), `high` or `full` |
@@ -94,10 +94,10 @@ hand with `signin` rather than as a demo account.
 ## refresh
 
 ```bash
-npx demoman refresh [<video>…] [--base-url <origin>] [--deliver pr|main]
+npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main]
 ```
 
-Films every video kept in `.demoman/videos/` again, or only those named, with
+Films every flow kept in `.demoman/videos/` again, or only those named, with
 no agent. Each output whose picture changed is replaced; one that looks the
 same is left as it is, so an unchanged app makes no commit. A video whose run
 was not clean (a step stopped or did not match, a frame was lost, the logo
@@ -135,7 +135,7 @@ demoman hook post-tool-use
 
 The Claude Code plugin runs this after a tool call opens a pull request.
 It reads the call on stdin and, unless the repo's `pullRequests` setting is
-`off`, reminds the agent to attach a demo.
+`off`, reminds the agent to attach a video.
 
 ## `--version`
 
@@ -147,7 +147,7 @@ npx demoman --version
 
 | Variable | |
 | --- | --- |
-| `DEMOMAN_HOME` | Where Demoman keeps its takes, sessions and settings; `~/.demoman` by default |
+| `DEMOMAN_HOME` | Where Demoman keeps its videos, sessions and settings; `~/.demoman` by default |
 | `DEMOMAN_NO_UPDATE_CHECK=1` | Turns off the once-a-day check for a newer version |
 | `DEMOMAN_SECRET_<NAME>` | A demo account's secret, on CI |
 | `DEMOMAN_SECRET_<NAME>_ORIGIN` | The one site that secret may be typed on |

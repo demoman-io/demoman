@@ -422,7 +422,7 @@ export function stopDetail(target: string, played: Played): string | undefined {
                     ? `${target} did not load (${navigationError}) — check that the app is running at that address`
                     : undefined;
   return signedOutAfter !== null && result.reason !== null
-    ? `${signedOutAfter} The take was not kept: it would end on the sign-in page. ${ownStop(result, ownDetail ?? reasonSentence(result.reason))}`
+    ? `${signedOutAfter} The video was not kept: it would end on the sign-in page. ${ownStop(result, ownDetail ?? reasonSentence(result.reason))}`
     : walkedReason(played) === "signedOut" && failedNote !== undefined
       ? `${failedNote} Nothing was recorded.`
       : ownDetail;

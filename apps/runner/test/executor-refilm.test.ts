@@ -168,10 +168,10 @@ describe("re-filming a take whose typed text was edited", () => {
       ]);
       expect(edited.warnings.targetCheck).toBe("checked");
       // Red (final review 2): leave the video out of the report — the
-      // summary cannot name the call that re-records it.
+      // summary cannot name the call that re-films it.
       expect(edited.warnings.videoId).toBe(videoId);
       expect(edited.summary).toContain(
-        `run({ video: { id: "${videoId}" } }) re-records it`,
+        `run({ flow: { id: "${videoId}" } }) re-films it`,
       );
 
       const refilm = await runOf({

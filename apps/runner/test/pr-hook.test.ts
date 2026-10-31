@@ -103,7 +103,7 @@ describe("postToolUseAnswer", () => {
     expect(text).toContain(ghe);
     expect(text).toContain("on git.corp.example");
     expect(text).toContain("attach works only on github.com");
-    expect(text).toContain("export({ takeId, maxMB: 9.5 })");
+    expect(text).toContain("export({ videoId, maxMB: 9.5 })");
     expect(text).toContain('"attach"');
     // Off is still off, on any host.
     const off = await setup('{"pullRequests":"off"}');

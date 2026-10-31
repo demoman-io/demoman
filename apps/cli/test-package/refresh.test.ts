@@ -101,7 +101,7 @@ async function film(name: string, on: string): Promise<void> {
   );
   try {
     const args = {
-      video: { new: name, confirmedNew: true },
+      flow: { new: name, confirmedNew: true },
       project: repo,
       script: {
         scriptVersion: 1,

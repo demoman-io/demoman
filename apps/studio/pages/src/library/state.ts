@@ -555,8 +555,8 @@ export function buildLibraryModel(args: {
 
 /** One flow a bulk delete tried: gone (with the studio's note on what it
  *  cleared or left), or stayed, and why. */
-export type BulkOutcome = { id: string; name: string } & (
-  | { gone: true; note?: string }
+export type BulkOutcome = { id: string; name: string; note?: string } & (
+  | { gone: true }
   | { stayed: string }
 );
 
@@ -574,8 +574,10 @@ export function bulkSentence(outcomes: readonly BulkOutcome[]): {
   const stayed = outcomes.flatMap((o) =>
     "stayed" in o ? [`${o.name} stayed: ${o.stayed.replace(/\.$/, "")}.`] : [],
   );
+  // What a delete cleared or left behind is said whether or not another
+  // flow stayed: bytes left to delete by hand are owed either way.
+  const notes = outcomes.flatMap((o) => (o.note === undefined ? [] : [o.note]));
   if (stayed.length === 0) {
-    const notes = gone.flatMap((o) => (o.note === undefined ? [] : [o.note]));
     return {
       text: [`Deleted ${flows(gone.length)}.`, ...notes].join(" "),
       level: "info",
@@ -585,5 +587,5 @@ export function bulkSentence(outcomes: readonly BulkOutcome[]): {
     gone.length === 0
       ? "No flows were deleted."
       : `Deleted ${gone.length} of ${flows(outcomes.length)}.`;
-  return { text: [lead, ...stayed].join(" "), level: "warn" };
+  return { text: [lead, ...stayed, ...notes].join(" "), level: "warn" };
 }

@@ -14,7 +14,16 @@ import {
   type Outcome,
   RUN_TOOL_CAP_MS,
 } from "@demoman/agent-bridge";
-import { EXPORT_QUALITY_VALUES } from "@demoman/run-core";
+import {
+  EXPORT_QUALITY_VALUES,
+  isFlowId,
+  type RunReport,
+  servedExportReport,
+  servedFlowsAnswer,
+  servedReason,
+  servedRefusal,
+  servedRunReport,
+} from "@demoman/run-core";
 import { DEVICE_IDS } from "@demoman/scene-schema";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -60,6 +69,92 @@ const refused = (reason: string, detail: string): ToolResult => ({
 });
 const fromOutcome = (o: Outcome): ToolResult =>
   o.ok ? ok(o.value) : refused(o.reason, o.detail);
+
+/**
+ * An answer in the words agents are served (spec 2026-10-30
+ * flows-and-bulk-delete §2): a flow is what is filmed, a video one recording
+ * of it. The executor and the library keep the older words; every answer a
+ * tool gives passes through here on its way out.
+ */
+function served(op: string, o: Outcome): Outcome {
+  if (!o.ok) return { ...o, reason: servedReason(o.reason) };
+  const v = o.value;
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return o;
+  const value = v as Record<string, unknown>;
+  if (value.outcome === "refusedBeforeRun") {
+    return { ok: true, value: servedRefusal(value) };
+  }
+  if ((op === "run" || op === "probe") && "provenance" in value) {
+    return { ok: true, value: servedRunReport(value as unknown as RunReport) };
+  }
+  if (op === "export" || op === "attach") {
+    return { ok: true, value: servedExportReport(value) };
+  }
+  if (op === "videos") return { ok: true, value: servedFlowsAnswer(value) };
+  if (op === "derive" && typeof value.report === "object") {
+    const report = { ...(value.report as Record<string, unknown>) };
+    if (typeof report.outcome === "string") {
+      report.outcome = servedReason(report.outcome);
+    }
+    if ("takeId" in report) {
+      report.videoId = report.takeId;
+      delete report.takeId;
+    }
+    return { ok: true, value: { ...value, report } };
+  }
+  if (op === "status" && typeof value.runPage === "object") {
+    // The last run's report, read after a lost call: a door to the report
+    // like run's own, so it is served like run's own.
+    const page = served("run", { ok: true, value: value.runPage });
+    return {
+      ok: true,
+      value: { ...value, runPage: page.ok ? page.value : value.runPage },
+    };
+  }
+  return o;
+}
+
+/** What an old argument name is now. Refused, never dropped or read with
+ *  its new meaning: until 2026-10-30 an agent's "video" was a flow. */
+const RENAMED: Record<string, string> = {
+  video:
+    "`video` is now `flow`: a flow is what you film; a video is one recording of it.",
+  takeId: "`takeId` is now `videoId`.",
+};
+function oldArgument(args: Record<string, unknown>): ToolResult | null {
+  for (const [name, sentence] of Object.entries(RENAMED)) {
+    if (args[name] !== undefined) return refused("invalidArgs", sentence);
+  }
+  return null;
+}
+/** A flow's id where a video's goes, said as that — never as a video that
+ *  was not found, which reads as deleted. */
+const notAVideoId = (id: string): ToolResult | null =>
+  isFlowId(id)
+    ? refused(
+        "wrongIdKind",
+        `${id} is a flow's id; pass one of its videos' ids — flows({}) lists them`,
+      )
+    : null;
+const notAFlowId = (id: string): ToolResult | null =>
+  isFlowId(id)
+    ? null
+    : refused(
+        "wrongIdKind",
+        `${id} is not a flow's id (a flow's id is a UUID); if it is a video's, pass its flow's id — flows({}) lists them`,
+      );
+/** `videoId` given, of the right kind, and no old name beside it. */
+function videoArgs(args: Record<string, unknown>): ToolResult | null {
+  const old = oldArgument(args);
+  if (old !== null) return old;
+  if (typeof args.videoId !== "string") {
+    return refused(
+      "invalidArgs",
+      "videoId is required: the video's id — flows({}) lists each flow's videos and, under outsideFlows, those in none",
+    );
+  }
+  return notAVideoId(args.videoId);
+}
 
 /**
  * A run's or probe's answer with its final still (spec 2026-10-30 A1): the
@@ -284,20 +379,18 @@ const SNAPSHOT_TAIL =
  * extension executor had words of its own beside these.)
  */
 const DESCRIPTIONS: Record<
-  "status" | "snapshot" | "probe" | "takes" | "videos" | "run" | "export",
+  "status" | "snapshot" | "probe" | "flows" | "run" | "export",
   string
 > = {
   status:
-    "Is this demoman-mcp's own browser up? executor \"cli\": this server runs scripts in a browser of its own, with no extension to connect or approve. Answers version, browserInstalled (false: the first snapshot or run answers browserMissing with the command that installs it), browserRunning (the window opens on the first snapshot, run or export and stays open between calls), runnerVersion, runPage (the latest run's report or its progress), and update (newer: true means a newer Demoman is out; tell the user once). expiry is the last cleanup of old recordings: {ranAt, expired, freedBytes, skippedLeased}, {ranAt, failed}, {never: true} or {unreadable}. sessions lists the sessions saved (site, savedAt, refreshedAt, signInUrl; an account's carries account and origin too, a plain entry is the site's manual session), or {unreadable} saying why it could not be read. accounts is the demo accounts in .demoman/accounts.json: {file, sites: [{origin, default, accounts: [{name, about, session}]}]}, {file: null, searchedFrom} when there is none, or {file, invalid, field} when it cannot be used; secretsFile is null, {path, absent}, {path, git: ignored or notGit} or {path, refused}. Never a value. pullRequests is the pull-request video setting: {value: off, ask or attach, from: repo, user or default, file?}, or {unreadable, file} when its file cannot be used (never read that as off; file null: project is not a usable folder); pass project (absolute path) to read another checkout's.",
+    "Is this demoman-mcp's own browser up? executor \"cli\": this server runs scripts in a browser of its own, with no extension to connect or approve. Answers version, browserInstalled (false: the first snapshot or run answers browserMissing with the command that installs it), browserRunning (the window opens on the first snapshot, run or export and stays open between calls), runnerVersion, runPage (the latest run's report or its progress), and update (newer: true means a newer Demoman is out; tell the user once). expiry is the last cleanup of old videos: {ranAt, expired, freedBytes, skippedLeased}, {ranAt, failed}, {never: true} or {unreadable}. sessions lists the sessions saved (site, savedAt, refreshedAt, signInUrl; an account's carries account and origin too, a plain entry is the site's manual session), or {unreadable} saying why it could not be read. accounts is the demo accounts in .demoman/accounts.json: {file, sites: [{origin, default, accounts: [{name, about, session}]}]}, {file: null, searchedFrom} when there is none, or {file, invalid, field} when it cannot be used; secretsFile is null, {path, absent}, {path, git: ignored or notGit} or {path, refused}. Never a value. pullRequests is the pull-request video setting: {value: off, ask or attach, from: repo, user or default, file?}, or {unreadable, file} when its file cannot be used (never read that as off; file null: project is not a usable folder); pass project (absolute path) to read another checkout's.",
   snapshot: `Open url in this server's own browser — signed in where the user ran npx demoman signin, or as a demo account (account; project: absolute path) — and ${SNAPSHOT_TARGETS} kits is {ok: true, kits: [{name, default, valid}]}: the user's brand kits; name one in a script's look.kit only when the user asked for that look; {ok: false, reason} means unreadable: name none. landedElsewhere true means the app redirected: session "signedOut" (or a plain sign-in landedUrl with "none"/"unchecked") means a sign-in page: spend no run; set up a demo account (recipe) or give the user sessionDetail's command (npx demoman signin <the page>). signedIn means Demoman signed in first. If landedUrl is not a sign-in page, use it as the target. ${SNAPSHOT_TAIL} Past about 50 s it answers {outcome: "stillRunning", id}; then call report with that id.`,
-  takes:
-    "The takes this demoman-mcp's own browser made, newest first: id, name, createdAt, mode, actions. A folder that is not a readable take comes last as {id, unreadable}, saying why. Not the user's Demoman library in their browser.",
-  videos:
-    "The videos in this repo (project: absolute path of another checkout; videos of unknown repo are listed everywhere), newest first: id, name, repo, startPage, versions, current {version, takeId, recordedAt, expired}, pages, steps (the first 12), exports {takeId, path, fileType, exists} of every version. Pass query to find the ones about a phrase (best match first, over every step; no match is an empty list), or file (absolute path of an exported MP4, GIF or PNG) to find the video it was exported from, and file {takeId, version, current, expired} saying which version it is ({takeId, notInVideo} when that take is no longer one). unreadable lists takes and video records that could not be read, each {id, unreadable}. deferred is null, or why takes not yet in a video were left out this time (another Demoman process holds the library; ask again). Refused: noTag (the file carries no Demoman tag), unknownVideo (its video is not in this library; detail names the id), fileNotFound, videoUnreadable, invalidProject, invalidArgs (file with query).",
-  probe: `Play a draft script's steps in this server's own browser, unfilmed, and list the targets on the page they end on: the way to see what a click, hover or typing creates (a menu, dialog, panel, results), which snapshot cannot list. script is the script you mean to run, with its steps cut off after the one that opens what you need; it is refused exactly as run would refuse it. The steps really act on the app, every time: "Add item" adds one on each probe and again in the run, and a delete deletes. Data the app keeps on its server carries into the run; browser storage does not (a run on a signed-in site saves its own with the session). Prefer demo data and steps that look rather than change. No take is made and it is not a run. Answers snapshot's fields: url, landedUrl, landedElsewhere and session describe the arrival at script.target, before any step; title, settled, targets, unresolvable, notExamined and size describe the page the steps ended on (endedUrl). Plus steps {played, of}, counted as a run counts them (pauses are not steps), and stopped: null, or {at, reason, detail} with a run's reason when a step could not play; targets then list the page where it stopped (empty, with settleNote saying why, when it cannot be listed), and detail is worded for a run: where it says run again, probe again. Copy targets verbatim; never compose one. still is the viewport where the steps ended, attached as an image after this text (its file still.path), and endPage that page's url, text and each field's value. account, project and contains as for snapshot. Past about 50 s it answers {outcome: "stillRunning", id}; then call report with that id.`,
-  run: "Run a DemoScript in this demoman-mcp's own browser (signed in where the user ran npx demoman signin, or as the account the script names; project is the absolute path of another checkout) and answer its report, which carries account and signedIn; the take is saved on disk. The report's still is the film's last frame, attached as an image after the text (its file still.path), and endPage the page it ended on (url, text, fields): the verdict says the actions happened, the still shows what the video does. Every run names its video: video {id} adds a version to that video, {new: name} starts one (refused as possibleDuplicate, listing matches, when a similar name exists in this repo; pass confirmedNew: true if it is a different flow). video {id} with no script re-records the current version of that video, studio edits included: a new version, counted as a run. A second run, snapshot or probe while one is in progress is refused (alreadyRunning). Answers {outcome: \"stillRunning\", id} if it takes longer than about 50 s; then call report with that id.",
+  flows:
+    "The flows in this repo — a flow is what you film, a video one recording of it (project: absolute path of another checkout; flows of unknown repo are listed everywhere), newest first: flows [{id, name, repo, startPage, videos (how many), current {number, videoId, recordedAt, expired}, pages, steps (the first 12), exports {videoId, path, fileType, exists} of every video}]. Pass query to find the ones about a phrase (best match first, over every step; no match is an empty list), or file (absolute path of an exported MP4, GIF or PNG) to find the flow it was exported from, and file {videoId, number, current, expired} saying which video it is ({videoId, notInFlow} when that video is no longer in one). outsideFlows lists videos in no flow yet, newest first, each {videoId, name, createdAt} (a run that could not join its flow; export and studio accept its videoId). unreadable lists videos and flow records that could not be read, each {id, unreadable}. deferred is null, or why videos not yet in a flow were left out this time (another Demoman process holds the library; ask again). Refused: noTag (the file carries no Demoman tag), unknownFlow (its flow is not in this library; detail names the id), fileNotFound, flowUnreadable, invalidProject, invalidArgs (file with query).",
+  probe: `Play a draft script's steps in this server's own browser, unfilmed, and list the targets on the page they end on: the way to see what a click, hover or typing creates (a menu, dialog, panel, results), which snapshot cannot list. script is the script you mean to run, with its steps cut off after the one that opens what you need; it is refused exactly as run would refuse it. The steps really act on the app, every time: "Add item" adds one on each probe and again in the run, and a delete deletes. Data the app keeps on its server carries into the run; browser storage does not (a run on a signed-in site saves its own with the session). Prefer demo data and steps that look rather than change. No video is made and it is not a run. Answers snapshot's fields: url, landedUrl, landedElsewhere and session describe the arrival at script.target, before any step; title, settled, targets, unresolvable, notExamined and size describe the page the steps ended on (endedUrl). Plus steps {played, of}, counted as a run counts them (pauses are not steps), and stopped: null, or {at, reason, detail} with a run's reason when a step could not play; targets then list the page where it stopped (empty, with settleNote saying why, when it cannot be listed), and detail is worded for a run: where it says run again, probe again. Copy targets verbatim; never compose one. still is the viewport where the steps ended, attached as an image after this text (its file still.path), and endPage that page's url, text and each field's value. account, project and contains as for snapshot. Past about 50 s it answers {outcome: "stillRunning", id}; then call report with that id.`,
+  run: "Run a DemoScript in this demoman-mcp's own browser (signed in where the user ran npx demoman signin, or as the account the script names; project is the absolute path of another checkout) and answer its report, which carries account and signedIn; the video is saved on disk, provenance.videoId its id. The report's still is the film's last frame, attached as an image after the text (its file still.path), and endPage the page it ended on (url, text, fields): the verdict says the actions happened, the still shows what the video does. Every run names its flow — what it films: flow {id} adds a video to that flow, {new: name} starts one (refused as possibleDuplicate, listing matches, when a similar name exists in this repo; pass confirmedNew: true if it is a different flow). flow {id} with no script films the flow's current video again, studio edits included: a new video, counted as a run. A second run, snapshot or probe while one is in progress is refused (alreadyRunning). Answers {outcome: \"stillRunning\", id} if it takes longer than about 50 s; then call report with that id.",
   export:
-    'Render a take this server made to an MP4, a GIF (fileType "gif") or a folder of PNG stills, one per step (fileType "stills"; stills.width in px or "native", stills.zoom "none" or "step"; MP4 quality: absent, the user\'s Export quality setting, "high" unless they changed it (60 fps, about 30 MB for 30 s); "share" as small as stays crisp, the default with maxMB; "full" the largest file; maxMB caps an MP4\'s size: it lowers fps, then size, then sharpness to fit, and says what it cost), and save it on this machine — in ~/Downloads, or the folder demoman-mcp was started with --out-dir — in the take\'s frame (Auto, 16:9 or 9:16) and branding, logo included. Refused versionExpired when the take\'s frames were removed after 30 days: run with video {id} again. A saved export may carry warnings.untagged (the file could not be tagged with its video). Answers the export report; on "saved", file.path is the file\'s absolute path, or folder.path the stills folder\'s, summary is the sentence to give the user, and links holds one-click links for them (studio, file, copy; linksError says why there are none). A second export, run, snapshot or probe while one is in progress is refused (busy, alreadyRunning). Past about 50 s it answers {outcome: "stillRunning", id}; then call report with that id.',
+    'Render a video (videoId) to an MP4, a GIF (fileType "gif") or a folder of PNG stills, one per step (fileType "stills"; stills.width in px or "native", stills.zoom "none" or "step"; MP4 quality: absent, the user\'s Export quality setting, "high" unless they changed it (60 fps, about 30 MB for 30 s); "share" as small as stays crisp, the default with maxMB; "full" the largest file; maxMB caps an MP4\'s size: it lowers fps, then size, then sharpness to fit, and says what it cost), and save it on this machine — in ~/Downloads, or the folder demoman-mcp was started with --out-dir — in the video\'s frame (Auto, 16:9 or 9:16) and branding, logo included. Refused videoExpired when the video\'s frames were removed after 30 days: run with flow {id} again. A saved export may carry warnings.untagged (the file could not be tagged with its flow). Answers the export report; on "saved", file.path is the file\'s absolute path, or folder.path the stills folder\'s, summary is the sentence to give the user, and links holds one-click links for them (studio, file, copy; linksError says why there are none). A second export, run, snapshot or probe while one is in progress is refused (busy, alreadyRunning). Past about 50 s it answers {outcome: "stillRunning", id}; then call report with that id.',
 };
 
 /** What the `studio` tool answers: the studio opened, or a refusal. Declared
@@ -395,7 +488,7 @@ export function registerTools(
     const outcome = await capped(request, ms);
     return outcome === STILL_RUNNING
       ? unanswered(op, ms, context)
-      : fromOutcome(outcome);
+      : fromOutcome(served(op, outcome));
   };
 
   /** A saved export's answer with its `links`, or `linksError` saying why
@@ -423,10 +516,10 @@ export function registerTools(
    *  probe's with its still. */
   const answer = async (op: string, o: Outcome): Promise<ToolResult> =>
     op === "export"
-      ? fromOutcome(await withLinks(o))
+      ? fromOutcome(served(op, await withLinks(o)))
       : op === "run" || op === "probe"
-        ? withStill(o)
-        : fromOutcome(o);
+        ? withStill(served(op, o))
+        : fromOutcome(served(op, o));
 
   const longCall = async (
     op: "run" | "export" | "snapshot" | "probe" | "attach",
@@ -485,7 +578,7 @@ export function registerTools(
         link.request("status", project === undefined ? {} : { project }),
       );
       if (outcome === STILL_RUNNING) return unanswered("status", capMs);
-      if (!outcome.ok) return fromOutcome(outcome);
+      if (!outcome.ok) return fromOutcome(served("status", outcome));
       // The browser is the link's to state, not the answer's: read after
       // the answer, so it describes the browser that gave it.
       const said = {
@@ -507,7 +600,8 @@ export function registerTools(
                 check: `failed: ${error instanceof Error ? error.message : String(error)}`,
               })),
       };
-      const value = outcome.value;
+      const servedStatus = served("status", outcome);
+      const value = servedStatus.ok ? servedStatus.value : outcome.value;
       return ok(
         typeof value === "object" && value !== null && !Array.isArray(value)
           ? { ...value, ...said }
@@ -574,20 +668,10 @@ export function registerTools(
   );
 
   server.registerTool(
-    "takes",
+    "flows",
     {
-      annotations: TOOL_ANNOTATIONS.takes,
-      description: said.takes,
-      inputSchema: {},
-    },
-    async () => answered("takes", link.request("takes", {})),
-  );
-
-  server.registerTool(
-    "videos",
-    {
-      annotations: TOOL_ANNOTATIONS.videos,
-      description: said.videos,
+      annotations: TOOL_ANNOTATIONS.flows,
+      description: said.flows,
       inputSchema: {
         file: z.string().min(1).optional(),
         query: z.string().min(1).optional(),
@@ -610,11 +694,18 @@ export function registerTools(
     {
       annotations: TOOL_ANNOTATIONS.derive,
       description:
-        "Derive a DemoScript from a recorded take. Answers the draft script and any holes to fill before it runs.",
-      inputSchema: { takeId: z.string().min(1) },
+        "Derive a DemoScript from a video. Answers the draft script and any holes to fill before it runs.",
+      inputSchema: {
+        videoId: z.string().min(1).optional(),
+        takeId: z.unknown().optional(),
+      },
     },
-    async ({ takeId }) =>
-      answered("derive", link.request("derive", { takeId })),
+    async (args) =>
+      videoArgs(args) ??
+      answered(
+        "derive",
+        link.request("derive", { takeId: args.videoId as string }),
+      ),
   );
 
   server.registerTool(
@@ -622,13 +713,16 @@ export function registerTools(
     {
       annotations: TOOL_ANNOTATIONS.run,
       description: said.run,
-      // Strict: a takeId (run's old re-record) is refused here, not dropped.
-      // `video` is optional so its absence reaches the runner, which answers
-      // videoRequired saying how to name one.
+      // Strict: an unknown key is refused, not dropped. `flow` is optional
+      // so its absence reaches the runner, which answers flowRequired saying
+      // how to name one; `video` and `takeId`, the old names, are taken only
+      // to be refused saying the new one.
       inputSchema: z
         .object({
           script: z.record(z.string(), z.unknown()).optional(),
-          video: z
+          video: z.unknown().optional(),
+          takeId: z.unknown().optional(),
+          flow: z
             .union([
               z.object({ id: z.string().min(1) }).strict(),
               z
@@ -643,12 +737,18 @@ export function registerTools(
         })
         .strict(),
     },
-    async ({ script, video, project }, extra) => {
+    async ({ script, video, takeId, flow, project }, extra) => {
+      const old = oldArgument({ video, takeId });
+      if (old !== null) return old;
+      if (flow !== undefined && "id" in flow) {
+        const wrong = notAFlowId(flow.id);
+        if (wrong !== null) return wrong;
+      }
       return longCall(
         "run",
         {
           ...(script === undefined ? {} : { script }),
-          ...(video === undefined ? {} : { video }),
+          ...(flow === undefined ? {} : { video: flow }),
           ...(project === undefined ? {} : { project }),
         },
         extra as unknown as Extra,
@@ -662,7 +762,8 @@ export function registerTools(
       annotations: TOOL_ANNOTATIONS.export,
       description: said.export,
       inputSchema: {
-        takeId: z.string().min(1),
+        videoId: z.string().min(1).optional(),
+        takeId: z.unknown().optional(),
         fileType: z.enum(["mp4", "gif", "stills"]).optional(),
         quality: z.enum(EXPORT_QUALITY_VALUES).optional(),
         maxMB: z.number().positive().optional(),
@@ -680,11 +781,14 @@ export function registerTools(
           .optional(),
       },
     },
-    async ({ takeId, fileType, stills, quality, maxMB }, extra) => {
+    async (args, extra) => {
+      const wrong = videoArgs(args);
+      if (wrong !== null) return wrong;
+      const { fileType, stills, quality, maxMB } = args;
       return longCall(
         "export",
         {
-          takeId,
+          takeId: args.videoId as string,
           ...(fileType === undefined ? {} : { fileType }),
           ...(quality === undefined ? {} : { quality }),
           ...(maxMB === undefined ? {} : { maxMB }),
@@ -700,9 +804,10 @@ export function registerTools(
     {
       annotations: TOOL_ANNOTATIONS.attach,
       description:
-        'Post a take\'s video to a GitHub pull request with gh — into "description" for a PR you opened, "comment" for anyone else\'s. Exports the take first, capped at 9.5 MB, or at maxMB if given. Answers attached, or a reason; attached carries line ({text, written} or {text, notWritten}); past about 50 s {outcome: "stillRunning", id}, then call report.',
+        'Post a video to a GitHub pull request with gh — into "description" for a PR you opened, "comment" for anyone else\'s. Exports the video first, capped at 9.5 MB, or at maxMB if given. Answers attached, or a reason; attached carries line ({text, written} or {text, notWritten}); past about 50 s {outcome: "stillRunning", id}, then call report.',
       inputSchema: {
-        takeId: z.string().min(1),
+        videoId: z.string().min(1).optional(),
+        takeId: z.unknown().optional(),
         // Absent: the PR for the project's current branch.
         pr: z.number().int().positive().optional(),
         into: z.enum(["description", "comment"]),
@@ -713,11 +818,14 @@ export function registerTools(
         project: z.string().min(1).optional(),
       },
     },
-    async ({ takeId, pr, into, maxMB, project }, extra) => {
+    async (args, extra) => {
+      const wrong = videoArgs(args);
+      if (wrong !== null) return wrong;
+      const { pr, into, maxMB, project } = args;
       return longCall(
         "attach",
         {
-          takeId,
+          takeId: args.videoId as string,
           into,
           ...(pr === undefined ? {} : { pr }),
           ...(maxMB === undefined ? {} : { maxMB }),
@@ -735,14 +843,28 @@ export function registerTools(
       {
         annotations: TOOL_ANNOTATIONS.studio,
         description:
-          'Open Demoman\'s studio, a window on this machine where the person can browse and edit the takes and export them. Offer it to the person after a run or an export; never open it unasked. Pass takeId to open that take in the editor, else the library opens. Answers {outcome: "opened", takeId?, note?}: the window is open already. A refusal carries reason and detail.',
-        inputSchema: { takeId: z.string().optional() },
+          'Open Demoman\'s studio, a window on this machine where the person can browse and edit their flows and videos and export them. Offer it to the person after a run or an export; never open it unasked. Pass videoId to open that video in the editor, else the library opens. Answers {outcome: "opened", videoId?, note?}: the window is open already. A refusal carries reason and detail.',
+        inputSchema: {
+          videoId: z.string().optional(),
+          takeId: z.unknown().optional(),
+        },
       },
-      async ({ takeId }) => {
-        const answer = await openStudio(takeId === undefined ? {} : { takeId });
-        return "reason" in answer
-          ? refused(answer.reason, answer.detail)
-          : ok(answer);
+      async (args) => {
+        const old = oldArgument(args);
+        if (old !== null) return old;
+        const videoId = args.videoId;
+        if (videoId !== undefined) {
+          const wrong = notAVideoId(videoId);
+          if (wrong !== null) return wrong;
+        }
+        const answer = await openStudio(
+          videoId === undefined ? {} : { takeId: videoId },
+        );
+        if ("reason" in answer) {
+          return refused(servedReason(answer.reason), answer.detail);
+        }
+        const { takeId, ...rest } = answer;
+        return ok(takeId === undefined ? rest : { ...rest, videoId: takeId });
       },
     );
   }

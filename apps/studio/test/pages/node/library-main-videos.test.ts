@@ -201,7 +201,7 @@ describe("library main — videos", () => {
     // Red: send the card's rename to scenes.put — no videos.rename call, and
     // the studio's nameTaken sentence never reaches the card.
     memory.answer("videos.rename", async () => {
-      throw new Error('Another video is already called "Sign up".');
+      throw new Error('Another flow is already called "Sign up".');
     });
     await import("../../../pages/entrypoints/library/main");
     const field = (await invoiceCard()).querySelector(
@@ -215,7 +215,7 @@ describe("library main — videos", () => {
       return text;
     });
     expect(status).toBe(
-      'Couldn\'t rename: Another video is already called "Sign up".',
+      'Couldn\'t rename: Another flow is already called "Sign up".',
     );
     expect(
       card(INVOICE)?.querySelector<HTMLInputElement>("[data-name]")?.value,
@@ -405,7 +405,7 @@ describe("library main — videos", () => {
     confirmDialog.ask.mockReset().mockResolvedValue(true);
     memory.answer("videos.remove", async () => ({
       ok: true,
-      partly: "only 1 of its 3 recordings went, then one was refused",
+      partly: "only 1 of its 3 videos went, then one was refused",
     }));
     await import("../../../pages/entrypoints/library/main");
     (
@@ -415,7 +415,7 @@ describe("library main — videos", () => {
     ).click();
     await vi.waitFor(() => {
       expect(document.querySelector("#notice")?.textContent).toBe(
-        "Partly deleted: only 1 of its 3 recordings went, then one was refused.",
+        "Partly deleted: only 1 of its 3 videos went, then one was refused.",
       );
     });
   });
@@ -424,8 +424,8 @@ describe("library main — videos", () => {
     confirmDialog.ask.mockReset().mockResolvedValue(true);
     memory = seed({
       unreadable: [
-        { folder: "joining takes to videos", reason: "EACCES", kind: "upkeep" },
-        { folder: "expiring old recordings", reason: "EACCES", kind: "upkeep" },
+        { folder: "joining videos to flows", reason: "EACCES", kind: "upkeep" },
+        { folder: "expiring old videos", reason: "EACCES", kind: "upkeep" },
         {
           folder: "0b5d2a6e-1c3f-4e8a-9b7d-2f4c6a8e0b1d",
           reason: "not JSON",
@@ -447,8 +447,8 @@ describe("library main — videos", () => {
         r.querySelector('[data-action="delete"]') !== null,
       ]),
     ).toEqual([
-      ["joining takes to videos", false],
-      ["expiring old recordings", false],
+      ["joining videos to flows", false],
+      ["expiring old videos", false],
       ["0b5d2a6e-1c3f-4e8a-9b7d-2f4c6a8e0b1d", true],
     ]);
     (

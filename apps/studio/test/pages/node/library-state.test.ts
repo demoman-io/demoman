@@ -671,6 +671,29 @@ describe("bulkSentence", () => {
     });
   });
 
+  it("some stayed: a gone flow's note and a stayed flow's note are still said", async () => {
+    const { bulkSentence } = await import("../../../pages/src/library/state");
+    expect(
+      bulkSentence([
+        {
+          id: "1",
+          name: "Export a report",
+          gone: true,
+          note: "/t/.trash-x could not be removed — delete it by hand.",
+        },
+        {
+          id: "2",
+          name: "Create an invoice",
+          stayed: "only part of it went: its record could not be removed",
+          note: "Cleared a stale export lock left by process 42.",
+        },
+      ]),
+    ).toEqual({
+      text: "Deleted 1 of 2 flows. Create an invoice stayed: only part of it went: its record could not be removed. /t/.trash-x could not be removed — delete it by hand. Cleared a stale export lock left by process 42.",
+      level: "warn",
+    });
+  });
+
   it("none gone", async () => {
     const { bulkSentence } = await import("../../../pages/src/library/state");
     expect(

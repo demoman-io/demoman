@@ -235,7 +235,7 @@ export function createLibrary(
     );
   const guard = (id: string, reason: LibraryReason): void => {
     if (!isTakeId(id)) {
-      throw new LibraryError(reason, `"${id}" is not a take id`);
+      throw new LibraryError(reason, `"${id}" is not a video id`);
     }
   };
   const takeDir = (id: string) => {
@@ -270,7 +270,7 @@ export function createLibrary(
           : "";
       throw new LibraryError(
         "libraryUnreadable",
-        `${path} is not a take (${messageOf(error)})${fix}`,
+        `${path} is not a video (${messageOf(error)})${fix}`,
       );
     }
     // Every reader and writer goes to `takes/<meta.id>/`. A folder named
@@ -279,7 +279,7 @@ export function createLibrary(
     if (doc.meta.id !== id) {
       throw new LibraryError(
         "libraryUnreadable",
-        `${takeDir(id)} holds the take ${doc.meta.id}, so it was copied or renamed: a take's folder must be named after its id`,
+        `${takeDir(id)} holds the video ${doc.meta.id}, so it was copied or renamed: a video's folder must be named after its id`,
       );
     }
     return { doc, revision: sha256(text), notes };
@@ -491,7 +491,7 @@ export function createLibrary(
         // wait out its deadline and blame "another process". Say so here.
         throw new LibraryError(
           "libraryUnwritable",
-          `${failure === undefined ? "the row was listed in" : "could not write"} ${file}, but the lock ${lock} could not be removed (${messageOf(error)}) — remove it by hand or later exports of this take will wait on it`,
+          `${failure === undefined ? "the row was listed in" : "could not write"} ${file}, but the lock ${lock} could not be removed (${messageOf(error)}) — remove it by hand or later exports of this video will wait on it`,
         );
       }
       if (failure !== undefined) throw failure;
@@ -603,7 +603,7 @@ export function createLibrary(
         } catch (error) {
           unreadable.push({
             id,
-            unreadable: `${error instanceof LibraryError ? error.message : messageOf(error)} — remove ${join(root, id)} if the take is not wanted`,
+            unreadable: `${error instanceof LibraryError ? error.message : messageOf(error)} — remove ${join(root, id)} if the video is not wanted`,
           });
           continue;
         }
@@ -617,7 +617,7 @@ export function createLibrary(
         });
       }
       // Newest first, by when the take was made: the extension's order
-      // (`scene-store.ts`'s `newestFirst`), and what the `takes` tool and
+      // (`scene-store.ts`'s `newestFirst`), and what `outsideFlows` and
       // the recipe promise. A folder name is a random id and says nothing
       // about age (final review 2026-10-12, Important 5).
       return [

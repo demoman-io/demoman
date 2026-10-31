@@ -394,10 +394,8 @@ describe("createLocalExecutor", () => {
     });
   }, 30_000);
 
-  it("lists the take the run made and derives a script from it", async () => {
-    const takes = await executor.request("takes", {});
-    if (!takes.ok) throw new Error(JSON.stringify(takes));
-    const list = takes.value as Array<{ id: string }>;
+  it("derives a script from the take the run made", async () => {
+    const list = await createLibrary(home).list();
     expect(list.length).toBeGreaterThan(0);
     const derived = await executor.request("derive", { takeId: list[0]?.id });
     expect(derived).toMatchObject({
@@ -409,9 +407,7 @@ describe("createLocalExecutor", () => {
   it(
     "exports a take it made, and refuses one it did not",
     async () => {
-      const takes = await executor.request("takes", {});
-      if (!takes.ok) throw new Error(JSON.stringify(takes));
-      const id = (takes.value as Array<{ id: string }>)[0]?.id;
+      const id = (await createLibrary(home).list())[0]?.id;
       // The premise: an earlier case in this file made a take.
       expect(id).toBeDefined();
       // 9:16: 1080x1920, where this take's landscape tier is 4K and ~6x

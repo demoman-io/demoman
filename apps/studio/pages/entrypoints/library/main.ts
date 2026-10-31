@@ -714,6 +714,7 @@ async function deleteSelected(): Promise<void> {
           id,
           name,
           stayed: `only part of it went: ${r.partly}`,
+          ...(r.note === undefined ? {} : { note: r.note }),
         });
       } else if (r.ok) {
         outcomes.push({
@@ -756,6 +757,10 @@ async function deleteSelected(): Promise<void> {
     const noted = outcomes.some((o) => "gone" in o && o.note !== undefined);
     if (noted) say(said.text, said.level);
     else showToast(said.text);
+  } else if (selection.ids.size === 0) {
+    // Every flow that stayed lost its card (its videos went, its record
+    // did not), and the bar that would name them went with the selection.
+    say(said.text, said.level);
   }
 }
 

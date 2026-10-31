@@ -679,7 +679,7 @@ describe("export, when something is wrong", () => {
       value: { outcome: "refusedBeforeExport", reason: "versionExpired" },
     });
     const value = (out as { value: { detail: string; summary: string } }).value;
-    expect(value.detail).toContain(`run({ video: { id: "${videoId}" } })`);
+    expect(value.detail).toContain(`run({ flow: { id: "${videoId}" } })`);
     expect(value.summary).toMatch(/^Not exported: /);
   });
 

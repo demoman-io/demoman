@@ -1208,7 +1208,7 @@ describe("a GIF kept under its byte budget, in the summary", () => {
         ),
       ),
     ).toBe(
-      "Saved /D/a.gif (800×548, 15 fps), but it is 13.9 MB, over the 10 MB a GIF is kept under even at 800 px wide; an MP4 of this take is much smaller.",
+      "Saved /D/a.gif (800×548, 15 fps), but it is 13.9 MB, over the 10 MB a GIF is kept under even at 800 px wide; an MP4 of this video is much smaller.",
     );
   });
 });

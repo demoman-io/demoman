@@ -146,6 +146,8 @@ describe("library main — bulk delete", () => {
     });
     expect(confirmDialog.ask).toHaveBeenCalledTimes(1);
     expect(confirmDialog.ask).toHaveBeenCalledWith(deleteFlows(2, 3));
+    expect(deleteFlows(2, 3).body).toContain("2 flows and their 3 videos");
+    expect(deleteFlows(1, 2).body).toContain("1 flow and its 2 videos");
     expect(removes(memory).map((c) => c.args[0])).toEqual([INVOICE, REPORT]);
     expect(bar()).toBeNull();
     expect(box(SIGNUP)).not.toBeNull();
@@ -205,6 +207,33 @@ describe("library main — bulk delete", () => {
     expect(bar()?.textContent).toContain("1 flow selected");
   });
 
+  it("a flow that stayed with no card left is said on the notice line", async () => {
+    await open();
+    // Its video went, its record did not: the flow has no card to tick, so
+    // the bar that would name it goes with the selection.
+    memory.answer("videos.remove", async () => {
+      await memory.scenes.remove("sign-1");
+      return {
+        ok: true as const,
+        partly: "its 1 video went, but its record could not be removed",
+      };
+    });
+    await tick(SIGNUP);
+    pressDelete();
+    await vi.waitFor(() => {
+      if (!document.querySelector("#notice")?.textContent) {
+        throw new Error("nothing said yet");
+      }
+    });
+    // Premise: the card is gone, and the bar with it.
+    expect(box(SIGNUP)).toBeNull();
+    expect(bar()).toBeNull();
+    expect(document.querySelector("#notice")?.textContent).toBe(
+      "No flows were deleted. Sign up stayed: only part of it went: its 1 video went, but its record could not be removed.",
+    );
+    expect(document.querySelector("[data-toast]")).toBeNull();
+  });
+
   it("a thrown request is a flow that stayed", async () => {
     await open();
     memory.answer("videos.remove", async () => {
@@ -230,7 +259,7 @@ describe("library main — bulk delete", () => {
         ? {
             ok: false as const,
             error: "videoNotFound",
-            detail: `There is no video "${id}".`,
+            detail: `There is no flow "${id}".`,
           }
         : { ok: true as const },
     );
@@ -303,6 +332,70 @@ describe("library main — bulk delete", () => {
     });
     expect(box(SIGNUP)).toBe(clicked);
     expect(clicked.checked).toBe(false);
+  });
+
+  it("a gone flow's note is said beside a flow that stayed", async () => {
+    await open();
+    memory.answer("videos.remove", async (id: string) =>
+      id === INVOICE
+        ? {
+            ok: false as const,
+            error: "takeBusy",
+            detail: "This video is being exported by an agent.",
+          }
+        : {
+            ok: true as const,
+            note: "/t/.trash-x could not be removed — delete it by hand.",
+          },
+    );
+    await tick(INVOICE, REPORT);
+    pressDelete();
+    await vi.waitFor(() => {
+      if (!document.querySelector("[data-selection-said]")?.textContent) {
+        throw new Error("nothing said yet");
+      }
+    });
+    expect(
+      document.querySelector("[data-selection-said]")?.textContent,
+    ).toContain("/t/.trash-x could not be removed — delete it by hand.");
+  });
+
+  it("while a bulk delete runs, the boxes cannot be changed", async () => {
+    await open();
+    let release: () => void = () => {};
+    memory.answer(
+      "videos.remove",
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true as const });
+        }),
+    );
+    await tick(SIGNUP);
+    pressDelete();
+    await vi.waitFor(() => {
+      if (
+        !document
+          .querySelector("[data-selection-count]")
+          ?.textContent?.startsWith("Deleting")
+      ) {
+        throw new Error("not busy yet");
+      }
+    });
+    // Every box is shut while the run goes, so none can look spared.
+    expect(
+      [...document.querySelectorAll<HTMLInputElement>("[data-select]")].map(
+        (b) => b.disabled,
+      ),
+    ).toEqual([true, true, true]);
+    release();
+    await vi.waitFor(() => {
+      if (bar() !== null) throw new Error("bar still up");
+    });
+    expect(
+      [...document.querySelectorAll<HTMLInputElement>("[data-select]")].every(
+        (b) => !b.disabled,
+      ),
+    ).toBe(true);
   });
 
   it("Esc clears the selection", async () => {

@@ -31,6 +31,7 @@ export * from "./scene-digest.js";
 export * from "./scene-label.js";
 export * from "./scene-name.js";
 export * from "./secrets.js";
+export * from "./served-words.js";
 export type {
   EndPage,
   SnapshotRequest,

@@ -131,7 +131,7 @@ describe("takes and scenes", () => {
         );
         const said = h.logs.filter((l) => l.includes(locked));
         expect(said, h.logs.join("\n")).toEqual([
-          expect.stringContaining(`take ${takeId}'s size is left out`),
+          expect.stringContaining(`video ${takeId}'s size is left out`),
         ]);
       } finally {
         await chmod(locked, 0o755);
@@ -199,7 +199,7 @@ describe("takes and scenes", () => {
       detail: CHANGED_ELSEWHERE,
     });
     expect(CHANGED_ELSEWHERE).toBe(
-      "This take changed in another window. Reopen it to keep editing.",
+      "This video changed in another window. Reopen it to keep editing.",
     );
     const onDisk = JSON.parse(await readFile(scenePath(), "utf8")) as {
       meta: { name: string };

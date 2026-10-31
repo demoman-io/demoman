@@ -1590,7 +1590,7 @@ describe("the Studio's screenshot set", () => {
         const g = await checkGrid(at);
         expect(
           g.tiles.find((t) => t.pressed)?.id,
-          `${at}: the take's wallpaper is the pressed tile`,
+          `${at}: the video's wallpaper is the pressed tile`,
         ).toBe("vivid-1");
         // Left of the recording, mid-height: the frame's padding, and the
         // contain fit's bars beside it.

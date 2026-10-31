@@ -184,7 +184,7 @@ describe("createLibrary", () => {
       updateCommand: "npx demoman@latest setup",
     }).list();
     expect((entry as { unreadable: string }).unreadable).toMatch(
-      /is not a take/,
+      /is not a video/,
     );
     expect((entry as { unreadable: string }).unreadable).not.toContain(
       "newer Demoman",
@@ -206,7 +206,7 @@ describe("createLibrary", () => {
       unreadable: expect.stringContaining(join(home, "takes", "take-bad")),
     });
     expect((listed[1] as { unreadable: string }).unreadable).toMatch(
-      /is not a take/,
+      /is not a video/,
     );
   });
 
@@ -235,7 +235,7 @@ describe("createLibrary", () => {
       unreadable: expect.stringContaining(copy),
     });
     expect((listed[1] as { unreadable: string }).unreadable).toContain(
-      `holds the take ${doc.meta.id}`,
+      `holds the video ${doc.meta.id}`,
     );
     // Read by its own folder name, the copy refuses rather than answering
     // as the original.
@@ -262,7 +262,7 @@ describe("createLibrary", () => {
     expect(await lib.list()).toEqual([
       {
         id: "my-demo",
-        unreadable: expect.stringContaining(`holds the take ${doc.meta.id}`),
+        unreadable: expect.stringContaining(`holds the video ${doc.meta.id}`),
       },
     ]);
   });
@@ -346,7 +346,7 @@ describe("createLibrary", () => {
       expect(read, id).toBeInstanceOf(LibraryError);
       expect((read as LibraryError).reason).toBe("libraryUnreadable");
       expect((read as LibraryError).message).toContain(
-        `"${id}" is not a take id`,
+        `"${id}" is not a video id`,
       );
       const removed = await lib.removeTake(id).catch((e: unknown) => e);
       expect(removed, id).toBeInstanceOf(LibraryError);

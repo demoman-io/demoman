@@ -180,9 +180,13 @@ export function applySelection(
   const selected: ReadonlySet<string> =
     actions.select === undefined ? new Set() : (selection?.ids ?? new Set());
   root.toggleAttribute("data-selecting", selected.size > 0);
+  // Shut while a bulk delete runs: a box unticked then would look spared
+  // while the run, which took its list at the start, deletes it.
+  const busy = bulk?.busy === true;
   for (const box of root.querySelectorAll<HTMLInputElement>("[data-select]")) {
     const on = selected.has(box.dataset.select as string);
     box.checked = on;
+    box.disabled = busy;
     box.closest("article")?.toggleAttribute("data-selected", on);
   }
   let bar = root.querySelector<HTMLElement>("[data-selection-bar]");

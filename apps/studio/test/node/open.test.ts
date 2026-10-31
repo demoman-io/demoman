@@ -289,7 +289,7 @@ describe("openStudio", () => {
     });
     expect(a).toMatchObject({ reason: "takeNotFound" });
     expect((a as { detail: string }).detail).toBe(
-      '".." is not a take id, so no take has it.',
+      '".." is not a video id, so no video has it.',
     );
     expect(existsSync(join(home, "studio.log"))).toBe(false);
   });

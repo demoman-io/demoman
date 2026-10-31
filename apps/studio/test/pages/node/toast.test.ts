@@ -12,10 +12,19 @@ describe("showToast", () => {
     document.body.replaceChildren();
   });
 
-  it("says a sentence in a status region, then takes it down", () => {
+  it("says a sentence in a status region, then takes the toast down", () => {
     vi.useFakeTimers();
     showToast("Deleted 2 flows.");
-    expect(toasts().map((t) => t.getAttribute("role"))).toEqual(["status"]);
+    // The region is on the page before its words, or it is not announced.
+    const region = document.querySelector("[data-toast-said]");
+    expect(region?.getAttribute("role")).toBe("status");
+    expect(region?.textContent).toBe("");
+    vi.advanceTimersByTime(50);
+    expect(region?.textContent).toBe("Deleted 2 flows");
+    // The second sentence goes into the same region, emptied first.
+    showToast("Deleted 2 flows.");
+    expect(document.querySelectorAll("[data-toast-said]")).toHaveLength(1);
+    expect(region?.textContent).toBe("");
     vi.advanceTimersByTime(TOAST_MS - 1);
     expect(toasts()).toHaveLength(1);
     vi.advanceTimersByTime(1);

@@ -139,7 +139,7 @@ export function mergeSkeleton(
           ok: false,
           reason: "invalidScript",
           field: `steps.${k}.do`,
-          detail: `step ${k + 1} was a ${s.do} when recorded and its action in scene.json is now a ${found.step.do}; a re-recording does not guess which you meant — derive the take, write the step as you want it, and run that draft`,
+          detail: `step ${k + 1} was a ${s.do} when filmed and its action in scene.json is now a ${found.step.do}; filming again does not guess which you meant — derive the video, write the step as you want it, and run that draft`,
         };
       }
       notes.push({
@@ -249,7 +249,7 @@ export function refilmScript(
       ok: false,
       reason: "nothingToRerecord",
       field: null,
-      detail: `take ${scene.meta.id} has no steps left in scene.json to record again`,
+      detail: `video ${scene.meta.id} has no steps left in scene.json to film again`,
     };
   }
   const merged = mergeSkeleton(derivation, read, {
@@ -265,7 +265,7 @@ export function refilmScript(
       ok: false,
       reason: "unfilledHoles",
       field: paths.join(", "),
-      detail: `${merged.holes.map((h) => h.sentence.trim()).join(" ")} A re-recording never invents a value — derive the take, fill ${merged.holes.length === 1 ? "the hole" : "the holes"}, and run the draft`,
+      detail: `${merged.holes.map((h) => h.sentence.trim()).join(" ")} Filming again never invents a value — derive the video, fill ${merged.holes.length === 1 ? "the hole" : "the holes"}, and run the draft`,
     };
   }
   const { target, ...rest } = merged.draft;

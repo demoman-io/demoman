@@ -75,7 +75,7 @@ describe("stopDetail", () => {
         target,
         played(stoppedAt("unresolvedAnchor"), { signedOutAfter: "S." }),
       ),
-    ).toMatch(/^S\. The take was not kept/);
+    ).toMatch(/^S\. The video was not kept/);
   });
 
   it("says nothing for a complete run", () => {

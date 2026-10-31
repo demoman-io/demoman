@@ -6,24 +6,24 @@ description: "Film a video again on every merge, and commit it only when the pic
 A demo video goes stale when the app changes. Keep it, and CI films it
 again after each merge and delivers what changed.
 
-## Keep a video
+## Keep a flow
 
-In the repo, with a video your agent recorded:
+In the repo, with a flow your agent filmed:
 
 ```bash
 npx demoman keep "Add a task" --to docs/add-task.mp4
 ```
 
 This writes `.demoman/videos/<name>.json`, everything a re-film needs, and
-exports the video to each `--to` path. Commit both. `--gif` adds a GIF.
+exports its current video to each `--to` path. Commit both. `--gif` adds a GIF.
 
-Keep refuses, writing nothing, a video whose current version has Studio
+Keep refuses, writing nothing, a flow whose current video has Studio
 edits a re-film does not carry (a mask, a trim, a cut, a split, a hold, a
-gap, a placed zoom), typed text the recording never read, or a site you
+gap, a placed zoom), typed text the video never read, or a site you
 signed in to by hand with `signin` rather than as a demo account. The
 refusal names which. Record it again without them.
 
-When your agent later runs a script into a kept video, the kept file
+When your agent later runs a script into a kept flow, the kept file
 follows the script.
 
 ## Refresh
@@ -32,7 +32,7 @@ follows the script.
 npx demoman refresh
 ```
 
-Films every kept video again, with no agent. It prints a line per video:
+Films every kept flow again, with no agent. It prints a line per flow:
 
 | Line | Meaning |
 | --- | --- |
@@ -63,7 +63,7 @@ gaps are accepted:
 - A slower app that tips the camera to pull back, where it held before (or
   the reverse), reads as changed. The camera decides from the gap between two
   clicks, and a gap near that line can fall either side of it.
-- A video kept on macOS is filmed again on Linux by the first refresh in CI.
+- A flow kept on macOS is filmed again on Linux by the first refresh in CI.
   Linux's fonts differ, so that refresh replaces it once. After that, refresh
   in CI only: a refresh on a Mac and one in CI replace each other's files.
 
@@ -104,7 +104,7 @@ opens no pull request, says so, and exits 1.
 
 Refresh force-pushes `demoman/refresh` and opens one pull request titled
 "Refresh demo videos", or updates the open one. The description lists each
-replaced video and its files, and any video that failed. A workflow token
+replaced video and its files, and any flow that failed. A workflow token
 cannot attach a video, so open the files under "Files changed" to play
 them. Commits that were on `demoman/refresh` before the run are replaced,
 and the description says so.

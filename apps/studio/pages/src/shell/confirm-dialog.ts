@@ -60,7 +60,7 @@ export const deleteFlows = (flows: number, videos: number): ConfirmQuestion => {
   return {
     ...DELETE_DEMO,
     title: `Delete ${f}`,
-    body: `This permanently removes ${f} and their ${videos} ${videos === 1 ? "video" : "videos"}. It can’t be undone.`,
+    body: `This permanently removes ${f} and ${flows === 1 ? "its" : "their"} ${videos} ${videos === 1 ? "video" : "videos"}. It can’t be undone.`,
   };
 };
 

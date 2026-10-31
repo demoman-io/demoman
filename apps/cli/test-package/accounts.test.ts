@@ -166,7 +166,7 @@ it("signs in as an account with no window, then films behind it, leaving no pass
       outcome: string;
       id?: string;
       signedIn?: { account: string };
-      provenance?: { takeId: string | null };
+      provenance?: { videoId: string | null };
     };
     let v = JSON.parse(
       text(
@@ -174,7 +174,7 @@ it("signs in as an account with no window, then films behind it, leaving no pass
           name: "run",
           arguments: {
             script,
-            video: { new: "Signed in as a demo account", confirmedNew: true },
+            flow: { new: "Signed in as a demo account", confirmedNew: true },
           },
         }),
       ),
@@ -190,7 +190,7 @@ it("signs in as an account with no window, then films behind it, leaving no pass
     }
     expect(v.outcome, JSON.stringify(v)).toBe("complete");
     expect(v.signedIn?.account, JSON.stringify(v)).toBe("seller");
-    expect(v.provenance?.takeId, JSON.stringify(v)).toBeTruthy();
+    expect(v.provenance?.videoId, JSON.stringify(v)).toBeTruthy();
     expect(
       app.signInsAs(EMAIL),
       "the MCP run did not sign in by itself after the session was removed",

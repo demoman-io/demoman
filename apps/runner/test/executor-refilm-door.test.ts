@@ -65,15 +65,12 @@ async function takeInVideo(
 }
 
 describe("run's door, given a video", () => {
-  it("refuses a run that names no video, saying a takeId is gone", async () => {
+  it("refuses a run that names no video", async () => {
     expect(await run({ script: {} })).toMatchObject({
       outcome: "refusedBeforeRun",
       reason: "videoRequired",
       field: "video",
     });
-    const old = await run({ takeId: scene.meta.id });
-    expect(old).toMatchObject({ reason: "videoRequired" });
-    expect(old.detail).toMatch(/takeId is gone/);
   });
   it("refuses a new video with no script", async () => {
     expect(await run({ video: { new: "Anything" } })).toMatchObject({
@@ -153,7 +150,7 @@ describe("run's door, given a video", () => {
     });
     expect(out.detail).toMatch(/derive/);
     expect(out.detail).toMatch(
-      /^version 1 of video "scene-redacted" \(take scene-redacted\)/,
+      /^video 1 of flow "scene-redacted" \(scene-redacted\)/,
     );
   });
 
@@ -177,7 +174,7 @@ describe("run's door, given a video", () => {
     });
     expect(out.detail).toMatch(
       new RegExp(
-        `^the script built from take ${id}'s script\\.json and scene\\.json is not valid — `,
+        `^the script built from video ${id}'s script\\.json and scene\\.json is not valid — `,
       ),
     );
     // Control: a script passed as itself carries no such prefix.
@@ -233,7 +230,7 @@ describe("refilmFromLibrary", () => {
     });
     if (out.ok) return;
     expect(out.refusal.detail).toContain(
-      `take ${scene.meta.id} could not be built into a script (`,
+      `video ${scene.meta.id} could not be built into a script (`,
     );
   });
 

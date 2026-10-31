@@ -172,14 +172,14 @@ describe("the takes listing's videos", () => {
         // Both the join and the expiry failed (neither can write videos/),
         // each its own row under its own name: no Delete, no shared key.
         expect(rows.map((r) => r.folder).sort(), said).toEqual([
-          "expiring old recordings",
-          "joining takes to videos",
+          "expiring old videos",
+          "joining videos to flows",
         ]);
         expect(
-          rows.find((r) => r.folder === "joining takes to videos")?.reason,
+          rows.find((r) => r.folder === "joining videos to flows")?.reason,
           said,
-        ).toMatch(/could not be grouped into videos/);
-        expect(h.logs.join("\n")).toContain("could not be grouped into videos");
+        ).toMatch(/could not be grouped into flows/);
+        expect(h.logs.join("\n")).toContain("could not be grouped into flows");
       } finally {
         await chmod(dir, 0o755);
       }
@@ -223,7 +223,7 @@ describe("the takes listing's videos", () => {
     expect(
       body.unreadable.map((u) => [u.folder, u.kind]),
       said,
-    ).toEqual([["joining takes to videos", "upkeep"]]);
+    ).toEqual([["joining videos to flows", "upkeep"]]);
     expect(body.unreadable[0]?.reason).toContain(lock);
     expect(body.scenes.map((x) => x.meta.id)).toEqual(
       expect.arrayContaining(["loose", "loose-2"]),
@@ -345,7 +345,7 @@ describe("renaming a video", () => {
     expect(r.status).toBe(409);
     expect(r.json()).toEqual({
       reason: "nameTaken",
-      detail: 'Another video is already called "Sign up".',
+      detail: 'Another flow is already called "Sign up".',
     });
     const body = await listing();
     expect(body.videos.find((v) => v.id === invoice)?.name).toBe(
@@ -445,7 +445,7 @@ describe("deleting", () => {
     await writeFile(join(home, "videos", `${signup}.json`), "{ not json");
     const r = await del(signup);
     expect(r.status, r.text).toBe(200);
-    expect((r.json() as { note: string }).note).toMatch(/recordings stay/);
+    expect((r.json() as { note: string }).note).toMatch(/videos stay/);
     expect(await exists(join(home, "videos", `${signup}.json`))).toBe(false);
     expect(await exists(join(home, "takes", "sign-1", "scene.json"))).toBe(
       true,
@@ -464,7 +464,7 @@ describe("deleting", () => {
         expect(r.status, r.text).toBe(200);
         const body = r.json() as { note: null; partly: string };
         expect(body.partly).toMatch(
-          /its recording went, but its record could not be removed/,
+          /its video went, but its record could not be removed/,
         );
         expect(await exists(join(home, "takes", "sign-1"))).toBe(false);
       } finally {

@@ -13,6 +13,7 @@ import {
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type { AgentName } from "@demoman/agent-bridge";
+import { isFlowId } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import type { Library } from "./library.js";
@@ -100,12 +101,9 @@ export interface VideoStore {
 
 const isMissing = (e: unknown) => (e as { code?: string }).code === "ENOENT";
 
-/** A video's id is a `randomUUID()`. Anything else names no video and is
- *  never joined into a path: an id can come from an exported file's tag or
- *  a request, and `../x` would read outside `videos/`. */
-const VIDEO_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const isVideoId = (id: string): boolean => VIDEO_ID.test(id);
+/** A video record's id: run-core's `isFlowId`, the one definition the MCP
+ *  checks agents' ids against too. */
+export const isVideoId = isFlowId;
 
 /** Unknown matches any repo; two `none`s are one ("no repo") for name uniqueness. */
 export const sharesRepo = (a: VideoRepo, b: VideoRepo) =>
@@ -186,7 +184,7 @@ export function createVideoStore(
       throw new VideoError(
         "videoUnwritable",
         isMissing(error)
-          ? `take ${takeId} is gone (${dirname(path)} no longer exists), so ${path} was not written`
+          ? `video ${takeId} is gone (${dirname(path)} no longer exists), so ${path} was not written`
           : `could not write ${path} (${messageOf(error)})`,
       );
     }
@@ -513,7 +511,7 @@ export function createVideoStore(
     if (!rec) {
       throw new VideoError(
         "videoNotFound",
-        `video ${v.videoId} was deleted, so take ${takeId} was not joined to it`,
+        `flow ${v.videoId} was deleted, so video ${takeId} was not joined to it`,
       );
     }
     await writeMember(takeId, v);
@@ -551,7 +549,7 @@ export function createVideoStore(
       if (!member) {
         throw new VideoError(
           "videoUnreadable",
-          `${memberPath(takeId)} is missing, so the take cannot be marked expired`,
+          `${memberPath(takeId)} is missing, so the video cannot be marked expired`,
         );
       }
       await writeMember(takeId, {

@@ -211,7 +211,7 @@ describe("the loop guard", () => {
     expect(answer("Refresh demo videos (#12)")).toBe("skip=true\n");
     expect(
       answer(
-        "Refresh demo videos (#12)\n\nDemoman filmed the kept videos again and replaced 1.",
+        "Refresh demo videos (#12)\n\nDemoman filmed the kept flows again and replaced 1.",
       ),
     ).toBe("skip=true\n");
     expect(answer("Refresh demo videos for the new nav")).toBe("");

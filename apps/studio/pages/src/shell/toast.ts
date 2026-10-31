@@ -25,14 +25,34 @@ export function showToast(text: string): void {
     toast = document.createElement("div");
     toast.className = "toast";
     toast.setAttribute("data-toast", "");
-    toast.setAttribute("role", "status");
     document.body.append(toast);
   }
   const words = document.createElement("span");
   words.setAttribute("data-toast-text", "");
   words.textContent = text.replace(/\.$/, "");
+  announce(words.textContent);
   toast.replaceChildren(icon("check"), words);
   clearTimeout(timer);
   const shown = toast;
   timer = setTimeout(() => shown.remove(), TOAST_MS);
+}
+
+/** Says `text` to a screen reader. A live region added with its words in
+ *  it is often not announced, and the toast is gone in `TOAST_MS`; so the
+ *  region stays on the page once made, is emptied, and gets the sentence a
+ *  moment later, which also says the same sentence twice. */
+function announce(text: string): void {
+  let region = document.querySelector<HTMLElement>("[data-toast-said]");
+  if (region === null) {
+    region = document.createElement("div");
+    region.className = "toast-said";
+    region.setAttribute("data-toast-said", "");
+    region.setAttribute("role", "status");
+    document.body.append(region);
+  }
+  region.textContent = "";
+  const said = region;
+  setTimeout(() => {
+    said.textContent = text;
+  }, 50);
 }

@@ -350,7 +350,7 @@ describe("editor main — what a drag's three outcomes each do", () => {
   // (`onGap`/`onGapClear`), and that field changes `model.durationMs`
   // exactly the way the old pace drag did, so this drives IT instead.
   it("re-fits the axis when an edit changes the take's length", async () => {
-    // A pace longer than the take recorded lengthens the deliverable. A
+    // A pace longer than the original footage showed lengthens the deliverable. A
     // viewport kept across that change goes on describing the old length —
     // every tick after the edit sits at a fraction of an axis that is now
     // too short for it, which either draws them in the wrong place or (a

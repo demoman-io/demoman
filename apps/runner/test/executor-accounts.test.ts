@@ -146,7 +146,7 @@ it("re-signs in after a mid-run lapse and says so, keeping no take", async () =>
   ]);
   expect(report.stopped?.reason, JSON.stringify(report)).toBe("signedOut");
   expect(report.stopped?.detail).toContain("Demoman signed in again as seller");
-  expect(report.stopped?.detail).toContain("The take was not kept");
+  expect(report.stopped?.detail).toContain("The video was not kept");
   expect(await takes()).toEqual([]);
   const next = await run(NEXT);
   expect(next.outcome).toBe("complete");

@@ -135,7 +135,7 @@ export async function expireOld(
     // What was marked before the failure is said too: those versions are gone.
     result = {
       ranAt,
-      failed: `${messageOf(error)} (by then ${tally.expired} versions were marked expired, ${tally.freedBytes} bytes)`,
+      failed: `${messageOf(error)} (by then ${tally.expired} videos were marked expired, ${tally.freedBytes} bytes)`,
     };
   }
   const path = statePath(library);
@@ -202,7 +202,7 @@ async function expire(
           await rm(path, { recursive: true, force: true });
         } catch (error) {
           throw new Error(
-            `could not remove ${path} (${messageOf(error)}); take ${v.takeId} is marked expired`,
+            `could not remove ${path} (${messageOf(error)}); video ${v.takeId} is marked expired`,
           );
         }
       }

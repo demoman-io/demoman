@@ -183,7 +183,7 @@ describe("deliver", () => {
       delivered: "nothing",
       ok: true,
       detail:
-        "no video was replaced; the open refresh pull request stays, because a video failed",
+        "no video was replaced; the open refresh pull request stays, because a flow failed",
     });
   });
 
@@ -195,7 +195,7 @@ describe("deliver", () => {
       delivered: "nothing",
       ok: true,
       detail:
-        "no video was replaced; the open refresh pull request stays, because only the named videos were filmed",
+        "no video was replaced; the open refresh pull request stays, because only the named flows were filmed",
     });
   });
 

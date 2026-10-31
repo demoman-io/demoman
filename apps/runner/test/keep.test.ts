@@ -216,6 +216,7 @@ describe("keep, a clean take", () => {
       // The run report keep copies to --report.
       await library.putJson(cleanTakeId, "report.json", {
         outcome: "complete",
+        provenance: { takeId: cleanTakeId, bundleId: null, madeFrom: [] },
       });
 
       const out = await keepVideo(
@@ -253,13 +254,18 @@ describe("keep, a clean take", () => {
       // Report before you forgive: a guessed 1 is said on the answer, not
       // left to look like a recorded one.
       expect(out.scaleGuess).toContain(
-        `1x is a guess: take ${cleanTakeId} records no filmed scale and has no motion frames to read one from`,
+        `1x is a guess: video ${cleanTakeId} records no filmed scale and has no motion frames to read one from`,
       );
       expect(kept.from.takeId).toBe(cleanTakeId);
       expect(kept.report).toBe("docs/hero-report.json");
+      // A file a person reads in their repo: in the words agents are served
+      // (spec 2026-10-30 flows-and-bulk-delete §2.1), not the stored ones.
       expect(
         JSON.parse(await readFile(join(repo, "docs/hero-report.json"), "utf8")),
-      ).toEqual({ outcome: "complete" });
+      ).toEqual({
+        outcome: "complete",
+        provenance: { videoId: cleanTakeId, bundleId: null, madeFrom: [] },
+      });
       expect(kept.outputs.map((o) => [o.path, o.fileType, o.aspect])).toEqual([
         ["docs/hero.mp4", "mp4", "16:9"],
         ["docs/hero.gif", "gif", "16:9"],
@@ -479,7 +485,7 @@ describe("keep refuses, writing nothing", () => {
 // The take's wallpaper, as keep reads it (ruling R13): an upload is copied
 // into the repo like the logo, so a refresh in CI films it; one that cannot
 // be had is refused, as a logo is; one that is only too small is kept.
-describe("keep and the take's wallpaper", () => {
+describe("keep and the video's wallpaper", () => {
   const mp4 = (path: string) => ({
     path,
     fileType: "mp4" as const,
@@ -575,7 +581,7 @@ describe("keep and the take's wallpaper", () => {
     expect(out).toMatchObject({ ok: false, reason: "wallpaperUnreadable" });
     if (out.ok) return;
     expect(out.detail).toMatch(
-      /^the take's wallpaper: .*gone\.webp could not be read/,
+      /^the video's wallpaper: .*gone\.webp could not be read/,
     );
   });
 
@@ -658,7 +664,7 @@ describe("keep checks an Auto phone take's wallpaper as portrait", () => {
         expect(out).toMatchObject({ ok: false, reason: "wallpaperUnreadable" });
         if (out.ok) return;
         expect(out.detail).toMatch(
-          /^the take's wallpaper: .*vivid-1-portrait\.webp/,
+          /^the video's wallpaper: .*vivid-1-portrait\.webp/,
         );
       } finally {
         await rm(dir, { recursive: true, force: true });

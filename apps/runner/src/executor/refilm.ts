@@ -29,7 +29,7 @@ export async function refilmFromLibrary(
   if (id === "" || !library.isTakeId(id)) {
     return refuse(
       "takeNotFound",
-      `no take has the id ${JSON.stringify(takeId)} — call takes for the ids there are`,
+      `no video has the id ${JSON.stringify(takeId)} — flows({}) lists each flow's videos and, under outsideFlows, those in none`,
       "takeId",
     );
   }
@@ -46,7 +46,7 @@ export async function refilmFromLibrary(
   if (read === null) {
     return refuse(
       "takeNotFound",
-      `no take has the id ${id} — call takes for the ids there are`,
+      `no video has the id ${id} — flows({}) lists each flow's videos and, under outsideFlows, those in none`,
       "takeId",
     );
   }
@@ -60,7 +60,7 @@ export async function refilmFromLibrary(
     // take that cannot be read for a re-film: said, never a crashed run.
     return refuse(
       "takeUnreadable",
-      `take ${id} could not be built into a script (${messageOf(error)})`,
+      `video ${id} could not be built into a script (${messageOf(error)})`,
       "takeId",
     );
   }
@@ -97,7 +97,7 @@ export async function refilmFromVideo(
       refusal: {
         outcome: "refusedBeforeRun",
         reason: "videoUnreadable",
-        detail: `video "${video.name}" has no version that reads — ${leftOut.map((s) => `take ${s.takeId}: ${s.reason}`).join("; ")}`,
+        detail: `flow "${video.name}" has no video that reads — ${leftOut.map((s) => `video ${s.takeId}: ${s.reason}`).join("; ")}`,
         field: "video",
       },
     };
@@ -108,7 +108,7 @@ export async function refilmFromVideo(
       refusal: {
         outcome: "refusedBeforeRun",
         reason: "invalidScript",
-        detail: `video "${video.name}" has no version to re-record — pass a script to record one into it`,
+        detail: `flow "${video.name}" has no video to film again — pass a script to film one into it`,
         field: "script",
       },
     };
@@ -120,7 +120,7 @@ export async function refilmFromVideo(
     ok: false,
     refusal: {
       ...refusal,
-      detail: `version ${from.number} of video "${video.name}" (take ${from.takeId}) cannot be re-recorded — ${refusal.detail}`,
+      detail: `video ${from.number} of flow "${video.name}" (${from.takeId}) cannot be filmed again — ${refusal.detail}`,
       field: refusal.field === "takeId" ? "video" : refusal.field,
     },
   };

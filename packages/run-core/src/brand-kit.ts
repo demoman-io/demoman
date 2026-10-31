@@ -185,7 +185,7 @@ export function brandingForTake(read: BrandKitsRead): {
     brandKitError:
       fault === null
         ? null
-        : `${fault.said}, so this take uses the default background${fault.reason === null ? "" : `: ${fault.reason}`}`,
+        : `${fault.said}, so this video uses the default background${fault.reason === null ? "" : `: ${fault.reason}`}`,
   };
 }
 
@@ -240,7 +240,7 @@ export function lookForRun(
         brandKitError:
           fault === null
             ? null
-            : `${fault.said}${fault.reason === null ? "" : ` (${fault.reason})`}; this take uses the script's own branding`,
+            : `${fault.said}${fault.reason === null ? "" : ` (${fault.reason})`}; this video uses the script's own branding`,
         wallpaperError: null,
       },
     };
