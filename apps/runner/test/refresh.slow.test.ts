@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -296,16 +297,16 @@ const exported: {
   screens: KeptScreens;
   wallpaper: "leftOut" | "soft" | null;
 }[] = [];
-/** The temp folders refresh makes, as they are in the system's temp now. */
-const refreshTemps = async () =>
-  (await readdir(tmpdir())).filter((n) =>
-    /^demoman-refresh-(home-)?[A-Za-z0-9]{6}$/.test(n),
-  );
+/** Every home and output folder refresh handed an executor, in order. Read
+ *  from the handoff, not by listing the system's temp: other checkouts'
+ *  suites refresh into the same temp at the same time (2026-10-30). */
+const madeDirs: string[] = [];
 
 const deps = (): RefreshDeps => ({
   library: createLibrary(home),
   videos: createVideoStore(home, createLibrary(home)),
   executor: (o) => {
+    madeDirs.push(o.home, o.outDir);
     const e = createLocalExecutor({
       wallpapersDir: WALLPAPERS_DIR,
       home: o.home,
@@ -534,7 +535,7 @@ describe("refresh", () => {
   it(
     "films each kept video and writes its outputs, the first time as new",
     async () => {
-      const temps = await refreshTemps();
+      madeDirs.length = 0;
       const r = await refresh();
       expect(
         r.videos.map((v) => [v.name, v.outcome]),
@@ -576,9 +577,15 @@ describe("refresh", () => {
       // folder refresh made was removed.
       expect(await readdir(home)).toEqual([]);
       expect(lines.some((l) => l.includes("was not removed"))).toBe(false);
-      // The premise: refresh made its folders where this looks.
+      // The premise: refresh made a home and an output folder in the
+      // system's temp for each of the two scales it filmed.
       expect(lines.some((l) => l.startsWith("refresh: filming"))).toBe(true);
-      expect(await refreshTemps()).toEqual(temps);
+      expect(madeDirs, JSON.stringify(madeDirs)).toHaveLength(4);
+      for (const dir of madeDirs)
+        expect(dir).toMatch(
+          new RegExp(`^${tmpdir()}/demoman-refresh-(home-)?[A-Za-z0-9]{6}$`),
+        );
+      expect(madeDirs.filter((dir) => existsSync(dir))).toEqual([]);
     },
     BOTH_MS,
   );
