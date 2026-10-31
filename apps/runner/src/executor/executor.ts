@@ -41,7 +41,12 @@ import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { rewriteKept } from "./keep.js";
-import { adoptKept, findKept, readKeptFlows } from "./kept-flows.js";
+import {
+  adoptKept,
+  findKept,
+  readKeptFlows,
+  unreadableOf,
+} from "./kept-flows.js";
 import { readKits } from "./kits.js";
 import { DEFAULT_SIGNIN_COMMAND } from "./landing.js";
 import { createLibrary, ownHome } from "./library.js";
@@ -610,6 +615,13 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               "video",
             );
           }
+          if (found !== null && "unreadable" in found) {
+            return refusal(
+              "videoNotFound",
+              `no flow has the id ${JSON.stringify(asked.id)}, and a kept file that would not read might keep it — ${found.unreadable.join("; ")}`,
+              "video",
+            );
+          }
           if (found !== null) {
             const adopted = await adoptKept(
               videos,
@@ -651,9 +663,17 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         // Refresh films a kept flow under its own name (`leaveKept`): exempt.
         if (args.leaveKept !== true) {
           const { entries } = await readKeptFlows(where.from);
+          const unreadable = unreadableOf(entries);
           const keptHolder = entries.find(
             (e) => "kept" in e && sameName(e.kept.name, asked.new),
           );
+          if (keptHolder === undefined && unreadable.length > 0) {
+            return refusal(
+              "keptUnreadable",
+              `a kept file in this repo would not read, so Demoman cannot tell whether it keeps "${asked.new}" — fix or remove it before starting a new flow here: ${unreadable.join("; ")}`,
+              "video",
+            );
+          }
           if (keptHolder !== undefined && "kept" in keptHolder) {
             const { kept, file } = keptHolder;
             return refusal(

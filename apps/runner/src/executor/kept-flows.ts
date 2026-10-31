@@ -59,10 +59,19 @@ export async function readKeptFlows(root: string): Promise<{
   return { entries, duplicates };
 }
 
+/** One line per file that would not read: its path and why. */
+export const unreadableOf = (entries: KeptEntry[]): string[] =>
+  entries.flatMap((e) => ("unreadable" in e ? [e.unreadable] : []));
+
 export async function findKept(
   root: string,
   flowId: string,
-): Promise<{ file: string; kept: KeptVideo } | { duplicate: string[] } | null> {
+): Promise<
+  | { file: string; kept: KeptVideo }
+  | { duplicate: string[] }
+  | { unreadable: string[] }
+  | null
+> {
   const { entries, duplicates } = await readKeptFlows(root);
   const dup = duplicates.find((d) => d.flow === flowId);
   if (dup !== undefined) return { duplicate: dup.files };
@@ -71,6 +80,9 @@ export async function findKept(
       return { file: e.file, kept: e.kept };
     }
   }
+  // No file keeps this flow, but one that will not read might.
+  const unreadable = unreadableOf(entries);
+  if (unreadable.length > 0) return { unreadable };
   return null;
 }
 

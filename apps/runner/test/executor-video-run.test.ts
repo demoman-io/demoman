@@ -559,4 +559,52 @@ describe("a run joins the kept flow", () => {
     expect(out.detail).toContain(keptFile("Kept copy two"));
     expect(await store().get(U3)).toBeNull();
   });
+
+  it("an unreadable kept file refuses both lookups, naming the file", async () => {
+    const bad = `${KEPT_DIR}/broken.json`;
+    await writeFile(join(checkout, bad), "{ not json");
+    try {
+      const byId = await runIn({
+        script: script("x"),
+        video: { id: "1a2b3c4d-0000-4000-8000-0000000000ff" },
+      });
+      expect(byId).toMatchObject({ reason: "videoNotFound", field: "video" });
+      expect(byId.detail).toContain(bad);
+      expect(byId.detail).toContain("not valid JSON");
+      const byName = await runIn({
+        script: script("Brand new"),
+        video: { new: "Brand new flow", confirmedNew: true },
+      });
+      expect(byName).toMatchObject({
+        reason: "keptUnreadable",
+        field: "video",
+      });
+      expect(byName.detail).toContain(bad);
+      expect(byName.detail).toContain("not valid JSON");
+    } finally {
+      await rm(join(checkout, bad));
+    }
+  });
+
+  it("a kept folder that cannot be listed is a named refusal naming the folder", async () => {
+    const odd = await mkdtemp(join(tmpdir(), "demoman-kept-odd-"));
+    try {
+      await mkdir(join(odd, ".demoman"));
+      await writeFile(join(odd, KEPT_DIR), "a file where the folder should be");
+      const out = await executor.request("run", {
+        project: odd,
+        script: script("x"),
+        video: { new: "Anything at all", confirmedNew: true },
+      });
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      const v = out.value as Answer;
+      expect(v).toMatchObject({
+        outcome: "refusedBeforeRun",
+        reason: "videoUnreadable",
+      });
+      expect(v.detail).toContain(".demoman");
+    } finally {
+      await rm(odd, { recursive: true, force: true });
+    }
+  });
 });
