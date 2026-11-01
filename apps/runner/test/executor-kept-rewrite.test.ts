@@ -12,7 +12,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  KEPT_DIR,
+  LEGACY_FLOWS_DIR as KEPT_DIR,
   keptFileName,
   RECEIPT_DIR,
   type RunReport,

@@ -3,7 +3,6 @@ import {
   lstat,
   mkdir,
   mkdtemp,
-  readdir,
   readFile,
   realpath,
   rename,
@@ -26,7 +25,6 @@ import {
   type FilmedCode,
   frameOf,
   judgedOutput,
-  KEPT_DIR,
   KEPT_VERSION,
   type KeptDeliver,
   type KeptOutput,
@@ -34,6 +32,7 @@ import {
   type KeptScreens,
   type KeptVideo,
   keptFileName,
+  LEGACY_FLOWS_DIR,
   notCarriedOf,
   parseKept,
   parseReceipt,
@@ -50,6 +49,7 @@ import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import { chooseAccount, findAccounts } from "./accounts.js";
 import { type ExportDeps, exportTake } from "./export.js";
+import { repoFlowFiles } from "./kept-flows.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
 import { refilmFromVideo } from "./refilm.js";
@@ -189,7 +189,7 @@ export async function keepVideo(
   }
 
   // Every path keep writes, inside the repo once links are followed.
-  const fileRel = `${KEPT_DIR}/${keptFileName(video.name)}`;
+  const fileRel = `${LEGACY_FLOWS_DIR}/${keptFileName(video.name)}`;
   const inRepo = (path: string) => repoPath(root, rootReal, path, "keep");
   // The kept file itself: `.demoman` or its `videos` can be a link too.
   const own = await inRepo(fileRel);
@@ -233,16 +233,9 @@ export async function keepVideo(
   const report = args.report === undefined ? null : (paths.at(-1) ?? null);
 
   // The paths other kept videos already write.
-  const keptDir = join(root, KEPT_DIR);
-  let names: string[] = [];
-  try {
-    names = (await readdir(keptDir)).filter((n) => n.endsWith(".json"));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  for (const name of names) {
-    const rel = `${KEPT_DIR}/${name}`;
-    const other = parseKept(await readFile(join(keptDir, name), "utf8"), rel);
+  for (const rel of await repoFlowFiles(root)) {
+    const name = basename(rel);
+    const other = parseKept(await readFile(join(root, rel), "utf8"), rel);
     if (!other.ok) {
       deps.log(
         `${other.detail} — so its outputs were not checked against this keep's`,
@@ -558,7 +551,7 @@ async function buildKept(
   > => {
     const there = await inRepo(abs);
     if (typeof there === "string") return { path: there, bytes: null };
-    const path = `${KEPT_DIR}/${folder}/${basename(abs)}`;
+    const path = `${LEGACY_FLOWS_DIR}/${folder}/${basename(abs)}`;
     const copy = await inRepo(path);
     if (typeof copy !== "string")
       return { refused: refuse("outsideRepo", copy.outside) };
@@ -737,23 +730,21 @@ export async function rewriteKept(
 ): Promise<RewriteAnswer> {
   const root = resolve(repoRoot);
   const rootReal = await realpath(root);
-  const dir = join(root, KEPT_DIR);
-  let names: string[] = [];
+  let files: string[];
   try {
-    names = (await readdir(dir)).filter((n) => n.endsWith(".json"));
+    files = await repoFlowFiles(root);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      return { none: true };
     return {
-      refused: `${KEPT_DIR} could not be read (${messageOf(error)}), so whether a kept file follows this run is unknown`,
+      refused: `the repo's flow folders could not be read (${messageOf(error)}), so whether a repo flow follows this run is unknown`,
     };
   }
+  if (files.length === 0) return { none: true };
   const unreadable: string[] = [];
-  for (const name of names) {
-    const rel = `${KEPT_DIR}/${name}`;
+  for (const rel of files) {
+    const name = basename(rel);
     let text: string;
     try {
-      text = await readFile(join(dir, name), "utf8");
+      text = await readFile(join(root, rel), "utf8");
     } catch (error) {
       unreadable.push(`${rel} could not be read (${messageOf(error)})`);
       continue;
@@ -935,7 +926,7 @@ export async function renameKept(
       `Another flow is already called "${holder.name}".`,
     );
   }
-  const file = `${KEPT_DIR}/${keptFileName(a.name)}`;
+  const file = `${LEGACY_FLOWS_DIR}/${keptFileName(a.name)}`;
   const oldReceipt = `${RECEIPT_DIR}/${basename(a.file)}`;
   const receipt = `${RECEIPT_DIR}/${keptFileName(a.name)}`;
   const moves = file !== a.file;

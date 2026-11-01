@@ -7,12 +7,12 @@ import {
   stat,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import {
   type ExportAnswer,
   type FilmedCode,
+  FLOWS_DIR,
   judgedOutput,
-  KEPT_DIR,
   type KeptDeliver,
   type KeptReceipt,
   type KeptScreens,
@@ -218,7 +218,7 @@ export async function refreshKept(
   const groups = new Map<string, Job[]>();
   for (const entry of entries) {
     const { file } = entry;
-    const n = file.slice(KEPT_DIR.length + 1);
+    const n = basename(file);
     // Whether it is one `only` names cannot be told, so it is said.
     if ("unreadable" in entry) {
       failed({ name: n.replace(/\.json$/, ""), file }, entry.unreadable);
@@ -235,7 +235,9 @@ export async function refreshKept(
     if (dup !== undefined) {
       failed(
         who,
-        `${dup.files.join(" and ")} both name the flow ${dup.flow} — delete one of them, then refresh again`,
+        dup.sameName === true
+          ? `${dup.files.join(" and ")} are two recipes for one name — delete the old one, ${dup.files[1]}, then refresh again`
+          : `${dup.files.join(" and ")} both name the flow ${dup.flow} — delete one of them, then refresh again`,
       );
       continue;
     }
@@ -339,7 +341,7 @@ export async function refreshKept(
   for (const a of args.only ?? []) {
     if (!found.has(keptFileName(a)))
       failed(
-        { name: a, file: `${KEPT_DIR}/${keptFileName(a)}` },
+        { name: a, file: `${FLOWS_DIR}/${keptFileName(a)}` },
         `no kept video is named "${a}"`,
       );
   }

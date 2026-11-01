@@ -2,14 +2,19 @@ import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  KEPT_DIR,
+  FLOWS_DIR,
+  LEGACY_FLOWS_DIR as KEPT_DIR,
   type KeptVideo,
   keptFileName,
   serializeKept,
 } from "@demoman/run-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renameKept } from "../src/executor/keep.js";
-import { findKept, readKeptFlows } from "../src/executor/kept-flows.js";
+import {
+  findKept,
+  readKeptFlows,
+  repoFlowFiles,
+} from "../src/executor/kept-flows.js";
 import type { VideoStore } from "../src/executor/videos.js";
 
 const FLOW_ID = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
@@ -43,6 +48,69 @@ beforeEach(async () => {
   await writeFile(join(root, FILE), serializeKept(kept));
 });
 afterEach(() => rm(root, { recursive: true, force: true }));
+
+describe("repo flows in .demoman/flows and the old .demoman/videos", () => {
+  // The beforeEach fixture is one recipe in the old folder only.
+  it("reads a repo that has only .demoman/videos/", async () => {
+    expect(KEPT_DIR).toBe(".demoman/videos");
+    expect(await repoFlowFiles(root)).toEqual([FILE]);
+    const { entries } = await readKeptFlows(root);
+    expect(entries.map((e) => e.file)).toEqual([FILE]);
+  });
+
+  it("reads both folders, flows first", async () => {
+    expect(FLOWS_DIR).toBe(".demoman/flows");
+    const other = `${FLOWS_DIR}/b.json`;
+    await mkdir(join(root, FLOWS_DIR), { recursive: true });
+    await writeFile(
+      join(root, other),
+      serializeKept({
+        ...kept,
+        flow: "1c7f2d63-8e4b-4a1f-8b52-3d9e6f7a8b01",
+        name: "B",
+      }),
+    );
+    expect(await repoFlowFiles(root)).toEqual([other, FILE]);
+    const { entries, duplicates } = await readKeptFlows(root);
+    // Premise: both parsed, as two different flows.
+    expect(entries.filter((e) => "kept" in e).map((e) => e.file)).toEqual([
+      other,
+      FILE,
+    ]);
+    expect(duplicates).toEqual([]);
+  });
+
+  it("a name in both folders is a duplicate naming both files", async () => {
+    const twin = `${FLOWS_DIR}/${keptFileName(NAME)}`;
+    await mkdir(join(root, FLOWS_DIR), { recursive: true });
+    await copyFile(join(root, FILE), join(root, twin));
+    const { duplicates } = await readKeptFlows(root);
+    expect(duplicates).toEqual([{ flow: FLOW_ID, files: [twin, FILE] }]);
+  });
+
+  it("a name in both folders is a duplicate even when the ids differ", async () => {
+    const twin = `${FLOWS_DIR}/${keptFileName(NAME)}`;
+    await mkdir(join(root, FLOWS_DIR), { recursive: true });
+    const otherId = "2d8a3e74-9f5c-4b20-9c63-4eaf7a8b9c12";
+    await writeFile(
+      join(root, twin),
+      serializeKept({ ...kept, flow: otherId }),
+    );
+    const { entries, duplicates } = await readKeptFlows(root);
+    // Premise: both parsed, as two different flows.
+    expect(entries.flatMap((e) => ("kept" in e ? [e.kept.flow] : []))).toEqual([
+      otherId,
+      FLOW_ID,
+    ]);
+    // Neither id may resolve to one of the two files.
+    expect(duplicates).toEqual([
+      { flow: otherId, files: [twin, FILE], sameName: true },
+      { flow: FLOW_ID, files: [twin, FILE], sameName: true },
+    ]);
+    expect(await findKept(root, FLOW_ID)).toEqual({ duplicate: [twin, FILE] });
+    expect(await findKept(root, otherId)).toEqual({ duplicate: [twin, FILE] });
+  });
+});
 
 describe("readKeptFlows", () => {
   it("two files naming one flow are a duplicate", async () => {

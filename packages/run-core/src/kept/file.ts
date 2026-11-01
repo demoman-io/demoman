@@ -8,7 +8,11 @@ import { type KeptReceipt, parseScreens, RECEIPT_VERSION } from "./receipt.js";
 export const KEPT_VERSION = 2;
 /** The first format: screens and `from` lived in the recipe. Read, never written. */
 const KEPT_V1 = 1;
-export const KEPT_DIR = ".demoman/videos";
+/** Where a repo flow's recipe lives. */
+export const FLOWS_DIR = ".demoman/flows";
+/** Where repos added before `demoman add` keep them: read, and moved to
+ *  FLOWS_DIR when the recipe is written next (repo-flows design, Part A). */
+export const LEGACY_FLOWS_DIR = ".demoman/videos";
 
 /** Where a flow's files go: into the repo at the recipe's paths, or into the
  *  caller's out dir by bare file name. */

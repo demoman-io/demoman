@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  KEPT_DIR,
+  FLOWS_DIR,
+  LEGACY_FLOWS_DIR as KEPT_DIR,
   type KeptReceipt,
   type KeptVideo,
   keptFileName,
@@ -189,6 +190,48 @@ describe("a kept file that does not parse", () => {
     ).toHaveLength(1);
     expect(videos[0]?.detail).not.toContain("no kept video is named");
     expect(videos[0]?.file).toBe(FILE);
+  });
+});
+
+describe("a flow in .demoman/flows/", () => {
+  it("is refreshed and found by name with `only`", async () => {
+    const moved = `${FLOWS_DIR}/${keptFileName(NAME)}`;
+    await mkdir(join(repo, FLOWS_DIR), { recursive: true });
+    await rename(join(repo, FILE), join(repo, moved));
+    const { videos } = await refreshKept(
+      { repoRoot: repo, library: "local", only: [NAME] },
+      deps(),
+    );
+    expect(
+      videos.map((v) => v.file),
+      JSON.stringify(videos),
+    ).toEqual([moved]);
+    expect(videos[0]?.detail ?? "").not.toContain("no kept video is named");
+  });
+});
+
+describe("one file name in both folders, as two flows", () => {
+  it("fails both and says to delete the old file", async () => {
+    const twin = `${FLOWS_DIR}/${keptFileName(NAME)}`;
+    await mkdir(join(repo, FLOWS_DIR), { recursive: true });
+    await writeFile(
+      join(repo, twin),
+      serializeKept({ ...kept, flow: "3e9b4f85-a06d-4c31-8d74-5fb08b9cad23" }),
+    );
+    const { videos } = await refreshKept(
+      { repoRoot: repo, library: "local" },
+      deps(),
+    );
+    expect(
+      videos.map((v) => v.file),
+      JSON.stringify(videos),
+    ).toEqual([twin, FILE]);
+    for (const v of videos) {
+      expect(v.outcome).toBe("failed");
+      expect(v.detail).toBe(
+        `${twin} and ${FILE} are two recipes for one name — delete the old one, ${FILE}, then refresh again`,
+      );
+    }
   });
 });
 

@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  KEPT_DIR,
+  LEGACY_FLOWS_DIR as KEPT_DIR,
   type KeptVideo,
   keptFileName,
   serializeKept,

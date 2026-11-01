@@ -3,9 +3,10 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  KEPT_DIR,
+  FLOWS_DIR,
   type KeptReceipt,
   type KeptVideo,
+  LEGACY_FLOWS_DIR,
   parseKept,
 } from "@demoman/run-core";
 import type { VideoRepo, VideoStore } from "./videos.js";
@@ -14,24 +15,36 @@ export type KeptEntry =
   | { file: string; kept: KeptVideo; migrated: KeptReceipt | null }
   | { file: string; unreadable: string };
 
-/** Every `.json` in the checkout's kept folder, sorted. A flow named by two
- *  or more files is in `duplicates`: neither file is then the flow's. */
+/** Every `.json` recipe in the checkout, repo-relative: `.demoman/flows/`
+ *  first, then the old `.demoman/videos/`, each sorted. A folder that is
+ *  not there has none; any other read error throws. */
+export async function repoFlowFiles(root: string): Promise<string[]> {
+  const files: string[] = [];
+  for (const dir of [FLOWS_DIR, LEGACY_FLOWS_DIR]) {
+    try {
+      const names = (await readdir(join(root, dir)))
+        .filter((n) => n.endsWith(".json"))
+        .sort();
+      files.push(...names.map((n) => `${dir}/${n}`));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return files;
+}
+
+/** Every repo flow file, read. A flow named by two or more files is in
+ *  `duplicates`, and so is a file name in both folders: neither file is
+ *  then the flow's. */
 export async function readKeptFlows(root: string): Promise<{
   entries: KeptEntry[];
-  duplicates: Array<{ flow: string; files: string[] }>;
+  /** `sameName`: one file name in both folders, as two different flows. */
+  duplicates: Array<{ flow: string; files: string[]; sameName?: true }>;
 }> {
-  let names: string[] = [];
-  try {
-    names = (await readdir(join(root, KEPT_DIR)))
-      .filter((n) => n.endsWith(".json"))
-      .sort();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
+  const files = await repoFlowFiles(root);
   const entries: KeptEntry[] = [];
   const byFlow = new Map<string, string[]>();
-  for (const name of names) {
-    const file = `${KEPT_DIR}/${name}`;
+  for (const file of files) {
     let text: string;
     try {
       text = await readFile(join(root, file), "utf8");
@@ -53,9 +66,28 @@ export async function readKeptFlows(root: string): Promise<{
       file,
     ]);
   }
-  const duplicates = [...byFlow]
-    .filter(([, files]) => files.length > 1)
-    .map(([flow, files]) => ({ flow, files }));
+  const duplicates: Array<{ flow: string; files: string[]; sameName?: true }> =
+    [...byFlow]
+      .filter(([, files]) => files.length > 1)
+      .map(([flow, files]) => ({ flow, files }));
+  // One name in both folders, as two flows: two recipes for one name. Both
+  // ids are marked, so neither resolves to one of the two files.
+  for (const e of entries) {
+    if (!e.file.startsWith(`${FLOWS_DIR}/`)) continue;
+    const name = e.file.slice(FLOWS_DIR.length + 1);
+    const legacy = entries.find(
+      (o) => o.file === `${LEGACY_FLOWS_DIR}/${name}`,
+    );
+    if (legacy === undefined) continue;
+    const pair = [e.file, legacy.file];
+    if (duplicates.some((d) => pair.every((f) => d.files.includes(f))))
+      continue;
+    for (const one of [e, legacy]) {
+      const flow = "kept" in one ? one.kept.flow : name;
+      if (!duplicates.some((d) => d.flow === flow && d.sameName === true))
+        duplicates.push({ flow, files: pair, sameName: true });
+    }
+  }
   return { entries, duplicates };
 }
 

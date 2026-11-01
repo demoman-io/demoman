@@ -22,7 +22,7 @@ import {
 } from "@demoman/compositor";
 import {
   fileDigest,
-  KEPT_DIR,
+  LEGACY_FLOWS_DIR as KEPT_DIR,
   type KeptScreens,
   type KeptVideo,
   keptFileName,

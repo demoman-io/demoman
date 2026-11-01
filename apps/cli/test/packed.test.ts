@@ -13,7 +13,11 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { KEPT_DIR, keptFileName, serializeKept } from "@demoman/run-core";
+import {
+  LEGACY_FLOWS_DIR as KEPT_DIR,
+  keptFileName,
+  serializeKept,
+} from "@demoman/run-core";
 import { recorderPlatform } from "@demoman/runner/package";
 import { createLibrary, createVideoStore } from "@demoman/runner/studio";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
