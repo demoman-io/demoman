@@ -2,7 +2,10 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  rename,
   rm,
+  symlink,
+  writeFile,
 } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -11,6 +14,7 @@ import { join } from "node:path";
 import {
   KEPT_DIR,
   keptFileName,
+  RECEIPT_DIR,
   type RunReport,
 } from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -314,5 +318,52 @@ describe("a flow kept before the library marked kept flows", () => {
       expect(flows.duplicates).toEqual([]);
     },
     RUN_MS * 4,
+  );
+});
+
+describe("a kept flow whose receipts folder links out of the repo", () => {
+  it(
+    "the run says so and writes nothing there",
+    async () => {
+      const first = await run(executor, {
+        callId: "linked-first",
+        video: { new: "Linked receipts" },
+        script: script("Linked receipts", typing(300)),
+      });
+      expect(first.outcome).toBe("complete");
+      const kept = await keepIt("Linked receipts", [
+        { path: "docs/linked.gif", fileType: "gif", quality: "share" },
+      ]);
+      if (!kept.ok) throw new Error(JSON.stringify(kept));
+      const name = kept.file.split("/").at(-1) as string;
+      const receipts = join(repo, RECEIPT_DIR);
+      const outside = await mkdtemp(join(tmpdir(), "demoman-kept-rw-out-"));
+      // The link names a folder holding this flow's receipt, so a write
+      // through it would land outside the repo.
+      const theirs = join(outside, name);
+      await writeFile(theirs, await readFile(join(receipts, name)));
+      const before = await readFile(theirs, "utf8");
+      const recipe = await readFile(join(repo, kept.file), "utf8");
+      await rename(receipts, `${receipts}.aside`);
+      try {
+        await symlink(outside, receipts);
+        const second = await run(executor, {
+          callId: "linked-second",
+          video: { id: first.videoVersion?.id as string },
+          script: script("Linked receipts", typing(600)),
+        });
+        expect(second.outcome).toBe("complete");
+        expect(second.kept).toEqual({
+          refused: expect.stringContaining("is not inside the repo"),
+        });
+        expect(await readFile(theirs, "utf8")).toBe(before);
+        expect(await readFile(join(repo, kept.file), "utf8")).toBe(recipe);
+      } finally {
+        await rm(receipts, { force: true });
+        await rename(`${receipts}.aside`, receipts);
+        await rm(outside, { recursive: true, force: true });
+      }
+    },
+    RUN_MS * 3,
   );
 });

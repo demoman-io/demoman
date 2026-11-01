@@ -38,6 +38,7 @@ import {
   parseKept,
   parseReceipt,
   RECEIPT_DIR,
+  REFRESH_LIST_FILE,
   type RefilmInfo,
   type RunReport,
   serializeKept,
@@ -202,31 +203,34 @@ export async function keepVideo(
       return refuse("outsideRepo", receiptAt.outside);
   }
   const paths: string[] = [];
-  // `files` outputs are names for --out-dir, not places in this repo.
-  for (const asked of deliver === "files"
-    ? []
-    : [...args.to.map((o) => o.path), args.report]) {
+  // `files` outputs are names for --out-dir, not places in this repo: the
+  // same clash checks run over the bare names, which must not be the names
+  // a refresh gives its own files there either.
+  for (const asked of [...args.to.map((o) => o.path), args.report]) {
     if (asked === undefined) continue;
-    const p = await inRepo(asked);
-    if (typeof p !== "string") return refuse("outsideRepo", p.outside);
+    let p = asked;
+    if (deliver === "files") {
+      if (asked === REFRESH_LIST_FILE || asked.endsWith(".receipt.json")) {
+        return refuse(
+          "outputTaken",
+          `${asked} is a name a refresh gives its own ${asked === REFRESH_LIST_FILE ? "list" : "receipts"} in --out-dir — give the output another name`,
+        );
+      }
+    } else {
+      const at = await inRepo(asked);
+      if (typeof at !== "string") return refuse("outsideRepo", at.outside);
+      p = at;
+    }
     if (paths.includes(p) || p === fileRel) {
       return refuse(
         "outputTaken",
-        `${p} is named twice by this keep — give each output its own path`,
+        `${p} is named twice by this keep — give each output its own ${deliver === "files" ? "name" : "path"}`,
       );
     }
     paths.push(p);
   }
-  const outputPaths =
-    deliver === "files"
-      ? args.to.map((o) => o.path)
-      : paths.slice(0, args.to.length);
-  const report =
-    args.report === undefined
-      ? null
-      : deliver === "files"
-        ? args.report
-        : (paths.at(-1) ?? null);
+  const outputPaths = paths.slice(0, args.to.length);
+  const report = args.report === undefined ? null : (paths.at(-1) ?? null);
 
   // The paths other kept videos already write.
   const keptDir = join(root, KEPT_DIR);
@@ -286,6 +290,12 @@ export async function keepVideo(
     deps,
   );
   if (!made.ok) return refuse(made.reason, made.detail);
+  // A recipe its own reader refuses (an empty name, say) is never written:
+  // every later run and refresh would refuse it.
+  const reread = parseKept(serializeKept(made.kept), fileRel);
+  if (!reread.ok) {
+    return refuse("keepRefused", `${reread.detail} — so nothing was written`);
+  }
   const { built, logoBytes, wallpaperBytes } = made;
   const base = made.kept;
   const { logo, wallpaper } = base;
@@ -759,6 +769,12 @@ export async function rewriteKept(
     if (typeof own !== "string") return { refused: own.outside };
     // The receipt is named after the recipe's file, never the flow's name.
     const receiptFile = `${RECEIPT_DIR}/${name}`;
+    if (old.deliver === "commit") {
+      const at = await repoPath(root, rootReal, receiptFile, "keep");
+      if (typeof at !== "string") {
+        return { refused: `${rel} was not rewritten: ${at.outside}` };
+      }
+    }
     const video = await deps.videos.get(videoId);
     // A flow kept before the library marked kept flows: marked now, so a
     // rename takes keep's path and the recipe's file follows its name.

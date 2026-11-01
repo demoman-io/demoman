@@ -470,6 +470,54 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
   );
 
   it(
+    "keep --deliver files refuses a name already taken, a refresh's own name, and an empty name",
+    async () => {
+      await freshVideo("scene-files-5", "Files one");
+      const first = await keepVideo(
+        {
+          video: "Files one",
+          to: [gif("same.gif")],
+          deliver: "files",
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      // Premise: another files flow already delivers same.gif.
+      if (!first.ok) throw new Error(JSON.stringify(first));
+      await freshVideo("scene-files-6", "Files two");
+      const before = await repoFiles();
+      const cases: [
+        { to: ReturnType<typeof gif>[]; report?: string },
+        string,
+      ][] = [
+        [{ to: [gif("same.gif")] }, "same.gif is already kept by the flow"],
+        [{ to: [gif("x.gif")], report: "x.gif" }, "x.gif is named twice"],
+        [{ to: [gif("demoman-refresh.json")] }, "its own list"],
+        [{ to: [gif("x.gif")], report: "files-two.receipt.json" }, "receipts"],
+      ];
+      for (const [args, said] of cases) {
+        const out = await keepVideo(
+          { video: "Files two", deliver: "files", repoRoot: repo, ...args },
+          deps(),
+        );
+        expect(out, JSON.stringify(args)).toEqual({
+          ok: false,
+          reason: "outputTaken",
+          detail: expect.stringContaining(said),
+        });
+      }
+      const empty = await keepVideo(
+        { video: "Files two", to: [gif("")], deliver: "files", repoRoot: repo },
+        deps(),
+      );
+      expect(empty).toMatchObject({ ok: false, reason: "keepRefused" });
+      expect(!empty.ok && empty.detail).toContain("nothing was written");
+      expect(await repoFiles()).toEqual(before);
+    },
+    KEEP_MS,
+  );
+
+  it(
     "keep --deliver files with a logo writes the recipe and the logo, and nothing else",
     async () => {
       const logoRel = ".demoman/videos/logos/acme.svg";
