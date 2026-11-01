@@ -150,18 +150,11 @@ exit 0
     const git = (...a: string[]) =>
       execFileSync("git", a, { cwd, encoding: "utf8" }).trim();
     git("init", "-q");
+    // The repo's own identity: CI's runner has none, and commit-tree needs one too.
+    git("config", "user.name", "t");
+    git("config", "user.email", "t@t");
     for (const m of ["one", "two"])
-      git(
-        "-c",
-        "user.name=t",
-        "-c",
-        "user.email=t@t",
-        "commit",
-        "-q",
-        "--allow-empty",
-        "-m",
-        m,
-      );
+      git("commit", "-q", "--allow-empty", "-m", m);
     const shas: Record<string, string> = {
       HEAD: git("rev-parse", "HEAD"),
       // A commit off the checkout's history, as a tag named like the branch.
