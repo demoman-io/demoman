@@ -356,6 +356,14 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
         tag.dirty = parsed.dirty;
       } else if (parsed !== null) {
         // Filmed outside a checkout: a known, normal state, said nowhere.
+      } else if (
+        "value" in report &&
+        typeof report.value === "object" &&
+        report.value !== null &&
+        !Array.isArray(report.value) &&
+        !("filmedCode" in report.value)
+      ) {
+        // No key: recorded before runs noted their commit, not a fault (as the studio's routes.ts).
       } else if ("unreadable" in report) {
         noCommit = `the video's run report would not read (${report.unreadable})`;
       } else if ("missing" in report) {

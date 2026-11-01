@@ -257,7 +257,7 @@ describe("keep, a clean take", () => {
       // Report before you forgive: a guessed 1 is said on the answer, not
       // left to look like a recorded one.
       expect(out.scaleGuess).toContain(
-        `1x is a guess: video ${cleanTakeId} records no filmed scale and has no motion frames to read one from`,
+        `1x is a guess: video ${cleanTakeId} does not say the scale it was recorded at and has no motion frames to read one from`,
       );
       expect(receipt.video).toBe(cleanTakeId);
       expect(kept.flow).toBe(receipt.flow);

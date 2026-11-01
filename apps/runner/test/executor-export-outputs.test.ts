@@ -310,7 +310,14 @@ describe("export tagging", () => {
       await tagWith(JSON.stringify({ filmedCode: { x: 1 } }), odd);
       expect(odd.join("\n")).toContain(take.takeId);
       expect(odd.join("\n")).toContain("no usable filmedCode");
+      // A report from before runs noted their commit has no key: tagged, said nowhere.
+      const old: string[] = [];
+      const before = await tagWith(JSON.stringify({ outcome: "clean" }), old);
+      expect(before.tags).toEqual([
+        { flow: "flow-1", video: take.takeId, commit: null, dirty: null },
+      ]);
+      expect(old.join("\n")).not.toContain("filmedCode");
     },
-    2 * EXPORT_MS,
+    3 * EXPORT_MS,
   );
 });

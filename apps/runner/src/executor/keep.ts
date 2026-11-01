@@ -191,7 +191,7 @@ export async function keepVideo(
     );
     return refuse(
       "unknownVideo",
-      `this repo has no flow "${args.video}" (an id or an exact name)${mine.length > 0 ? `; its flows are ${mine.map((v) => `"${v.name}"`).join(", ")}` : ""}${unread.length > 0 ? `; ${unread.length} flow record(s) could not be read (${unread.join("; ")})` : ""}`,
+      `no flow "${args.video}" (an id or an exact name) in your library to add to this repo${mine.length > 0 ? `; the flows you can add are ${mine.map((v) => `"${v.name}"`).join(", ")}` : ""}${unread.length > 0 ? `; ${unread.length} flow record(s) could not be read (${unread.join("; ")})` : ""}`,
     );
   }
 
@@ -519,7 +519,7 @@ async function buildKept(
   if (left.length > 0) {
     return refuse(
       "notCarried",
-      `video ${built.takeId} of "${video.name}" has edits a re-film does not carry, so a refresh would drop them: ${left.join(", ")} — remove them in the Studio, or record the flow again, then add it`,
+      `video ${built.takeId} of "${video.name}" has edits a new video does not carry, so a refresh would drop them: ${left.join(", ")} — remove them in the Studio, or record the flow again, then add it`,
     );
   }
   const read = await deps.library.getSceneRead(built.takeId);
@@ -539,7 +539,7 @@ async function buildKept(
     filmedScale(bundle, scene.meta.capture.viewport.width);
   const scaleGuess =
     scale === null
-      ? `1x is a guess: video ${built.takeId} records no filmed scale and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the recipe file to it, or the first refresh replaces a video that did not change`
+      ? `1x is a guess: video ${built.takeId} does not say the scale it was recorded at and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the recipe file to it, or the first refresh replaces a video that did not change`
       : null;
 
   // A site signed in to by hand cannot be signed in to by a refresh in CI.
@@ -1161,7 +1161,7 @@ function filmedCodeOf(
 export function filmedCodeIn(report: unknown): FilmedCode {
   const raw = (report as { filmedCode?: unknown } | null)?.filmedCode;
   if (raw === undefined)
-    return { none: "the run report records no filmed code" };
+    return { none: "the run report does not say which commit it recorded" };
   return (
     parseFilmedCode(raw) ?? {
       none: `the run report's filmedCode is malformed (${JSON.stringify(raw)}), so the filmed code is unknown`,
@@ -1258,7 +1258,7 @@ export async function libraryAhead(
         sentence,
       })),
     });
-    return `the library has a newer video or Studio edits not in ${file}${since}; run \`demoman add ${kept.name}\` again to take them${left.length > 0 ? ` (add will refuse the edits a re-film does not carry: ${left.join(", ")})` : ""}`;
+    return `the library has a newer video or Studio edits not in ${file}${since}; run \`demoman add ${kept.name}\` again to take them${left.length > 0 ? ` (add will refuse the edits a new video does not carry: ${left.join(", ")})` : ""}`;
   } catch (error) {
     return `whether the library is ahead of ${file} cannot be told: ${messageOf(error)}`;
   }

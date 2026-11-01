@@ -363,7 +363,7 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
    `warnings.editedSinceRecorded` lists steps whose `scene.json` no longer
    matches the frames; the summary names the re-film
    (`run({ flow: { id } })`, or `derive` then `run` when a verb changed).
-   Re-film only on request. `warnings.untagged` (no flow tag) and
+   Re-record only on request. `warnings.untagged` (no flow tag) and
    `taggedWithoutCommit` (only the filmed commit unknown): `error` says why;
    not the user's to act on.
    `links` holds the export's one-click actions, each present
@@ -525,7 +525,7 @@ Studio exports go to `~/Downloads`.
 | `repoFlowNameTaken`, `duplicateFlow`, `repoFlowUnreadable` | `run` (`refusedBeforeRun`); the first two also `flows` with `file` | Repo flows: this library has another flow with that name (`detail` gives the `join-flow` command to tell the user); two files in `.demoman/flows` or the old folder before it name one flow (delete one); a file there will not read (`detail` names it; fix or remove it). |
 | `flowNotFound` | `run` (`refusedBeforeRun`) | No flow has that `id`; call `flows`. |
 | `wrongIdKind` | any | Wrong kind of id; see `detail`. |
-| `flowUnreadable`, `flowUnwritable` | `run` (`refusedBeforeRun`), `flows` | The flow records could not be read or written; quote `detail`. Nothing filmed. |
+| `flowUnreadable`, `flowUnwritable` | `run` (`refusedBeforeRun`), `flows` | The flow records could not be read or written; quote `detail`. Nothing recorded. |
 | `noTag`, `unknownFlow`, `fileNotFound` | `flows` | The file has no Demoman tag; its flow is not in this library; no file there. Use `query` instead. |
 | `invalidArgs` | any | `file` with `query`, not absolute; an old name (`video`, `takeId`): `detail` gives the new. |
 | `videoExpired` | `export` (`refusedBeforeExport`) | The video's frames expired: `run({ flow: { id } })`, then export. |

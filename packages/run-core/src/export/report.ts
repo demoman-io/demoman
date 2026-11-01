@@ -873,7 +873,7 @@ export function exportVerdict(report: ExportReport): string {
           : `${listing} It was saved, but not tagged with its video: ${sentence(untagged.error)}`;
       return taggedWithoutCommit === undefined
         ? tagged
-        : `${tagged} It was tagged with its video, but not with the commit it filmed: ${sentence(taggedWithoutCommit.error)}`;
+        : `${tagged} It was tagged with its video, but not with the commit it was recorded at: ${sentence(taggedWithoutCommit.error)}`;
     }
     case "renderFailed":
       return `The render failed, so no file was made: ${sentence(report.error)}`;

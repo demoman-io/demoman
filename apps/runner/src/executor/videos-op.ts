@@ -336,7 +336,7 @@ export async function videosOp(
       const madeAt =
         tag.found.commit === null
           ? ""
-          : ` — filmed at commit ${tag.found.commit.slice(0, 7)}`;
+          : ` — recorded at commit ${tag.found.commit.slice(0, 7)}`;
       const summary = await summarise(store, library, video);
       const version = (await store.versions(video.id)).find(
         (v) => v.takeId === takeId,
