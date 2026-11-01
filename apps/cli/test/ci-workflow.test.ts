@@ -40,9 +40,122 @@ describe("ciWorkflow artifact", () => {
     expect(step).toContain("          name: demoman-videos");
     expect(step).toContain("          path: demoman-out");
   });
+  it("artifact downloads the last artifact into demoman-out and compares against it there", () => {
+    const refresh = lines(art).find((l) => l.includes(" refresh --deliver"));
+    expect(refresh).toContain("--previous demoman-out");
+    const at = lines(art).indexOf("      - name: Fetch the last run's videos");
+    // Premise: the step exists and comes before the refresh step.
+    expect(at).toBeGreaterThan(0);
+    expect(at).toBeLessThan(lines(art).indexOf(refresh ?? ""));
+    const step = lines(art).slice(at, lines(art).indexOf(refresh ?? ""));
+    expect(step).toContain(
+      `        if: ${expr("steps.guard.outputs.skip != 'true'")}`,
+    );
+    expect(step).toContain(`          GH_TOKEN: ${expr("github.token")}`);
+    const script = step.join("\n");
+    // The newest unexpired artifact on the watched branch, not one from any branch.
+    expect(script).toContain(
+      `select(.expired == false and .workflow_run.head_branch == "main")`,
+    );
+    expect(script).toContain(
+      'gh run download "$id" --repo "$GITHUB_REPOSITORY" --name demoman-videos --dir demoman-out',
+    );
+    // A failed download leaves no half folder and says so.
+    expect(script).toMatch(
+      /download "\$id".*then\n\s+rm -rf demoman-out\n\s+echo "::warning::/,
+    );
+    // gh reads another run's artifacts only with actions: read.
+    expect(lines(art)).toContain("  actions: read");
+  });
+  it("the download step says why there is nothing to compare against, and never stops the job", () => {
+    const at = lines(art).indexOf("      - name: Fetch the last run's videos");
+    const body = lines(art).slice(at);
+    const from = body.indexOf("        run: |") + 1;
+    const end = body.findIndex(
+      (l, i) => i >= from && !l.startsWith("          "),
+    );
+    const script = body
+      .slice(from, end)
+      .map((l) => l.slice(10))
+      .join("\n");
+    // Premise: the script is the four-way branch, not an empty slice.
+    expect(script).toMatch(/^if ! id=/);
+    expect(script.trimEnd()).toMatch(/fi$/);
+    const bin = mkdtempSync(join(tmpdir(), "gh-"));
+    // gh api answers $ID (or fails on LIST=fail); gh run download makes the
+    // folder, then fails on GET=fail.
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/sh
+echo "gh $*" >> "$LOG"
+if [ "$1" = api ]; then [ "$LIST" = fail ] && exit 1; printf '%s' "$ID"; exit 0; fi
+mkdir -p demoman-out && touch demoman-out/half
+[ "$GET" = fail ] && exit 1
+exit 0
+`,
+      { mode: 0o755 },
+    );
+    const shell = (env: Record<string, string>) => {
+      const cwd = mkdtempSync(join(tmpdir(), "ws-"));
+      const log = join(cwd, "log");
+      writeFileSync(log, "");
+      const r = spawnSync("bash", ["-e", "-c", script], {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          GITHUB_REPOSITORY: "o/r",
+          LOG: log,
+          ID: "",
+          ...env,
+        },
+      });
+      return {
+        ...r,
+        log: readFileSync(log, "utf8"),
+        has: spawnSync("test", ["-e", join(cwd, "demoman-out")]).status === 0,
+      };
+    };
+    const listFails = shell({ LIST: "fail" });
+    expect(listFails.status, listFails.stderr).toBe(0);
+    expect(listFails.stdout).toContain(
+      "::warning::The earlier demoman-videos artifacts could not be listed",
+    );
+    const none = shell({});
+    expect(none.status, none.stderr).toBe(0);
+    expect(none.stdout).toContain("No earlier demoman-videos artifact");
+    expect(none.log).not.toContain("run download");
+    const getFails = shell({ ID: "42", GET: "fail" });
+    expect(getFails.status, getFails.stderr).toBe(0);
+    expect(getFails.stdout).toContain(
+      "::warning::Run 42's demoman-videos artifact could not be downloaded",
+    );
+    expect(getFails.has, "a half download is removed").toBe(false);
+    const got = shell({ ID: "42" });
+    expect(got.status, got.stderr).toBe(0);
+    expect(got.stdout).toBe("");
+    expect(got.log).toContain(
+      "gh run download 42 --repo o/r --name demoman-videos --dir demoman-out",
+    );
+    expect(got.has).toBe(true);
+  });
+  it("a deployment trigger's download is not held to a branch", () => {
+    const dep = ciWorkflow({
+      version: "0.2.0",
+      trigger: { deployment: "Production" },
+      route: "pr",
+      artifact: true,
+    });
+    expect(dep).toContain("Fetch the last run's videos");
+    expect(dep).toContain("select(.expired == false)");
+  });
   it("without artifact, neither appears", () => {
     expect(push).not.toContain("--out-dir");
+    expect(push).not.toContain("--previous");
     expect(push).not.toContain("upload-artifact");
+    expect(push).not.toContain("gh run download");
+    expect(push).not.toContain("actions: read");
   });
 });
 

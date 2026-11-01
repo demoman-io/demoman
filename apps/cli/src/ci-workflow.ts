@@ -87,7 +87,31 @@ export function ciWorkflow(o: CiOptions): string {
       ? ""
       : `\n          DEMOMAN_BASE_URL: ${expr("github.event.deployment_status.environment_url")}`;
   const run = expr("steps.guard.outputs.skip != 'true'");
-  const outDir = o.artifact === true ? " --out-dir demoman-out" : "";
+  // The artifact is cumulative: the last one is downloaded into demoman-out
+  // and refresh compares against it in place, so an unchanged flow's receipt
+  // and video stay for the next run. A missing folder is refresh's "nothing
+  // to compare against", said in its note.
+  const outDir =
+    o.artifact === true ? " --out-dir demoman-out --previous demoman-out" : "";
+  const lastRun =
+    deployment === null ? ` and .workflow_run.head_branch == "${branch}"` : "";
+  const fetch =
+    o.artifact === true
+      ? `      - name: Fetch the last run's videos
+        if: ${run}
+        env:
+          GH_TOKEN: ${expr("github.token")}
+        run: |
+          if ! id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=demoman-videos" --jq '[.artifacts[] | select(.expired == false${lastRun})][0].workflow_run.id // empty'); then
+            echo "::warning::The earlier demoman-videos artifacts could not be listed, so every files flow is compared with nothing."
+          elif [ -z "$id" ]; then
+            echo "No earlier demoman-videos artifact, so every files flow is compared with nothing."
+          elif ! gh run download "$id" --repo "$GITHUB_REPOSITORY" --name demoman-videos --dir demoman-out; then
+            rm -rf demoman-out
+            echo "::warning::Run $id's demoman-videos artifact could not be downloaded, so every files flow is compared with nothing."
+          fi
+`
+      : "";
   const script = GUARD_SCRIPT.split("\n")
     .map((l) => `          ${l}`)
     .join("\n");
@@ -96,7 +120,7 @@ on:
 ${on}
 permissions:
   contents: write
-  pull-requests: write
+  pull-requests: write${o.artifact === true ? "\n  actions: read" : ""}
 concurrency:
   group: demoman-refresh
   cancel-in-progress: false
@@ -131,7 +155,7 @@ ${script}
       - name: Install fonts
         if: ${run}
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
-${start}      - name: Refresh the repo's flows
+${start}${fetch}      - name: Refresh the repo's flows
         if: ${run}
         run: ${npx} refresh --deliver ${o.route}${baseUrl}${outDir}
         env:
