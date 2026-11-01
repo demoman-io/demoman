@@ -537,7 +537,7 @@ describe("a run joins the kept flow", () => {
     ).toEqual([]);
   });
 
-  it("run { id } with a same-named local flow refuses keptNameTaken with the join-flow command", async () => {
+  it("run { id } with a same-named local flow refuses repoFlowNameTaken with the join-flow command", async () => {
     const local = await store().create({
       name: "Kept refund flow",
       repo: { key: REPO_KEY },
@@ -550,7 +550,7 @@ describe("a run joins the kept flow", () => {
     });
     expect(out).toMatchObject({
       outcome: "refusedBeforeRun",
-      reason: "keptNameTaken",
+      reason: "repoFlowNameTaken",
       field: "video",
     });
     expect(out.detail).toContain(`join-flow ${local.video.id} ${U2}`);
@@ -558,7 +558,7 @@ describe("a run joins the kept flow", () => {
   });
 
   it(
-    "the join-flow that keptNameTaken names works: the kept flow holds the moved videos, and the next run adds to it",
+    "the join-flow that repoFlowNameTaken names works: the kept flow holds the moved videos, and the next run adds to it",
     async () => {
       const local = (await store().list()).find(
         (v): v is VideoRecord => "name" in v && v.name === "Kept refund flow",
@@ -658,7 +658,7 @@ describe("a run joins the kept flow", () => {
         video: { new: "Brand new flow", confirmedNew: true },
       });
       expect(byName).toMatchObject({
-        reason: "keptUnreadable",
+        reason: "repoFlowUnreadable",
         field: "video",
       });
       expect(byName.detail).toContain(bad);

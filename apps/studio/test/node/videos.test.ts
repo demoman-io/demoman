@@ -547,7 +547,7 @@ describe("renaming a kept flow", () => {
     const r = await rename(invoice, { name: "Send an invoice" });
     expect(r.status, r.text).toBe(409);
     const refused = r.json() as { reason: string; detail: string };
-    expect(refused.reason).toBe("keptCheckoutMissing");
+    expect(refused.reason).toBe("repoCheckoutMissing");
     expect(refused.detail).toContain(`${KEPT_DIR}/${OLD} in ${checkout}`);
     expect(refused.detail).toMatch(/keeps its name\.$/);
     const after = (await listing()).videos.find((v) => v.id === invoice);
@@ -584,7 +584,7 @@ describe("renaming a kept flow", () => {
     await chmod(join(checkout, RECEIPT_DIR), 0o555);
     const r = await rename(invoice, { name: "Send an invoice" });
     expect(r.status, r.text).toBe(500);
-    expect(refusal(r).reason).toBe("keptUnwritable");
+    expect(refusal(r).reason).toBe("repoFlowUnwritable");
     expect(refusal(r).detail).toContain(`could not move ${RECEIPT_DIR}/${OLD}`);
     expect(refusal(r).detail).toContain("the old name stands everywhere");
     // Red: drop the undo — the new recipe is left beside the old one.
@@ -615,14 +615,14 @@ describe("renaming a kept flow", () => {
       await chmod(records, 0o755);
     }
     expect(r.status, r.text).toBe(500);
-    expect(refusal(r).reason).toBe("keptUnwritable");
+    expect(refusal(r).reason).toBe("repoFlowUnwritable");
     expect(refusal(r).detail).toContain("could not rename the library's flow");
     // Red: remove the old recipe before the library's rename, or drop the
     // undo — the files are left at the new slug while the library says old.
     expect(await state()).toEqual(untouched());
   });
 
-  it("a path that leaves the repo refuses keptUnwritable and writes nothing", async () => {
+  it("a path that leaves the repo refuses repoFlowUnwritable and writes nothing", async () => {
     await keepInvoice(checkout);
     // The receipts folder is a link to a folder outside the checkout.
     const outside = await mkdtemp(join(tmpdir(), "studio-outside-"));
@@ -631,7 +631,7 @@ describe("renaming a kept flow", () => {
       await symlink(outside, join(checkout, RECEIPT_DIR));
       const r = await rename(invoice, { name: "Send an invoice" });
       expect(r.status, r.text).toBe(500);
-      expect(refusal(r).reason).toBe("keptUnwritable");
+      expect(refusal(r).reason).toBe("repoFlowUnwritable");
       expect(refusal(r).detail).toMatch(/nothing was renamed\.$/);
       const now = await state();
       expect(now).toMatchObject({

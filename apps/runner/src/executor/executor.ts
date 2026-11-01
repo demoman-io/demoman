@@ -629,7 +629,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             const adopted = await adoptKept(videos, keptRoot, found, videoRepo);
             if (!adopted.ok) {
               return refusal(
-                "keptNameTaken",
+                "repoFlowNameTaken",
                 `flow "${found.kept.name}" is kept in ${found.file} as ${asked.id}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${asked.id}\` to move its videos into the kept flow`,
                 "video",
               );
@@ -665,7 +665,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         );
         if (keptHolder === undefined && unreadable.length > 0) {
           return refusal(
-            "keptUnreadable",
+            "repoFlowUnreadable",
             `a kept file in this repo would not read, so Demoman cannot tell whether it keeps "${asked.new}" — fix or remove it before starting a new flow here: ${unreadable.join("; ")}`,
             "video",
           );

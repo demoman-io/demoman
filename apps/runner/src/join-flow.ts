@@ -12,7 +12,7 @@ export type JoinAnswer =
 /**
  * `demoman join-flow`: `from`'s videos into `into`, then `from` removed. An
  * `into` this library lacks is the flow the checkout keeps under that id
- * (keptNameTaken's way out, where `from` holds the kept name): its record is
+ * (repoFlowNameTaken's way out, where `from` holds the kept name): its record is
  * written with `from` left out of the name check, `from`'s videos moved and
  * `from` removed, all under one lock.
  */

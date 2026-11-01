@@ -22,10 +22,10 @@ A repo kept by an older Demoman is still read.
 
 The flow's id is in the file, so every machine that clones the repo shares it.
 If your own library already holds a different flow with that name, a run
-into the kept flow refuses with `keptNameTaken` and names
+into the kept flow refuses with `repoFlowNameTaken` and names
 `demoman join-flow <from> <into>`, which moves that flow's videos into the
 kept one. Two kept files naming one flow refuse with `duplicateFlow`; a kept
-file that will not read refuses with `keptUnreadable`.
+file that will not read refuses with `repoFlowUnreadable`.
 
 Keep refuses, writing nothing, a flow whose current video has Studio
 edits a re-film does not carry (a mask, a trim, a cut, a split, a hold, a

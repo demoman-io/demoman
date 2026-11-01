@@ -136,10 +136,10 @@ export type StudioReason =
   | "videoNameInvalid"
   /** A kept flow's recipe cannot be read where its record says, so it is
    *  not renamed: the recipe would keep the old name. */
-  | "keptCheckoutMissing"
+  | "repoCheckoutMissing"
   /** A kept flow's rename could not write its checkout or its record;
    *  `detail` says what was done before it stopped. */
-  | "keptUnwritable"
+  | "repoFlowUnwritable"
   /** The video records would not read or write (the runner's VideoError). */
   | "videoUnreadable"
   | "videoUnwritable"

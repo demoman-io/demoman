@@ -304,7 +304,7 @@ export async function videosOp(
           );
           if (!adopted.ok) {
             return failure(
-              "keptNameTaken",
+              "repoFlowNameTaken",
               `flow "${found.kept.name}" is kept in ${found.file} as ${tag.found.flow}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${tag.found.flow}\` to move its videos into the kept flow`,
             );
           }

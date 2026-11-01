@@ -156,7 +156,7 @@ describe("renameKept", () => {
     );
     expect(out).toEqual({
       ok: false,
-      reason: "keptUnwritable",
+      reason: "repoFlowUnwritable",
       detail: expect.stringContaining(`${outside} is not inside the repo`),
     });
   });

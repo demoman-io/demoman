@@ -6,7 +6,7 @@ description: "What changed in each release."
 <Update label="Unreleased" description="Kept videos, receipts and the files route">
   - A kept flow is now two files: the re-film file in `.demoman/videos/<name>.json` and a receipt in `.demoman/receipts/<name>.json` that refresh writes. Refresh never rewrites the re-film file. Files kept before this are still read.
   - A kept flow's id is in its file, so every machine that clones the repo shares one flow. `npx demoman join-flow <from> <into>` moves a flow's videos into the kept flow that has its name.
-  - A run into a kept flow refuses with `keptNameTaken` when your library holds a different flow with that name, `duplicateFlow` when two kept files name one flow, and `keptUnreadable` when a kept file will not read.
+  - A run into a kept flow refuses with `repoFlowNameTaken` when your library holds a different flow with that name, `duplicateFlow` when two kept files name one flow, and `repoFlowUnreadable` when a kept file will not read.
   - `refresh` prints `changed`, `added`, `uncompared`, `unchanged` or `failed` for each flow. `--out-dir` and `--previous` write the videos and a `demoman-refresh.json` list to a folder.
   - `keep --deliver files` commits no video: refresh writes it to `--out-dir` for your own upload. `setup --ci --artifact` uploads that folder as a workflow artifact.
 </Update>

@@ -412,7 +412,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     await chmod(join(repo, ".demoman/videos"), 0o555);
     try {
       const out = await keepVideo(args, deps());
-      expect(out).toMatchObject({ ok: false, reason: "keptUnwritable" });
+      expect(out).toMatchObject({ ok: false, reason: "repoFlowUnwritable" });
       if (out.ok) return;
       expect(out.detail).toContain(`wrote ${file}`);
       expect(out.detail).toContain(`delete ${legacy}`);

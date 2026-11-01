@@ -578,7 +578,7 @@ export function createRoutes(o: {
         if (kept !== null && "unknown" in kept) {
           return {
             ok: false as const,
-            reason: "keptCheckoutMissing" as const,
+            reason: "repoCheckoutMissing" as const,
             detail: `${kept.unknown}, so the flow keeps its name.`,
           };
         }
@@ -588,7 +588,7 @@ export function createRoutes(o: {
       if (done.reason === "videoNotFound") return noVideo(id);
       if ("detail" in done) {
         return refuse(
-          done.reason === "keptUnwritable" ? 500 : 409,
+          done.reason === "repoFlowUnwritable" ? 500 : 409,
           done.reason,
           done.detail.replace(/[^.]$/, "$&."),
         );

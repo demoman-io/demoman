@@ -91,7 +91,7 @@ export interface VideoStore {
     except?: string;
   }): Promise<
     | { ok: true; video: VideoRecord; created: boolean }
-    | { ok: false; reason: "keptNameTaken"; holder: VideoRecord }
+    | { ok: false; reason: "repoFlowNameTaken"; holder: VideoRecord }
   >;
   setKept(
     id: string,
@@ -565,13 +565,13 @@ export function createVideoStore(
     const existing = await get(a.id);
     if (existing) {
       const holder = await holderOf(a.name, existing.repo, a.id);
-      if (holder) return { ok: false, reason: "keptNameTaken", holder };
+      if (holder) return { ok: false, reason: "repoFlowNameTaken", holder };
       const video = { ...existing, name: a.name, kept: a.kept };
       await write(recordPath(a.id), video);
       return { ok: true, video, created: false };
     }
     const holder = await holderOf(a.name, a.repo, a.except);
-    if (holder) return { ok: false, reason: "keptNameTaken", holder };
+    if (holder) return { ok: false, reason: "repoFlowNameTaken", holder };
     const video: VideoRecord = {
       id: a.id,
       name: a.name,

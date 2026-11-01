@@ -522,7 +522,7 @@ Studio exports go to `~/Downloads`.
 | `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-film of a video that did not keep a value. |
 | `flowRequired` | `run` (`refusedBeforeRun`) | No `flow` was given. Find one (section 4), or pass `{ new }`. |
 | `possibleDuplicate`, `nameTaken` | `run` (`refusedBeforeRun`) | A similar flow exists (`matches`) or the name is taken (`holder`). Section 4. |
-| `keptNameTaken`, `duplicateFlow`, `keptUnreadable` | `run` (`refusedBeforeRun`); the first two also `flows` with `file` | Kept flows: this library has another flow with that name (`detail` gives the `join-flow` command to tell the user); two kept files name one flow (delete one); a kept file will not read (`detail` names it; fix or remove it). |
+| `repoFlowNameTaken`, `duplicateFlow`, `repoFlowUnreadable` | `run` (`refusedBeforeRun`); the first two also `flows` with `file` | Repo flows: this library has another flow with that name (`detail` gives the `join-flow` command to tell the user); two files in `.demoman/flows` name one flow (delete one); a file there will not read (`detail` names it; fix or remove it). |
 | `flowNotFound` | `run` (`refusedBeforeRun`) | No flow has that `id`; call `flows`. |
 | `wrongIdKind` | any | Wrong kind of id; see `detail`. |
 | `flowUnreadable`, `flowUnwritable` | `run` (`refusedBeforeRun`), `flows` | The flow records could not be read or written; quote `detail`. Nothing filmed. |

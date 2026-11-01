@@ -86,7 +86,7 @@ export type KeepRefusal =
   | "keepRefused"
   /** The recipe was written but the old file it replaces could not be
    *  removed: two files name the flow until it is deleted. */
-  | "keptUnwritable";
+  | "repoFlowUnwritable";
 
 /** What a built kept file was made from. */
 type KeptFrom = { takeId: string; recordedRevision: string };
@@ -418,7 +418,7 @@ export async function keepVideo(
         await rm(join(root, moveFrom));
       } catch (error) {
         return refuse(
-          "keptUnwritable",
+          "repoFlowUnwritable",
           `wrote ${written.join(", ")}, but could not remove the old ${moveFrom} (${messageOf(error)}), so two files now name "${video.name}" — delete ${moveFrom}`,
         );
       }
@@ -880,11 +880,11 @@ export type RenameKeptAnswer =
   | { ok: true; file: string }
   | {
       ok: false;
-      /** `keptCheckoutMissing`: the recipe or its receipt cannot be read;
+      /** `repoCheckoutMissing`: the recipe or its receipt cannot be read;
        *  `nameTaken`: the library or the checkout has the name already;
-       *  `keptUnwritable`: a write failed, or a path leaves the repo — its
+       *  `repoFlowUnwritable`: a write failed, or a path leaves the repo — its
        *  detail says which steps were done before it. */
-      reason: "keptCheckoutMissing" | "nameTaken" | "keptUnwritable";
+      reason: "repoCheckoutMissing" | "nameTaken" | "repoFlowUnwritable";
       detail: string;
     };
 
@@ -901,7 +901,7 @@ export async function renameKept(
   deps: { videos: VideoStore },
 ): Promise<RenameKeptAnswer> {
   const refuse = (
-    reason: "keptCheckoutMissing" | "nameTaken" | "keptUnwritable",
+    reason: "repoCheckoutMissing" | "nameTaken" | "repoFlowUnwritable",
     detail: string,
   ): RenameKeptAnswer => ({ ok: false, reason, detail });
   const root = resolve(a.root);
@@ -910,21 +910,24 @@ export async function renameKept(
   // is neither read nor renamed.
   const own = await repoPath(root, rootReal, a.file, "keep");
   if (typeof own !== "string") {
-    return refuse("keptUnwritable", `${own.outside}, so nothing was renamed`);
+    return refuse(
+      "repoFlowUnwritable",
+      `${own.outside}, so nothing was renamed`,
+    );
   }
   let text: string;
   try {
     text = await readFile(join(root, a.file), "utf8");
   } catch (error) {
     return refuse(
-      "keptCheckoutMissing",
+      "repoCheckoutMissing",
       `${a.file} in ${root} could not be read (${messageOf(error)}), so nothing was renamed`,
     );
   }
   const parsed = parseKept(text, a.file);
   if (!parsed.ok) {
     return refuse(
-      "keptCheckoutMissing",
+      "repoCheckoutMissing",
       `${parsed.detail}, so nothing was renamed`,
     );
   }
@@ -935,7 +938,7 @@ export async function renameKept(
   );
   if (rec === undefined) {
     return refuse(
-      "keptCheckoutMissing",
+      "repoCheckoutMissing",
       `${a.file} keeps flow ${old.flow}, which this library does not have, so nothing was renamed`,
     );
   }
@@ -960,7 +963,7 @@ export async function renameKept(
     const inside = await repoPath(root, rootReal, p, "keep");
     if (typeof inside !== "string") {
       return refuse(
-        "keptUnwritable",
+        "repoFlowUnwritable",
         `${inside.outside}, so nothing was renamed`,
       );
     }
@@ -975,7 +978,7 @@ export async function renameKept(
   if (old.deliver === "commit") {
     if ("detail" in had) {
       return refuse(
-        "keptCheckoutMissing",
+        "repoCheckoutMissing",
         `${had.detail}, so nothing was renamed`,
       );
     }
@@ -1094,7 +1097,7 @@ export async function renameKept(
         }
       }
       return refuse(
-        "keptUnwritable",
+        "repoFlowUnwritable",
         `"${old.name}" was not renamed: could not ${step.what} (${messageOf(error)})${
           left.length === 0
             ? "; every step before it was undone, so the old name stands everywhere"

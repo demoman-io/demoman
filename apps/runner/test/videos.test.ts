@@ -600,7 +600,7 @@ describe("adopt", () => {
     });
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.reason).toBe("keptNameTaken");
+    expect(r.reason).toBe("repoFlowNameTaken");
     expect(r.holder.id).toBe(made1.video.id);
     expect(await s.list()).toHaveLength(1);
     expect(await s.get(U2)).toBeNull();
