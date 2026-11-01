@@ -5,6 +5,7 @@ import type {
   FolderListing,
   Platform,
 } from "../../../pages/src/platform/types";
+import { CARDS } from "../helpers/memory-platform";
 
 /**
  * The library page on a platform with a take folder (the studio): the real
@@ -112,6 +113,11 @@ async function fakePlatform(
       },
     },
     theme: { read: async () => "system", write: async () => undefined },
+    // These cases' premise is the card view.
+    libraryView: {
+      read: async () => ({ view: CARDS }),
+      write: async () => ({}),
+    },
     nav: {
       editor: (id: string) => `/editor.html?scene=${id}`,
       library: () => "/",

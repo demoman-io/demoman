@@ -120,6 +120,24 @@ export type FilmedCode =
   | { commit: string | null; tree: string; dirty: boolean }
   | { none: string };
 
+/** A `filmedCode` read from a stored report or receipt, or null when it is
+ *  not one: the one check every reader uses, so a malformed value is
+ *  "unknown" everywhere and never copied on. Absent (`undefined`) is null
+ *  too; a caller that tells "absent" from "malformed" looks for the key. */
+export function parseFilmedCode(raw: unknown): FilmedCode | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw))
+    return null;
+  const c = raw as Record<string, unknown>;
+  if (typeof c.none === "string" && c.none !== "") return { none: c.none };
+  if (
+    (c.commit === null || typeof c.commit === "string") &&
+    typeof c.tree === "string" &&
+    typeof c.dirty === "boolean"
+  )
+    return { commit: c.commit, tree: c.tree, dirty: c.dirty };
+  return null;
+}
+
 /** A run's or probe's last picture on disk, or why there is none. */
 export type FinalStill = { path: string } | { unavailable: string };
 

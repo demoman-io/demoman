@@ -1,21 +1,29 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  KEPT_DIR,
+  FLOWS_DIR,
+  LEGACY_FLOWS_DIR as KEPT_DIR,
+  type KeptReceipt,
   type KeptVideo,
   keptFileName,
+  RECEIPT_DIR,
   serializeKept,
+  serializeReceipt,
 } from "@demoman/run-core";
 import { beforeEach, describe, expect, it } from "vitest";
+import { libraryAhead } from "../src/executor/keep.js";
 import type { Library } from "../src/executor/library.js";
 import { type RefreshDeps, refreshKept } from "../src/executor/refresh.js";
 import type { Version, VideoStore } from "../src/executor/videos.js";
 
+const FLOW_ID = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
 const NAME = "Place an order";
 const FILE = `${KEPT_DIR}/${keptFileName(NAME)}`;
 const kept: KeptVideo = {
-  keptVersion: 1,
+  keptVersion: 2,
+  flow: FLOW_ID,
+  deliver: "commit",
   name: NAME,
   script: {
     scriptVersion: 1,
@@ -30,9 +38,17 @@ const kept: KeptVideo = {
   outputs: [
     { path: "docs/o.mp4", fileType: "mp4", aspect: "16:9", quality: "share" },
   ],
-  screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
   report: null,
-  from: { videoId: "v1", takeId: "t1", recordedRevision: "r1" },
+};
+/** What the committed files show: video t1 at revision r1. */
+const committed: KeptReceipt = {
+  receiptVersion: 1,
+  flow: FLOW_ID,
+  video: "t1",
+  filmedAt: null,
+  filmedCode: { none: "test" },
+  screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
+  recordedRevision: "r1",
 };
 const version = (takeId: string): Version => ({
   takeId,
@@ -53,6 +69,11 @@ beforeEach(async () => {
   repo = await mkdtemp(join(tmpdir(), "demoman-ahead-"));
   await mkdir(join(repo, KEPT_DIR), { recursive: true });
   await writeFile(join(repo, FILE), serializeKept(kept));
+  await mkdir(join(repo, RECEIPT_DIR), { recursive: true });
+  await writeFile(
+    join(repo, RECEIPT_DIR, keptFileName(NAME)),
+    serializeReceipt(committed),
+  );
   current = { takeId: "t1", revision: "r1", masks: [] };
   reads = 0;
 });
@@ -61,9 +82,13 @@ const deps = (): RefreshDeps => ({
   videos: {
     get: async () => {
       reads++;
-      return { id: "v1", name: NAME };
+      return { id: FLOW_ID, name: NAME };
     },
-    versions: async () => [version(current.takeId)],
+    // The flow's versions: the kept t1, and any newer one after it.
+    versions: async () =>
+      current.takeId === "t1"
+        ? [version("t1")]
+        : [version("t1"), version(current.takeId)],
   } as unknown as VideoStore,
   library: {
     getSceneRead: async () => ({
@@ -86,7 +111,6 @@ const deps = (): RefreshDeps => ({
     }) as unknown as ReturnType<RefreshDeps["executor"]>,
   session: {} as RefreshDeps["session"],
   env: {},
-  git: async () => ({ code: 0, stdout: "abc\n", stderr: "" }),
   log: () => undefined,
 });
 
@@ -102,13 +126,13 @@ describe("a refresh says when the library is ahead of the file", () => {
     current.revision = "r2";
     const [line, ...rest] = (await notes("local")) ?? [];
     expect(line).toContain(`not in ${FILE}`);
-    expect(line).toContain(`run \`demoman keep ${NAME}\` again to take them`);
+    expect(line).toContain(`run \`demoman add ${NAME}\` again to take them`);
     expect(line).not.toContain("refuse");
     expect(rest).toEqual([]);
   });
   it("says so for a newer take", async () => {
     current.takeId = "t2";
-    expect((await notes("local"))?.[0]).toContain("demoman keep");
+    expect((await notes("local"))?.[0]).toContain("demoman add");
   });
   it("names a mask keep would refuse", async () => {
     current.revision = "r2";
@@ -164,22 +188,65 @@ describe("a kept file that does not parse", () => {
       videos.map((v) => v.detail),
       JSON.stringify(videos),
     ).toHaveLength(1);
-    expect(videos[0]?.detail).not.toContain("no kept video is named");
+    expect(videos[0]?.detail).not.toContain("the repo has no flow named");
     expect(videos[0]?.file).toBe(FILE);
+  });
+});
+
+describe("a flow in .demoman/flows/", () => {
+  it("is refreshed and found by name with `only`", async () => {
+    const moved = `${FLOWS_DIR}/${keptFileName(NAME)}`;
+    await mkdir(join(repo, FLOWS_DIR), { recursive: true });
+    await rename(join(repo, FILE), join(repo, moved));
+    const { videos } = await refreshKept(
+      { repoRoot: repo, library: "local", only: [NAME] },
+      deps(),
+    );
+    expect(
+      videos.map((v) => v.file),
+      JSON.stringify(videos),
+    ).toEqual([moved]);
+    expect(videos[0]?.detail ?? "").not.toContain("the repo has no flow named");
+  });
+});
+
+describe("one file name in both folders, as two flows", () => {
+  it("fails both and says to delete the old file", async () => {
+    const twin = `${FLOWS_DIR}/${keptFileName(NAME)}`;
+    await mkdir(join(repo, FLOWS_DIR), { recursive: true });
+    await writeFile(
+      join(repo, twin),
+      serializeKept({ ...kept, flow: "3e9b4f85-a06d-4c31-8d74-5fb08b9cad23" }),
+    );
+    const { videos } = await refreshKept(
+      { repoRoot: repo, library: "local" },
+      deps(),
+    );
+    expect(
+      videos.map((v) => v.file),
+      JSON.stringify(videos),
+    ).toEqual([twin, FILE]);
+    for (const v of videos) {
+      expect(v.outcome).toBe("failed");
+      expect(v.detail).toBe(
+        `${twin} and ${FILE} are two different flows with one file name — rename one of the two flows, then refresh again`,
+      );
+    }
   });
 });
 
 describe("a local refresh films outside the user's library", () => {
   /** Each executor's library, by its home, under the run's own rules for
-   *  `video` (executor.ts): an unknown id is videoNotFound, a name this repo
-   *  already has is nameTaken, and a run into a video adds a version. */
+   *  `video` (executor.ts): an id the repo keeps is adopted, any other
+   *  unknown id is videoNotFound, a name this repo already has is
+   *  nameTaken, and a run into a video adds a version. */
   const libraries = new Map<string, { ids: Set<string>; names: Set<string> }>();
   const runs: { home: string; video: Record<string, unknown> }[] = [];
   const filming = (userHas: boolean): RefreshDeps => {
     libraries.clear();
     runs.length = 0;
     libraries.set(repo, {
-      ids: new Set(userHas ? ["v1"] : []),
+      ids: new Set(userHas ? [FLOW_ID] : []),
       names: new Set(userHas ? [NAME] : []),
     });
     const d = deps();
@@ -203,6 +270,7 @@ describe("a local refresh films outside the user's library", () => {
             value: { outcome: "refusedBeforeRun", reason, detail },
           });
           if ("id" in video) {
+            if (video.id === FLOW_ID) lib.ids.add(FLOW_ID);
             if (!lib.ids.has(String(video.id)))
               return refuse("videoNotFound", `no video has the id ${video.id}`);
             // A new version of the user's video: the take a refresh made.
@@ -241,5 +309,41 @@ describe("a local refresh films outside the user's library", () => {
     expect(await refreshOnce(d).then((v) => v?.notes)).toEqual([]);
     expect(runs.length, "premise: the refresh filmed").toBeGreaterThan(0);
     expect((await refreshOnce(d))?.notes, JSON.stringify(runs)).toEqual([]);
+  });
+});
+
+describe("libraryAhead, given the receipt", () => {
+  const receipt = committed;
+  const ahead = (r: KeptReceipt | null, d = deps()) =>
+    libraryAhead(kept, r, FILE, d);
+
+  it("says nothing when the receipt names the library's current video and revision", async () => {
+    expect(await ahead(receipt)).toBeNull();
+  });
+  it("says to keep again when the receipt's revision is older", async () => {
+    current.revision = "r2";
+    expect(await ahead(receipt)).toContain(`run \`demoman add ${NAME}\` again`);
+  });
+  it("says to keep again when the receipt's video is older", async () => {
+    current.takeId = "t2";
+    expect(await ahead(receipt)).toContain("demoman add");
+  });
+  it("with no receipt, says there is none to compare when the library holds the flow", async () => {
+    expect(await ahead(null)).toBe(
+      `${FILE} has no receipt to compare the library with; run \`demoman add ${NAME}\` again`,
+    );
+  });
+  it("a files flow with no receipt says it comes from --previous, never to add again", async () => {
+    // Red: the commit-flow advice — add writes a files flow no receipt.
+    const files = { ...kept, deliver: "files" as const };
+    const note = await libraryAhead(files, null, FILE, deps());
+    expect(note).toBe(
+      `${FILE} delivers files, whose receipt comes from --previous (an earlier refresh's --out-dir); with none, whether the library is ahead of it cannot be told`,
+    );
+  });
+  it("with no receipt, says nothing when the library has no such flow", async () => {
+    const d = deps();
+    d.videos = { get: async () => null } as unknown as VideoStore;
+    expect(await ahead(null, d)).toBeNull();
   });
 });

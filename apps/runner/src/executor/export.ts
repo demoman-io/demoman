@@ -22,6 +22,7 @@ import {
   lookDigest,
   MAX_STILL_SIDE,
   messageOf,
+  parseFilmedCode,
   reportForSave,
   reportForStillsSave,
   type StillsOptions,
@@ -327,6 +328,8 @@ async function listed(
 async function taggerFor(takeId: string, deps: ExportDeps) {
   let tag: VideoTag | null = null;
   let error: string | undefined;
+  // The file is tagged, but the commit is not known: why.
+  let noCommit: string | undefined;
   // Unknown (absent) when the take's video.json will not read.
   let videoId: string | null | undefined;
   // The file is named after the video (author, 2026-10-24); without one,
@@ -335,7 +338,44 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
   try {
     const member = await deps.videos.videoOf(takeId);
     videoId = member?.videoId ?? null;
-    if (member !== null) tag = { video: member.videoId, take: takeId };
+    if (member !== null) {
+      tag = { flow: member.videoId, video: takeId, commit: null, dirty: null };
+      // The commit is the run's record (`filmedCode`), never re-read from git.
+      const report = await deps.library
+        .getJson(takeId, "report.json")
+        .catch((e: unknown) => ({
+          unreadable: `the run report could not be read: ${messageOf(e)}`,
+        }));
+      const code =
+        "value" in report
+          ? (report.value as { filmedCode?: unknown } | null)?.filmedCode
+          : undefined;
+      const parsed = parseFilmedCode(code);
+      if (parsed !== null && "commit" in parsed) {
+        tag.commit = parsed.commit;
+        tag.dirty = parsed.dirty;
+      } else if (parsed !== null) {
+        // Filmed outside a checkout: a known, normal state, said nowhere.
+      } else if (
+        "value" in report &&
+        typeof report.value === "object" &&
+        report.value !== null &&
+        !Array.isArray(report.value) &&
+        !("filmedCode" in report.value)
+      ) {
+        // No key: recorded before runs noted their commit, not a fault (as the studio's routes.ts).
+      } else if ("unreadable" in report) {
+        noCommit = `the video's run report would not read (${report.unreadable})`;
+      } else if ("missing" in report) {
+        deps.log(
+          `video ${takeId}: the export is tagged without a commit, as the video has no run report`,
+        );
+      } else {
+        deps.log(
+          `video ${takeId}: the export is tagged without a commit, as its report.json has no usable filmedCode (${"value" in report ? JSON.stringify(code ?? null) : "no value"})`,
+        );
+      }
+    }
   } catch (e) {
     error = `the video's flow could not be read (${messageOf(e)})`;
   }
@@ -359,6 +399,13 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
       error ??= tagged.error;
       deps.log(`video ${takeId}: an export is not tagged (${tagged.error})`);
       return bytes;
+    },
+    get taggedWithoutCommit():
+      | { taggedWithoutCommit: { error: string } }
+      | Record<string, never> {
+      return noCommit === undefined
+        ? {}
+        : { taggedWithoutCommit: { error: noCommit } };
     },
     get untagged(): { untagged: { error: string } } | Record<string, never> {
       return error === undefined ? {} : { untagged: { error } };
@@ -591,6 +638,7 @@ async function exportLeased(a: {
         },
         ...warnings,
         ...tagger.untagged,
+        ...tagger.taggedWithoutCommit,
         ...(rendered.stillsCapped === undefined
           ? {}
           : { stillsCapped: rendered.stillsCapped }),
@@ -645,6 +693,7 @@ async function exportLeased(a: {
       target: rendered.rendered,
       ...warnings,
       ...tagger.untagged,
+      ...tagger.taggedWithoutCommit,
       // The look is recorded here, beside the bytes the render was handed:
       // a file's contents are part of it (`lookDigest`).
       screens: {

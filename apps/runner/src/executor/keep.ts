@@ -3,11 +3,11 @@ import {
   lstat,
   mkdir,
   mkdtemp,
-  readdir,
   readFile,
   realpath,
   rename,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -22,19 +22,28 @@ import {
 } from "node:path";
 import { type FrameBundle, wallpaperShape } from "@demoman/compositor";
 import {
+  type FilmedCode,
+  FLOWS_DIR,
   frameOf,
   judgedOutput,
-  KEPT_DIR,
   KEPT_VERSION,
+  type KeptDeliver,
   type KeptOutput,
+  type KeptReceipt,
   type KeptScreens,
   type KeptVideo,
   keptFileName,
+  LEGACY_FLOWS_DIR,
   notCarriedOf,
+  parseFilmedCode,
   parseKept,
+  parseReceipt,
+  RECEIPT_DIR,
+  REFRESH_LIST_FILE,
   type RefilmInfo,
   type RunReport,
   serializeKept,
+  serializeReceipt,
   servedRunReport,
   targetFor,
 } from "@demoman/run-core";
@@ -42,11 +51,13 @@ import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import { chooseAccount, findAccounts } from "./accounts.js";
 import { type ExportDeps, exportTake } from "./export.js";
+import { readKeptFlows, repoFlowFiles } from "./kept-flows.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
 import { refilmFromVideo } from "./refilm.js";
 import { type GitRunner, readRepo } from "./repo.js";
 import { createSessionStore, siteOf } from "./sessions.js";
+import { sameName } from "./video-match.js";
 import {
   sharesRepo,
   type VideoRecord,
@@ -71,7 +82,15 @@ export type KeepRefusal =
   /** Any other reason a re-film of the video's version refuses (its own
    *  reason and sentence in the detail), or an accounts.json that will not
    *  choose an account: a refresh would refuse the same way. */
-  | "cannotRefilm";
+  | "cannotRefilm"
+  /** The request itself is refused (a `files` output given as a path). */
+  | "keepRefused"
+  /** The recipe was written but the old file it replaces could not be
+   *  removed: two files name the flow until it is deleted. */
+  | "repoFlowUnwritable";
+
+/** What a built kept file was made from. */
+type KeptFrom = { takeId: string; recordedRevision: string };
 
 export interface KeepDeps {
   home: string;
@@ -88,9 +107,17 @@ export type KeepAnswer =
   | {
       ok: true;
       file: string;
+      /** The old `.demoman/videos/` file this keep moved here, or null. */
+      moved: string | null;
       kept: KeptVideo;
-      /** "k of n screens are still": what a refresh compares at. */
-      screensNote: string;
+      /** What `deliver: "commit"` wrote beside the recipe; null for `files`. */
+      receipt: KeptReceipt | null;
+      /** "k of n screens are still": what a refresh compares at. Said for
+       *  `commit` only: `files` renders nothing here. */
+      screensNote?: string;
+      /** Said when the library could not mark the flow kept: the keep
+       *  stands, and the Library will not show it as kept until it does. */
+      markNote?: string;
       written: string[];
       /** Said when `kept.scale` is a guess: the take records none. */
       scaleGuess?: string;
@@ -119,6 +146,9 @@ export async function keepVideo(
     to: KeepOutput[];
     report?: string;
     repoRoot: string;
+    /** `commit` (the default) renders the outputs into the repo; `files`
+     *  writes the recipe alone and leaves delivery to `--out-dir`. */
+    deliver?: KeptDeliver;
   },
   deps: KeepDeps,
 ): Promise<KeepAnswer> {
@@ -130,6 +160,18 @@ export async function keepVideo(
   const root = resolve(args.repoRoot);
   const rootReal = await realpath(root);
   const platform = deps.platform ?? process.platform;
+  const deliver = args.deliver ?? "commit";
+  if (deliver === "files") {
+    const path = [...args.to.map((o) => o.path), args.report ?? ""].find(
+      (p) => /[/\\]/.test(p) || p === "." || p === "..",
+    );
+    if (path !== undefined) {
+      return refuse(
+        "keepRefused",
+        `files outputs are file names, not paths (got "${path}": no /, no \\, not . or ..)`,
+      );
+    }
+  }
 
   // The video: by id or exact name, among this repo's.
   const repo = await readRepo(root, deps.git);
@@ -149,25 +191,50 @@ export async function keepVideo(
     );
     return refuse(
       "unknownVideo",
-      `this repo has no flow "${args.video}" (an id or an exact name)${mine.length > 0 ? `; its flows are ${mine.map((v) => `"${v.name}"`).join(", ")}` : ""}${unread.length > 0 ? `; ${unread.length} flow record(s) could not be read (${unread.join("; ")})` : ""}`,
+      `no flow "${args.video}" (an id or an exact name) in your library to add to this repo${mine.length > 0 ? `; the flows you can add are ${mine.map((v) => `"${v.name}"`).join(", ")}` : ""}${unread.length > 0 ? `; ${unread.length} flow record(s) could not be read (${unread.join("; ")})` : ""}`,
     );
   }
 
   // Every path keep writes, inside the repo once links are followed.
-  const fileRel = `${KEPT_DIR}/${keptFileName(video.name)}`;
+  const fileRel = `${FLOWS_DIR}/${keptFileName(video.name)}`;
+  // The same file in the old folder: moved here when this keep writes.
+  const legacyRel = `${LEGACY_FLOWS_DIR}/${basename(fileRel)}`;
+  let moveFrom: string | null = null;
   const inRepo = (path: string) => repoPath(root, rootReal, path, "keep");
   // The kept file itself: `.demoman` or its `videos` can be a link too.
   const own = await inRepo(fileRel);
   if (typeof own !== "string") return refuse("outsideRepo", own.outside);
+  // Its receipt, named after the recipe's file: `.demoman/receipts` can be
+  // a link out of the repo too.
+  const receiptRel = `${RECEIPT_DIR}/${basename(fileRel)}`;
+  if (deliver === "commit") {
+    const receiptAt = await inRepo(receiptRel);
+    if (typeof receiptAt !== "string")
+      return refuse("outsideRepo", receiptAt.outside);
+  }
   const paths: string[] = [];
+  // `files` outputs are names for --out-dir, not places in this repo: the
+  // same clash checks run over the bare names, which must not be the names
+  // a refresh gives its own files there either.
   for (const asked of [...args.to.map((o) => o.path), args.report]) {
     if (asked === undefined) continue;
-    const p = await inRepo(asked);
-    if (typeof p !== "string") return refuse("outsideRepo", p.outside);
+    let p = asked;
+    if (deliver === "files") {
+      if (asked === REFRESH_LIST_FILE || asked.endsWith(".receipt.json")) {
+        return refuse(
+          "outputTaken",
+          `${asked} is a name a refresh gives its own ${asked === REFRESH_LIST_FILE ? "list" : "receipts"} in --out-dir — give the output another name`,
+        );
+      }
+    } else {
+      const at = await inRepo(asked);
+      if (typeof at !== "string") return refuse("outsideRepo", at.outside);
+      p = at;
+    }
     if (paths.includes(p) || p === fileRel) {
       return refuse(
         "outputTaken",
-        `${p} is named twice by this keep — give each output its own path`,
+        `${p} is named twice by this add — give each output its own ${deliver === "files" ? "name" : "path"}`,
       );
     }
     paths.push(p);
@@ -176,16 +243,9 @@ export async function keepVideo(
   const report = args.report === undefined ? null : (paths.at(-1) ?? null);
 
   // The paths other kept videos already write.
-  const keptDir = join(root, KEPT_DIR);
-  let names: string[] = [];
-  try {
-    names = (await readdir(keptDir)).filter((n) => n.endsWith(".json"));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  for (const name of names) {
-    const rel = `${KEPT_DIR}/${name}`;
-    const other = parseKept(await readFile(join(keptDir, name), "utf8"), rel);
+  for (const rel of await repoFlowFiles(root)) {
+    const name = basename(rel);
+    const other = parseKept(await readFile(join(root, rel), "utf8"), rel);
     if (!other.ok) {
       deps.log(
         `${other.detail} — so its outputs were not checked against this keep's`,
@@ -193,11 +253,25 @@ export async function keepVideo(
       continue;
     }
     const { kept } = other;
-    if (rel === fileRel) {
-      if (kept.from.videoId === video.id) continue;
+    // Refused, not moved: keep writes only this keep's files, and moving
+    // another recipe and its receipt is renameKept's, with its undo steps.
+    if (rel === legacyRel && kept.flow === video.id) {
+      const at = await inRepo(rel);
+      if (typeof at !== "string") return refuse("outsideRepo", at.outside);
+      moveFrom = rel;
+      continue;
+    }
+    if (kept.flow === video.id && rel !== fileRel) {
       return refuse(
         "outputTaken",
-        `${rel} already keeps the flow "${kept.name}" (${kept.from.videoId}), whose name makes the same file — rename one of the two flows`,
+        `${rel} already holds this flow (${video.id}), so adding it as "${video.name}" would write a second recipe for it, ${fileRel} — move ${rel} to ${fileRel}${kept.deliver === "commit" ? ` and ${RECEIPT_DIR}/${name} to ${receiptRel}` : ""}, then add it again`,
+      );
+    }
+    if (rel === fileRel || rel === legacyRel) {
+      if (kept.flow === video.id) continue;
+      return refuse(
+        "outputTaken",
+        `${rel} already holds the flow "${kept.name}" (${kept.flow}), whose name makes the same file — rename one of the two flows`,
       );
     }
     const theirs = [...kept.outputs.map((o) => o.path), kept.report];
@@ -205,7 +279,7 @@ export async function keepVideo(
     if (clash !== undefined) {
       return refuse(
         "outputTaken",
-        `${clash} is already kept by the flow "${kept.name}" in ${rel} — choose another path, or remove it from ${rel}`,
+        `${clash} is already an output of the flow "${kept.name}" in ${rel} — choose another path, or remove it from ${rel}`,
       );
     }
   }
@@ -220,10 +294,17 @@ export async function keepVideo(
         path: outputPaths[i] as string,
       })),
       report,
+      deliver,
     },
     deps,
   );
   if (!made.ok) return refuse(made.reason, made.detail);
+  // A recipe its own reader refuses (an empty name, say) is never written:
+  // every later run and refresh would refuse it.
+  const reread = parseKept(serializeKept(made.kept), fileRel);
+  if (!reread.ok) {
+    return refuse("keepRefused", `${reread.detail} — so nothing was written`);
+  }
   const { built, logoBytes, wallpaperBytes } = made;
   const base = made.kept;
   const { logo, wallpaper } = base;
@@ -233,7 +314,7 @@ export async function keepVideo(
     const rendered: Uint8Array[] = [];
     let screens: KeptScreens | undefined;
     const judged = judgedOutput(base.outputs);
-    for (const [i, o] of base.outputs.entries()) {
+    for (const [i, o] of deliver === "files" ? [] : base.outputs.entries()) {
       deps.log(`keep: exporting ${o.path}`);
       const answer = await exportTake(
         {
@@ -266,21 +347,36 @@ export async function keepVideo(
       if (i === judged) screens = answer.screens;
       rendered.push(await readFile(answer.file.path));
     }
-    if (screens === undefined || screens.moments.length === 0) {
+    if (
+      deliver === "commit" &&
+      (screens === undefined || screens.moments.length === 0)
+    ) {
       return refuse(
         "exportFailed",
         `${base.outputs[judged]?.path}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
       );
     }
-    const kept: KeptVideo = { ...base, screens };
+    const kept: KeptVideo = base;
     const runReport =
-      report === null
+      deliver === "files"
         ? null
         : await deps.library.getJson(built.takeId, "report.json");
 
+    const receipt: KeptReceipt | null =
+      deliver === "files" || screens === undefined
+        ? null
+        : {
+            receiptVersion: 1,
+            flow: video.id,
+            video: built.takeId,
+            filmedAt: filmedAtOf(runReport),
+            filmedCode: filmedCodeOf(runReport),
+            screens,
+            recordedRevision: made.from.recordedRevision,
+          };
     const written: string[] = [];
     try {
-      for (const [i, o] of kept.outputs.entries()) {
+      for (const [i, o] of deliver === "files" ? [] : kept.outputs.entries()) {
         await place(join(root, o.path), rendered[i] as Uint8Array);
         written.push(o.path);
       }
@@ -292,7 +388,7 @@ export async function keepVideo(
         await place(join(root, wallpaper), wallpaperBytes);
         written.push(wallpaper);
       }
-      if (report !== null && runReport !== null) {
+      if (deliver === "commit" && report !== null && runReport !== null) {
         if ("value" in runReport) {
           await place(
             join(root, report),
@@ -305,6 +401,11 @@ export async function keepVideo(
           );
         }
       }
+      if (receipt !== null) {
+        await place(join(root, receiptRel), serializeReceipt(receipt));
+        written.push(receiptRel);
+      }
+      // Last: the recipe never names a render that is not there.
       await place(join(root, fileRel), serializeKept(kept));
       written.push(fileRel);
     } catch (error) {
@@ -313,17 +414,50 @@ export async function keepVideo(
         `${written.length > 0 ? `wrote ${written.join(", ")}, then ` : ""}could not write into ${root} (${messageOf(error)}), so ${fileRel} was not written`,
       );
     }
+    // The Library lists a flow as kept from this mark. A failure is said on
+    // the answer; the keep itself stands, its files are written.
+    let markNote: string | undefined;
+    try {
+      const marked = await deps.videos.setKept(video.id, {
+        root,
+        file: fileRel,
+      });
+      if (!marked.ok) {
+        markNote = `the library could not mark "${video.name}" as in the repo (${marked.reason}), so it will not show In repo until you add it again`;
+      }
+    } catch (error) {
+      markNote = `the library could not mark "${video.name}" as in the repo (${messageOf(error)}), so it will not show In repo until you add it again`;
+    }
+    // After the mark: the new file is the flow's recipe either way, so the
+    // library never points at the old one the refusal says to delete.
+    if (moveFrom !== null) {
+      try {
+        await rm(join(root, moveFrom));
+      } catch (error) {
+        return refuse(
+          "repoFlowUnwritable",
+          `wrote ${written.join(", ")}, but could not remove the old ${moveFrom} (${messageOf(error)}), so two files now name "${video.name}" — delete ${moveFrom}${markNote === undefined ? "" : `; ${markNote}`}`,
+        );
+      }
+    }
     return {
       ok: true,
       file: fileRel,
+      moved: moveFrom,
       kept,
-      screensNote: `${screens.moments.length} of ${screens.steps + 1} screens are still`,
+      receipt,
+      ...(receipt === null
+        ? {}
+        : {
+            screensNote: `${receipt.screens.moments.length} of ${receipt.screens.steps + 1} screens are still`,
+          }),
+      ...(markNote === undefined ? {} : { markNote }),
       written,
       ...(made.scaleGuess === null ? {} : { scaleGuess: made.scaleGuess }),
       ...(platform === "linux"
         ? {}
         : {
-            platformNote: `kept on ${platform === "darwin" ? "macOS" : platform}: the first refresh in CI films it again on Linux, whose fonts differ, and replaces its outputs once; after that, refresh in CI only`,
+            platformNote: `added on ${platform === "darwin" ? "macOS" : platform}: the first refresh in CI records it again on Linux, whose fonts differ, and replaces its outputs once; after that, refresh in CI only`,
           }),
     };
   } finally {
@@ -336,7 +470,8 @@ export async function keepVideo(
 type Built =
   | {
       ok: true;
-      kept: Omit<KeptVideo, "screens">;
+      kept: KeptVideo;
+      from: KeptFrom;
       built: { takeId: string };
       read: { revision: string };
       /** The logo's bytes when they are to be copied into the repo. */
@@ -360,6 +495,7 @@ async function buildKept(
     video: VideoRecord;
     outputs: (Omit<KeptOutput, "aspect"> & { aspect?: KeptOutput["aspect"] })[];
     report: string | null;
+    deliver: KeptDeliver;
   },
   deps: KeepDeps,
 ): Promise<Built> {
@@ -383,7 +519,7 @@ async function buildKept(
   if (left.length > 0) {
     return refuse(
       "notCarried",
-      `video ${built.takeId} of "${video.name}" has edits a re-film does not carry, so a refresh would drop them: ${left.join(", ")} — remove them in the Studio, or film the flow again, then keep it`,
+      `video ${built.takeId} of "${video.name}" has edits a new video does not carry, so a refresh would drop them: ${left.join(", ")} — remove them in the Studio, or record the flow again, then add it`,
     );
   }
   const read = await deps.library.getSceneRead(built.takeId);
@@ -403,7 +539,7 @@ async function buildKept(
     filmedScale(bundle, scene.meta.capture.viewport.width);
   const scaleGuess =
     scale === null
-      ? `1x is a guess: video ${built.takeId} records no filmed scale and has no motion frames to read one from, so refresh films it at 1x — if it was filmed at another scale, set "scale" in the kept file to it, or the first refresh replaces a video that did not change`
+      ? `1x is a guess: video ${built.takeId} does not say the scale it was recorded at and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the recipe file to it, or the first refresh replaces a video that did not change`
       : null;
 
   // A site signed in to by hand cannot be signed in to by a refresh in CI.
@@ -427,7 +563,7 @@ async function buildKept(
     if (saved.some((f) => f.account === undefined && f.site === site)) {
       return refuse(
         "handSignIn",
-        `"${video.name}" films ${target}, which this machine signs in to with a session saved by hand (demoman signin, ${store.pathOf(site ?? "")}); a refresh in CI cannot sign in that way — add a demo account for ${new URL(target).origin} to .demoman/accounts.json, film the flow again as it, then keep it`,
+        `"${video.name}" records ${target}, which this machine signs in to with a session saved by hand (demoman signin, ${store.pathOf(site ?? "")}); a refresh in CI cannot sign in that way — add a demo account for ${new URL(target).origin} to .demoman/accounts.json, record the flow again as it, then add it`,
       );
     }
   }
@@ -444,7 +580,7 @@ async function buildKept(
   > => {
     const there = await inRepo(abs);
     if (typeof there === "string") return { path: there, bytes: null };
-    const path = `${KEPT_DIR}/${folder}/${basename(abs)}`;
+    const path = `${FLOWS_DIR}/${folder}/${basename(abs)}`;
     const copy = await inRepo(path);
     if (typeof copy !== "string")
       return { refused: refuse("outsideRepo", copy.outside) };
@@ -571,13 +707,15 @@ async function buildKept(
       `the script built from video ${built.takeId} is refused at script.${(issue?.path ?? []).join(".")}: ${issue?.message ?? "by the script schema"}`,
     );
   }
-  const kept: Omit<KeptVideo, "screens"> = {
+  const kept: KeptVideo = {
     keptVersion: KEPT_VERSION,
+    flow: video.id,
     name: video.name,
     script: script.data,
     scale: scale ?? 1,
     logo,
     wallpaper,
+    deliver: a.deliver,
     outputs: a.outputs.map((o) => ({
       path: o.path,
       fileType: o.fileType,
@@ -585,16 +723,12 @@ async function buildKept(
       quality: o.quality,
     })),
     report: a.report,
-    // The revision this file was built from: a later Studio edit changes it.
-    from: {
-      videoId: video.id,
-      takeId: built.takeId,
-      recordedRevision: read.revision,
-    },
   };
   return {
     ok: true,
     kept,
+    // The revision this file was built from: a later Studio edit changes it.
+    from: { takeId: built.takeId, recordedRevision: read.revision },
     built,
     read,
     logoBytes,
@@ -625,23 +759,29 @@ export async function rewriteKept(
 ): Promise<RewriteAnswer> {
   const root = resolve(repoRoot);
   const rootReal = await realpath(root);
-  const dir = join(root, KEPT_DIR);
-  let names: string[] = [];
+  let files: string[];
+  let duplicates: Awaited<ReturnType<typeof readKeptFlows>>["duplicates"];
   try {
-    names = (await readdir(dir)).filter((n) => n.endsWith(".json"));
+    files = await repoFlowFiles(root);
+    ({ duplicates } = await readKeptFlows(root));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      return { none: true };
     return {
-      refused: `${KEPT_DIR} could not be read (${messageOf(error)}), so whether a kept file follows this run is unknown`,
+      refused: `the repo's flow folders could not be read (${messageOf(error)}), so whether a repo flow follows this run is unknown`,
+    };
+  }
+  if (files.length === 0) return { none: true };
+  const twice = duplicates.find((d) => d.flow === videoId);
+  if (twice !== undefined) {
+    return {
+      refused: `${twice.files.join(" and ")} both name this flow — delete one of them; neither was rewritten`,
     };
   }
   const unreadable: string[] = [];
-  for (const name of names) {
-    const rel = `${KEPT_DIR}/${name}`;
+  for (const rel of files) {
+    const name = basename(rel);
     let text: string;
     try {
-      text = await readFile(join(dir, name), "utf8");
+      text = await readFile(join(root, rel), "utf8");
     } catch (error) {
       unreadable.push(`${rel} could not be read (${messageOf(error)})`);
       continue;
@@ -652,26 +792,74 @@ export async function rewriteKept(
       continue;
     }
     const old = parsed.kept;
-    if (old.from.videoId !== videoId) continue;
+    if (old.flow !== videoId) continue;
     const own = await repoPath(root, rootReal, rel, "keep");
     if (typeof own !== "string") return { refused: own.outside };
+    // The receipt is named after the recipe's file, never the flow's name.
+    const receiptFile = `${RECEIPT_DIR}/${name}`;
+    if (old.deliver === "commit") {
+      const at = await repoPath(root, rootReal, receiptFile, "keep");
+      if (typeof at !== "string") {
+        return { refused: `${rel} was not rewritten: ${at.outside}` };
+      }
+    }
+    const video = await deps.videos.get(videoId);
+    // A flow kept before the library marked kept flows: marked now, so a
+    // rename takes keep's path and the recipe's file follows its name.
+    // Or one marked at a file since moved (a teammate's add): re-pointed.
+    if (
+      video !== null &&
+      (video.kept === undefined ||
+        (video.kept.root === root && video.kept.file !== rel))
+    ) {
+      try {
+        const marked = await deps.videos.setKept(videoId, { root, file: rel });
+        if (!marked.ok)
+          deps.log(
+            `kept: ${rel}: the library could not mark flow ${videoId} as kept (${marked.reason})`,
+          );
+      } catch (error) {
+        deps.log(
+          `kept: ${rel}: the library could not mark flow ${videoId} as kept (${messageOf(error)})`,
+        );
+      }
+    }
     if (notNow !== undefined) {
       return {
         refused: `${rel} was not rewritten: ${notNow}, so it still holds the earlier script`,
       };
     }
-    const video = await deps.videos.get(videoId);
     if (video === null) {
       return {
         refused: `${rel} keeps video ${videoId}, which the library no longer has`,
       };
     }
     const made = await buildKept(
-      { root, rootReal, video, outputs: old.outputs, report: old.report },
+      {
+        root,
+        rootReal,
+        video,
+        outputs: old.outputs,
+        report: old.report,
+        deliver: old.deliver,
+      },
       deps,
     );
     if (!made.ok)
       return { refused: `${rel} was not rewritten: ${made.detail}` };
+    // The receipt describes the film that made the committed files, which
+    // a rewrite does not replace, so it is left as it is. A v1 file carries
+    // its own, which the v2 recipe written below does not: written out.
+    let receipt: KeptReceipt | null = null;
+    if (old.deliver === "commit") {
+      const had = await readReceiptFile(join(root, receiptFile), receiptFile);
+      if ("detail" in had || ("missing" in had && parsed.migrated === null)) {
+        return {
+          refused: `${rel} was not rewritten: ${"detail" in had ? had.detail : `${receiptFile} is missing`}, so what its outputs show is unknown`,
+        };
+      }
+      if ("missing" in had) receipt = parsed.migrated;
+    }
     try {
       if (made.kept.logo !== null && made.logoBytes !== null) {
         await place(join(root, made.kept.logo), made.logoBytes);
@@ -679,11 +867,10 @@ export async function rewriteKept(
       if (made.kept.wallpaper !== null && made.wallpaperBytes !== null) {
         await place(join(root, made.kept.wallpaper), made.wallpaperBytes);
       }
-      // The screens describe the committed files, which this does not replace.
-      await place(
-        join(root, rel),
-        serializeKept({ ...made.kept, screens: old.screens }),
-      );
+      if (receipt !== null) {
+        await place(join(root, receiptFile), serializeReceipt(receipt));
+      }
+      await place(join(root, rel), serializeKept(made.kept));
     } catch (error) {
       return {
         refused: `${rel} could not be written (${messageOf(error)}), so it still describes the earlier video`,
@@ -695,9 +882,304 @@ export async function rewriteKept(
   }
   return unreadable.length > 0
     ? {
-        refused: `${unreadable.join("; ")} — so whether a kept file follows this run is unknown`,
+        refused: `${unreadable.join("; ")} — so whether a repo flow follows this run is unknown`,
       }
     : { none: true };
+}
+
+export type RenameKeptAnswer =
+  | { ok: true; file: string }
+  | {
+      ok: false;
+      /** `repoCheckoutMissing`: the recipe or its receipt cannot be read;
+       *  `nameTaken`: the library or the checkout has the name already;
+       *  `repoFlowUnwritable`: a write failed, or a path leaves the repo — its
+       *  detail says which steps were done before it. */
+      reason: "repoCheckoutMissing" | "nameTaken" | "repoFlowUnwritable";
+      detail: string;
+    };
+
+/**
+ * A kept flow's rename: the recipe under the new name's file with its new
+ * `name`, the receipt beside it, the library's record and its pointer, and
+ * last the old recipe removed. Every check runs before anything is written,
+ * so a refusal leaves the old name everywhere. A step that fails undoes
+ * the ones before it, newest first, and the answer says so; an undo that
+ * fails too is named with what it left. Never answers renamed on a failure.
+ */
+export async function renameKept(
+  a: { root: string; file: string; name: string },
+  deps: { videos: VideoStore },
+): Promise<RenameKeptAnswer> {
+  const refuse = (
+    reason: "repoCheckoutMissing" | "nameTaken" | "repoFlowUnwritable",
+    detail: string,
+  ): RenameKeptAnswer => ({ ok: false, reason, detail });
+  const root = resolve(a.root);
+  const rootReal = await realpath(root);
+  // The record's file is checked before it is read: a link out of the repo
+  // is neither read nor renamed.
+  const own = await repoPath(root, rootReal, a.file, "keep");
+  if (typeof own !== "string") {
+    return refuse(
+      "repoFlowUnwritable",
+      `${own.outside}, so nothing was renamed`,
+    );
+  }
+  let text: string;
+  try {
+    text = await readFile(join(root, a.file), "utf8");
+  } catch (error) {
+    return refuse(
+      "repoCheckoutMissing",
+      `${a.file} in ${root} could not be read (${messageOf(error)}), so nothing was renamed`,
+    );
+  }
+  const parsed = parseKept(text, a.file);
+  if (!parsed.ok) {
+    return refuse(
+      "repoCheckoutMissing",
+      `${parsed.detail}, so nothing was renamed`,
+    );
+  }
+  const old = parsed.kept;
+  const records = await deps.videos.list();
+  const rec = records.find(
+    (r): r is VideoRecord => !("unreadable" in r) && r.id === old.flow,
+  );
+  if (rec === undefined) {
+    return refuse(
+      "repoCheckoutMissing",
+      `${a.file} keeps flow ${old.flow}, which this library does not have, so nothing was renamed`,
+    );
+  }
+  const holder = records.find(
+    (r): r is VideoRecord =>
+      !("unreadable" in r) &&
+      r.id !== rec.id &&
+      sharesRepo(r.repo, rec.repo) &&
+      sameName(r.name, a.name),
+  );
+  if (holder !== undefined) {
+    return refuse(
+      "nameTaken",
+      `Another flow is already called "${holder.name}".`,
+    );
+  }
+  const file = `${FLOWS_DIR}/${keptFileName(a.name)}`;
+  const oldReceipt = `${RECEIPT_DIR}/${basename(a.file)}`;
+  const receipt = `${RECEIPT_DIR}/${keptFileName(a.name)}`;
+  const moves = file !== a.file;
+  for (const p of [file, oldReceipt, receipt]) {
+    const inside = await repoPath(root, rootReal, p, "keep");
+    if (typeof inside !== "string") {
+      return refuse(
+        "repoFlowUnwritable",
+        `${inside.outside}, so nothing was renamed`,
+      );
+    }
+  }
+  // The receipt goes with the recipe; a v1 recipe carries its own, which
+  // the v2 recipe written below does not, so it is written out.
+  let carry: (() => Promise<unknown>) | null = null;
+  const had =
+    old.deliver === "commit"
+      ? await readReceiptFile(join(root, oldReceipt), oldReceipt)
+      : ({ missing: true } as const);
+  if (old.deliver === "commit") {
+    if ("detail" in had) {
+      return refuse(
+        "repoCheckoutMissing",
+        `${had.detail}, so nothing was renamed`,
+      );
+    }
+    // A move to the same file name in the new folder keeps its receipt.
+    if ("receipt" in had && moves && receipt !== oldReceipt) {
+      carry = () => rename(join(root, oldReceipt), join(root, receipt));
+    } else if ("missing" in had && parsed.migrated !== null) {
+      const migrated = parsed.migrated;
+      carry = () => place(join(root, receipt), serializeReceipt(migrated));
+    }
+  }
+  // A file of the new name in the old folder would be a second recipe for
+  // it (readKeptFlows refuses both), unless it is the one being moved.
+  const legacy = `${LEGACY_FLOWS_DIR}/${keptFileName(a.name)}`;
+  if (moves) {
+    for (const p of [
+      file,
+      ...(carry === null ? [] : [receipt]),
+      ...(legacy === a.file ? [] : [legacy]),
+    ]) {
+      if (
+        await lstat(join(root, p)).then(
+          () => true,
+          () => false,
+        )
+      ) {
+        return refuse(
+          "nameTaken",
+          `${p} already exists in ${root}, so nothing was renamed`,
+        );
+      }
+    }
+  }
+  // Each step: what it does, how it is undone, and what is left when the
+  // undo fails too. The old recipe goes last, so until then a failure can
+  // put every step back.
+  type Step = {
+    what: string;
+    run: () => Promise<unknown>;
+    undo: () => Promise<unknown>;
+    left: string;
+  };
+  const failed = (r: { ok: boolean }, why: string) => {
+    if (!r.ok) throw new Error(why);
+  };
+  const steps: Step[] = [
+    {
+      what: `write ${file}`,
+      run: () =>
+        place(join(root, file), serializeKept({ ...old, name: a.name })),
+      undo: () =>
+        moves ? rm(join(root, file)) : place(join(root, a.file), text),
+      left: moves
+        ? `${file} is left beside ${a.file}`
+        : `${file} is left naming the flow "${a.name}"`,
+    },
+  ];
+  if (carry !== null) {
+    steps.push({
+      what: `move ${oldReceipt} to ${receipt}`,
+      run: carry,
+      undo: () =>
+        "missing" in had
+          ? rm(join(root, receipt))
+          : rename(join(root, receipt), join(root, oldReceipt)),
+      left: `the receipt is left at ${receipt}`,
+    });
+  }
+  steps.push(
+    {
+      what: "rename the library's flow",
+      run: async () => {
+        const r = await deps.videos.rename(rec.id, a.name);
+        if (!r.ok) {
+          throw new Error(
+            r.reason === "nameTaken"
+              ? `another flow is called "${r.holder.name}"`
+              : `flow ${rec.id} is not in the library`,
+          );
+        }
+      },
+      undo: async () =>
+        failed(
+          await deps.videos.rename(rec.id, rec.name),
+          `"${rec.name}" could not be given back`,
+        ),
+      left: `the library's flow is left named "${a.name}"`,
+    },
+    {
+      what: `point the library's flow at ${file}`,
+      run: async () =>
+        failed(
+          await deps.videos.setKept(rec.id, { root, file }),
+          `flow ${rec.id} is not in the library`,
+        ),
+      undo: async () =>
+        failed(
+          await deps.videos.setKept(rec.id, rec.kept ?? null),
+          `flow ${rec.id} is not in the library`,
+        ),
+      left: `the library's flow is left pointing at ${file}`,
+    },
+  );
+  if (moves) {
+    steps.push({
+      what: `remove ${a.file}`,
+      run: () => rm(join(root, a.file)),
+      undo: async () => undefined,
+      left: "",
+    });
+  }
+  const done: Step[] = [];
+  for (const step of steps) {
+    try {
+      await step.run();
+    } catch (error) {
+      const left: string[] = [];
+      for (const d of done.reverse()) {
+        try {
+          await d.undo();
+        } catch (undoError) {
+          left.push(`${d.left} (${messageOf(undoError)})`);
+        }
+      }
+      return refuse(
+        "repoFlowUnwritable",
+        `"${old.name}" was not renamed: could not ${step.what} (${messageOf(error)})${
+          left.length === 0
+            ? "; every step before it was undone, so the old name stands everywhere"
+            : `, and not every step could be undone: ${left.join("; ")}`
+        }`,
+      );
+    }
+    done.push(step);
+  }
+  return { ok: true, file };
+}
+
+export async function readReceiptFile(
+  path: string,
+  rel: string,
+): Promise<{ receipt: KeptReceipt } | { missing: true } | { detail: string }> {
+  let text: string;
+  try {
+    text = await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      return { missing: true };
+    return { detail: `${rel} could not be read (${messageOf(error)})` };
+  }
+  const parsed = parseReceipt(text, rel);
+  return parsed.ok ? { receipt: parsed.receipt } : { detail: parsed.detail };
+}
+
+/** The code the run filmed, from its report; never re-read from git. */
+function filmedCodeOf(
+  report: Awaited<ReturnType<Library["getJson"]>> | null,
+): FilmedCode {
+  if (report === null) return { none: "no run report was read" };
+  if ("missing" in report)
+    return { none: "the run report is missing from the library" };
+  if ("unreadable" in report)
+    return { none: `the run report could not be read (${report.unreadable})` };
+  return filmedCodeIn(report.value);
+}
+
+/** A report's filmedCode, or why it has none: a malformed one is unknown,
+ *  said, and never copied into a receipt. */
+export function filmedCodeIn(report: unknown): FilmedCode {
+  const raw = (report as { filmedCode?: unknown } | null)?.filmedCode;
+  if (raw === undefined)
+    return { none: "the run report does not say which commit it recorded" };
+  return (
+    parseFilmedCode(raw) ?? {
+      none: `the run report's filmedCode is malformed (${JSON.stringify(raw)}), so the filmed code is unknown`,
+    }
+  );
+}
+
+/** When the run started (ISO), from its report; null when not known. */
+export function filmedAtOf(
+  report: Awaited<ReturnType<Library["getJson"]>> | null,
+): string | null {
+  const at =
+    report !== null && "value" in report
+      ? (report.value as Partial<RunReport>).run?.startedAt
+      : undefined;
+  return typeof at === "number" && Number.isFinite(at)
+    ? new Date(at).toISOString()
+    : null;
 }
 
 /** What a re-film does not carry, named the way `keep` refuses it. */
@@ -715,17 +1197,28 @@ export function leftBehind(refilm: RefilmInfo): string[] {
  * Studio edits, the kept file lacks; null when it does not. Edited is read
  * against the scene revision `keep` recorded, not the membership's `edited`
  * flag, which is also true for edits carried into the file at keep time.
- * A library that cannot be read is said, never taken for "nothing newer".
+ * A receipt whose video this library does not hold (a refresh filmed it in a
+ * library thrown away after) is read by time: the library is ahead only
+ * when its current version was made, or its scene saved, after the
+ * receipt's video was filmed. A library that cannot be read, or a receipt
+ * that does not say when, is said, never taken for "nothing newer".
  */
 export async function libraryAhead(
   kept: KeptVideo,
+  receipt: KeptReceipt | null,
   file: string,
   deps: { videos: VideoStore; library: Library },
 ): Promise<string | null> {
   try {
-    const video = await deps.videos.get(kept.from.videoId);
+    const video = await deps.videos.get(kept.flow);
     // Kept on another machine: this library has nothing to be ahead of.
     if (video === null) return null;
+    if (receipt === null) {
+      // add writes a files flow no receipt: an earlier refresh's --out-dir has it.
+      return kept.deliver === "files"
+        ? `${file} delivers files, whose receipt comes from --previous (an earlier refresh's --out-dir); with none, whether the library is ahead of it cannot be told`
+        : `${file} has no receipt to compare the library with; run \`demoman add ${kept.name}\` again`;
+    }
     const all = await deps.videos.versions(video.id);
     const current = all.filter((v) => v.complete).at(-1) ?? all.at(-1);
     if (current === undefined) return null;
@@ -733,11 +1226,30 @@ export async function libraryAhead(
     if (read === null) {
       return `the library's current video of "${kept.name}" (${current.takeId}) has no scene.json, so whether it is ahead of ${file} cannot be told`;
     }
-    if (
-      current.takeId === kept.from.takeId &&
-      read.revision === kept.from.recordedRevision
-    )
-      return null;
+    let since = "";
+    if (all.some((v) => v.takeId === receipt.video)) {
+      if (
+        current.takeId === receipt.video &&
+        read.revision === receipt.recordedRevision
+      )
+        return null;
+    } else {
+      if (receipt.filmedAt === null) {
+        return `whether the library is ahead of ${file} cannot be told: its receipt names video ${receipt.video}, which this library does not have, and does not say when it was recorded`;
+      }
+      // No clock-free order exists here: the receipt's video was filmed in a
+      // library thrown away after (CI's), so nothing in this one names it.
+      // Two machines' clocks are compared, so skew can flip the answer only
+      // for a version made or saved within that skew (seconds, under NTP)
+      // of the film; the note says it went by time.
+      const filmed = Date.parse(receipt.filmedAt);
+      const saved = (
+        await stat(join(deps.library.takeDir(current.takeId), "scene.json"))
+      ).mtimeMs;
+      if (!(Date.parse(current.createdAt) > filmed || saved > filmed))
+        return null;
+      since = ` (going by time: made or edited after it was recorded at ${receipt.filmedAt}, by that machine's clock)`;
+    }
     const left = leftBehind({
       from: current.takeId,
       notCarried: notCarriedOf(read.scene),
@@ -746,7 +1258,7 @@ export async function libraryAhead(
         sentence,
       })),
     });
-    return `the library has a newer video or Studio edits not in ${file}; run \`demoman keep ${kept.name}\` again to take them${left.length > 0 ? ` (keep will refuse the edits a re-film does not carry: ${left.join(", ")})` : ""}`;
+    return `the library has a newer video or Studio edits not in ${file}${since}; run \`demoman add ${kept.name}\` again to take them${left.length > 0 ? ` (add will refuse the edits a new video does not carry: ${left.join(", ")})` : ""}`;
   } catch (error) {
     return `whether the library is ahead of ${file} cannot be told: ${messageOf(error)}`;
   }
@@ -772,7 +1284,7 @@ export async function repoPath(
     !isAbsolute(rel);
   if (inside) return rel.split(sep).join("/");
   return {
-    outside: `${path} is not inside the repo at ${root} (it resolves to ${real ?? "a link to nothing"}) — ${who} writes only into the repo it keeps the video in`,
+    outside: `${path} is not inside the repo at ${root} (it resolves to ${real ?? "a link to nothing"}) — ${who === "keep" ? "add" : "refresh"} writes only into the repo the flow is in`,
   };
 }
 
@@ -839,4 +1351,143 @@ export async function place(
     await rm(temp, { force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+export type RemoveAnswer =
+  | {
+      ok: true;
+      name: string;
+      removed: string[];
+      exportsLeft: string[];
+      /** Said when the library's mark on the flow could not be cleared. */
+      markNote?: string;
+    }
+  | {
+      ok: false;
+      reason: "notInRepo" | "duplicateFlow" | "repoFlowUnwritable";
+      detail: string;
+    };
+
+/**
+ * `demoman remove`: a repo flow's recipe and its receipt deleted, its
+ * committed exports left where they are (docs may link them). The flow is
+ * found by id or exact name among the repo's files. Given the library, its
+ * mark on the flow is cleared when it names the removed recipe, so the
+ * Studio does not show a recipe that is gone. A refusal removes nothing; a
+ * receipt that cannot be removed after the recipe went is said with the
+ * file left behind.
+ */
+export async function removeRepoFlow(
+  a: { root: string; flow: string },
+  deps?: { videos: VideoStore },
+): Promise<RemoveAnswer> {
+  const refuse = (
+    reason: "notInRepo" | "duplicateFlow" | "repoFlowUnwritable",
+    detail: string,
+  ): RemoveAnswer => ({ ok: false, reason, detail });
+  const root = resolve(a.root);
+  const rootReal = await realpath(root);
+  const { entries, duplicates } = await readKeptFlows(root);
+  const flows = entries.flatMap((e) => ("kept" in e ? [e] : []));
+  const matches = flows.filter(
+    (e) => e.kept.flow === a.flow || e.kept.name === a.flow,
+  );
+  if (matches.length === 0) {
+    const unread = entries.flatMap((e) =>
+      "unreadable" in e ? [e.unreadable] : [],
+    );
+    return refuse(
+      "notInRepo",
+      `this repo has no flow "${a.flow}" (an id or an exact name)${flows.length > 0 ? `; its flows are ${flows.map((e) => `"${e.kept.name}"`).join(", ")}` : "; it has none"}${unread.length > 0 ? `; ${unread.length} file(s) could not be read (${unread.join("; ")})` : ""}`,
+    );
+  }
+  const files = matches.map((e) => e.file);
+  const dup = duplicates.find((d) => files.some((f) => d.files.includes(f)));
+  if (dup !== undefined || matches.length > 1) {
+    const named = dup?.files ?? files;
+    return refuse(
+      "duplicateFlow",
+      `${named.join(" and ")} both name "${a.flow}" — delete one of them, then remove again; nothing was removed`,
+    );
+  }
+  const [{ file, kept }] = matches as [(typeof matches)[number]];
+  const receipt = `${RECEIPT_DIR}/${basename(file)}`;
+  for (const p of [file, receipt]) {
+    let inside: Awaited<ReturnType<typeof repoPath>>;
+    try {
+      inside = await repoPath(root, rootReal, p, "keep");
+    } catch (error) {
+      return refuse(
+        "repoFlowUnwritable",
+        `whether ${p} is there cannot be told (${messageOf(error)}), so nothing was removed`,
+      );
+    }
+    if (typeof inside !== "string") {
+      return refuse(
+        "repoFlowUnwritable",
+        `${inside.outside}, so nothing was removed`,
+      );
+    }
+  }
+  // Only "no such file" is absence: any other error is not knowing.
+  const there = (p: string): Promise<boolean | { unknown: string }> =>
+    lstat(join(root, p)).then(
+      () => true,
+      (error: NodeJS.ErrnoException) =>
+        error.code === "ENOENT" ? false : { unknown: messageOf(error) },
+    );
+  const receiptThere = await there(receipt);
+  if (typeof receiptThere !== "boolean") {
+    return refuse(
+      "repoFlowUnwritable",
+      `whether ${receipt} is there cannot be told (${receiptThere.unknown}), so nothing was removed`,
+    );
+  }
+  try {
+    await rm(join(root, file));
+  } catch (error) {
+    return refuse(
+      "repoFlowUnwritable",
+      `could not remove ${file} (${messageOf(error)}), so nothing was removed`,
+    );
+  }
+  const removed = [file];
+  if (receiptThere) {
+    try {
+      await rm(join(root, receipt));
+      removed.push(receipt);
+    } catch (error) {
+      return refuse(
+        "repoFlowUnwritable",
+        `removed ${file}, but could not remove its receipt (${messageOf(error)}) — delete ${receipt}`,
+      );
+    }
+  }
+  // Remove never touches an export: one not known to be absent is listed.
+  const exportsLeft: string[] = [];
+  if (kept.deliver === "commit") {
+    for (const o of kept.outputs)
+      if ((await there(o.path)) !== false) exportsLeft.push(o.path);
+  }
+  let markNote: string | undefined;
+  if (deps !== undefined) {
+    const unmark = (why: string) =>
+      `the library still marks "${kept.name}" as in the repo (${why}); the Studio shows it In repo until it is cleared`;
+    try {
+      const record = await deps.videos.get(kept.flow);
+      if (record?.kept?.root === root && record.kept.file === file) {
+        const cleared = await deps.videos.setKept(kept.flow, null);
+        if (!cleared.ok) markNote = unmark(cleared.reason);
+      }
+    } catch (error) {
+      markNote = unmark(messageOf(error));
+    }
+  }
+  return {
+    ok: true,
+    name: kept.name,
+    removed,
+    exportsLeft,
+    ...(markNote === undefined ? {} : { markNote }),
+  };
 }

@@ -2,8 +2,13 @@
 
 import type { FrameBundle } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
+import {
+  DEFAULT_LIBRARY_VIEW,
+  type LibraryViewChoice,
+} from "@demoman/studio-protocol";
 import { createPlatform } from "#platform";
 import { editedLength } from "../../src/library/length";
+import { createLengthCache, paintLength } from "../../src/library/length-cache";
 import type { PreviewMounter, PreviewPorts } from "../../src/library/preview";
 import { createPreviewMounter } from "../../src/library/preview";
 import {
@@ -11,9 +16,14 @@ import {
   emptySelection,
   pruneSelection,
   type Selection,
+  selectAll,
 } from "../../src/library/selection";
 import type { BulkOutcome, LibraryModel } from "../../src/library/state";
-import { buildLibraryModel, bulkSentence } from "../../src/library/state";
+import {
+  buildLibraryModel,
+  bulkSentence,
+  keptSentence,
+} from "../../src/library/state";
 import {
   applySelection,
   type LibraryActions,
@@ -259,6 +269,30 @@ function dropStatusesWithNoRow(model: LibraryModel): void {
 let selection: Selection = emptySelection();
 let bulk: { busy: boolean; said: string | null } | undefined;
 
+/**
+ * List or Grid and the list's sort, as the studio serves it (list spec §1),
+ * read once before the first paint. The studio decides the default; a read
+ * that fails outright draws that same default and says why.
+ */
+let view: LibraryViewChoice = DEFAULT_LIBRARY_VIEW;
+const viewRead = platform.libraryView.read().then(
+  (got) => {
+    view = got.view;
+    if (got.unreadable !== undefined) {
+      console.warn(
+        `demoman library: the stored view could not be used, so it is the default: ${got.unreadable}`,
+      );
+    }
+  },
+  (error: unknown) => {
+    console.warn(
+      `demoman library: the stored view could not be read, so it is the default: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  },
+);
+
 function paint(model: LibraryModel): void {
   dropStatusesWithNoRow(model);
   // A ticked flow another window or an agent deleted leaves the selection.
@@ -271,8 +305,18 @@ function paint(model: LibraryModel): void {
     );
   }
   mounter?.dispose();
+  for (const stop of lengthWaits.splice(0)) stop();
   mounter = createPreviewMounter(previewPorts);
-  renderLibrary(root, model, actions, rowStatus, undefined, selection, bulk);
+  renderLibrary(
+    root,
+    model,
+    actions,
+    rowStatus,
+    undefined,
+    selection,
+    bulk,
+    view,
+  );
   jumps.mark();
 }
 
@@ -298,7 +342,8 @@ function render(): Promise<void> {
 
 async function paintFresh({ keepNotice = false } = {}): Promise<void> {
   if (!keepNotice) clearNotice();
-  const studio = await platform.folder.read();
+  // Both at once; the first paint still draws the view served.
+  const [, studio] = await Promise.all([viewRead, platform.folder.read()]);
   const listed = studio.scenes;
   scenesById = new Map(listed.map((scene) => [scene.meta.id, scene]));
   const model = buildLibraryModel({
@@ -376,7 +421,10 @@ function questionFor(id: string, kind: RowKind): ConfirmQuestion {
   if (kind === "record") return DELETE_RECORD;
   if (kind === "video") {
     const group = lastModel?.groups?.find((g) => g.video.id === id);
-    return group === undefined ? DELETE_DEMO : deleteFlow(group.video.versions);
+    if (group === undefined) return DELETE_DEMO;
+    const asked = deleteFlow(group.video.versions);
+    const kept = keptSentence(group.video);
+    return kept === null ? asked : { ...asked, body: `${asked.body} ${kept}` };
   }
   if (kind === "take") {
     const group = lastModel?.groups?.find((g) =>
@@ -403,7 +451,68 @@ function isAuthored(sceneId: string): boolean {
   return scenesById.get(sceneId)?.meta.capture.mode === "authored";
 }
 
+const lengths = createLengthCache();
+/** Let-goes for the current pass's unmeasured Length cells; `paint` runs
+ *  them before the next draw so a replaced cell is not held observed. */
+const lengthWaits: (() => void)[] = [];
+
 const actions: LibraryActions = {
+  /** Kept for this session at once; a write that fails or replaced the
+   *  settings file is said, and the view stays as chosen. */
+  setView: (next) => {
+    view = next;
+    if (lastModel !== null) paint(lastModel);
+    platform.libraryView.write(next).then(
+      (done) => {
+        if (done.replaced === undefined) return;
+        console.warn(`demoman library: ${done.replaced}`);
+        say(done.replaced, "warn");
+      },
+      (error: unknown) => {
+        const why = error instanceof Error ? error.message : String(error);
+        console.warn(`demoman library: the view was not saved: ${why}`);
+        say(`The view was not saved: ${why.replace(/\.$/, "")}.`, "warn");
+      },
+    );
+  },
+  measure: (sceneId: string, cell: HTMLElement): void => {
+    // Said each time, and painted `—`: nothing about a failure is kept, so
+    // the next paint after a redraw measures again.
+    const failed = (err: unknown): void => {
+      const e = err instanceof Error ? err : new Error(String(err));
+      console.warn(
+        `demoman library: length of ${sceneId} could not be measured: ${e.message}`,
+      );
+      paintLength(cell, e);
+    };
+    const scene = scenesById.get(sceneId);
+    if (scene === undefined) {
+      // Every row is built from this same listing: the two drifted.
+      failed(new Error(`no document for ${sceneId} in the last listing`));
+      return;
+    }
+    // A known length paints at once: a redraw never blanks it.
+    const known = lengths.get(scene);
+    if (known !== undefined) {
+      paintLength(cell, known);
+      return;
+    }
+    const stop = whenVisible(cell, () => {
+      void bundles
+        .active(sceneId)
+        .then(({ bundle }) =>
+          // A video without frames (expired) has no length: a state, not a
+          // fault, and not kept, as its frames may come back.
+          bundle === null
+            ? ({ kind: "nothing", reason: "it has no frames" } as const)
+            : lengths.measure(scene, () =>
+                editedLength(scene, bundle, bundles.load),
+              ),
+        )
+        .then((got) => paintLength(cell, got), failed);
+    });
+    lengthWaits.push(stop);
+  },
   preview: (sceneId: string, box: HTMLElement): void => {
     if (mounter === null) {
       // Unreachable as written — `render()` makes the mounter immediately
@@ -583,9 +692,15 @@ const actions: LibraryActions = {
       }
     })();
   },
-  select: (videoId, shift, visibleOrder) => {
+  select: (videoId, how, visibleOrder, from) => {
     if (bulk?.busy === true) return;
-    selection = clickSelect(selection, videoId, shift, visibleOrder);
+    selection = clickSelect(selection, videoId, how, visibleOrder, from);
+    bulk = undefined;
+    showSelection();
+  },
+  selectAll: (visibleOrder) => {
+    if (bulk?.busy === true) return;
+    selection = selectAll(selection, visibleOrder);
     bulk = undefined;
     showSelection();
   },
@@ -599,6 +714,9 @@ const actions: LibraryActions = {
     void deleteSelected();
   },
   remove: (sceneId: string, kind: RowKind): void => {
+    // The run in flight owns the deletes; a second dialog over it would
+    // race its list.
+    if (bulk?.busy === true) return;
     const key = statusKey(kind, sceneId);
     void (async () => {
       try {
@@ -619,6 +737,14 @@ const actions: LibraryActions = {
           return;
         }
         if (!go) return;
+        // Read before the delete: the repaint after it has no flow to ask.
+        const flow = lastModel?.groups?.find((g) => g.video.id === sceneId);
+        const kept =
+          kind === "video" && flow !== undefined
+            ? keptSentence(flow.video)
+            : null;
+        const andKept = (said: string): string =>
+          kept === null ? said : `${said} ${kept}`;
         await renaming.get(sceneId);
         const r =
           kind === "video" || kind === "record"
@@ -640,7 +766,7 @@ const actions: LibraryActions = {
           // A video's delete that stopped part-way: said on the page, since
           // the card may be gone with the versions that went.
           rowStatus.delete(key);
-          pageMessage = `Partly deleted: ${r.partly}.`;
+          pageMessage = andKept(`Partly deleted: ${r.partly}.`);
         } else if (r.result !== undefined && !r.result.ok) {
           const failedStep = r.result.steps.find((s) => !s.ok);
           const message = `Partly deleted: ${failedStep?.step ?? "a step"} could not be removed — ${failedStep?.error ?? "unknown error"}`;
@@ -664,10 +790,12 @@ const actions: LibraryActions = {
         }
         await render();
         if (pageMessage !== null) fail(pageMessage);
-        else if (r.ok && r.note !== undefined) say(r.note, "info");
+        else if (r.ok && r.note !== undefined) say(andKept(r.note), "info");
         // Clean: nothing refused, partial or noted. A toast, then gone.
         else if (r.ok && r.partly === undefined && r.result?.ok !== false) {
-          showToast(DELETED[kind]);
+          showToast(
+            kept === null ? DELETED[kind] : `${DELETED[kind]}. ${kept}`,
+          );
         }
       } catch (error) {
         reportError("deleting it", error);
@@ -687,9 +815,21 @@ async function deleteSelected(): Promise<void> {
   const ids = [...selection.ids].filter((id) => groups.has(id));
   if (ids.length === 0 || bulk?.busy === true) return;
   const videos = ids.reduce((n, id) => n + (groups.get(id)?.versions ?? 0), 0);
+  const keptOf = new Map(
+    ids.flatMap((id) => {
+      const video = groups.get(id);
+      const kept = video === undefined ? null : keptSentence(video);
+      return kept === null ? [] : [[id, kept] as const];
+    }),
+  );
+  const asked = deleteFlows(ids.length, videos);
   let go: boolean;
   try {
-    go = await askToConfirm(deleteFlows(ids.length, videos));
+    go = await askToConfirm(
+      keptOf.size === 0
+        ? asked
+        : { ...asked, body: [asked.body, ...keptOf.values()].join(" ") },
+    );
   } catch (error) {
     console.error("demoman library: asking before a bulk delete —", error);
     bulk = {
@@ -709,20 +849,21 @@ async function deleteSelected(): Promise<void> {
     const name = groups.get(id)?.name ?? id;
     try {
       const r = await platform.videos.remove(id);
+      // A kept flow's recipe stays whatever went: said with the delete's
+      // own note, if it has one.
+      const said = [r.ok ? r.note : undefined, keptOf.get(id)].filter(
+        (n) => n !== undefined,
+      );
+      const note = said.length === 0 ? {} : { note: said.join(" ") };
       if (r.ok && r.partly !== undefined) {
         outcomes.push({
           id,
           name,
           stayed: `only part of it went: ${r.partly}`,
-          ...(r.note === undefined ? {} : { note: r.note }),
+          ...note,
         });
       } else if (r.ok) {
-        outcomes.push({
-          id,
-          name,
-          gone: true,
-          ...(r.note === undefined ? {} : { note: r.note }),
-        });
+        outcomes.push({ id, name, gone: true, ...note });
       } else if (r.error === "videoNotFound") {
         outcomes.push({ id, name, gone: true });
       } else {

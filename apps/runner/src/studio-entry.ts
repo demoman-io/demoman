@@ -16,6 +16,7 @@ export {
   type Exporting,
   exportTake,
 } from "./executor/export.js";
+export { renameKept } from "./executor/keep.js";
 export { judgeKitsText, readKits } from "./executor/kits.js";
 export {
   createLibrary,
@@ -37,7 +38,11 @@ export {
   VideoError,
   type VideoStore,
 } from "./executor/videos.js";
-export { summarise, type VideoSummary } from "./executor/videos-op.js";
+export {
+  keptOf,
+  summarise,
+  type VideoSummary,
+} from "./executor/videos-op.js";
 export { writeWallpaperAsset } from "./executor/wallpaper-own.js";
 export { readWallpaper } from "./executor/wallpaper-read.js";
 export {

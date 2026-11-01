@@ -1,9 +1,15 @@
-import { readFile } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { failure, type Outcome } from "@demoman/agent-bridge";
-import type { FileType } from "@demoman/run-core";
+import {
+  type FileType,
+  isFlowId,
+  type KeptDeliver,
+  parseKept,
+} from "@demoman/run-core";
 import { messageOf } from "../report.js";
 import { readTag } from "./export-tag.js";
+import { adoptKept, findKept } from "./kept-flows.js";
 import { type Library, LibraryError } from "./library.js";
 import { ensureVideos, startPage } from "./migrate-videos.js";
 import { readRepo } from "./repo.js";
@@ -39,6 +45,61 @@ export interface VideoSummary {
     | { takeId: string; path: string; fileType: FileType; exists: boolean }
     | { takeId: string; unreadable: string }
   >;
+  /** The recipe that keeps this flow, null when none does (also when the
+   *  record's checkout is gone, or no recipe in it keeps this flow any
+   *  more), or `unknown` when one might and cannot be read: a recipe that
+   *  will not read, or two that name the flow. */
+  kept:
+    | { file: string; root: string; deliver: KeptDeliver }
+    | null
+    | {
+        unknown: string;
+      };
+}
+
+/** Reads the recipe a record points at (the same parser the kept folder's
+ *  reader uses), else the one in its checkout that keeps this flow now.
+ *  Whether a marked flow is still in the repo is decided here, once: the
+ *  library's listing and the Studio's rename both read this answer. */
+export async function keptOf(
+  video: VideoRecord,
+): Promise<VideoSummary["kept"]> {
+  if (video.kept === undefined) return null;
+  const { root, file } = video.kept;
+  // A deleted worktree is normal: its flows are this library's alone now.
+  const there = await stat(root).then(
+    () => null,
+    (error: unknown) =>
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+        ? "gone"
+        : `${root} cannot be read (${messageOf(error)})`,
+  );
+  if (there === "gone") return null;
+  if (there !== null) return { unknown: there };
+  const text = await readFile(join(root, file), "utf8").catch(() => null);
+  const parsed = text === null ? null : parseKept(text, file);
+  if (parsed?.ok === true && parsed.kept.flow === video.id)
+    return { file, root, deliver: parsed.kept.deliver };
+  // The marked file is gone, moved or another flow's: the folder says
+  // which recipe, if any, keeps this flow.
+  let found: Awaited<ReturnType<typeof findKept>>;
+  try {
+    found = await findKept(root, video.id);
+  } catch (error) {
+    return {
+      unknown: `the flows in ${root} could not be listed (${messageOf(error)})`,
+    };
+  }
+  if (found === null) return null;
+  if ("kept" in found)
+    return { file: found.file, root, deliver: found.kept.deliver };
+  if ("duplicate" in found)
+    return {
+      unknown: `${found.duplicate.join(" and ")} in ${root} both name this flow`,
+    };
+  return {
+    unknown: `a recipe in ${root} will not read, so whether it holds this flow is unknown: ${found.unreadable.join("; ")}`,
+  };
 }
 
 const STEPS_MAX = 12;
@@ -113,6 +174,7 @@ async function described(
     ],
     steps: steps.slice(0, STEPS_MAX),
     exports,
+    kept: await keptOf(video),
   };
   return { summary, steps };
 }
@@ -230,15 +292,51 @@ export async function videosOp(
           `${file} carries no readable Demoman tag (${"none" in tag ? tag.none : tag.unreadable})`,
         );
       }
-      const video = await store.get(tag.found.video);
+      let video = await store.get(tag.found.flow);
+      let notKept = "";
+      if (video === null && isFlowId(tag.found.flow)) {
+        // A flow kept in this checkout is one flow on every machine: open it
+        // by its committed id, as a run does.
+        // The repo's kept folder, as keep and refresh read it.
+        const read = await readRepo(deps.dir);
+        const root = read.ok ? read.repo.root : deps.dir;
+        const found = await findKept(root, tag.found.flow);
+        if (found !== null && "duplicate" in found) {
+          return failure(
+            "duplicateFlow",
+            `${found.duplicate.join(" and ")} both name the flow ${tag.found.flow} — delete one of them, then ask again`,
+          );
+        }
+        if (found !== null && "unreadable" in found) {
+          notKept = `; a recipe in this repo that would not read might be it — ${found.unreadable.join("; ")}`;
+        } else if (found !== null) {
+          const adopted = await adoptKept(
+            store,
+            root,
+            found,
+            read.ok ? { key: read.repo.key } : { none: read.none },
+          );
+          if (!adopted.ok) {
+            return failure(
+              "repoFlowNameTaken",
+              `flow "${found.kept.name}" is in the repo in ${found.file} as ${tag.found.flow}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${tag.found.flow}\` to move its videos into the repo flow`,
+            );
+          }
+          video = adopted.video;
+        }
+      }
       if (video === null) {
         return failure(
           "unknownVideo",
-          `${file} was exported from flow ${tag.found.video}, which is not in this library`,
+          `${file} was exported from flow ${tag.found.flow}, which is not in this library${notKept}`,
         );
       }
       // Which version the file is of: the tag names its take.
-      const takeId = tag.found.take;
+      const takeId = tag.found.video;
+      const madeAt =
+        tag.found.commit === null
+          ? ""
+          : ` — recorded at commit ${tag.found.commit.slice(0, 7)}`;
       const summary = await summarise(store, library, video);
       const version = (await store.versions(video.id)).find(
         (v) => v.takeId === takeId,
@@ -251,7 +349,7 @@ export async function videosOp(
             version === undefined
               ? {
                   takeId,
-                  notInVideo: `video ${takeId} is no longer in "${video.name}" (it was deleted, or its video.json will not read)`,
+                  notInVideo: `video ${takeId} is no longer in "${video.name}" (it was deleted, or its video.json will not read)${madeAt}`,
                 }
               : {
                   takeId,

@@ -10,9 +10,9 @@ import { basename, join } from "node:path";
 import {
   type CapRender,
   type ExportAnswer,
-  type FilmedCode,
   fileSize,
   messageOf,
+  parseFilmedCode,
   prVerdict,
   type RunReport,
   sceneLabel,
@@ -681,12 +681,14 @@ const short = (sha: string) => `\`${sha.slice(0, 7)}\``;
  * "differs" (an ignored file changed) and never wrongly "same".
  */
 export function codeClause(
-  filmed: FilmedCode | undefined,
+  raw: unknown,
   head: string | null,
   headTree: string | null,
 ): string {
-  if (filmed === undefined) return "commit not recorded";
-  if ("none" in filmed) return "commit unknown";
+  if (raw === undefined) return "commit not recorded";
+  // A value that is no filmedCode is unknown, never read as one.
+  const filmed = parseFilmedCode(raw);
+  if (filmed === null || "none" in filmed) return "commit unknown";
   if (head !== null && headTree !== null && filmed.tree === headTree)
     return `filmed at ${short(head)}`;
   if (filmed.commit === null)
@@ -738,7 +740,7 @@ export async function lineFor(
   const one = (text: string) =>
     text.replace(/[`@]/g, "").replace(/\s+/g, " ").trim().slice(0, 200);
   let verdict: Parameters<typeof prLine>[1] = { none: UNREADABLE_REPORT };
-  let filmed: FilmedCode | undefined;
+  let filmed: unknown;
   // Each failure keeps its own reason in the log; the line, posted under the
   // user's account, says only that the report could not be used.
   const read = await deps.export.library
@@ -757,7 +759,11 @@ export async function lineFor(
     try {
       const report = read.value as RunReport;
       verdict = prVerdict(report);
-      filmed = report.filmedCode;
+      filmed = (report as { filmedCode?: unknown }).filmedCode;
+      if (filmed !== undefined && parseFilmedCode(filmed) === null)
+        deps.log(
+          `attach: video ${takeId}'s report.json has no usable filmedCode (${JSON.stringify(filmed)}); the line says the commit is unknown`,
+        );
     } catch (error) {
       // JSON, but not the shape prVerdict reads (an older or damaged report).
       deps.log(

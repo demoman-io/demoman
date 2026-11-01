@@ -1176,6 +1176,9 @@ describe("codeClause", () => {
   it.each([
     ["no filmedCode", undefined, B, T, "commit not recorded"],
     ["none", { none: "git is not installed" }, B, T, "commit unknown"],
+    // Red: read the report's value unparsed — codeClause throws on both.
+    ["malformed", { commit: 42 }, B, T, "commit unknown"],
+    ["empty", {}, B, T, "commit unknown"],
     [
       "the PR head's tree",
       { commit: A, tree: T, dirty: true },
@@ -1285,6 +1288,36 @@ describe("lineFor", () => {
     expect(out.line).toContain("run report unreadable");
     expect(lines.join("\n")).toContain("could not be read (disk gone)");
     expect(lines.join("\n")).not.toContain("not a run report");
+  });
+
+  it("a malformed filmedCode is logged by attach and the line says commit unknown", async () => {
+    const lines: string[] = [];
+    const out = await lineFor(
+      "t1",
+      "x",
+      null,
+      deps(
+        async () => ({
+          value: {
+            run: { script: { name: "s", scriptVersion: 1, steps: 1 } },
+            outcome: "complete",
+            steps: [{}],
+            frames: { degradations: [], storageRefused: false },
+            look: null,
+            verdict: { kind: "matches", diverged: [] },
+            filmedCode: { commit: 42 },
+          },
+        }),
+        lines,
+      ),
+    );
+    // Premise: the report itself read as a run report.
+    expect(out.line).not.toContain("run report unreadable");
+    expect(out.line).toContain("commit unknown");
+    // Red: drop attach's log — the unusable value is forgiven unsaid.
+    expect(lines).toContain(
+      `attach: video t1's report.json has no usable filmedCode ({"commit":42}); the line says the commit is unknown`,
+    );
   });
 
   it("a report.json that is not a run report is said as one", async () => {

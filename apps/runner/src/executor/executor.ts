@@ -12,6 +12,7 @@ import {
 import { authoredTotal, type ReplayProgress } from "@demoman/replay-engine";
 import {
   checkScript,
+  isFlowId,
   isHttpUrl,
   lookForRun,
   messageOf,
@@ -40,6 +41,12 @@ import { type ExportDeps, exportTake } from "./export.js";
 import { finalStillFor } from "./final-still.js";
 import { createGh, defaultGhRun } from "./gh.js";
 import { rewriteKept } from "./keep.js";
+import {
+  adoptKept,
+  findKept,
+  readKeptFlows,
+  unreadableOf,
+} from "./kept-flows.js";
 import { readKits } from "./kits.js";
 import { DEFAULT_SIGNIN_COMMAND } from "./landing.js";
 import { createLibrary, ownHome } from "./library.js";
@@ -578,6 +585,9 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     const videoRepo: VideoRepo = repoRead.ok
       ? { key: repoRead.repo.key }
       : { none: repoRead.none };
+    // The kept folder is the repo's, as keep and refresh read it, not the
+    // project folder's (which may be a subfolder of the repo).
+    const keptRoot = repoRead.ok ? repoRead.repo.root : where.from;
     let into: VideoRecord | null = null;
     let raw: unknown = args.script;
     let refilm: RefilmInfo | undefined;
@@ -597,6 +607,36 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       if ("failed" in expiry) log(`expiry failed: ${expiry.failed}`);
       if ("id" in asked) {
         into = isVideoId(asked.id) ? await videos.get(asked.id) : null;
+        if (into === null && isFlowId(asked.id)) {
+          // A flow kept in this checkout is one flow on every machine: join
+          // it by its committed id rather than refuse or mint another.
+          const found = await findKept(keptRoot, asked.id);
+          if (found !== null && "duplicate" in found) {
+            return refusal(
+              "duplicateFlow",
+              `${found.duplicate.join(" and ")} both name the flow ${asked.id} — delete one of them, then run again`,
+              "video",
+            );
+          }
+          if (found !== null && "unreadable" in found) {
+            return refusal(
+              "videoNotFound",
+              `no flow has the id ${JSON.stringify(asked.id)}, and a recipe in this repo that would not read might be it — ${found.unreadable.join("; ")}`,
+              "video",
+            );
+          }
+          if (found !== null) {
+            const adopted = await adoptKept(videos, keptRoot, found, videoRepo);
+            if (!adopted.ok) {
+              return refusal(
+                "repoFlowNameTaken",
+                `flow "${found.kept.name}" is in the repo in ${found.file} as ${asked.id}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${asked.id}\` to move its videos into the repo flow`,
+                "video",
+              );
+            }
+            into = adopted.video;
+          }
+        }
         if (into === null) {
           return refusal(
             "videoNotFound",
@@ -618,6 +658,27 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           builtFrom = built.takeId;
         }
       } else {
+        const { entries } = await readKeptFlows(keptRoot);
+        const unreadable = unreadableOf(entries);
+        const keptHolder = entries.find(
+          (e) => "kept" in e && sameName(e.kept.name, asked.new),
+        );
+        if (keptHolder === undefined && unreadable.length > 0) {
+          return refusal(
+            "repoFlowUnreadable",
+            `a recipe in this repo would not read, so Demoman cannot tell whether it is "${asked.new}" — fix or remove it before starting a new flow here: ${unreadable.join("; ")}`,
+            "video",
+          );
+        }
+        if (keptHolder !== undefined && "kept" in keptHolder) {
+          const { kept, file } = keptHolder;
+          return refusal(
+            "nameTaken",
+            `flow "${kept.name}" is in the repo in ${file} — add a video to it with flow: { id: "${kept.flow}" }, or name the new flow differently`,
+            "video",
+            { holder: { id: kept.flow, name: kept.name } },
+          );
+        }
         const matches = await matchesFor(videos, library, asked.new, videoRepo);
         const holder = matches.find((m) => sameName(m.name, asked.new));
         if (holder !== undefined) {
@@ -1024,7 +1085,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           if (!("none" in rewrote)) kept = rewrote;
         } catch (error) {
           kept = {
-            refused: `the kept file could not be rewritten (${messageOf(error)})`,
+            refused: `the recipe could not be rewritten (${messageOf(error)})`,
           };
         }
       }

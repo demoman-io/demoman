@@ -1,6 +1,25 @@
-import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  FLOWS_DIR,
+  LEGACY_FLOWS_DIR as KEPT_DIR,
+  type KeptVideo,
+  keptFileName,
+  RECEIPT_DIR,
+  serializeKept,
+  serializeReceipt,
+} from "@demoman/run-core";
 import { createLibrary, createVideoStore } from "@demoman/runner/studio";
 import { CURRENT_SCHEMA_VERSION } from "@demoman/scene-schema";
 import { pathFor, type TakesAnswer } from "@demoman/studio-protocol";
@@ -113,7 +132,7 @@ describe("the takes listing's videos", () => {
     expect(byName["Sign up"]?.versions).toBe(1);
     // The newest complete, not the newest (inv-3 failed).
     expect(byName["Create an invoice"]?.current?.takeId).toBe("inv-2");
-    const none = { exports: [] };
+    const none = { exports: [], filmedCode: null };
     expect(body.videoOf).toEqual({
       "inv-1": { videoId: invoice, version: 1, expired: false, ...none },
       "inv-2": { videoId: invoice, version: 2, expired: false, ...none },
@@ -124,6 +143,42 @@ describe("the takes listing's videos", () => {
       ["inv-1", "inv-2", "inv-3", "sign-1"].sort(),
     );
     expect(body.unreadable).toEqual([]);
+  });
+
+  it("videoOf carries the report's filmed commit", async () => {
+    const code = { commit: "abc1234", tree: "def5678", dirty: false };
+    const library = createLibrary(home);
+    await library.putJson("inv-1", "report.json", { filmedCode: code });
+    await library.putJson("inv-2", "report.json", {
+      filmedCode: { none: "no git" },
+    });
+    await writeFile(
+      join(library.takeDir("sign-1"), "report.json"),
+      "{not json",
+    );
+    const body = await listing();
+    expect(body.videoOf["inv-1"]?.filmedCode).toEqual(code);
+    expect(body.videoOf["inv-2"]?.filmedCode).toEqual({ none: "no git" });
+    // Missing report: null, quietly. Unreadable: null, and the log says why.
+    expect(body.videoOf["inv-3"]?.filmedCode).toBeNull();
+    expect(body.videoOf["sign-1"]?.filmedCode).toBeNull();
+    expect(h.logs.join("\n")).toMatch(/sign-1.*report\.json/);
+    expect(h.logs.join("\n")).not.toMatch(/inv-3/);
+  });
+
+  it("a report without filmedCode is quiet; a malformed one is said", async () => {
+    const library = createLibrary(home);
+    await library.putJson("inv-1", "report.json", { outcome: "complete" });
+    await library.putJson("inv-2", "report.json", { filmedCode: { x: 1 } });
+    await library.putJson("inv-3", "report.json", []);
+    await library.putJson("sign-1", "report.json", { filmedCode: null });
+    const body = await listing();
+    expect(body.videoOf["inv-1"]?.filmedCode).toBeNull();
+    expect(body.videoOf["inv-2"]?.filmedCode).toBeNull();
+    const said = h.logs.join("\n");
+    expect(said).not.toMatch(/inv-1/);
+    for (const id of ["inv-2", "inv-3", "sign-1"])
+      expect(said, id).toMatch(new RegExp(`${id}.*no usable filmedCode`));
   });
 
   it("joins a loose take to a video of its own as it lists", async () => {
@@ -369,6 +424,304 @@ describe("renaming a video", () => {
     const hostile = await rename("../kits", { name: "x" });
     expect(hostile.status).toBe(404);
     expect((hostile.json() as { reason: string }).reason).toBe("videoNotFound");
+  });
+});
+
+describe("renaming a kept flow", () => {
+  const rename = (id: string, body: unknown) =>
+    h.call(pathFor("videoRename", { id }), {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  const OLD = keptFileName("Create an invoice");
+  const NEW = keptFileName("Send an invoice");
+  let checkout: string;
+  const recipe = (): KeptVideo => ({
+    keptVersion: 2,
+    flow: invoice,
+    deliver: "commit",
+    name: "Create an invoice",
+    script: {
+      scriptVersion: 1,
+      name: "Create an invoice",
+      target: "https://app.example.com/orders",
+      viewport: { width: 1280, height: 800 },
+      steps: [{ do: "waitForLoad" }],
+    } as KeptVideo["script"],
+    scale: 1,
+    logo: null,
+    wallpaper: null,
+    outputs: [
+      { path: "docs/o.mp4", fileType: "mp4", aspect: "16:9", quality: "share" },
+    ],
+    report: null,
+  });
+  const receiptText = () =>
+    serializeReceipt({
+      receiptVersion: 1,
+      flow: invoice,
+      video: "inv-2",
+      filmedAt: null,
+      filmedCode: { none: "a test" },
+      screens: { steps: 1, moments: [{ step: null, ms: 0 }] },
+      recordedRevision: null,
+    });
+  /** `invoice` kept in `checkout`: its recipe and receipt written, and its
+   *  record pointing at the recipe, as `keep` leaves them. */
+  async function keepInvoice(root: string): Promise<void> {
+    await mkdir(join(root, KEPT_DIR), { recursive: true });
+    await mkdir(join(root, RECEIPT_DIR), { recursive: true });
+    await writeFile(join(root, KEPT_DIR, OLD), serializeKept(recipe()));
+    await writeFile(join(root, RECEIPT_DIR, OLD), receiptText());
+    const store = createVideoStore(home, createLibrary(home));
+    const marked = await store.setKept(invoice, {
+      root,
+      file: `${KEPT_DIR}/${OLD}`,
+    });
+    if (!marked.ok) throw new Error("the fixture's flow was not marked kept");
+  }
+  beforeEach(async () => {
+    checkout = await mkdtemp(join(tmpdir(), "studio-kept-"));
+  });
+  afterEach(async () => {
+    await chmod(join(checkout, RECEIPT_DIR), 0o755).catch(() => undefined);
+    await rm(checkout, { recursive: true, force: true });
+  });
+
+  it("renaming a kept flow rewrites the recipe and moves its receipt", async () => {
+    await keepInvoice(checkout);
+    // Premise: the listing reads the flow as kept in its recipe, and the
+    // new name is another file.
+    expect(
+      (await listing()).videos.find((v) => v.id === invoice)?.kept,
+    ).toEqual({
+      root: checkout,
+      file: `${KEPT_DIR}/${OLD}`,
+      deliver: "commit",
+    });
+    expect(NEW).not.toBe(OLD);
+    // Red: call videos.rename alone for a kept flow — the recipe keeps the
+    // old name and file, and the receipt does not move.
+    const r = await rename(invoice, { name: "Send an invoice" });
+    expect(r.status, r.text).toBe(200);
+    expect(await readFile(join(checkout, FLOWS_DIR, NEW), "utf8")).toBe(
+      serializeKept({ ...recipe(), name: "Send an invoice" }),
+    );
+    expect(await exists(join(checkout, KEPT_DIR, OLD))).toBe(false);
+    expect(await readFile(join(checkout, RECEIPT_DIR, NEW), "utf8")).toBe(
+      receiptText(),
+    );
+    expect(await exists(join(checkout, RECEIPT_DIR, OLD))).toBe(false);
+    const after = (await listing()).videos.find((v) => v.id === invoice);
+    expect(after?.name).toBe("Send an invoice");
+    expect(after?.kept).toEqual({
+      root: checkout,
+      file: `${FLOWS_DIR}/${NEW}`,
+      deliver: "commit",
+    });
+  });
+
+  it("renaming a flow in .demoman/videos/ to a name with the same file moves it", async () => {
+    await keepInvoice(checkout);
+    // Premise: the new name makes the old file name, in the old folder.
+    expect(keptFileName("Create an invoice!")).toBe(OLD);
+    const r = await rename(invoice, { name: "Create an invoice!" });
+    expect(r.status, r.text).toBe(200);
+    expect(await readFile(join(checkout, FLOWS_DIR, OLD), "utf8")).toBe(
+      serializeKept({ ...recipe(), name: "Create an invoice!" }),
+    );
+    expect(await exists(join(checkout, KEPT_DIR, OLD))).toBe(false);
+    expect(await readFile(join(checkout, RECEIPT_DIR, OLD), "utf8")).toBe(
+      receiptText(),
+    );
+  });
+
+  it("renaming to a name whose file is in .demoman/videos/ refuses and renames nothing", async () => {
+    await keepInvoice(checkout);
+    const theirs = serializeKept({
+      ...recipe(),
+      flow: "1a2b3c4d-0000-4000-8000-0000000000aa",
+      name: "Send an invoice",
+    });
+    await writeFile(join(checkout, KEPT_DIR, NEW), theirs);
+    // Premise: the new name's file is free in .demoman/flows/.
+    expect(await exists(join(checkout, FLOWS_DIR, NEW))).toBe(false);
+    // Red: check .demoman/flows/ alone — two recipes then hold the name.
+    const r = await rename(invoice, { name: "Send an invoice" });
+    expect(r.status, r.text).toBe(409);
+    expect(refusal(r).reason).toBe("nameTaken");
+    expect(refusal(r).detail).toContain(`${KEPT_DIR}/${NEW} already exists`);
+    expect(await state()).toEqual(untouched());
+    expect(await readFile(join(checkout, KEPT_DIR, NEW), "utf8")).toBe(theirs);
+  });
+
+  it("renaming a kept flow whose checkout is gone renames it and clears the mark", async () => {
+    await keepInvoice(checkout);
+    // Premise: the record is marked kept in a checkout that is then deleted.
+    const store = createVideoStore(home, createLibrary(home));
+    expect((await store.get(invoice))?.kept?.root).toBe(checkout);
+    await rm(checkout, { recursive: true, force: true });
+    // The listing files it by date, not In repo: keptOf decides, once.
+    const before = (await listing()).videos.find((v) => v.id === invoice);
+    expect(before?.kept).toBeNull();
+    // Red: refuse while the record is marked — a deleted worktree leaves
+    // the flow unrenameable for good.
+    const r = await rename(invoice, { name: "Send an invoice" });
+    expect(r.status, r.text).toBe(200);
+    const after = (await listing()).videos.find((v) => v.id === invoice);
+    expect(after?.name).toBe("Send an invoice");
+    expect((await store.get(invoice))?.kept).toBeUndefined();
+    // Red: clear the mark without a word.
+    expect(h.logs).toContain(
+      `studio: flow ${invoice}'s recipe is no longer in ${checkout}; its mark was cleared`,
+    );
+  });
+
+  it("renaming a kept flow whose recipe no file in the checkout keeps renames it and clears the mark", async () => {
+    await keepInvoice(checkout);
+    await rm(join(checkout, KEPT_DIR, OLD));
+    // Premise: the checkout is still there.
+    expect(await exists(checkout)).toBe(true);
+    const r = await rename(invoice, { name: "Send an invoice" });
+    expect(r.status, r.text).toBe(200);
+    const store = createVideoStore(home, createLibrary(home));
+    expect((await store.get(invoice))?.name).toBe("Send an invoice");
+    expect((await store.get(invoice))?.kept).toBeUndefined();
+    // Nothing was written into the checkout for a flow it no longer keeps.
+    expect(await exists(join(checkout, FLOWS_DIR))).toBe(false);
+  });
+
+  it("renaming a kept flow whose recipe will not read refuses and renames nothing", async () => {
+    await keepInvoice(checkout);
+    await chmod(join(checkout, KEPT_DIR, OLD), 0o000);
+    try {
+      const r = await rename(invoice, { name: "Send an invoice" });
+      expect(r.status, r.text).toBe(409);
+      const refused = r.json() as { reason: string; detail: string };
+      expect(refused.reason).toBe("repoCheckoutMissing");
+      expect(refused.detail).toContain(`${KEPT_DIR}/${OLD}`);
+      expect(refused.detail).toMatch(/keeps its name\.$/);
+      const store = createVideoStore(home, createLibrary(home));
+      expect((await store.get(invoice))?.name).toBe("Create an invoice");
+      expect((await store.get(invoice))?.kept?.root).toBe(checkout);
+    } finally {
+      await chmod(join(checkout, KEPT_DIR, OLD), 0o644);
+    }
+  });
+
+  /** What the checkout and the library hold of the flow: whether each
+   *  recipe file is there, the record's name and its kept pointer. */
+  const state = async () => {
+    const v = (await listing()).videos.find((x) => x.id === invoice);
+    return {
+      oldRecipe: await exists(join(checkout, KEPT_DIR, OLD)),
+      newRecipe: await exists(join(checkout, FLOWS_DIR, NEW)),
+      oldReceipt: await exists(join(checkout, RECEIPT_DIR, OLD)),
+      newReceipt: await exists(join(checkout, RECEIPT_DIR, NEW)),
+      name: v?.name,
+      kept: v?.kept,
+    };
+  };
+  const untouched = () => ({
+    oldRecipe: true,
+    newRecipe: false,
+    oldReceipt: true,
+    newReceipt: false,
+    name: "Create an invoice",
+    kept: { root: checkout, file: `${KEPT_DIR}/${OLD}`, deliver: "commit" },
+  });
+  const refusal = (r: { json: () => unknown }) =>
+    r.json() as { reason: string; detail: string };
+
+  it("a receipt that will not move undoes the recipe, and the same rename then succeeds", async () => {
+    await keepInvoice(checkout);
+    // The receipt cannot move: its folder takes no new file.
+    await chmod(join(checkout, RECEIPT_DIR), 0o555);
+    const r = await rename(invoice, { name: "Send an invoice" });
+    expect(r.status, r.text).toBe(500);
+    expect(refusal(r).reason).toBe("repoFlowUnwritable");
+    expect(refusal(r).detail).toContain(`could not move ${RECEIPT_DIR}/${OLD}`);
+    expect(refusal(r).detail).toContain("the old name stands everywhere");
+    // Red: drop the undo — the new recipe is left beside the old one.
+    expect(await state()).toEqual(untouched());
+    await chmod(join(checkout, RECEIPT_DIR), 0o755);
+    const retry = await rename(invoice, { name: "Send an invoice" });
+    expect(retry.status, retry.text).toBe(200);
+    expect(await state()).toEqual({
+      oldRecipe: false,
+      newRecipe: true,
+      oldReceipt: false,
+      newReceipt: true,
+      name: "Send an invoice",
+      kept: { root: checkout, file: `${FLOWS_DIR}/${NEW}`, deliver: "commit" },
+    });
+  });
+
+  it("a library that will not rename puts both files back at the old name", async () => {
+    await keepInvoice(checkout);
+    // The record's folder takes no lock: videos.rename fails after the
+    // recipe and receipt have moved.
+    const records = join(home, "videos");
+    await chmod(records, 0o555);
+    let r: Awaited<ReturnType<typeof rename>>;
+    try {
+      r = await rename(invoice, { name: "Send an invoice" });
+    } finally {
+      await chmod(records, 0o755);
+    }
+    expect(r.status, r.text).toBe(500);
+    expect(refusal(r).reason).toBe("repoFlowUnwritable");
+    expect(refusal(r).detail).toContain("could not rename the library's flow");
+    // Red: remove the old recipe before the library's rename, or drop the
+    // undo — the files are left at the new slug while the library says old.
+    expect(await state()).toEqual(untouched());
+  });
+
+  it("a path that leaves the repo refuses repoFlowUnwritable and writes nothing", async () => {
+    await keepInvoice(checkout);
+    // The receipts folder is a link to a folder outside the checkout.
+    const outside = await mkdtemp(join(tmpdir(), "studio-outside-"));
+    try {
+      await rm(join(checkout, RECEIPT_DIR), { recursive: true });
+      await symlink(outside, join(checkout, RECEIPT_DIR));
+      const r = await rename(invoice, { name: "Send an invoice" });
+      expect(r.status, r.text).toBe(500);
+      expect(refusal(r).reason).toBe("repoFlowUnwritable");
+      expect(refusal(r).detail).toMatch(/nothing was renamed\.$/);
+      const now = await state();
+      expect(now).toMatchObject({
+        oldRecipe: true,
+        newRecipe: false,
+        name: "Create an invoice",
+      });
+      expect(await readdir(outside)).toEqual([]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("a name another flow or file holds refuses nameTaken and writes nothing", async () => {
+    await keepInvoice(checkout);
+    const flow = await rename(invoice, { name: "Sign up" });
+    expect(flow.status, flow.text).toBe(409);
+    expect(refusal(flow)).toEqual({
+      reason: "nameTaken",
+      detail: 'Another flow is already called "Sign up".',
+    });
+    expect(await state()).toEqual(untouched());
+    // A file already at the new name's slug, keeping something else.
+    await mkdir(join(checkout, FLOWS_DIR), { recursive: true });
+    await writeFile(join(checkout, FLOWS_DIR, NEW), "someone else's");
+    const file = await rename(invoice, { name: "Send an invoice" });
+    expect(file.status, file.text).toBe(409);
+    expect(refusal(file).reason).toBe("nameTaken");
+    expect(refusal(file).detail).toContain(
+      `${FLOWS_DIR}/${NEW} already exists`,
+    );
+    expect(await readFile(join(checkout, FLOWS_DIR, NEW), "utf8")).toBe(
+      "someone else's",
+    );
+    expect({ ...(await state()), newRecipe: false }).toEqual(untouched());
   });
 });
 

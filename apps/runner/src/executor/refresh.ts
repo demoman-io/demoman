@@ -1,33 +1,48 @@
 import {
   access,
   mkdtemp,
-  readdir,
   readFile,
   realpath,
   rm,
+  stat,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import {
   type ExportAnswer,
+  type FilmedCode,
+  FLOWS_DIR,
   judgedOutput,
-  KEPT_DIR,
+  type KeptDeliver,
+  type KeptReceipt,
   type KeptScreens,
   type KeptVideo,
   keptFileName,
   messageOf,
-  parseKept,
+  parseFilmedCode,
   prVerdict,
+  RECEIPT_DIR,
+  REFRESH_LIST_FILE,
+  type RefreshListEntry,
   type RunReport,
-  serializeKept,
+  refreshListOf,
+  serializeReceipt,
+  serializeRefreshList,
   servedRunReport,
 } from "@demoman/run-core";
 import type { DemoScript } from "@demoman/scene-schema";
 import { codeClause, prLine } from "./attach.js";
 import type { BrowserSession } from "./browser.js";
-import { libraryAhead, place, repoPath } from "./keep.js";
+import {
+  filmedAtOf,
+  filmedCodeIn,
+  libraryAhead,
+  place,
+  readReceiptFile,
+  repoPath,
+} from "./keep.js";
+import { readKeptFlows } from "./kept-flows.js";
 import { createLibrary, type Library } from "./library.js";
-import type { GitRunner } from "./repo.js";
 import { samePicture } from "./same-picture.js";
 import type { LocalExecutor } from "./types.js";
 import type { VideoStore } from "./videos.js";
@@ -36,21 +51,41 @@ export interface RefreshVideo {
   name: string;
   /** The kept file, repo-relative. */
   file: string;
-  outcome: "replaced" | "unchanged" | "failed";
+  /** The kept flow's id and route, or null when its file would not read. */
+  flow: string | null;
+  deliver: KeptDeliver | null;
+  /** `changed`: the picture differs from the previous receipt's film.
+   *  `added`: the same picture, with an output that did not exist written.
+   *  `uncompared`: no previous film to compare against; delivered as new. */
+  outcome: "changed" | "added" | "uncompared" | "unchanged" | "failed";
   /** Why it failed (the run's verdict line, or what refused), or what the
    *  comparison found. */
   detail: string;
   /** The repo paths this refresh wrote for the video. */
   outputs: string[];
-  /** A replaced video's line for a pull request (`attach`'s), else null. */
+  /** A delivered video's line for a pull request (`attach`'s), else null. */
   line: string | null;
-  /** What a reader must hear even though the video did not fail: an output
-   *  replaced without a comparison, a report not written. */
+  /** What a reader must hear even though the video did not fail: no
+   *  receipt to compare with, a report not written. */
   notes: string[];
+  /** The new film's take id and the code it filmed, once there is a film. */
+  video: string | null;
+  filmedCode: FilmedCode | null;
+  /** For `unchanged` and `added`: the previous receipt's video, which the
+   *  picture matched. */
+  sameAs: { video: string } | null;
+  /** What this refresh wrote, with each output's type and aspect; the
+   *  receipt and report are json. */
+  files: RefreshListEntry["files"];
+  /** The new film's judged-output screens, and its served run report. */
+  screens: KeptScreens | null;
+  report: unknown | null;
 }
 
 export interface RefreshResult {
   videos: RefreshVideo[];
+  /** Why the list under --out-dir could not be written; the videos stand. */
+  listError?: string;
 }
 
 export interface RefreshDeps {
@@ -71,8 +106,9 @@ export interface RefreshDeps {
   }): LocalExecutor;
   /** The browser that decodes outputs to compare them. */
   session: Pick<BrowserSession, "openWorkPage">;
+  /** The picture comparison; the real one unless a test stands in. */
+  samePicture?: typeof samePicture;
   env: NodeJS.ProcessEnv;
-  git: GitRunner;
   log: (line: string) => void;
 }
 
@@ -82,10 +118,19 @@ const DEVICE_DISPLAY = { width: 1280, height: 800 };
 
 type Job = {
   kept: KeptVideo;
+  /** What the committed files show: the receipt, else a v1 file's own; null
+   *  when there is neither, and the film is delivered uncompared. */
+  previous: KeptReceipt | null;
+  receiptFile: string;
   file: string;
   script: DemoScript;
-  /** What the user's library has that the file lacks (local only). */
-  ahead: string | null;
+  /** What a reader must hear before the film: the library ahead (local
+   *  only), no receipt. */
+  notes: string[];
+  /** Where the committed files are read (the checkout, or `previous` for a
+   *  files flow; null when none was given) and where new ones are written. */
+  from: string | null;
+  to: string;
 };
 
 /**
@@ -118,11 +163,12 @@ export function uncleanRun(answer: Record<string, unknown>): string | null {
 
 /**
  * `demoman refresh`: re-films each kept video's script with no agent,
- * judges the run, exports each output, and replaces the video's files (each
- * by rename from a finished file beside it) only when the picture of its
- * judged output changed. A video that fails
- * leaves its committed files as they were and says why; the others still
- * refresh.
+ * judges the run, exports each output, and compares the judged output's
+ * picture with the one the previous receipt describes. A changed or
+ * uncompared film replaces every output, the report and the receipt (each
+ * by rename from a finished file beside it); the recipe is never written.
+ * A video that fails leaves its committed files as they were and says why;
+ * the others still refresh.
  */
 export async function refreshKept(
   args: {
@@ -130,6 +176,11 @@ export async function refreshKept(
     only?: string[];
     baseUrl?: string;
     library: "local" | "throwaway";
+    /** Where `files` flows are written, with the list of what was made. */
+    outDir?: string;
+    /** A folder an earlier `outDir` was kept in: what `files` flows are
+     *  compared against. */
+    previous?: string;
   },
   deps: RefreshDeps,
 ): Promise<RefreshResult> {
@@ -137,58 +188,114 @@ export async function refreshKept(
   const rootReal = await realpath(root);
   const videos: RefreshVideo[] = [];
   const failed = (
-    name: string,
-    file: string,
+    who: { name: string; file: string; kept?: KeptVideo },
     detail: string,
     notes: string[] = [],
   ) =>
     videos.push({
-      name,
-      file,
+      name: who.name,
+      file: who.file,
+      flow: who.kept?.flow ?? null,
+      deliver: who.kept?.deliver ?? null,
       outcome: "failed",
       detail,
       outputs: [],
       line: null,
       notes,
+      video: null,
+      filmedCode: null,
+      sameAs: null,
+      files: [],
+      screens: null,
+      report: null,
     });
 
-  let names: string[] = [];
-  try {
-    names = (await readdir(join(root, KEPT_DIR)))
-      .filter((n) => n.endsWith(".json"))
-      .sort();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
+  const { entries, duplicates } = await readKeptFlows(root);
+  const twice = new Map(
+    duplicates.flatMap((d) => d.files.map((f) => [f, d] as const)),
+  );
   const asked = args.only?.map(keptFileName);
   const found = new Set<string>();
   // One executor per display: a browser launches at one scale.
   const groups = new Map<string, Job[]>();
-  for (const n of names) {
-    const file = `${KEPT_DIR}/${n}`;
-    let text: string;
-    try {
-      text = await readFile(join(root, file), "utf8");
-    } catch (error) {
-      failed(n, file, `${file} could not be read (${messageOf(error)})`);
-      continue;
-    }
-    const parsed = parseKept(text, file);
+  for (const entry of entries) {
+    const { file } = entry;
+    const n = basename(file);
     // Whether it is one `only` names cannot be told, so it is said.
-    if (!parsed.ok) {
-      failed(n.replace(/\.json$/, ""), file, parsed.detail);
+    if ("unreadable" in entry) {
+      failed({ name: n.replace(/\.json$/, ""), file }, entry.unreadable);
       // Its file is the one `only` would name: not also "no kept video".
       found.add(n);
       continue;
     }
-    const { kept } = parsed;
+    const { kept, migrated } = entry;
     const slug = keptFileName(kept.name);
     if (asked !== undefined && !asked.includes(slug)) continue;
     found.add(slug);
+    const who = { name: kept.name, file, kept };
+    const dup = twice.get(file);
+    if (dup !== undefined) {
+      failed(
+        who,
+        dup.sameName === true
+          ? `${dup.files.join(" and ")} are two different flows with one file name — rename one of the two flows, then refresh again`
+          : `${dup.files.join(" and ")} both name the flow ${dup.flow} — delete one of them, then refresh again`,
+      );
+      continue;
+    }
+    const toFolder = kept.deliver === "files";
+    if (toFolder && args.outDir === undefined) {
+      failed(
+        who,
+        "deliver files needs --out-dir (the workflow that `npx demoman setup --ci --artifact` writes passes one)",
+      );
+      continue;
+    }
+    const to = toFolder ? resolve(args.outDir as string) : root;
+    let from: string | null = toFolder
+      ? args.previous === undefined
+        ? null
+        : resolve(args.previous)
+      : root;
+    // A --previous folder that is not there is "no previous" (the first run
+    // of a bucket), said in a note; one that is there and unreadable fails.
+    let noPrevious = "no --previous folder was given";
+    if (toFolder && from !== null) {
+      const gone = from;
+      const dir = await stat(gone).then(
+        (st) => (st.isDirectory() ? null : "is not a folder"),
+        (error: unknown) =>
+          (error as NodeJS.ErrnoException).code === "ENOENT"
+            ? "missing"
+            : `cannot be read (${messageOf(error)})`,
+      );
+      if (dir === "missing") {
+        noPrevious = `${gone} does not exist, so there was nothing to compare against`;
+        from = null;
+      } else if (dir !== null) {
+        failed(
+          who,
+          `--previous ${gone} ${dir}, so what was delivered is unknown`,
+        );
+        continue;
+      }
+    }
+    // A files flow's receipt sits beside its outputs, not under the repo.
+    // Named after the recipe's own file, never the flow's current name.
+    const receiptFile = toFolder
+      ? `${n.replace(/\.json$/, "")}.receipt.json`
+      : `${RECEIPT_DIR}/${n}`;
     const outside: string[] = [];
+    // A files flow's outputs, report and receipt are bare names (the parser
+    // holds them to it); its logo and wallpaper are repo paths, read here.
     for (const p of [
-      ...kept.outputs.map((o) => o.path),
-      ...(kept.report === null ? [] : [kept.report]),
+      ...(toFolder
+        ? []
+        : [
+            ...kept.outputs.map((o) => o.path),
+            ...(kept.report === null ? [] : [kept.report]),
+            receiptFile,
+          ]),
       ...(kept.logo === null ? [] : [kept.logo]),
       ...(kept.wallpaper === null ? [] : [kept.wallpaper]),
     ]) {
@@ -196,38 +303,56 @@ export async function refreshKept(
       if (typeof at !== "string") outside.push(at.outside);
     }
     if (outside.length > 0) {
-      failed(kept.name, file, outside.join("; "));
+      failed(who, outside.join("; "));
       continue;
     }
+    const receiptAt = from === null ? null : join(from, receiptFile);
+    const had =
+      receiptAt === null
+        ? ({ missing: true } as const)
+        : await readReceiptFile(receiptAt, toFolder ? receiptAt : receiptFile);
+    if ("detail" in had) {
+      failed(who, `${had.detail}, so what its outputs show is unknown`);
+      continue;
+    }
+    if ("receipt" in had && had.receipt.flow !== kept.flow) {
+      failed(
+        who,
+        `${receiptAt} is the receipt of flow ${had.receipt.flow}, but ${file} keeps flow ${kept.flow}, so what its outputs show is unknown`,
+      );
+      continue;
+    }
+    // A v1 file is its own receipt until a refresh writes one beside it.
+    const previous = "receipt" in had ? had.receipt : migrated;
+    const notes: string[] = [];
+    if (args.library === "local") {
+      const ahead = await libraryAhead(kept, previous, file, deps);
+      if (ahead !== null) notes.push(ahead);
+    }
+    if (previous === null)
+      notes.push(
+        receiptAt === null
+          ? noPrevious
+          : `${toFolder ? receiptAt : receiptFile} is missing`,
+      );
     const script = scriptFor(kept, root, args.baseUrl);
     const { width, height } = script.viewport ?? DEVICE_DISPLAY;
     const display = `${width}x${height}@${kept.scale}`;
     groups.set(display, [
       ...(groups.get(display) ?? []),
-      {
-        kept,
-        file,
-        script,
-        ahead:
-          args.library === "local"
-            ? await libraryAhead(kept, file, deps)
-            : null,
-      },
+      { kept, previous, receiptFile, file, script, notes, from, to },
     ]);
   }
   for (const a of args.only ?? []) {
     if (!found.has(keptFileName(a)))
       failed(
-        a,
-        `${KEPT_DIR}/${keptFileName(a)}`,
-        `no kept video is named "${a}"`,
+        { name: a, file: `${FLOWS_DIR}/${keptFileName(a)}` },
+        `the repo has no flow named "${a}"`,
       );
   }
 
   // Every video is filmed before any file is written, so each one films
-  // the checkout as it was, and each line names the same code.
-  const head =
-    groups.size > 0 ? await headOf(root, deps) : { commit: null, tree: null };
+  // the checkout as it was.
   const filmed: Filmed[] = [];
   const outDirs: string[] = [];
   try {
@@ -243,19 +368,14 @@ export async function refreshKept(
       });
       try {
         for (const job of jobs) {
+          const who = { name: job.kept.name, file: job.file, kept: job.kept };
           deps.log(`refresh: filming "${job.kept.name}" at ${display}`);
           try {
-            const one = await filmOne(job, root, executor, home);
-            if ("failed" in one)
-              failed(job.kept.name, job.file, one.failed, notesOf(job));
+            const one = await filmOne(job, root, executor, home, deps);
+            if ("failed" in one) failed(who, one.failed, job.notes);
             else filmed.push(one);
           } catch (error) {
-            failed(
-              job.kept.name,
-              job.file,
-              `refresh threw: ${messageOf(error)}`,
-              notesOf(job),
-            );
+            failed(who, `refresh threw: ${messageOf(error)}`, job.notes);
           }
         }
       } finally {
@@ -271,11 +391,10 @@ export async function refreshKept(
     }
     for (const one of filmed) {
       try {
-        videos.push(await replaceOne(one, root, head, deps));
+        videos.push(await deliverOne(one, deps));
       } catch (error) {
         failed(
-          one.job.kept.name,
-          one.job.file,
+          { name: one.job.kept.name, file: one.job.file, kept: one.job.kept },
           `refresh threw: ${messageOf(error)}`,
         );
       }
@@ -284,10 +403,19 @@ export async function refreshKept(
     for (const dir of outDirs) await remove(dir, deps);
   }
   videos.sort((a, b) => a.file.localeCompare(b.file));
+  if (args.outDir !== undefined) {
+    const list = join(resolve(args.outDir), REFRESH_LIST_FILE);
+    try {
+      await place(list, serializeRefreshList(refreshListOf({ videos })));
+    } catch (error) {
+      return {
+        videos,
+        listError: `the refresh list ${list} could not be written (${messageOf(error)})`,
+      };
+    }
+  }
   return { videos };
 }
-
-const notesOf = (job: Job): string[] => (job.ahead === null ? [] : [job.ahead]);
 
 /** The kept script as this refresh films it: the logo and an uploaded
  *  wallpaper by their repo paths (the runner reads a relative ref from
@@ -311,28 +439,6 @@ function scriptFor(
   return script;
 }
 
-/** The checkout's commit and tree, for the line's code clause. */
-async function headOf(
-  root: string,
-  deps: RefreshDeps,
-): Promise<{ commit: string | null; tree: string | null }> {
-  const read = async (rev: string) => {
-    try {
-      const r = await deps.git(["rev-parse", rev], root);
-      if (r.code === 0) return r.stdout.trim();
-      deps.log(
-        `refresh: git rev-parse ${rev} exited ${r.code}; lines say the code was not checked`,
-      );
-    } catch (error) {
-      deps.log(
-        `refresh: git could not read ${rev} (${messageOf(error)}); lines say the code was not checked`,
-      );
-    }
-    return null;
-  };
-  return { commit: await read("HEAD"), tree: await read("HEAD^{tree}") };
-}
-
 async function remove(dir: string, deps: RefreshDeps): Promise<void> {
   await rm(dir, { recursive: true, force: true }).catch((error: unknown) =>
     deps.log(`refresh: ${dir} was not removed (${messageOf(error)})`),
@@ -343,23 +449,27 @@ async function remove(dir: string, deps: RefreshDeps): Promise<void> {
 type Filmed = {
   job: Job;
   report: RunReport;
+  takeId: string;
   rendered: string[];
   renderedScreens: KeptScreens[];
-  /** The take's report.json, for `kept.report`; or why it is not had. */
-  stored: { value: unknown } | { not: string } | null;
+  /** The take's report.json, served; or why it is not had. */
+  stored: { value: unknown } | { not: string };
 };
 
 async function filmOne(
-  { kept, file, script, ahead }: Job,
+  job: Job,
   root: string,
   executor: LocalExecutor,
   home: string,
+  deps: RefreshDeps,
 ): Promise<Filmed | { failed: string }> {
+  const { kept, script } = job;
   const run = async () => {
     const out = await executor.request("run", {
       script,
-      // A library of its own: no other video, so no name is taken.
-      video: { new: kept.name, confirmedNew: true },
+      // The kept flow by its id: the throwaway library adopts it, so what
+      // the film makes names a flow the repo keeps.
+      video: { id: kept.flow },
       project: root,
       // The committed kept file is refresh's input, never its output.
       leaveKept: true,
@@ -403,39 +513,44 @@ async function filmOne(
     rendered.push(exported.file.path);
     renderedScreens.push(exported.screens);
   }
-  let stored: Filmed["stored"] = null;
-  if (kept.report !== null) {
-    const read = await createLibrary(home).getJson(takeId, "report.json");
-    stored =
-      "value" in read
-        ? { value: read.value }
-        : {
-            not: `video ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
-          };
-  }
-  return {
-    job: { kept, file, script, ahead },
-    report,
-    rendered,
-    renderedScreens,
-    stored,
-  };
+  const read = await createLibrary(home).getJson(takeId, "report.json");
+  const stored: Filmed["stored"] =
+    "value" in read
+      ? { value: servedRunReport(read.value as RunReport) }
+      : {
+          not: `video ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
+        };
+  if ("not" in stored) deps.log(`refresh: "${kept.name}": ${stored.not}`);
+  return { job, report, takeId, rendered, renderedScreens, stored };
 }
 
-/** Judges the video's one output (`judgedOutput`) against its committed
- *  file. When the picture changed, every output, the report and the kept
- *  file (with the new film's screens) are replaced, each by rename from a
- *  finished file beside it. When it did not, only an output with no
- *  committed file is written. */
-async function replaceOne(
-  { job, report, rendered, renderedScreens, stored }: Filmed,
-  root: string,
-  head: { commit: string | null; tree: string | null },
+/**
+ * Judges the video's one output (`judgedOutput`) against the previous
+ * receipt's film. A changed or uncompared film replaces every output, the
+ * report and then the receipt, each by rename from a finished file beside
+ * it. The same picture writes only an output with no committed file
+ * (`added`), and the receipt, which describes the judged output, stays.
+ * The recipe is never written.
+ */
+async function deliverOne(
+  { job, report, takeId, rendered, renderedScreens, stored }: Filmed,
   deps: RefreshDeps,
 ): Promise<RefreshVideo> {
-  const { kept, file } = job;
+  const { kept, previous, receiptFile, file, from, to } = job;
   const said: string[] = [];
-  const notes: string[] = notesOf(job);
+  const notes: string[] = [...job.notes];
+  const j = judgedOutput(kept.outputs);
+  const judged = kept.outputs[j] as (typeof kept.outputs)[number];
+  const screens = renderedScreens[j] as KeptScreens;
+  // Null when unknown; the receipt gets the reason, a malformed one said.
+  const filmedCode = parseFilmedCode(report.filmedCode);
+  const receiptCode = filmedCodeIn(report);
+  if (
+    report.filmedCode !== undefined &&
+    filmedCode === null &&
+    "none" in receiptCode
+  )
+    notes.push(receiptCode.none);
   const answer = (
     outcome: RefreshVideo["outcome"],
     outputs: string[],
@@ -443,11 +558,27 @@ async function replaceOne(
   ): RefreshVideo => ({
     name: kept.name,
     file,
+    flow: kept.flow,
+    deliver: kept.deliver,
     outcome,
     detail: said.join("; "),
     outputs,
     line,
     notes,
+    video: takeId,
+    filmedCode,
+    sameAs:
+      (outcome === "unchanged" || outcome === "added") && previous !== null
+        ? { video: previous.video }
+        : null,
+    files: outputs.map((path) => {
+      const o = kept.outputs.find((k) => k.path === path);
+      return o === undefined
+        ? { path, fileType: "json" as const, aspect: null }
+        : { path, fileType: o.fileType, aspect: o.aspect };
+    }),
+    screens,
+    report: "value" in stored ? stored.value : null,
   });
   // Nothing is written until the comparison is made: one that cannot be
   // made fails the video with its files as they were.
@@ -456,25 +587,27 @@ async function replaceOne(
     return answer("failed", [], null);
   };
   const exists = (p: string) =>
-    access(join(root, p)).then(
-      () => true,
-      () => false,
-    );
-  const j = judgedOutput(kept.outputs);
-  const judged = kept.outputs[j] as (typeof kept.outputs)[number];
-  let changed = false;
-  if (!(await exists(judged.path))) {
-    changed = true;
-    said.push(`${judged.path} is new`);
+    from === null
+      ? Promise.resolve(false)
+      : access(join(from, p)).then(
+          () => true,
+          () => false,
+        );
+  // null: nothing to compare against, so the film is delivered as new.
+  let same: boolean | null = null;
+  if (previous === null) {
+    // Its note (the receipt is missing) is already in `notes`.
+  } else if (!(await exists(judged.path))) {
+    notes.push(`${judged.path} is missing`);
   } else {
     let cmp: Awaited<ReturnType<typeof samePicture>>;
     try {
-      cmp = await samePicture(
-        join(root, judged.path),
+      cmp = await (deps.samePicture ?? samePicture)(
+        join(from as string, judged.path),
         rendered[j] as string,
         judged.fileType,
-        kept.screens,
-        renderedScreens[j] as KeptScreens,
+        previous.screens,
+        screens,
         { session: deps.session, steps: kept.script.steps, log: deps.log },
       );
     } catch (error) {
@@ -494,28 +627,28 @@ async function replaceOne(
         );
       }
       // The one forgiven: a committed file that is no picture is replaced.
-      changed = true;
       notes.push(
         `${judged.path} was replaced without a comparison: the committed file could not be decoded (${cmp.detail})`,
       );
     } else {
-      changed = !cmp.same;
+      same = cmp.same;
       said.push(`${judged.path}: ${cmp.detail}`);
     }
   }
-  // The outputs to write: all of them on a change; else those not yet there.
+  if (same === null) said.push("nothing to compare against; delivered as new");
+  // The outputs to write: all of them on a new film; else those not there.
   const toWrite: number[] = [];
   for (const [i, o] of kept.outputs.entries()) {
-    if (changed) toWrite.push(i);
+    if (same !== true) toWrite.push(i);
     else if (i !== j && !(await exists(o.path))) {
       toWrite.push(i);
       said.push(`${o.path} is new`);
     }
   }
   if (toWrite.length === 0) return answer("unchanged", [], null);
-  // A kept file with no screen is one every later refresh refuses: fail now,
+  // A receipt with no screen is one every later refresh refuses: fail now,
   // with nothing written, as keep does.
-  if (changed && (renderedScreens[j] as KeptScreens).moments.length === 0) {
+  if (same !== true && screens.moments.length === 0) {
     return fail(
       `${judged.path}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
     );
@@ -523,40 +656,61 @@ async function replaceOne(
 
   const written: string[] = [];
   const put = async (path: string, bytes: Uint8Array | string) => {
-    const from = await place(join(root, path), bytes);
-    deps.log(`refresh: renamed ${relative(root, from)} over ${path}`);
+    const temp = await place(join(to, path), bytes);
+    deps.log(`refresh: renamed ${relative(to, temp)} over ${path}`);
     written.push(path);
   };
   try {
+    // A files delivery cut short must not leave new outputs beside the old
+    // receipt: with it gone first, the next refresh reads "missing".
+    if (same !== true && kept.deliver === "files")
+      await rm(join(to, receiptFile), { force: true });
     for (const i of toWrite) {
       const o = kept.outputs[i] as (typeof kept.outputs)[number];
       await put(o.path, await readFile(rendered[i] as string));
     }
-    if (changed) {
-      if (kept.report !== null && stored !== null) {
+    if (same !== true) {
+      if (kept.report !== null) {
         if ("value" in stored)
-          await put(
-            kept.report,
-            `${JSON.stringify(servedRunReport(stored.value as RunReport), null, 2)}\n`,
-          );
+          await put(kept.report, `${JSON.stringify(stored.value, null, 2)}\n`);
         else notes.push(`${kept.report} was not written: ${stored.not}`);
       }
-      // Last: the kept file says what the committed video now shows.
+      // Last: the receipt says what the committed video now shows.
       await put(
-        file,
-        serializeKept({ ...kept, screens: renderedScreens[j] as KeptScreens }),
+        receiptFile,
+        serializeReceipt({
+          receiptVersion: 1,
+          flow: kept.flow,
+          video: takeId,
+          filmedAt: filmedAtOf({ value: report }),
+          filmedCode: receiptCode,
+          screens,
+          // The take is in a library thrown away after: no library holds
+          // a revision of it to be ahead of.
+          recordedRevision: null,
+        }),
       );
     }
   } catch (error) {
     said.push(
-      `${written.length > 0 ? `wrote ${written.join(", ")}, then ` : ""}could not write into ${root} (${messageOf(error)})`,
+      `${written.length > 0 ? `wrote ${written.join(", ")}, then ` : ""}could not write into ${to} (${messageOf(error)})`,
     );
     return answer("failed", written, null);
   }
-  const { line } = prLine(
-    kept.name,
-    prVerdict(report),
-    codeClause(report.filmedCode, head.commit, head.tree),
+  // The commit the line names is the one the run filmed, never HEAD read
+  // again; a dirty film is not its commit's tree, so it is not called so.
+  const code =
+    filmedCode === null || "none" in filmedCode
+      ? codeClause(filmedCode ?? undefined, null, null)
+      : codeClause(
+          filmedCode,
+          filmedCode.commit,
+          filmedCode.dirty ? null : filmedCode.tree,
+        );
+  const { line } = prLine(kept.name, prVerdict(report), code);
+  return answer(
+    same === null ? "uncompared" : same ? "added" : "changed",
+    written,
+    line,
   );
-  return answer("replaced", written, line);
 }

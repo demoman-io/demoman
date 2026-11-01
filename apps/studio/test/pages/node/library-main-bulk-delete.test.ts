@@ -1,9 +1,10 @@
 // apps/studio/test/pages/node/library-main-bulk-delete.test.ts
 import type { SceneDocument } from "@demoman/scene-schema";
-import type { VideoSummary } from "@demoman/studio-protocol";
+import type { LibraryViewChoice, VideoSummary } from "@demoman/studio-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteFlows } from "../../../pages/src/shell/confirm-dialog";
 import {
+  CARDS,
   createMemoryPlatform,
   type MemoryPlatform,
 } from "../helpers/memory-platform";
@@ -42,7 +43,12 @@ const take = (id: string, name: string): SceneDocument =>
     },
   }) as unknown as SceneDocument;
 
-const video = (id: string, name: string, versions: number): VideoSummary => ({
+const video = (
+  id: string,
+  name: string,
+  versions: number,
+  kept: VideoSummary["kept"] = null,
+): VideoSummary => ({
   id,
   name,
   repo: { unknown: true },
@@ -52,10 +58,18 @@ const video = (id: string, name: string, versions: number): VideoSummary => ({
   pages: [],
   steps: [],
   exports: [],
+  kept,
 });
 
-function seed(): MemoryPlatform {
+const KEPT_FILE = ".demoman/videos/create-invoice.json";
+const KEPT_SAID = `"Create an invoice" stays in the repo (${KEPT_FILE}); only this machine's videos are deleted.`;
+
+function seed(
+  libraryView: LibraryViewChoice = CARDS,
+  invoiceKept: VideoSummary["kept"] = null,
+): MemoryPlatform {
   return createMemoryPlatform({
+    libraryView,
     scenes: [
       take("inv-1", "Create an invoice"),
       take("inv-2", "Create an invoice"),
@@ -63,15 +77,39 @@ function seed(): MemoryPlatform {
       take("sign-1", "Sign up"),
     ],
     videos: [
-      video(INVOICE, "Create an invoice", 2),
+      video(INVOICE, "Create an invoice", 2, invoiceKept),
       video(REPORT, "Export a report", 1),
       video(SIGNUP, "Sign up", 1),
     ],
     videoOf: {
-      "inv-1": { videoId: INVOICE, version: 1, expired: false, exports: [] },
-      "inv-2": { videoId: INVOICE, version: 2, expired: false, exports: [] },
-      "rep-1": { videoId: REPORT, version: 1, expired: false, exports: [] },
-      "sign-1": { videoId: SIGNUP, version: 1, expired: false, exports: [] },
+      "inv-1": {
+        videoId: INVOICE,
+        version: 1,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
+      "inv-2": {
+        videoId: INVOICE,
+        version: 2,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
+      "rep-1": {
+        videoId: REPORT,
+        version: 1,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
+      "sign-1": {
+        videoId: SIGNUP,
+        version: 1,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
     },
   });
 }
@@ -157,6 +195,86 @@ describe("library main — bulk delete", () => {
       "Deleted 2 flows",
     );
     expect(document.querySelector("#notice")?.textContent).toBe("");
+  });
+
+  describe("a kept flow", () => {
+    const KEPT = { root: "/repo", file: KEPT_FILE, deliver: "commit" } as const;
+    beforeEach(() => {
+      memory = seed(CARDS, KEPT);
+      state.memory = memory;
+    });
+
+    it("its delete asks and answers that its recipe stays", async () => {
+      await open();
+      // Premise: the fixture's flow is drawn as kept.
+      expect(
+        document.querySelector(`article[data-video="${INVOICE}"] [data-kept]`),
+      ).not.toBeNull();
+      // Red: drop keptSentence from questionFor, then from the toast.
+      (
+        document.querySelector(
+          `article[data-video="${INVOICE}"] [data-action="delete"]`,
+        ) as HTMLButtonElement
+      ).click();
+      await vi.waitFor(() => {
+        if (box(INVOICE) !== null) throw new Error("not deleted yet");
+      });
+      const asked = confirmDialog.ask.mock.calls[0]?.[0] as { body: string };
+      expect(asked.body).toBe(
+        `This permanently removes the flow and its 2 videos. It can’t be undone. ${KEPT_SAID}`,
+      );
+      // A toast drops its last full stop.
+      expect(document.querySelector("[data-toast-text]")?.textContent).toBe(
+        `Deleted the flow. ${KEPT_SAID.replace(/\.$/, "")}`,
+      );
+    });
+
+    it("one whose recipe will not read says so, asked and done", async () => {
+      const why = ".demoman/videos/create-invoice.json in /gone is gone";
+      memory = seed(CARDS, { unknown: why });
+      state.memory = memory;
+      await open();
+      // Premise: the fixture's flow is drawn as kept, with the reason.
+      expect(
+        document
+          .querySelector(`article[data-video="${INVOICE}"] [data-kept]`)
+          ?.getAttribute("title"),
+      ).toBe(why);
+      // Red: answer null for an unknown recipe in keptSentence.
+      (
+        document.querySelector(
+          `article[data-video="${INVOICE}"] [data-action="delete"]`,
+        ) as HTMLButtonElement
+      ).click();
+      await vi.waitFor(() => {
+        if (box(INVOICE) !== null) throw new Error("not deleted yet");
+      });
+      const said = `"Create an invoice" is in the repo, but its recipe could not be read (${why}); only this machine's videos are deleted.`;
+      const asked = confirmDialog.ask.mock.calls[0]?.[0] as { body: string };
+      expect(asked.body).toBe(
+        `This permanently removes the flow and its 2 videos. It can’t be undone. ${said}`,
+      );
+      expect(document.querySelector("[data-toast-text]")?.textContent).toBe(
+        `Deleted the flow. ${said.replace(/\.$/, "")}`,
+      );
+    });
+
+    it("a bulk delete with it asks and answers the same sentence", async () => {
+      await open();
+      await tick(INVOICE, REPORT);
+      pressDelete();
+      await vi.waitFor(() => {
+        if (!document.querySelector("#notice")?.textContent) {
+          throw new Error("nothing said yet");
+        }
+      });
+      const asked = confirmDialog.ask.mock.calls[0]?.[0] as { body: string };
+      expect(asked.body).toBe(`${deleteFlows(2, 3).body} ${KEPT_SAID}`);
+      // A note stays on the notice line rather than a toast that goes.
+      expect(document.querySelector("#notice")?.textContent).toBe(
+        `Deleted 2 flows. ${KEPT_SAID}`,
+      );
+    });
   });
 
   it("a note on what a delete left behind stays on the notice line, not a toast", async () => {
@@ -387,6 +505,16 @@ describe("library main — bulk delete", () => {
         (b) => b.disabled,
       ),
     ).toEqual([true, true, true]);
+    // A flow's own Delete (the list's Cmd+Backspace takes the same road)
+    // asks nothing while the run goes: one question, the run's.
+    expect(confirmDialog.ask).toHaveBeenCalledTimes(1);
+    (
+      document.querySelector(
+        `article[data-video="${INVOICE}"] [data-action="delete"]`,
+      ) as HTMLButtonElement
+    ).click();
+    // `remove` asks before its first await: a call would be seen here.
+    expect(confirmDialog.ask).toHaveBeenCalledTimes(1);
     release();
     await vi.waitFor(() => {
       if (bar() !== null) throw new Error("bar still up");
@@ -406,5 +534,53 @@ describe("library main — bulk delete", () => {
       if (bar() !== null) throw new Error("bar still up");
     });
     expect(box(SIGNUP)?.checked).toBe(false);
+  });
+
+  /**
+   * Shift+↓ in the list from a flow with nothing ticked ticks that flow
+   * and the next, as Finder does: the row the move started from is the
+   * anchor when there is none. Red if list.ts's keys stop sending that row
+   * (`from`) or main.ts stops passing it to `clickSelect` — either way
+   * only the next flow is ticked.
+   */
+  it("Shift+↓ in the list with nothing ticked ticks the flow it starts from and the next", async () => {
+    state.memory = seed({
+      layout: "list",
+      sort: { column: "name", descending: false },
+    });
+    // jsdom has no layout, and no scroll into view for the keys to call.
+    Element.prototype.scrollIntoView ??= () => undefined;
+    await open();
+    const rows = [
+      ...document.querySelectorAll<HTMLElement>(
+        "[role=treegrid] [role=row][data-flow]:not([hidden])",
+      ),
+    ];
+    // Premise: the list is drawn, and nothing is ticked.
+    expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual([
+      "Create an invoice",
+      "Export a report",
+      "Sign up",
+    ]);
+    expect(bar()).toBeNull();
+    const [first] = rows as [HTMLElement];
+    first.focus();
+    first.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        shiftKey: true,
+        bubbles: true,
+      }),
+    );
+    await vi.waitFor(() => {
+      if (bar() === null) throw new Error("nothing ticked yet");
+    });
+    expect(
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[role=treegrid] [role=row][aria-selected="true"]',
+        ),
+      ].map((r) => r.getAttribute("aria-label")),
+    ).toEqual(["Create an invoice", "Export a report"]);
   });
 });

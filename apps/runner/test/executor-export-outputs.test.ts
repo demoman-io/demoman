@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -188,6 +195,8 @@ describe("export lists what it saved, and holds a lease while it works", () => {
       "loadedPlaywrightVersion",
       "usePrebuiltPages",
       "PAGE_ENTRIES",
+      "keptOf",
+      "renameKept",
     ];
     const { stdout } = await run(
       process.execPath,
@@ -228,5 +237,87 @@ describe("export tagging", () => {
       expect(answer.summary).toContain("the file has no room for a tag");
     },
     EXPORT_MS,
+  );
+
+  /** Exports a gif of the take with `report.json` set to `text`; the tag
+   *  the export tried to write, and the answer. */
+  const tagWith = async (text: string, log: string[] = []) => {
+    await putTake(home, take.takeId, take.original, take.bundle);
+    await writeFile(join(home, "takes", take.takeId, "report.json"), text);
+    const tags: unknown[] = [];
+    const deps = {
+      ...depsFor(log),
+      videos: {
+        videoOf: async () => ({ videoId: "flow-1" }) as never,
+        get: async () => null,
+      },
+      tagBytes: (_t: unknown, bytes: Uint8Array, tag: unknown) => {
+        tags.push(tag);
+        return { ok: true as const, bytes };
+      },
+    };
+    return { tags, answer: await exportOnce({ fileType: "gif" }, deps) };
+  };
+
+  it(
+    "tags the flow, the video and the report's filmed commit",
+    async () => {
+      const sha = "a".repeat(40);
+      const { tags, answer } = await tagWith(
+        JSON.stringify({ filmedCode: { commit: sha, tree: "b", dirty: true } }),
+      );
+      expect(answer.outcome).toBe("saved");
+      expect(tags).toEqual([
+        { flow: "flow-1", video: take.takeId, commit: sha, dirty: true },
+      ]);
+    },
+    EXPORT_MS,
+  );
+
+  it(
+    "tags without a commit, and says why, when report.json will not read",
+    async () => {
+      const { tags, answer } = await tagWith("{ not json");
+      if (answer.outcome !== "saved")
+        throw new Error(`not saved: ${JSON.stringify(answer)}`);
+      expect(tags).toEqual([
+        { flow: "flow-1", video: take.takeId, commit: null, dirty: null },
+      ]);
+      expect(answer.warnings.taggedWithoutCommit?.error).toContain(
+        "report.json",
+      );
+      expect(answer.warnings.untagged, "the file was tagged").toBeUndefined();
+    },
+    EXPORT_MS,
+  );
+
+  it(
+    "tags without a commit and logs nothing when filmedCode is none; a malformed one is logged",
+    async () => {
+      const log: string[] = [];
+      const { tags, answer } = await tagWith(
+        JSON.stringify({ filmedCode: { none: "not a checkout" } }),
+        log,
+      );
+      expect(answer.outcome).toBe("saved");
+      expect(tags).toEqual([
+        { flow: "flow-1", video: take.takeId, commit: null, dirty: null },
+      ]);
+      // Filmed outside a checkout is a known, normal state, as the studio has it.
+      expect(log.join("\n")).not.toContain("filmedCode");
+      // Positive control: the same export with a filmedCode of no known shape.
+      const odd: string[] = [];
+      await tagWith(JSON.stringify({ filmedCode: { x: 1 } }), odd);
+      expect(odd.join("\n")).toContain(take.takeId);
+      expect(odd.join("\n")).toContain("no usable filmedCode");
+      // A report from before runs noted their commit has no key: tagged, said nowhere.
+      const old: string[] = [];
+      const before = await tagWith(JSON.stringify({ outcome: "clean" }), old);
+      expect(before.tags).toEqual([
+        { flow: "flow-1", video: take.takeId, commit: null, dirty: null },
+      ]);
+      expect(old.join("\n")).not.toContain("filmedCode");
+    },
+    3 * EXPORT_MS,
   );
 });

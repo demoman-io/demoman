@@ -3,6 +3,16 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
+<Update label="Unreleased" description="Flows in the repo, receipts and the files route">
+  - `demoman keep` is now `demoman add`, and repo flows live in `.demoman/flows/`; `keep` and `.demoman/videos/` still work. `demoman remove <flow>` takes a flow out of the repo and leaves its exports.
+  - A flow in the repo is two files: its recipe in `.demoman/flows/<name>.json` and a receipt in `.demoman/receipts/<name>.json` that refresh writes. Refresh never rewrites the recipe.
+  - A repo flow's id is in its recipe, so every machine that clones the repo shares one flow. `npx demoman join-flow <from> <into>` moves a flow's videos into the repo flow that has its name.
+  - A run into a repo flow refuses with `repoFlowNameTaken` when your library holds a different flow with that name, `duplicateFlow` when two recipes name one flow, and `repoFlowUnreadable` when a recipe will not read.
+  - `refresh` prints `changed`, `added`, `uncompared`, `unchanged` or `failed` for each flow. `--out-dir` and `--previous` write the videos and a `demoman-refresh.json` list to a folder.
+  - `add --deliver files` commits no video: refresh writes it to `--out-dir` for your own upload. `setup --ci --artifact` uploads that folder as a workflow artifact.
+  - The Studio marks a flow in the repo In repo.
+</Update>
+
 <Update label="0.8.1" description="Wallpapers, and videos that stay current">
   - Fourteen built-in wallpapers for the background, in the Studio's Background panel and on the Brand kit page, and as `{ "kind": "wallpaper", "id" }` in a script's look. The muted ones come first, and new takes and kits start on `muted-1`, a dark one. Upload your own image instead, and blur either with the slider.
   - `npx demoman keep <video> --to <path>` writes the video's re-film file to `.demoman/videos/` and exports it into your repo. Commit both. It refuses, writing nothing, a video with Studio edits a re-film cannot carry.

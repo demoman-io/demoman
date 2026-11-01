@@ -13,7 +13,7 @@ import type { Page } from "playwright";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PlainTake } from "./painted-take.js";
 import { api, type Studio, sizeWindow, startStudio } from "./studio-harness.js";
-import { seedHome } from "./studio-pages.js";
+import { GRID_VIEW, seedHome, storeLibraryView } from "./studio-pages.js";
 
 const LANE_MS = 120_000;
 /** The shots lane's folder (studio-shots.test.ts), where the author looks. */
@@ -88,12 +88,19 @@ describe("ticking flows at the foot of the library", () => {
       const context = studio.context();
       const page = context.pages()[0] as Page;
       await sizeWindow(context, page, 1280, 720);
+      // These ticks are the cards'.
+      await storeLibraryView(studio, GRID_VIEW);
       await page.goto(`${studio.origin}/`);
       await page.waitForFunction(
         (n) => document.querySelectorAll("[data-select]").length >= n,
         OLD.length,
         { timeout: 10_000 },
       );
+      // The premise: the cards are drawn, not the list.
+      expect(await page.locator("[role=treegrid]").count()).toBe(0);
+      expect(
+        await page.locator("article.card[data-row]").count(),
+      ).toBeGreaterThan(0);
       // The old month starts folded; the author opened it to reach them.
       await page.evaluate(() => {
         for (const d of document.querySelectorAll("details.section")) {

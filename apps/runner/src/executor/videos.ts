@@ -28,6 +28,9 @@ export interface VideoRecord {
   repo: VideoRepo;
   startPage: string;
   createdAt: string;
+  /** The checkout and repo-relative kept file that commit this flow's id;
+   *  written once by `keep` or `adopt`. */
+  kept?: { root: string; file: string };
 }
 
 export interface Made {
@@ -64,6 +67,7 @@ export class VideoError extends Error {
 }
 
 type Taken = { ok: false; reason: "nameTaken"; holder: VideoRecord };
+type Kept = { root: string; file: string };
 
 /** `exclusive`'s answer: `fn`'s value, or the lock another process holds. */
 export type Exclusive<T> = { ok: true; value: T } | { ok: false; held: string };
@@ -74,6 +78,34 @@ export interface VideoStore {
     repo: VideoRepo;
     startPage: string;
   }): Promise<{ ok: true; video: VideoRecord } | Taken>;
+  /** Under the lock: the record whose id is `id` (a kept file's committed
+   *  id), made if absent. Refuses, writing nothing, when another flow holds
+   *  the name in a shared repo. Throws `videoUnwritable` on a non-flow id.
+   *  `except`: a flow left out of that check (join-flow's, about to go). */
+  adopt(a: {
+    id: string;
+    name: string;
+    repo: VideoRepo;
+    startPage: string;
+    kept: Kept;
+    except?: string;
+  }): Promise<
+    | { ok: true; video: VideoRecord; created: boolean }
+    | { ok: false; reason: "repoFlowNameTaken"; holder: VideoRecord }
+  >;
+  setKept(
+    id: string,
+    kept: Kept | null,
+  ): Promise<{ ok: true } | { ok: false; reason: "videoNotFound" }>;
+  /** Under the lock: re-points every take of `fromId` to `intoId`, then
+   *  removes `fromId`'s record. Names the flow that is missing. */
+  merge(
+    fromId: string,
+    intoId: string,
+  ): Promise<
+    | { ok: true; moved: number }
+    | { ok: false; reason: "videoNotFound" | "sameFlow"; id: string }
+  >;
   get(id: string): Promise<VideoRecord | null>;
   list(): Promise<Array<VideoRecord | { id: string; unreadable: string }>>;
   rename(
@@ -523,8 +555,83 @@ export function createVideoStore(
     }
   };
 
+  const adoptUnlocked: VideoStore["adopt"] = async (a) => {
+    if (!isFlowId(a.id)) {
+      throw new VideoError(
+        "videoUnwritable",
+        `"${a.id}" is not a flow id, so no flow was adopted`,
+      );
+    }
+    const existing = await get(a.id);
+    if (existing) {
+      const holder = await holderOf(a.name, existing.repo, a.id);
+      if (holder) return { ok: false, reason: "repoFlowNameTaken", holder };
+      const video = { ...existing, name: a.name, kept: a.kept };
+      await write(recordPath(a.id), video);
+      return { ok: true, video, created: false };
+    }
+    const holder = await holderOf(a.name, a.repo, a.except);
+    if (holder) return { ok: false, reason: "repoFlowNameTaken", holder };
+    const video: VideoRecord = {
+      id: a.id,
+      name: a.name,
+      repo: a.repo,
+      startPage: a.startPage,
+      createdAt: new Date().toISOString(),
+      kept: a.kept,
+    };
+    await write(recordPath(a.id), video);
+    return { ok: true, video, created: true };
+  };
+  const setKeptUnlocked: VideoStore["setKept"] = async (id, kept) => {
+    const rec = await get(id);
+    if (!rec) return { ok: false, reason: "videoNotFound" };
+    const { kept: _old, ...rest } = rec;
+    await write(recordPath(id), kept ? { ...rest, kept } : rest);
+    return { ok: true };
+  };
+  const mergeUnlocked: VideoStore["merge"] = async (fromId, intoId) => {
+    if (fromId === intoId) return { ok: false, reason: "sameFlow", id: fromId };
+    for (const id of [fromId, intoId]) {
+      if (!(await get(id))) return { ok: false, reason: "videoNotFound", id };
+    }
+    let entries: Dirent[] = [];
+    try {
+      entries = await readdir(join(home, "takes"), { withFileTypes: true });
+    } catch (error) {
+      if (!isMissing(error)) {
+        throw new VideoError(
+          "videoUnreadable",
+          `could not list ${join(home, "takes")} (${messageOf(error)})`,
+        );
+      }
+    }
+    let moved = 0;
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    try {
+      for (const entry of entries) {
+        if (!entry.isDirectory() || !library.isTakeId(entry.name)) continue;
+        const member = await readJson<TakeVideo>(memberPath(entry.name));
+        if (member?.videoId !== fromId) continue;
+        await joinUnlocked(entry.name, { ...member, videoId: intoId });
+        moved++;
+      }
+    } catch (error) {
+      // The source record stays; say how far the merge got.
+      throw new VideoError(
+        error instanceof VideoError ? error.reason : "videoUnwritable",
+        `merge of ${fromId} into ${intoId} stopped after moving ${moved} video${moved === 1 ? "" : "s"} into ${intoId}; ${fromId} still exists: ${messageOf(error)}`,
+      );
+    }
+    await rm(recordPath(fromId), { force: true });
+    return { ok: true, moved };
+  };
+
   const store: VideoStore = {
     create: (a) => waitLocked(() => createUnlocked(a)),
+    adopt: (a) => waitLocked(() => adoptUnlocked(a)),
+    setKept: (id, kept) => waitLocked(() => setKeptUnlocked(id, kept)),
+    merge: (f, i) => waitLocked(() => mergeUnlocked(f, i)),
     get,
     list,
     rename: (id, name) => waitLocked(() => renameUnlocked(id, name)),
@@ -572,6 +679,9 @@ export function createVideoStore(
           fn({
             ...store,
             create: createUnlocked,
+            adopt: adoptUnlocked,
+            setKept: setKeptUnlocked,
+            merge: mergeUnlocked,
             rename: renameUnlocked,
             join: joinUnlocked,
           }),

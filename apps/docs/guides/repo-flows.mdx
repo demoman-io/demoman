@@ -1,0 +1,175 @@
+---
+title: "Flows in the repo"
+description: "Add a flow to the repo, and CI records it again on every merge, committing only when the picture changed."
+---
+
+A demo video goes stale when the app changes. Add its flow to the repo, and
+CI records it again after each merge and delivers what changed.
+
+## Add a flow
+
+In the repo, with a flow your agent recorded:
+
+```bash
+npx demoman add "Add a task" --to docs/add-task.mp4
+```
+
+This writes `.demoman/flows/<name>.json`, the flow's recipe: everything a new video needs,
+exports its current video to each `--to` path, and writes what those files
+show to `.demoman/receipts/<name>.json`, which a refresh compares against.
+Commit all three. `--gif` adds a GIF.
+A repo whose flows an older Demoman kept in the old folder is still read, and
+each recipe moves to `.demoman/flows/` the next time it is added.
+
+The flow's id is in the file, so every machine that clones the repo shares it.
+If your own library already holds a different flow with that name, a run
+into the repo's flow refuses with `repoFlowNameTaken` and names
+`demoman join-flow <from> <into>`, which moves that flow's videos into the
+repo's one. Two recipes naming one flow refuse with `duplicateFlow`; a recipe
+that will not read refuses with `repoFlowUnreadable`.
+
+Add refuses, writing nothing, a flow whose current video has Studio
+edits a new video does not carry (a mask, a trim, a cut, a split, a hold, a
+gap, a placed zoom), typed text the video never read, or a site you
+signed in to by hand with `signin` rather than as a demo account. The
+refusal names which. Record it again without them.
+
+When your agent later runs a script into a flow in the repo, its recipe
+follows the script.
+
+## Refresh
+
+```bash
+npx demoman refresh
+```
+
+Records every flow in the repo again, with no agent. It prints a line per flow:
+
+| Line | Meaning |
+| --- | --- |
+| `<name>: changed: <what changed>` | The picture changed: how much, and when in the video. The files are overwritten |
+| `<name>: added: <which file>` | It looks the same, and an output that was not there yet is written |
+| `<name>: uncompared: nothing to compare against; delivered as new` | No earlier video to compare with (no receipt, or no committed file). The files are written |
+| `<name>: unchanged: <how much changed>` | It looks the same. The files are left as they are |
+| `<name>: failed: <why>` | The run was not clean. The committed files stay, and the command exits 1 |
+
+Refresh compares the screen before each step, and the final screen when the
+video rests at the end, in the video it judges: the first MP4 that is not
+9:16, else the first file that is not 9:16, else the first MP4. Where the receipt
+recorded a still screen, the new video is read at the same step. If the
+picture changed, every file of the video is replaced, with its receipt in
+`.demoman/receipts/`; the recipe itself is never rewritten. Videos are
+not compared byte for byte, so an unchanged app makes no commit. On a
+compared screen, a change as small as one digit of body text is seen, and so is a colour change alone: grey text a few
+shades lighter, a button turned another colour of the same lightness. Five
+gaps are accepted:
+
+- A change seen only in motion or mid-scroll, or something that appears and
+  goes within one step, is not seen. It is seen once it shows on a screen
+  that is compared.
+- A change too small to tell from the video's own compression is not seen:
+  a single character in very light text, or a slight shade change over a
+  small area, such as a thin border or a small icon.
+- An animation always in view, such as a spinner, a clock or a carousel, can
+  read as changed on some refreshes: it shows a different frame on a compared
+  screen ([#10](https://github.com/demoman-io/demoman/issues/10)).
+- A slower app that tips the camera to pull back, where it held before (or
+  the reverse), reads as changed. The camera decides from the gap between two
+  clicks, and a gap near that line can fall either side of it.
+- A flow added on macOS is recorded again on Linux by the first refresh in CI.
+  Linux's fonts differ, so that refresh replaces it once. After that, refresh
+  in CI only: a refresh on a Mac and one in CI replace each other's files.
+
+A flow with no recorded screens is not refreshed. Its line says to run
+`demoman add` for it again.
+
+## Commit no video
+
+```bash
+npx demoman add "Add a task" --to add-task.mp4 --deliver files
+npx demoman refresh --out-dir demoman-out
+```
+
+With `--deliver files`, add writes only the recipe in `.demoman/flows/`, and a
+`--to` path is a plain file name. Refresh writes the video and its receipt (neither for a video that came back
+`unchanged`) and `demoman-refresh.json`, which lists what each flow made, into
+`--out-dir`;
+nothing is committed. Upload the folder with your own step, such as
+`aws s3 sync demoman-out s3://bucket/`, or
+`aws s3 sync demoman-out s3://bucket/ --endpoint-url $R2_ENDPOINT` for R2.
+To compare with what was delivered before, give `--previous` a copy of
+everything earlier runs delivered, kept whole, such as your bucket synced back
+down: an `unchanged` or `added` run writes no receipt into `--out-dir`, so one
+earlier run's folder alone is not enough. `--previous` may be the `--out-dir`
+itself: refresh compares in place and replaces only what changed, so the
+folder stays whole for the next run. With none, every video reads
+`uncompared`. A `files` flow refreshed without
+`--out-dir` fails, and the others still refresh.
+
+## Run it on every merge
+
+```bash
+npx demoman setup --ci
+```
+
+Writes `.github/workflows/demoman.yml` at the repo root. Asked, or given as
+flags:
+
+- `--trigger push` runs on each push to the default branch. Fill in the
+  workflow's "Start your app" step: refresh records the app at its address.
+  `--trigger <environment>` runs after each successful deployment to that
+  environment, and records the deployed app.
+- `--route pr` opens a pull request with the changed files. `--route main`
+  commits them to the branch.
+
+`--artifact` downloads the `demoman-videos` artifact of this workflow's
+newest run on its own trigger and branch in this repository (never a fork's
+or another workflow's; for a deployment trigger, only a commit deployed to
+that environment) into `demoman-out`, refreshes with `--out-dir demoman-out --previous demoman-out`,
+and uploads that folder as the next `demoman-videos` artifact, so each one
+holds every files flow's video and receipt. The first run, or one whose
+earlier artifact has expired, finds none and says so in the log; its videos
+read `uncompared`.
+
+A deployment trigger cannot use `--route main`: the deployed commit is not a
+branch. Setup refuses the pair and names `pr`.
+
+The workflow checks out the full history (`fetch-depth: 0`) with any Git
+LFS files (`lfs: true`, so a video in LFS is compared, not a pointer), installs
+Chromium and fonts on Ubuntu, runs `demoman refresh --deliver`, and takes
+one run at a time (`concurrency: demoman-refresh`). Add a
+`DEMOMAN_SECRET_<NAME>` and its `_ORIGIN` for each demo account the repo's
+flows sign in with.
+
+### The pull request route
+
+Turn on **Allow GitHub Actions to create and approve pull requests** under
+Settings → Actions → General. While it is off, refresh pushes the branch,
+opens no pull request, says so, and exits 1.
+
+Refresh force-pushes `demoman/refresh` and opens one pull request titled
+"Refresh demo videos", or updates the open one. The description lists each
+updated video and its files, and any flow that failed. A workflow token
+cannot attach a video, so open the files under "Files changed" to play
+them. Commits that were on `demoman/refresh` before the run are replaced,
+and the description says so.
+
+### The main route
+
+One "Refresh demo videos" commit on the checked-out branch, pushed. Nothing
+is reviewed first.
+
+### No loop
+
+The bot's commit carries `[skip demoman]`, the refresh pull request's
+merge commit names `demoman/refresh`, and its squash merge is titled
+"Refresh demo videos (#N)". The workflow reads the triggering commit's
+message and does nothing when it finds any of them. A rebase merge keeps
+the bot's commit message. If you rename the pull request before squashing
+it, one more refresh runs; it replaces only a video whose picture changed.
+
+When no video changed, nothing is committed. On the pull request
+route, when every flow in the repo was recorded and came back unchanged, an open
+refresh pull request is then closed with a comment: its videos are out of
+date. When a video failed, or only named videos were refreshed, the pull
+request stays open.

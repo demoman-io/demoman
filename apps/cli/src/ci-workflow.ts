@@ -12,6 +12,8 @@ export interface CiOptions {
   route: "pr" | "main";
   /** The branch a push trigger watches; `main` when not given. */
   branch?: string;
+  /** Write the files flows to demoman-out and upload it as an artifact. */
+  artifact?: boolean;
 }
 
 export const CI_WORKFLOW_PATH = ".github/workflows/demoman.yml";
@@ -27,7 +29,7 @@ export const expr = (e: string): string => `\${{ ${e} }}`;
 export const GUARD_SCRIPT = `msg=$(git log -1 --format=%B "$SHA")
 if printf '%s' "$msg" | grep -qE '\\[skip demoman\\]|/demoman/refresh|^${COMMIT_SUBJECT} \\(#[0-9]+\\)$'; then
   echo "skip=true" >> "$GITHUB_OUTPUT"
-  echo "Skipping: this commit is Demoman's own refresh, and filming it again would loop."
+  echo "Skipping: this commit is Demoman's own refresh, and refreshing on it would loop."
 fi`;
 
 export function ciWorkflow(o: CiOptions): string {
@@ -79,12 +81,74 @@ export function ciWorkflow(o: CiOptions): string {
   const baseUrl =
     deployment === null
       ? ""
-      : ` --base-url "\${DEMOMAN_BASE_URL:?the deployment named no environment_url, so there is no deployed app to film}"`;
+      : ` --base-url "\${DEMOMAN_BASE_URL:?the deployment named no environment_url, so there is no deployed app to record}"`;
   const baseUrlEnv =
     deployment === null
       ? ""
       : `\n          DEMOMAN_BASE_URL: ${expr("github.event.deployment_status.environment_url")}`;
   const run = expr("steps.guard.outputs.skip != 'true'");
+  // The artifact is cumulative: the last one is downloaded into demoman-out
+  // and refresh compares against it in place, so an unchanged flow's receipt
+  // and video stay for the next run. A missing folder is refresh's "nothing
+  // to compare against", said in its note.
+  const outDir =
+    o.artifact === true ? " --out-dir demoman-out --previous demoman-out" : "";
+  // This workflow's own runs on its own trigger, in this repository: a
+  // fork's pull request or another workflow can upload an artifact of the
+  // same name, which must never stand in for what was delivered.
+  const fetch =
+    o.artifact === true
+      ? `      - name: Fetch the last run's videos
+        if: ${run}
+        env:
+          GH_TOKEN: ${expr("github.token")}
+          EVENT: ${deployment === null ? "push" : "deployment_status"}
+          BRANCH: "${deployment === null ? branch : ""}"
+          ENVIRONMENT: "${deployment ?? ""}"
+        run: |
+          wf=\${GITHUB_WORKFLOW_REF%%@*}
+          export WF=\${wf#"$GITHUB_REPOSITORY"/}
+          # Only this workflow's own runs on its own event (and branch), from this
+          # repository, newest first: never a fork's or another workflow's artifact.
+          id=""
+          said=""
+          if ! runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/\${WF##*/}/runs?event=$EVENT&status=completed&per_page=50\${BRANCH:+&branch=$BRANCH}" --jq '[.workflow_runs[] | select(((.path // "") | startswith($ENV.WF)) and .event == $ENV.EVENT and (($ENV.BRANCH // "") == "" or .head_branch == $ENV.BRANCH) and .head_repository.id == .repository.id)] | sort_by(.created_at) | reverse | .[] | "\\(.id) \\(.head_sha)"'); then
+            said="::warning::This workflow's earlier runs could not be listed"
+          else
+            while read -r r sha <&3; do
+              [ -n "$r" ] || continue
+              if [ -n "$ENVIRONMENT" ]; then
+                # A fork's preview deployment runs this workflow too: only a
+                # commit deployed to this environment counts.
+                if ! d=$(gh api -X GET "repos/$GITHUB_REPOSITORY/deployments" -f sha="$sha" -f environment="$ENVIRONMENT" --jq length); then
+                  said="::warning::The deployments of run $r's commit could not be listed"
+                  break
+                fi
+                [ "$d" -gt 0 ] || continue
+              else
+                # A tag named like the branch matches it too: the commit must be on it.
+                git merge-base --is-ancestor "$sha" HEAD 2>/dev/null || continue
+              fi
+              if ! n=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$r/artifacts?name=demoman-videos" --jq '[.artifacts[] | select(.name == "demoman-videos" and .expired == false)] | length'); then
+                said="::warning::Run $r's artifacts could not be listed"
+                break
+              fi
+              if [ "$n" -gt 0 ]; then
+                id=$r
+                break
+              fi
+            done 3<<< "$runs"
+          fi
+          if [ -n "$said" ]; then
+            echo "$said, so every files flow is compared with nothing."
+          elif [ -z "$id" ]; then
+            echo "None of this workflow's newest 50 runs here has a demoman-videos artifact, so every files flow is compared with nothing."
+          elif ! gh run download "$id" --repo "$GITHUB_REPOSITORY" --name demoman-videos --dir demoman-out; then
+            rm -rf demoman-out
+            echo "::warning::Run $id's demoman-videos artifact could not be downloaded, so every files flow is compared with nothing."
+          fi
+`
+      : "";
   const script = GUARD_SCRIPT.split("\n")
     .map((l) => `          ${l}`)
     .join("\n");
@@ -93,7 +157,7 @@ on:
 ${on}
 permissions:
   contents: write
-  pull-requests: write
+  pull-requests: write${o.artifact === true ? "\n  actions: read" : ""}
 concurrency:
   group: demoman-refresh
   cancel-in-progress: false
@@ -128,9 +192,9 @@ ${script}
       - name: Install fonts
         if: ${run}
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
-${start}      - name: Refresh the kept videos
+${start}${fetch}      - name: Refresh the repo's flows
         if: ${run}
-        run: ${npx} refresh --deliver ${o.route}${baseUrl}
+        run: ${npx} refresh --deliver ${o.route}${baseUrl}${outDir}
         env:
           GH_TOKEN: ${expr("github.token")}${baseUrlEnv}
           # One pair per demo account: NAME is what a kept script's { secret: NAME }
@@ -138,7 +202,16 @@ ${start}      - name: Refresh the kept videos
           # run refuses the secret).
           # DEMOMAN_SECRET_SELLER: ${expr("secrets.DEMOMAN_SECRET_SELLER")}
           # DEMOMAN_SECRET_SELLER_ORIGIN: https://app.example.com
-`;
+${
+  o.artifact === true
+    ? `      - uses: actions/upload-artifact@v4
+        if: ${expr("always() && steps.guard.outputs.skip != 'true'")}
+        with:
+          name: demoman-videos
+          path: demoman-out
+`
+    : ""
+}`;
 }
 
 export const DEPLOYMENT_MAIN =
@@ -154,7 +227,7 @@ export function ciNotes(o: CiOptions): string[] {
       : []),
     ...(o.trigger === "push"
       ? [
-          `Fill in the "Start your app" step in ${CI_WORKFLOW_PATH}: refresh films the app at its base URL, so it must be running.`,
+          `Fill in the "Start your app" step in ${CI_WORKFLOW_PATH}: refresh records the app at its base URL, so it must be running.`,
         ]
       : []),
     "Add each demo account's DEMOMAN_SECRET_<NAME> to the repository secrets and to the workflow's env, with DEMOMAN_SECRET_<NAME>_ORIGIN naming the one site it may be typed on; the run refuses a secret without it.",
@@ -178,13 +251,18 @@ export interface CiIo {
   say(line: string): void;
 }
 
-/** `setup --ci [--trigger push|<environment>] [--route pr|main]`: returns the exit code. */
+/** `setup --ci [--trigger push|<environment>] [--route pr|main] [--artifact]`: returns the exit code. */
 export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   const stop = (why: string): number => {
     io.say(`Demoman setup stopped: ${why}`);
     return 1;
   };
-  let values: { ci?: boolean; trigger?: string; route?: string };
+  let values: {
+    ci?: boolean;
+    trigger?: string;
+    route?: string;
+    artifact?: boolean;
+  };
   try {
     ({ values } = parseArgs({
       args,
@@ -192,6 +270,7 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
         ci: { type: "boolean" },
         trigger: { type: "string" },
         route: { type: "string" },
+        artifact: { type: "boolean" },
       },
       strict: true,
       allowPositionals: false,
@@ -245,6 +324,7 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
     trigger: trigger === "push" ? "push" : { deployment: trigger },
     route,
     branch,
+    ...(values.artifact === true ? { artifact: true } : {}),
   };
   let text: string;
   try {

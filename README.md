@@ -62,9 +62,14 @@ installs them; run it, then setup again. Demoman is in public beta.
 - **Ready for delivery.** An MP4, a GIF, or a still of every step, 16:9 or
   9:16 from one take. Your agent can attach the video to a pull request.
 - **[Kept current](https://demoman.io/docs/guides/keep-videos-current).**
-  `npx demoman keep` saves a video's script in the repo, and a GitHub
+  `npx demoman keep` saves a flow's script in the repo, and a GitHub
   Actions workflow from `npx demoman setup --ci` films it again on each
-  merge, committing it only when the picture changed.
+  merge, committing it only when the picture changed. To commit nothing, keep a
+  flow with `--deliver files` and refresh with `--out-dir`: it writes the
+  videos and a `demoman-refresh.json` list for your own step to upload, such
+  as `aws s3 sync demoman-out s3://bucket/` or
+  `aws s3 sync demoman-out s3://bucket/ --endpoint-url $R2_ENDPOINT` for R2.
+  `setup --ci --artifact` uploads the folder as a workflow artifact.
 - **Runs locally.** Capture, editing and export happen on your machine, and
   Demoman sends nothing to us. Your agent passes what Demoman reports to the
   AI service it runs on.

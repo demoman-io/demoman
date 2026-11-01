@@ -26,7 +26,7 @@ terminal (a script, CI) nothing is asked.
 ### setup --ci
 
 ```bash
-npx demoman setup --ci [--trigger push|<environment>] [--route pr|main]
+npx demoman setup --ci [--trigger push|<environment>] [--route pr|main] [--artifact]
 ```
 
 Writes `.github/workflows/demoman.yml`, which runs `demoman refresh --deliver`
@@ -34,7 +34,7 @@ on each merge to main (`push`) or after each successful deployment to the named
 environment. `--route pr` opens a pull request with the changed files, and
 needs "Allow GitHub Actions to create and approve pull requests" on in the
 repository's Actions settings; `--route main` commits them. A trigger or route
-not given is asked. For `push`, fill in the workflow's "Start your app" step.
+not given is asked. `--artifact` downloads the `demoman-videos` artifact of this workflow's newest run on its own trigger and branch (never a fork's or another workflow's) into `demoman-out`, refreshes with `--out-dir demoman-out --previous demoman-out`, and uploads that folder as the next `demoman-videos` artifact. For `push`, fill in the workflow's "Start your app" step.
 
 ## signin
 
@@ -68,19 +68,22 @@ npx demoman studio --stop
 Opens the Studio, on a video when you name one, or closes it with `--stop`.
 See [Overview](/studio/overview).
 
-## keep
+## add
 
 ```bash
-npx demoman keep <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
+npx demoman add <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full] [--deliver commit|files]
 ```
 
-Keeps a flow current. Run it in the repo, naming one of its flows by id or
-exact name. It writes `.demoman/videos/<name>.json`, everything a re-film
-needs, and exports its current video to each path. Commit both. A logo from outside
-the repo is copied to `.demoman/videos/logos/`.
+Adds a flow to the repo, so a refresh records it again. Run it in the repo,
+naming one of its flows by id or exact name. It writes
+`.demoman/flows/<name>.json`, the flow's recipe: everything a new video
+needs, exports its current video to each path, and writes what those files
+show to `.demoman/receipts/<name>.json`, which a refresh compares against.
+Commit all three. A logo from outside
+the repo is copied to `.demoman/flows/logos/`.
 
 It refuses, writing nothing, a flow whose current video has Studio edits
-a re-film does not carry (a mask, a trim, a cut, a split, a hold, a gap, a
+a new video does not carry (a mask, a trim, a cut, a split, a hold, a gap, a
 placed zoom), typed text the video never read, or a site signed in to by
 hand with `signin` rather than as a demo account.
 
@@ -90,26 +93,53 @@ hand with `signin` rather than as a demo account.
 | `--gif <path>[:<aspect>]` | A GIF to write, repeatable |
 | `--report <path>` | Where to write the run report |
 | `--quality <quality>` | The MP4s' quality: `share` (the default, small to commit), `high` or `full` |
+| `--deliver commit\|files` | `commit` (the default) commits the exports. `files` commits no video, only the recipe (and a logo or wallpaper); each path is a plain file name, written under refresh's `--out-dir` |
+
+## remove
+
+```bash
+npx demoman remove <flow>
+```
+
+Removes a flow from the repo, named by id or exact name: its recipe in
+`.demoman/flows/` and its receipt are deleted, and its exports stay where
+they are, named in what it prints. Commit the change. It exits 1, removing
+nothing, for a flow the repo does not have or one two recipes name, and says
+which file is left if its receipt cannot be removed.
 
 ## refresh
 
 ```bash
-npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main]
+npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main] [--out-dir <folder>] [--previous <folder>]
 ```
 
-Films every flow kept in `.demoman/videos/` again, or only those named, with
+Records every flow in `.demoman/flows/` again, or only those named, with
 no agent. Each output whose picture changed is replaced; one that looks the
 same is left as it is, so an unchanged app makes no commit. A video whose run
 was not clean (a step stopped or did not match, a frame was lost, the logo
 could not be drawn) keeps its committed files and prints why, and the command
-exits 1. It films into a library it then deletes, so a refresh adds nothing
-to your own; on your machine it reads yours to say when it has edits a kept
-file lacks.
+exits 1. It records into a library it then deletes, so a refresh adds nothing
+to your own; on your machine it reads yours to say when it has edits the recipe
+lacks.
 
 | Flag | |
 | --- | --- |
-| `--base-url <origin>` | Film the app at this origin instead of the one each video was recorded at, such as a preview deployment |
-| `--deliver pr\|main` | After refreshing, commit only the replaced files: `main` pushes one `Refresh demo videos` commit to the checked-out branch; `pr` force-pushes it to `demoman/refresh` and opens or updates one pull request (the workflow's `GITHUB_TOKEN` needs "Allow GitHub Actions to create and approve pull requests"). Exits 1 if delivery fails |
+| `--base-url <origin>` | Record the app at this origin instead of the one each video was recorded at, such as a preview deployment |
+| `--deliver pr\|main` | After refreshing, commit only the files that changed: `main` pushes one `Refresh demo videos` commit to the checked-out branch; `pr` force-pushes it to `demoman/refresh` and opens or updates one pull request (the workflow's `GITHUB_TOKEN` needs "Allow GitHub Actions to create and approve pull requests"). Exits 1 if delivery fails |
+| `--out-dir <folder>` | Write the flows added with `--deliver files` into this folder, with their receipts and `demoman-refresh.json`, which lists what each flow made. Nothing is committed. A `files` flow fails without it, and the others still refresh |
+| `--previous <folder>` | A copy of everything earlier `--out-dir` runs delivered, kept whole (such as your bucket synced back down): a `files` flow is compared with the receipt and video there, and is `unchanged` when the picture matches. One earlier run's folder alone is not enough, since an `unchanged` or `added` run writes no receipt into `--out-dir`; the `--out-dir` itself is, since refresh then replaces only what changed |
+
+## join-flow
+
+```bash
+npx demoman join-flow <from> <into>
+```
+
+Moves every video of this library's flow `<from>` into the flow `<into>` and
+removes `<from>`. A run that finds a repo flow's name already held by another
+flow in your library refuses and prints this command with both ids. It exits 1
+if either flow is missing, if the two are one flow, or if it stops partway
+(the message says how many videos moved and that `<from>` remains).
 
 ## mcp
 

@@ -1,12 +1,17 @@
 import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { DEFAULT_EXPORT_QUALITY } from "@demoman/run-core";
+import {
+  DEFAULT_EXPORT_QUALITY,
+  type FilmedCode,
+  parseFilmedCode,
+} from "@demoman/run-core";
 import {
   createVideoStore,
   ensureVideos,
   expireOld,
   expiryStatus,
+  keptOf,
   type Library,
   LibraryError,
   pidAlive,
@@ -14,6 +19,7 @@ import {
   readLogo,
   readUserSettings,
   readWallpaper,
+  renameKept,
   summarise,
   VideoError,
   type VideoSummary,
@@ -25,6 +31,8 @@ import {
   type ExportQualityAnswer,
   type ExportQualityChoice,
   FILE_NAME_HEADER,
+  isLibraryViewChoice,
+  type LibraryViewAnswer,
   type OutputsAnswer,
   type PingAnswer,
   type PullRequestsAnswer,
@@ -42,7 +50,7 @@ import type { EventHub } from "./events.js";
 import { createChains, isMissing, messageOf, readIfPresent } from "./files.js";
 import { createKitsFile } from "./kits.js";
 import type { Handler, StudioHandlers, StudioResponse } from "./server.js";
-import { writeSetting } from "./settings.js";
+import { readLibraryView, writeSetting } from "./settings.js";
 import { folderBytes } from "./sizes.js";
 import type { createThumbs } from "./thumbs.js";
 import type { HomeFeeds } from "./watch.js";
@@ -208,6 +216,36 @@ export function createRoutes(o: {
     }
   }
 
+  /** The code a version filmed, from its report. A missing report is null
+   *  quietly (old takes have none); one that will not read, or has no usable
+   *  filmedCode, is null and said. */
+  async function filmedCodeOf(takeId: string): Promise<FilmedCode | null> {
+    const report = await library
+      .getJson(takeId, "report.json")
+      .catch((e: unknown) => ({ unreadable: messageOf(e) }));
+    if ("missing" in report) return null;
+    if ("unreadable" in report) {
+      log(`studio: take ${takeId}'s report.json: ${report.unreadable}`);
+      return null;
+    }
+    const value = report.value as { filmedCode?: unknown } | null;
+    // No key: a take recorded before filmedCode, not a fault.
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      !("filmedCode" in value)
+    )
+      return null;
+    const code = value?.filmedCode;
+    const parsed = parseFilmedCode(code);
+    if (parsed !== null) return parsed;
+    log(
+      `studio: video ${takeId}'s report.json has no usable filmedCode (${JSON.stringify(code ?? null)})`,
+    );
+    return null;
+  }
+
   /** Every video and which take is which version of which; a video that
    *  will not read is a row saying so, never a missing card. */
   async function videoListing(
@@ -243,6 +281,7 @@ export function createRoutes(o: {
             version: version.number,
             expired: version.expired !== null,
             exports: await exportsOf(version.takeId),
+            filmedCode: await filmedCodeOf(version.takeId),
           };
         }
         listed.push(summary);
@@ -526,9 +565,45 @@ export function createRoutes(o: {
           "The flow was not renamed: a flow needs a name.",
         );
       }
-      const done = await onVideoChain(() => videos.rename(id, name.trim()));
+      // A kept flow's name is its recipe's too: both are renamed, or
+      // neither, and never the record alone (renameKept).
+      const done = await onVideoChain(async () => {
+        const rec = await videos.get(id);
+        if (rec?.kept === undefined) return videos.rename(id, name.trim());
+        const kept = await keptOf(rec);
+        if (kept === null) {
+          // Its checkout is gone or keeps it no more (keptOf decides): the
+          // flow is this library's alone, so its stale mark goes with it.
+          const renamed = await videos.rename(id, name.trim());
+          if (!renamed.ok) return renamed;
+          const cleared = await videos.setKept(id, null);
+          if (cleared.ok)
+            log(
+              `studio: flow ${id}'s recipe is no longer in ${rec.kept.root}; its mark was cleared`,
+            );
+          return cleared;
+        }
+        if ("unknown" in kept) {
+          return {
+            ok: false as const,
+            reason: "repoCheckoutMissing" as const,
+            detail: `${kept.unknown}, so the flow keeps its name.`,
+          };
+        }
+        return renameKept(
+          { root: kept.root, file: kept.file, name: name.trim() },
+          { videos },
+        );
+      });
       if (done.ok) return json(200, {});
       if (done.reason === "videoNotFound") return noVideo(id);
+      if ("detail" in done) {
+        return refuse(
+          done.reason === "repoFlowUnwritable" ? 500 : 409,
+          done.reason,
+          done.detail.replace(/[^.]$/, "$&."),
+        );
+      }
       return refuse(
         409,
         "nameTaken",
@@ -868,6 +943,48 @@ export function createRoutes(o: {
       }
       const answer: ExportQualityAnswer = {
         exportQuality: quality as ExportQualityChoice,
+        ...refused,
+      };
+      return json(200, answer);
+    },
+
+    async libraryViewGet() {
+      const answer: LibraryViewAnswer = await readLibraryView(home);
+      if (answer.unreadable !== undefined) {
+        log(`studio: Library view is the default: ${answer.unreadable}`);
+      }
+      return json(200, answer);
+    },
+
+    async libraryViewPut(req) {
+      const body = await bodyJson(req);
+      if (!body.ok) {
+        return refuse(
+          400,
+          "libraryViewInvalid",
+          `The Library view setting was not saved: ${body.error}.`,
+        );
+      }
+      const sent = (body.value as { view?: unknown } | null)?.view;
+      // The three fields only: a choice that carries more is stored without it.
+      const view = isLibraryViewChoice(sent)
+        ? {
+            layout: sent.layout,
+            sort: {
+              column: sent.sort.column,
+              descending: sent.sort.descending,
+            },
+          }
+        : sent;
+      const refused = await writeSetting(home, "libraryView", view);
+      if ("reason" in refused) {
+        return json(
+          refused.reason === "libraryViewInvalid" ? 400 : 500,
+          refused,
+        );
+      }
+      const answer: LibraryViewAnswer = {
+        view: view as LibraryViewAnswer["view"],
         ...refused,
       };
       return json(200, answer);

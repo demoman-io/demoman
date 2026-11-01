@@ -232,6 +232,9 @@ export interface ExportWarnings {
    *  (or the take's video could not be read): why. Absent: it is tagged, or
    *  the take belongs to no video. */
   untagged?: { error: string };
+  /** The file IS tagged with its flow and video, but not with the commit it
+   *  filmed, as the take's report.json would not say: why. */
+  taggedWithoutCommit?: { error: string };
 }
 
 /**
@@ -430,6 +433,8 @@ export function reportForSave(args: {
   screens: Screens;
   /** See `warnings.untagged`. */
   untagged?: { error: string };
+  /** See `warnings.taggedWithoutCommit`. */
+  taggedWithoutCommit?: { error: string };
 }): ExportReport {
   const { takeId, file, saved } = args;
   switch (saved.kind) {
@@ -506,6 +511,7 @@ function warningsOf(
     videoSize?: VideoSize;
     stillsCapped?: { askedWidth: number };
     untagged?: { error: string };
+    taggedWithoutCommit?: { error: string };
   },
 ): ExportWarnings {
   return {
@@ -536,6 +542,9 @@ function warningsOf(
       ? {}
       : { stillsCapped: args.stillsCapped }),
     ...(args.untagged === undefined ? {} : { untagged: args.untagged }),
+    ...(args.taggedWithoutCommit === undefined
+      ? {}
+      : { taggedWithoutCommit: args.taggedWithoutCommit }),
   };
 }
 
@@ -576,6 +585,8 @@ export function reportForStillsSave(args: {
   stillsCapped?: { askedWidth: number };
   /** See `warnings.untagged`. */
   untagged?: { error: string };
+  /** See `warnings.taggedWithoutCommit`. */
+  taggedWithoutCommit?: { error: string };
 }): ExportReport {
   const { takeId, saved } = args;
   if (saved.kind === "failed") {
@@ -838,7 +849,8 @@ export function exportVerdict(report: ExportReport): string {
           ? `Exporting — render ${report.pass.render} of up to ${report.pass.upTo} to fit the size asked for: frame ${report.done} of ${report.total}${report.width === undefined ? "" : `, ${report.width} px wide`}.`
           : `Exporting — rendering frame ${report.done} of ${report.total}${report.width === undefined ? "" : `, ${report.width} px wide`}.`;
     case "saved": {
-      const { videoSize, notListed, untagged } = report.warnings;
+      const { videoSize, notListed, untagged, taggedWithoutCommit } =
+        report.warnings;
       const but = exportCaveats(report);
       const capClause =
         report.fileType === "stills" ? null : videoCapClause(videoSize, report);
@@ -855,9 +867,13 @@ export function exportVerdict(report: ExportReport): string {
         notListed === undefined
           ? said
           : `${said} It was saved, but not listed in the video's exports: ${notListed.error}.`;
-      return untagged === undefined
-        ? listing
-        : `${listing} It was saved, but not tagged with its video: ${sentence(untagged.error)}`;
+      const tagged =
+        untagged === undefined
+          ? listing
+          : `${listing} It was saved, but not tagged with its video: ${sentence(untagged.error)}`;
+      return taggedWithoutCommit === undefined
+        ? tagged
+        : `${tagged} It was tagged with its video, but not with the commit it was recorded at: ${sentence(taggedWithoutCommit.error)}`;
     }
     case "renderFailed":
       return `The render failed, so no file was made: ${sentence(report.error)}`;

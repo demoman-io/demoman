@@ -379,7 +379,7 @@ export function ciPrompts(): NonNullable<CiIo["ask"]> {
   return {
     trigger: async () => {
       const how = await select({
-        message: "When should Demoman refresh the kept videos?",
+        message: "When should Demoman refresh the repo's flows?",
         options: [
           { value: "push", label: "On each merge to main" },
           { value: "deployment", label: "After a successful deployment" },

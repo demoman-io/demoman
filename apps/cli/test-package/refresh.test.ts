@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { createLibrary } from "../../runner/src/executor/library.js";
 import { sampleMp4 } from "../../runner/test/mp4-probe.js";
@@ -133,11 +133,11 @@ async function film(name: string, on: string): Promise<void> {
 }
 
 it(
-  "keeps a video and refreshes it from the packed install: unchanged, replaced, failed",
+  "keeps a video and refreshes it from the packed install: unchanged, changed, failed",
   async () => {
     await film(NAME, "Place order");
 
-    const k = await cli("keep", NAME, "--to", MP4);
+    const k = await cli("add", NAME, "--to", MP4);
     expect(k.code, said(k)).toBe(0);
     const original = await kept();
 
@@ -148,7 +148,7 @@ it(
     expect(same.stdout, said(same)).toContain(`${NAME}: unchanged`);
     expect((await kept()).equals(original), said(same)).toBe(true);
 
-    // Replaced: the heading differs (premise), and the new file shows it.
+    // Changed: the heading differs (premise), and the new file shows it.
     html = ORIGINAL.replace(HEADING, NEW_HEADING);
     expect(ORIGINAL.split(HEADING).length, "the fixture has one heading").toBe(
       2,
@@ -158,14 +158,14 @@ it(
     const before = await magentaMost(original);
     expect(before, "the old film has no magenta heading").toBeLessThan(20);
     const changed = await cli("refresh");
-    console.info(`[refresh] replaced: ${changed.stdout.trim()}`);
+    console.info(`[refresh] changed: ${changed.stdout.trim()}`);
     expect(changed.code, said(changed)).toBe(0);
-    expect(changed.stdout, said(changed)).toContain(`${NAME}: replaced`);
-    const replaced = await kept();
-    expect(replaced.equals(original), said(changed)).toBe(false);
+    expect(changed.stdout, said(changed)).toContain(`${NAME}: changed`);
+    const changedFilm = await kept();
+    expect(changedFilm.equals(original), said(changed)).toBe(false);
     expect(
-      await magentaMost(replaced),
-      "the replaced film does not show the new heading",
+      await magentaMost(changedFilm),
+      "the changed film does not show the new heading",
     ).toBeGreaterThan(100);
 
     // Failed: a target the script clicks is gone; the file stays byte for byte.
@@ -177,7 +177,7 @@ it(
     console.info(`[refresh] failed: ${broken.stdout.trim()}`);
     expect(broken.code, said(broken)).toBe(1);
     expect(broken.stdout, said(broken)).toContain(`${NAME}: failed`);
-    expect((await kept()).equals(replaced), said(broken)).toBe(true);
+    expect((await kept()).equals(changedFilm), said(broken)).toBe(true);
   },
   STEP_MS * 5,
 );
@@ -200,13 +200,20 @@ it(
     expect(k.stdout, said(k)).not.toContain("is a guess");
 
     // Keep kept the scale the run recorded.
-    const keptPath = /^Kept "[^"]*" in (\S+)$/m.exec(k.stdout)?.[1];
+    const keptPath = /^Added "[^"]*" to the repo: (\S+)$/m.exec(k.stdout)?.[1];
     expect(keptPath, said(k)).toBeDefined();
     const keptFile = JSON.parse(
       await readFile(join(repo, keptPath as string), "utf8"),
-    ) as { scale: number; from: { takeId: string } };
+    ) as { scale: number };
+    // The take keep read is in the receipt beside the recipe (v2 has no `from`).
+    const receipt = JSON.parse(
+      await readFile(
+        join(repo, ".demoman/receipts", basename(keptPath as string)),
+        "utf8",
+      ),
+    ) as { video: string };
     const library = createLibrary(home);
-    const takeId = keptFile.from.takeId;
+    const takeId = receipt.video;
     const scene = await library.getScene(takeId);
     const spans = (await library.frameStore(takeId).getBundle(takeId))
       ?.motionSpans;

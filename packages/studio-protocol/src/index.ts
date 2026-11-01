@@ -6,6 +6,8 @@ import type {
   ExportAnswer,
   ExportQuality,
   FileType,
+  FilmedCode,
+  KeptDeliver,
   OutputListing,
   PullRequestsValue,
 } from "@demoman/run-core";
@@ -41,6 +43,8 @@ export const ROUTES = {
   pullRequestsPut: { method: "PUT", path: "/api/settings/pull-requests" },
   exportQualityGet: { method: "GET", path: "/api/settings/export-quality" },
   exportQualityPut: { method: "PUT", path: "/api/settings/export-quality" },
+  libraryViewGet: { method: "GET", path: "/api/settings/library-view" },
+  libraryViewPut: { method: "PUT", path: "/api/settings/library-view" },
   reveal: { method: "POST", path: "/api/reveal" },
   window: { method: "POST", path: "/api/window" },
   events: { method: "GET", path: "/api/events" },
@@ -130,6 +134,12 @@ export type StudioReason =
   | "videoNotFound"
   /** A rename's body named no name, or a blank one. */
   | "videoNameInvalid"
+  /** A kept flow's recipe cannot be read where its record says, so it is
+   *  not renamed: the recipe would keep the old name. */
+  | "repoCheckoutMissing"
+  /** A kept flow's rename could not write its checkout or its record;
+   *  `detail` says what was done before it stopped. */
+  | "repoFlowUnwritable"
   /** The video records would not read or write (the runner's VideoError). */
   | "videoUnreadable"
   | "videoUnwritable"
@@ -142,6 +152,7 @@ export type StudioReason =
   | "revealRefused"
   | "pullRequestsInvalid"
   | "exportQualityInvalid"
+  | "libraryViewInvalid"
   | "invalidFileType"
   | "routeNotFound"
   | "studioDidNotStart"
@@ -217,6 +228,14 @@ export interface VideoSummary {
     | { takeId: string; path: string; fileType: FileType; exists: boolean }
     | { takeId: string; unreadable: string }
   >;
+  /** The recipe that keeps this flow; `unknown` says why a kept record's
+   *  file cannot be used. */
+  kept:
+    | { file: string; root: string; deliver: KeptDeliver }
+    | null
+    | {
+        unknown: string;
+      };
 }
 export interface VersionExport {
   path: string;
@@ -238,6 +257,9 @@ export interface TakesAnswer {
       /** The files exported from this version, or why they could not be
        *  read. A file that was moved or deleted is `exists: false`. */
       exports: VersionExport[] | { unreadable: string };
+      /** The code this version's run filmed, from its report.json; null
+       *  when the report is missing or will not read (the log says why). */
+      filmedCode: FilmedCode | null;
     }
   >;
   scenes: SceneDocument[];
@@ -334,6 +356,57 @@ export interface PullRequestsAnswer {
 export type ExportQualityChoice = ExportQuality;
 export interface ExportQualityAnswer {
   exportQuality: ExportQualityChoice;
+  unreadable?: string;
+  /** On a PUT: the file was not a JSON object and was replaced; says so. */
+  replaced?: string;
+}
+
+export type LibraryLayout = "list" | "grid";
+/** Length is deliberately not a sort column (spec 2026-10-31 §3). */
+export type LibrarySortColumn =
+  | "name"
+  | "where"
+  | "videos"
+  | "recorded"
+  | "size";
+/** The Library's layout and sort, kept in `<home>/settings.json`. */
+export interface LibraryViewChoice {
+  layout: LibraryLayout;
+  sort: { column: LibrarySortColumn; descending: boolean };
+}
+/** Decided here once; the studio serves it when nothing is stored. Frozen:
+ *  every reader is handed this one object. */
+export const DEFAULT_LIBRARY_VIEW: LibraryViewChoice = Object.freeze({
+  layout: "list",
+  sort: Object.freeze({ column: "recorded", descending: true }),
+});
+const LAYOUTS: readonly string[] = ["list", "grid"];
+const SORT_COLUMNS: readonly string[] = [
+  "name",
+  "where",
+  "videos",
+  "recorded",
+  "size",
+];
+export function isLibraryViewChoice(v: unknown): v is LibraryViewChoice {
+  if (typeof v !== "object" || v === null) return false;
+  const { layout, sort } = v as { layout?: unknown; sort?: unknown };
+  if (typeof layout !== "string" || !LAYOUTS.includes(layout)) return false;
+  if (typeof sort !== "object" || sort === null) return false;
+  const { column, descending } = sort as {
+    column?: unknown;
+    descending?: unknown;
+  };
+  return (
+    typeof column === "string" &&
+    SORT_COLUMNS.includes(column) &&
+    typeof descending === "boolean"
+  );
+}
+/** `unreadable` says why the stored value could not be used; `view` is then
+ *  the default. */
+export interface LibraryViewAnswer {
+  view: LibraryViewChoice;
   unreadable?: string;
   /** On a PUT: the file was not a JSON object and was replaced; says so. */
   replaced?: string;

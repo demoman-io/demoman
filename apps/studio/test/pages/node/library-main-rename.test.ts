@@ -1,6 +1,7 @@
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CARDS,
   createMemoryPlatform,
   type MemoryPlatform,
 } from "../helpers/memory-platform";
@@ -86,7 +87,7 @@ describe("library main — a rename on the card reaches the store, or says why n
   beforeEach(() => {
     vi.resetModules();
     mountLibraryDom();
-    memory = createMemoryPlatform({ scenes: [take()] });
+    memory = createMemoryPlatform({ scenes: [take()], libraryView: CARDS });
     state.memory = memory;
   });
 

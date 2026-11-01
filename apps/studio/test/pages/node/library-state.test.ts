@@ -400,6 +400,37 @@ describe("sectionsOf", () => {
   it("returns nothing for nothing", () => {
     expect(sectionsOf([], now)).toEqual([]);
   });
+
+  it("heads flows in the repo In repo, above Today, one whose recipe will not read too", () => {
+    const today = at(2026, 9, 14, 8);
+    const kept = {
+      ...row("kept", today),
+      kept: {
+        root: "/repo",
+        file: ".demoman/videos/a.json",
+        deliver: "commit",
+      },
+    } satisfies LibraryRow;
+    const lost = {
+      ...row("lost", at(2026, 9, 13)),
+      kept: { unknown: ".demoman/videos/b.json in /gone is gone" },
+    } satisfies LibraryRow;
+    const plain = { ...row("plain", at(2026, 9, 14, 9)), kept: null };
+    // Red: drop the kept branch in sectionsOf — "kept" lands under Today
+    // and "lost" under Yesterday. A newer plain row arrives first, so Kept
+    // leads only because it is put first.
+    const sections = sectionsOf([plain, kept, lost], now);
+    expect(
+      sections.map((s) => [s.key, s.label, s.rows.map((r) => r.sceneId)]),
+    ).toEqual([
+      ["kept", "In repo", ["kept", "lost"]],
+      ["today", "Today", ["plain"]],
+    ]);
+    // Premise: "kept" was made today, so without its recipe it is Today's.
+    expect(sectionsOf([{ ...kept, kept: null }], now)[0]?.key).toBe("today");
+    // Kept names no day: its rows say their dates.
+    expect(sections[0]).toMatchObject({ namesDay: false, folded: false });
+  });
 });
 
 // `storage:reclaim` answers with `freedBytes` and `pressureRemains`, and
@@ -564,6 +595,7 @@ describe("videoGroupsOf, through buildLibraryModel", () => {
     pages: [],
     steps: [],
     exports: [],
+    kept: null,
   });
   const model = () =>
     buildLibraryModel({
@@ -581,10 +613,34 @@ describe("videoGroupsOf, through buildLibraryModel", () => {
       // a3 is the newest and failed: the newest complete is a2.
       videos: [summary("A", 3, "a2"), summary("B", 1, null)],
       videoOf: {
-        a1: { videoId: "A", version: 1, expired: true, exports: [] },
-        a2: { videoId: "A", version: 2, expired: false, exports: [] },
-        a3: { videoId: "A", version: 3, expired: false, exports: [] },
-        b1: { videoId: "B", version: 1, expired: false, exports: [] },
+        a1: {
+          videoId: "A",
+          version: 1,
+          expired: true,
+          exports: [],
+          filmedCode: null,
+        },
+        a2: {
+          videoId: "A",
+          version: 2,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
+        a3: {
+          videoId: "A",
+          version: 3,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
+        b1: {
+          videoId: "B",
+          version: 1,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
       },
     });
 

@@ -1,7 +1,22 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Outcome } from "@demoman/agent-bridge";
+import {
+  FLOWS_DIR,
+  LEGACY_FLOWS_DIR as KEPT_DIR,
+  type KeptVideo,
+  keptFileName,
+  serializeKept,
+} from "@demoman/run-core";
 import {
   CURRENT_SCHEMA_VERSION,
   type SceneDocument,
@@ -10,7 +25,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { tagBytes } from "../src/executor/export-tag.js";
 import { createLibrary } from "../src/executor/library.js";
 import { createVideoStore, type VideoRepo } from "../src/executor/videos.js";
-import { type VideoSummary, videosOp } from "../src/executor/videos-op.js";
+import {
+  summarise,
+  type VideoSummary,
+  videosOp,
+} from "../src/executor/videos-op.js";
 import { readOnlySceneJson } from "./fixtures/scene.js";
 
 let home: string;
@@ -61,6 +80,13 @@ async function video(name: string, at: string, repo: VideoRepo, id = name) {
   return r.video;
 }
 
+const tag = (flow: string, video: string, commit: string | null = null) => ({
+  flow,
+  video,
+  commit,
+  dirty: commit === null ? null : false,
+});
+
 const ask = async (args: { file?: unknown; query?: unknown } = {}) => {
   const lib = createLibrary(home);
   // `home` is no git checkout, so "this repo" is { none }.
@@ -109,7 +135,7 @@ describe("videosOp", () => {
       unknown: true,
     });
     await video("Beta", "2026-10-02T00:00:00.000Z", { unknown: true });
-    const tagged = tagBytes("png", png, { video: a.id, take: "take-Alpha" });
+    const tagged = tagBytes("png", png, tag(a.id, "take-Alpha"));
     if (!tagged.ok) throw new Error(tagged.error);
     const file = join(home, "alpha.png");
     await writeFile(file, tagged.bytes);
@@ -126,7 +152,7 @@ describe("videosOp", () => {
   });
 
   it("answers unknownVideo, naming the id, for another machine's video", async () => {
-    const tagged = tagBytes("png", png, { video: "other-machine", take: "t" });
+    const tagged = tagBytes("png", png, tag("other-machine", "t"));
     if (!tagged.ok) throw new Error(tagged.error);
     const file = join(home, "theirs.png");
     await writeFile(file, tagged.bytes);
@@ -265,7 +291,7 @@ describe("videosOp", () => {
     const a = await video("Alpha", "2026-10-01T00:00:00.000Z", {
       unknown: true,
     });
-    const tagged = tagBytes("png", png, { video: a.id, take: "take-Alpha" });
+    const tagged = tagBytes("png", png, tag(a.id, "take-Alpha"));
     if (!tagged.ok) throw new Error(tagged.error);
     const file = join(home, "alpha.png");
     await writeFile(file, tagged.bytes);
@@ -280,7 +306,7 @@ describe("videosOp", () => {
         },
       },
     });
-    const gone = tagBytes("png", png, { video: a.id, take: "take-deleted" });
+    const gone = tagBytes("png", png, tag(a.id, "take-deleted"));
     if (!gone.ok) throw new Error(gone.error);
     await writeFile(file, gone.bytes);
     expect((await ask({ file })) as unknown).toMatchObject({
@@ -385,5 +411,232 @@ describe("videosOp", () => {
     expect(got.unreadable).toEqual([]);
     expect(got.deferred).toContain(lock);
     expect(got.videos.map((v) => v.name)).toEqual(["Alpha"]);
+  });
+
+  const keptFixture = (flow: string, name: string): KeptVideo => ({
+    keptVersion: 2,
+    flow,
+    deliver: "commit",
+    name,
+    script: {
+      scriptVersion: 1,
+      name,
+      target: "http://localhost:1/app",
+      viewport: { width: 1280, height: 800 },
+      steps: [{ do: "waitForLoad" }],
+    } as KeptVideo["script"],
+    scale: 1,
+    logo: null,
+    wallpaper: null,
+    outputs: [
+      {
+        path: "docs/o.mp4",
+        fileType: "mp4",
+        aspect: "16:9",
+        quality: "share",
+      },
+    ],
+    report: null,
+  });
+
+  it("a file from a kept flow not in this library opens the kept flow", async () => {
+    const FLOW = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
+    const NAME = "Place an order";
+    await mkdir(join(home, KEPT_DIR), { recursive: true });
+    await writeFile(
+      join(home, KEPT_DIR, `${keptFileName(NAME)}`),
+      serializeKept(keptFixture(FLOW, NAME)),
+    );
+    const tagged = tagBytes("png", png, tag(FLOW, "take-elsewhere"));
+    if (!tagged.ok) throw new Error(tagged.error);
+    const file = join(home, "theirs.png");
+    await writeFile(file, tagged.bytes);
+    // Premise: this library has no such flow before the ask.
+    expect(
+      await createVideoStore(home, createLibrary(home)).get(FLOW),
+    ).toBeNull();
+    const got = value(await ask({ file })) as unknown as {
+      videos: { id: string; name: string }[];
+    };
+    expect(got.videos.map((v) => [v.id, v.name])).toEqual([[FLOW, NAME]]);
+  });
+
+  it("a project folder below the repo's root reads the repo's kept folder", async () => {
+    const FLOW = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a92";
+    const NAME = "Place an order";
+    const repo = join(home, "repo");
+    const project = join(repo, "app");
+    await mkdir(join(repo, KEPT_DIR), { recursive: true });
+    await mkdir(project);
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    await writeFile(
+      join(repo, KEPT_DIR, keptFileName(NAME)),
+      serializeKept(keptFixture(FLOW, NAME)),
+    );
+    const tagged = tagBytes("png", png, tag(FLOW, "take-elsewhere"));
+    if (!tagged.ok) throw new Error(tagged.error);
+    const file = join(home, "theirs.png");
+    await writeFile(file, tagged.bytes);
+    const lib = createLibrary(home);
+    const store = createVideoStore(home, lib);
+    const got = value(
+      await videosOp({ store, library: lib, dir: project }, { file }),
+    ) as unknown as { videos: { id: string; name: string }[] };
+    expect(got.videos.map((v) => [v.id, v.name])).toEqual([[FLOW, NAME]]);
+    expect((await store.get(FLOW))?.kept).toEqual({
+      root: await realpath(repo),
+      file: `${KEPT_DIR}/${keptFileName(NAME)}`,
+    });
+  });
+
+  it("a video this library lacks says the commit it was recorded at", async () => {
+    const a = await video("Alpha", "2026-10-01T00:00:00.000Z", {
+      unknown: true,
+    });
+    const sha = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
+    const tagged = tagBytes("png", png, tag(a.id, "take-on-ci", sha));
+    if (!tagged.ok) throw new Error(tagged.error);
+    const file = join(home, "ci.png");
+    await writeFile(file, tagged.bytes);
+    const got = (await ask({ file })) as {
+      ok: true;
+      value: { file: { notInVideo: string } };
+    };
+    expect(got.value.file.notInVideo).toContain("recorded at commit a1b2c3d");
+    expect(got.value.file.notInVideo).not.toContain(sha);
+  });
+
+  describe("a kept flow in the summary", () => {
+    const FLOW = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a91";
+    const NAME = "Place an order";
+    const file = `${KEPT_DIR}/${keptFileName(NAME)}`;
+    const recipe = (flow: string): KeptVideo => ({
+      keptVersion: 2,
+      flow,
+      deliver: "files",
+      name: NAME,
+      script: {
+        scriptVersion: 1,
+        name: NAME,
+        target: "http://localhost:1/app",
+        viewport: { width: 1280, height: 800 },
+        steps: [{ do: "waitForLoad" }],
+      } as KeptVideo["script"],
+      scale: 1,
+      logo: null,
+      wallpaper: null,
+      outputs: [
+        { path: "o.mp4", fileType: "mp4", aspect: "16:9", quality: "share" },
+      ],
+      report: null,
+    });
+    const summaryOf = async () => {
+      const lib = createLibrary(home);
+      const store = createVideoStore(home, lib);
+      const adopted = await store.adopt({
+        id: FLOW,
+        name: NAME,
+        repo: { none: "test" },
+        startPage: "http://localhost:1/app",
+        kept: { root: home, file },
+      });
+      if (!adopted.ok) throw new Error("fixture not adopted");
+      return summarise(store, lib, adopted.video);
+    };
+
+    it("a kept flow's summary names its file", async () => {
+      await mkdir(join(home, KEPT_DIR), { recursive: true });
+      await writeFile(join(home, file), serializeKept(recipe(FLOW)));
+      expect((await summaryOf()).kept).toEqual({
+        file,
+        root: home,
+        deliver: "files",
+      });
+    });
+
+    it("a recipe removed from the checkout, with none keeping the flow, reads null", async () => {
+      await mkdir(join(home, KEPT_DIR), { recursive: true });
+      // Premise: the checkout is there, and its marked file is not.
+      await expect(readdir(join(home, KEPT_DIR))).resolves.toEqual([]);
+      expect((await summaryOf()).kept).toBeNull();
+    });
+
+    it("a checkout that is gone reads null: the flow is filed by date", async () => {
+      const checkout = await mkdtemp(join(tmpdir(), "demoman-gone-"));
+      const lib = createLibrary(home);
+      const store = createVideoStore(home, lib);
+      const adopted = await store.adopt({
+        id: FLOW,
+        name: NAME,
+        repo: { none: "test" },
+        startPage: "http://localhost:1/app",
+        kept: { root: checkout, file },
+      });
+      if (!adopted.ok) throw new Error("fixture not adopted");
+      await mkdir(join(checkout, KEPT_DIR), { recursive: true });
+      await writeFile(join(checkout, file), serializeKept(recipe(FLOW)));
+      // Premise: kept while the checkout is there.
+      expect((await summarise(store, lib, adopted.video)).kept).toEqual({
+        file,
+        root: checkout,
+        deliver: "files",
+      });
+      await rm(checkout, { recursive: true, force: true });
+      expect((await summarise(store, lib, adopted.video)).kept).toBeNull();
+    });
+
+    it("a recipe moved to another file in the checkout is found there", async () => {
+      await mkdir(join(home, FLOWS_DIR), { recursive: true });
+      const moved = `${FLOWS_DIR}/moved.json`;
+      await writeFile(join(home, moved), serializeKept(recipe(FLOW)));
+      expect((await summaryOf()).kept).toEqual({
+        file: moved,
+        root: home,
+        deliver: "files",
+      });
+    });
+
+    it("a kept file that keeps another flow, with none keeping this one, reads null", async () => {
+      await mkdir(join(home, KEPT_DIR), { recursive: true });
+      await writeFile(
+        join(home, file),
+        serializeKept(recipe("11111111-7d3a-4f0e-9a41-2c8d5e6f7a91")),
+      );
+      expect((await summaryOf()).kept).toBeNull();
+    });
+
+    it("a garbled kept file reads unknown, as will not read", async () => {
+      await mkdir(join(home, KEPT_DIR), { recursive: true });
+      await writeFile(join(home, file), "{not json");
+      expect((await summaryOf()).kept).toEqual({
+        unknown: expect.stringContaining("will not read"),
+      });
+    });
+
+    it("two recipes naming the flow read unknown, naming both", async () => {
+      await mkdir(join(home, FLOWS_DIR), { recursive: true });
+      await writeFile(
+        join(home, `${FLOWS_DIR}/a.json`),
+        serializeKept(recipe(FLOW)),
+      );
+      await writeFile(
+        join(home, `${FLOWS_DIR}/b.json`),
+        serializeKept(recipe(FLOW)),
+      );
+      const got = (await summaryOf()).kept as { unknown: string };
+      expect(got.unknown).toContain(
+        `${FLOWS_DIR}/a.json and ${FLOWS_DIR}/b.json`,
+      );
+    });
+
+    it("a video that was never kept has kept null", async () => {
+      const v = await video("Plain", "2026-01-01T00:00:00.000Z", {
+        none: "t",
+      });
+      const lib = createLibrary(home);
+      expect(
+        (await summarise(createVideoStore(home, lib), lib, v)).kept,
+      ).toBeNull();
+    });
   });
 });

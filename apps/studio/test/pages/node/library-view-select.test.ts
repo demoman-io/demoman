@@ -49,6 +49,7 @@ const flow = (id: string, row: LibraryRow): VideoGroup => ({
     pages: [],
     steps: [],
     exports: [],
+    kept: null,
   } as VideoSummary,
   current: row,
   versions: [{ ...row, version: 1 }],
@@ -98,6 +99,7 @@ const draw = (
 const picked = (...ids: string[]): Selection => ({
   ids: new Set(ids),
   anchor: ids.at(-1) ?? null,
+  range: [],
 });
 
 describe("bulk selection in the library view", () => {
@@ -150,7 +152,7 @@ describe("bulk selection in the library view", () => {
     (
       root.querySelector('[data-row="b"] [data-select]') as HTMLInputElement
     ).click();
-    expect(acts.select).toHaveBeenCalledWith("f2", false, ["f1", "f2"]);
+    expect(acts.select).toHaveBeenCalledWith("f2", "toggle", ["f1", "f2"]);
     expect(acts.edit).not.toHaveBeenCalled();
   });
 
@@ -159,7 +161,7 @@ describe("bulk selection in the library view", () => {
     (
       root.querySelector('[data-row="b"] [data-preview]') as HTMLElement
     ).click();
-    expect(acts.select).toHaveBeenCalledWith("f2", false, ["f1", "f2"]);
+    expect(acts.select).toHaveBeenCalledWith("f2", "toggle", ["f1", "f2"]);
     expect(acts.edit).not.toHaveBeenCalled();
   });
 
@@ -183,7 +185,7 @@ describe("bulk selection in the library view", () => {
       ?.dispatchEvent(
         new MouseEvent("click", { bubbles: true, shiftKey: true }),
       );
-    expect(acts.select).toHaveBeenCalledWith("f2", true, ["f1", "f2"]);
+    expect(acts.select).toHaveBeenCalledWith("f2", "range", ["f1", "f2"]);
   });
 
   it("Cancel clears and Delete deletes the selection", () => {

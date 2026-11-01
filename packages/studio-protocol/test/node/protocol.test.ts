@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { matchRoute, pathFor, ROUTES, type RouteId } from "../../src/index.js";
+import {
+  DEFAULT_LIBRARY_VIEW,
+  matchRoute,
+  pathFor,
+  ROUTES,
+  type RouteId,
+} from "../../src/index.js";
 
 const SAMPLE = { id: "take 1", ref: "kf:1/2" };
 
@@ -22,9 +28,14 @@ describe("matchRoute", () => {
   const ids = Object.keys(ROUTES) as RouteId[];
   it("covers the whole table (premise of the round trip)", () => {
     // 24 since 2026-10-24: videoRename and videoDelete joined for the video
-    // library; 26 since 2026-10-28, with wallpaperPut and wallpaper.
-    expect(ids.length).toBe(26);
+    // library; 26 since 2026-10-28, with wallpaperPut and wallpaper; 28
+    // since 2026-10-31, with libraryViewGet and libraryViewPut.
+    expect(ids.length).toBe(28);
+    expect(ids).toEqual(
+      expect.arrayContaining(["libraryViewGet", "libraryViewPut"]),
+    );
     // 10 since 2026-10-24: the two video routes carry :id, so 8 became 10.
+    // The library view's two carry none.
     expect(ids.filter((i) => ROUTES[i].path.includes(":")).length).toBe(10);
   });
   it.each(ids)("round-trips %s", (id) => {
@@ -54,5 +65,14 @@ describe("matchRoute", () => {
     expect(matchRoute("GET", "/api/takes/..%2Fx/scene")?.params.id).toBe(
       "../x",
     );
+  });
+});
+
+describe("DEFAULT_LIBRARY_VIEW", () => {
+  // Red: an unfrozen default, which a consumer that writes to the view it
+  // was handed (its sort, say) would change for every later reader.
+  it("is frozen, its sort too", () => {
+    expect(Object.isFrozen(DEFAULT_LIBRARY_VIEW)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_LIBRARY_VIEW.sort)).toBe(true);
   });
 });

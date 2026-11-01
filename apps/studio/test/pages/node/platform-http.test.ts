@@ -179,6 +179,31 @@ describe("the Export quality setting", () => {
     });
     expect(sent).toEqual({ exportQuality: "full" });
   });
+
+  it("libraryView.read and write call the two routes", async () => {
+    const platform = createPlatform();
+    const view = {
+      layout: "grid",
+      sort: { column: "name", descending: false },
+    };
+    let sent: unknown;
+    studio.route((c) => {
+      if (c.url !== "/api/settings/library-view") return undefined;
+      if (c.method === "GET") {
+        return json(200, { view, unreadable: "x is not JSON" });
+      }
+      sent = c.body;
+      return json(200, { view, replaced: "it was replaced" });
+    });
+    expect(await platform.libraryView?.read()).toEqual({
+      view,
+      unreadable: "x is not JSON",
+    });
+    expect(await platform.libraryView?.write(view as never)).toEqual({
+      replaced: "it was replaced",
+    });
+    expect(sent).toEqual({ view });
+  });
 });
 
 describe("wallpapers", () => {

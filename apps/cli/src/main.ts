@@ -26,6 +26,7 @@ import {
   createLocalExecutor,
   execGit,
   fullChromiumPath,
+  joinFlow as joinFlowInto,
   type KeepAnswer,
   type KeepOutput,
   keepVideo,
@@ -33,6 +34,7 @@ import {
   type RefreshResult,
   readRepo,
   refreshKept,
+  removeRepoFlow,
   signin,
   signinAccount,
   usePrebuiltPages,
@@ -48,8 +50,9 @@ import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshAgentSkill } from "./agent-skill.js";
 import { ciSetup } from "./ci-workflow.js";
 import { deliver } from "./deliver.js";
-import { keepLines } from "./keep-lines.js";
+import { keepLines, removeLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
+import { parseRefreshArgs } from "./refresh-args.js";
 import { refreshLines } from "./refresh-lines.js";
 import { parseSetupArgs, setup } from "./setup.js";
 import {
@@ -90,18 +93,24 @@ const USAGE = `demoman ${VERSION}
   npx demoman setup          install the browser and connect your coding agents
     [--yes] [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
   npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
-  npx demoman setup --ci [--trigger push|<environment>] [--route pr|main]
-                             write .github/workflows/demoman.yml, which refreshes the kept flows on each merge
+  npx demoman setup --ci [--trigger push|<environment>] [--route pr|main] [--artifact]
+                             write .github/workflows/demoman.yml, which refreshes the repo's flows on each merge
   npx demoman signin <url>   sign in to your app once, so agents can record behind the login
   npx demoman signin --account <name> [--site <origin>] [--project <dir>]
                              sign in as a demo account from .demoman/accounts.json (CI, or a check)
   npx demoman studio [video] open the Studio, to look over and edit flows and export them
   npx demoman studio --stop  close the Studio
-  npx demoman keep <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
-                             keep a flow current: its re-film file in .demoman/videos/, its exports in the repo
-  npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main]
-                             film the kept flows again and replace the exports whose picture changed;
-                             --deliver commits them on main, or opens a pull request (CI)
+  npx demoman add <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full] [--deliver commit|files]
+                             add a flow to the repo: its recipe in .demoman/flows/, its exports in the repo
+                             (--deliver files writes the recipe alone; outputs are file names for --out-dir)
+  npx demoman remove <flow>  remove a flow from the repo: its recipe and receipt go, its exports stay
+  npx demoman join-flow <from> <into>
+                             move a flow's videos into the repo flow that has its name, and remove the flow
+  npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main] [--out-dir <folder>] [--previous <folder>]
+                             record the repo's flows again and replace the exports whose picture changed;
+                             --deliver commits them on main, or opens a pull request (CI);
+                             --out-dir writes the files flows and demoman-refresh.json there,
+                             --previous is the folder the last --out-dir was kept in
   demoman mcp [--headed]     serve Demoman's tools on stdio (your agent runs this);
                              --headed shows the browser while it records
   demoman hook post-tool-use answer Claude Code's PostToolUse hook on stdin (the plugin runs this)
@@ -270,9 +279,10 @@ async function studio(args: string[]): Promise<void> {
   });
 }
 
-/** `demoman keep`: the video's kept file and its outputs, in the repo the
- *  command runs in. Paths are the shell's, relative to the current folder. */
-async function keep(args: string[]): Promise<void> {
+/** `demoman add` (and its old name, `keep`): the flow's recipe and its
+ *  outputs, in the repo the command runs in. Paths are the shell's,
+ *  relative to the current folder. */
+async function add(args: string[]): Promise<void> {
   const usage = (said: string): never => {
     process.stderr.write(`demoman: ${said}\n\n${USAGE}`);
     process.exit(2);
@@ -282,6 +292,7 @@ async function keep(args: string[]): Promise<void> {
     gif?: string[];
     report?: string;
     quality?: string;
+    deliver?: string;
   };
   let positionals: string[];
   try {
@@ -292,6 +303,7 @@ async function keep(args: string[]): Promise<void> {
         gif: { type: "string", multiple: true },
         report: { type: "string" },
         quality: { type: "string" },
+        deliver: { type: "string" },
       },
       allowPositionals: true,
       strict: true,
@@ -305,27 +317,32 @@ async function keep(args: string[]): Promise<void> {
     ...(values.gif ?? []).map((a) => ["gif", a] as const),
   ];
   if (video === undefined || extra.length > 0 || asked.length === 0) {
-    return usage("keep takes one flow and at least one --to or --gif");
+    return usage("add takes one flow and at least one --to or --gif");
   }
   // Share by default: every refresh commits these files again.
   const quality = values.quality ?? "share";
   if (!isExportQuality(quality)) {
     return usage(`--quality is share, high or full, not "${quality}"`);
   }
+  const deliver = values.deliver ?? "commit";
+  if (deliver !== "commit" && deliver !== "files") {
+    return usage(`--deliver is commit or files, not "${deliver}"`);
+  }
   const fail = (detail: string): never => {
-    process.stderr.write(`demoman keep: ${detail}\n`);
+    process.stderr.write(`demoman add: ${detail}\n`);
     process.exit(1);
   };
   const repo = await readRepo(process.cwd(), execGit);
   if (!repo.ok) {
-    return fail(`${repo.none} — run keep inside the repo the video is kept in`);
+    return fail(`${repo.none} — run add inside the repo the flow belongs to`);
   }
   const root = repo.repo.root;
   const inRoot = (p: string) => relative(root, resolve(p));
   const to: KeepOutput[] = asked.map(([fileType, arg]) => {
     const m = /^(.*):(auto|16:9|9:16)$/.exec(arg);
     return {
-      path: inRoot(m?.[1] ?? arg),
+      // `files` outputs are names, not places: left as given.
+      path: deliver === "files" ? (m?.[1] ?? arg) : inRoot(m?.[1] ?? arg),
       fileType,
       quality,
       ...(m?.[2] === undefined
@@ -355,7 +372,11 @@ async function keep(args: string[]): Promise<void> {
         to,
         ...(values.report === undefined
           ? {}
-          : { report: inRoot(values.report) }),
+          : {
+              report:
+                deliver === "files" ? values.report : inRoot(values.report),
+            }),
+        deliver,
         repoRoot: root,
       },
       {
@@ -392,6 +413,41 @@ async function keep(args: string[]): Promise<void> {
   process.exit(0);
 }
 
+/** `demoman remove`: a flow out of the repo; its exports stay. */
+async function remove(args: string[]): Promise<void> {
+  const [flow, ...extra] = args;
+  if (flow === undefined || flow.startsWith("-") || extra.length > 0) {
+    process.stderr.write(`demoman: remove takes one flow\n\n${USAGE}`);
+    process.exit(2);
+  }
+  const repo = await readRepo(process.cwd(), execGit);
+  if (!repo.ok) {
+    process.stderr.write(
+      `demoman remove: ${repo.none} — run remove inside the repo the flow belongs to\n`,
+    );
+    process.exit(1);
+  }
+  const home = demomanHome();
+  const videos = createVideoStore(home, createLibrary(home), {
+    log: (line) => process.stderr.write(`demoman remove: ${line}\n`),
+  });
+  let answer: Awaited<ReturnType<typeof removeRepoFlow>>;
+  try {
+    answer = await removeRepoFlow({ root: repo.repo.root, flow }, { videos });
+  } catch (error) {
+    process.stderr.write(
+      `demoman: remove: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exit(1);
+  }
+  const lines = removeLines(answer).join("\n");
+  if (!answer.ok) {
+    process.stderr.write(`demoman remove: ${lines}\n`);
+    process.exit(1);
+  }
+  process.stdout.write(`${lines}\n`);
+}
+
 /** `demoman refresh`: every kept video in the repo (or those named) filmed
  *  again with no agent; an export is replaced only when its picture changed.
  *  Always into a library thrown away after; off CI (`CI` not "true") the
@@ -401,35 +457,9 @@ async function refresh(args: string[]): Promise<void> {
     process.stderr.write(`demoman: ${said}\n\n${USAGE}`);
     process.exit(2);
   };
-  let values: { "base-url"?: string; deliver?: string };
-  let positionals: string[];
-  try {
-    ({ values, positionals } = parseArgs({
-      args,
-      options: {
-        "base-url": { type: "string" },
-        deliver: { type: "string" },
-      },
-      allowPositionals: true,
-      strict: true,
-    }));
-  } catch (error) {
-    return usage(error instanceof Error ? error.message : String(error));
-  }
-  if (values.deliver !== undefined && !/^(pr|main)$/.test(values.deliver))
-    return usage(`--deliver is pr or main, not "${values.deliver}"`);
-  const route = values.deliver as "pr" | "main" | undefined;
-  let baseUrl: string | undefined;
-  if (values["base-url"] !== undefined) {
-    const url = URL.canParse(values["base-url"])
-      ? new URL(values["base-url"])
-      : null;
-    if (url === null || !/^https?:$/.test(url.protocol))
-      return usage(
-        `--base-url is an http(s) origin such as http://localhost:3000, not "${values["base-url"]}"`,
-      );
-    baseUrl = url.origin;
-  }
+  const parsed = parseRefreshArgs(args);
+  if ("error" in parsed) return usage(parsed.error);
+  const { only, route, baseUrl, outDir, previous } = parsed;
   const fail = (detail: string): never => {
     process.stderr.write(`demoman refresh: ${detail}\n`);
     process.exit(1);
@@ -437,7 +467,7 @@ async function refresh(args: string[]): Promise<void> {
   const repo = await readRepo(process.cwd(), execGit);
   if (!repo.ok) {
     return fail(
-      `${repo.none} — run refresh inside the repo the flows are kept in`,
+      `${repo.none} — run refresh inside the repo the flows belong to`,
     );
   }
   requirePageBundles(
@@ -458,8 +488,10 @@ async function refresh(args: string[]): Promise<void> {
     result = await refreshKept(
       {
         repoRoot: repo.repo.root,
-        ...(positionals.length > 0 ? { only: positionals } : {}),
+        ...(only.length > 0 ? { only } : {}),
         ...(baseUrl === undefined ? {} : { baseUrl }),
+        ...(outDir === undefined ? {} : { outDir }),
+        ...(previous === undefined ? {} : { previous }),
         library: process.env.CI === "true" ? "throwaway" : "local",
       },
       {
@@ -481,7 +513,6 @@ async function refresh(args: string[]): Promise<void> {
           }),
         session,
         env: process.env,
-        git: execGit,
         log,
       },
     );
@@ -497,6 +528,8 @@ async function refresh(args: string[]): Promise<void> {
   if ("threw" in result) return fail(result.threw);
   const { lines, code } = refreshLines(result);
   for (const line of lines) process.stdout.write(`${line}\n`);
+  // The finished flows are said first; the list's failure then fails the run.
+  if (result.listError !== undefined) return fail(result.listError);
   if (route === undefined) process.exit(code);
   const {
     GITHUB_SERVER_URL: server,
@@ -508,7 +541,7 @@ async function refresh(args: string[]): Promise<void> {
       route,
       repoRoot: repo.repo.root,
       result,
-      named: positionals.length > 0,
+      named: only.length > 0,
       runUrl:
         server && slug && id ? `${server}/${slug}/actions/runs/${id}` : null,
     },
@@ -533,6 +566,44 @@ async function refresh(args: string[]): Promise<void> {
   process.exit(code === 0 && delivered.ok ? 0 : 1);
 }
 
+/** `demoman join-flow`: this library's flow `from` joins the kept flow `into`. */
+async function joinFlow(args: string[]): Promise<void> {
+  const [from, into, ...extra] = args;
+  if (from === undefined || into === undefined || extra.length > 0) {
+    process.stderr.write(
+      `demoman: join-flow needs the flow to move and the flow to move it into\n\n${USAGE}`,
+    );
+    process.exit(2);
+  }
+  const home = demomanHome();
+  const videos = createVideoStore(home, createLibrary(home), { log });
+  let said: string;
+  try {
+    // An `into` this library lacks is read from the checkout's kept files.
+    const repo = await readRepo(process.cwd(), execGit);
+    const out = await joinFlowInto(
+      videos,
+      from,
+      into,
+      repo.ok
+        ? { root: repo.repo.root, repo: { key: repo.repo.key } }
+        : { none: repo.none },
+    );
+    if (out.ok) {
+      process.stdout.write(
+        `moved ${out.moved} video${out.moved === 1 ? "" : "s"} from ${from} into ${into}${out.adopted === null ? "" : `, the repo flow in ${out.adopted}`}\n`,
+      );
+      process.exit(0);
+    }
+    said = out.said;
+  } catch (error) {
+    // A merge that stopped partway says how many moved and what remains.
+    said = error instanceof Error ? error.message : String(error);
+  }
+  process.stderr.write(`demoman: join-flow: ${said}\n`);
+  process.exit(1);
+}
+
 const [command, ...rest] = process.argv.slice(2);
 switch (command) {
   case "mcp":
@@ -541,11 +612,18 @@ switch (command) {
   case "studio":
     await studio(rest);
     break;
+  case "add":
   case "keep":
-    await keep(rest);
+    await add(rest);
+    break;
+  case "remove":
+    await remove(rest);
     break;
   case "refresh":
     await refresh(rest);
+    break;
+  case "join-flow":
+    await joinFlow(rest);
     break;
   case "setup": {
     if (rest.includes("--ci")) {

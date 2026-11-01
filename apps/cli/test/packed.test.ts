@@ -1,12 +1,25 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtemp, readdir, rm, symlink, unlink } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  LEGACY_FLOWS_DIR as KEPT_DIR,
+  keptFileName,
+  serializeKept,
+} from "@demoman/run-core";
 import { recorderPlatform } from "@demoman/runner/package";
+import { createLibrary, createVideoStore } from "@demoman/runner/studio";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { connect, installPacked, text } from "./packed-install.js";
 
@@ -95,6 +108,179 @@ function fullChromiumDir(): string {
   }
   return dir;
 }
+
+const KEPT = "1a2b3c4d-0000-4000-8000-0000000000a1";
+const NAME = "Kept checkout flow";
+
+let joinHome: string;
+let checkout: string;
+const store = () => createVideoStore(joinHome, createLibrary(joinHome));
+const joinFlow = (...args: string[]) =>
+  spawnSync(process.execPath, [packed.bin, "join-flow", ...args], {
+    cwd: checkout,
+    env: { ...process.env, ...env(), DEMOMAN_HOME: joinHome },
+    encoding: "utf8",
+  });
+
+beforeAll(() => {
+  joinHome = mkdtempSync(join(tmpdir(), "demoman-join-home-"));
+  checkout = mkdtempSync(join(tmpdir(), "demoman-join-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd: checkout });
+  execFileSync(
+    "git",
+    ["remote", "add", "origin", "git@github.com:acme/shop.git"],
+    { cwd: checkout },
+  );
+  mkdirSync(join(checkout, KEPT_DIR), { recursive: true });
+  writeFileSync(
+    join(checkout, KEPT_DIR, keptFileName(NAME)),
+    serializeKept({
+      keptVersion: 2,
+      flow: KEPT,
+      deliver: "commit",
+      name: NAME,
+      script: {
+        scriptVersion: 1,
+        name: NAME,
+        target: "http://localhost:3000/",
+        steps: [{ do: "waitForLoad" }],
+      } as never,
+      scale: 1,
+      logo: null,
+      wallpaper: null,
+      outputs: [
+        {
+          path: "docs/kept.mp4",
+          fileType: "mp4",
+          aspect: "16:9",
+          quality: "share",
+        },
+      ],
+      report: null,
+    }),
+  );
+});
+afterAll(() => {
+  rmSync(joinHome, { recursive: true, force: true });
+  rmSync(checkout, { recursive: true, force: true });
+});
+
+// Before "the packed install", whose last case deletes a file of the install.
+describe("demoman join-flow, from the packed install", () => {
+  it("exits 2 with its usage when a flow is missing", () => {
+    const r = joinFlow("only-one");
+    expect(r.status, r.stderr).toBe(2);
+    expect(r.stderr).toContain("join-flow needs the flow to move");
+  });
+
+  it("exits 1 naming an id neither the library nor the checkout has", () => {
+    const r = joinFlow(
+      "1a2b3c4d-0000-4000-8000-0000000000b1",
+      "1a2b3c4d-0000-4000-8000-0000000000b2",
+    );
+    expect(r.status, r.stdout + r.stderr).toBe(1);
+    expect(r.stderr).toContain(
+      "no flow in this library or this checkout has the id 1a2b3c4d-0000-4000-8000-0000000000b2",
+    );
+  });
+
+  it("joins the same-named local flow into the kept flow this library lacks, exit 0", async () => {
+    const local = await store().create({
+      name: NAME,
+      repo: { key: "github.com/acme/shop" },
+      startPage: "http://localhost:3000/",
+    });
+    if (!local.ok) throw new Error(JSON.stringify(local));
+    // Premise: the kept flow is in the checkout only.
+    expect(await store().get(KEPT)).toBeNull();
+    const r = joinFlow(local.video.id, KEPT);
+    expect(r.status, r.stdout + r.stderr).toBe(0);
+    expect(r.stdout).toBe(
+      `moved 0 videos from ${local.video.id} into ${KEPT}, the repo flow in ${KEPT_DIR}/${keptFileName(NAME)}\n`,
+    );
+    expect(await store().get(local.video.id)).toBeNull();
+    expect(await store().get(KEPT)).toMatchObject({
+      name: NAME,
+      kept: { file: `${KEPT_DIR}/${keptFileName(NAME)}` },
+    });
+  });
+});
+
+describe("demoman add, keep and remove, from the packed install", () => {
+  const cli = (...args: string[]) =>
+    spawnSync(process.execPath, [packed.bin, ...args], {
+      cwd: checkout,
+      env: { ...process.env, ...env(), DEMOMAN_HOME: joinHome },
+      encoding: "utf8",
+    });
+
+  it("keep answers exactly as add does", () => {
+    const add = cli("add");
+    const keep = cli("keep");
+    expect(add.status, add.stderr).toBe(2);
+    expect(add.stderr).toContain("add takes one flow");
+    expect([keep.status, keep.stderr, keep.stdout]).toEqual([
+      add.status,
+      add.stderr,
+      add.stdout,
+    ]);
+  });
+
+  it("remove takes a flow out of the repo and leaves its exports", () => {
+    const name = "Removable flow";
+    const file = join(checkout, ".demoman/flows", keptFileName(name));
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(
+      file,
+      serializeKept({
+        keptVersion: 2,
+        flow: "1a2b3c4d-0000-4000-8000-0000000000b2",
+        deliver: "files",
+        name,
+        script: {
+          scriptVersion: 1,
+          name,
+          target: "http://localhost:3000/",
+          steps: [{ do: "waitForLoad" }],
+        } as never,
+        scale: 1,
+        logo: null,
+        wallpaper: null,
+        outputs: [
+          { path: "r.gif", fileType: "gif", aspect: "16:9", quality: "share" },
+        ],
+        report: null,
+      }),
+    );
+    // Premise: the recipe is there to remove.
+    expect(existsSync(file)).toBe(true);
+    const r = cli("remove", name);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain(`Removed "${name}" from the repo`);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it("remove that throws says what happened and exits 1", () => {
+    const repo = mkdtempSync(join(tmpdir(), "demoman-remove-repo-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      // The flows folder is a file: reading it throws, not "no flows".
+      mkdirSync(join(repo, ".demoman"));
+      writeFileSync(join(repo, ".demoman/flows"), "not a folder");
+      const r = spawnSync(process.execPath, [packed.bin, "remove", "Any"], {
+        cwd: repo,
+        env: { ...process.env, ...env(), DEMOMAN_HOME: joinHome },
+        encoding: "utf8",
+      });
+      expect(r.status, r.stderr).toBe(1);
+      // Red: no catch — node prints its own stack for the rejection.
+      expect(r.stderr).toMatch(/^demoman: remove: .*ENOTDIR/);
+      expect(r.stderr).not.toMatch(/\n\s+at /);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("the packed install", () => {
   it("installed the bin, and no esbuild", () => {

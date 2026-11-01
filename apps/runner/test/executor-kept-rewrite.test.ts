@@ -1,18 +1,33 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseKept, type RunReport } from "@demoman/run-core";
+import {
+  FLOWS_DIR,
+  keptFileName,
+  RECEIPT_DIR,
+  type RunReport,
+} from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createBrowserSession } from "../src/executor/browser.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
-import { keepVideo } from "../src/executor/keep.js";
+import { type KeepOutput, keepVideo } from "../src/executor/keep.js";
+import { readKeptFlows } from "../src/executor/kept-flows.js";
 import { createLibrary } from "../src/executor/library.js";
 import { execGit } from "../src/executor/repo.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { WALLPAPERS_DIR } from "./fixture.js";
+import { readKeptV2 } from "./kept-v2.js";
 
 // Short runs of a one-field page, as executor-refilm.test.ts (x5 for CI).
 const RUN_MS = 120_000;
@@ -53,11 +68,7 @@ const run = async (ex: LocalExecutor, args: Record<string, unknown>) => {
   if (!out.ok) throw new Error(JSON.stringify(out));
   return out.value as RunReport;
 };
-const keptOf = async (file: string) => {
-  const parsed = parseKept(await readFile(join(repo, file), "utf8"), file);
-  if (!parsed.ok) throw new Error(parsed.detail);
-  return parsed.kept;
-};
+const keptOf = async (file: string) => readKeptV2(repo, file);
 
 beforeAll(async () => {
   server = createServer((_q, res) => {
@@ -144,7 +155,8 @@ describe("a run's answer says whether its kept file was rewritten", () => {
       await session.close();
       if (!kept.ok) throw new Error(JSON.stringify(kept));
       const file = kept.file;
-      expect((await keptOf(file)).from.takeId).toBe(first.provenance.takeId);
+      const { receipt: afterKeep, kept: keptBefore } = await keptOf(file);
+      expect(afterKeep.video).toBe(first.provenance.takeId);
 
       // A script run into it: the file follows, and the answer says so.
       const second = await run(executor, {
@@ -155,8 +167,13 @@ describe("a run's answer says whether its kept file was rewritten", () => {
       expect(second.outcome).toBe("complete");
       expect(second.kept).toEqual({ rewritten: file });
       const afterSecond = await keptOf(file);
-      expect(afterSecond.from.takeId).toBe(second.provenance.takeId);
-      expect(afterSecond.from.takeId).not.toBe(first.provenance.takeId);
+      // The committed files are still the first film's, and so is the
+      // receipt: its video, filmedAt and screens belong to one film.
+      // Red: point receipt.video at the new take while the rest stays.
+      expect(afterSecond.receipt).toEqual(afterKeep);
+      expect(afterSecond.receipt.video).toBe(first.provenance.takeId);
+      // Premise: the recipe did follow the new script.
+      expect(afterSecond.kept).not.toEqual(keptBefore);
 
       // A refilm (no script) is a run into it too.
       const third = await run(executor, {
@@ -165,7 +182,7 @@ describe("a run's answer says whether its kept file was rewritten", () => {
       });
       expect(third.outcome).toBe("complete");
       expect(third.kept).toEqual({ rewritten: file });
-      expect((await keptOf(file)).from.takeId).toBe(third.provenance.takeId);
+      expect((await keptOf(file)).receipt).toEqual(afterKeep);
 
       // A run that stops: the file stays as it was, and the answer says why.
       const before = await readFile(join(repo, file));
@@ -219,5 +236,140 @@ describe("a run's answer says whether its kept file was rewritten", () => {
       expect("kept" in out).toBe(false);
     },
     RUN_MS,
+  );
+});
+
+/** `keep` as the CLI calls it, into `repo`. */
+async function keepIt(video: string, to: KeepOutput[]) {
+  const library = createLibrary(home);
+  const videos = createVideoStore(home, library, { log: () => undefined });
+  const session = createBrowserSession({
+    headless: true,
+    log: () => undefined,
+  });
+  try {
+    return await keepVideo(
+      { video, to, repoRoot: repo },
+      {
+        home,
+        library,
+        videos,
+        git: execGit,
+        log: () => undefined,
+        export: {
+          wallpapersDir: WALLPAPERS_DIR,
+          library,
+          videos,
+          session,
+          door: "agent",
+          home,
+          outDir: join(home, "x"),
+          log: () => undefined,
+        },
+      },
+    );
+  } finally {
+    await session.close();
+  }
+}
+
+describe("a flow kept before the library marked kept flows", () => {
+  it(
+    "a studio rename, a run and a keep leave one recipe, and no duplicateFlow",
+    async () => {
+      const first = await run(executor, {
+        callId: "drift-first",
+        video: { new: "Drift before" },
+        script: script("Drift before", typing(300)),
+      });
+      expect(first.outcome).toBe("complete");
+      const videoId = first.videoVersion?.id as string;
+      const kept = await keepIt("Drift before", [
+        { path: "docs/drift.gif", fileType: "gif", quality: "share" },
+      ]);
+      if (!kept.ok) throw new Error(JSON.stringify(kept));
+      const file = kept.file;
+      const videos = createVideoStore(home, createLibrary(home));
+      // As a record kept before this branch: no `kept` mark.
+      expect((await videos.setKept(videoId, null)).ok).toBe(true);
+      expect((await videos.get(videoId))?.kept).toBeUndefined();
+      // The studio renames an unmarked flow through the plain rename.
+      expect((await videos.rename(videoId, "Drift after")).ok).toBe(true);
+
+      const second = await run(executor, {
+        callId: "drift-second",
+        video: { id: videoId },
+        script: script("Drift after", typing(900)),
+      });
+      expect(second.outcome).toBe("complete");
+      expect(second.kept).toEqual({ rewritten: file });
+      // The run marked the record with the file that keeps it.
+      expect((await videos.get(videoId))?.kept?.file).toBe(file);
+
+      // A keep under the new name, with another output, writes no second recipe.
+      const again = await keepIt("Drift after", [
+        { path: "docs/drift-2.gif", fileType: "gif", quality: "share" },
+      ]);
+      expect(again).toMatchObject({ ok: false, reason: "outputTaken" });
+      expect(!again.ok && again.detail).toContain(
+        `${file} already holds this flow`,
+      );
+      const recipes = await readdir(join(repo, FLOWS_DIR));
+      expect(recipes).toContain(file.split("/").at(-1));
+      expect(recipes).not.toContain(keptFileName("Drift after"));
+      const flows = await readKeptFlows(repo);
+      expect(
+        flows.entries.filter((e) => "kept" in e && e.kept.flow === videoId),
+      ).toHaveLength(1);
+      expect(flows.duplicates).toEqual([]);
+    },
+    RUN_MS * 4,
+  );
+});
+
+describe("a kept flow whose receipts folder links out of the repo", () => {
+  it(
+    "the run says so and writes nothing there",
+    async () => {
+      const first = await run(executor, {
+        callId: "linked-first",
+        video: { new: "Linked receipts" },
+        script: script("Linked receipts", typing(300)),
+      });
+      expect(first.outcome).toBe("complete");
+      const kept = await keepIt("Linked receipts", [
+        { path: "docs/linked.gif", fileType: "gif", quality: "share" },
+      ]);
+      if (!kept.ok) throw new Error(JSON.stringify(kept));
+      const name = kept.file.split("/").at(-1) as string;
+      const receipts = join(repo, RECEIPT_DIR);
+      const outside = await mkdtemp(join(tmpdir(), "demoman-kept-rw-out-"));
+      // The link names a folder holding this flow's receipt, so a write
+      // through it would land outside the repo.
+      const theirs = join(outside, name);
+      await writeFile(theirs, await readFile(join(receipts, name)));
+      const before = await readFile(theirs, "utf8");
+      const recipe = await readFile(join(repo, kept.file), "utf8");
+      await rename(receipts, `${receipts}.aside`);
+      try {
+        await symlink(outside, receipts);
+        const second = await run(executor, {
+          callId: "linked-second",
+          video: { id: first.videoVersion?.id as string },
+          script: script("Linked receipts", typing(600)),
+        });
+        expect(second.outcome).toBe("complete");
+        expect(second.kept).toEqual({
+          refused: expect.stringContaining("is not inside the repo"),
+        });
+        expect(await readFile(theirs, "utf8")).toBe(before);
+        expect(await readFile(join(repo, kept.file), "utf8")).toBe(recipe);
+      } finally {
+        await rm(receipts, { force: true });
+        await rename(`${receipts}.aside`, receipts);
+        await rm(outside, { recursive: true, force: true });
+      }
+    },
+    RUN_MS * 3,
   );
 });
