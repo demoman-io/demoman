@@ -803,6 +803,9 @@
         height: calc(var(--list-row) - 1px);
         min-width: 28px;
         justify-content: flex-end;
+        /* A focused button's ring stands 2px outside it, past the row's
+           end; the cells' clipping would cut it. */
+        overflow: visible;
       }
       /* While flows are ticked, the flow and video rows' actions step aside
          as the cards' do, by visibility: they keep their cell, so nothing
@@ -870,6 +873,29 @@
         font-weight: 500;
         color: var(--ink-4, var(--ink-faint));
       }
+      /* "Couldn't read" under the list: the date headings' label, with no
+         chevron (it does not fold) — their room above, their line, their
+         sans. The cards keep the studio's own heading. */
+      .library-list ~ [data-unreadable] { margin-top: 0; }
+      .library-list ~ [data-unreadable] > .section-head {
+        /* A date heading row: 14px above a 34px line. */
+        height: 48px;
+        padding: 14px 0 1px;
+        gap: 8px;
+      }
+      .library-list ~ [data-unreadable] > .section-head :is(h2, .section-count) {
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: normal;
+        letter-spacing: normal;
+        text-transform: none;
+        color: var(--ink-faint);
+      }
+      .library-list ~ [data-unreadable] > .section-head .section-count {
+        font-weight: 500;
+        color: var(--ink-4, var(--ink-faint));
+      }
       /* The video's exports as small labels; a file gone is struck. */
       .library-list .version-exports {
         display: flex;
@@ -934,8 +960,20 @@
         opacity: 1;
         pointer-events: auto;
       }
+      /* The keys on Recorded itself: the cover would hide the cell and
+         its ring, so neither shows. */
+      .library-list > [data-key]:has(> [data-col="recorded"]:focus-visible) .row-actions {
+        opacity: 0;
+        pointer-events: none;
+      }
+      /* Where nothing hovers they show always, so they never cover: the
+         date stays readable beside them. */
       @media (hover: none) {
-        .library-list .row-actions { opacity: 1; pointer-events: auto; }
+        .library-list .row-actions {
+          opacity: 1;
+          pointer-events: auto;
+          background: none;
+        }
       }
       .library-list > [aria-expanded="true"] .chev { transform: rotate(90deg); }
       /* An opening flow's videos fade in; no height animation. */

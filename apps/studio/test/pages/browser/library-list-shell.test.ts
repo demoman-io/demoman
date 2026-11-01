@@ -982,6 +982,189 @@ describe("the list's look, as the author reviewed it", () => {
   });
 });
 
+/** Where focus is: `key/col` for a cell or a control in it. */
+const focusedAt = (): string => {
+  const a = document.activeElement as HTMLElement;
+  const r = a.closest<HTMLElement>("[role=row][data-key]");
+  return `${r?.dataset.key}/${a.closest<HTMLElement>("[role=gridcell]")?.dataset.col}`;
+};
+
+/** The date's glyphs left of the first action button, as painted: how
+ *  many of its pixels are bright as text is, never as a ground is. */
+function dateGlyphs(
+  paint: (x: number, y: number) => number[],
+  key: string,
+): number {
+  const date = textBox(cell(key, "recorded"));
+  const first = cell(key, "actions")
+    .querySelector("button")
+    ?.getBoundingClientRect() as DOMRect;
+  // Premise: some of the date sits left of the buttons, where no icon is.
+  expect(date.left + 4, key).toBeLessThan(first.left);
+  let bright = 0;
+  for (
+    let x = Math.ceil(date.left);
+    x < Math.min(date.right, first.left);
+    x++
+  ) {
+    for (let y = Math.ceil(date.top); y < date.bottom; y++) {
+      if (Math.max(...paint(x + 0.5, y + 0.5).slice(0, 3)) > 120) bright++;
+    }
+  }
+  return bright;
+}
+
+// Fix round 1 of the look pass (the coordinator's five).
+describe("the look pass's focus, cover and Couldn't read heading", () => {
+  // Red: the row's `:has(:focus-visible)` revealing the cover over the
+  // Recorded cell that holds the focus.
+  it("a keyboard-focused Recorded cell is not under the actions", async () => {
+    await page.viewport(960, 640);
+    mount();
+    row("f:A").focus();
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}{End}");
+    for (let i = 0; i < 6 && !focusedAt().endsWith("/recorded"); i++) {
+      await userEvent.keyboard("{ArrowLeft}");
+    }
+    expect(focusedAt()).toBe("f:A/recorded");
+    const c = cell("f:A", "recorded");
+    expect(c.matches(":focus-visible")).toBe(true);
+    const b = c.getBoundingClientRect();
+    const hit = at(b.left + b.width / 2, b.top + b.height / 2);
+    expect(hit?.closest("[role=gridcell]"), hit?.outerHTML.slice(0, 80)).toBe(
+      c,
+    );
+    expect(dateGlyphs(await pixels(), "f:A")).toBeGreaterThan(5);
+  });
+
+  // Red: `overflow: hidden` on the actions cell clipping the ring that
+  // stands 2px outside the last button.
+  it("a focused action button's ring paints whole, past the row's end", async () => {
+    await page.viewport(960, 640);
+    mount();
+    row("f:A").focus();
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}{End}");
+    const del = document.activeElement as HTMLElement;
+    expect(del.dataset.action).toBe("delete");
+    expect(del.matches(":focus-visible")).toBe(true);
+    const ink = parse(getComputedStyle(del).outlineColor);
+    const d = del.getBoundingClientRect();
+    const paint = await pixels();
+    const outside = paint(d.right + 3, d.top + d.height / 2);
+    expect(close(outside, ink, 24), `${outside} vs ${ink}`).toBe(true);
+  });
+
+  // Red: the cover's opaque ground kept on a device that never hovers,
+  // where the actions always show.
+  it("on a device with no hover the dates still paint beside the buttons", async () => {
+    await page.viewport(960, 640);
+    mount();
+    // The page's own `(hover: none)` rules, applied as such a device
+    // applies them. Not CDP's emulation: touch emulation turns the query
+    // true but the lane's screenshot still paints the hover rules
+    // (measured: the same glyphs with the cover's ground on and off), and
+    // setEmulatedMedia does not emulate `hover` at all.
+    const sheet = document.head.querySelector("[data-shell]") as HTMLElement;
+    const query = "@media (hover: none)";
+    expect(sheet.textContent?.split(query).length ?? 0).toBeGreaterThan(1);
+    sheet.textContent = (sheet.textContent ?? "").replaceAll(
+      query,
+      "@media all",
+    );
+    const actions = cell("f:N0", "actions").querySelector(
+      ".row-actions",
+    ) as HTMLElement;
+    // Premise: the buttons show at rest there.
+    expect(getComputedStyle(actions).opacity).toBe("1");
+    expect(dateGlyphs(await pixels(), "f:N0")).toBeGreaterThan(5);
+  });
+
+  // Red: the heading's actions cell at the row's top, in the 14px above
+  // its label's line.
+  it("a heading's focused actions cell sits on its label's line", async () => {
+    await page.viewport(960, 640);
+    mount();
+    row("h:today").focus();
+    await userEvent.keyboard("{ArrowRight}{End}");
+    expect(focusedAt()).toBe("h:today/actions");
+    const c = cell("h:today", "actions");
+    const line = cell("h:today", "name").getBoundingClientRect();
+    const b = c.getBoundingClientRect();
+    expect(b.top, JSON.stringify({ b, line })).toBeGreaterThanOrEqual(
+      line.top - 0.5,
+    );
+    expect(b.bottom, JSON.stringify({ b, line })).toBeLessThanOrEqual(
+      line.bottom + 0.5,
+    );
+    const ink = parse(getComputedStyle(c).outlineColor);
+    const paint = await pixels();
+    const x = b.left + b.width / 2;
+    // The outline's top edge is on the label's line, not in the space above.
+    const rowTop = row("h:today").getBoundingClientRect().top;
+    expect(close(paint(x, line.top + 1), ink, 24), "on the line").toBe(true);
+    expect(close(paint(x, rowTop + 1), ink, 24), "above the line").toBe(false);
+  });
+
+  // Red: the cards' heading (mono, uppercase, 4px above) drawn under the
+  // list.
+  it("Couldn't read under the list is a section label as the date headings are", () => {
+    mount();
+    renderLibrary(
+      node("#root"),
+      {
+        ...MODEL,
+        unreadable: [
+          {
+            folder: "take-half-written",
+            reason: "no scene.json",
+            sizeBytes: 30,
+          },
+        ],
+      },
+      ACTIONS,
+      new Map(),
+      NOW,
+      { ids: new Set(), anchor: null, range: [] },
+      undefined,
+      { layout: "list", sort: { column: "recorded", descending: true } },
+    );
+    const section = node("[data-unreadable]");
+    // Premise: it is drawn under the list, as rows.
+    expect(section.querySelector(".unreadable-list")).not.toBeNull();
+    const h2 = section.querySelector(".section-head h2") as HTMLElement;
+    const count = section.querySelector(
+      ".section-head .section-count",
+    ) as HTMLElement;
+    for (const e of [h2, count]) {
+      expect(getComputedStyle(e).fontFamily, e.tagName).not.toMatch(/mono/i);
+    }
+    const date = cell("h:today", "name").querySelector(
+      "[data-name-text]",
+    ) as HTMLElement;
+    const hs = getComputedStyle(h2);
+    const ds = getComputedStyle(date);
+    expect([hs.fontSize, hs.fontWeight, hs.color, hs.textTransform]).toEqual([
+      ds.fontSize,
+      ds.fontWeight,
+      ds.color,
+      "none",
+    ]);
+    expect(getComputedStyle(count).color).toBe(
+      getComputedStyle(
+        cell("h:today", "name").querySelector(
+          "[data-section-count]",
+        ) as Element,
+      ).color,
+    );
+    // The same room above: from what stands over each to its label.
+    const gap = textBox(h2).top - grid().getBoundingClientRect().bottom;
+    const dateGap = textBox(date).top - head().getBoundingClientRect().bottom;
+    expect(Math.abs(gap - dateGap), `${gap} vs ${dateGap}`).toBeLessThanOrEqual(
+      1,
+    );
+  });
+});
+
 describe("the list's motion", () => {
   // Red: the fade on every video row's first style, which a redraw gives
   // each open video row again, though nothing opened.
