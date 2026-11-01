@@ -78,6 +78,14 @@ jobs:
         run: pnpm typecheck
       - name: The root scripts' own tests
         run: node --test 'scripts/*.test.mjs'
+      # The runner's shards exclude every refresh part, so a part missing
+      # from the refresh job's matrix would never run, and nothing would say.
+      - name: Every refresh part has a job
+        run: |
+          for f in apps/runner/test/refresh-*.slow.test.ts; do
+            p=${f##*/refresh-}; p=${p%.slow.test.ts}
+            grep -qE "part: \[.*\b$p\b" .github/workflows/ci-ts.yml || { echo "::error::$f is in no refresh job of ci-ts.yml"; exit 1; }
+          done
       - name: Generated JSON Schema is up to date
         run: |
           pnpm --filter @demoman/scene-schema gen-schema
@@ -113,18 +121,35 @@ jobs:
           path: apps/studio/test/pages/browser/__screenshots__/
           if-no-files-found: ignore
 
+  # vitest's --shard splits the lane's files across these jobs, each file in
+  # exactly one of them, by path rather than by how long it takes. So the
+  # refresh lane's four parts run on machines of their own below: as one file
+  # it was 3012 s of its shard's 3014 s (run 41224304573, 2026-10-31).
+  # Standard runners cost nothing on this public repo; more of them is free.
   runner:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
         with:
           browser: "true"
-      # vitest's --shard splits the lane's files across the three jobs,
-      # each file in exactly one of them.
-      - name: Tests (the runner, shard ${{ matrix.shard }} of 3)
-        run: pnpm --filter @demoman/runner test --shard=${{ matrix.shard }}/3
+      - name: Tests (the runner, shard ${{ matrix.shard }} of 4)
+        run: pnpm --filter @demoman/runner test --shard=${{ matrix.shard }}/4 --exclude 'test/refresh-*.slow.test.ts'
+
+  refresh:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [unchanged, restyle, replace, own]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          browser: "true"
+      - name: Tests (the runner's refresh lane, ${{ matrix.part }})
+        run: pnpm --filter @demoman/runner test test/refresh-${{ matrix.part }}.slow.test.ts

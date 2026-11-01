@@ -19,7 +19,7 @@ import type { BrowserSession } from "./browser.js";
 
 /**
  * Measured 2026-10-28 (M-series Mac, headless) at the recorded screens, on
- * refresh.slow.test.ts's fixture videos (1920x1080 MP4s at share quality),
+ * refresh-suite.ts's fixture videos (1920x1080 MP4s at share quality),
  * drawn 1280 wide by Chrome's own decoder. Each pixel's colour is averaged
  * over a block around it in both films (`blockMoves`); a "move" is how far
  * that mean moved in its most-moved channel. What decides a look is the
