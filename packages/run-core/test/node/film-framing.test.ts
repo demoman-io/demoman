@@ -150,6 +150,58 @@ describe("filmQuality: framing", () => {
     expect(framing?.label, JSON.stringify(framing)).toBe("inside");
   });
 
+  // Excalidraw, 2026-11-01: a click on the page-sized canvas read cutOff
+  // under any zoom, and no scroll could clear it. A box bigger than the shot
+  // is watched at the spot the click lands, as a drag is.
+  it("frames a click on a page-sized canvas by its spot, not the canvas", () => {
+    const take = takeOf(["click", "click"]);
+    const canvas = { x: 0, y: 0, width: 1280, height: 800 };
+    take.actions = take.actions.map((a, i) =>
+      i === 1 ? { ...a, at: { x: 0.45, y: 0.5 } } : a,
+    ) as SceneDocument["actions"];
+    const bundle = framesOf({
+      markers: [
+        { actionId: "act-1", sourceTimeMs: 1000 },
+        { actionId: "act-2", sourceTimeMs: 1100 },
+      ],
+      anchorRects: [
+        { actionId: "act-1", anchorId: "a1", rect: rect(600, 380) },
+        { actionId: "act-2", anchorId: "a2", rect: canvas },
+      ],
+    });
+    const zoomed = {
+      ...take,
+      motion: STILL,
+      camera: [
+        {
+          id: "cam-1",
+          kind: "zoom",
+          point: { x: 640, y: 400 },
+          marker: { actionId: "act-1", offsetMs: 0 },
+          scale: 2,
+        },
+      ],
+    } as SceneDocument;
+    const film = filmQuality(zoomed, bundle);
+    if ("unavailable" in film) throw new Error(film.unavailable);
+    const framing = film.steps[1]?.framing;
+    // The premise: zoomed, so the canvas's own box is past the visible page.
+    expect(framing?.visible.width).toBeLessThan(canvas.width);
+    expect(framing?.rect).toEqual({ x: 576, y: 400, width: 0, height: 0 });
+    expect(framing?.label, JSON.stringify(framing)).toBe("inside");
+  });
+
+  // The spot is only for a box the shot cannot hold: a button half out of
+  // the film is still cut off, wherever in it the click lands.
+  it("still reads a click's box that fits the shot but is cut as cutOff", () => {
+    const { take, bundle } = oneClickAt(rect(400, 780));
+    take.actions = take.actions.map((a) => ({
+      ...a,
+      at: { x: 0.5, y: 0.1 },
+    })) as SceneDocument["actions"];
+    expect(framingOf(take, bundle)?.framing?.label).toBe("cutOff");
+  });
+
   it("reads a target past the bottom edge as cutOff", () => {
     const { take, bundle } = oneClickAt(rect(400, 780));
     expect(framingOf(take, bundle)?.framing?.label).toBe("cutOff");
