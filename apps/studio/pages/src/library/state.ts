@@ -89,9 +89,9 @@ export function commitLabel(code: LibraryRow["filmedCode"]): string | null {
 export function keptSentence(video: VideoSummary): string | null {
   if (video.kept === null) return null;
   if ("unknown" in video.kept) {
-    return `"${video.name}" is kept, but its recipe could not be read (${video.kept.unknown}); only this machine's videos are deleted.`;
+    return `"${video.name}" is in the repo, but its recipe could not be read (${video.kept.unknown}); only this machine's videos are deleted.`;
   }
-  return `"${video.name}" stays kept in ${video.kept.file}; only this machine's videos are deleted.`;
+  return `"${video.name}" stays in the repo (${video.kept.file}); only this machine's videos are deleted.`;
 }
 
 /** Where a video was recorded, short: a remote's owner and name
@@ -385,12 +385,12 @@ export function sectionsOf(
     let label: string;
     let folded = false;
     let namesDay = true;
-    // A kept flow is the repo's, not a day's: it heads the list, one that
+    // A flow in the repo is the repo's, not a day's: it heads the list, one that
     // will not read too, where the problem is seen.
     if (r.kept != null) {
       namesDay = false;
       key = "kept";
-      label = "Kept";
+      label = "In repo";
     } else if (Number.isNaN(made.getTime())) {
       namesDay = false;
       key = "undated";

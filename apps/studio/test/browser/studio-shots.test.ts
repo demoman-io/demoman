@@ -1445,7 +1445,7 @@ describe("the Studio's screenshot set", () => {
   // under 900 tall). Each asserted on its paint, and the premises (the
   // listing says it is kept, and what each version filmed) asserted first.
   it.runIf(process.platform === "darwin")(
-    "shoots a kept flow under its Kept heading with its tag, and its videos' commits, each asserted on its paint",
+    "shoots a flow in the repo under its In repo heading with its tag, and its videos' commits, each asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-kept-"));
       homes.push(home);
@@ -1668,7 +1668,7 @@ describe("the Studio's screenshot set", () => {
             .locator('[data-heading="kept"] [data-name-text]')
             .textContent(),
           at,
-        ).toBe("Kept");
+        ).toBe("In repo");
         expect(
           await shown([
             ['[data-heading="kept"] [data-name-text]', nameCell],
@@ -1679,7 +1679,7 @@ describe("the Studio's screenshot set", () => {
         // The tag: its word, its tooltip (where the recipe is), its glyph
         // drawn, and all of it painted inside the name cell.
         const tag = page.locator(tagSel);
-        expect(await tag.innerText(), at).toBe("Kept");
+        expect(await tag.innerText(), at).toBe("In repo");
         expect(await tag.getAttribute("title"), at).toBe(`${checkout}/${file}`);
         expect(
           await page.evaluate((sel) => {

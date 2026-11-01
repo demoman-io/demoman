@@ -401,7 +401,7 @@ describe("sectionsOf", () => {
     expect(sectionsOf([], now)).toEqual([]);
   });
 
-  it("heads kept flows Kept, above Today, one whose recipe will not read too", () => {
+  it("heads flows in the repo In repo, above Today, one whose recipe will not read too", () => {
     const today = at(2026, 9, 14, 8);
     const kept = {
       ...row("kept", today),
@@ -423,7 +423,7 @@ describe("sectionsOf", () => {
     expect(
       sections.map((s) => [s.key, s.label, s.rows.map((r) => r.sceneId)]),
     ).toEqual([
-      ["kept", "Kept", ["kept", "lost"]],
+      ["kept", "In repo", ["kept", "lost"]],
       ["today", "Today", ["plain"]],
     ]);
     // Premise: "kept" was made today, so without its recipe it is Today's.

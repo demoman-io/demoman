@@ -720,7 +720,7 @@ export function tags(
   }
   if (r.kept != null) {
     strip.append(
-      tag("bookmark", "Kept", {
+      tag("bookmark", "In repo", {
         "data-kept": "",
         title:
           "unknown" in r.kept

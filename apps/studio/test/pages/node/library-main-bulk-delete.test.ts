@@ -62,7 +62,7 @@ const video = (
 });
 
 const KEPT_FILE = ".demoman/videos/create-invoice.json";
-const KEPT_SAID = `"Create an invoice" stays kept in ${KEPT_FILE}; only this machine's videos are deleted.`;
+const KEPT_SAID = `"Create an invoice" stays in the repo (${KEPT_FILE}); only this machine's videos are deleted.`;
 
 function seed(
   libraryView: LibraryViewChoice = CARDS,
@@ -249,7 +249,7 @@ describe("library main — bulk delete", () => {
       await vi.waitFor(() => {
         if (box(INVOICE) !== null) throw new Error("not deleted yet");
       });
-      const said = `"Create an invoice" is kept, but its recipe could not be read (${why}); only this machine's videos are deleted.`;
+      const said = `"Create an invoice" is in the repo, but its recipe could not be read (${why}); only this machine's videos are deleted.`;
       const asked = confirmDialog.ask.mock.calls[0]?.[0] as { body: string };
       expect(asked.body).toBe(
         `This permanently removes the flow and its 2 videos. It can’t be undone. ${said}`,
