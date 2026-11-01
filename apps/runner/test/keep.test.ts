@@ -621,7 +621,10 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
         { to: ReturnType<typeof gif>[]; report?: string },
         string,
       ][] = [
-        [{ to: [gif("same.gif")] }, "same.gif is already kept by the flow"],
+        [
+          { to: [gif("same.gif")] },
+          "same.gif is already kept by the flow",
+        ],
         [{ to: [gif("x.gif")], report: "x.gif" }, "x.gif is named twice"],
         [{ to: [gif("demoman-refresh.json")] }, "its own list"],
         [{ to: [gif("x.gif")], report: "files-two.receipt.json" }, "receipts"],
@@ -1379,7 +1382,9 @@ describe("a run into a kept video rewrites its file", () => {
       const answer = await rewriteKept(repo, first.videoId, deps());
       expect(answer).toEqual({ rewritten: out.file });
       const after = await keptOf(out.file);
-      expect(after.receipt.video).toBe("scene-rw-2");
+      // The receipt is the committed film's, whole: its video, filmedAt and
+      // screens are one film's. Red: point receipt.video at scene-rw-2.
+      expect(after.receipt).toEqual(tampered);
       expect(after.kept.flow).toBe(before.kept.flow);
       expect(after.kept.deliver).toBe("commit");
       expect(after.kept.script.target).toBe("https://example.test/second");
