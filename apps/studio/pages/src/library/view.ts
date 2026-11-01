@@ -999,9 +999,17 @@ function row(
   if (group !== null && group.versions.length > 1) {
     article.append(versionList(group, actions, rowStatus, versionsOpen));
   } else if (group !== null) {
-    // One version has no fold to hold its exports: they sit on the card.
-    const files = exportsList(group.versions[0]?.exports);
-    if (files !== null) article.append(files);
+    // One version has no fold to hold its exports or its commit: they sit
+    // on the card, on one line.
+    const only = group.versions[0];
+    const files = exportsList(only?.exports);
+    const commit = only === undefined ? null : commitSpan(only);
+    if (files !== null || commit !== null) {
+      const line = el("div", { class: "card-exports" });
+      if (commit !== null) line.append(commit);
+      if (files !== null) line.append(files);
+      article.append(line);
+    }
   }
 
   // Where there is no Runs page, the way to restore motion is a sentence,

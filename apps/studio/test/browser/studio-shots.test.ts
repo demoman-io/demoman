@@ -1495,6 +1495,53 @@ describe("the Studio's screenshot set", () => {
       for (const [take, filmedCode] of Object.entries(CODE)) {
         await library.putJson(take, "report.json", { filmedCode });
       }
+      // A kept flow of one video (most flows), filmed at a clean commit,
+      // with one export: its card has no fold, so the commit sits on the
+      // card beside the export.
+      const lone = (PLAIN[0] as PlainTake).id;
+      const store = createVideoStore(home, library);
+      const made = await store.create({
+        name: "Filter invoices",
+        repo: { key: "github.com/acme/web" },
+        startPage: "https://app.example.com/",
+      });
+      if (!made.ok) throw new Error("the one-video flow could not be made");
+      const loneFlow = made.video.id;
+      const read = await library.getSceneRead(lone);
+      expect(read, `premise: ${lone} was seeded`).not.toBeNull();
+      await store.join(lone, {
+        videoId: loneFlow,
+        made: {
+          repo: { none: "seeded" },
+          agent: { none: "seeded" },
+          by: { none: "seeded" },
+          door: "mcp",
+        },
+        recordedRevision: read?.revision ?? null,
+      });
+      await library.putJson(lone, "status.json", { outcome: "complete" });
+      const loneExport = join(home, "out", "Filter invoices.mp4");
+      await writeFile(loneExport, "an exported video");
+      await library.appendOutput(lone, {
+        path: loneExport,
+        fileType: "mp4",
+        aspect: "16:9",
+        byteLength: 1,
+        renderedAt: new Date().toISOString(),
+        sceneDigest: "digest",
+        report: { outcome: "saved" } as never,
+      });
+      const loneFile = `${KEPT_DIR}/${keptFileName("Filter invoices")}`;
+      await writeFile(
+        join(checkout, loneFile),
+        serializeKept({ ...recipe, flow: loneFlow, name: "Filter invoices" }),
+      );
+      expect(
+        (await store.setKept(loneFlow, { root: checkout, file: loneFile })).ok,
+        "premise: the one-video flow is marked kept",
+      ).toBe(true);
+      const LONE_CODE = { commit: "c0ffee1234ab", tree: "t0", dirty: false };
+      await library.putJson(lone, "report.json", { filmedCode: LONE_CODE });
       await mkdir(SHOTS, { recursive: true });
       const studio = await startStudio(home, join(home, "out"));
       running = studio;
@@ -1510,6 +1557,14 @@ describe("the Studio's screenshot set", () => {
       for (const take of [v1, v2, v3]) {
         expect(answer.videoOf[take]?.filmedCode, take).toEqual(CODE[take]);
       }
+      expect(answer.videoOf[lone]).toMatchObject({
+        videoId: loneFlow,
+        filmedCode: LONE_CODE,
+      });
+      expect(answer.videos.find((v) => v.id === loneFlow)).toMatchObject({
+        versions: 1,
+        kept: { root: checkout, file: loneFile },
+      });
       // Today holds a flow that is not kept: the heading has something to
       // lead.
       expect(
@@ -1753,8 +1808,52 @@ describe("the Studio's screenshot set", () => {
           ]),
           `${at}: the card's tag, the commits and a day beside one`,
         ).toEqual([visible, visible, visible, visible]);
+        // The one-video flow's card: no fold, its commit on its exports'
+        // line, before the export, each painted whole.
+        const loneCard = `article[data-video="${loneFlow}"]`;
+        await page.locator(loneCard).scrollIntoViewIfNeeded();
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        await shoot(`library-cards-kept-one-${wh}`, at);
+        expect(
+          await page.locator(`${loneCard} [data-versions]`).count(),
+          `${at}: premise, the one-video card has no fold`,
+        ).toBe(0);
+        expect(
+          await page.evaluate((sel) => {
+            const c = document.querySelector<HTMLElement>(
+              `${sel} [data-commit]`,
+            );
+            const x = document.querySelector(`${sel} [data-export]`);
+            if (c === null || x === null) return null;
+            const a = c.getBoundingClientRect();
+            const b = x.getBoundingClientRect();
+            return {
+              text: c.innerText,
+              title: c.title,
+              before: a.right <= b.left,
+              sameLine:
+                Math.abs(a.top + a.height / 2 - (b.top + b.height / 2)) < 4,
+            };
+          }, loneCard),
+          `${at}: the one-video card's commit`,
+        ).toEqual({
+          text: "c0ffee1",
+          title: "c0ffee1234ab",
+          before: true,
+          sameLine: true,
+        });
+        expect(
+          await shown([
+            [`${loneCard} [data-commit]`, ".card-exports"],
+            [`${loneCard} [data-export] .export-name`, ".card-exports"],
+            [`${loneCard} [data-export] .export-type`, ".card-exports"],
+            [`${loneCard} [data-kept]`, "[data-preview]"],
+          ]),
+          `${at}: the one-video card's commit, export and tag`,
+        ).toEqual([visible, visible, visible, visible]);
       }
-      expect(shots).toHaveLength(SIZES.length * 3);
+      expect(shots).toHaveLength(SIZES.length * 4);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);

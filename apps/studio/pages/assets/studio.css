@@ -724,9 +724,17 @@
 [data-studio] .version-exports .export-type {
   font: 400 11px / 1.6 var(--mono);
 }
-/* A one-version video's exports sit on its card, inset as its text is. */
-[data-studio] .card > .version-exports {
+/* A one-version video's commit and exports sit on its card, inset as its
+   text is, the commit first on the exports' line. */
+[data-studio] .card > .card-exports {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   padding: 4px 2px 2px;
+}
+[data-studio] .card-exports > .version-exports {
+  flex: 1;
+  min-width: 0;
 }
 /* The folder that could not be read: its name in mono, its Delete in
    danger. */

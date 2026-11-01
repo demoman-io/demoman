@@ -835,11 +835,12 @@ export type RenameKeptAnswer =
     };
 
 /**
- * A kept flow's rename: the recipe's `name`, the recipe and its receipt to
- * the new name's file, then the library's record and its pointer. Every
- * check runs before anything is written, and the recipe is written first,
- * so a refusal leaves the old name everywhere; a step that fails after it
- * answers what was already done, never that the flow was renamed.
+ * A kept flow's rename: the recipe under the new name's file with its new
+ * `name`, the receipt beside it, the library's record and its pointer, and
+ * last the old recipe removed. Every check runs before anything is written,
+ * so a refusal leaves the old name everywhere. A step that fails undoes
+ * the ones before it, newest first, and the answer says so; an undo that
+ * fails too is named with what it left. Never answers renamed on a failure.
  */
 export async function renameKept(
   a: { root: string; file: string; name: string },
@@ -907,8 +908,11 @@ export async function renameKept(
   // The receipt goes with the recipe; a v1 recipe carries its own, which
   // the v2 recipe written below does not, so it is written out.
   let carry: (() => Promise<unknown>) | null = null;
+  const had =
+    old.deliver === "commit"
+      ? await readReceiptFile(join(root, oldReceipt), oldReceipt)
+      : ({ missing: true } as const);
   if (old.deliver === "commit") {
-    const had = await readReceiptFile(join(root, oldReceipt), oldReceipt);
     if ("detail" in had) {
       return refuse(
         "keptCheckoutMissing",
@@ -937,33 +941,45 @@ export async function renameKept(
       }
     }
   }
-  // Each step as asked and as done, so a failure says what was done first.
-  const steps: [string, string, () => Promise<unknown>][] = [
-    [
-      `write ${file}`,
-      `wrote ${file}`,
-      () => place(join(root, file), serializeKept({ ...old, name: a.name })),
-    ],
+  // Each step: what it does, how it is undone, and what is left when the
+  // undo fails too. The old recipe goes last, so until then a failure can
+  // put every step back.
+  type Step = {
+    what: string;
+    run: () => Promise<unknown>;
+    undo: () => Promise<unknown>;
+    left: string;
+  };
+  const failed = (r: { ok: boolean }, why: string) => {
+    if (!r.ok) throw new Error(why);
+  };
+  const steps: Step[] = [
+    {
+      what: `write ${file}`,
+      run: () =>
+        place(join(root, file), serializeKept({ ...old, name: a.name })),
+      undo: () =>
+        moves ? rm(join(root, file)) : place(join(root, a.file), text),
+      left: moves
+        ? `${file} is left beside ${a.file}`
+        : `${file} is left naming the flow "${a.name}"`,
+    },
   ];
   if (carry !== null) {
-    steps.push([
-      `move ${oldReceipt} to ${receipt}`,
-      `moved ${oldReceipt} to ${receipt}`,
-      carry,
-    ]);
-  }
-  if (moves) {
-    steps.push([
-      `remove ${a.file}`,
-      `removed ${a.file}`,
-      () => rm(join(root, a.file)),
-    ]);
+    steps.push({
+      what: `move ${oldReceipt} to ${receipt}`,
+      run: carry,
+      undo: () =>
+        "missing" in had
+          ? rm(join(root, receipt))
+          : rename(join(root, receipt), join(root, oldReceipt)),
+      left: `the receipt is left at ${receipt}`,
+    });
   }
   steps.push(
-    [
-      "rename the library's flow",
-      "renamed the library's flow",
-      async () => {
+    {
+      what: "rename the library's flow",
+      run: async () => {
         const r = await deps.videos.rename(rec.id, a.name);
         if (!r.ok) {
           throw new Error(
@@ -973,29 +989,59 @@ export async function renameKept(
           );
         }
       },
-    ],
-    [
-      `point the library's flow at ${file}`,
-      "",
-      async () => {
-        const r = await deps.videos.setKept(rec.id, { root, file });
-        if (!r.ok) throw new Error(`flow ${rec.id} is not in the library`);
-      },
-    ],
+      undo: async () =>
+        failed(
+          await deps.videos.rename(rec.id, rec.name),
+          `"${rec.name}" could not be given back`,
+        ),
+      left: `the library's flow is left named "${a.name}"`,
+    },
+    {
+      what: `point the library's flow at ${file}`,
+      run: async () =>
+        failed(
+          await deps.videos.setKept(rec.id, { root, file }),
+          `flow ${rec.id} is not in the library`,
+        ),
+      undo: async () =>
+        failed(
+          await deps.videos.setKept(rec.id, rec.kept ?? null),
+          `flow ${rec.id} is not in the library`,
+        ),
+      left: `the library's flow is left pointing at ${file}`,
+    },
   );
-  const done: string[] = [];
-  for (const [what, did, run] of steps) {
+  if (moves) {
+    steps.push({
+      what: `remove ${a.file}`,
+      run: () => rm(join(root, a.file)),
+      undo: async () => undefined,
+      left: "",
+    });
+  }
+  const done: Step[] = [];
+  for (const step of steps) {
     try {
-      await run();
+      await step.run();
     } catch (error) {
+      const left: string[] = [];
+      for (const d of done.reverse()) {
+        try {
+          await d.undo();
+        } catch (undoError) {
+          left.push(`${d.left} (${messageOf(undoError)})`);
+        }
+      }
       return refuse(
         "keptUnwritable",
-        done.length === 0
-          ? `"${old.name}" was not renamed: could not ${what} (${messageOf(error)})`
-          : `"${old.name}" was only partly renamed to "${a.name}": ${done.join(", ")}, then could not ${what} (${messageOf(error)})`,
+        `"${old.name}" was not renamed: could not ${step.what} (${messageOf(error)})${
+          left.length === 0
+            ? "; every step before it was undone, so the old name stands everywhere"
+            : `, and not every step could be undone: ${left.join("; ")}`
+        }`,
       );
     }
-    done.push(did);
+    done.push(step);
   }
   return { ok: true, file };
 }

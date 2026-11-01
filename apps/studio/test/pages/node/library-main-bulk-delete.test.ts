@@ -229,6 +229,36 @@ describe("library main — bulk delete", () => {
       );
     });
 
+    it("one whose recipe will not read says so, asked and done", async () => {
+      const why = ".demoman/videos/create-invoice.json in /gone is gone";
+      memory = seed(CARDS, { unknown: why });
+      state.memory = memory;
+      await open();
+      // Premise: the fixture's flow is drawn as kept, with the reason.
+      expect(
+        document
+          .querySelector(`article[data-video="${INVOICE}"] [data-kept]`)
+          ?.getAttribute("title"),
+      ).toBe(why);
+      // Red: answer null for an unknown recipe in keptSentence.
+      (
+        document.querySelector(
+          `article[data-video="${INVOICE}"] [data-action="delete"]`,
+        ) as HTMLButtonElement
+      ).click();
+      await vi.waitFor(() => {
+        if (box(INVOICE) !== null) throw new Error("not deleted yet");
+      });
+      const said = `"Create an invoice" is kept, but its recipe could not be read (${why}); only this machine's videos are deleted.`;
+      const asked = confirmDialog.ask.mock.calls[0]?.[0] as { body: string };
+      expect(asked.body).toBe(
+        `This permanently removes the flow and its 2 videos. It can’t be undone. ${said}`,
+      );
+      expect(document.querySelector("[data-toast-text]")?.textContent).toBe(
+        `Deleted the flow. ${said.replace(/\.$/, "")}`,
+      );
+    });
+
     it("a bulk delete with it asks and answers the same sentence", async () => {
       await open();
       await tick(INVOICE, REPORT);

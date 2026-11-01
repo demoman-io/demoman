@@ -85,9 +85,12 @@ export function commitLabel(code: LibraryRow["filmedCode"]): string | null {
 }
 
 /** What a delete of a kept flow adds (spec seam 7): its recipe stays in
- *  the repo. Null for a flow with no recipe here to name. */
+ *  the repo, or, when it will not read, why. Null for a flow not kept. */
 export function keptSentence(video: VideoSummary): string | null {
-  if (video.kept === null || "unknown" in video.kept) return null;
+  if (video.kept === null) return null;
+  if ("unknown" in video.kept) {
+    return `"${video.name}" is kept, but its recipe could not be read (${video.kept.unknown}); only this machine's videos are deleted.`;
+  }
   return `"${video.name}" stays kept in ${video.kept.file}; only this machine's videos are deleted.`;
 }
 

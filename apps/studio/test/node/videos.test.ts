@@ -2,9 +2,11 @@ import {
   chmod,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -536,21 +538,116 @@ describe("renaming a kept flow", () => {
     expect(after?.name).toBe("Create an invoice");
   });
 
-  it("a rename that stops part-way says what it did, and never answers renamed", async () => {
+  /** What the checkout and the library hold of the flow: whether each
+   *  recipe file is there, the record's name and its kept pointer. */
+  const state = async () => {
+    const v = (await listing()).videos.find((x) => x.id === invoice);
+    return {
+      oldRecipe: await exists(join(checkout, KEPT_DIR, OLD)),
+      newRecipe: await exists(join(checkout, KEPT_DIR, NEW)),
+      oldReceipt: await exists(join(checkout, RECEIPT_DIR, OLD)),
+      newReceipt: await exists(join(checkout, RECEIPT_DIR, NEW)),
+      name: v?.name,
+      kept: v?.kept,
+    };
+  };
+  const untouched = () => ({
+    oldRecipe: true,
+    newRecipe: false,
+    oldReceipt: true,
+    newReceipt: false,
+    name: "Create an invoice",
+    kept: { root: checkout, file: `${KEPT_DIR}/${OLD}`, deliver: "commit" },
+  });
+  const refusal = (r: { json: () => unknown }) =>
+    r.json() as { reason: string; detail: string };
+
+  it("a receipt that will not move undoes the recipe, and the same rename then succeeds", async () => {
     await keepInvoice(checkout);
     // The receipt cannot move: its folder takes no new file.
     await chmod(join(checkout, RECEIPT_DIR), 0o555);
     const r = await rename(invoice, { name: "Send an invoice" });
     expect(r.status, r.text).toBe(500);
-    const refused = r.json() as { reason: string; detail: string };
-    expect(refused.reason).toBe("keptUnwritable");
-    // The recipe was written first; the detail names it, then the step
-    // that failed.
-    expect(refused.detail).toContain(`wrote ${KEPT_DIR}/${NEW}`);
-    expect(refused.detail).toContain(`move ${RECEIPT_DIR}/${OLD}`);
-    expect(await exists(join(checkout, RECEIPT_DIR, OLD))).toBe(true);
-    const after = (await listing()).videos.find((v) => v.id === invoice);
-    expect(after?.name).toBe("Create an invoice");
+    expect(refusal(r).reason).toBe("keptUnwritable");
+    expect(refusal(r).detail).toContain(`could not move ${RECEIPT_DIR}/${OLD}`);
+    expect(refusal(r).detail).toContain("the old name stands everywhere");
+    // Red: drop the undo — the new recipe is left beside the old one.
+    expect(await state()).toEqual(untouched());
+    await chmod(join(checkout, RECEIPT_DIR), 0o755);
+    const retry = await rename(invoice, { name: "Send an invoice" });
+    expect(retry.status, retry.text).toBe(200);
+    expect(await state()).toEqual({
+      oldRecipe: false,
+      newRecipe: true,
+      oldReceipt: false,
+      newReceipt: true,
+      name: "Send an invoice",
+      kept: { root: checkout, file: `${KEPT_DIR}/${NEW}`, deliver: "commit" },
+    });
+  });
+
+  it("a library that will not rename puts both files back at the old name", async () => {
+    await keepInvoice(checkout);
+    // The record's folder takes no lock: videos.rename fails after the
+    // recipe and receipt have moved.
+    const records = join(home, "videos");
+    await chmod(records, 0o555);
+    let r: Awaited<ReturnType<typeof rename>>;
+    try {
+      r = await rename(invoice, { name: "Send an invoice" });
+    } finally {
+      await chmod(records, 0o755);
+    }
+    expect(r.status, r.text).toBe(500);
+    expect(refusal(r).reason).toBe("keptUnwritable");
+    expect(refusal(r).detail).toContain("could not rename the library's flow");
+    // Red: remove the old recipe before the library's rename, or drop the
+    // undo — the files are left at the new slug while the library says old.
+    expect(await state()).toEqual(untouched());
+  });
+
+  it("a path that leaves the repo refuses keptUnwritable and writes nothing", async () => {
+    await keepInvoice(checkout);
+    // The receipts folder is a link to a folder outside the checkout.
+    const outside = await mkdtemp(join(tmpdir(), "studio-outside-"));
+    try {
+      await rm(join(checkout, RECEIPT_DIR), { recursive: true });
+      await symlink(outside, join(checkout, RECEIPT_DIR));
+      const r = await rename(invoice, { name: "Send an invoice" });
+      expect(r.status, r.text).toBe(500);
+      expect(refusal(r).reason).toBe("keptUnwritable");
+      expect(refusal(r).detail).toMatch(/nothing was renamed\.$/);
+      const now = await state();
+      expect(now).toMatchObject({
+        oldRecipe: true,
+        newRecipe: false,
+        name: "Create an invoice",
+      });
+      expect(await readdir(outside)).toEqual([]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("a name another flow or file holds refuses nameTaken and writes nothing", async () => {
+    await keepInvoice(checkout);
+    const flow = await rename(invoice, { name: "Sign up" });
+    expect(flow.status, flow.text).toBe(409);
+    expect(refusal(flow)).toEqual({
+      reason: "nameTaken",
+      detail: 'Another flow is already called "Sign up".',
+    });
+    expect(await state()).toEqual(untouched());
+    // A file already at the new name's slug, keeping something else.
+    await writeFile(join(checkout, KEPT_DIR, NEW), "someone else's");
+    const file = await rename(invoice, { name: "Send an invoice" });
+    expect(file.status, file.text).toBe(409);
+    expect(refusal(file).reason).toBe("nameTaken");
+    expect(refusal(file).detail).toContain(`${KEPT_DIR}/${NEW} already exists`);
+    expect(await readFile(join(checkout, KEPT_DIR, NEW), "utf8")).toBe(
+      "someone else's",
+    );
+    expect({ ...(await state()), newRecipe: false }).toEqual(untouched());
   });
 });
 
