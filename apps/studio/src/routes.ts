@@ -575,14 +575,24 @@ export function createRoutes(o: {
         const rec = await videos.get(id);
         if (rec?.kept === undefined) return videos.rename(id, name.trim());
         const kept = await keptOf(rec);
-        if (kept !== null && "unknown" in kept) {
+        if (kept === null) {
+          // Its checkout is gone or keeps it no more (keptOf decides): the
+          // flow is this library's alone, so its stale mark goes with it.
+          const renamed = await videos.rename(id, name.trim());
+          if (!renamed.ok) return renamed;
+          return videos.setKept(id, null);
+        }
+        if ("unknown" in kept) {
           return {
             ok: false as const,
             reason: "repoCheckoutMissing" as const,
             detail: `${kept.unknown}, so the flow keeps its name.`,
           };
         }
-        return renameKept({ ...rec.kept, name: name.trim() }, { videos });
+        return renameKept(
+          { root: kept.root, file: kept.file, name: name.trim() },
+          { videos },
+        );
       });
       if (done.ok) return json(200, {});
       if (done.reason === "videoNotFound") return noVideo(id);

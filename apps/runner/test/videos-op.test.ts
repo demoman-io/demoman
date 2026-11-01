@@ -1,9 +1,17 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Outcome } from "@demoman/agent-bridge";
 import {
+  FLOWS_DIR,
   LEGACY_FLOWS_DIR as KEPT_DIR,
   type KeptVideo,
   keptFileName,
@@ -546,21 +554,55 @@ describe("videosOp", () => {
       });
     });
 
-    it("a kept file removed from the checkout reads unknown, not null", async () => {
-      const got = (await summaryOf()).kept;
-      expect(got).toEqual({ unknown: expect.stringContaining(" is gone (") });
-      expect((got as { unknown: string }).unknown).toContain(file);
+    it("a recipe removed from the checkout, with none keeping the flow, reads null", async () => {
+      await mkdir(join(home, KEPT_DIR), { recursive: true });
+      // Premise: the checkout is there, and its marked file is not.
+      await expect(readdir(join(home, KEPT_DIR))).resolves.toEqual([]);
+      expect((await summaryOf()).kept).toBeNull();
     });
 
-    it("a kept file that keeps another flow reads unknown", async () => {
+    it("a checkout that is gone reads null: the flow is filed by date", async () => {
+      const checkout = await mkdtemp(join(tmpdir(), "demoman-gone-"));
+      const lib = createLibrary(home);
+      const store = createVideoStore(home, lib);
+      const adopted = await store.adopt({
+        id: FLOW,
+        name: NAME,
+        repo: { none: "test" },
+        startPage: "http://localhost:1/app",
+        kept: { root: checkout, file },
+      });
+      if (!adopted.ok) throw new Error("fixture not adopted");
+      await mkdir(join(checkout, KEPT_DIR), { recursive: true });
+      await writeFile(join(checkout, file), serializeKept(recipe(FLOW)));
+      // Premise: kept while the checkout is there.
+      expect((await summarise(store, lib, adopted.video)).kept).toEqual({
+        file,
+        root: checkout,
+        deliver: "files",
+      });
+      await rm(checkout, { recursive: true, force: true });
+      expect((await summarise(store, lib, adopted.video)).kept).toBeNull();
+    });
+
+    it("a recipe moved to another file in the checkout is found there", async () => {
+      await mkdir(join(home, FLOWS_DIR), { recursive: true });
+      const moved = `${FLOWS_DIR}/moved.json`;
+      await writeFile(join(home, moved), serializeKept(recipe(FLOW)));
+      expect((await summaryOf()).kept).toEqual({
+        file: moved,
+        root: home,
+        deliver: "files",
+      });
+    });
+
+    it("a kept file that keeps another flow, with none keeping this one, reads null", async () => {
       await mkdir(join(home, KEPT_DIR), { recursive: true });
       await writeFile(
         join(home, file),
         serializeKept(recipe("11111111-7d3a-4f0e-9a41-2c8d5e6f7a91")),
       );
-      expect((await summaryOf()).kept).toEqual({
-        unknown: expect.stringContaining("keeps flow 11111111"),
-      });
+      expect((await summaryOf()).kept).toBeNull();
     });
 
     it("a garbled kept file reads unknown, as will not read", async () => {
@@ -569,6 +611,22 @@ describe("videosOp", () => {
       expect((await summaryOf()).kept).toEqual({
         unknown: expect.stringContaining("will not read"),
       });
+    });
+
+    it("two recipes naming the flow read unknown, naming both", async () => {
+      await mkdir(join(home, FLOWS_DIR), { recursive: true });
+      await writeFile(
+        join(home, `${FLOWS_DIR}/a.json`),
+        serializeKept(recipe(FLOW)),
+      );
+      await writeFile(
+        join(home, `${FLOWS_DIR}/b.json`),
+        serializeKept(recipe(FLOW)),
+      );
+      const got = (await summaryOf()).kept as { unknown: string };
+      expect(got.unknown).toContain(
+        `${FLOWS_DIR}/a.json and ${FLOWS_DIR}/b.json`,
+      );
     });
 
     it("a video that was never kept has kept null", async () => {

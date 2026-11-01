@@ -536,22 +536,54 @@ describe("renaming a kept flow", () => {
     );
   });
 
-  it("renaming a kept flow whose checkout is gone refuses and renames nothing", async () => {
+  it("renaming a kept flow whose checkout is gone renames it and clears the mark", async () => {
     await keepInvoice(checkout);
+    // Premise: the record is marked kept in a checkout that is then deleted.
+    const store = createVideoStore(home, createLibrary(home));
+    expect((await store.get(invoice))?.kept?.root).toBe(checkout);
     await rm(checkout, { recursive: true, force: true });
-    // Premise: the listing reads it as kept somewhere it cannot see.
+    // The listing files it by date, not In repo: keptOf decides, once.
     const before = (await listing()).videos.find((v) => v.id === invoice);
-    expect(before?.kept).toEqual({ unknown: expect.stringContaining(OLD) });
-    // Red: rename the record when its recipe cannot be read — the library
-    // and the checkout's recipe then disagree on the flow's name.
+    expect(before?.kept).toBeNull();
+    // Red: refuse while the record is marked — a deleted worktree leaves
+    // the flow unrenameable for good.
     const r = await rename(invoice, { name: "Send an invoice" });
-    expect(r.status, r.text).toBe(409);
-    const refused = r.json() as { reason: string; detail: string };
-    expect(refused.reason).toBe("repoCheckoutMissing");
-    expect(refused.detail).toContain(`${KEPT_DIR}/${OLD} in ${checkout}`);
-    expect(refused.detail).toMatch(/keeps its name\.$/);
+    expect(r.status, r.text).toBe(200);
     const after = (await listing()).videos.find((v) => v.id === invoice);
-    expect(after?.name).toBe("Create an invoice");
+    expect(after?.name).toBe("Send an invoice");
+    expect((await store.get(invoice))?.kept).toBeUndefined();
+  });
+
+  it("renaming a kept flow whose recipe no file in the checkout keeps renames it and clears the mark", async () => {
+    await keepInvoice(checkout);
+    await rm(join(checkout, KEPT_DIR, OLD));
+    // Premise: the checkout is still there.
+    expect(await exists(checkout)).toBe(true);
+    const r = await rename(invoice, { name: "Send an invoice" });
+    expect(r.status, r.text).toBe(200);
+    const store = createVideoStore(home, createLibrary(home));
+    expect((await store.get(invoice))?.name).toBe("Send an invoice");
+    expect((await store.get(invoice))?.kept).toBeUndefined();
+    // Nothing was written into the checkout for a flow it no longer keeps.
+    expect(await exists(join(checkout, FLOWS_DIR))).toBe(false);
+  });
+
+  it("renaming a kept flow whose recipe will not read refuses and renames nothing", async () => {
+    await keepInvoice(checkout);
+    await chmod(join(checkout, KEPT_DIR, OLD), 0o000);
+    try {
+      const r = await rename(invoice, { name: "Send an invoice" });
+      expect(r.status, r.text).toBe(409);
+      const refused = r.json() as { reason: string; detail: string };
+      expect(refused.reason).toBe("repoCheckoutMissing");
+      expect(refused.detail).toContain(`${KEPT_DIR}/${OLD}`);
+      expect(refused.detail).toMatch(/keeps its name\.$/);
+      const store = createVideoStore(home, createLibrary(home));
+      expect((await store.get(invoice))?.name).toBe("Create an invoice");
+      expect((await store.get(invoice))?.kept?.root).toBe(checkout);
+    } finally {
+      await chmod(join(checkout, KEPT_DIR, OLD), 0o644);
+    }
   });
 
   /** What the checkout and the library hold of the flow: whether each

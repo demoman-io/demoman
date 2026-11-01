@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { failure, type Outcome } from "@demoman/agent-bridge";
 import {
@@ -45,9 +45,10 @@ export interface VideoSummary {
     | { takeId: string; path: string; fileType: FileType; exists: boolean }
     | { takeId: string; unreadable: string }
   >;
-  /** The recipe that keeps this flow, null when none does, or `unknown` when
-   *  the record says one does and the checkout's file is gone, will not read
-   *  or keeps another flow. */
+  /** The recipe that keeps this flow, null when none does (also when the
+   *  record's checkout is gone, or no recipe in it keeps this flow any
+   *  more), or `unknown` when one might and cannot be read: a recipe that
+   *  will not read, or two that name the flow. */
   kept:
     | { file: string; root: string; deliver: KeptDeliver }
     | null
@@ -57,35 +58,48 @@ export interface VideoSummary {
 }
 
 /** Reads the recipe a record points at (the same parser the kept folder's
- *  reader uses); anything but a recipe for this flow is `unknown`, said. */
+ *  reader uses), else the one in its checkout that keeps this flow now.
+ *  Whether a marked flow is still in the repo is decided here, once: the
+ *  library's listing and the Studio's rename both read this answer. */
 export async function keptOf(
   video: VideoRecord,
 ): Promise<VideoSummary["kept"]> {
   if (video.kept === undefined) return null;
   const { root, file } = video.kept;
-  let text: string;
+  // A deleted worktree is normal: its flows are this library's alone now.
+  const there = await stat(root).then(
+    () => null,
+    (error: unknown) =>
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+        ? "gone"
+        : `${root} cannot be read (${messageOf(error)})`,
+  );
+  if (there === "gone") return null;
+  if (there !== null) return { unknown: there };
+  const text = await readFile(join(root, file), "utf8").catch(() => null);
+  const parsed = text === null ? null : parseKept(text, file);
+  if (parsed?.ok === true && parsed.kept.flow === video.id)
+    return { file, root, deliver: parsed.kept.deliver };
+  // The marked file is gone, moved or another flow's: the folder says
+  // which recipe, if any, keeps this flow.
+  let found: Awaited<ReturnType<typeof findKept>>;
   try {
-    text = await readFile(join(root, file), "utf8");
+    found = await findKept(root, video.id);
   } catch (error) {
-    const gone = (error as NodeJS.ErrnoException).code === "ENOENT";
     return {
-      unknown: gone
-        ? `${file} in ${root} is gone (${messageOf(error)})`
-        : `${file} in ${root} will not read: ${messageOf(error)}`,
+      unknown: `the flows in ${root} could not be listed (${messageOf(error)})`,
     };
   }
-  const parsed = parseKept(text, file);
-  if (!parsed.ok) {
+  if (found === null) return null;
+  if ("kept" in found)
+    return { file: found.file, root, deliver: found.kept.deliver };
+  if ("duplicate" in found)
     return {
-      unknown: `${file} in ${root} will not read: ${parsed.detail}`,
+      unknown: `${found.duplicate.join(" and ")} in ${root} both name this flow`,
     };
-  }
-  if (parsed.kept.flow !== video.id) {
-    return {
-      unknown: `${file} in ${root} keeps flow ${parsed.kept.flow}`,
-    };
-  }
-  return { file, root, deliver: parsed.kept.deliver };
+  return {
+    unknown: `a recipe in ${root} will not read, so whether it keeps this flow is unknown: ${found.unreadable.join("; ")}`,
+  };
 }
 
 const STEPS_MAX = 12;
