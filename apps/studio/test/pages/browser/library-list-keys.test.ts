@@ -504,6 +504,23 @@ describe("Enter", () => {
 });
 
 describe("selecting", () => {
+  // Red: Enter falling through to `edit` while flows are ticked (DEM-35).
+  it("Enter while flows are ticked does what a click does: a flow toggles, a video opens nothing", async () => {
+    mount(["B"]);
+    expect(ticked(), "the fixture ticks B").toEqual(["f:B"]);
+    await enter();
+    await press("{ArrowDown}{Enter}", "f:A");
+    expect(acts.select, where()).toHaveBeenCalledWith("A", "toggle", [
+      "A",
+      "B",
+      "E",
+      "C",
+    ]);
+    await press("{ArrowRight}{ArrowDown}{ArrowDown}{Enter}", "v:a1");
+    expect(acts.edit, where()).not.toHaveBeenCalled();
+    expect(ticked(), where()).toEqual(["f:A", "f:B"]);
+  });
+
   it("Space toggles the flow, from the row, a cell with no control, or its checkbox", async () => {
     mount();
     await enter();

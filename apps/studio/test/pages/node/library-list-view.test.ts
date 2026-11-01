@@ -403,6 +403,32 @@ describe("the list view", () => {
     expect(shown()[0]?.closest("[role=row]")).toBe(flowRow);
   });
 
+  // Red: the closed flow row saying only its lead's take status (DEM-31).
+  it("an older video's status is said on its closed flow row, named by its video", () => {
+    const status = new Map([["take:b1", "Could not delete: it is open."]]);
+    const { grid } = draw(BY_NAME, model, actions(), status);
+    const flowRow = rowOf(grid, "f:B");
+    const shown = () =>
+      [
+        ...(grid as HTMLElement).querySelectorAll<HTMLElement>(
+          "[data-status] > .notice",
+        ),
+      ].filter((p) => p.closest("[hidden]") === null);
+    // Premise: b1 is B's older video, and B starts closed, hiding its row.
+    expect(groups[1]?.current?.sceneId).toBe("b2");
+    expect(groups[1]?.versions[1]?.sceneId).toBe("b1");
+    expect(flowRow.getAttribute("aria-expanded")).toBe("false");
+    expect(rowOf(grid, "v:b1").hidden).toBe(true);
+    expect(
+      shown().map((p) => [p.closest("[role=row]"), p.textContent]),
+    ).toEqual([[flowRow, "Video 1: Could not delete: it is open."]]);
+    cell(flowRow, "open").click();
+    expect(
+      shown().map((p) => [p.closest("[role=row]"), p.textContent]),
+    ).toEqual([[rowOf(grid, "v:b1"), "Could not delete: it is open."]]);
+    expect(flowRow.hasAttribute("aria-describedby")).toBe(false);
+  });
+
   it("the rerun line where Restore has no button is the row's line too", () => {
     expect(a3.canRestore).toBe(true);
     const { grid } = draw();

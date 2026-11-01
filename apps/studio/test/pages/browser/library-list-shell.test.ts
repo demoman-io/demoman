@@ -650,6 +650,34 @@ describe("the list's look", () => {
     );
   });
 
+  // Red: the name's `max-width: 100%` beside a tag, which clips the tag
+  // to nothing (DEM-34).
+  it("at 720px a name as wide as its cell leaves its tag's glyph showing", async () => {
+    await page.viewport(720, 900);
+    mount();
+    const nameCell = cell("f:R", "name");
+    const name = nameCell.querySelector("[data-name-text]") as HTMLElement;
+    name.textContent = "Reclaimed checkout with a zoom ".repeat(4);
+    const strip = row("f:R").querySelector(".row-tags") as HTMLElement;
+    const glyph = strip.querySelector("svg") as SVGElement;
+    const said = (): string =>
+      JSON.stringify({
+        name: [name.clientWidth, name.scrollWidth],
+        strip: strip.getBoundingClientRect().width,
+        cell: nameCell.clientWidth,
+      });
+    // Premise: the name alone is wider than its cell, and the tag has a glyph.
+    expect(name.scrollWidth, said()).toBeGreaterThan(nameCell.clientWidth);
+    expect(glyph, said()).not.toBeNull();
+    const s = strip.getBoundingClientRect();
+    const g = glyph.getBoundingClientRect();
+    expect(g.left, said()).toBeGreaterThanOrEqual(s.left);
+    expect(g.right, said()).toBeLessThanOrEqual(s.right + 0.5);
+    expect(s.right, said()).toBeLessThanOrEqual(
+      nameCell.getBoundingClientRect().right + 0.5,
+    );
+  });
+
   it("at 560px Length and Videos are gone too", async () => {
     await page.viewport(560, 900);
     mount();
@@ -1104,6 +1132,51 @@ describe("the look pass's focus, cover and Couldn't read heading", () => {
     const rowTop = row("h:today").getBoundingClientRect().top;
     expect(close(paint(x, line.top + 1), ink, 24), "on the line").toBe(true);
     expect(close(paint(x, rowTop + 1), ink, 24), "above the line").toBe(false);
+  });
+
+  // Red: no glyph after the sorted label, or hover painted in the sorted
+  // ink (DEM-32).
+  it("the sorted heading shows its direction, and hover is not the sorted ink", async () => {
+    mount();
+    const sortedHead = (): HTMLElement =>
+      node("[data-list-head] [aria-sort]") as HTMLElement;
+    const glyph = (): SVGElement | null => sortedHead().querySelector("svg");
+    const turn = (): string =>
+      getComputedStyle(glyph() as SVGElement).transform;
+    // Premise: Recorded is sorted, descending, and it is the only sort
+    // with a glyph.
+    expect(sortedHead().dataset.col).toBe("recorded");
+    expect(sortedHead().getAttribute("aria-sort")).toBe("descending");
+    expect(head().querySelectorAll("[data-sort] svg")).toHaveLength(1);
+    const g = (glyph() as SVGElement).getBoundingClientRect();
+    const c = sortedHead().getBoundingClientRect();
+    expect([g.width, g.height]).toEqual([12, 12]);
+    expect(g.left).toBeGreaterThanOrEqual(c.left);
+    expect(g.right).toBeLessThanOrEqual(c.right + 0.5);
+    expect(turn()).toBe("none");
+
+    const name = node('[data-list-head] [data-sort="name"]') as HTMLElement;
+    const sortedInk = getComputedStyle(
+      sortedHead().querySelector("[data-sort]") as Element,
+    ).color;
+    const restInk = getComputedStyle(name).color;
+    await userEvent.hover(name);
+    const hoverInk = getComputedStyle(name).color;
+    expect(new Set([restInk, hoverInk, sortedInk]).size, hoverInk).toBe(3);
+
+    renderLibrary(
+      node("#root"),
+      MODEL,
+      ACTIONS,
+      new Map(),
+      NOW,
+      { ids: new Set(), anchor: null, range: [] },
+      undefined,
+      { layout: "list", sort: { column: "name", descending: false } },
+    );
+    expect(sortedHead().getAttribute("aria-sort")).toBe("ascending");
+    // Turned half a turn: up.
+    expect(turn()).toBe("matrix(-1, 0, 0, -1, 0, 0)");
   });
 
   // Red: the cards' heading (mono, uppercase, 4px above) drawn under the

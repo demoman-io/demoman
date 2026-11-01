@@ -644,6 +644,21 @@
 [data-studio] .section-head .chev {
   color: var(--ink-4);
 }
+/* The library's sections, the cards' too, take the list's date-heading
+   label: the UI sans, not the mono capitals above (DEM-30). */
+[data-studio] .library-content .section-head :is(h2, .section-count) {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: normal;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink-faint);
+}
+[data-studio] .library-content .section-head .section-count {
+  font-weight: 500;
+  color: var(--ink-4);
+}
 [data-studio] .section[open] + .section {
   margin-top: 36px;
 }

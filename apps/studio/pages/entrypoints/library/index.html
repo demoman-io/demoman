@@ -774,9 +774,19 @@
         color: inherit;
         font: inherit;
         cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
       }
+      /* Hover lifts a heading a step, short of the sorted one's ink, so a
+         pointer over it never reads as a sort (DEM-32). */
+      .library-list [data-list-head] [data-sort]:hover { color: var(--ink-muted); }
       .library-list [data-list-head] [aria-sort],
-      .library-list [data-list-head] [data-sort]:hover { color: var(--ink); }
+      .library-list [data-list-head] [aria-sort] [data-sort] { color: var(--ink); }
+      .library-list [data-list-head] [data-sort] svg { width: 12px; height: 12px; }
+      .library-list [data-list-head] [aria-sort="ascending"] [data-sort] svg {
+        transform: rotate(180deg);
+      }
       .library-list :is([role="gridcell"], [role="columnheader"]) {
         min-width: 0;
         line-height: calc(var(--list-row) - 1px);
@@ -823,6 +833,12 @@
         max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+      /* But a name as wide as its cell leaves its tag the glyph: a worded
+         tag's padding and icon, the glyph-only tag's square, and the gap
+         (DEM-34). */
+      .library-list [data-col="name"]:has(> .row-tags) > [data-name-text] {
+        max-width: calc(100% - 20px - 8px);
       }
       .library-list [data-video-row] [data-col="name"] { padding-left: 16px; }
       .library-list .row-tags {
@@ -877,7 +893,7 @@
       }
       /* "Couldn't read" under the list: the date headings' label, with no
          chevron (it does not fold) — their room above, their line, their
-         sans. The cards keep the studio's own heading. */
+         sans. The Studio's sheet gives the cards' headings it too (DEM-30). */
       .library-list ~ [data-unreadable] { margin-top: 0; }
       .library-list ~ [data-unreadable] > .section-head {
         /* A date heading row: 14px above a 34px line. */

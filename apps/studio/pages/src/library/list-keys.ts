@@ -344,7 +344,21 @@ export function attachListKeys(
             setExpanded(row, row.getAttribute("aria-expanded") === "false");
           } else if (col === "name") {
             openRename(row);
-          } else if (!inCell && !row.hasAttribute("data-absent")) {
+          } else if (inCell) {
+            // A cell with no control has nothing to open.
+          } else if (grid.closest("[data-selecting]") !== null) {
+            // As a click does while flows are ticked: a flow toggles and a
+            // video opens nothing, so one key never drops the selection.
+            if (flowId !== undefined && !busy) {
+              actions.select?.(flowId, "toggle", flowsOnScreen(grid));
+            } else if (
+              row.dataset.videoRow === undefined &&
+              !row.hasAttribute("data-absent") &&
+              row.dataset.scene !== undefined
+            ) {
+              actions.edit(row.dataset.scene);
+            }
+          } else if (!row.hasAttribute("data-absent")) {
             const scene = row.dataset.scene;
             if (scene !== undefined) actions.edit(scene);
           }

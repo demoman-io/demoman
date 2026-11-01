@@ -426,8 +426,9 @@ describe("library", () => {
           `a card's ring at ${c.left}: ${JSON.stringify(ring)}`,
         ).toBeGreaterThanOrEqual(LINE_STEP);
       }
-      expect(g.headFont, said).toMatch(/^"?Geist Mono"?/);
-      expect(g.headCase, said).toBe("uppercase");
+      // The list's date headings' sans label, not mono capitals (DEM-30).
+      expect(g.headFont, said).not.toMatch(/mono/i);
+      expect(g.headCase, said).toBe("none");
       const rule = await hairlineAt(page, g.contentRight - 6, g.head.mid, "h");
       expect(
         rule.line - Math.max(rule.before, rule.after),
