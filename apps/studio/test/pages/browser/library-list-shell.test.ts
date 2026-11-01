@@ -1134,6 +1134,51 @@ describe("the look pass's focus, cover and Couldn't read heading", () => {
     expect(close(paint(x, rowTop + 1), ink, 24), "above the line").toBe(false);
   });
 
+  // Red: no glyph after the sorted label, or hover painted in the sorted
+  // ink (DEM-32).
+  it("the sorted heading shows its direction, and hover is not the sorted ink", async () => {
+    mount();
+    const sortedHead = (): HTMLElement =>
+      node("[data-list-head] [aria-sort]") as HTMLElement;
+    const glyph = (): SVGElement | null => sortedHead().querySelector("svg");
+    const turn = (): string =>
+      getComputedStyle(glyph() as SVGElement).transform;
+    // Premise: Recorded is sorted, descending, and it is the only sort
+    // with a glyph.
+    expect(sortedHead().dataset.col).toBe("recorded");
+    expect(sortedHead().getAttribute("aria-sort")).toBe("descending");
+    expect(head().querySelectorAll("[data-sort] svg")).toHaveLength(1);
+    const g = (glyph() as SVGElement).getBoundingClientRect();
+    const c = sortedHead().getBoundingClientRect();
+    expect([g.width, g.height]).toEqual([12, 12]);
+    expect(g.left).toBeGreaterThanOrEqual(c.left);
+    expect(g.right).toBeLessThanOrEqual(c.right + 0.5);
+    expect(turn()).toBe("none");
+
+    const name = node('[data-list-head] [data-sort="name"]') as HTMLElement;
+    const sortedInk = getComputedStyle(
+      sortedHead().querySelector("[data-sort]") as Element,
+    ).color;
+    const restInk = getComputedStyle(name).color;
+    await userEvent.hover(name);
+    const hoverInk = getComputedStyle(name).color;
+    expect(new Set([restInk, hoverInk, sortedInk]).size, hoverInk).toBe(3);
+
+    renderLibrary(
+      node("#root"),
+      MODEL,
+      ACTIONS,
+      new Map(),
+      NOW,
+      { ids: new Set(), anchor: null, range: [] },
+      undefined,
+      { layout: "list", sort: { column: "name", descending: false } },
+    );
+    expect(sortedHead().getAttribute("aria-sort")).toBe("ascending");
+    // Turned half a turn: up.
+    expect(turn()).toBe("matrix(-1, 0, 0, -1, 0, 0)");
+  });
+
   // Red: the cards' heading (mono, uppercase, 4px above) drawn under the
   // list.
   it("Couldn't read under the list is a section label as the date headings are", () => {

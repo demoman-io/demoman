@@ -98,6 +98,9 @@ function headRow(
     const setView = actions.setView;
     if (sort !== null && setView !== undefined) {
       const button = el("button", { type: "button", "data-sort": sort }, label);
+      // The direction, for the eye as `aria-sort` says it (DEM-32): the
+      // CSS turns it up for ascending.
+      if (head.hasAttribute("aria-sort")) button.append(icon("chevronDown"));
       button.addEventListener("click", () =>
         setView({ layout: view.layout, sort: nextSort(view.sort, sort) }),
       );

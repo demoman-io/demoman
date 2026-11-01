@@ -774,9 +774,19 @@
         color: inherit;
         font: inherit;
         cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
       }
+      /* Hover lifts a heading a step, short of the sorted one's ink, so a
+         pointer over it never reads as a sort (DEM-32). */
+      .library-list [data-list-head] [data-sort]:hover { color: var(--ink-muted); }
       .library-list [data-list-head] [aria-sort],
-      .library-list [data-list-head] [data-sort]:hover { color: var(--ink); }
+      .library-list [data-list-head] [aria-sort] [data-sort] { color: var(--ink); }
+      .library-list [data-list-head] [data-sort] svg { width: 12px; height: 12px; }
+      .library-list [data-list-head] [aria-sort="ascending"] [data-sort] svg {
+        transform: rotate(180deg);
+      }
       .library-list :is([role="gridcell"], [role="columnheader"]) {
         min-width: 0;
         line-height: calc(var(--list-row) - 1px);
