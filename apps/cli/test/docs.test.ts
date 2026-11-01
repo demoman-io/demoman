@@ -260,9 +260,10 @@ describe("commands", () => {
       [
         "--version",
         "hook",
+        "add",
         "join-flow",
-        "keep",
         "mcp",
+        "remove",
         "refresh",
         "setup",
         "signin",
@@ -277,8 +278,14 @@ describe("commands", () => {
     expect(
       seen.filter((s) => s.page === "quickstart").map((s) => s.command),
     ).toContain("setup");
-    for (const { page, command } of seen)
+    // The changelog is history: a release may name a command since renamed
+    // (0.8.1's keep is now add), and keep still runs as an alias.
+    const history = seen.filter((s) => s.page === "resources/changelog");
+    expect(history.map((s) => s.command)).toContain("keep");
+    for (const { page, command } of seen) {
+      if (page === "resources/changelog" && command === "keep") continue;
       expect(usageCommands(), `${page}: ${command}`).toContain(command);
+    }
   });
 });
 
@@ -409,5 +416,47 @@ describe("help", () => {
     expect(readDocs("security/privacy.mdx")).toContain(
       "https://demoman.io/privacy",
     );
+  });
+});
+
+describe("the words for adding a flow", () => {
+  // Every page and served text a person or an agent reads; the changelog
+  // keeps the history that keep was the old name.
+  const texts = (): Array<{ where: string; text: string }> => {
+    const usage =
+      /const USAGE = `([\s\S]*?)`;/.exec(
+        readFileSync(new URL("../src/main.ts", import.meta.url), "utf8"),
+      )?.[1] ?? "";
+    return [
+      ...allPages()
+        .filter((p) => p !== "resources/changelog")
+        .map((p) => ({ where: `${p}.mdx`, text: readDocs(`${p}.mdx`) })),
+      {
+        where: "apps/mcp/recipe.md",
+        text: readFileSync(
+          new URL("../../mcp/recipe.md", import.meta.url),
+          "utf8",
+        ),
+      },
+      { where: "USAGE", text: usage },
+    ];
+  };
+
+  it("no doc or served text says keep for adding a flow", () => {
+    const all = texts();
+    // Premise: the pages, the recipe and USAGE are all read.
+    expect(all.map((t) => t.where)).toContain("guides/repo-flows.mdx");
+    expect(all.find((t) => t.where === "USAGE")?.text).toContain("demoman add");
+    expect(
+      all.find((t) => t.where === "apps/mcp/recipe.md")?.text.length,
+    ).toBeGreaterThan(1000);
+    const hits = all.flatMap(({ where, text }) =>
+      [
+        ...text.matchAll(
+          /demoman keep\b|(?<!~\/)\.demoman\/videos\b|\bkept (?:flow|file|video)s?\b/gi,
+        ),
+      ].map((m) => `${where}: ${m[0]}`),
+    );
+    expect(hits).toEqual([]);
   });
 });

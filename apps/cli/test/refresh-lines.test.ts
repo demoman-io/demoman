@@ -91,7 +91,9 @@ describe("refreshLines", () => {
   });
   it("says when nothing is kept", () => {
     expect(refreshLines({ videos: [] })).toEqual({
-      lines: ["No flows are kept in .demoman/videos/."],
+      lines: [
+        "No flows in .demoman/flows/. Add one with npx demoman add <flow> --to <path>.",
+      ],
       code: 0,
     });
   });

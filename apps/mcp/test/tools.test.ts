@@ -286,7 +286,7 @@ describe("demoman-mcp's tools", () => {
     ).toEqual({
       reason: "invalidArgs",
       detail:
-        "`video` is now `flow`: a flow is what you film; a video is one recording of it.",
+        "`video` is now `flow`: a flow is what you record; a video is one recording of it.",
     });
     expect(await said({ takeId: "scene-1" })).toEqual({
       reason: "invalidArgs",
@@ -1263,7 +1263,7 @@ describe("demoman-mcp's tools", () => {
     expect(cli.export).toContain('"saved"');
     expect(cli.export).not.toContain("exportNotBuilt");
     expect(cli.flows).toContain(
-      "a flow is what you film, a video one recording of it",
+      "a flow is what you record, a video one recording of it",
     );
     // An export opens the window too (it renders in that browser).
     expect(cli.status).toContain("first snapshot, run or export");

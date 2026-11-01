@@ -1,39 +1,40 @@
 ---
-title: "Keep videos current"
-description: "Film a video again on every merge, and commit it only when the picture changed."
+title: "Flows in the repo"
+description: "Add a flow to the repo, and CI records it again on every merge, committing only when the picture changed."
 ---
 
-A demo video goes stale when the app changes. Keep it, and CI films it
-again after each merge and delivers what changed.
+A demo video goes stale when the app changes. Add its flow to the repo, and
+CI records it again after each merge and delivers what changed.
 
-## Keep a flow
+## Add a flow
 
-In the repo, with a flow your agent filmed:
+In the repo, with a flow your agent recorded:
 
 ```bash
-npx demoman keep "Add a task" --to docs/add-task.mp4
+npx demoman add "Add a task" --to docs/add-task.mp4
 ```
 
-This writes `.demoman/videos/<name>.json`, everything a re-film needs,
+This writes `.demoman/flows/<name>.json`, the flow's recipe: everything a new recording needs,
 exports its current video to each `--to` path, and writes what those files
 show to `.demoman/receipts/<name>.json`, which a refresh compares against.
 Commit all three. `--gif` adds a GIF.
-A repo kept by an older Demoman is still read.
+A repo whose flows an older Demoman kept in the old folder is still read, and
+each recipe moves to `.demoman/flows/` the next time it is added.
 
 The flow's id is in the file, so every machine that clones the repo shares it.
 If your own library already holds a different flow with that name, a run
-into the kept flow refuses with `repoFlowNameTaken` and names
+into the repo's flow refuses with `repoFlowNameTaken` and names
 `demoman join-flow <from> <into>`, which moves that flow's videos into the
-kept one. Two kept files naming one flow refuse with `duplicateFlow`; a kept
-file that will not read refuses with `repoFlowUnreadable`.
+repo's one. Two recipes naming one flow refuse with `duplicateFlow`; a recipe
+that will not read refuses with `repoFlowUnreadable`.
 
-Keep refuses, writing nothing, a flow whose current video has Studio
-edits a re-film does not carry (a mask, a trim, a cut, a split, a hold, a
+Add refuses, writing nothing, a flow whose current video has Studio
+edits a new recording does not carry (a mask, a trim, a cut, a split, a hold, a
 gap, a placed zoom), typed text the video never read, or a site you
 signed in to by hand with `signin` rather than as a demo account. The
 refusal names which. Record it again without them.
 
-When your agent later runs a script into a kept flow, the kept file
+When your agent later runs a script into a flow in the repo, its recipe
 follows the script.
 
 ## Refresh
@@ -42,22 +43,22 @@ follows the script.
 npx demoman refresh
 ```
 
-Films every kept flow again, with no agent. It prints a line per flow:
+Records every flow in the repo again, with no agent. It prints a line per flow:
 
 | Line | Meaning |
 | --- | --- |
 | `<name>: changed: <what changed>` | The picture changed: how much, and when in the video. The files are overwritten |
 | `<name>: added: <which file>` | It looks the same, and an output that was not there yet is written |
-| `<name>: uncompared: nothing to compare against; delivered as new` | No earlier film to compare with (no receipt, or no committed file). The files are written |
+| `<name>: uncompared: nothing to compare against; delivered as new` | No earlier recording to compare with (no receipt, or no committed file). The files are written |
 | `<name>: unchanged: <how much changed>` | It looks the same. The files are left as they are |
 | `<name>: failed: <why>` | The run was not clean. The committed files stay, and the command exits 1 |
 
 Refresh compares the screen before each step, and the final screen when the
 video rests at the end, in the video it judges: the first MP4 that is not
-9:16, else the first file that is not 9:16, else the first MP4. Where the kept
-file recorded a still screen, the new film is read at the same step. If the
+9:16, else the first file that is not 9:16, else the first MP4. Where the receipt
+recorded a still screen, the new recording is read at the same step. If the
 picture changed, every file of the video is replaced, with its receipt in
-`.demoman/receipts/`; the kept file itself is never rewritten. Videos are
+`.demoman/receipts/`; the recipe itself is never rewritten. Videos are
 not compared byte for byte, so an unchanged app makes no commit. On a
 compared screen, a change as small as one digit of body text is seen, and so is a colour change alone: grey text a few
 shades lighter, a button turned another colour of the same lightness. Five
@@ -75,21 +76,21 @@ gaps are accepted:
 - A slower app that tips the camera to pull back, where it held before (or
   the reverse), reads as changed. The camera decides from the gap between two
   clicks, and a gap near that line can fall either side of it.
-- A flow kept on macOS is filmed again on Linux by the first refresh in CI.
+- A flow added on macOS is recorded again on Linux by the first refresh in CI.
   Linux's fonts differ, so that refresh replaces it once. After that, refresh
   in CI only: a refresh on a Mac and one in CI replace each other's files.
 
-A kept file with no recorded screens is not refreshed. Its line says to run
-`demoman keep` for it again.
+A flow with no recorded screens is not refreshed. Its line says to run
+`demoman add` for it again.
 
 ## Commit no video
 
 ```bash
-npx demoman keep "Add a task" --to add-task.mp4 --deliver files
+npx demoman add "Add a task" --to add-task.mp4 --deliver files
 npx demoman refresh --out-dir demoman-out
 ```
 
-With `--deliver files`, keep writes only the file in `.demoman/videos/`, and a
+With `--deliver files`, add writes only the recipe in `.demoman/flows/`, and a
 `--to` path is a plain file name. Refresh writes the video and its receipt (neither for a video that came back
 `unchanged`) and `demoman-refresh.json`, which lists what each flow made, into
 `--out-dir`;
@@ -113,9 +114,9 @@ Writes `.github/workflows/demoman.yml` at the repo root. Asked, or given as
 flags:
 
 - `--trigger push` runs on each push to the default branch. Fill in the
-  workflow's "Start your app" step: refresh films the app at its address.
+  workflow's "Start your app" step: refresh records the app at its address.
   `--trigger <environment>` runs after each successful deployment to that
-  environment, and films the deployed app.
+  environment, and records the deployed app.
 - `--route pr` opens a pull request with the changed files. `--route main`
   commits them to the branch.
 
@@ -129,8 +130,8 @@ The workflow checks out the full history (`fetch-depth: 0`) with any Git
 LFS files (`lfs: true`, so a video in LFS is compared, not a pointer), installs
 Chromium and fonts on Ubuntu, runs `demoman refresh --deliver`, and takes
 one run at a time (`concurrency: demoman-refresh`). Add a
-`DEMOMAN_SECRET_<NAME>` and its `_ORIGIN` for each demo account the kept
-scripts sign in with.
+`DEMOMAN_SECRET_<NAME>` and its `_ORIGIN` for each demo account the repo's
+flows sign in with.
 
 ### The pull request route
 
@@ -160,7 +161,7 @@ the bot's commit message. If you rename the pull request before squashing
 it, one more refresh runs; it replaces only a video whose picture changed.
 
 When no video changed, nothing is committed. On the pull request
-route, when every kept video was filmed and came back unchanged, an open
+route, when every flow in the repo was recorded and came back unchanged, an open
 refresh pull request is then closed with a comment: its videos are out of
 date. When a video failed, or only named videos were refreshed, the pull
 request stays open.

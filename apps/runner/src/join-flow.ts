@@ -41,7 +41,7 @@ export async function joinFlow(
   if ("none" in checkout) {
     return {
       ok: false,
-      said: `no flow in this library has the id ${into}, and no checkout was found to read a kept file from (${checkout.none})`,
+      said: `no flow in this library has the id ${into}, and no checkout was found to read a recipe from (${checkout.none})`,
     };
   }
   const found = await findKept(checkout.root, into);
@@ -60,7 +60,7 @@ export async function joinFlow(
   if ("unreadable" in found) {
     return {
       ok: false,
-      said: `no flow in this library has the id ${into}, and a kept file that would not read might keep it — ${found.unreadable.join("; ")}`,
+      said: `no flow in this library has the id ${into}, and a recipe that would not read might name it — ${found.unreadable.join("; ")}`,
     };
   }
   const done = await videos.exclusive(async (s): Promise<JoinAnswer> => {

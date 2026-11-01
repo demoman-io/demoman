@@ -630,7 +630,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             if (!adopted.ok) {
               return refusal(
                 "repoFlowNameTaken",
-                `flow "${found.kept.name}" is kept in ${found.file} as ${asked.id}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${asked.id}\` to move its videos into the kept flow`,
+                `flow "${found.kept.name}" is in the repo in ${found.file} as ${asked.id}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${asked.id}\` to move its videos into the kept flow`,
                 "video",
               );
             }
@@ -1085,7 +1085,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           if (!("none" in rewrote)) kept = rewrote;
         } catch (error) {
           kept = {
-            refused: `the kept file could not be rewritten (${messageOf(error)})`,
+            refused: `the recipe could not be rewritten (${messageOf(error)})`,
           };
         }
       }

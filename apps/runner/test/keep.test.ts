@@ -242,7 +242,7 @@ describe("keep, a clean take", () => {
       );
       if (!out.ok) throw new Error(JSON.stringify(out));
       expect(out.platformNote).toBe(
-        "kept on macOS: the first refresh in CI films it again on Linux, whose fonts differ, and replaces its outputs once; after that, refresh in CI only",
+        "added on macOS: the first refresh in CI records it again on Linux, whose fonts differ, and replaces its outputs once; after that, refresh in CI only",
       );
       const file = join(".demoman/flows", keptFileName("Add a task"));
       expect(out.file).toBe(file);

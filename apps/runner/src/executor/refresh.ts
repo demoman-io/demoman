@@ -342,7 +342,7 @@ export async function refreshKept(
     if (!found.has(keptFileName(a)))
       failed(
         { name: a, file: `${FLOWS_DIR}/${keptFileName(a)}` },
-        `no kept video is named "${a}"`,
+        `the repo has no flow named "${a}"`,
       );
   }
 

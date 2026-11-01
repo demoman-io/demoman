@@ -52,7 +52,7 @@
           "guides/phone-and-tablet",
           "guides/export",
           "guides/pull-requests",
-          "guides/keep-videos-current"
+          "guides/repo-flows"
         ]
       },
       {
@@ -103,5 +103,11 @@
   "description": "Demoman is a screen recorder for your coding agent. Describe what you want to show and your agent records it in a real browser, handing you back a finished product video with cursor smoothing, zooms and framing already done.",
   "icons": {
     "library": "lucide"
-  }
+  },
+  "redirects": [
+    {
+      "source": "/guides/keep-videos-current",
+      "destination": "/guides/repo-flows"
+    }
+  ]
 }

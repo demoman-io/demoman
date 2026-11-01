@@ -411,7 +411,9 @@ describe("a local refresh after a refresh wrote the receipt", () => {
       (await localNotes(
         await local("2026-10-31T13:00:00.000Z", "2026-10-31T13:00:01.000Z"),
       )) ?? [];
-    expect(note).toContain(`not in ${FILE} since it was filmed at ${STARTED}`);
+    expect(note).toContain(
+      `not in ${FILE} since it was recorded at ${STARTED}`,
+    );
     expect(rest).toEqual([]);
   });
 

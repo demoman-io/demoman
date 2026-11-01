@@ -62,7 +62,7 @@ export async function deliver(
       return {
         delivered: "nothing",
         ok: true,
-        detail: `${nothing}; the open refresh pull request stays, because only the named flows were filmed`,
+        detail: `${nothing}; the open refresh pull request stays, because only the named flows were recorded`,
       };
     // An open refresh PR proposes videos this run just filmed equal to the
     // committed ones: left open, it could be merged.
@@ -167,7 +167,7 @@ export async function deliver(
   if (push.code !== 0) return fail("git push", push);
 
   const body = [
-    `Demoman filmed the kept flows again and updated ${updated.length}.`,
+    `Demoman recorded the repo's flows again and updated ${updated.length}.`,
     "",
     'Videos cannot be attached with the workflow\'s token: open each file under "Files changed" to play it.',
     "",

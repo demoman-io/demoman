@@ -188,7 +188,7 @@ describe("a kept file that does not parse", () => {
       videos.map((v) => v.detail),
       JSON.stringify(videos),
     ).toHaveLength(1);
-    expect(videos[0]?.detail).not.toContain("no kept video is named");
+    expect(videos[0]?.detail).not.toContain("the repo has no flow named");
     expect(videos[0]?.file).toBe(FILE);
   });
 });
@@ -206,7 +206,7 @@ describe("a flow in .demoman/flows/", () => {
       videos.map((v) => v.file),
       JSON.stringify(videos),
     ).toEqual([moved]);
-    expect(videos[0]?.detail ?? "").not.toContain("no kept video is named");
+    expect(videos[0]?.detail ?? "").not.toContain("the repo has no flow named");
   });
 });
 

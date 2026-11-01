@@ -196,7 +196,7 @@ describe("demoman join-flow, from the packed install", () => {
     const r = joinFlow(local.video.id, KEPT);
     expect(r.status, r.stdout + r.stderr).toBe(0);
     expect(r.stdout).toBe(
-      `moved 0 videos from ${local.video.id} into ${KEPT}, the flow kept in ${KEPT_DIR}/${keptFileName(NAME)}\n`,
+      `moved 0 videos from ${local.video.id} into ${KEPT}, the repo flow in ${KEPT_DIR}/${keptFileName(NAME)}\n`,
     );
     expect(await store().get(local.video.id)).toBeNull();
     expect(await store().get(KEPT)).toMatchObject({

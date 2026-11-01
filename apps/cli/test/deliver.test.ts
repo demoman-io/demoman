@@ -207,7 +207,7 @@ describe("deliver", () => {
       delivered: "nothing",
       ok: true,
       detail:
-        "no video changed; the open refresh pull request stays, because only the named flows were filmed",
+        "no video changed; the open refresh pull request stays, because only the named flows were recorded",
     });
   });
 
@@ -316,7 +316,7 @@ describe("deliver", () => {
     expect(create[0]).toContain("demoman/refresh");
     const body = bodyOf(create[0]);
     expect(body).toContain(
-      "Demoman filmed the kept flows again and updated 1.",
+      "Demoman recorded the repo's flows again and updated 1.",
     );
     expect(body).toContain("Demo: `Add a task` · 4.5 s · matches");
     expect(body).toContain("docs/add-task.mp4");

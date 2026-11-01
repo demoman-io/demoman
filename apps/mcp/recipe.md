@@ -246,7 +246,7 @@ run toward the three. Refused with `unfilledHoles` when the video kept no
 value: `derive`, fill, `run`. `invalidScript` (`field` `steps.<i>.do`): a
 verb was changed by hand: `derive`, check it, `run` the draft.
 
-A flow kept in the repo (.demoman/videos) is rewritten by each run: commit that file with the change. To keep one, run `npx demoman keep <flow> --to <path>` in the repo.
+A flow in the repo (.demoman/flows) is rewritten by each run: commit that file with the change. To add one, run `npx demoman add <flow> --to <path>` in the repo.
 
 ## 4. Run and read
 

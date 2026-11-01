@@ -455,7 +455,7 @@ async function refresh(args: string[]): Promise<void> {
   const repo = await readRepo(process.cwd(), execGit);
   if (!repo.ok) {
     return fail(
-      `${repo.none} — run refresh inside the repo the flows are kept in`,
+      `${repo.none} — run refresh inside the repo the flows belong to`,
     );
   }
   requirePageBundles(
@@ -579,7 +579,7 @@ async function joinFlow(args: string[]): Promise<void> {
     );
     if (out.ok) {
       process.stdout.write(
-        `moved ${out.moved} video${out.moved === 1 ? "" : "s"} from ${from} into ${into}${out.adopted === null ? "" : `, the flow kept in ${out.adopted}`}\n`,
+        `moved ${out.moved} video${out.moved === 1 ? "" : "s"} from ${from} into ${into}${out.adopted === null ? "" : `, the repo flow in ${out.adopted}`}\n`,
       );
       process.exit(0);
     }

@@ -432,10 +432,10 @@ export async function keepVideo(
         file: fileRel,
       });
       if (!marked.ok) {
-        markNote = `the library could not mark "${video.name}" as kept (${marked.reason}), so it will not show as kept until you keep it again`;
+        markNote = `the library could not mark "${video.name}" as in the repo (${marked.reason}), so it will not show In repo until you add it again`;
       }
     } catch (error) {
-      markNote = `the library could not mark "${video.name}" as kept (${messageOf(error)}), so it will not show as kept until you keep it again`;
+      markNote = `the library could not mark "${video.name}" as in the repo (${messageOf(error)}), so it will not show In repo until you add it again`;
     }
     return {
       ok: true,
@@ -454,7 +454,7 @@ export async function keepVideo(
       ...(platform === "linux"
         ? {}
         : {
-            platformNote: `kept on ${platform === "darwin" ? "macOS" : platform}: the first refresh in CI films it again on Linux, whose fonts differ, and replaces its outputs once; after that, refresh in CI only`,
+            platformNote: `added on ${platform === "darwin" ? "macOS" : platform}: the first refresh in CI records it again on Linux, whose fonts differ, and replaces its outputs once; after that, refresh in CI only`,
           }),
     };
   } finally {
@@ -516,7 +516,7 @@ async function buildKept(
   if (left.length > 0) {
     return refuse(
       "notCarried",
-      `video ${built.takeId} of "${video.name}" has edits a re-film does not carry, so a refresh would drop them: ${left.join(", ")} — remove them in the Studio, or film the flow again, then keep it`,
+      `video ${built.takeId} of "${video.name}" has edits a re-film does not carry, so a refresh would drop them: ${left.join(", ")} — remove them in the Studio, or record the flow again, then add it`,
     );
   }
   const read = await deps.library.getSceneRead(built.takeId);
@@ -536,7 +536,7 @@ async function buildKept(
     filmedScale(bundle, scene.meta.capture.viewport.width);
   const scaleGuess =
     scale === null
-      ? `1x is a guess: video ${built.takeId} records no filmed scale and has no motion frames to read one from, so refresh films it at 1x — if it was filmed at another scale, set "scale" in the kept file to it, or the first refresh replaces a video that did not change`
+      ? `1x is a guess: video ${built.takeId} records no filmed scale and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the recipe file to it, or the first refresh replaces a video that did not change`
       : null;
 
   // A site signed in to by hand cannot be signed in to by a refresh in CI.
@@ -560,7 +560,7 @@ async function buildKept(
     if (saved.some((f) => f.account === undefined && f.site === site)) {
       return refuse(
         "handSignIn",
-        `"${video.name}" films ${target}, which this machine signs in to with a session saved by hand (demoman signin, ${store.pathOf(site ?? "")}); a refresh in CI cannot sign in that way — add a demo account for ${new URL(target).origin} to .demoman/accounts.json, film the flow again as it, then keep it`,
+        `"${video.name}" records ${target}, which this machine signs in to with a session saved by hand (demoman signin, ${store.pathOf(site ?? "")}); a refresh in CI cannot sign in that way — add a demo account for ${new URL(target).origin} to .demoman/accounts.json, film the flow again as it, then keep it`,
       );
     }
   }
@@ -871,7 +871,7 @@ export async function rewriteKept(
   }
   return unreadable.length > 0
     ? {
-        refused: `${unreadable.join("; ")} — so whether a kept file follows this run is unknown`,
+        refused: `${unreadable.join("; ")} — so whether a repo flow follows this run is unknown`,
       }
     : { none: true };
 }
@@ -1205,7 +1205,7 @@ export async function libraryAhead(
         return null;
     } else {
       if (receipt.filmedAt === null) {
-        return `whether the library is ahead of ${file} cannot be told: its receipt names video ${receipt.video}, which this library does not have, and does not say when it was filmed`;
+        return `whether the library is ahead of ${file} cannot be told: its receipt names video ${receipt.video}, which this library does not have, and does not say when it was recorded`;
       }
       const filmed = Date.parse(receipt.filmedAt);
       const saved = (
@@ -1213,7 +1213,7 @@ export async function libraryAhead(
       ).mtimeMs;
       if (!(Date.parse(current.createdAt) > filmed || saved > filmed))
         return null;
-      since = ` since it was filmed at ${receipt.filmedAt}`;
+      since = ` since it was recorded at ${receipt.filmedAt}`;
     }
     const left = leftBehind({
       from: current.takeId,

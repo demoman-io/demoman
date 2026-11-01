@@ -29,7 +29,7 @@ export const expr = (e: string): string => `\${{ ${e} }}`;
 export const GUARD_SCRIPT = `msg=$(git log -1 --format=%B "$SHA")
 if printf '%s' "$msg" | grep -qE '\\[skip demoman\\]|/demoman/refresh|^${COMMIT_SUBJECT} \\(#[0-9]+\\)$'; then
   echo "skip=true" >> "$GITHUB_OUTPUT"
-  echo "Skipping: this commit is Demoman's own refresh, and filming it again would loop."
+  echo "Skipping: this commit is Demoman's own refresh, and recording it again would loop."
 fi`;
 
 export function ciWorkflow(o: CiOptions): string {
@@ -81,7 +81,7 @@ export function ciWorkflow(o: CiOptions): string {
   const baseUrl =
     deployment === null
       ? ""
-      : ` --base-url "\${DEMOMAN_BASE_URL:?the deployment named no environment_url, so there is no deployed app to film}"`;
+      : ` --base-url "\${DEMOMAN_BASE_URL:?the deployment named no environment_url, so there is no deployed app to record}"`;
   const baseUrlEnv =
     deployment === null
       ? ""
@@ -131,7 +131,7 @@ ${script}
       - name: Install fonts
         if: ${run}
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
-${start}      - name: Refresh the kept videos
+${start}      - name: Refresh the repo's flows
         if: ${run}
         run: ${npx} refresh --deliver ${o.route}${baseUrl}${outDir}
         env:
@@ -166,7 +166,7 @@ export function ciNotes(o: CiOptions): string[] {
       : []),
     ...(o.trigger === "push"
       ? [
-          `Fill in the "Start your app" step in ${CI_WORKFLOW_PATH}: refresh films the app at its base URL, so it must be running.`,
+          `Fill in the "Start your app" step in ${CI_WORKFLOW_PATH}: refresh records the app at its base URL, so it must be running.`,
         ]
       : []),
     "Add each demo account's DEMOMAN_SECRET_<NAME> to the repository secrets and to the workflow's env, with DEMOMAN_SECRET_<NAME>_ORIGIN naming the one site it may be typed on; the run refuses a secret without it.",

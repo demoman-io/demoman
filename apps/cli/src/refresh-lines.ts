@@ -10,7 +10,12 @@ export function refreshLines(result: RefreshResult): {
   code: 0 | 1;
 } {
   if (result.videos.length === 0)
-    return { lines: ["No flows are kept in .demoman/videos/."], code: 0 };
+    return {
+      lines: [
+        "No flows in .demoman/flows/. Add one with npx demoman add <flow> --to <path>.",
+      ],
+      code: 0,
+    };
   return {
     lines: result.videos.map((v) => {
       const said = v.detail === "" ? v.outcome : `${v.outcome}: ${v.detail}`;
