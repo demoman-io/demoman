@@ -198,7 +198,12 @@ describe("library main — bulk delete", () => {
   });
 
   describe("a kept flow", () => {
-    const KEPT = { root: "/repo", file: KEPT_FILE, deliver: "commit" } as const;
+    const KEPT = {
+      root: "/repo",
+      file: KEPT_FILE,
+      deliver: "commit",
+      key: null,
+    } as const;
     beforeEach(() => {
       memory = seed(CARDS, KEPT);
       state.memory = memory;

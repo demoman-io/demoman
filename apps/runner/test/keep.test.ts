@@ -395,6 +395,28 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     ).toEqual([]);
   });
 
+  // Red: drop `key` from keep.ts's setKept and the mark has no key.
+  it("add writes the repo's key into the flow's kept mark", async () => {
+    const id = await freshVideo("scene-key-1", "Key flow");
+    const out = await keepVideo(
+      {
+        video: "Key flow",
+        to: [gif("key.gif")],
+        deliver: "files",
+        repoRoot: repo,
+      },
+      deps(),
+    );
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    // Premise: the key to expect is a real one.
+    expect(repoKey).toBeTruthy();
+    expect((await videos.get(id))?.kept).toEqual({
+      root: repo,
+      file: out.file,
+      key: repoKey,
+    });
+  });
+
   it("a run re-points a library mark left on a file moved elsewhere", async () => {
     const { id, legacy, file } = await keptInOldFolder(
       "scene-move-3",
@@ -405,7 +427,11 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     expect((await videos.get(id))?.kept?.file).toBe(legacy);
     const answer = await rewriteKept(repo, id, deps());
     expect(answer, JSON.stringify(answer)).toEqual({ rewritten: file });
-    expect((await videos.get(id))?.kept).toEqual({ root: repo, file });
+    expect((await videos.get(id))?.kept).toEqual({
+      root: repo,
+      file,
+      key: repoKey,
+    });
   });
 
   it("a run rewrites neither of two files naming its flow", async () => {
@@ -450,7 +476,11 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       expect(out.detail).toContain(`delete ${legacy}`);
       // The new file is the flow's recipe either way: the library follows it,
       // so deleting the old one as told leaves nothing pointing at it.
-      expect((await videos.get(id))?.kept).toEqual({ root: repo, file });
+      expect((await videos.get(id))?.kept).toEqual({
+        root: repo,
+        file,
+        key: repoKey,
+      });
     } finally {
       await chmod(join(repo, ".demoman/videos"), 0o755);
     }
@@ -482,6 +512,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       expect((await videos.get(videoId))?.kept).toEqual({
         root: repo,
         file: out.file,
+        key: repoKey,
       });
       expect(out.markNote).toBeUndefined();
     },
@@ -543,6 +574,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       expect((await videos.get(videoId))?.kept).toEqual({
         root: repo,
         file: out.file,
+        key: repoKey,
       });
     },
     KEEP_MS,

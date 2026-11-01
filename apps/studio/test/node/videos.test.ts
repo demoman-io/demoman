@@ -435,6 +435,7 @@ describe("renaming a kept flow", () => {
     });
   const OLD = keptFileName("Create an invoice");
   const NEW = keptFileName("Send an invoice");
+  const KEY = "github.com/acme/app";
   let checkout: string;
   const recipe = (): KeptVideo => ({
     keptVersion: 2,
@@ -477,6 +478,7 @@ describe("renaming a kept flow", () => {
     const marked = await store.setKept(invoice, {
       root,
       file: `${KEPT_DIR}/${OLD}`,
+      key: KEY,
     });
     if (!marked.ok) throw new Error("the fixture's flow was not marked kept");
   }
@@ -498,6 +500,7 @@ describe("renaming a kept flow", () => {
       root: checkout,
       file: `${KEPT_DIR}/${OLD}`,
       deliver: "commit",
+      key: KEY,
     });
     expect(NEW).not.toBe(OLD);
     // Red: call videos.rename alone for a kept flow — the recipe keeps the
@@ -518,6 +521,7 @@ describe("renaming a kept flow", () => {
       root: checkout,
       file: `${FLOWS_DIR}/${NEW}`,
       deliver: "commit",
+      key: KEY,
     });
   });
 
@@ -628,7 +632,12 @@ describe("renaming a kept flow", () => {
     oldReceipt: true,
     newReceipt: false,
     name: "Create an invoice",
-    kept: { root: checkout, file: `${KEPT_DIR}/${OLD}`, deliver: "commit" },
+    kept: {
+      root: checkout,
+      file: `${KEPT_DIR}/${OLD}`,
+      deliver: "commit",
+      key: KEY,
+    },
   });
   const refusal = (r: { json: () => unknown }) =>
     r.json() as { reason: string; detail: string };
@@ -653,7 +662,12 @@ describe("renaming a kept flow", () => {
       oldReceipt: false,
       newReceipt: true,
       name: "Send an invoice",
-      kept: { root: checkout, file: `${FLOWS_DIR}/${NEW}`, deliver: "commit" },
+      kept: {
+        root: checkout,
+        file: `${FLOWS_DIR}/${NEW}`,
+        deliver: "commit",
+        key: KEY,
+      },
     });
   });
 

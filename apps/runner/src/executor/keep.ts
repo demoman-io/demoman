@@ -421,6 +421,7 @@ export async function keepVideo(
       const marked = await deps.videos.setKept(video.id, {
         root,
         file: fileRel,
+        ...(repo.ok && { key: repo.repo.key }),
       });
       if (!marked.ok) {
         markNote = `the library could not mark "${video.name}" as in the repo (${marked.reason}), so it will not show In repo until you add it again`;
@@ -813,7 +814,12 @@ export async function rewriteKept(
         (video.kept.root === root && video.kept.file !== rel))
     ) {
       try {
-        const marked = await deps.videos.setKept(videoId, { root, file: rel });
+        const read = await readRepo(root, deps.git);
+        const marked = await deps.videos.setKept(videoId, {
+          root,
+          file: rel,
+          ...(read.ok && { key: read.repo.key }),
+        });
         if (!marked.ok)
           deps.log(
             `kept: ${rel}: the library could not mark flow ${videoId} as kept (${marked.reason})`,
@@ -1082,7 +1088,13 @@ export async function renameKept(
       what: `point the library's flow at ${file}`,
       run: async () =>
         failed(
-          await deps.videos.setKept(rec.id, { root, file }),
+          await deps.videos.setKept(rec.id, {
+            root,
+            file,
+            // The mark is renamed in place: its repo is the one it named.
+            ...(rec.kept?.root === root &&
+              rec.kept.key !== undefined && { key: rec.kept.key }),
+          }),
           `flow ${rec.id} is not in the library`,
         ),
       undo: async () =>

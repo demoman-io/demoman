@@ -409,6 +409,7 @@ describe("sectionsOf", () => {
         root: "/repo",
         file: ".demoman/videos/a.json",
         deliver: "commit",
+        key: null,
       },
     } satisfies LibraryRow;
     const lost = {

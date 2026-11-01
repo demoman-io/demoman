@@ -1553,6 +1553,7 @@ describe("the Studio's screenshot set", () => {
         root: checkout,
         file,
         deliver: "files",
+        key: null,
       });
       for (const take of [v1, v2, v3]) {
         expect(answer.videoOf[take]?.filmedCode, take).toEqual(CODE[take]);

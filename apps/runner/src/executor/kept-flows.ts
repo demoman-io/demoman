@@ -129,5 +129,9 @@ export const adoptKept = (
     name: found.kept.name,
     repo,
     startPage: found.kept.script.target,
-    kept: { root, file: found.file },
+    kept: {
+      root,
+      file: found.file,
+      ...("key" in repo && { key: repo.key }),
+    },
   });

@@ -231,7 +231,7 @@ export interface VideoSummary {
   /** The recipe that keeps this flow; `unknown` says why a kept record's
    *  file cannot be used. */
   kept:
-    | { file: string; root: string; deliver: KeptDeliver }
+    | { file: string; root: string; deliver: KeptDeliver; key: string | null }
     | null
     | {
         unknown: string;

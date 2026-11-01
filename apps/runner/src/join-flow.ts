@@ -73,7 +73,11 @@ export async function joinFlow(
       name: found.kept.name,
       repo: checkout.repo,
       startPage: found.kept.script.target,
-      kept: { root: checkout.root, file: found.file },
+      kept: {
+        root: checkout.root,
+        file: found.file,
+        ...("key" in checkout.repo && { key: checkout.repo.key }),
+      },
       except: from,
     });
     if (!adopted.ok) {

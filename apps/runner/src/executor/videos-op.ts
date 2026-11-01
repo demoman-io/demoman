@@ -50,7 +50,7 @@ export interface VideoSummary {
    *  more), or `unknown` when one might and cannot be read: a recipe that
    *  will not read, or two that name the flow. */
   kept:
-    | { file: string; root: string; deliver: KeptDeliver }
+    | { file: string; root: string; deliver: KeptDeliver; key: string | null }
     | null
     | {
         unknown: string;
@@ -79,7 +79,12 @@ export async function keptOf(
   const text = await readFile(join(root, file), "utf8").catch(() => null);
   const parsed = text === null ? null : parseKept(text, file);
   if (parsed?.ok === true && parsed.kept.flow === video.id)
-    return { file, root, deliver: parsed.kept.deliver };
+    return {
+      file,
+      root,
+      deliver: parsed.kept.deliver,
+      key: video.kept.key ?? null,
+    };
   // The marked file is gone, moved or another flow's: the folder says
   // which recipe, if any, keeps this flow.
   let found: Awaited<ReturnType<typeof findKept>>;
@@ -92,7 +97,12 @@ export async function keptOf(
   }
   if (found === null) return null;
   if ("kept" in found)
-    return { file: found.file, root, deliver: found.kept.deliver };
+    return {
+      file: found.file,
+      root,
+      deliver: found.kept.deliver,
+      key: video.kept.key ?? null,
+    };
   if ("duplicate" in found)
     return {
       unknown: `${found.duplicate.join(" and ")} in ${root} both name this flow`,

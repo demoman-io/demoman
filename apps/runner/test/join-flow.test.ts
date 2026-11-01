@@ -99,6 +99,18 @@ const named = async (store: ReturnType<typeof createVideoStore>) =>
     .map((v) => v.id);
 
 describe("join-flow into a repo flow this library lacks", () => {
+  // Red: drop `key` from join-flow.ts's adopt and the mark has no key.
+  it("a join writes the repo's key into the adopted flow's kept mark", async () => {
+    const { store, from } = await localFlow(["t1"]);
+    const out = await joinFlow(store, from, INTO, { root: checkout, repo });
+    expect(out.ok).toBe(true);
+    expect((await store.get(INTO))?.kept).toEqual({
+      root: checkout,
+      file: `${FLOWS_DIR}/${keptFileName(NAME)}`,
+      key: repo.key,
+    });
+  });
+
   it("a merge that fails on its first write takes the adopted record back out", async () => {
     const { lib, store, from } = await localFlow(["t1"]);
     await lockTake(lib, "t1");

@@ -30,7 +30,7 @@ export interface VideoRecord {
   createdAt: string;
   /** The checkout and repo-relative kept file that commit this flow's id;
    *  written once by `keep` or `adopt`. */
-  kept?: { root: string; file: string };
+  kept?: { root: string; file: string; key?: string };
 }
 
 export interface Made {
@@ -67,7 +67,7 @@ export class VideoError extends Error {
 }
 
 type Taken = { ok: false; reason: "nameTaken"; holder: VideoRecord };
-type Kept = { root: string; file: string };
+type Kept = { root: string; file: string; key?: string };
 
 /** `exclusive`'s answer: `fn`'s value, or the lock another process holds. */
 export type Exclusive<T> = { ok: true; value: T } | { ok: false; held: string };
