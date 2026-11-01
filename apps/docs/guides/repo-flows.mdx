@@ -122,8 +122,9 @@ flags:
 - `--route pr` opens a pull request with the changed files. `--route main`
   commits them to the branch.
 
-`--artifact` downloads the newest `demoman-videos` artifact into
-`demoman-out`, refreshes with `--out-dir demoman-out --previous demoman-out`,
+`--artifact` downloads the `demoman-videos` artifact of this workflow's
+newest run on its own trigger and branch in this repository (never a fork's
+or another workflow's) into `demoman-out`, refreshes with `--out-dir demoman-out --previous demoman-out`,
 and uploads that folder as the next `demoman-videos` artifact, so each one
 holds every files flow's video and receipt. The first run, or one whose
 earlier artifact has expired, finds none and says so in the log; its videos

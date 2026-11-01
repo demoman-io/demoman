@@ -93,19 +93,42 @@ export function ciWorkflow(o: CiOptions): string {
   // to compare against", said in its note.
   const outDir =
     o.artifact === true ? " --out-dir demoman-out --previous demoman-out" : "";
-  const lastRun =
-    deployment === null ? ` and .workflow_run.head_branch == "${branch}"` : "";
+  // This workflow's own runs on its own trigger, in this repository: a
+  // fork's pull request or another workflow can upload an artifact of the
+  // same name, which must never stand in for what was delivered.
   const fetch =
     o.artifact === true
       ? `      - name: Fetch the last run's videos
         if: ${run}
         env:
           GH_TOKEN: ${expr("github.token")}
+          EVENT: ${deployment === null ? "push" : "deployment_status"}
+          BRANCH: "${deployment === null ? branch : ""}"
         run: |
-          if ! id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=demoman-videos" --jq '[.artifacts[] | select(.expired == false${lastRun})][0].workflow_run.id // empty'); then
-            echo "::warning::The earlier demoman-videos artifacts could not be listed, so every files flow is compared with nothing."
+          wf=\${GITHUB_WORKFLOW_REF%%@*}
+          export WF=\${wf#"$GITHUB_REPOSITORY"/}
+          # Only this workflow's own runs on its own event (and branch), from this
+          # repository, newest first: never a fork's or another workflow's artifact.
+          id=""
+          said=""
+          if ! runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/\${WF##*/}/runs?event=$EVENT&status=completed&per_page=50\${BRANCH:+&branch=$BRANCH}" --jq '[.workflow_runs[] | select(((.path // "") | startswith($ENV.WF)) and .event == $ENV.EVENT and (($ENV.BRANCH // "") == "" or .head_branch == $ENV.BRANCH) and .head_repository.id == .repository.id)] | sort_by(.created_at) | reverse | .[].id'); then
+            said="::warning::This workflow's earlier runs could not be listed"
+          else
+            for r in $runs; do
+              if ! n=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$r/artifacts?name=demoman-videos" --jq '[.artifacts[] | select(.name == "demoman-videos" and .expired == false)] | length'); then
+                said="::warning::Run $r's artifacts could not be listed"
+                break
+              fi
+              if [ "$n" -gt 0 ]; then
+                id=$r
+                break
+              fi
+            done
+          fi
+          if [ -n "$said" ]; then
+            echo "$said, so every files flow is compared with nothing."
           elif [ -z "$id" ]; then
-            echo "No earlier demoman-videos artifact, so every files flow is compared with nothing."
+            echo "No earlier run of this workflow has a demoman-videos artifact, so every files flow is compared with nothing."
           elif ! gh run download "$id" --repo "$GITHUB_REPOSITORY" --name demoman-videos --dir demoman-out; then
             rm -rf demoman-out
             echo "::warning::Run $id's demoman-videos artifact could not be downloaded, so every files flow is compared with nothing."
