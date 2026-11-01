@@ -5,7 +5,7 @@ import { type EditedLength, formatLength } from "./length";
 
 export interface LengthCache {
   /** The settled result for this scene as it is now, if measured. */
-  get(scene: SceneDocument): EditedLength | Error | undefined;
+  get(scene: SceneDocument): EditedLength | undefined;
   /** Measures once per scene digest; concurrent calls share one promise. */
   measure(
     scene: SceneDocument,
@@ -16,19 +16,27 @@ export interface LengthCache {
 /**
  * Keyed by the scene's digest, which any edit changes and a rename does
  * not: a length is kept until the video is edited (list spec §2.1). A run
- * that throws is kept as its Error, so a redraw says it again rather than
- * measuring again; the caller reports it.
+ * that throws is not kept — the caller says it, and the next paint after
+ * a redraw measures again, so a one-off failure does not stick.
  */
 export function createLengthCache(): LengthCache {
-  const settled = new Map<string, EditedLength | Error>();
+  const settled = new Map<string, EditedLength>();
   const inflight = new Map<string, Promise<EditedLength>>();
-  const keyOf = (s: SceneDocument) => `${s.meta.id}:${sceneDigest(s)}`;
+  // A listing replaces every document, so an edit still meets a new object.
+  const digests = new WeakMap<SceneDocument, string>();
+  const keyOf = (s: SceneDocument): string => {
+    let digest = digests.get(s);
+    if (digest === undefined) {
+      digest = sceneDigest(s);
+      digests.set(s, digest);
+    }
+    return `${s.meta.id}:${digest}`;
+  };
   return {
     get: (scene) => settled.get(keyOf(scene)),
     measure(scene, run) {
       const key = keyOf(scene);
       const known = settled.get(key);
-      if (known instanceof Error) return Promise.reject(known);
       if (known !== undefined) return Promise.resolve(known);
       let p = inflight.get(key);
       if (p === undefined) {
@@ -39,10 +47,6 @@ export function createLengthCache(): LengthCache {
             return got;
           },
           (err: unknown) => {
-            settled.set(
-              key,
-              err instanceof Error ? err : new Error(String(err)),
-            );
             inflight.delete(key);
             throw err;
           },

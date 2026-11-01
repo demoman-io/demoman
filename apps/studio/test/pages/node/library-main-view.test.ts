@@ -116,6 +116,32 @@ describe("library main — the view", () => {
     );
   });
 
+  // Red: paintFresh waiting for the view before it asks for the folder.
+  it("asks for the folder while the view is being read, and first paints the view served", async () => {
+    let serve: (got: { view: LibraryViewChoice }) => void = () => {};
+    state.memory?.answer(
+      "libraryView.read",
+      () =>
+        new Promise((resolve) => {
+          serve = resolve;
+        }),
+    );
+    await import("../../../pages/entrypoints/library/main");
+    await vi.waitFor(() => {
+      if (calls("folder", "read").length === 0) {
+        throw new Error("the folder was not asked for yet");
+      }
+    });
+    // Nothing paints before the view is in.
+    expect(treegrid()).toBeNull();
+    expect(cards().length).toBe(0);
+    serve({ view: GRID });
+    await vi.waitFor(() => {
+      if (cards().length === 0) throw new Error("no cards drawn yet");
+    });
+    expect(treegrid()).toBeNull();
+  });
+
   it("draws Grid when it serves grid", async () => {
     state.memory?.answer("libraryView.read", async () => ({ view: GRID }));
     await drawn();

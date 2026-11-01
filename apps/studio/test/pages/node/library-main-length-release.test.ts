@@ -1,6 +1,14 @@
 import type { SceneDocument } from "@demoman/scene-schema";
 import type { VideoSummary } from "@demoman/studio-protocol";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
 import {
   createMemoryPlatform,
   type MemoryPlatform,
@@ -110,5 +118,115 @@ describe("library main — length cells", () => {
     expect(second.length).toBe(first.length);
     expect(second.every((c) => observed.has(c))).toBe(true);
     expect([...observed].filter((e) => !e.isConnected)).toEqual([]);
+  });
+});
+
+/**
+ * What a Length cell says when it cannot be measured, over the real
+ * entrypoint with no IntersectionObserver, so every cell measures at once.
+ */
+describe("library main — a length that cannot be measured", () => {
+  const leadCell = () =>
+    document.querySelector<HTMLElement>(
+      `[role=row][data-key="f:${video.id}"] [data-col="length"]`,
+    );
+  /** The flow row's Length cell once it says `title`. */
+  const says = (title: string) =>
+    vi.waitFor(() => {
+      const cell = leadCell();
+      if (cell?.title !== title) {
+        throw new Error(`the cell says ${cell?.textContent} "${cell?.title}"`);
+      }
+      return cell;
+    });
+
+  let warn: MockInstance<typeof console.warn>;
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubGlobal("IntersectionObserver", undefined);
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    document.body.innerHTML = `
+      <div id="notice" class="hidden" role="alert"></div>
+      <main id="root"></main>
+    `;
+    state.memory = createMemoryPlatform({
+      scenes: [
+        take("inv-1", "2026-09-20T10:00:00Z"),
+        take("inv-2", "2026-10-01T10:00:00Z"),
+      ],
+      videos: [video],
+      videoOf: {
+        "inv-1": { videoId: video.id, version: 1, expired: false, exports: [] },
+        "inv-2": { videoId: video.id, version: 2, expired: false, exports: [] },
+      },
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  // Red: a thrown measure, or the no-frames answer, kept for the session,
+  // so the redraws below repaint the first answer.
+  it("says each failure, and a redraw measures again", async () => {
+    let answer: "throw first" | "no frames" | "throw second" = "throw first";
+    state.memory?.answer("bundles.active", async () => {
+      if (answer === "no frames") {
+        return { bundle: null, replay: null, capture: null };
+      }
+      throw new Error(answer === "throw first" ? "first" : "second");
+    });
+    await import("../../../pages/entrypoints/library/main");
+    const first = await says("first");
+    expect(first.textContent).toBe("—");
+    expect(warn.mock.calls.flat().join("\n")).toContain(
+      "length of inv-2 could not be measured: first",
+    );
+
+    answer = "no frames";
+    state.memory?.emitTakes();
+    expect((await says("it has no frames")).textContent).toBe("—");
+
+    answer = "throw second";
+    state.memory?.emitTakes();
+    expect((await says("second")).textContent).toBe("—");
+  });
+
+  // Red: `measure`'s early return, which left the cell empty and said
+  // nothing.
+  it("a row whose document the last listing lacks says so", async () => {
+    // The listing and the page's map of it drift only if a document's id
+    // reads one way for the map and another for the rows: the first read
+    // after this point answers an id no row has.
+    const doc = take("loose", "2026-10-02T10:00:00Z");
+    let drift = true;
+    const meta = doc.meta as { id: string };
+    Object.defineProperty(meta, "id", {
+      get: () => {
+        if (!drift) return "loose";
+        drift = false;
+        return "drifted";
+      },
+    });
+    state.memory = createMemoryPlatform({ scenes: [doc] });
+    drift = true;
+    await import("../../../pages/entrypoints/library/main");
+    const cell = await vi.waitFor(() => {
+      const c = document.querySelector<HTMLElement>(
+        '[role=row][data-key="t:loose"] [data-col="length"]',
+      );
+      if (c === null) throw new Error("no row for the take yet");
+      return c;
+    });
+    // Premise: the drifted read was spent.
+    expect(drift).toBe(false);
+    expect([cell.textContent, cell.title]).toEqual([
+      "—",
+      "no document for loose in the last listing",
+    ]);
+    expect(warn.mock.calls.flat().join("\n")).toContain(
+      "length of loose could not be measured: no document for loose in the last listing",
+    );
   });
 });

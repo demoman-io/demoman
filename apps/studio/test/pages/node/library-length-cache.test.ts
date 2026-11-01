@@ -11,6 +11,12 @@ import {
   paintLength,
 } from "../../../pages/src/library/length-cache";
 
+// Counts the cache's digests; still the real one.
+vi.mock("@demoman/run-core", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@demoman/run-core")>();
+  return { ...real, sceneDigest: vi.fn(real.sceneDigest) };
+});
+
 const base = readonlyScene();
 const cutScene: SceneDocument = {
   ...base,
@@ -65,15 +71,52 @@ describe("createLengthCache", () => {
     expect(a).toBe(b);
   });
 
-  it("a run that throws is cached as its Error and not run again", async () => {
+  // Red: a throw kept under the digest, so a one-off failure said `—`
+  // for the rest of the session.
+  it("a run that throws is not kept: the next measure runs again", async () => {
     const cache = createLengthCache();
-    const run = vi.fn(async (): Promise<never> => {
-      throw new Error("no frames");
-    });
+    const run = vi
+      .fn<() => Promise<typeof measured>>()
+      .mockRejectedValueOnce(new Error("no frames"))
+      .mockResolvedValueOnce(measured);
     await expect(cache.measure(base, run)).rejects.toThrow("no frames");
-    expect(cache.get(base)).toEqual(new Error("no frames"));
-    await expect(cache.measure(base, run)).rejects.toThrow("no frames");
+    expect(cache.get(base)).toBeUndefined();
+    await expect(cache.measure(base, run)).resolves.toEqual(measured);
+    expect(run).toHaveBeenCalledTimes(2);
+    // The measured result is kept.
+    expect(cache.get(base)).toEqual(measured);
+    await cache.measure(base, run);
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("a nothing result is kept until an edit", async () => {
+    const cache = createLengthCache();
+    const nothing = {
+      kind: "nothing",
+      reason: "its trim leaves no frames",
+    } as const;
+    const run = vi.fn(async () => nothing);
+    await cache.measure(base, run);
+    await cache.measure(base, run);
     expect(run).toHaveBeenCalledTimes(1);
+    expect(cache.get(base)).toEqual(nothing);
+  });
+
+  // Red: `keyOf` digesting the whole document on every get and measure.
+  it("digests a document once, and a new document again", async () => {
+    const digest = vi.mocked(sceneDigest);
+    const cache = createLengthCache();
+    const doc = structuredClone(base);
+    digest.mockClear();
+    cache.get(doc);
+    cache.get(doc);
+    await cache.measure(doc, async () => measured);
+    expect(digest).toHaveBeenCalledTimes(1);
+    // A listing replaces every document: the copy is digested afresh, and
+    // keeps the length, its digest being the same.
+    const copy = structuredClone(doc);
+    expect(cache.get(copy)).toEqual(measured);
+    expect(digest).toHaveBeenCalledTimes(2);
   });
 });
 

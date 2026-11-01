@@ -338,8 +338,8 @@ function render(): Promise<void> {
 
 async function paintFresh({ keepNotice = false } = {}): Promise<void> {
   if (!keepNotice) clearNotice();
-  await viewRead;
-  const studio = await platform.folder.read();
+  // Both at once; the first paint still draws the view served.
+  const [, studio] = await Promise.all([viewRead, platform.folder.read()]);
   const listed = studio.scenes;
   scenesById = new Map(listed.map((scene) => [scene.meta.id, scene]));
   const model = buildLibraryModel({
@@ -469,8 +469,21 @@ const actions: LibraryActions = {
     );
   },
   measure: (sceneId: string, cell: HTMLElement): void => {
+    // Said each time, and painted `—`: nothing about a failure is kept, so
+    // the next paint after a redraw measures again.
+    const failed = (err: unknown): void => {
+      const e = err instanceof Error ? err : new Error(String(err));
+      console.warn(
+        `demoman library: length of ${sceneId} could not be measured: ${e.message}`,
+      );
+      paintLength(cell, e);
+    };
     const scene = scenesById.get(sceneId);
-    if (scene === undefined) return;
+    if (scene === undefined) {
+      // Every row is built from this same listing: the two drifted.
+      failed(new Error(`no document for ${sceneId} in the last listing`));
+      return;
+    }
     // A known length paints at once: a redraw never blanks it.
     const known = lengths.get(scene);
     if (known !== undefined) {
@@ -478,25 +491,18 @@ const actions: LibraryActions = {
       return;
     }
     const stop = whenVisible(cell, () => {
-      void lengths
-        .measure(scene, async () => {
-          const { bundle } = await bundles.active(sceneId);
-          // A video without frames (expired) has no length: a state, not a fault.
-          if (bundle === null) {
-            return { kind: "nothing", reason: "it has no frames" } as const;
-          }
-          return editedLength(scene, bundle, bundles.load);
-        })
-        .then(
-          (got) => paintLength(cell, got),
-          (err: unknown) => {
-            const e = err instanceof Error ? err : new Error(String(err));
-            console.warn(
-              `demoman library: length of ${sceneId} could not be measured: ${e.message}`,
-            );
-            paintLength(cell, e);
-          },
-        );
+      void bundles
+        .active(sceneId)
+        .then(({ bundle }) =>
+          // A video without frames (expired) has no length: a state, not a
+          // fault, and not kept, as its frames may come back.
+          bundle === null
+            ? ({ kind: "nothing", reason: "it has no frames" } as const)
+            : lengths.measure(scene, () =>
+                editedLength(scene, bundle, bundles.load),
+              ),
+        )
+        .then((got) => paintLength(cell, got), failed);
     });
     lengthWaits.push(stop);
   },
