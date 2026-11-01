@@ -429,79 +429,6 @@ const byName = (r: RefreshResult, name: string) => {
   return v;
 };
 
-beforeAll(async () => {
-  server = createServer((_req, res) => {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(html);
-  });
-  origin = await listenOnLoopback(server);
-  repo = await mkdtemp(join(tmpdir(), "demoman-refresh-repo-"));
-  home = await mkdtemp(join(tmpdir(), "demoman-refresh-local-"));
-  execFileSync("git", ["init", "-q"], { cwd: repo });
-  execFileSync(
-    "git",
-    [
-      "-c",
-      "user.name=t",
-      "-c",
-      "user.email=t@t",
-      "commit",
-      "-q",
-      "--allow-empty",
-      "-m",
-      "x",
-    ],
-    { cwd: repo },
-  );
-  await mkdir(join(repo, KEPT_DIR), { recursive: true });
-  await writeFile(
-    join(repo, KEPT_DIR, keptFileName(A)),
-    serializeKept(
-      kept(
-        A,
-        ["Place order"],
-        1,
-        [
-          { path: out.aMp4, fileType: "mp4", aspect: "16:9", quality: "share" },
-          { path: out.aGif, fileType: "gif", aspect: "16:9", quality: "share" },
-        ],
-        0,
-        3500,
-      ),
-    ),
-  );
-  await writeFile(
-    join(repo, KEPT_DIR, keptFileName(B)),
-    serializeKept(
-      kept(
-        B,
-        ["Place order", "Reports"],
-        2,
-        [{ path: out.bMp4, fileType: "mp4", aspect: "16:9", quality: "share" }],
-        2000,
-      ),
-    ),
-  );
-  // Committed, as a checkout in CI has them: the first film is at HEAD.
-  execFileSync("git", ["add", "-A"], { cwd: repo });
-  execFileSync(
-    "git",
-    ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "keep"],
-    { cwd: repo },
-  );
-  session = createBrowserSession({
-    headless: true,
-    log: (l) => void lines.push(l),
-  });
-}, SETUP_MS);
-
-afterAll(async () => {
-  await session?.close();
-  server?.close();
-  for (const dir of [repo, home])
-    if (dir) await rm(dir, { recursive: true, force: true });
-});
-
 /** The test body that ran last, and whether it has ended. vitest does not
  *  stop a body that timed out: it runs on beside the next test and resets
  *  `html`, `exported` and the repo's files under it. On CI (2026-10-29) a
@@ -523,23 +450,137 @@ const it = (name: string, body: () => unknown, ms?: number) =>
     },
     ms,
   );
-/** Each test starts once the one before it has really ended, and says so
- *  when it had to wait. */
-beforeEach(async () => {
-  const previous = last;
-  if (previous.ended) return;
-  const from = performance.now();
-  const how = await previous.done.then(
-    () => "passed",
-    (error: unknown) =>
-      `failed: ${error instanceof Error ? error.message : String(error)}`,
-  );
-  console.warn(
-    `refresh: the previous test ran ${((performance.now() - from) / 1000).toFixed(1)} s past its timeout and then ${how}; this test started after it`,
-  );
-}, BOTH_MS);
 
-describe("refresh", () => {
+/** Registers the file's hooks and its parts, in the order given. Every file
+ *  gets a repo, an app and a browser of its own (vitest isolates modules per
+ *  file), so the parts a file names read only what that file filmed.
+ *
+ *  Split four ways on 2026-11-01: as one file the lane ran 3012 s on CI, the
+ *  whole of its shard's 3014 s, and a file is the smallest unit vitest can
+ *  hand to another machine. */
+export function refreshSuite(...parts: (() => void)[]): void {
+  beforeAll(async () => {
+    server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(html);
+    });
+    origin = await listenOnLoopback(server);
+    repo = await mkdtemp(join(tmpdir(), "demoman-refresh-repo-"));
+    home = await mkdtemp(join(tmpdir(), "demoman-refresh-local-"));
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "x",
+      ],
+      { cwd: repo },
+    );
+    await mkdir(join(repo, KEPT_DIR), { recursive: true });
+    await writeFile(
+      join(repo, KEPT_DIR, keptFileName(A)),
+      serializeKept(
+        kept(
+          A,
+          ["Place order"],
+          1,
+          [
+            {
+              path: out.aMp4,
+              fileType: "mp4",
+              aspect: "16:9",
+              quality: "share",
+            },
+            {
+              path: out.aGif,
+              fileType: "gif",
+              aspect: "16:9",
+              quality: "share",
+            },
+          ],
+          0,
+          3500,
+        ),
+      ),
+    );
+    await writeFile(
+      join(repo, KEPT_DIR, keptFileName(B)),
+      serializeKept(
+        kept(
+          B,
+          ["Place order", "Reports"],
+          2,
+          [
+            {
+              path: out.bMp4,
+              fileType: "mp4",
+              aspect: "16:9",
+              quality: "share",
+            },
+          ],
+          2000,
+        ),
+      ),
+    );
+    // Committed, as a checkout in CI has them: the first film is at HEAD.
+    execFileSync("git", ["add", "-A"], { cwd: repo });
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "-m",
+        "keep",
+      ],
+      { cwd: repo },
+    );
+    session = createBrowserSession({
+      headless: true,
+      log: (l) => void lines.push(l),
+    });
+  }, SETUP_MS);
+
+  afterAll(async () => {
+    await session?.close();
+    server?.close();
+    for (const dir of [repo, home])
+      if (dir) await rm(dir, { recursive: true, force: true });
+  });
+
+  /** Each test starts once the one before it has really ended, and says so
+   *  when it had to wait. */
+  beforeEach(async () => {
+    const previous = last;
+    if (previous.ended) return;
+    const from = performance.now();
+    const how = await previous.done.then(
+      () => "passed",
+      (error: unknown) =>
+        `failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    console.warn(
+      `refresh: the previous test ran ${((performance.now() - from) / 1000).toFixed(1)} s past its timeout and then ${how}; this test started after it`,
+    );
+  }, BOTH_MS);
+  describe("refresh", () => {
+    for (const part of parts) part();
+  });
+}
+
+/** Films A and B for the first time: the committed videos every group but
+ *  the self-contained ones compares against. */
+export const firstFilm = () => {
   it(
     "films each kept video and writes its outputs and receipt, the first time as new",
     async () => {
@@ -607,7 +648,10 @@ describe("refresh", () => {
     },
     BOTH_MS,
   );
+};
 
+/** The unchanged reading, then the slower app's, which is measured against it. */
+export const unchangedThenSlower = () => {
   it(
     "leaves an unchanged picture byte for byte as it was",
     async () => {
@@ -706,7 +750,10 @@ describe("refresh", () => {
     },
     BOTH_MS,
   );
+};
 
+/** One digit changed, then restored. */
+export const oneDigit = () => {
   it(
     "a one-digit change reads changed",
     async () => {
@@ -745,7 +792,10 @@ describe("refresh", () => {
     },
     BOTH_MS,
   );
+};
 
+/** Each colour restyle, then restored. */
+export const restyles = () => {
   for (const restyle of RESTYLES) {
     it(
       `a colour restyle reads changed: ${restyle.name}`,
@@ -783,7 +833,10 @@ describe("refresh", () => {
       BOTH_MS,
     );
   }
+};
 
+/** A video of its own with a short ending. */
+export const shortEnding = () => {
   it(
     "reads a slower app as unchanged with a short ending",
     async () => {
@@ -823,7 +876,10 @@ describe("refresh", () => {
     },
     BOTH_MS,
   );
+};
 
+/** A video of its own kept as a GIF alone. */
+export const gifAlone = () => {
   it(
     "reads a video kept as a GIF alone unchanged, and slower",
     async () => {
@@ -867,7 +923,10 @@ describe("refresh", () => {
     },
     BOTH_MS,
   );
+};
 
+/** A video of its own on a page that never stops. */
+export const spinner = () => {
   it(
     "measures a spinner that never stops, filmed twice (#10)",
     async () => {
@@ -909,7 +968,10 @@ describe("refresh", () => {
     },
     BOTH_MS,
   );
+};
 
+/** Videos that cannot be compared, from the first film. */
+export const compareFailures = () => {
   it(
     "fails a video whose pictures cannot be compared, leaving its file",
     async () => {
@@ -986,7 +1048,11 @@ describe("refresh", () => {
     },
     ONE_MS,
   );
+};
 
+/** Replaces and failures in a chain: each reads the page and the committed
+ *  files the one before it left. */
+export const replaceChain = () => {
   it(
     "reads a change seen only on the final screen as changed",
     async () => {
@@ -1255,7 +1321,10 @@ describe("refresh", () => {
     },
     ONE_MS,
   );
+};
 
+/** A video of its own on an uploaded image. */
+export const upload = () => {
   // Ruling R13: keep copies an uploaded image into the repo and names it
   // there (`kept.wallpaper`); a refresh in CI films it from that copy. A
   // soft one (smaller than the zoom needs) is the picture the author kept.
@@ -1364,7 +1433,10 @@ describe("refresh", () => {
     },
     ONE_MS * 2,
   );
+};
 
+/** An export that left the wallpaper out. */
+export const wallpaperLeftOut = () => {
   // Ruling R13, as the logo: a video an export left on the gradient fails,
   // and its committed files stay. Red if refresh reads only the logo.
   it(
@@ -1398,7 +1470,10 @@ describe("refresh", () => {
     },
     ONE_MS,
   );
+};
 
+/** A look changed outside the window. */
+export const lookOutside = () => {
   // The background is judged by its look, not its pixels: a blur that
   // changes only outside the window is a change. Red if the look is not
   // compared, as the window's pixels are the same.
@@ -1440,7 +1515,10 @@ describe("refresh", () => {
     },
     ONE_MS,
   );
+};
 
+/** A video of its own whose logo or upload changes. */
+export const logoOrUpload = () => {
   // Ruling R25: an image is in the look by its bytes. A logo or upload
   // replaced in the repo under its own name is a new look, though the
   // window's pixels are the same. Red if the bytes are not digested.
@@ -1520,13 +1598,17 @@ describe("refresh", () => {
     },
     BOTH_MS,
   );
+};
 
+/** The fixture's guard, last: every two-click gap this file filmed. */
+export const clickGuard = () => {
   it("keeps every click clear of the pan-or-pull-back line", () => {
     // Tests no production code: it fails when a fixture edit moves a gap
     // between clicks onto `returnsBetween`'s line (spec decision 5).
-    // The premise: the file filmed a video with two clicks, several times.
+    // The premise: the file filmed a video with two clicks (its first film
+    // does, and the files that run this guard all start with it).
     const withGap = gaps.filter((g) => g.gaps.length > 0);
-    expect(withGap.length, JSON.stringify(gaps)).toBeGreaterThan(3);
+    expect(withGap.length, JSON.stringify(gaps)).toBeGreaterThan(0);
     for (const g of withGap)
       for (const gap of g.gaps)
         expect(
@@ -1534,4 +1616,4 @@ describe("refresh", () => {
           `${g.name}: a ${gap} ms gap is within 500 ms of ${LINE_MS}`,
         ).toBe(true);
   });
-});
+};

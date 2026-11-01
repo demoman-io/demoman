@@ -12,8 +12,9 @@ import {
 } from "../src/executor/same-picture.js";
 import { changedShare, type Drawn, insideOnly } from "../src/picture-diff.js";
 
-// Each condition of a clean run on its own: refresh.slow.test.ts's stopped
-// run also fails the verdict, so it cannot tell whether the stop is checked.
+// Each condition of a clean run on its own: the refresh lane's stopped run
+// (refresh-suite.ts) also fails the verdict, so it cannot tell whether the
+// stop is checked.
 const clean = {
   summary: "Complete: the video matches every step the script asked for.",
   outcome: "complete",
