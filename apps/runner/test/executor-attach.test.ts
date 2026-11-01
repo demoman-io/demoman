@@ -1176,6 +1176,9 @@ describe("codeClause", () => {
   it.each([
     ["no filmedCode", undefined, B, T, "commit not recorded"],
     ["none", { none: "git is not installed" }, B, T, "commit unknown"],
+    // Red: read the report's value unparsed — codeClause throws on both.
+    ["malformed", { commit: 42 }, B, T, "commit unknown"],
+    ["empty", {}, B, T, "commit unknown"],
     [
       "the PR head's tree",
       { commit: A, tree: T, dirty: true },

@@ -661,6 +661,10 @@ async function deliverOne(
     written.push(path);
   };
   try {
+    // A files delivery cut short must not leave new outputs beside the old
+    // receipt: with it gone first, the next refresh reads "missing".
+    if (same !== true && kept.deliver === "files")
+      await rm(join(to, receiptFile), { force: true });
     for (const i of toWrite) {
       const o = kept.outputs[i] as (typeof kept.outputs)[number];
       await put(o.path, await readFile(rendered[i] as string));

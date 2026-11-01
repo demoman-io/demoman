@@ -571,6 +571,10 @@ describe("renaming a kept flow", () => {
     const after = (await listing()).videos.find((v) => v.id === invoice);
     expect(after?.name).toBe("Send an invoice");
     expect((await store.get(invoice))?.kept).toBeUndefined();
+    // Red: clear the mark without a word.
+    expect(h.logs).toContain(
+      `studio: flow ${invoice}'s recipe is no longer in ${checkout}; its mark was cleared`,
+    );
   });
 
   it("renaming a kept flow whose recipe no file in the checkout keeps renames it and clears the mark", async () => {

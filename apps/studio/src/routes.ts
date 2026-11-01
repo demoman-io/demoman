@@ -576,6 +576,9 @@ export function createRoutes(o: {
           // flow is this library's alone, so its stale mark goes with it.
           const renamed = await videos.rename(id, name.trim());
           if (!renamed.ok) return renamed;
+          log(
+            `studio: flow ${id}'s recipe is no longer in ${rec.kept.root}; its mark was cleared`,
+          );
           return videos.setKept(id, null);
         }
         if ("unknown" in kept) {

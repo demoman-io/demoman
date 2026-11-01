@@ -604,6 +604,29 @@ describe("the files route", () => {
     ).toMatchObject({ ok: true, receipt: { video: "t-new" } });
   });
 
+  it("a files delivery cut short leaves no old receipt, so the next refresh is uncompared", async () => {
+    same = false;
+    await writeV2({ ...recipe([BARE, "o.gif"]), deliver: "files" }, null);
+    await writeFile(join(out, BARE), "delivered film");
+    await writeFile(join(out, RECEIPT_NAME), serializeReceipt(receipt()));
+    // The second output cannot be written: its name is a folder.
+    await mkdir(join(out, "o.gif"));
+    const [v] = await refreshInto({ previous: out });
+    expect(v?.outcome, JSON.stringify(v)).toBe("failed");
+    // Premise: the first output was written before the second failed.
+    expect(v?.detail).toContain(`wrote ${BARE}`);
+    expect(await readFile(join(out, BARE), "utf8")).toBe("new mp4");
+    // Red: keep the old receipt — the next run pairs it with the new video.
+    expect(existsSync(join(out, RECEIPT_NAME))).toBe(false);
+    await rm(join(out, "o.gif"), { recursive: true });
+    same = true;
+    compared.length = 0;
+    const [next] = await refreshInto({ previous: out });
+    expect(next?.outcome, JSON.stringify(next)).toBe("uncompared");
+    expect(next?.notes.join(" ")).toContain(`${RECEIPT_NAME} is missing`);
+    expect(compared).toEqual([]);
+  });
+
   it("a files flow whose logo folder links out of the checkout fails before filming", async () => {
     const outside = await mkdtemp(join(tmpdir(), "demoman-logo-out-"));
     try {
