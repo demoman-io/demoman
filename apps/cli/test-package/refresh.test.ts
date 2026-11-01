@@ -137,7 +137,7 @@ it(
   async () => {
     await film(NAME, "Place order");
 
-    const k = await cli("keep", NAME, "--to", MP4);
+    const k = await cli("add", NAME, "--to", MP4);
     expect(k.code, said(k)).toBe(0);
     const original = await kept();
 
@@ -200,7 +200,7 @@ it(
     expect(k.stdout, said(k)).not.toContain("is a guess");
 
     // Keep kept the scale the run recorded.
-    const keptPath = /^Kept "[^"]*" in (\S+)$/m.exec(k.stdout)?.[1];
+    const keptPath = /^Added "[^"]*" to the repo: (\S+)$/m.exec(k.stdout)?.[1];
     expect(keptPath, said(k)).toBeDefined();
     const keptFile = JSON.parse(
       await readFile(join(repo, keptPath as string), "utf8"),
