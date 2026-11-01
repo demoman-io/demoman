@@ -444,8 +444,10 @@ describe("a local refresh after a refresh wrote the receipt", () => {
       (await localNotes(
         await local("2026-10-31T13:00:00.000Z", "2026-10-31T13:00:01.000Z"),
       )) ?? [];
+    // Red: drop "going by time" — a clock comparison across machines reads
+    // as a fact.
     expect(note).toContain(
-      `not in ${FILE} since it was recorded at ${STARTED}`,
+      `not in ${FILE} (going by time: made or edited after it was recorded at ${STARTED}, by that machine's clock)`,
     );
     expect(rest).toEqual([]);
   });

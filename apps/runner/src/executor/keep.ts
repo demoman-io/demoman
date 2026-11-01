@@ -1207,7 +1207,10 @@ export async function libraryAhead(
     // Kept on another machine: this library has nothing to be ahead of.
     if (video === null) return null;
     if (receipt === null) {
-      return `${file} has no receipt to compare the library with; run \`demoman add ${kept.name}\` again`;
+      // add writes a files flow no receipt: an earlier refresh's --out-dir has it.
+      return kept.deliver === "files"
+        ? `${file} delivers files, whose receipt comes from --previous (an earlier refresh's --out-dir); with none, whether the library is ahead of it cannot be told`
+        : `${file} has no receipt to compare the library with; run \`demoman add ${kept.name}\` again`;
     }
     const all = await deps.videos.versions(video.id);
     const current = all.filter((v) => v.complete).at(-1) ?? all.at(-1);
@@ -1227,13 +1230,18 @@ export async function libraryAhead(
       if (receipt.filmedAt === null) {
         return `whether the library is ahead of ${file} cannot be told: its receipt names video ${receipt.video}, which this library does not have, and does not say when it was recorded`;
       }
+      // No clock-free order exists here: the receipt's video was filmed in a
+      // library thrown away after (CI's), so nothing in this one names it.
+      // Two machines' clocks are compared, so skew can flip the answer only
+      // for a version made or saved within that skew (seconds, under NTP)
+      // of the film; the note says it went by time.
       const filmed = Date.parse(receipt.filmedAt);
       const saved = (
         await stat(join(deps.library.takeDir(current.takeId), "scene.json"))
       ).mtimeMs;
       if (!(Date.parse(current.createdAt) > filmed || saved > filmed))
         return null;
-      since = ` since it was recorded at ${receipt.filmedAt}`;
+      since = ` (going by time: made or edited after it was recorded at ${receipt.filmedAt}, by that machine's clock)`;
     }
     const left = leftBehind({
       from: current.takeId,

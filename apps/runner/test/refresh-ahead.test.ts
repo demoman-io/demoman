@@ -333,6 +333,14 @@ describe("libraryAhead, given the receipt", () => {
       `${FILE} has no receipt to compare the library with; run \`demoman add ${NAME}\` again`,
     );
   });
+  it("a files flow with no receipt says it comes from --previous, never to add again", async () => {
+    // Red: the commit-flow advice — add writes a files flow no receipt.
+    const files = { ...kept, deliver: "files" as const };
+    const note = await libraryAhead(files, null, FILE, deps());
+    expect(note).toBe(
+      `${FILE} delivers files, whose receipt comes from --previous (an earlier refresh's --out-dir); with none, whether the library is ahead of it cannot be told`,
+    );
+  });
   it("with no receipt, says nothing when the library has no such flow", async () => {
     const d = deps();
     d.videos = { get: async () => null } as unknown as VideoStore;
