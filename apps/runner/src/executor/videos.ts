@@ -97,6 +97,15 @@ export interface VideoStore {
     id: string,
     kept: Kept | null,
   ): Promise<{ ok: true } | { ok: false; reason: "videoNotFound" }>;
+  /** Under the lock: writes `key` into the mark, only while the record's mark
+   *  still has this root and file. */
+  setKeptKey(
+    id: string,
+    mark: { root: string; file: string },
+    key: string,
+  ): Promise<
+    { ok: true } | { ok: false; reason: "videoNotFound" | "markMoved" }
+  >;
   /** Under the lock: re-points every take of `fromId` to `intoId`, then
    *  removes `fromId`'s record. Names the flow that is missing. */
   merge(
@@ -590,6 +599,18 @@ export function createVideoStore(
     await write(recordPath(id), kept ? { ...rest, kept } : rest);
     return { ok: true };
   };
+  const setKeptKeyUnlocked: VideoStore["setKeptKey"] = async (
+    id,
+    mark,
+    key,
+  ) => {
+    const rec = await get(id);
+    if (!rec) return { ok: false, reason: "videoNotFound" };
+    if (rec.kept?.root !== mark.root || rec.kept.file !== mark.file)
+      return { ok: false, reason: "markMoved" };
+    await write(recordPath(id), { ...rec, kept: { ...rec.kept, key } });
+    return { ok: true };
+  };
   const mergeUnlocked: VideoStore["merge"] = async (fromId, intoId) => {
     if (fromId === intoId) return { ok: false, reason: "sameFlow", id: fromId };
     for (const id of [fromId, intoId]) {
@@ -631,6 +652,8 @@ export function createVideoStore(
     create: (a) => waitLocked(() => createUnlocked(a)),
     adopt: (a) => waitLocked(() => adoptUnlocked(a)),
     setKept: (id, kept) => waitLocked(() => setKeptUnlocked(id, kept)),
+    setKeptKey: (id, mark, key) =>
+      waitLocked(() => setKeptKeyUnlocked(id, mark, key)),
     merge: (f, i) => waitLocked(() => mergeUnlocked(f, i)),
     get,
     list,
@@ -681,6 +704,7 @@ export function createVideoStore(
             create: createUnlocked,
             adopt: adoptUnlocked,
             setKept: setKeptUnlocked,
+            setKeptKey: setKeptKeyUnlocked,
             merge: mergeUnlocked,
             rename: renameUnlocked,
             join: joinUnlocked,

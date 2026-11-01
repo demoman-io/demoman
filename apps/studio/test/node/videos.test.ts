@@ -241,6 +241,30 @@ describe("the takes listing's videos", () => {
     },
   );
 
+  it("an upkeep that cannot key a mark says which", async () => {
+    // Red: drop the keyKeptMarks pass (or its row) from the upkeep — no row
+    // names the flow and its root.
+    const root = await mkdtemp(join(tmpdir(), "studio-unkeyed-root-"));
+    try {
+      const store = createVideoStore(home, createLibrary(home));
+      await store.setKept(invoice, { root, file: "a.demoman.json" });
+      // Premise: the mark has no key, and its root is a folder that is no
+      // git checkout.
+      expect((await store.get(invoice))?.kept?.key).toBeUndefined();
+      const body = await listing();
+      const said = JSON.stringify(body.unreadable);
+      const row = body.unreadable.find(
+        (u) => u.folder === "telling kept flows' projects",
+      );
+      expect(row?.kind, said).toBe("upkeep");
+      expect(row?.reason, said).toContain(`flow ${invoice} at ${root}`);
+      expect(row?.reason, said).toContain("not a git checkout");
+      expect((await store.get(invoice))?.kept?.key).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("a take whose video.json will not read is a row, and every video still lists", async () => {
     // Red (final review 4): read memberships unguarded — the migration
     // fails, versions() throws for every video, and no video lists.

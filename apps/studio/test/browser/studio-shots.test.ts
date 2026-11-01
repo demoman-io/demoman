@@ -1485,6 +1485,9 @@ describe("the Studio's screenshot set", () => {
       const marked = await createVideoStore(home, library).setKept(invoice, {
         root: checkout,
         file,
+        // Keyed, as every mark is by now: the checkout is no git repo, so an
+        // unkeyed mark would be an upkeep row beside the cards.
+        key: "github.com/acme/app",
       });
       expect(marked.ok, "premise: the flow is marked kept").toBe(true);
       const CODE = {
@@ -1537,7 +1540,13 @@ describe("the Studio's screenshot set", () => {
         serializeKept({ ...recipe, flow: loneFlow, name: "Filter invoices" }),
       );
       expect(
-        (await store.setKept(loneFlow, { root: checkout, file: loneFile })).ok,
+        (
+          await store.setKept(loneFlow, {
+            root: checkout,
+            file: loneFile,
+            key: "github.com/acme/app",
+          })
+        ).ok,
         "premise: the one-video flow is marked kept",
       ).toBe(true);
       const LONE_CODE = { commit: "c0ffee1234ab", tree: "t0", dirty: false };
@@ -1553,7 +1562,7 @@ describe("the Studio's screenshot set", () => {
         root: checkout,
         file,
         deliver: "files",
-        key: null,
+        key: "github.com/acme/app",
       });
       for (const take of [v1, v2, v3]) {
         expect(answer.videoOf[take]?.filmedCode, take).toEqual(CODE[take]);

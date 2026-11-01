@@ -12,11 +12,13 @@ import {
   expireOld,
   expiryStatus,
   keptOf,
+  keyKeptMarks,
   type Library,
   LibraryError,
   pidAlive,
   readLeases,
   readLogo,
+  readRepo,
   readUserSettings,
   readWallpaper,
   renameKept,
@@ -181,6 +183,24 @@ export function createRoutes(o: {
           folder: "joining videos to flows",
           reason: `videos could not be grouped into flows (${messageOf(error)})`,
           kind: "upkeep",
+        });
+      }
+      try {
+        const keyed = await keyKeptMarks(videos, readRepo);
+        if (keyed.failed.length > 0) {
+          rows.push({
+            folder: "telling kept flows' projects",
+            kind: "upkeep",
+            reason: keyed.failed
+              .map((f) => `flow ${f.flow} at ${f.root}: ${f.why}`)
+              .join("; "),
+          });
+        }
+      } catch (error) {
+        rows.push({
+          folder: "telling kept flows' projects",
+          kind: "upkeep",
+          reason: `could not be told (${messageOf(error)})`,
         });
       }
       const expiry = await expireOld(videos, library, new Date());

@@ -338,7 +338,8 @@ describe("the CLI's recipe", () => {
       /\.merge\(/.test(readFileSync(join(repo, f), "utf8")),
     );
     expect(mergeCallers, "an agent tool now calls videos.merge").toEqual([]);
-    const TERMINAL_REASONS = ["sameFlow"];
+    // markMoved: the Studio's upkeep keys a kept mark; no agent tool calls it.
+    const TERMINAL_REASONS = ["sameFlow", "markMoved"];
     const reasons = [...reasonsInCode(CLI_SOURCES), ...CLI_TOOL_REASONS].filter(
       (r) => !TERMINAL_REASONS.includes(r),
     );
