@@ -365,8 +365,11 @@ describe("folds", () => {
   it("a fold made in place survives a redraw", async () => {
     mount();
     const month = onScreen().at(-1) as string;
-    // A click on the month heading and on B's chevron, in place.
-    await userEvent.click(cell(month, "name"));
+    // A click on the month heading's label and on B's chevron, in place.
+    // The label: its cell spans the heading, under the empty cells.
+    await userEvent.click(
+      cell(month, "name").querySelector("[data-name-text]") as HTMLElement,
+    );
     await userEvent.click(cell("f:B", "open"));
     // Premise: both opened without a redraw.
     expect(expanded(month)).toBe("true");

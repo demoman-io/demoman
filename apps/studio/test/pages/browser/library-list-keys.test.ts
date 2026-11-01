@@ -325,14 +325,18 @@ describe("the column headings", () => {
   it("↑ from a cell keeps a sortable column; ← and → walk the headings; Home, End and letters do nothing", async () => {
     mount();
     await enter();
-    // Today is open, so → enters its cells: select, open, name, …, actions.
+    // Today is open, so → enters its cells: select, open, name, …,
+    // size, recorded, actions.
     await press("{ArrowRight}", "h:today/select");
     await press("{End}", "h:today/actions");
-    await press("{ArrowLeft}{ArrowLeft}", "h:today/recorded");
+    await press("{ArrowLeft}", "h:today/recorded");
+    await press("{ArrowLeft}", "h:today/size");
+    await press("{ArrowRight}", "h:today/recorded");
     await press("{ArrowUp}", "head/recorded");
-    await press("{ArrowRight}", "head/size");
-    await press("{ArrowRight}", "head/size");
-    await press("{ArrowLeft}{ArrowLeft}", "head/videos");
+    // Recorded is the last sort; Length has none, so ← skips it.
+    await press("{ArrowRight}", "head/recorded");
+    await press("{ArrowLeft}", "head/size");
+    await press("{ArrowLeft}", "head/videos");
     await press("{Home}{End}e", "head/videos");
     // A column with no sort button goes to Name's.
     await press("{ArrowDown}{ArrowRight}{ArrowRight}", "h:today/open");

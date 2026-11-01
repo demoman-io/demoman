@@ -1148,9 +1148,28 @@ describe("the Studio's screenshot set", () => {
             const ph = h.getBoundingClientRect();
             return Math.abs(pa.left - ph.left) < 1;
           };
+          // A number stands under its heading by the right edge.
+          const sizeHead = grid.querySelector(
+            "[role=columnheader][data-col='size']",
+          );
+          const size = row.querySelector("[data-col='size']");
+          const sized =
+            sizeHead !== null &&
+            size !== null &&
+            sizeHead.checkVisibility() &&
+            Math.abs(
+              size.getBoundingClientRect().right -
+                sizeHead.getBoundingClientRect().right,
+            ) < 1;
+          // Delete floats over the row's end, as a flow's actions do.
+          const del = row.querySelector('[data-action="delete"]');
+          const ends =
+            del !== null &&
+            Math.abs(del.getBoundingClientRect().right - g.right) < 1;
           return {
             cards: section.querySelectorAll(".card, article").length,
-            columns: [under("name", "name"), under("where", "where")],
+            columns: [under("name", "name"), under("where", "where"), sized],
+            ends,
             inColumn: r.left >= g.left - 0.5 && r.right <= g.right + 0.5,
             below: r.top >= g.bottom - 0.5,
             height: Math.round(r.height),
@@ -1161,7 +1180,8 @@ describe("the Studio's screenshot set", () => {
         }, UNREADABLE);
         expect(unreadable, `${at}: Couldn't read, as painted`).toEqual({
           cards: 0,
-          columns: [true, true],
+          columns: [true, true, true],
+          ends: true,
           inColumn: true,
           below: true,
           height: 34,
@@ -1364,7 +1384,8 @@ describe("the Studio's screenshot set", () => {
         })),
       );
       // Red: the unreadable row's size kept where the list drops its Size
-      // column, so the grid puts it under Recorded.
+      // column, so the grid puts it under Recorded. Its Delete is left
+      // out: it floats over every row's end, which is Recorded's.
       const underRecorded = await page.evaluate((folder) => {
         const head = document.querySelector(
           "[data-list-head] [role=columnheader][data-col='recorded']",
@@ -1375,7 +1396,11 @@ describe("the Studio's screenshot set", () => {
         if (head === null || row === null) return null;
         const h = head.getBoundingClientRect();
         // Its cells; a status line under them spans every column.
-        return [...row.querySelectorAll(":scope > [data-col]")].flatMap((c) => {
+        return [
+          ...row.querySelectorAll(
+            ":scope > [data-col]:not([data-col='actions'])",
+          ),
+        ].flatMap((c) => {
           const b = c.getBoundingClientRect();
           return b.width > 0 && b.left < h.right && b.right > h.left
             ? [`${(c as HTMLElement).dataset.col} "${c.textContent}"`]

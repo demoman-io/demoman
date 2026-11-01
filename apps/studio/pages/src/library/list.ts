@@ -48,12 +48,14 @@ type Col =
   | "where"
   | "videos"
   | "length"
-  | "recorded"
   | "size"
+  | "recorded"
   | "actions";
 
 /** Each column, its heading and the sort its heading button asks for; the
- *  unnamed ones are named for a screen reader only. Length never sorts. */
+ *  unnamed ones are named for a screen reader only. Length never sorts.
+ *  The numbers sit together and the date ends the row; the actions are
+ *  last in the keys' order but hold no track (index.html). */
 const COLUMNS: readonly [Col, string, LibrarySortColumn | null, boolean][] = [
   ["select", "Select", null, false],
   ["open", "Open", null, false],
@@ -61,8 +63,8 @@ const COLUMNS: readonly [Col, string, LibrarySortColumn | null, boolean][] = [
   ["where", "Where", "where", true],
   ["videos", "Videos", "videos", true],
   ["length", "Length", null, true],
-  ["recorded", "Recorded", "recorded", true],
   ["size", "Size", "size", true],
+  ["recorded", "Recorded", "recorded", true],
   ["actions", "Actions", null, false],
 ];
 

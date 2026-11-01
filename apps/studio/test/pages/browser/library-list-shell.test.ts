@@ -128,6 +128,10 @@ const ACTIONS = {
   select: noop,
   setView: noop,
   rerunLine: () => "Run it again to film it.",
+  // The page's measurer writes a length into the cell it is handed.
+  measure: (_scene: string, c: HTMLElement) => {
+    c.textContent = "0:09";
+  },
 };
 
 const REFUSED = "Couldn't delete: it is open.";
@@ -177,13 +181,23 @@ const rectOf = (e: Element) => {
   const { left, top, width, height } = e.getBoundingClientRect();
   return { left, top, width, height };
 };
-/** Every column's cells' lefts, head row included, of the rows shown. */
+/** Every column's cells' lefts, head row included, of the rows shown; a
+ *  date heading is a label across the row, not cells in the columns. */
 const lefts = (col: string): number[] =>
-  [head(), ...shown()].map(
+  [head(), ...shown().filter((r) => r.dataset.heading === undefined)].map(
     (r) =>
       (
         r.querySelector(`[data-col="${col}"]`) as HTMLElement
       ).getBoundingClientRect().left,
+  );
+/** The actions float over each row's end, so what lines up is their
+ *  right edge: every row's, head and headings included. */
+const actionRights = (): number[] =>
+  [head(), ...shown()].map(
+    (r) =>
+      (
+        r.querySelector('[data-col="actions"]') as HTMLElement
+      ).getBoundingClientRect().right,
   );
 /** What paints at a point: the hit test, which follows paint order. */
 const at = (x: number, y: number): Element | null =>
@@ -253,7 +267,7 @@ describe("the fixture", () => {
 });
 
 describe("the list's look", () => {
-  it("rows are 34px and every column lines up across rows", async () => {
+  it("rows are 34px, a heading 14px more, and every column lines up across rows", async () => {
     mount();
     await userEvent.click(cell("f:A", "open"));
     // Premise: a heading, flows, video rows and the take in no flow.
@@ -262,7 +276,7 @@ describe("the list's look", () => {
     for (const r of shown()) {
       if (r.querySelector("[data-status]") !== null) continue;
       expect(r.getBoundingClientRect().height, r.dataset.key).toBeCloseTo(
-        34,
+        r.dataset.heading === undefined ? 34 : 48,
         1,
       );
     }
@@ -273,13 +287,14 @@ describe("the list's look", () => {
       "where",
       "videos",
       "length",
-      "recorded",
       "size",
-      "actions",
+      "recorded",
     ]) {
       const xs = lefts(col);
       expect(new Set(xs).size, `${col}: ${xs.join(", ")}`).toBe(1);
     }
+    const ends = actionRights();
+    expect(new Set(ends).size, `actions: ${ends.join(", ")}`).toBe(1);
     // And the columns are laid side by side, not stacked.
     const name = cell("f:A", "name").getBoundingClientRect();
     const where = cell("f:A", "where").getBoundingClientRect();
@@ -295,7 +310,7 @@ describe("the list's look", () => {
     ) as HTMLElement;
     const before = cells.map(rectOf);
     expect(getComputedStyle(actions).opacity).toBe("0");
-    await userEvent.hover(cell("f:N3", "recorded"));
+    await userEvent.hover(cell("f:N3", "where"));
     expect(getComputedStyle(actions).opacity).toBe("1");
     expect(getComputedStyle(actions).visibility).toBe("visible");
     expect(cells.map(rectOf)).toEqual(before);
@@ -550,7 +565,7 @@ describe("the list's look", () => {
     const focused = row("f:A");
     expect(document.activeElement).toBe(focused);
     expect(focused.matches(":focus-visible")).toBe(true);
-    await userEvent.hover(cell("f:N1", "recorded"));
+    await userEvent.hover(cell("f:N1", "where"));
     const hovered = row("f:N1");
     const rest = row("f:N5");
     const f = getComputedStyle(focused);
@@ -650,10 +665,11 @@ describe("the list's look", () => {
       document.documentElement.clientWidth,
     );
     expect(grid().scrollWidth).toBeLessThanOrEqual(grid().clientWidth);
-    // The columns left still line up.
-    for (const col of ["name", "where", "recorded", "actions"]) {
+    // The columns left still line up, and the actions end every row.
+    for (const col of ["name", "where", "recorded"]) {
       expect(new Set(lefts(col)).size, col).toBe(1);
     }
+    expect(new Set(actionRights()).size).toBe(1);
   });
 
   it("under 900px tall the list does not paint over anything", async () => {
@@ -679,6 +695,290 @@ describe("the list's look", () => {
     expect(grid().getBoundingClientRect().left).toBeGreaterThanOrEqual(
       node(".library-side").getBoundingClientRect().right,
     );
+  });
+});
+
+/** The painted box of the first run of text in `e`: the glyphs, not the
+ *  cell or button that holds them. */
+function textBox(e: Element): DOMRect {
+  const walk = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+  for (let t = walk.nextNode(); t !== null; t = walk.nextNode()) {
+    if ((t.textContent ?? "").trim() === "") continue;
+    const range = document.createRange();
+    range.selectNodeContents(t);
+    return range.getBoundingClientRect();
+  }
+  throw new Error(`no text in ${e.outerHTML.slice(0, 120)}`);
+}
+
+/** The value columns, as they read along a row. */
+const VALUES = ["name", "where", "videos", "length", "size", "recorded"];
+const NUMBERS = new Set(["videos", "length", "size"]);
+
+// The author's review in a real studio window (look pass, 2026-11-01).
+describe("the list's look, as the author reviewed it", () => {
+  // Red: Recorded before Size in list.ts's COLUMNS.
+  it("the columns read Name, Where, Videos, Length, Size, Recorded, in the DOM and on screen", () => {
+    mount();
+    const heads = [
+      ...head().querySelectorAll<HTMLElement>("[role=columnheader]"),
+    ].filter((h) => VALUES.includes(h.dataset.col as string));
+    expect(heads.map((h) => h.dataset.col)).toEqual(VALUES);
+    expect(heads.map((h) => h.textContent)).toEqual([
+      "Name",
+      "Where",
+      "Videos",
+      "Length",
+      "Size",
+      "Recorded",
+    ]);
+    const painted = [...heads]
+      .sort(
+        (a, b) =>
+          a.getBoundingClientRect().left - b.getBoundingClientRect().left,
+      )
+      .map((h) => h.dataset.col);
+    expect(painted).toEqual(VALUES);
+    // Every row's cells in the same order as the head's.
+    for (const r of [row("f:A"), row("h:today"), row("t:loose")]) {
+      const cols = [...r.querySelectorAll<HTMLElement>("[role=gridcell]")]
+        .map((c) => c.dataset.col as string)
+        .filter((c) => VALUES.includes(c));
+      expect(cols, r.dataset.key).toEqual(VALUES);
+    }
+  });
+
+  for (const width of [1440, 720]) {
+    // A guard the reorder and the floating actions must keep: green on
+    // the code before them. Red: a number heading's text left-aligned
+    // (`text-align` off the head's number cells), or Name's heading
+    // indented as a video's name is.
+    it(`at ${width}px every column heading's text edge is its values' edge`, async () => {
+      await page.viewport(width, 900);
+      mount();
+      const visible = VALUES.filter((c) =>
+        rendered(head().querySelector(`[data-col="${c}"]`) as Element),
+      );
+      // Premise: at 720 Size is dropped and the rest drawn; at 1440 all.
+      expect(visible).toEqual(
+        width === 720 ? VALUES.filter((c) => c !== "size") : VALUES,
+      );
+      const said: string[] = [];
+      for (const col of visible) {
+        const h = textBox(
+          head().querySelector(`[data-col="${col}"]`) as Element,
+        );
+        const valueCell = cell("f:A", col);
+        // Premise: the first flow has a value in every column.
+        expect((valueCell.textContent ?? "").trim(), col).not.toBe("");
+        const v = textBox(valueCell);
+        const edge = NUMBERS.has(col) ? "right" : "left";
+        said.push(`${col} ${edge}: head ${h[edge]} value ${v[edge]}`);
+        expect(
+          Math.abs(h[edge] - v[edge]),
+          said.join("; "),
+        ).toBeLessThanOrEqual(1);
+      }
+    });
+  }
+
+  it("the sorted heading's emphasis does not move its text", () => {
+    mount();
+    const at = () =>
+      textBox(head().querySelector('[data-col="recorded"]') as Element).left;
+    // Premise: Recorded is the sorted column.
+    expect(
+      head().querySelector('[data-col="recorded"]')?.getAttribute("aria-sort"),
+    ).toBe("descending");
+    const sorted = at();
+    const font = getComputedStyle(
+      head().querySelector('[data-sort="recorded"]') as Element,
+    ).fontWeight;
+    // The same column unsorted: the view sorted by Name instead.
+    renderLibrary(
+      node("#root"),
+      MODEL,
+      ACTIONS,
+      new Map(),
+      NOW,
+      { ids: new Set(), anchor: null, range: [] },
+      undefined,
+      { layout: "list", sort: { column: "name", descending: false } },
+    );
+    expect(
+      head().querySelector('[data-col="recorded"]')?.hasAttribute("aria-sort"),
+    ).toBe(false);
+    expect(at()).toBe(sorted);
+    expect(
+      getComputedStyle(
+        head().querySelector('[data-sort="recorded"]') as Element,
+      ).fontWeight,
+    ).toBe(font);
+  });
+
+  // Red: the heading in the flows' columns (chevron in Open, label in
+  // Name), a row's height and hairline, the mono count and the row hover.
+  it("a date heading reads as a section label: at the list's left edge, sans, with room above and no row hairline", async () => {
+    await page.viewport(960, 640);
+    mount();
+    const h = row("h:today");
+    const listLeft = head()
+      .querySelector('[data-col="select"]')
+      ?.getBoundingClientRect().left as number;
+    const chev = (
+      cell("h:today", "open").querySelector(".chev") as Element
+    ).getBoundingClientRect();
+    const label = textBox(
+      cell("h:today", "name").querySelector("[data-name-text]") as Element,
+    );
+    const count = cell("h:today", "name").querySelector(
+      "[data-section-count]",
+    ) as HTMLElement;
+    const flowName = textBox(
+      cell("f:A", "name").querySelector("[data-name-text]") as Element,
+    );
+    const flowChev = (
+      cell("f:A", "open").querySelector(".chev") as Element
+    ).getBoundingClientRect();
+    const said = JSON.stringify({ listLeft, chev, label, flowName });
+    // The chevron leads, at the list's left edge, smaller than a flow's.
+    expect(chev.left, said).toBeLessThanOrEqual(listLeft + 1);
+    expect(chev.width, said).toBeLessThan(flowChev.width);
+    // The label follows it, left of the Name column; a flow's name
+    // starts further right.
+    expect(label.left, said).toBeGreaterThan(chev.right);
+    expect(label.left, said).toBeLessThan(
+      head().querySelector('[data-col="name"]')?.getBoundingClientRect()
+        .left as number,
+    );
+    expect(flowName.left, said).toBeGreaterThan(label.left + 20);
+    // The UI sans, label and count, at 12px 600.
+    for (const e of [cell("h:today", "name"), count]) {
+      expect(getComputedStyle(e).fontFamily, e.className).not.toMatch(/mono/i);
+    }
+    const style = getComputedStyle(
+      cell("h:today", "name").querySelector("[data-name-text]") as Element,
+    );
+    expect([style.fontSize, style.fontWeight]).toEqual(["12px", "600"]);
+    // More room above it than a row has: from the head's bottom to the
+    // label's top, against one flow's bottom to the next's name.
+    const above = label.top - head().getBoundingClientRect().bottom;
+    const rowAbove =
+      textBox(cell("f:L", "name").querySelector("[data-name-text]") as Element)
+        .top - row("f:A").getBoundingClientRect().bottom;
+    expect(above, `${above} vs ${rowAbove}`).toBeGreaterThan(rowAbove + 10);
+
+    const paint = await pixels();
+    const ground = paint(
+      listLeft + 2,
+      head().getBoundingClientRect().bottom + 4,
+    );
+    const box = h.getBoundingClientRect();
+    const x = cell("f:A", "where").getBoundingClientRect().left + 40;
+    // A flow's last pixel is its hairline; the heading's is the ground.
+    const fa = row("f:A").getBoundingClientRect();
+    expect(
+      close(paint(x, fa.bottom - 0.5), ground, 2),
+      "premise: a flow's hairline",
+    ).toBe(false);
+    expect(
+      close(paint(x, box.bottom - 0.5), ground, 2),
+      `${paint(x, box.bottom - 0.5)}`,
+    ).toBe(true);
+    // And its rule runs on through the Where column, level with the label.
+    const ruled = [];
+    for (let y = Math.floor(label.top); y <= Math.ceil(label.bottom); y++) {
+      ruled.push(!close(paint(x, y + 0.5), ground, 2));
+    }
+    expect(ruled, "the heading's rule").toContain(true);
+
+    // No hover ground on a heading; a flow's hover has one.
+    await userEvent.hover(cell("h:today", "where"));
+    expect(h.matches(":hover")).toBe(true);
+    expect(parse(getComputedStyle(h).backgroundColor)[3]).toBe(0);
+    // The keyboard's heading keeps its inset edge.
+    h.focus();
+    await userEvent.keyboard("{ArrowDown}{ArrowUp}");
+    expect(document.activeElement).toBe(h);
+    expect(h.matches(":focus-visible")).toBe(true);
+    expect(getComputedStyle(h).boxShadow).toMatch(/inset/);
+  });
+
+  // Red: the actions in a grid track of their own, which holds its width
+  // empty at rest and keeps Recorded off the row's end.
+  it("the actions float over the row's end: nothing moves, the date ends the row, and the value under them is covered", async () => {
+    await page.viewport(960, 640);
+    mount();
+    // A row on screen unscrolled: a hover would scroll to one that is
+    // not, and the pixels read a scrolled frame unhovered.
+    const r = row("f:N0");
+    expect(r.getBoundingClientRect().bottom).toBeLessThan(innerHeight);
+    const actions = cell("f:N0", "actions").querySelector(
+      ".row-actions",
+    ) as HTMLElement;
+    const g = grid().getBoundingClientRect();
+    const recorded = cell("f:N0", "recorded").getBoundingClientRect();
+    // The date ends the row: no track is held after it.
+    expect(recorded.right, JSON.stringify({ recorded, g })).toBeCloseTo(
+      g.right,
+      0,
+    );
+    const cells = [...r.children];
+    const before = cells.map(rectOf);
+    expect(getComputedStyle(actions).opacity).toBe("0");
+    await userEvent.hover(cell("f:N0", "where"));
+    expect(getComputedStyle(actions).opacity).toBe("1");
+    expect(cells.map(rectOf)).toEqual(before);
+    const a = actions.getBoundingClientRect();
+    // Over the trailing end, right-aligned to the row.
+    expect(a.right).toBeCloseTo(g.right, 0);
+    expect(a.left).toBeLessThan(recorded.right);
+    // Premise: the date's text sits under the actions.
+    const date = textBox(cell("f:N0", "recorded"));
+    expect(date.right, JSON.stringify({ date, a })).toBeGreaterThan(
+      a.left + 30,
+    );
+    // Covered cleanly, never half: from the date's own left edge to the
+    // actions' first button, across the date's line, the paint is the
+    // hovered row's ground (the Videos cell's blank left, in the same
+    // row). The fade is the gap before it.
+    const paint = await pixels();
+    const y = date.top + date.height / 2;
+    const v = cell("f:N0", "videos").getBoundingClientRect();
+    const ground = paint(v.left + 3, y);
+    const first = actions
+      .querySelector("button")
+      ?.getBoundingClientRect() as DOMRect;
+    const seen: number[][] = [];
+    // Premise: the date starts in that span, so it holds its glyphs.
+    expect(date.left).toBeLessThan(first.left);
+    for (let x = Math.ceil(recorded.left); x < first.left + 4; x++) {
+      for (const dy of [-3, 0, 3]) seen.push(paint(x + 0.5, y + dy));
+    }
+    expect(seen.length).toBeGreaterThan(0);
+    expect(
+      seen.every((p) => close(p, ground, 3)),
+      `${JSON.stringify(ground)} vs ${JSON.stringify(seen)}`,
+    ).toBe(true);
+    // Delete is what the hit test finds at its own centre.
+    const del = actions.querySelector('[data-action="delete"]') as HTMLElement;
+    const d = del.getBoundingClientRect();
+    expect(
+      at(d.left + d.width / 2, d.top + d.height / 2)?.closest("button"),
+    ).toBe(del);
+  });
+
+  it("while flows are ticked the actions stay hidden under the pointer, and nothing moves", async () => {
+    mount(false, ["N0"]);
+    const cells = [...row("f:N3").children];
+    const before = cells.map(rectOf);
+    await userEvent.hover(cell("f:N3", "where"));
+    expect(row("f:N3").matches(":hover")).toBe(true);
+    const actionsCell = cell("f:N3", "actions");
+    expect(actionsCell.checkVisibility({ visibilityProperty: true })).toBe(
+      false,
+    );
+    expect(cells.map(rectOf)).toEqual(before);
   });
 });
 
@@ -745,7 +1045,7 @@ describe("the list's shots", () => {
       await page.viewport(width, height);
       mount();
       await userEvent.click(cell("f:A", "open"));
-      await userEvent.hover(cell("f:N2", "recorded"));
+      await userEvent.hover(cell("f:N2", "where"));
       expect(row("v:a2").hidden).toBe(false);
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(
         document.documentElement.clientWidth,

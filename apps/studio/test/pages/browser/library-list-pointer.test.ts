@@ -190,7 +190,8 @@ describe("a click in the list", () => {
     await userEvent.click(nameText("f:A"));
     expect(acts.edit).toHaveBeenCalledTimes(1);
     expect(acts.edit).toHaveBeenCalledWith("a2");
-    await userEvent.click(cell("f:B", "recorded"));
+    // Where, not Recorded: the hovered row's actions float over its end.
+    await userEvent.click(cell("f:B", "where"));
     expect(acts.edit).toHaveBeenLastCalledWith("b1");
   });
 
@@ -363,7 +364,7 @@ describe("selecting in the list", () => {
     await userEvent.click(cell("v:a1", "recorded"));
     expect(acts.edit).not.toHaveBeenCalled();
     expect(acts.select).not.toHaveBeenCalled();
-    await userEvent.hover(cell("v:a1", "recorded"));
+    await userEvent.hover(cell("v:a1", "where"));
     expect(row("v:a1").matches(":hover")).toBe(true);
     const buttons = [
       ...cell("v:a1", "actions").querySelectorAll<HTMLElement>("button"),
@@ -392,9 +393,9 @@ describe("selecting in the list", () => {
     ];
     // At rest they keep their cell, unseen.
     expect(shows()).toEqual(["0", "visible"]);
-    await userEvent.hover(cell("f:B", "recorded"));
+    await userEvent.hover(cell("f:B", "where"));
     expect(shows()).toEqual(["1", "visible"]);
-    await userEvent.hover(cell("f:C", "recorded"));
+    await userEvent.hover(cell("f:C", "where"));
     expect(shows()).toEqual(["0", "visible"]);
     // The keyboard on the row: Space and the keys need no pointer. From
     // A, ↓ is B.
@@ -419,7 +420,7 @@ describe("selecting in the list", () => {
     await userEvent.click(cell("f:B", "open"));
     // Premise: the click put focus in the row.
     expect(row("f:B").contains(document.activeElement)).toBe(true);
-    await userEvent.hover(cell("f:C", "recorded"));
+    await userEvent.hover(cell("f:C", "where"));
     expect(row("f:B").matches(":hover")).toBe(false);
     expect(shows()).toEqual(["0", "0"]);
     // Escape in a cell goes back to the row, by the keyboard.
@@ -430,7 +431,7 @@ describe("selecting in the list", () => {
 
   it("while anything is selected, the row's actions stay hidden under the pointer", async () => {
     mount(ticked("A"));
-    await userEvent.hover(cell("f:B", "recorded"));
+    await userEvent.hover(cell("f:B", "where"));
     // Premise: the pointer is on the row.
     expect(row("f:B").matches(":hover")).toBe(true);
     const del = row("f:B").querySelector(
