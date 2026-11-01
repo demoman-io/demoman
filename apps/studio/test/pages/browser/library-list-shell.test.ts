@@ -650,6 +650,34 @@ describe("the list's look", () => {
     );
   });
 
+  // Red: the name's `max-width: 100%` beside a tag, which clips the tag
+  // to nothing (DEM-34).
+  it("at 720px a name as wide as its cell leaves its tag's glyph showing", async () => {
+    await page.viewport(720, 900);
+    mount();
+    const nameCell = cell("f:R", "name");
+    const name = nameCell.querySelector("[data-name-text]") as HTMLElement;
+    name.textContent = "Reclaimed checkout with a zoom ".repeat(4);
+    const strip = row("f:R").querySelector(".row-tags") as HTMLElement;
+    const glyph = strip.querySelector("svg") as SVGElement;
+    const said = (): string =>
+      JSON.stringify({
+        name: [name.clientWidth, name.scrollWidth],
+        strip: strip.getBoundingClientRect().width,
+        cell: nameCell.clientWidth,
+      });
+    // Premise: the name alone is wider than its cell, and the tag has a glyph.
+    expect(name.scrollWidth, said()).toBeGreaterThan(nameCell.clientWidth);
+    expect(glyph, said()).not.toBeNull();
+    const s = strip.getBoundingClientRect();
+    const g = glyph.getBoundingClientRect();
+    expect(g.left, said()).toBeGreaterThanOrEqual(s.left);
+    expect(g.right, said()).toBeLessThanOrEqual(s.right + 0.5);
+    expect(s.right, said()).toBeLessThanOrEqual(
+      nameCell.getBoundingClientRect().right + 0.5,
+    );
+  });
+
   it("at 560px Length and Videos are gone too", async () => {
     await page.viewport(560, 900);
     mount();

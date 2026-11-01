@@ -824,6 +824,12 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      /* But a name as wide as its cell leaves its tag the glyph: a worded
+         tag's padding and icon, the glyph-only tag's square, and the gap
+         (DEM-34). */
+      .library-list [data-col="name"]:has(> .row-tags) > [data-name-text] {
+        max-width: calc(100% - 20px - 8px);
+      }
       .library-list [data-video-row] [data-col="name"] { padding-left: 16px; }
       .library-list .row-tags {
         position: static;
