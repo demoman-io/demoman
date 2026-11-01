@@ -104,6 +104,7 @@ export function ciWorkflow(o: CiOptions): string {
           GH_TOKEN: ${expr("github.token")}
           EVENT: ${deployment === null ? "push" : "deployment_status"}
           BRANCH: "${deployment === null ? branch : ""}"
+          ENVIRONMENT: "${deployment ?? ""}"
         run: |
           wf=\${GITHUB_WORKFLOW_REF%%@*}
           export WF=\${wf#"$GITHUB_REPOSITORY"/}
@@ -111,10 +112,23 @@ export function ciWorkflow(o: CiOptions): string {
           # repository, newest first: never a fork's or another workflow's artifact.
           id=""
           said=""
-          if ! runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/\${WF##*/}/runs?event=$EVENT&status=completed&per_page=50\${BRANCH:+&branch=$BRANCH}" --jq '[.workflow_runs[] | select(((.path // "") | startswith($ENV.WF)) and .event == $ENV.EVENT and (($ENV.BRANCH // "") == "" or .head_branch == $ENV.BRANCH) and .head_repository.id == .repository.id)] | sort_by(.created_at) | reverse | .[].id'); then
+          if ! runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/\${WF##*/}/runs?event=$EVENT&status=completed&per_page=50\${BRANCH:+&branch=$BRANCH}" --jq '[.workflow_runs[] | select(((.path // "") | startswith($ENV.WF)) and .event == $ENV.EVENT and (($ENV.BRANCH // "") == "" or .head_branch == $ENV.BRANCH) and .head_repository.id == .repository.id)] | sort_by(.created_at) | reverse | .[] | "\\(.id) \\(.head_sha)"'); then
             said="::warning::This workflow's earlier runs could not be listed"
           else
-            for r in $runs; do
+            while read -r r sha <&3; do
+              [ -n "$r" ] || continue
+              if [ -n "$ENVIRONMENT" ]; then
+                # A fork's preview deployment runs this workflow too: only a
+                # commit deployed to this environment counts.
+                if ! d=$(gh api -X GET "repos/$GITHUB_REPOSITORY/deployments" -f sha="$sha" -f environment="$ENVIRONMENT" --jq length); then
+                  said="::warning::The deployments of run $r's commit could not be listed"
+                  break
+                fi
+                [ "$d" -gt 0 ] || continue
+              else
+                # A tag named like the branch matches it too: the commit must be on it.
+                git merge-base --is-ancestor "$sha" HEAD 2>/dev/null || continue
+              fi
               if ! n=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$r/artifacts?name=demoman-videos" --jq '[.artifacts[] | select(.name == "demoman-videos" and .expired == false)] | length'); then
                 said="::warning::Run $r's artifacts could not be listed"
                 break
@@ -123,12 +137,12 @@ export function ciWorkflow(o: CiOptions): string {
                 id=$r
                 break
               fi
-            done
+            done 3<<< "$runs"
           fi
           if [ -n "$said" ]; then
             echo "$said, so every files flow is compared with nothing."
           elif [ -z "$id" ]; then
-            echo "No earlier run of this workflow has a demoman-videos artifact, so every files flow is compared with nothing."
+            echo "None of this workflow's newest 50 runs here has a demoman-videos artifact, so every files flow is compared with nothing."
           elif ! gh run download "$id" --repo "$GITHUB_REPOSITORY" --name demoman-videos --dir demoman-out; then
             rm -rf demoman-out
             echo "::warning::Run $id's demoman-videos artifact could not be downloaded, so every files flow is compared with nothing."

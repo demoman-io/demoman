@@ -80,7 +80,7 @@ describe("ciWorkflow artifact", () => {
   };
   const stepEnv = (y: string) => {
     const env: Record<string, string> = {};
-    for (const k of ["EVENT", "BRANCH"]) {
+    for (const k of ["EVENT", "BRANCH", "ENVIRONMENT"]) {
       const l = lines(y).find((x) => x.startsWith(`          ${k}: `)) ?? "";
       env[k] = l.slice(`          ${k}: `.length).replace(/^"|"$/g, "");
     }
@@ -93,6 +93,13 @@ describe("ciWorkflow artifact", () => {
     join(bin, "gh"),
     `#!/bin/sh
 echo "gh $*" >> "$LOG"
+if [ "$1" = api ] && [ "$2" = -X ]; then
+  [ "$DEPLIST" = fail ] && exit 1
+  sha=$(printf '%s' "$*" | sed 's|.* sha=\\([0-9a-f]*\\) .*|\\1|')
+  env=$(printf '%s' "$*" | sed 's|.* environment=\\([^ ]*\\) .*|\\1|')
+  grep -cx "$env" "$DEPLOYS/$sha" 2>/dev/null || echo 0
+  exit 0
+fi
 if [ "$1" = api ]; then
   case "$2" in
     */actions/workflows/*) [ "$LIST" = fail ] && exit 1; jq -r "$4" "$RUNS"; exit $? ;;
@@ -114,6 +121,8 @@ exit 0
     created_at: string;
     event: string;
     head_branch: string;
+    /** "HEAD" (the checkout's), "OFF" (a commit not on it), or a sha. */
+    head_sha: string;
     path: string;
     head_repository: { id: number };
     repository: { id: number };
@@ -123,6 +132,7 @@ exit 0
     created_at: `2026-10-${String(day).padStart(2, "0")}T00:00:00Z`,
     event: "push",
     head_branch: "main",
+    head_sha: "HEAD",
     path: ".github/workflows/demoman.yml",
     head_repository: { id: 1 },
     repository: { id: 1 },
@@ -133,14 +143,43 @@ exit 0
     runs: Run[],
     artifacts: Record<number, "ok" | "expired">,
     env: Record<string, string> = {},
+    /** Each sha's deployments, by environment name. */
+    deployments: Record<string, string[]> = {},
   ) => {
     const cwd = mkdtempSync(join(tmpdir(), "ws-"));
+    const git = (...a: string[]) =>
+      execFileSync("git", a, { cwd, encoding: "utf8" }).trim();
+    git("init", "-q");
+    for (const m of ["one", "two"])
+      git(
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        m,
+      );
+    const shas: Record<string, string> = {
+      HEAD: git("rev-parse", "HEAD"),
+      // A commit off the checkout's history, as a tag named like the branch.
+      OFF: git("commit-tree", git("rev-parse", "HEAD^{tree}"), "-m", "tag"),
+    };
+    const sha = (x: string) => shas[x] ?? x;
     const log = join(cwd, "log");
     writeFileSync(log, "");
     writeFileSync(
       join(cwd, "runs.json"),
-      JSON.stringify({ workflow_runs: runs }),
+      JSON.stringify({
+        workflow_runs: runs.map((r) => ({ ...r, head_sha: sha(r.head_sha) })),
+      }),
     );
+    const deploys = join(cwd, "deploys");
+    mkdirSync(deploys);
+    for (const [k, envs] of Object.entries(deployments))
+      writeFileSync(join(deploys, sha(k)), `${envs.join("\n")}\n`);
     const arts = join(cwd, "arts");
     mkdirSync(arts);
     for (const [id, state] of Object.entries(artifacts))
@@ -162,6 +201,7 @@ exit 0
         LOG: log,
         RUNS: join(cwd, "runs.json"),
         ARTS: arts,
+        DEPLOYS: deploys,
         ...stepEnv(y),
         ...env,
       },
@@ -187,6 +227,9 @@ exit 0
       run(800, 8, { path: ".github/workflows/other.yml" }),
       run(750, 7, { event: "deployment_status" }),
       run(700, 7, { head_branch: "feature" }),
+      // A tag named "main": the branch filter matches it, its commit is off
+      // the branch. Red: drop the merge-base check.
+      run(650, 7, { head_sha: "OFF" }),
       // Ours: no artifact (a guard-skipped run), then an expired one.
       run(600, 6),
       run(550, 5),
@@ -199,6 +242,7 @@ exit 0
       800: "ok",
       750: "ok",
       700: "ok",
+      650: "ok",
       550: "expired",
       500: "ok",
     });
@@ -220,20 +264,32 @@ exit 0
       route: "pr",
       artifact: true,
     });
-    expect(stepEnv(dep)).toEqual({ EVENT: "deployment_status", BRANCH: "" });
+    expect(stepEnv(dep)).toEqual({
+      EVENT: "deployment_status",
+      BRANCH: "",
+      ENVIRONMENT: "Production",
+    });
     const d = { event: "deployment_status", head_branch: "v1.2" };
+    const PREVIEW = "e".repeat(40);
     const r = shell(
       dep,
       [
         run(990, 9, { ...d, head_repository: { id: 2 } }),
         run(980, 8, { ...d, path: ".github/workflows/other.yml" }),
         run(970, 7),
+        // A fork's preview deployment ran this workflow from this repo:
+        // its commit was never deployed to Production. Red: drop the check.
+        run(965, 7, { ...d, head_sha: PREVIEW }),
         run(960, 6, d),
       ],
-      { 990: "ok", 980: "ok", 970: "ok", 960: "ok" },
+      { 990: "ok", 980: "ok", 970: "ok", 965: "ok", 960: "ok" },
+      {},
+      { [PREVIEW]: ["Preview"], HEAD: ["Production"] },
     );
     expect(r.status, r.stderr).toBe(0);
     expect(r.from, r.log).toBe("960");
+    // Premise: the preview run was asked about, and refused for its environment.
+    expect(r.log).toContain(`sha=${PREVIEW} -f environment=Production`);
     expect(r.log).toContain(
       "gh api repos/o/r/actions/workflows/demoman.yml/runs?event=deployment_status&status=completed&per_page=50 ",
     );
@@ -255,7 +311,7 @@ exit 0
     const none = shell(art, ours, {});
     expect(none.status, none.stderr).toBe(0);
     expect(none.stdout).toContain(
-      "No earlier run of this workflow has a demoman-videos artifact",
+      "None of this workflow's newest 50 runs here has a demoman-videos artifact",
     );
     expect(none.log).not.toContain("run download");
     const getFails = shell(art, ours, { 500: "ok" }, { GET: "fail" });
@@ -264,6 +320,19 @@ exit 0
       "::warning::Run 500's demoman-videos artifact could not be downloaded",
     );
     expect(getFails.has, "a half download is removed").toBe(false);
+    const dep = ciWorkflow({
+      version: "0.2.0",
+      trigger: { deployment: "Production" },
+      route: "pr",
+      artifact: true,
+    });
+    const depOurs = [run(500, 4, { event: "deployment_status" })];
+    const deployFails = shell(dep, depOurs, { 500: "ok" }, { DEPLIST: "fail" });
+    expect(deployFails.status, deployFails.stderr).toBe(0);
+    expect(deployFails.stdout).toContain(
+      "::warning::The deployments of run 500's commit could not be listed",
+    );
+    expect(deployFails.log).not.toContain("run download");
     const got = shell(art, ours, { 500: "ok" });
     expect(got.status, got.stderr).toBe(0);
     expect(got.stdout).toBe("");
