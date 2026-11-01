@@ -89,8 +89,9 @@ npx demoman refresh --out-dir demoman-out
 ```
 
 With `--deliver files`, keep writes only the file in `.demoman/videos/`, and a
-`--to` path is a plain file name. Refresh writes the video, its receipt and
-`demoman-refresh.json`, which lists what each flow made, into `--out-dir`;
+`--to` path is a plain file name. Refresh writes the video and its receipt (not for a video that came back
+`unchanged`) and `demoman-refresh.json`, which lists what each flow made, into
+`--out-dir`;
 nothing is committed. Upload the folder with your own step, such as
 `aws s3 sync demoman-out s3://bucket/`, or
 `aws s3 sync demoman-out s3://bucket/ --endpoint-url $R2_ENDPOINT` for R2.

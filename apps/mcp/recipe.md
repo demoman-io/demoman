@@ -15,8 +15,8 @@ user; section 7 lists every reason.
    `sessions` is `[{site, savedAt, refreshedAt, signInUrl}]`; it and
    `display` can be `{unreadable}`: tell the user why. `accounts` and
    `secretsFile` are the demo accounts below.
-2. The browser is signed in only where the user ran `npx demoman signin <url>`;
-   `status`'s `sessions` lists those sites. A demo account records best. A page
+2. The browser is signed in only where the user ran `npx demoman signin <url>`
+   (`status.sessions` lists them). A demo account records best. A page
    that sends this browser to its sign-in page answers `signedOut` (section
    7) with the exact command in `detail`: give the user that command and
    spend no run until they say they have run it, unless a demo account can
@@ -33,10 +33,10 @@ user; section 7 lists every reason.
 `status.accounts` is one of:
 
 - `{file: null, searchedFrom}`: no `.demoman/accounts.json` was found from
-  `searchedFrom` upward (`status` reads from the folder this server was
+  `searchedFrom` upward (`status` reads from the folder this server
   started in and takes no `project`). Create one (below), or pass `project` on `snapshot`/`run`.
-- `{file, invalid, field}`: the file exists and cannot be used; `invalid` is
-  why and `field` where. Fix it; every snapshot and run from that project
+- `{file, invalid, field}`: the file cannot be used; `invalid` is why and
+  `field` where. Fix it; every snapshot and run from that project
   answers `accountsInvalid` until then.
 - `{file, sites}`: each site is `{origin, default, accounts}`, each account
   `{name, about, session}` with `session` `"saved"`, `"none"` or
@@ -45,8 +45,8 @@ user; section 7 lists every reason.
   `sessionsUnreadable`, when present: the saved sessions could not be read; tell the user.
 
 `status.sessions` lists an account's saved session with an `account` (and
-its `origin`) beside `site`; an entry without one is the site's manual
-session from `npx demoman signin <url>`.
+`origin`) beside `site`; one without is the site's manual session from
+`npx demoman signin <url>`.
 
 `status.secretsFile` is `null` (no usable accounts file), `{path, absent:
 true}` (no secrets file: only `DEMOMAN_SECRET_*` can supply values),
@@ -55,19 +55,18 @@ true}` (no secrets file: only `DEMOMAN_SECRET_*` can supply values),
 as `secretsFileNotIgnored` or `secretsFileInvalid` will be). Never a value.
 
 A page behind a login answers `signedOut` and `status` shows no account for
-its site. Then, in this order:
+its site. Then, in order:
 
 1. **Reuse first.** Read each account's `about` and pick the one that fits
-   the demo. Name it in the script's `account`, or leave it out for the
-   site's `default`.
+   the demo. Name it in the script's `account`, or omit it for the `default`.
 2. **The app's repo is open and runs against a local development database:**
    create a demo account and the data the demo needs, with a seed script
    committed in the app and safe to run twice (`priv/repo/demo_seeds.exs`,
    `db/seeds/demo.rb`). Generate a random password of 20 or more characters.
    Write `DEMOMAN_SECRET_<NAME>=…` and
    `DEMOMAN_SECRET_<NAME>_ORIGIN=<the site's origin>` to
-   `.demoman/secrets.env`, and add it to `.gitignore` if missing. Add the
-   account to `accounts.json`. Tell the user in one line; `snapshot` again.
+   `.demoman/secrets.env`, and `.gitignore` it if missing. Add the
+   account to `accounts.json`, tell the user in a line, `snapshot` again.
 3. **Two-factor or a magic link in the way:** add a dev-only "sign in as"
    route, reachable only in development, and make the account's `signIn` one
    `goto` to it. Phoenix:
@@ -107,24 +106,22 @@ The file, with one account:
   digits, `-` and `_`, at most 64: `seller`. `signIn` uses the script's steps and targets
   (`type` names its field with `into`; copy targets from a `snapshot` of the
   login page) plus `goto`, which must be the first step. `checkUrl` is
-  required: a page behind the login, a path on the origin, that a browser
-  signed in to nothing cannot open (it redirects to sign-in, or shows a
-  password form) and that shows no password field once signed in. Demoman
-  opens it signed out first and treats where it lands as the sign-in page. `about` names who the account is and what data
-  it has.
+  required: a path on the origin behind the login, which a browser signed
+  in to nothing cannot open (it redirects to sign-in, or shows a
+  password form) and which shows no password field once signed in. Demoman
+  opens it signed out first and treats where it lands as the sign-in page. `about` names who the account is and what data it has.
 - `{secret:NAME}` goes in a `signIn` step's `text`, `NAME` being
   `[A-Z0-9_]+`, not ending in `_ORIGIN`. Demoman reads
   `DEMOMAN_SECRET_NAME` from the environment, else `.demoman/secrets.env`
   (only when git ignores it). A value
   is at least 8 characters, typed only with `DEMOMAN_SECRET_NAME_ORIGIN`
-  beside it, naming the account's site. In the environment the user sets
-  both and you never change them; in `secrets.env` you write both.
+  beside it, naming the account's site. The user sets both in the
+  environment and you never change them; in `secrets.env` you write both.
   A `{secret:…}` in a demo script is refused (`invalidScript`).
-  Environment secrets serve only the accounts.json of the repo Demoman was
-  started in; one reached through `project` reads only its own
-  `.demoman/secrets.env`.
-- A script names its account: `"account": "seller"`. `snapshot` takes `account` too. Both take `project`,
-  an absolute path, to use another checkout's `.demoman/`.
+  Environment secrets serve only the accounts.json of the repo Demoman
+  started in; a `project` one reads only its own `.demoman/secrets.env`.
+- A script names its account: `"account": "seller"`; so does `snapshot`. Both take `project`,
+  an absolute path, for another checkout's `.demoman/`.
 
 ```json
 {
@@ -148,16 +145,16 @@ The file, with one account:
 
 `snapshot(url)` opens `url` in Demoman's browser and lists the page's
 targets, leaving the page open. Each entry is
-`{ target, kind, text, value, rect, shown, inFirstViewport }`. Every `target` resolves in a run to exactly that element.
+`{ target, kind, text, value, rect, shown, inFirstViewport }`. Every `target` resolves in a run to that element.
 
 - **Copy a `target` into a step verbatim. Never compose one**, and never
   translate a name from another tool's accessibility tree: Demoman's roles
   are not Chrome's.
 - `landedElsewhere: true` - the app redirected, often to its sign-in page;
   `landedUrl` says where. If it is a sign-in page, this browser is not
-  signed in there: see `session` below and spend no run. If it is
-  not a sign-in page (a trailing slash, `https`, a locale prefix), use
-  `landedUrl` as the script's `target`; this snapshot stands.
+  signed in there: see `session` below and spend no run. If it is not a sign-in page (a
+  trailing slash, `https`, a locale prefix), use `landedUrl` as the
+  script's `target`; this snapshot stands.
   `landedElsewhere: null` means the page's address could not be read: not an
   all-clear.
 - `session` - `"saved"`: a session is saved for this site; `"none"`: none
@@ -167,9 +164,8 @@ targets, leaving the page open. Each entry is
   `"unchecked"`: `sessionDetail` says why. A sign-in page with only "Continue with Google" may
   not answer `signedOut`: a plainly sign-in `landedUrl` with
   `"none"` or `"unchecked"` means the same. Tell the user to run
-  `npx demoman signin <the page to record>` and spend no run. On
-  `"unchecked"` otherwise, carry on only if `landedUrl` is not a sign-in
-  page.
+  `npx demoman signin <the page to record>`; spend no run. Otherwise on
+  `"unchecked"`, carry on only if `landedUrl` is not a sign-in page.
 - `settled: false` - the page was still loading; `settleNote` says what was
   outstanding. Snapshot again before concluding something is absent.
 - `rect` is in page coordinates; `inFirstViewport`: in view before any
@@ -177,22 +173,20 @@ targets, leaving the page open. Each entry is
   `waitFor … until: "visible"` target after the step that opens it.
   `shown: false`: transparent, hidden or a sliver now; `waitFor` waits.
 - `size` is `{ width, height, from, error }`: the size the page was laid out
-  at, which a run records too. `from` is `screen` (this machine's screen),
+  at, as a run records. `from` is `screen` (this machine's screen),
   or `device`. `from: "window"` with an `error`: Demoman could not read the
   screen and listed the browser's smaller layout; tell the user the `error`.
 - `positional: true`: the target is a `treePath` (shared or no name); snapshot
   again after the page changes. `value`: a field's text, never a password's.
   `unresolvable`: no target reaches it. `notExamined` above 0: pass `contains`
-  (name, text, stableId, kind, value); with it, narrow. `containsNote`: no match.
+  (name, text, stableId, kind, value) to narrow. `containsNote`: no match.
 - Iframe and shadow-root elements are not listed.
 - A snapshot sees only the page as it loads: hidden content in the
   page is listed; content a click creates (a menu, dialog, results, a new row) is not. To list it, `probe` your script
-  with its steps cut off after the step that opens it, and copy targets from
-  that answer. A probe acts on the app for real: "Add item" adds one per
+  cut off after the step that opens it, and copy targets from that answer. A probe acts on the app for real: "Add item" adds one per
   probe and again in the run, so a unique target can turn ambiguous;
   a delete deletes; in the Studio an edit saves into the video. Server data
-  carries into the run; browser storage does not, except a signed-in
-  site's. Prefer demo data. `stopped`: a step did not play; fix it as a
+  carries into the run; browser storage does not (a signed-in site's does). Prefer demo data. `stopped`: a step did not play; fix it as a
   run's stop with that reason says, and probe again.
 
 ### Recording a phone demo
@@ -211,11 +205,10 @@ targets, leaving the page open. Each entry is
 1. `snapshot` the page the flow starts on.
 2. Write each step with a `target` copied from that snapshot.
 3. A step that reveals hidden content (a FAQ answer, a panel) names its
-   targets from the same snapshot, then a `waitFor … until: "visible"`. A step that navigates: snapshot the new page's URL and put a `waitForLoad` after it; the step after that waits up to 10 s for its own target, so it needs no `waitFor`. Content a click creates: section 2.
+   targets from the same snapshot, then a `waitFor … until: "visible"`. A step that navigates: snapshot the new page's URL and put a `waitForLoad` after it; the step after waits up to 10 s for its own target, so needs no `waitFor`. Content a click creates: section 2.
 4. `snapshot`'s `kits` lists the user's brand kits by name, the default
-   marked. Use a name from it in `look.kit` only when the user asked for a
-   look.
-   `{ "ok": false, "reason": … }`: the kits could not be read; say so, name none.
+   marked. Use one in `look.kit` only when the user asked for a look.
+   `{ "ok": false, "reason": … }`: kits unreadable; say so, name none.
 
 ### From a video made earlier
 
@@ -228,7 +221,7 @@ to change and run again.
 
   | Hole `reason` | What to do |
   | --- | --- |
-  | `scrubbedTarget` | `step` is null: the hole is the start URL. Demoman strips query values and secret-looking path segments from a video; `recorded` shows `redacted` in their place. Set `target` to the real start URL - ask the user if unsure. |
+  | `scrubbedTarget` | `step` is null: the hole is the start URL. Demoman strips query values and secret-looking path segments from a video; `recorded` shows `redacted` there. Set `target` to the real start URL - ask the user if unsure. |
   | `redacted` | Add `"text"` with a **demo** value, never a real credential. |
   | `unnameable`, `ambiguousAtCapture`, `brokenAtCapture` | Add the target, copied from a `snapshot` of that page. |
   | `buttonNotScriptable` | Delete `"button"` only if a left click is acceptable - it is a different action. Otherwise tell the user the step cannot be scripted. |
@@ -236,10 +229,9 @@ to change and run again.
 
   `notes[]` lists steps the video cut or trimmed; they are kept. A
   `landingOffscreen` note names a scroll that will centre its element. **Keep each step's `recorded`, each
-  scroll's `landing`, and the script's `recordedFrom`**: they are how the
-  report compares the new run with the video. A step you add has no
-  `recorded`.
-  `report.skeleton` is what the merge with the video's saved script said:
+  scroll's `landing`, and the script's `recordedFrom`**: the report
+  compares the new run with the video by them. A step you add has no `recorded`.
+  `report.skeleton` is what merging with the video's saved script said:
   `noSkeleton` or `skeletonUnreadable` (the original's pauses were not
   kept), `stepDropped`, `actionAdded` (kept in place), `verbChanged` (the
   draft takes the verb in `scene.json` - check that step before running).
@@ -250,11 +242,11 @@ to change and run again.
 **Re-filming an edited video.** `run({ flow: { id } })` with no `script`
 re-films the flow's current video from its saved script and current
 `scene.json` (steps, name, look, pauses, added steps), as a new video and a
-run toward the three. Refused with `unfilledHoles` when the video did not keep
-a value: `derive`, fill, `run`. `invalidScript` (`field` `steps.<i>.do`): a
+run toward the three. Refused with `unfilledHoles` when the video kept no
+value: `derive`, fill, `run`. `invalidScript` (`field` `steps.<i>.do`): a
 verb was changed by hand: `derive`, check it, `run` the draft.
 
-A flow kept current in the repo (.demoman/videos) is rewritten by each run into it: commit that file with the change. To keep one current, run `npx demoman keep <flow> --to <path>` in the repo.
+A flow kept in the repo (.demoman/videos) is rewritten by each run: commit that file with the change. To keep one, run `npx demoman keep <flow> --to <path>` in the repo.
 
 ## 4. Run and read
 
@@ -273,17 +265,17 @@ A flow kept current in the repo (.demoman/videos) is rewritten by each run into 
    - `refusedBeforeRun` - the door refused before opening anything; `reason`
      and `field` name what to fix (section 7).
    - `refused` - the replay policy refused; `refused.routes` names the
-     user's move. Tell the user; do not work around it.
+     user's move. Tell them; do not work around it.
    - `stopped` - `stopped.at` names the step and `stopped.sentence` says why.
      A `steps[i].pageUrl` on a sign-in page means the app sent this browser
      to sign in mid-run: tell the user; do not rewrite targets.
-     (A run that stopped short on the site's recorded sign-in page is relabelled
+     (A run stopped short on the site's recorded sign-in page is relabelled
      `signedOut` (section 7); its detail ends "The run itself stopped at script
      step N: ...".)
    - `complete` - read `verdict`: `verdict.kind` is `"matches"` or
      `"diverged"`, and `verdict.diverged[]` lists each step the video does not
-     show the way the script asked. `still`, the image after the text, is
-     the film's last frame: the verdict says the actions happened; look at `still` against the brief before you export or run again.
+     show as the script asked. `still`, the image after the text, is
+     the last frame: the verdict says the actions happened; look at `still` against the brief before you export or run again.
      `endPage`: the end page's `url`, `text` and `fields`.
    - In any outcome, a step whose `textHidden` is set typed into a credential
      field (`"credentialField"`, or `"credentialUnchecked"` if the page could
@@ -305,8 +297,8 @@ A flow kept current in the repo (.demoman/videos) is rewritten by each run into 
      `neverPerformed`; `migrated`: a `sentence`) and `notCarried` (each `removed`, `split`,
      mask, hold, gap or trim the old video had and the new one lacks, and
      each zoom the editor aimed or ended by hand, `zoom`; every other zoom
-     the new video makes again from its own clicks). Name every
-     one to the user; a mask not carried may show what the old video hid.
+     the new video makes again from its own clicks). Name each
+     to the user; a mask not carried may show what the old video hid.
 3. **Read the video.** The report carries `video` and `recording`. Read
    `video.summary` first (a count per label: `inside`, `atEdge`, `cutOff`,
    `outOfFrame`, `strayArrival`, `detour`, `longStill`), then
@@ -317,7 +309,7 @@ A flow kept current in the repo (.demoman/videos) is rewritten by each run into 
      whose `actionId` equals `video.steps[i].actionId`; `steps[k].index` is
      its 0-based position in your script.
    - `video` may be `{ "unavailable": … }` (`refused`, `noVideo`, `noFrames`,
-     `checkFailed` with `error`): not a clean bill; say so, do not retry. Likewise
+     `checkFailed` with `error`): not a clean bill; say so, do not retry. So may
      `video.steps[i].unknown` and `video.noCursor: true`.
    - `recording` is `{ "unavailable": … }` or
      `{ recordingVideoId, steps[], notInRecording[] }`, comparing the run with
@@ -332,14 +324,13 @@ A flow kept current in the repo (.demoman/videos) is rewritten by each run into 
    | drift from the earlier video | the app | report it |
 
    A finding that is Demoman's earns no run and is not passed on (the
-   user can change it in the Studio). A step's
-   `roomMs` is Demoman's own pacing, not a stall.
+   user can change it in the Studio). A step's `roomMs` is pacing, not a stall.
 4. Tighten a step whose `candidates` is above 1 or whose `strategy` is weaker
    than the target you named.
 
 **Stop after three runs**, done or not, then export: every run drives the
 user's real app. A video zooms on every click and starts from `look.kit`, else the
-user's default brand kit; a derived draft keeps its video's branding. The report's `look.branding` says where it came from: `script`,
+user's default brand kit; a derived draft keeps its video's branding. `look.branding` says where it came from: `script`,
 `kit` (you named it; `look.kit.name` says which), `defaultKit`, or
 `defaults`. A non-null `look.brandKitError` (default kit unreadable),
 `look.wallpaperError` (its image) or `size.error` goes into your hand-back;
@@ -358,31 +349,28 @@ user's default brand kit; a derived draft keeps its video's branding. The report
    A GIF is as wide as fits 10 MB (`warnings.gifSize` says how wide and
    which widths were refused); one over 10 MB at its narrowest says so: offer the MP4.
    Stills take `stills: { width, zoom }`, both optional; by
-   default a still is the whole window, up to 2560 px wide (no wider than the video). `width` is px (320-3840) or `"native"`, the video's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Pass
-   them only when asked.
+   default a still is the whole window, up to 2560 px wide (no wider than the video). `width` is px (320-3840) or `"native"`, the video's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Pass them only when asked.
 2. `saved` - the file is at `file.path`, absolute: in `~/Downloads`, or the
    server's `--out-dir`. For `stills`, `fileType`
    is `stills` and the answer carries `folder: { path, files }` instead of
    `file`: give the user `folder.path`; `warnings.unplacedStills` lists steps
    with no still. `summary` is one
-   sentence: what was saved and anything the user asked for that the file
-   lacks (a logo, motion, a still, an edit). `warnings` holds more:
+   sentence: what was saved and anything asked for that the file lacks (a logo, motion, a still, an edit). `warnings` holds more:
    Demoman's calls (`zooms`, `detailViolations`, a size cap's `steps`,
-   a GIF's widths, `targetCheck`). They are not the user's to act on: do not pass them on. None is the script's.
+   a GIF's widths, `targetCheck`): not the user's to act on: do not pass them on. None is the script's.
    Except `wallpaperWarning.sentence` (wallpaper left out: plain
    gradient; or will look soft): quote it.
    `warnings.editedSinceRecorded` lists steps whose `scene.json` no longer
    matches the frames; the summary names the re-film
    (`run({ flow: { id } })`, or `derive` then `run` when a verb changed).
-   Re-film only on request. `warnings.untagged`: the file has no flow
-   tag (`error` says why); not the user's to act on.
-   `warnings.taggedWithoutCommit`: the file is tagged, only its filmed commit
-   is unknown (`error` says why).
+   Re-film only on request. `warnings.untagged` (no flow tag) and
+   `taggedWithoutCommit` (only the filmed commit unknown): `error` says why;
+   not the user's to act on.
    `links` holds the export's one-click actions, each present
    only where it works: `studio`, `file` (the file itself) and `copy` (the
    file to the clipboard; none for stills). `linksError`, set instead, says
    why there are none: tell the user in one line.
-   Every export report carries a `summary` (`stillRunning` does not).
+   Every export report but `stillRunning` carries a `summary`.
 3. `renderFailed` - export **once** more; never re-run the script for an
    export failure. `saveFailed` - its `error` names the folder and the
    system's reason (a folder that cannot be written): tell the user;
@@ -399,14 +387,14 @@ Before opening a PR, read `status.pullRequests` (`project` for
 another checkout): `attach`, `ask`, `off`, or `{ unreadable, file }`,
 which is not `off`: tell the user. `off`: only when asked. If the diff
 changes what a user sees, record that one flow (only the change),
-push and open the PR, then `attach({ videoId, into: "description" })`, or
+push, open the PR, then `attach({ videoId, into: "description" })`, or
 `"comment"` on a PR that is not yours. The video carries its own line; write no other. On `line.notWritten`,
 tell the user the video lacks it, quoting why. A later `gh pr edit --body` drops the video. `ask`: offer once; on a no, nothing to see or a failed run (say why),
 the PR says nothing of it. `attach`: with no video, the PR description gets
 one line, `No demo: <why>`, and so does the user.
 `attach` caps at 9.5 MB; `maxMB` sets another. On `stillRunning`, `report(id)`
 until the outcome is not `attaching` or `stillRunning`. On `busy`,
-`report(id)` on the export in flight, then `attach` again. On `ghMissing`,
+`report(id)` on the export in flight, then `attach`. On `ghMissing`,
 `ghOutdated`, `ghSignedOut`, `notGitHub`, `prUnreadable` or `copyFailed`, call
 `export({ videoId, maxMB: 9.5 })` and give the user its `file.path` to drag
 into the PR, saying why. On `uploadRefused` or `prNotFound`, do as its `detail` says. On `partial` or `unconfirmed`, do not
@@ -422,8 +410,8 @@ outcome: quote its `error` or `detail`.
 When the `studio` tool is listed and there is no `links.studio`, **offer**
 it; never open it unasked. `studio({ videoId })`
 opens a window to edit and export the video.
-`{ outcome: "opened", videoId?, note? }`: say it is open;
-quote `note` if set. Studio exports go to `~/Downloads`.
+`{ outcome: "opened", videoId?, note? }`: say it is open; quote `note`.
+Studio exports go to `~/Downloads`.
 
 ## 6. The format
 
@@ -475,7 +463,7 @@ quote `note` if set. Studio exports go to `~/Downloads`.
   `snapshot` measured `inFirstViewport` against. Leave `viewport` out unless the user asked.
 - `device` is `"phone"` or `"tablet"`: the page is recorded as a phone (393x852)
   or a tablet (820x1180), with touch and an iOS user agent. Name a device or a
-  `viewport`, not both. A device has no hover, so a `hover` step under one is
+  `viewport`, not both. A device has no hover: a `hover` step under one is
   refused. `look` takes `branding` or `kit`, plus `cursor`, `canvas` and
   `motion`; absent means the user's default brand kit. `kit` names one of
   `snapshot`'s `kits` (any case); not both a kit and a branding. An unknown key in `look` is refused and named. A
@@ -488,7 +476,7 @@ quote `note` if set. Studio exports go to `~/Downloads`.
   relative to the Demoman home; copied into the video. Either takes
   `"blur"`, 0-1 (default 0, sharp).
   A `canvas` is `{ "aspect": "auto" | "16:9" | "9:16" }`; `auto`, the
-  default, is the source's own shape plus an even margin.
+  default, is the source's shape plus an even margin.
   A `motion` is how the camera moves, `{ "smoothness": 0-1, "blur": 0-1, "follow": true | false }`; a derived draft carries the video's own, so keep it.
 - Refused at the door: a script whose every step is a `pause`; a `target`
   that is not `http(s)`; a `click` with a `button`.
@@ -500,33 +488,33 @@ quote `note` if set. Studio exports go to `~/Downloads`.
 
 | Reason | Where | What it means, and the move |
 | --- | --- | --- |
-| `browserMissing` | `snapshot`, `run` (`refusedBeforeRun`), `studio` | Demoman's browser or its libraries are missing; `detail` gives the command. Ask the user to run it, then call again. |
-| `unsupportedPlatform` | `snapshot`, `run`, `export` | This machine cannot record (arm64 Linux, or another OS); quote `detail` to the user. |
-| `sessionUnreadable` | `snapshot`, `run` (`refusedBeforeRun`) | A saved session file or folder could not be read, or others can read it; `detail` names the fix. Tell the user. |
-| `sessionNotLoaded` | `snapshot`, `run` (`refusedBeforeRun`) | The browser refused the saved sessions; `detail` says why. Tell the user to run `npx demoman signin` again for that site. |
-| `signInFailed` | `snapshot`, `run` (`refusedBeforeRun`) | Demoman signed in as the account and the page still showed a sign-in page, or a step could not run; `detail` says where. It tried once. Fix the account's steps or the secret, or tell the user; do not run again unchanged. |
-| `secretMissing` | `snapshot`, `run` (`refusedBeforeRun`) | A `{secret:NAME}` has no `DEMOMAN_SECRET_NAME` and no line in `.demoman/secrets.env`; `detail` names both. Through `project` the environment is not used. Write one (section 1), or ask the user. |
-| `secretTooShort` | `snapshot`, `run` (`refusedBeforeRun`) | The secret `NAME` is under 8 characters. Generate a longer one and write it again. |
-| `secretUnbound` | `snapshot`, `run` (`refusedBeforeRun`) | `DEMOMAN_SECRET_NAME` has no `DEMOMAN_SECRET_NAME_ORIGIN` beside it, or one that is not an origin; `detail` names the line and the site. Nothing was typed. Add it to `secrets.env` for an account you made; else tell the user. |
-| `secretOffOrigin` | `snapshot`, `run` (`refusedBeforeRun`) | A secret was about to be typed off its site: a sign-in step's page is not the site's origin, or the secret's `_ORIGIN` names another site; `detail` names both. Nothing was typed. Check the account's site and `goto`, then tell the user. |
-| `secretsFileNotIgnored` | `snapshot`, `run` (`refusedBeforeRun`) | Git does not ignore `.demoman/secrets.env`, so Demoman did not read it. Add `.demoman/secrets.env` to `.gitignore` (`detail` says the line), or take the file out of git if tracked. |
-| `secretsFileInvalid` | `snapshot`, `run` (`refusedBeforeRun`) | A line of `.demoman/secrets.env` is not `DEMOMAN_SECRET_NAME=value`, a comment or blank; `detail` gives the line number. Fix it. |
+| `browserMissing` | `snapshot`, `run` (`refusedBeforeRun`), `studio` | Demoman's browser or libraries are missing; `detail` gives the command. Ask the user to run it, then call again. |
+| `unsupportedPlatform` | `snapshot`, `run`, `export` | This machine cannot record (arm64 Linux, or another OS); quote `detail`. |
+| `sessionUnreadable` | `snapshot`, `run` (`refusedBeforeRun`) | A saved session file or folder could not be read, or is readable by others; `detail` names the fix. Tell the user. |
+| `sessionNotLoaded` | `snapshot`, `run` (`refusedBeforeRun`) | The browser refused the saved sessions; `detail` says why. Tell the user to run `npx demoman signin` again there. |
+| `signInFailed` | `snapshot`, `run` (`refusedBeforeRun`) | Demoman signed in as the account and the page still showed a sign-in page, or a step could not run; `detail` says where. It tried once. Fix the account's steps or secret, or tell the user; do not rerun unchanged. |
+| `secretMissing` | `snapshot`, `run` (`refusedBeforeRun`) | A `{secret:NAME}` has no `DEMOMAN_SECRET_NAME` and no line in `.demoman/secrets.env`; `detail` names both. Through `project` the environment is unused. Write one (section 1), or ask the user. |
+| `secretTooShort` | `snapshot`, `run` (`refusedBeforeRun`) | The secret `NAME` is under 8 characters. Write a longer one. |
+| `secretUnbound` | `snapshot`, `run` (`refusedBeforeRun`) | `DEMOMAN_SECRET_NAME` has no `DEMOMAN_SECRET_NAME_ORIGIN` beside it, or one that is no origin; `detail` names the line and site. Nothing typed. Add it to `secrets.env` for an account you made; else tell the user. |
+| `secretOffOrigin` | `snapshot`, `run` (`refusedBeforeRun`) | A secret was about to be typed off its site: a sign-in step's page is not the site's origin, or the `_ORIGIN` names another site; `detail` names both. Nothing typed. Check the account's site and `goto`, then tell the user. |
+| `secretsFileNotIgnored` | `snapshot`, `run` (`refusedBeforeRun`) | Git does not ignore `.demoman/secrets.env`, so Demoman did not read it. Add it to `.gitignore` (`detail` says the line), or untrack it. |
+| `secretsFileInvalid` | `snapshot`, `run` (`refusedBeforeRun`) | A line of `.demoman/secrets.env` is not `DEMOMAN_SECRET_NAME=value`, a comment or blank; `detail` gives the line. Fix it. |
 | `accountsInvalid` | `snapshot`, `run` (`refusedBeforeRun`) | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names the field and the rule. Fix the file. |
-| `unknownAccount` | `snapshot`, `run` (`refusedBeforeRun`) | The script names an account the site does not have, or names none and the site has no `default`; `detail` lists the site's accounts. Name one, or add it (section 1). |
+| `unknownAccount` | `snapshot`, `run` (`refusedBeforeRun`) | The script names an account the site lacks, or none and the site has no `default`; `detail` lists the accounts. Name one, or add it (section 1). |
 | `invalidProject` | `snapshot`, `run` (`refusedBeforeRun`), `attach` | `project` is not an absolute path to a folder. Pass one, or leave it out. |
-| `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach` (`refusedBeforeAttach`) | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing was posted; do as `detail` says. |
+| `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach` (`refusedBeforeAttach`) | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing posted; do as `detail` says. |
 | `invalidAttach` | `attach` (`refusedBeforeAttach`) | The call is malformed; `detail` says how. Fix it. |
 | `uploadRefused` | `attach` (`notAttached`) | GitHub refused the video. Retry as the Pull requests text says. |
 | `partial` | `attach` (`notAttached`) | `gh` failed but the video is on the PR; do not post again. |
 | `unconfirmed` | `attach` (`notAttached`) | Unknown what landed. Do not post again; tell the user to look at the PR. |
-| `copyFailed` | `attach` (`notAttached`) | The video could not be copied; nothing was posted. Hand the user the capped export's file. |
+| `copyFailed` | `attach` (`notAttached`) | The video could not be copied; nothing posted. Hand the user the capped export's file. |
 | `windowDidNotOpen` | `snapshot`; `run` (`refusedBeforeRun`); `studio` | The window would not open; try once more. |
-| `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
-| `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. Call `report(id)` on it; try again when it settles. |
-| `busy` | `export` (`refusedBeforeExport`) | A run, probe or snapshot is in progress. Call `report(id)` on it first. |
-| `browserSilent` | `status`, `flows`, `derive`, `report` | The browser did not answer within about 50 s. Call `status` once; if again, tell the user. From `report`, the run may still be going: call `report(id)` again. |
-| `libraryUnreadable` | `flows`, `studio` | The library could not be read; report it. |
-| `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: the report has a `notStored` entry `{ "what": "video", "error": … }` and a null `provenance.videoId`. Nothing was saved; quote the `error`. |
+| `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user. |
+| `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. Call `report(id)` on it; retry when it settles. |
+| `busy` | `export` (`refusedBeforeExport`) | A run, probe or snapshot is in progress. `report(id)` it first. |
+| `browserSilent` | `status`, `flows`, `derive`, `report` | The browser did not answer in about 50 s. Call `status` once; if again, tell the user. From `report` the run may still be going: call `report(id)` again. |
+| `libraryUnreadable` | `flows`, `studio` | Unreadable; report it. |
+| `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: the report has a `notStored` entry `{ "what": "video", "error": … }` and a null `provenance.videoId`. Nothing saved; quote the `error`. |
 | `unknownRun` | `report` | This demoman-mcp never issued that id (ids do not survive a server restart). |
 | `noReport` | `report` | No report for that id: this server keeps only its latest; `detail` says which. Do not run again. |
 | `notAnObject` | `run` | The script is not a JSON object. |
@@ -534,11 +522,10 @@ quote `note` if set. Studio exports go to `~/Downloads`.
 | `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-film of a video that did not keep a value. |
 | `flowRequired` | `run` (`refusedBeforeRun`) | No `flow` was given. Find one (section 4), or pass `{ new }`. |
 | `possibleDuplicate`, `nameTaken` | `run` (`refusedBeforeRun`) | A similar flow exists (`matches`) or the name is taken (`holder`). Section 4. |
-| `keptNameTaken`, `duplicateFlow` | `run` (`refusedBeforeRun`) | The flow is kept in the repo, but this library has another flow with its name (`detail` gives the `join-flow` command to tell the user), or two kept files name one flow (delete one). |
-| `keptUnreadable` | `run` (`refusedBeforeRun`) | A kept file in the repo will not read; `detail` names it. Fix or remove it. |
+| `keptNameTaken`, `duplicateFlow`, `keptUnreadable` | `run` (`refusedBeforeRun`) | Kept flows: this library has another flow with that name (`detail` gives a `join-flow` command for the user); two kept files name one flow (delete one); a kept file will not read (`detail` names it). |
 | `flowNotFound` | `run` (`refusedBeforeRun`) | No flow has that `id`; call `flows`. |
 | `wrongIdKind` | any | Wrong kind of id; see `detail`. |
-| `flowUnreadable`, `flowUnwritable` | `run` (`refusedBeforeRun`), `flows` | The flow records could not be read or written; quote `detail`. Nothing was filmed. |
+| `flowUnreadable`, `flowUnwritable` | `run` (`refusedBeforeRun`), `flows` | The flow records could not be read or written; quote `detail`. Nothing filmed. |
 | `noTag`, `unknownFlow`, `fileNotFound` | `flows` | The file has no Demoman tag; its flow is not in this library; no file there. Use `query` instead. |
 | `invalidArgs` | any | `file` with `query`, not absolute; an old name (`video`, `takeId`): `detail` gives the new. |
 | `videoExpired` | `export` (`refusedBeforeExport`) | The video's frames expired: `run({ flow: { id } })`, then export. |
@@ -552,20 +539,20 @@ quote `note` if set. Studio exports go to `~/Downloads`.
 | `nonHttpTarget` | `run`, `snapshot` | The target or url is not `http(s)`, or its host contains `*`. |
 | `invalidFileType` | `export` (`refusedBeforeExport`) | Not answered here: the schema takes only `mp4`, `gif`, `stills`. |
 | `invalidStillsOptions` | `export` (`refusedBeforeExport`) | `stills` was given for an MP4 or GIF, or breaks section 5's width or zoom; `detail` says which. Fix the call. |
-| `invalidQuality`, `invalidMaxMB` | `export` (`refusedBeforeExport`), `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
-| `noVideoId`, `noFrames` | `export` (`refusedBeforeExport`) | No video id; the video has no frames to render. |
+| `invalidQuality`, `invalidMaxMB` | `export` (`refusedBeforeExport`), `attach` | Through these tools, `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
+| `noVideoId`, `noFrames` | `export` (`refusedBeforeExport`) | No video id; no frames to render. |
 | `videoNotFound`, `videoUnreadable` | `export` (`refusedBeforeExport`), `run` re-film (`refusedBeforeRun`), `studio` (`videoNotFound`: call `flows`) | No such video; it could not be read (or, for `run`, built into a script). |
 | `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run` (`stopped.reason`) | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. |
 | `ambiguousAnchor` | `run` (`stopped.reason`) | Several elements matched; name the target more exactly. |
 | `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run` (`stopped.reason`) | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |
-| `pageWentElsewhere`, `unperformableStep` | `run` (`stopped.reason`) | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks for what a run cannot do. |
+| `pageWentElsewhere`, `unperformableStep` | `run` (`stopped.reason`) | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks the impossible. |
 | `dragEndOutOfView`, `dragNoDistance` | `run` (`stopped.reason`) | A drag's end was off screen (a drag cannot scroll), or on its start. Fix the script. |
-| `clickNotDelivered` | `run` (`stopped.reason`) | The browser put a click elsewhere than where it was sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |
-| `signedOut` | `run` (`stopped.reason`) | The app sent this browser to its sign-in page. Nothing was kept, and it is not a script fault. Give the user the command in `stopped.detail`; run again only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it says so. |
-| `windowClosed` | `run` (`stopped.reason`) | `--headed` only: the window was closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
+| `clickNotDelivered` | `run` (`stopped.reason`) | The browser put a click elsewhere than sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |
+| `signedOut` | `run` (`stopped.reason`) | The app sent this browser to its sign-in page. Nothing kept; not a script fault. Give the user the command in `stopped.detail`; run again only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it does. |
+| `windowClosed` | `run` (`stopped.reason`) | `--headed` only: the window closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
 | `pageDidNotLoad` | `snapshot`, `probe` stop | The url did not load. Ask whether the app runs at that address; spend no run. |
-| `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman's script; tell the user. |
-| `pageFaulted` | `snapshot` | The page's own code threw; quote `detail`. |
-| `snapshotThrew` | `snapshot` | A fault in the snapshot; quote `detail`. |
-| `probeThrew` | `probe` | A fault in the probe; quote `detail`. |
+| `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman's script: tell the user. |
+| `pageFaulted` | `snapshot` | The page's code threw; quote `detail`. |
+| `snapshotThrew` | `snapshot` | A snapshot fault; quote `detail`. |
+| `probeThrew` | `probe` | A probe fault; quote `detail`. |
 | `portFailure` | `probe` | The browser gave way; not the script's fault. Probe once more; quote `detail` if it repeats. |

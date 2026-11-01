@@ -331,7 +331,17 @@ describe("the CLI's recipe", () => {
   // Red when a reason the CLI can answer is missing from its recipe: an
   // agent would meet an identifier nothing told it how to read.
   it("names every reason the CLI can answer", () => {
-    const reasons = [...reasonsInCode(CLI_SOURCES), ...CLI_TOOL_REASONS];
+    // `sameFlow` answers `demoman join-flow` at the terminal only: videos.merge
+    // has no caller among the agent's sources. Red if one appears, since the
+    // recipe would then owe the agent a line on it.
+    const mergeCallers = CLI_SOURCES.filter((f) =>
+      /\.merge\(/.test(readFileSync(join(repo, f), "utf8")),
+    );
+    expect(mergeCallers, "an agent tool now calls videos.merge").toEqual([]);
+    const TERMINAL_REASONS = ["sameFlow"];
+    const reasons = [...reasonsInCode(CLI_SOURCES), ...CLI_TOOL_REASONS].filter(
+      (r) => !TERMINAL_REASONS.includes(r),
+    );
     // Premise: tools.ts still spells the ones it gives under the CLI.
     expect(reasonsInCode(["apps/mcp/src/tools.ts"])).toEqual(
       expect.arrayContaining(CLI_TOOL_REASONS),
