@@ -34,6 +34,7 @@ import {
   type RefreshResult,
   readRepo,
   refreshKept,
+  removeRepoFlow,
   signin,
   signinAccount,
   usePrebuiltPages,
@@ -49,7 +50,7 @@ import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshAgentSkill } from "./agent-skill.js";
 import { ciSetup } from "./ci-workflow.js";
 import { deliver } from "./deliver.js";
-import { keepLines } from "./keep-lines.js";
+import { keepLines, removeLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
 import { parseRefreshArgs } from "./refresh-args.js";
 import { refreshLines } from "./refresh-lines.js";
@@ -93,19 +94,20 @@ const USAGE = `demoman ${VERSION}
     [--yes] [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
   npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
   npx demoman setup --ci [--trigger push|<environment>] [--route pr|main] [--artifact]
-                             write .github/workflows/demoman.yml, which refreshes the kept flows on each merge
+                             write .github/workflows/demoman.yml, which refreshes the repo's flows on each merge
   npx demoman signin <url>   sign in to your app once, so agents can record behind the login
   npx demoman signin --account <name> [--site <origin>] [--project <dir>]
                              sign in as a demo account from .demoman/accounts.json (CI, or a check)
   npx demoman studio [video] open the Studio, to look over and edit flows and export them
   npx demoman studio --stop  close the Studio
-  npx demoman keep <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full] [--deliver commit|files]
-                             keep a flow current: its re-film file in .demoman/videos/, its exports in the repo
-                             (--deliver files writes the re-film file alone; outputs are file names for --out-dir)
+  npx demoman add <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full] [--deliver commit|files]
+                             add a flow to the repo: its recipe in .demoman/flows/, its exports in the repo
+                             (--deliver files writes the recipe alone; outputs are file names for --out-dir)
+  npx demoman remove <flow>  take a flow out of the repo: its recipe and receipt go, its exports stay
   npx demoman join-flow <from> <into>
-                             move a flow's videos into the kept flow that has its name, and remove the flow
+                             move a flow's videos into the repo flow that has its name, and remove the flow
   npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main] [--out-dir <folder>] [--previous <folder>]
-                             film the kept flows again and replace the exports whose picture changed;
+                             record the repo's flows again and replace the exports whose picture changed;
                              --deliver commits them on main, or opens a pull request (CI);
                              --out-dir writes the files flows and demoman-refresh.json there,
                              --previous is the folder the last --out-dir was kept in
@@ -277,9 +279,10 @@ async function studio(args: string[]): Promise<void> {
   });
 }
 
-/** `demoman keep`: the video's kept file and its outputs, in the repo the
- *  command runs in. Paths are the shell's, relative to the current folder. */
-async function keep(args: string[]): Promise<void> {
+/** `demoman add` (and its old name, `keep`): the flow's recipe and its
+ *  outputs, in the repo the command runs in. Paths are the shell's,
+ *  relative to the current folder. */
+async function add(args: string[]): Promise<void> {
   const usage = (said: string): never => {
     process.stderr.write(`demoman: ${said}\n\n${USAGE}`);
     process.exit(2);
@@ -314,7 +317,7 @@ async function keep(args: string[]): Promise<void> {
     ...(values.gif ?? []).map((a) => ["gif", a] as const),
   ];
   if (video === undefined || extra.length > 0 || asked.length === 0) {
-    return usage("keep takes one flow and at least one --to or --gif");
+    return usage("add takes one flow and at least one --to or --gif");
   }
   // Share by default: every refresh commits these files again.
   const quality = values.quality ?? "share";
@@ -326,12 +329,12 @@ async function keep(args: string[]): Promise<void> {
     return usage(`--deliver is commit or files, not "${deliver}"`);
   }
   const fail = (detail: string): never => {
-    process.stderr.write(`demoman keep: ${detail}\n`);
+    process.stderr.write(`demoman add: ${detail}\n`);
     process.exit(1);
   };
   const repo = await readRepo(process.cwd(), execGit);
   if (!repo.ok) {
-    return fail(`${repo.none} — run keep inside the repo the video is kept in`);
+    return fail(`${repo.none} — run add inside the repo the flow belongs to`);
   }
   const root = repo.repo.root;
   const inRoot = (p: string) => relative(root, resolve(p));
@@ -408,6 +411,29 @@ async function keep(args: string[]): Promise<void> {
   if (!answer.ok) return fail(answer.detail);
   process.stdout.write(`${keepLines(answer).join("\n")}\n`);
   process.exit(0);
+}
+
+/** `demoman remove`: a flow out of the repo; its exports stay. */
+async function remove(args: string[]): Promise<void> {
+  const [flow, ...extra] = args;
+  if (flow === undefined || flow.startsWith("-") || extra.length > 0) {
+    process.stderr.write(`demoman: remove takes one flow\n\n${USAGE}`);
+    process.exit(2);
+  }
+  const repo = await readRepo(process.cwd(), execGit);
+  if (!repo.ok) {
+    process.stderr.write(
+      `demoman remove: ${repo.none} — run remove inside the repo the flow belongs to\n`,
+    );
+    process.exit(1);
+  }
+  const answer = await removeRepoFlow({ root: repo.repo.root, flow });
+  const lines = removeLines(answer).join("\n");
+  if (!answer.ok) {
+    process.stderr.write(`demoman remove: ${lines}\n`);
+    process.exit(1);
+  }
+  process.stdout.write(`${lines}\n`);
 }
 
 /** `demoman refresh`: every kept video in the repo (or those named) filmed
@@ -574,8 +600,12 @@ switch (command) {
   case "studio":
     await studio(rest);
     break;
+  case "add":
   case "keep":
-    await keep(rest);
+    await add(rest);
+    break;
+  case "remove":
+    await remove(rest);
     break;
   case "refresh":
     await refresh(rest);

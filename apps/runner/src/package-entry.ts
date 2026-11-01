@@ -18,6 +18,8 @@ export {
   type KeepOutput,
   type KeepRefusal,
   keepVideo,
+  type RemoveAnswer,
+  removeRepoFlow,
 } from "./executor/keep.js";
 export {
   type RefreshDeps,

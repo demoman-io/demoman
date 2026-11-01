@@ -50,7 +50,7 @@ import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import { chooseAccount, findAccounts } from "./accounts.js";
 import { type ExportDeps, exportTake } from "./export.js";
-import { repoFlowFiles } from "./kept-flows.js";
+import { readKeptFlows, repoFlowFiles } from "./kept-flows.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
 import { refilmFromVideo } from "./refilm.js";
@@ -1316,4 +1316,96 @@ export async function place(
     await rm(temp, { force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+export type RemoveAnswer =
+  | { ok: true; name: string; removed: string[]; exportsLeft: string[] }
+  | {
+      ok: false;
+      reason: "notInRepo" | "duplicateFlow" | "repoFlowUnwritable";
+      detail: string;
+    };
+
+/**
+ * `demoman remove`: a repo flow's recipe and its receipt deleted, its
+ * committed exports left where they are (docs may link them). The flow is
+ * found by id or exact name among the repo's files; the library is not
+ * read or changed. A refusal removes nothing; a receipt that cannot be
+ * removed after the recipe went is said with the file left behind.
+ */
+export async function removeRepoFlow(a: {
+  root: string;
+  flow: string;
+}): Promise<RemoveAnswer> {
+  const refuse = (
+    reason: "notInRepo" | "duplicateFlow" | "repoFlowUnwritable",
+    detail: string,
+  ): RemoveAnswer => ({ ok: false, reason, detail });
+  const root = resolve(a.root);
+  const rootReal = await realpath(root);
+  const { entries, duplicates } = await readKeptFlows(root);
+  const flows = entries.flatMap((e) => ("kept" in e ? [e] : []));
+  const matches = flows.filter(
+    (e) => e.kept.flow === a.flow || e.kept.name === a.flow,
+  );
+  if (matches.length === 0) {
+    const unread = entries.flatMap((e) =>
+      "unreadable" in e ? [e.unreadable] : [],
+    );
+    return refuse(
+      "notInRepo",
+      `this repo has no flow "${a.flow}" (an id or an exact name)${flows.length > 0 ? `; its flows are ${flows.map((e) => `"${e.kept.name}"`).join(", ")}` : "; it has none"}${unread.length > 0 ? `; ${unread.length} file(s) could not be read (${unread.join("; ")})` : ""}`,
+    );
+  }
+  const files = matches.map((e) => e.file);
+  const dup = duplicates.find((d) => files.some((f) => d.files.includes(f)));
+  if (dup !== undefined || matches.length > 1) {
+    const named = dup?.files ?? files;
+    return refuse(
+      "duplicateFlow",
+      `${named.join(" and ")} both name "${a.flow}" — delete one of them, then remove again; nothing was removed`,
+    );
+  }
+  const [{ file, kept }] = matches as [(typeof matches)[number]];
+  const receipt = `${RECEIPT_DIR}/${basename(file)}`;
+  for (const p of [file, receipt]) {
+    const inside = await repoPath(root, rootReal, p, "keep");
+    if (typeof inside !== "string") {
+      return refuse(
+        "repoFlowUnwritable",
+        `${inside.outside}, so nothing was removed`,
+      );
+    }
+  }
+  const there = (p: string) =>
+    lstat(join(root, p)).then(
+      () => true,
+      () => false,
+    );
+  try {
+    await rm(join(root, file));
+  } catch (error) {
+    return refuse(
+      "repoFlowUnwritable",
+      `could not remove ${file} (${messageOf(error)}), so nothing was removed`,
+    );
+  }
+  const removed = [file];
+  if (await there(receipt)) {
+    try {
+      await rm(join(root, receipt));
+      removed.push(receipt);
+    } catch (error) {
+      return refuse(
+        "repoFlowUnwritable",
+        `removed ${file}, but could not remove its receipt (${messageOf(error)}) — delete ${receipt}`,
+      );
+    }
+  }
+  const exportsLeft: string[] = [];
+  if (kept.deliver === "commit") {
+    for (const o of kept.outputs)
+      if (await there(o.path)) exportsLeft.push(o.path);
+  }
+  return { ok: true, name: kept.name, removed, exportsLeft };
 }

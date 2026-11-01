@@ -1,4 +1,12 @@
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,7 +17,7 @@ import {
   serializeKept,
 } from "@demoman/run-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { renameKept } from "../src/executor/keep.js";
+import { removeRepoFlow, renameKept } from "../src/executor/keep.js";
 import {
   findKept,
   readKeptFlows,
@@ -159,5 +167,90 @@ describe("renameKept", () => {
       reason: "repoFlowUnwritable",
       detail: expect.stringContaining(`${outside} is not inside the repo`),
     });
+  });
+});
+
+describe("removeRepoFlow", () => {
+  const RECEIPT = `.demoman/receipts/${keptFileName(NAME)}`;
+  const has = (p: string) =>
+    access(join(root, p)).then(
+      () => true,
+      () => false,
+    );
+
+  it("deletes the recipe and receipt and leaves the exports", async () => {
+    await mkdir(join(root, ".demoman/receipts"), { recursive: true });
+    await writeFile(join(root, RECEIPT), "{}");
+    await mkdir(join(root, "docs"), { recursive: true });
+    await writeFile(join(root, "docs/o.mp4"), "video");
+    // Premise: all three are there.
+    expect([
+      await has(FILE),
+      await has(RECEIPT),
+      await has("docs/o.mp4"),
+    ]).toEqual([true, true, true]);
+    expect(await removeRepoFlow({ root, flow: NAME })).toEqual({
+      ok: true,
+      name: NAME,
+      removed: [FILE, RECEIPT],
+      exportsLeft: ["docs/o.mp4"],
+    });
+    expect([
+      await has(FILE),
+      await has(RECEIPT),
+      await has("docs/o.mp4"),
+    ]).toEqual([false, false, true]);
+  });
+
+  it("removes a files flow's recipe alone, found by its id", async () => {
+    await writeFile(
+      join(root, FILE),
+      serializeKept({
+        ...kept,
+        deliver: "files",
+        outputs: [
+          { path: "o.gif", fileType: "gif", aspect: "16:9", quality: "share" },
+        ],
+      }),
+    );
+    expect(await removeRepoFlow({ root, flow: FLOW_ID })).toEqual({
+      ok: true,
+      name: NAME,
+      removed: [FILE],
+      exportsLeft: [],
+    });
+    expect(await has(FILE)).toBe(false);
+  });
+
+  it("a flow not in the repo is notInRepo, naming the repo's flows", async () => {
+    const out = await removeRepoFlow({ root, flow: "Nope" });
+    expect(out).toMatchObject({ ok: false, reason: "notInRepo" });
+    expect(!out.ok && out.detail).toContain(`"${NAME}"`);
+    expect(await has(FILE)).toBe(true);
+  });
+
+  it("a duplicated flow is duplicateFlow naming both files, and nothing goes", async () => {
+    const twin = `${FLOWS_DIR}/${keptFileName(NAME)}`;
+    await mkdir(join(root, FLOWS_DIR), { recursive: true });
+    await copyFile(join(root, FILE), join(root, twin));
+    const out = await removeRepoFlow({ root, flow: NAME });
+    expect(out).toMatchObject({ ok: false, reason: "duplicateFlow" });
+    expect(!out.ok && out.detail).toContain(`${twin} and ${FILE}`);
+    expect([await has(FILE), await has(twin)]).toEqual([true, true]);
+  });
+
+  it("a receipt that cannot be removed after the recipe is gone says so", async () => {
+    await mkdir(join(root, ".demoman/receipts"), { recursive: true });
+    await writeFile(join(root, RECEIPT), "{}");
+    await chmod(join(root, ".demoman/receipts"), 0o555);
+    try {
+      const out = await removeRepoFlow({ root, flow: NAME });
+      expect(out).toMatchObject({ ok: false, reason: "repoFlowUnwritable" });
+      expect(!out.ok && out.detail).toContain(`removed ${FILE}`);
+      expect(!out.ok && out.detail).toContain(`delete ${RECEIPT}`);
+      expect(await has(FILE)).toBe(false);
+    } finally {
+      await chmod(join(root, ".demoman/receipts"), 0o755);
+    }
   });
 });

@@ -206,6 +206,61 @@ describe("demoman join-flow, from the packed install", () => {
   });
 });
 
+describe("demoman add, keep and remove, from the packed install", () => {
+  const cli = (...args: string[]) =>
+    spawnSync(process.execPath, [packed.bin, ...args], {
+      cwd: checkout,
+      env: { ...process.env, ...env(), DEMOMAN_HOME: joinHome },
+      encoding: "utf8",
+    });
+
+  it("keep answers exactly as add does", () => {
+    const add = cli("add");
+    const keep = cli("keep");
+    expect(add.status, add.stderr).toBe(2);
+    expect(add.stderr).toContain("add takes one flow");
+    expect([keep.status, keep.stderr, keep.stdout]).toEqual([
+      add.status,
+      add.stderr,
+      add.stdout,
+    ]);
+  });
+
+  it("remove takes a flow out of the repo and leaves its exports", () => {
+    const name = "Removable flow";
+    const file = join(checkout, ".demoman/flows", keptFileName(name));
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(
+      file,
+      serializeKept({
+        keptVersion: 2,
+        flow: "1a2b3c4d-0000-4000-8000-0000000000b2",
+        deliver: "files",
+        name,
+        script: {
+          scriptVersion: 1,
+          name,
+          target: "http://localhost:3000/",
+          steps: [{ do: "waitForLoad" }],
+        } as never,
+        scale: 1,
+        logo: null,
+        wallpaper: null,
+        outputs: [
+          { path: "r.gif", fileType: "gif", aspect: "16:9", quality: "share" },
+        ],
+        report: null,
+      }),
+    );
+    // Premise: the recipe is there to remove.
+    expect(existsSync(file)).toBe(true);
+    const r = cli("remove", name);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain(`Removed "${name}" from the repo`);
+    expect(existsSync(file)).toBe(false);
+  });
+});
+
 describe("the packed install", () => {
   it("installed the bin, and no esbuild", () => {
     // The control: the install happened and the bin is there.
