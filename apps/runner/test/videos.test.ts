@@ -713,7 +713,7 @@ describe("adopt", () => {
     expect(stored?.kept).toEqual(kept);
   });
 
-  it("a merge that stops partway says how many takes moved and keeps the source", async () => {
+  it("a merge that stops partway says how many videos moved and keeps the source", async () => {
     const lib = createLibrary(home);
     const s = createVideoStore(home, lib);
     const a = await s.create({ name: "A", repo: repoA, startPage: "x" });
@@ -738,7 +738,7 @@ describe("adopt", () => {
       (e: unknown) => e,
     );
     expect(err).toBeInstanceOf(VideoError);
-    expect((err as VideoError).message).toContain("after moving 1 take into");
+    expect((err as VideoError).message).toContain("after moving 1 video into");
     expect((err as VideoError).message).toContain(b.video.id);
     expect((err as VideoError).message).toContain("video.json");
     expect(await s.get(a.video.id)).not.toBeNull();

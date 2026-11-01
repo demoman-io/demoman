@@ -618,7 +618,7 @@ export function createVideoStore(
       // The source record stays; say how far the merge got.
       throw new VideoError(
         error instanceof VideoError ? error.reason : "videoUnwritable",
-        `merge of ${fromId} into ${intoId} stopped after moving ${moved} take${moved === 1 ? "" : "s"} into ${intoId}; ${fromId} still exists: ${messageOf(error)}`,
+        `merge of ${fromId} into ${intoId} stopped after moving ${moved} video${moved === 1 ? "" : "s"} into ${intoId}; ${fromId} still exists: ${messageOf(error)}`,
       );
     }
     await rm(recordPath(fromId), { force: true });

@@ -354,10 +354,10 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
         tag.commit = typeof c.commit === "string" ? c.commit : null;
         tag.dirty = typeof c.dirty === "boolean" ? c.dirty : null;
       } else if ("unreadable" in report) {
-        noCommit = `the take's report.json would not read (${report.unreadable})`;
+        noCommit = `the video's run report would not read (${report.unreadable})`;
       } else if ("missing" in report) {
         deps.log(
-          `video ${takeId}: the export is tagged without a commit, as the take has no report.json`,
+          `video ${takeId}: the export is tagged without a commit, as the video has no run report`,
         );
       } else {
         deps.log(

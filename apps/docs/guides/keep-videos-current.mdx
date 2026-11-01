@@ -17,7 +17,7 @@ npx demoman keep "Add a task" --to docs/add-task.mp4
 This writes `.demoman/videos/<name>.json`, everything a re-film needs, and
 exports its current video to each `--to` path. Commit both. `--gif` adds a GIF.
 A refresh keeps what it compared against in `.demoman/receipts/<name>.json`.
-A repo kept by an earlier version is still read.
+A repo kept by an older Demoman is still read.
 
 The flow's id is in the file, so every machine that clones the repo shares it.
 If your own library already holds a different flow with that name, a run
@@ -89,7 +89,7 @@ npx demoman refresh --out-dir demoman-out
 ```
 
 With `--deliver files`, keep writes only the file in `.demoman/videos/`, and a
-`--to` path is a plain file name. Refresh writes the video and its receipt (not for a video that came back
+`--to` path is a plain file name. Refresh writes the video and its receipt (neither for a video that came back
 `unchanged`) and `demoman-refresh.json`, which lists what each flow made, into
 `--out-dir`;
 nothing is committed. Upload the folder with your own step, such as

@@ -532,7 +532,7 @@ async function joinFlow(args: string[]): Promise<void> {
   const [from, into, ...extra] = args;
   if (from === undefined || into === undefined || extra.length > 0) {
     process.stderr.write(
-      `demoman: join-flow takes the flow to move and the flow to move it into\n\n${USAGE}`,
+      `demoman: join-flow needs the flow to move and the flow to move it into\n\n${USAGE}`,
     );
     process.exit(2);
   }

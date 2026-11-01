@@ -45,7 +45,7 @@ user; section 7 lists every reason.
   `sessionsUnreadable`, when present: the saved sessions could not be read; tell the user.
 
 `status.sessions` lists an account's saved session with an `account` (and
-`origin`) beside `site`; one without is the site's manual session from
+`origin`) beside `site`; an entry without one is the site's manual session from
 `npx demoman signin <url>`.
 
 `status.secretsFile` is `null` (no usable accounts file), `{path, absent:
@@ -309,7 +309,7 @@ A flow kept in the repo (.demoman/videos) is rewritten by each run: commit that 
      whose `actionId` equals `video.steps[i].actionId`; `steps[k].index` is
      its 0-based position in your script.
    - `video` may be `{ "unavailable": … }` (`refused`, `noVideo`, `noFrames`,
-     `checkFailed` with `error`): not a clean bill; say so, do not retry. So may
+     `checkFailed` with `error`): not a clean bill; say so, do not retry. Likewise
      `video.steps[i].unknown` and `video.noCursor: true`.
    - `recording` is `{ "unavailable": … }` or
      `{ recordingVideoId, steps[], notInRecording[] }`, comparing the run with
@@ -410,7 +410,7 @@ outcome: quote its `error` or `detail`.
 When the `studio` tool is listed and there is no `links.studio`, **offer**
 it; never open it unasked. `studio({ videoId })`
 opens a window to edit and export the video.
-`{ outcome: "opened", videoId?, note? }`: say it is open; quote `note`.
+`{ outcome: "opened", videoId?, note? }`: say it is open; quote `note` if set.
 Studio exports go to `~/Downloads`.
 
 ## 6. The format
@@ -509,7 +509,7 @@ Studio exports go to `~/Downloads`.
 | `unconfirmed` | `attach` (`notAttached`) | Unknown what landed. Do not post again; tell the user to look at the PR. |
 | `copyFailed` | `attach` (`notAttached`) | The video could not be copied; nothing posted. Hand the user the capped export's file. |
 | `windowDidNotOpen` | `snapshot`; `run` (`refusedBeforeRun`); `studio` | The window would not open; try once more. |
-| `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user. |
+| `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
 | `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. Call `report(id)` on it; retry when it settles. |
 | `busy` | `export` (`refusedBeforeExport`) | A run, probe or snapshot is in progress. `report(id)` it first. |
 | `browserSilent` | `status`, `flows`, `derive`, `report` | The browser did not answer in about 50 s. Call `status` once; if again, tell the user. From `report` the run may still be going: call `report(id)` again. |
@@ -522,7 +522,7 @@ Studio exports go to `~/Downloads`.
 | `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-film of a video that did not keep a value. |
 | `flowRequired` | `run` (`refusedBeforeRun`) | No `flow` was given. Find one (section 4), or pass `{ new }`. |
 | `possibleDuplicate`, `nameTaken` | `run` (`refusedBeforeRun`) | A similar flow exists (`matches`) or the name is taken (`holder`). Section 4. |
-| `keptNameTaken`, `duplicateFlow`, `keptUnreadable` | `run` (`refusedBeforeRun`) | Kept flows: this library has another flow with that name (`detail` gives a `join-flow` command for the user); two kept files name one flow (delete one); a kept file will not read (`detail` names it). |
+| `keptNameTaken`, `duplicateFlow`, `keptUnreadable` | `run` (`refusedBeforeRun`) | Kept flows: this library has another flow with that name (`detail` gives the `join-flow` command to tell the user); two kept files name one flow (delete one); a kept file will not read (`detail` names it; fix or remove it). |
 | `flowNotFound` | `run` (`refusedBeforeRun`) | No flow has that `id`; call `flows`. |
 | `wrongIdKind` | any | Wrong kind of id; see `detail`. |
 | `flowUnreadable`, `flowUnwritable` | `run` (`refusedBeforeRun`), `flows` | The flow records could not be read or written; quote `detail`. Nothing filmed. |
@@ -539,7 +539,7 @@ Studio exports go to `~/Downloads`.
 | `nonHttpTarget` | `run`, `snapshot` | The target or url is not `http(s)`, or its host contains `*`. |
 | `invalidFileType` | `export` (`refusedBeforeExport`) | Not answered here: the schema takes only `mp4`, `gif`, `stills`. |
 | `invalidStillsOptions` | `export` (`refusedBeforeExport`) | `stills` was given for an MP4 or GIF, or breaks section 5's width or zoom; `detail` says which. Fix the call. |
-| `invalidQuality`, `invalidMaxMB` | `export` (`refusedBeforeExport`), `attach` | Through these tools, `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
+| `invalidQuality`, `invalidMaxMB` | `export` (`refusedBeforeExport`), `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
 | `noVideoId`, `noFrames` | `export` (`refusedBeforeExport`) | No video id; no frames to render. |
 | `videoNotFound`, `videoUnreadable` | `export` (`refusedBeforeExport`), `run` re-film (`refusedBeforeRun`), `studio` (`videoNotFound`: call `flows`) | No such video; it could not be read (or, for `run`, built into a script). |
 | `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run` (`stopped.reason`) | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. |
