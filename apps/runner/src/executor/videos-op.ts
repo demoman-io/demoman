@@ -66,18 +66,18 @@ async function keptOf(video: VideoRecord): Promise<VideoSummary["kept"]> {
     text = await readFile(join(root, file), "utf8");
   } catch (error) {
     return {
-      unknown: `${file} in ${root} is gone or keeps another flow (${messageOf(error)})`,
+      unknown: `${file} in ${root} is gone (${messageOf(error)})`,
     };
   }
   const parsed = parseKept(text, file);
   if (!parsed.ok) {
     return {
-      unknown: `${file} in ${root} is gone or keeps another flow (${parsed.detail})`,
+      unknown: `${file} in ${root} will not read: ${parsed.detail}`,
     };
   }
   if (parsed.kept.flow !== video.id) {
     return {
-      unknown: `${file} in ${root} is gone or keeps another flow (it keeps ${parsed.kept.flow})`,
+      unknown: `${file} in ${root} keeps flow ${parsed.kept.flow}`,
     };
   }
   return { file, root, deliver: parsed.kept.deliver };

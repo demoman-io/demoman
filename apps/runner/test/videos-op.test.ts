@@ -528,7 +528,15 @@ describe("videosOp", () => {
         serializeKept(recipe("11111111-7d3a-4f0e-9a41-2c8d5e6f7a91")),
       );
       expect((await summaryOf()).kept).toEqual({
-        unknown: expect.stringContaining("keeps another flow"),
+        unknown: expect.stringContaining("keeps flow 11111111"),
+      });
+    });
+
+    it("a garbled kept file reads unknown, as will not read", async () => {
+      await mkdir(join(home, KEPT_DIR), { recursive: true });
+      await writeFile(join(home, file), "{not json");
+      expect((await summaryOf()).kept).toEqual({
+        unknown: expect.stringContaining("will not read"),
       });
     });
 

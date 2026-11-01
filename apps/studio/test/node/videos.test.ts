@@ -144,6 +144,19 @@ describe("the takes listing's videos", () => {
     expect(body.videoOf["inv-3"]?.filmedCode).toBeNull();
     expect(body.videoOf["sign-1"]?.filmedCode).toBeNull();
     expect(h.logs.join("\n")).toMatch(/sign-1.*report\.json/);
+    expect(h.logs.join("\n")).not.toMatch(/inv-3/);
+  });
+
+  it("a report without filmedCode is quiet; a malformed one is said", async () => {
+    const library = createLibrary(home);
+    await library.putJson("inv-1", "report.json", { outcome: "complete" });
+    await library.putJson("inv-2", "report.json", { filmedCode: { x: 1 } });
+    const body = await listing();
+    expect(body.videoOf["inv-1"]?.filmedCode).toBeNull();
+    expect(body.videoOf["inv-2"]?.filmedCode).toBeNull();
+    const said = h.logs.join("\n");
+    expect(said).not.toMatch(/inv-1/);
+    expect(said).toMatch(/inv-2.*no usable filmedCode/);
   });
 
   it("joins a loose take to a video of its own as it lists", async () => {
