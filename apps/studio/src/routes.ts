@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { DEFAULT_EXPORT_QUALITY } from "@demoman/run-core";
+import { DEFAULT_EXPORT_QUALITY, type FilmedCode } from "@demoman/run-core";
 import {
   createVideoStore,
   ensureVideos,
@@ -210,6 +210,35 @@ export function createRoutes(o: {
     }
   }
 
+  /** The code a version filmed, from its report. A missing report is null
+   *  quietly (old takes have none); one that will not read, or has no usable
+   *  filmedCode, is null and said. */
+  async function filmedCodeOf(takeId: string): Promise<FilmedCode | null> {
+    const report = await library
+      .getJson(takeId, "report.json")
+      .catch((e: unknown) => ({ unreadable: messageOf(e) }));
+    if ("missing" in report) return null;
+    if ("unreadable" in report) {
+      log(`studio: take ${takeId}'s report.json: ${report.unreadable}`);
+      return null;
+    }
+    const code = (report.value as { filmedCode?: unknown } | null)?.filmedCode;
+    const c = code as Record<string, unknown> | null | undefined;
+    if (
+      c &&
+      typeof c === "object" &&
+      (typeof c.none === "string" ||
+        (typeof c.tree === "string" &&
+          typeof c.dirty === "boolean" &&
+          (c.commit === null || typeof c.commit === "string")))
+    )
+      return code as FilmedCode;
+    log(
+      `studio: take ${takeId}'s report.json has no usable filmedCode (${JSON.stringify(code ?? null)})`,
+    );
+    return null;
+  }
+
   /** Every video and which take is which version of which; a video that
    *  will not read is a row saying so, never a missing card. */
   async function videoListing(
@@ -245,6 +274,7 @@ export function createRoutes(o: {
             version: version.number,
             expired: version.expired !== null,
             exports: await exportsOf(version.takeId),
+            filmedCode: await filmedCodeOf(version.takeId),
           };
         }
         listed.push(summary);

@@ -306,10 +306,17 @@ describe("library main — back to your recording", () => {
           pages: [],
           steps: [],
           exports: [],
+          kept: null,
         },
       ],
       videoOf: {
-        [SCENE_ID]: { videoId, version: 1, expired: false, exports: [] },
+        [SCENE_ID]: {
+          videoId,
+          version: 1,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
       },
     });
     state.memory = memory;

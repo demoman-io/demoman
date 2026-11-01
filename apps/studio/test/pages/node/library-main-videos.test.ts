@@ -71,6 +71,7 @@ const video = (
   pages: [],
   steps: [],
   exports: [],
+  kept: null,
 });
 
 const KEPT = "/Users/me/Downloads/Create an invoice.mp4";
@@ -109,7 +110,13 @@ function seed(
       }),
     ],
     videoOf: {
-      "inv-1": { videoId: INVOICE, version: 1, expired: true, exports: [] },
+      "inv-1": {
+        videoId: INVOICE,
+        version: 1,
+        expired: true,
+        exports: [],
+        filmedCode: null,
+      },
       "inv-2": {
         videoId: INVOICE,
         version: 2,
@@ -118,8 +125,15 @@ function seed(
           { path: KEPT, fileType: "mp4", exists: true },
           { path: GONE, fileType: "gif", exists: false },
         ],
+        filmedCode: null,
       },
-      "inv-3": { videoId: INVOICE, version: 3, expired: false, exports: [] },
+      "inv-3": {
+        videoId: INVOICE,
+        version: 3,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
       "sign-1": {
         videoId: SIGNUP,
         version: 1,
@@ -128,6 +142,7 @@ function seed(
           o.signupExport === undefined
             ? []
             : [{ path: o.signupExport, fileType: "mp4", exists: true }],
+        filmedCode: null,
       },
     },
   });

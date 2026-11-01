@@ -564,6 +564,7 @@ describe("videoGroupsOf, through buildLibraryModel", () => {
     pages: [],
     steps: [],
     exports: [],
+    kept: null,
   });
   const model = () =>
     buildLibraryModel({
@@ -581,10 +582,34 @@ describe("videoGroupsOf, through buildLibraryModel", () => {
       // a3 is the newest and failed: the newest complete is a2.
       videos: [summary("A", 3, "a2"), summary("B", 1, null)],
       videoOf: {
-        a1: { videoId: "A", version: 1, expired: true, exports: [] },
-        a2: { videoId: "A", version: 2, expired: false, exports: [] },
-        a3: { videoId: "A", version: 3, expired: false, exports: [] },
-        b1: { videoId: "B", version: 1, expired: false, exports: [] },
+        a1: {
+          videoId: "A",
+          version: 1,
+          expired: true,
+          exports: [],
+          filmedCode: null,
+        },
+        a2: {
+          videoId: "A",
+          version: 2,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
+        a3: {
+          videoId: "A",
+          version: 3,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
+        b1: {
+          videoId: "B",
+          version: 1,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
       },
     });
 

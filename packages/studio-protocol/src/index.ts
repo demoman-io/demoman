@@ -6,6 +6,8 @@ import type {
   ExportAnswer,
   ExportQuality,
   FileType,
+  FilmedCode,
+  KeptDeliver,
   OutputListing,
   PullRequestsValue,
 } from "@demoman/run-core";
@@ -220,6 +222,14 @@ export interface VideoSummary {
     | { takeId: string; path: string; fileType: FileType; exists: boolean }
     | { takeId: string; unreadable: string }
   >;
+  /** The recipe that keeps this flow; `unknown` says why a kept record's
+   *  file cannot be used. */
+  kept:
+    | { file: string; root: string; deliver: KeptDeliver }
+    | null
+    | {
+        unknown: string;
+      };
 }
 export interface VersionExport {
   path: string;
@@ -241,6 +251,9 @@ export interface TakesAnswer {
       /** The files exported from this version, or why they could not be
        *  read. A file that was moved or deleted is `exists: false`. */
       exports: VersionExport[] | { unreadable: string };
+      /** The code this version's run filmed, from its report.json; null
+       *  when the report is missing or will not read (the log says why). */
+      filmedCode: FilmedCode | null;
     }
   >;
   scenes: SceneDocument[];

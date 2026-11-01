@@ -53,6 +53,7 @@ const video = (id: string, name: string, versions: number): VideoSummary => ({
   pages: [],
   steps: [],
   exports: [],
+  kept: null,
 });
 
 function seed(libraryView: LibraryViewChoice = CARDS): MemoryPlatform {
@@ -70,10 +71,34 @@ function seed(libraryView: LibraryViewChoice = CARDS): MemoryPlatform {
       video(SIGNUP, "Sign up", 1),
     ],
     videoOf: {
-      "inv-1": { videoId: INVOICE, version: 1, expired: false, exports: [] },
-      "inv-2": { videoId: INVOICE, version: 2, expired: false, exports: [] },
-      "rep-1": { videoId: REPORT, version: 1, expired: false, exports: [] },
-      "sign-1": { videoId: SIGNUP, version: 1, expired: false, exports: [] },
+      "inv-1": {
+        videoId: INVOICE,
+        version: 1,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
+      "inv-2": {
+        videoId: INVOICE,
+        version: 2,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
+      "rep-1": {
+        videoId: REPORT,
+        version: 1,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
+      "sign-1": {
+        videoId: SIGNUP,
+        version: 1,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
     },
   });
 }

@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { failure, type Outcome } from "@demoman/agent-bridge";
-import { type FileType, isFlowId } from "@demoman/run-core";
+import {
+  type FileType,
+  isFlowId,
+  type KeptDeliver,
+  parseKept,
+} from "@demoman/run-core";
 import { messageOf } from "../report.js";
 import { readTag } from "./export-tag.js";
 import { adoptKept, findKept } from "./kept-flows.js";
@@ -40,6 +45,42 @@ export interface VideoSummary {
     | { takeId: string; path: string; fileType: FileType; exists: boolean }
     | { takeId: string; unreadable: string }
   >;
+  /** The recipe that keeps this flow, null when none does, or `unknown` when
+   *  the record says one does and the checkout's file is gone, will not read
+   *  or keeps another flow. */
+  kept:
+    | { file: string; root: string; deliver: KeptDeliver }
+    | null
+    | {
+        unknown: string;
+      };
+}
+
+/** Reads the recipe a record points at (the same parser the kept folder's
+ *  reader uses); anything but a recipe for this flow is `unknown`, said. */
+async function keptOf(video: VideoRecord): Promise<VideoSummary["kept"]> {
+  if (video.kept === undefined) return null;
+  const { root, file } = video.kept;
+  let text: string;
+  try {
+    text = await readFile(join(root, file), "utf8");
+  } catch (error) {
+    return {
+      unknown: `${file} in ${root} is gone or keeps another flow (${messageOf(error)})`,
+    };
+  }
+  const parsed = parseKept(text, file);
+  if (!parsed.ok) {
+    return {
+      unknown: `${file} in ${root} is gone or keeps another flow (${parsed.detail})`,
+    };
+  }
+  if (parsed.kept.flow !== video.id) {
+    return {
+      unknown: `${file} in ${root} is gone or keeps another flow (it keeps ${parsed.kept.flow})`,
+    };
+  }
+  return { file, root, deliver: parsed.kept.deliver };
 }
 
 const STEPS_MAX = 12;
@@ -114,6 +155,7 @@ async function described(
     ],
     steps: steps.slice(0, STEPS_MAX),
     exports,
+    kept: await keptOf(video),
   };
   return { summary, steps };
 }

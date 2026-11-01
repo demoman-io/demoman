@@ -113,7 +113,7 @@ describe("the takes listing's videos", () => {
     expect(byName["Sign up"]?.versions).toBe(1);
     // The newest complete, not the newest (inv-3 failed).
     expect(byName["Create an invoice"]?.current?.takeId).toBe("inv-2");
-    const none = { exports: [] };
+    const none = { exports: [], filmedCode: null };
     expect(body.videoOf).toEqual({
       "inv-1": { videoId: invoice, version: 1, expired: false, ...none },
       "inv-2": { videoId: invoice, version: 2, expired: false, ...none },
@@ -124,6 +124,26 @@ describe("the takes listing's videos", () => {
       ["inv-1", "inv-2", "inv-3", "sign-1"].sort(),
     );
     expect(body.unreadable).toEqual([]);
+  });
+
+  it("videoOf carries the report's filmed commit", async () => {
+    const code = { commit: "abc1234", tree: "def5678", dirty: false };
+    const library = createLibrary(home);
+    await library.putJson("inv-1", "report.json", { filmedCode: code });
+    await library.putJson("inv-2", "report.json", {
+      filmedCode: { none: "no git" },
+    });
+    await writeFile(
+      join(library.takeDir("sign-1"), "report.json"),
+      "{not json",
+    );
+    const body = await listing();
+    expect(body.videoOf["inv-1"]?.filmedCode).toEqual(code);
+    expect(body.videoOf["inv-2"]?.filmedCode).toEqual({ none: "no git" });
+    // Missing report: null, quietly. Unreadable: null, and the log says why.
+    expect(body.videoOf["inv-3"]?.filmedCode).toBeNull();
+    expect(body.videoOf["sign-1"]?.filmedCode).toBeNull();
+    expect(h.logs.join("\n")).toMatch(/sign-1.*report\.json/);
   });
 
   it("joins a loose take to a video of its own as it lists", async () => {

@@ -51,6 +51,7 @@ const video: VideoSummary = {
   pages: [],
   steps: [],
   exports: [],
+  kept: null,
 };
 
 describe("library main — length cells", () => {
@@ -79,8 +80,20 @@ describe("library main — length cells", () => {
       ],
       videos: [video],
       videoOf: {
-        "inv-1": { videoId: video.id, version: 1, expired: false, exports: [] },
-        "inv-2": { videoId: video.id, version: 2, expired: false, exports: [] },
+        "inv-1": {
+          videoId: video.id,
+          version: 1,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
+        "inv-2": {
+          videoId: video.id,
+          version: 2,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
       },
     });
   });
@@ -156,8 +169,20 @@ describe("library main — a length that cannot be measured", () => {
       ],
       videos: [video],
       videoOf: {
-        "inv-1": { videoId: video.id, version: 1, expired: false, exports: [] },
-        "inv-2": { videoId: video.id, version: 2, expired: false, exports: [] },
+        "inv-1": {
+          videoId: video.id,
+          version: 1,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
+        "inv-2": {
+          videoId: video.id,
+          version: 2,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
       },
     });
   });

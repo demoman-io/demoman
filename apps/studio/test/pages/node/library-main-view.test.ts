@@ -51,6 +51,7 @@ const video: VideoSummary = {
   pages: [],
   steps: [],
   exports: [],
+  kept: null,
 };
 
 const GRID: LibraryViewChoice = {
@@ -95,8 +96,20 @@ describe("library main — the view", () => {
       ],
       videos: [video],
       videoOf: {
-        "inv-1": { videoId: video.id, version: 1, expired: false, exports: [] },
-        "inv-2": { videoId: video.id, version: 2, expired: false, exports: [] },
+        "inv-1": {
+          videoId: video.id,
+          version: 1,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
+        "inv-2": {
+          videoId: video.id,
+          version: 2,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
       },
     });
   });
