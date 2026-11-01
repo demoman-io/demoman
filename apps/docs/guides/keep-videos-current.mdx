@@ -16,6 +16,15 @@ npx demoman keep "Add a task" --to docs/add-task.mp4
 
 This writes `.demoman/videos/<name>.json`, everything a re-film needs, and
 exports its current video to each `--to` path. Commit both. `--gif` adds a GIF.
+A refresh keeps what it compared against in `.demoman/receipts/<name>.json`.
+A repo kept by an earlier version is still read.
+
+The flow's id is in the file, so every machine that clones the repo shares it.
+If your own library already holds a different flow with that name, a run
+into the kept flow refuses with `keptNameTaken` and names
+`demoman join-flow <from> <into>`, which moves that flow's videos into the
+kept one. Two kept files naming one flow refuse with `duplicateFlow`; a kept
+file that will not read refuses with `keptUnreadable`.
 
 Keep refuses, writing nothing, a flow whose current video has Studio
 edits a re-film does not carry (a mask, a trim, a cut, a split, a hold, a
@@ -72,6 +81,23 @@ gaps are accepted:
 A kept file with no recorded screens is not refreshed. Its line says to run
 `demoman keep` for it again.
 
+## Commit no video
+
+```bash
+npx demoman keep "Add a task" --to add-task.mp4 --deliver files
+npx demoman refresh --out-dir demoman-out
+```
+
+With `--deliver files`, keep writes only the file in `.demoman/videos/`, and a
+`--to` path is a plain file name. Refresh writes the video, its receipt and
+`demoman-refresh.json`, which lists what each flow made, into `--out-dir`;
+nothing is committed. Upload the folder with your own step, such as
+`aws s3 sync demoman-out s3://bucket/`, or
+`aws s3 sync demoman-out s3://bucket/ --endpoint-url $R2_ENDPOINT` for R2.
+To compare with the last run, give `--previous` the folder it was kept in; with
+none, every video reads `uncompared`. A `files` flow refreshed without
+`--out-dir` fails, and the others still refresh.
+
 ## Run it on every merge
 
 ```bash
@@ -87,6 +113,9 @@ flags:
   environment, and films the deployed app.
 - `--route pr` opens a pull request with the changed files. `--route main`
   commits them to the branch.
+
+`--artifact` refreshes with `--out-dir demoman-out` and uploads that folder as
+the `demoman-videos` workflow artifact.
 
 A deployment trigger cannot use `--route main`: the deployed commit is not a
 branch. Setup refuses the pair and names `pr`.

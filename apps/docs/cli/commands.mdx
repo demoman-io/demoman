@@ -71,12 +71,13 @@ See [Overview](/studio/overview).
 ## keep
 
 ```bash
-npx demoman keep <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full]
+npx demoman keep <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full] [--deliver commit|files]
 ```
 
 Keeps a flow current. Run it in the repo, naming one of its flows by id or
 exact name. It writes `.demoman/videos/<name>.json`, everything a re-film
-needs, and exports its current video to each path. Commit both. A logo from outside
+needs, and exports its current video to each path. Commit both. A refresh
+writes what it compared against to `.demoman/receipts/<name>.json`. A logo from outside
 the repo is copied to `.demoman/videos/logos/`.
 
 It refuses, writing nothing, a flow whose current video has Studio edits
@@ -90,6 +91,7 @@ hand with `signin` rather than as a demo account.
 | `--gif <path>[:<aspect>]` | A GIF to write, repeatable |
 | `--report <path>` | Where to write the run report |
 | `--quality <quality>` | The MP4s' quality: `share` (the default, small to commit), `high` or `full` |
+| `--deliver commit\|files` | `commit` (the default) commits the exports. `files` commits no video, only the re-film file (and a logo); each path is a plain file name, written under refresh's `--out-dir` |
 
 ## refresh
 
