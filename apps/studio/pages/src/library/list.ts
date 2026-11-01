@@ -266,19 +266,21 @@ function entryRow(
       said.push(rerun);
     }
     // What was said of one of a flow's takes is said on that take's video
-    // row, which every flow has here. Its lead's is said on the flow row
-    // too, where the row's Back was pressed, while the flow is closed and
-    // that video row hidden; `refold` hides it while open, so it is never
-    // said twice.
+    // row, which every flow has here. It is said on the flow row too while
+    // the flow is closed and that video row hidden — the lead's where the
+    // row's Back was pressed, an older one's named by its video (DEM-31);
+    // `refold` hides them while open, so none is said twice.
     const status =
       group === null
         ? rowStatus.get(statusKey("take", r.sceneId))
         : rowStatus.get(statusKey("video", group.video.id));
     if (status !== undefined) said.push(sentence(status));
-    const lead =
-      group === null ? undefined : rowStatus.get(statusKey("take", r.sceneId));
-    if (lead !== undefined) {
-      const line = sentence(lead);
+    for (const v of group?.versions ?? []) {
+      const text = rowStatus.get(statusKey("take", v.sceneId));
+      if (text === undefined) continue;
+      const line = sentence(
+        v.sceneId === r.sceneId ? text : `Video ${v.version ?? "?"}: ${text}`,
+      );
       line.setAttribute("data-lead-status", "");
       said.push(line);
     }
@@ -405,14 +407,16 @@ function refold(grid: HTMLElement): void {
     const level = Number(row.getAttribute("aria-level"));
     row.hidden = level > 1 && shown[level - 1] !== true;
     shown[level] = !row.hidden && row.getAttribute("aria-expanded") !== "false";
-    const lead = row.querySelector<HTMLElement>(
+    const leads = row.querySelectorAll<HTMLElement>(
       ":scope > [data-status] > [data-lead-status]",
     );
-    if (lead !== null) {
-      // Said on the video row while the flow is open (`entryRow`); the line
+    if (leads.length > 0) {
+      // Said on the video rows while the flow is open (`entryRow`); the line
       // goes, and the row's description with it, when nothing else is on it.
-      lead.hidden = row.getAttribute("aria-expanded") === "true";
-      const line = lead.parentElement as HTMLElement;
+      for (const lead of leads) {
+        lead.hidden = row.getAttribute("aria-expanded") === "true";
+      }
+      const line = leads[0]?.parentElement as HTMLElement;
       line.hidden = [...line.children].every((c) => (c as HTMLElement).hidden);
       if (line.hidden) row.removeAttribute("aria-describedby");
       else row.setAttribute("aria-describedby", line.id);
