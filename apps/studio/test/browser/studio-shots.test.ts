@@ -1440,12 +1440,13 @@ describe("the Studio's screenshot set", () => {
   // Kept flows and filmed commits (share links part 1, Task 9): "Create an
   // invoice" kept in a checkout, its versions filmed at two commits (the
   // newest with changes) and one with none. In the list as it opens, the
-  // Kept heading above Today with the flow under it and its tag; the flow
+  // flow under its recorded day's heading (a kept flow has no heading of its
+  // own) with its In repo tag; the flow
   // opened, each video's commit beside its name. At both sizes (720 is
   // under 900 tall). Each asserted on its paint, and the premises (the
   // listing says it is kept, and what each version filmed) asserted first.
   it.runIf(process.platform === "darwin")(
-    "shoots a flow in the repo under its In repo heading with its tag, and its videos' commits, each asserted on its paint",
+    "shoots a flow in the repo under its day's heading with its In repo tag, and its videos' commits, each asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-kept-"));
       homes.push(home);
@@ -1658,8 +1659,8 @@ describe("the Studio's screenshot set", () => {
         await page.mouse.move(0, 0);
         await settle(page, at);
         await shoot(`library-list-kept-${wh}`, at);
-        // The headings in order, and the kept flow the first row under
-        // the first of them.
+        // No section is keyed or labelled In repo; the kept flow sits under
+        // the heading of the day it was recorded.
         const order = await page.evaluate(() =>
           [
             ...document.querySelectorAll<HTMLElement>(
@@ -1669,23 +1670,28 @@ describe("the Studio's screenshot set", () => {
             .filter((r) => !r.hidden)
             .map((r) => r.dataset.key as string),
         );
-        expect(order.filter((k) => k.startsWith("h:")).slice(0, 2), at).toEqual(
-          ["h:kept", "h:today"],
+        const headings = order.filter((k) => k.startsWith("h:"));
+        expect(order, `${at}: premise: the kept flow is listed`).toContain(
+          `f:${invoice}`,
         );
-        expect(order.slice(0, 2), at).toEqual(["h:kept", `f:${invoice}`]);
         expect(
-          await page
-            .locator('[data-heading="kept"] [data-name-text]')
-            .textContent(),
-          at,
-        ).toBe("In repo");
+          headings.length,
+          `${at}: premise: the list has day headings`,
+        ).toBeGreaterThan(0);
+        expect(headings, `${at}: no kept section`).not.toContain("h:kept");
         expect(
-          await shown([
-            ['[data-heading="kept"] [data-name-text]', nameCell],
-            ['[data-heading="today"] [data-name-text]', nameCell],
-          ]),
-          `${at}: the Kept and Today headings`,
-        ).toEqual([visible, visible]);
+          await page.locator('[data-heading="kept"]').count(),
+          `${at}: no kept heading is painted`,
+        ).toBe(0);
+        const above = order
+          .slice(0, order.indexOf(`f:${invoice}`))
+          .filter((k) => k.startsWith("h:"))
+          .at(-1);
+        expect(above, `${at}: the flow's heading`).toBe("h:today");
+        expect(
+          await shown([['[data-heading="today"] [data-name-text]', nameCell]]),
+          `${at}: the Today heading`,
+        ).toEqual([visible]);
         // The tag: its word, its tooltip (where the recipe is), its glyph
         // drawn, and all of it painted inside the name cell.
         const tag = page.locator(tagSel);
@@ -1752,19 +1758,19 @@ describe("the Studio's screenshot set", () => {
           `${at}: the commits and the exports`,
         ).toEqual([visible, visible, visible, visible]);
 
-        // The cards: the same Kept section first, the tag on the card's
-        // picture, and the commits in its opened versions.
+        // The cards: the same day sections with no kept one, the flow in
+        // Today, the tag on the card's picture, and the commits in its
+        // opened versions.
         at = `library kept cards ${wh}`;
         await openPage(page, studio, "library", editorTake, new Set(), 6);
         const card = `article[data-video="${invoice}"]`;
-        expect(
-          await page.evaluate(() =>
-            [...document.querySelectorAll<HTMLElement>("[data-section]")].map(
-              (x) => x.dataset.section,
-            ),
+        const sections = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>("[data-section]")].map(
+            (x) => x.dataset.section,
           ),
-          at,
-        ).toEqual(expect.arrayContaining(["kept", "today"]));
+        );
+        expect(sections, `${at}: premise: Today is listed`).toContain("today");
+        expect(sections, `${at}: no kept section`).not.toContain("kept");
         expect(
           await page.evaluate(
             (sel) =>
@@ -1773,16 +1779,8 @@ describe("the Studio's screenshot set", () => {
                 ?.closest<HTMLElement>("[data-section]")?.dataset.section,
             card,
           ),
-          at,
-        ).toBe("kept");
-        expect(
-          await page.evaluate(
-            () =>
-              document.querySelector<HTMLElement>("[data-section]")?.dataset
-                .section,
-          ),
-          `${at}: Kept is the first section`,
-        ).toBe("kept");
+          `${at}: the kept card sits in Today`,
+        ).toBe("today");
         await page.locator(`${card} .versions-count`).click();
         const version = (id: string) => `${card} [data-version-row="${id}"]`;
         await page.locator(version(v1)).scrollIntoViewIfNeeded();
