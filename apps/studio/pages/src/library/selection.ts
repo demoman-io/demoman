@@ -38,7 +38,9 @@ export function clickSelect(
   const to = visibleOrder.indexOf(id);
   if (how === "range" && from >= 0 && to >= 0) {
     const ids = new Set(s.ids);
-    for (const v of s.range) ids.delete(v);
+    // Only what the author can see is taken back: a row folded away since
+    // the last range stays ticked, out of the new one.
+    for (const v of s.range) if (visibleOrder.includes(v)) ids.delete(v);
     const range: string[] = [];
     for (const v of visibleOrder.slice(
       Math.min(from, to),

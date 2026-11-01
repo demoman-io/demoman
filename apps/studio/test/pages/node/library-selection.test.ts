@@ -53,6 +53,26 @@ describe("library selection", () => {
     expect(ids(up)).toEqual(["b"]);
   });
 
+  // Red: the new range deleting every id of the last one, seen or not.
+  it("a range keeps the last range's ids a fold has since hidden", () => {
+    // a..c under Today, d..e under Yesterday, f under a past month.
+    const all = ["a", "b", "c", "d", "e", "f"];
+    const first = clickSelect(toggle(emptySelection(), "a"), "e", "range", all);
+    expect(ids(first)).toEqual(["a", "b", "c", "d", "e"]); // premise
+    // Yesterday folded: d and e are off screen.
+    const folded = ["a", "b", "c", "f"];
+    const next = clickSelect(first, "f", "range", folded);
+    expect(ids(next)).toEqual(["a", "b", "c", "d", "e", "f"]);
+    expect(next.range).toEqual(["b", "c", "f"]);
+    // A shrink on screen still takes back what it can see.
+    expect(ids(clickSelect(next, "b", "range", folded))).toEqual([
+      "a",
+      "b",
+      "d",
+      "e",
+    ]);
+  });
+
   it("a toggle outside the range survives the next range", () => {
     const s = toggle(toggle(emptySelection(), "a"), "c");
     expect(s.anchor).toBe("c"); // premise

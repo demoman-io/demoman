@@ -350,14 +350,15 @@ export function attachListKeys(
           }
           return true;
         case " ":
+          // A control in a cell does its own thing: a button presses, the
+          // checkbox ticks itself.
+          if (inCell && target.matches(CONTROLS)) return false;
           if (busy) return true;
           if (flowId !== undefined) {
             offActions();
             actions.select?.(flowId, "toggle", flowsOnScreen(grid));
-            return true;
           }
-          // Another row's button presses as a button does.
-          return !(inCell && target.matches(CONTROLS));
+          return true;
         case "a":
         case "A":
           if (!busy) {

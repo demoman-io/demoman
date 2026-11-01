@@ -499,7 +499,7 @@ describe("Enter", () => {
 });
 
 describe("selecting", () => {
-  it("Space toggles the flow, from the row or any of its cells", async () => {
+  it("Space toggles the flow, from the row, a cell with no control, or its checkbox", async () => {
     mount();
     await enter();
     await press("{ArrowDown} ", "f:A");
@@ -540,6 +540,25 @@ describe("selecting", () => {
     expect(ticked(), where()).toEqual(["f:A", "f:B", "f:E"]);
     await press("{Shift>}{ArrowUp}{/Shift}", "f:B");
     expect(ticked(), where()).toEqual(["f:A", "f:B"]);
+  });
+
+  // Red: selection.ts's range dropping every id of the last range, so C,
+  // folded away under Yesterday, left the selection unseen.
+  it("a Shift range keeps a flow a fold has hidden since the last one", async () => {
+    mount();
+    await enter();
+    await press("{ArrowDown} ", "f:A");
+    // Over B, E, the take in no flow and Yesterday's heading to C.
+    await press(
+      "{Shift>}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{/Shift}",
+      "f:C",
+    );
+    expect(ticked(), where()).toEqual(["f:A", "f:B", "f:E", "f:C"]);
+    await press("{ArrowUp}{Enter}", "h:yesterday");
+    // Premise: C is off screen now.
+    expect(row("f:C").hidden, where()).toBe(true);
+    await press("{ArrowUp}{ArrowUp}{Shift>}{ArrowUp}{/Shift}", "f:B");
+    expect(ticked(), where()).toEqual(["f:A", "f:B", "f:C"]);
   });
 
   // Red: the row the move started from left out (with no anchor the
@@ -721,29 +740,53 @@ describe("type-ahead after another key", () => {
   });
 });
 
-describe("Space and Cmd+A on a flow's actions", () => {
-  it("move focus to the row, which the selection does not hide", async () => {
-    for (const key of [" ", "{Meta>}a{/Meta}"]) {
-      mount();
-      await enter();
-      await press("{ArrowDown}{ArrowRight}{ArrowRight}{End}", "f:A/actions");
-      await press(key, "f:A");
-      // Premise: the row's actions are hidden now.
-      expect(ticked(), `${key}: ${where()}`).toContain("f:A");
-      const actionsCell = row("f:A").querySelector(
-        '[data-col="actions"]',
-      ) as HTMLElement;
-      expect(
-        actionsCell.checkVisibility({ visibilityProperty: true }),
-        `${key}: ${where()}`,
-      ).toBe(false);
-      expect(
-        (document.activeElement as HTMLElement).checkVisibility({
-          visibilityProperty: true,
-        }),
-        `${key}: ${where()}`,
-      ).toBe(true);
-    }
+describe("Cmd+A on a flow's actions", () => {
+  it("moves focus to the row, which the selection does not hide", async () => {
+    mount();
+    await enter();
+    await press("{ArrowDown}{ArrowRight}{ArrowRight}{End}", "f:A/actions");
+    await press("{Meta>}a{/Meta}", "f:A");
+    // Premise: the row's actions are hidden now.
+    expect(ticked(), where()).toContain("f:A");
+    const actionsCell = row("f:A").querySelector(
+      '[data-col="actions"]',
+    ) as HTMLElement;
+    expect(
+      actionsCell.checkVisibility({ visibilityProperty: true }),
+      where(),
+    ).toBe(false);
+    expect(
+      (document.activeElement as HTMLElement).checkVisibility({
+        visibilityProperty: true,
+      }),
+      where(),
+    ).toBe(true);
+  });
+});
+
+describe("Space on a flow row's button", () => {
+  // Red: Space in a cell selecting the flow from any cell, and cancelling
+  // the button's own press.
+  it("presses it: Rename opens the name field and ticks nothing", async () => {
+    mount();
+    await enter();
+    // The first → opens A, the next moves into its cells; End is Delete,
+    // and Rename sits before Edit.
+    await press(
+      "{ArrowDown}{ArrowRight}{ArrowRight}{End}{ArrowLeft}{ArrowLeft}",
+      "f:A/actions",
+    );
+    // Premise: focus is on the Rename button.
+    expect(
+      (document.activeElement as HTMLElement).getAttribute("aria-label"),
+      where(),
+    ).toMatch(/^Rename /);
+    await userEvent.keyboard(" ");
+    const field = document.activeElement as HTMLInputElement;
+    expect(field.matches("[data-name]"), where()).toBe(true);
+    expect(field.value, where()).toBe("Create an invoice");
+    expect(ticked(), where()).toEqual([]);
+    expect(acts.select, where()).not.toHaveBeenCalled();
   });
 });
 
