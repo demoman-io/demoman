@@ -155,7 +155,8 @@ describe("a run's answer says whether its kept file was rewritten", () => {
       await session.close();
       if (!kept.ok) throw new Error(JSON.stringify(kept));
       const file = kept.file;
-      expect((await keptOf(file)).receipt.video).toBe(first.provenance.takeId);
+      const { receipt: afterKeep, kept: keptBefore } = await keptOf(file);
+      expect(afterKeep.video).toBe(first.provenance.takeId);
 
       // A script run into it: the file follows, and the answer says so.
       const second = await run(executor, {
@@ -166,8 +167,13 @@ describe("a run's answer says whether its kept file was rewritten", () => {
       expect(second.outcome).toBe("complete");
       expect(second.kept).toEqual({ rewritten: file });
       const afterSecond = await keptOf(file);
-      expect(afterSecond.receipt.video).toBe(second.provenance.takeId);
-      expect(afterSecond.receipt.video).not.toBe(first.provenance.takeId);
+      // The committed files are still the first film's, and so is the
+      // receipt: its video, filmedAt and screens belong to one film.
+      // Red: point receipt.video at the new take while the rest stays.
+      expect(afterSecond.receipt).toEqual(afterKeep);
+      expect(afterSecond.receipt.video).toBe(first.provenance.takeId);
+      // Premise: the recipe did follow the new script.
+      expect(afterSecond.kept).not.toEqual(keptBefore);
 
       // A refilm (no script) is a run into it too.
       const third = await run(executor, {
@@ -176,7 +182,7 @@ describe("a run's answer says whether its kept file was rewritten", () => {
       });
       expect(third.outcome).toBe("complete");
       expect(third.kept).toEqual({ rewritten: file });
-      expect((await keptOf(file)).receipt.video).toBe(third.provenance.takeId);
+      expect((await keptOf(file)).receipt).toEqual(afterKeep);
 
       // A run that stops: the file stays as it was, and the answer says why.
       const before = await readFile(join(repo, file));

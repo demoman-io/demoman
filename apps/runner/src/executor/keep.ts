@@ -847,23 +847,18 @@ export async function rewriteKept(
     );
     if (!made.ok)
       return { refused: `${rel} was not rewritten: ${made.detail}` };
-    // The receipt keeps what the committed files show (their screens and
-    // filmed code), which a rewrite does not replace; only the video and
-    // revision it points at follow the recipe. A v1 file carries its own.
+    // The receipt describes the film that made the committed files, which
+    // a rewrite does not replace, so it is left as it is. A v1 file carries
+    // its own, which the v2 recipe written below does not: written out.
     let receipt: KeptReceipt | null = null;
     if (old.deliver === "commit") {
       const had = await readReceiptFile(join(root, receiptFile), receiptFile);
-      const prior = "receipt" in had ? had.receipt : parsed.migrated;
-      if (prior === null) {
+      if ("detail" in had || ("missing" in had && parsed.migrated === null)) {
         return {
           refused: `${rel} was not rewritten: ${"detail" in had ? had.detail : `${receiptFile} is missing`}, so what its outputs show is unknown`,
         };
       }
-      receipt = {
-        ...prior,
-        video: made.from.takeId,
-        recordedRevision: made.from.recordedRevision,
-      };
+      if ("missing" in had) receipt = parsed.migrated;
     }
     try {
       if (made.kept.logo !== null && made.logoBytes !== null) {
