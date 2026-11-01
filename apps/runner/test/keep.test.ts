@@ -1,4 +1,5 @@
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -243,7 +244,7 @@ describe("keep, a clean take", () => {
       expect(out.platformNote).toBe(
         "kept on macOS: the first refresh in CI films it again on Linux, whose fonts differ, and replaces its outputs once; after that, refresh in CI only",
       );
-      const file = join(".demoman/videos", keptFileName("Add a task"));
+      const file = join(".demoman/flows", keptFileName("Add a task"));
       expect(out.file).toBe(file);
       const { kept, receipt } = await readKeptV2(repo, file);
       expect(kept).toEqual(out.kept);
@@ -273,17 +274,17 @@ describe("keep, a clean take", () => {
         ["docs/hero.gif", "gif", "16:9"],
       ]);
       // The logo, copied into the repo, and the script's branding names it.
-      expect(kept.logo).toBe(".demoman/videos/logos/acme.svg");
+      expect(kept.logo).toBe(".demoman/flows/logos/acme.svg");
       expect(kept.script.look?.branding?.logo?.ref).toBe(kept.logo);
       expect(
-        await readFile(join(repo, ".demoman/videos/logos/acme.svg"), "utf8"),
+        await readFile(join(repo, ".demoman/flows/logos/acme.svg"), "utf8"),
       ).toBe(LOGO_SVG);
       expect([...out.written].sort()).toEqual(
         [
           "docs/hero.mp4",
           "docs/hero.gif",
           "docs/hero-report.json",
-          ".demoman/videos/logos/acme.svg",
+          ".demoman/flows/logos/acme.svg",
           `.demoman/receipts/${keptFileName("Add a task")}`,
           file,
         ].sort(),
@@ -347,6 +348,78 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     await copyFrames(takeId);
     return made.videoId;
   };
+
+  /** "Move me" added as a files flow, then its recipe put back in the old
+   *  folder, as a repo added before `demoman add` holds it. */
+  const keptInOldFolder = async (takeId: string, name: string) => {
+    await freshVideo(takeId, name);
+    const args = {
+      video: name,
+      to: [gif(`${takeId}.gif`)],
+      deliver: "files" as const,
+      repoRoot: repo,
+    };
+    const first = await keepVideo(args, deps());
+    if (!first.ok) throw new Error(JSON.stringify(first));
+    const legacy = `.demoman/videos/${keptFileName(name)}`;
+    await mkdir(join(repo, ".demoman/videos"), { recursive: true });
+    await rename(join(repo, first.file), join(repo, legacy));
+    // Premise: the recipe is in the old folder only.
+    const files = await repoFiles();
+    expect(files).toContain(legacy);
+    expect(files).not.toContain(first.file);
+    return { args, legacy, file: first.file };
+  };
+
+  it("adds a new flow to .demoman/flows/, and nothing to .demoman/videos/", async () => {
+    await freshVideo("scene-new-1", "New flow");
+    const out = await keepVideo(
+      {
+        video: "New flow",
+        to: [gif("new.gif")],
+        deliver: "files",
+        repoRoot: repo,
+      },
+      deps(),
+    );
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    expect(out.file).toBe(`.demoman/flows/${keptFileName("New flow")}`);
+    expect(out.moved).toBeNull();
+    expect(
+      (await repoFiles()).filter((f) => f.startsWith(".demoman/videos")),
+    ).toEqual([]);
+  });
+
+  it("adding a flow kept in .demoman/videos/ moves it", async () => {
+    const { args, legacy, file } = await keptInOldFolder(
+      "scene-move-1",
+      "Move me",
+    );
+    const out = await keepVideo(args, deps());
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    expect(out.file).toBe(file);
+    expect(out.moved).toBe(legacy);
+    const files = await repoFiles();
+    expect(files).toContain(file);
+    expect(files).not.toContain(legacy);
+  });
+
+  it("a move whose old file cannot be removed is not a success", async () => {
+    const { args, legacy, file } = await keptInOldFolder(
+      "scene-move-2",
+      "Move me too",
+    );
+    await chmod(join(repo, ".demoman/videos"), 0o555);
+    try {
+      const out = await keepVideo(args, deps());
+      expect(out).toMatchObject({ ok: false, reason: "keptUnwritable" });
+      if (out.ok) return;
+      expect(out.detail).toContain(`wrote ${file}`);
+      expect(out.detail).toContain(`delete ${legacy}`);
+    } finally {
+      await chmod(join(repo, ".demoman/videos"), 0o755);
+    }
+  });
 
   it(
     "keep writes recipe v2, the receipt, and marks the flow kept",
@@ -520,7 +593,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
   it(
     "keep --deliver files with a logo writes the recipe and the logo, and nothing else",
     async () => {
-      const logoRel = ".demoman/videos/logos/acme.svg";
+      const logoRel = ".demoman/flows/logos/acme.svg";
       await videoOf("scene-files-4", "Files logo", (d) => ({
         ...d,
         branding: {
@@ -728,7 +801,7 @@ describe("keep refuses, writing nothing", () => {
   it("an output another kept video already writes, naming that video", async () => {
     // Premise: the clean case kept docs/hero.mp4 for "Add a task".
     const first = await readFile(
-      join(repo, ".demoman/videos", keptFileName("Add a task")),
+      join(repo, ".demoman/flows", keptFileName("Add a task")),
       "utf8",
     );
     expect(first).toContain('"docs/hero.mp4"');
@@ -812,7 +885,7 @@ describe("keep and the video's wallpaper", () => {
         deps(),
       );
       if (!out.ok) throw new Error(JSON.stringify(out));
-      const copy = ".demoman/videos/wallpapers/thumb.webp";
+      const copy = ".demoman/flows/wallpapers/thumb.webp";
       expect(out.kept.wallpaper).toBe(copy);
       expect(out.kept.script.look?.branding?.background).toEqual({
         kind: "image",
@@ -1019,7 +1092,7 @@ describe("keep's own files stay in the repo", () => {
         expect(out).toMatchObject({ ok: false, reason: "outsideRepo" });
         if (out.ok) return;
         expect(out.detail).toContain(
-          `.demoman/videos/${keptFileName("Add a task")}`,
+          `.demoman/flows/${keptFileName("Add a task")}`,
         );
         expect(await repoFiles(), "the repo's files").toEqual(before);
         expect(await readdir(target), "the outside folder").toEqual([]);
@@ -1033,15 +1106,15 @@ describe("keep's own files stay in the repo", () => {
     async () => {
       // Premise: the clean case copied the logo there, so there is a folder to
       // put a link in its place, and this video's logo lives outside the repo.
-      expect(await readdir(join(repo, ".demoman/videos/logos"))).toEqual([
+      expect(await readdir(join(repo, ".demoman/flows/logos"))).toEqual([
         "acme.svg",
       ]);
-      await linkedOut(".demoman/videos/logos", async (target) => {
+      await linkedOut(".demoman/flows/logos", async (target) => {
         const before = await repoFiles();
         const out = await keepTo("docs/linked-logos.gif");
         expect(out).toMatchObject({ ok: false, reason: "outsideRepo" });
         if (out.ok) return;
-        expect(out.detail).toContain(".demoman/videos/logos/acme.svg");
+        expect(out.detail).toContain(".demoman/flows/logos/acme.svg");
         expect(await repoFiles(), "the repo's files").toEqual(before);
         expect(await readdir(target), "the outside folder").toEqual([]);
       });
@@ -1270,7 +1343,7 @@ describe("a run into a kept video rewrites its file", () => {
     const before = await repoFiles();
     // Premise: the repo has kept files, just none for this video.
     expect(
-      before.filter((f) => f.startsWith(".demoman/videos/")).length,
+      before.filter((f) => f.startsWith(".demoman/flows/")).length,
     ).toBeGreaterThan(0);
     expect(await rewriteKept(repo, other.videoId, deps())).toEqual({
       none: true,

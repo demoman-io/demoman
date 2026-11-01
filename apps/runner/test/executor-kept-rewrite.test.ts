@@ -12,7 +12,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  LEGACY_FLOWS_DIR as KEPT_DIR,
+  FLOWS_DIR,
   keptFileName,
   RECEIPT_DIR,
   type RunReport,
@@ -308,7 +308,7 @@ describe("a flow kept before the library marked kept flows", () => {
       expect(!again.ok && again.detail).toContain(
         `${file} already keeps this flow`,
       );
-      const recipes = await readdir(join(repo, KEPT_DIR));
+      const recipes = await readdir(join(repo, FLOWS_DIR));
       expect(recipes).toContain(file.split("/").at(-1));
       expect(recipes).not.toContain(keptFileName("Drift after"));
       const flows = await readKeptFlows(repo);

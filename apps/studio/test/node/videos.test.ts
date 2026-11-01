@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  FLOWS_DIR,
   LEGACY_FLOWS_DIR as KEPT_DIR,
   type KeptVideo,
   keptFileName,
@@ -503,7 +504,7 @@ describe("renaming a kept flow", () => {
     // old name and file, and the receipt does not move.
     const r = await rename(invoice, { name: "Send an invoice" });
     expect(r.status, r.text).toBe(200);
-    expect(await readFile(join(checkout, KEPT_DIR, NEW), "utf8")).toBe(
+    expect(await readFile(join(checkout, FLOWS_DIR, NEW), "utf8")).toBe(
       serializeKept({ ...recipe(), name: "Send an invoice" }),
     );
     expect(await exists(join(checkout, KEPT_DIR, OLD))).toBe(false);
@@ -515,9 +516,24 @@ describe("renaming a kept flow", () => {
     expect(after?.name).toBe("Send an invoice");
     expect(after?.kept).toEqual({
       root: checkout,
-      file: `${KEPT_DIR}/${NEW}`,
+      file: `${FLOWS_DIR}/${NEW}`,
       deliver: "commit",
     });
+  });
+
+  it("renaming a flow in .demoman/videos/ to a name with the same file moves it", async () => {
+    await keepInvoice(checkout);
+    // Premise: the new name makes the old file name, in the old folder.
+    expect(keptFileName("Create an invoice!")).toBe(OLD);
+    const r = await rename(invoice, { name: "Create an invoice!" });
+    expect(r.status, r.text).toBe(200);
+    expect(await readFile(join(checkout, FLOWS_DIR, OLD), "utf8")).toBe(
+      serializeKept({ ...recipe(), name: "Create an invoice!" }),
+    );
+    expect(await exists(join(checkout, KEPT_DIR, OLD))).toBe(false);
+    expect(await readFile(join(checkout, RECEIPT_DIR, OLD), "utf8")).toBe(
+      receiptText(),
+    );
   });
 
   it("renaming a kept flow whose checkout is gone refuses and renames nothing", async () => {
@@ -544,7 +560,7 @@ describe("renaming a kept flow", () => {
     const v = (await listing()).videos.find((x) => x.id === invoice);
     return {
       oldRecipe: await exists(join(checkout, KEPT_DIR, OLD)),
-      newRecipe: await exists(join(checkout, KEPT_DIR, NEW)),
+      newRecipe: await exists(join(checkout, FLOWS_DIR, NEW)),
       oldReceipt: await exists(join(checkout, RECEIPT_DIR, OLD)),
       newReceipt: await exists(join(checkout, RECEIPT_DIR, NEW)),
       name: v?.name,
@@ -582,7 +598,7 @@ describe("renaming a kept flow", () => {
       oldReceipt: false,
       newReceipt: true,
       name: "Send an invoice",
-      kept: { root: checkout, file: `${KEPT_DIR}/${NEW}`, deliver: "commit" },
+      kept: { root: checkout, file: `${FLOWS_DIR}/${NEW}`, deliver: "commit" },
     });
   });
 
@@ -639,12 +655,15 @@ describe("renaming a kept flow", () => {
     });
     expect(await state()).toEqual(untouched());
     // A file already at the new name's slug, keeping something else.
-    await writeFile(join(checkout, KEPT_DIR, NEW), "someone else's");
+    await mkdir(join(checkout, FLOWS_DIR), { recursive: true });
+    await writeFile(join(checkout, FLOWS_DIR, NEW), "someone else's");
     const file = await rename(invoice, { name: "Send an invoice" });
     expect(file.status, file.text).toBe(409);
     expect(refusal(file).reason).toBe("nameTaken");
-    expect(refusal(file).detail).toContain(`${KEPT_DIR}/${NEW} already exists`);
-    expect(await readFile(join(checkout, KEPT_DIR, NEW), "utf8")).toBe(
+    expect(refusal(file).detail).toContain(
+      `${FLOWS_DIR}/${NEW} already exists`,
+    );
+    expect(await readFile(join(checkout, FLOWS_DIR, NEW), "utf8")).toBe(
       "someone else's",
     );
     expect({ ...(await state()), newRecipe: false }).toEqual(untouched());

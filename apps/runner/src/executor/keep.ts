@@ -23,6 +23,7 @@ import {
 import { type FrameBundle, wallpaperShape } from "@demoman/compositor";
 import {
   type FilmedCode,
+  FLOWS_DIR,
   frameOf,
   judgedOutput,
   KEPT_VERSION,
@@ -82,7 +83,10 @@ export type KeepRefusal =
    *  choose an account: a refresh would refuse the same way. */
   | "cannotRefilm"
   /** The request itself is refused (a `files` output given as a path). */
-  | "keepRefused";
+  | "keepRefused"
+  /** The recipe was written but the old file it replaces could not be
+   *  removed: two files name the flow until it is deleted. */
+  | "keptUnwritable";
 
 /** What a built kept file was made from. */
 type KeptFrom = { takeId: string; recordedRevision: string };
@@ -102,6 +106,8 @@ export type KeepAnswer =
   | {
       ok: true;
       file: string;
+      /** The old `.demoman/videos/` file this keep moved here, or null. */
+      moved: string | null;
       kept: KeptVideo;
       /** What `deliver: "commit"` wrote beside the recipe; null for `files`. */
       receipt: KeptReceipt | null;
@@ -189,7 +195,10 @@ export async function keepVideo(
   }
 
   // Every path keep writes, inside the repo once links are followed.
-  const fileRel = `${LEGACY_FLOWS_DIR}/${keptFileName(video.name)}`;
+  const fileRel = `${FLOWS_DIR}/${keptFileName(video.name)}`;
+  // The same file in the old folder: moved here when this keep writes.
+  const legacyRel = `${LEGACY_FLOWS_DIR}/${basename(fileRel)}`;
+  let moveFrom: string | null = null;
   const inRepo = (path: string) => repoPath(root, rootReal, path, "keep");
   // The kept file itself: `.demoman` or its `videos` can be a link too.
   const own = await inRepo(fileRel);
@@ -245,13 +254,19 @@ export async function keepVideo(
     const { kept } = other;
     // Refused, not moved: keep writes only this keep's files, and moving
     // another recipe and its receipt is renameKept's, with its undo steps.
+    if (rel === legacyRel && kept.flow === video.id) {
+      const at = await inRepo(rel);
+      if (typeof at !== "string") return refuse("outsideRepo", at.outside);
+      moveFrom = rel;
+      continue;
+    }
     if (kept.flow === video.id && rel !== fileRel) {
       return refuse(
         "outputTaken",
         `${rel} already keeps this flow (${video.id}), so keeping it as "${video.name}" would write a second recipe for it, ${fileRel} — move ${rel} to ${fileRel}${kept.deliver === "commit" ? ` and ${RECEIPT_DIR}/${name} to ${receiptRel}` : ""}, then keep again`,
       );
     }
-    if (rel === fileRel) {
+    if (rel === fileRel || rel === legacyRel) {
       if (kept.flow === video.id) continue;
       return refuse(
         "outputTaken",
@@ -398,6 +413,16 @@ export async function keepVideo(
         `${written.length > 0 ? `wrote ${written.join(", ")}, then ` : ""}could not write into ${root} (${messageOf(error)}), so ${fileRel} was not written`,
       );
     }
+    if (moveFrom !== null) {
+      try {
+        await rm(join(root, moveFrom));
+      } catch (error) {
+        return refuse(
+          "keptUnwritable",
+          `wrote ${written.join(", ")}, but could not remove the old ${moveFrom} (${messageOf(error)}), so two files now name "${video.name}" — delete ${moveFrom}`,
+        );
+      }
+    }
     // The Library lists a flow as kept from this mark. A failure is said on
     // the answer; the keep itself stands, its files are written.
     let markNote: string | undefined;
@@ -415,6 +440,7 @@ export async function keepVideo(
     return {
       ok: true,
       file: fileRel,
+      moved: moveFrom,
       kept,
       receipt,
       ...(receipt === null
@@ -551,7 +577,7 @@ async function buildKept(
   > => {
     const there = await inRepo(abs);
     if (typeof there === "string") return { path: there, bytes: null };
-    const path = `${LEGACY_FLOWS_DIR}/${folder}/${basename(abs)}`;
+    const path = `${FLOWS_DIR}/${folder}/${basename(abs)}`;
     const copy = await inRepo(path);
     if (typeof copy !== "string")
       return { refused: refuse("outsideRepo", copy.outside) };
@@ -926,7 +952,7 @@ export async function renameKept(
       `Another flow is already called "${holder.name}".`,
     );
   }
-  const file = `${LEGACY_FLOWS_DIR}/${keptFileName(a.name)}`;
+  const file = `${FLOWS_DIR}/${keptFileName(a.name)}`;
   const oldReceipt = `${RECEIPT_DIR}/${basename(a.file)}`;
   const receipt = `${RECEIPT_DIR}/${keptFileName(a.name)}`;
   const moves = file !== a.file;
@@ -953,7 +979,8 @@ export async function renameKept(
         `${had.detail}, so nothing was renamed`,
       );
     }
-    if ("receipt" in had && moves) {
+    // A move to the same file name in the new folder keeps its receipt.
+    if ("receipt" in had && moves && receipt !== oldReceipt) {
       carry = () => rename(join(root, oldReceipt), join(root, receipt));
     } else if ("missing" in had && parsed.migrated !== null) {
       const migrated = parsed.migrated;
