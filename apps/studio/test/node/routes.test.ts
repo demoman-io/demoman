@@ -901,6 +901,25 @@ describe("libraryView", () => {
     expect(file.libraryView).toEqual(view);
   });
 
+  // Red: the route storing the body's view as sent, extra keys and all.
+  it("a PUT with extra keys stores the three fields only", async () => {
+    const res = await put({
+      view: {
+        layout: "list",
+        sort: { column: "name", descending: false, by: "me" },
+        extra: { nested: true },
+      },
+    });
+    expect(res.status, res.text).toBe(200);
+    const view = {
+      layout: "list",
+      sort: { column: "name", descending: false },
+    };
+    expect(res.json()).toEqual({ view });
+    const file = JSON.parse(await readFile(settings(), "utf8"));
+    expect(file.libraryView).toEqual(view);
+  });
+
   it("a libraryView that is not a choice is served as the default with unreadable naming the file", async () => {
     await writeFile(
       settings(),

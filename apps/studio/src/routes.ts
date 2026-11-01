@@ -25,6 +25,7 @@ import {
   type ExportQualityAnswer,
   type ExportQualityChoice,
   FILE_NAME_HEADER,
+  isLibraryViewChoice,
   type LibraryViewAnswer,
   type OutputsAnswer,
   type PingAnswer,
@@ -891,7 +892,17 @@ export function createRoutes(o: {
           `The Library view setting was not saved: ${body.error}.`,
         );
       }
-      const view = (body.value as { view?: unknown } | null)?.view;
+      const sent = (body.value as { view?: unknown } | null)?.view;
+      // The three fields only: a choice that carries more is stored without it.
+      const view = isLibraryViewChoice(sent)
+        ? {
+            layout: sent.layout,
+            sort: {
+              column: sent.sort.column,
+              descending: sent.sort.descending,
+            },
+          }
+        : sent;
       const refused = await writeSetting(home, "libraryView", view);
       if ("reason" in refused) {
         return json(

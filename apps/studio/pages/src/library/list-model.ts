@@ -188,18 +188,3 @@ export function listEntries(
   }
   return out;
 }
-
-/** Flow ids in on-screen order, leaving out flows under a closed heading and
- *  loose takes (they have no id to select). */
-export function visibleFlowOrder(
-  entries: readonly ListEntry[],
-  collapsed: ReadonlySet<string>,
-): string[] {
-  return entries.flatMap((e) =>
-    e.kind === "flow" &&
-    e.flowId !== null &&
-    !(e.parent !== null && collapsed.has(e.parent))
-      ? [e.flowId]
-      : [],
-  );
-}

@@ -10,7 +10,6 @@ import {
   listEntries,
   nextSort,
   sortCards,
-  visibleFlowOrder,
   whereOf,
 } from "../../../pages/src/library/list-model";
 import type {
@@ -276,17 +275,5 @@ describe("flowSize", () => {
   });
   it("with none measured is unknown", () => {
     expect(flowSize(cardOf("C"))).toEqual({ kind: "unknown" });
-  });
-});
-
-describe("visibleFlowOrder", () => {
-  const entries = listEntries(model, RECENT, NOW);
-  it("lists flows in on-screen order, without loose takes", () => {
-    expect(visibleFlowOrder(entries, new Set())).toEqual(["A", "B", "C"]);
-  });
-  it("skips flows under a collapsed heading", () => {
-    expect(
-      visibleFlowOrder(entries, new Set(["h:today", "h:month:2026-09"])),
-    ).toEqual(["B"]);
   });
 });
