@@ -76,14 +76,14 @@ npx demoman add <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--repor
 
 Adds a flow to the repo, so a refresh records it again. Run it in the repo,
 naming one of its flows by id or exact name. It writes
-`.demoman/flows/<name>.json`, the flow's recipe: everything a new recording
+`.demoman/flows/<name>.json`, the flow's recipe: everything a new video
 needs, exports its current video to each path, and writes what those files
 show to `.demoman/receipts/<name>.json`, which a refresh compares against.
 Commit all three. A logo from outside
 the repo is copied to `.demoman/flows/logos/`.
 
 It refuses, writing nothing, a flow whose current video has Studio edits
-a new recording does not carry (a mask, a trim, a cut, a split, a hold, a gap, a
+a new video does not carry (a mask, a trim, a cut, a split, a hold, a gap, a
 placed zoom), typed text the video never read, or a site signed in to by
 hand with `signin` rather than as a demo account.
 
@@ -101,7 +101,7 @@ hand with `signin` rather than as a demo account.
 npx demoman remove <flow>
 ```
 
-Takes a flow out of the repo, named by id or exact name: its recipe in
+Removes a flow from the repo, named by id or exact name: its recipe in
 `.demoman/flows/` and its receipt are deleted, and its exports stay where
 they are, named in what it prints. Commit the change. It exits 1, removing
 nothing, for a flow the repo does not have or one two recipes name, and says

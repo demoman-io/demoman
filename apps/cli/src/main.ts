@@ -103,7 +103,7 @@ const USAGE = `demoman ${VERSION}
   npx demoman add <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full] [--deliver commit|files]
                              add a flow to the repo: its recipe in .demoman/flows/, its exports in the repo
                              (--deliver files writes the recipe alone; outputs are file names for --out-dir)
-  npx demoman remove <flow>  take a flow out of the repo: its recipe and receipt go, its exports stay
+  npx demoman remove <flow>  remove a flow from the repo: its recipe and receipt go, its exports stay
   npx demoman join-flow <from> <into>
                              move a flow's videos into the repo flow that has its name, and remove the flow
   npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main] [--out-dir <folder>] [--previous <folder>]

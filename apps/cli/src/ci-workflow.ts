@@ -29,7 +29,7 @@ export const expr = (e: string): string => `\${{ ${e} }}`;
 export const GUARD_SCRIPT = `msg=$(git log -1 --format=%B "$SHA")
 if printf '%s' "$msg" | grep -qE '\\[skip demoman\\]|/demoman/refresh|^${COMMIT_SUBJECT} \\(#[0-9]+\\)$'; then
   echo "skip=true" >> "$GITHUB_OUTPUT"
-  echo "Skipping: this commit is Demoman's own refresh, and recording it again would loop."
+  echo "Skipping: this commit is Demoman's own refresh, and refreshing on it would loop."
 fi`;
 
 export function ciWorkflow(o: CiOptions): string {
