@@ -455,7 +455,7 @@ function createHeader(withStorage: boolean): Header {
     button.append(icon(glyph));
     button.addEventListener("click", () => {
       if (view === undefined || view.layout === layout) return;
-      actions?.setView?.({ layout, sort: { ...view.sort } });
+      actions?.setView?.({ ...view, layout, sort: { ...view.sort } });
     });
     toggle.append(button);
   }

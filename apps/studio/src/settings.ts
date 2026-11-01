@@ -159,5 +159,5 @@ export async function readLibraryView(
   if (!isLibraryViewChoice(stored)) {
     return unusable("holds a libraryView that is not a Library view");
   }
-  return { view: stored };
+  return { view: { ...stored, project: stored.project ?? null } };
 }

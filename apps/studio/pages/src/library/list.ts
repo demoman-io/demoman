@@ -102,7 +102,7 @@ function headRow(
       // CSS turns it up for ascending.
       if (head.hasAttribute("aria-sort")) button.append(icon("chevronDown"));
       button.addEventListener("click", () =>
-        setView({ layout: view.layout, sort: nextSort(view.sort, sort) }),
+        setView({ ...view, sort: nextSort(view.sort, sort) }),
       );
       head.append(button);
     } else if (shown) {

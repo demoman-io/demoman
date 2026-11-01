@@ -373,12 +373,16 @@ export type LibrarySortColumn =
 export interface LibraryViewChoice {
   layout: LibraryLayout;
   sort: { column: LibrarySortColumn; descending: boolean };
+  /** The saved pick: a `placeSearch` value without the `?project=`
+   *  ("all", "none", "unreadable" or a project key), or null for none. */
+  project: string | null;
 }
 /** Decided here once; the studio serves it when nothing is stored. Frozen:
  *  every reader is handed this one object. */
 export const DEFAULT_LIBRARY_VIEW: LibraryViewChoice = Object.freeze({
   layout: "list",
   sort: Object.freeze({ column: "recorded", descending: true }),
+  project: null,
 });
 const LAYOUTS: readonly string[] = ["list", "grid"];
 const SORT_COLUMNS: readonly string[] = [
@@ -390,7 +394,14 @@ const SORT_COLUMNS: readonly string[] = [
 ];
 export function isLibraryViewChoice(v: unknown): v is LibraryViewChoice {
   if (typeof v !== "object" || v === null) return false;
-  const { layout, sort } = v as { layout?: unknown; sort?: unknown };
+  const { layout, sort, project } = v as {
+    layout?: unknown;
+    sort?: unknown;
+    project?: unknown;
+  };
+  // Absent in files written before the project model; read as null.
+  if (project !== undefined && project !== null && typeof project !== "string")
+    return false;
   if (typeof layout !== "string" || !LAYOUTS.includes(layout)) return false;
   if (typeof sort !== "object" || sort === null) return false;
   const { column, descending } = sort as {

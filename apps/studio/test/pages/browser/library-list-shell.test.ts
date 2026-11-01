@@ -164,7 +164,11 @@ function draw(ticked: readonly string[] = []) {
     NOW,
     { ids: new Set(ticked), anchor: ticked[0] ?? null, range: [] },
     undefined,
-    { layout: "list", sort: { column: "recorded", descending: true } },
+    {
+      layout: "list",
+      sort: { column: "recorded", descending: true },
+      project: null,
+    },
   );
 }
 
@@ -832,7 +836,11 @@ describe("the list's look, as the author reviewed it", () => {
       NOW,
       { ids: new Set(), anchor: null, range: [] },
       undefined,
-      { layout: "list", sort: { column: "name", descending: false } },
+      {
+        layout: "list",
+        sort: { column: "name", descending: false },
+        project: null,
+      },
     );
     expect(
       head().querySelector('[data-col="recorded"]')?.hasAttribute("aria-sort"),
@@ -1200,7 +1208,11 @@ describe("the look pass's focus, cover and Couldn't read heading", () => {
       NOW,
       { ids: new Set(), anchor: null, range: [] },
       undefined,
-      { layout: "list", sort: { column: "recorded", descending: true } },
+      {
+        layout: "list",
+        sort: { column: "recorded", descending: true },
+        project: null,
+      },
     );
     const section = node("[data-unreadable]");
     // Premise: it is drawn under the list, as rows.

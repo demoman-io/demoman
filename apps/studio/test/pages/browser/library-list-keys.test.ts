@@ -159,6 +159,7 @@ function mount(ticked: readonly string[] = [], withBulk?: Bulk) {
   renderLibrary(node("#root"), MODEL, acts, new Map(), NOW, selection, bulk, {
     layout: "list",
     sort: SORT,
+    project: null,
   });
   before = document.createElement("button");
   before.textContent = "before";
@@ -318,6 +319,7 @@ describe("the column headings", () => {
     expect(acts.setView, where()).toHaveBeenCalledWith({
       layout: "list",
       sort: nextSort(SORT, "name"),
+      project: null,
     });
     await press("{ArrowDown}", "h:today");
     expect(tabStops(), where()).toEqual(["h:today"]);

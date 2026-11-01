@@ -329,6 +329,7 @@ export function painted(page: Page) {
 export const GRID_VIEW: LibraryViewChoice = {
   layout: "grid",
   sort: { ...DEFAULT_LIBRARY_VIEW.sort },
+  project: null,
 };
 
 /** Stores `view` as the studio's Library view, as the page's toggle does. */

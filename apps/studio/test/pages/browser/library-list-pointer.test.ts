@@ -138,6 +138,7 @@ function mount(selection?: Selection, layout: "list" | "grid" = "list") {
     {
       layout,
       sort: { column: "recorded", descending: true },
+      project: null,
     },
   );
 }

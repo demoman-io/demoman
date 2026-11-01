@@ -986,7 +986,7 @@ export function createRoutes(o: {
         );
       }
       const sent = (body.value as { view?: unknown } | null)?.view;
-      // The three fields only: a choice that carries more is stored without it.
+      // The view's fields only: a choice that carries more is stored without it.
       const view = isLibraryViewChoice(sent)
         ? {
             layout: sent.layout,
@@ -994,6 +994,7 @@ export function createRoutes(o: {
               column: sent.sort.column,
               descending: sent.sort.descending,
             },
+            project: sent.project ?? null,
           }
         : sent;
       const refused = await writeSetting(home, "libraryView", view);

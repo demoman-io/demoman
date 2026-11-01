@@ -552,6 +552,7 @@ describe("library main — bulk delete", () => {
     state.memory = seed({
       layout: "list",
       sort: { column: "name", descending: false },
+      project: null,
     });
     // jsdom has no layout, and no scroll into view for the keys to call.
     Element.prototype.scrollIntoView ??= () => undefined;

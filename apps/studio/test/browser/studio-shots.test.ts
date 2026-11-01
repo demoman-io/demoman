@@ -1332,7 +1332,11 @@ describe("the Studio's screenshot set", () => {
         // The sort was the author's choice, kept by the studio.
         const kept = await api(studio, "/api/settings/library-view");
         expect(kept.json(), at).toEqual({
-          view: { layout: "list", sort: { column: "size", descending: true } },
+          view: {
+            layout: "list",
+            sort: { column: "size", descending: true },
+            project: null,
+          },
         });
       }
 

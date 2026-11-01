@@ -293,6 +293,7 @@ describe("library main — back to your recording", () => {
       libraryView: {
         layout: "list",
         sort: { column: "name", descending: false },
+        project: null,
       },
       scenes: [stored as unknown as SceneDocument],
       videos: [

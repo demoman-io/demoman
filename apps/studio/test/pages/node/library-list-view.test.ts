@@ -115,10 +115,11 @@ const model: LibraryModel = {
 };
 
 const RECENT: ListSort = { column: "recorded", descending: true };
-const LIST: LibraryViewChoice = { layout: "list", sort: RECENT };
+const LIST: LibraryViewChoice = { layout: "list", sort: RECENT, project: null };
 const BY_NAME: LibraryViewChoice = {
   layout: "list",
   sort: { column: "name", descending: false },
+  project: null,
 };
 
 const actions = () => ({
@@ -619,6 +620,7 @@ describe("the list view", () => {
     expect(acts.setView).toHaveBeenCalledWith({
       layout: "grid",
       sort: { column: "name", descending: false },
+      project: null,
     });
     // Grid pressed once the page draws cards.
     const cards = draw({ ...BY_NAME, layout: "grid" }).root;
@@ -662,18 +664,22 @@ describe("the list view", () => {
     expect(sortBy(LIST, "size")).toEqual({
       layout: "list",
       sort: { column: "size", descending: true },
+      project: null,
     });
     const bySize: LibraryViewChoice = {
       layout: "list",
       sort: { column: "size", descending: true },
+      project: null,
     };
     expect(sortBy(bySize, "size")).toEqual({
       layout: "list",
       sort: { column: "size", descending: false },
+      project: null,
     });
     expect(sortBy(LIST, "name")).toEqual({
       layout: "list",
       sort: { column: "name", descending: false },
+      project: null,
     });
   });
 
