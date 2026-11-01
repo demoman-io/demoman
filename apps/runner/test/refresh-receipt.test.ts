@@ -346,6 +346,38 @@ describe("a refresh against the receipt", () => {
     expect(v.filmedCode).toMatchObject({ commit: FILMED, dirty: true });
     expect(v.line).toContain("uncommitted");
   });
+
+  it("a malformed filmedCode is unknown: never copied into the receipt, and said", async () => {
+    await writeV2();
+    same = false;
+    const d = deps();
+    const make = d.executor;
+    d.executor = (o) => {
+      const ex = make(o);
+      return {
+        ...ex,
+        request: async (op: string, a: Record<string, unknown>) => {
+          const out = await ex.request(op as "run", a as never);
+          if (op === "run" && out.ok)
+            (out.value as { filmedCode: unknown }).filmedCode = { commit: 42 };
+          return out;
+        },
+      } as typeof ex;
+    };
+    const v = await one(d);
+    // Premise: the film was delivered, so a receipt was written.
+    expect(v.outcome, JSON.stringify(v)).toBe("changed");
+    expect(v.filmedCode).toBeNull();
+    const r = parseReceipt(
+      await readFile(join(repo, RECEIPT), "utf8"),
+      RECEIPT,
+    );
+    if (!r.ok) throw new Error(r.detail);
+    expect(r.receipt.filmedCode).toEqual({
+      none: expect.stringContaining("filmedCode is malformed"),
+    });
+    expect(v.notes.join(" ")).toContain("filmedCode is malformed");
+  });
 });
 
 describe("a local refresh after a refresh wrote the receipt", () => {

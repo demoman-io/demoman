@@ -489,6 +489,29 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
   );
 
   it(
+    "a run report with a malformed filmedCode writes a receipt that says the code is unknown",
+    async () => {
+      await freshVideo("scene-code-1", "Bad code");
+      await library.putJson("scene-code-1", "report.json", {
+        outcome: "complete",
+        filmedCode: { commit: 42 },
+      });
+      const out = await keepVideo(
+        { video: "Bad code", to: [gif("docs/code.gif")], repoRoot: repo },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      const { receipt } = await readKeptV2(repo, out.file);
+      // Red: copy the report's value through — every later refresh then
+      // refuses the receipt it wrote.
+      expect(receipt.filmedCode).toEqual({
+        none: 'the run report\'s filmedCode is malformed ({"commit":42}), so the filmed code is unknown',
+      });
+    },
+    KEEP_MS,
+  );
+
+  it(
     "keep --deliver files writes the recipe alone",
     async () => {
       const videoId = await freshVideo("scene-files-1", "Files only");

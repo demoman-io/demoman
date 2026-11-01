@@ -19,6 +19,7 @@ import {
   type KeptVideo,
   keptFileName,
   messageOf,
+  parseFilmedCode,
   prVerdict,
   RECEIPT_DIR,
   REFRESH_LIST_FILE,
@@ -34,6 +35,7 @@ import { codeClause, prLine } from "./attach.js";
 import type { BrowserSession } from "./browser.js";
 import {
   filmedAtOf,
+  filmedCodeIn,
   libraryAhead,
   place,
   readReceiptFile,
@@ -540,7 +542,15 @@ async function deliverOne(
   const j = judgedOutput(kept.outputs);
   const judged = kept.outputs[j] as (typeof kept.outputs)[number];
   const screens = renderedScreens[j] as KeptScreens;
-  const filmedCode = report.filmedCode ?? null;
+  // Null when unknown; the receipt gets the reason, a malformed one said.
+  const filmedCode = parseFilmedCode(report.filmedCode);
+  const receiptCode = filmedCodeIn(report);
+  if (
+    report.filmedCode !== undefined &&
+    filmedCode === null &&
+    "none" in receiptCode
+  )
+    notes.push(receiptCode.none);
   const answer = (
     outcome: RefreshVideo["outcome"],
     outputs: string[],
@@ -669,9 +679,7 @@ async function deliverOne(
           flow: kept.flow,
           video: takeId,
           filmedAt: filmedAtOf({ value: report }),
-          filmedCode: filmedCode ?? {
-            none: "the run report records no filmed code",
-          },
+          filmedCode: receiptCode,
           screens,
           // The take is in a library thrown away after: no library holds
           // a revision of it to be ahead of.

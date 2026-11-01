@@ -22,6 +22,7 @@ import {
   lookDigest,
   MAX_STILL_SIDE,
   messageOf,
+  parseFilmedCode,
   reportForSave,
   reportForStillsSave,
   type StillsOptions,
@@ -347,13 +348,13 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
         }));
       const code =
         "value" in report
-          ? (report.value as { filmedCode?: unknown }).filmedCode
+          ? (report.value as { filmedCode?: unknown } | null)?.filmedCode
           : undefined;
-      if (code && typeof code === "object" && "commit" in code) {
-        const c = code as { commit: unknown; dirty: unknown };
-        tag.commit = typeof c.commit === "string" ? c.commit : null;
-        tag.dirty = typeof c.dirty === "boolean" ? c.dirty : null;
-      } else if (code && typeof code === "object" && "none" in code) {
+      const parsed = parseFilmedCode(code);
+      if (parsed !== null && "commit" in parsed) {
+        tag.commit = parsed.commit;
+        tag.dirty = parsed.dirty;
+      } else if (parsed !== null) {
         // Filmed outside a checkout: a known, normal state, said nowhere.
       } else if ("unreadable" in report) {
         noCommit = `the video's run report would not read (${report.unreadable})`;

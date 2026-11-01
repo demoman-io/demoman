@@ -1,6 +1,6 @@
 // The receipt: what a kept flow's committed files show, written beside the
 // recipe (.demoman/videos/) under .demoman/receipts/.
-import type { FilmedCode } from "../replay/report.js";
+import { type FilmedCode, parseFilmedCode } from "../replay/report.js";
 import { isFlowId } from "../served-words.js";
 import type { KeptMoment, KeptScreens } from "./file.js";
 
@@ -141,18 +141,8 @@ export function parseReceipt(text: string, file: string): Parsed {
     (typeof filmedAt !== "string" || Number.isNaN(Date.parse(filmedAt)))
   )
     return bad("filmedAt must be an ISO time or null");
-  const fc = raw.filmedCode;
-  let filmedCode: FilmedCode;
-  if (isObj(fc) && typeof fc.none === "string" && fc.none !== "")
-    filmedCode = { none: fc.none };
-  else if (
-    isObj(fc) &&
-    (fc.commit === null || typeof fc.commit === "string") &&
-    typeof fc.tree === "string" &&
-    typeof fc.dirty === "boolean"
-  )
-    filmedCode = { commit: fc.commit, tree: fc.tree, dirty: fc.dirty };
-  else
+  const filmedCode = parseFilmedCode(raw.filmedCode);
+  if (filmedCode === null)
     return bad("filmedCode must be { commit, tree, dirty } or { none: <why> }");
   const recordedRevision = raw.recordedRevision;
   if (recordedRevision !== null && typeof recordedRevision !== "string")

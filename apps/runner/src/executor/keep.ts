@@ -35,6 +35,7 @@ import {
   keptFileName,
   LEGACY_FLOWS_DIR,
   notCarriedOf,
+  parseFilmedCode,
   parseKept,
   parseReceipt,
   RECEIPT_DIR,
@@ -1150,9 +1151,18 @@ function filmedCodeOf(
     return { none: "the run report is missing from the library" };
   if ("unreadable" in report)
     return { none: `the run report could not be read (${report.unreadable})` };
+  return filmedCodeIn(report.value);
+}
+
+/** A report's filmedCode, or why it has none: a malformed one is unknown,
+ *  said, and never copied into a receipt. */
+export function filmedCodeIn(report: unknown): FilmedCode {
+  const raw = (report as { filmedCode?: unknown } | null)?.filmedCode;
+  if (raw === undefined)
+    return { none: "the run report records no filmed code" };
   return (
-    (report.value as RunReport).filmedCode ?? {
-      none: "the run report records no filmed code",
+    parseFilmedCode(raw) ?? {
+      none: `the run report's filmedCode is malformed (${JSON.stringify(raw)}), so the filmed code is unknown`,
     }
   );
 }

@@ -1,7 +1,11 @@
 import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { DEFAULT_EXPORT_QUALITY, type FilmedCode } from "@demoman/run-core";
+import {
+  DEFAULT_EXPORT_QUALITY,
+  type FilmedCode,
+  parseFilmedCode,
+} from "@demoman/run-core";
 import {
   createVideoStore,
   ensureVideos,
@@ -234,16 +238,8 @@ export function createRoutes(o: {
     )
       return null;
     const code = value?.filmedCode;
-    const c = code as Record<string, unknown> | null | undefined;
-    if (
-      c &&
-      typeof c === "object" &&
-      (typeof c.none === "string" ||
-        (typeof c.tree === "string" &&
-          typeof c.dirty === "boolean" &&
-          (c.commit === null || typeof c.commit === "string")))
-    )
-      return code as FilmedCode;
+    const parsed = parseFilmedCode(code);
+    if (parsed !== null) return parsed;
     log(
       `studio: video ${takeId}'s report.json has no usable filmedCode (${JSON.stringify(code ?? null)})`,
     );
