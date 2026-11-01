@@ -21,8 +21,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
-import { createVideoStore, type TakeVideo } from "../src/executor/videos.js";
+import {
+  createVideoStore,
+  type TakeVideo,
+  type VideoRecord,
+} from "../src/executor/videos.js";
 import type { VideoSummary } from "../src/executor/videos-op.js";
+import { joinFlow } from "../src/join-flow.js";
 import { launch } from "../src/launch.js";
 import { serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
 
@@ -530,6 +535,52 @@ describe("a run joins the kept flow", () => {
     expect(out.detail).toContain(`join-flow ${local.video.id} ${U2}`);
     expect(await store().get(U2)).toBeNull();
   });
+
+  it(
+    "the join-flow that keptNameTaken names works: the kept flow holds the moved videos, and the next run adds to it",
+    async () => {
+      const local = (await store().list()).find(
+        (v): v is VideoRecord => "name" in v && v.name === "Kept refund flow",
+      );
+      // Premise: the refusal above left the same-named local flow, not U2.
+      if (local === undefined) throw new Error("no local flow");
+      expect(local.id).not.toBe(U2);
+      const first = await runIn({
+        script: script("Kept refund flow"),
+        video: { id: local.id },
+      });
+      expect(first.outcome, JSON.stringify(first.stopped ?? first)).toBe(
+        "complete",
+      );
+      const moved = first.provenance.takeId as string;
+      expect(
+        await joinFlow(store(), local.id, U2, {
+          root: checkout,
+          repo: { key: REPO_KEY },
+        }),
+      ).toEqual({
+        ok: true,
+        moved: 1,
+        adopted: keptFile("Kept refund flow"),
+      });
+      expect(await store().get(local.id)).toBeNull();
+      expect((await memberOf(moved)).videoId).toBe(U2);
+      const next = await runIn({
+        script: script("Kept refund flow"),
+        video: { id: U2 },
+      });
+      expect(next.outcome, JSON.stringify(next.stopped ?? next)).toBe(
+        "complete",
+      );
+      expect(next.videoVersion).toEqual({
+        id: U2,
+        name: "Kept refund flow",
+        version: 2,
+        created: false,
+      });
+    },
+    2 * RUN_MS,
+  );
 
   it(
     "run { id } of a kept flow absent here adopts it",

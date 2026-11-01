@@ -80,13 +80,15 @@ export interface VideoStore {
   }): Promise<{ ok: true; video: VideoRecord } | Taken>;
   /** Under the lock: the record whose id is `id` (a kept file's committed
    *  id), made if absent. Refuses, writing nothing, when another flow holds
-   *  the name in a shared repo. Throws `videoUnwritable` on a non-flow id. */
+   *  the name in a shared repo. Throws `videoUnwritable` on a non-flow id.
+   *  `except`: a flow left out of that check (join-flow's, about to go). */
   adopt(a: {
     id: string;
     name: string;
     repo: VideoRepo;
     startPage: string;
     kept: Kept;
+    except?: string;
   }): Promise<
     | { ok: true; video: VideoRecord; created: boolean }
     | { ok: false; reason: "keptNameTaken"; holder: VideoRecord }
@@ -568,7 +570,7 @@ export function createVideoStore(
       await write(recordPath(a.id), video);
       return { ok: true, video, created: false };
     }
-    const holder = await holderOf(a.name, a.repo);
+    const holder = await holderOf(a.name, a.repo, a.except);
     if (holder) return { ok: false, reason: "keptNameTaken", holder };
     const video: VideoRecord = {
       id: a.id,

@@ -29,6 +29,7 @@ export { execGit, type GitRunner, readRepo } from "./executor/repo.js";
 export { samePicture } from "./executor/same-picture.js";
 export type { ExecutorOptions, LocalExecutor } from "./executor/types.js";
 export { chromiumDepsCommand, playwrightCliPath } from "./install-advice.js";
+export { type JoinAnswer, joinFlow } from "./join-flow.js";
 export { recorderPlatform, visibleWindowRefusal } from "./platform.js";
 export {
   type SigninAccountDeps,

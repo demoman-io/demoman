@@ -26,6 +26,7 @@ import {
   createLocalExecutor,
   execGit,
   fullChromiumPath,
+  joinFlow as joinFlowInto,
   type KeepAnswer,
   type KeepOutput,
   keepVideo,
@@ -540,17 +541,23 @@ async function joinFlow(args: string[]): Promise<void> {
   const videos = createVideoStore(home, createLibrary(home), { log });
   let said: string;
   try {
-    const out = await videos.merge(from, into);
+    // An `into` this library lacks is read from the checkout's kept files.
+    const repo = await readRepo(process.cwd(), execGit);
+    const out = await joinFlowInto(
+      videos,
+      from,
+      into,
+      repo.ok
+        ? { root: repo.repo.root, repo: { key: repo.repo.key } }
+        : { none: repo.none },
+    );
     if (out.ok) {
       process.stdout.write(
-        `moved ${out.moved} video${out.moved === 1 ? "" : "s"} from ${from} into ${into}\n`,
+        `moved ${out.moved} video${out.moved === 1 ? "" : "s"} from ${from} into ${into}${out.adopted === null ? "" : `, the flow kept in ${out.adopted}`}\n`,
       );
       process.exit(0);
     }
-    said =
-      out.reason === "sameFlow"
-        ? `${from} and ${into} are the same flow — name two different flows`
-        : `no flow in this library has the id ${out.id}`;
+    said = out.said;
   } catch (error) {
     // A merge that stopped partway says how many moved and what remains.
     said = error instanceof Error ? error.message : String(error);
