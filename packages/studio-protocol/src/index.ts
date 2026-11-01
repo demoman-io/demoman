@@ -462,3 +462,25 @@ export type StudioEvent =
   | { type: "watchFailed"; feed: "takes" | "kits"; detail: string }
   | { type: "open"; path: string }
   | { type: "server:stopping" };
+
+/** Where the library page is looking: one project (a repo key), everything,
+ *  the takes with no project, or the folders that would not read. The page
+ *  and the server write and read `/?project=` with these two functions. */
+export type Place = { project: string } | "all" | "none" | "unreadable";
+
+const RESERVED_PLACES = ["all", "none", "unreadable"] as const;
+
+/** Reads `?project=`. `all`, `none` and `unreadable` are reserved; any other
+ *  value is a project key; absent or empty is null. */
+export function parsePlace(search: string): Place | null {
+  const v = new URLSearchParams(search).get("project");
+  if (v === null || v === "") return null;
+  return (RESERVED_PLACES as readonly string[]).includes(v)
+    ? (v as Place)
+    : { project: v };
+}
+
+/** The inverse of `parsePlace`. */
+export function placeSearch(p: Place): string {
+  return `?project=${encodeURIComponent(typeof p === "string" ? p : p.project)}`;
+}

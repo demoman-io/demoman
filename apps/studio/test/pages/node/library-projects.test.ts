@@ -1,0 +1,251 @@
+// apps/studio/test/pages/node/library-projects.test.ts
+//
+// The library's project model (spec 2026-11-01-library-projects-design).
+import type { VideoSummary } from "@demoman/studio-protocol";
+import { describe, expect, it } from "vitest";
+import { whereOf } from "../../../pages/src/library/list-model";
+import {
+  narrow,
+  ownerAndName,
+  type Place,
+  parsePlace,
+  placeSearch,
+  projectKeyOf,
+  railOf,
+  showsTabs,
+  tabCounts,
+} from "../../../pages/src/library/projects";
+import type {
+  LibraryModel,
+  LibraryRow,
+  VideoGroup,
+} from "../../../pages/src/library/state";
+import { cardsOf } from "../../../pages/src/library/state";
+
+const KEPT = {
+  file: ".demoman/videos/a.json",
+  root: "/r",
+  deliver: "commit",
+} as const;
+
+const take = (sceneId: string, extra: Partial<LibraryRow> = {}): LibraryRow =>
+  ({
+    sceneId,
+    name: "",
+    label: sceneId,
+    origin: "app.test",
+    path: "/",
+    createdAt: "2026-10-30T10:00:00.000Z",
+    when: "when",
+    time: "time",
+    hosted: false,
+    recoverable: false,
+    frameBytes: 0,
+    outputBytes: 0,
+    state: "Complete",
+    canRestore: false,
+    authored: true,
+    servesReshoot: false,
+    needsLook: false,
+    ...extra,
+  }) as LibraryRow;
+
+/** A flow of one take; `kept` is on the video and on the take's row. */
+const flow = (
+  id: string,
+  repo: VideoSummary["repo"],
+  kept: VideoSummary["kept"] = null,
+): { row: LibraryRow; group: VideoGroup } => {
+  const row = take(`t-${id}`, { kept });
+  return {
+    row,
+    group: {
+      video: {
+        id,
+        name: id,
+        repo,
+        startPage: "https://app.test/",
+        versions: 1,
+        current: null,
+        pages: [],
+        steps: [],
+        exports: [],
+        kept,
+      },
+      current: row,
+      versions: [row],
+    },
+  };
+};
+
+const modelOf = (
+  flows: { row: LibraryRow; group: VideoGroup }[],
+  loose: LibraryRow[] = [],
+): LibraryModel =>
+  ({
+    rows: [...flows.map((f) => f.row), ...loose],
+    groups: flows.map((f) => f.group),
+  }) as unknown as LibraryModel;
+
+const cards = (
+  flows: { row: LibraryRow; group: VideoGroup }[],
+  loose: LibraryRow[] = [],
+) => cardsOf(modelOf(flows, loose));
+
+describe("projectKeyOf", () => {
+  it("a kept key beats the recorded one (the Hacker News case)", () => {
+    const [c] = cards([
+      flow("hn", { unknown: true }, { ...KEPT, key: "github.com/a/b" }),
+    ]);
+    expect(c?.group?.video.repo).toEqual({ unknown: true }); // premise
+    expect(projectKeyOf(c as never)).toBe("github.com/a/b");
+  });
+  it("an unkeyed kept mark falls back to the recorded key", () => {
+    const [c] = cards([
+      flow("a", { key: "github.com/x/y" }, { ...KEPT, key: null }),
+    ]);
+    expect(c?.group?.video.kept).toMatchObject({ key: null }); // premise
+    expect(projectKeyOf(c as never)).toBe("github.com/x/y");
+  });
+  it("none, unknown and no group answer null", () => {
+    const cs = cards(
+      [flow("n", { none: "no git" }), flow("u", { unknown: true })],
+      [take("loose")],
+    );
+    expect(cs).toHaveLength(3); // premise
+    expect(cs.map(projectKeyOf)).toEqual([null, null, null]);
+  });
+});
+
+describe("ownerAndName", () => {
+  it("reads owner and name", () => {
+    expect(ownerAndName("github.com/demoman-io/demoman", [])).toEqual({
+      owner: "demoman-io",
+      name: "demoman",
+    });
+    expect(ownerAndName("gitlab.com/g/sub/proj", [])).toEqual({
+      owner: "g/sub",
+      name: "proj",
+    });
+    expect(ownerAndName("local:/Users/x/My Repo/.git", [])).toEqual({
+      owner: "Local",
+      name: "My Repo",
+    });
+  });
+  it("prefixes the host when two hosts share an owner", () => {
+    const keys = ["github.com/acme/web", "gitlab.com/acme/web"];
+    expect(keys.map((k) => ownerAndName(k, keys).owner)).toEqual([
+      "github.com/acme",
+      "gitlab.com/acme",
+    ]);
+  });
+  it("two projects named web sit under two owners", () => {
+    const keys = ["acme/web", "other/web"];
+    const r = keys.map((k) => ownerAndName(k, keys));
+    expect(r.map((x) => x.name)).toEqual(["web", "web"]);
+    expect(new Set(r.map((x) => x.owner)).size).toBe(2);
+  });
+});
+
+describe("railOf", () => {
+  const fs = [
+    flow("1", { key: "github.com/zed/b" }),
+    flow("2", { key: "github.com/zed/a" }),
+    flow("3", { key: "github.com/zed/a" }),
+    flow("4", { key: "github.com/amy/c" }),
+    flow("5", { key: "local:/Users/x/loc/.git" }),
+    flow("6", { none: "x" }),
+  ];
+  it("orders owners A-Z with Local last, projects A-Z, counts cards", () => {
+    const rail = railOf(cards(fs), 2, "all");
+    expect(rail.owners.map((o) => o.owner)).toEqual(["amy", "zed", "Local"]);
+    expect(rail.owners[1]?.projects.map((p) => [p.name, p.count])).toEqual([
+      ["a", 2],
+      ["b", 1],
+    ]);
+    expect([rail.all, rail.none, rail.unreadable]).toEqual([6, 1, 2]);
+  });
+  it("lists the current project with no cards at count 0", () => {
+    const place = { project: "github.com/new/empty" };
+    expect(cards(fs).some((c) => projectKeyOf(c) === place.project)).toBe(
+      false,
+    ); // premise
+    const rail = railOf(cards(fs), 0, place);
+    const empty = rail.owners
+      .flatMap((o) => o.projects)
+      .find((p) => p.key === place.project);
+    expect(empty).toMatchObject({ name: "empty", count: 0 });
+  });
+});
+
+describe("parsePlace / placeSearch", () => {
+  it("round-trips every place", () => {
+    const places: Place[] = [
+      "all",
+      "none",
+      "unreadable",
+      { project: "local:/Users/x/My Repo/.git" },
+      { project: "github.com/a+b/c" },
+    ];
+    for (const p of places) expect(parsePlace(placeSearch(p))).toEqual(p);
+    expect(placeSearch({ project: "local:/Users/x/My Repo/.git" })).toContain(
+      "My%20Repo",
+    );
+  });
+  it("answers null for absent or empty", () => {
+    expect(parsePlace("")).toBeNull();
+    expect(parsePlace("?project=")).toBeNull();
+    expect(parsePlace("?other=1")).toBeNull();
+  });
+});
+
+describe("narrow, tabCounts, showsTabs", () => {
+  const inRepo = flow(
+    "in",
+    { key: "github.com/a/b" },
+    { ...KEPT, key: "github.com/a/b" },
+  );
+  const gone = flow("gone", { key: "github.com/a/b" }); // deleted checkout: kept null
+  const other = flow("other", { key: "github.com/c/d" });
+  const noProj = flow("np", { none: "x" });
+  const model = modelOf([inRepo, gone, other, noProj], [take("loose")]);
+  const place = { project: "github.com/a/b" };
+  const ids = (m: LibraryModel) => m.rows.map((r) => r.sceneId);
+
+  it("filters by tab inside a project", () => {
+    expect(ids(narrow(model, place, "inRepo"))).toEqual(["t-in"]);
+    expect(ids(narrow(model, place, "notInRepo"))).toEqual(["t-gone"]);
+    expect(ids(narrow(model, place, "all"))).toEqual(["t-in", "t-gone"]);
+    expect(narrow(model, place, "all").groups).toHaveLength(2);
+  });
+  it("a card with a null mark sits under its recorded project, in Not in repo", () => {
+    expect(gone.row.kept).toBeNull(); // premise
+    expect(tabCounts(cardsOf(model), place)).toEqual({
+      inRepo: 1,
+      notInRepo: 1,
+      all: 2,
+    });
+  });
+  it("none holds the loose takes; unreadable keeps no rows", () => {
+    expect(ids(narrow(model, "none", "all"))).toEqual(["t-np", "loose"]);
+    expect(narrow(model, "unreadable", "all").rows).toEqual([]);
+  });
+  it("shows tabs unless it is unreadable, or none with nothing in a repo", () => {
+    const cs = cardsOf(model);
+    expect(showsTabs(cs, place)).toBe(true);
+    expect(showsTabs(cs, "unreadable")).toBe(false);
+    expect(showsTabs(cs, "none")).toBe(false);
+    const lost = flow("lost", { unknown: true }, { unknown: "unreadable" });
+    const withLost = cardsOf(modelOf([noProj, lost]));
+    expect(projectKeyOf(withLost[1] as never)).toBeNull(); // premise
+    expect(showsTabs(withLost, "none")).toBe(true);
+  });
+});
+
+describe("whereOf", () => {
+  it("drops the repo part without withRepo", () => {
+    const [c] = cards([flow("w", { key: "github.com/a/b" })]);
+    expect(whereOf(c as never, true)).toBe("a/b · app.test/");
+    expect(whereOf(c as never, false)).toBe("app.test/");
+  });
+});

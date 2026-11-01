@@ -385,13 +385,7 @@ export function sectionsOf(
     let label: string;
     let folded = false;
     let namesDay = true;
-    // A flow in the repo is the repo's, not a day's: it heads the list, one that
-    // will not read too, where the problem is seen.
-    if (r.kept != null) {
-      namesDay = false;
-      key = "kept";
-      label = "In repo";
-    } else if (Number.isNaN(made.getTime())) {
+    if (Number.isNaN(made.getTime())) {
       namesDay = false;
       key = "undated";
       label = "Undated";
@@ -427,10 +421,7 @@ export function sectionsOf(
       section.rows.push(r);
     }
   }
-  const kept = sections.get("kept");
-  return kept === undefined
-    ? [...sections.values()]
-    : [kept, ...[...sections.values()].filter((s) => s !== kept)];
+  return [...sections.values()];
 }
 
 /**

@@ -32,8 +32,9 @@ export function nextSort(
 }
 
 /** `repo · host/path`, the card's where-line without its time. */
-export function whereOf(card: LibraryCard): string {
-  const repo = card.group === null ? null : repoLabel(card.group.video.repo);
+export function whereOf(card: LibraryCard, withRepo: boolean): string {
+  const repo =
+    !withRepo || card.group === null ? null : repoLabel(card.group.video.repo);
   return `${repo === null ? "" : `${repo} · `}${card.row.origin}${card.row.path}`;
 }
 
@@ -73,7 +74,7 @@ function keyOf(
     case "name":
       return labelOf(c);
     case "where":
-      return whereOf(c);
+      return whereOf(c, true);
     case "videos":
       return countOf(c);
     case "recorded":

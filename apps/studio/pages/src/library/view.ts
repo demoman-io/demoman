@@ -967,7 +967,7 @@ function row(
   // the path is what tells the checkout flow from the settings page. The
   // full line is the title, for when it is clipped.
   // A video's line leads with its repo, when it is known.
-  const where = whereOf({ row: r, group });
+  const where = whereOf({ row: r, group }, true);
   const line = el("div", { class: "row-line" });
   // Under a heading that names the day the date would say it twice, so
   // the line keeps only the time; under a month it keeps both.

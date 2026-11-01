@@ -218,7 +218,7 @@ describe("sortCards", () => {
       { column: "where", descending: false },
     ).map((c) => c.group?.video.id ?? c.row.sceneId);
     expect(same).toEqual(["loose", "B", "C"]);
-    expect(whereOf(cardOf("B"))).toBe(whereOf(cardOf("C")));
+    expect(whereOf(cardOf("B"), true)).toBe(whereOf(cardOf("C"), true));
   });
 });
 
@@ -253,8 +253,10 @@ describe("sorting rules", () => {
 
 describe("whereOf", () => {
   it("leads with the repo when known, and not otherwise", () => {
-    expect(whereOf(cardOf("A"))).toBe("acme/web · app.example.com/orders");
-    expect(whereOf(cardOf("B"))).toBe("app.example.com/orders");
+    expect(whereOf(cardOf("A"), true)).toBe(
+      "acme/web · app.example.com/orders",
+    );
+    expect(whereOf(cardOf("B"), true)).toBe("app.example.com/orders");
   });
 });
 

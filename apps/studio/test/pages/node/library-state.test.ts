@@ -401,10 +401,9 @@ describe("sectionsOf", () => {
     expect(sectionsOf([], now)).toEqual([]);
   });
 
-  it("heads flows in the repo In repo, above Today, one whose recipe will not read too", () => {
-    const today = at(2026, 9, 14, 8);
+  it("puts a kept flow, one whose recipe will not read too, in its day's section", () => {
     const kept = {
-      ...row("kept", today),
+      ...row("kept", at(2026, 9, 14, 8)),
       kept: {
         root: "/repo",
         file: ".demoman/videos/a.json",
@@ -417,20 +416,19 @@ describe("sectionsOf", () => {
       kept: { unknown: ".demoman/videos/b.json in /gone is gone" },
     } satisfies LibraryRow;
     const plain = { ...row("plain", at(2026, 9, 14, 9)), kept: null };
-    // Red: drop the kept branch in sectionsOf — "kept" lands under Today
-    // and "lost" under Yesterday. A newer plain row arrives first, so Kept
-    // leads only because it is put first.
+    // Premise: both marks are really on the rows handed in.
+    expect(kept.kept.file).toBe(".demoman/videos/a.json");
+    expect("unknown" in lost.kept).toBe(true);
+    // Red: restore the kept branch in sectionsOf — "kept" heads the list.
     const sections = sectionsOf([plain, kept, lost], now);
     expect(
       sections.map((s) => [s.key, s.label, s.rows.map((r) => r.sceneId)]),
     ).toEqual([
-      ["kept", "In repo", ["kept", "lost"]],
-      ["today", "Today", ["plain"]],
+      ["today", "Today", ["plain", "kept"]],
+      ["yesterday", "Yesterday", ["lost"]],
     ]);
-    // Premise: "kept" was made today, so without its recipe it is Today's.
-    expect(sectionsOf([{ ...kept, kept: null }], now)[0]?.key).toBe("today");
-    // Kept names no day: its rows say their dates.
-    expect(sections[0]).toMatchObject({ namesDay: false, folded: false });
+    expect(sections.some((s) => s.key === "kept")).toBe(false);
+    expect(sections[0]).toMatchObject({ namesDay: true });
   });
 });
 

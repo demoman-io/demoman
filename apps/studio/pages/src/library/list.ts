@@ -219,7 +219,7 @@ function entryRow(
     );
     const strip = tags(r, actions, false);
     if (strip !== null) cells.name.append(strip);
-    textCell(cells, "where", whereOf(card));
+    textCell(cells, "where", whereOf(card, true));
     cells.videos.textContent = String(group?.versions.length ?? 1);
     cells.recorded.textContent = e.namesDay ? r.time : r.when;
     cells.recorded.title = r.when;
