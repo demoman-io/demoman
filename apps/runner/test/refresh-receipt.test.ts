@@ -222,6 +222,16 @@ describe("a refresh against the receipt", () => {
     expect(v.screens).toEqual(NEW);
   });
 
+  it("reads the receipt named after the recipe's file, not the flow's current name", async () => {
+    // A rename that rewrote the name inside the file but left its file name.
+    await writeV2({ ...recipe(), name: "Renamed in the studio" });
+    // Premise: the two names make different files.
+    expect(keptFileName("Renamed in the studio")).not.toBe(keptFileName(NAME));
+    const v = await one();
+    expect(v.outcome, JSON.stringify(v)).toBe("unchanged");
+    expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
+  });
+
   it("films the kept flow by its id", async () => {
     await writeV2();
     await one();

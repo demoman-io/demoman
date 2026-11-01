@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -516,6 +517,26 @@ describe("a run joins the kept flow", () => {
     expect(await store().get(U1)).toBeNull();
   });
 
+  it("run { new } from a project folder below the repo's root reads the repo's kept folder", async () => {
+    const sub = join(checkout, "app");
+    await mkdir(sub, { recursive: true });
+    const before = launches;
+    const out = await runIn({
+      project: sub,
+      script: script("Kept order flow"),
+      video: { new: "Kept order flow", confirmedNew: true },
+    });
+    expect(out).toMatchObject({ reason: "nameTaken", field: "video" });
+    expect(out.holder?.id, JSON.stringify(out)).toBe(U1);
+    expect(launches).toBe(before);
+    // No second flow was minted under the kept name.
+    expect(
+      (await store().list()).filter(
+        (v) => "name" in v && v.name === "Kept order flow",
+      ),
+    ).toEqual([]);
+  });
+
   it("run { id } with a same-named local flow refuses keptNameTaken with the join-flow command", async () => {
     const local = await store().create({
       name: "Kept refund flow",
@@ -600,7 +621,11 @@ describe("a run joins the kept flow", () => {
       );
       expect(named.map((v) => v.id)).toEqual([U1]);
       expect(await store().get(U1)).toMatchObject({
-        kept: { root: checkout, file: keptFile("Kept order flow") },
+        // The repo's root, as git names it (keep and refresh read it).
+        kept: {
+          root: await realpath(checkout),
+          file: keptFile("Kept order flow"),
+        },
       });
     },
     RUN_MS,

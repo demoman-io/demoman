@@ -193,11 +193,11 @@ export async function keepVideo(
   // The kept file itself: `.demoman` or its `videos` can be a link too.
   const own = await inRepo(fileRel);
   if (typeof own !== "string") return refuse("outsideRepo", own.outside);
-  // Its receipt too: `.demoman/receipts` can be a link out of the repo.
+  // Its receipt, named after the recipe's file: `.demoman/receipts` can be
+  // a link out of the repo too.
+  const receiptRel = `${RECEIPT_DIR}/${basename(fileRel)}`;
   if (deliver === "commit") {
-    const receiptAt = await inRepo(
-      `${RECEIPT_DIR}/${keptFileName(video.name)}`,
-    );
+    const receiptAt = await inRepo(receiptRel);
     if (typeof receiptAt !== "string")
       return refuse("outsideRepo", receiptAt.outside);
   }
@@ -246,6 +246,14 @@ export async function keepVideo(
       continue;
     }
     const { kept } = other;
+    // Refused, not moved: keep writes only this keep's files, and moving
+    // another recipe and its receipt is renameKept's, with its undo steps.
+    if (kept.flow === video.id && rel !== fileRel) {
+      return refuse(
+        "outputTaken",
+        `${rel} already keeps this flow (${video.id}), so keeping it as "${video.name}" would write a second recipe for it, ${fileRel} — move ${rel} to ${fileRel}${kept.deliver === "commit" ? ` and ${RECEIPT_DIR}/${name} to ${receiptRel}` : ""}, then keep again`,
+      );
+    }
     if (rel === fileRel) {
       if (kept.flow === video.id) continue;
       return refuse(
@@ -375,11 +383,8 @@ export async function keepVideo(
         }
       }
       if (receipt !== null) {
-        await place(
-          join(root, RECEIPT_DIR, keptFileName(video.name)),
-          serializeReceipt(receipt),
-        );
-        written.push(`${RECEIPT_DIR}/${keptFileName(video.name)}`);
+        await place(join(root, receiptRel), serializeReceipt(receipt));
+        written.push(receiptRel);
       }
       // Last: the recipe never names a render that is not there.
       await place(join(root, fileRel), serializeKept(kept));
@@ -752,12 +757,29 @@ export async function rewriteKept(
     if (old.flow !== videoId) continue;
     const own = await repoPath(root, rootReal, rel, "keep");
     if (typeof own !== "string") return { refused: own.outside };
+    // The receipt is named after the recipe's file, never the flow's name.
+    const receiptFile = `${RECEIPT_DIR}/${name}`;
+    const video = await deps.videos.get(videoId);
+    // A flow kept before the library marked kept flows: marked now, so a
+    // rename takes keep's path and the recipe's file follows its name.
+    if (video !== null && video.kept === undefined) {
+      try {
+        const marked = await deps.videos.setKept(videoId, { root, file: rel });
+        if (!marked.ok)
+          deps.log(
+            `kept: ${rel}: the library could not mark flow ${videoId} as kept (${marked.reason})`,
+          );
+      } catch (error) {
+        deps.log(
+          `kept: ${rel}: the library could not mark flow ${videoId} as kept (${messageOf(error)})`,
+        );
+      }
+    }
     if (notNow !== undefined) {
       return {
         refused: `${rel} was not rewritten: ${notNow}, so it still holds the earlier script`,
       };
     }
-    const video = await deps.videos.get(videoId);
     if (video === null) {
       return {
         refused: `${rel} keeps video ${videoId}, which the library no longer has`,
@@ -781,7 +803,6 @@ export async function rewriteKept(
     // revision it points at follow the recipe. A v1 file carries its own.
     let receipt: KeptReceipt | null = null;
     if (old.deliver === "commit") {
-      const receiptFile = `${RECEIPT_DIR}/${name}`;
       const had = await readReceiptFile(join(root, receiptFile), receiptFile);
       const prior = "receipt" in had ? had.receipt : parsed.migrated;
       if (prior === null) {
@@ -803,7 +824,7 @@ export async function rewriteKept(
         await place(join(root, made.kept.wallpaper), made.wallpaperBytes);
       }
       if (receipt !== null) {
-        await place(join(root, RECEIPT_DIR, name), serializeReceipt(receipt));
+        await place(join(root, receiptFile), serializeReceipt(receipt));
       }
       await place(join(root, rel), serializeKept(made.kept));
     } catch (error) {

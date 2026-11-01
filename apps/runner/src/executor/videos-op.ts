@@ -283,7 +283,10 @@ export async function videosOp(
       if (video === null && isFlowId(tag.found.flow)) {
         // A flow kept in this checkout is one flow on every machine: open it
         // by its committed id, as a run does.
-        const found = await findKept(deps.dir, tag.found.flow);
+        // The repo's kept folder, as keep and refresh read it.
+        const read = await readRepo(deps.dir);
+        const root = read.ok ? read.repo.root : deps.dir;
+        const found = await findKept(root, tag.found.flow);
         if (found !== null && "duplicate" in found) {
           return failure(
             "duplicateFlow",
@@ -293,10 +296,9 @@ export async function videosOp(
         if (found !== null && "unreadable" in found) {
           notKept = `; a kept file that would not read might keep it — ${found.unreadable.join("; ")}`;
         } else if (found !== null) {
-          const read = await readRepo(deps.dir);
           const adopted = await adoptKept(
             store,
-            deps.dir,
+            root,
             found,
             read.ok ? { key: read.repo.key } : { none: read.none },
           );

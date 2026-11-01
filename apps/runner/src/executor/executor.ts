@@ -585,6 +585,9 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     const videoRepo: VideoRepo = repoRead.ok
       ? { key: repoRead.repo.key }
       : { none: repoRead.none };
+    // The kept folder is the repo's, as keep and refresh read it, not the
+    // project folder's (which may be a subfolder of the repo).
+    const keptRoot = repoRead.ok ? repoRead.repo.root : where.from;
     let into: VideoRecord | null = null;
     let raw: unknown = args.script;
     let refilm: RefilmInfo | undefined;
@@ -607,7 +610,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         if (into === null && isFlowId(asked.id)) {
           // A flow kept in this checkout is one flow on every machine: join
           // it by its committed id rather than refuse or mint another.
-          const found = await findKept(where.from, asked.id);
+          const found = await findKept(keptRoot, asked.id);
           if (found !== null && "duplicate" in found) {
             return refusal(
               "duplicateFlow",
@@ -623,12 +626,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             );
           }
           if (found !== null) {
-            const adopted = await adoptKept(
-              videos,
-              where.from,
-              found,
-              videoRepo,
-            );
+            const adopted = await adoptKept(videos, keptRoot, found, videoRepo);
             if (!adopted.ok) {
               return refusal(
                 "keptNameTaken",
@@ -660,7 +658,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           builtFrom = built.takeId;
         }
       } else {
-        const { entries } = await readKeptFlows(where.from);
+        const { entries } = await readKeptFlows(keptRoot);
         const unreadable = unreadableOf(entries);
         const keptHolder = entries.find(
           (e) => "kept" in e && sameName(e.kept.name, asked.new),

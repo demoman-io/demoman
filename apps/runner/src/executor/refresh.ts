@@ -274,9 +274,10 @@ export async function refreshKept(
       }
     }
     // A files flow's receipt sits beside its outputs, not under the repo.
+    // Named after the recipe's own file, never the flow's current name.
     const receiptFile = toFolder
-      ? `${slug.replace(/\.json$/, "")}.receipt.json`
-      : `${RECEIPT_DIR}/${slug}`;
+      ? `${n.replace(/\.json$/, "")}.receipt.json`
+      : `${RECEIPT_DIR}/${n}`;
     const outside: string[] = [];
     // A files flow's names are bare (the parser holds them to it).
     for (const p of toFolder

@@ -1,13 +1,23 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+} from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { RunReport } from "@demoman/run-core";
+import {
+  KEPT_DIR,
+  keptFileName,
+  type RunReport,
+} from "@demoman/run-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createBrowserSession } from "../src/executor/browser.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
-import { keepVideo } from "../src/executor/keep.js";
+import { type KeepOutput, keepVideo } from "../src/executor/keep.js";
+import { readKeptFlows } from "../src/executor/kept-flows.js";
 import { createLibrary } from "../src/executor/library.js";
 import { execGit } from "../src/executor/repo.js";
 import type { LocalExecutor } from "../src/executor/types.js";
@@ -216,5 +226,93 @@ describe("a run's answer says whether its kept file was rewritten", () => {
       expect("kept" in out).toBe(false);
     },
     RUN_MS,
+  );
+});
+
+/** `keep` as the CLI calls it, into `repo`. */
+async function keepIt(video: string, to: KeepOutput[]) {
+  const library = createLibrary(home);
+  const videos = createVideoStore(home, library, { log: () => undefined });
+  const session = createBrowserSession({
+    headless: true,
+    log: () => undefined,
+  });
+  try {
+    return await keepVideo(
+      { video, to, repoRoot: repo },
+      {
+        home,
+        library,
+        videos,
+        git: execGit,
+        log: () => undefined,
+        export: {
+          wallpapersDir: WALLPAPERS_DIR,
+          library,
+          videos,
+          session,
+          door: "agent",
+          home,
+          outDir: join(home, "x"),
+          log: () => undefined,
+        },
+      },
+    );
+  } finally {
+    await session.close();
+  }
+}
+
+describe("a flow kept before the library marked kept flows", () => {
+  it(
+    "a studio rename, a run and a keep leave one recipe, and no duplicateFlow",
+    async () => {
+      const first = await run(executor, {
+        callId: "drift-first",
+        video: { new: "Drift before" },
+        script: script("Drift before", typing(300)),
+      });
+      expect(first.outcome).toBe("complete");
+      const videoId = first.videoVersion?.id as string;
+      const kept = await keepIt("Drift before", [
+        { path: "docs/drift.gif", fileType: "gif", quality: "share" },
+      ]);
+      if (!kept.ok) throw new Error(JSON.stringify(kept));
+      const file = kept.file;
+      const videos = createVideoStore(home, createLibrary(home));
+      // As a record kept before this branch: no `kept` mark.
+      expect((await videos.setKept(videoId, null)).ok).toBe(true);
+      expect((await videos.get(videoId))?.kept).toBeUndefined();
+      // The studio renames an unmarked flow through the plain rename.
+      expect((await videos.rename(videoId, "Drift after")).ok).toBe(true);
+
+      const second = await run(executor, {
+        callId: "drift-second",
+        video: { id: videoId },
+        script: script("Drift after", typing(900)),
+      });
+      expect(second.outcome).toBe("complete");
+      expect(second.kept).toEqual({ rewritten: file });
+      // The run marked the record with the file that keeps it.
+      expect((await videos.get(videoId))?.kept?.file).toBe(file);
+
+      // A keep under the new name, with another output, writes no second recipe.
+      const again = await keepIt("Drift after", [
+        { path: "docs/drift-2.gif", fileType: "gif", quality: "share" },
+      ]);
+      expect(again).toMatchObject({ ok: false, reason: "outputTaken" });
+      expect(!again.ok && again.detail).toContain(
+        `${file} already keeps this flow`,
+      );
+      const recipes = await readdir(join(repo, KEPT_DIR));
+      expect(recipes).toContain(file.split("/").at(-1));
+      expect(recipes).not.toContain(keptFileName("Drift after"));
+      const flows = await readKeptFlows(repo);
+      expect(
+        flows.entries.filter((e) => "kept" in e && e.kept.flow === videoId),
+      ).toHaveLength(1);
+      expect(flows.duplicates).toEqual([]);
+    },
+    RUN_MS * 4,
   );
 });
