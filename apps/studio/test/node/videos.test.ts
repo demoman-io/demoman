@@ -151,12 +151,15 @@ describe("the takes listing's videos", () => {
     const library = createLibrary(home);
     await library.putJson("inv-1", "report.json", { outcome: "complete" });
     await library.putJson("inv-2", "report.json", { filmedCode: { x: 1 } });
+    await library.putJson("inv-3", "report.json", []);
+    await library.putJson("sign-1", "report.json", { filmedCode: null });
     const body = await listing();
     expect(body.videoOf["inv-1"]?.filmedCode).toBeNull();
     expect(body.videoOf["inv-2"]?.filmedCode).toBeNull();
     const said = h.logs.join("\n");
     expect(said).not.toMatch(/inv-1/);
-    expect(said).toMatch(/inv-2.*no usable filmedCode/);
+    for (const id of ["inv-2", "inv-3", "sign-1"])
+      expect(said, id).toMatch(new RegExp(`${id}.*no usable filmedCode`));
   });
 
   it("joins a loose take to a video of its own as it lists", async () => {

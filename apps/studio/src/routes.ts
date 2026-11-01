@@ -224,7 +224,12 @@ export function createRoutes(o: {
     }
     const value = report.value as { filmedCode?: unknown } | null;
     // No key: a take recorded before filmedCode, not a fault.
-    if (value !== null && typeof value === "object" && !("filmedCode" in value))
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      !("filmedCode" in value)
+    )
       return null;
     const code = value?.filmedCode;
     const c = code as Record<string, unknown> | null | undefined;

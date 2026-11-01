@@ -65,8 +65,11 @@ async function keptOf(video: VideoRecord): Promise<VideoSummary["kept"]> {
   try {
     text = await readFile(join(root, file), "utf8");
   } catch (error) {
+    const gone = (error as NodeJS.ErrnoException).code === "ENOENT";
     return {
-      unknown: `${file} in ${root} is gone (${messageOf(error)})`,
+      unknown: gone
+        ? `${file} in ${root} is gone (${messageOf(error)})`
+        : `${file} in ${root} will not read: ${messageOf(error)}`,
     };
   }
   const parsed = parseKept(text, file);

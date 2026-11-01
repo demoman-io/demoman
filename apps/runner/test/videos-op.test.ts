@@ -518,7 +518,8 @@ describe("videosOp", () => {
 
     it("a kept file removed from the checkout reads unknown, not null", async () => {
       const got = (await summaryOf()).kept;
-      expect(got).toEqual({ unknown: expect.stringContaining(file) });
+      expect(got).toEqual({ unknown: expect.stringContaining(" is gone (") });
+      expect((got as { unknown: string }).unknown).toContain(file);
     });
 
     it("a kept file that keeps another flow reads unknown", async () => {
