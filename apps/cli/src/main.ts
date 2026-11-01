@@ -431,10 +431,15 @@ async function remove(args: string[]): Promise<void> {
   const videos = createVideoStore(home, createLibrary(home), {
     log: (line) => process.stderr.write(`demoman remove: ${line}\n`),
   });
-  const answer = await removeRepoFlow(
-    { root: repo.repo.root, flow },
-    { videos },
-  );
+  let answer: Awaited<ReturnType<typeof removeRepoFlow>>;
+  try {
+    answer = await removeRepoFlow({ root: repo.repo.root, flow }, { videos });
+  } catch (error) {
+    process.stderr.write(
+      `demoman: remove: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    process.exit(1);
+  }
   const lines = removeLines(answer).join("\n");
   if (!answer.ok) {
     process.stderr.write(`demoman remove: ${lines}\n`);

@@ -536,6 +536,25 @@ describe("renaming a kept flow", () => {
     );
   });
 
+  it("renaming to a name whose file is in .demoman/videos/ refuses and renames nothing", async () => {
+    await keepInvoice(checkout);
+    const theirs = serializeKept({
+      ...recipe(),
+      flow: "1a2b3c4d-0000-4000-8000-0000000000aa",
+      name: "Send an invoice",
+    });
+    await writeFile(join(checkout, KEPT_DIR, NEW), theirs);
+    // Premise: the new name's file is free in .demoman/flows/.
+    expect(await exists(join(checkout, FLOWS_DIR, NEW))).toBe(false);
+    // Red: check .demoman/flows/ alone — two recipes then hold the name.
+    const r = await rename(invoice, { name: "Send an invoice" });
+    expect(r.status, r.text).toBe(409);
+    expect(refusal(r).reason).toBe("nameTaken");
+    expect(refusal(r).detail).toContain(`${KEPT_DIR}/${NEW} already exists`);
+    expect(await state()).toEqual(untouched());
+    expect(await readFile(join(checkout, KEPT_DIR, NEW), "utf8")).toBe(theirs);
+  });
+
   it("renaming a kept flow whose checkout is gone renames it and clears the mark", async () => {
     await keepInvoice(checkout);
     // Premise: the record is marked kept in a checkout that is then deleted.

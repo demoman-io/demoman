@@ -312,7 +312,7 @@ describe("a flow kept before the library marked kept flows", () => {
       ]);
       expect(again).toMatchObject({ ok: false, reason: "outputTaken" });
       expect(!again.ok && again.detail).toContain(
-        `${file} already keeps this flow`,
+        `${file} already holds this flow`,
       );
       const recipes = await readdir(join(repo, FLOWS_DIR));
       expect(recipes).toContain(file.split("/").at(-1));

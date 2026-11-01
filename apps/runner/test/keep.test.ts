@@ -623,7 +623,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       ][] = [
         [
           { to: [gif("same.gif")] },
-          "same.gif is already kept by the flow",
+          "same.gif is already an output of the flow",
         ],
         [{ to: [gif("x.gif")], report: "x.gif" }, "x.gif is named twice"],
         [{ to: [gif("demoman-refresh.json")] }, "its own list"],

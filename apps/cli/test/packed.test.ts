@@ -259,6 +259,27 @@ describe("demoman add, keep and remove, from the packed install", () => {
     expect(r.stdout).toContain(`Removed "${name}" from the repo`);
     expect(existsSync(file)).toBe(false);
   });
+
+  it("remove that throws says what happened and exits 1", () => {
+    const repo = mkdtempSync(join(tmpdir(), "demoman-remove-repo-"));
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: repo });
+      // The flows folder is a file: reading it throws, not "no flows".
+      mkdirSync(join(repo, ".demoman"));
+      writeFileSync(join(repo, ".demoman/flows"), "not a folder");
+      const r = spawnSync(process.execPath, [packed.bin, "remove", "Any"], {
+        cwd: repo,
+        env: { ...process.env, ...env(), DEMOMAN_HOME: joinHome },
+        encoding: "utf8",
+      });
+      expect(r.status, r.stderr).toBe(1);
+      // Red: no catch — node prints its own stack for the rejection.
+      expect(r.stderr).toMatch(/^demoman: remove: .*ENOTDIR/);
+      expect(r.stderr).not.toMatch(/\n\s+at /);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("the packed install", () => {

@@ -621,7 +621,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           if (found !== null && "unreadable" in found) {
             return refusal(
               "videoNotFound",
-              `no flow has the id ${JSON.stringify(asked.id)}, and a kept file that would not read might keep it — ${found.unreadable.join("; ")}`,
+              `no flow has the id ${JSON.stringify(asked.id)}, and a recipe in this repo that would not read might be it — ${found.unreadable.join("; ")}`,
               "video",
             );
           }
@@ -630,7 +630,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             if (!adopted.ok) {
               return refusal(
                 "repoFlowNameTaken",
-                `flow "${found.kept.name}" is in the repo in ${found.file} as ${asked.id}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${asked.id}\` to move its videos into the kept flow`,
+                `flow "${found.kept.name}" is in the repo in ${found.file} as ${asked.id}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${asked.id}\` to move its videos into the repo flow`,
                 "video",
               );
             }
@@ -666,7 +666,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         if (keptHolder === undefined && unreadable.length > 0) {
           return refusal(
             "repoFlowUnreadable",
-            `a kept file in this repo would not read, so Demoman cannot tell whether it keeps "${asked.new}" — fix or remove it before starting a new flow here: ${unreadable.join("; ")}`,
+            `a recipe in this repo would not read, so Demoman cannot tell whether it is "${asked.new}" — fix or remove it before starting a new flow here: ${unreadable.join("; ")}`,
             "video",
           );
         }
@@ -674,7 +674,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           const { kept, file } = keptHolder;
           return refusal(
             "nameTaken",
-            `flow "${kept.name}" is kept in ${file} — add a video to it with flow: { id: "${kept.flow}" }, or name the new flow differently`,
+            `flow "${kept.name}" is in the repo in ${file} — add a video to it with flow: { id: "${kept.flow}" }, or name the new flow differently`,
             "video",
             { holder: { id: kept.flow, name: kept.name } },
           );

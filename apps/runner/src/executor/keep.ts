@@ -234,7 +234,7 @@ export async function keepVideo(
     if (paths.includes(p) || p === fileRel) {
       return refuse(
         "outputTaken",
-        `${p} is named twice by this keep — give each output its own ${deliver === "files" ? "name" : "path"}`,
+        `${p} is named twice by this add — give each output its own ${deliver === "files" ? "name" : "path"}`,
       );
     }
     paths.push(p);
@@ -264,14 +264,14 @@ export async function keepVideo(
     if (kept.flow === video.id && rel !== fileRel) {
       return refuse(
         "outputTaken",
-        `${rel} already keeps this flow (${video.id}), so keeping it as "${video.name}" would write a second recipe for it, ${fileRel} — move ${rel} to ${fileRel}${kept.deliver === "commit" ? ` and ${RECEIPT_DIR}/${name} to ${receiptRel}` : ""}, then keep again`,
+        `${rel} already holds this flow (${video.id}), so adding it as "${video.name}" would write a second recipe for it, ${fileRel} — move ${rel} to ${fileRel}${kept.deliver === "commit" ? ` and ${RECEIPT_DIR}/${name} to ${receiptRel}` : ""}, then add it again`,
       );
     }
     if (rel === fileRel || rel === legacyRel) {
       if (kept.flow === video.id) continue;
       return refuse(
         "outputTaken",
-        `${rel} already keeps the flow "${kept.name}" (${kept.flow}), whose name makes the same file — rename one of the two flows`,
+        `${rel} already holds the flow "${kept.name}" (${kept.flow}), whose name makes the same file — rename one of the two flows`,
       );
     }
     const theirs = [...kept.outputs.map((o) => o.path), kept.report];
@@ -279,7 +279,7 @@ export async function keepVideo(
     if (clash !== undefined) {
       return refuse(
         "outputTaken",
-        `${clash} is already kept by the flow "${kept.name}" in ${rel} — choose another path, or remove it from ${rel}`,
+        `${clash} is already an output of the flow "${kept.name}" in ${rel} — choose another path, or remove it from ${rel}`,
       );
     }
   }
@@ -563,7 +563,7 @@ async function buildKept(
     if (saved.some((f) => f.account === undefined && f.site === site)) {
       return refuse(
         "handSignIn",
-        `"${video.name}" records ${target}, which this machine signs in to with a session saved by hand (demoman signin, ${store.pathOf(site ?? "")}); a refresh in CI cannot sign in that way — add a demo account for ${new URL(target).origin} to .demoman/accounts.json, film the flow again as it, then keep it`,
+        `"${video.name}" records ${target}, which this machine signs in to with a session saved by hand (demoman signin, ${store.pathOf(site ?? "")}); a refresh in CI cannot sign in that way — add a demo account for ${new URL(target).origin} to .demoman/accounts.json, record the flow again as it, then add it`,
       );
     }
   }
@@ -1001,8 +1001,15 @@ export async function renameKept(
       carry = () => place(join(root, receipt), serializeReceipt(migrated));
     }
   }
+  // A file of the new name in the old folder would be a second recipe for
+  // it (readKeptFlows refuses both), unless it is the one being moved.
+  const legacy = `${LEGACY_FLOWS_DIR}/${keptFileName(a.name)}`;
   if (moves) {
-    for (const p of carry === null ? [file] : [file, receipt]) {
+    for (const p of [
+      file,
+      ...(carry === null ? [] : [receipt]),
+      ...(legacy === a.file ? [] : [legacy]),
+    ]) {
       if (
         await lstat(join(root, p)).then(
           () => true,
@@ -1277,7 +1284,7 @@ export async function repoPath(
     !isAbsolute(rel);
   if (inside) return rel.split(sep).join("/");
   return {
-    outside: `${path} is not inside the repo at ${root} (it resolves to ${real ?? "a link to nothing"}) — ${who} writes only into the repo it keeps the video in`,
+    outside: `${path} is not inside the repo at ${root} (it resolves to ${real ?? "a link to nothing"}) — ${who === "keep" ? "add" : "refresh"} writes only into the repo the flow is in`,
   };
 }
 

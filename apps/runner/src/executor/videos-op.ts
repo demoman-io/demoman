@@ -98,7 +98,7 @@ export async function keptOf(
       unknown: `${found.duplicate.join(" and ")} in ${root} both name this flow`,
     };
   return {
-    unknown: `a recipe in ${root} will not read, so whether it keeps this flow is unknown: ${found.unreadable.join("; ")}`,
+    unknown: `a recipe in ${root} will not read, so whether it holds this flow is unknown: ${found.unreadable.join("; ")}`,
   };
 }
 
@@ -308,7 +308,7 @@ export async function videosOp(
           );
         }
         if (found !== null && "unreadable" in found) {
-          notKept = `; a kept file that would not read might keep it — ${found.unreadable.join("; ")}`;
+          notKept = `; a recipe in this repo that would not read might be it — ${found.unreadable.join("; ")}`;
         } else if (found !== null) {
           const adopted = await adoptKept(
             store,
@@ -319,7 +319,7 @@ export async function videosOp(
           if (!adopted.ok) {
             return failure(
               "repoFlowNameTaken",
-              `flow "${found.kept.name}" is in the repo in ${found.file} as ${tag.found.flow}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${tag.found.flow}\` to move its videos into the kept flow`,
+              `flow "${found.kept.name}" is in the repo in ${found.file} as ${tag.found.flow}, but this library's flow ${adopted.holder.id} has that name — run \`npx demoman join-flow ${adopted.holder.id} ${tag.found.flow}\` to move its videos into the repo flow`,
             );
           }
           video = adopted.video;

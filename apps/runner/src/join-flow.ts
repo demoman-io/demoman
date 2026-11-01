@@ -79,7 +79,7 @@ export async function joinFlow(
     if (!adopted.ok) {
       return {
         ok: false,
-        said: `flow "${found.kept.name}" is kept in ${found.file} as ${into}, but this library's flow ${adopted.holder.id} has that name too — join that one into ${into} as well`,
+        said: `flow "${found.kept.name}" is in the repo in ${found.file} as ${into}, but this library's flow ${adopted.holder.id} has that name too — join that one into ${into} as well`,
       };
     }
     try {
