@@ -4,6 +4,7 @@
 import { isFlowId } from "@demoman/run-core";
 import { findKept } from "./executor/kept-flows.js";
 import type { VideoRepo, VideoStore } from "./executor/videos.js";
+import { messageOf } from "./report.js";
 
 export type JoinAnswer =
   | { ok: true; moved: number; adopted: string | null }
@@ -81,7 +82,32 @@ export async function joinFlow(
         said: `flow "${found.kept.name}" is kept in ${found.file} as ${into}, but this library's flow ${adopted.holder.id} has that name too — join that one into ${into} as well`,
       };
     }
-    return merged(await s.merge(from, into), found.file);
+    try {
+      return merged(await s.merge(from, into), found.file);
+    } catch (error) {
+      if (!adopted.created) throw error;
+      // The adopted record and `from` now share the kept name: take the
+      // record back out while no video has moved, else say so.
+      const left = await s.versions(into).then(
+        (v) => v.length,
+        () => null,
+      );
+      if (left === 0) {
+        try {
+          await s.remove(into);
+        } catch (undo) {
+          throw new Error(
+            `${messageOf(error)}; flow ${into} was adopted for the merge and could not be taken back out (${messageOf(undo)}), so it and ${from} share the name "${found.kept.name}" — delete one of them`,
+          );
+        }
+        throw new Error(
+          `${messageOf(error)}; no video moved, and flow ${into} was taken back out`,
+        );
+      }
+      throw new Error(
+        `${messageOf(error)}; flow ${into} and flow ${from} now share the name "${found.kept.name}" — run demoman join-flow ${from} ${into} again to finish`,
+      );
+    }
   });
   return done.ok
     ? done.value
