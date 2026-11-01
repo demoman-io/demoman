@@ -10,9 +10,19 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createLibrary } from "@demoman/runner/studio";
+import {
+  KEPT_DIR,
+  type KeptVideo,
+  keptFileName,
+  serializeKept,
+} from "@demoman/run-core";
+import { createLibrary, createVideoStore } from "@demoman/runner/studio";
 import { NEUTRAL_BACKGROUND, WALLPAPERS } from "@demoman/scene-schema";
-import { DEFAULT_LIBRARY_VIEW } from "@demoman/studio-protocol";
+import {
+  DEFAULT_LIBRARY_VIEW,
+  pathFor,
+  type TakesAnswer,
+} from "@demoman/studio-protocol";
 import type { Page, Route } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { distance, limeOutsideItsPlaces, pixelsAt } from "./look-probes.js";
@@ -1421,6 +1431,331 @@ describe("the Studio's screenshot set", () => {
           .filter((l) => !(l.includes("409") && l.includes("/api/videos/"))),
         console_.lines.join("\n"),
       ).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
+
+  // Kept flows and filmed commits (share links part 1, Task 9): "Create an
+  // invoice" kept in a checkout, its versions filmed at two commits (the
+  // newest with changes) and one with none. In the list as it opens, the
+  // Kept heading above Today with the flow under it and its tag; the flow
+  // opened, each video's commit beside its name. At both sizes (720 is
+  // under 900 tall). Each asserted on its paint, and the premises (the
+  // listing says it is kept, and what each version filmed) asserted first.
+  it.runIf(process.platform === "darwin")(
+    "shoots a kept flow under its Kept heading with its tag, and its videos' commits, each asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-kept-"));
+      homes.push(home);
+      const checkout = await mkdtemp(join(tmpdir(), "studio-shots-repo-"));
+      homes.push(checkout);
+      const { editorTake } = await seedHome(home, VIDEO_TAKES);
+      const invoice = await joinVideo(home);
+      const [v1, v2, v3] = VIDEO_TAKES.map((t) => t.id) as [
+        string,
+        string,
+        string,
+      ];
+      const file = `${KEPT_DIR}/${keptFileName("Create an invoice")}`;
+      const recipe: KeptVideo = {
+        keptVersion: 2,
+        flow: invoice,
+        deliver: "files",
+        name: "Create an invoice",
+        script: {
+          scriptVersion: 1,
+          name: "Create an invoice",
+          target: "https://app.example.com/",
+          viewport: { width: 1280, height: 800 },
+          steps: [{ do: "waitForLoad" }],
+        } as KeptVideo["script"],
+        scale: 1,
+        logo: null,
+        wallpaper: null,
+        outputs: [
+          { path: "o.mp4", fileType: "mp4", aspect: "16:9", quality: "share" },
+        ],
+        report: null,
+      };
+      await mkdir(join(checkout, KEPT_DIR), { recursive: true });
+      await writeFile(join(checkout, file), serializeKept(recipe));
+      const library = createLibrary(home);
+      const marked = await createVideoStore(home, library).setKept(invoice, {
+        root: checkout,
+        file,
+      });
+      expect(marked.ok, "premise: the flow is marked kept").toBe(true);
+      const CODE = {
+        [v3]: { commit: "3f9a2c1d5e7b", tree: "t3", dirty: true },
+        [v2]: { commit: "8b41e07a9c2f", tree: "t2", dirty: false },
+        [v1]: { none: "not a git checkout" },
+      };
+      for (const [take, filmedCode] of Object.entries(CODE)) {
+        await library.putJson(take, "report.json", { filmedCode });
+      }
+      await mkdir(SHOTS, { recursive: true });
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      // The premises, as the studio answers them.
+      const takes = await api(studio, pathFor("takes"));
+      expect(takes.status, takes.text).toBe(200);
+      const answer = takes.json() as TakesAnswer;
+      expect(answer.videos.find((v) => v.id === invoice)?.kept).toEqual({
+        root: checkout,
+        file,
+        deliver: "files",
+      });
+      for (const take of [v1, v2, v3]) {
+        expect(answer.videoOf[take]?.filmedCode, take).toEqual(CODE[take]);
+      }
+      // Today holds a flow that is not kept: the heading has something to
+      // lead.
+      expect(
+        answer.videos.filter((v) => v.id !== invoice && v.kept === null),
+      ).not.toEqual([]);
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+        200,
+      );
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      const shots: string[] = [];
+      const visible = { onScreen: true, hit: true, opacity: 1, inside: true };
+      /** Each element as painted: on screen, the point at its centre its
+       *  own, its opacity as drawn, and inside the cell `within` names. */
+      const shown = (selectors: [string, string][]) =>
+        page.evaluate((sels) => {
+          return sels.map(([sel, within]) => {
+            const el = document.querySelector(sel);
+            if (el === null) return null;
+            const r = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            let opacity = 1;
+            for (let n: Element | null = el; n !== null; n = n.parentElement) {
+              opacity *= Number(getComputedStyle(n).opacity);
+            }
+            const c = el.closest(within)?.getBoundingClientRect();
+            return {
+              onScreen:
+                r.width > 0 &&
+                r.height > 0 &&
+                r.top >= 0 &&
+                r.bottom <= innerHeight,
+              hit: hit !== null && el.contains(hit),
+              opacity: Math.round(opacity * 100) / 100,
+              inside:
+                c !== undefined &&
+                r.left >= c.left - 0.5 &&
+                r.right <= c.right + 0.5,
+            };
+          });
+        }, selectors);
+      const flowRow = `[data-list] [data-flow="${invoice}"]`;
+      const tagSel = `${flowRow} [data-kept]`;
+      const nameCell = '[role="gridcell"][data-col="name"]';
+      const whereCell = '[role="gridcell"][data-col="where"]';
+      const videoRow = (id: string) => `[data-list] [data-video-row="${id}"]`;
+      const shoot = async (name: string, at: string) => {
+        const shot = join(SHOTS, `${name}-dark.png`);
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        const p = await painted(page);
+        expect(p.theme, `${at}: the page's theme`).toBe("dark");
+        expect(
+          p.scrollWidth,
+          `${at}: no sideways scroll (${JSON.stringify(p)})`,
+        ).toBeLessThanOrEqual(p.innerWidth);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+      };
+      for (const size of SIZES) {
+        const wh = `${size.width}x${size.height}`;
+        await sizeWindow(context, page, size.width, size.height);
+        await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        let at = `library kept ${wh}`;
+        await page.goto(`${studio.origin}/`);
+        await vi.waitFor(
+          async () => {
+            if ((await shown([[tagSel, nameCell]]))[0]?.hit !== true) {
+              throw new Error(`${at}: the Kept tag is not painted yet`);
+            }
+          },
+          { timeout: PAINT_MS, interval: 100 },
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        await shoot(`library-list-kept-${wh}`, at);
+        // The headings in order, and the kept flow the first row under
+        // the first of them.
+        const order = await page.evaluate(() =>
+          [
+            ...document.querySelectorAll<HTMLElement>(
+              "[data-list] [role=row][data-key]",
+            ),
+          ]
+            .filter((r) => !r.hidden)
+            .map((r) => r.dataset.key as string),
+        );
+        expect(order.filter((k) => k.startsWith("h:")).slice(0, 2), at).toEqual(
+          ["h:kept", "h:today"],
+        );
+        expect(order.slice(0, 2), at).toEqual(["h:kept", `f:${invoice}`]);
+        expect(
+          await page
+            .locator('[data-heading="kept"] [data-name-text]')
+            .textContent(),
+          at,
+        ).toBe("Kept");
+        expect(
+          await shown([
+            ['[data-heading="kept"] [data-name-text]', nameCell],
+            ['[data-heading="today"] [data-name-text]', nameCell],
+          ]),
+          `${at}: the Kept and Today headings`,
+        ).toEqual([visible, visible]);
+        // The tag: its word, its tooltip (where the recipe is), its glyph
+        // drawn, and all of it painted inside the name cell.
+        const tag = page.locator(tagSel);
+        expect(await tag.innerText(), at).toBe("Kept");
+        expect(await tag.getAttribute("title"), at).toBe(`${checkout}/${file}`);
+        expect(
+          await page.evaluate((sel) => {
+            const svg = document.querySelector(
+              `${sel} svg[data-icon="bookmark"]`,
+            ) as SVGGraphicsElement | null;
+            const b = svg?.getBBox();
+            return b === undefined ? null : b.width > 10 && b.height > 10;
+          }, tagSel),
+          `${at}: the bookmark glyph is drawn`,
+        ).toBe(true);
+        expect(
+          await shown([
+            [tagSel, nameCell],
+            [`${flowRow} [data-name-text]`, nameCell],
+          ]),
+          `${at}: the tag and the name`,
+        ).toEqual([visible, visible]);
+
+        at = `library kept open ${wh}`;
+        await page.locator(`${flowRow} [data-col="open"]`).click();
+        await vi.waitFor(
+          async () => {
+            if (
+              (await shown([[videoRow(v3), "[role=row]"]]))[0]?.hit !== true
+            ) {
+              throw new Error(`${at}: the video rows are not painted yet`);
+            }
+          },
+          { timeout: PAINT_MS, interval: 100 },
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        await shoot(`library-list-kept-open-${wh}`, at);
+        const commits = await page.evaluate(
+          (ids) =>
+            ids.map((id) => {
+              const c = document.querySelector<HTMLElement>(
+                `[data-list] [data-video-row="${id}"] [data-commit]`,
+              );
+              return c === null ? null : [c.innerText, c.title];
+            }),
+          [v3, v2, v1],
+        );
+        expect(commits, at).toEqual([
+          ["3f9a2c1*", "3f9a2c1d5e7b"],
+          ["8b41e07", "8b41e07a9c2f"],
+          null,
+        ]);
+        // Each commit painted whole beside its video's name, and the
+        // newest video's exports still painted in Where: a commit in the
+        // Where cell pushed them out of it at 1440 wide.
+        expect(
+          await shown([
+            [`${videoRow(v3)} [data-commit]`, nameCell],
+            [`${videoRow(v2)} [data-commit]`, nameCell],
+            [`${videoRow(v3)} [data-export]:not([data-gone])`, whereCell],
+            [`${videoRow(v3)} [data-export][data-gone]`, whereCell],
+          ]),
+          `${at}: the commits and the exports`,
+        ).toEqual([visible, visible, visible, visible]);
+
+        // The cards: the same Kept section first, the tag on the card's
+        // picture, and the commits in its opened versions.
+        at = `library kept cards ${wh}`;
+        await openPage(page, studio, "library", editorTake, new Set(), 6);
+        const card = `article[data-video="${invoice}"]`;
+        expect(
+          await page.evaluate(() =>
+            [...document.querySelectorAll<HTMLElement>("[data-section]")].map(
+              (x) => x.dataset.section,
+            ),
+          ),
+          at,
+        ).toEqual(expect.arrayContaining(["kept", "today"]));
+        expect(
+          await page.evaluate(
+            (sel) =>
+              document
+                .querySelector(sel)
+                ?.closest<HTMLElement>("[data-section]")?.dataset.section,
+            card,
+          ),
+          at,
+        ).toBe("kept");
+        expect(
+          await page.evaluate(
+            () =>
+              document.querySelector<HTMLElement>("[data-section]")?.dataset
+                .section,
+          ),
+          `${at}: Kept is the first section`,
+        ).toBe("kept");
+        await page.locator(`${card} .versions-count`).click();
+        const version = (id: string) => `${card} [data-version-row="${id}"]`;
+        await page.locator(version(v1)).scrollIntoViewIfNeeded();
+        await page.mouse.move(0, 0);
+        await page.evaluate(() =>
+          (document.activeElement as HTMLElement).blur(),
+        );
+        await settle(page, at);
+        await shoot(`library-cards-kept-${wh}`, at);
+        expect(
+          await page.locator(`${card} [data-kept]`).getAttribute("title"),
+          at,
+        ).toBe(`${checkout}/${file}`);
+        expect(
+          await page.evaluate(
+            (ids) =>
+              ids.map(
+                (id) =>
+                  document.querySelector<HTMLElement>(
+                    `[data-version-row="${id}"] [data-commit]`,
+                  )?.innerText ?? null,
+              ),
+            [v3, v2, v1],
+          ),
+          at,
+        ).toEqual(["3f9a2c1*", "8b41e07", null]);
+        expect(
+          await shown([
+            [`${card} [data-kept]`, "[data-preview]"],
+            [`${version(v3)} [data-commit]`, ".version-head"],
+            [`${version(v2)} [data-commit]`, ".version-head"],
+            [`${version(v3)} .version-when`, ".version-head"],
+          ]),
+          `${at}: the card's tag, the commits and a day beside one`,
+        ).toEqual([visible, visible, visible, visible]);
+      }
+      expect(shots).toHaveLength(SIZES.length * 3);
+      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
     },

@@ -134,6 +134,12 @@ export type StudioReason =
   | "videoNotFound"
   /** A rename's body named no name, or a blank one. */
   | "videoNameInvalid"
+  /** A kept flow's recipe cannot be read where its record says, so it is
+   *  not renamed: the recipe would keep the old name. */
+  | "keptCheckoutMissing"
+  /** A kept flow's rename could not write its checkout or its record;
+   *  `detail` says what was done before it stopped. */
+  | "keptUnwritable"
   /** The video records would not read or write (the runner's VideoError). */
   | "videoUnreadable"
   | "videoUnwritable"

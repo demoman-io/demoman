@@ -18,7 +18,13 @@ import type {
   LibrarySection,
   VideoGroup,
 } from "./state";
-import { BAD_BUDGET, cardsOf, formatBytes, sectionsOf } from "./state";
+import {
+  BAD_BUDGET,
+  cardsOf,
+  commitLabel,
+  formatBytes,
+  sectionsOf,
+} from "./state";
 
 /** Which kind of row a status was said on. A take's folder is named after
  *  it, so a card and the "Couldn't read" row its folder can become share an
@@ -712,6 +718,17 @@ export function tags(
     look.addEventListener("click", () => openReview(r.sceneId));
     strip.append(look);
   }
+  if (r.kept != null) {
+    strip.append(
+      tag("bookmark", "Kept", {
+        "data-kept": "",
+        title:
+          "unknown" in r.kept
+            ? r.kept.unknown
+            : `${r.kept.root}/${r.kept.file}`,
+      }),
+    );
+  }
   if (r.hosted && withHosted) {
     strip.append(
       tag("cloud", "Hosted", {
@@ -1112,6 +1129,8 @@ function versionList(
       el("span", { class: "version-number" }, `Video ${v.version ?? "?"}`),
       el("span", { class: "version-when", title: v.when }, v.when),
     );
+    const commit = commitSpan(v);
+    if (commit !== null) head.append(commit);
     const line =
       v.expired === true
         ? expiredLine(true, actions.rerunLine?.(v.sceneId, v.authored))
@@ -1135,6 +1154,18 @@ function versionList(
   }
   box.append(list);
   return box;
+}
+
+/** The commit a version filmed, short, or null when it filmed none. */
+export function commitSpan(v: LibraryRow): HTMLElement | null {
+  const label = commitLabel(v.filmedCode);
+  if (label === null) return null;
+  const code = v.filmedCode as { commit: string };
+  return el(
+    "span",
+    { class: "version-commit", "data-commit": "", title: code.commit },
+    label,
+  );
 }
 
 /** A version's Edit and Delete; Edit only where its footage is here. */

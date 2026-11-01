@@ -58,7 +58,9 @@ export interface VideoSummary {
 
 /** Reads the recipe a record points at (the same parser the kept folder's
  *  reader uses); anything but a recipe for this flow is `unknown`, said. */
-async function keptOf(video: VideoRecord): Promise<VideoSummary["kept"]> {
+export async function keptOf(
+  video: VideoRecord,
+): Promise<VideoSummary["kept"]> {
   if (video.kept === undefined) return null;
   const { root, file } = video.kept;
   let text: string;

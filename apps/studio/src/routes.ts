@@ -7,6 +7,7 @@ import {
   ensureVideos,
   expireOld,
   expiryStatus,
+  keptOf,
   type Library,
   LibraryError,
   pidAlive,
@@ -14,6 +15,7 @@ import {
   readLogo,
   readUserSettings,
   readWallpaper,
+  renameKept,
   summarise,
   VideoError,
   type VideoSummary,
@@ -243,7 +245,7 @@ export function createRoutes(o: {
     )
       return code as FilmedCode;
     log(
-      `studio: take ${takeId}'s report.json has no usable filmedCode (${JSON.stringify(code ?? null)})`,
+      `studio: video ${takeId}'s report.json has no usable filmedCode (${JSON.stringify(code ?? null)})`,
     );
     return null;
   }
@@ -567,9 +569,30 @@ export function createRoutes(o: {
           "The flow was not renamed: a flow needs a name.",
         );
       }
-      const done = await onVideoChain(() => videos.rename(id, name.trim()));
+      // A kept flow's name is its recipe's too: both are renamed, or
+      // neither, and never the record alone (renameKept).
+      const done = await onVideoChain(async () => {
+        const rec = await videos.get(id);
+        if (rec?.kept === undefined) return videos.rename(id, name.trim());
+        const kept = await keptOf(rec);
+        if (kept !== null && "unknown" in kept) {
+          return {
+            ok: false as const,
+            reason: "keptCheckoutMissing" as const,
+            detail: `${kept.unknown}, so the flow keeps its name.`,
+          };
+        }
+        return renameKept({ ...rec.kept, name: name.trim() }, { videos });
+      });
       if (done.ok) return json(200, {});
       if (done.reason === "videoNotFound") return noVideo(id);
+      if ("detail" in done) {
+        return refuse(
+          done.reason === "keptUnwritable" ? 500 : 409,
+          done.reason,
+          done.detail.replace(/[^.]$/, "$&."),
+        );
+      }
       return refuse(
         409,
         "nameTaken",

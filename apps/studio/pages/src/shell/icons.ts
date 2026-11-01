@@ -359,6 +359,12 @@ const GLYPHS = {
     "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2Z",
     "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2",
   ],
+  /** A kept flow's tag in the library (2026-10-31). Lucide `bookmark`,
+   *  copied from lucide-react 0.577.0's own icon node (the source
+   *  `pencilLine` and `star` match byte for byte). */
+  bookmark: [
+    "M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z",
+  ],
 } as const;
 
 export type GlyphName = keyof typeof GLYPHS;

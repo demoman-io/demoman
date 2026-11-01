@@ -16,6 +16,7 @@ import type { LibraryModel, LibraryRow, VideoGroup } from "./state";
 import { formatBytes } from "./state";
 import {
   cardButtons,
+  commitSpan,
   el,
   expiredLine,
   exportsList,
@@ -288,6 +289,10 @@ function entryRow(
     const name = `Video ${v.version ?? "?"}`;
     row.setAttribute("aria-label", name);
     cells.name.append(el("span", { "data-name-text": "" }, name));
+    // The commit it filmed, beside its name: the Where cell's exports
+    // fill it at a laptop's width.
+    const commit = commitSpan(v);
+    if (commit !== null) cells.name.append(commit);
     const footage = footageOf(v, actions);
     if (footage !== "here") row.setAttribute("data-absent", "");
     if (footage === "here") {

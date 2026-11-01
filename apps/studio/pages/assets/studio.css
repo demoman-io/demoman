@@ -716,6 +716,11 @@
 [data-studio] :is(.version-when, .version .row-rerun, .version-exports li) {
   color: var(--ink-3);
 }
+[data-studio] [data-commit] {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
 [data-studio] .version-exports .export-type {
   font: 400 11px / 1.6 var(--mono);
 }

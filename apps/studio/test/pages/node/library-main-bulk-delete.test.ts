@@ -43,7 +43,12 @@ const take = (id: string, name: string): SceneDocument =>
     },
   }) as unknown as SceneDocument;
 
-const video = (id: string, name: string, versions: number): VideoSummary => ({
+const video = (
+  id: string,
+  name: string,
+  versions: number,
+  kept: VideoSummary["kept"] = null,
+): VideoSummary => ({
   id,
   name,
   repo: { unknown: true },
@@ -53,10 +58,16 @@ const video = (id: string, name: string, versions: number): VideoSummary => ({
   pages: [],
   steps: [],
   exports: [],
-  kept: null,
+  kept,
 });
 
-function seed(libraryView: LibraryViewChoice = CARDS): MemoryPlatform {
+const KEPT_FILE = ".demoman/videos/create-invoice.json";
+const KEPT_SAID = `"Create an invoice" stays kept in ${KEPT_FILE}; only this machine's videos are deleted.`;
+
+function seed(
+  libraryView: LibraryViewChoice = CARDS,
+  invoiceKept: VideoSummary["kept"] = null,
+): MemoryPlatform {
   return createMemoryPlatform({
     libraryView,
     scenes: [
@@ -66,7 +77,7 @@ function seed(libraryView: LibraryViewChoice = CARDS): MemoryPlatform {
       take("sign-1", "Sign up"),
     ],
     videos: [
-      video(INVOICE, "Create an invoice", 2),
+      video(INVOICE, "Create an invoice", 2, invoiceKept),
       video(REPORT, "Export a report", 1),
       video(SIGNUP, "Sign up", 1),
     ],
@@ -184,6 +195,56 @@ describe("library main — bulk delete", () => {
       "Deleted 2 flows",
     );
     expect(document.querySelector("#notice")?.textContent).toBe("");
+  });
+
+  describe("a kept flow", () => {
+    const KEPT = { root: "/repo", file: KEPT_FILE, deliver: "commit" } as const;
+    beforeEach(() => {
+      memory = seed(CARDS, KEPT);
+      state.memory = memory;
+    });
+
+    it("its delete asks and answers that its recipe stays", async () => {
+      await open();
+      // Premise: the fixture's flow is drawn as kept.
+      expect(
+        document.querySelector(`article[data-video="${INVOICE}"] [data-kept]`),
+      ).not.toBeNull();
+      // Red: drop keptSentence from questionFor, then from the toast.
+      (
+        document.querySelector(
+          `article[data-video="${INVOICE}"] [data-action="delete"]`,
+        ) as HTMLButtonElement
+      ).click();
+      await vi.waitFor(() => {
+        if (box(INVOICE) !== null) throw new Error("not deleted yet");
+      });
+      const asked = confirmDialog.ask.mock.calls[0]?.[0] as { body: string };
+      expect(asked.body).toBe(
+        `This permanently removes the flow and its 2 videos. It can’t be undone. ${KEPT_SAID}`,
+      );
+      // A toast drops its last full stop.
+      expect(document.querySelector("[data-toast-text]")?.textContent).toBe(
+        `Deleted the flow. ${KEPT_SAID.replace(/\.$/, "")}`,
+      );
+    });
+
+    it("a bulk delete with it asks and answers the same sentence", async () => {
+      await open();
+      await tick(INVOICE, REPORT);
+      pressDelete();
+      await vi.waitFor(() => {
+        if (!document.querySelector("#notice")?.textContent) {
+          throw new Error("nothing said yet");
+        }
+      });
+      const asked = confirmDialog.ask.mock.calls[0]?.[0] as { body: string };
+      expect(asked.body).toBe(`${deleteFlows(2, 3).body} ${KEPT_SAID}`);
+      // A note stays on the notice line rather than a toast that goes.
+      expect(document.querySelector("#notice")?.textContent).toBe(
+        `Deleted 2 flows. ${KEPT_SAID}`,
+      );
+    });
   });
 
   it("a note on what a delete left behind stays on the notice line, not a toast", async () => {

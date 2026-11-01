@@ -195,6 +195,8 @@ describe("export lists what it saved, and holds a lease while it works", () => {
       "loadedPlaywrightVersion",
       "usePrebuiltPages",
       "PAGE_ENTRIES",
+      "keptOf",
+      "renameKept",
     ];
     const { stdout } = await run(
       process.execPath,

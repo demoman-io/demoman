@@ -54,6 +54,7 @@ import { readLogo } from "./logo-ref.js";
 import { refilmFromVideo } from "./refilm.js";
 import { type GitRunner, readRepo } from "./repo.js";
 import { createSessionStore, siteOf } from "./sessions.js";
+import { sameName } from "./video-match.js";
 import {
   sharesRepo,
   type VideoRecord,
@@ -819,6 +820,184 @@ export async function rewriteKept(
         refused: `${unreadable.join("; ")} — so whether a kept file follows this run is unknown`,
       }
     : { none: true };
+}
+
+export type RenameKeptAnswer =
+  | { ok: true; file: string }
+  | {
+      ok: false;
+      /** `keptCheckoutMissing`: the recipe or its receipt cannot be read;
+       *  `nameTaken`: the library or the checkout has the name already;
+       *  `keptUnwritable`: a write failed, or a path leaves the repo — its
+       *  detail says which steps were done before it. */
+      reason: "keptCheckoutMissing" | "nameTaken" | "keptUnwritable";
+      detail: string;
+    };
+
+/**
+ * A kept flow's rename: the recipe's `name`, the recipe and its receipt to
+ * the new name's file, then the library's record and its pointer. Every
+ * check runs before anything is written, and the recipe is written first,
+ * so a refusal leaves the old name everywhere; a step that fails after it
+ * answers what was already done, never that the flow was renamed.
+ */
+export async function renameKept(
+  a: { root: string; file: string; name: string },
+  deps: { videos: VideoStore },
+): Promise<RenameKeptAnswer> {
+  const refuse = (
+    reason: "keptCheckoutMissing" | "nameTaken" | "keptUnwritable",
+    detail: string,
+  ): RenameKeptAnswer => ({ ok: false, reason, detail });
+  const root = resolve(a.root);
+  let text: string;
+  try {
+    text = await readFile(join(root, a.file), "utf8");
+  } catch (error) {
+    return refuse(
+      "keptCheckoutMissing",
+      `${a.file} in ${root} could not be read (${messageOf(error)}), so nothing was renamed`,
+    );
+  }
+  const parsed = parseKept(text, a.file);
+  if (!parsed.ok) {
+    return refuse(
+      "keptCheckoutMissing",
+      `${parsed.detail}, so nothing was renamed`,
+    );
+  }
+  const old = parsed.kept;
+  const records = await deps.videos.list();
+  const rec = records.find(
+    (r): r is VideoRecord => !("unreadable" in r) && r.id === old.flow,
+  );
+  if (rec === undefined) {
+    return refuse(
+      "keptCheckoutMissing",
+      `${a.file} keeps flow ${old.flow}, which this library does not have, so nothing was renamed`,
+    );
+  }
+  const holder = records.find(
+    (r): r is VideoRecord =>
+      !("unreadable" in r) &&
+      r.id !== rec.id &&
+      sharesRepo(r.repo, rec.repo) &&
+      sameName(r.name, a.name),
+  );
+  if (holder !== undefined) {
+    return refuse(
+      "nameTaken",
+      `Another flow is already called "${holder.name}".`,
+    );
+  }
+  const file = `${KEPT_DIR}/${keptFileName(a.name)}`;
+  const oldReceipt = `${RECEIPT_DIR}/${basename(a.file)}`;
+  const receipt = `${RECEIPT_DIR}/${keptFileName(a.name)}`;
+  const moves = file !== a.file;
+  const rootReal = await realpath(root);
+  for (const p of [a.file, file, oldReceipt, receipt]) {
+    const inside = await repoPath(root, rootReal, p, "keep");
+    if (typeof inside !== "string") {
+      return refuse(
+        "keptUnwritable",
+        `${inside.outside}, so nothing was renamed`,
+      );
+    }
+  }
+  // The receipt goes with the recipe; a v1 recipe carries its own, which
+  // the v2 recipe written below does not, so it is written out.
+  let carry: (() => Promise<unknown>) | null = null;
+  if (old.deliver === "commit") {
+    const had = await readReceiptFile(join(root, oldReceipt), oldReceipt);
+    if ("detail" in had) {
+      return refuse(
+        "keptCheckoutMissing",
+        `${had.detail}, so nothing was renamed`,
+      );
+    }
+    if ("receipt" in had && moves) {
+      carry = () => rename(join(root, oldReceipt), join(root, receipt));
+    } else if ("missing" in had && parsed.migrated !== null) {
+      const migrated = parsed.migrated;
+      carry = () => place(join(root, receipt), serializeReceipt(migrated));
+    }
+  }
+  if (moves) {
+    for (const p of carry === null ? [file] : [file, receipt]) {
+      if (
+        await lstat(join(root, p)).then(
+          () => true,
+          () => false,
+        )
+      ) {
+        return refuse(
+          "nameTaken",
+          `${p} already exists in ${root}, so nothing was renamed`,
+        );
+      }
+    }
+  }
+  // Each step as asked and as done, so a failure says what was done first.
+  const steps: [string, string, () => Promise<unknown>][] = [
+    [
+      `write ${file}`,
+      `wrote ${file}`,
+      () => place(join(root, file), serializeKept({ ...old, name: a.name })),
+    ],
+  ];
+  if (carry !== null) {
+    steps.push([
+      `move ${oldReceipt} to ${receipt}`,
+      `moved ${oldReceipt} to ${receipt}`,
+      carry,
+    ]);
+  }
+  if (moves) {
+    steps.push([
+      `remove ${a.file}`,
+      `removed ${a.file}`,
+      () => rm(join(root, a.file)),
+    ]);
+  }
+  steps.push(
+    [
+      "rename the library's flow",
+      "renamed the library's flow",
+      async () => {
+        const r = await deps.videos.rename(rec.id, a.name);
+        if (!r.ok) {
+          throw new Error(
+            r.reason === "nameTaken"
+              ? `another flow is called "${r.holder.name}"`
+              : `flow ${rec.id} is not in the library`,
+          );
+        }
+      },
+    ],
+    [
+      `point the library's flow at ${file}`,
+      "",
+      async () => {
+        const r = await deps.videos.setKept(rec.id, { root, file });
+        if (!r.ok) throw new Error(`flow ${rec.id} is not in the library`);
+      },
+    ],
+  );
+  const done: string[] = [];
+  for (const [what, did, run] of steps) {
+    try {
+      await run();
+    } catch (error) {
+      return refuse(
+        "keptUnwritable",
+        done.length === 0
+          ? `"${old.name}" was not renamed: could not ${what} (${messageOf(error)})`
+          : `"${old.name}" was only partly renamed to "${a.name}": ${done.join(", ")}, then could not ${what} (${messageOf(error)})`,
+      );
+    }
+    done.push(did);
+  }
+  return { ok: true, file };
 }
 
 export async function readReceiptFile(

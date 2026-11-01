@@ -70,6 +70,25 @@ export interface LibraryRow {
   /** The files exported from this version, or why they could not be read;
    *  absent for a take in no video. */
   exports?: TakesAnswer["videoOf"][string]["exports"];
+  /** The code its run filmed (report.json); absent for a take in no video. */
+  filmedCode?: TakesAnswer["videoOf"][string]["filmedCode"];
+  /** Its video's recipe, as the listing reads it; absent for a take in no
+   *  video. A row with a recipe, or with one that will not read, is kept. */
+  kept?: VideoSummary["kept"];
+}
+
+/** The filmed commit as a row shows it: seven characters, `*` when the
+ *  tree had changes; null when the run filmed no commit. */
+export function commitLabel(code: LibraryRow["filmedCode"]): string | null {
+  if (code == null || "none" in code || code.commit === null) return null;
+  return `${code.commit.slice(0, 7)}${code.dirty ? "*" : ""}`;
+}
+
+/** What a delete of a kept flow adds (spec seam 7): its recipe stays in
+ *  the repo. Null for a flow with no recipe here to name. */
+export function keptSentence(video: VideoSummary): string | null {
+  if (video.kept === null || "unknown" in video.kept) return null;
+  return `"${video.name}" stays kept in ${video.kept.file}; only this machine's videos are deleted.`;
 }
 
 /** Where a video was recorded, short: a remote's owner and name
@@ -363,7 +382,13 @@ export function sectionsOf(
     let label: string;
     let folded = false;
     let namesDay = true;
-    if (Number.isNaN(made.getTime())) {
+    // A kept flow is the repo's, not a day's: it heads the list, one that
+    // will not read too, where the problem is seen.
+    if (r.kept != null) {
+      namesDay = false;
+      key = "kept";
+      label = "Kept";
+    } else if (Number.isNaN(made.getTime())) {
       namesDay = false;
       key = "undated";
       label = "Undated";
@@ -399,7 +424,10 @@ export function sectionsOf(
       section.rows.push(r);
     }
   }
-  return [...sections.values()];
+  const kept = sections.get("kept");
+  return kept === undefined
+    ? [...sections.values()]
+    : [kept, ...[...sections.values()].filter((s) => s !== kept)];
 }
 
 /**
@@ -456,6 +484,7 @@ export function buildLibraryModel(args: {
   videoOf?: TakesAnswer["videoOf"];
 }): LibraryModel {
   const videoOf = args.videoOf ?? {};
+  const keptOf = new Map((args.videos ?? []).map((v) => [v.id, v.kept]));
   const byId = new Map((args.summary?.demos ?? []).map((d) => [d.sceneId, d]));
   const rows: LibraryRow[] = [...args.scenes]
     .sort((a, b) => b.meta.createdAt.localeCompare(a.meta.createdAt))
@@ -500,6 +529,8 @@ export function buildLibraryModel(args: {
               version: videoOf[scene.meta.id]?.version,
               expired: videoOf[scene.meta.id]?.expired,
               exports: videoOf[scene.meta.id]?.exports,
+              filmedCode: videoOf[scene.meta.id]?.filmedCode,
+              kept: keptOf.get(videoOf[scene.meta.id]?.videoId ?? "") ?? null,
             }),
       };
     });

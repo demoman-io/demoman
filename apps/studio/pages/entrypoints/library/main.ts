@@ -19,7 +19,11 @@ import {
   selectAll,
 } from "../../src/library/selection";
 import type { BulkOutcome, LibraryModel } from "../../src/library/state";
-import { buildLibraryModel, bulkSentence } from "../../src/library/state";
+import {
+  buildLibraryModel,
+  bulkSentence,
+  keptSentence,
+} from "../../src/library/state";
 import {
   applySelection,
   type LibraryActions,
@@ -417,7 +421,10 @@ function questionFor(id: string, kind: RowKind): ConfirmQuestion {
   if (kind === "record") return DELETE_RECORD;
   if (kind === "video") {
     const group = lastModel?.groups?.find((g) => g.video.id === id);
-    return group === undefined ? DELETE_DEMO : deleteFlow(group.video.versions);
+    if (group === undefined) return DELETE_DEMO;
+    const asked = deleteFlow(group.video.versions);
+    const kept = keptSentence(group.video);
+    return kept === null ? asked : { ...asked, body: `${asked.body} ${kept}` };
   }
   if (kind === "take") {
     const group = lastModel?.groups?.find((g) =>
@@ -730,6 +737,14 @@ const actions: LibraryActions = {
           return;
         }
         if (!go) return;
+        // Read before the delete: the repaint after it has no flow to ask.
+        const flow = lastModel?.groups?.find((g) => g.video.id === sceneId);
+        const kept =
+          kind === "video" && flow !== undefined
+            ? keptSentence(flow.video)
+            : null;
+        const andKept = (said: string): string =>
+          kept === null ? said : `${said} ${kept}`;
         await renaming.get(sceneId);
         const r =
           kind === "video" || kind === "record"
@@ -751,7 +766,7 @@ const actions: LibraryActions = {
           // A video's delete that stopped part-way: said on the page, since
           // the card may be gone with the versions that went.
           rowStatus.delete(key);
-          pageMessage = `Partly deleted: ${r.partly}.`;
+          pageMessage = andKept(`Partly deleted: ${r.partly}.`);
         } else if (r.result !== undefined && !r.result.ok) {
           const failedStep = r.result.steps.find((s) => !s.ok);
           const message = `Partly deleted: ${failedStep?.step ?? "a step"} could not be removed — ${failedStep?.error ?? "unknown error"}`;
@@ -775,10 +790,12 @@ const actions: LibraryActions = {
         }
         await render();
         if (pageMessage !== null) fail(pageMessage);
-        else if (r.ok && r.note !== undefined) say(r.note, "info");
+        else if (r.ok && r.note !== undefined) say(andKept(r.note), "info");
         // Clean: nothing refused, partial or noted. A toast, then gone.
         else if (r.ok && r.partly === undefined && r.result?.ok !== false) {
-          showToast(DELETED[kind]);
+          showToast(
+            kept === null ? DELETED[kind] : `${DELETED[kind]}. ${kept}`,
+          );
         }
       } catch (error) {
         reportError("deleting it", error);
@@ -798,9 +815,21 @@ async function deleteSelected(): Promise<void> {
   const ids = [...selection.ids].filter((id) => groups.has(id));
   if (ids.length === 0 || bulk?.busy === true) return;
   const videos = ids.reduce((n, id) => n + (groups.get(id)?.versions ?? 0), 0);
+  const keptOf = new Map(
+    ids.flatMap((id) => {
+      const video = groups.get(id);
+      const kept = video === undefined ? null : keptSentence(video);
+      return kept === null ? [] : [[id, kept] as const];
+    }),
+  );
+  const asked = deleteFlows(ids.length, videos);
   let go: boolean;
   try {
-    go = await askToConfirm(deleteFlows(ids.length, videos));
+    go = await askToConfirm(
+      keptOf.size === 0
+        ? asked
+        : { ...asked, body: [asked.body, ...keptOf.values()].join(" ") },
+    );
   } catch (error) {
     console.error("demoman library: asking before a bulk delete —", error);
     bulk = {
@@ -820,20 +849,21 @@ async function deleteSelected(): Promise<void> {
     const name = groups.get(id)?.name ?? id;
     try {
       const r = await platform.videos.remove(id);
+      // A kept flow's recipe stays whatever went: said with the delete's
+      // own note, if it has one.
+      const said = [r.ok ? r.note : undefined, keptOf.get(id)].filter(
+        (n) => n !== undefined,
+      );
+      const note = said.length === 0 ? {} : { note: said.join(" ") };
       if (r.ok && r.partly !== undefined) {
         outcomes.push({
           id,
           name,
           stayed: `only part of it went: ${r.partly}`,
-          ...(r.note === undefined ? {} : { note: r.note }),
+          ...note,
         });
       } else if (r.ok) {
-        outcomes.push({
-          id,
-          name,
-          gone: true,
-          ...(r.note === undefined ? {} : { note: r.note }),
-        });
+        outcomes.push({ id, name, gone: true, ...note });
       } else if (r.error === "videoNotFound") {
         outcomes.push({ id, name, gone: true });
       } else {
