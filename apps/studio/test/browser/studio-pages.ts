@@ -8,10 +8,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OutputRecord } from "@demoman/run-core";
 import { createLibrary, createVideoStore } from "@demoman/runner/studio";
+import {
+  DEFAULT_LIBRARY_VIEW,
+  type LibraryViewChoice,
+} from "@demoman/studio-protocol";
 import type { Page } from "playwright";
 import { vi } from "vitest";
 import { type PlainTake, seedPlainTakes, seedTake } from "./painted-take.js";
-import { pageEvidence, type Studio } from "./studio-harness.js";
+import { api, pageEvidence, type Studio } from "./studio-harness.js";
 
 /** A page's load to its settled paint: 145-290 ms here over 36 opens (the
  *  first library open, which makes every thumbnail with sips, 197-290 ms).
@@ -320,9 +324,34 @@ export function painted(page: Page) {
 
 // ------------------------------------------------------------ the pages
 
+/** The library's cards: the view the library's shots and looks were made
+ *  for before the list became the studio's default (list spec §1). */
+export const GRID_VIEW: LibraryViewChoice = {
+  layout: "grid",
+  sort: { ...DEFAULT_LIBRARY_VIEW.sort },
+};
+
+/** Stores `view` as the studio's Library view, as the page's toggle does. */
+export async function storeLibraryView(
+  studio: Studio,
+  view: LibraryViewChoice,
+): Promise<void> {
+  const put = await api(studio, "/api/settings/library-view", {
+    method: "PUT",
+    body: { view },
+  });
+  if (put.status !== 200) {
+    throw new Error(
+      `PUT /api/settings/library-view: ${put.status} ${put.text}\nstudio log:\n${studio.logs.join("\n")}`,
+    );
+  }
+}
+
 export type PageName = "editor" | "library" | "kits";
 
-/** Opens `name` and waits until its pictures are painted. */
+/** Opens `name` and waits until its pictures are painted. The library
+ *  opens on its cards (`GRID_VIEW`, stored first); the list has its own
+ *  lane in studio-shots.test.ts. */
 export async function openPage(
   page: Page,
   studio: Studio,
@@ -339,6 +368,7 @@ export async function openPage(
       : name === "library"
         ? "/"
         : "/settings.html";
+  if (name === "library") await storeLibraryView(studio, GRID_VIEW);
   await page.goto(`${studio.origin}${path}`);
   try {
     if (name === "editor") {
@@ -354,6 +384,12 @@ export async function openPage(
     } else if (name === "library") {
       await vi.waitFor(
         async () => {
+          // The premise: the cards are drawn, not the list.
+          const lists = await page.locator("[role=treegrid]").count();
+          const drawn = await page.locator("article.card[data-row]").count();
+          if (lists !== 0 || drawn === 0) {
+            throw new Error(`${lists} lists and ${drawn} cards drawn`);
+          }
           const rows = await page.locator("[data-row]").count();
           const unreadable = await page
             .locator("[data-unreadable-row]")

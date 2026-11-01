@@ -4,7 +4,12 @@ import {
   isExportQuality,
   isPullRequestsValue,
 } from "@demoman/run-core";
-import type { Refusal } from "@demoman/studio-protocol";
+import {
+  DEFAULT_LIBRARY_VIEW,
+  isLibraryViewChoice,
+  type LibraryViewAnswer,
+  type Refusal,
+} from "@demoman/studio-protocol";
 import {
   createChains,
   messageOf,
@@ -17,7 +22,7 @@ import {
  * 2026-10-19 §6), and a `theme` key an older studio left in the file is kept
  * by every save and read by nothing.
  */
-export type SettingKey = "pullRequests" | "exportQuality";
+export type SettingKey = "pullRequests" | "exportQuality" | "libraryView";
 
 export const settingsPath = (home: string): string =>
   join(home, "settings.json");
@@ -63,11 +68,19 @@ async function writeSettingNow(
       detail: `"${String(value)}" is not a choice — choose ${EXPORT_QUALITY_VALUES.join(", ")}.`,
     };
   }
+  if (key === "libraryView" && !isLibraryViewChoice(value)) {
+    return {
+      reason: "libraryViewInvalid",
+      detail: `${JSON.stringify(value)} is not a Library view — choose a list or grid layout and a sort by name, where, videos, recorded or size.`,
+    };
+  }
   const path = settingsPath(home);
   const what =
     key === "exportQuality"
       ? "The Export quality setting"
-      : "The Pull requests setting";
+      : key === "libraryView"
+        ? "The Library view setting"
+        : "The Pull requests setting";
   let kept: Record<string, unknown> = {};
   let replaced: string | undefined;
   let bytes: Buffer | null;
@@ -110,4 +123,41 @@ async function writeSettingNow(
     };
   }
   return replaced === undefined ? {} : { replaced };
+}
+
+/**
+ * The stored Library view, or `DEFAULT_LIBRARY_VIEW` when none is stored.
+ * A file that cannot be read, is not JSON, or holds a value that is not a
+ * choice also answers the default, with `unreadable` naming the file and why.
+ */
+export async function readLibraryView(
+  home: string,
+): Promise<LibraryViewAnswer> {
+  const path = settingsPath(home);
+  const unusable = (why: string): LibraryViewAnswer => ({
+    view: DEFAULT_LIBRARY_VIEW,
+    unreadable: `${path} ${why}`,
+  });
+  let bytes: Buffer | null;
+  try {
+    bytes = await readIfPresent(path);
+  } catch (error) {
+    return unusable(`could not be read (${messageOf(error)})`);
+  }
+  if (bytes === null) return { view: DEFAULT_LIBRARY_VIEW };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    return unusable(`is not valid JSON (${messageOf(error)})`);
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return unusable("does not hold a JSON object");
+  }
+  const stored = (raw as Record<string, unknown>).libraryView;
+  if (stored === undefined) return { view: DEFAULT_LIBRARY_VIEW };
+  if (!isLibraryViewChoice(stored)) {
+    return unusable("holds a libraryView that is not a Library view");
+  }
+  return { view: stored };
 }

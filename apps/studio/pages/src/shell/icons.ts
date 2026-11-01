@@ -330,6 +330,30 @@ const GLYPHS = {
     "m17 8-5-5-5 5",
     "M12 3v12",
   ],
+  /** The library's List toggle. Lucide `list`. */
+  list: [
+    "M3 5h.01",
+    "M3 12h.01",
+    "M3 19h.01",
+    "M8 5h13",
+    "M8 12h13",
+    "M8 19h13",
+  ],
+  /** The library's Grid toggle. Lucide `layout-grid`, its four rects
+   *  written as paths. */
+  layoutGrid: [
+    "M4 3h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z",
+    "M15 3h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z",
+    "M15 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z",
+    "M4 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z",
+  ],
+  /** Rename a flow on its list row. Lucide `pencil-line`: here the pencil
+   *  does say "edit this text". */
+  pencilLine: [
+    "M13 21h8",
+    "m15 5 4 4",
+    "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z",
+  ],
   /** Duplicate a brand kit. Lucide `copy`, its rect written as a path. */
   copy: [
     "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2Z",

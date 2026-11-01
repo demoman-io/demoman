@@ -8,6 +8,7 @@ import {
   deleteVideoOf,
 } from "../../../pages/src/shell/confirm-dialog";
 import {
+  CARDS,
   createMemoryPlatform,
   type MemoryPlatform,
 } from "../helpers/memory-platform";
@@ -90,6 +91,7 @@ function seed(
   } = {},
 ): MemoryPlatform {
   return createMemoryPlatform({
+    libraryView: CARDS,
     ...(o.unreadable === undefined ? {} : { unreadable: o.unreadable }),
     scenes: [
       take("inv-1", "Create an invoice", "2026-09-01T10:00:00Z"),

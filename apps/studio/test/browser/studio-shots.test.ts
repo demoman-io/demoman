@@ -12,12 +12,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createLibrary } from "@demoman/runner/studio";
 import { NEUTRAL_BACKGROUND, WALLPAPERS } from "@demoman/scene-schema";
+import { DEFAULT_LIBRARY_VIEW } from "@demoman/studio-protocol";
 import type { Page, Route } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { distance, limeOutsideItsPlaces, pixelsAt } from "./look-probes.js";
 import type { PlainTake } from "./painted-take.js";
 import {
   api,
+  pageEvidence,
   type Studio,
   sizeWindow,
   startStudio,
@@ -32,6 +34,7 @@ import {
   painted,
   seedHome,
   settle,
+  storeLibraryView,
   UNREADABLE,
   VIDEO_TAKES,
 } from "./studio-pages.js";
@@ -945,6 +948,479 @@ describe("the Studio's screenshot set", () => {
       ).toBe(false);
       expect(shots).toHaveLength(4);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
+
+  // The library's list (spec 2026-10-31-library-list-view §6), the view a
+  // studio with nothing stored draws: at both sizes the list as it opens, a
+  // flow of three videos opened, a flow ticked, and a sort by size (no
+  // headings); then the list in a 720-wide window. Each asserted on its
+  // paint; the accessibility tree read once, as a screen reader gets it
+  // (§5 item 17), with the snapshot written beside the shots.
+  it.runIf(process.platform === "darwin")(
+    "shoots the list as it opens, a flow opened, a flow ticked, a flat sort and a narrow window, each asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-list-"));
+      homes.push(home);
+      await seedHome(home, VIDEO_TAKES);
+      const invoice = await joinVideo(home);
+      await mkdir(SHOTS, { recursive: true });
+      const [v1, v2, v3] = VIDEO_TAKES.map((t) => t.id) as [
+        string,
+        string,
+        string,
+      ];
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      // The premise: nothing is stored, so the studio serves its default.
+      const served = await api(studio, "/api/settings/library-view");
+      expect(served.status, served.text).toBe(200);
+      expect(served.json()).toEqual({ view: DEFAULT_LIBRARY_VIEW });
+      expect(DEFAULT_LIBRARY_VIEW.layout).toBe("list");
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+        200,
+      );
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      const shots: string[] = [];
+      const flowRow = (id: string) => `[data-list] [data-flow="${id}"]`;
+      const videoRow = (id: string) => `[data-list] [data-video-row="${id}"]`;
+      /** Each shown row under `sel` as painted: its label, on screen, and
+       *  the point at its name cell's centre its own. */
+      const rowsPainted = (sel: string) =>
+        page.evaluate((s) => {
+          return [...document.querySelectorAll<HTMLElement>(s)]
+            .filter((r) => !r.hidden)
+            .map((r) => {
+              const cell = r.querySelector('[data-col="name"]') ?? r;
+              const b = cell.getBoundingClientRect();
+              const hit = document.elementFromPoint(
+                b.left + Math.min(b.width / 2, 40),
+                b.top + b.height / 2,
+              );
+              return {
+                label: r.getAttribute("aria-label"),
+                onScreen: b.height > 0 && b.top >= 0 && b.bottom <= innerHeight,
+                hit: hit !== null && r.contains(hit),
+              };
+            });
+        }, sel);
+      /** Where each column heading starts, as painted. */
+      const columnsAt = () =>
+        page.evaluate(() =>
+          [
+            ...document.querySelectorAll<HTMLElement>(
+              "[data-list-head] [role=columnheader]",
+            ),
+          ].map(
+            (h) =>
+              `${h.dataset.col} ${Math.round(h.getBoundingClientRect().left)}`,
+          ),
+        );
+      const allPainted = (rows: { onScreen: boolean; hit: boolean }[]) =>
+        rows.every((r) => r.onScreen && r.hit);
+      /** The flows (and takes in no flow) the list shows. */
+      const FLOWS = "[data-list] [role=row][data-scene]:not([data-video-row])";
+      /** Opens the library and waits for the list, its flows and their
+       *  lengths painted. */
+      const openList = async (at: string) => {
+        await page.goto(`${studio.origin}/`);
+        try {
+          await vi.waitFor(
+            async () => {
+              const cards = await page
+                .locator("article.card[data-row]")
+                .count();
+              const rows = await rowsPainted(FLOWS);
+              if (cards !== 0 || rows.length < 4 || !allPainted(rows)) {
+                throw new Error(`${cards} cards; rows ${JSON.stringify(rows)}`);
+              }
+              const unmeasured = await page.evaluate(
+                (s) =>
+                  [...document.querySelectorAll<HTMLElement>(s)]
+                    .filter((r) => !r.hidden)
+                    .filter(
+                      (r) =>
+                        (r.querySelector('[data-col="length"]')?.textContent ??
+                          "") === "",
+                    )
+                    .map((r) => r.getAttribute("aria-label")),
+                FLOWS,
+              );
+              if (unmeasured.length > 0) {
+                throw new Error(
+                  `lengths not painted: ${unmeasured.join(", ")}`,
+                );
+              }
+            },
+            { timeout: PAINT_MS, interval: 100 },
+          );
+        } catch (error) {
+          throw new Error(
+            `${at}: the list did not paint: ${String(error)}; page: ${await pageEvidence(page)}; log: ${studio.logs.join("\n")}`,
+          );
+        }
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+      };
+      /** The shot, and what every list shot is asserted on. */
+      const shoot = async (name: string, at: string) => {
+        const file = join(SHOTS, `${name}-dark.png`);
+        await page.screenshot({ path: file });
+        shots.push(file);
+        const p = await painted(page);
+        expect(p.theme, `${at}: the page's theme`).toBe("dark");
+        expect(
+          p.scrollWidth,
+          `${at}: no sideways scroll (${JSON.stringify(p)})`,
+        ).toBeLessThanOrEqual(p.innerWidth);
+        expect(await page.locator("[role=treegrid]").count(), at).toBe(1);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+      };
+
+      let aria: string | null = null;
+      for (const size of SIZES) {
+        const wh = `${size.width}x${size.height}`;
+        await sizeWindow(context, page, size.width, size.height);
+        // The sort the last size left is put back: the first open below
+        // is the studio's default, the second the same view stored.
+        if (shots.length > 0) {
+          await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        }
+        let at = `library list ${wh}`;
+        await openList(at);
+        await shoot(`library-list-${wh}`, at);
+        expect(
+          await page
+            .locator('[data-layout="list"]')
+            .getAttribute("aria-pressed"),
+          `${at}: List is the pressed one`,
+        ).toBe("true");
+        // Headed by day under the default sort, every flow closed.
+        expect(await page.locator("[data-list] [data-heading]").count()).toBe(
+          3,
+        );
+        expect(await rowsPainted(`${FLOWS}[aria-expanded="true"]`)).toEqual([]);
+        // "Couldn't read" in the list's rows (spec §2.3): in the list's
+        // column, with no card drawn there, its Delete painted.
+        await page
+          .locator(`[data-unreadable-row="${UNREADABLE}"]`)
+          .scrollIntoViewIfNeeded();
+        const unreadable = await page.evaluate((folder) => {
+          const grid = document.querySelector("[role=treegrid]");
+          const section = document.querySelector("[data-unreadable]");
+          const row = document.querySelector<HTMLElement>(
+            `[data-unreadable-row="${CSS.escape(folder)}"]`,
+          );
+          if (grid === null || section === null || row === null) return null;
+          const g = grid.getBoundingClientRect();
+          const r = row.getBoundingClientRect();
+          const lands = (sel: string): boolean => {
+            const el = row.querySelector(sel);
+            if (el === null) return false;
+            const b = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              b.left + Math.min(b.width / 2, 20),
+              b.top + b.height / 2,
+            );
+            let o = 1;
+            for (let n: Element | null = el; n !== null; n = n.parentElement) {
+              o *= Number(getComputedStyle(n).opacity);
+            }
+            return hit !== null && el.contains(hit) && o === 1;
+          };
+          // Each part under its list column's heading.
+          const under = (part: string, col: string): boolean => {
+            const a = row.querySelector(`[data-col="${part}"]`);
+            const h = grid.querySelector(
+              `[role=columnheader][data-col="${col}"]`,
+            );
+            if (a === null || h === null) return false;
+            const pa = a.getBoundingClientRect();
+            const ph = h.getBoundingClientRect();
+            return Math.abs(pa.left - ph.left) < 1;
+          };
+          // A number stands under its heading by the right edge.
+          const sizeHead = grid.querySelector(
+            "[role=columnheader][data-col='size']",
+          );
+          const size = row.querySelector("[data-col='size']");
+          const sized =
+            sizeHead !== null &&
+            size !== null &&
+            sizeHead.checkVisibility() &&
+            Math.abs(
+              size.getBoundingClientRect().right -
+                sizeHead.getBoundingClientRect().right,
+            ) < 1;
+          // Delete floats over the row's end, as a flow's actions do.
+          const del = row.querySelector('[data-action="delete"]');
+          const ends =
+            del !== null &&
+            Math.abs(del.getBoundingClientRect().right - g.right) < 1;
+          return {
+            cards: section.querySelectorAll(".card, article").length,
+            columns: [under("name", "name"), under("where", "where"), sized],
+            ends,
+            inColumn: r.left >= g.left - 0.5 && r.right <= g.right + 0.5,
+            below: r.top >= g.bottom - 0.5,
+            height: Math.round(r.height),
+            name: lands('[data-col="name"]'),
+            reason: lands('[data-col="where"]'),
+            remove: lands('[data-action="delete"]'),
+          };
+        }, UNREADABLE);
+        expect(unreadable, `${at}: Couldn't read, as painted`).toEqual({
+          cards: 0,
+          columns: [true, true, true],
+          ends: true,
+          inColumn: true,
+          below: true,
+          height: 34,
+          name: true,
+          reason: true,
+          remove: true,
+        });
+        await page.evaluate(() => window.scrollTo(0, 0));
+
+        at = `library list open ${wh}`;
+        const closedColumns = await columnsAt();
+        await page.locator(`${flowRow(invoice)} [data-col="open"]`).click();
+        await vi.waitFor(
+          async () => {
+            const rows = await rowsPainted("[data-list] [data-video-row]");
+            if (rows.length !== 3 || !allPainted(rows)) {
+              throw new Error(`video rows ${JSON.stringify(rows)}`);
+            }
+          },
+          { timeout: PAINT_MS, interval: 100 },
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        await shoot(`library-list-open-${wh}`, at);
+        // Opening a flow moves no column: its videos' longer dates once
+        // widened Recorded and pushed every column left of it.
+        expect(await columnsAt(), `${at}: the columns`).toEqual(closedColumns);
+        // The flow's three videos, newest first, beneath it.
+        expect(
+          await page.evaluate(
+            (sel) =>
+              [...document.querySelectorAll<HTMLElement>(sel)]
+                .filter((r) => !r.hidden)
+                .map((r) => r.getAttribute("aria-label")),
+            "[data-list] [role=row][data-key]",
+          ),
+          at,
+        ).toEqual(
+          expect.arrayContaining([
+            "Create an invoice",
+            "Video 3",
+            "Video 2",
+            "Video 1",
+          ]),
+        );
+        for (const v of [v3, v2, v1]) {
+          expect(
+            await page.locator(videoRow(v)).getAttribute("aria-level"),
+            `${at}: ${v}`,
+          ).toBe("3");
+        }
+
+        at = `library list selecting ${wh}`;
+        await page.locator(flowRow(invoice)).hover();
+        await page.locator(`[data-select="${invoice}"]`).click();
+        await vi.waitFor(
+          async () => {
+            const selected = await page
+              .locator(flowRow(invoice))
+              .getAttribute("aria-selected");
+            const bar = await page.locator("[data-selection-bar]").isVisible();
+            if (selected !== "true" || !bar) {
+              throw new Error(`aria-selected ${selected}, bar shown ${bar}`);
+            }
+          },
+          { timeout: PAINT_MS, interval: 100 },
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        if (aria === null) {
+          aria = await page.locator("[role=treegrid]").ariaSnapshot();
+          await writeFile(join(SHOTS, "library-list-aria.txt"), aria);
+          // The sort is the one fact here read off an attribute: neither an
+          // aria snapshot nor Chrome's DevTools accessibility tree carries
+          // aria-sort (CDP's columnheaders list readonly and required only,
+          // measured 2026-10-31). The header is found by its role and name.
+          const sorts = await page
+            .getByRole("treegrid", { name: "Flows" })
+            .getByRole("columnheader")
+            .evaluateAll((hs) =>
+              hs.flatMap((h) =>
+                h.hasAttribute("aria-sort")
+                  ? [`${h.textContent} ${h.getAttribute("aria-sort")}`]
+                  : [],
+              ),
+            );
+          expect(sorts, `${at}: the sorted column`).toEqual([
+            "Recorded descending",
+          ]);
+          const lines = aria.split("\n");
+          expect(lines[0], aria).toMatch(/^- treegrid "Flows"/);
+          const flowAt = lines.findIndex((l) =>
+            /- row "Create an invoice"/.test(l),
+          );
+          const flow = lines[flowAt] ?? "";
+          expect(flow, aria).toContain("[expanded]");
+          expect(flow, aria).toContain("[selected]");
+          expect(flow, aria).toContain("[level=2]");
+          const videos = ["Video 3", "Video 2", "Video 1"].map((v) =>
+            lines.findIndex((l) => l.includes(`- row "${v}"`)),
+          );
+          expect(videos, aria).toEqual([...videos].sort((a, b) => a - b));
+          expect(videos[0] as number, aria).toBeGreaterThan(flowAt);
+          for (const i of videos) expect(lines[i], aria).toContain("[level=3]");
+        }
+        await shoot(`library-list-selecting-${wh}`, at);
+        expect(
+          await rowsPainted(flowRow(invoice)),
+          `${at}: the ticked flow, not under the bar`,
+        ).toEqual([{ label: "Create an invoice", onScreen: true, hit: true }]);
+
+        at = `library list sorted ${wh}`;
+        await page.keyboard.press("Escape");
+        await vi.waitFor(async () => {
+          if ((await page.locator("[data-selecting]").count()) > 0) {
+            throw new Error("still selecting");
+          }
+        });
+        await page.locator('[data-sort="size"]').click();
+        await vi.waitFor(
+          async () => {
+            const sort = await page
+              .locator('[role=columnheader][data-col="size"]')
+              .getAttribute("aria-sort");
+            const headings = await page
+              .locator("[data-list] [data-heading]")
+              .count();
+            if (sort !== "descending" || headings !== 0) {
+              throw new Error(`size ${sort}, ${headings} headings`);
+            }
+          },
+          { timeout: PAINT_MS, interval: 100 },
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        await shoot(`library-list-sorted-${wh}`, at);
+        expect(allPainted(await rowsPainted(FLOWS)), at).toBe(true);
+        // The sort was the author's choice, kept by the studio.
+        const kept = await api(studio, "/api/settings/library-view");
+        expect(kept.json(), at).toEqual({
+          view: { layout: "list", sort: { column: "size", descending: true } },
+        });
+      }
+
+      // A row's status sentence, as a screen reader gets it (Ruling C: the
+      // line is a role-less div in the row, after its cells). A rename to
+      // a taken name is refused, and the row says why.
+      {
+        const at = "library list status 1440x900";
+        const report = '[data-list] [role=row][aria-label="Export a report"]';
+        await page.locator(report).hover();
+        await page.locator(`${report} [data-action="rename"]`).click();
+        await page.keyboard.type("Create an invoice");
+        await page.keyboard.press("Enter");
+        await vi.waitFor(
+          async () => {
+            const said = await page
+              .locator(`${report} [data-status]`)
+              .textContent()
+              .catch(() => null);
+            if (!said?.includes("Couldn't rename")) {
+              throw new Error(`the row says ${JSON.stringify(said)}`);
+            }
+          },
+          { timeout: PAINT_MS, interval: 100 },
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        await shoot("library-list-status-1440x900", at);
+        const tree = await page.locator("[role=treegrid]").ariaSnapshot();
+        await writeFile(join(SHOTS, "library-list-status-aria.txt"), tree);
+        const lines = tree.split("\n");
+        const from = lines.findIndex((l) =>
+          l.includes('- row "Export a report"'),
+        );
+        const next = lines.findIndex(
+          (l, i) => i > from && /^ {2}- row /.test(l),
+        );
+        expect(
+          lines.slice(from, next === -1 ? undefined : next).join("\n"),
+          `${at}: the sentence is read with its row\n${tree}`,
+        ).toContain("Couldn't rename");
+      }
+
+      // A narrow window: the list keeps to it, its headings on their rows.
+      const at = "library list narrow 720x900";
+      await sizeWindow(context, page, 720, 900);
+      await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+      await openList(at);
+      await shoot("library-list-narrow-720x900", at);
+      expect(await page.locator("[data-list] [data-heading]").count()).toBe(3);
+      expect(
+        await rowsPainted("[data-list] [data-heading]"),
+        `${at}: the headings`,
+      ).toEqual(
+        ["Today", "Yesterday", expect.any(String)].map((label) => ({
+          label,
+          onScreen: true,
+          hit: true,
+        })),
+      );
+      // Red: the unreadable row's size kept where the list drops its Size
+      // column, so the grid puts it under Recorded. Its Delete is left
+      // out: it floats over every row's end, which is Recorded's.
+      const underRecorded = await page.evaluate((folder) => {
+        const head = document.querySelector(
+          "[data-list-head] [role=columnheader][data-col='recorded']",
+        );
+        const row = document.querySelector(
+          `[data-unreadable-row="${CSS.escape(folder)}"]`,
+        );
+        if (head === null || row === null) return null;
+        const h = head.getBoundingClientRect();
+        // Its cells; a status line under them spans every column.
+        return [
+          ...row.querySelectorAll(
+            ":scope > [data-col]:not([data-col='actions'])",
+          ),
+        ].flatMap((c) => {
+          const b = c.getBoundingClientRect();
+          return b.width > 0 && b.left < h.right && b.right > h.left
+            ? [`${(c as HTMLElement).dataset.col} "${c.textContent}"`]
+            : [];
+        });
+      }, UNREADABLE);
+      expect(
+        underRecorded,
+        `${at}: what the unreadable row puts under Recorded`,
+      ).toEqual([]);
+
+      expect(shots).toHaveLength(SIZES.length * 4 + 2);
+      // The refused rename's 409 is the browser's own line for a refusal
+      // the page answered; nothing else may fault.
+      expect(
+        console_
+          .faults()
+          .filter((l) => !(l.includes("409") && l.includes("/api/videos/"))),
+        console_.lines.join("\n"),
+      ).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
     },

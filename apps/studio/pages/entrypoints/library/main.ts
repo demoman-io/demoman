@@ -2,8 +2,13 @@
 
 import type { FrameBundle } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
+import {
+  DEFAULT_LIBRARY_VIEW,
+  type LibraryViewChoice,
+} from "@demoman/studio-protocol";
 import { createPlatform } from "#platform";
 import { editedLength } from "../../src/library/length";
+import { createLengthCache, paintLength } from "../../src/library/length-cache";
 import type { PreviewMounter, PreviewPorts } from "../../src/library/preview";
 import { createPreviewMounter } from "../../src/library/preview";
 import {
@@ -11,6 +16,7 @@ import {
   emptySelection,
   pruneSelection,
   type Selection,
+  selectAll,
 } from "../../src/library/selection";
 import type { BulkOutcome, LibraryModel } from "../../src/library/state";
 import { buildLibraryModel, bulkSentence } from "../../src/library/state";
@@ -259,6 +265,30 @@ function dropStatusesWithNoRow(model: LibraryModel): void {
 let selection: Selection = emptySelection();
 let bulk: { busy: boolean; said: string | null } | undefined;
 
+/**
+ * List or Grid and the list's sort, as the studio serves it (list spec §1),
+ * read once before the first paint. The studio decides the default; a read
+ * that fails outright draws that same default and says why.
+ */
+let view: LibraryViewChoice = DEFAULT_LIBRARY_VIEW;
+const viewRead = platform.libraryView.read().then(
+  (got) => {
+    view = got.view;
+    if (got.unreadable !== undefined) {
+      console.warn(
+        `demoman library: the stored view could not be used, so it is the default: ${got.unreadable}`,
+      );
+    }
+  },
+  (error: unknown) => {
+    console.warn(
+      `demoman library: the stored view could not be read, so it is the default: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  },
+);
+
 function paint(model: LibraryModel): void {
   dropStatusesWithNoRow(model);
   // A ticked flow another window or an agent deleted leaves the selection.
@@ -271,8 +301,18 @@ function paint(model: LibraryModel): void {
     );
   }
   mounter?.dispose();
+  for (const stop of lengthWaits.splice(0)) stop();
   mounter = createPreviewMounter(previewPorts);
-  renderLibrary(root, model, actions, rowStatus, undefined, selection, bulk);
+  renderLibrary(
+    root,
+    model,
+    actions,
+    rowStatus,
+    undefined,
+    selection,
+    bulk,
+    view,
+  );
   jumps.mark();
 }
 
@@ -298,7 +338,8 @@ function render(): Promise<void> {
 
 async function paintFresh({ keepNotice = false } = {}): Promise<void> {
   if (!keepNotice) clearNotice();
-  const studio = await platform.folder.read();
+  // Both at once; the first paint still draws the view served.
+  const [, studio] = await Promise.all([viewRead, platform.folder.read()]);
   const listed = studio.scenes;
   scenesById = new Map(listed.map((scene) => [scene.meta.id, scene]));
   const model = buildLibraryModel({
@@ -403,7 +444,68 @@ function isAuthored(sceneId: string): boolean {
   return scenesById.get(sceneId)?.meta.capture.mode === "authored";
 }
 
+const lengths = createLengthCache();
+/** Let-goes for the current pass's unmeasured Length cells; `paint` runs
+ *  them before the next draw so a replaced cell is not held observed. */
+const lengthWaits: (() => void)[] = [];
+
 const actions: LibraryActions = {
+  /** Kept for this session at once; a write that fails or replaced the
+   *  settings file is said, and the view stays as chosen. */
+  setView: (next) => {
+    view = next;
+    if (lastModel !== null) paint(lastModel);
+    platform.libraryView.write(next).then(
+      (done) => {
+        if (done.replaced === undefined) return;
+        console.warn(`demoman library: ${done.replaced}`);
+        say(done.replaced, "warn");
+      },
+      (error: unknown) => {
+        const why = error instanceof Error ? error.message : String(error);
+        console.warn(`demoman library: the view was not saved: ${why}`);
+        say(`The view was not saved: ${why.replace(/\.$/, "")}.`, "warn");
+      },
+    );
+  },
+  measure: (sceneId: string, cell: HTMLElement): void => {
+    // Said each time, and painted `—`: nothing about a failure is kept, so
+    // the next paint after a redraw measures again.
+    const failed = (err: unknown): void => {
+      const e = err instanceof Error ? err : new Error(String(err));
+      console.warn(
+        `demoman library: length of ${sceneId} could not be measured: ${e.message}`,
+      );
+      paintLength(cell, e);
+    };
+    const scene = scenesById.get(sceneId);
+    if (scene === undefined) {
+      // Every row is built from this same listing: the two drifted.
+      failed(new Error(`no document for ${sceneId} in the last listing`));
+      return;
+    }
+    // A known length paints at once: a redraw never blanks it.
+    const known = lengths.get(scene);
+    if (known !== undefined) {
+      paintLength(cell, known);
+      return;
+    }
+    const stop = whenVisible(cell, () => {
+      void bundles
+        .active(sceneId)
+        .then(({ bundle }) =>
+          // A video without frames (expired) has no length: a state, not a
+          // fault, and not kept, as its frames may come back.
+          bundle === null
+            ? ({ kind: "nothing", reason: "it has no frames" } as const)
+            : lengths.measure(scene, () =>
+                editedLength(scene, bundle, bundles.load),
+              ),
+        )
+        .then((got) => paintLength(cell, got), failed);
+    });
+    lengthWaits.push(stop);
+  },
   preview: (sceneId: string, box: HTMLElement): void => {
     if (mounter === null) {
       // Unreachable as written — `render()` makes the mounter immediately
@@ -583,9 +685,15 @@ const actions: LibraryActions = {
       }
     })();
   },
-  select: (videoId, shift, visibleOrder) => {
+  select: (videoId, how, visibleOrder, from) => {
     if (bulk?.busy === true) return;
-    selection = clickSelect(selection, videoId, shift, visibleOrder);
+    selection = clickSelect(selection, videoId, how, visibleOrder, from);
+    bulk = undefined;
+    showSelection();
+  },
+  selectAll: (visibleOrder) => {
+    if (bulk?.busy === true) return;
+    selection = selectAll(selection, visibleOrder);
     bulk = undefined;
     showSelection();
   },
@@ -599,6 +707,9 @@ const actions: LibraryActions = {
     void deleteSelected();
   },
   remove: (sceneId: string, kind: RowKind): void => {
+    // The run in flight owns the deletes; a second dialog over it would
+    // race its list.
+    if (bulk?.busy === true) return;
     const key = statusKey(kind, sceneId);
     void (async () => {
       try {

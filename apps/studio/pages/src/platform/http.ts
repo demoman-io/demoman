@@ -22,6 +22,7 @@ import {
   type KitsPutBody,
   type KitsRead,
   type KitsResetAnswer,
+  type LibraryViewAnswer,
   type OutputsAnswer,
   type PingAnswer,
   type PullRequestsAnswer,
@@ -889,6 +890,25 @@ export function createPlatform(
       async write(exportQuality) {
         const got = await answer<ExportQualityAnswer>(
           await request("exportQualityPut", { json: { exportQuality } }),
+        );
+        return got.replaced === undefined ? {} : { replaced: got.replaced };
+      },
+    },
+    libraryView: {
+      async read() {
+        const got = await answer<LibraryViewAnswer>(
+          await request("libraryViewGet"),
+        );
+        return {
+          view: got.view,
+          ...(got.unreadable === undefined
+            ? {}
+            : { unreadable: got.unreadable }),
+        };
+      },
+      async write(view) {
+        const got = await answer<LibraryViewAnswer>(
+          await request("libraryViewPut", { json: { view } }),
         );
         return got.replaced === undefined ? {} : { replaced: got.replaced };
       },

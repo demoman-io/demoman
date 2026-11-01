@@ -25,6 +25,8 @@ import {
   type ExportQualityAnswer,
   type ExportQualityChoice,
   FILE_NAME_HEADER,
+  isLibraryViewChoice,
+  type LibraryViewAnswer,
   type OutputsAnswer,
   type PingAnswer,
   type PullRequestsAnswer,
@@ -42,7 +44,7 @@ import type { EventHub } from "./events.js";
 import { createChains, isMissing, messageOf, readIfPresent } from "./files.js";
 import { createKitsFile } from "./kits.js";
 import type { Handler, StudioHandlers, StudioResponse } from "./server.js";
-import { writeSetting } from "./settings.js";
+import { readLibraryView, writeSetting } from "./settings.js";
 import { folderBytes } from "./sizes.js";
 import type { createThumbs } from "./thumbs.js";
 import type { HomeFeeds } from "./watch.js";
@@ -868,6 +870,48 @@ export function createRoutes(o: {
       }
       const answer: ExportQualityAnswer = {
         exportQuality: quality as ExportQualityChoice,
+        ...refused,
+      };
+      return json(200, answer);
+    },
+
+    async libraryViewGet() {
+      const answer: LibraryViewAnswer = await readLibraryView(home);
+      if (answer.unreadable !== undefined) {
+        log(`studio: Library view is the default: ${answer.unreadable}`);
+      }
+      return json(200, answer);
+    },
+
+    async libraryViewPut(req) {
+      const body = await bodyJson(req);
+      if (!body.ok) {
+        return refuse(
+          400,
+          "libraryViewInvalid",
+          `The Library view setting was not saved: ${body.error}.`,
+        );
+      }
+      const sent = (body.value as { view?: unknown } | null)?.view;
+      // The three fields only: a choice that carries more is stored without it.
+      const view = isLibraryViewChoice(sent)
+        ? {
+            layout: sent.layout,
+            sort: {
+              column: sent.sort.column,
+              descending: sent.sort.descending,
+            },
+          }
+        : sent;
+      const refused = await writeSetting(home, "libraryView", view);
+      if ("reason" in refused) {
+        return json(
+          refused.reason === "libraryViewInvalid" ? 400 : 500,
+          refused,
+        );
+      }
+      const answer: LibraryViewAnswer = {
+        view: view as LibraryViewAnswer["view"],
         ...refused,
       };
       return json(200, answer);

@@ -508,6 +508,15 @@
       [data-selecting] article[data-video] :is([data-action="edit"], [data-action="delete"]) {
         display: none;
       }
+      /* The list's own: in its cell, not the thumbnail's corner; shown as
+         the card's is, on its row's hover or keyboard focus (list spec
+         §4.4) — not a click's focus, which outlasts the pointer. */
+      .library-list .select-box {
+        position: static;
+      }
+      .library-list > [data-key]:is(:hover, :focus-visible, :has(:focus-visible)) .select-box {
+        opacity: 1;
+      }
       article.card[data-selected] {
         box-shadow: inset 0 0 0 2px var(--ink);
       }
@@ -685,6 +694,365 @@
         opacity: 1;
       }
       article.card[data-unreadable-row] [data-reason] { overflow-wrap: anywhere; }
+
+      /* The list view (list spec §2.1, §4.7): a treegrid whose rows are
+         subgrids of one column template, so a column lines up down the
+         list whatever its cells hold. Narrow lists drop columns rather
+         than scroll sideways — Size, then Length, then Videos — and Where,
+         the one track with no floor, truncates before any of them goes.
+         The widths are the list's own (a container), not the window's:
+         the side column comes and goes at 1024px. */
+      .library-content { container: library / inline-size; }
+      .layout-toggle {
+        display: flex;
+        justify-content: flex-end;
+        gap: 2px;
+        margin-bottom: 8px;
+      }
+      /* Above the studio stylesheet's transparent `.btn-quiet.btn-icon`. */
+      .layout-toggle .btn.btn-icon[aria-pressed="true"] {
+        background: var(--control-hover);
+        color: var(--ink);
+      }
+      :is(.library-list, .unreadable-list) {
+        --list-row: 34px;
+        /* Wide enough for a video row's "Sep 26, 11:00 AM": as content
+           width, opening a flow widened it and moved every column left. */
+        --recorded: 9em;
+        --gap: 24px;
+        display: grid;
+        /* Select, open, Name, Where, Videos, Length, Size, Recorded: the
+           numbers together and the date at the row's end. The actions
+           hold no track; they float over the row's end (below). */
+        grid-template-columns:
+          28px 20px minmax(160px, 3fr) minmax(0, 2fr)
+          56px 64px 72px var(--recorded);
+        column-gap: var(--gap);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+      .library-list > [role="row"] {
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+        /* The hairline is the row's last pixel: 34 in all. */
+        grid-template-rows: calc(var(--list-row) - 1px);
+        border-bottom: 1px solid var(--ring);
+        /* Clear of the sticky head when the keys scroll a row into view. */
+        scroll-margin-top: var(--list-row);
+        /* What the actions float over. */
+        position: relative;
+        /* A Shift-click selects flows, not the text between them. */
+        user-select: none;
+      }
+      .library-list :is([data-name-text], [data-status]) { user-select: text; }
+      /* Under the top bar, held while the list scrolls; opaque, so a row
+         never shows through it. */
+      .library-list > [data-list-head] {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--shell);
+        color: var(--ink-faint);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      /* While flows are ticked the selection bar holds the top (from its
+         own 12px, `.selection-bar`), and the head stands beneath it;
+         `--selection-bar` is the bar's height, measured by view.ts. */
+      [data-selecting] .library-list > [data-list-head] {
+        top: calc(12px + var(--selection-bar, 0px));
+      }
+      [data-selecting] .library-list > [role="row"] {
+        scroll-margin-top: calc(12px + var(--selection-bar, 0px) + var(--list-row));
+      }
+      .library-list [data-list-head] [data-sort] {
+        padding: 0;
+        background: none;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+      }
+      .library-list [data-list-head] [aria-sort],
+      .library-list [data-list-head] [data-sort]:hover { color: var(--ink); }
+      .library-list :is([role="gridcell"], [role="columnheader"]) {
+        min-width: 0;
+        line-height: calc(var(--list-row) - 1px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .library-list [role="gridcell"]:focus-visible { outline-offset: -2px; }
+      .library-list :is([data-col="videos"], [data-col="length"], [data-col="size"]) {
+        text-align: right;
+      }
+      .library-list :is([data-col="select"], [data-col="open"], [data-col="name"], [data-col="actions"]) {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .library-list [data-col="select"] { justify-content: center; }
+      /* The actions hold no track: they float over the row's end, so the
+         width they held goes to Name and Where, and nothing moves when
+         they show. Still a cell, last in the row's keys. The empty ones
+         (the head's, a heading's) keep a box for the keyboard's outline. */
+      :is(.library-list, .unreadable-list) [data-col="actions"] {
+        position: absolute;
+        top: 0;
+        right: 0;
+        height: calc(var(--list-row) - 1px);
+        min-width: 28px;
+        justify-content: flex-end;
+        /* A focused button's ring stands 2px outside it, past the row's
+           end; the cells' clipping would cut it. */
+        overflow: visible;
+      }
+      /* While flows are ticked, the flow and video rows' actions step aside
+         as the cards' do, by visibility: they keep their cell, so nothing
+         moves (list spec §2.1, §4.2), and the pointer's reveal below is
+         opacity only, so it cannot bring them back. */
+      [data-selecting] .library-list :is([data-flow], [data-video-row]) > [data-col="actions"] {
+        visibility: hidden;
+      }
+      /* The name keeps its width while a tag beside it is clipped, and
+         only a name wider than the cell is cut, at the cell's edge. */
+      .library-list [data-name-text] {
+        flex: none;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .library-list [data-video-row] [data-col="name"] { padding-left: 16px; }
+      .library-list .row-tags {
+        position: static;
+        flex: 0 1 auto;
+        flex-wrap: nowrap;
+        min-width: 0;
+        overflow: hidden;
+      }
+      /* A date heading is a section label, as the cards' are, not a row:
+         from the list's left edge, its chevron, label and count, then a
+         rule to the end; room above it and no hairline under it. Its cells
+         stay in their columns for the keys; the label's cell spans them. */
+      .library-list > [data-heading] {
+        padding-top: 14px;
+        border-bottom-color: transparent;
+        color: var(--ink-faint);
+      }
+      /* Placed, every one: the label's cell spans the row, so a cell left
+         to auto-placement would find no room on it. Videos, Length and
+         Size keep their tracks while drawn; Recorded is always the last. */
+      .library-list > [data-heading] > [role="gridcell"] { grid-row: 1; }
+      .library-list > [data-heading] > :is([data-col="select"], [data-col="open"]) { grid-column: 1; }
+      .library-list > [data-heading] > [data-col="name"] {
+        grid-column: 1 / -1;
+        padding-left: 20px;
+      }
+      .library-list > [data-heading] > [data-col="where"] { grid-column: 4; }
+      .library-list > [data-heading] > [data-col="videos"] { grid-column: 5; }
+      .library-list > [data-heading] > [data-col="length"] { grid-column: 6; }
+      .library-list > [data-heading] > [data-col="size"] { grid-column: 7; }
+      .library-list > [data-heading] > [data-col="recorded"] { grid-column: -2; }
+      .library-list > [data-heading] > [data-col="name"]::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--ring);
+      }
+      .library-list > [data-heading] .chev {
+        width: 12px;
+        height: 12px;
+      }
+      /* The UI sans: the studio's card count is mono. */
+      .library-list > [data-heading] :is([data-name-text], .section-count) {
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .library-list > [data-heading] .section-count {
+        font-weight: 500;
+        color: var(--ink-4, var(--ink-faint));
+      }
+      /* "Couldn't read" under the list: the date headings' label, with no
+         chevron (it does not fold) — their room above, their line, their
+         sans. The cards keep the studio's own heading. */
+      .library-list ~ [data-unreadable] { margin-top: 0; }
+      .library-list ~ [data-unreadable] > .section-head {
+        /* A date heading row: 14px above a 34px line. */
+        height: 48px;
+        padding: 14px 0 1px;
+        gap: 8px;
+      }
+      .library-list ~ [data-unreadable] > .section-head :is(h2, .section-count) {
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: normal;
+        letter-spacing: normal;
+        text-transform: none;
+        color: var(--ink-faint);
+      }
+      .library-list ~ [data-unreadable] > .section-head .section-count {
+        font-weight: 500;
+        color: var(--ink-4, var(--ink-faint));
+      }
+      /* The video's exports as small labels; a file gone is struck. */
+      .library-list .version-exports {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        height: 100%;
+        margin: 0;
+      }
+      .library-list .version-exports .export-name { display: none; }
+      .library-list .version-exports .export-type {
+        padding: 1px 6px;
+        border-radius: var(--radius);
+        background: var(--control);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .library-list .version-exports [data-gone] .export-type {
+        text-decoration: line-through;
+      }
+      /* The row's line: under its cells, from the name column on. */
+      .library-list > [role="row"] > [data-status] {
+        grid-column: 3 / -1;
+        display: grid;
+        gap: 4px;
+        padding-bottom: 8px;
+        white-space: normal;
+      }
+      .library-list [data-status] > p { margin: 0; }
+      .library-list .row-rerun { font-size: 12px; color: var(--ink-muted); }
+      /* Video rows on a raised ground; hover and keyboard focus share one
+         background, and the keyboard's row adds its inset edge. */
+      .library-list > [data-video-row] { background: var(--control); }
+      .library-list > [data-key]:not([data-heading]):is(:hover, :focus-visible, :has(:focus-visible)) {
+        background: var(--control-hover);
+      }
+      .library-list > [data-key]:focus-visible {
+        outline: none;
+        box-shadow: inset 2px 0 0 var(--focus);
+      }
+      /* The actions keep their cell at rest and only fade, so nothing
+         moves and the keys still reach them; the selecting rule's
+         `visibility` above outranks this. Over the row's end they cover
+         the value under them on the hovered row's own ground (the hover
+         over the page's), faded in from clear across the gap before
+         Recorded, so the date is hidden whole, never half; unseen, they
+         let the pointer through to that value. */
+      .library-list [data-col="actions"],
+      .library-list .row-actions {
+        pointer-events: none;
+      }
+      .library-list .row-actions {
+        opacity: 0;
+        height: 100%;
+        min-width: calc(var(--recorded) + var(--gap));
+        justify-content: flex-end;
+        padding-left: var(--gap);
+        background:
+          linear-gradient(90deg, transparent, var(--control-hover) var(--gap)),
+          linear-gradient(90deg, transparent, var(--shell) var(--gap));
+      }
+      .library-list > [data-key]:is(:hover, :focus-visible, :has(:focus-visible)) .row-actions {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      /* The keys on Recorded itself: the cover would hide the cell and
+         its ring, so neither shows. */
+      .library-list > [data-key]:has(> [data-col="recorded"]:focus-visible) .row-actions {
+        opacity: 0;
+        pointer-events: none;
+      }
+      /* Where nothing hovers they show always, so they never cover: the
+         date stays readable beside them. */
+      @media (hover: none) {
+        .library-list .row-actions {
+          opacity: 1;
+          pointer-events: auto;
+          background: none;
+        }
+      }
+      .library-list > [aria-expanded="true"] .chev { transform: rotate(90deg); }
+      /* An opening flow's videos fade in; no height animation. */
+      .library-list > [data-video-row] { transition: opacity 120ms ease; }
+      @starting-style {
+        .library-list > [data-video-row][data-opening] { opacity: 0; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .library-list > [data-video-row],
+        .library-list [data-col="open"] .chev,
+        .library-list .row-actions { transition: none; }
+      }
+      @container library (max-width: 759px) {
+        :is(.library-list, .unreadable-list) {
+          grid-template-columns:
+            28px 20px minmax(140px, 3fr) minmax(0, 2fr)
+            56px 64px var(--recorded);
+        }
+        :is(.library-list, .unreadable-list) [data-col="size"] { display: none; }
+        /* The reason runs on to Recorded, the size it stood beside gone. */
+        .unreadable-list > .unreadable-row > [data-col="where"] { grid-column: 4 / -2; }
+      }
+      @container library (max-width: 639px) {
+        :is(.library-list, .unreadable-list) {
+          grid-template-columns:
+            28px 20px minmax(120px, 3fr) minmax(0, 2fr)
+            56px var(--recorded);
+        }
+        .library-list [data-col="length"] { display: none; }
+      }
+      @container library (max-width: 559px) {
+        :is(.library-list, .unreadable-list) {
+          grid-template-columns:
+            28px 20px minmax(120px, 3fr) minmax(0, 2fr)
+            var(--recorded);
+        }
+        .library-list [data-col="videos"] { display: none; }
+      }
+      /* "Couldn't read" under the list, in its rows (list spec §2.3): the
+         list's columns, so the name, reason and size stand under Name,
+         Where and Size. Delete floats over the row's end, as a flow's
+         actions do, and shows at rest: it is all these rows do. */
+      .unreadable-list > .unreadable-row {
+        position: relative;
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+        grid-template-rows: calc(var(--list-row) - 1px);
+        align-items: center;
+        border-bottom: 1px solid var(--ring);
+      }
+      .unreadable-list > .unreadable-row > [data-col] {
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .unreadable-list > .unreadable-row > [data-col="name"] { grid-column: 3; }
+      .unreadable-list > .unreadable-row > [data-col="where"] {
+        grid-column: 4 / -3;
+        color: var(--ink-muted);
+      }
+      .unreadable-list > .unreadable-row > [data-col="size"] { grid-column: -3; text-align: right; }
+      .unreadable-list > .unreadable-row > [data-col="actions"] {
+        display: flex;
+        align-items: center;
+      }
+      .unreadable-list > .unreadable-row > [data-status] {
+        grid-column: 3 / -1;
+        padding-bottom: 8px;
+        white-space: normal;
+      }
+      .unreadable-list > .unreadable-row > [data-status] > p { margin: 0; }
+
+      /* Last: every `display` above loses to `hidden` (shell.css's note on
+         `.hidden`). */
+      .library-list [hidden],
+      .library-list > [role="row"] > [data-status][hidden],
+      .layout-toggle[hidden] { display: none; }
 
       /* The empty states: the shell's `.empty`, on a card, as on Settings. */
       .empty-card {

@@ -2,6 +2,7 @@
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  CARDS,
   createMemoryPlatform,
   type MemoryPlatform,
 } from "../helpers/memory-platform";
@@ -67,7 +68,7 @@ describe("library main — opening a take", () => {
     vi.resetModules();
     mountLibraryDom();
     nav = captureNavigations();
-    memory = createMemoryPlatform({ scenes: [take()] });
+    memory = createMemoryPlatform({ scenes: [take()], libraryView: CARDS });
     state.memory = memory;
   });
 

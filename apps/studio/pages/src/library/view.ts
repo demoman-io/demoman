@@ -1,23 +1,24 @@
 // apps/studio/pages/src/library/view.ts
+import type {
+  LibraryLayout,
+  LibraryViewChoice,
+} from "@demoman/studio-protocol";
 import { setCodeText } from "../shell/code-spans";
 import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
+import { collapsedKeys, openRename, renderList, setExpanded } from "./list";
+import { placeIn, restorePlace } from "./list-keys";
+import { whereOf } from "./list-model";
 import { previewText } from "./preview";
-import type { Selection } from "./selection";
+import type { SelectHow, Selection } from "./selection";
 import type {
   LibraryModel,
   LibraryRow,
   LibrarySection,
   VideoGroup,
 } from "./state";
-import {
-  BAD_BUDGET,
-  cardsOf,
-  formatBytes,
-  repoLabel,
-  sectionsOf,
-} from "./state";
+import { BAD_BUDGET, cardsOf, formatBytes, sectionsOf } from "./state";
 
 /** Which kind of row a status was said on. A take's folder is named after
  *  it, so a card and the "Couldn't read" row its folder can become share an
@@ -72,24 +73,34 @@ export interface LibraryActions {
    *  the card so the page can let a rename on it land first, as Edit does. */
   openReview?(sceneId: string): void;
   /** A flow's checkbox, or its card while anything is ticked: tick or
-   *  untick it, or with Shift the range from the last one ticked over
-   *  `visibleOrder`, the flows in open sections in page order. Absent, and
-   *  no card carries a checkbox. */
+   *  untick it ("toggle"), or with Shift the range from the last one ticked
+   *  over `visibleOrder`, the flows in open sections in page order
+   *  ("range"); `from`, the flow a Shift+arrow moved from, anchors a range
+   *  that has no anchor on screen (`clickSelect`). Absent, and no card
+   *  carries a checkbox. */
   select?(
     videoId: string,
-    shift: boolean,
+    how: SelectHow,
     visibleOrder: readonly string[],
+    from?: string,
   ): void;
+  /** Cmd+A: tick every flow in `visibleOrder`. */
+  selectAll?(visibleOrder: readonly string[]): void;
   /** The selection bar's Cancel. */
   clearSelection?(): void;
   /** The selection bar's Delete: the page asks once, then deletes. */
   deleteSelected?(): void;
+  /** The List/Grid toggle and the list's sort headings. Absent: no toggle,
+   *  no sortable headings. */
+  setView?(view: LibraryViewChoice): void;
+  /** Fill a list row's Length cell with its video's edited length. */
+  measure?(sceneId: string, cell: HTMLElement): void;
 }
 
 /** An expired video's line leads with the fact (spec 2026-10-30
  *  flows-and-bulk-delete §1.1); the platform's line alone is how to film
  *  it again, which the editor also says for a video with no frames. */
-const expiredLine = (
+export const expiredLine = (
   expired: boolean | undefined,
   line: string | null | undefined,
 ): string | null =>
@@ -171,6 +182,9 @@ function fillBar(
  * from the card just ticked (the author, 2026-10-30, at the foot of the
  * library); it also cleared every card's thumbnail.
  */
+/** Each page's watch on its selection bar's height (`applySelection`). */
+const barHeights = new WeakMap<HTMLElement, ResizeObserver>();
+
 export function applySelection(
   root: HTMLElement,
   actions: LibraryActions,
@@ -181,17 +195,22 @@ export function applySelection(
     actions.select === undefined ? new Set() : (selection?.ids ?? new Set());
   root.toggleAttribute("data-selecting", selected.size > 0);
   // Shut while a bulk delete runs: a box unticked then would look spared
-  // while the run, which took its list at the start, deletes it.
+  // while the run, which took its list at the start, deletes it. The
+  // list's keys read the mark and leave the selection and deletes alone.
   const busy = bulk?.busy === true;
+  root.toggleAttribute("data-busy", busy);
   for (const box of root.querySelectorAll<HTMLInputElement>("[data-select]")) {
     const on = selected.has(box.dataset.select as string);
     box.checked = on;
     box.disabled = busy;
     box.closest("article")?.toggleAttribute("data-selected", on);
+    box.closest("[role=row]")?.setAttribute("aria-selected", String(on));
   }
   let bar = root.querySelector<HTMLElement>("[data-selection-bar]");
   if (selected.size === 0) {
     bar?.remove();
+    barHeights.get(root)?.disconnect();
+    root.style.removeProperty("--selection-bar");
     return;
   }
   if (bar === null) {
@@ -201,11 +220,29 @@ export function applySelection(
     notices.after(bar);
   }
   fillBar(bar, selected.size, bulk);
+  // The list's sticky head stands under the bar, so it needs the bar's
+  // height, which wraps with the window and the sentence it holds. A
+  // render replaces the bar, so the watch moves to whichever is shown.
+  const say = (shown: Element): void =>
+    root.style.setProperty(
+      "--selection-bar",
+      `${shown.getBoundingClientRect().height}px`,
+    );
+  say(bar);
+  let heights = barHeights.get(root);
+  if (heights === undefined) {
+    heights = new ResizeObserver((entries) => {
+      for (const e of entries) say(e.target);
+    });
+    barHeights.set(root, heights);
+  }
+  heights.disconnect();
+  heights.observe(bar);
 }
 
 const GB = 1024 ** 3;
 
-function el<K extends keyof HTMLElementTagNameMap>(
+export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   attrs: Record<string, string> = {},
   text?: string,
@@ -316,10 +353,16 @@ interface Header {
   box: HTMLElement;
   /** Re-filled on every render: the jump list of sections. */
   jumps: HTMLElement;
-  /** The list's column. Its notices stay; the rest is replaced. */
+  /** The list's column. Its toggle and notices stay; the rest is
+   *  replaced. */
   content: HTMLElement;
+  toggle: HTMLElement;
   notices: HTMLElement;
-  update(model: LibraryModel, actions: LibraryActions): void;
+  update(
+    model: LibraryModel,
+    actions: LibraryActions,
+    view: LibraryViewChoice | undefined,
+  ): void;
 }
 
 /**
@@ -338,6 +381,7 @@ interface Header {
  */
 function createHeader(withStorage: boolean): Header {
   let actions: LibraryActions | null = null;
+  let view: LibraryViewChoice | undefined;
   // Settings' shape (2026-10-08): a column at the left, held in view on a
   // wide window, with the title and a jump list of the sections; the
   // list in the column beside it. The storage trigger
@@ -383,6 +427,32 @@ function createHeader(withStorage: boolean): Header {
   // author answers it — so the notices sit in the page, where they are
   // read without opening anything, and the trigger is one press away.
   const notices = el("div", { "data-notices": "" });
+
+  // List or Grid, at the top of the list column (list spec §1). Built once,
+  // so the button just pressed is still there to hold focus.
+  const toggle = el("div", {
+    class: "layout-toggle",
+    "data-layout-toggle": "",
+  });
+  const layouts: [LibraryLayout, "list" | "layoutGrid", string][] = [
+    ["list", "list", "List"],
+    ["grid", "layoutGrid", "Grid"],
+  ];
+  for (const [layout, glyph, label] of layouts) {
+    const button = el("button", {
+      type: "button",
+      class: "btn btn-quiet btn-icon",
+      "data-layout": layout,
+      "aria-label": label,
+      title: label,
+    });
+    button.append(icon(glyph));
+    button.addEventListener("click", () => {
+      if (view === undefined || view.layout === layout) return;
+      actions?.setView?.({ layout, sort: { ...view.sort } });
+    });
+    toggle.append(button);
+  }
 
   const panel = el("div", {
     id: STORAGE_PANEL,
@@ -487,7 +557,7 @@ function createHeader(withStorage: boolean): Header {
   );
   storage.append(trigger, panel);
   side.append(el("h1", {}, "Flows"), jumps);
-  content.append(notices);
+  content.append(toggle, notices);
   box.append(side, content);
   // The page's top bar carries a slot for it, left of the theme switch
   // (library/index.html). A document without one — a test that mounts the
@@ -500,9 +570,18 @@ function createHeader(withStorage: boolean): Header {
     box,
     jumps,
     content,
+    toggle,
     notices,
-    update(model, next) {
+    update(model, next, nextView) {
       actions = next;
+      view = nextView;
+      toggle.hidden = view === undefined || next.setView === undefined;
+      for (const b of toggle.querySelectorAll("button")) {
+        b.setAttribute(
+          "aria-pressed",
+          String(b.dataset.layout === view?.layout),
+        );
+      }
       if (model.totalBytes === undefined) {
         total.remove();
       } else {
@@ -607,7 +686,13 @@ const headers = new WeakMap<HTMLElement, Header>();
  * two degraded states and a hosted copy each get a glyph and a word. Null
  * when there are none, so the thumbnail carries no empty strip.
  */
-function tags(r: LibraryRow, actions: LibraryActions): HTMLElement | null {
+export function tags(
+  r: LibraryRow,
+  actions: LibraryActions,
+  /** The list leaves Hosted out: nothing sets it since the hosted server
+   *  was retired, and the word will mean paid links (list spec §2.1). */
+  withHosted = true,
+): HTMLElement | null {
   const strip = el("div", { class: "row-tags" });
   // First, and the one tag that is a control: a drift check flagged this
   // take, and the flag is the way to Needs a look — which the popup's
@@ -627,7 +712,7 @@ function tags(r: LibraryRow, actions: LibraryActions): HTMLElement | null {
     look.addEventListener("click", () => openReview(r.sceneId));
     strip.append(look);
   }
-  if (r.hosted) {
+  if (r.hosted && withHosted) {
     strip.append(
       tag("cloud", "Hosted", {
         "data-hosted": "",
@@ -712,7 +797,7 @@ const nameFieldId = (sceneId: string): string => `name-${sceneId}`;
  * name, not the one the row was rendered with — the page re-renders the
  * row once the store answers, and until then this is the truth.
  */
-function nameField(
+export function nameField(
   r: LibraryRow,
   actions: LibraryActions,
   /** A video's card names the video: its own name, and a blank puts it
@@ -802,9 +887,20 @@ function row(
     if (nameWasFocused) return;
     if (target.closest("button, input, a, [data-versions]")) return;
     // While flows are ticked a click on a flow's card ticks it too, as in
-    // a photo library; a take in no flow still opens.
-    if (flowId !== null && article.closest("[data-selecting]") !== null) {
-      actions.select?.(flowId, event.shiftKey, visibleFlows(article));
+    // a photo library, and Cmd or Shift starts a selection as in Finder
+    // (list spec §4.2, both views); a take in no flow still opens.
+    if (
+      flowId !== null &&
+      actions.select !== undefined &&
+      (article.closest("[data-selecting]") !== null ||
+        event.metaKey ||
+        event.shiftKey)
+    ) {
+      actions.select?.(
+        flowId,
+        event.shiftKey ? "range" : "toggle",
+        visibleFlows(article),
+      );
       return;
     }
     if ((window.getSelection()?.toString() ?? "") !== "") return;
@@ -826,12 +922,98 @@ function row(
       // selection in the same turn (`applySelection`). Not cancelled: a
       // cancelled click puts the box's old state back after the handler,
       // over the one just set.
-      actions.select?.(flowId, event.shiftKey, visibleFlows(box));
+      actions.select?.(
+        flowId,
+        event.shiftKey ? "range" : "toggle",
+        visibleFlows(box),
+      );
     });
     preview.append(box);
   }
   article.append(preview);
 
+  const { buttons, rerunLine } = cardButtons(r, actions, group);
+
+  // The name and the actions share one row: the card has no footer, so
+  // every card is the thumbnail and two lines of text, whatever it holds.
+  const text = el("div", { class: "row-text" });
+  const title = el("div", { class: "row-title" });
+  title.append(nameField(r, actions, group), buttons);
+  text.append(title);
+
+  // One line, two sentences in the same place: where and when at rest,
+  // and under the pointer the size — management information, what a
+  // delete or a reclaim would free — which comes with the actions it
+  // informs. Both are always in the DOM, stacked in one grid cell, so the
+  // line keeps its height and a screen reader reads both. Host and start
+  // path together: a developer's takes are mostly on one localhost, and
+  // the path is what tells the checkout flow from the settings page. The
+  // full line is the title, for when it is clipped.
+  // A video's line leads with its repo, when it is known.
+  const where = whereOf({ row: r, group });
+  const line = el("div", { class: "row-line" });
+  // Under a heading that names the day the date would say it twice, so
+  // the line keeps only the time; under a month it keeps both.
+  line.append(
+    el(
+      "p",
+      { class: "row-meta", "data-meta": "", title: where },
+      `${where} · ${namesDay ? r.time : r.when}`,
+    ),
+  );
+  // The size is the storage controls' information; a page that draws none
+  // has no sizes to state. The studio has no controls but states each
+  // folder's size (`sizeBytes`), which is what a delete would free.
+  if (r.sizeBytes !== undefined) {
+    line.append(
+      el("p", { "data-size": "", class: "row-size" }, formatBytes(r.sizeBytes)),
+    );
+  } else if (actions.reclaim !== undefined) {
+    line.append(
+      el(
+        "p",
+        { "data-size": "", class: "row-size" },
+        `${formatBytes(r.frameBytes)} frames · ${formatBytes(r.outputBytes)} renders`,
+      ),
+    );
+  }
+  text.append(line);
+  article.append(text);
+  if (group !== null && group.versions.length > 1) {
+    article.append(versionList(group, actions, rowStatus, versionsOpen));
+  } else if (group !== null) {
+    // One version has no fold to hold its exports: they sit on the card.
+    const files = exportsList(group.versions[0]?.exports);
+    if (files !== null) article.append(files);
+  }
+
+  // Where there is no Runs page, the way to restore motion is a sentence,
+  // not a button.
+  if (rerunLine !== null) {
+    const rerun = el("p", { "data-rerun-line": "", class: "row-rerun" });
+    setCodeText(rerun, rerunLine);
+    article.append(rerun);
+  }
+
+  // The row's own status line is the one surface a delete's three distinct
+  // outcomes (refused / partly deleted / deleted) reach the author through
+  // — see main.ts's `remove` handler for what populates `status`.
+  if (status !== undefined) {
+    article.append(
+      el("p", { "data-status": "", class: "notice notice-error" }, status),
+    );
+  }
+  return article;
+}
+
+/** A card's buttons — Back to the original footage, Restore, Edit, Delete,
+ *  whichever it has — and the sentence that stands where Restore would, or
+ *  null. The list row draws the same set (list.ts). */
+export function cardButtons(
+  r: LibraryRow,
+  actions: LibraryActions,
+  group: VideoGroup | null,
+): { buttons: HTMLElement; rerunLine: string | null } {
   const buttons = el("div", { class: "row-actions" });
   if (r.servesReshoot) {
     const back = el("button", {
@@ -892,78 +1074,7 @@ function row(
       : actions.remove(group.video.id, "video"),
   );
   buttons.append(remove);
-
-  // The name and the actions share one row: the card has no footer, so
-  // every card is the thumbnail and two lines of text, whatever it holds.
-  const text = el("div", { class: "row-text" });
-  const title = el("div", { class: "row-title" });
-  title.append(nameField(r, actions, group), buttons);
-  text.append(title);
-
-  // One line, two sentences in the same place: where and when at rest,
-  // and under the pointer the size — management information, what a
-  // delete or a reclaim would free — which comes with the actions it
-  // informs. Both are always in the DOM, stacked in one grid cell, so the
-  // line keeps its height and a screen reader reads both. Host and start
-  // path together: a developer's takes are mostly on one localhost, and
-  // the path is what tells the checkout flow from the settings page. The
-  // full line is the title, for when it is clipped.
-  // A video's line leads with its repo, when it is known.
-  const repo = group === null ? null : repoLabel(group.video.repo);
-  const where = `${repo === null ? "" : `${repo} · `}${r.origin}${r.path}`;
-  const line = el("div", { class: "row-line" });
-  // Under a heading that names the day the date would say it twice, so
-  // the line keeps only the time; under a month it keeps both.
-  line.append(
-    el(
-      "p",
-      { class: "row-meta", "data-meta": "", title: where },
-      `${where} · ${namesDay ? r.time : r.when}`,
-    ),
-  );
-  // The size is the storage controls' information; a page that draws none
-  // has no sizes to state. The studio has no controls but states each
-  // folder's size (`sizeBytes`), which is what a delete would free.
-  if (r.sizeBytes !== undefined) {
-    line.append(
-      el("p", { "data-size": "", class: "row-size" }, formatBytes(r.sizeBytes)),
-    );
-  } else if (actions.reclaim !== undefined) {
-    line.append(
-      el(
-        "p",
-        { "data-size": "", class: "row-size" },
-        `${formatBytes(r.frameBytes)} frames · ${formatBytes(r.outputBytes)} renders`,
-      ),
-    );
-  }
-  text.append(line);
-  article.append(text);
-  if (group !== null && group.versions.length > 1) {
-    article.append(versionList(group, actions, rowStatus, versionsOpen));
-  } else if (group !== null) {
-    // One version has no fold to hold its exports: they sit on the card.
-    const files = exportsList(group.versions[0]?.exports);
-    if (files !== null) article.append(files);
-  }
-
-  // Where there is no Runs page, the way to restore motion is a sentence,
-  // not a button.
-  if (rerunLine !== null) {
-    const rerun = el("p", { "data-rerun-line": "", class: "row-rerun" });
-    setCodeText(rerun, rerunLine);
-    article.append(rerun);
-  }
-
-  // The row's own status line is the one surface a delete's three distinct
-  // outcomes (refused / partly deleted / deleted) reach the author through
-  // — see main.ts's `remove` handler for what populates `status`.
-  if (status !== undefined) {
-    article.append(
-      el("p", { "data-status": "", class: "notice notice-error" }, status),
-    );
-  }
-  return article;
+  return { buttons, rerunLine };
 }
 
 /**
@@ -1001,34 +1112,11 @@ function versionList(
       el("span", { class: "version-number" }, `Video ${v.version ?? "?"}`),
       el("span", { class: "version-when", title: v.when }, v.when),
     );
-    const buttons = el("div", { class: "row-actions" });
     const line =
       v.expired === true
         ? expiredLine(true, actions.rerunLine?.(v.sceneId, v.authored))
         : null;
-    if (v.expired !== true) {
-      const edit = el("button", {
-        type: "button",
-        "data-action": "edit",
-        class: "btn btn-quiet btn-icon",
-        "aria-label": `Edit video ${v.version ?? ""} of ${group.video.name}`,
-        title: "Edit",
-      });
-      edit.append(icon("clapperboard"));
-      edit.addEventListener("click", () => actions.edit(v.sceneId));
-      buttons.append(edit);
-    }
-    const remove = el("button", {
-      type: "button",
-      "data-action": "delete",
-      class: "btn btn-quiet btn-icon btn-danger",
-      "aria-label": `Delete video ${v.version ?? ""} of ${group.video.name}`,
-      title: "Delete",
-    });
-    remove.append(icon("trash"));
-    remove.addEventListener("click", () => actions.remove(v.sceneId, "take"));
-    buttons.append(remove);
-    head.append(buttons);
+    head.append(versionButtons(v, group, actions, v.expired !== true));
     item.append(head);
     const files = exportsList(v.exports);
     if (files !== null) item.append(files);
@@ -1049,9 +1137,44 @@ function versionList(
   return box;
 }
 
+/** A version's Edit and Delete; Edit only where its footage is here. */
+export function versionButtons(
+  v: LibraryRow,
+  group: VideoGroup,
+  actions: LibraryActions,
+  editable: boolean,
+): HTMLElement {
+  const buttons = el("div", { class: "row-actions" });
+  if (editable) {
+    const edit = el("button", {
+      type: "button",
+      "data-action": "edit",
+      class: "btn btn-quiet btn-icon",
+      "aria-label": `Edit video ${v.version ?? ""} of ${group.video.name}`,
+      title: "Edit",
+    });
+    edit.append(icon("clapperboard"));
+    edit.addEventListener("click", () => actions.edit(v.sceneId));
+    buttons.append(edit);
+  }
+  const remove = el("button", {
+    type: "button",
+    "data-action": "delete",
+    class: "btn btn-quiet btn-icon btn-danger",
+    "aria-label": `Delete video ${v.version ?? ""} of ${group.video.name}`,
+    title: "Delete",
+  });
+  remove.append(icon("trash"));
+  remove.addEventListener("click", () => actions.remove(v.sceneId, "take"));
+  buttons.append(remove);
+  return buttons;
+}
+
 /** A version's exported files: each its name and type, a moved or deleted
  *  one marked gone; or why they could not be read. Null when it has none. */
-function exportsList(exports: LibraryRow["exports"]): HTMLElement | null {
+export function exportsList(
+  exports: LibraryRow["exports"],
+): HTMLElement | null {
   if (exports === undefined) return null;
   if ("unreadable" in exports) {
     return el(
@@ -1084,6 +1207,12 @@ function exportsList(exports: LibraryRow["exports"]): HTMLElement | null {
   return list;
 }
 
+/** Each page's list folds, as the last render knew them (`renderLibrary`). */
+const listFolds = new WeakMap<
+  HTMLElement,
+  { collapsed: ReadonlySet<string>; drawn: ReadonlySet<string> }
+>();
+
 /** The ids of the videos whose versions are open under `root`. */
 const openVersions = (root: HTMLElement): Set<string> =>
   new Set(
@@ -1092,9 +1221,10 @@ const openVersions = (root: HTMLElement): Set<string> =>
       .map((d) => d.getAttribute("data-versions") as string),
   );
 
-/** The name field being edited under `root`, if any, and what it holds. */
+/** The name field being edited under `root`, if any, and what it holds:
+ *  its row, a card's or the list's, as a selector into the next render. */
 function typingName(root: HTMLElement): {
-  sceneId: string;
+  row: string;
   value: string;
   start: number | null;
   end: number | null;
@@ -1104,31 +1234,41 @@ function typingName(root: HTMLElement): {
     return null;
   }
   if (!root.contains(active)) return null;
-  const sceneId = active.closest("[data-row]")?.getAttribute("data-row");
-  if (!sceneId) return null;
+  const card = active.closest("[data-row]")?.getAttribute("data-row");
+  const key = active.closest<HTMLElement>("[data-list] [data-key]")?.dataset
+    .key;
+  const row = card
+    ? `[data-row="${CSS.escape(card)}"]`
+    : key
+      ? `[data-list] [data-key="${CSS.escape(key)}"]`
+      : null;
+  if (row === null) return null;
   return {
-    sceneId,
+    row,
     value: active.value,
     start: active.selectionStart,
     end: active.selectionEnd,
   };
 }
 
-/** Puts a name being typed back into the row's new field after a render. */
+/** Puts a name being typed back into the row's new field after a render,
+ *  opening the list's, which is not always there; whether it did. */
 function restoreTyping(
   root: HTMLElement,
   typing: ReturnType<typeof typingName>,
-): void {
-  if (typing === null) return;
-  const field = root.querySelector<HTMLInputElement>(
-    `[data-row="${CSS.escape(typing.sceneId)}"] [data-name]`,
-  );
-  if (field === null) return;
+): boolean {
+  if (typing === null) return false;
+  const row = root.querySelector<HTMLElement>(typing.row);
+  if (row === null) return false;
+  if (row.querySelector("[data-name]") === null) openRename(row);
+  const field = row.querySelector<HTMLInputElement>("[data-name]");
+  if (field === null) return false;
   field.value = typing.value;
   field.focus();
   if (typing.start !== null && typing.end !== null) {
     field.setSelectionRange(typing.start, typing.end);
   }
+  return true;
 }
 
 /** The id the section's heading carries, which its `aria-labelledby`
@@ -1156,8 +1296,26 @@ function sectionStates(root: HTMLElement): Map<string, boolean> {
 /** The id of the unreadable folders' section, which its jump link names. */
 const UNREADABLE_ID = "unreadable";
 
-/** The id a section's `<details>` carries, which its jump link names. */
-const sectionId = (key: string): string => `when-${key.replace(/:/g, "-")}`;
+/** The id a section's `<details>` carries, which its jump link names; in
+ *  the list, its heading row's. */
+export const sectionId = (key: string): string =>
+  `when-${key.replace(/:/g, "-")}`;
+
+/** What was said of a card: a video's card says what was said of the
+ *  video. What was said of the take it shows is said on that take's
+ *  version row, when the card has them; a card of one version is that
+ *  version's row. */
+const cardStatus = (
+  r: LibraryRow,
+  group: VideoGroup | null,
+  rowStatus: Map<string, string>,
+): string | undefined =>
+  group === null
+    ? rowStatus.get(statusKey("take", r.sceneId))
+    : (rowStatus.get(statusKey("video", group.video.id)) ??
+      (group.versions.length > 1
+        ? undefined
+        : rowStatus.get(statusKey("take", r.sceneId))));
 
 /**
  * The jump list: a link per section, with its count, marked current by
@@ -1185,6 +1343,9 @@ function jumpList(
     link.addEventListener("click", () => {
       const target = document.getElementById(id);
       if (target instanceof HTMLDetailsElement) target.open = true;
+      else if (target?.getAttribute("aria-expanded") === "false") {
+        setExpanded(target, true);
+      }
     });
     list.append(link);
   }
@@ -1253,15 +1414,7 @@ function section(
     const article = row(
       r,
       actions,
-      // A video's card says what was said of the video. What was said of
-      // the take it shows is said on that take's version row, when the
-      // card has them; a card of one version is that version's row.
-      group === null
-        ? rowStatus.get(statusKey("take", r.sceneId))
-        : (rowStatus.get(statusKey("video", group.video.id)) ??
-            (group.versions.length > 1
-              ? undefined
-              : rowStatus.get(statusKey("take", r.sceneId)))),
+      cardStatus(r, group, rowStatus),
       s.namesDay,
       group,
       rowStatus,
@@ -1284,6 +1437,8 @@ function unreadableSection(
   unreadable: NonNullable<LibraryModel["unreadable"]>,
   actions: LibraryActions,
   rowStatus: Map<string, string>,
+  /** Under the list, in its row style (list spec §2.3); else cards. */
+  asRows = false,
 ): HTMLElement {
   const box = el("section", {
     class: "section",
@@ -1297,6 +1452,10 @@ function unreadableSection(
     el("span", { class: "section-count" }, String(unreadable.length)),
   );
   box.append(head);
+  if (asRows) {
+    box.append(unreadableRows(unreadable, actions, rowStatus));
+    return box;
+  }
   const list = el("div", { class: "rows" });
   for (const u of unreadable) {
     const article = el("article", {
@@ -1308,21 +1467,9 @@ function unreadableSection(
     title.append(
       el("p", { class: "row-meta", "data-unreadable-name": "" }, u.folder),
     );
-    // A take folder's Delete removes the folder, a video record's the
-    // record alone; a failed join or expiry has nothing to delete.
     const kind = unreadableKind(u);
-    if (kind !== null) {
-      const remove = el("button", {
-        type: "button",
-        "data-action": "delete",
-        class: "btn btn-quiet btn-icon btn-danger",
-        "aria-label": `Delete ${u.folder}`,
-        title: "Delete",
-      });
-      remove.append(icon("trash"));
-      remove.addEventListener("click", () => actions.remove(u.folder, kind));
-      title.append(remove);
-    }
+    const remove = unreadableDelete(u, actions);
+    if (remove !== null) title.append(remove);
     text.append(
       title,
       el("p", { class: "row-meta", "data-reason": "" }, u.reason),
@@ -1351,6 +1498,77 @@ function unreadableSection(
   return box;
 }
 
+/** A take folder's Delete removes the folder, a video record's the record
+ *  alone; a failed join or expiry has nothing to delete. */
+function unreadableDelete(
+  u: NonNullable<LibraryModel["unreadable"]>[number],
+  actions: LibraryActions,
+): HTMLElement | null {
+  const kind = unreadableKind(u);
+  if (kind === null) return null;
+  const remove = el("button", {
+    type: "button",
+    "data-action": "delete",
+    class: "btn btn-quiet btn-icon btn-danger",
+    "aria-label": `Delete ${u.folder}`,
+    title: "Delete",
+  });
+  remove.append(icon("trash"));
+  remove.addEventListener("click", () => actions.remove(u.folder, kind));
+  return remove;
+}
+
+/** The "Couldn't read" folders in the list's row style: name, the reason
+ *  clipped with its full text as the title, the size, Delete. Not part of
+ *  the treegrid's keys (they are not flows): Delete is a Tab stop, as on
+ *  the card. */
+function unreadableRows(
+  unreadable: NonNullable<LibraryModel["unreadable"]>,
+  actions: LibraryActions,
+  rowStatus: Map<string, string>,
+): HTMLElement {
+  const list = el("div", { class: "unreadable-list" });
+  for (const u of unreadable) {
+    const row = el("div", {
+      class: "unreadable-row",
+      "data-unreadable-row": u.folder,
+    });
+    // Shown at rest, as the card's is: the row's one way out.
+    const actionsCell = el("span", { "data-col": "actions" });
+    const remove = unreadableDelete(u, actions);
+    if (remove !== null) actionsCell.append(remove);
+    row.append(
+      el(
+        "span",
+        { "data-col": "name", "data-unreadable-name": "", title: u.folder },
+        u.folder,
+      ),
+      el(
+        "span",
+        { "data-col": "where", "data-reason": "", title: u.reason },
+        u.reason,
+      ),
+      // Unmeasured is unknown, never "0 B".
+      el(
+        "span",
+        { "data-col": "size", "data-size": "" },
+        u.sizeBytes === undefined ? "—" : formatBytes(u.sizeBytes),
+      ),
+      actionsCell,
+    );
+    const kind = unreadableKind(u);
+    const status =
+      kind === null ? undefined : rowStatus.get(statusKey(kind, u.folder));
+    if (status !== undefined) {
+      const line = el("div", { "data-status": "" });
+      line.append(el("p", { class: "notice notice-error" }, status));
+      row.append(line);
+    }
+    list.append(row);
+  }
+  return list;
+}
+
 export function renderLibrary(
   root: HTMLElement,
   model: LibraryModel,
@@ -1363,6 +1581,8 @@ export function renderLibrary(
   selection?: Selection,
   /** A bulk delete under way, or what the last one left behind. */
   bulk?: { busy: boolean; said: string | null },
+  /** Absent draws cards: only the page passes a view, and it always does. */
+  view?: LibraryViewChoice,
 ): void {
   // A name the author is typing on one card survives a render another
   // card's rename triggers: its text, focus and caret move
@@ -1370,6 +1590,26 @@ export function renderLibrary(
   const typing = typingName(root);
   const wasOpen = sectionStates(root);
   const versionsOpen = openVersions(root);
+  // The list's folds, and which rows it drew: a row it never drew is new
+  // and takes its own default (a past month folded, a flow closed). A row
+  // this draw left out — a heading under a flat sort, every row under
+  // Grid — keeps the fold it last had.
+  const drawn = new Set(
+    [...root.querySelectorAll<HTMLElement>("[data-list] [data-key]")].map(
+      (r) => r.dataset.key as string,
+    ),
+  );
+  const last = listFolds.get(root);
+  const was = {
+    collapsed: new Set([
+      ...[...(last?.collapsed ?? [])].filter((k) => !drawn.has(k)),
+      ...collapsedKeys(root),
+    ]),
+    drawn: new Set([...(last?.drawn ?? []), ...drawn]),
+  };
+  listFolds.set(root, was);
+  // Where the keyboard was in the list, if it was there.
+  const place = placeIn(root.querySelector<HTMLElement>("[data-list]"));
   // Everything but the header is replaced. The header is updated in
   // place and never leaves the page: removing it would close an open
   // storage panel and blur a budget being typed (see `createHeader`).
@@ -1380,13 +1620,13 @@ export function renderLibrary(
     );
     headers.set(root, head);
   }
-  head.update(model, actions);
+  head.update(model, actions, view);
   for (const child of [...root.childNodes]) {
     if (child !== head.box) child.remove();
   }
   if (head.box.parentNode !== root) root.prepend(head.box);
   for (const child of [...head.content.childNodes]) {
-    if (child !== head.notices) child.remove();
+    if (child !== head.notices && child !== head.toggle) child.remove();
   }
   head.jumps.replaceChildren();
   // The list goes in the content column from here on.
@@ -1395,7 +1635,14 @@ export function renderLibrary(
   // After whatever the list drew, on every path out of it.
   const appendUnreadable = (): void => {
     if (unreadable.length > 0) {
-      list.append(unreadableSection(unreadable, actions, rowStatus));
+      list.append(
+        unreadableSection(
+          unreadable,
+          actions,
+          rowStatus,
+          view?.layout === "list",
+        ),
+      );
     }
   };
   if (model.rows.length === 0) {
@@ -1431,6 +1678,28 @@ export function renderLibrary(
   // flat wall of equal cards.
   const articles: (readonly [string, HTMLElement])[] = [];
   const sections = sectionsOf(leads, now);
+  if (view?.layout === "list") {
+    const grid = renderList(list, model, actions, rowStatus, now, view, was);
+    // The list's headings are the cards' sections; a flat sort has none,
+    // and no jump list (list spec §2.3).
+    if (grid.querySelector("[data-heading]") !== null) {
+      head.jumps.append(jumpList(sections, unreadable.length));
+    }
+    appendUnreadable();
+    // After the grid is in the page, as previews are: the measurer waits
+    // for a cell to be visible.
+    for (const row of grid.querySelectorAll<HTMLElement>("[data-scene]")) {
+      actions.measure?.(
+        row.dataset.scene as string,
+        row.querySelector('[data-col="length"]') as HTMLElement,
+      );
+    }
+    // Folds are back already; then a name being typed, else the focus.
+    const typed = restoreTyping(root, typing);
+    applySelection(root, actions, selection, bulk);
+    if (!typed) restorePlace(grid, place);
+    return;
+  }
   head.jumps.append(jumpList(sections, unreadable.length));
   for (const s of sections) {
     const built = section(
