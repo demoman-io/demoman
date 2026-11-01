@@ -481,7 +481,7 @@ describe("videosOp", () => {
     });
   });
 
-  it("a CI-made video says where it was made", async () => {
+  it("a video this library lacks says the commit it filmed", async () => {
     const a = await video("Alpha", "2026-10-01T00:00:00.000Z", {
       unknown: true,
     });
@@ -494,7 +494,7 @@ describe("videosOp", () => {
       ok: true;
       value: { file: { notInVideo: string } };
     };
-    expect(got.value.file.notInVideo).toContain("on CI at commit a1b2c3d");
+    expect(got.value.file.notInVideo).toContain("filmed at commit a1b2c3d");
     expect(got.value.file.notInVideo).not.toContain(sha);
   });
 

@@ -144,7 +144,7 @@ ${start}      - name: Refresh the kept videos
 ${
   o.artifact === true
     ? `      - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${expr("always() && steps.guard.outputs.skip != 'true'")}
         with:
           name: demoman-videos
           path: demoman-out

@@ -322,7 +322,7 @@ export async function videosOp(
       const madeAt =
         tag.found.commit === null
           ? ""
-          : ` — made on another machine or on CI at commit ${tag.found.commit.slice(0, 7)}`;
+          : ` — filmed at commit ${tag.found.commit.slice(0, 7)}`;
       const summary = await summarise(store, library, video);
       const version = (await store.versions(video.id)).find(
         (v) => v.takeId === takeId,

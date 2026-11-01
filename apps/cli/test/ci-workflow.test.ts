@@ -23,7 +23,7 @@ describe("ciWorkflow artifact", () => {
     route: "pr",
     artifact: true,
   });
-  it("artifact adds out-dir and the upload step, always", () => {
+  it("artifact adds out-dir and the upload step, always unless guarded off", () => {
     const refresh = lines(art).find((l) => l.includes(" refresh --deliver"));
     expect(refresh).toContain("--out-dir demoman-out");
     const at = lines(art).findIndex((l) =>
@@ -32,7 +32,11 @@ describe("ciWorkflow artifact", () => {
     // Premise: the step exists and follows the refresh step.
     expect(at).toBeGreaterThan(lines(art).indexOf(refresh ?? ""));
     const step = lines(art).slice(at, at + 5);
-    expect(step).toContain("        if: always()");
+    // Always, so a failed refresh still hands over what it made, but never
+    // on Demoman's own commits, where the refresh step did not run.
+    expect(step).toContain(
+      `        if: ${expr("always() && steps.guard.outputs.skip != 'true'")}`,
+    );
     expect(step).toContain("          name: demoman-videos");
     expect(step).toContain("          path: demoman-out");
   });

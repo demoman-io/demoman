@@ -292,7 +292,7 @@ describe("export tagging", () => {
   );
 
   it(
-    "tags without a commit, and logs it, when filmedCode has none",
+    "tags without a commit and logs nothing when filmedCode is none; a malformed one is logged",
     async () => {
       const log: string[] = [];
       const { tags, answer } = await tagWith(
@@ -303,9 +303,14 @@ describe("export tagging", () => {
       expect(tags).toEqual([
         { flow: "flow-1", video: take.takeId, commit: null, dirty: null },
       ]);
-      expect(log.join("\n")).toContain(take.takeId);
-      expect(log.join("\n")).toContain("filmedCode");
+      // Filmed outside a checkout is a known, normal state, as the studio has it.
+      expect(log.join("\n")).not.toContain("filmedCode");
+      // Positive control: the same export with a filmedCode of no known shape.
+      const odd: string[] = [];
+      await tagWith(JSON.stringify({ filmedCode: { x: 1 } }), odd);
+      expect(odd.join("\n")).toContain(take.takeId);
+      expect(odd.join("\n")).toContain("no usable filmedCode");
     },
-    EXPORT_MS,
+    2 * EXPORT_MS,
   );
 });

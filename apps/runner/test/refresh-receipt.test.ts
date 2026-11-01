@@ -528,7 +528,7 @@ describe("the files route", () => {
     expect(existsSync(join(out, BARE))).toBe(false);
     expect((await listIn()).videos[0]).toMatchObject({
       outcome: "unchanged",
-      sameAs: { video: "t1", commit: FILMED },
+      sameAs: { video: "t1", commit: FILMED, dirty: false },
       files: [],
     });
   });
@@ -596,7 +596,9 @@ describe("the files route", () => {
     const by = (f: string) => videos.find((v) => v.file === f);
     expect(by(otherFile)).toMatchObject({
       outcome: "failed",
-      detail: "deliver files needs --out-dir",
+      detail: expect.stringMatching(
+        /^deliver files needs --out-dir .*setup --ci --artifact/,
+      ),
     });
     expect(by(FILE)?.outcome, JSON.stringify(videos)).toBe("uncompared");
     // Premise: only the commit flow was filmed.

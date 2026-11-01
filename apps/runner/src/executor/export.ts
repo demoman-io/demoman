@@ -353,6 +353,8 @@ async function taggerFor(takeId: string, deps: ExportDeps) {
         const c = code as { commit: unknown; dirty: unknown };
         tag.commit = typeof c.commit === "string" ? c.commit : null;
         tag.dirty = typeof c.dirty === "boolean" ? c.dirty : null;
+      } else if (code && typeof code === "object" && "none" in code) {
+        // Filmed outside a checkout: a known, normal state, said nowhere.
       } else if ("unreadable" in report) {
         noCommit = `the video's run report would not read (${report.unreadable})`;
       } else if ("missing" in report) {

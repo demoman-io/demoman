@@ -133,7 +133,7 @@ async function film(name: string, on: string): Promise<void> {
 }
 
 it(
-  "keeps a video and refreshes it from the packed install: unchanged, replaced, failed",
+  "keeps a video and refreshes it from the packed install: unchanged, changed, failed",
   async () => {
     await film(NAME, "Place order");
 
@@ -148,7 +148,7 @@ it(
     expect(same.stdout, said(same)).toContain(`${NAME}: unchanged`);
     expect((await kept()).equals(original), said(same)).toBe(true);
 
-    // Replaced: the heading differs (premise), and the new file shows it.
+    // Changed: the heading differs (premise), and the new file shows it.
     html = ORIGINAL.replace(HEADING, NEW_HEADING);
     expect(ORIGINAL.split(HEADING).length, "the fixture has one heading").toBe(
       2,
@@ -158,14 +158,14 @@ it(
     const before = await magentaMost(original);
     expect(before, "the old film has no magenta heading").toBeLessThan(20);
     const changed = await cli("refresh");
-    console.info(`[refresh] replaced: ${changed.stdout.trim()}`);
+    console.info(`[refresh] changed: ${changed.stdout.trim()}`);
     expect(changed.code, said(changed)).toBe(0);
     expect(changed.stdout, said(changed)).toContain(`${NAME}: changed`);
-    const replaced = await kept();
-    expect(replaced.equals(original), said(changed)).toBe(false);
+    const changedFilm = await kept();
+    expect(changedFilm.equals(original), said(changed)).toBe(false);
     expect(
-      await magentaMost(replaced),
-      "the replaced film does not show the new heading",
+      await magentaMost(changedFilm),
+      "the changed film does not show the new heading",
     ).toBeGreaterThan(100);
 
     // Failed: a target the script clicks is gone; the file stays byte for byte.
@@ -177,7 +177,7 @@ it(
     console.info(`[refresh] failed: ${broken.stdout.trim()}`);
     expect(broken.code, said(broken)).toBe(1);
     expect(broken.stdout, said(broken)).toContain(`${NAME}: failed`);
-    expect((await kept()).equals(replaced), said(broken)).toBe(true);
+    expect((await kept()).equals(changedFilm), said(broken)).toBe(true);
   },
   STEP_MS * 5,
 );

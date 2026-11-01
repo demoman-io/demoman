@@ -29,12 +29,32 @@ describe("refreshListOf", () => {
           sameAs: { video: "t-old" },
           filmedCode: { none: "x" },
         },
+        {
+          ...base,
+          outcome: "unchanged",
+          sameAs: { video: "t-old" },
+          filmedCode: { ...base.filmedCode, dirty: true },
+        },
       ],
     };
     const l = refreshListOf(src);
-    expect(l.videos[0]?.sameAs).toEqual({ video: "t-old", commit: COMMIT });
+    expect(l.videos[0]?.sameAs).toEqual({
+      video: "t-old",
+      commit: COMMIT,
+      dirty: false,
+    });
     // `{ none }` has no commit to name: null, never a guess.
-    expect(l.videos[1]?.sameAs).toEqual({ video: "t-old", commit: null });
+    expect(l.videos[1]?.sameAs).toEqual({
+      video: "t-old",
+      commit: null,
+      dirty: null,
+    });
+    // A dirty film's commit is not that commit's tree: it says so.
+    expect(l.videos[2]?.sameAs).toEqual({
+      video: "t-old",
+      commit: COMMIT,
+      dirty: true,
+    });
     expect(JSON.parse(serializeRefreshList(l)).refreshVersion).toBe(1);
   });
 

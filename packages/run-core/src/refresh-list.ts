@@ -19,9 +19,15 @@ export type RefreshListEntry = {
   /** Why it failed, or what the comparison found. */
   detail: string;
   /** The film the committed (or previously delivered) judged output is: the
-   *  receipt's video, and the commit this run filmed. */
-  sameAs: { video: string; commit: string | null } | null;
-  /** What this run wrote, relative to the folder the list is in. */
+   *  receipt's video, and the commit this run filmed and whether its tree
+   *  was dirty (null with no commit). */
+  sameAs: {
+    video: string;
+    commit: string | null;
+    dirty: boolean | null;
+  } | null;
+  /** What this run wrote: a `files` flow's names, relative to the folder
+   *  the list is in; a `commit` flow's repo paths. */
   files: Array<{
     path: string;
     fileType: "mp4" | "gif" | "json";
@@ -63,10 +69,9 @@ export function refreshListOf(result: RefreshListSource): RefreshList {
           ? null
           : {
               video: v.sameAs.video,
-              commit:
-                v.filmedCode !== null && "commit" in v.filmedCode
-                  ? v.filmedCode.commit
-                  : null,
+              ...(v.filmedCode !== null && "commit" in v.filmedCode
+                ? { commit: v.filmedCode.commit, dirty: v.filmedCode.dirty }
+                : { commit: null, dirty: null }),
             },
       files: v.files,
       report: v.report,

@@ -241,7 +241,10 @@ export async function refreshKept(
     }
     const toFolder = kept.deliver === "files";
     if (toFolder && args.outDir === undefined) {
-      failed(who, "deliver files needs --out-dir");
+      failed(
+        who,
+        "deliver files needs --out-dir (the workflow that `npx demoman setup --ci --artifact` writes passes one)",
+      );
       continue;
     }
     const to = toFolder ? resolve(args.outDir as string) : root;

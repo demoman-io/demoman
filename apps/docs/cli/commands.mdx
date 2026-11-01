@@ -76,8 +76,9 @@ npx demoman keep <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--repo
 
 Keeps a flow current. Run it in the repo, naming one of its flows by id or
 exact name. It writes `.demoman/videos/<name>.json`, everything a re-film
-needs, and exports its current video to each path. Commit both. A refresh
-writes what it compared against to `.demoman/receipts/<name>.json`. A logo from outside
+needs, exports its current video to each path, and writes what those files
+show to `.demoman/receipts/<name>.json`, which a refresh compares against.
+Commit all three. A logo from outside
 the repo is copied to `.demoman/videos/logos/`.
 
 It refuses, writing nothing, a flow whose current video has Studio edits
@@ -113,7 +114,7 @@ file lacks.
 | `--base-url <origin>` | Film the app at this origin instead of the one each video was recorded at, such as a preview deployment |
 | `--deliver pr\|main` | After refreshing, commit only the replaced files: `main` pushes one `Refresh demo videos` commit to the checked-out branch; `pr` force-pushes it to `demoman/refresh` and opens or updates one pull request (the workflow's `GITHUB_TOKEN` needs "Allow GitHub Actions to create and approve pull requests"). Exits 1 if delivery fails |
 | `--out-dir <folder>` | Write the flows kept with `--deliver files` into this folder, with their receipts and `demoman-refresh.json`, which lists what each flow made. Nothing is committed. A `files` flow fails without it, and the others still refresh |
-| `--previous <folder>` | The folder an earlier `--out-dir` was kept in: a `files` flow is compared with the receipt and film there, and is `unchanged` when the picture matches |
+| `--previous <folder>` | A copy of everything earlier `--out-dir` runs delivered, kept whole (such as your bucket synced back down): a `files` flow is compared with the receipt and film there, and is `unchanged` when the picture matches. One earlier run's folder alone is not enough, since an `unchanged` or `added` run writes no receipt into `--out-dir` |
 
 ## join-flow
 

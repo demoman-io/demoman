@@ -14,9 +14,10 @@ In the repo, with a flow your agent filmed:
 npx demoman keep "Add a task" --to docs/add-task.mp4
 ```
 
-This writes `.demoman/videos/<name>.json`, everything a re-film needs, and
-exports its current video to each `--to` path. Commit both. `--gif` adds a GIF.
-A refresh keeps what it compared against in `.demoman/receipts/<name>.json`.
+This writes `.demoman/videos/<name>.json`, everything a re-film needs,
+exports its current video to each `--to` path, and writes what those files
+show to `.demoman/receipts/<name>.json`, which a refresh compares against.
+Commit all three. `--gif` adds a GIF.
 A repo kept by an older Demoman is still read.
 
 The flow's id is in the file, so every machine that clones the repo shares it.
@@ -95,8 +96,11 @@ With `--deliver files`, keep writes only the file in `.demoman/videos/`, and a
 nothing is committed. Upload the folder with your own step, such as
 `aws s3 sync demoman-out s3://bucket/`, or
 `aws s3 sync demoman-out s3://bucket/ --endpoint-url $R2_ENDPOINT` for R2.
-To compare with the last run, give `--previous` the folder it was kept in; with
-none, every video reads `uncompared`. A `files` flow refreshed without
+To compare with what was delivered before, give `--previous` a copy of
+everything earlier runs delivered, kept whole, such as your bucket synced back
+down: an `unchanged` or `added` run writes no receipt into `--out-dir`, so one
+earlier run's folder alone is not enough. With none, every video reads
+`uncompared`. A `files` flow refreshed without
 `--out-dir` fails, and the others still refresh.
 
 ## Run it on every merge

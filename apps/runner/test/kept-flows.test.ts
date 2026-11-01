@@ -8,7 +8,9 @@ import {
   serializeKept,
 } from "@demoman/run-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { renameKept } from "../src/executor/keep.js";
 import { findKept, readKeptFlows } from "../src/executor/kept-flows.js";
+import type { VideoStore } from "../src/executor/videos.js";
 
 const FLOW_ID = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
 const NAME = "Place an order";
@@ -74,5 +76,20 @@ describe("readKeptFlows", () => {
     await rm(join(root, KEPT_DIR), { recursive: true });
     expect(await readKeptFlows(root)).toEqual({ entries: [], duplicates: [] });
     expect(await findKept(root, FLOW_ID)).toBeNull();
+  });
+});
+
+describe("renameKept", () => {
+  it("refuses a record's file outside the repo before reading it", async () => {
+    const outside = `../${keptFileName("Elsewhere")}`;
+    const out = await renameKept(
+      { root, file: outside, name: "Anything" },
+      { videos: {} as VideoStore },
+    );
+    expect(out).toEqual({
+      ok: false,
+      reason: "keptUnwritable",
+      detail: expect.stringContaining(`${outside} is not inside the repo`),
+    });
   });
 });

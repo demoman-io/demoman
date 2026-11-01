@@ -888,6 +888,13 @@ export async function renameKept(
     detail: string,
   ): RenameKeptAnswer => ({ ok: false, reason, detail });
   const root = resolve(a.root);
+  const rootReal = await realpath(root);
+  // The record's file is checked before it is read: a link out of the repo
+  // is neither read nor renamed.
+  const own = await repoPath(root, rootReal, a.file, "keep");
+  if (typeof own !== "string") {
+    return refuse("keptUnwritable", `${own.outside}, so nothing was renamed`);
+  }
   let text: string;
   try {
     text = await readFile(join(root, a.file), "utf8");
@@ -932,8 +939,7 @@ export async function renameKept(
   const oldReceipt = `${RECEIPT_DIR}/${basename(a.file)}`;
   const receipt = `${RECEIPT_DIR}/${keptFileName(a.name)}`;
   const moves = file !== a.file;
-  const rootReal = await realpath(root);
-  for (const p of [a.file, file, oldReceipt, receipt]) {
+  for (const p of [file, oldReceipt, receipt]) {
     const inside = await repoPath(root, rootReal, p, "keep");
     if (typeof inside !== "string") {
       return refuse(
