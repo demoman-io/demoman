@@ -74,6 +74,23 @@ describe("removeLines", () => {
     ]);
   });
 
+  // Red if markNote is dropped: an uncleared library mark is said nowhere else.
+  it("says when the library's mark could not be cleared", () => {
+    expect(
+      removeLines({
+        ok: true,
+        name: "A",
+        removed: [".demoman/flows/a.json"],
+        exportsLeft: [],
+        markNote: 'the library still marks "A" as in the repo (x)',
+      }),
+    ).toEqual([
+      'Removed "A" from the repo: .demoman/flows/a.json.',
+      'the library still marks "A" as in the repo (x)',
+      "Commit the change.",
+    ]);
+  });
+
   it("leaves out the exports line when there are none", () => {
     expect(
       removeLines({

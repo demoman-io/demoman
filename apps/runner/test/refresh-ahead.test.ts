@@ -126,13 +126,13 @@ describe("a refresh says when the library is ahead of the file", () => {
     current.revision = "r2";
     const [line, ...rest] = (await notes("local")) ?? [];
     expect(line).toContain(`not in ${FILE}`);
-    expect(line).toContain(`run \`demoman keep ${NAME}\` again to take them`);
+    expect(line).toContain(`run \`demoman add ${NAME}\` again to take them`);
     expect(line).not.toContain("refuse");
     expect(rest).toEqual([]);
   });
   it("says so for a newer take", async () => {
     current.takeId = "t2";
-    expect((await notes("local"))?.[0]).toContain("demoman keep");
+    expect((await notes("local"))?.[0]).toContain("demoman add");
   });
   it("names a mask keep would refuse", async () => {
     current.revision = "r2";
@@ -229,7 +229,7 @@ describe("one file name in both folders, as two flows", () => {
     for (const v of videos) {
       expect(v.outcome).toBe("failed");
       expect(v.detail).toBe(
-        `${twin} and ${FILE} are two recipes for one name — delete the old one, ${FILE}, then refresh again`,
+        `${twin} and ${FILE} are two different flows with one file name — rename one of the two flows, then refresh again`,
       );
     }
   });
@@ -322,17 +322,15 @@ describe("libraryAhead, given the receipt", () => {
   });
   it("says to keep again when the receipt's revision is older", async () => {
     current.revision = "r2";
-    expect(await ahead(receipt)).toContain(
-      `run \`demoman keep ${NAME}\` again`,
-    );
+    expect(await ahead(receipt)).toContain(`run \`demoman add ${NAME}\` again`);
   });
   it("says to keep again when the receipt's video is older", async () => {
     current.takeId = "t2";
-    expect(await ahead(receipt)).toContain("demoman keep");
+    expect(await ahead(receipt)).toContain("demoman add");
   });
   it("with no receipt, says there is none to compare when the library holds the flow", async () => {
     expect(await ahead(null)).toBe(
-      `${FILE} has no receipt to compare the library with; run \`demoman keep ${NAME}\` again`,
+      `${FILE} has no receipt to compare the library with; run \`demoman add ${NAME}\` again`,
     );
   });
   it("with no receipt, says nothing when the library has no such flow", async () => {

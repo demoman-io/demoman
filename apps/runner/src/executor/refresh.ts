@@ -236,7 +236,7 @@ export async function refreshKept(
       failed(
         who,
         dup.sameName === true
-          ? `${dup.files.join(" and ")} are two recipes for one name — delete the old one, ${dup.files[1]}, then refresh again`
+          ? `${dup.files.join(" and ")} are two different flows with one file name — rename one of the two flows, then refresh again`
           : `${dup.files.join(" and ")} both name the flow ${dup.flow} — delete one of them, then refresh again`,
       );
       continue;

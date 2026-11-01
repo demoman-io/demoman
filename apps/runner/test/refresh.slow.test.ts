@@ -959,7 +959,7 @@ describe("refresh", () => {
         const r = await refresh([A]);
         const v = r.videos.find((x) => x.file.endsWith("no-screens.json"));
         expect(v?.outcome, JSON.stringify(r)).toBe("failed");
-        expect(v?.detail).toContain("demoman keep No screens");
+        expect(v?.detail).toContain("demoman add No screens");
         expect(v?.outputs).toEqual([]);
       } finally {
         await rm(kf, { force: true });

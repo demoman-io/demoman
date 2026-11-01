@@ -427,7 +427,14 @@ async function remove(args: string[]): Promise<void> {
     );
     process.exit(1);
   }
-  const answer = await removeRepoFlow({ root: repo.repo.root, flow });
+  const home = demomanHome();
+  const videos = createVideoStore(home, createLibrary(home), {
+    log: (line) => process.stderr.write(`demoman remove: ${line}\n`),
+  });
+  const answer = await removeRepoFlow(
+    { root: repo.repo.root, flow },
+    { videos },
+  );
   const lines = removeLines(answer).join("\n");
   if (!answer.ok) {
     process.stderr.write(`demoman remove: ${lines}\n`);

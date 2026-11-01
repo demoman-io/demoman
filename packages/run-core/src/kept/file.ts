@@ -196,7 +196,7 @@ export function parseKept(text: string, file: string): Parsed {
   if (v1) {
     if (!isObj(raw.screens))
       return bad(
-        `${raw.name} has no screens — it was kept before they were recorded; run \`demoman keep ${raw.name}\` again to record them`,
+        `${raw.name} has no screens — it was kept before they were recorded; run \`demoman add ${raw.name}\` again to record them`,
       );
     const sc = parseScreens(raw.screens, "screens");
     if (!sc.ok) return bad(sc.detail);

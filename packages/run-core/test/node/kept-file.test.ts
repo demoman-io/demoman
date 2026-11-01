@@ -230,11 +230,11 @@ describe("the kept file", () => {
     expect(keptFileName("add a task")).toBe("add-task.json");
   });
 
-  it("refuses a file without screens, naming the video and demoman keep", () => {
+  it("refuses a file without screens, naming the video and demoman add", () => {
     const { screens: _s, ...rest } = v1;
     const d = refusal(JSON.stringify(rest));
     expect(d).toContain("screens");
-    expect(d).toContain("`demoman keep Add a task`");
+    expect(d).toContain("`demoman add Add a task`");
     expect(d).toContain("Add a task");
   });
 

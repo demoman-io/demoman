@@ -253,4 +253,47 @@ describe("removeRepoFlow", () => {
       await chmod(join(root, ".demoman/receipts"), 0o755);
     }
   });
+
+  it("clears the library's mark when it names the removed recipe", async () => {
+    const marks = new Map<string, { root: string; file: string } | null>([
+      [FLOW_ID, { root, file: FILE }],
+    ]);
+    const videos = {
+      get: async (id: string) => ({ id, kept: marks.get(id) ?? undefined }),
+      setKept: async (id: string, k: { root: string; file: string } | null) => {
+        marks.set(id, k);
+        return { ok: true as const };
+      },
+    } as unknown as VideoStore;
+    const out = await removeRepoFlow({ root, flow: NAME }, { videos });
+    expect(out).toMatchObject({ ok: true, removed: [FILE] });
+    expect(marks.get(FLOW_ID)).toBeNull();
+  });
+
+  it("a mark that cannot be cleared is said, not forgiven", async () => {
+    const videos = {
+      get: async (id: string) => ({ id, kept: { root, file: FILE } }),
+      setKept: async () => ({ ok: false as const, reason: "locked" }),
+    } as unknown as VideoStore;
+    const out = await removeRepoFlow({ root, flow: NAME }, { videos });
+    expect(out).toMatchObject({
+      ok: true,
+      markNote: `the library still marks "${NAME}" as in the repo (locked); the Studio shows it In repo until it is cleared`,
+    });
+  });
+
+  it("a receipt whose presence cannot be told removes nothing", async () => {
+    await mkdir(join(root, ".demoman/receipts"), { recursive: true });
+    await writeFile(join(root, RECEIPT), "{}");
+    await chmod(join(root, ".demoman/receipts"), 0o000);
+    try {
+      const out = await removeRepoFlow({ root, flow: NAME });
+      expect(out).toMatchObject({ ok: false, reason: "repoFlowUnwritable" });
+      expect(!out.ok && out.detail).toContain(`whether ${RECEIPT} is there`);
+      expect(!out.ok && out.detail).toContain("nothing was removed");
+      expect(await has(FILE)).toBe(true);
+    } finally {
+      await chmod(join(root, ".demoman/receipts"), 0o755);
+    }
+  });
 });

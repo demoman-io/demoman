@@ -1,5 +1,6 @@
 import {
   chmod,
+  copyFile,
   mkdir,
   mkdtemp,
   readdir,
@@ -352,7 +353,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
   /** "Move me" added as a files flow, then its recipe put back in the old
    *  folder, as a repo added before `demoman add` holds it. */
   const keptInOldFolder = async (takeId: string, name: string) => {
-    await freshVideo(takeId, name);
+    const id = await freshVideo(takeId, name);
     const args = {
       video: name,
       to: [gif(`${takeId}.gif`)],
@@ -364,11 +365,15 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     const legacy = `.demoman/videos/${keptFileName(name)}`;
     await mkdir(join(repo, ".demoman/videos"), { recursive: true });
     await rename(join(repo, first.file), join(repo, legacy));
+    // As 0.8.1 left it: the library marks the old file.
+    expect((await videos.setKept(id, { root: repo, file: legacy })).ok).toBe(
+      true,
+    );
     // Premise: the recipe is in the old folder only.
     const files = await repoFiles();
     expect(files).toContain(legacy);
     expect(files).not.toContain(first.file);
-    return { args, legacy, file: first.file };
+    return { id, args, legacy, file: first.file };
   };
 
   it("adds a new flow to .demoman/flows/, and nothing to .demoman/videos/", async () => {
@@ -390,6 +395,33 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     ).toEqual([]);
   });
 
+  it("a run re-points a library mark left on a file moved elsewhere", async () => {
+    const { id, legacy, file } = await keptInOldFolder(
+      "scene-move-3",
+      "Moved elsewhere",
+    );
+    // A teammate's add moved it; this library still marks the old file.
+    await rename(join(repo, legacy), join(repo, file));
+    expect((await videos.get(id))?.kept?.file).toBe(legacy);
+    const answer = await rewriteKept(repo, id, deps());
+    expect(answer, JSON.stringify(answer)).toEqual({ rewritten: file });
+    expect((await videos.get(id))?.kept).toEqual({ root: repo, file });
+  });
+
+  it("a run rewrites neither of two files naming its flow", async () => {
+    const { id, legacy, file } = await keptInOldFolder(
+      "scene-move-4",
+      "Two copies",
+    );
+    await copyFile(join(repo, legacy), join(repo, file));
+    const before = await readFile(join(repo, file), "utf8");
+    const answer = await rewriteKept(repo, id, deps());
+    expect(answer).toEqual({
+      refused: `${file} and ${legacy} both name this flow — delete one of them; neither was rewritten`,
+    });
+    expect(await readFile(join(repo, file), "utf8")).toBe(before);
+  });
+
   it("adding a flow kept in .demoman/videos/ moves it", async () => {
     const { args, legacy, file } = await keptInOldFolder(
       "scene-move-1",
@@ -405,7 +437,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
   });
 
   it("a move whose old file cannot be removed is not a success", async () => {
-    const { args, legacy, file } = await keptInOldFolder(
+    const { id, args, legacy, file } = await keptInOldFolder(
       "scene-move-2",
       "Move me too",
     );
@@ -416,6 +448,9 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       if (out.ok) return;
       expect(out.detail).toContain(`wrote ${file}`);
       expect(out.detail).toContain(`delete ${legacy}`);
+      // The new file is the flow's recipe either way: the library follows it,
+      // so deleting the old one as told leaves nothing pointing at it.
+      expect((await videos.get(id))?.kept).toEqual({ root: repo, file });
     } finally {
       await chmod(join(repo, ".demoman/videos"), 0o755);
     }

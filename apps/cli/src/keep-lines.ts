@@ -25,6 +25,7 @@ export function removeLines(answer: RemoveAnswer): string[] {
     ...(answer.exportsLeft.length > 0
       ? [`Its exports stay: ${answer.exportsLeft.join(", ")}.`]
       : []),
+    ...(answer.markNote === undefined ? [] : [answer.markNote]),
     "Commit the change.",
   ];
 }
