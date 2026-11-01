@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  symlink,
   utimes,
   writeFile,
 } from "node:fs/promises";
@@ -533,6 +534,57 @@ describe("the files route", () => {
       sameAs: { video: "t1", commit: FILMED, dirty: false },
       files: [],
     });
+  });
+
+  it("with --previous the same folder as --out-dir, an unchanged flow's receipt and video stay in it", async () => {
+    await writeV2(filesRecipe(), null);
+    await writeFile(join(out, BARE), "delivered film");
+    await writeFile(join(out, RECEIPT_NAME), serializeReceipt(receipt()));
+    const [v] = await refreshInto({ previous: out });
+    expect(v?.outcome, JSON.stringify(v)).toBe("unchanged");
+    // Premise: the comparison read the receipt in that folder.
+    expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
+    // The next run, downloading this folder, compares with the same receipt.
+    expect(await readFile(join(out, BARE), "utf8")).toBe("delivered film");
+    expect(
+      parseReceipt(
+        await readFile(join(out, RECEIPT_NAME), "utf8"),
+        RECEIPT_NAME,
+      ),
+    ).toMatchObject({ ok: true, receipt: { video: "t1" } });
+  });
+
+  it("with --previous the same folder as --out-dir, a changed flow replaces its receipt and video there", async () => {
+    same = false;
+    await writeV2(filesRecipe(), null);
+    await writeFile(join(out, BARE), "delivered film");
+    await writeFile(join(out, RECEIPT_NAME), serializeReceipt(receipt()));
+    const [v] = await refreshInto({ previous: out });
+    expect(v?.outcome, JSON.stringify(v)).toBe("changed");
+    expect(await readFile(join(out, BARE), "utf8")).toBe("new mp4");
+    expect(
+      parseReceipt(
+        await readFile(join(out, RECEIPT_NAME), "utf8"),
+        RECEIPT_NAME,
+      ),
+    ).toMatchObject({ ok: true, receipt: { video: "t-new" } });
+  });
+
+  it("a files flow whose logo folder links out of the checkout fails before filming", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "demoman-logo-out-"));
+    try {
+      await writeFile(join(outside, "logo.png"), "a logo");
+      await symlink(outside, join(repo, "brand"));
+      await writeV2({ ...filesRecipe(), logo: "brand/logo.png" }, null);
+      // Premise: the logo is readable through the link, so only containment refuses it.
+      expect(existsSync(join(repo, "brand/logo.png"))).toBe(true);
+      const [v] = await refreshInto();
+      expect(v?.outcome, JSON.stringify(v)).toBe("failed");
+      expect(v?.detail).toContain("brand/logo.png is not inside the repo");
+      expect(runs).toEqual([]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   it("a previous receipt for another flow fails, naming both", async () => {

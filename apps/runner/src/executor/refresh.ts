@@ -284,16 +284,19 @@ export async function refreshKept(
       ? `${n.replace(/\.json$/, "")}.receipt.json`
       : `${RECEIPT_DIR}/${n}`;
     const outside: string[] = [];
-    // A files flow's names are bare (the parser holds them to it).
-    for (const p of toFolder
-      ? []
-      : [
-          ...kept.outputs.map((o) => o.path),
-          ...(kept.report === null ? [] : [kept.report]),
-          ...(kept.logo === null ? [] : [kept.logo]),
-          ...(kept.wallpaper === null ? [] : [kept.wallpaper]),
-          receiptFile,
-        ]) {
+    // A files flow's outputs, report and receipt are bare names (the parser
+    // holds them to it); its logo and wallpaper are repo paths, read here.
+    for (const p of [
+      ...(toFolder
+        ? []
+        : [
+            ...kept.outputs.map((o) => o.path),
+            ...(kept.report === null ? [] : [kept.report]),
+            receiptFile,
+          ]),
+      ...(kept.logo === null ? [] : [kept.logo]),
+      ...(kept.wallpaper === null ? [] : [kept.wallpaper]),
+    ]) {
       const at = await repoPath(root, rootReal, p, "refresh");
       if (typeof at !== "string") outside.push(at.outside);
     }
