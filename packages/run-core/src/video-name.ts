@@ -16,7 +16,7 @@ const STOP_WORDS = new Set([
   "with",
 ]);
 
-const singular = (w: string) =>
+export const singular = (w: string) =>
   w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w;
 
 /** Lower-cased words, punctuation and the "—" separator dropped, stop words dropped, singularised. */

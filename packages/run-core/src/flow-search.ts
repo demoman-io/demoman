@@ -1,14 +1,11 @@
 // One phrase matcher for the agent's flows({ query }) and the Studio's search box.
-import { nameWords } from "./video-name.js";
+import { nameWords, singular } from "./video-name.js";
 
 export interface FlowText {
   name: string;
   pages: readonly string[];
   steps: readonly string[];
 }
-
-const singular = (w: string) =>
-  w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w;
 
 /** The phrase's whole words, plus (while typing, no space after it) the last word as a prefix. */
 function parse(
