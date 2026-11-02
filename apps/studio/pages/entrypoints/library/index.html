@@ -1128,15 +1128,36 @@
         .library-list [data-col="open"] .chev,
         .library-list .row-actions { transition: none; }
       }
+      /* Under a 760px list the box holds no track and the gaps narrow, so
+         the chevron starts at the list's left edge (the tab row's) and the
+         name follows it closely: 96px of a 560px list was all box, chevron
+         and gaps, and the rows read shifted right of the tab row. The box
+         hangs in the margin left of the chevron, the width its track had,
+         and shows by the same rules; the placements below are the wide
+         ones a track to the left. */
       @container library (max-width: 759px) {
         :is(.library-list, .unreadable-list) {
+          --gap: 12px;
           grid-template-columns:
-            28px 20px minmax(140px, 3fr) minmax(0, 2fr)
+            20px minmax(140px, 3fr) minmax(0, 2fr)
             56px 64px var(--recorded);
         }
+        .library-list > [role="row"] > [data-col="select"] {
+          position: absolute;
+          top: 0;
+          right: 100%;
+          width: 28px;
+          height: calc(var(--list-row) - 1px);
+        }
+        .library-list > [data-heading] > [data-col="open"] { grid-column: 1; }
+        .library-list > [data-heading] > [data-col="name"] {
+          padding-left: calc(20px + var(--gap));
+        }
+        .library-list > [data-heading] > [data-col="where"] { grid-column: 3; }
+        .library-list > [data-heading] > [data-col="videos"] { grid-column: 4; }
+        .library-list > [data-heading] > [data-col="length"] { grid-column: 5; }
+        .library-list > [role="row"] > [data-status] { grid-column: 2 / -1; }
         :is(.library-list, .unreadable-list) [data-col="size"] { display: none; }
-        /* The reason runs on to Recorded, the size it stood beside gone. */
-        .unreadable-list > .unreadable-row > [data-col="where"] { grid-column: 4 / -2; }
       }
       /* Where the name column narrows, the why takes Where's place, as on
          a card, and runs on to Recorded over Videos and Length, as the
@@ -1148,7 +1169,7 @@
         }
         .library-list [data-col="where"] > .match-why { display: inline; }
         .library-list > [role="row"]:has(> [data-col="where"] > .match-why) > [data-col="where"] {
-          grid-column: 4 / -2;
+          grid-column: 3 / -2;
         }
         .library-list
           > [role="row"]:has(> [data-col="where"] > .match-why)
@@ -1159,7 +1180,7 @@
       @container library (max-width: 639px) {
         :is(.library-list, .unreadable-list) {
           grid-template-columns:
-            28px 20px minmax(120px, 3fr) minmax(0, 2fr)
+            20px minmax(120px, 3fr) minmax(0, 2fr)
             56px var(--recorded);
         }
         .library-list [data-col="length"] { display: none; }
@@ -1167,7 +1188,7 @@
       @container library (max-width: 559px) {
         :is(.library-list, .unreadable-list) {
           grid-template-columns:
-            28px 20px minmax(120px, 3fr) minmax(0, 2fr)
+            20px minmax(120px, 3fr) minmax(0, 2fr)
             var(--recorded);
         }
         .library-list [data-col="videos"] { display: none; }
@@ -1208,6 +1229,14 @@
         white-space: normal;
       }
       .unreadable-list > .unreadable-row > [data-status] > p { margin: 0; }
+      /* Under a 760px list, the same a track to the left (above), after
+         the rules it overrides; the reason runs on to Recorded, the size it
+         stood beside gone. */
+      @container library (max-width: 759px) {
+        .unreadable-list > .unreadable-row > [data-col="name"] { grid-column: 2; }
+        .unreadable-list > .unreadable-row > [data-col="where"] { grid-column: 3 / -2; }
+        .unreadable-list > .unreadable-row > [data-status] { grid-column: 2 / -1; }
+      }
 
       /* Last: every `display` above loses to `hidden` (shell.css's note on
          `.hidden`). */

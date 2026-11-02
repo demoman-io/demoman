@@ -633,6 +633,9 @@ describe("the list's look", () => {
     const name = cell("f:R", "name").querySelector(
       "[data-name-text]",
     ) as HTMLElement;
+    // Two words: under a 760px list the box holds no track, and the name
+    // cell (202px here) fits "Reclaimed" and the whole tag.
+    name.textContent = "Reclaimed checkout";
     const strip = row("f:R").querySelector(".row-tags") as HTMLElement;
     const em = Number.parseFloat(getComputedStyle(name).fontSize);
     const said = JSON.stringify({
@@ -1260,6 +1263,204 @@ describe("the look pass's focus, cover and Couldn't read heading", () => {
     expect(Math.abs(gap - dateGap), `${gap} vs ${dateGap}`).toBeLessThanOrEqual(
       1,
     );
+  });
+});
+
+// Under a 760px list (spec 2026-11-02 search-narrow §2): the box holds no
+// track, so the rows start where the tab row does. Measured against each
+// other, never against fixed positions: the runner's fonts are not these.
+// 640 high, so the frame is not scaled and the pixels read whole.
+describe("under a 760px list the rows line up with the tab row", () => {
+  const UNREADABLE = [
+    { folder: "take-half-written", reason: "no scene.json", sizeBytes: 30 },
+  ];
+  /** As `draw`, with a "Couldn't read" row under the list. */
+  function drawWithUnreadable() {
+    renderLibrary(
+      node("#root"),
+      { ...MODEL, unreadable: UNREADABLE },
+      ACTIONS,
+      new Map([[statusKey("video", "S"), REFUSED]]),
+      NOW,
+      { ids: new Set(), anchor: null, range: [] },
+      undefined,
+      {
+        layout: "list",
+        sort: { column: "recorded", descending: true },
+        project: null,
+      },
+    );
+  }
+  const left = (e: Element) => e.getBoundingClientRect().left;
+  const chevOf = (key: string) =>
+    cell(key, "open").querySelector(".chev") as Element;
+  const nameOf = (key: string) =>
+    textBox(cell(key, "name").querySelector("[data-name-text]") as Element);
+
+  // 720, 640, 560 and 390: each of the three narrow templates, and a phone.
+  for (const width of [720, 640, 560, 390]) {
+    // Red: the 28px select track and the 24px gaps kept under 760, which
+    // put every chevron 52px in from the tab row's edge.
+    it(`at ${width}px the chevrons start at the tab row's edge, and names, heads and labels share one line`, async () => {
+      await page.viewport(width, 640);
+      mount();
+      drawWithUnreadable();
+      await userEvent.click(cell("f:A", "open"));
+      const tabsRow = node("[data-tabs-row]");
+      const edge = left(tabsRow);
+      const title = textBox(node("[data-place-title]"));
+      const said = () =>
+        JSON.stringify({
+          edge,
+          title: title.left,
+          list: grid().getBoundingClientRect().width,
+          chevs: ["f:A", "f:N0", "h:today"].map((k) => left(chevOf(k))),
+          names: ["f:A", "f:N0", "t:loose", "v:a2", "h:today"].map(
+            (k) => nameOf(k).left,
+          ),
+        });
+      // Premises: the list is under 760, the tab row is drawn, and the
+      // rows hold a heading, flows, a take, A's videos and a reason.
+      expect(grid().getBoundingClientRect().width, said()).toBeLessThan(760);
+      expect(tabsRow.getBoundingClientRect().width, said()).toBeGreaterThan(0);
+      expect(row("v:a2").hidden).toBe(false);
+      expect(node(".unreadable-list .unreadable-row")).not.toBeNull();
+      // The chevrons, a flow's and a heading's, on the tab row's edge and
+      // the title's text edge above it.
+      for (const key of ["f:A", "f:N0", "h:today"]) {
+        expect(Math.abs(left(chevOf(key)) - edge), said()).toBeLessThanOrEqual(
+          1,
+        );
+      }
+      expect(Math.abs(title.left - edge), said()).toBeLessThanOrEqual(1);
+      // The rows, and so their hairlines, start there too.
+      for (const r of [head(), row("f:A"), node(".unreadable-row")]) {
+        expect(Math.abs(left(r) - edge), said()).toBeLessThanOrEqual(1);
+      }
+      // The Name head's text over the names; a heading's label in the
+      // same line; a take's name too; the "Couldn't read" name as well.
+      const nameHead = textBox(
+        head().querySelector('[data-col="name"]') as Element,
+      ).left;
+      for (const key of ["f:A", "f:N0", "t:loose", "h:today"]) {
+        expect(
+          Math.abs(nameOf(key).left - nameHead),
+          said(),
+        ).toBeLessThanOrEqual(1);
+      }
+      expect(
+        Math.abs(textBox(node("[data-unreadable-name]")).left - nameHead),
+        said(),
+      ).toBeLessThanOrEqual(1);
+      // A video's name keeps its indent under its flow's.
+      expect(nameOf("v:a2").left - nameOf("f:A").left, said()).toBeCloseTo(
+        16,
+        0,
+      );
+      // The name follows the chevron closely: one narrow gap past it.
+      const chevCell = cell("f:A", "open").getBoundingClientRect();
+      expect(nameHead - chevCell.right, said()).toBeLessThanOrEqual(16);
+    });
+
+    // Red: the 559 template with 28px and 24px gaps, 381px of tracks in
+    // a 326px list, which ran Recorded past the window's edge at 390.
+    it(`at ${width}px Recorded is painted whole inside the list, and nothing scrolls sideways`, async () => {
+      await page.viewport(width, 640);
+      mount();
+      const html = document.documentElement;
+      const g = grid().getBoundingClientRect();
+      expect(html.scrollWidth).toBeLessThanOrEqual(html.clientWidth);
+      expect(grid().scrollWidth).toBeLessThanOrEqual(grid().clientWidth);
+      expect(g.right).toBeLessThanOrEqual(html.clientWidth);
+      for (const key of ["f:A", "f:N0", "t:loose"]) {
+        const c = cell(key, "recorded");
+        const r = c.getBoundingClientRect();
+        const text = textBox(c);
+        const said = JSON.stringify({ key, r, text, g, w: c.scrollWidth });
+        // Premise: the cell holds a date.
+        expect((c.textContent ?? "").trim(), said).not.toBe("");
+        expect(r.right, said).toBeLessThanOrEqual(g.right + 0.5);
+        expect(text.right, said).toBeLessThanOrEqual(r.right + 0.5);
+        expect(c.scrollWidth, said).toBeLessThanOrEqual(c.clientWidth);
+        const hit = at(text.left + text.width / 2, text.top + text.height / 2);
+        expect(hit === null ? null : c.contains(hit), said).toBe(true);
+      }
+    });
+  }
+
+  // Red: the box left in a track (or clipped by its cell's overflow when
+  // hung), so it showed nothing left of the chevron, or moved the row.
+  for (const width of [560, 390]) {
+    it(`at ${width}px a row's box hangs left of its chevron, inside the window, painted when shown, and nothing moves`, async () => {
+      await page.viewport(width, 640);
+      mount();
+      for (const key of ["f:N0", "h:today"]) {
+        const box = cell(key, "select").querySelector(
+          ".select-box",
+        ) as HTMLElement;
+        // Premise: the fixture draws a box on a flow and on a heading.
+        expect(box, key).not.toBeNull();
+        const cells = [...row(key).children].map(rectOf);
+        const b = box.getBoundingClientRect();
+        const chev = chevOf(key).getBoundingClientRect();
+        const said = JSON.stringify({ key, b, chev });
+        expect(b.right, said).toBeLessThanOrEqual(chev.left);
+        expect(b.left, said).toBeGreaterThanOrEqual(0);
+        // The box's own pixels at rest, and shown under the pointer.
+        const ink = (paint: (x: number, y: number) => number[]) => {
+          const out: number[][] = [];
+          for (let y = Math.ceil(b.top); y < b.bottom; y += 2) {
+            for (let x = Math.ceil(b.left); x < b.right; x += 2) {
+              out.push(paint(x + 0.5, y + 0.5));
+            }
+          }
+          return out;
+        };
+        const rest = ink(await pixels());
+        await userEvent.hover(cell(key, "where"));
+        expect(getComputedStyle(box).opacity, said).toBe("1");
+        const shown = ink(await pixels());
+        const changed = shown.filter((p, i) => !close(p, rest[i] ?? [], 6));
+        expect(
+          changed.length,
+          `${said}: pixels the box changed`,
+        ).toBeGreaterThan(4);
+        const hit = at(b.left + b.width / 2, b.top + b.height / 2);
+        expect(hit, said).toBe(box);
+        expect([...row(key).children].map(rectOf), said).toEqual(cells);
+        await userEvent.unhover(cell(key, "where"));
+      }
+    });
+  }
+
+  // Red: the box hung with no room, its ring cut by its cell's clip or
+  // the window's edge.
+  it("at 390px the keys reach a row's hanging box, and its ring paints whole", async () => {
+    await page.viewport(390, 640);
+    mount();
+    row("f:N0").focus();
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+    const box = document.activeElement as HTMLElement;
+    // Premise: the keys landed on N0's box.
+    expect(box.dataset.select).toBe("N0");
+    expect(box.matches(":focus-visible")).toBe(true);
+    const ink = parse(getComputedStyle(box).outlineColor);
+    const b = box.getBoundingClientRect();
+    const paint = await pixels();
+    const said = JSON.stringify(b);
+    expect(b.left - 4, said).toBeGreaterThanOrEqual(0);
+    // The ring: 2px out, 2px wide, on each side.
+    for (const [x, y] of [
+      [b.left - 3, b.top + b.height / 2],
+      [b.right + 3, b.top + b.height / 2],
+      [b.left + b.width / 2, b.top - 3],
+      [b.left + b.width / 2, b.bottom + 3],
+    ] as const) {
+      expect(
+        close(paint(x, y), ink, 24),
+        `${x},${y} ${paint(x, y)} ${said}`,
+      ).toBe(true);
+    }
   });
 });
 
