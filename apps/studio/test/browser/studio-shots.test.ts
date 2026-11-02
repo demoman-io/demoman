@@ -3059,7 +3059,12 @@ describe("the Studio's screenshot set", () => {
                 `${scope} .side-list > *`,
               ),
             ].map((c) => ({
-              text: (c.innerText ?? "").replace(/\s+/g, " ").trim(),
+              // textContent: a project's label is a flex row, whose
+              // parts innerText puts on lines of their own.
+              text: [
+                c.querySelector(".side-label")?.textContent ?? "",
+                c.querySelector(".side-count")?.textContent ?? "",
+              ].join(" "),
               top: Math.round(c.getBoundingClientRect().top),
             })),
           scope,
@@ -3101,7 +3106,10 @@ describe("the Studio's screenshot set", () => {
             if (dim === null || name === null) return [];
             return [
               {
-                text: (a as HTMLElement).innerText.replace(/\s+/g, " ").trim(),
+                text: [
+                  a.querySelector(".side-label")?.textContent ?? "",
+                  a.querySelector(".side-count")?.textContent ?? "",
+                ].join(" "),
                 current: a.getAttribute("aria-current") === "true",
                 dim: { rgb: rgb(dim), box: box(dim) },
                 name: { rgb: rgb(name), box: box(name) },
@@ -3307,9 +3315,8 @@ describe("the Studio's screenshot set", () => {
                 document.querySelector("[data-place-title]")?.textContent ??
                 null,
               switchText:
-                (switcher as HTMLElement | null)?.innerText
-                  .replace(/\s+/g, " ")
-                  .trim() ?? null,
+                switcher?.querySelector(".place-switch-name")?.textContent ??
+                null,
               rowInside:
                 row !== null &&
                 toggle !== null &&
@@ -3817,7 +3824,7 @@ describe("the Studio's screenshot set", () => {
             s.title === "globex/api",
         );
         expect(
-          await button.innerText(),
+          await button.textContent(),
           `${at}: the button names the pick`,
         ).toBe("globex/api");
         await vi.waitFor(

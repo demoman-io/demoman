@@ -356,6 +356,25 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A project's label is a row in which the dim owner gives way first, so
+   the repo name keeps its room and its own ellipsis. As one inline run,
+   the label's ellipsis swallowed the whole name (an inline-block) and
+   left `owner/…` (2026-11-02). The full key is the item's title. */
+[data-studio] :is(.side-label, .place-switch-name):has(> .place-name) {
+  display: flex;
+}
+[data-studio] :is(.side-label, .place-switch-name) > .place-owner {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-studio] :is(.side-label, .place-switch-name) > .place-name {
+  flex: none;
+}
+[data-studio] :is(.side-label, .place-switch-name) > .place-local {
+  flex: none;
+  white-space: pre;
+}
 /* The tabs: quiet pills, the pressed one as the editor rail's is, each
    with its count. */
 [data-studio] .place-tabs .btn[aria-pressed="true"] {
