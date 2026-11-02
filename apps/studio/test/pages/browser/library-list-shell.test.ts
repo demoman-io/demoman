@@ -1180,7 +1180,11 @@ describe("the look pass's focus, cover and Couldn't read heading", () => {
       NOW,
       { ids: new Set(), anchor: null, range: [] },
       undefined,
-      { layout: "list", sort: { column: "name", descending: false } },
+      {
+        layout: "list",
+        sort: { column: "name", descending: false },
+        project: null,
+      },
     );
     expect(sortedHead().getAttribute("aria-sort")).toBe("ascending");
     // Turned half a turn: up.

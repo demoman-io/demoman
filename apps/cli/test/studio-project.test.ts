@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execGit, readRepo } from "@demoman/runner/package";
+import { execGit, type GitRunner, readRepo } from "@demoman/runner/package";
 import { afterAll, describe, expect, it } from "vitest";
 import { callerProject } from "../src/studio-project";
 
@@ -17,10 +17,25 @@ describe("callerProject", () => {
     // The premise: the fixture is a repo with a key.
     expect(read.ok).toBe(true);
     // Red: answer undefined for a repo.
-    expect(await callerProject(dir)).toBe(read.ok ? read.repo.key : "?");
+    expect(await callerProject(dir)).toEqual({
+      key: read.ok ? read.repo.key : "?",
+    });
   });
 
   it("outside a repo there is no project", async () => {
-    expect(await callerProject(scratch)).toBeUndefined();
+    // Red: report "not a git checkout" as a reason.
+    expect(await callerProject(scratch)).toEqual({});
+  });
+
+  it("a repo git cannot read says why, and has no key", async () => {
+    let n = 0;
+    const git: GitRunner = async () =>
+      n++ === 0
+        ? { code: 0, stdout: "/x\n", stderr: "" }
+        : { code: 1, stdout: "", stderr: "boom" };
+    // Red: fold every failure into {}.
+    expect(await callerProject(scratch, git)).toEqual({
+      why: "git could not find the repository: boom",
+    });
   });
 });
