@@ -201,7 +201,7 @@ describe("open on a live window (fix 1: never ok when it did not move)", () => {
     expect(appPage(h.ctx()).fronted).toBe(1);
   });
 
-  it("open with neither sends a live window nowhere and brings it forward", async () => {
+  it("neither, a page listening → nothing sent, brought forward", async () => {
     const h = harness({ listening: 1 });
     await h.window.open({});
     await h.window.open({});
@@ -209,6 +209,20 @@ describe("open on a live window (fix 1: never ok when it did not move)", () => {
     expect(h.sent).toEqual([]);
     expect(appPage(h.ctx()).gotos).toEqual([`${ORIGIN}/?t=ticket-1`]);
     expect(appPage(h.ctx()).fronted).toBe(1);
+  });
+
+  it("neither, nobody listening → entered through a fresh entry link", async () => {
+    const h = harness({ listening: 0 });
+    await h.window.open({});
+    const answer = await h.window.open({});
+    // Red: only bring the window forward when neither is given, whoever
+    // listens; an expired link or a dead stream then stays broken.
+    expect(appPage(h.ctx()).gotos).toEqual([
+      `${ORIGIN}/?t=ticket-1`,
+      `${ORIGIN}/?t=ticket-2`,
+    ]);
+    expect(answer).toEqual({ ok: true, path: "/" });
+    expect(h.sent).toEqual([]);
   });
 
   it("with no page listening, a project navigates through an entry link carrying it", async () => {

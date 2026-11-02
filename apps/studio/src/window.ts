@@ -272,10 +272,17 @@ export function createStudioWindow(o: {
 
     const live = livePages()[0];
     if (live !== undefined) {
-      // Neither a take nor a project: the window stays where it is.
-      if (target.takeId === undefined && target.project === undefined) {
+      const listening = o.events.size() > 0;
+      // Neither a take nor a project, and a page listening: the window
+      // stays where it is. With nobody listening it is re-entered below,
+      // which repairs an expired link or a dead stream.
+      if (
+        listening &&
+        target.takeId === undefined &&
+        target.project === undefined
+      ) {
         // sends nothing
-      } else if (o.events.size() > 0) {
+      } else if (listening) {
         // The page navigates itself after its owed writes (Task 12); a
         // server-side goto could drop an edit still being saved.
         o.events.send({ type: "open", path });
