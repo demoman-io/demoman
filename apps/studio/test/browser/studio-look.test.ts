@@ -172,7 +172,7 @@ describe("header and frame", () => {
             topbar: rect(".topbar"),
             page: rect(".page"),
             current: rect(
-              '[data-jumps] [aria-current="true"], .section-nav a[aria-current="true"]',
+              '[data-rail] [aria-current="true"], .section-nav a[aria-current="true"]',
             ),
           };
         });
@@ -339,11 +339,12 @@ describe("library", () => {
   it.runIf(process.platform === "darwin")(
     "frames each card, rules each group to the column's edge, sets data in mono, and clips a long name",
     async () => {
-      const { page, open } = await openStudio(1440, 900, undefined, [
+      const { studio, page, open } = await openStudio(1440, 900, undefined, [
         LONG_NAME,
       ]);
       await open("library");
-      // The premise, asserted: the seeded cards, the unreadable row, groups.
+      // The premise, asserted: the seeded cards, groups, and (in its own
+      // place) the unreadable row.
       expect(LONG_NAME.name.length).toBeGreaterThan(100);
       const g = await page.evaluate(() => {
         const cards = [
@@ -362,7 +363,6 @@ describe("library", () => {
         const long = [
           ...document.querySelectorAll<HTMLInputElement>("[data-name]"),
         ].find((i) => i.value.length > 100);
-        const unread = document.querySelector("[data-unreadable-row]");
         const head = document.querySelector(".section-head") as HTMLElement;
         const headTitle = head.querySelector("h2") as HTMLElement;
         return {
@@ -389,21 +389,6 @@ describe("library", () => {
                   ellipsis: getComputedStyle(long).textOverflow,
                   card: box(long.closest("article") as Element),
                 },
-          unread:
-            unread === null
-              ? null
-              : {
-                  font: getComputedStyle(
-                    unread.querySelector(
-                      "[data-unreadable-name]",
-                    ) as HTMLElement,
-                  ).fontFamily,
-                  remove: getComputedStyle(
-                    unread.querySelector(
-                      '[data-action="delete"]',
-                    ) as HTMLElement,
-                  ).color,
-                },
           scroll: document.scrollingElement?.scrollWidth ?? 0,
           width: innerWidth,
         };
@@ -412,7 +397,6 @@ describe("library", () => {
       expect(g.cards.length, said).toBe(5);
       expect(g.groups, said).toBeGreaterThanOrEqual(2);
       expect(g.long, said).not.toBeNull();
-      expect(g.unread, said).not.toBeNull();
 
       for (const c of g.cards) {
         expect(c.radius, said).toBe("12px");
@@ -441,10 +425,6 @@ describe("library", () => {
       const widths = new Set(g.cards.map((c) => Math.round(c.right - c.left)));
       expect(widths.size, `card widths ${[...widths].join(", ")}`).toBe(1);
 
-      const unread = g.unread as NonNullable<typeof g.unread>;
-      expect(unread.font, said).toMatch(/^"?Geist Mono"?/);
-      expect(unread.remove, said).toBe("rgb(248, 113, 113)");
-
       await sizeWindow(page.context(), page, 1280, 720);
       const narrow = await page.evaluate(() => ({
         scroll: document.scrollingElement?.scrollWidth ?? 0,
@@ -453,6 +433,26 @@ describe("library", () => {
       expect(narrow.scroll, JSON.stringify(narrow)).toBeLessThanOrEqual(
         narrow.width,
       );
+      // The folders that would not read, in their own place since the
+      // projects rail (2026-11-01).
+      await page.goto(`${studio.origin}/?project=unreadable`);
+      await page.locator("[data-unreadable-row]").first().waitFor();
+      const unread = await page.evaluate(() => {
+        const row = document.querySelector("[data-unreadable-row]");
+        const name = row?.querySelector<HTMLElement>("[data-unreadable-name]");
+        const remove = row?.querySelector<HTMLElement>(
+          '[data-action="delete"]',
+        );
+        return name == null || remove == null
+          ? null
+          : {
+              font: getComputedStyle(name).fontFamily,
+              remove: getComputedStyle(remove).color,
+            };
+      });
+      expect(unread, said).not.toBeNull();
+      expect(unread?.font, said).toMatch(/^"?Geist Mono"?/);
+      expect(unread?.remove, said).toBe("rgb(248, 113, 113)");
     },
     LANE_MS,
   );

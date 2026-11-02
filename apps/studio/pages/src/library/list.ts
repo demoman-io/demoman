@@ -162,6 +162,7 @@ function entryRow(
   rowStatus: Map<string, string>,
   /** Each flow drawn so far, by id: a video row's buttons name its flow. */
   flows: Map<string, VideoGroup>,
+  withRepo: boolean,
 ): HTMLElement {
   const row = el("div", { role: "row", "data-key": e.key });
   const cells = Object.fromEntries(
@@ -219,7 +220,7 @@ function entryRow(
     );
     const strip = tags(r, actions, false);
     if (strip !== null) cells.name.append(strip);
-    textCell(cells, "where", whereOf(card, true));
+    textCell(cells, "where", whereOf(card, withRepo));
     cells.videos.textContent = String(group?.versions.length ?? 1);
     cells.recorded.textContent = e.namesDay ? r.time : r.when;
     cells.recorded.title = r.when;
@@ -353,6 +354,8 @@ export function renderList(
   now: Date,
   view: LibraryViewChoice,
   was: { collapsed: ReadonlySet<string>; drawn?: ReadonlySet<string> },
+  /** Where leads with the repo; false inside a project. */
+  withRepo = true,
 ): HTMLElement {
   const entries = listEntries(model, view.sort, now);
   const grid = el("div", {
@@ -372,7 +375,7 @@ export function renderList(
   const flows = new Map<string, VideoGroup>();
 
   for (const e of entries) {
-    const row = entryRow(e, actions, rowStatus, flows);
+    const row = entryRow(e, actions, rowStatus, flows, withRepo);
     const pos = (seen.get(e.parent) ?? 0) + 1;
     seen.set(e.parent, pos);
     row.setAttribute("aria-level", String(e.level));

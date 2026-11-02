@@ -293,10 +293,10 @@ export function painted(page: Page) {
         return `${Math.round(x)},${Math.round(y)}: ${where}`;
       });
     }
-    // The jump list's links as painted: each one's text, and whether the
-    // point at its centre is the link itself (not covered, not clipped).
-    const jumps = [
-      ...document.querySelectorAll<HTMLElement>("[data-jumps] a[data-nav]"),
+    // The rail's items as painted: each one's text, and whether the point
+    // at its centre is the item itself (not covered, not clipped).
+    const rail = [
+      ...document.querySelectorAll<HTMLElement>("[data-rail] [data-place]"),
     ].map((a) => {
       const r = a.getBoundingClientRect();
       const hit = document.elementFromPoint(
@@ -315,7 +315,7 @@ export function painted(page: Page) {
       theme: document.documentElement.dataset.theme ?? null,
       bg,
       dockBand,
-      jumps,
+      rail,
       settingsSide: side === null ? null : side.innerText.trim(),
       settingsLinks: document.querySelectorAll(".settings-side a").length,
     };
@@ -395,7 +395,9 @@ export async function openPage(
           const unreadable = await page
             .locator("[data-unreadable-row]")
             .count();
-          if (rows !== cards || unreadable !== 1) {
+          // The folder that would not read is a place of its own (the
+          // rail's Couldn't read), never drawn under All flows.
+          if (rows !== cards || unreadable !== 0) {
             throw new Error(`${rows} cards and ${unreadable} unreadable rows`);
           }
           // Every card's preview, painted: the cards below the fold paint

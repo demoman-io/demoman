@@ -318,15 +318,6 @@ describe("a click in the list", () => {
     expect(row("v:b1").hidden).toBe(true);
     expect(acts.edit).not.toHaveBeenCalled();
   });
-
-  it("on a jump link to a folded heading opens it", async () => {
-    mount();
-    const month = row("f:D").previousElementSibling as HTMLElement;
-    const link = node(`[data-jumps] a[data-nav="${month.id}"]`);
-    await userEvent.click(link);
-    expect(month.getAttribute("aria-expanded")).toBe("true");
-    expect(row("f:D").hidden).toBe(false);
-  });
 });
 
 describe("selecting in the list", () => {

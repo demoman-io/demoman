@@ -3411,8 +3411,17 @@ function leaveFor(page: string, url: () => string, already = ""): void {
 
 /** Opens the Recordings page in this tab, or says why it did not. A
  *  `note` goes with it, for the Recordings page to say (`carried-note`). */
-function openLibrary(already = "", note: string | null = null): void {
-  leaveFor("Flows page", () => withNote(platform.nav.library(), note), already);
+function openLibrary(
+  already = "",
+  note: string | null = null,
+  from: string | null = null,
+): void {
+  const library = platform.nav.library();
+  const url =
+    from === null || from === ""
+      ? library
+      : `${library}${library.includes("?") ? "&" : "?"}from=${encodeURIComponent(from)}`;
+  leaveFor("Flows page", () => withNote(url, note), already);
 }
 
 /**
@@ -3474,7 +3483,8 @@ function leaveAfterOwedWrites(go: () => void): void {
  */
 $("back").addEventListener("click", () => {
   // After the writes this page still owes — see `leaveAfterOwedWrites`.
-  leaveAfterOwedWrites(() => openLibrary());
+  // The library lands on this take's project (`?from=`, library main.ts).
+  leaveAfterOwedWrites(() => openLibrary("", null, sceneId));
 });
 
 /**

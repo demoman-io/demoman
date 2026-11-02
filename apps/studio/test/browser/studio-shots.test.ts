@@ -421,26 +421,25 @@ describe("the Studio's screenshot set", () => {
                 lengths[(cut[0] as PlainTake).id],
                 `${lengthsSaid}: the cut take's length is its own`,
               ).not.toBe(lengths[(plain[0] as PlainTake).id]);
-              // Both days, then the folder that would not read: named in the
-              // jump list, which is in view where the section is not.
+              // The rail (the jump list until 2026-11-01): All flows, the
+              // takes in no project, then the folder that would not read,
+              // each painted.
               expect(
-                p.jumps.map((j) => [/ (\d+)$/.exec(j.text)?.[1], j.painted]),
-                `${at}: the jump list ${JSON.stringify(p.jumps)}`,
+                p.rail,
+                `${at}: the rail ${JSON.stringify(p.rail)}`,
               ).toEqual([
-                ["2", true],
-                ["2", true],
-                ["1", true],
+                { text: `All flows ${ids.length}`, painted: true },
+                { text: `No project ${ids.length}`, painted: true },
+                { text: "Couldn't read 1", painted: true },
               ]);
-              expect(p.jumps[0]?.text).toBe("Yesterday 2");
-              expect(p.jumps[2]?.text).toBe("Couldn't read 1");
 
-              // The unreadable row, scrolled to: every library shot above
-              // has it below the fold, so it gets a shot of its own.
-              await page.evaluate(() =>
-                document
-                  .getElementById("unreadable")
-                  ?.scrollIntoView({ block: "start", behavior: "instant" }),
-              );
+              // The unreadable row, in its own place (by its address: a
+              // rail click would save the pick): it gets a shot of its own.
+              await page.goto(`${studio.origin}/?project=unreadable`);
+              await page
+                .locator(`[data-unreadable-row="${UNREADABLE}"]`)
+                .waitFor();
+              await settle(page, at);
               const rowFile = join(
                 SHOTS,
                 `library-unreadable-${size.width}x${size.height}-${theme}.png`,
@@ -1119,19 +1118,30 @@ describe("the Studio's screenshot set", () => {
           3,
         );
         expect(await rowsPainted(`${FLOWS}[aria-expanded="true"]`)).toEqual([]);
-        // "Couldn't read" in the list's rows (spec §2.3): in the list's
-        // column, with no card drawn there, its Delete painted.
-        await page
-          .locator(`[data-unreadable-row="${UNREADABLE}"]`)
-          .scrollIntoViewIfNeeded();
+        // "Couldn't read" in the list's rows (spec §2.3), in its own place
+        // since the projects rail (2026-11-01): no card drawn there, each
+        // part painted, its Delete at the row's end. With no treegrid
+        // beside it, the old "under each column's heading" and "below the
+        // list" checks have nothing to measure against.
+        await page.goto(`${studio.origin}/?project=unreadable`);
+        await page.locator(`[data-unreadable-row="${UNREADABLE}"]`).waitFor();
         const unreadable = await page.evaluate((folder) => {
-          const grid = document.querySelector("[role=treegrid]");
+          const content = document.querySelector(".library-content");
+          const list = document.querySelector(".unreadable-list");
           const section = document.querySelector("[data-unreadable]");
           const row = document.querySelector<HTMLElement>(
             `[data-unreadable-row="${CSS.escape(folder)}"]`,
           );
-          if (grid === null || section === null || row === null) return null;
-          const g = grid.getBoundingClientRect();
+          if (
+            content === null ||
+            list === null ||
+            section === null ||
+            row === null
+          ) {
+            return null;
+          }
+          const c = content.getBoundingClientRect();
+          const l = list.getBoundingClientRect();
           const r = row.getBoundingClientRect();
           const lands = (sel: string): boolean => {
             const el = row.querySelector(sel);
@@ -1147,59 +1157,34 @@ describe("the Studio's screenshot set", () => {
             }
             return hit !== null && el.contains(hit) && o === 1;
           };
-          // Each part under its list column's heading.
-          const under = (part: string, col: string): boolean => {
-            const a = row.querySelector(`[data-col="${part}"]`);
-            const h = grid.querySelector(
-              `[role=columnheader][data-col="${col}"]`,
-            );
-            if (a === null || h === null) return false;
-            const pa = a.getBoundingClientRect();
-            const ph = h.getBoundingClientRect();
-            return Math.abs(pa.left - ph.left) < 1;
-          };
-          // A number stands under its heading by the right edge.
-          const sizeHead = grid.querySelector(
-            "[role=columnheader][data-col='size']",
-          );
-          const size = row.querySelector("[data-col='size']");
-          const sized =
-            sizeHead !== null &&
-            size !== null &&
-            sizeHead.checkVisibility() &&
-            Math.abs(
-              size.getBoundingClientRect().right -
-                sizeHead.getBoundingClientRect().right,
-            ) < 1;
-          // Delete floats over the row's end, as a flow's actions do.
           const del = row.querySelector('[data-action="delete"]');
-          const ends =
-            del !== null &&
-            Math.abs(del.getBoundingClientRect().right - g.right) < 1;
           return {
             cards: section.querySelectorAll(".card, article").length,
-            columns: [under("name", "name"), under("where", "where"), sized],
-            ends,
-            inColumn: r.left >= g.left - 0.5 && r.right <= g.right + 0.5,
-            below: r.top >= g.bottom - 0.5,
+            treegrid: document.querySelector("[role=treegrid]") !== null,
+            ends:
+              del !== null &&
+              Math.abs(del.getBoundingClientRect().right - l.right) < 1,
+            inColumn: r.left >= c.left - 0.5 && r.right <= c.right + 0.5,
             height: Math.round(r.height),
             name: lands('[data-col="name"]'),
             reason: lands('[data-col="where"]'),
+            size: lands('[data-col="size"]'),
             remove: lands('[data-action="delete"]'),
           };
         }, UNREADABLE);
         expect(unreadable, `${at}: Couldn't read, as painted`).toEqual({
           cards: 0,
-          columns: [true, true, true],
+          treegrid: false,
           ends: true,
           inColumn: true,
-          below: true,
           height: 34,
           name: true,
           reason: true,
+          size: true,
           remove: true,
         });
-        await page.evaluate(() => window.scrollTo(0, 0));
+        // Back to All flows, by its address (a rail click saves the pick).
+        await openList(at);
 
         at = `library list open ${wh}`;
         const closedColumns = await columnsAt();
@@ -1397,35 +1382,6 @@ describe("the Studio's screenshot set", () => {
           hit: true,
         })),
       );
-      // Red: the unreadable row's size kept where the list drops its Size
-      // column, so the grid puts it under Recorded. Its Delete is left
-      // out: it floats over every row's end, which is Recorded's.
-      const underRecorded = await page.evaluate((folder) => {
-        const head = document.querySelector(
-          "[data-list-head] [role=columnheader][data-col='recorded']",
-        );
-        const row = document.querySelector(
-          `[data-unreadable-row="${CSS.escape(folder)}"]`,
-        );
-        if (head === null || row === null) return null;
-        const h = head.getBoundingClientRect();
-        // Its cells; a status line under them spans every column.
-        return [
-          ...row.querySelectorAll(
-            ":scope > [data-col]:not([data-col='actions'])",
-          ),
-        ].flatMap((c) => {
-          const b = c.getBoundingClientRect();
-          return b.width > 0 && b.left < h.right && b.right > h.left
-            ? [`${(c as HTMLElement).dataset.col} "${c.textContent}"`]
-            : [];
-        });
-      }, UNREADABLE);
-      expect(
-        underRecorded,
-        `${at}: what the unreadable row puts under Recorded`,
-      ).toEqual([]);
-
       expect(shots).toHaveLength(SIZES.length * 4 + 2);
       // The refused rename's 409 is the browser's own line for a refusal
       // the page answered; nothing else may fault.

@@ -445,7 +445,7 @@ describe("the list view", () => {
   });
 
   it("headings appear only under Recorded descending", () => {
-    const { root, grid } = draw();
+    const { grid } = draw();
     const headings = [
       ...(grid?.querySelectorAll<HTMLElement>("[role=row][data-heading]") ??
         []),
@@ -462,9 +462,6 @@ describe("the list view", () => {
     expect(rowOf(grid, "f:A").hidden).toBe(false);
     // A closed flow hides its videos.
     expect(rowOf(grid, "v:a3").hidden).toBe(true);
-    expect(
-      root.querySelector("[data-jumps]")?.querySelectorAll("[data-nav]"),
-    ).toHaveLength(3);
     for (const sort of [
       BY_NAME,
       { layout: "list", sort: { column: "recorded", descending: false } },
@@ -500,11 +497,6 @@ describe("the list view", () => {
     expect(rowOf(again, "f:A").hidden).toBe(true);
     // Flows it drew closed stay closed.
     expect(rowOf(again, "f:C").getAttribute("aria-expanded")).toBe("false");
-  });
-
-  it("a flat sort hides the jump list", () => {
-    const { root } = draw(BY_NAME);
-    expect(root.querySelector("[data-jumps]")?.childElementCount).toBe(0);
   });
 
   it("an empty library draws the empty card, not a treegrid", () => {

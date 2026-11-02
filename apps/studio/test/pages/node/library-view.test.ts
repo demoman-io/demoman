@@ -676,43 +676,6 @@ describe("renderLibrary sections", () => {
     expect(root.querySelectorAll("[data-row]")).toHaveLength(4);
   });
 
-  // The left column's jump list (2026-10-08): a link per section, in the
-  // sections' order, each naming its section's id and count — and a link
-  // to a folded month opens it, or the jump lands on one closed line.
-  it("lists a jump to each section, and opens a folded month it jumps to", () => {
-    const root = document.createElement("div");
-    document.body.append(root);
-    renderLibrary(root, dated, noop, new Map(), now);
-    const links = [
-      ...root.querySelectorAll<HTMLAnchorElement>("[data-jumps] a[data-nav]"),
-    ];
-    expect(
-      links.map((a) => ({
-        to: a.getAttribute("href"),
-        label: a.querySelector(".side-label")?.textContent,
-        count: a.querySelector(".side-count")?.textContent,
-      })),
-    ).toEqual(
-      sections(root).map((s) => ({
-        to: `#${s.id}`,
-        label: s.querySelector("h2")?.textContent,
-        count: s.querySelector("[data-section-count]")?.textContent,
-      })),
-    );
-    // Every link names a section that is there to land on.
-    for (const a of links) {
-      expect(document.getElementById(a.dataset.nav ?? "")).not.toBeNull();
-    }
-    // Premise: August is a past month, so it starts folded.
-    const august = root.querySelector(
-      '[data-section="month:2026-08"]',
-    ) as HTMLDetailsElement;
-    expect(august.open, "August started open").toBe(false);
-    (links.at(-1) as HTMLAnchorElement).click();
-    expect(august.open, "the jump left August folded").toBe(true);
-    root.remove();
-  });
-
   // Settings' disclosure: the Lucide chevron first in the summary, not a
   // corner drawn in CSS.
   it("opens each section with Settings' chevron", () => {

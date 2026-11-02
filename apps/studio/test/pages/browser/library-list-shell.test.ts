@@ -709,11 +709,11 @@ describe("the list's look", () => {
     await page.viewport(1280, 720);
     mount();
     const bar = node(".topbar");
-    const jump = node("[data-jumps] a");
+    const title = node("[data-place-title]");
     const toggle = node("[data-layout-toggle] [data-layout='grid']");
     for (const scroll of [0, 24, 90]) {
       window.scrollTo(0, scroll);
-      for (const e of [bar, jump, toggle]) {
+      for (const e of [bar, title, toggle]) {
         const b = e.getBoundingClientRect();
         if (b.bottom <= 0) continue;
         const y = Math.max(b.top, 0) + Math.min(b.height, b.bottom) / 2;
@@ -724,7 +724,7 @@ describe("the list's look", () => {
         ).toBeNull();
       }
     }
-    // The list sits right of the jump list, not under it.
+    // The list sits right of the side column, not under it.
     expect(grid().getBoundingClientRect().left).toBeGreaterThanOrEqual(
       node(".library-side").getBoundingClientRect().right,
     );

@@ -4,9 +4,11 @@ import { afterAll, describe, expect, it } from "vitest";
 // the helper — and the real view, so the rows measured are the rows the
 // page renders.
 import shell from "../../../pages/entrypoints/library/index.html?raw";
-import type {
-  LibraryModel,
-  LibraryRow,
+import { railOf } from "../../../pages/src/library/projects";
+import {
+  cardsOf,
+  type LibraryModel,
+  type LibraryRow,
 } from "../../../pages/src/library/state";
 import { renderLibrary } from "../../../pages/src/library/view";
 import {
@@ -108,10 +110,32 @@ const noop = {
 // measure. (A row made after `now` also counts as today.)
 const NOW = new Date(2026, 8, 13, 20);
 
-function mount(scheme: "light" | "dark", model: LibraryModel = MODEL) {
+function mount(
+  scheme: "light" | "dark",
+  model: LibraryModel = MODEL,
+  /** Draw the projects rail, at All flows, as the page does. */
+  withRail = false,
+) {
   mountShell(scheme, css);
   document.body.innerHTML = bodyHtml;
-  renderLibrary(node("#root"), model, noop, new Map(), NOW);
+  renderLibrary(
+    node("#root"),
+    model,
+    noop,
+    new Map(),
+    NOW,
+    undefined,
+    undefined,
+    undefined,
+    withRail
+      ? {
+          place: "all",
+          tab: "all",
+          rail: railOf(cardsOf(model), 0, "all"),
+          tabs: null,
+        }
+      : undefined,
+  );
   node("#notice").classList.remove("hidden");
   node("#notice").textContent = "Couldn't read storage: no reply.";
   return { surface, ink, radius };
@@ -353,22 +377,26 @@ describe.each(["light", "dark"] as const)(
       ).toBe("pointer");
     });
 
-    // Settings' shape since 2026-10-08: the title and the jump list in a
-    // left column held in view; the list beside it, its first day level
-    // with the jump list (the filter row sat there until 2026-10-30). The
-    // storage trigger is in the top bar.
-    it("holds the title and jump list in a column, the first day level with them", async () => {
+    // Settings' shape since 2026-10-08: the title and the rail (the jump
+    // list until 2026-11-01) in a left column held in view; the list
+    // beside it, its first day level with the rail (the filter row sat
+    // there until 2026-10-30). The storage trigger is in the top bar.
+    it("holds the title and rail in a column, the first day level with them", async () => {
       await page.viewport(1280, 900);
-      mount(scheme);
+      mount(scheme, MODEL, true);
       const side = node("[data-header]");
       const title = node("[data-header] h1").getBoundingClientRect();
-      const jumps = node("[data-jumps]").getBoundingClientRect();
+      const rail = node("[data-rail]").getBoundingClientRect();
+      // Premise: the rail is drawn, not an empty box.
+      expect(node("[data-rail] [data-place]").textContent).toContain(
+        "All flows",
+      );
       const first = node('[data-section="today"]').getBoundingClientRect();
       expect(getComputedStyle(side).position).toBe("sticky");
-      expect(jumps.top - title.bottom).toBeCloseTo(28, 0);
+      expect(rail.top - title.bottom).toBeCloseTo(28, 0);
       expect(
-        Math.abs(first.top - jumps.top),
-        `the first day at ${first.top}, the jump list at ${jumps.top}`,
+        Math.abs(first.top - rail.top),
+        `the first day at ${first.top}, the rail at ${rail.top}`,
       ).toBeLessThan(1);
       expect(side.getBoundingClientRect().right).toBeLessThanOrEqual(
         first.left,

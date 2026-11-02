@@ -96,7 +96,7 @@ describe("editor main — storage lifecycle wiring", () => {
     await vi.waitFor(() => {
       if (nav.assigned.length === 0) throw new Error("not navigated yet");
     });
-    expect(nav.assigned).toEqual(["/"]);
+    expect(nav.assigned).toEqual(["/?from=s1"]);
   });
 
   it("says so on the page when Back's navigation is refused", async () => {
@@ -113,7 +113,7 @@ describe("editor main — storage lifecycle wiring", () => {
       await vi.waitFor(() => {
         if (nav.assigned.length === 0) throw new Error("not attempted yet");
       });
-      expect(nav.assigned).toEqual(["/"]);
+      expect(nav.assigned).toEqual(["/?from=s1"]);
       await vi.waitFor(() => {
         const box = document.querySelector("[data-navigation-error]");
         if (!box?.textContent?.includes("distinctive-marker-8"))
@@ -176,7 +176,7 @@ describe("editor main — storage lifecycle wiring", () => {
     await vi.waitFor(() => {
       if (nav.assigned.length === 0) throw new Error("not navigated yet");
     });
-    expect(nav.assigned).toEqual(["/"]);
+    expect(nav.assigned).toEqual(["/?from=s1"]);
   });
 
   /**

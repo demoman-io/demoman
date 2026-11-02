@@ -174,6 +174,7 @@ describe("library main — videos", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
+    window.history.replaceState({}, "", "/");
   });
 
   it("draws one card per video, showing its current version, with its versions newest first", async () => {
@@ -451,6 +452,8 @@ describe("library main — videos", () => {
       ],
     });
     state.memory = memory;
+    // The folders that would not read are drawn in their own place.
+    window.history.replaceState({}, "", "/?project=unreadable");
     await import("../../../pages/entrypoints/library/main");
     const rows = await vi.waitFor(() => {
       const found = [...document.querySelectorAll("[data-unreadable-row]")];

@@ -7,10 +7,11 @@ import { setCodeText } from "../shell/code-spans";
 import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
-import { collapsedKeys, openRename, renderList, setExpanded } from "./list";
+import { collapsedKeys, openRename, renderList } from "./list";
 import { placeIn, restorePlace } from "./list-keys";
 import { whereOf } from "./list-model";
 import { previewText } from "./preview";
+import { type Place, placeSearch, type Rail, type Tab } from "./projects";
 import type { SelectHow, Selection } from "./selection";
 import type {
   LibraryModel,
@@ -101,6 +102,19 @@ export interface LibraryActions {
   setView?(view: LibraryViewChoice): void;
   /** Fill a list row's Length cell with its video's edited length. */
   measure?(sceneId: string, cell: HTMLElement): void;
+  /** A rail item: show that place. */
+  goPlace?(p: Place): void;
+  /** In repo, Not in repo or All. */
+  goTab?(t: Tab): void;
+}
+
+/** Where the library is and what its rail and tabs say (spec 2026-11-01
+ *  library-projects-design, "The page"). `tabs: null` hides the tabs. */
+export interface PlaceView {
+  place: Place;
+  tab: Tab;
+  rail: Rail;
+  tabs: Record<Tab, number> | null;
 }
 
 /** An expired video's line leads with the fact (spec 2026-10-30
@@ -357,18 +371,102 @@ const budgetGb = (bytes: number): string =>
 interface Header {
   /** The page's two columns: `side` and `content`. */
   box: HTMLElement;
-  /** Re-filled on every render: the jump list of sections. */
-  jumps: HTMLElement;
-  /** The list's column. Its toggle and notices stay; the rest is
+  /** The list's column. Its tab row and notices stay; the rest is
    *  replaced. */
   content: HTMLElement;
-  toggle: HTMLElement;
+  tabsRow: HTMLElement;
   notices: HTMLElement;
   update(
     model: LibraryModel,
     actions: LibraryActions,
     view: LibraryViewChoice | undefined,
+    place: PlaceView | undefined,
   ): void;
+}
+
+const TABS: [Tab, string][] = [
+  ["inRepo", "In repo"],
+  ["notInRepo", "Not in repo"],
+  ["all", "All"],
+];
+
+const PLACE_WORDS = {
+  all: "All flows",
+  none: "No project",
+  unreadable: "Couldn't read",
+} as const;
+
+/** The rail: All flows, each owner's projects, No project, Couldn't read.
+ *  Each item is a link to its own address, so it opens in a new tab too;
+ *  a plain click stays in the page. */
+function railList(
+  rail: Rail,
+  current: Place,
+  actions: LibraryActions,
+): HTMLElement {
+  const list = el("div", { class: "side-list" });
+  const at = placeSearch(current);
+  const item = (p: Place, label: string, count: number): void => {
+    const search = placeSearch(p);
+    const link = el("a", {
+      href: search,
+      class: "side-item",
+      "data-place": search,
+      "aria-current": String(search === at),
+      title: label,
+    });
+    link.append(
+      el("span", { class: "side-label" }, label),
+      el("span", { class: "side-count" }, String(count)),
+    );
+    link.addEventListener("click", (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      event.preventDefault();
+      actions.goPlace?.(p);
+    });
+    list.append(link);
+  };
+  item("all", PLACE_WORDS.all, rail.all);
+  for (const { owner, projects } of rail.owners) {
+    list.append(el("p", { class: "side-owner" }, owner));
+    for (const p of projects) item({ project: p.key }, p.name, p.count);
+  }
+  if (rail.none > 0 || current === "none") {
+    item("none", PLACE_WORDS.none, rail.none);
+  }
+  if (rail.unreadable > 0 || current === "unreadable") {
+    item("unreadable", PLACE_WORDS.unreadable, rail.unreadable);
+  }
+  return list;
+}
+
+/** The title band: a project's owner on a quiet line over its name; the
+ *  other places by their words. */
+function placeTitle(place: PlaceView | undefined): (Node | string)[] {
+  if (place === undefined) return ["Flows"];
+  const p = place.place;
+  if (typeof p === "string") return [PLACE_WORDS[p]];
+  const found = place.rail.owners
+    .flatMap((o) => o.projects)
+    .find((r) => r.key === p.project);
+  const name = el(
+    "span",
+    { class: "place-name", "data-place-name": "" },
+    found?.name ?? p.project,
+  );
+  name.title = p.project;
+  return found === undefined
+    ? [name]
+    : [
+        el(
+          "span",
+          { class: "place-owner", "data-place-owner": "" },
+          found.owner,
+        ),
+        name,
+      ];
 }
 
 /**
@@ -389,15 +487,16 @@ function createHeader(withStorage: boolean): Header {
   let actions: LibraryActions | null = null;
   let view: LibraryViewChoice | undefined;
   // Settings' shape (2026-10-08): a column at the left, held in view on a
-  // wide window, with the title and a jump list of the sections; the
-  // list in the column beside it. The storage trigger
+  // wide window, with the title band and the rail of projects (spec
+  // 2026-11-01 library-projects-design); the list in the column beside it. The storage trigger
   // goes in the top bar (see `storage` below).
   const box = el("div", { class: "library", "data-library": "" });
   const side = el("aside", { class: "library-side", "data-header": "" });
-  const jumps = el("nav", {
+  const title = el("h1", { "data-place-title": "" }, "Flows");
+  const rail = el("nav", {
     class: "side-group",
-    "aria-label": "Sections",
-    "data-jumps": "",
+    "aria-label": "Projects",
+    "data-rail": "",
   });
   const content = el("div", { class: "library-content" });
 
@@ -434,8 +533,24 @@ function createHeader(withStorage: boolean): Header {
   // read without opening anything, and the trigger is one press away.
   const notices = el("div", { "data-notices": "" });
 
-  // List or Grid, at the top of the list column (list spec §1). Built once,
-  // so the button just pressed is still there to hold focus.
+  // The tab row heads the list column: the tabs at its left, List or Grid
+  // at its right (list spec §1). Built once, so the button just pressed is
+  // still there to hold focus.
+  const tabsRow = el("div", { class: "tabs-row", "data-tabs-row": "" });
+  const tabs = el("div", { class: "place-tabs" });
+  const tabCounts = new Map<Tab, HTMLElement>();
+  for (const [t, label] of TABS) {
+    const count = el("span", { class: "side-count" });
+    const button = el(
+      "button",
+      { type: "button", class: "btn btn-quiet", "data-tab": t },
+      label,
+    );
+    button.append(count);
+    button.addEventListener("click", () => actions?.goTab?.(t));
+    tabCounts.set(t, count);
+    tabs.append(button);
+  }
   const toggle = el("div", {
     class: "layout-toggle",
     "data-layout-toggle": "",
@@ -562,8 +677,9 @@ function createHeader(withStorage: boolean): Header {
     foot,
   );
   storage.append(trigger, panel);
-  side.append(el("h1", {}, "Flows"), jumps);
-  content.append(toggle, notices);
+  side.append(title, rail);
+  tabsRow.append(tabs, toggle);
+  content.append(tabsRow, notices);
   box.append(side, content);
   // The page's top bar carries a slot for it, left of the theme switch
   // (library/index.html). A document without one — a test that mounts the
@@ -574,11 +690,10 @@ function createHeader(withStorage: boolean): Header {
 
   return {
     box,
-    jumps,
     content,
-    toggle,
+    tabsRow,
     notices,
-    update(model, next, nextView) {
+    update(model, next, nextView, place) {
       actions = next;
       view = nextView;
       toggle.hidden = view === undefined || next.setView === undefined;
@@ -587,6 +702,30 @@ function createHeader(withStorage: boolean): Header {
           "aria-pressed",
           String(b.dataset.layout === view?.layout),
         );
+      }
+      tabs.hidden = place?.tabs == null;
+      for (const b of tabs.querySelectorAll<HTMLElement>("[data-tab]")) {
+        const t = b.dataset.tab as Tab;
+        b.setAttribute("aria-pressed", String(t === place?.tab));
+        (tabCounts.get(t) as HTMLElement).textContent = String(
+          place?.tabs?.[t] ?? "",
+        );
+      }
+      tabsRow.hidden = toggle.hidden && tabs.hidden;
+      title.replaceChildren(...placeTitle(place));
+      // The rail is rebuilt; the item that had the keyboard keeps it.
+      const focused = document.activeElement?.closest<HTMLElement>(
+        "[data-rail] [data-place]",
+      )?.dataset.place;
+      rail.replaceChildren(
+        ...(place === undefined
+          ? []
+          : [railList(place.rail, place.place, next)]),
+      );
+      if (focused !== undefined) {
+        rail
+          .querySelector<HTMLElement>(`[data-place="${CSS.escape(focused)}"]`)
+          ?.focus();
       }
       if (model.totalBytes === undefined) {
         total.remove();
@@ -870,6 +1009,8 @@ function row(
   rowStatus: Map<string, string>,
   /** Whether the video's versions were open before this render. */
   versionsOpen: boolean,
+  /** The line leads with the repo; false inside a project. */
+  withRepo = true,
 ): HTMLElement {
   const flowId = group?.video.id ?? null;
   const article = el("article", {
@@ -967,7 +1108,7 @@ function row(
   // the path is what tells the checkout flow from the settings page. The
   // full line is the title, for when it is clipped.
   // A video's line leads with its repo, when it is known.
-  const where = whereOf({ row: r, group }, true);
+  const where = whereOf({ row: r, group }, withRepo);
   const line = el("div", { class: "row-line" });
   // Under a heading that names the day the date would say it twice, so
   // the line keeps only the time; under a month it keeps both.
@@ -1357,57 +1498,6 @@ const cardStatus = (
         : rowStatus.get(statusKey("take", r.sceneId))));
 
 /**
- * The jump list: a link per section, with its count, marked current by
- * `trackSectionNav` as the list scrolls (main.ts). A link to a folded
- * month opens it on the way: jumping to a closed fold would land on one
- * line and leave the author to open it.
- */
-function jumpList(
-  sections: readonly LibrarySection[],
-  unreadable: number,
-): HTMLElement {
-  const list = el("div", { class: "side-list" });
-  for (const s of sections) {
-    const id = sectionId(s.key);
-    const link = el("a", {
-      href: `#${id}`,
-      class: "side-item",
-      "data-nav": id,
-      title: s.label,
-    });
-    link.append(
-      el("span", { class: "side-label" }, s.label),
-      el("span", { class: "side-count" }, String(s.rows.length)),
-    );
-    link.addEventListener("click", () => {
-      const target = document.getElementById(id);
-      if (target instanceof HTMLDetailsElement) target.open = true;
-      else if (target?.getAttribute("aria-expanded") === "false") {
-        setExpanded(target, true);
-      }
-    });
-    list.append(link);
-  }
-  // The studio's folders that would not read sit after every day, so on a
-  // long library they are far below the fold: the list names them too, or
-  // nothing in view says they are there.
-  if (unreadable > 0) {
-    const link = el("a", {
-      href: `#${UNREADABLE_ID}`,
-      class: "side-item",
-      "data-nav": UNREADABLE_ID,
-      title: "Couldn't read",
-    });
-    link.append(
-      el("span", { class: "side-label" }, "Couldn't read"),
-      el("span", { class: "side-count" }, String(unreadable)),
-    );
-    list.append(link);
-  }
-  return list;
-}
-
-/**
  * One section: a `<details>` whose summary is the heading and the count,
  * and whose body is the grid of cards. A `<details>` for every section,
  * not only the folded ones, so Today folds with the same control a past
@@ -1420,6 +1510,7 @@ function section(
   rowStatus: Map<string, string>,
   groupOf: Map<string, VideoGroup>,
   versionsOpen: Set<string>,
+  withRepo: boolean,
 ): { box: HTMLElement; articles: (readonly [string, HTMLElement])[] } {
   const headingId = sectionHeadingId(s.key);
   const box = el("details", {
@@ -1458,6 +1549,7 @@ function section(
       group,
       rowStatus,
       group !== null && versionsOpen.has(group.video.id),
+      withRepo,
     );
     list.append(article);
     return [r.sceneId, article] as const;
@@ -1622,6 +1714,10 @@ export function renderLibrary(
   bulk?: { busy: boolean; said: string | null },
   /** Absent draws cards: only the page passes a view, and it always does. */
   view?: LibraryViewChoice,
+  /** The place drawn, its rail and tabs; `model` is already narrowed to it.
+   *  Absent (a test mounting the list alone): no rail, no tabs, and every
+   *  row, the "Couldn't read" ones after the list. */
+  place?: PlaceView,
 ): void {
   // A name the author is typing on one card survives a render another
   // card's rename triggers: its text, focus and caret move
@@ -1648,7 +1744,7 @@ export function renderLibrary(
   };
   listFolds.set(root, was);
   // Where the keyboard was in the list, if it was there.
-  const place = placeIn(root.querySelector<HTMLElement>("[data-list]"));
+  const keyAt = placeIn(root.querySelector<HTMLElement>("[data-list]"));
   // Everything but the header is replaced. The header is updated in
   // place and never leaves the page: removing it would close an open
   // storage panel and blur a budget being typed (see `createHeader`).
@@ -1659,18 +1755,24 @@ export function renderLibrary(
     );
     headers.set(root, head);
   }
-  head.update(model, actions, view);
+  head.update(model, actions, view, place);
   for (const child of [...root.childNodes]) {
     if (child !== head.box) child.remove();
   }
   if (head.box.parentNode !== root) root.prepend(head.box);
   for (const child of [...head.content.childNodes]) {
-    if (child !== head.notices && child !== head.toggle) child.remove();
+    if (child !== head.notices && child !== head.tabsRow) child.remove();
   }
-  head.jumps.replaceChildren();
   // The list goes in the content column from here on.
   const list = head.content;
-  const unreadable = model.unreadable ?? [];
+  // The folders that would not read are a place of their own, drawn there
+  // only, never under a project.
+  const unreadable =
+    place === undefined || place.place === "unreadable"
+      ? (model.unreadable ?? [])
+      : [];
+  // Inside a project every row's repo is that project: said once, above.
+  const withRepo = place === undefined || typeof place.place === "string";
   // After whatever the list drew, on every path out of it.
   const appendUnreadable = (): void => {
     if (unreadable.length > 0) {
@@ -1692,6 +1794,9 @@ export function renderLibrary(
       appendUnreadable();
       return;
     }
+    // A place with nothing in it, in a library that has flows elsewhere:
+    // the rail and tabs say so. The card is for a library with no flows.
+    if (place !== undefined && place.rail.all > 0) return;
     // Settings' empty state, on a card. The hint names where Record is in
     // the author's terms: "the popup" is ours.
     const card = el("div", { "data-empty": "", class: "card empty-card" });
@@ -1716,14 +1821,17 @@ export function renderLibrary(
   // Sections by when the take was made — landmarks in a list that was one
   // flat wall of equal cards.
   const articles: (readonly [string, HTMLElement])[] = [];
-  const sections = sectionsOf(leads, now);
   if (view?.layout === "list") {
-    const grid = renderList(list, model, actions, rowStatus, now, view, was);
-    // The list's headings are the cards' sections; a flat sort has none,
-    // and no jump list (list spec §2.3).
-    if (grid.querySelector("[data-heading]") !== null) {
-      head.jumps.append(jumpList(sections, unreadable.length));
-    }
+    const grid = renderList(
+      list,
+      model,
+      actions,
+      rowStatus,
+      now,
+      view,
+      was,
+      withRepo,
+    );
     appendUnreadable();
     // After the grid is in the page, as previews are: the measurer waits
     // for a cell to be visible.
@@ -1736,11 +1844,10 @@ export function renderLibrary(
     // Folds are back already; then a name being typed, else the focus.
     const typed = restoreTyping(root, typing);
     applySelection(root, actions, selection, bulk);
-    if (!typed) restorePlace(grid, place);
+    if (!typed) restorePlace(grid, keyAt);
     return;
   }
-  head.jumps.append(jumpList(sections, unreadable.length));
-  for (const s of sections) {
+  for (const s of sectionsOf(leads, now)) {
     const built = section(
       s,
       wasOpen.get(s.key) ?? !s.folded,
@@ -1748,6 +1855,7 @@ export function renderLibrary(
       rowStatus,
       groupOf,
       versionsOpen,
+      withRepo,
     );
     list.append(built.box);
     articles.push(...built.articles);
