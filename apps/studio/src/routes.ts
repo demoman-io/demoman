@@ -139,6 +139,11 @@ export function createRoutes(o: {
    *  on each listing: the studio's server starting (spec §5). Off in the
    *  route tests, whose homes are removed under a pass still writing. */
   upkeepOnStart?: boolean;
+  /** At most one follow pass per this many ms (60 s unless given; 0 in the
+   *  route tests, so each listing follows). */
+  followEveryMs?: number;
+  /** The follow throttle's clock; injected by tests. */
+  now?: () => number;
 }): Omit<StudioHandlers, "window" | "exportStart"> {
   const { library, home, log } = o;
   const reveal = o.reveal ?? revealInFinder;
@@ -155,6 +160,47 @@ export function createRoutes(o: {
     const run = videoChain.then(fn, fn);
     videoChain = run.catch(() => undefined);
     return run;
+  };
+
+  // The follow pass spawns git in every recorded checkout, so it runs on
+  // start and then at most once per `followEveryMs`, as expireOld throttles
+  // itself; a skipped listing says the last pass's rows again, so a row does
+  // not flicker in and out between listings.
+  const followEvery = o.followEveryMs ?? 60_000;
+  const now = o.now ?? Date.now;
+  let lastFollow: { at: number; rows: UnreadableTake[] } | null = null;
+  const followed = async (): Promise<UnreadableTake[]> => {
+    if (lastFollow !== null && now() - lastFollow.at < followEvery)
+      return lastFollow.rows;
+    const at = now();
+    const rows: UnreadableTake[] = [];
+    const folder = "following projects' checkouts";
+    try {
+      const f = await followCheckouts(videos, library, readRepo, hasCommit);
+      // A re-keying that failed still says the checkouts that would not read.
+      const said = [
+        ...(f.error === undefined
+          ? []
+          : [`projects could not follow their checkouts (${f.error})`]),
+        ...f.failed.map(
+          (x) => `flow "${x.name}" (${x.flow}) at ${x.root}: ${x.why}`,
+        ),
+        ...f.collisions.map(
+          (c) =>
+            `flows "${c.name}" (${c.ids.join(") and (")}) are now in one project; rename one`,
+        ),
+      ];
+      if (said.length > 0)
+        rows.push({ folder, kind: "upkeep", reason: said.join("; ") });
+    } catch (error) {
+      rows.push({
+        folder,
+        kind: "upkeep",
+        reason: `projects could not follow their checkouts (${messageOf(error)})`,
+      });
+    }
+    lastFollow = { at, rows };
+    return rows;
   };
 
   /**
@@ -206,36 +252,7 @@ export function createRoutes(o: {
         });
       }
       // After keying marks, so a mark keyed just now is followed too.
-      try {
-        const followed = await followCheckouts(
-          videos,
-          library,
-          readRepo,
-          hasCommit,
-        );
-        const said = [
-          ...followed.failed.map(
-            (f) => `flow "${f.name}" (${f.flow}) at ${f.root}: ${f.why}`,
-          ),
-          ...followed.collisions.map(
-            (c) =>
-              `flows "${c.name}" (${c.ids.join(") and (")}) are now in one project; rename one`,
-          ),
-        ];
-        if (said.length > 0) {
-          rows.push({
-            folder: "following projects' checkouts",
-            kind: "upkeep",
-            reason: said.join("; "),
-          });
-        }
-      } catch (error) {
-        rows.push({
-          folder: "following projects' checkouts",
-          kind: "upkeep",
-          reason: `projects could not follow their checkouts (${messageOf(error)})`,
-        });
-      }
+      rows.push(...(await followed()));
       const expiry = await expireOld(videos, library, new Date());
       // A pass that ran within the hour is not run again, so a failure it
       // met is read back from the state file rather than said only once.

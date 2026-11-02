@@ -491,6 +491,96 @@ describe("the takes listing's videos", () => {
       }
     });
 
+    // Red: drop the throttle — the second listing follows c/r to d/r too;
+    // or answer a skipped pass with no rows — its row flickers out.
+    it("listings inside the interval follow once and repeat its row; after it, they follow again", async () => {
+      let clock = 1_000_000;
+      await h.close();
+      h = await startStudio(home, { followEveryMs: 60_000, now: () => clock });
+      const notGit = await mkdtemp(join(tmpdir(), "studio-throttle-not-git-"));
+      const { root, head } = await checkout(
+        "studio-throttle-",
+        "git@github.com:a/r.git",
+      );
+      try {
+        const stuck = await recordedIn(notGit, "github.com/n/r", null);
+        const moving = await recordedIn(
+          root,
+          "github.com/a/r",
+          head,
+          "Send a bill",
+        );
+        const rowOf = (body: TakesAnswer) =>
+          body.unreadable.find(
+            (u) => u.folder === "following projects' checkouts",
+          )?.reason;
+        const keyOf = (body: TakesAnswer) =>
+          body.videos.find((v) => v.id === moving)?.repo;
+        git(root, "remote", "set-url", "origin", "git@github.com:b/r.git");
+        const first = await listing();
+        expect(keyOf(first), JSON.stringify(first.unreadable)).toEqual({
+          key: "github.com/b/r",
+        });
+        expect(rowOf(first)).toContain(`flow "Pay a bill" (${stuck})`);
+
+        git(root, "remote", "set-url", "origin", "git@github.com:c/r.git");
+        // Premise: a pass now would move the flow to c/r.
+        const read = await readRepo(root);
+        expect(read.ok && read.repo.key).toBe("github.com/c/r");
+        clock += 59_999;
+        const second = await listing();
+        expect(keyOf(second)).toEqual({ key: "github.com/b/r" });
+        expect(rowOf(second)).toBe(rowOf(first));
+
+        clock += 1;
+        const third = await listing();
+        expect(keyOf(third), JSON.stringify(third.unreadable)).toEqual({
+          key: "github.com/c/r",
+        });
+        expect(rowOf(third)).toContain(`flow "Pay a bill" (${stuck})`);
+      } finally {
+        await rm(notGit, { recursive: true, force: true });
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    // Red: let followCheckouts throw from videos.follow — the row says only
+    // that it could not follow, and the checkout that would not read is lost.
+    it.skipIf(process.getuid?.() === 0)(
+      "a re-keying that fails is said beside the checkouts that would not read",
+      async () => {
+        const notGit = await mkdtemp(join(tmpdir(), "studio-fail-not-git-"));
+        const { root, head } = await checkout(
+          "studio-fail-",
+          "git@github.com:a/r.git",
+        );
+        const dir = join(home, "videos");
+        try {
+          const stuck = await recordedIn(notGit, "github.com/n/r", null);
+          await recordedIn(root, "github.com/a/r", head, "Send a bill");
+          git(root, "remote", "set-url", "origin", "git@github.com:b/r.git");
+          // The lock and the table cannot be written: re-keying fails.
+          await chmod(dir, 0o500);
+          const body = await listing();
+          const said = JSON.stringify(body.unreadable);
+          const rows = body.unreadable.filter(
+            (u) => u.folder === "following projects' checkouts",
+          );
+          expect(rows, said).toHaveLength(1);
+          expect(rows[0]?.reason, said).toContain(
+            "projects could not follow their checkouts (",
+          );
+          expect(rows[0]?.reason, said).toContain(
+            `flow "Pay a bill" (${stuck}) at ${notGit}: not a git checkout`,
+          );
+        } finally {
+          await chmod(dir, 0o755);
+          await rm(notGit, { recursive: true, force: true });
+          await rm(root, { recursive: true, force: true });
+        }
+      },
+    );
+
     it("an alias table that will not read is a row naming it, and every flow still lists", async () => {
       const path = join(home, "videos", ".aliases.json");
       await writeFile(path, "{nope");

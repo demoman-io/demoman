@@ -82,6 +82,9 @@ export async function startStudio(
     watch?: WatchFn;
     settleMs?: number;
     onSettled?: (feed: "takes" | "kits") => void;
+    /** The follow throttle: 0 unless given, so each listing follows. */
+    followEveryMs?: number;
+    now?: () => number;
   } = {},
 ): Promise<Harness> {
   const logs: string[] = [];
@@ -126,6 +129,8 @@ export async function startStudio(
         if (o.revealFails !== undefined) throw new Error(o.revealFails);
         revealed.push(path);
       },
+      followEveryMs: o.followEveryMs ?? 0,
+      ...(o.now === undefined ? {} : { now: o.now }),
     }),
     window: stubWindow,
     exportStart: stubExportStart,

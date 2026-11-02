@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import { messageOf } from "../report.js";
 import type { KeptKeyFailure } from "./kept-keys.js";
 import type { Library } from "./library.js";
-import type { RepoRead } from "./repo.js";
+import { hasCommit, type RepoRead } from "./repo.js";
 import type { VideoStore } from "./videos.js";
 
 /** `old key → new key`, as upkeep recorded each change of a checkout's repo
@@ -44,17 +44,23 @@ type Recorded = { flows: Set<string>; commits: Set<string> };
  *
  * A checkout that is gone is skipped quietly; one that will not read is
  * named in `failed`, once per flow recorded there. `collisions`: names two
- * flows now share in one repo. A table that will not read throws, naming it.
+ * flows now share in one repo. A table that will not read throws, naming it;
+ * a re-keying that fails is `error`, beside the `failed` already gathered.
+ *
+ * `only` follows that one checkout root and no other: an agent's query or
+ * run follows the checkout it is in before reading its flows (ruling R14).
  */
 export async function followCheckouts(
   videos: VideoStore,
   library: Library,
   read: (dir: string) => Promise<RepoRead>,
   has: (dir: string, sha: string) => Promise<boolean>,
+  only?: string,
 ): Promise<{
   moved: number;
   failed: KeptKeyFailure[];
   collisions: { name: string; ids: string[] }[];
+  error?: string;
 }> {
   const table = await videos.aliases();
   const names = new Map<string, string>();
@@ -105,6 +111,7 @@ export async function followCheckouts(
   const pairs: { from: string; to: string }[] = [];
   const failed: KeptKeyFailure[] = [];
   for (const [root, byKey] of at) {
+    if (only !== undefined && root !== only) continue;
     const miss = (flows: Iterable<string>, why: string) => {
       for (const flow of flows)
         failed.push({ flow, name: names.get(flow) ?? flow, root, why });
@@ -149,9 +156,59 @@ export async function followCheckouts(
       miss(everyFlow, messageOf(error));
     }
   }
-  // With no new alias, still re-keys a record made since under an old key.
-  if (pairs.length === 0 && Object.keys(table).length === 0)
+  // With no new alias, still re-keys a record made since under an old key;
+  // one checkout's pass leaves that to the Studio's (the store resolves an
+  // old key anyway), so a query or run takes no lock for nothing.
+  if (
+    pairs.length === 0 &&
+    (only !== undefined || Object.keys(table).length === 0)
+  )
     return { moved: 0, failed, collisions: [] };
-  const { moved, collisions } = await videos.follow(pairs);
-  return { moved, failed, collisions };
+  try {
+    const { moved, collisions } = await videos.follow(pairs);
+    return { moved, failed, collisions };
+  } catch (error) {
+    return { moved: 0, failed, collisions: [], error: messageOf(error) };
+  }
+}
+
+/**
+ * Follows the one checkout an agent's query or run is in, before its flows
+ * are read, so a checkout whose key moved before the Studio opened still
+ * finds its old flows (ruling R14). `read` is that checkout's, read already.
+ * Never throws: answers what could not follow, each by the flow it names,
+ * or by the checkout's root for a pass that failed whole.
+ */
+export async function followHere(
+  videos: VideoStore,
+  library: Library,
+  read: Extract<RepoRead, { ok: true }>,
+): Promise<{ id: string; why: string }[]> {
+  const { root } = read.repo;
+  const whole = (why: string) => ({
+    id: root,
+    why: `this checkout's flows could not follow it (${why})`,
+  });
+  try {
+    const f = await followCheckouts(
+      videos,
+      library,
+      async () => read,
+      hasCommit,
+      root,
+    );
+    return [
+      ...(f.error === undefined ? [] : [whole(f.error)]),
+      ...f.failed.map((x) => ({
+        id: x.flow,
+        why: `flow "${x.name}" at ${x.root}: ${x.why}`,
+      })),
+      ...f.collisions.map((c) => ({
+        id: c.ids[0] as string,
+        why: `flows "${c.name}" (${c.ids.join(") and (")}) are now in one project; rename one`,
+      })),
+    ];
+  } catch (error) {
+    return [whole(messageOf(error))];
+  }
 }
