@@ -71,7 +71,7 @@ export async function deriveOp(
   // the route a re-film's refusal of that edit points to.
   const merged = mergeSkeleton(derivation, await library.getSkeleton(takeId), {
     onVerbChange: "useScene",
-    sceneName: doc.meta.name,
+    scene: doc,
   });
   if (!merged.ok) {
     return {
