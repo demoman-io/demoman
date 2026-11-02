@@ -4,6 +4,7 @@ import type {
   ScriptTrim,
   ZoomIntent,
 } from "@demoman/scene-schema";
+import { ScriptTrimSchema, ZoomIntentSchema } from "@demoman/scene-schema";
 
 // What a CLI run keeps of its script beside the take (spec 2026-10-14
 // re-film §1): the order, the pauses, which action each step made, and the
@@ -178,8 +179,11 @@ export function parseSkeleton(
     return no("script.json's account is not a name");
   if (!v1 && !("trim" in raw))
     return no("script.json has no trim (null when the script named none)");
-  if (!v1 && !nullOr(raw.trim, isObject))
-    return no("script.json's trim is not an object or null");
+  if (!v1 && raw.trim !== null) {
+    const trim = ScriptTrimSchema.safeParse(raw.trim);
+    if (!trim.success)
+      return no(`script.json's trim is not a trim: ${trim.error.message}`);
+  }
   if (!Array.isArray(raw.steps)) return no("script.json has no steps");
   for (const [i, step] of raw.steps.entries()) {
     if (!isObject(step)) return no(`script.json's steps.${i} is not an object`);
@@ -212,12 +216,10 @@ export function parseSkeleton(
       if (!(key in step) || !nullOr(step[key], (v) => typeof v === "number"))
         return no(`script.json's steps.${i}'s ${key} is not a number or null`);
     }
-    if (
-      step.zoom !== undefined &&
-      step.zoom !== false &&
-      typeof step.zoom !== "number"
-    )
-      return no(`script.json's steps.${i}'s zoom is not false or a scale`);
+    if (step.zoom !== undefined && !ZoomIntentSchema.safeParse(step.zoom).success)
+      return no(
+        `script.json's steps.${i}'s zoom is not false or { scale } (over 1, at most the camera's limit)`,
+      );
   }
   if (!v1) return { ok: true, skeleton: raw as unknown as ScriptSkeleton };
   // A v1 file asked nothing of the ends and measured no finish.

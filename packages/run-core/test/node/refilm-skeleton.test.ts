@@ -155,11 +155,11 @@ describe("skeleton v2", () => {
   it("writes v2 with each step's finish and zoom-out", () => {
     const withIntent = {
       ...script,
-      trim: { end: { step: 2, after: "action" } },
+      trim: { end: { ms: 0, step: 2, after: "action" } },
     } as DemoScript;
     const sk = skeletonOf(withIntent, timed, scene);
     expect(sk.skeletonVersion).toBe(2);
-    expect(sk.trim).toEqual({ end: { step: 2, after: "action" } });
+    expect(sk.trim).toEqual({ end: { ms: 0, step: 2, after: "action" } });
     expect(sk.steps[0]).toMatchObject({ finishMs: 300, zoomOutMs: null });
     expect(sk.steps[2]).toMatchObject({ finishMs: 1200, zoomOutMs: 2500 });
     // Not performed, so nothing was measured; a pause carries neither.
@@ -179,7 +179,7 @@ describe("skeleton v2", () => {
       name: "Z",
       target: "http://x/",
       steps: [
-        { do: "click", on: { stableId: "a" }, zoom: 1.8 },
+        { do: "click", on: { stableId: "a" }, zoom: { scale: 1.8 } },
         { do: "click", on: { stableId: "a" }, zoom: false },
         { do: "click", on: { stableId: "a" } },
       ],
@@ -189,11 +189,14 @@ describe("skeleton v2", () => {
       [0, 1, 2].map((index) => ({ index, actionId: null })),
       scene,
     );
-    expect(sk.steps[0]).toMatchObject({ zoom: 1.8 });
+    expect(sk.steps[0]).toMatchObject({ zoom: { scale: 1.8 } });
     expect(sk.steps[1]).toMatchObject({ zoom: false });
     expect(sk.steps[2] && "zoom" in sk.steps[2]).toBe(false);
     const back = parseSkeleton(JSON.parse(JSON.stringify(sk)));
     expect(back.ok && back.skeleton.steps[1]).toMatchObject({ zoom: false });
+    expect(back.ok && back.skeleton.steps[0]).toMatchObject({
+      zoom: { scale: 1.8 },
+    });
   });
 
   it("reads a v1 file as having no timing", () => {
@@ -219,6 +222,48 @@ describe("skeleton v2", () => {
       zoomOutMs: null,
     });
     expect(out.skeleton.steps[0]).toEqual({ do: "pause", ms: 5 });
+  });
+
+  const v2 = (trim: unknown, zoom?: unknown) => ({
+    skeletonVersion: 2,
+    name: "x",
+    scriptVersion: 8,
+    viewport: null,
+    device: null,
+    look: null,
+    trim,
+    steps: [
+      {
+        do: "click",
+        actionId: "a",
+        anchorDigest: null,
+        finishMs: 1,
+        zoomOutMs: null,
+        ...(zoom === undefined ? {} : { zoom }),
+      },
+    ],
+  });
+
+  it.each([
+    ["a bare number", 1.8],
+    ["a non-numeric scale", { scale: "x" }],
+    ["a scale of 1", { scale: 1 }],
+  ])("refuses a zoom that is %s", (_, zoom) => {
+    expect(parseSkeleton(v2(null, zoom))).toEqual({
+      ok: false,
+      error: expect.stringContaining("steps.0's zoom"),
+    });
+  });
+
+  it.each([
+    ["a negative ms", { start: { ms: -1 } }],
+    ["an unknown key", { start: { ms: 1 }, middle: {} }],
+    ["an unknown after", { end: { ms: 1, after: "later" } }],
+  ])("refuses a trim with %s", (_, trim) => {
+    expect(parseSkeleton(v2(trim))).toEqual({
+      ok: false,
+      error: expect.stringContaining("trim is not a trim"),
+    });
   });
 
   it("refuses a v2 step whose finishMs is a string, by name", () => {
