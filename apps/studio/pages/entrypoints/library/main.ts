@@ -314,19 +314,23 @@ const asked = parsePlace(location.search);
 const cameFrom = new URLSearchParams(location.search).get("from");
 let tab: Tab = "all";
 
-/** The saved pick, or All flows when there is none or its project has no
- *  flows left: a known, normal state, said nowhere. */
+/** The saved pick, or All flows when there is none or its place has
+ *  nothing left (a project, No project or Couldn't read): a known, normal
+ *  state, said nowhere. */
 function pickedPlace(model: LibraryModel): Place {
   const picked =
     view.project === null
       ? null
       : parsePlace(`?project=${encodeURIComponent(view.project)}`);
-  if (picked === null) return "all";
-  if (typeof picked === "object") {
-    const keys = new Set(cardsOf(model).map(projectKeyOf));
-    return keys.has(picked.project) ? picked : "all";
-  }
-  return picked;
+  if (picked === null || picked === "all") return "all";
+  const left =
+    picked === "unreadable"
+      ? (model.unreadable ?? []).length
+      : cardsOf(model).filter(
+          (c) =>
+            projectKeyOf(c) === (picked === "none" ? null : picked.project),
+        ).length;
+  return left > 0 ? picked : "all";
 }
 
 function landing(model: LibraryModel): Place {

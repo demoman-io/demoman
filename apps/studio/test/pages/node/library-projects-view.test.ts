@@ -129,9 +129,13 @@ const calls = (member: string, method: string) =>
     (c) => c.member === member && c.method === method,
   ) ?? [];
 
-async function boot(url = "/", libraryView?: LibraryViewChoice) {
+async function boot(
+  url = "/",
+  libraryView?: LibraryViewChoice,
+  alter: (s: MemorySeed) => MemorySeed = (s) => s,
+) {
   window.history.replaceState({}, "", url);
-  state.memory = createMemoryPlatform(seed(libraryView));
+  state.memory = createMemoryPlatform(alter(seed(libraryView)));
   await import("../../../pages/entrypoints/library/main");
   await vi.waitFor(() => {
     if ($("[data-rail] [data-place]") === null) throw new Error("no rail yet");
@@ -362,6 +366,35 @@ describe("library main — the project rail, title band and tab row", () => {
     expect(
       railItem(`?project=${encodeURIComponent("github.com/gone/away")}`),
     ).toBeNull();
+  });
+
+  it("a saved Couldn't read with nothing left opens All flows", async () => {
+    // Red: return a reserved pick whatever its count — it opens empty.
+    await boot("/", pick("unreadable"), (s) => ({ ...s, unreadable: [] }));
+    expect(current()).toEqual(["?project=all"]);
+    // Premise: nothing is left there (the rail draws an empty reserved
+    // place only while it is the place shown).
+    expect(railItem("?project=unreadable")).toBeNull();
+  });
+
+  it("a saved No project with nothing left opens All flows", async () => {
+    await boot("/", pick("none"), (s) => ({
+      ...s,
+      scenes: (s.scenes ?? []).filter(
+        (t) => !["t-outside", "loose"].includes(t.meta.id),
+      ),
+      videos: (s.videos ?? []).filter((v) => v.id !== "outside"),
+    }));
+    expect(current()).toEqual(["?project=all"]);
+    // Premise: nothing is left there; the rest still is.
+    expect(railItem("?project=none")).toBeNull();
+    expect(flowsDrawn()).toHaveLength(4);
+  });
+
+  it("a saved No project with flows in it still opens there", async () => {
+    // Positive control for the two above.
+    await boot("/", pick("none"));
+    expect(current()).toEqual(["?project=none"]);
   });
 
   it("a stored pick of '' is no pick", async () => {
