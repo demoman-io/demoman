@@ -947,7 +947,7 @@ describe("frames, outputs, nav", () => {
     // A take not read yet, or in no video: no call can name it.
     expect(platform.nav.rerun("t1", false)).toEqual({
       kind: "line",
-      text: "Ask your agent to film this again.",
+      text: "Ask your agent to record this again.",
     });
   });
 
@@ -975,7 +975,7 @@ describe("frames, outputs, nav", () => {
 
   it("says why the video's flow could not be read where the re-record line goes", async () => {
     // Red (second review 6): drop videoError on the floor — the editor
-    // reads "Ask your agent to film this again." as if it were in no
+    // reads "Ask your agent to record this again." as if it were in no
     // video.
     const platform = createPlatform();
     const why = "/h/takes/t1/video.json is not JSON (Unexpected token)";
@@ -1177,7 +1177,7 @@ describe("the take folder and the kit feed", () => {
 
   it("names the Studio's empty-library hint", () => {
     expect(createPlatform().nav.firstTakeHint()).toBe(
-      "Ask your agent for a demo video. Each flow shows up here, grouped by the day it was last filmed.",
+      "Ask your agent for a demo video. Each flow shows up here, grouped by the day it was last recorded.",
     );
   });
 });

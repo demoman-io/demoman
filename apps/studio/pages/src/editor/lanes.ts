@@ -539,7 +539,7 @@ export function buildLaneModel(args: LaneModelArgs): LaneModel {
   if (backwardsPaces > 0) {
     const pairs = backwardsPaces === 1 ? "pair" : "pairs";
     notices.push(
-      `pacingBackwards: ${backwardsPaces} step ${pairs} in this video carry timestamps that run backwards, so the video's order is not its time order. A re-shoot counts the pause across ${backwardsPaces === 1 ? "it" : "them"} twice and comes out longer than the video. Film it again to straighten the order; the frames you already have are unaffected.`,
+      `pacingBackwards: ${backwardsPaces} step ${pairs} in this video carry timestamps that run backwards, so the video's order is not its time order. A re-record counts the pause across ${backwardsPaces === 1 ? "it" : "them"} twice and comes out longer than the video. Record it again to straighten the order; the frames you already have are unaffected.`,
     );
   }
 
