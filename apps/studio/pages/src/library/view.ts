@@ -550,7 +550,8 @@ function createHeader(withStorage: boolean): Header {
     class: "place-menu",
     popover: "",
     role: "menu",
-    "aria-label": "Projects",
+    // Its own name: the rail's nav is "Projects" (ruling R16).
+    "aria-label": "Switch project",
     "data-place-menu": "",
   });
   const menuItems = () => [

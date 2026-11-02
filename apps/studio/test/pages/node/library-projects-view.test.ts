@@ -351,6 +351,11 @@ describe("library main — the project rail, title band and tab row", () => {
     const menu = $("[data-place-menu]") as HTMLElement;
     expect(button.getAttribute("popovertarget")).toBe(menu.id);
     expect(menu.getAttribute("role")).toBe("menu");
+    // Red: name the menu "Projects" too — two landmarks of one name.
+    expect(menu.getAttribute("aria-label")).toBe("Switch project");
+    expect(($("[data-rail]") as HTMLElement).getAttribute("aria-label")).toBe(
+      "Projects",
+    );
     const items = $$("[data-place-menu] [data-place]");
     expect(items.map((a) => a.dataset.place)).toEqual(
       $$("[data-rail] [data-place]").map((a) => a.dataset.place),
