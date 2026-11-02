@@ -2947,7 +2947,11 @@ describe("the Studio's screenshot set", () => {
         all: answer.videos.length,
         acme: acmeFlows,
         none: noKey,
+        globex: keys.filter((k) => k === GLOBEX).length,
+        unreadable: answer.unreadable.length,
       };
+      expect(counts.globex, "premise: globex/api has one flow").toBe(1);
+      expect(counts.unreadable, "premise: one folder would not read").toBe(1);
       const opened = await api(studio, "/api/window", {
         method: "POST",
         body: {},
@@ -2972,6 +2976,8 @@ describe("the Studio's screenshot set", () => {
         owner: string | null;
         /** A date heading carries a select-all box. */
         box: boolean;
+        /** The kept flow's "In repo" tag keeps its glyph, painted. */
+        tagGlyph?: boolean;
       };
       const open = async (url: string, at: string, tab: string | null) => {
         await page.goto(url);
@@ -3008,7 +3014,45 @@ describe("the Studio's screenshot set", () => {
           `${at}: no sideways scroll (${JSON.stringify(p)})`,
         ).toBeLessThanOrEqual(p.innerWidth);
         expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
-        const seen = await page.evaluate(() => {
+        const seen = await page.evaluate((flow) => {
+          // The rail as painted: each child of its list, in order, with the
+          // group it belongs to (an owner's label and projects are one).
+          const railItems: {
+            group: string;
+            kind: "label" | "item";
+            text: string;
+            top: number;
+          }[] = [];
+          let group = "";
+          for (const c of document.querySelectorAll<HTMLElement>(
+            "[data-rail] .side-list > *",
+          )) {
+            const label = c.classList.contains("side-owner");
+            const place = c.getAttribute("data-place") ?? "";
+            if (label) group = `owner ${c.textContent}`;
+            else if (place === "?project=all") group = "all flows";
+            else if (place === "?project=none") group = "no project";
+            else if (place === "?project=unreadable") group = "couldn't read";
+            railItems.push({
+              group,
+              kind: label ? "label" : "item",
+              text: (c.innerText ?? "").replace(/\s+/g, " ").trim(),
+              top: Math.round(c.getBoundingClientRect().top),
+            });
+          }
+          const glyph = document.querySelector(
+            `[data-list] [data-flow="${flow}"] [data-kept] svg`,
+          );
+          let tagGlyphPainted: boolean | null = null;
+          if (glyph !== null) {
+            const g = glyph.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              g.left + g.width / 2,
+              g.top + g.height / 2,
+            );
+            tagGlyphPainted =
+              g.width > 0 && hit !== null && !!hit.closest("[data-kept]");
+          }
           const rect = (s: string) =>
             document.querySelector(s)?.getBoundingClientRect() ?? null;
           const centre = (r: DOMRect) =>
@@ -3113,8 +3157,10 @@ describe("the Studio's screenshot set", () => {
             toggleHit,
             boxHit,
             ownerSeen,
+            railItems,
+            tagGlyphPainted,
           };
-        });
+        }, invoice);
         const ev = `${at}: ${JSON.stringify(seen)}`;
         expect(seen.rows, `${at}: the flows listed ${ev}`).toBe(look.rows);
         expect(seen.place, `${at}: the rail's current place ${ev}`).toBe(
@@ -3135,10 +3181,51 @@ describe("the Studio's screenshot set", () => {
           seen.boxHit,
           `${at}: the heading's box is its own at its centre ${ev}`,
         ).toBe(look.box ? true : null);
+        expect(p.rail.length, `${at}: the rail has items`).toBeGreaterThan(0);
         expect(
           p.rail.every((r) => r.painted),
           `${at}: rail ${JSON.stringify(p.rail)}`,
         ).toBe(true);
+        // The rail's words and counts are the fixture's.
+        expect(
+          seen.railItems.map((r) => r.text),
+          `${at}: the rail's labels and counts ${ev}`,
+        ).toEqual([
+          `All flows ${counts.all}`,
+          "acme",
+          `web ${counts.acme}`,
+          "globex",
+          `api ${counts.globex}`,
+          `No project ${counts.none}`,
+          `Couldn't read ${counts.unreadable}`,
+        ]);
+        // No group shares a row with another's items or label, and a
+        // project sits below its own owner's label.
+        for (const a of seen.railItems) {
+          for (const b of seen.railItems) {
+            if (a.group !== b.group) {
+              expect(
+                Math.abs(a.top - b.top) > 2,
+                `${at}: "${a.text}" (${a.group}) shares a row with "${b.text}" (${b.group}) ${JSON.stringify(seen.railItems)}`,
+              ).toBe(true);
+            }
+          }
+          const label = seen.railItems.find(
+            (r) => r.kind === "label" && r.group === a.group,
+          );
+          if (a.kind === "item" && label !== undefined) {
+            expect(
+              a.top > label.top,
+              `${at}: "${a.text}" sits below its owner "${label.text}" ${JSON.stringify(seen.railItems)}`,
+            ).toBe(true);
+          }
+        }
+        if (look.tagGlyph === true) {
+          expect(
+            seen.tagGlyphPainted,
+            `${at}: the kept flow's tag keeps its glyph, painted ${ev}`,
+          ).toBe(true);
+        }
         if (look.owner === null) {
           expect(seen.ownerSeen, `${at}: no owner line`).toBeNull();
           return;
@@ -3266,6 +3353,7 @@ describe("the Studio's screenshot set", () => {
           place: acme,
           owner: "acme",
           box: true,
+          tagGlyph: w === 720,
         });
       }
 
