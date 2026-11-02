@@ -1306,6 +1306,11 @@ input:is([type="text"], [type="search"], [type="number"], :not([type])):not(
   color: var(--ink);
   font-size: 13px;
 }
+/* The library's search box pads its text clear of the glyph and the `/`
+   hint drawn inside it; as specific as the rule above, and after it. */
+[data-studio] .search-field > input[type="search"][data-search]:not(#name) {
+  padding: 0 34px 0 30px;
+}
 [data-studio] .branding-controls input[type="color"] {
   border-color: var(--line-2);
   border-radius: var(--r-chip);

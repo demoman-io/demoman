@@ -754,6 +754,7 @@
          Grid at the right, even when the tabs are hidden. */
       .tabs-row {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 12px;
         margin-bottom: 8px;
@@ -770,6 +771,51 @@
         background: var(--control-hover);
         color: var(--ink);
       }
+      /* The search box, right of the tabs and before the toggle: the
+         system's field, its glyph inside the left edge and the `/` hint
+         inside the right (studio.css pads the text clear of both). On a
+         row too narrow for it, it wraps under the tabs. */
+      .search-field {
+        position: relative;
+        display: flex;
+        align-items: center;
+        flex: 0 1 260px;
+        min-width: 180px;
+        margin-left: auto;
+      }
+      .search-field:not([hidden]) + .layout-toggle { margin-left: 0; }
+      .search-field > input { width: 100%; }
+      .search-field > :is(svg, kbd) {
+        position: absolute;
+        pointer-events: none;
+        color: var(--ink-faint);
+      }
+      .search-field > svg { left: 10px; width: 14px; height: 14px; }
+      .search-field > kbd {
+        right: 8px;
+        min-width: 18px;
+        padding: 0 4px;
+        border-radius: 4px;
+        box-shadow: inset 0 0 0 1px var(--line-2);
+        font-family: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        text-align: center;
+      }
+      .search-field:focus-within > kbd { display: none; }
+      /* Why a search found a flow: dim, after the name or in Where's
+         place, cut before the name is. */
+      .match-why {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--ink-faint);
+      }
+      .library-list .match-why { flex: 0 1 auto; margin-left: 12px; }
+      .none-here { margin: 28px 0 0; color: var(--ink-muted); }
+      /* A search's cards: one run, spaced from the tabs as a section's are. */
+      .rows[data-results] { margin-top: 14px; }
       :is(.library-list, .unreadable-list) {
         --list-row: 34px;
         /* Wide enough for a video row's "Sep 26, 11:00 AM": as content
@@ -1128,6 +1174,7 @@
       .library-list [hidden],
       .library-list > [role="row"] > [data-status][hidden],
       .layout-toggle[hidden],
+      .search-field[hidden],
       .tabs-row[hidden],
       .place-tabs[hidden] { display: none; }
 

@@ -9,7 +9,13 @@ import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
 import { collapsedKeys, groupBox, openRename, renderList } from "./list";
 import { placeIn, restorePlace } from "./list-keys";
-import { type Where, whereFor } from "./list-model";
+import {
+  type ListOrder,
+  type ListSort,
+  listEntries,
+  type Where,
+  whereFor,
+} from "./list-model";
 import { previewText } from "./preview";
 import {
   type Place,
@@ -18,8 +24,10 @@ import {
   type RailProject,
   type Tab,
 } from "./projects";
+import { cardHits, searching, whyOf } from "./search";
 import type { SelectHow, Selection } from "./selection";
 import type {
+  LibraryCard,
   LibraryModel,
   LibraryRow,
   LibrarySection,
@@ -115,6 +123,8 @@ export interface LibraryActions {
   goPlace?(p: Place): void;
   /** In repo, Not in repo or All. */
   goTab?(t: Tab): void;
+  /** The search box's text, at each keystroke. Absent: no box. */
+  search?(query: string): void;
 }
 
 /** Where the library is and what its rail and tabs say (spec 2026-11-01
@@ -124,6 +134,13 @@ export interface PlaceView {
   tab: Tab;
   rail: Rail;
   tabs: Record<Tab, number> | null;
+  /** The box's text; the order a heading click chose for this search, or
+   *  null for most matched first; the other places' matches. */
+  search?: {
+    query: string;
+    sort: ListSort | null;
+    elsewhere: { place: Place; count: number }[];
+  };
 }
 
 /** An expired video's line leads with the fact (spec 2026-10-30
@@ -139,13 +156,14 @@ export const expiredLine = (
       ? `Expired — ${line.charAt(0).toLowerCase()}${line.slice(1)}`
       : line;
 
-/** The flows in open sections, in page order: what a shift-click ranges
- *  over. Read at the click, so a section folded since the render counts. */
+/** The flows in open sections, or a search's run of results, in page
+ *  order: what a shift-click ranges over. Read at the click, so a section
+ *  folded since the render counts. */
 function visibleFlows(from: Element): string[] {
   const library = from.closest("[data-library]") ?? from.ownerDocument;
   return [
     ...library.querySelectorAll<HTMLInputElement>(
-      "details[open] [data-select]",
+      ":is(details[open], [data-results]) [data-select]",
     ),
   ].map((box) => box.dataset.select as string);
 }
@@ -676,6 +694,23 @@ function createHeader(withStorage: boolean): Header {
     tabCounts.set(t, count);
     tabs.append(button);
   }
+  // The search box, between the tabs and the toggle: built here once, so
+  // the repaint each keystroke asks for keeps its focus and caret.
+  const searchField = el("label", { class: "search-field" });
+  const input = el("input", {
+    type: "search",
+    "data-search": "",
+    "aria-label": "Search flows",
+    placeholder: "Search",
+  });
+  input.addEventListener("input", () => actions?.search?.(input.value));
+  // Esc clears the box; the page's own Esc (the selection) skips a field.
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || input.value === "") return;
+    event.preventDefault();
+    actions?.search?.("");
+  });
+  searchField.append(icon("search"), input, el("kbd", {}, "/"));
   const toggle = el("div", {
     class: "layout-toggle",
     "data-layout-toggle": "",
@@ -803,7 +838,7 @@ function createHeader(withStorage: boolean): Header {
   );
   storage.append(trigger, panel);
   side.append(title, rail, menu);
-  tabsRow.append(tabs, toggle);
+  tabsRow.append(tabs, searchField, toggle);
   content.append(tabsRow, notices);
   box.append(side, content);
   // The page's top bar carries a slot for it, left of the theme switch
@@ -836,7 +871,11 @@ function createHeader(withStorage: boolean): Header {
           place?.tabs?.[t] ?? "",
         );
       }
-      tabsRow.hidden = toggle.hidden && tabs.hidden;
+      searchField.hidden =
+        next.search === undefined || place?.place === "unreadable";
+      const query = place?.search?.query ?? "";
+      if (input.value !== query) input.value = query;
+      tabsRow.hidden = toggle.hidden && tabs.hidden && searchField.hidden;
       titleText.replaceChildren(...placeTitle(place));
       // No rail, no places to switch between: the plain title alone.
       switchName.replaceChildren(
@@ -1151,6 +1190,8 @@ function row(
   versionsOpen: boolean,
   /** What the line says of where the flow opened. */
   where: Where,
+  /** Why a search found it, said in Where's place (`whyOf`). */
+  why: string | null = null,
 ): HTMLElement {
   const flowId = group?.video.id ?? null;
   const article = el("article", {
@@ -1252,13 +1293,16 @@ function row(
   const line = el("div", { class: "row-line" });
   // Under a heading that names the day the date would say it twice, so
   // the line keeps only the time; under a month it keeps both.
-  line.append(
-    el(
-      "p",
-      { class: "row-meta", "data-meta": "", title: at.title },
-      `${at.text} · ${namesDay ? r.time : r.when}`,
-    ),
+  const meta = el("p", {
+    class: "row-meta",
+    "data-meta": "",
+    title: why ?? at.title,
+  });
+  meta.append(
+    why === null ? at.text : matchWhy(why),
+    ` · ${namesDay ? r.time : r.when}`,
   );
+  line.append(meta);
   // The size is the storage controls' information; a page that draws none
   // has no sizes to state. The studio has no controls but states each
   // folder's size (`sizeBytes`), which is what a delete would free.
@@ -1311,6 +1355,10 @@ function row(
   }
   return article;
 }
+
+/** Why a search found a flow, dim, after its name or in Where's place. */
+export const matchWhy = (why: string): HTMLElement =>
+  el("span", { class: "match-why", "data-match-why": "", title: why }, why);
 
 /** A card's buttons — Back to the original footage, Restore, Edit, Delete,
  *  whichever it has — and the sentence that stands where Restore would, or
@@ -1844,6 +1892,49 @@ function unreadableRows(
   return list;
 }
 
+/** A search with nothing here: the line, and each other place that has
+ *  matches as a link there. */
+function noneHere(
+  elsewhere: { place: Place; count: number }[],
+  rail: Rail | undefined,
+  query: string,
+  actions: LibraryActions,
+): HTMLElement {
+  const line = el("p", { class: "none-here", "data-none-here": "" });
+  line.append("None here.");
+  for (const [i, { place, count }] of elsewhere.entries()) {
+    const found =
+      typeof place === "object"
+        ? rail?.projects.find((p) => p.key === place.project)
+        : undefined;
+    const name =
+      typeof place === "string"
+        ? PLACE_WORDS[place]
+        : found === undefined
+          ? place.project
+          : `${found.owner === null ? "" : `${found.owner}/`}${found.name}`;
+    const link = el(
+      "a",
+      {
+        // The query goes along, for a link opened in a new tab.
+        href: `${placeSearch(place)}&q=${encodeURIComponent(query)}`,
+        "data-place": placeSearch(place),
+      },
+      `${count} in ${name}`,
+    );
+    link.addEventListener("click", (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      event.preventDefault();
+      actions.goPlace?.(place);
+    });
+    line.append(i === 0 ? " " : ", ", link);
+  }
+  if (elsewhere.length > 0) line.append(".");
+  return line;
+}
+
 export function renderLibrary(
   root: HTMLElement,
   model: LibraryModel,
@@ -1917,6 +2008,11 @@ export function renderLibrary(
       : [];
   // Inside a project every row's repo is that project: said once, above.
   const withRepo = place === undefined || typeof place.place === "string";
+  // Couldn't read has no box, so nothing is searched there.
+  const search = place?.search;
+  const query = search?.query ?? "";
+  const finding =
+    search !== undefined && place?.place !== "unreadable" && searching(query);
   // After whatever the list drew, on every path out of it.
   const appendUnreadable = (): void => {
     if (unreadable.length > 0) {
@@ -1932,6 +2028,10 @@ export function renderLibrary(
   };
   if (model.rows.length === 0) {
     applySelection(root, actions, undefined);
+    if (finding) {
+      list.append(noneHere(search.elsewhere, place?.rail, query, actions));
+      return;
+    }
     // A library of only unreadable folders is not empty: the empty card
     // would hide the rows that say what is wrong.
     if (unreadable.length > 0) {
@@ -1966,6 +2066,10 @@ export function renderLibrary(
   // Sections by when the take was made — landmarks in a list that was one
   // flat wall of equal cards.
   const articles: (readonly [string, HTMLElement])[] = [];
+  // While searching, most matched first unless a heading chose otherwise.
+  const order: ListOrder | null = finding
+    ? (search.sort ?? { rank: (c: LibraryCard) => cardHits(c, query) })
+    : null;
   if (view?.layout === "list") {
     const grid = renderList(
       list,
@@ -1976,6 +2080,8 @@ export function renderLibrary(
       view,
       was,
       withRepo,
+      order ?? view.sort,
+      finding ? (c) => whyOf(c, query) : undefined,
     );
     appendUnreadable();
     // After the grid is in the page, as previews are: the measurer waits
@@ -1992,7 +2098,29 @@ export function renderLibrary(
     if (!typed) restorePlace(grid, keyAt);
     return;
   }
-  for (const s of sectionsOf(leads, now)) {
+  if (order !== null) {
+    // The results are one run in the list's order, with no date headings.
+    const run = el("div", { class: "rows", "data-results": "" });
+    for (const e of listEntries(model, order, now)) {
+      if (e.kind !== "flow") continue;
+      const { row: r, group } = e.card;
+      const article = row(
+        r,
+        actions,
+        cardStatus(r, group, rowStatus),
+        false,
+        group,
+        rowStatus,
+        group !== null && versionsOpen.has(group.video.id),
+        where,
+        whyOf(e.card, query),
+      );
+      run.append(article);
+      articles.push([r.sceneId, article]);
+    }
+    list.append(run);
+  }
+  for (const s of order === null ? sectionsOf(leads, now) : []) {
     const built = section(
       s,
       wasOpen.get(s.key) ?? !s.folded,

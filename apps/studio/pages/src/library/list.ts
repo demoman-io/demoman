@@ -12,13 +12,21 @@ import { setCodeText, withoutTicks } from "../shell/code-spans";
 import { icon } from "../shell/icons";
 import { attachListKeys } from "./list-keys";
 import {
+  firstClickDescending,
   type ListEntry,
+  type ListOrder,
+  type ListSort,
   listEntries,
   nextSort,
   type Where,
   whereFor,
 } from "./list-model";
-import type { LibraryModel, LibraryRow, VideoGroup } from "./state";
+import type {
+  LibraryCard,
+  LibraryModel,
+  LibraryRow,
+  VideoGroup,
+} from "./state";
 import { cardsOf, formatBytes } from "./state";
 import {
   cardButtons,
@@ -27,6 +35,7 @@ import {
   expiredLine,
   exportsList,
   type LibraryActions,
+  matchWhy,
   nameField,
   sectionId,
   statusKey,
@@ -87,18 +96,21 @@ export function collapsedKeys(root: HTMLElement): Set<string> {
   );
 }
 
+/** `sorted` is the order drawn, or null for a search's most matched
+ *  first, which no column says. */
 function headRow(
   view: LibraryViewChoice,
   actions: LibraryActions,
+  sorted: ListSort | null,
 ): HTMLElement {
   const row = el("div", { role: "row", "data-list-head": "" });
   for (const [col, label, sort, shown] of COLUMNS) {
     const head = el("div", { role: "columnheader", "data-col": col });
     if (!shown) head.setAttribute("aria-label", label);
-    if (sort !== null && sort === view.sort.column) {
+    if (sort !== null && sort === sorted?.column) {
       head.setAttribute(
         "aria-sort",
-        view.sort.descending ? "descending" : "ascending",
+        sorted.descending ? "descending" : "ascending",
       );
     }
     const setView = actions.setView;
@@ -108,7 +120,13 @@ function headRow(
       // CSS turns it up for ascending.
       if (head.hasAttribute("aria-sort")) button.append(icon("chevronDown"));
       button.addEventListener("click", () =>
-        setView({ ...view, sort: nextSort(view.sort, sort) }),
+        setView({
+          ...view,
+          sort:
+            sorted === null
+              ? { column: sort, descending: firstClickDescending(sort) }
+              : nextSort(sorted, sort),
+        }),
       );
       head.append(button);
     } else if (shown) {
@@ -192,6 +210,7 @@ function entryRow(
   flows: Map<string, VideoGroup>,
   where: Where,
   dayFlows: readonly string[] = [],
+  why: (card: LibraryCard) => string | null = () => null,
 ): HTMLElement {
   const row = el("div", { role: "row", "data-key": e.key });
   const cells = Object.fromEntries(
@@ -250,6 +269,8 @@ function entryRow(
     cells.name.append(
       el("span", { "data-name-text": "", title: label }, label),
     );
+    const matched = why(card);
+    if (matched !== null) cells.name.append(matchWhy(matched));
     const strip = tags(r, actions, false);
     if (strip !== null) cells.name.append(strip);
     const at = where(card);
@@ -389,8 +410,12 @@ export function renderList(
   was: { collapsed: ReadonlySet<string>; drawn?: ReadonlySet<string> },
   /** Where leads with the repo; false inside a project. */
   withRepo = true,
+  /** The saved sort, or a search's own order. */
+  order: ListOrder = view.sort,
+  /** Why a search found each flow (`whyOf`). */
+  why?: (card: LibraryCard) => string | null,
 ): HTMLElement {
-  const entries = listEntries(model, view.sort, now);
+  const entries = listEntries(model, order, now);
   const where = whereFor(cardsOf(model), withRepo);
   const grid = el("div", {
     role: "treegrid",
@@ -400,7 +425,7 @@ export function renderList(
     "aria-label": "Flows",
     "aria-rowcount": String(entries.length + 1),
   });
-  grid.append(headRow(view, actions));
+  grid.append(headRow(view, actions, "rank" in order ? null : order));
 
   const setSize = new Map<string | null, number>();
   for (const e of entries)
@@ -415,7 +440,15 @@ export function renderList(
     }
   }
   for (const e of entries) {
-    const row = entryRow(e, actions, rowStatus, flows, where, ofDay.get(e.key));
+    const row = entryRow(
+      e,
+      actions,
+      rowStatus,
+      flows,
+      where,
+      ofDay.get(e.key),
+      why,
+    );
     const pos = (seen.get(e.parent) ?? 0) + 1;
     seen.set(e.parent, pos);
     row.setAttribute("aria-level", String(e.level));

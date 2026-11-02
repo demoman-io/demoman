@@ -9,6 +9,7 @@ import {
 import { createPlatform } from "#platform";
 import { editedLength } from "../../src/library/length";
 import { createLengthCache, paintLength } from "../../src/library/length-cache";
+import type { ListSort } from "../../src/library/list-model";
 import type { PreviewMounter, PreviewPorts } from "../../src/library/preview";
 import { createPreviewMounter } from "../../src/library/preview";
 import {
@@ -22,6 +23,7 @@ import {
   type Tab,
   tabCounts,
 } from "../../src/library/projects";
+import { elsewhere, searching, searchModel } from "../../src/library/search";
 import {
   clickSelect,
   emptySelection,
@@ -313,6 +315,14 @@ let place: Place | null = null;
 const asked = parsePlace(location.search);
 const cameFrom = new URLSearchParams(location.search).get("from");
 let tab: Tab = "all";
+/** The search box's text, kept in the address as `q`, and the order a
+ *  heading click chose for this search alone (never saved). */
+let query = new URLSearchParams(location.search).get("q") ?? "";
+let searchSort: ListSort | null = null;
+
+/** The flows a place, tab and query show. */
+const shownIn = (model: LibraryModel, p: Place): LibraryModel =>
+  searchModel(narrow(model, p, tab), query);
 
 /** The saved pick, or All flows when there is none or its place has
  *  nothing left (a project, No project or Couldn't read): a known, normal
@@ -383,7 +393,7 @@ function paint(model: LibraryModel): void {
   const cards = cardsOf(model);
   renderLibrary(
     root,
-    narrow(model, place, tab),
+    shownIn(model, place),
     actions,
     rowStatus,
     undefined,
@@ -394,7 +404,15 @@ function paint(model: LibraryModel): void {
       place,
       tab,
       rail: railOf(cards, (model.unreadable ?? []).length, place),
-      tabs: showsTabs(cards, place) ? tabCounts(cards, place) : null,
+      // Each tab says what it would show with this query.
+      tabs: showsTabs(cards, place)
+        ? tabCounts(cardsOf(searchModel(model, query)), place)
+        : null,
+      search: {
+        query,
+        sort: searchSort,
+        elsewhere: elsewhere(cards, place, tab, query),
+      },
     },
   );
 }
@@ -539,6 +557,12 @@ const actions: LibraryActions = {
   /** Kept for this session at once; a write that fails or replaced the
    *  settings file is said, and the view stays as chosen. */
   setView: (next) => {
+    // A heading click sorts this search's results, not the saved view.
+    if (searching(query) && next.layout === view.layout) {
+      searchSort = { ...next.sort };
+      if (lastModel !== null) paint(lastModel);
+      return;
+    }
     view = next;
     if (lastModel !== null) paint(lastModel);
     platform.libraryView.write(next).then(
@@ -581,6 +605,26 @@ const actions: LibraryActions = {
         );
       },
     );
+  },
+  search: (q) => {
+    query = q;
+    if (!searching(q)) searchSort = null;
+    // A ticked flow the results hide is not deleted: as a place switch,
+    // but only what went out of sight.
+    if (bulk?.busy !== true && lastModel !== null && place !== null) {
+      selection = pruneSelection(
+        selection,
+        new Set(
+          (shownIn(lastModel, place).groups ?? []).map((g) => g.video.id),
+        ),
+      );
+    }
+    // Replaced, not pushed: Back leaves the search as a whole.
+    const url = new URL(location.href);
+    if (q === "") url.searchParams.delete("q");
+    else url.searchParams.set("q", q);
+    history.replaceState(history.state, "", url);
+    if (lastModel !== null) paint(lastModel);
   },
   goTab: (t) => {
     if (bulk?.busy === true) return;
@@ -1032,6 +1076,8 @@ async function deleteSelected(): Promise<void> {
 window.addEventListener("popstate", () => {
   place = parsePlace(location.search) ?? "all";
   tab = "all";
+  query = new URLSearchParams(location.search).get("q") ?? "";
+  searchSort = null;
   // A bulk delete under way keeps its lock and its ticks; it settles both
   // itself when it ends.
   if (bulk?.busy !== true) clearForSwitch();
@@ -1047,6 +1093,25 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   actions.clearSelection?.();
+});
+
+// `/` goes to the search box, unless a dialog or a field has the keys.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) {
+    return;
+  }
+  const box = document.querySelector<HTMLInputElement>("[data-search]");
+  if (box === null || box.closest("[hidden]") !== null) return;
+  if (document.querySelector("dialog[open]") !== null) return;
+  const active = document.activeElement as HTMLElement | null;
+  if (
+    active?.matches("input:not([type=checkbox]), textarea, select") === true ||
+    active?.isContentEditable === true
+  ) {
+    return;
+  }
+  event.preventDefault();
+  box.focus();
 });
 
 // A take landed, changed or went in the studio's folder: read again. The

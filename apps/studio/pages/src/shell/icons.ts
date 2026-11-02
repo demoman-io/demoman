@@ -243,6 +243,8 @@ const GLYPHS = {
     "M17 7.5h4",
     "M17 16.5h4",
   ],
+  /** The library's search box: Lucide `search` (its circle as a path). */
+  search: ["m21 21-4.34-4.34", "M19 11a8 8 0 1 1-16 0 8 8 0 1 1 16 0z"],
   zoomIn: [
     "M19 11a8 8 0 1 1-16 0 8 8 0 1 1 16 0z",
     "M21 21 16.65 16.65",
