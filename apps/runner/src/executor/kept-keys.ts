@@ -5,6 +5,7 @@ import type { VideoStore } from "./videos.js";
 
 export interface KeptKeyFailure {
   flow: string;
+  name: string;
   root: string;
   why: string;
 }
@@ -24,7 +25,7 @@ export async function keyKeptMarks(
     if (!("kept" in rec) || !rec.kept || rec.kept.key !== undefined) continue;
     const mark = { root: rec.kept.root, file: rec.kept.file };
     const miss = (why: string) =>
-      failed.push({ flow: rec.id, root: mark.root, why });
+      failed.push({ flow: rec.id, name: rec.name, root: mark.root, why });
     try {
       await stat(mark.root);
     } catch (error) {

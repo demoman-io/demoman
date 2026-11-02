@@ -1,5 +1,6 @@
 // apps/studio/test/pages/node/library-state.test.ts
 import type { SceneDocument } from "@demoman/scene-schema";
+import type { VideoSummary } from "@demoman/studio-protocol";
 import { describe, expect, it } from "vitest";
 import type { StorageSummary } from "../../../pages/src/core/storage/types";
 import type { LibraryRow } from "../../../pages/src/library/state";
@@ -11,6 +12,7 @@ import {
   repoLabel,
   sectionsOf,
 } from "../../../pages/src/library/state";
+import { tags } from "../../../pages/src/library/view";
 
 // `meta.capture.originUrl` is where @demoman/scene-schema's SceneDocument
 // actually nests it (`capture` is a field of `meta`, not a sibling) — the
@@ -595,6 +597,7 @@ describe("videoGroupsOf, through buildLibraryModel", () => {
     steps: [],
     exports: [],
     kept: null,
+    addedTo: null,
   });
   const model = () =>
     buildLibraryModel({
@@ -760,5 +763,86 @@ describe("bulkSentence", () => {
       text: "No flows were deleted. A stayed: the studio did not answer. B stayed: it is being exported.",
       level: "warn",
     });
+  });
+});
+
+describe("a kept mark with no key (spec, Failure paths)", () => {
+  const at = (id: string) =>
+    ({
+      meta: {
+        id,
+        name: id,
+        createdAt: "2026-09-01T00:00:00Z",
+        capture: { originUrl: "https://app.test/x" },
+      },
+    }) as never;
+  const KEPT = {
+    root: "/repo",
+    file: ".demoman/videos/a.json",
+    deliver: "files",
+  } as const;
+  const video = (
+    id: string,
+    repo: VideoSummary["repo"],
+    key: string | null,
+  ): VideoSummary => ({
+    id,
+    name: id,
+    repo,
+    startPage: "https://app.test/",
+    versions: 1,
+    current: null,
+    pages: [],
+    steps: [],
+    exports: [],
+    kept: { ...KEPT, key },
+    addedTo: key,
+  });
+  const ids = ["recorded", "nowhere", "keyed"];
+  const model = buildLibraryModel({
+    scenes: ids.map(at),
+    migrating: false,
+    migrationFailed: false,
+    notice: null,
+    needsLook: new Set(),
+    videos: [
+      video("recorded", { key: "github.com/acme/shop" }, null),
+      video("nowhere", { none: "no git" }, null),
+      video("keyed", { key: "github.com/acme/shop" }, "github.com/acme/web"),
+    ],
+    videoOf: Object.fromEntries(
+      ids.map((id) => [
+        id,
+        {
+          videoId: id,
+          version: 1,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
+      ]),
+    ),
+  });
+  const title = (id: string) => {
+    const row = model.rows.find((r) => r.sceneId === id);
+    if (row === undefined) throw new Error(`no row ${id}`);
+    return tags(row, {} as never)
+      ?.querySelector("[data-kept]")
+      ?.getAttribute("title");
+  };
+
+  it("its In repo tag says its repo could not be read, and where it is listed", () => {
+    // Red: drop keptUnder from the tag's title (or from the row) — the
+    // flow sits under its recorded project and nothing says why.
+    expect(title("recorded")).toBe(
+      "/repo/.demoman/videos/a.json — its repo could not be read, so it is listed under acme/shop",
+    );
+    expect(title("nowhere")).toBe(
+      "/repo/.demoman/videos/a.json — its repo could not be read, so it is listed under No project",
+    );
+  });
+
+  it("a keyed mark's tag names only its recipe", () => {
+    expect(title("keyed")).toBe("/repo/.demoman/videos/a.json");
   });
 });

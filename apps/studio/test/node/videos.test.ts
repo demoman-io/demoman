@@ -243,7 +243,7 @@ describe("the takes listing's videos", () => {
 
   it("an upkeep that cannot key a mark says which", async () => {
     // Red: drop the keyKeptMarks pass (or its row) from the upkeep — no row
-    // names the flow and its root.
+    // names the flow and its root; or name the flow by its id alone.
     const root = await mkdtemp(join(tmpdir(), "studio-unkeyed-root-"));
     try {
       const store = createVideoStore(home, createLibrary(home));
@@ -257,7 +257,9 @@ describe("the takes listing's videos", () => {
         (u) => u.folder === "telling kept flows' projects",
       );
       expect(row?.kind, said).toBe("upkeep");
-      expect(row?.reason, said).toContain(`flow ${invoice} at ${root}`);
+      expect(row?.reason, said).toContain(
+        `flow "Create an invoice" (${invoice}) at ${root}`,
+      );
       expect(row?.reason, said).toContain("not a git checkout");
       expect((await store.get(invoice))?.kept?.key).toBeUndefined();
     } finally {

@@ -192,7 +192,7 @@ export function createRoutes(o: {
             folder: "telling kept flows' projects",
             kind: "upkeep",
             reason: keyed.failed
-              .map((f) => `flow ${f.flow} at ${f.root}: ${f.why}`)
+              .map((f) => `flow "${f.name}" (${f.flow}) at ${f.root}: ${f.why}`)
               .join("; "),
           });
         }

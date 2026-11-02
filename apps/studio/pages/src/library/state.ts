@@ -75,6 +75,10 @@ export interface LibraryRow {
   /** Its video's recipe, as the listing reads it; absent for a take in no
    *  video. A row with a recipe, or with one that will not read, is kept. */
   kept?: VideoSummary["kept"];
+  /** A kept flow whose repo could not be told (its mark has no key): the
+   *  project it is listed under instead, so the row can say so (spec
+   *  "Failure paths"). Absent otherwise. */
+  keptUnder?: string;
 }
 
 /** The filmed commit as a row shows it: seven characters, `*` when the
@@ -478,7 +482,12 @@ export function buildLibraryModel(args: {
   videoOf?: TakesAnswer["videoOf"];
 }): LibraryModel {
   const videoOf = args.videoOf ?? {};
-  const keptOf = new Map((args.videos ?? []).map((v) => [v.id, v.kept]));
+  const videoBy = new Map((args.videos ?? []).map((v) => [v.id, v]));
+  // projectKeyOf's fallback when the mark has no key, as a label.
+  const keptUnder = (v: VideoSummary | undefined) =>
+    v?.kept == null || "unknown" in v.kept || v.addedTo !== null
+      ? {}
+      : { keptUnder: ("key" in v.repo && repoLabel(v.repo)) || "No project" };
   const byId = new Map((args.summary?.demos ?? []).map((d) => [d.sceneId, d]));
   const rows: LibraryRow[] = [...args.scenes]
     .sort((a, b) => b.meta.createdAt.localeCompare(a.meta.createdAt))
@@ -488,6 +497,7 @@ export function buildLibraryModel(args: {
         d?.motion ??
         (args.summary === undefined ? "complete" : "keyframesOnly");
       const made = new Date(scene.meta.createdAt);
+      const video = videoBy.get(videoOf[scene.meta.id]?.videoId ?? "");
       return {
         sceneId: scene.meta.id,
         name: scene.meta.name,
@@ -524,7 +534,8 @@ export function buildLibraryModel(args: {
               expired: videoOf[scene.meta.id]?.expired,
               exports: videoOf[scene.meta.id]?.exports,
               filmedCode: videoOf[scene.meta.id]?.filmedCode,
-              kept: keptOf.get(videoOf[scene.meta.id]?.videoId ?? "") ?? null,
+              kept: video?.kept ?? null,
+              ...keptUnder(video),
             }),
       };
     });

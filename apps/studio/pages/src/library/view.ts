@@ -876,7 +876,7 @@ export function tags(
         title:
           "unknown" in r.kept
             ? r.kept.unknown
-            : `${r.kept.root}/${r.kept.file}`,
+            : `${r.kept.root}/${r.kept.file}${r.keptUnder === undefined ? "" : ` — its repo could not be read, so it is listed under ${r.keptUnder}`}`,
       }),
     );
   }
