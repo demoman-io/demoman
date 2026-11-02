@@ -406,7 +406,8 @@ export type BuildArgs =
       walk: WalkResultLike;
       steps: AuthoredStep[];
       /** The script that was walked, for the opening and the trim notes.
-       *  Absent on a re-shoot, which has none: no opening is claimed. */
+       *  Absent on the older sampled re-shoot, which has none:
+       *  no opening is claimed. A re-record has one. */
       script?: DemoScript;
     });
 
@@ -470,11 +471,25 @@ function openingOf(
   const timed = (i: number) => steps.find((s) => s.index === i)?.timing;
   const firstShown = script.steps.findIndex((s) => SHOWN_STEP[s.do]);
   const shownTiming = firstShown < 0 ? undefined : timed(firstShown);
-  const first = steps.find((s) => s.timing !== undefined)?.timing;
-  if (shownTiming === undefined || first === undefined) return undefined;
+  const firstRecord = steps.find((s) => s.timing !== undefined);
+  const first = firstRecord?.timing;
+  if (
+    shownTiming === undefined ||
+    firstRecord === undefined ||
+    first === undefined
+  )
+    return undefined;
+  // A pause writes no record, so its sleep sits inside the first timed
+  // step's start; it is its own entry below, and comes out of `load` here.
+  const pausedBefore = script.steps
+    .slice(0, firstRecord.index)
+    .reduce((t, s) => (s.do === "pause" ? t + s.ms : t), 0);
   const ms = Math.round(shownTiming.markerMs);
   const spentOn: OpeningReport["spentOn"] = [
-    { kind: "load", ms: Math.round(first.markerMs + first.startMs) },
+    {
+      kind: "load",
+      ms: Math.round(first.markerMs + first.startMs - pausedBefore),
+    },
   ];
   for (const [i, step] of script.steps.slice(0, firstShown).entries()) {
     if (step.do === "pause") spentOn.push({ kind: "pause", ms: step.ms });
@@ -1014,6 +1029,8 @@ function runVerdictLine(report: RunReport): string {
   if (report.outcome !== "complete" || opening === undefined) return line;
   if (spent <= LONG_OPENING_MS) return line;
   const largest = opening.spentOn.reduce((a, b) => (b.ms > a.ms ? b : a));
+  // Only when that kind outweighs the time no part accounts for.
+  const mostly = largest.ms >= (opening.unaccountedMs ?? 0);
   const what = {
     load: "loading",
     waitForLoad: "waiting for a load",
@@ -1021,7 +1038,7 @@ function runVerdictLine(report: RunReport): string {
     pause: "a pause",
   }[largest.kind];
   const shorten = opening.shown === undefined ? "; trim.start shortens it" : "";
-  return `${line.replace(/\.$/, "")}; the video spends ${(spent / 1000).toFixed(1)} s before the first step (mostly ${what})${shorten}.`;
+  return `${line.replace(/\.$/, "")}; the video spends ${(spent / 1000).toFixed(1)} s before the first step${mostly ? ` (mostly ${what})` : ""}${shorten}.`;
 }
 
 function runOutcomeLine(report: RunReport): string {

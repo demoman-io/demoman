@@ -1329,6 +1329,41 @@ describe("RunReport opening, trim and zoom notes", () => {
     expect(report.opening?.shown).toBeUndefined();
   });
 
+  it("a leading pause is its own part and not also load", () => {
+    const base = complete();
+    if (!("walk" in base)) throw new Error("walked");
+    // The click's start (marker 2000, start 0) already contains the sleep.
+    const report = buildRunReport({
+      ...base,
+      script: {
+        scriptVersion: 1,
+        name: "opening",
+        target: "https://app.example.com/",
+        steps: [
+          { do: "pause", ms: 500 },
+          { do: "click", on: { stableId: "stable-1" } },
+        ],
+      },
+      scene: sceneOf(1),
+      madeFrom: madeFromFor(scriptOf(1)),
+      walk: completeWalk(1),
+      steps: [authoredStep(1, { index: 1, timing: timing(2000, 0, 300) })],
+    });
+    expect(report.opening?.spentOn).toEqual([
+      { kind: "load", ms: 1500 },
+      { kind: "pause", ms: 500 },
+    ]);
+    expect(report.opening?.unaccountedMs).toBeUndefined();
+  });
+
+  it("does not say mostly when unaccounted time outweighs every part", () => {
+    const report = buildRunReport(opening({ clickMarkerMs: 6000 }));
+    expect(report.opening?.unaccountedMs).toBe(4000);
+    const line = verdictLine(report);
+    expect(line).toContain("the video spends 6.0 s before the first step");
+    expect(line).not.toContain("mostly");
+  });
+
   it("an opening the parts do not cover says how much is left", () => {
     const report = buildRunReport(opening({ clickMarkerMs: 2600 }));
     expect(report.opening?.ms).toBe(2600);
@@ -1336,8 +1371,23 @@ describe("RunReport opening, trim and zoom notes", () => {
   });
 
   it("a long opening is in the summary and names its largest part", () => {
-    const report = buildRunReport(opening({ clickMarkerMs: 4200 }));
+    const report = buildRunReport(
+      opening({
+        clickMarkerMs: 4200,
+        steps: [
+          authoredStep(0, {
+            index: 0,
+            step: { do: "waitForLoad" },
+            anchorId: null,
+            actionId: null,
+            timing: timing(3700, -700, 0),
+          }),
+          authoredStep(1, { index: 2, timing: timing(4200, -100, 300) }),
+        ],
+      }),
+    );
     expect(report.opening?.ms).toBe(4200);
+    expect(report.opening?.unaccountedMs).toBeUndefined();
     expect(verdictLine(report)).toContain(
       "the video spends 4.2 s before the first step (mostly loading); trim.start shortens it",
     );
