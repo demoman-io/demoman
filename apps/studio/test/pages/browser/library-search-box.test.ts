@@ -576,7 +576,12 @@ describe("the search box on a narrow list", () => {
     expect(Math.abs(f.width - 32), said(at)).toBeLessThanOrEqual(0.5);
     expect(Math.abs(f.height - pill.height), said(at)).toBeLessThanOrEqual(0.5);
     expect(f.left, said(at)).toBeGreaterThanOrEqual(pillsRight() + 7.5);
-    expect(f.right, said(at)).toBeLessThanOrEqual(toggleBox().left - 7.5);
+    // Beside the toggle, one row gap from it (the approved mockup).
+    const gap = Number.parseFloat(getComputedStyle(tabsRow()).columnGap);
+    expect(
+      Math.abs(toggleBox().left - f.right - gap),
+      `${said(at)}: one ${gap}px gap from the toggle`,
+    ).toBeLessThanOrEqual(0.5);
     expect(Math.abs(f.top - pill.top), said(at)).toBeLessThanOrEqual(0.5);
     expect(hits(input()), said(at)).toBe(true);
     const glyph = rect(node(".search-field > svg"));
@@ -832,6 +837,107 @@ describe("the search box on a narrow list", () => {
     });
     await hold("", false);
     await folded("390 cleared");
+    await page.viewport(1440, 900);
+  });
+
+  // Red: the held box left open over the tabs while one of them holds the
+  // keys, its ring and its tab painted under the box.
+  it("at 390: holding a query, Shift+Tab to a tab steps the box aside, the tab's ring painted", async () => {
+    await bootOnce();
+    await page.viewport(390, 640);
+    await hold("invite", true);
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    const tab = document.activeElement as HTMLElement;
+    // Premise: the keys are on a tab, the query still held in the box.
+    expect(tab.closest(".place-tabs"), said("390 shift-tab")).not.toBeNull();
+    expect(tab.matches(":focus-visible"), said("390 shift-tab")).toBe(true);
+    expect(input().value, said("390 shift-tab")).toBe("invite");
+    expect(hits(tab), `${said("390 shift-tab")}: the tab on top`).toBe(true);
+    await folded("390 shift-tab");
+    const ink = parse(getComputedStyle(tab).outlineColor);
+    const t = rect(tab);
+    const paint = await paintOf();
+    const sides = [
+      [t.left - 3, t.top + t.height / 2],
+      [t.right + 3, t.top + t.height / 2],
+      [t.left + t.width / 2, t.top - 3],
+      [t.left + t.width / 2, t.bottom + 3],
+    ].map(([x, y]) => paint(x as number, y as number));
+    expect(
+      sides.map((p) =>
+        [0, 1, 2].every((i) => Math.abs((p[i] ?? 0) - (ink[i] ?? 0)) <= 24),
+      ),
+      `${said("390 shift-tab")}: the ring ${JSON.stringify(sides)} vs ${ink}`,
+    ).toEqual([true, true, true, true]);
+    await page.screenshot({
+      path: "__screenshots__/library-search-box/narrow-tab-focused-390.png",
+    });
+    // Tab goes back into the box, which opens again with its query.
+    await userEvent.keyboard("{Tab}");
+    expect(document.activeElement, said("390 tab back")).toBe(input());
+    await queryShown("390 tab back");
+  });
+
+  // Red: no hand-off in view.ts's update, so the pressed button, hidden
+  // now, drops the focus to the body.
+  for (const key of ["Enter", "Space"]) {
+    it(`at 390: ${key} on the one layout button switches it and keeps the focus on the one shown`, async () => {
+      await bootOnce();
+      await page.viewport(390, 640);
+      await hold("", false);
+      const press = key === "Space" ? " " : "{Enter}";
+      for (const [from, to] of [
+        ["grid", "list"],
+        ["list", "grid"],
+      ] as const) {
+        const button = node(`[data-layout="${from}"]`);
+        // Premise: it is the one shown.
+        expect(toggles(), said(`390 ${key} ${from}`)).toEqual([button]);
+        button.focus();
+        await userEvent.keyboard(press);
+        await vi.waitFor(() => {
+          const drawn =
+            from === "grid"
+              ? document.querySelector("article[data-video]")
+              : document.querySelector("[data-list]");
+          if (drawn === null) throw new Error(`no ${from} yet`);
+        });
+        expect(
+          document.activeElement,
+          `${said(`390 ${key} ${from}`)}: focus on ${document.activeElement?.outerHTML.slice(0, 60)}`,
+        ).toBe(node(`[data-layout="${to}"]`));
+        expect(toggles(), said(`390 ${key} ${from}`)).toEqual([
+          document.activeElement,
+        ]);
+      }
+    });
+  }
+
+  // Red: the open box's right hard-coded to the toggle's width, short of
+  // the row's end when there is no toggle.
+  it("with no toggle the open box runs to the row's end, at 560 and 390", async () => {
+    await bootOnce();
+    for (const [w, q, focused] of [
+      [560, "inv", true],
+      [390, "inv", true],
+      [390, "invite", false],
+    ] as const) {
+      const at = `${w} no toggle ${q} ${focused}`;
+      await page.viewport(w, 640);
+      await hold(q, focused);
+      // The view hides it where the page has no layouts to switch; set
+      // here, as the next render would leave it (none comes before the
+      // reads below).
+      node("[data-layout-toggle]").hidden = true;
+      expect(node("[data-layout-toggle]").checkVisibility(), at).toBe(false);
+      const f = rect(field());
+      const r = rect(tabsRow());
+      expect(Math.abs(f.left - r.left), said(at)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(f.right - r.right), said(at)).toBeLessThanOrEqual(0.5);
+      await queryShown(at);
+      node("[data-layout-toggle]").hidden = false;
+    }
+    await hold("", false);
     await page.viewport(1440, 900);
   });
 });

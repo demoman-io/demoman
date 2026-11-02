@@ -1433,6 +1433,108 @@ describe("under a 760px list the rows line up with the tab row", () => {
     });
   }
 
+  // Red: the head's margin cell, or the margin beside the bar, left with
+  // no ground: a column of boxes slid past "Name" and the bar.
+  for (const how of ["ticked", "no hover"] as const) {
+    it(`at 390, scrolled, ${how}: the head${how === "ticked" ? " and the bar cover" : " covers"} the margin the boxes hang in`, async () => {
+      await page.viewport(390, 640);
+      mount(false, how === "ticked" ? ["N0"] : []);
+      if (how === "no hover") {
+        // The page's own `(hover: none)` rules, as the no-hover case
+        // above applies them.
+        const sheet = document.head.querySelector(
+          "[data-shell]",
+        ) as HTMLElement;
+        const query = "@media (hover: none)";
+        expect(sheet.textContent?.split(query).length ?? 0).toBeGreaterThan(1);
+        sheet.textContent = (sheet.textContent ?? "").replaceAll(
+          query,
+          "@media all",
+        );
+      }
+      window.scrollTo(0, 600);
+      const boxes = [
+        ...grid().querySelectorAll<HTMLElement>("[role=row] .select-box"),
+      ];
+      // Premise: the boxes show at rest (ticked, or no hover).
+      for (const b of boxes) expect(getComputedStyle(b).opacity).toBe("1");
+      const h = head().getBoundingClientRect();
+      const regions: [string, number, number][] = [["head", h.top, h.bottom]];
+      if (how === "ticked") {
+        const b = node("[data-selection-bar]").getBoundingClientRect();
+        // Premise: the bar and the head are stuck, the head under the bar.
+        expect(b.top).toBeCloseTo(12, 0);
+        expect(h.top).toBeCloseTo(b.bottom, 0);
+        regions.push(["bar", b.top, b.bottom], ["above the bar", 0, b.top]);
+      } else {
+        expect(h.top).toBeCloseTo(0, 0);
+      }
+      // Scrolled, the lane's shot is the whole document with the window
+      // painted at its offset: read it in the document's coordinates.
+      const shot = await pixels();
+      const paint = (x: number, y: number) => shot(x, y + scrollY);
+      // Premise: so read, the head's "Name" is inked over its ground.
+      const nameBox = textBox(
+        head().querySelector('[data-col="name"]') as Element,
+      );
+      const nameY = nameBox.top + nameBox.height / 2;
+      let nameInk = 0;
+      for (let x = Math.ceil(nameBox.left); x < nameBox.right; x++) {
+        if (!close(paint(x + 0.5, nameY), paint(3, nameY), 6)) nameInk++;
+      }
+      expect(
+        nameInk,
+        `${how}: premise: the head's Name read where painted`,
+      ).toBeGreaterThan(4);
+      for (const [name, top, bottom] of regions) {
+        // Premise: a row's box lies behind it.
+        const under = boxes.find((b) => {
+          const r = b.getBoundingClientRect();
+          return r.top < bottom - 1 && r.bottom > top + 1;
+        });
+        expect(under, `${how}: a box behind the ${name}`).toBeDefined();
+        const r = (under as HTMLElement).getBoundingClientRect();
+        const y = (Math.max(r.top, top) + Math.min(r.bottom, bottom)) / 2;
+        // The ground at the window's edge, on the same line.
+        const ground = paint(3, y);
+        const seen: string[] = [];
+        for (let x = Math.ceil(r.left); x < r.right; x += 2) {
+          const p = paint(x + 0.5, y);
+          if (!close(p, ground, 4)) seen.push(`${x}:${p.slice(0, 3)}`);
+        }
+        expect(seen, `${how}: the ${name} at y ${y}, ground ${ground}`).toEqual(
+          [],
+        );
+        // And on top there: not a row's box.
+        const hit = at(r.left + r.width / 2, y);
+        expect(
+          hit?.closest(
+            "[role=row]:not([data-list-head]) [data-col='select']",
+          ) ?? null,
+          `${how}: the ${name} on top: ${hit?.outerHTML.slice(0, 80)}`,
+        ).toBeNull();
+      }
+      // Below the head, a box still shows beside its row.
+      const shown = boxes.find((b) => {
+        const r = b.getBoundingClientRect();
+        return r.top > h.bottom + 2 && r.bottom < innerHeight - 2;
+      }) as HTMLElement;
+      expect(shown, `${how}: a box below the head`).toBeDefined();
+      const r = shown.getBoundingClientRect();
+      const ground = paint(3, r.top + r.height / 2);
+      let ink = 0;
+      for (let y = Math.ceil(r.top); y < r.bottom; y += 2) {
+        for (let x = Math.ceil(r.left); x < r.right; x += 2) {
+          if (!close(paint(x + 0.5, y + 0.5), ground, 6)) ink++;
+        }
+      }
+      expect(ink, `${how}: the box below the head is painted`).toBeGreaterThan(
+        4,
+      );
+      expect(at(r.left + r.width / 2, r.top + r.height / 2), how).toBe(shown);
+    });
+  }
+
   // Red: the box hung with no room, its ring cut by its cell's clip or
   // the window's edge.
   it("at 390px the keys reach a row's hanging box, and its ring paints whole", async () => {
@@ -1462,6 +1564,26 @@ describe("under a 760px list the rows line up with the tab row", () => {
       ).toBe(true);
     }
   });
+});
+
+describe("a day's box while flows are ticked", () => {
+  // Red: the heading's box cell left unpositioned once the list's boxes
+  // dropped the thumbnail's z-index: shown (opacity 1, no stacking of its
+  // own), it went under the label's cell that spans the row.
+  for (const width of [960, 390]) {
+    it(`at ${width}px, a flow ticked, a day's box is on top at its centre`, async () => {
+      await page.viewport(width, 640);
+      mount(false, ["A"]);
+      const box = cell("h:today", "select").querySelector(
+        ".select-box",
+      ) as HTMLElement;
+      // Premise: shown, as a tick shows it.
+      expect(getComputedStyle(box).opacity).toBe("1");
+      const b = box.getBoundingClientRect();
+      const hit = at(b.left + b.width / 2, b.top + b.height / 2);
+      expect(hit, `${width}: ${hit?.outerHTML.slice(0, 80)}`).toBe(box);
+    });
+  }
 });
 
 describe("the list's motion", () => {

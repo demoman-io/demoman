@@ -4435,14 +4435,19 @@ describe("the Studio's screenshot set", () => {
           {
             width: Math.round(ir - il),
             between: between(folded),
+            // Beside the toggle, the row's 12px gap from it.
+            toToggle: Math.round(
+              ((folded.toggle as number[])[0] as number) - ir,
+            ),
             hit: folded.hit,
             value: folded.value,
             focused: folded.focused,
           },
-          `${at}: the glyph's square between the tabs and the toggle, on top ${ev}`,
+          `${at}: the glyph's square between the tabs and the toggle, beside the toggle, on top ${ev}`,
         ).toEqual({
           width: 32,
           between: true,
+          toToggle: 12,
           hit: true,
           value: "",
           focused: false,

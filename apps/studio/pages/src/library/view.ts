@@ -156,6 +156,24 @@ export const expiredLine = (
       ? `Expired — ${line.charAt(0).toLowerCase()}${line.slice(1)}`
       : line;
 
+/** On a phone's row the tabs scroll inside their strip (index.html): the
+ *  pressed one is scrolled into it, sideways only, so the page never
+ *  moves. Read once the row is on the page; a detached one measures 0. */
+function keepPressedTabInView(tabsRow: HTMLElement): void {
+  const strip = tabsRow.querySelector<HTMLElement>(".place-tabs");
+  const tab = strip?.querySelector<HTMLElement>('[aria-pressed="true"]');
+  if (strip == null || tab == null || strip.scrollWidth <= strip.clientWidth) {
+    return;
+  }
+  // Inside the strip's padding, the room its focus ring needs.
+  const pad = Number.parseFloat(getComputedStyle(strip).paddingLeft) || 0;
+  const s = strip.getBoundingClientRect();
+  const t = tab.getBoundingClientRect();
+  if (t.left < s.left + pad) strip.scrollLeft -= s.left + pad - t.left;
+  else if (t.right > s.right - pad)
+    strip.scrollLeft += t.right - (s.right - pad);
+}
+
 /** The flows in open sections, or a search's run of results, in page
  *  order: what a shift-click ranges over. Read at the click, so a section
  *  folded since the render counts. */
@@ -864,6 +882,18 @@ function createHeader(withStorage: boolean): Header {
           "aria-pressed",
           String(b.dataset.layout === view?.layout),
         );
+      }
+      // A phone's row hides the pressed button (index.html), so the one
+      // just pressed would drop its focus: it hands it to the one shown.
+      const pressed = document.activeElement;
+      if (
+        pressed instanceof HTMLElement &&
+        toggle.contains(pressed) &&
+        !pressed.checkVisibility()
+      ) {
+        [...toggle.querySelectorAll<HTMLElement>("button")]
+          .find((b) => b.checkVisibility())
+          ?.focus();
       }
       tabs.hidden = place?.tabs == null;
       for (const b of tabs.querySelectorAll<HTMLElement>("[data-tab]")) {
@@ -1990,6 +2020,7 @@ export function renderLibrary(
     if (child !== head.box) child.remove();
   }
   if (head.box.parentNode !== root) root.prepend(head.box);
+  keepPressedTabInView(head.tabsRow);
   for (const child of [...head.content.childNodes]) {
     if (child !== head.notices && child !== head.tabsRow) child.remove();
   }

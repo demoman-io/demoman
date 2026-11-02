@@ -548,6 +548,10 @@
          §4.4) — not a click's focus, which outlasts the pointer. */
       .library-list .select-box {
         position: static;
+        /* Not the thumbnail's 1: a flex item takes a z-index unpositioned,
+           and the boxes painted over the sticky head as rows scrolled
+           under it. A heading's box is lifted by its cell (below). */
+        z-index: auto;
       }
       .library-list > [data-key]:is(:hover, :focus-visible, :has(:focus-visible)) .select-box {
         opacity: 1;
@@ -817,15 +821,23 @@
         .place-tabs .btn { white-space: nowrap; }
         .search-field { flex: 1 1 0; min-width: 32px; margin-left: 0; }
         .search-field > kbd { display: none; }
+        /* The toggle keeps the row's end, the box in the row or over it;
+           folded, the glyph stands beside it (the approved mockup). */
+        .search-field:not([hidden]) + .layout-toggle { margin-left: auto; }
         .search-field:not(:focus-within):has(> input:placeholder-shown) {
           flex: 0 0 32px;
           margin-left: auto;
+        }
+        .search-field:not(:focus-within):has(> input:placeholder-shown) + .layout-toggle {
+          margin-left: 0;
         }
         .search-field:not(:focus-within) > input:placeholder-shown {
           cursor: pointer;
         }
         .search-field:not(:focus-within) > input::placeholder { color: transparent; }
-        /* The toggle's two 32px buttons and their 2px, and the row's gap. */
+        /* Open over the row, up to the toggle: its two 32px buttons and
+           their 2px (shell.css `.btn-icon`, `.layout-toggle` above) and
+           the row's 12px gap. With no toggle, to the row's end. */
         .search-field:focus-within {
           position: absolute;
           top: 0;
@@ -833,11 +845,7 @@
           right: calc(66px + 12px);
           z-index: 2;
         }
-        /* The folded glyph sits between the tabs and the toggle; with no
-           tabs it stands beside the toggle, as the open box does. */
-        .place-tabs:not([hidden]) ~ .search-field:not([hidden]) + .layout-toggle {
-          margin-left: auto;
-        }
+        .search-field:focus-within:has(+ .layout-toggle[hidden]) { right: 0; }
       }
       /* A phone's list: tighter tabs (the Studio sheet's padding), the
          toggle's one button the layout not shown, and no room beside the
@@ -846,14 +854,45 @@
          440 it was 32, too little to read "invite" whole. */
       @container library (max-width: 479px) {
         .tabs-row { gap: 8px; }
-        .place-tabs { gap: 2px; }
+        /* Three-digit counts do not fit a phone's row: the tabs scroll
+           sideways inside their strip, with no scrollbar, rather than push
+           the toggle past the list's end; view.ts keeps the pressed one in
+           view. The 4px of padding, given back by the margin, is room for
+           a tab's focus ring, which the strip's clip would cut. */
+        .place-tabs {
+          gap: 2px;
+          min-width: 0;
+          margin: -4px;
+          padding: 4px;
+          overflow-x: auto;
+          scrollbar-width: none;
+        }
         .layout-toggle .btn[aria-pressed="true"] { display: none; }
+        /* Open over the tabs, up to the toggle's one 32px button and the
+           row's 8px gap. With no toggle, to the row's end. */
         .search-field:is(:focus-within, :not(:has(> input:placeholder-shown))) {
           position: absolute;
           top: 0;
           left: 0;
           right: calc(32px + 8px);
           z-index: 2;
+        }
+        .search-field:is(:focus-within, :not(:has(> input:placeholder-shown))):has(
+            + .layout-toggle[hidden]
+          ) {
+          right: 0;
+        }
+        /* While a tab holds the keys, a held box steps aside to its glyph
+           beside the toggle, so the focused tab is not under it; it is
+           still the input, the next Tab stop. The Studio sheet hides its
+           text while it is folded so. */
+        .tabs-row:has(> .place-tabs:focus-within) > .search-field:not(:focus-within) {
+          position: relative;
+          flex: 0 0 32px;
+          margin-left: auto;
+        }
+        .tabs-row:has(> .place-tabs:focus-within) > .search-field:not(:focus-within) + .layout-toggle {
+          margin-left: 0;
         }
       }
       /* Why a search found a flow: dim, after the name or in Where's
@@ -1036,7 +1075,12 @@
          to auto-placement would find no room on it. Videos, Length and
          Size keep their tracks while drawn; Recorded is always the last. */
       .library-list > [data-heading] > [role="gridcell"] { grid-row: 1; }
-      .library-list > [data-heading] > [data-col="select"] { grid-column: 1; }
+      /* Positioned, so the box is over the label's cell that spans it, and
+         still under the sticky head (z 1) as rows scroll. */
+      .library-list > [data-heading] > [data-col="select"] {
+        grid-column: 1;
+        position: relative;
+      }
       .library-list > [data-heading] > [data-col="open"] { grid-column: 2; }
       .library-list > [data-heading] > [data-col="name"] {
         grid-column: 1 / -1;
@@ -1201,6 +1245,23 @@
           right: 100%;
           width: 28px;
           height: calc(var(--list-row) - 1px);
+        }
+        /* The sticky head and the selection bar stand over the rows as
+           they scroll, so they cover the margin the boxes hang in too, or a
+           column of boxes slides past them: the bar from 12px above it,
+           its sticky top. */
+        .library-list > [data-list-head] > [data-col="select"] {
+          height: var(--list-row);
+          background: var(--shell);
+        }
+        .selection-bar::before {
+          content: "";
+          position: absolute;
+          top: -12px;
+          bottom: 0;
+          right: 100%;
+          width: 28px;
+          background: var(--shell);
         }
         .library-list > [data-heading] > [data-col="open"] { grid-column: 1; }
         .library-list > [data-heading] > [data-col="name"] {

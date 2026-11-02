@@ -1331,6 +1331,17 @@ input:is([type="text"], [type="search"], [type="number"], :not([type])):not(
     padding: 0;
   }
 }
+/* On a phone's list a held box folds to its glyph while a tab holds the
+   keys (library/index.html): no padding, and its query not drawn. */
+@container library (max-width: 479px) {
+  [data-studio]
+    .tabs-row:has(> .place-tabs:focus-within)
+    > .search-field:not(:focus-within)
+    > input[type="search"][data-search]:not(#name) {
+    padding: 0;
+    color: transparent;
+  }
+}
 [data-studio] .branding-controls input[type="color"] {
   border-color: var(--line-2);
   border-radius: var(--r-chip);
