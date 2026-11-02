@@ -234,17 +234,17 @@ describe("a script's trim, on the decoded video", () => {
         trim: cut.scene.edits.trim,
         opening: cut.report.opening,
       });
-      // The premise: the untrimmed video of the same script holds more than
-      // a second the trim cuts (the load and the 1.5 s pause before it, and
-      // the pull-out after).
+      // The premise: the untrimmed video of the same script is more than a
+      // second longer than the trimmed one.
       expect(
         wholePicture.durationMs - cutPicture.durationMs,
         evidence,
       ).toBeGreaterThan(1000);
-      // One frame at 60 fps (17 ms), plus the walk's 50 ms poll that times a
-      // step's finish, plus the encoder rounding the last frame's length.
+      // Frame quantisation (17 ms at 60 fps) plus the encoder rounding the
+      // last frame's length; measured 4 ms. Trim and expected read the same
+      // recorded finish, so nothing else can move this comparison.
       expect(Math.abs(cutPicture.durationMs - expected), evidence).toBeLessThan(
-        150,
+        50,
       );
     },
     2 * RUN_MS + 2 * EXPORT_MS,
@@ -303,9 +303,18 @@ describe("a click's zoom, on the decoded video", () => {
       // the next click is far enough on that its zoom is outside the window.
       const zoomedAt = zoomed.at(REPORTS);
       const offAt = off.at(REPORTS);
-      expect(zoomOn(zoomed.scene, zoomedAt.actionId)).toHaveLength(1);
-      expect(zoomOn(off.scene, offAt.actionId)).toEqual([]);
-      expect(off.scene.zoomsSkipped).toContainEqual({
+      expect(
+        zoomOn(zoomed.scene, zoomedAt.actionId),
+        JSON.stringify(zoomed.scene.camera),
+      ).toHaveLength(1);
+      expect(
+        zoomOn(off.scene, offAt.actionId),
+        JSON.stringify(off.scene.camera),
+      ).toEqual([]);
+      expect(
+        off.scene.zoomsSkipped,
+        JSON.stringify(off.scene.zoomsSkipped),
+      ).toContainEqual({
         actionId: offAt.actionId,
         reason: "off",
       });
@@ -362,7 +371,9 @@ describe("a re-record writes the Studio's trim and zoom edits back", () => {
         { source: "click" },
       ]);
       expect(zoomOutMs, JSON.stringify(lastStep)).not.toBeNull();
-      expect(tailMs).toBeLessThan(zoomOutMs as number);
+      expect(tailMs, JSON.stringify({ tailMs, zoomOutMs })).toBeLessThan(
+        zoomOutMs as number,
+      );
 
       // The author's edits, as Task 8's `removeZoom` and the trim handle
       // write them: the click zoom gone with an `off` in its place, a tail.
@@ -397,21 +408,29 @@ describe("a re-record writes the Studio's trim and zoom edits back", () => {
       const againSkeleton = await library.getSkeleton(again.takeId);
       if (againSkeleton.kind !== "ok")
         throw new Error(JSON.stringify(againSkeleton));
-      expect(againSkeleton.skeleton.trim).toEqual({
+      expect(
+        againSkeleton.skeleton.trim,
+        JSON.stringify(againSkeleton),
+      ).toEqual({
         end: { ms: 200, after: "action" },
       });
       const newReports = again.at(REPORTS);
       const newPlaceOrder = again.at(PLACE_ORDER);
-      expect(zoomOn(again.scene, newReports.actionId)).toEqual([]);
-      expect(again.scene.edits.trim).toEqual({
-        tail: {
-          actionId: newPlaceOrder.actionId,
-          offsetMs: newPlaceOrder.finishMs + 200,
+      expect(
+        zoomOn(again.scene, newReports.actionId),
+        JSON.stringify(again.scene.camera),
+      ).toEqual([]);
+      expect(again.scene.edits.trim, JSON.stringify(again.scene.edits)).toEqual(
+        {
+          tail: {
+            actionId: newPlaceOrder.actionId,
+            offsetMs: newPlaceOrder.finishMs + 200,
+          },
         },
-      });
+      );
 
       // On the picture: no zoom around Reports, and the video ends 200 ms
-      // after the last click's finish (the tolerance is the duration case's).
+      // after the last click's finish (the duration case's tolerance).
       const shown = await picture(again);
       const around = shown.edgesBetween(
         newReports.outputMs - AROUND_MS.before,
@@ -429,7 +448,7 @@ describe("a re-record writes the Studio's trim and zoom edits back", () => {
         around.every((r) => r.green === 4),
         evidence,
       ).toBe(true);
-      expect(Math.abs(shown.durationMs - expected), evidence).toBeLessThan(150);
+      expect(Math.abs(shown.durationMs - expected), evidence).toBeLessThan(50);
     },
     2 * RUN_MS + EXPORT_MS,
   );
