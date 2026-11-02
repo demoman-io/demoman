@@ -260,6 +260,9 @@ function reduce(
       const on = scene.actions.find((a) => a.id === zoom.marker.actionId);
       if (on?.kind !== "click" && on?.kind !== "drag")
         return { ...scene, camera };
+      // Another zoom still on the step keeps the step zoomed: no "off".
+      if (camera.some((c) => c.marker.actionId === zoom.marker.actionId))
+        return { ...scene, camera };
       return {
         ...scene,
         camera,

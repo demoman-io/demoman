@@ -537,6 +537,37 @@ describe("zoom edits are recorded for the script", () => {
     expect(act3, JSON.stringify(out)).toMatchObject({ zoom: false });
   });
 
+  it("removing an added zoom beside the click's own records no off, and the re-record keeps the zoom", () => {
+    const added = applyCommand(
+      withZoom({ source: "click" }),
+      {
+        kind: "addZoom",
+        marker: { actionId: "act-3", offsetMs: -100 },
+        scale: 1.5,
+        target: { kind: "element", anchorId: "a-checkout" },
+      },
+      ids(),
+    );
+    // Premise: two zooms share the click's action before the removal.
+    const addedId = added.camera.at(-1)?.id as string;
+    expect(
+      added.camera.filter((c) => c.marker.actionId === "act-3").length,
+    ).toBe(2);
+    expect(addedId).not.toBe("cam-1");
+    const next = applyCommand(
+      added,
+      { kind: "removeZoom", id: addedId },
+      ids(),
+    );
+    expect(next.camera.map((c) => c.id)).toEqual(["cam-1"]);
+    expect(next.zoomsSkipped ?? []).toEqual([]);
+    const { act3, out } = rerecord(next);
+    expect(
+      act3 && "zoom" in act3 && act3.zoom === false,
+      JSON.stringify(out),
+    ).toBe(false);
+  });
+
   it("removing a zoom with no source (a take before v15) on a click records off", () => {
     const next = applyCommand(
       withZoom({}),
