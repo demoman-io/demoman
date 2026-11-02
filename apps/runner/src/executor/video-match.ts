@@ -4,6 +4,7 @@
 
 import { nameWords, normaliseName } from "@demoman/run-core";
 
+export { phraseHits } from "@demoman/run-core";
 export { nameWords, normaliseName };
 
 export const sameName = (a: string, b: string): boolean =>
@@ -19,17 +20,6 @@ export function similarNames(a: string, b: string): boolean {
   const within = (small: Set<string>, big: Set<string>) =>
     [...small].every((w) => big.has(w));
   return within(wa, wb) || within(wb, wa);
-}
-
-/** How many of the phrase's words appear as whole words in the haystack; 0 is no match. */
-export function phraseHits(
-  phrase: string,
-  haystack: { name: string; pages: string[]; steps: string[] },
-): number {
-  const have = new Set(
-    [haystack.name, ...haystack.pages, ...haystack.steps].flatMap(nameWords),
-  );
-  return new Set(nameWords(phrase).filter((w) => have.has(w))).size;
 }
 
 /** Origin + path of a URL; query and hash dropped. */
