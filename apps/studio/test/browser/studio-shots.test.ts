@@ -245,6 +245,134 @@ function luminance(css: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+const ACME = "github.com/acme/web";
+const GLOBEX = "github.com/globex/api";
+const LOCAL = "local:/Users/me/scratch";
+/** The word only the globex flow's steps hold: its last button's name. */
+const SEARCHED = "ledger";
+
+/** The projects home: acme/web's two flows (the invoice one kept in a real
+ *  checkout), globex/api's one, an unpushed repo's one, flows in no
+ *  project, and the folder that would not read. */
+async function seedProjects(): Promise<{
+  home: string;
+  invoice: string;
+  globex: string;
+}> {
+  const home = await mkdtemp(join(tmpdir(), "studio-shots-projects-"));
+  homes.push(home);
+  const checkout = await mkdtemp(join(tmpdir(), "studio-shots-projrepo-"));
+  homes.push(checkout);
+  // A real checkout of acme/web, as a kept mark's key is read from its
+  // root: the upkeep reads it again to follow a moved repo, and a root
+  // that is no checkout would be a "Couldn't read" row of its own.
+  for (const args of [
+    ["init", "-q"],
+    ["remote", "add", "origin", "git@github.com:acme/web.git"],
+  ])
+    execFileSync("git", args, { cwd: checkout, stdio: "pipe" });
+  await seedHome(home, VIDEO_TAKES);
+  const invoice = await joinVideo(home);
+  const library = createLibrary(home);
+  const store = createVideoStore(home, library);
+  // A second owner's project: one flow of one take.
+  const lone = (PLAIN[0] as PlainTake).id;
+  const made = await store.create({
+    name: "Filter invoices",
+    repo: { key: GLOBEX },
+    startPage: "https://app.example.com/",
+  });
+  if (!made.ok) throw new Error("the globex flow could not be made");
+  // Its checkout button named for itself, so one flow's steps hold a word
+  // (SEARCHED) no other flow has; renamed before it joins, at its revision.
+  const scene = await library.getScene(lone);
+  if (scene === null) throw new Error(`${lone} was not seeded`);
+  await library.putScene({
+    ...scene,
+    anchors: scene.anchors.map((a) =>
+      a.id === "a-checkout"
+        ? {
+            ...a,
+            fingerprint: {
+              ...a.fingerprint,
+              accessibleName: "Reconcile ledger",
+            },
+          }
+        : a,
+    ),
+  });
+  const read = await library.getSceneRead(lone);
+  expect(read, `premise: ${lone} was seeded`).not.toBeNull();
+  await library.putJson(lone, "status.json", { outcome: "complete" });
+  await store.join(lone, {
+    videoId: made.video.id,
+    made: {
+      repo: { none: "seeded" },
+      agent: { none: "seeded" },
+      by: { none: "seeded" },
+      door: "mcp",
+    },
+    recordedRevision: read?.revision ?? null,
+  });
+  // An unpushed repo: one flow of one more take, keyed by its folder.
+  const loneLocal = (PLAIN[1] as PlainTake).id;
+  const scratch = await store.create({
+    name: "Scratch",
+    repo: { key: LOCAL },
+    startPage: "https://app.example.com/",
+  });
+  if (!scratch.ok) throw new Error("the local flow could not be made");
+  const readLocal = await library.getSceneRead(loneLocal);
+  expect(readLocal, `premise: ${loneLocal} was seeded`).not.toBeNull();
+  await library.putJson(loneLocal, "status.json", { outcome: "complete" });
+  await store.join(loneLocal, {
+    videoId: scratch.video.id,
+    made: {
+      repo: { none: "seeded" },
+      agent: { none: "seeded" },
+      by: { none: "seeded" },
+      door: "mcp",
+    },
+    recordedRevision: readLocal?.revision ?? null,
+  });
+  // The invoice flow is kept in acme/web: one flow on each of its tabs.
+  const file = `${KEPT_DIR}/${keptFileName("Create an invoice")}`;
+  await mkdir(join(checkout, KEPT_DIR), { recursive: true });
+  await writeFile(
+    join(checkout, file),
+    serializeKept({
+      keptVersion: 2,
+      flow: invoice,
+      deliver: "files",
+      name: "Create an invoice",
+      script: {
+        scriptVersion: 1,
+        name: "Create an invoice",
+        target: "https://app.example.com/",
+        viewport: { width: 1280, height: 800 },
+        steps: [{ do: "waitForLoad" }],
+      } as KeptVideo["script"],
+      scale: 1,
+      logo: null,
+      wallpaper: null,
+      outputs: [
+        {
+          path: "o.mp4",
+          fileType: "mp4",
+          aspect: "16:9",
+          quality: "share",
+        },
+      ],
+      report: null,
+    } satisfies KeptVideo),
+  );
+  expect(
+    (await store.setKept(invoice, { root: checkout, file, key: ACME })).ok,
+    "premise: the invoice flow is marked kept",
+  ).toBe(true);
+  return { home, invoice, globex: made.video.id };
+}
+
 describe("the Studio's screenshot set", () => {
   it.runIf(process.platform === "darwin")(
     "shoots the editor, library and Brand kit pages at two sizes in the Studio's one theme, and the editor stacked, each asserted on its paint",
@@ -2854,102 +2982,7 @@ describe("the Studio's screenshot set", () => {
   it.runIf(process.platform === "darwin")(
     "shoots the projects rail, each tab, a ticked day and the toggle in the tab row, each asserted on its paint",
     async () => {
-      const home = await mkdtemp(join(tmpdir(), "studio-shots-projects-"));
-      homes.push(home);
-      const checkout = await mkdtemp(join(tmpdir(), "studio-shots-projrepo-"));
-      homes.push(checkout);
-      // A real checkout of acme/web, as a kept mark's key is read from its
-      // root: the upkeep reads it again to follow a moved repo, and a root
-      // that is no checkout would be a "Couldn't read" row of its own.
-      for (const args of [
-        ["init", "-q"],
-        ["remote", "add", "origin", "git@github.com:acme/web.git"],
-      ])
-        execFileSync("git", args, { cwd: checkout, stdio: "pipe" });
-      await seedHome(home, VIDEO_TAKES);
-      const invoice = await joinVideo(home);
-      const ACME = "github.com/acme/web";
-      const GLOBEX = "github.com/globex/api";
-      const LOCAL = "local:/Users/me/scratch";
-      const library = createLibrary(home);
-      const store = createVideoStore(home, library);
-      // A second owner's project: one flow of one take.
-      const lone = (PLAIN[0] as PlainTake).id;
-      const made = await store.create({
-        name: "Filter invoices",
-        repo: { key: GLOBEX },
-        startPage: "https://app.example.com/",
-      });
-      if (!made.ok) throw new Error("the globex flow could not be made");
-      const read = await library.getSceneRead(lone);
-      expect(read, `premise: ${lone} was seeded`).not.toBeNull();
-      await library.putJson(lone, "status.json", { outcome: "complete" });
-      await store.join(lone, {
-        videoId: made.video.id,
-        made: {
-          repo: { none: "seeded" },
-          agent: { none: "seeded" },
-          by: { none: "seeded" },
-          door: "mcp",
-        },
-        recordedRevision: read?.revision ?? null,
-      });
-      // An unpushed repo: one flow of one more take, keyed by its folder.
-      const loneLocal = (PLAIN[1] as PlainTake).id;
-      const scratch = await store.create({
-        name: "Scratch",
-        repo: { key: LOCAL },
-        startPage: "https://app.example.com/",
-      });
-      if (!scratch.ok) throw new Error("the local flow could not be made");
-      const readLocal = await library.getSceneRead(loneLocal);
-      expect(readLocal, `premise: ${loneLocal} was seeded`).not.toBeNull();
-      await library.putJson(loneLocal, "status.json", { outcome: "complete" });
-      await store.join(loneLocal, {
-        videoId: scratch.video.id,
-        made: {
-          repo: { none: "seeded" },
-          agent: { none: "seeded" },
-          by: { none: "seeded" },
-          door: "mcp",
-        },
-        recordedRevision: readLocal?.revision ?? null,
-      });
-      // The invoice flow is kept in acme/web: one flow on each of its tabs.
-      const file = `${KEPT_DIR}/${keptFileName("Create an invoice")}`;
-      await mkdir(join(checkout, KEPT_DIR), { recursive: true });
-      await writeFile(
-        join(checkout, file),
-        serializeKept({
-          keptVersion: 2,
-          flow: invoice,
-          deliver: "files",
-          name: "Create an invoice",
-          script: {
-            scriptVersion: 1,
-            name: "Create an invoice",
-            target: "https://app.example.com/",
-            viewport: { width: 1280, height: 800 },
-            steps: [{ do: "waitForLoad" }],
-          } as KeptVideo["script"],
-          scale: 1,
-          logo: null,
-          wallpaper: null,
-          outputs: [
-            {
-              path: "o.mp4",
-              fileType: "mp4",
-              aspect: "16:9",
-              quality: "share",
-            },
-          ],
-          report: null,
-        } satisfies KeptVideo),
-      );
-      expect(
-        (await store.setKept(invoice, { root: checkout, file, key: ACME })).ok,
-        "premise: the invoice flow is marked kept",
-      ).toBe(true);
+      const { home, invoice } = await seedProjects();
       await mkdir(SHOTS, { recursive: true });
       const studio = await startStudio(home, join(home, "out"));
       running = studio;
@@ -3940,6 +3973,318 @@ describe("the Studio's screenshot set", () => {
         expect(hit, `${at}: the grid heading's box is painted`).toBe(true);
       }
       expect(shots).toHaveLength(SIZES.length * 6 + 6);
+      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
+
+  // The library's search box (spec 2026-11-02 library-search): a word only
+  // one flow's steps hold, typed in All flows, at the projects home. The
+  // results, the why beside the flow, the box in the tab row and the
+  // address, each on its paint; the same results after a reload; and the
+  // same word in a project that has none of it.
+  it.runIf(process.platform === "darwin")(
+    "shoots a search in the tab row, its results and why they matched, each asserted on its paint",
+    async () => {
+      const { home, globex } = await seedProjects();
+      await mkdir(SHOTS, { recursive: true });
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      // The premise, as the studio lists it: the word is in the globex
+      // flow's steps, and in no flow's name, page or other steps.
+      const takes = await api(studio, pathFor("takes"));
+      expect(takes.status, takes.text).toBe(200);
+      const { videos } = takes.json() as TakesAnswer;
+      const word = new RegExp(`\\b${SEARCHED}`, "i");
+      const listed = JSON.stringify(
+        videos.map((v) => ({ id: v.id, name: v.name, steps: v.steps })),
+      );
+      expect(
+        videos.find((v) => v.id === globex)?.steps,
+        `premise: the globex flow's steps hold the word ${listed}`,
+      ).toContain(`click Reconcile ${SEARCHED}`);
+      expect(
+        videos.filter((v) => word.test(v.name)).map((v) => v.id),
+        `premise: no flow's name holds the word ${listed}`,
+      ).toEqual([]);
+      expect(
+        videos
+          .filter((v) => [...v.steps, ...v.pages].some((s) => word.test(s)))
+          .map((v) => v.id),
+        `premise: no other flow's steps or pages hold it ${listed}`,
+      ).toEqual([globex]);
+      expect(videos.length, "premise: more flows than the one").toBeGreaterThan(
+        1,
+      );
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+        200,
+      );
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      const shots: string[] = [];
+      const why = `step: click Reconcile ${SEARCHED}`;
+      // The listed flows (and takes in no flow), and the search's paint.
+      const look = () =>
+        page.evaluate(() => {
+          const centre = (r: DOMRect) =>
+            [r.left + r.width / 2, r.top + r.height / 2] as const;
+          const hits = (e: Element) => {
+            const r = e.getBoundingClientRect();
+            if (r.width === 0 || r.height === 0) return false;
+            const hit = document.elementFromPoint(...centre(r));
+            return hit !== null && e.contains(hit);
+          };
+          const rect = (e: Element | null) => {
+            if (e === null) return null;
+            const r = e.getBoundingClientRect();
+            return [r.left, r.top, r.right, r.bottom].map(Math.round);
+          };
+          const box = document.querySelector<HTMLInputElement>("[data-search]");
+          const row = document.querySelector("[data-tabs-row]");
+          const toggle = document.querySelector("[data-layout-toggle]");
+          const b = box?.getBoundingClientRect();
+          const t = toggle?.getBoundingClientRect();
+          const rw = row?.getBoundingClientRect();
+          return {
+            rows: [
+              ...document.querySelectorAll<HTMLElement>(
+                "[data-list] [role=row][data-scene]:not([data-video-row])",
+              ),
+            ].map((r) => ({
+              id: r.dataset.flow ?? r.dataset.take ?? "",
+              painted: hits(r),
+              // Each copy of the why: where it lives, its words, whether
+              // it is drawn and its own at its centre.
+              whys: [
+                ...r.querySelectorAll<HTMLElement>("[data-match-why]"),
+              ].map((w) => ({
+                slot: w.dataset.matchWhy,
+                text: w.textContent,
+                drawn: w.getClientRects().length > 0,
+                hit: hits(w),
+                rect: rect(w),
+              })),
+            })),
+            box:
+              box === null || b === undefined
+                ? null
+                : {
+                    value: box.value,
+                    hit: hits(box),
+                    inRow: row?.contains(box) === true,
+                    // Inside the row's box, and before the toggle: left of
+                    // it on its line, or on a line above it.
+                    insideRow:
+                      rw !== undefined &&
+                      b.left >= rw.left - 0.5 &&
+                      b.right <= rw.right + 0.5 &&
+                      b.top >= rw.top - 0.5 &&
+                      b.bottom <= rw.bottom + 0.5,
+                    beforeToggle:
+                      toggle !== null &&
+                      t !== undefined &&
+                      (box.compareDocumentPosition(toggle) &
+                        Node.DOCUMENT_POSITION_FOLLOWING) !==
+                        0 &&
+                      (b.right <= t.left + 0.5 || b.bottom <= t.top + 0.5),
+                    rect: rect(box),
+                    toggle: rect(toggle),
+                    row: rect(row),
+                  },
+            search: location.search,
+          };
+        });
+      type Seen = Awaited<ReturnType<typeof look>>;
+      const until = async (
+        at: string,
+        what: string,
+        ok: (s: Seen) => boolean,
+      ) => {
+        try {
+          await vi.waitFor(
+            async () => {
+              const now = await look();
+              if (!ok(now)) throw new Error(JSON.stringify(now));
+            },
+            { timeout: PAINT_MS, interval: 50 },
+          );
+        } catch (error) {
+          throw new Error(
+            `${at}: ${what}: ${String(error)}; page: ${await pageEvidence(page)}; log: ${studio.logs.join("\n")}`,
+          );
+        }
+      };
+      const onlyGlobex = (s: Seen) =>
+        s.rows.length === 1 && s.rows[0]?.id === globex;
+      // The text inside a box is lighter than the ground it sits on.
+      const inked = async (box: number[]) => {
+        const [l, t, r, b] = box as [number, number, number, number];
+        const pts: [number, number][] = [];
+        for (let y = t; y <= b; y += 1) {
+          for (let x = l; x <= r; x += 2) pts.push([x, y]);
+        }
+        const lumas = (await pixelsAt(page, pts)).map(luma);
+        return Math.max(...lumas) - Math.min(...lumas);
+      };
+      const all = `${studio.origin}/${placeSearch("all")}`;
+      for (const [w, h] of [
+        [1440, 900],
+        [1280, 720],
+        [720, 900],
+      ] as const) {
+        const at = `search ${w}x${h}`;
+        await sizeWindow(context, page, w, h);
+        await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        await page.goto(all);
+        await until(at, "premise: All flows lists every flow", (s) =>
+          videos.every((v) => s.rows.some((r) => r.id === v.id)),
+        );
+        await page.locator("[data-search]").pressSequentially(SEARCHED);
+        await until(at, "the results are the globex flow alone", onlyGlobex);
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        const shot = join(SHOTS, `library-search-${w}x${h}-dark.png`);
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        const s = await look();
+        const ev = `${at}: ${JSON.stringify(s)}`;
+        const p = await painted(page);
+        expect(p.theme, `${at}: the page's theme`).toBe("dark");
+        expect(
+          p.scrollWidth,
+          `${at}: no sideways scroll (${JSON.stringify(p)})`,
+        ).toBeLessThanOrEqual(p.innerWidth);
+        expect(
+          s.rows.map((r) => ({ id: r.id, painted: r.painted })),
+          `${at}: the results ${ev}`,
+        ).toEqual([{ id: globex, painted: true }]);
+        // Both copies carry the why; the width shows one of them, wide the
+        // name cell's, under a 760px list Where's.
+        const whys = s.rows[0]?.whys ?? [];
+        expect(
+          whys.map((x) => [x.slot, x.text]),
+          `${at}: premise: the row carries the why twice ${ev}`,
+        ).toEqual([
+          ["name", why],
+          ["where", why],
+        ]);
+        const shown = whys.filter((x) => x.drawn);
+        expect(
+          shown.map((x) => ({ slot: x.slot, hit: x.hit })),
+          `${at}: one copy of the why is painted, its own at its centre ${ev}`,
+        ).toEqual([{ slot: w === 720 ? "where" : "name", hit: true }]);
+        expect(
+          await inked(shown[0]?.rect as number[]),
+          `${at}: the why's words are painted over the ground ${ev}`,
+        ).toBeGreaterThan(40);
+        expect(
+          {
+            value: s.box?.value,
+            hit: s.box?.hit,
+            inRow: s.box?.inRow,
+            insideRow: s.box?.insideRow,
+            beforeToggle: s.box?.beforeToggle,
+          },
+          `${at}: the box, painted in the tab row before the toggle ${ev}`,
+        ).toEqual({
+          value: SEARCHED,
+          hit: true,
+          inRow: true,
+          insideRow: true,
+          beforeToggle: true,
+        });
+        const address = new URLSearchParams(s.search);
+        expect(
+          [address.get("project"), address.get("q")],
+          `${at}: the address carries the search ${ev}`,
+        ).toEqual(["all", SEARCHED]);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        // A reload reads the search back from the address.
+        await page.reload();
+        await until(
+          at,
+          "after a reload, the same results and the word in the box",
+          (s) =>
+            onlyGlobex(s) &&
+            s.rows[0]?.painted === true &&
+            s.box?.value === SEARCHED,
+        );
+      }
+
+      // The word in acme/web, which has none of it: "None here.", and a
+      // link to where it is, painted.
+      {
+        const at = "search none here 1440x900";
+        await sizeWindow(context, page, 1440, 900);
+        await page.goto(`${studio.origin}/${placeSearch({ project: ACME })}`);
+        await until(
+          at,
+          "premise: acme/web lists flows",
+          (s) => s.rows.length > 0,
+        );
+        await page.locator("[data-search]").pressSequentially(SEARCHED);
+        const line = page.locator("[data-none-here]");
+        await line.waitFor({ timeout: PAINT_MS });
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        const none = await line.evaluate((p) => {
+          const hits = (e: Element) => {
+            const r = e.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            return r.width > 0 && hit !== null && e.contains(hit);
+          };
+          const rect = (e: Element) => {
+            const r = e.getBoundingClientRect();
+            return [r.left, r.top, r.right, r.bottom].map(Math.round);
+          };
+          const link = p.querySelector("a");
+          return {
+            text: p.textContent,
+            hit: hits(p),
+            rect: rect(p),
+            link:
+              link === null
+                ? null
+                : {
+                    text: link.textContent,
+                    place: link.dataset.place,
+                    href: link.getAttribute("href"),
+                    hit: hits(link),
+                    rect: rect(link),
+                  },
+            rows: document.querySelectorAll(
+              "[data-list] [role=row][data-scene]",
+            ).length,
+          };
+        });
+        const ev = `${at}: ${JSON.stringify(none)}`;
+        expect(
+          { text: none.text, hit: none.hit, rows: none.rows },
+          `${at}: the line, painted, with no rows ${ev}`,
+        ).toEqual({ text: "None here. 1 in globex/api.", hit: true, rows: 0 });
+        expect(none.link, `${at}: its link, painted ${ev}`).toMatchObject({
+          text: "1 in globex/api",
+          place: placeSearch({ project: GLOBEX }),
+          href: `${placeSearch({ project: GLOBEX })}&q=${SEARCHED}`,
+          hit: true,
+        });
+        expect(
+          await inked(none.link?.rect as number[]),
+          `${at}: the link's words are painted over the ground ${ev}`,
+        ).toBeGreaterThan(40);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+      }
+      expect(shots).toHaveLength(3);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
