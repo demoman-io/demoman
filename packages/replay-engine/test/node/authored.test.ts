@@ -412,7 +412,12 @@ function assemble(
     anchors: driven.run.anchors,
     walked,
     startingBranding: driven.deps.startingBranding,
-    camera: driven.deps.cameraFor(driven.run.actions, VIEWPORT, () => 1),
+    camera: driven.deps.cameraFor(
+      driven.run.actions,
+      VIEWPORT,
+      () => 1,
+      () => undefined,
+    ),
   });
 }
 
@@ -1320,7 +1325,12 @@ describe("the authored source and its assembler", () => {
       anchors,
       walked: walkedStub(),
       startingBranding: driven.deps.startingBranding,
-      camera: driven.deps.cameraFor(driven.run.actions, VIEWPORT, () => 1),
+      camera: driven.deps.cameraFor(
+        driven.run.actions,
+        VIEWPORT,
+        () => 1,
+        () => undefined,
+      ),
     });
 
     expect(document).toBeNull();
@@ -1433,7 +1443,12 @@ describe("a take's starting look comes from the caller", () => {
     ).toHaveLength(1);
     const { document } = assemble(authored, driven);
     expect(document?.camera).toEqual(
-      driven.deps.cameraFor(driven.run.actions, VIEWPORT, () => 1).camera,
+      driven.deps.cameraFor(
+        driven.run.actions,
+        VIEWPORT,
+        () => 1,
+        () => undefined,
+      ).camera,
     );
     expect(document?.camera).toHaveLength(1);
   });
@@ -1451,7 +1466,12 @@ describe("a take's starting look comes from the caller", () => {
     if (!first || !second)
       throw new Error("premise: the run performed two clicks");
     const plan = {
-      camera: driven.deps.cameraFor([first], VIEWPORT, () => 1).camera,
+      camera: driven.deps.cameraFor(
+        [first],
+        VIEWPORT,
+        () => 1,
+        () => undefined,
+      ).camera,
       zoomsSkipped: [
         {
           actionId: second.id,

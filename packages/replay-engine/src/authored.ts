@@ -53,6 +53,8 @@ import {
   type ScriptTarget,
   type StrategyName,
   spotIn,
+  type ZoomIntent,
+  type ZoomIntentOf,
 } from "@demoman/scene-schema";
 import { WAIT_POLL_MS, WAIT_TIMEOUT_MS } from "./constants.js";
 import { rectCentre } from "./geometry.js";
@@ -219,7 +221,12 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
    * viewport, which only the caller can build (the zoom rule and the
    * take's motion live above this package). Absent: no act ends, no waits.
    */
-  roomFor?(viewport: { width: number; height: number }): RoomPolicy;
+  roomFor?(
+    viewport: { width: number; height: number },
+    /** The script's zoom intent per action: the run's one lookup, the
+     *  same function `cameraFor` is handed. */
+    intentOf: ZoomIntentOf,
+  ): RoomPolicy;
   /**
    * Resolves an intent against the live page and captures a real anchor from
    * whatever it found. Task 5's round trip in the extension
@@ -288,6 +295,8 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
     /** The page's zoom at an action (`ViewportTransform`): a click's rect
      *  is in the page's own px, which a zoomed-out page shows smaller. */
     scaleAt: (action: SceneAction) => number,
+    /** What the script said about a click's or drag's zoom, by action id. */
+    intentOf: ZoomIntentOf,
   ): CameraPlan;
 }
 
@@ -482,6 +491,9 @@ interface AuthoredRun {
   actions: SceneAction[];
   anchors: SceneAnchor[];
   madeFrom: MadeFromStep[];
+  /** The script's zoom intent per action id. Filled when the action is
+   *  minted, because the room asks about a click before it commits. */
+  zoomIntentOf: ZoomIntentOf;
   /** Why the SOURCE stopped, or null. Not the walk's own reason. */
   stop(): ReplayStopReason | null;
   firstCursor: Vec;
@@ -528,6 +540,7 @@ export function createAuthoredRun(
   const actions: SceneAction[] = [];
   const anchors: SceneAnchor[] = [];
   const madeFrom: MadeFromStep[] = [];
+  const zoomIntents = new Map<string, ZoomIntent>();
   let stop: ReplayStopReason | null = null;
 
   // The take's own time base: every stamp is a delta on the injected clock, so
@@ -910,6 +923,14 @@ export function createAuthoredRun(
           },
           record.textHidden !== null && record.textHidden !== undefined,
         );
+        // Before the yield: the walk asks the room about this click while
+        // handling it, ahead of the commit. An unperformed step leaves an
+        // entry for an id nothing else holds.
+        if (
+          (step.do === "click" || step.do === "drag") &&
+          step.zoom !== undefined
+        )
+          zoomIntents.set(action.id, step.zoom);
 
         // Set by `onResolved`. Cast so the checker does not narrow it to the
         // `null` it starts as: it is written inside a callback it cannot see.
@@ -1032,6 +1053,7 @@ export function createAuthoredRun(
     actions,
     anchors,
     madeFrom,
+    zoomIntentOf: (actionId) => zoomIntents.get(actionId),
     stop: () => stop,
     firstCursor,
   };
@@ -1312,7 +1334,7 @@ export async function runAuthored(
   // Each click's zoom is decided once, by the walk; the take is handed what
   // it was decided on (`cameraInputs`).
   const decided = new Map<string, { unwaitedMs: number; scale: number }>();
-  const policy = deps.roomFor?.(viewport);
+  const policy = deps.roomFor?.(viewport, run.zoomIntentOf);
   const room: RoomPolicy | undefined =
     policy === undefined
       ? undefined
@@ -1373,7 +1395,12 @@ export async function runAuthored(
     // zooms are decided on time with the replay's added room taken out, as
     // the walk decided them; the page's zoom is read on the real clock it
     // was recorded on (`cameraInputs`).
-    camera: deps.cameraFor(inputs.actions, viewport, inputs.scaleAt),
+    camera: deps.cameraFor(
+      inputs.actions,
+      viewport,
+      inputs.scaleAt,
+      run.zoomIntentOf,
+    ),
     ...(device === null ? {} : { device: captureDeviceOf(device) }),
     ...(deps.displayScale === undefined
       ? {}
