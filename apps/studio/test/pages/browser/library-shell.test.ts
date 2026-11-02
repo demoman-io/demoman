@@ -608,13 +608,13 @@ describe("the Recordings grid", () => {
     },
   );
 
-  // A past month starts folded. Its summary is a line below Today's last
+  // A past month the author closed. Its summary is a line below Today's last
   // card, nothing inside it is painted, and opening it puts its cards
   // below the summary rather than over anything. Checked at a short
   // window as well, where the editor's preview once painted over the
   // timeline while every rect reported a clean gap.
   it.each([900, 600])(
-    "folds a past month under the open sections at a %ipx-tall window",
+    "a closed past month sits under the open sections at a %ipx-tall window",
     async (height) => {
       await page.viewport(1120, height);
       mount("light", {
@@ -633,7 +633,8 @@ describe("the Recordings grid", () => {
       const july = node(
         '[data-section^="month:2026-07"]',
       ) as HTMLDetailsElement;
-      expect(july.open).toBe(false);
+      expect(july.open, "a past month starts open").toBe(true);
+      july.open = false; // as the author's click on its summary
       const summary = july.querySelector("summary") as HTMLElement;
       // Below the fold at the short window: bring it up before hit-testing,
       // since elementFromPoint knows nothing outside the viewport. Every
@@ -695,6 +696,8 @@ describe("the Recordings grid", () => {
       ],
     });
     const july = node('[data-section^="month:2026-07"]') as HTMLDetailsElement;
+    expect(july.open, "a past month starts open").toBe(true);
+    july.open = false; // as the author's click on its summary
     july.querySelector("summary")?.scrollIntoView({ block: "center" });
     const box = node('[data-row="july"] [data-preview]');
     const seen: boolean[] = [];

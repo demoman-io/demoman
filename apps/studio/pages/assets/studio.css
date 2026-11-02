@@ -322,19 +322,9 @@
   font-size: 11.5px;
   color: var(--ink-4);
 }
-/* The library's rail: a quiet owner label over its projects. */
-[data-studio] .side-owner {
-  width: 100%;
-  margin: 0;
-  padding: 14px 10px 4px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-faint);
-}
-/* The title band: a project's owner on a quiet line over its name, held
-   above it so the rail does not move between places. */
+/* The title band and the rail name a project alike: the owner and the
+   "local" marker dim, the name at full strength. */
 [data-studio] .library-side h1 {
-  position: relative;
   white-space: nowrap;
 }
 @media (min-width: 1024px) {
@@ -343,19 +333,22 @@
     max-width: 70vw;
   }
 }
-[data-studio] .library-side .place-owner {
-  position: absolute;
-  bottom: 100%;
-  margin-bottom: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: normal;
+[data-studio] .proj-dim {
   color: var(--ink-faint);
+  font-weight: 400;
 }
 [data-studio] .library-side .place-name {
-  display: block;
+  display: inline-block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+[data-studio] .side-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* The tabs: quiet pills, the pressed one as the editor rail's is, each
    with its count. */

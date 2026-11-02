@@ -456,10 +456,10 @@ describe("the list view", () => {
       "h:yesterday",
       "h:month:2026-09",
     ]);
-    // The past month starts folded and hides what is under it.
+    // The past month starts open and shows what is under it.
     const month = rowOf(grid, "h:month:2026-09");
-    expect(month.getAttribute("aria-expanded")).toBe("false");
-    expect(rowOf(grid, "f:C").hidden).toBe(true);
+    expect(month.getAttribute("aria-expanded")).toBe("true");
+    expect(rowOf(grid, "f:C").hidden).toBe(false);
     expect(rowOf(grid, "f:A").hidden).toBe(false);
     // A closed flow hides its videos.
     expect(rowOf(grid, "v:a3").hidden).toBe(true);

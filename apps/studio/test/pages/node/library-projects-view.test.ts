@@ -169,25 +169,24 @@ describe("library main — the project rail, title band and tab row", () => {
       needsLook: new Set(),
     } as never);
     const rail = railOf(cardsOf(model), (s.unreadable ?? []).length, "all");
-    expect(rail.owners.map((o) => o.owner)).toEqual(["acme", "zeta", "Local"]);
+    expect(rail.projects.map((p) => [p.owner, p.name, p.local])).toEqual([
+      ["acme", "web", false],
+      ["zeta", "app", false],
+      [null, "scratch", true],
+    ]);
     // The flow outside a repo and the take in no flow.
     expect(rail.none).toBe(2);
     expect(rail.unreadable).toBe(1);
   });
 
-  it("the rail lists All flows, each owner's projects, No project, then Couldn't read", async () => {
+  it("the rail lists All flows, the projects as their host names them, No project, then Couldn't read", async () => {
     await boot();
-    const labels = $$("[data-rail] .side-owner, [data-rail] .side-label").map(
-      (e) => e.textContent,
-    );
+    const labels = $$("[data-rail] .side-label").map((e) => e.textContent);
     expect(labels).toEqual([
       "All flows",
-      "acme",
-      "web",
-      "zeta",
-      "app",
-      "Local",
-      "scratch",
+      "acme/web",
+      "zeta/app",
+      "scratch local",
       "No project",
       "Couldn't read",
     ]);
@@ -216,9 +215,21 @@ describe("library main — the project rail, title band and tab row", () => {
     expect(title()).toBe("All flows");
     railItem(`?project=${encodeURIComponent(WEB)}`)?.click();
     expect($("[data-place-title] [data-place-owner]")?.textContent).toBe(
-      "acme",
+      "acme/",
     );
     expect($("[data-place-title] [data-place-name]")?.textContent).toBe("web");
+    // One place names the owner: the title carries it, no line above it.
+    expect(
+      $$("[data-place-owner]").filter((e) => !e.closest("[data-rail]")),
+    ).toHaveLength(1);
+    railItem(`?project=${encodeURIComponent(SCRATCH)}`)?.click();
+    expect($("[data-place-title] [data-place-owner]")).toBeNull();
+    expect($("[data-place-title] [data-place-local]")?.textContent).toBe(
+      " local",
+    );
+    expect($("[data-place-title] [data-place-name]")?.textContent).toBe(
+      "scratch",
+    );
     railItem("?project=none")?.click();
     expect(title()).toBe("No project");
   });

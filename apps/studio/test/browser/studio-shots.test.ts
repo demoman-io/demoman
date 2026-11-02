@@ -2869,6 +2869,7 @@ describe("the Studio's screenshot set", () => {
       const invoice = await joinVideo(home);
       const ACME = "github.com/acme/web";
       const GLOBEX = "github.com/globex/api";
+      const LOCAL = "local:/Users/me/scratch";
       const library = createLibrary(home);
       const store = createVideoStore(home, library);
       // A second owner's project: one flow of one take.
@@ -2891,6 +2892,27 @@ describe("the Studio's screenshot set", () => {
           door: "mcp",
         },
         recordedRevision: read?.revision ?? null,
+      });
+      // An unpushed repo: one flow of one more take, keyed by its folder.
+      const loneLocal = (PLAIN[1] as PlainTake).id;
+      const scratch = await store.create({
+        name: "Scratch",
+        repo: { key: LOCAL },
+        startPage: "https://app.example.com/",
+      });
+      if (!scratch.ok) throw new Error("the local flow could not be made");
+      const readLocal = await library.getSceneRead(loneLocal);
+      expect(readLocal, `premise: ${loneLocal} was seeded`).not.toBeNull();
+      await library.putJson(loneLocal, "status.json", { outcome: "complete" });
+      await store.join(loneLocal, {
+        videoId: scratch.video.id,
+        made: {
+          repo: { none: "seeded" },
+          agent: { none: "seeded" },
+          by: { none: "seeded" },
+          door: "mcp",
+        },
+        recordedRevision: readLocal?.revision ?? null,
       });
       // The invoice flow is kept in acme/web: one flow on each of its tabs.
       const file = `${KEPT_DIR}/${keptFileName("Create an invoice")}`;
@@ -2930,7 +2952,7 @@ describe("the Studio's screenshot set", () => {
       await mkdir(SHOTS, { recursive: true });
       const studio = await startStudio(home, join(home, "out"));
       running = studio;
-      // The premise, as the studio answers it: two project keys, flows in
+      // The premise, as the studio answers it: three project keys, flows in
       // no project, and the one kept flow.
       const takes = await api(studio, pathFor("takes"));
       expect(takes.status, takes.text).toBe(200);
@@ -2941,7 +2963,7 @@ describe("the Studio's screenshot set", () => {
       expect(
         [...new Set(keys.filter((k) => k !== null))].sort(),
         JSON.stringify(answer.videos),
-      ).toEqual([ACME, GLOBEX]);
+      ).toEqual([ACME, GLOBEX, LOCAL]);
       // The studio wraps every take in a flow, so each card is a video; the
       // ones with no repo key are No project.
       const noKey = keys.filter((k) => k === null).length;
@@ -2957,9 +2979,11 @@ describe("the Studio's screenshot set", () => {
         acme: acmeFlows,
         none: noKey,
         globex: keys.filter((k) => k === GLOBEX).length,
+        local: keys.filter((k) => k === LOCAL).length,
         unreadable: answer.unreadable.length,
       };
       expect(counts.globex, "premise: globex/api has one flow").toBe(1);
+      expect(counts.local, "premise: the unpushed repo has one flow").toBe(1);
       expect(counts.unreadable, "premise: one folder would not read").toBe(1);
       const opened = await api(studio, "/api/window", {
         method: "POST",
@@ -3024,27 +3048,12 @@ describe("the Studio's screenshot set", () => {
         ).toBeLessThanOrEqual(p.innerWidth);
         expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
         const seen = await page.evaluate((flow) => {
-          // The rail as painted: each child of its list, in order, with the
-          // group it belongs to (an owner's label and projects are one).
-          const railItems: {
-            group: string;
-            kind: "label" | "item";
-            text: string;
-            top: number;
-          }[] = [];
-          let group = "";
+          // The rail as painted: each child of its list, in order.
+          const railItems: { text: string; top: number }[] = [];
           for (const c of document.querySelectorAll<HTMLElement>(
             "[data-rail] .side-list > *",
           )) {
-            const label = c.classList.contains("side-owner");
-            const place = c.getAttribute("data-place") ?? "";
-            if (label) group = `owner ${c.textContent}`;
-            else if (place === "?project=all") group = "all flows";
-            else if (place === "?project=none") group = "no project";
-            else if (place === "?project=unreadable") group = "couldn't read";
             railItems.push({
-              group,
-              kind: label ? "label" : "item",
               text: (c.innerText ?? "").replace(/\s+/g, " ").trim(),
               top: Math.round(c.getBoundingClientRect().top),
             });
@@ -3083,16 +3092,17 @@ describe("the Studio's screenshot set", () => {
             const [x, y] = centre(box.getBoundingClientRect());
             boxHit = document.elementFromPoint(x, y) === box;
           }
-          const owner =
-            document.querySelector<HTMLElement>("[data-place-owner]");
-          const name = rect("[data-place-name]");
+          const owner = document.querySelector<HTMLElement>(
+            "[data-place-title] [data-place-owner]",
+          );
+          const name = rect("[data-place-title] [data-place-name]");
           const railBox = rect("[data-rail]");
           let ownerSeen: {
             text: string | null;
             onScreen: boolean;
             hit: boolean;
             clipped: string[];
-            aboveName: boolean;
+            leftOfName: boolean;
             clearOfRail: boolean;
             rect: number[];
           } | null = null;
@@ -3129,7 +3139,11 @@ describe("the Studio's screenshot set", () => {
                 o.bottom <= innerHeight,
               hit: hit !== null && owner.contains(hit),
               clipped,
-              aboveName: name !== null && o.bottom <= name.top + 0.5,
+              leftOfName:
+                name !== null &&
+                o.right <= name.left + 0.5 &&
+                o.top < name.bottom &&
+                o.bottom > name.top,
               clearOfRail:
                 railBox !== null &&
                 (o.bottom <= railBox.top + 0.5 ||
@@ -3201,34 +3215,18 @@ describe("the Studio's screenshot set", () => {
           `${at}: the rail's labels and counts ${ev}`,
         ).toEqual([
           `All flows ${counts.all}`,
-          "acme",
-          `web ${counts.acme}`,
-          "globex",
-          `api ${counts.globex}`,
+          `acme/web ${counts.acme}`,
+          `globex/api ${counts.globex}`,
+          `scratch local ${counts.local}`,
           `No project ${counts.none}`,
           `Couldn't read ${counts.unreadable}`,
         ]);
-        // No group shares a row with another's items or label, and a
-        // project sits below its own owner's label.
-        for (const a of seen.railItems) {
-          for (const b of seen.railItems) {
-            if (a.group !== b.group) {
-              expect(
-                Math.abs(a.top - b.top) > 2,
-                `${at}: "${a.text}" (${a.group}) shares a row with "${b.text}" (${b.group}) ${JSON.stringify(seen.railItems)}`,
-              ).toBe(true);
-            }
-          }
-          const label = seen.railItems.find(
-            (r) => r.kind === "label" && r.group === a.group,
-          );
-          if (a.kind === "item" && label !== undefined) {
-            expect(
-              a.top > label.top,
-              `${at}: "${a.text}" sits below its owner "${label.text}" ${JSON.stringify(seen.railItems)}`,
-            ).toBe(true);
-          }
-        }
+        // One item to a row, top to bottom in the order above.
+        const tops = seen.railItems.map((r) => r.top);
+        expect(
+          tops.every((t, i) => i === 0 || t - (tops[i - 1] as number) > 2),
+          `${at}: each rail item has its own row ${JSON.stringify(seen.railItems)}`,
+        ).toBe(true);
         if (look.tagGlyph === true) {
           expect(
             seen.tagGlyphPainted,
@@ -3245,7 +3243,7 @@ describe("the Studio's screenshot set", () => {
           onScreen: true,
           hit: true,
           clipped: [],
-          aboveName: true,
+          leftOfName: true,
           clearOfRail: true,
         });
         // The pixels: its text is lighter than the ground around it.
@@ -3291,7 +3289,7 @@ describe("the Studio's screenshot set", () => {
             rows,
             tab,
             place: acme,
-            owner: "acme",
+            owner: "acme/",
             box: true,
           });
         }
@@ -3342,7 +3340,7 @@ describe("the Studio's screenshot set", () => {
           rows: counts.acme,
           tab: "all",
           place: acme,
-          owner: "acme",
+          owner: "acme/",
           box: true,
         });
       }
@@ -3360,7 +3358,7 @@ describe("the Studio's screenshot set", () => {
           rows: counts.acme,
           tab: "all",
           place: acme,
-          owner: "acme",
+          owner: "acme/",
           box: true,
           tagGlyph: w === 720,
         });

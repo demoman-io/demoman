@@ -368,8 +368,8 @@ function entryRow(
 /**
  * Draws the treegrid into `list` and returns it. A row under a closed row
  * is `hidden`. A heading or flow keeps the fold it had (`was.collapsed`);
- * one the last draw did not have (`was.drawn`) takes its default — a past
- * month folded, as its card section starts, and every flow closed.
+ * one the last draw did not have (`was.drawn`) takes its default — every
+ * section open, and every flow closed.
  */
 export function renderList(
   list: HTMLElement,

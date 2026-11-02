@@ -11,7 +11,13 @@ import { collapsedKeys, groupBox, openRename, renderList } from "./list";
 import { placeIn, restorePlace } from "./list-keys";
 import { whereOf } from "./list-model";
 import { previewText } from "./preview";
-import { type Place, placeSearch, type Rail, type Tab } from "./projects";
+import {
+  type Place,
+  placeSearch,
+  type Rail,
+  type RailProject,
+  type Tab,
+} from "./projects";
 import type { SelectHow, Selection } from "./selection";
 import type {
   LibraryModel,
@@ -408,7 +414,21 @@ const PLACE_WORDS = {
   unreadable: "Couldn't read",
 } as const;
 
-/** The rail: All flows, each owner's projects, No project, Couldn't read.
+/** A project as its host names it: a dim `owner/`, the name, and for a
+ *  repo with no host a dim "local". */
+function projectNodes(
+  p: Pick<RailProject, "owner" | "name" | "local">,
+): Node[] {
+  const dim = (cls: string, text: string): HTMLElement =>
+    el("span", { class: `proj-dim ${cls}`, [`data-${cls}`]: "" }, text);
+  return [
+    ...(p.owner === null ? [] : [dim("place-owner", `${p.owner}/`)]),
+    el("span", { class: "place-name", "data-place-name": "" }, p.name),
+    ...(p.local ? [dim("place-local", " local")] : []),
+  ];
+}
+
+/** The rail: All flows, then the projects, No project, Couldn't read.
  *  Each item is a link to its own address, so it opens in a new tab too;
  *  a plain click stays in the page. */
 function railList(
@@ -418,19 +438,23 @@ function railList(
 ): HTMLElement {
   const list = el("div", { class: "side-list" });
   const at = placeSearch(current);
-  const item = (p: Place, label: string, count: number): void => {
+  const item = (
+    p: Place,
+    label: (Node | string)[],
+    count: number,
+    title = label.join(""),
+  ): void => {
     const search = placeSearch(p);
     const link = el("a", {
       href: search,
       class: "side-item",
       "data-place": search,
       "aria-current": String(search === at),
-      title: label,
+      title,
     });
-    link.append(
-      el("span", { class: "side-label" }, label),
-      el("span", { class: "side-count" }, String(count)),
-    );
+    const text = el("span", { class: "side-label" });
+    text.append(...label);
+    link.append(text, el("span", { class: "side-count" }, String(count)));
     link.addEventListener("click", (event) => {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
         return;
@@ -440,45 +464,32 @@ function railList(
     });
     list.append(link);
   };
-  item("all", PLACE_WORDS.all, rail.all);
-  for (const { owner, projects } of rail.owners) {
-    list.append(el("p", { class: "side-owner" }, owner));
-    for (const p of projects) item({ project: p.key }, p.name, p.count);
+  item("all", [PLACE_WORDS.all], rail.all);
+  for (const p of rail.projects) {
+    item({ project: p.key }, projectNodes(p), p.count, p.key);
   }
   if (rail.none > 0 || current === "none") {
-    item("none", PLACE_WORDS.none, rail.none);
+    item("none", [PLACE_WORDS.none], rail.none);
   }
   if (rail.unreadable > 0 || current === "unreadable") {
-    item("unreadable", PLACE_WORDS.unreadable, rail.unreadable);
+    item("unreadable", [PLACE_WORDS.unreadable], rail.unreadable);
   }
   return list;
 }
 
-/** The title band: a project's owner on a quiet line over its name; the
+/** The title band: a project as the rail names it; the
  *  other places by their words. */
 function placeTitle(place: PlaceView | undefined): (Node | string)[] {
   if (place === undefined) return ["Flows"];
   const p = place.place;
   if (typeof p === "string") return [PLACE_WORDS[p]];
-  const found = place.rail.owners
-    .flatMap((o) => o.projects)
-    .find((r) => r.key === p.project);
-  const name = el(
-    "span",
-    { class: "place-name", "data-place-name": "" },
-    found?.name ?? p.project,
-  );
-  name.title = p.project;
-  return found === undefined
-    ? [name]
-    : [
-        el(
-          "span",
-          { class: "place-owner", "data-place-owner": "" },
-          found.owner,
-        ),
-        name,
-      ];
+  const found = place.rail.projects.find((r) => r.key === p.project);
+  if (found === undefined) {
+    return [
+      el("span", { class: "place-name", "data-place-name": "" }, p.project),
+    ];
+  }
+  return projectNodes(found);
 }
 
 /**

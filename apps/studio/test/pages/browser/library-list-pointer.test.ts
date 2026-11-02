@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The page's own markup and rules, and the real view, so the rows clicked
 // are the rows the page renders.
 import shell from "../../../pages/entrypoints/library/index.html?raw";
+import { setExpanded } from "../../../pages/src/library/list";
 import type { Selection } from "../../../pages/src/library/selection";
 import type {
   LibraryModel,
@@ -82,7 +83,7 @@ const flow = (id: string, versions: LibraryRow[]): VideoGroup => {
 };
 
 // Today: A (two videos), B (its motion reclaimed: a rerun line), E (its
-// lead expired); Yesterday: C; a past month, folded by default: D. And a
+// lead expired); Yesterday: C; a past month, closed by the fixture: D. And a
 // take in no flow, today.
 const a2 = take("a2", new Date(2026, 9, 30, 9));
 const a1 = take("a1", new Date(2026, 9, 30, 8, 30));
@@ -142,6 +143,14 @@ function mount(selection?: Selection, layout: "list" | "grid" = "list") {
       project: null,
     },
   );
+  // Every section opens on its own; the author has closed the old month,
+  // so D sits under a closed one, as the cases below sample.
+  if (layout === "list") {
+    setExpanded(node("[data-list] [data-heading^='month:']"), false);
+  } else {
+    (node("details[data-section^='month:']") as HTMLDetailsElement).open =
+      false;
+  }
 }
 
 const row = (key: string): HTMLElement =>
@@ -167,7 +176,7 @@ describe("the fixture", () => {
     expect(
       MODEL.groups?.find((g) => g.video.id === "E")?.current?.sceneId,
     ).toBe("e1");
-    // D sits under a past month, folded at first.
+    // D sits under a past month, closed by the fixture.
     const month = row("f:D").previousElementSibling as HTMLElement;
     expect(month.dataset.heading).toMatch(/^month:/);
     expect(month.getAttribute("aria-expanded")).toBe("false");

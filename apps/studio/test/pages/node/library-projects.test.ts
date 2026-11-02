@@ -6,11 +6,11 @@ import { describe, expect, it } from "vitest";
 import { whereOf } from "../../../pages/src/library/list-model";
 import {
   narrow,
-  ownerAndName,
   type Place,
   parsePlace,
   placeSearch,
   projectKeyOf,
+  projectLabel,
   railOf,
   showsTabs,
   tabCounts,
@@ -120,33 +120,45 @@ describe("projectKeyOf", () => {
   });
 });
 
-describe("ownerAndName", () => {
-  it("reads owner and name", () => {
-    expect(ownerAndName("github.com/demoman-io/demoman", [])).toEqual({
+describe("projectLabel", () => {
+  it("reads a hosted key as owner/name, on any host", () => {
+    expect(projectLabel("github.com/demoman-io/demoman", [])).toEqual({
       owner: "demoman-io",
       name: "demoman",
+      local: false,
     });
-    expect(ownerAndName("gitlab.com/g/sub/proj", [])).toEqual({
+    expect(projectLabel("gitlab.com/g/sub/proj", [])).toEqual({
       owner: "g/sub",
       name: "proj",
-    });
-    expect(ownerAndName("local:/Users/x/My Repo/.git", [])).toEqual({
-      owner: "Local",
-      name: "My Repo",
+      local: false,
     });
   });
-  it("prefixes the host when two hosts share an owner", () => {
+  it("adds the host only when two hosts hold the same owner/repo", () => {
     const keys = ["github.com/acme/web", "gitlab.com/acme/web"];
-    expect(keys.map((k) => ownerAndName(k, keys).owner)).toEqual([
+    expect(keys.map((k) => projectLabel(k, keys).owner)).toEqual([
       "github.com/acme",
       "gitlab.com/acme",
     ]);
+    // Same owner, different repo: no clash, no host.
+    const other = ["github.com/acme/web", "gitlab.com/acme/api"];
+    expect(other.map((k) => projectLabel(k, other).owner)).toEqual([
+      "acme",
+      "acme",
+    ]);
   });
-  it("two projects named web sit under two owners", () => {
-    const keys = ["acme/web", "other/web"];
-    const r = keys.map((k) => ownerAndName(k, keys));
-    expect(r.map((x) => x.name)).toEqual(["web", "web"]);
-    expect(new Set(r.map((x) => x.owner)).size).toBe(2);
+  it("reads a local key as its folder with the local marker", () => {
+    expect(projectLabel("local:/Users/x/My Repo/.git", [])).toEqual({
+      owner: null,
+      name: "My Repo",
+      local: true,
+    });
+  });
+  it("two local keys with one folder name add the parent folder", () => {
+    const keys = ["local:/Users/x/app/.git", "local:/Users/y/app/.git"];
+    expect(keys.map((k) => projectLabel(k, keys))).toEqual([
+      { owner: "x", name: "app", local: true },
+      { owner: "y", name: "app", local: true },
+    ]);
   });
 });
 
@@ -159,12 +171,15 @@ describe("railOf", () => {
     flow("5", { key: "local:/Users/x/loc/.git" }),
     flow("6", { none: "x" }),
   ];
-  it("orders owners A-Z with Local last, projects A-Z, counts cards", () => {
+  it("lists hosted A-Z by owner/name, then local, and counts cards", () => {
     const rail = railOf(cards(fs), 2, "all");
-    expect(rail.owners.map((o) => o.owner)).toEqual(["amy", "zed", "Local"]);
-    expect(rail.owners[1]?.projects.map((p) => [p.name, p.count])).toEqual([
-      ["a", 2],
-      ["b", 1],
+    expect(
+      rail.projects.map((p) => [p.owner, p.name, p.local, p.count]),
+    ).toEqual([
+      ["amy", "c", false, 1],
+      ["zed", "a", false, 2],
+      ["zed", "b", false, 1],
+      [null, "loc", true, 1],
     ]);
     expect([rail.all, rail.none, rail.unreadable]).toEqual([6, 1, 2]);
   });
@@ -174,9 +189,7 @@ describe("railOf", () => {
       false,
     ); // premise
     const rail = railOf(cards(fs), 0, place);
-    const empty = rail.owners
-      .flatMap((o) => o.projects)
-      .find((p) => p.key === place.project);
+    const empty = rail.projects.find((p) => p.key === place.project);
     expect(empty).toMatchObject({ name: "empty", count: 0 });
   });
 });

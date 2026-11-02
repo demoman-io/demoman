@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The page's own markup and rules, and the real view, so the rows redrawn
 // are the rows the page renders.
 import shell from "../../../pages/entrypoints/library/index.html?raw";
+import { setExpanded } from "../../../pages/src/library/list";
 import {
   clickSelect,
   emptySelection,
@@ -78,7 +79,7 @@ const flow = (id: string, name: string, versions: LibraryRow[]): VideoGroup => {
 };
 
 // Today: A (two videos), B, E, and a take in no flow; Yesterday: C; a
-// past month, folded by default: D.
+// past month, closed by the fixture: D.
 const a2 = take("a2", new Date(2026, 9, 30, 9));
 const a1 = take("a1", new Date(2026, 9, 30, 8, 30));
 const b1 = take("b1", new Date(2026, 9, 30, 8));
@@ -170,6 +171,9 @@ function mount(): void {
   rowStatus = new Map();
   acts = actions();
   redraw();
+  // Every section opens on its own; the author has closed the old month,
+  // so D sits under a closed one, as the cases below sample.
+  setExpanded(node("[data-list] [data-heading^='month:']"), false);
   before = document.createElement("button");
   before.textContent = "before";
   grid().before(before);

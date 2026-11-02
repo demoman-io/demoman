@@ -338,7 +338,7 @@ export function whenLabel(at: Date, withYear: boolean): string {
 
 /**
  * One section of the list: a heading, the rows under it, and whether it
- * starts folded. Keys are stable across renders so the page can carry an
+ * starts folded (never, since 2026-11-01: every section opens). Keys are stable across renders so the page can carry an
  * open or closed state from one render to the next: `today`, `yesterday`,
  * `day:YYYY-MM-DD` for the rest of the last week, `month:YYYY-MM` for
  * everything older, `undated` for a row whose date will not parse.
@@ -346,9 +346,8 @@ export function whenLabel(at: Date, withYear: boolean): string {
 export interface LibrarySection {
   key: string;
   label: string;
-  /** True for a month before the current one: the page starts it closed,
-   *  so a library that has grown shows this week open and the past as a
-   *  short list of month lines. */
+  /** Always false: every section starts open, and its chevron closes it.
+   *  Kept so the page's default reads the section, not a constant. */
   folded: boolean;
   /** True when the heading names one day — Today, Yesterday, "Fri, Oct 2" —
    *  so its rows show only their time. A month or Undated does not. */
@@ -381,13 +380,11 @@ export function sectionsOf(
   now: Date,
 ): LibrarySection[] {
   const today = startOfDay(now);
-  const thisMonth = now.getFullYear() * 12 + now.getMonth();
   const sections = new Map<string, LibrarySection>();
   for (const r of rows) {
     const made = new Date(r.createdAt);
     let key: string;
     let label: string;
-    let folded = false;
     let namesDay = true;
     if (Number.isNaN(made.getTime())) {
       namesDay = false;
@@ -414,13 +411,12 @@ export function sectionsOf(
           month: "long",
           year: "numeric",
         });
-        folded = made.getFullYear() * 12 + made.getMonth() < thisMonth;
         namesDay = false;
       }
     }
     const section = sections.get(key);
     if (section === undefined) {
-      sections.set(key, { key, label, folded, namesDay, rows: [r] });
+      sections.set(key, { key, label, folded: false, namesDay, rows: [r] });
     } else {
       section.rows.push(r);
     }

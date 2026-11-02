@@ -227,13 +227,11 @@
       /* The list, in sections by when the take was made: Today, Yesterday,
          the last week by weekday, then a month at a time (view.ts,
          state.ts's sectionsOf). Each section is a fold whose summary is
-         its heading and count, so a past month — folded to start with —
-         is one line, and a library that has grown shows this week open
-         and the rest as a short list of months. */
+         its heading and count; every section starts open, and its
+         chevron closes it. */
       /* Settings' rhythm (2026-10-06): 28px from the title block to the
          first day; 40px after a day that is open, Settings' gap between
-         sections; 8px between folded months, so the past reads as a short
-         list of lines. */
+         sections; 8px between closed ones. */
       .section { margin-top: 8px; }
       .library-content > .section:first-of-type { margin-top: 0; }
       .section[open] + .section { margin-top: 40px; }

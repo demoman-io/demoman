@@ -355,7 +355,7 @@ describe("sectionsOf", () => {
     expect(of("seven")).toBe("month:2026-09");
   });
 
-  it("folds the months before this one, and nothing newer", () => {
+  it("starts every section open, a past month too", () => {
     const sections = sectionsOf(
       [
         row("t", at(2026, 9, 14, 8)),
@@ -368,8 +368,8 @@ describe("sectionsOf", () => {
     expect(sections.map((s) => [s.key, s.folded])).toEqual([
       ["today", false],
       ["month:2026-09", false],
-      ["month:2026-08", true],
-      ["month:2026-01", true],
+      ["month:2026-08", false],
+      ["month:2026-01", false],
     ]);
   });
 

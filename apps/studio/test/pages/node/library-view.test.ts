@@ -702,7 +702,7 @@ describe("renderLibrary sections", () => {
     expect(meta("aug")).toBe(`app.test/checkout · ${reclaimedRow.when}`);
   });
 
-  it("starts a past month closed and everything newer open", () => {
+  it("starts every section open, a past month too", () => {
     const root = document.createElement("div");
     renderLibrary(root, dated, noop, new Map(), now);
     expect(
@@ -710,23 +710,22 @@ describe("renderLibrary sections", () => {
     ).toEqual([
       ["today", true],
       ["yesterday", true],
-      ["month:2026-08", false],
+      ["month:2026-08", true],
     ]);
   });
 
   // A rename or a delete re-renders the whole list. A month the
-  // author had opened must not fold back on them, and one they folded
-  // must not spring open. The production change that reddens this:
+  // author had closed must not spring open on them, and so for a day. The production change that reddens this:
   // rendering `open` from the section's default alone.
   it("carries each section's open or closed state across a re-render", () => {
     const root = document.createElement("div");
     renderLibrary(root, dated, noop, new Map(), now);
     const by = (key: string) =>
       root.querySelector<HTMLDetailsElement>(`[data-section="${key}"]`);
-    (by("month:2026-08") as HTMLDetailsElement).open = true;
+    (by("month:2026-08") as HTMLDetailsElement).open = false;
     (by("yesterday") as HTMLDetailsElement).open = false;
     renderLibrary(root, dated, noop, new Map(), now);
-    expect(by("month:2026-08")?.open).toBe(true);
+    expect(by("month:2026-08")?.open).toBe(false);
     expect(by("yesterday")?.open).toBe(false);
     expect(by("today")?.open).toBe(true);
   });

@@ -23,18 +23,21 @@ export function projectKeyOf(card: LibraryCard): string | null {
 
 export interface RailProject {
   key: string;
-  owner: string;
+  /** The dim part before the name, with its slash left to the view; null
+   *  for a local repo that needs none. */
+  owner: string | null;
   name: string;
+  /** Not on a host: the view marks it with a dim "local". */
+  local: boolean;
   count: number;
 }
 export interface Rail {
   all: number;
-  owners: { owner: string; projects: RailProject[] }[];
+  /** Hosted A→Z by owner/name, then local. */
+  projects: RailProject[];
   none: number;
   unreadable: number;
 }
-
-const LOCAL = "Local";
 
 const segments = (key: string): string[] =>
   key
@@ -42,15 +45,23 @@ const segments = (key: string): string[] =>
     .split("/")
     .filter((p) => p !== "" && p !== ".git");
 
-/** `host/owner…/name` is read as owner and name; two hosts sharing an owner
- *  name each carry their host (`github.com/acme`). */
-export function ownerAndName(
+const isLocal = (k: string): boolean => k.startsWith("local:");
+
+/** A hosted `host/owner…/name` reads as `owner/name`, the host only when
+ *  another host holds the same one; a local repo reads as its folder, with
+ *  its parent folder when another local repo has the same folder name. */
+export function projectLabel(
   key: string,
   allKeys: readonly string[],
-): { owner: string; name: string } {
+): { owner: string | null; name: string; local: boolean } {
   const parts = segments(key);
   const name = parts.at(-1) ?? key;
-  if (key.startsWith("local:")) return { owner: LOCAL, name };
+  if (isLocal(key)) {
+    const twin = allKeys.some(
+      (k) => k !== key && isLocal(k) && segments(k).at(-1) === name,
+    );
+    return { owner: twin ? (parts.at(-2) ?? null) : null, name, local: true };
+  }
   const ownerOf = (k: string): string => {
     const p = segments(k);
     return p.length > 2 ? p.slice(1, -1).join("/") : (p[0] ?? k);
@@ -58,12 +69,16 @@ export function ownerAndName(
   const owner = ownerOf(key);
   const clash = allKeys.some(
     (k) =>
-      !k.startsWith("local:") &&
+      !isLocal(k) &&
       ownerOf(k) === owner &&
+      segments(k).at(-1) === name &&
       segments(k)[0] !== parts[0],
   );
-  return { owner: clash ? `${parts[0]}/${owner}` : owner, name };
+  return { owner: clash ? `${parts[0]}/${owner}` : owner, name, local: false };
 }
+
+const fullName = (p: RailProject): string =>
+  p.owner === null ? p.name : `${p.owner}/${p.name}`;
 
 export function railOf(
   cards: readonly LibraryCard[],
@@ -81,22 +96,18 @@ export function railOf(
     counts.set(current.project, 0); // the empty landing
   }
   const keys = [...counts.keys()];
-  const byOwner = new Map<string, RailProject[]>();
-  for (const key of keys) {
-    const { owner, name } = ownerAndName(key, keys);
-    const list = byOwner.get(owner) ?? [];
-    list.push({ key, owner, name, count: counts.get(key) as number });
-    byOwner.set(owner, list);
-  }
-  const owners = [...byOwner.entries()]
-    .sort(([a], [b]) =>
-      a === LOCAL ? 1 : b === LOCAL ? -1 : a.localeCompare(b),
-    )
-    .map(([owner, projects]) => ({
-      owner,
-      projects: projects.sort((a, b) => a.name.localeCompare(b.name)),
-    }));
-  return { all: cards.length, owners, none, unreadable };
+  const projects = keys
+    .map((key) => ({
+      key,
+      ...projectLabel(key, keys),
+      count: counts.get(key) as number,
+    }))
+    .sort(
+      (a, b) =>
+        Number(a.local) - Number(b.local) ||
+        fullName(a).localeCompare(fullName(b)),
+    );
+  return { all: cards.length, projects, none, unreadable };
 }
 
 const inPlace = (c: LibraryCard, place: Place): boolean =>
