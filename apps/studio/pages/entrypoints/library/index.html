@@ -759,7 +759,9 @@
         gap: 12px;
         margin-bottom: 8px;
       }
-      .place-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+      /* The tabs keep one line: under a 600px list the box folds (below)
+         rather than push them onto two. */
+      .place-tabs { display: flex; gap: 4px; }
       .layout-toggle {
         display: flex;
         justify-content: flex-end;
@@ -773,8 +775,8 @@
       }
       /* The search box, right of the tabs and before the toggle: the
          system's field, its glyph inside the left edge and the `/` hint
-         inside the right (the Studio sheet pads the text clear of both). On a
-         row too narrow for it, it wraps under the tabs. */
+         inside the right (the Studio sheet pads the text clear of both).
+         Under a 600px list it folds to its glyph (below). */
       .search-field {
         position: relative;
         display: flex;
@@ -803,6 +805,57 @@
         text-align: center;
       }
       .search-field:focus-within > kbd { display: none; }
+      /* Under a 600px list, where the box would wrap under the tabs: empty
+         and unfocused it is its glyph alone, a pill's height square, still
+         the input (a press focuses it); focused it opens across the row
+         over the tabs, up to the toggle; holding a query it keeps the room
+         between the tabs and the toggle, so the query is always in view.
+         The Studio sheet takes the input's padding (as specific as its
+         own). The `/` hint goes: there is no room for it. */
+      @container library (max-width: 599px) {
+        .tabs-row { position: relative; flex-wrap: nowrap; }
+        .place-tabs .btn { white-space: nowrap; }
+        .search-field { flex: 1 1 0; min-width: 32px; margin-left: 0; }
+        .search-field > kbd { display: none; }
+        .search-field:not(:focus-within):has(> input:placeholder-shown) {
+          flex: 0 0 32px;
+          margin-left: auto;
+        }
+        .search-field:not(:focus-within) > input:placeholder-shown {
+          cursor: pointer;
+        }
+        .search-field:not(:focus-within) > input::placeholder { color: transparent; }
+        /* The toggle's two 32px buttons and their 2px, and the row's gap. */
+        .search-field:focus-within {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: calc(66px + 12px);
+          z-index: 2;
+        }
+        /* The folded glyph sits between the tabs and the toggle; with no
+           tabs it stands beside the toggle, as the open box does. */
+        .place-tabs:not([hidden]) ~ .search-field:not([hidden]) + .layout-toggle {
+          margin-left: auto;
+        }
+      }
+      /* A phone's list: tighter tabs (the Studio sheet's padding), the
+         toggle's one button the layout not shown, and no room beside the
+         tabs, so a held query keeps the box open over them until cleared.
+         At 480 the box beside the tabs is about 112px, its query 72; at
+         440 it was 32, too little to read "invite" whole. */
+      @container library (max-width: 479px) {
+        .tabs-row { gap: 8px; }
+        .place-tabs { gap: 2px; }
+        .layout-toggle .btn[aria-pressed="true"] { display: none; }
+        .search-field:is(:focus-within, :not(:has(> input:placeholder-shown))) {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: calc(32px + 8px);
+          z-index: 2;
+        }
+      }
       /* Why a search found a flow: dim, after the name or in Where's
          place, cut before the name is. */
       .match-why {

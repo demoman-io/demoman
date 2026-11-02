@@ -387,6 +387,14 @@
   font-size: 12px;
   color: var(--ink-faint);
 }
+/* A phone's list: tighter, so the three fit beside the box's glyph and
+   the toggle. */
+@container library (max-width: 479px) {
+  [data-studio] .place-tabs .btn:not(.btn-icon) {
+    gap: 6px;
+    padding: 0 9px;
+  }
+}
 
 /* ───────── Type: Geist at the site's weights (spec §3.3) ───────── */
 
@@ -1310,6 +1318,18 @@ input:is([type="text"], [type="search"], [type="number"], :not([type])):not(
    hint drawn inside it; as specific as the rule above, and after it. */
 [data-studio] .search-field > input[type="search"][data-search]:not(#name) {
   padding: 0 34px 0 30px;
+}
+/* Under a 600px list the hint is not drawn, and folded to its glyph the
+   box has no room for padding at all (library/index.html). */
+@container library (max-width: 599px) {
+  [data-studio] .search-field > input[type="search"][data-search]:not(#name) {
+    padding-right: 10px;
+  }
+  [data-studio]
+    .search-field:not(:focus-within)
+    > input[type="search"][data-search]:placeholder-shown:not(#name) {
+    padding: 0;
+  }
 }
 [data-studio] .branding-controls input[type="color"] {
   border-color: var(--line-2);

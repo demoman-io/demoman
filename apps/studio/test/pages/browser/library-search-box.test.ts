@@ -9,7 +9,7 @@ import {
   createMemoryPlatform,
   type MemoryPlatform,
 } from "../helpers/memory-platform";
-import { mountShell, node, pageParts } from "../helpers/shell-css";
+import { mountShell, node, pageParts, parse } from "../helpers/shell-css";
 
 const state = vi.hoisted(() => ({ memory: null as MemoryPlatform | null }));
 vi.mock("#platform", async (importOriginal) => ({
@@ -468,5 +468,370 @@ describe("the library's search box", () => {
     await page.screenshot({
       path: "__screenshots__/library-search-box/typed-720x900.png",
     });
+  });
+});
+
+/** The page's pixels, as Chrome painted them; `at(x, y)` in CSS px. */
+async function paintOf(): Promise<(x: number, y: number) => number[]> {
+  const shot: unknown = await page.screenshot({ base64: true, save: false });
+  const base64 =
+    typeof shot === "string" ? shot : (shot as { base64: string }).base64;
+  const image = new Image();
+  image.src = base64.startsWith("data:")
+    ? base64
+    : `data:image/png;base64,${base64}`;
+  await image.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const context = canvas.getContext("2d") as CanvasRenderingContext2D;
+  context.drawImage(image, 0, 0);
+  const k = image.width / window.innerWidth;
+  return (x, y) => [
+    ...context.getImageData(Math.floor(x * k), Math.floor(y * k), 1, 1).data,
+  ];
+}
+
+// Under a 600px list (spec 2026-11-02 search-narrow §1): the box folds to
+// its glyph while empty and unfocused, opens across the tab row while
+// focused, and holding a query stays open beside the tabs (560) or over
+// them (390, a phone's list). Each state measured against the tabs and the
+// toggle, never fixed positions: the runner's fonts are not these.
+describe("the search box on a narrow list", () => {
+  const field = () => node(".search-field");
+  const tabsRow = () => node("[data-tabs-row]");
+  const pills = () => [
+    ...document.querySelectorAll<HTMLElement>(".place-tabs [data-tab]"),
+  ];
+  const toggles = () =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        "[data-layout-toggle] [data-layout]",
+      ),
+    ].filter((b) => b.checkVisibility());
+  const hits = (e: Element) => {
+    const r = rect(e);
+    const hit = document.elementFromPoint(
+      r.left + r.width / 2,
+      r.top + r.height / 2,
+    );
+    return hit !== null && e.contains(hit);
+  };
+  const toggleBox = () => rect(node("[data-layout-toggle]"));
+  const pillsRight = () => Math.max(...pills().map((p) => rect(p).right));
+  const said = (at: string) =>
+    `${at}: ${JSON.stringify({
+      list: document.querySelector("[data-list]")?.getBoundingClientRect()
+        .width,
+      row: rect(tabsRow()),
+      field: rect(field()),
+      pills: pills().map((p) => [rect(p).left, rect(p).top, rect(p).right]),
+      toggles: toggles().map((b) => [b.dataset.layout, rect(b).left]),
+      value: input().value,
+      focused: document.activeElement === input(),
+      fonts: [...document.fonts].map((f) => `${f.family} ${f.status}`),
+    })}`;
+
+  /** Types `q` (the list answering it) and leaves the box focused or not. */
+  async function hold(q: string, focused: boolean) {
+    await userEvent.fill(input(), q);
+    const n = q === "" ? 4 : 2;
+    await vi.waitFor(() => {
+      if (flows().length !== n) throw new Error(`not ${n} flows yet`);
+    });
+    if (!focused) input().blur();
+    expect(document.activeElement === input(), "premise: focus").toBe(focused);
+  }
+
+  /** What every narrow state keeps: nothing sideways, the tabs on one
+   *  line with one-line labels, and no `/` hint. */
+  function rowHolds(at: string) {
+    const html = document.documentElement;
+    expect(html.scrollWidth, said(at)).toBeLessThanOrEqual(html.clientWidth);
+    // Nothing past the row's end, into the page's margin.
+    expect(toggleBox().right, `${said(at)}: the toggle`).toBeLessThanOrEqual(
+      rect(tabsRow()).right + 0.5,
+    );
+    const tops = new Set(pills().map((p) => Math.round(rect(p).top)));
+    expect(tops.size, `${said(at)}: the tabs on one line`).toBe(1);
+    for (const p of pills()) {
+      const label = document.createRange();
+      label.selectNodeContents(p.firstChild as Text);
+      expect(
+        label.getClientRects().length,
+        `${said(at)}: "${p.textContent}" on one line`,
+      ).toBe(1);
+    }
+    expect(
+      node(".search-field > kbd").checkVisibility(),
+      `${said(at)}: the / hint`,
+    ).toBe(false);
+  }
+
+  /** Folded: a pill-high square between the tabs and the toggle, the
+   *  input itself on top, and no ink in it but the glyph's. */
+  async function folded(at: string) {
+    const f = rect(field());
+    const pill = rect(pills()[0] as HTMLElement);
+    expect(Math.abs(f.width - 32), said(at)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(f.height - pill.height), said(at)).toBeLessThanOrEqual(0.5);
+    expect(f.left, said(at)).toBeGreaterThanOrEqual(pillsRight() + 7.5);
+    expect(f.right, said(at)).toBeLessThanOrEqual(toggleBox().left - 7.5);
+    expect(Math.abs(f.top - pill.top), said(at)).toBeLessThanOrEqual(0.5);
+    expect(hits(input()), said(at)).toBe(true);
+    const glyph = rect(node(".search-field > svg"));
+    const ground = parse(getComputedStyle(input()).backgroundColor);
+    // Premise: the field's ground is opaque, so it is what paints.
+    expect(ground[3], said(at)).toBe(1);
+    const paint = await paintOf();
+    let inGlyph = 0;
+    const stray: string[] = [];
+    for (let y = f.top + 10; y < f.bottom - 10; y++) {
+      for (let x = f.left + 2; x < f.right - 2; x++) {
+        const p = paint(x + 0.5, y + 0.5);
+        const off = [0, 1, 2].some(
+          (i) => Math.abs((p[i] ?? 0) - (ground[i] ?? 0)) > 8,
+        );
+        if (!off) continue;
+        const inside =
+          x >= glyph.left - 1 &&
+          x < glyph.right + 1 &&
+          y >= glyph.top - 1 &&
+          y < glyph.bottom + 1;
+        if (inside) inGlyph++;
+        else stray.push(`${x},${y}:${p.slice(0, 3)}`);
+      }
+    }
+    expect(inGlyph, `${said(at)}: premise: the glyph's ink`).toBeGreaterThan(
+      10,
+    );
+    expect(stray, `${said(at)}: ink beside the glyph`).toEqual([]);
+    // And the input is the square: past its right edge the page's own
+    // ground, not the field's (a step lighter) or its ring.
+    const page_ = paint(f.left + f.width / 2, f.top - 6);
+    const past: string[] = [];
+    for (let x = f.right + 1; x <= f.right + 6; x++) {
+      const p = paint(x + 0.5, f.top + f.height / 2);
+      if ([0, 1, 2].some((i) => Math.abs((p[i] ?? 0) - (page_[i] ?? 0)) > 2)) {
+        past.push(`${x}:${p.slice(0, 3)}`);
+      }
+    }
+    expect(past, `${said(at)}: the field past its square (${page_})`).toEqual(
+      [],
+    );
+  }
+
+  /** The query, painted in the box: its ink, the input on top, the whole
+   *  query inside the box. */
+  async function queryShown(at: string) {
+    const f = rect(input());
+    const glyph = rect(node(".search-field > svg"));
+    expect(hits(input()), said(at)).toBe(true);
+    expect(
+      input().scrollWidth,
+      `${said(at)}: the query whole`,
+    ).toBeLessThanOrEqual(input().clientWidth);
+    expect(
+      await brightIn({
+        top: f.top + 4,
+        bottom: f.bottom - 4,
+        left: glyph.right + 2,
+        right: f.right - 4,
+      }),
+      `${said(at)}: the query's ink`,
+    ).toBeGreaterThan(10);
+  }
+
+  // Red: today's wrap (`flex-wrap: wrap` on the row, the field's 180px
+  // floor), which put the box on a line of its own under the tabs.
+  it("at 560: folded to its glyph between the tabs and the toggle, and a press opens it", async () => {
+    await bootOnce();
+    await page.viewport(560, 640);
+    await hold("", false);
+    // Premise: the list is under 600 and over 480 (a phone's).
+    const list = rect(node("[data-list]")).width;
+    expect(list, said("560")).toBeLessThan(600);
+    expect(list, said("560")).toBeGreaterThan(480);
+    expect(toggles(), said("560")).toHaveLength(2);
+    rowHolds("560 folded");
+    await folded("560 folded");
+    await page.screenshot({
+      path: "__screenshots__/library-search-box/narrow-folded-560.png",
+    });
+    await userEvent.click(field());
+    expect(document.activeElement, said("560 pressed")).toBe(input());
+  });
+
+  // Red: the focused box left in the row's flow, between the tabs and the
+  // toggle, with no room for what is typed.
+  it("at 560: focused, it opens across the row over the tabs, and the toggle still answers", async () => {
+    await bootOnce();
+    await page.viewport(560, 640);
+    await hold("inv", true);
+    rowHolds("560 focused");
+    const f = rect(field());
+    const t = toggleBox();
+    expect(
+      Math.abs(f.left - rect(tabsRow()).left),
+      said("560 focused"),
+    ).toBeLessThanOrEqual(0.5);
+    expect(f.right, said("560 focused")).toBeLessThanOrEqual(t.left);
+    expect(t.left - f.right, said("560 focused")).toBeLessThanOrEqual(12.5);
+    for (const p of pills()) {
+      const r = rect(p);
+      const hit = document.elementFromPoint(
+        r.left + r.width / 2,
+        r.top + r.height / 2,
+      );
+      expect(
+        hit !== null && field().contains(hit),
+        `${said("560 focused")}: over ${p.textContent}`,
+      ).toBe(true);
+    }
+    expect(toggles(), said("560 focused")).toHaveLength(2);
+    for (const b of toggles()) expect(hits(b), said("560 focused")).toBe(true);
+    await queryShown("560 focused");
+    await page.screenshot({
+      path: "__screenshots__/library-search-box/narrow-focused-560.png",
+    });
+    // Pressed from the open box, Grid answers, and List brings the rows back.
+    await userEvent.click(node('[data-layout="grid"]'));
+    await vi.waitFor(() => {
+      if (document.querySelector("article[data-video]") === null) {
+        throw new Error("no cards yet");
+      }
+    });
+    await userEvent.click(node('[data-layout="list"]'));
+    await vi.waitFor(() => {
+      if (flows().length !== 2) throw new Error("no list yet");
+    });
+  });
+
+  // Red: the box folding whenever it is unfocused, a query or not.
+  it("at 560: holding a query, it stays open between the tabs and the toggle", async () => {
+    await bootOnce();
+    await page.viewport(560, 640);
+    await hold("invite", false);
+    rowHolds("560 held");
+    const f = rect(field());
+    expect(f.left, said("560 held")).toBeGreaterThanOrEqual(pillsRight() + 7.5);
+    expect(f.right, said("560 held")).toBeLessThanOrEqual(
+      toggleBox().left - 7.5,
+    );
+    expect(f.width, said("560 held")).toBeGreaterThan(64);
+    expect(hits(pills()[0] as HTMLElement), said("560 held")).toBe(true);
+    await queryShown("560 held");
+    await page.screenshot({
+      path: "__screenshots__/library-search-box/narrow-held-560.png",
+    });
+    // Esc clears it; unfocused, it folds again.
+    await userEvent.click(input());
+    await userEvent.keyboard("{Escape}");
+    await vi.waitFor(() => {
+      if (flows().length !== 4) throw new Error("not cleared yet");
+    });
+    input().blur();
+    await folded("560 cleared");
+  });
+
+  // Red: both layout buttons kept on a phone's list, which leaves the
+  // tabs no room.
+  it("at 390: folded beside one layout button, the one not shown, and / opens it", async () => {
+    await bootOnce();
+    await page.viewport(390, 640);
+    await hold("", false);
+    // Premise: a phone's list, under 480.
+    expect(rect(node("[data-list]")).width, said("390")).toBeLessThan(480);
+    rowHolds("390 folded");
+    await folded("390 folded");
+    const shown = toggles();
+    expect(
+      shown.map((b) => b.getAttribute("aria-pressed")),
+      said("390"),
+    ).toEqual(["false"]);
+    expect(shown[0]?.dataset.layout, said("390")).toBe("grid");
+    expect(hits(shown[0] as HTMLElement), said("390")).toBe(true);
+    await page.screenshot({
+      path: "__screenshots__/library-search-box/narrow-folded-390.png",
+    });
+    await userEvent.keyboard("/");
+    expect(document.activeElement, said("390 /")).toBe(input());
+  });
+
+  it("at 390: focused, it opens over the tabs, and the one button switches the layout", async () => {
+    await bootOnce();
+    await page.viewport(390, 640);
+    await hold("inv", true);
+    rowHolds("390 focused");
+    const f = rect(field());
+    const t = toggleBox();
+    expect(
+      Math.abs(f.left - rect(tabsRow()).left),
+      said("390 focused"),
+    ).toBeLessThanOrEqual(0.5);
+    expect(f.right, said("390 focused")).toBeLessThanOrEqual(t.left);
+    expect(t.left - f.right, said("390 focused")).toBeLessThanOrEqual(8.5);
+    await queryShown("390 focused");
+    await page.screenshot({
+      path: "__screenshots__/library-search-box/narrow-focused-390.png",
+    });
+    // The one button is the layout not shown: Grid, then List.
+    expect(
+      toggles().map((b) => b.dataset.layout),
+      said("390 focused"),
+    ).toEqual(["grid"]);
+    expect(hits(node('[data-layout="grid"]')), said("390 focused")).toBe(true);
+    await userEvent.click(node('[data-layout="grid"]'));
+    await vi.waitFor(() => {
+      if (document.querySelector("article[data-video]") === null) {
+        throw new Error("no cards yet");
+      }
+    });
+    expect(
+      toggles().map((b) => b.dataset.layout),
+      said("390 grid"),
+    ).toEqual(["list"]);
+    await userEvent.click(node('[data-layout="list"]'));
+    await vi.waitFor(() => {
+      if (flows().length !== 2) throw new Error("no list yet");
+    });
+    expect(
+      toggles().map((b) => b.dataset.layout),
+      said("390 list"),
+    ).toEqual(["grid"]);
+  });
+
+  // Red: the 560 rule alone at 390, a held query squeezed between the
+  // tabs and the toggle with no room to show it.
+  it("at 390: holding a query, it stays open over the tabs until cleared", async () => {
+    await bootOnce();
+    await page.viewport(390, 640);
+    await hold("invite", false);
+    rowHolds("390 held");
+    const f = rect(field());
+    const t = toggleBox();
+    expect(
+      Math.abs(f.left - rect(tabsRow()).left),
+      said("390 held"),
+    ).toBeLessThanOrEqual(0.5);
+    expect(f.right, said("390 held")).toBeLessThanOrEqual(t.left);
+    for (const p of pills()) {
+      const r = rect(p);
+      const hit = document.elementFromPoint(
+        r.left + r.width / 2,
+        r.top + r.height / 2,
+      );
+      expect(
+        hit !== null && field().contains(hit),
+        `${said("390 held")}: over ${p.textContent}`,
+      ).toBe(true);
+    }
+    await queryShown("390 held");
+    await page.screenshot({
+      path: "__screenshots__/library-search-box/narrow-held-390.png",
+    });
+    await hold("", false);
+    await folded("390 cleared");
+    await page.viewport(1440, 900);
   });
 });
