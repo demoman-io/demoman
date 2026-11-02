@@ -93,6 +93,48 @@ describe("createRoomPolicy", () => {
     expect(answers).toEqual(actions.map((a) => zoomed.has(a.id)));
   });
 
+  it("the room agrees with the camera on every click", () => {
+    const base = takeOf(["click", "click", "click", "click"]);
+    const narrow = { x: 100, y: 100, width: 140, height: 40 };
+    const wide = { x: 0, y: 100, width: 1270, height: 40 };
+    const at = [
+      1000,
+      1000 + MIN_ZOOM_GAP_MS,
+      1000 + MIN_ZOOM_GAP_MS * 1.5,
+      12000,
+    ];
+    const actions = base.actions.map((a, i) => ({
+      ...a,
+      timestamp: at[i] as number,
+      rect: i === 3 ? wide : narrow,
+    }));
+    const intentOf = (id: string) =>
+      id === actions[1]?.id
+        ? (false as const)
+        : id === actions[3]?.id
+          ? { scale: 1.6 }
+          : undefined;
+    const { camera } = zoomsForClicks(actions, viewport, undefined, intentOf);
+    const zoomed = new Set(camera.map((c) => c.marker.actionId));
+    // Premise: the camera zooms the first, third and fourth, not the second.
+    expect([...zoomed]).toEqual([
+      actions[0]?.id,
+      actions[2]?.id,
+      actions[3]?.id,
+    ]);
+    const policy = createRoomPolicy(viewport, MOTION_DEFAULTS, intentOf);
+    const answers = actions.map((a) =>
+      policy.zooms({
+        actionId: a.id,
+        anchorId: a.anchorId as string,
+        rect: a.rect,
+        unwaitedMs: a.timestamp,
+        scale: 1,
+      }),
+    );
+    expect(answers).toEqual(actions.map((a) => zoomed.has(a.id)));
+  });
+
   // Code review 2026-10-20 (R10): the page zoom is looked up only for a
   // click the gap rule lets through, as before decideZoom was pulled out.
   it("asks the page zoom only of clicks past the gap rule", () => {

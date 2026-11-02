@@ -112,7 +112,7 @@ export const SCRIPT_VERSION_EDITS = 8;
  * in silence and the film would differ from the script, so it is refused at
  * the door instead. Keep the two equal.
  */
-const ZOOM_MAX_SCALE = 2.5;
+export const ZOOM_MAX_SCALE = 2.5;
 
 /** An account name: it becomes a file name under the sessions folder. */
 export const ACCOUNT_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;

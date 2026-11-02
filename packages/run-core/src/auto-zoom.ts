@@ -3,6 +3,8 @@ import {
   dragPoints,
   type SceneDocument,
   type SceneZoomSkipped,
+  type ZoomIntent,
+  type ZoomIntentOf,
 } from "@demoman/scene-schema";
 import { pointRect } from "./drag-points.js";
 import { MIN_ZOOM_GAP_MS } from "./zoom-defaults.js";
@@ -43,7 +45,12 @@ export function decideZoom(
   viewport: { width: number; height: number },
   /** Asked only once the gap rule has let the click through. */
   scaleOf: () => number,
+  /** The script's say on this click (`ZoomIntent`); absent leaves it to the camera. */
+  intent?: ZoomIntent,
 ): { zoom: true; scale: number } | { zoom: false; skipped: SceneZoomSkipped } {
+  if (intent === false) {
+    return { zoom: false, skipped: { actionId: click.id, reason: "off" } };
+  }
   if (last !== null) {
     // Signed in the record, a distance in the rule: nothing orders action
     // timestamps, and a click stamped before the last zoom is as close to
@@ -57,10 +64,13 @@ export function decideZoom(
           reason: click.anchorId === last.anchorId ? "sameTarget" : "tooClose",
           afterActionId: last.id,
           gapMs: Math.round(gapMs),
+          ...(intent === undefined ? {} : { askedScale: intent.scale }),
         },
       };
     }
   }
+  // An asked scale is the script's word: no fit, no floor (the gap above won).
+  if (intent !== undefined) return { zoom: true, scale: intent.scale };
   const scale = scaleOf();
   const fitted = fittedScale(
     click.rect === undefined
@@ -164,6 +174,8 @@ export function zoomsForClicks(
   // those px. Scaled onto the screen before the fit, so the margin stays the
   // compositor's screen px.
   scaleAt: (action: SceneDocument["actions"][number]) => number = () => 1,
+  // The script's say per action id; the room policy reads the same one.
+  intentOf?: ZoomIntentOf,
 ): ClickZooms {
   const { leadInMs } = CAMERA_DEFAULTS;
   const camera: CameraEvent[] = [];
@@ -174,11 +186,13 @@ export function zoomsForClicks(
     // A drag is framed by the box around both its ends, aimed at its middle:
     // a zoom on its start alone would lose the drop.
     const box = action.kind === "drag" ? dragBox(action) : undefined;
+    const intent = intentOf?.(action.id);
     const decided = decideZoom(
       last,
       box === undefined ? action : { ...action, rect: box },
       viewport,
       () => scaleAt(action),
+      intent,
     );
     if (!decided.zoom) {
       zoomsSkipped.push(decided.skipped);
@@ -197,6 +211,10 @@ export function zoomsForClicks(
           }),
       marker: { actionId: action.id, offsetMs: leadInMs },
       scale: decided.scale,
+      source: "click",
+      ...(intent === undefined || intent === false
+        ? {}
+        : { scaleSetBy: "script" as const }),
     });
     last = {
       id: action.id,
