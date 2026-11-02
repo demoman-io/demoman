@@ -2,6 +2,7 @@ import { MOTION_DEFAULTS, SceneDocumentSchema } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../../../packages/replay-engine/test/helpers/scenes";
 import { applyCommand } from "../../../pages/src/editor/commands";
+import { initEditor, runCommand, undo } from "../../../pages/src/editor/state";
 
 // A counter, not a uuid: a command's output has to be byte-comparable
 // across runs or half the assertions below become snapshots of randomness.
@@ -459,5 +460,131 @@ describe("split, removePiece and restorePiece", () => {
     expect(() =>
       applyCommand(readonlyScene(), { kind: "restorePiece", id: "r-9" }, ids()),
     ).toThrow(/r-9/);
+  });
+});
+
+describe("zoom edits are recorded for the script", () => {
+  const zoomOn = (extra: Record<string, unknown>) => ({
+    id: "cam-1",
+    kind: "zoom" as const,
+    anchorId: "a-checkout",
+    marker: { actionId: "act-3", offsetMs: -350 },
+    scale: 1.6,
+    ...extra,
+  });
+  const withZoom = (extra: Record<string, unknown>) => ({
+    ...readonlyScene(),
+    camera: [zoomOn(extra)],
+  });
+
+  it("removing a click zoom records an off entry, replacing an older one", () => {
+    const scene = {
+      ...withZoom({ source: "click" }),
+      zoomsSkipped: [
+        {
+          actionId: "act-3",
+          reason: "tooClose" as const,
+          afterActionId: "act-2",
+          gapMs: 10,
+        },
+      ],
+    };
+    expect(scene.zoomsSkipped.length).toBe(1);
+    const next = applyCommand(
+      scene,
+      { kind: "removeZoom", id: "cam-1" },
+      ids(),
+    );
+    expect(next.camera).toEqual([]);
+    expect(next.zoomsSkipped).toEqual([{ actionId: "act-3", reason: "off" }]);
+  });
+
+  it("removing a zoom with no source leaves zoomsSkipped alone", () => {
+    const next = applyCommand(
+      withZoom({}),
+      { kind: "removeZoom", id: "cam-1" },
+      ids(),
+    );
+    expect(next.zoomsSkipped).toBeUndefined();
+  });
+
+  it("addZoom writes source author and clears the off entry", () => {
+    const scene = {
+      ...readonlyScene(),
+      zoomsSkipped: [
+        { actionId: "act-3", reason: "off" as const },
+        { actionId: "act-2", reason: "off" as const },
+      ],
+    };
+    const next = applyCommand(
+      scene,
+      {
+        kind: "addZoom",
+        marker: { actionId: "act-3", offsetMs: -350 },
+        scale: 1.5,
+        target: { kind: "element", anchorId: "a-checkout" },
+      },
+      ids(),
+    );
+    expect(next.camera.at(-1)?.source).toBe("author");
+    expect(next.zoomsSkipped).toEqual([{ actionId: "act-2", reason: "off" }]);
+  });
+
+  it("setZoomScale on a click zoom sets scaleSetBy author; no source is unchanged", () => {
+    const click = applyCommand(
+      withZoom({ source: "click" }),
+      { kind: "setZoomScale", id: "cam-1", scale: 2 },
+      ids(),
+    );
+    expect(click.camera[0]?.scaleSetBy).toBe("author");
+    expect(click.camera[0]?.scale).toBe(2);
+    const plain = applyCommand(
+      withZoom({}),
+      { kind: "setZoomScale", id: "cam-1", scale: 2 },
+      ids(),
+    );
+    expect(plain.camera[0]?.scaleSetBy).toBeUndefined();
+  });
+
+  it("setZoomRange and setZoomTarget on a click zoom make it the author's, keeping scaleSetBy", () => {
+    const scene = withZoom({ source: "click", scaleSetBy: "script" });
+    const ranged = applyCommand(
+      scene,
+      {
+        kind: "setZoomRange",
+        id: "cam-1",
+        start: { actionId: "act-3", offsetMs: -900 },
+        end: null,
+      },
+      ids(),
+    );
+    expect(ranged.camera[0]?.source).toBe("author");
+    expect(ranged.camera[0]?.scaleSetBy).toBe("script");
+    const aimed = applyCommand(
+      scene,
+      { kind: "setZoomTarget", id: "cam-1", point: { x: 5, y: 6 } },
+      ids(),
+    );
+    expect(aimed.camera[0]?.source).toBe("author");
+    expect(aimed.camera[0]?.scaleSetBy).toBe("script");
+    const plain = applyCommand(
+      withZoom({}),
+      { kind: "setZoomTarget", id: "cam-1", point: { x: 5, y: 6 } },
+      ids(),
+    );
+    expect(plain.camera[0]?.source).toBeUndefined();
+  });
+
+  it("undo after removing a click zoom restores the zoom and drops the off entry", () => {
+    const start = initEditor(withZoom({ source: "click" }));
+    const removed = runCommand(
+      start,
+      { kind: "removeZoom", id: "cam-1" },
+      ids(),
+    );
+    expect(removed.scene.zoomsSkipped).toHaveLength(1);
+    const back = undo(removed);
+    expect(back.scene.camera.map((c) => c.id)).toEqual(["cam-1"]);
+    expect(back.scene.zoomsSkipped).toBeUndefined();
   });
 });
