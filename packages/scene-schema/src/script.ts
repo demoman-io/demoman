@@ -363,6 +363,22 @@ export const SHOWN_STEP: Record<ScriptStep["do"], boolean> = {
 };
 
 /**
+ * The step `trim[side]` is measured from, 0-based into `steps`: its `step`,
+ * or the first (start) or last (end) shown step when absent. Null when it
+ * names none and no step is shown. The one reading of a trim's step, for the
+ * parse, the run, the report and the re-record alike.
+ */
+export function trimStepIndex(
+  script: { steps: readonly { do: ScriptStep["do"] }[]; trim?: ScriptTrim },
+  side: "start" | "end",
+): number | null {
+  const step = script.trim?.[side]?.step;
+  if (step !== undefined) return step - 1;
+  const shown = script.steps.flatMap((s, i) => (SHOWN_STEP[s.do] ? [i] : []));
+  return (side === "start" ? shown[0] : shown.at(-1)) ?? null;
+}
+
+/**
  * Where the film starts and ends, against the take. `ms` is cut from the
  * ends (0 or more); `step` (1-based into `steps`, any but a `pause`) names
  * the step the cut is measured from, the first and last shown step if absent.
@@ -559,7 +575,7 @@ export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
       });
     });
   }
-  if (script.trim) trimIssues(script.trim, script.steps, ctx);
+  if (script.trim) trimIssues(script, ctx);
   if (script.steps.some((step) => ACTS_ON_THE_PAGE[step.do])) return;
   ctx.addIssue({
     code: "custom",
@@ -577,11 +593,10 @@ export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
 
 /** Refuse a trim `step` that cannot be measured from, in words. */
 function trimIssues(
-  trim: ScriptTrim,
-  steps: ScriptStep[],
+  script: { steps: ScriptStep[]; trim?: ScriptTrim },
   ctx: z.RefinementCtx,
 ): void {
-  const shown = steps.flatMap((s, i) => (SHOWN_STEP[s.do] ? [i + 1] : []));
+  const { steps, trim = {} } = script;
   let bad = false;
   for (const edge of ["start", "end"] as const) {
     const step = trim[edge]?.step;
@@ -602,12 +617,12 @@ function trimIssues(
   }
   // Resolved, not as written: a start naming the last step is as broken
   // against the default end as against an explicit one.
-  const start = trim.start?.step ?? shown[0];
-  const end = trim.end?.step ?? shown[shown.length - 1];
-  if (!bad && start !== undefined && end !== undefined && start > end) {
+  const start = trimStepIndex(script, "start");
+  const end = trimStepIndex(script, "end");
+  if (!bad && start !== null && end !== null && start > end) {
     ctx.addIssue({
       code: "custom",
-      message: `trim starts at step ${start}, after the step it ends at (${end}): the film would be empty`,
+      message: `trim starts at step ${start + 1}, after the step it ends at (${end + 1}): the film would be empty`,
       path: ["trim", "start", "step"],
     });
   }

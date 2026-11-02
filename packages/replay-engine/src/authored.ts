@@ -53,9 +53,9 @@ import {
   type SceneZoomSkipped,
   type ScriptStep,
   type ScriptTarget,
-  SHOWN_STEP,
   type StrategyName,
   spotIn,
+  trimStepIndex,
   type ZoomIntent,
   type ZoomIntentOf,
 } from "@demoman/scene-schema";
@@ -1280,10 +1280,7 @@ function trimFromScript(
   const unplaced: ("start" | "end")[] = [];
   const asked = script.trim;
   if (asked === undefined) return { unplaced };
-  const shown = script.steps.flatMap((s, i) => (SHOWN_STEP[s.do] ? [i] : []));
-  // `trim.*.step` is 1-based into `script.steps`; absent is the first or
-  // last shown step.
-  const performed = (index: number | undefined) => {
+  const performed = (index: number | null) => {
     const record = steps.find((r) => r.index === index);
     return record?.actionId != null && record.timing !== undefined
       ? { actionId: record.actionId, timing: record.timing }
@@ -1292,9 +1289,7 @@ function trimFromScript(
   const trim: { head?: SceneMarker; tail?: SceneMarker } = {};
   let clamped: NonNullable<AuthoredResult["trimClamped"]> | undefined;
   if (asked.start !== undefined) {
-    const at = performed(
-      asked.start.step === undefined ? shown[0] : asked.start.step - 1,
-    );
+    const at = performed(trimStepIndex(script, "start"));
     if (at === undefined) unplaced.push("start");
     else {
       // Everything from the first frame to the marker is all there is.
@@ -1307,9 +1302,7 @@ function trimFromScript(
     }
   }
   if (asked.end !== undefined) {
-    const at = performed(
-      asked.end.step === undefined ? shown.at(-1) : asked.end.step - 1,
-    );
+    const at = performed(trimStepIndex(script, "end"));
     // The compositor's own answer to how long the take filmed, which is
     // what it would clamp a later end to. No bundle: nothing was filmed.
     const filmedThrough =

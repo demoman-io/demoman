@@ -6,8 +6,8 @@ import {
   type SceneDocument,
   type ScriptDraft,
   type ScriptTrim,
-  SHOWN_STEP,
   scriptFromTake,
+  trimStepIndex,
   type ZoomIntent,
   ZoomIntentSchema,
 } from "@demoman/scene-schema";
@@ -279,21 +279,20 @@ function writeBack(
       );
     return k;
   };
-  const shown = steps.flatMap((s, i) => (SHOWN_STEP[s.do] ? [i + 1] : []));
   const trim: ScriptTrim = {};
   const { head, tail } = scene.edits.trim ?? {};
   if (head !== undefined) {
-    const step = at(head.actionId) + 1;
+    const k = at(head.actionId);
     if (head.offsetMs > 0)
       notes.push({ kind: "trimClampedToStep", side: "start" });
     trim.start = {
-      ...(step === shown[0] ? {} : { step }),
+      ...(k === trimStepIndex({ steps }, "start") ? {} : { step: k + 1 }),
       ms: head.offsetMs > 0 ? 0 : 0 - head.offsetMs,
     };
   }
   const base = tail === undefined ? null : tailBase(skeleton, tail.actionId);
   if (tail !== undefined && base !== null) {
-    const step = at(tail.actionId) + 1;
+    const k = at(tail.actionId);
     const { finishMs, zoomOutMs } = base;
     const zoomedOut =
       zoomOutMs === null ? finishMs : Math.max(finishMs, zoomOutMs);
@@ -305,7 +304,10 @@ function writeBack(
       notes.push({ kind: "trimClampedToStep", side: "end" });
       end = { ms: 0, after: "action" };
     }
-    trim.end = { ...(step === shown.at(-1) ? {} : { step }), ...end };
+    trim.end = {
+      ...(k === trimStepIndex({ steps }, "end") ? {} : { step: k + 1 }),
+      ...end,
+    };
   }
   const intents = new Map<string, ZoomIntent>();
   for (const s of scene.zoomsSkipped ?? []) {

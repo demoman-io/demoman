@@ -3,6 +3,7 @@ import {
   DemoScriptSchema,
   SCRIPT_VERSION_EDITS,
   SHOWN_STEP,
+  trimStepIndex,
 } from "../src/index.js";
 
 const base = {
@@ -124,5 +125,21 @@ describe("trim and zoom", () => {
         .map(([k]) => k)
         .sort(),
     ).toEqual(["click", "drag", "hover", "press", "scrollTo", "type"]);
+  });
+
+  it("trimStepIndex reads a named step 0-based, and absent as the first or last shown", () => {
+    const steps = [
+      { do: "waitForLoad" },
+      { do: "click" },
+      { do: "pause" },
+      { do: "type" },
+      { do: "waitFor" },
+    ] as const;
+    expect(trimStepIndex({ steps }, "start")).toBe(1);
+    expect(trimStepIndex({ steps }, "end")).toBe(3);
+    const trim = { start: { ms: 0, step: 4 }, end: { ms: 0, step: 5 } };
+    expect(trimStepIndex({ steps, trim }, "start")).toBe(3);
+    expect(trimStepIndex({ steps, trim }, "end")).toBe(4);
+    expect(trimStepIndex({ steps: [{ do: "pause" }] }, "end")).toBeNull();
   });
 });

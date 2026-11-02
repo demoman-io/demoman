@@ -113,6 +113,7 @@ export {
   type ScriptVersion,
   SHOWN_STEP,
   targetStrategy,
+  trimStepIndex,
   ZOOM_MAX_SCALE,
   type ZoomIntent,
   type ZoomIntentOf,

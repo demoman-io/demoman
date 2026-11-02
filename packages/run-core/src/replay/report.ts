@@ -22,6 +22,7 @@ import {
   type SceneDocument,
   SHOWN_STEP,
   type StrategyName,
+  trimStepIndex,
 } from "@demoman/scene-schema";
 import { zoomSkippedNote } from "../auto-zoom.js";
 import type { RunLook } from "../brand-kit.js";
@@ -519,27 +520,23 @@ function trimNotesOf(
   walk: WalkResultLike,
 ): string[] {
   const notes: string[] = [];
-  const shown = script.steps.flatMap((s, i) =>
-    SHOWN_STEP[s.do] ? [i + 1] : [],
-  );
   const clamp = walk.trimClamped;
   if (clamp !== undefined) {
-    const step = script.trim?.start?.step ?? shown[0];
+    // A clamp is only written against a step the run performed.
+    const step = (trimStepIndex(script, "start") ?? 0) + 1;
     notes.push(
       `trim.start asked for ${clamp.askedMs} ms before step ${step} and the video holds ${clamp.keptMs} ms; it starts at the beginning`,
     );
   }
   for (const side of walk.trimUnplaced ?? []) {
-    const step =
-      script.trim?.[side]?.step ??
-      (side === "start" ? shown[0] : shown[shown.length - 1]);
-    const ran =
-      step !== undefined &&
-      steps.some((s) => s.index === step - 1 && s.timing !== undefined);
+    const index = trimStepIndex(script, side);
+    const ran = steps.some((s) => s.index === index && s.timing !== undefined);
     notes.push(
       ran
         ? `trim.${side} lies past what the run filmed, so the ${side} is not trimmed`
-        : `trim.${side} names step ${step}, which never ran, so the ${side} is not trimmed`,
+        : index === null
+          ? `trim.${side} has no shown step to be measured from, so the ${side} is not trimmed`
+          : `trim.${side} names step ${index + 1}, which never ran, so the ${side} is not trimmed`,
     );
   }
   return notes;
