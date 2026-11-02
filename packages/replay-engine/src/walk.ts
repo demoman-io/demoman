@@ -340,7 +340,8 @@ const RANGE_READ = `function () {
  * from the take's first frame); the rest are relative to it. `startMs` is
  * when the walk began the step (≤ 0), `finishMs` when its verb had returned
  * and its span closed, `zoomOutMs` when the camera is back at full frame
- * after a step that zoomed (`RoomPolicy.settledAfterMs`), else null.
+ * after the latest zoom at or before the step (`RoomPolicy.settledAfterMs`,
+ * the number the tail itself asks), null before any zoom or with no room.
  */
 export interface StepTiming {
   markerMs: number;
@@ -722,11 +723,10 @@ export async function runWalk(
     actionId: string,
     markerMs: number,
     startedAt: number,
-    zoomed: boolean,
   ): void => {
     const atMs = at();
     const zoomOutAtMs =
-      zoomed && room !== undefined && lastHeldUntil !== null
+      room !== undefined && lastHeldUntil !== null
         ? room.settledAfterMs(lastHeldUntil)
         : null;
     lastFinishAt = atMs;
@@ -2264,7 +2264,7 @@ export async function runWalk(
         completed++;
         lastCompletedActionId = step.action.id;
         inFlight = null;
-        stepFinished(step.action.id, metAt, stepStartedAt, false);
+        stepFinished(step.action.id, metAt, stepStartedAt);
         // A page that came in goes on painting after the condition holds,
         // and that is the act a later zoom waits for, not the click that
         // set it off (code review 2026-10-20, R1).
@@ -2325,7 +2325,7 @@ export async function runWalk(
         completed++;
         lastCompletedActionId = keyAction.id;
         inFlight = null;
-        stepFinished(keyAction.id, marker.sourceTimeMs, stepStartedAt, false);
+        stepFinished(keyAction.id, marker.sourceTimeMs, stepStartedAt);
         deps.onProgress?.({
           step: completed,
           total,
@@ -2631,12 +2631,7 @@ export async function runWalk(
       completed++;
       lastCompletedActionId = step.action.id;
       inFlight = null;
-      stepFinished(
-        step.action.id,
-        markedAt,
-        stepStartedAt,
-        zoomedClick || zoomedDrag,
-      );
+      stepFinished(step.action.id, markedAt, stepStartedAt);
       deps.onProgress?.({
         step: completed,
         total,

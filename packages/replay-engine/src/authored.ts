@@ -332,6 +332,11 @@ export interface AuthoredResult extends ReplayResult {
   /** The script's `trim.start` asked for more than the take holds before
    *  its step, so the head keeps all there is (`keptMs`). Absent otherwise. */
   trimClamped?: { side: "start"; askedMs: number; keptMs: number };
+  /** Sides of the script's `trim` the take could not place, so left uncut:
+   *  the step it is measured from was never performed, or (the end) the
+   *  run stopped before it filmed that far. Absent when every asked side
+   *  was placed. */
+  trimUnplaced?: ("start" | "end")[];
 }
 
 /**
@@ -1137,9 +1142,10 @@ export function assembleAuthored(
   document: SceneDocument | null;
   error: string | null;
   trimClamped?: AuthoredResult["trimClamped"];
+  trimUnplaced?: AuthoredResult["trimUnplaced"];
 } {
   if (args.actions.length === 0) return { document: null, error: null };
-  const trim = trimFromScript(script, args.steps);
+  const trim = trimFromScript(script, args.steps, args.walked.bundle);
 
   const document: SceneDocument = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -1238,6 +1244,7 @@ export function assembleAuthored(
       document: parsed.data,
       error: null,
       ...(trim.clamped === undefined ? {} : { trimClamped: trim.clamped }),
+      ...(trim.unplaced.length === 0 ? {} : { trimUnplaced: trim.unplaced }),
     };
   }
   return {
@@ -1254,18 +1261,24 @@ export function assembleAuthored(
  * `end.ms` after its step's finish — or after its zoom-out, for `"zoomOut"`.
  *
  * A start longer than the take holds before its step keeps all there is and
- * says so (`clamped`). A side whose step the walk never performed is left
- * uncut: the run stopped before it, and its outcome and reason say so.
+ * says so (`clamped`). A side the take cannot place is not written and is
+ * listed in `unplaced`: its step was never performed, or — the end — the
+ * tail lands past the last thing filmed, as on a run the walk stopped
+ * before its tail sleep. Written there, the compositor would clamp it to
+ * the take's end and say nothing (`resolveRange`).
  */
 function trimFromScript(
   script: DemoScript,
   steps: AuthoredStep[],
+  bundle: ReplayResult["bundle"],
 ): {
   trim?: { head?: SceneMarker; tail?: SceneMarker };
   clamped?: NonNullable<AuthoredResult["trimClamped"]>;
+  unplaced: ("start" | "end")[];
 } {
+  const unplaced: ("start" | "end")[] = [];
   const asked = script.trim;
-  if (asked === undefined) return {};
+  if (asked === undefined) return { unplaced };
   const shown = script.steps.flatMap((s, i) => (SHOWN_STEP[s.do] ? [i] : []));
   // `trim.*.step` is 1-based into `script.steps`; absent is the first or
   // last shown step.
@@ -1281,7 +1294,8 @@ function trimFromScript(
     const at = performed(
       asked.start.step === undefined ? shown[0] : asked.start.step - 1,
     );
-    if (at !== undefined) {
+    if (at === undefined) unplaced.push("start");
+    else {
       // Everything from the first frame to the marker is all there is.
       const kept = Math.min(asked.start.ms, at.timing.markerMs);
       // `0 -`: a kept 0 is +0, not the -0 a bare minus would write.
@@ -1295,19 +1309,31 @@ function trimFromScript(
     const at = performed(
       asked.end.step === undefined ? shown.at(-1) : asked.end.step - 1,
     );
-    if (at !== undefined) {
-      const { finishMs, zoomOutMs } = at.timing;
+    // The take's source length as the compositor measures it
+    // (`buildTimeline`'s `sourceDurationMs`): its last keyframe, marker or
+    // motion span.
+    const filmedThrough = Math.max(
+      ...(bundle?.keyframes.map((k) => k.sourceTimeMs) ?? []),
+      ...(bundle?.markers.map((m) => m.sourceTimeMs) ?? []),
+      ...(bundle?.motionSpans.map((m) => m.endMs) ?? []),
+    );
+    if (at === undefined) unplaced.push("end");
+    else {
+      const { markerMs, finishMs, zoomOutMs } = at.timing;
       // Absent `after` is "zoomOut": the parse writes no default.
       const base =
         asked.end.after !== "action" && zoomOutMs !== null
           ? Math.max(finishMs, zoomOutMs)
           : finishMs;
-      trim.tail = { actionId: at.actionId, offsetMs: base + asked.end.ms };
+      const offsetMs = base + asked.end.ms;
+      if (markerMs + offsetMs > filmedThrough) unplaced.push("end");
+      else trim.tail = { actionId: at.actionId, offsetMs };
     }
   }
   return {
     ...(trim.head === undefined && trim.tail === undefined ? {} : { trim }),
     ...(clamped === undefined ? {} : { clamped }),
+    unplaced,
   };
 }
 
@@ -1531,5 +1557,8 @@ export async function runAuthored(
     ...(assembled.trimClamped === undefined
       ? {}
       : { trimClamped: assembled.trimClamped }),
+    ...(assembled.trimUnplaced === undefined
+      ? {}
+      : { trimUnplaced: assembled.trimUnplaced }),
   };
 }

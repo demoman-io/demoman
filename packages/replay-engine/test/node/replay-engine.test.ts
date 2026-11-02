@@ -2544,7 +2544,10 @@ describe("continuous recording", () => {
       const lastMarker = result.bundle?.markers.at(-1)?.sourceTimeMs ?? 0;
       // Asked of the last zoom as the camera counts it: its arrival, the
       // lead-in before its click. The tail's is the last ask; the ones
-      // before it are each zoomed step's own zoom-out (`StepTiming`).
+      // before it are each step's zoom-out (`StepTiming`), one per step from
+      // the first zoom on: both steps here zoom.
+      expect(result.bundle?.markers, evidence).toHaveLength(2);
+      expect(asked, evidence).toHaveLength(3);
       expect(asked.at(-1), evidence).toBe(lastMarker - 350);
       expect(lastFrameAt(result), evidence).toBeGreaterThanOrEqual(
         lastMarker - 350 + SETTLE_AFTER,
@@ -2588,6 +2591,7 @@ describe("continuous recording", () => {
       const pressed = result.bundle?.markers.at(-1)?.sourceTimeMs ?? 0;
       // Held until the release, after the press — not the arrival before it.
       // The tail's is the last ask (the drag's own zoom-out asks first).
+      expect(asked, evidence).toHaveLength(2);
       expect(asked.at(-1), evidence).toBeGreaterThan(pressed);
       expect(lastFrameAt(result), evidence).toBeGreaterThanOrEqual(
         (asked.at(-1) ?? 0) + SETTLE_AFTER,

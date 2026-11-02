@@ -54,7 +54,9 @@ async function run(
     slowKey?: string;
     pullOutMs?: number;
   } = {},
-): Promise<{ result: AuthoredResult; slowCalls: number }> {
+): Promise<{ result: AuthoredResult; slowCalls: number; zoomed: string[] }> {
+  /** The actions the room said it zooms to. */
+  const zoomed: string[] = [];
   const cdp = createCdpFake();
   let clock = 0;
   let slowCalls = 0;
@@ -110,16 +112,25 @@ async function run(
     },
     mayReplay: true,
     recording: "continuous",
-    captureResolved: async (intent) => ({
-      anchor: anchorFor(intent),
-      failureReason: null,
-      intentResolution: {
-        strategy: "stableId",
-        candidates: 1,
-        failureReason: null,
-      },
-      pageUrl: null,
-    }),
+    // `stableId: "gone"` is an element the page does not have.
+    captureResolved: async (intent) =>
+      intent.fingerprint.stableId === "gone"
+        ? {
+            anchor: null,
+            failureReason: "unresolved",
+            intentResolution: null,
+            pageUrl: null,
+          }
+        : {
+            anchor: anchorFor(intent),
+            failureReason: null,
+            intentResolution: {
+              strategy: "stableId",
+              candidates: 1,
+              failureReason: null,
+            },
+            pageUrl: null,
+          },
     newId: (prefix) => `${prefix}-${++n}`,
     sceneId: "trim",
     createdAt: "2026-11-02T09:00:00.000Z",
@@ -129,7 +140,10 @@ async function run(
       neededMs: () => 0,
       settledAfterMs: (heldUntil) =>
         heldUntil + (opts.pullOutMs ?? PULL_OUT_MS),
-      zooms: () => opts.zooms ?? false,
+      zooms: ({ actionId }) => {
+        if (opts.zooms === true) zoomed.push(actionId);
+        return opts.zooms ?? false;
+      },
     }),
     cameraFor: () => ({ camera: [], zoomsSkipped: [] }),
   };
@@ -140,7 +154,7 @@ async function run(
     steps,
     ...(opts.trim === undefined ? {} : { trim: opts.trim }),
   };
-  return { result: await runAuthored(script, deps), slowCalls };
+  return { result: await runAuthored(script, deps), slowCalls, zoomed };
 }
 
 const evidenceOf = (result: AuthoredResult): string =>
@@ -297,6 +311,20 @@ describe("runAuthored: each step's finish, and the script's trim", () => {
       askedMs: asked,
       keptMs: available,
     });
+    // `markerMs` is on the bundle's axis, whose zero is the output's zero
+    // whenever the first frame lands: the clamped head starts the video at
+    // its very first instant, not before or after it.
+    expect(
+      result.bundle?.markers.find(
+        (m) => m.actionId === result.steps[0]?.actionId,
+      )?.sourceTimeMs,
+      evidence,
+    ).toBe(available);
+    expect(result.bundle?.keyframes[0]?.sourceTimeMs, evidence).toBeGreaterThan(
+      0,
+    );
+    expect(rendered(result).range.startMs, evidence).toBe(0);
+    expect(result.trimUnplaced, evidence).toBeUndefined();
   });
 
   it("a start inside the opening is kept as asked, with no clamp", async () => {
@@ -357,6 +385,65 @@ describe("runAuthored: each step's finish, and the script's trim", () => {
     expect(plan.range.endMs, evidence).toBeLessThan(
       plan.timeline.outputDurationMs,
     );
+  });
+
+  it("an end after zoomOut, on a step that did not zoom, waits out the zoom before it", async () => {
+    const { result, zoomed } = await run(
+      [CLICK_A, { do: "type", into: { stableId: "b" }, text: "zq" }],
+      // A pull-out long enough to outlast the type that follows the click.
+      { trim: { end: { ms: 0 } }, zooms: true, pullOutMs: 10_000 },
+    );
+    const evidence = evidenceOf(result);
+    const click = timingOf(result, 0);
+    const type = timingOf(result, 1);
+    // Premise: the click zoomed and the type did not, and the click's
+    // pull-out is still to come when the type finishes.
+    expect(zoomed, evidence).toEqual([result.steps[0]?.actionId]);
+    expect(type.zoomOutMs, evidence).not.toBeNull();
+    expect(type.zoomOutMs as number, evidence).toBeGreaterThan(type.finishMs);
+    // The same camera return, seen from each step's own marker.
+    expect(type.markerMs + (type.zoomOutMs as number), evidence).toBe(
+      click.markerMs + (click.zoomOutMs as number),
+    );
+    expect(result.document?.edits.trim, evidence).toEqual({
+      tail: { actionId: result.steps[1]?.actionId, offsetMs: type.zoomOutMs },
+    });
+    expect(result.trimUnplaced, evidence).toBeUndefined();
+  });
+
+  it("an end whose step never ran is left uncut, and listed", async () => {
+    const { result } = await run(
+      [CLICK_A, { do: "click", on: { stableId: "gone" } }],
+      { trim: { start: { ms: 0 }, end: { ms: 0 } } },
+    );
+    const evidence = evidenceOf(result);
+    // Premise: the first click ran and the last (the default end) did not.
+    expect(result.steps[0]?.timing, evidence).toBeDefined();
+    expect(result.steps[1]?.actionId, evidence).toBeNull();
+    expect(result.reason, evidence).not.toBeNull();
+    expect(result.document?.edits.trim, evidence).toEqual({
+      head: { actionId: result.steps[0]?.actionId, offsetMs: 0 },
+    });
+    expect(result.trimUnplaced, evidence).toEqual(["end"]);
+  });
+
+  it("an end past what a stopped run filmed is left uncut, and listed", async () => {
+    // Past the wait's own timeout, which the take films while it waits.
+    const endMs = 60_000;
+    const { result } = await run(
+      [CLICK_A, { do: "waitFor", on: { stableId: "a" }, until: "hidden" }],
+      { trim: { end: { ms: endMs, after: "action" } } },
+    );
+    const evidence = evidenceOf(result);
+    const timing = timingOf(result, 0);
+    // Premise: the end step (the click: a wait is not shown) ran, and the
+    // walk then stopped, so it never slept for the tail.
+    expect(result.reason, evidence).toBe("waitTimeout");
+    expect(lastFrameMs(result), evidence).toBeLessThan(
+      timing.markerMs + timing.finishMs + endMs,
+    );
+    expect(result.document?.edits.trim, evidence).toBeUndefined();
+    expect(result.trimUnplaced, evidence).toEqual(["end"]);
   });
 
   it("an end after zoomOut films that long past the camera's return", async () => {
