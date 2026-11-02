@@ -236,6 +236,10 @@ export interface VideoSummary {
     | {
         unknown: string;
       };
+  /** The repo key the flow was added to, as its kept mark recorded it,
+   *  whether or not that checkout still exists; null when there is no mark
+   *  or it has no key. The flow's project (spec "The model", rule 1). */
+  addedTo: string | null;
 }
 export interface VersionExport {
   path: string;

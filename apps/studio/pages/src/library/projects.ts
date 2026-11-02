@@ -11,14 +11,13 @@ export { type Place, parsePlace, placeSearch };
 
 export type Tab = "inRepo" | "notInRepo" | "all";
 
-/** A kept mark's key beats the recorded one (a take made on a page the
- *  repo did not own is still its flow's project); null is No project. */
+/** The repo a flow was added to beats the recorded one (a take made on a
+ *  page the repo did not own is still its flow's project), even once that
+ *  checkout is gone; null is No project. */
 export function projectKeyOf(card: LibraryCard): string | null {
   const v = card.group?.video;
   if (v === undefined) return null;
-  if (v.kept != null && "key" in v.kept && v.kept.key !== null) {
-    return v.kept.key;
-  }
+  if (v.addedTo !== null) return v.addedTo;
   return "key" in v.repo ? v.repo.key : null;
 }
 

@@ -74,6 +74,7 @@ const flow = (id: string, versions: LibraryRow[]): VideoGroup => {
       steps: [],
       exports: [],
       kept: null,
+      addedTo: null,
     } as VideoSummary,
     current: numbered[0] ?? null,
     versions: numbered,

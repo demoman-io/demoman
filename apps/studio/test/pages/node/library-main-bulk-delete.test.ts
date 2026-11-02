@@ -59,6 +59,7 @@ const video = (
   steps: [],
   exports: [],
   kept,
+  addedTo: kept != null && "key" in kept ? kept.key : null,
 });
 
 const KEPT_FILE = ".demoman/videos/create-invoice.json";

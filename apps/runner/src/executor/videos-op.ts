@@ -55,6 +55,10 @@ export interface VideoSummary {
     | {
         unknown: string;
       };
+  /** The repo key the flow was added to, as its kept mark recorded it,
+   *  whether or not that checkout still exists (a worktree removed after
+   *  the merge); null when there is no mark or it has no key. */
+  addedTo: string | null;
 }
 
 /** Reads the recipe a record points at (the same parser the kept folder's
@@ -185,6 +189,7 @@ async function described(
     steps: steps.slice(0, STEPS_MAX),
     exports,
     kept: await keptOf(video),
+    addedTo: video.kept?.key ?? null,
   };
   return { summary, steps };
 }

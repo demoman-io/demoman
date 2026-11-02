@@ -52,6 +52,7 @@ const video: VideoSummary = {
   steps: [],
   exports: [],
   kept: null,
+  addedTo: null,
 };
 
 const GRID: LibraryViewChoice = {

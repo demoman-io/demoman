@@ -72,6 +72,7 @@ const video = (
   steps: [],
   exports: [],
   kept: null,
+  addedTo: null,
 });
 
 const KEPT = "/Users/me/Downloads/Create an invoice.mp4";

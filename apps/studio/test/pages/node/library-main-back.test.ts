@@ -308,6 +308,7 @@ describe("library main — back to your recording", () => {
           steps: [],
           exports: [],
           kept: null,
+          addedTo: null,
         },
       ],
       videoOf: {

@@ -65,6 +65,7 @@ const flow = (
       steps: [],
       exports: [],
       kept: null,
+      addedTo: null,
     } as VideoSummary,
     current: numbered[0] ?? null,
     versions: numbered,

@@ -64,6 +64,7 @@ const flow = (
     steps: [],
     exports: [],
     kept: null,
+    addedTo: null,
   } as VideoSummary,
   current: versions[0] ?? null,
   versions: versions.map((v, i) => ({ ...v, version: versions.length - i })),

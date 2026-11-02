@@ -50,11 +50,13 @@ const take = (sceneId: string, extra: Partial<LibraryRow> = {}): LibraryRow =>
     ...extra,
   }) as LibraryRow;
 
-/** A flow of one take; `kept` is on the video and on the take's row. */
+/** A flow of one take; `kept` is on the video and on the take's row.
+ *  `addedTo` is the mark's key, as the runner answers it, unless given. */
 const flow = (
   id: string,
   repo: VideoSummary["repo"],
   kept: VideoSummary["kept"] = null,
+  addedTo: string | null = kept != null && "key" in kept ? kept.key : null,
 ): { row: LibraryRow; group: VideoGroup } => {
   const row = take(`t-${id}`, { kept });
   return {
@@ -71,6 +73,7 @@ const flow = (
         steps: [],
         exports: [],
         kept,
+        addedTo,
       },
       current: row,
       versions: [row],
@@ -225,6 +228,23 @@ describe("narrow, tabCounts, showsTabs", () => {
       notInRepo: 1,
       all: 2,
     });
+  });
+  it("a flow added from a since-deleted worktree sits under the added-to project, in Not in repo", () => {
+    // Red: projectKeyOf reads kept.key (null once the root is gone) instead
+    // of addedTo, and the flow lands under its recorded project.
+    const merged = flow(
+      "merged",
+      { key: "github.com/c/d" },
+      null,
+      "github.com/a/b",
+    );
+    expect(merged.row.kept).toBeNull(); // premise: the root is gone
+    expect(merged.group.video.repo).toEqual({ key: "github.com/c/d" }); // premise
+    const cs = cardsOf(modelOf([inRepo, merged, other]));
+    const card = cs.find((c) => c.group?.video.id === "merged");
+    expect(projectKeyOf(card as never)).toBe("github.com/a/b");
+    expect(tabCounts(cs, place)).toEqual({ inRepo: 1, notInRepo: 1, all: 2 });
+    expect(tabCounts(cs, { project: "github.com/c/d" }).all).toBe(1);
   });
   it("none holds the loose takes; unreadable keeps no rows", () => {
     expect(ids(narrow(model, "none", "all"))).toEqual(["t-np", "loose"]);

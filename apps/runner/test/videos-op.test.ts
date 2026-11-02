@@ -636,6 +636,42 @@ describe("videosOp", () => {
       expect((await summarise(store, lib, adopted.video)).kept).toBeNull();
     });
 
+    it("a keyed mark whose checkout is gone answers kept null and addedTo its key", async () => {
+      // The author's normal flow: added in a worktree, merged, the worktree
+      // removed. Red: answer addedTo from keptOf (null once the root is gone).
+      const checkout = await mkdtemp(join(tmpdir(), "demoman-gone-"));
+      const lib = createLibrary(home);
+      const store = createVideoStore(home, lib);
+      const adopted = await store.adopt({
+        id: FLOW,
+        name: NAME,
+        repo: { none: "test" },
+        startPage: "http://localhost:1/app",
+        kept: { root: checkout, file, key: "github.com/acme/shop" },
+      });
+      if (!adopted.ok) throw new Error("fixture not adopted");
+      await rm(checkout, { recursive: true, force: true });
+      const got = await summarise(store, lib, adopted.video);
+      expect(got.kept).toBeNull();
+      expect(got.addedTo).toBe("github.com/acme/shop");
+    });
+
+    it("addedTo is null with no mark, and with a mark that has no key", async () => {
+      const lib = createLibrary(home);
+      const store = createVideoStore(home, lib);
+      const plain = await store.adopt({
+        id: FLOW,
+        name: NAME,
+        repo: { key: "github.com/acme/shop" },
+        startPage: "x",
+        kept: { root: home, file },
+      });
+      if (!plain.ok) throw new Error("fixture not adopted");
+      expect((await summarise(store, lib, plain.video)).addedTo).toBeNull();
+      const { kept: _, ...unmarked } = plain.video;
+      expect((await summarise(store, lib, unmarked)).addedTo).toBeNull();
+    });
+
     it("a recipe moved to another file in the checkout is found there", async () => {
       await mkdir(join(home, FLOWS_DIR), { recursive: true });
       const moved = `${FLOWS_DIR}/moved.json`;

@@ -58,6 +58,7 @@ const video = (
   steps: [],
   exports: [],
   kept,
+  addedTo: kept != null && "key" in kept ? kept.key : null,
 });
 
 // The mockup's spread: two owners (acme with a kept and a plain flow, zeta),
