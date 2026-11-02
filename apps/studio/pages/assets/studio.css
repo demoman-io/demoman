@@ -992,6 +992,12 @@
   background: var(--fill-2);
   color: var(--ink-2);
 }
+/* The narrow switcher's menu of places takes it too. */
+[data-studio] .place-menu {
+  border-radius: var(--r-frame);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-pop);
+}
 /* Take info: the floating surface every popover here takes. */
 [data-studio] #take-info {
   border-radius: var(--r-frame);

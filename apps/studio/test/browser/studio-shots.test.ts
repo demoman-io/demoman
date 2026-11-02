@@ -21,6 +21,7 @@ import { createLibrary, createVideoStore } from "@demoman/runner/studio";
 import { NEUTRAL_BACKGROUND, WALLPAPERS } from "@demoman/scene-schema";
 import {
   DEFAULT_LIBRARY_VIEW,
+  type LibraryViewChoice,
   pathFor,
   placeSearch,
   type TakesAnswer,
@@ -3038,183 +3039,35 @@ describe("the Studio's screenshot set", () => {
         await page.mouse.move(0, 0);
         await settle(page, at);
       };
-      const shoot = async (name: string, at: string, look: Look) => {
-        const shot = join(SHOTS, `library-projects-${name}-dark.png`);
-        await page.screenshot({ path: shot });
-        shots.push(shot);
-        const p = await painted(page);
-        expect(p.theme, `${at}: the page's theme`).toBe("dark");
-        expect(
-          p.scrollWidth,
-          `${at}: no sideways scroll (${JSON.stringify(p)})`,
-        ).toBeLessThanOrEqual(p.innerWidth);
-        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
-        const seen = await page.evaluate((flow) => {
-          // The rail as painted: each child of its list, in order.
-          const railItems: { text: string; top: number }[] = [];
-          for (const c of document.querySelectorAll<HTMLElement>(
-            "[data-rail] .side-list > *",
-          )) {
-            railItems.push({
+      const maxLuma = async (b: number[]) => {
+        const [l, t, r, bt] = b as [number, number, number, number];
+        const pts: [number, number][] = [];
+        for (let y = t; y <= bt; y += 1) {
+          for (let x = l; x <= r; x += 1) pts.push([x, y]);
+        }
+        return Math.max(...(await pixelsAt(page, pts)).map(luma));
+      };
+      // The rail's places as painted in `scope` (the rail, or the switcher's
+      // open menu): the fixture's words and counts, one to a row, and the
+      // dim part of a project's name dimmer than the name beside it, on the
+      // computed colours and on the pixels.
+      const railLook = async (scope: string, at: string) => {
+        const railItems = await page.evaluate(
+          (scope) =>
+            [
+              ...document.querySelectorAll<HTMLElement>(
+                `${scope} .side-list > *`,
+              ),
+            ].map((c) => ({
               text: (c.innerText ?? "").replace(/\s+/g, " ").trim(),
               top: Math.round(c.getBoundingClientRect().top),
-            });
-          }
-          const glyph = document.querySelector(
-            `[data-list] [data-flow="${flow}"] [data-kept] svg`,
-          );
-          let tagGlyphPainted: boolean | null = null;
-          if (glyph !== null) {
-            const g = glyph.getBoundingClientRect();
-            const hit = document.elementFromPoint(
-              g.left + g.width / 2,
-              g.top + g.height / 2,
-            );
-            tagGlyphPainted =
-              g.width > 0 && hit !== null && !!hit.closest("[data-kept]");
-          }
-          const rect = (s: string) =>
-            document.querySelector(s)?.getBoundingClientRect() ?? null;
-          const centre = (r: DOMRect) =>
-            [r.left + r.width / 2, r.top + r.height / 2] as const;
-          const row = rect("[data-tabs-row]");
-          const toggle = rect("[data-layout-toggle]");
-          const button = document.querySelector("[data-layout-toggle] button");
-          let toggleHit = false;
-          if (button !== null) {
-            const [x, y] = centre(button.getBoundingClientRect());
-            const hit = document.elementFromPoint(x, y);
-            toggleHit = hit !== null && button.contains(hit);
-          }
-          const box = document.querySelector<HTMLInputElement>(
-            "[data-heading] [data-select-group]",
-          );
-          let boxHit: boolean | null = null;
-          if (box !== null) {
-            const [x, y] = centre(box.getBoundingClientRect());
-            boxHit = document.elementFromPoint(x, y) === box;
-          }
-          const owner = document.querySelector<HTMLElement>(
-            "[data-place-title] [data-place-owner]",
-          );
-          const name = rect("[data-place-title] [data-place-name]");
-          const railBox = rect("[data-rail]");
-          let ownerSeen: {
-            text: string | null;
-            onScreen: boolean;
-            hit: boolean;
-            clipped: string[];
-            leftOfName: boolean;
-            clearOfRail: boolean;
-            rect: number[];
-          } | null = null;
-          if (owner !== null) {
-            const o = owner.getBoundingClientRect();
-            const [x, y] = centre(o);
-            const hit = document.elementFromPoint(x, y);
-            // An ancestor that clips (overflow other than visible) and does
-            // not hold the whole line.
-            const clipped: string[] = [];
-            for (let a = owner.parentElement; a !== null; a = a.parentElement) {
-              const cs = getComputedStyle(a);
-              if (cs.overflowX === "visible" && cs.overflowY === "visible") {
-                continue;
-              }
-              const r = a.getBoundingClientRect();
-              if (
-                o.left < r.left - 0.5 ||
-                o.right > r.right + 0.5 ||
-                o.top < r.top - 0.5 ||
-                o.bottom > r.bottom + 0.5
-              ) {
-                clipped.push(`${a.tagName.toLowerCase()}.${a.className}`);
-              }
-            }
-            ownerSeen = {
-              text: owner.textContent,
-              onScreen:
-                o.width > 0 &&
-                o.height > 0 &&
-                o.top >= 0 &&
-                o.left >= 0 &&
-                o.right <= innerWidth &&
-                o.bottom <= innerHeight,
-              hit: hit !== null && owner.contains(hit),
-              clipped,
-              leftOfName:
-                name !== null &&
-                o.right <= name.left + 0.5 &&
-                o.top < name.bottom &&
-                o.bottom > name.top,
-              clearOfRail:
-                railBox !== null &&
-                (o.bottom <= railBox.top + 0.5 ||
-                  o.top >= railBox.bottom - 0.5 ||
-                  o.right <= railBox.left + 0.5 ||
-                  o.left >= railBox.right - 0.5),
-              rect: [o.left, o.top, o.right, o.bottom].map(Math.round),
-            };
-          }
-          return {
-            rows: document.querySelectorAll(
-              "[data-list] [role=row][data-scene]:not([data-video-row])",
-            ).length,
-            // Only the tabs that are painted: a hidden row keeps its state.
-            pressedTabs: [
-              ...document.querySelectorAll<HTMLElement>(
-                "[data-tab][aria-pressed='true']",
-              ),
-            ]
-              .filter((b) => b.getClientRects().length > 0)
-              .map((b) => b.dataset.tab),
-            place:
-              document
-                .querySelector('[data-rail] [data-place][aria-current="true"]')
-                ?.getAttribute("data-place") ?? null,
-            rowInside:
-              row !== null &&
-              toggle !== null &&
-              toggle.left >= row.left - 0.5 &&
-              toggle.right <= row.right + 0.5 &&
-              toggle.top >= row.top - 0.5 &&
-              toggle.bottom <= row.bottom + 0.5,
-            rects: { row, toggle },
-            toggleHit,
-            boxHit,
-            ownerSeen,
-            railItems,
-            tagGlyphPainted,
-          };
-        }, invoice);
-        const ev = `${at}: ${JSON.stringify(seen)}`;
-        expect(seen.rows, `${at}: the flows listed ${ev}`).toBe(look.rows);
-        expect(seen.place, `${at}: the rail's current place ${ev}`).toBe(
-          look.place,
+            })),
+          scope,
         );
-        expect(seen.pressedTabs, `${at}: the pressed tab ${ev}`).toEqual(
-          look.tab === null ? [] : [look.tab],
-        );
+        const ev = `${at}: ${JSON.stringify(railItems)}`;
         expect(
-          seen.rowInside,
-          `${at}: the toggle sits in the tab row ${ev}`,
-        ).toBe(true);
-        expect(
-          seen.toggleHit,
-          `${at}: the toggle is painted, not under the row ${ev}`,
-        ).toBe(true);
-        expect(
-          seen.boxHit,
-          `${at}: the heading's box is its own at its centre ${ev}`,
-        ).toBe(look.box ? true : null);
-        expect(p.rail.length, `${at}: the rail has items`).toBeGreaterThan(0);
-        expect(
-          p.rail.every((r) => r.painted),
-          `${at}: rail ${JSON.stringify(p.rail)}`,
-        ).toBe(true);
-        // The rail's words and counts are the fixture's.
-        expect(
-          seen.railItems.map((r) => r.text),
-          `${at}: the rail's labels and counts ${ev}`,
+          railItems.map((r) => r.text),
+          `${at}: the places' labels and counts ${ev}`,
         ).toEqual([
           `All flows ${counts.all}`,
           `acme/web ${counts.acme}`,
@@ -3224,14 +3077,14 @@ describe("the Studio's screenshot set", () => {
           `Couldn't read ${counts.unreadable}`,
         ]);
         // One item to a row, top to bottom in the order above.
-        const tops = seen.railItems.map((r) => r.top);
+        const tops = railItems.map((r) => r.top);
         expect(
           tops.every((t, i) => i === 0 || t - (tops[i - 1] as number) > 2),
-          `${at}: each rail item has its own row ${JSON.stringify(seen.railItems)}`,
+          `${at}: each place has its own row ${ev}`,
         ).toBe(true);
         // The dim part of a project's name reads dimmer than the name beside
         // it in every rail state, on the computed colours and on the pixels.
-        const dims = await page.evaluate(() => {
+        const dims = await page.evaluate((scope) => {
           const box = (e: Element) => {
             const r = e.getBoundingClientRect();
             return [r.left, r.top, r.right, r.bottom].map(Math.round);
@@ -3241,7 +3094,7 @@ describe("the Studio's screenshot set", () => {
               .slice(0, 3)
               .map(Number);
           return [
-            ...document.querySelectorAll<HTMLElement>("[data-rail] .side-item"),
+            ...document.querySelectorAll<HTMLElement>(`${scope} .side-item`),
           ].flatMap((a) => {
             const dim = a.querySelector(".proj-dim");
             const name = a.querySelector(".place-name");
@@ -3255,15 +3108,7 @@ describe("the Studio's screenshot set", () => {
               },
             ];
           });
-        });
-        const maxLuma = async (b: number[]) => {
-          const [l, t, r, bt] = b as [number, number, number, number];
-          const pts: [number, number][] = [];
-          for (let y = t; y <= bt; y += 1) {
-            for (let x = l; x <= r; x += 1) pts.push([x, y]);
-          }
-          return Math.max(...(await pixelsAt(page, pts)).map(luma));
-        };
+        }, scope);
         const unselected = dims.filter((d) => !d.current);
         expect(
           dims.map((d) => d.text),
@@ -3296,14 +3141,268 @@ describe("the Studio's screenshot set", () => {
             `${at}: "${d.text}": the name's pixels are brighter than the dim part's (${namePx} vs ${dimPx})`,
           ).toBeGreaterThanOrEqual(15);
         }
+      };
+      const shoot = async (name: string, at: string, look: Look) => {
+        const shot = join(SHOTS, `library-projects-${name}-dark.png`);
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        const p = await painted(page);
+        expect(p.theme, `${at}: the page's theme`).toBe("dark");
+        expect(
+          p.scrollWidth,
+          `${at}: no sideways scroll (${JSON.stringify(p)})`,
+        ).toBeLessThanOrEqual(p.innerWidth);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        // Under 1024px the rail folds into the title band's switcher (spec
+        // 2026-11-01, Addendum): the place is named by its button, and the
+        // rail's places are its menu's.
+        const narrow = p.innerWidth < 1024;
+        const band = narrow ? "[data-place-switch]" : "[data-place-title]";
+        const seen = await page.evaluate(
+          ([flow, band]) => {
+            const drawn = (s: string) =>
+              (document.querySelector(s)?.getClientRects().length ?? 0) > 0;
+            const glyph = document.querySelector(
+              `[data-list] [data-flow="${flow}"] [data-kept] svg`,
+            );
+            let tagGlyphPainted: boolean | null = null;
+            if (glyph !== null) {
+              const g = glyph.getBoundingClientRect();
+              const hit = document.elementFromPoint(
+                g.left + g.width / 2,
+                g.top + g.height / 2,
+              );
+              tagGlyphPainted =
+                g.width > 0 && hit !== null && !!hit.closest("[data-kept]");
+            }
+            const rect = (s: string) =>
+              document.querySelector(s)?.getBoundingClientRect() ?? null;
+            const centre = (r: DOMRect) =>
+              [r.left + r.width / 2, r.top + r.height / 2] as const;
+            const row = rect("[data-tabs-row]");
+            const toggle = rect("[data-layout-toggle]");
+            const button = document.querySelector(
+              "[data-layout-toggle] button",
+            );
+            let toggleHit = false;
+            if (button !== null) {
+              const [x, y] = centre(button.getBoundingClientRect());
+              const hit = document.elementFromPoint(x, y);
+              toggleHit = hit !== null && button.contains(hit);
+            }
+            const box = document.querySelector<HTMLInputElement>(
+              "[data-heading] [data-select-group]",
+            );
+            let boxHit: boolean | null = null;
+            if (box !== null) {
+              const [x, y] = centre(box.getBoundingClientRect());
+              boxHit = document.elementFromPoint(x, y) === box;
+            }
+            const owner = document.querySelector<HTMLElement>(
+              `${band} [data-place-owner]`,
+            );
+            const name = rect(`${band} [data-place-name]`);
+            const railBox = rect("[data-rail]");
+            const bandBox = rect(band);
+            const switcher = document.querySelector("[data-place-switch]");
+            let switchHit = false;
+            if (switcher !== null) {
+              const [x, y] = centre(switcher.getBoundingClientRect());
+              const hit = document.elementFromPoint(x, y);
+              switchHit = hit !== null && switcher.contains(hit);
+            }
+            let ownerSeen: {
+              text: string | null;
+              onScreen: boolean;
+              hit: boolean;
+              clipped: string[];
+              leftOfName: boolean;
+              clearOfRail: boolean;
+              inBand: boolean;
+              rect: number[];
+            } | null = null;
+            if (owner !== null) {
+              const o = owner.getBoundingClientRect();
+              const [x, y] = centre(o);
+              const hit = document.elementFromPoint(x, y);
+              // An ancestor that clips (overflow other than visible) and does
+              // not hold the whole line.
+              const clipped: string[] = [];
+              for (
+                let a = owner.parentElement;
+                a !== null;
+                a = a.parentElement
+              ) {
+                const cs = getComputedStyle(a);
+                if (cs.overflowX === "visible" && cs.overflowY === "visible") {
+                  continue;
+                }
+                const r = a.getBoundingClientRect();
+                if (
+                  o.left < r.left - 0.5 ||
+                  o.right > r.right + 0.5 ||
+                  o.top < r.top - 0.5 ||
+                  o.bottom > r.bottom + 0.5
+                ) {
+                  clipped.push(`${a.tagName.toLowerCase()}.${a.className}`);
+                }
+              }
+              ownerSeen = {
+                text: owner.textContent,
+                onScreen:
+                  o.width > 0 &&
+                  o.height > 0 &&
+                  o.top >= 0 &&
+                  o.left >= 0 &&
+                  o.right <= innerWidth &&
+                  o.bottom <= innerHeight,
+                hit: hit !== null && owner.contains(hit),
+                clipped,
+                leftOfName:
+                  name !== null &&
+                  o.right <= name.left + 0.5 &&
+                  o.top < name.bottom &&
+                  o.bottom > name.top,
+                clearOfRail:
+                  railBox !== null &&
+                  (o.bottom <= railBox.top + 0.5 ||
+                    o.top >= railBox.bottom - 0.5 ||
+                    o.right <= railBox.left + 0.5 ||
+                    o.left >= railBox.right - 0.5),
+                // Across, inside the title band's element; down, its middle
+                // there (a glyph's box stands taller than a line of 1).
+                inBand:
+                  bandBox !== null &&
+                  o.left >= bandBox.left - 0.5 &&
+                  o.right <= bandBox.right + 0.5 &&
+                  y >= bandBox.top &&
+                  y <= bandBox.bottom,
+                rect: [o.left, o.top, o.right, o.bottom].map(Math.round),
+              };
+            }
+            return {
+              rows: document.querySelectorAll(
+                "[data-list] [role=row][data-scene]:not([data-video-row])",
+              ).length,
+              // Only the tabs that are painted: a hidden row keeps its state.
+              pressedTabs: [
+                ...document.querySelectorAll<HTMLElement>(
+                  "[data-tab][aria-pressed='true']",
+                ),
+              ]
+                .filter((b) => b.getClientRects().length > 0)
+                .map((b) => b.dataset.tab),
+              // The rail's, or the switcher menu's: the one the width uses.
+              place:
+                document
+                  .querySelector(
+                    `${band === "[data-place-switch]" ? "[data-place-menu]" : "[data-rail]"} [data-place][aria-current="true"]`,
+                  )
+                  ?.getAttribute("data-place") ?? null,
+              railDrawn: drawn("[data-rail]"),
+              switchDrawn: drawn("[data-place-switch]"),
+              plainTitleDrawn: drawn("[data-place-title]"),
+              switchHit,
+              plainTitleText:
+                document.querySelector("[data-place-title]")?.textContent ??
+                null,
+              switchText:
+                (switcher as HTMLElement | null)?.innerText
+                  .replace(/\s+/g, " ")
+                  .trim() ?? null,
+              rowInside:
+                row !== null &&
+                toggle !== null &&
+                toggle.left >= row.left - 0.5 &&
+                toggle.right <= row.right + 0.5 &&
+                toggle.top >= row.top - 0.5 &&
+                toggle.bottom <= row.bottom + 0.5,
+              rects: { row, toggle },
+              toggleHit,
+              boxHit,
+              ownerSeen,
+              tagGlyphPainted,
+            };
+          },
+          [invoice, band] as const,
+        );
+        const ev = `${at}: ${JSON.stringify(seen)}`;
+        expect(seen.rows, `${at}: the flows listed ${ev}`).toBe(look.rows);
+        expect(seen.place, `${at}: the rail's current place ${ev}`).toBe(
+          look.place,
+        );
+        expect(seen.pressedTabs, `${at}: the pressed tab ${ev}`).toEqual(
+          look.tab === null ? [] : [look.tab],
+        );
+        expect(
+          seen.rowInside,
+          `${at}: the toggle sits in the tab row ${ev}`,
+        ).toBe(true);
+        expect(
+          seen.toggleHit,
+          `${at}: the toggle is painted, not under the row ${ev}`,
+        ).toBe(true);
+        expect(
+          seen.boxHit,
+          `${at}: the heading's box is its own at its centre ${ev}`,
+        ).toBe(look.box ? true : null);
+        // Premise: the rail is built at every width, so its not being drawn
+        // under 1024px is the stylesheet's rule, not an empty rail.
+        expect(p.rail.length, `${at}: the rail has items`).toBeGreaterThan(0);
+        if (narrow) {
+          expect(
+            p.rail.some((r) => r.painted),
+            `${at}: no rail item is painted ${JSON.stringify(p.rail)}`,
+          ).toBe(false);
+          expect(
+            {
+              railDrawn: seen.railDrawn,
+              switchDrawn: seen.switchDrawn,
+              switchHit: seen.switchHit,
+              plainTitleDrawn: seen.plainTitleDrawn,
+            },
+            `${at}: the switcher, not the rail ${ev}`,
+          ).toEqual({
+            railDrawn: false,
+            switchDrawn: true,
+            switchHit: true,
+            plainTitleDrawn: false,
+          });
+          // The button names the place as the plain title would.
+          expect(seen.plainTitleText, `${at}: premise: a title`).toBeTruthy();
+          expect(seen.switchText, `${at}: the button's words ${ev}`).toBe(
+            seen.plainTitleText,
+          );
+          // The menu is closed until it is pressed.
+          expect(
+            await page
+              .locator("[data-place-menu]")
+              .evaluate((m) => m.matches(":popover-open")),
+            `${at}: the menu is closed`,
+          ).toBe(false);
+          expect(
+            await page
+              .locator("[data-place-switch]")
+              .getAttribute("aria-expanded"),
+            `${at}: the button says the menu is closed`,
+          ).toBe("false");
+        } else {
+          expect(
+            p.rail.every((r) => r.painted),
+            `${at}: rail ${JSON.stringify(p.rail)}`,
+          ).toBe(true);
+          expect(
+            { railDrawn: seen.railDrawn, switchDrawn: seen.switchDrawn },
+            `${at}: the rail, not the switcher ${ev}`,
+          ).toEqual({ railDrawn: true, switchDrawn: false });
+          await railLook("[data-rail]", at);
+        }
         if (look.local === true) {
-          const loc = await page.evaluate(() => {
+          const loc = await page.evaluate((band) => {
             const e = document.querySelector<HTMLElement>(
-              "[data-place-title] [data-place-local]",
+              `${band} [data-place-local]`,
             );
-            const n = document.querySelector(
-              "[data-place-title] [data-place-name]",
-            );
+            const n = document.querySelector(`${band} [data-place-name]`);
             if (e === null || n === null) return null;
             const r = e.getBoundingClientRect();
             const nr = n.getBoundingClientRect();
@@ -3314,7 +3413,7 @@ describe("the Studio's screenshot set", () => {
               sameLine: r.top < nr.bottom && r.bottom > nr.top,
               nameRect: [nr.left, nr.top, nr.right, nr.bottom].map(Math.round),
             };
-          });
+          }, band);
           expect(
             loc?.text,
             `${at}: the title's local marker ${JSON.stringify(loc)}`,
@@ -3357,6 +3456,7 @@ describe("the Studio's screenshot set", () => {
           clipped: [],
           leftOfName: true,
           clearOfRail: true,
+          inBand: true,
         });
         // The pixels: its text is lighter than the ground around it.
         const [l, t, r, b] = (o as { rect: number[] }).rect as [
@@ -3457,8 +3557,8 @@ describe("the Studio's screenshot set", () => {
         });
       }
 
-      // A short window, and the narrow one with the owner line over a
-      // project's name (it stands above the title, out of the flow).
+      // A short window, and the narrow one, where the switcher's button
+      // names the project in the title band.
       for (const [w, h] of [
         [1280, 800],
         [720, 900],
@@ -3496,6 +3596,265 @@ describe("the Studio's screenshot set", () => {
           local: true,
           box: true,
         });
+      }
+
+      // The narrow switcher opened (spec 2026-11-01, Addendum): the rail's
+      // places with their counts in a menu over the list, the current one
+      // marked. Esc and a click outside close it; a pick, by click or by
+      // keyboard, changes the place and saves the pick.
+      {
+        const at = "projects switcher 720x900";
+        await sizeWindow(context, page, 720, 900);
+        await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        await open(acmeAt, at, "all");
+        const button = page.locator("[data-place-switch]");
+        const menu = page.locator("[data-place-menu]");
+        const state = () =>
+          page.evaluate(() => ({
+            open:
+              document
+                .querySelector("[data-place-menu]")
+                ?.matches(":popover-open") ?? null,
+            expanded: document
+              .querySelector("[data-place-switch]")
+              ?.getAttribute("aria-expanded"),
+            focus:
+              document.activeElement === null
+                ? null
+                : document.activeElement.matches("[data-place-switch]")
+                  ? "switch"
+                  : (document.activeElement.getAttribute("data-place") ??
+                    document.activeElement.tagName),
+            search: location.search,
+            title:
+              document.querySelector("[data-place-title]")?.textContent ?? null,
+          }));
+        const until = async (
+          what: string,
+          ok: (s: Awaited<ReturnType<typeof state>>) => boolean,
+        ) => {
+          try {
+            await vi.waitFor(
+              async () => {
+                const now = await state();
+                if (!ok(now)) throw new Error(JSON.stringify(now));
+              },
+              { timeout: PAINT_MS, interval: 50 },
+            );
+          } catch (error) {
+            throw new Error(
+              `${at}: ${what}: ${String(error)}; page: ${await pageEvidence(page)}`,
+            );
+          }
+        };
+        const saved = async () =>
+          (
+            (await api(studio, "/api/settings/library-view")).json() as {
+              view: LibraryViewChoice;
+            }
+          ).view.project;
+        const places = [
+          placeSearch("all"),
+          acme,
+          placeSearch({ project: GLOBEX }),
+          placeSearch({ project: LOCAL }),
+          placeSearch("none"),
+          placeSearch("unreadable"),
+        ];
+        expect(await saved(), `${at}: premise: no pick saved`).toBeNull();
+        await button.click();
+        await until(
+          "the button opens the menu, on the current place",
+          (s) => s.open === true && s.expanded === "true" && s.focus === acme,
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        const shot = join(
+          SHOTS,
+          "library-projects-switcher-open-720x900-dark.png",
+        );
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        const m = await menu.evaluate((menu) => {
+          const r = menu.getBoundingClientRect();
+          const b = (
+            document.querySelector("[data-place-switch]") as Element
+          ).getBoundingClientRect();
+          const under = [
+            document.querySelector("[data-tabs-row]"),
+            document.querySelector("[data-list]"),
+          ].flatMap((e) => (e === null ? [] : [e.getBoundingClientRect()]));
+          return {
+            rect: [r.left, r.top, r.right, r.bottom].map(Math.round),
+            inWindow:
+              r.left >= 0 &&
+              r.top >= 0 &&
+              r.right <= innerWidth &&
+              r.bottom <= innerHeight,
+            underButton: r.top >= b.bottom - 0.5,
+            clipped: menu.scrollHeight > menu.clientHeight + 0.5,
+            items: [...menu.querySelectorAll<HTMLElement>("[data-place]")].map(
+              (a) => {
+                const ir = a.getBoundingClientRect();
+                const hit = document.elementFromPoint(
+                  ir.left + ir.width / 2,
+                  ir.top + ir.height / 2,
+                );
+                return {
+                  place: a.dataset.place,
+                  role: a.getAttribute("role"),
+                  current: a.getAttribute("aria-current") === "true",
+                  hit: hit !== null && a.contains(hit),
+                  inside:
+                    ir.top >= r.top - 0.5 &&
+                    ir.bottom <= r.bottom + 0.5 &&
+                    ir.left >= r.left - 0.5 &&
+                    ir.right <= r.right + 0.5,
+                  overPage: under.some(
+                    (u) =>
+                      ir.left < u.right &&
+                      ir.right > u.left &&
+                      ir.top < u.bottom &&
+                      ir.bottom > u.top,
+                  ),
+                  // A point in the row's left padding: its fill, not its text.
+                  fillAt: [
+                    Math.round(ir.left + 4),
+                    Math.round(ir.top + ir.height / 2),
+                  ],
+                };
+              },
+            ),
+          };
+        });
+        const ev = `${at}: ${JSON.stringify(m)}`;
+        expect(
+          m.items.map((i) => i.place),
+          `${at}: every place ${ev}`,
+        ).toEqual(places);
+        expect(
+          m.items.every((i) => i.role === "menuitem"),
+          ev,
+        ).toBe(true);
+        expect(
+          m.items.filter((i) => i.current).map((i) => i.place),
+          `${at}: the current place ${ev}`,
+        ).toEqual([acme]);
+        // Premise: the menu lies over the tab row or the list, so a hit on
+        // each row is the menu painted on top, not a clear patch of page.
+        expect(
+          m.items.some((i) => i.overPage),
+          `${at}: premise: over the list ${ev}`,
+        ).toBe(true);
+        expect(
+          m.items.every((i) => i.hit),
+          `${at}: every row painted on top ${ev}`,
+        ).toBe(true);
+        expect(
+          m.items.every((i) => i.inside),
+          `${at}: every row inside the menu ${ev}`,
+        ).toBe(true);
+        expect(
+          {
+            inWindow: m.inWindow,
+            underButton: m.underButton,
+            clipped: m.clipped,
+          },
+          `${at}: the menu in the window, under its button, not cut ${ev}`,
+        ).toEqual({ inWindow: true, underButton: true, clipped: false });
+        // The current row's fill is its own on the pixels.
+        const fills = (
+          await pixelsAt(
+            page,
+            m.items.map((i) => i.fillAt as [number, number]),
+          )
+        ).map(luma);
+        const currentFill = fills[1] as number;
+        for (const [i, f] of fills.entries()) {
+          if (i === 1) continue;
+          expect(
+            currentFill - f,
+            `${at}: the current row's fill reads apart from ${places[i]}'s (${fills.join(", ")})`,
+          ).toBeGreaterThanOrEqual(4);
+        }
+        await railLook("[data-place-menu]", at);
+
+        // Esc closes it and gives the button the keyboard back. The lime
+        // probe above blurred the row the menu opened on; it goes back
+        // there first, where opening the menu had put it.
+        await menu.locator(`[data-place="${acme}"]`).focus();
+        await until(
+          "premise: the keyboard is in the menu",
+          (s) => s.open === true && s.focus === acme,
+        );
+        await page.keyboard.press("Escape");
+        await until(
+          "Esc closes the menu",
+          (s) =>
+            s.open === false && s.expanded === "false" && s.focus === "switch",
+        );
+        // A click outside closes it and picks nothing.
+        await button.click();
+        await until("it opens again", (s) => s.open === true);
+        await page.mouse.click(700, 880);
+        await until(
+          "a click outside closes it",
+          (s) => s.open === false && s.expanded === "false",
+        );
+        expect((await state()).search, `${at}: nothing picked`).toBe(acme);
+        expect(await saved(), `${at}: nothing saved`).toBeNull();
+
+        // A click on a place picks it, as the rail's click does.
+        await button.click();
+        await until("it opens to pick", (s) => s.open === true);
+        await menu.locator(`[data-place="${places[2]}"]`).click();
+        await until(
+          "a click picks globex/api",
+          (s) =>
+            s.open === false &&
+            s.search === places[2] &&
+            s.title === "globex/api",
+        );
+        expect(
+          await button.innerText(),
+          `${at}: the button names the pick`,
+        ).toBe("globex/api");
+        await vi.waitFor(
+          async () => {
+            if ((await saved()) !== GLOBEX)
+              throw new Error(`saved ${await saved()}`);
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+
+        // And by keyboard: Enter on the button, End, Enter.
+        await button.focus();
+        await page.keyboard.press("Enter");
+        await until(
+          "Enter opens it on the current place",
+          (s) => s.open === true && s.focus === places[2],
+        );
+        await page.keyboard.press("End");
+        await until("End reaches the last place", (s) => s.focus === places[5]);
+        await page.keyboard.press("ArrowUp");
+        await until("ArrowUp steps back one", (s) => s.focus === places[4]);
+        await page.keyboard.press("Enter");
+        await until(
+          "Enter picks No project",
+          (s) =>
+            s.open === false &&
+            s.search === places[4] &&
+            s.title === "No project" &&
+            s.focus === "switch",
+        );
+        await vi.waitFor(
+          async () => {
+            if ((await saved()) !== "none")
+              throw new Error(`saved ${await saved()}`);
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
       }
 
       // The grid: a date heading's box sits inside the section's summary,
@@ -3573,7 +3932,7 @@ describe("the Studio's screenshot set", () => {
         });
         expect(hit, `${at}: the grid heading's box is painted`).toBe(true);
       }
-      expect(shots).toHaveLength(SIZES.length * 6 + 5);
+      expect(shots).toHaveLength(SIZES.length * 6 + 6);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);

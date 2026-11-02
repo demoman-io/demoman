@@ -1306,7 +1306,7 @@ describe("review fixes", () => {
       // A count on the current row clears 4.5:1: --ink-3, not --ink-4.
       expect(
         await page
-          .locator('.side-item[aria-current="true"] .side-count')
+          .locator('[data-rail] .side-item[aria-current="true"] .side-count')
           .evaluate((e) => getComputedStyle(e).color),
       ).toBe("rgb(143, 143, 152)");
       // Delete's confirmation answers in danger, not in ink.

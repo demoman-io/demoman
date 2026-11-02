@@ -321,6 +321,10 @@ function meterBar(): { bar: HTMLElement; set(fraction: number): void } {
 /** The storage panel's id, which its trigger's `popovertarget` names. */
 const STORAGE_PANEL = "storage-panel";
 
+/** The narrow switcher's menu: the rail's places (spec 2026-11-01
+ *  library-projects-design, Addendum). */
+const PLACE_MENU = "place-menu";
+
 /** The gutter the panel keeps from the window's edges, as the page does. */
 const PANEL_GUTTER = 16;
 const PANEL_WIDTH = 300;
@@ -344,6 +348,9 @@ function placePanel(
   /** Keep the side it opened on: a scroll that moves the trigger must not
    *  flip an open panel from above it to below. */
   keepSide = false,
+  /** Hang from the trigger's left edge: the title's switcher, at the
+   *  page's left, rather than the storage trigger at its right. */
+  fromLeft = false,
 ): void {
   const r = trigger.getBoundingClientRect();
   const page = document.documentElement.clientWidth;
@@ -351,7 +358,8 @@ function placePanel(
   // Its right edge on the trigger's — the trigger sits at the top bar's
   // right end — unless that would cross the window's left gutter, where
   // it hangs from the trigger's left edge instead.
-  const start = r.right - width >= PANEL_GUTTER ? r.right - width : r.left;
+  const start =
+    !fromLeft && r.right - width >= PANEL_GUTTER ? r.right - width : r.left;
   const left = Math.max(
     PANEL_GUTTER,
     Math.min(start, page - PANEL_GUTTER - width),
@@ -515,7 +523,100 @@ function createHeader(withStorage: boolean): Header {
   // goes in the top bar (see `storage` below).
   const box = el("div", { class: "library", "data-library": "" });
   const side = el("aside", { class: "library-side", "data-header": "" });
-  const title = el("h1", { "data-place-title": "" }, "Flows");
+  // The title band names the place. Below 1024px, where the rail is not
+  // drawn, it is a button that opens the rail's places as a menu instead
+  // (the page's stylesheet shows one or the other). The button comes first
+  // so the stylesheet can hide the plain title only when there is one.
+  const title = el("h1", {});
+  const titleText = el("span", { "data-place-title": "" }, "Flows");
+  const switchName = el("span", { class: "place-switch-name" });
+  const switcher = el("button", {
+    type: "button",
+    class: "place-switch",
+    "data-place-switch": "",
+    popovertarget: PLACE_MENU,
+    "aria-controls": PLACE_MENU,
+    "aria-haspopup": "menu",
+    "aria-expanded": "false",
+  });
+  switcher.hidden = true;
+  switcher.append(switchName, icon("chevronDown"));
+  title.append(switcher, titleText);
+  // A popover, as the storage panel is: the top layer paints it over the
+  // list, and the browser closes it on Esc (focus back on the button) and
+  // on a click outside it.
+  const menu = el("div", {
+    id: PLACE_MENU,
+    class: "place-menu",
+    popover: "",
+    role: "menu",
+    "aria-label": "Projects",
+    "data-place-menu": "",
+  });
+  const menuItems = () => [
+    ...menu.querySelectorAll<HTMLElement>("[data-place]"),
+  ];
+  let menuResized: AbortController | null = null;
+  menu.addEventListener("beforetoggle", (event) => {
+    if ((event as ToggleEvent).newState === "open") {
+      placePanel(menu, switcher, false, true);
+    }
+  });
+  menu.addEventListener("toggle", (event) => {
+    const open = (event as ToggleEvent).newState === "open";
+    switcher.setAttribute("aria-expanded", String(open));
+    menuResized?.abort();
+    menuResized = null;
+    if (!open) return;
+    placePanel(menu, switcher, false, true);
+    (
+      menu.querySelector<HTMLElement>('[aria-current="true"]') ?? menuItems()[0]
+    )?.focus();
+    menuResized = new AbortController();
+    // Wider than the switcher's breakpoint, the button is gone and the
+    // rail is back: the menu goes with it.
+    window.addEventListener(
+      "resize",
+      () => {
+        if (switcher.getClientRects().length === 0) menu.hidePopover();
+        else placePanel(menu, switcher, false, true);
+      },
+      { signal: menuResized.signal },
+    );
+  });
+  menu.addEventListener("keydown", (event) => {
+    const items = menuItems();
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const n = items.length;
+    const to =
+      event.key === "ArrowDown"
+        ? (at + 1) % n
+        : event.key === "ArrowUp"
+          ? (at - 1 + n) % n
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? n - 1
+              : null;
+    if (to === null || n === 0) return;
+    event.preventDefault();
+    items[to]?.focus();
+  });
+  // A pick is the rail's own click (it calls `goPlace` and cancels the
+  // link's navigation); Enter on an item is that click. A modified click,
+  // which opens the place in a new tab, leaves the menu open.
+  menu.addEventListener("click", (event) => {
+    if (!event.defaultPrevented) return;
+    menu.hidePopover();
+    switcher.focus();
+  });
+  // Tab out of the menu closes it, as a menu does.
+  menu.addEventListener("focusout", (event) => {
+    const to = event.relatedTarget as Node | null;
+    if (to !== null && !menu.contains(to) && menu.matches(":popover-open")) {
+      menu.hidePopover();
+    }
+  });
   const rail = el("nav", {
     class: "side-group",
     "aria-label": "Projects",
@@ -700,7 +801,7 @@ function createHeader(withStorage: boolean): Header {
     foot,
   );
   storage.append(trigger, panel);
-  side.append(title, rail);
+  side.append(title, rail, menu);
   tabsRow.append(tabs, toggle);
   content.append(tabsRow, notices);
   box.append(side, content);
@@ -735,20 +836,35 @@ function createHeader(withStorage: boolean): Header {
         );
       }
       tabsRow.hidden = toggle.hidden && tabs.hidden;
-      title.replaceChildren(...placeTitle(place));
-      // The rail is rebuilt; the item that had the keyboard keeps it.
-      const focused = document.activeElement?.closest<HTMLElement>(
-        "[data-rail] [data-place]",
-      )?.dataset.place;
-      rail.replaceChildren(
-        ...(place === undefined
-          ? []
-          : [railList(place.rail, place.place, next)]),
+      titleText.replaceChildren(...placeTitle(place));
+      // No rail, no places to switch between: the plain title alone.
+      switchName.replaceChildren(
+        ...(place === undefined ? [] : placeTitle(place)),
       );
-      if (focused !== undefined) {
-        rail
-          .querySelector<HTMLElement>(`[data-place="${CSS.escape(focused)}"]`)
-          ?.focus();
+      switcher.hidden = place === undefined;
+      // The rail and the menu are rebuilt; the item that had the keyboard
+      // keeps it.
+      for (const list of [rail, menu]) {
+        const focused =
+          document.activeElement?.closest<HTMLElement>("[data-place]");
+        const had = list.contains(focused ?? null)
+          ? focused?.dataset.place
+          : undefined;
+        list.replaceChildren(
+          ...(place === undefined
+            ? []
+            : [railList(place.rail, place.place, next)]),
+        );
+        if (had !== undefined) {
+          list
+            .querySelector<HTMLElement>(`[data-place="${CSS.escape(had)}"]`)
+            ?.focus();
+        }
+      }
+      menu.querySelector(".side-list")?.setAttribute("role", "none");
+      for (const item of menuItems()) {
+        item.setAttribute("role", "menuitem");
+        item.tabIndex = -1;
       }
       if (model.totalBytes === undefined) {
         total.remove();

@@ -35,11 +35,39 @@
         --control-hover: var(--control-hover-ground);
       }
       .library-content { min-width: 0; }
-      /* Stacked over the list, the rail wraps into rows under the title:
-         it is the only way to another project. */
+      /* Under 1024px the rail is not drawn: a full column of places above
+         the list took most of the window (the author, 2026-11-01). The
+         title is a button that opens the same places as a menu instead
+         (view.ts). Wide, the switcher is not drawn. */
+      .place-switch { display: none; }
       @media (max-width: 1023px) {
-        [data-rail] { margin-top: 16px; }
+        [data-rail] { display: none; }
+        .place-switch:not([hidden]) {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          max-width: 100%;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: inherit;
+          font: inherit;
+          letter-spacing: inherit;
+          cursor: pointer;
+        }
+        .place-switch:not([hidden]) + [data-place-title] { display: none; }
       }
+      /* Shrinks, so the name's own ellipsis (.place-name) has a width to
+         keep to; not clipped itself, or the glyphs' descenders go. */
+      .place-switch-name { min-width: 0; }
+      .place-switch svg {
+        flex: none;
+        width: 20px;
+        height: 20px;
+        color: var(--ink-faint);
+        transition: transform 120ms ease;
+      }
+      .place-switch[aria-expanded="true"] svg { transform: rotate(180deg); }
       @media (min-width: 1024px) {
         .library { grid-template-columns: 184px minmax(0, 1fr); gap: 48px; }
         /* Held, and never taller than the window: a long rail scrolls
@@ -160,7 +188,8 @@
          page, so the panel's edge ran into the card beneath it. No
          `display` here: the UA's `[popover]:not(:popover-open)` is what
          keeps it hidden. */
-      .storage-panel {
+      .storage-panel,
+      .place-menu {
         position: absolute;
         /* Capped to the room beside its trigger by view.ts's placePanel
            when it does not fit; it scrolls inside then. */
@@ -178,6 +207,9 @@
           var(--shadow-overlay);
         font-size: 13px;
       }
+      /* The switcher's menu: the storage panel's surface, holding the rail's
+         own rows. */
+      .place-menu { padding: 4px; }
       /* Manrope since 2026-10-06, as every heading under the page title is:
          Outfit is the page title's and the dialogs'. */
       .storage-title {

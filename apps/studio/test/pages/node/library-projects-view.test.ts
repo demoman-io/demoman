@@ -218,10 +218,17 @@ describe("library main — the project rail, title band and tab row", () => {
       "acme/",
     );
     expect($("[data-place-title] [data-place-name]")?.textContent).toBe("web");
-    // One place names the owner: the title carries it, no line above it.
+    // The title names the owner, and no line above it does: outside the
+    // rail and the switcher's menu, the only owners are the title band's
+    // two (the plain title, and the switcher's button drawn in its place
+    // under 1024px), both inside its heading.
+    const owners = $$("[data-place-owner]").filter(
+      (e) => !e.closest("[data-rail], [data-place-menu]"),
+    );
+    expect(owners.map((e) => e.closest("h1") !== null)).toEqual([true, true]);
     expect(
-      $$("[data-place-owner]").filter((e) => !e.closest("[data-rail]")),
-    ).toHaveLength(1);
+      owners.map((e) => e.closest("[data-place-title], [data-place-switch]")),
+    ).toEqual([$("[data-place-switch]"), $("[data-place-title]")]);
     railItem(`?project=${encodeURIComponent(SCRATCH)}`)?.click();
     expect($("[data-place-title] [data-place-owner]")).toBeNull();
     expect($("[data-place-title] [data-place-local]")?.textContent).toBe(
@@ -331,6 +338,64 @@ describe("library main — the project rail, title band and tab row", () => {
       { ...DEFAULT_LIBRARY_VIEW, project: APP },
     ]);
     expect(flowsDrawn()).toEqual(["t-app"]);
+  });
+
+  it("the narrow switcher names the place, and its menu holds the rail's places", async () => {
+    await boot(`/?project=${encodeURIComponent(WEB)}`);
+    const button = $("[data-place-switch]") as HTMLElement;
+    expect(button.tagName).toBe("BUTTON");
+    expect(button.hidden).toBe(false);
+    expect(button.textContent).toBe("acme/web");
+    expect(button.getAttribute("aria-haspopup")).toBe("menu");
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    const menu = $("[data-place-menu]") as HTMLElement;
+    expect(button.getAttribute("popovertarget")).toBe(menu.id);
+    expect(menu.getAttribute("role")).toBe("menu");
+    const items = $$("[data-place-menu] [data-place]");
+    expect(items.map((a) => a.dataset.place)).toEqual(
+      $$("[data-rail] [data-place]").map((a) => a.dataset.place),
+    );
+    expect(items.map((a) => a.textContent)).toEqual(
+      $$("[data-rail] [data-place]").map((a) => a.textContent),
+    );
+    expect(items.every((a) => a.getAttribute("role") === "menuitem")).toBe(
+      true,
+    );
+    expect(
+      items
+        .filter((a) => a.getAttribute("aria-current") === "true")
+        .map((a) => a.dataset.place),
+    ).toEqual([`?project=${encodeURIComponent(WEB)}`]);
+  });
+
+  it("a pick in the switcher's menu is a rail click: the address, the saved pick, the tab and the selection", async () => {
+    // jsdom has no popover API; the page closes the menu after a pick.
+    const hide = vi.fn();
+    HTMLElement.prototype.hidePopover = hide;
+    try {
+      await boot(`/?project=${encodeURIComponent(WEB)}`);
+      tab("notInRepo")?.click();
+      $('[data-select="plain"]')?.click();
+      // Premise: a tab narrowed and a flow is ticked.
+      expect(flowsDrawn()).toEqual(["t-plain"]);
+      expect($("[data-selection-bar]")).not.toBeNull();
+      $(
+        `[data-place-menu] [data-place="${CSS.escape(`?project=${encodeURIComponent(APP)}`)}"]`,
+      )?.click();
+      expect(location.search).toBe(`?project=${encodeURIComponent(APP)}`);
+      expect(calls("libraryView", "write").map((c) => c.args[0])).toEqual([
+        { ...DEFAULT_LIBRARY_VIEW, project: APP },
+      ]);
+      expect(tab("all")?.getAttribute("aria-pressed")).toBe("true");
+      expect($("[data-selection-bar]")).toBeNull();
+      expect(flowsDrawn()).toEqual(["t-app"]);
+      expect($("[data-place-switch]")?.textContent).toBe("zeta/app");
+      expect(current()).toEqual([`?project=${encodeURIComponent(APP)}`]);
+      expect(hide).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe($("[data-place-switch]"));
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, "hidePopover");
+    }
   });
 
   it("a pick that was not saved is said on the console", async () => {
