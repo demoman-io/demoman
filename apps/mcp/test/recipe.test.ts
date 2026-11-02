@@ -457,6 +457,14 @@ describe("the CLI's recipe", () => {
     expect(RECIPE).not.toContain("--browser");
   });
 
+  // Red if a cut for room drops a contract an agent acts on (R17): a key the
+  // schema refuses, and where a Studio export lands.
+  it("says an unknown key in a step or look is refused, and where Studio exports go", () => {
+    expect(RECIPE).toContain("An unknown key is refused and named.");
+    expect(RECIPE).toContain("An unknown key in `look` is refused and named.");
+    expect(RECIPE).toContain("Studio exports go to `~/Downloads`.");
+  });
+
   it("keeps the CLI recipe within Codex's 10,000-token cut", () => {
     expect(Buffer.byteLength(RECIPE, "utf8")).toBeLessThanOrEqual(40_000);
   });
