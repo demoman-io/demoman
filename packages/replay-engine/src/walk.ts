@@ -334,9 +334,27 @@ const RANGE_READ = `function () {
   };
 }`;
 
+/**
+ * How one performed step played, measured once by the walk where it counts
+ * the step. `markerMs` is the step's marker on the bundle's axis (source ms
+ * from the take's first frame); the rest are relative to it. `startMs` is
+ * when the walk began the step (≤ 0), `finishMs` when its verb had returned
+ * and its span closed, `zoomOutMs` when the camera is back at full frame
+ * after a step that zoomed (`RoomPolicy.settledAfterMs`), else null.
+ */
+export interface StepTiming {
+  markerMs: number;
+  startMs: number;
+  finishMs: number;
+  zoomOutMs: number | null;
+}
+
 export interface WalkSource {
   /** Pulled lazily and once each. An authored source resolves inside it. */
   steps(): AsyncIterable<WalkStep> | Iterable<WalkStep>;
+  /** Told each step's timing once the walk has counted it, before it pulls
+   *  the next. Never told for a step the walk did not perform. */
+  onFinished?(actionId: string, timing: StepTiming): void;
 }
 
 /**
@@ -365,6 +383,13 @@ export interface WalkConfig {
   /** A phone or tablet to film as (spec 2026-10-10); `viewport` is then its
    *  size. Null: the desktop. */
   device: DeviceLike | null;
+  /**
+   * The script's `trim.end`: film at least `ms` after the last performed
+   * step's finish — or after the camera's return to full frame, for
+   * `"zoomOut"` — so the take holds the tail the trim asks for. Absent:
+   * today's tail alone. Continuous recording only, as the tail is.
+   */
+  tail?: { ms: number; after: "zoomOut" | "action" };
 }
 
 /**
@@ -683,6 +708,35 @@ export async function runWalk(
   let lastHeldUntil: number | null = null;
   /** The last zoom's action and arrival, for the drags it holds through. */
   let lastZoom: { actionMs: number; arrivalMs: number } | null = null;
+  /** The last counted step's finish, for `config.tail`. Cast so the
+   *  checker does not narrow it to `null`: `stepFinished` sets it. */
+  let lastFinishAt = null as number | null;
+  /**
+   * The one place a step's finish is measured: where the walk counts it,
+   * after its verb returned and (sampled) its span closed. It moves with the
+   * page and the machine, and that is fine: a trim offset built from it is a
+   * duration added to the step's own marker, not a threshold anything
+   * decides on, so a jitter moves the cut by as much and changes nothing else.
+   */
+  const stepFinished = (
+    actionId: string,
+    markerMs: number,
+    startedAt: number,
+    zoomed: boolean,
+  ): void => {
+    const atMs = at();
+    const zoomOutAtMs =
+      zoomed && room !== undefined && lastHeldUntil !== null
+        ? room.settledAfterMs(lastHeldUntil)
+        : null;
+    lastFinishAt = atMs;
+    source.onFinished?.(actionId, {
+      markerMs,
+      startMs: startedAt - markerMs,
+      finishMs: atMs - markerMs,
+      zoomOutMs: zoomOutAtMs === null ? null : zoomOutAtMs - markerMs,
+    });
+  };
 
   const keyframes: KeyframeEntry[] = [];
   const motionSpans: FrameBundle["motionSpans"] = [];
@@ -2088,6 +2142,7 @@ export async function runWalk(
     for await (const step of signedOut === null ? source.steps() : NO_STEPS) {
       navsAtPreviousStep = navsAtThisStep;
       navsAtThisStep = navigationsSeen;
+      const stepStartedAt = at();
       // Unhurried beats: any step but a click begins at once, and the act
       // it follows ends where the page has got to. A click settles it once
       // it knows whether it will wait (below).
@@ -2209,6 +2264,7 @@ export async function runWalk(
         completed++;
         lastCompletedActionId = step.action.id;
         inFlight = null;
+        stepFinished(step.action.id, metAt, stepStartedAt, false);
         // A page that came in goes on painting after the condition holds,
         // and that is the act a later zoom waits for, not the click that
         // set it off (code review 2026-10-20, R1).
@@ -2269,6 +2325,7 @@ export async function runWalk(
         completed++;
         lastCompletedActionId = keyAction.id;
         inFlight = null;
+        stepFinished(keyAction.id, marker.sourceTimeMs, stepStartedAt, false);
         deps.onProgress?.({
           step: completed,
           total,
@@ -2574,6 +2631,12 @@ export async function runWalk(
       completed++;
       lastCompletedActionId = step.action.id;
       inFlight = null;
+      stepFinished(
+        step.action.id,
+        markedAt,
+        stepStartedAt,
+        zoomedClick || zoomedDrag,
+      );
       deps.onProgress?.({
         step: completed,
         total,
@@ -2603,7 +2666,16 @@ export async function runWalk(
           room !== undefined && lastHeldUntil !== null
             ? room.settledAfterMs(lastHeldUntil)
             : Number.NEGATIVE_INFINITY;
-        const tail = Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt) - at();
+        // The script's end trim, which needs at least its own `ms` filmed
+        // after the last step's finish (or its zoom-out) to have it to keep.
+        const asked =
+          config.tail === undefined || lastFinishAt === null
+            ? Number.NEGATIVE_INFINITY
+            : (config.tail.after === "zoomOut"
+                ? Math.max(lastFinishAt, settledAt)
+                : lastFinishAt) + config.tail.ms;
+        const tail =
+          Math.max(lastMarkerAt + TAKE_TAIL_MS, settledAt, asked) - at();
         if (tail > 0) await clock.sleep(tail);
       }
       await clock.sleep(SPAN_QUIET_MS);

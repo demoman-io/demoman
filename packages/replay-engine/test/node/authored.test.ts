@@ -418,6 +418,7 @@ function assemble(
       () => 1,
       () => undefined,
     ),
+    steps: driven.run.steps,
   });
 }
 
@@ -1331,6 +1332,7 @@ describe("the authored source and its assembler", () => {
         () => 1,
         () => undefined,
       ),
+      steps: driven.run.steps,
     });
 
     expect(document).toBeNull();
@@ -1490,6 +1492,7 @@ describe("a take's starting look comes from the caller", () => {
       walked: walkedStub(),
       startingBranding: driven.deps.startingBranding,
       camera: plan,
+      steps: driven.run.steps,
     });
     expect(error).toBeNull();
     expect(document?.camera).toHaveLength(1);
