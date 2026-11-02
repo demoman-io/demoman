@@ -216,7 +216,10 @@ export function parseSkeleton(
       if (!(key in step) || !nullOr(step[key], (v) => typeof v === "number"))
         return no(`script.json's steps.${i}'s ${key} is not a number or null`);
     }
-    if (step.zoom !== undefined && !ZoomIntentSchema.safeParse(step.zoom).success)
+    if (
+      step.zoom !== undefined &&
+      !ZoomIntentSchema.safeParse(step.zoom).success
+    )
       return no(
         `script.json's steps.${i}'s zoom is not false or { scale } (over 1, at most the camera's limit)`,
       );

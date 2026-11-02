@@ -189,7 +189,7 @@ describe("the current schema version", () => {
   // "schema v4 — uncovered origins" until 2026-09-20, where its name said
   // nothing about what it guards and the next bump would have read it as
   // part of that block's subject.
-  it("is 14", () => {
+  it("is 15", () => {
     expect(CURRENT_SCHEMA_VERSION).toBe(15);
   });
 });

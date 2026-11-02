@@ -323,7 +323,8 @@ const CameraEvent = z.object({
   note: z.string().optional(),
   /**
    * Where this zoom came from: `click` was generated for a click, `author`
-   * was written by the author (a script's `zoom` field). The record that
+   * was written by the author (the Studio's addZoom, or a click zoom the
+   * author moved; a script's `zoom` stays `click` with `scaleSetBy: "script"`). The record that
    * write-back reads; never inferred from the event's shape. Absent on every
    * take saved before v15 — those are not guessed.
    */
@@ -359,7 +360,8 @@ const CameraEvent = z.object({
  * the fit floors to hundredths, and a target many windows tall fits at none.
  * Either one refused here threw at Stop and lost the take, for a note.
  *
- * Optional, with no version bump — the widening rule `motion` follows.
+ * Optional, with no version bump when it was added — the widening rule
+ * `motion` follows. (`off` and `askedScale` came with v15.)
  * Absent on a take whose zooms left no click out, and on every take saved
  * before the field existed, whose skips were never recorded.
  */
