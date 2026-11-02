@@ -15,7 +15,8 @@ function skeletonFor(doc: SceneDocument): ScriptSkeleton {
   const derived = scriptFromTake(doc);
   if (derived.outcome !== "derived") throw new Error("fixture derives nothing");
   return {
-    skeletonVersion: 1,
+    skeletonVersion: 2,
+    trim: null,
     name: "Fixture",
     scriptVersion: 1,
     viewport: null,
@@ -23,7 +24,13 @@ function skeletonFor(doc: SceneDocument): ScriptSkeleton {
     look: null,
     steps: derived.draft.steps.flatMap((s, i) => [
       ...(i === 0 ? [] : [{ do: "pause" as const, ms: 700 + i }]),
-      { do: s.do, actionId: s.recorded ?? null, anchorDigest: null },
+      {
+        do: s.do,
+        actionId: s.recorded ?? null,
+        anchorDigest: null,
+        finishMs: null,
+        zoomOutMs: null,
+      },
     ]),
   };
 }
@@ -356,6 +363,8 @@ describe("mergeSkeleton", () => {
     const step = sk.steps[i] as {
       actionId: string | null;
       anchorDigest: string | null;
+      finishMs: number | null;
+      zoomOutMs: number | null;
     };
     sk.steps[i] = { ...step, do: "click" };
     return { sk, i, actionId: step.actionId };
@@ -475,6 +484,8 @@ describe("refilmScript", () => {
       ...(sk.steps[i] as {
         actionId: string | null;
         anchorDigest: string | null;
+        finishMs: number | null;
+        zoomOutMs: number | null;
       }),
       do: "click",
     };
