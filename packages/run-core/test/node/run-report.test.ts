@@ -1250,3 +1250,197 @@ describe("a typed field that does not hold its text", () => {
     expect(report.verdict.kind).toBe("matches");
   });
 });
+
+describe("RunReport opening, trim and zoom notes", () => {
+  const timing = (markerMs: number, startMs: number, finishMs: number) => ({
+    markerMs,
+    startMs,
+    finishMs,
+    zoomOutMs: null,
+  });
+
+  /** waitForLoad, a 500 ms pause, then a click whose marker is at 2000 ms.
+   *  Load 800 + waitForLoad 700 + pause 500 = 2000: the parts sum. */
+  function opening(over: {
+    clickMarkerMs?: number;
+    trim?: DemoScript["trim"];
+    trimClamped?: { side: "start"; askedMs: number; keptMs: number };
+    trimUnplaced?: ("start" | "end")[];
+    scene?: SceneDocument;
+    steps?: AuthoredStep[];
+  }): BuildArgs {
+    const base = complete();
+    if (!("walk" in base)) throw new Error("the fixture is a walked run");
+    const script: DemoScript = {
+      scriptVersion: 1,
+      name: "opening",
+      target: "https://app.example.com/",
+      steps: [
+        { do: "waitForLoad" },
+        { do: "pause", ms: 500 },
+        { do: "click", on: { stableId: "stable-1" } },
+      ],
+      ...(over.trim === undefined ? {} : { trim: over.trim }),
+    };
+    return {
+      ...base,
+      script,
+      scene: over.scene ?? sceneOf(1),
+      madeFrom: madeFromFor(scriptOf(1)),
+      walk: {
+        ...completeWalk(2),
+        ...(over.trimClamped === undefined
+          ? {}
+          : { trimClamped: over.trimClamped }),
+        ...(over.trimUnplaced === undefined
+          ? {}
+          : { trimUnplaced: over.trimUnplaced }),
+      },
+      steps: over.steps ?? [
+        authoredStep(0, {
+          index: 0,
+          step: { do: "waitForLoad" },
+          anchorId: null,
+          actionId: null,
+          timing: timing(1500, -700, 0),
+        }),
+        authoredStep(1, {
+          index: 2,
+          timing: timing(over.clickMarkerMs ?? 2000, -100, 300),
+        }),
+      ],
+    };
+  }
+
+  it("opening breaks down load, a waitForLoad and a pause", () => {
+    const report = buildRunReport(opening({}));
+    expect(report.opening?.ms).toBe(2000);
+    expect(report.opening?.spentOn).toEqual([
+      { kind: "load", ms: 800 },
+      { kind: "waitForLoad", ms: 700 },
+      { kind: "pause", ms: 500 },
+    ]);
+    // The breakdown cannot silently omit time.
+    const sum = report.opening?.spentOn.reduce((t, p) => t + p.ms, 0);
+    expect(
+      Math.abs((sum ?? 0) - (report.opening?.ms ?? 0)),
+    ).toBeLessThanOrEqual(1);
+    expect(report.opening?.unaccountedMs).toBeUndefined();
+    expect(report.opening?.shown).toBeUndefined();
+  });
+
+  it("an opening the parts do not cover says how much is left", () => {
+    const report = buildRunReport(opening({ clickMarkerMs: 2600 }));
+    expect(report.opening?.ms).toBe(2600);
+    expect(report.opening?.unaccountedMs).toBe(600);
+  });
+
+  it("a long opening is in the summary and names its largest part", () => {
+    const report = buildRunReport(opening({ clickMarkerMs: 4200 }));
+    expect(report.opening?.ms).toBe(4200);
+    expect(verdictLine(report)).toContain(
+      "the video spends 4.2 s before the first step (mostly loading); trim.start shortens it",
+    );
+  });
+
+  it("a short one is not", () => {
+    expect(verdictLine(buildRunReport(opening({})))).not.toContain(
+      "before the first step",
+    );
+  });
+
+  it("a failure sentence still leads a long opening", () => {
+    const built = opening({ clickMarkerMs: 4200 });
+    if (!("walk" in built)) throw new Error("walked");
+    const report = buildRunReport({
+      ...built,
+      walk: { ...built.walk, completed: 1, reason: "anchorNotRendered" },
+    });
+    expect(report.opening?.ms).toBe(4200);
+    expect(verdictLine(report)).toMatch(/^Stopped/);
+  });
+
+  it("a trim.start that applies says how much of the opening the video keeps", () => {
+    const report = buildRunReport(
+      opening({ clickMarkerMs: 4200, trim: { start: { ms: 1000 } } }),
+    );
+    expect(report.opening?.shown).toBe(1000);
+    expect(verdictLine(report)).not.toContain("trim.start shortens it");
+  });
+
+  it("a clamped start trim is reported in words", () => {
+    const report = buildRunReport(
+      opening({
+        trim: { start: { ms: 4000, step: 3 } },
+        trimClamped: { side: "start", askedMs: 4000, keptMs: 1200 },
+      }),
+    );
+    expect(report.opening?.shown).toBe(1200);
+    expect(report.trimNotes).toEqual([
+      "trim.start asked for 4000 ms before step 3 and the video holds 1200 ms; it starts at the beginning",
+    ]);
+  });
+
+  it("an end trim whose step never ran says so", () => {
+    const report = buildRunReport(
+      opening({
+        trim: { end: { ms: 500, step: 3 } },
+        trimUnplaced: ["end"],
+        steps: [],
+      }),
+    );
+    expect(report.trimNotes).toEqual([
+      "trim.end names step 3, which never ran, so the end is not trimmed",
+    ]);
+  });
+
+  it("an end trim past what the run filmed says so", () => {
+    const report = buildRunReport(
+      opening({ trim: { end: { ms: 500, step: 3 } }, trimUnplaced: ["end"] }),
+    );
+    expect(report.trimNotes).toEqual([
+      "trim.end lies past what the run filmed, so the end is not trimmed",
+    ]);
+  });
+
+  it("a start trim whose step never ran says so", () => {
+    const report = buildRunReport(
+      opening({
+        trim: { start: { ms: 500, step: 3 } },
+        trimUnplaced: ["start"],
+        steps: [],
+      }),
+    );
+    expect(report.trimNotes).toEqual([
+      "trim.start names step 3, which never ran, so the start is not trimmed",
+    ]);
+  });
+
+  it("an asked scale on a skipped click is reported per step", () => {
+    const scene: SceneDocument = {
+      ...sceneOf(2),
+      zoomsSkipped: [
+        {
+          actionId: "a2",
+          reason: "tooClose",
+          afterActionId: "a1",
+          gapMs: 400,
+          askedScale: 1.6,
+        },
+        { actionId: "a1", reason: "off" },
+      ],
+    };
+    const base = complete();
+    if (!("walk" in base)) throw new Error("walked");
+    const report = buildRunReport({
+      ...base,
+      scene,
+      steps: [authoredStep(1), authoredStep(2)],
+    });
+    expect(report.zoomNotes).toHaveLength(1);
+    expect(report.zoomNotes?.[0]?.step).toBe(2);
+    expect(report.zoomNotes?.[0]?.sentence).toMatch(
+      /^asked for 1\.6x, but no zoom on click a2: too close to the previous zoom/,
+    );
+  });
+});

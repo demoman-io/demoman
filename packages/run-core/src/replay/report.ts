@@ -17,11 +17,13 @@ import {
   TYPE_FIELD_UNFOCUSED,
   type WaitSaw,
 } from "@demoman/replay-engine";
-import type {
-  DemoScript,
-  SceneDocument,
-  StrategyName,
+import {
+  type DemoScript,
+  type SceneDocument,
+  SHOWN_STEP,
+  type StrategyName,
 } from "@demoman/scene-schema";
+import { zoomSkippedNote } from "../auto-zoom.js";
 import type { RunLook } from "../brand-kit.js";
 import type { RefilmInfo } from "../refilm/merge.js";
 import type { EndPage } from "../snapshot-walk.js";
@@ -309,7 +311,39 @@ export interface RunReport {
    */
   size: RunSize | null;
   verdict: Verdict;
+  /** What the video's opening was spent on. Absent for a run with no script
+   *  or no shown step performed. */
+  opening?: OpeningReport;
+  /** One sentence per click whose asked-for `zoom` the take refused. */
+  zoomNotes?: { step: number; sentence: string }[];
+  /** One sentence per side of the script's `trim` that did not apply as asked. */
+  trimNotes?: string[];
 }
+
+/**
+ * From the take's first frame to the first shown step's marker, in parts.
+ * `spentOn` is `load` (first frame to the first step's start), then each
+ * step before the first shown one (a `pause` at its scripted length).
+ * `unaccountedMs` is what the parts do not cover, present only when it is
+ * more than rounding: never padded into one of the kinds. `shown` is the
+ * opening the video keeps when `trim.start` applies.
+ */
+export interface OpeningReport {
+  ms: number;
+  shown?: number;
+  spentOn: {
+    kind: "load" | "waitForLoad" | "waitFor" | "pause";
+    ms: number;
+  }[];
+  unaccountedMs?: number;
+}
+
+/**
+ * An opening longer than this puts a clause in the summary line: about the
+ * point a viewer waits for something to happen. Not jitter-sensitive; it
+ * only decides whether a sentence is added, never how the film is made.
+ */
+export const LONG_OPENING_MS = 3000;
 
 /**
  * What one run's own walk measured, narrowed to what a report needs — the
@@ -328,6 +362,9 @@ export interface WalkResultLike {
   counters: Pick<ReplayCounters, "encodeShrunkSpans">;
   unconfirmedClicks?: { actionId: string; note: string }[];
   ignoredDrags?: { actionId: string; note: string }[];
+  /** `AuthoredResult`'s own, carried for `trimNotes`. */
+  trimClamped?: { side: "start"; askedMs: number; keptMs: number };
+  trimUnplaced?: ("start" | "end")[];
 }
 
 interface BuildArgsCommon {
@@ -365,7 +402,13 @@ interface BuildArgsCommon {
  */
 export type BuildArgs =
   | (BuildArgsCommon & { refused: { reason: ReplayRefusal } })
-  | (BuildArgsCommon & { walk: WalkResultLike; steps: AuthoredStep[] });
+  | (BuildArgsCommon & {
+      walk: WalkResultLike;
+      steps: AuthoredStep[];
+      /** The script that was walked, for the opening and the trim notes.
+       *  Absent on a re-shoot, which has none: no opening is claimed. */
+      script?: DemoScript;
+    });
 
 /** What a hidden step's `intent.text` reads instead of the value. */
 export const HIDDEN_TEXT = "(hidden: typed into a credential field)";
@@ -416,6 +459,94 @@ function scriptStepLabel(step: AuthoredStep["step"]): string {
   if ("treePath" in target) return `${step.do} treePath "${target.treePath}"`;
   const unknown: never = target;
   return `${step.do} ${JSON.stringify(unknown)}`;
+}
+
+/** Where the opening went; see `OpeningReport`. */
+function openingOf(
+  script: DemoScript,
+  steps: readonly AuthoredStep[],
+  walk: WalkResultLike,
+): OpeningReport | undefined {
+  const timed = (i: number) => steps.find((s) => s.index === i)?.timing;
+  const firstShown = script.steps.findIndex((s) => SHOWN_STEP[s.do]);
+  const shownTiming = firstShown < 0 ? undefined : timed(firstShown);
+  const first = steps.find((s) => s.timing !== undefined)?.timing;
+  if (shownTiming === undefined || first === undefined) return undefined;
+  const ms = Math.round(shownTiming.markerMs);
+  const spentOn: OpeningReport["spentOn"] = [
+    { kind: "load", ms: Math.round(first.markerMs + first.startMs) },
+  ];
+  for (const [i, step] of script.steps.slice(0, firstShown).entries()) {
+    if (step.do === "pause") spentOn.push({ kind: "pause", ms: step.ms });
+    else if (step.do === "waitForLoad" || step.do === "waitFor") {
+      const t = timed(i);
+      if (t !== undefined)
+        spentOn.push({ kind: step.do, ms: Math.round(t.finishMs - t.startMs) });
+    }
+  }
+  const left = ms - spentOn.reduce((total, p) => total + p.ms, 0);
+  const start = script.trim?.start;
+  const unplaced = walk.trimUnplaced?.includes("start") ?? false;
+  return {
+    ms,
+    ...(start === undefined || unplaced
+      ? {}
+      : { shown: walk.trimClamped?.keptMs ?? start.ms }),
+    spentOn,
+    ...(Math.abs(left) > 1 ? { unaccountedMs: left } : {}),
+  };
+}
+
+/** The sides of `trim` that did not apply as asked, in words. */
+function trimNotesOf(
+  script: DemoScript,
+  steps: readonly AuthoredStep[],
+  walk: WalkResultLike,
+): string[] {
+  const notes: string[] = [];
+  const shown = script.steps.flatMap((s, i) =>
+    SHOWN_STEP[s.do] ? [i + 1] : [],
+  );
+  const clamp = walk.trimClamped;
+  if (clamp !== undefined) {
+    const step = script.trim?.start?.step ?? shown[0];
+    notes.push(
+      `trim.start asked for ${clamp.askedMs} ms before step ${step} and the video holds ${clamp.keptMs} ms; it starts at the beginning`,
+    );
+  }
+  for (const side of walk.trimUnplaced ?? []) {
+    const step =
+      script.trim?.[side]?.step ??
+      (side === "start" ? shown[0] : shown[shown.length - 1]);
+    const ran =
+      step !== undefined &&
+      steps.some((s) => s.index === step - 1 && s.timing !== undefined);
+    notes.push(
+      ran
+        ? `trim.${side} lies past what the run filmed, so the ${side} is not trimmed`
+        : `trim.${side} names step ${step}, which never ran, so the ${side} is not trimmed`,
+    );
+  }
+  return notes;
+}
+
+/** A click's asked-for zoom that the take refused, per script step. */
+function zoomNotesOf(
+  scene: SceneDocument | null,
+  steps: readonly AuthoredStep[],
+): { step: number; sentence: string }[] {
+  return (scene?.zoomsSkipped ?? []).flatMap((skip) => {
+    if (!("askedScale" in skip) || skip.askedScale === undefined) return [];
+    const record = steps.find((s) => s.actionId === skip.actionId);
+    if (record === undefined) return [];
+    const note = zoomSkippedNote(skip);
+    return [
+      {
+        step: record.index + 1,
+        sentence: `asked for ${skip.askedScale}x, but ${note.charAt(0).toLowerCase()}${note.slice(1)}`,
+      },
+    ];
+  });
 }
 
 /**
@@ -668,6 +799,15 @@ export function buildRunReport(args: BuildArgs): RunReport {
       ? "complete"
       : "stopped";
   const steps = args.steps.map(toStepReport);
+  const opening =
+    args.script === undefined
+      ? undefined
+      : openingOf(args.script, args.steps, args.walk);
+  const trimNotes =
+    args.script === undefined
+      ? []
+      : trimNotesOf(args.script, args.steps, args.walk);
+  const zoomNotes = zoomNotesOf(args.scene, args.steps);
 
   return {
     run: args.run,
@@ -696,6 +836,9 @@ export function buildRunReport(args: BuildArgs): RunReport {
       steps,
       args.walk.ignoredDrags,
     ),
+    ...(opening === undefined ? {} : { opening }),
+    ...(zoomNotes.length === 0 ? {} : { zoomNotes }),
+    ...(trimNotes.length === 0 ? {} : { trimNotes }),
   };
 }
 
@@ -864,6 +1007,24 @@ function framesClause(report: RunReport): string {
  *  Split the way `replayNotice`/`runNotice` are split, so the two clauses
  *  cannot be reordered by accident. */
 function runVerdictLine(report: RunReport): string {
+  const line = runOutcomeLine(report);
+  // After the sentence, never instead of one: a stop or a refusal leads.
+  const opening = report.opening;
+  const spent = opening?.shown ?? opening?.ms ?? 0;
+  if (report.outcome !== "complete" || opening === undefined) return line;
+  if (spent <= LONG_OPENING_MS) return line;
+  const largest = opening.spentOn.reduce((a, b) => (b.ms > a.ms ? b : a));
+  const what = {
+    load: "loading",
+    waitForLoad: "waiting for a load",
+    waitFor: "waiting for an element",
+    pause: "a pause",
+  }[largest.kind];
+  const shorten = opening.shown === undefined ? "; trim.start shortens it" : "";
+  return `${line.replace(/\.$/, "")}; the video spends ${(spent / 1000).toFixed(1)} s before the first step (mostly ${what})${shorten}.`;
+}
+
+function runOutcomeLine(report: RunReport): string {
   if (report.outcome === "refused") {
     const reason = report.refused?.reason ?? "unknown";
     return `Refused: ${reason}.`;
