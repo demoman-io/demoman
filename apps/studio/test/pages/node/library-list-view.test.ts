@@ -701,3 +701,85 @@ describe("the list view", () => {
     ).toBe(true);
   });
 });
+
+describe("a date heading's box", () => {
+  const box = (grid: HTMLElement | null, key: string) =>
+    cell(rowOf(grid, key), "select").querySelector<HTMLInputElement>(
+      "input.select-box",
+    );
+  const drawSel = (picked: string[], view = LIST) => {
+    const root = document.createElement("div");
+    document.body.replaceChildren(root);
+    const acts = { ...actions(), selectGroup: vi.fn() };
+    const sel = { ids: new Set(picked), anchor: null, range: [] };
+    renderLibrary(root, model, acts, new Map(), NOW, sel, undefined, view);
+    return { acts, grid: root.querySelector<HTMLElement>("[data-list]") };
+  };
+
+  it("is named for the day and ticked only when every flow of it is", () => {
+    // premise: Today holds flow A and a loose take; Yesterday holds B.
+    const { grid } = drawSel(["A"]);
+    expect(rowOf(grid, "h:today").getAttribute("aria-label")).toBe("Today");
+    expect(rowOf(grid, "h:yesterday")).not.toBeNull();
+    const today = box(grid, "h:today");
+    expect(today?.getAttribute("aria-label")).toBe("Select Today");
+    expect(today?.checked).toBe(true);
+    expect(today?.indeterminate).toBe(false);
+    expect(box(grid, "h:yesterday")?.checked).toBe(false);
+  });
+
+  it("is half-ticked when only some of the day's flows are", () => {
+    const d1 = take("d1", new Date(2026, 9, 30, 4));
+    const m = {
+      ...model,
+      rows: [...model.rows, d1],
+      groups: [...groups, flow("D", "Flow D", [d1])],
+    };
+    const root = document.createElement("div");
+    document.body.replaceChildren(root);
+    const sel = { ids: new Set(["A"]), anchor: null, range: [] };
+    const acts = { ...actions(), selectGroup: vi.fn() };
+    renderLibrary(root, m, acts, new Map(), NOW, sel, undefined, LIST);
+    const grid = root.querySelector<HTMLElement>("[data-list]");
+    const today = box(grid, "h:today");
+    expect(rowOf(grid, "f:D")).not.toBeNull(); // premise: two flows today
+    expect(today?.checked).toBe(false);
+    expect(today?.indeterminate).toBe(true);
+  });
+
+  it("a click asks for exactly that day's flows, and does not fold it", () => {
+    const { acts, grid } = drawSel([]);
+    const heading = rowOf(grid, "h:today");
+    const before = heading.getAttribute("aria-expanded");
+    expect(before).not.toBeNull(); // premise: a heading folds
+    box(grid, "h:today")?.click();
+    expect(acts.selectGroup).toHaveBeenCalledExactlyOnceWith(["A"]);
+    expect(heading.getAttribute("aria-expanded")).toBe(before);
+  });
+
+  it("a flat sort has no headings, so no heading box", () => {
+    const { grid } = drawSel([], BY_NAME);
+    expect(grid?.querySelector("[data-heading]")).toBeNull(); // premise
+    expect(grid?.querySelector("[data-select-group]")).toBeNull();
+  });
+
+  it("the grid's section head has it too", () => {
+    const root = document.createElement("div");
+    document.body.replaceChildren(root);
+    const acts = { ...actions(), selectGroup: vi.fn() };
+    const sel = { ids: new Set(["A"]), anchor: null, range: [] };
+    renderLibrary(root, model, acts, new Map(), NOW, sel, undefined, {
+      ...LIST,
+      layout: "grid",
+    });
+    const head = root.querySelector<HTMLElement>(
+      "[data-section=today] > summary",
+    );
+    expect(head).not.toBeNull(); // premise
+    const b = head?.querySelector<HTMLInputElement>("[data-select-group]");
+    expect(b?.getAttribute("aria-label")).toBe("Select Today");
+    expect(b?.checked).toBe(true);
+    b?.click();
+    expect(acts.selectGroup).toHaveBeenCalledExactlyOnceWith(["A"]);
+  });
+});

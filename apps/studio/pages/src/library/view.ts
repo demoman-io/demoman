@@ -7,7 +7,7 @@ import { setCodeText } from "../shell/code-spans";
 import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
-import { collapsedKeys, openRename, renderList } from "./list";
+import { collapsedKeys, groupBox, openRename, renderList } from "./list";
 import { placeIn, restorePlace } from "./list-keys";
 import { whereOf } from "./list-model";
 import { previewText } from "./preview";
@@ -93,6 +93,9 @@ export interface LibraryActions {
   ): void;
   /** Cmd+A: tick every flow in `visibleOrder`. */
   selectAll?(visibleOrder: readonly string[]): void;
+  /** A date heading's box: tick the day's `ids`, or untick them when all
+   *  are ticked. */
+  selectGroup?(ids: string[]): void;
   /** The selection bar's Cancel. */
   clearSelection?(): void;
   /** The selection bar's Delete: the page asks once, then deletes. */
@@ -225,6 +228,15 @@ export function applySelection(
     box.disabled = busy;
     box.closest("article")?.toggleAttribute("data-selected", on);
     box.closest("[role=row]")?.setAttribute("aria-selected", String(on));
+  }
+  for (const box of root.querySelectorAll<HTMLInputElement>(
+    "[data-select-group]",
+  )) {
+    const ids = JSON.parse(box.dataset.selectGroup as string) as string[];
+    const n = ids.filter((id) => selected.has(id)).length;
+    box.checked = n > 0 && n === ids.length;
+    box.indeterminate = n > 0 && n < ids.length;
+    box.disabled = busy;
   }
   let bar = root.querySelector<HTMLElement>("[data-selection-bar]");
   if (selected.size === 0) {
@@ -1528,8 +1540,12 @@ function section(
   // Settings' chevron, the same glyph and class its site lines open with.
   const chev = icon("chevronRight");
   chev.classList.add("chev");
+  const ids = s.rows.flatMap((r) => groupOf.get(r.sceneId)?.video.id ?? []);
   summary.append(
     chev,
+    ...(ids.length > 0 && actions.selectGroup !== undefined
+      ? [groupBox(s.label, ids, actions)]
+      : []),
     el("h2", { id: headingId }, s.label),
     el(
       "span",

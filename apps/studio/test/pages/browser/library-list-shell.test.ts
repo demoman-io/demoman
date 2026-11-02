@@ -127,6 +127,7 @@ const ACTIONS = {
   rename: noop,
   renameVideo: noop,
   select: noop,
+  selectGroup: noop,
   setView: noop,
   rerunLine: () => "Run it again to film it.",
   // The page's measurer writes a length into the cell it is handed.
@@ -878,8 +879,14 @@ describe("the list's look, as the author reviewed it", () => {
       cell("f:A", "open").querySelector(".chev") as Element
     ).getBoundingClientRect();
     const said = JSON.stringify({ listLeft, chev, label, flowName });
-    // The chevron leads, at the list's left edge, smaller than a flow's.
-    expect(chev.left, said).toBeLessThanOrEqual(listLeft + 1);
+    // The day's box leads, at the list's left edge, and the chevron
+    // follows it, smaller than a flow's.
+    const dayBox = cell("h:today", "select")
+      .querySelector(".select-box")
+      ?.getBoundingClientRect() as DOMRect;
+    expect(dayBox, said).toBeDefined(); // premise: the fixture draws one
+    expect(dayBox.left, said).toBeLessThanOrEqual(listLeft + 10);
+    expect(chev.left, said).toBeGreaterThanOrEqual(dayBox.right);
     expect(chev.width, said).toBeLessThan(flowChev.width);
     // The label follows it, left of the Name column; a flow's name
     // starts further right.

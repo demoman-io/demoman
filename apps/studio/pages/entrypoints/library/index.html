@@ -519,6 +519,16 @@
       .library-list > [data-key]:is(:hover, :focus-visible, :has(:focus-visible)) .select-box {
         opacity: 1;
       }
+      /* A grid section's own: in its head, left of the label, shown on the
+         head's hover or focus and while flows are ticked (the list's heading
+         box is shown by its row's hover, above). */
+      .section-head .select-box {
+        position: static;
+        flex: none;
+      }
+      .section-head:is(:hover, :focus-within) .select-box {
+        opacity: 1;
+      }
       article.card[data-selected] {
         box-shadow: inset 0 0 0 2px var(--ink);
       }
@@ -872,10 +882,12 @@
          to auto-placement would find no room on it. Videos, Length and
          Size keep their tracks while drawn; Recorded is always the last. */
       .library-list > [data-heading] > [role="gridcell"] { grid-row: 1; }
-      .library-list > [data-heading] > :is([data-col="select"], [data-col="open"]) { grid-column: 1; }
+      .library-list > [data-heading] > [data-col="select"] { grid-column: 1; }
+      .library-list > [data-heading] > [data-col="open"] { grid-column: 2; }
       .library-list > [data-heading] > [data-col="name"] {
         grid-column: 1 / -1;
-        padding-left: 20px;
+        /* Past the box and the chevron. */
+        padding-left: calc(28px + 20px + var(--gap));
       }
       .library-list > [data-heading] > [data-col="where"] { grid-column: 4; }
       .library-list > [data-heading] > [data-col="videos"] { grid-column: 5; }

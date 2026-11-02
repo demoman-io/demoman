@@ -6,6 +6,7 @@ import {
   pruneSelection,
   type Selection,
   selectAll,
+  toggleGroup,
 } from "../../../pages/src/library/selection";
 
 const ORDER = ["a", "b", "c", "d", "e"] as const;
@@ -130,5 +131,36 @@ describe("library selection", () => {
     expect(pruned.range).toEqual(["b"]);
     expect(pruned.anchor).toBeNull();
     expect(pruneSelection(s, new Set(["a", "c"])).anchor).toBe("a");
+  });
+});
+
+describe("toggleGroup", () => {
+  const sel = (...picked: string[]): Selection => ({
+    ids: new Set(picked),
+    anchor: picked[0] ?? null,
+    range: [],
+  });
+  const day = ["a", "b", "c"];
+
+  it("none ticked: all of the day", () => {
+    expect(ids(toggleGroup(emptySelection(), day))).toEqual(day);
+  });
+
+  it("some ticked: all of the day, others kept", () => {
+    const some = sel("b", "z");
+    expect(ids(some)).toEqual(["b", "z"]); // premise: partly ticked
+    expect(ids(toggleGroup(some, day))).toEqual(["a", "b", "c", "z"]);
+  });
+
+  it("all ticked: none of the day, others untouched, anchor kept", () => {
+    const all = sel("a", "b", "c", "z");
+    expect(day.every((d) => all.ids.has(d))).toBe(true); // premise
+    const next = toggleGroup(all, day);
+    expect(ids(next)).toEqual(["z"]);
+    expect(next.anchor).toBe("a");
+  });
+
+  it("an empty day changes nothing", () => {
+    expect(ids(toggleGroup(sel("z"), []))).toEqual(["z"]);
   });
 });

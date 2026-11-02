@@ -154,6 +154,27 @@ function renameButton(label: string): HTMLElement {
 const sentence = (text: string): HTMLElement =>
   el("p", { class: "notice notice-error" }, text);
 
+/** A date heading's box, ticking the day's flows (`ids`, in the model as
+ *  drawn). Its own click: the heading's would fold it. `applySelection`
+ *  sets it from the selection. Absent `selectGroup` or no flows: no box. */
+export function groupBox(
+  label: string,
+  ids: readonly string[],
+  actions: LibraryActions,
+): HTMLElement {
+  const box = el("input", {
+    type: "checkbox",
+    class: "select-box",
+    "data-select-group": JSON.stringify(ids),
+    "aria-label": `Select ${label}`,
+  });
+  box.addEventListener("click", (event) => {
+    event.stopPropagation();
+    actions.selectGroup?.([...ids]);
+  });
+  return box;
+}
+
 /** One entry's row: its cells, then the line that says what happened to
  *  it, if anything was said. */
 function entryRow(
@@ -163,6 +184,7 @@ function entryRow(
   /** Each flow drawn so far, by id: a video row's buttons name its flow. */
   flows: Map<string, VideoGroup>,
   withRepo: boolean,
+  dayFlows: readonly string[] = [],
 ): HTMLElement {
   const row = el("div", { role: "row", "data-key": e.key });
   const cells = Object.fromEntries(
@@ -181,6 +203,9 @@ function entryRow(
     row.id = sectionId(section.key);
     row.setAttribute("aria-label", section.label);
     cells.open.append(chevron());
+    if (actions.selectGroup !== undefined && dayFlows.length > 0) {
+      cells.select.append(groupBox(section.label, dayFlows, actions));
+    }
     cells.name.append(
       el("span", { "data-name-text": "" }, section.label),
       el(
@@ -374,8 +399,21 @@ export function renderList(
   const seen = new Map<string | null, number>();
   const flows = new Map<string, VideoGroup>();
 
+  const ofDay = new Map<string, string[]>();
   for (const e of entries) {
-    const row = entryRow(e, actions, rowStatus, flows, withRepo);
+    if (e.kind === "flow" && e.parent !== null && e.flowId !== null) {
+      ofDay.set(e.parent, [...(ofDay.get(e.parent) ?? []), e.flowId]);
+    }
+  }
+  for (const e of entries) {
+    const row = entryRow(
+      e,
+      actions,
+      rowStatus,
+      flows,
+      withRepo,
+      ofDay.get(e.key),
+    );
     const pos = (seen.get(e.parent) ?? 0) + 1;
     seen.set(e.parent, pos);
     row.setAttribute("aria-level", String(e.level));

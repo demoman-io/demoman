@@ -28,6 +28,7 @@ import {
   pruneSelection,
   type Selection,
   selectAll,
+  toggleGroup,
 } from "../../src/library/selection";
 import type { BulkOutcome, LibraryModel } from "../../src/library/state";
 import {
@@ -809,6 +810,12 @@ const actions: LibraryActions = {
   selectAll: (visibleOrder) => {
     if (bulk?.busy === true) return;
     selection = selectAll(selection, visibleOrder);
+    bulk = undefined;
+    showSelection();
+  },
+  selectGroup: (ids) => {
+    if (bulk?.busy === true) return;
+    selection = toggleGroup(selection, ids);
     bulk = undefined;
     showSelection();
   },
