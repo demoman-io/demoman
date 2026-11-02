@@ -1382,7 +1382,79 @@ describe("the Studio's screenshot set", () => {
           hit: true,
         })),
       );
-      expect(shots).toHaveLength(SIZES.length * 4 + 2);
+      // The narrow list in Couldn't read: the size cell goes with the Size
+      // column, and no painted cell runs under Delete, which floats over
+      // the row's end. Red: drop `.unreadable-list` from the narrow
+      // container's `[data-col="size"]` rule.
+      const unreadAt = "library unreadable narrow 720x900";
+      await page.goto(`${studio.origin}/?project=unreadable`);
+      await page.locator(`[data-unreadable-row="${UNREADABLE}"]`).waitFor();
+      // Not `shoot`: that asserts the treegrid, which this place has none of.
+      const unreadFile = join(
+        SHOTS,
+        "library-unreadable-narrow-720x900-dark.png",
+      );
+      await page.screenshot({ path: unreadFile });
+      shots.push(unreadFile);
+      const unreadPaint = await painted(page);
+      expect(unreadPaint.theme, `${unreadAt}: the page's theme`).toBe("dark");
+      expect(
+        unreadPaint.scrollWidth,
+        `${unreadAt}: no sideways scroll (${JSON.stringify(unreadPaint)})`,
+      ).toBeLessThanOrEqual(unreadPaint.innerWidth);
+      expect(await limeOutsideItsPlaces(page), `${unreadAt}: lime`).toEqual([]);
+      const narrowRow = await page.evaluate((folder) => {
+        const content = document.querySelector(".library-content");
+        const row = document.querySelector<HTMLElement>(
+          `.unreadable-list [data-unreadable-row="${CSS.escape(folder)}"]`,
+        );
+        const del = row?.querySelector('[data-action="delete"]');
+        if (content == null || row == null || del == null) return null;
+        const cs = getComputedStyle(content);
+        const inner =
+          content.clientWidth -
+          Number.parseFloat(cs.paddingLeft) -
+          Number.parseFloat(cs.paddingRight);
+        const name = row.querySelector('[data-col="name"]') as HTMLElement;
+        const n = name.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          n.left + Math.min(n.width / 2, 20),
+          n.top + n.height / 2,
+        );
+        const d = del.getBoundingClientRect();
+        const size = row.querySelector<HTMLElement>('[data-col="size"]');
+        return {
+          container: inner,
+          namePainted: hit !== null && name.contains(hit),
+          sizePainted:
+            size?.checkVisibility() === true &&
+            size.getBoundingClientRect().width > 0,
+          underDelete: [
+            ...row.querySelectorAll<HTMLElement>(
+              ":scope > [data-col]:not([data-col='actions'])",
+            ),
+          ].flatMap((c) => {
+            const b = c.getBoundingClientRect();
+            return b.width > 0 &&
+              b.left < d.right &&
+              b.right > d.left &&
+              b.top < d.bottom &&
+              b.bottom > d.top
+              ? [`${c.dataset.col} "${c.textContent}"`]
+              : [];
+          }),
+        };
+      }, UNREADABLE);
+      const narrowSaid = `${unreadAt}: ${JSON.stringify(narrowRow)}`;
+      expect(narrowRow, narrowSaid).not.toBeNull();
+      // Premises: the row is drawn and painted, and the list is narrow
+      // enough for its container rule.
+      expect(narrowRow?.namePainted, narrowSaid).toBe(true);
+      expect(narrowRow?.container, narrowSaid).toBeLessThan(760);
+      expect(narrowRow?.sizePainted, narrowSaid).toBe(false);
+      expect(narrowRow?.underDelete, narrowSaid).toEqual([]);
+
+      expect(shots).toHaveLength(SIZES.length * 4 + 3);
       // The refused rename's 409 is the browser's own line for a refusal
       // the page answered; nothing else may fault.
       expect(
