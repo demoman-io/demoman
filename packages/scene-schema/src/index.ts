@@ -100,6 +100,7 @@ export {
   SCRIPT_VERSION_ACCOUNT,
   SCRIPT_VERSION_DEVICE,
   SCRIPT_VERSION_DRAG,
+  SCRIPT_VERSION_EDITS,
   SCRIPT_VERSION_KIT,
   SCRIPT_VERSION_MOTION,
   SCRIPT_VERSION_PRESS,
@@ -107,8 +108,14 @@ export {
   ScriptStepSchema,
   type ScriptTarget,
   ScriptTargetSchema,
+  type ScriptTrim,
+  ScriptTrimSchema,
   type ScriptVersion,
+  SHOWN_STEP,
   targetStrategy,
+  type ZoomIntent,
+  type ZoomIntentOf,
+  ZoomIntentSchema,
 } from "./script.js";
 export {
   type Derivation,
