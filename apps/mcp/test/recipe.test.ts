@@ -92,6 +92,14 @@ describe("the recipe's examples and snapshot reading", () => {
     expect(recipe).toMatch(/`click` \(optional `at: \{ x, y \}`/);
   });
 
+  // Red if the format stops teaching a script's trim or a click's zoom.
+  it("teaches trim and zoom, and the one-line end preference", () => {
+    expect(recipe).toMatch(/"trim": \{ "end": \{ "ms": 0 \} \}/);
+    expect(recipe).toMatch(/`zoom`: `false` for none/);
+    expect(recipe).toMatch(/`trimNotes`/);
+    expect(recipe).toMatch(/`zoomNotes`/);
+  });
+
   it("shows every verb and every target shape at least once, and a scroll's landing", () => {
     const steps: ScriptStep[] = blocks().flatMap(
       (b) => DemoScriptSchema.parse(JSON.parse(b)).steps,

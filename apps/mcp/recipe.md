@@ -320,6 +320,9 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    | `cutOff`, `outOfFrame` | the script | add a `scrollTo` on that element before the step |
    | `atEdge` | the script, if a run remains | as above; otherwise leave it |
    | `longStill` beyond what a `pause` asked for | Demoman | leave it; do not rewrite steps |
+   | `opening` long | the script | add `trim.start` |
+   | `zoomNotes` | the script | set that click's `zoom` |
+   | `trimNotes` | the script | name another step in `trim` |
    | stray arrival, `detour` | Demoman | leave it |
    | drift from the earlier video | the app | report it |
 
@@ -341,15 +344,14 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
 1. `export(videoId)` with the accepted run's `provenance.videoId`. It answers
    the export report, or `stillRunning` with an `id`; then call `report(id)`
    until the outcome is none of `exporting`, `stillRunning`.
-   `fileType`, only if asked: `mp4` (the default), `gif` (plays inline in
-   a GitHub PR or issue), or `stills` (a PNG per step, in a folder). An MP4 follows Settings
+   `fileType`, only if asked: `mp4` (the default), `gif`, or `stills`. An MP4 follows Settings
    (unset: ~1 MB/s); `quality: "full"` is largest.
    `export({ videoId, maxMB: 9.5 })` fits GitHub's 10 MB drag-in, or says
-   it could not (the summary says what it cost).
+   it could not.
    A GIF is as wide as fits 10 MB (`warnings.gifSize` says how wide and
    which widths were refused); one over 10 MB at its narrowest says so: offer the MP4.
    Stills take `stills: { width, zoom }`, both optional; by
-   default a still is the whole window, up to 2560 px wide (no wider than the video). `width` is px (320-3840) or `"native"`, the video's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Pass them only when asked.
+   default a still is the whole window, up to 2560 px wide. `width` is px (320-3840) or `"native"`, the video's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in.
 2. `saved` - the file is at `file.path`, absolute: in `~/Downloads`, or the
    server's `--out-dir`. For `stills`, `fileType`
    is `stills` and the answer carries `folder: { path, files }` instead of
@@ -363,14 +365,11 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
    `warnings.editedSinceRecorded` lists steps whose `scene.json` no longer
    matches the frames; the summary names the re-film
    (`run({ flow: { id } })`, or `derive` then `run` when a verb changed).
-   Re-record only on request. `warnings.untagged` (no flow tag) and
-   `taggedWithoutCommit` (only the filmed commit unknown): `error` says why;
-   not the user's to act on.
+   Re-record only on request. `warnings.untagged` and `taggedWithoutCommit`: not the user's to act on.
    `links` holds the export's one-click actions, each present
    only where it works: `studio`, `file` (the file itself) and `copy` (the
    file to the clipboard; none for stills). `linksError`, set instead, says
    why there are none: tell the user in one line.
-   Every export report but `stillRunning` carries a `summary`.
 3. `renderFailed` - export **once** more; never re-run the script for an
    export failure. `saveFailed` - its `error` names the folder and the
    system's reason (a folder that cannot be written): tell the user;
@@ -402,8 +401,7 @@ post again; tell the user to check the PR. Other reasons: section 7. An unsaved 
 
 Hand back, on `saved`, two lines and nothing else: the `summary` as it is,
 then the `links` as markdown links on one line, in this order, only
-those present: `[Open in Studio](links.studio) · [<file name>](links.file) · [Copy video](links.copy)`
-(`Copy GIF` for a GIF). Add one line only for `look.brandKitError`,
+those present: `[Open in Studio](links.studio) · [<file name>](links.file) · [Copy video](links.copy)` (`Copy GIF` for a GIF). Add one line only for `look.brandKitError`,
 `look.wallpaperError`, `size.error`, `linksError`, or something you could not fix. Any other
 outcome: quote its `error` or `detail`.
 
@@ -411,7 +409,6 @@ When the `studio` tool is listed and there is no `links.studio`, **offer**
 it; never open it unasked. `studio({ videoId })`
 opens a window to edit and export the video.
 `{ outcome: "opened", videoId?, note? }`: say it is open; quote `note` if set.
-Studio exports go to `~/Downloads`.
 
 ## 6. The format
 
@@ -456,17 +453,19 @@ Studio exports go to `~/Downloads`.
   `waitForLoad`, `pause` (`ms`), `press` (`key`: `Enter` | `Tab` | `Escape` |
   `Backspace` | `Delete` | `ArrowUp` | `ArrowDown` | `ArrowLeft` | `ArrowRight` |
   `Space`; names no element, goes to whatever holds focus), and `drag` (`from: { on, at? }`, `to`
-  the same or `{ "by": { x, y } }` px; `at` is a spot in the box, 0–1). An unknown key is refused and named.
+  the same or `{ "by": { x, y } }` px; `at` is a spot in the box, 0–1).
+- `trim`: `{ "start"?: { "ms", "step"? }, "end"?: { "ms", "step"?, "after"? } }`, the video kept before the first and after the last shown step. `step` is 1-based, not a `pause`; `after` is `"zoomOut"` (default) or `"action"`. To end every video right after its last step, give every script `"trim": { "end": { "ms": 0 } }`.
+- A `click` or `drag` takes `zoom`: `false` for none, or `{ "scale": 1.5 }` (over 1, at most 2.5).
 - `scrollTo` takes an optional `landing: { "top": <px> }`, the viewport y of
   the element's top edge when the scroll stops. Absent means centred.
 - `viewport` absent means the size the user chose: the screen's, which
   `snapshot` measured `inFirstViewport` against. Leave `viewport` out unless the user asked.
 - `device` is `"phone"` or `"tablet"`: the page is recorded as a phone (393x852)
-  or a tablet (820x1180), with touch and an iOS user agent. Name a device or a
+  or a tablet (820x1180). Name a device or a
   `viewport`, not both. A device has no hover: a `hover` step under one is
   refused. `look` takes `branding` or `kit`, plus `cursor`, `canvas` and
   `motion`; absent means the user's default brand kit. `kit` names one of
-  `snapshot`'s `kits` (any case); not both a kit and a branding. An unknown key in `look` is refused and named. A
+  `snapshot`'s `kits`; not both a kit and a branding. A
   `branding` is the whole of one: `background`, `logo` (or `null`) and
   `padding`, the margin as a fraction of the frame's shorter side (0 to
   0.2; left out is 0.12); a missing `background` or `logo` is refused.
