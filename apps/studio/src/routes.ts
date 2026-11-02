@@ -11,6 +11,7 @@ import {
   ensureVideos,
   expireOld,
   expiryStatus,
+  followCheckouts,
   keptOf,
   keyKeptMarks,
   type Library,
@@ -201,6 +202,25 @@ export function createRoutes(o: {
           folder: "telling kept flows' projects",
           kind: "upkeep",
           reason: `could not be told (${messageOf(error)})`,
+        });
+      }
+      // After keying marks, so a mark keyed just now is followed too.
+      try {
+        const followed = await followCheckouts(videos, library, readRepo);
+        if (followed.failed.length > 0) {
+          rows.push({
+            folder: "following projects' checkouts",
+            kind: "upkeep",
+            reason: followed.failed
+              .map((f) => `flow "${f.name}" (${f.flow}) at ${f.root}: ${f.why}`)
+              .join("; "),
+          });
+        }
+      } catch (error) {
+        rows.push({
+          folder: "following projects' checkouts",
+          kind: "upkeep",
+          reason: `projects could not follow their checkouts (${messageOf(error)})`,
         });
       }
       const expiry = await expireOld(videos, library, new Date());

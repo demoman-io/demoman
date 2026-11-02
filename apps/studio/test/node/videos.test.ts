@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -20,7 +21,11 @@ import {
   serializeKept,
   serializeReceipt,
 } from "@demoman/run-core";
-import { createLibrary, createVideoStore } from "@demoman/runner/studio";
+import {
+  createLibrary,
+  createVideoStore,
+  readRepo,
+} from "@demoman/runner/studio";
 import { CURRENT_SCHEMA_VERSION } from "@demoman/scene-schema";
 import { pathFor, type TakesAnswer } from "@demoman/studio-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -265,6 +270,113 @@ describe("the takes listing's videos", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  describe("a project follows its checkout", () => {
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", args, { cwd, stdio: "pipe" });
+    /** A flow recorded in `root` while its repo read `key`, with its kept
+     *  mark carrying the same key. */
+    async function recordedIn(root: string, key: string): Promise<string> {
+      const library = createLibrary(home);
+      const store = createVideoStore(home, library);
+      const made = await store.create({
+        name: "Pay a bill",
+        repo: { key },
+        startPage: "https://app.example.com/bills",
+      });
+      if (!made.ok) throw new Error("could not make the flow");
+      await seedTake(home, { id: "pay-1", status: { outcome: "complete" } });
+      await store.join("pay-1", {
+        videoId: made.video.id,
+        made: {
+          ...MADE,
+          repo: { key, root, remote: null, branch: null, commit: null },
+        },
+        recordedRevision: null,
+      });
+      await store.setKept(made.video.id, {
+        root,
+        file: ".demoman/flows/pay-a-bill.json",
+        key,
+      });
+      return made.video.id;
+    }
+    const onDisk = async (id: string) =>
+      JSON.parse(await readFile(join(home, "videos", `${id}.json`), "utf8"));
+
+    // Red: drop the followCheckouts pass from the upkeep — the listing
+    // still says github.com/a/r, and no alias is written.
+    it("after `git remote set-url`, the listing serves the flow and its mark under the new key", async () => {
+      const root = await mkdtemp(join(tmpdir(), "studio-set-url-"));
+      try {
+        git(root, "init", "-q");
+        git(root, "remote", "add", "origin", "git@github.com:a/r.git");
+        const id = await recordedIn(root, "github.com/a/r");
+        git(root, "remote", "set-url", "origin", "git@github.com:b/r.git");
+        // Premise: recorded under the old key; the checkout reads the new.
+        expect((await onDisk(id)).repo).toEqual({ key: "github.com/a/r" });
+        expect((await onDisk(id)).kept.key).toBe("github.com/a/r");
+        const read = await readRepo(root);
+        expect(read.ok && read.repo.key).toBe("github.com/b/r");
+
+        const body = await listing();
+        const said = JSON.stringify(body.unreadable);
+        const v = body.videos.find((x) => x.id === id);
+        expect(v?.repo, said).toEqual({ key: "github.com/b/r" });
+        expect(v?.addedTo, said).toBe("github.com/b/r");
+        expect(
+          body.unreadable.filter((u) => u.folder.includes("checkouts")),
+        ).toEqual([]);
+        expect(
+          JSON.parse(
+            await readFile(join(home, "videos", ".aliases.json"), "utf8"),
+          ),
+        ).toEqual({ "github.com/a/r": "github.com/b/r" });
+        expect((await onDisk(id)).repo).toEqual({ key: "github.com/b/r" });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("a checkout git cannot read is a row naming the flow, and the flow stays", async () => {
+      const root = await mkdtemp(join(tmpdir(), "studio-not-git-"));
+      try {
+        const id = await recordedIn(root, "github.com/a/r");
+        // Premise: the folder exists and is no git checkout.
+        expect((await readRepo(root)).ok).toBe(false);
+        const body = await listing();
+        const said = JSON.stringify(body.unreadable);
+        const row = body.unreadable.find(
+          (u) => u.folder === "following projects' checkouts",
+        );
+        expect(row?.kind, said).toBe("upkeep");
+        expect(row?.reason, said).toContain(
+          `flow "Pay a bill" (${id}) at ${root}`,
+        );
+        expect(row?.reason, said).toContain("not a git checkout");
+        expect(body.videos.find((x) => x.id === id)?.repo).toEqual({
+          key: "github.com/a/r",
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("an alias table that will not read is a row naming it, and every flow still lists", async () => {
+      const path = join(home, "videos", ".aliases.json");
+      await writeFile(path, "{nope");
+      const body = await listing();
+      const said = JSON.stringify(body.unreadable);
+      const row = body.unreadable.find(
+        (u) => u.folder === "following projects' checkouts",
+      );
+      expect(row?.kind, said).toBe("upkeep");
+      expect(row?.reason, said).toContain(path);
+      expect(body.videos.map((v) => v.id).sort()).toEqual(
+        [invoice, signup].sort(),
+      );
+    });
   });
 
   it("a take whose video.json will not read is a row, and every video still lists", async () => {

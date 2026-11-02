@@ -58,12 +58,7 @@ import { refilmFromVideo } from "./refilm.js";
 import { type GitRunner, readRepo } from "./repo.js";
 import { createSessionStore, siteOf } from "./sessions.js";
 import { sameName } from "./video-match.js";
-import {
-  sharesRepo,
-  type VideoRecord,
-  type VideoRepo,
-  type VideoStore,
-} from "./videos.js";
+import { sharesRepo, type VideoRecord, type VideoStore } from "./videos.js";
 import { readWallpaper } from "./wallpaper-read.js";
 
 export type KeepRefusal =
@@ -175,9 +170,9 @@ export async function keepVideo(
 
   // The video: by id or exact name, among this repo's.
   const repo = await readRepo(root, deps.git);
-  const here: VideoRepo = repo.ok
-    ? { key: repo.repo.key }
-    : { none: repo.none };
+  const here = await deps.videos.resolve(
+    repo.ok ? { key: repo.repo.key } : { none: repo.none },
+  );
   const records = await deps.videos.list();
   const mine = records.filter(
     (v): v is VideoRecord => !("unreadable" in v) && sharesRepo(v.repo, here),

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -2856,6 +2857,14 @@ describe("the Studio's screenshot set", () => {
       homes.push(home);
       const checkout = await mkdtemp(join(tmpdir(), "studio-shots-projrepo-"));
       homes.push(checkout);
+      // A real checkout of acme/web, as a kept mark's key is read from its
+      // root: the upkeep reads it again to follow a moved repo, and a root
+      // that is no checkout would be a "Couldn't read" row of its own.
+      for (const args of [
+        ["init", "-q"],
+        ["remote", "add", "origin", "git@github.com:acme/web.git"],
+      ])
+        execFileSync("git", args, { cwd: checkout, stdio: "pipe" });
       await seedHome(home, VIDEO_TAKES);
       const invoice = await joinVideo(home);
       const ACME = "github.com/acme/web";

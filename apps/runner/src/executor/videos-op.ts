@@ -204,9 +204,10 @@ export async function matchesFor(
   repo: VideoRepo,
 ): Promise<VideoSummary[]> {
   const out: VideoSummary[] = [];
+  const mine = await store.resolve(repo);
   for (const v of await store.list()) {
     if ("unreadable" in v) continue;
-    if (sharesRepo(v.repo, repo) && similarNames(v.name, name)) {
+    if (sharesRepo(v.repo, mine) && similarNames(v.name, name)) {
       out.push(await summarise(store, library, v));
     }
   }
@@ -379,9 +380,10 @@ export async function videosOp(
     }
 
     const read = await readRepo(deps.dir);
-    const here: VideoRepo = read.ok
-      ? { key: read.repo.key }
-      : { none: read.none };
+    // A clone still on a repo's old remote lists the repo's flows.
+    const here = await store.resolve(
+      read.ok ? { key: read.repo.key } : { none: read.none },
+    );
     const found: { summary: VideoSummary; hits: number }[] = [];
     for (const v of records) {
       if ("unreadable" in v || !sharesRepo(v.repo, here)) continue;

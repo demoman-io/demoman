@@ -417,6 +417,39 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     });
   });
 
+  // Red: drop keep.ts's `videos.resolve` of `here` — the flow, moved to the
+  // repo's new key, is no flow of this checkout and keep says unknownVideo.
+  it("a checkout still on the repo's old key adds a flow upkeep moved to its new key", async () => {
+    const id = await freshVideo("scene-alias-1", "Moved flow");
+    const aliasPath = join(home, "videos", ".aliases.json");
+    const recordPath = join(home, "videos", `${id}.json`);
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    // As upkeep leaves it after this repo was renamed on its host.
+    await writeFile(aliasPath, JSON.stringify({ [repoKey]: "github.com/n/r" }));
+    await writeFile(
+      recordPath,
+      JSON.stringify({ ...record, repo: { key: "github.com/n/r" } }),
+    );
+    try {
+      // Premise: the checkout reads the old key, the record holds the new.
+      const read = await readRepo(repo);
+      expect(read.ok && read.repo.key).toBe(repoKey);
+      expect(repoKey).not.toBe("github.com/n/r");
+      const out = await keepVideo(
+        {
+          video: "Moved flow",
+          to: [gif("moved.gif")],
+          deliver: "files",
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      expect(out.ok, JSON.stringify(out)).toBe(true);
+    } finally {
+      await rm(aliasPath, { force: true });
+    }
+  });
+
   it("a run re-points a library mark left on a file moved elsewhere", async () => {
     const { id, legacy, file } = await keptInOldFolder(
       "scene-move-3",

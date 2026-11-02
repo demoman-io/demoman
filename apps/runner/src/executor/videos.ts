@@ -18,6 +18,7 @@ import type { SceneDocument } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import type { Library } from "./library.js";
 import type { RepoRef } from "./repo.js";
+import { type Aliases, resolveKey } from "./repo-aliases.js";
 import { sameName } from "./video-match.js";
 
 export type VideoRepo = { key: string } | { none: string } | { unknown: true };
@@ -106,6 +107,18 @@ export interface VideoStore {
   ): Promise<
     { ok: true } | { ok: false; reason: "videoNotFound" | "markMoved" }
   >;
+  /** The repo-key aliases (`old → new`) upkeep recorded when a checkout's
+   *  key changed; `{}` when none were. Throws `videoUnreadable` naming the
+   *  file when it will not read. `get` and `list` answer records with their
+   *  keys resolved through it. */
+  aliases(): Promise<Aliases>;
+  /** `repo` with its key resolved through the aliases. */
+  resolve(repo: VideoRepo): Promise<VideoRepo>;
+  /** Under the lock: records each `from → to` (from `from`'s current end,
+   *  so aliases chain; never one that would close a cycle), then rewrites
+   *  every record and kept mark whose key resolves to another, re-reading
+   *  each so a change made meanwhile stays. Answers how many it rewrote. */
+  follow(aliases: { from: string; to: string }[]): Promise<{ moved: number }>;
   /** Under the lock: re-points every take of `fromId` to `intoId`, then
    *  removes `fromId`'s record. Names the flow that is missing. */
   merge(
@@ -146,7 +159,9 @@ const isMissing = (e: unknown) => (e as { code?: string }).code === "ENOENT";
  *  checks agents' ids against too. */
 export const isVideoId = isFlowId;
 
-/** Unknown matches any repo; two `none`s are one ("no repo") for name uniqueness. */
+/** Unknown matches any repo; two `none`s are one ("no repo") for name
+ *  uniqueness. Keys are compared as given: resolve both first
+ *  (`VideoStore.resolve`; records from `get` and `list` already are). */
 export const sharesRepo = (a: VideoRepo, b: VideoRepo) =>
   "unknown" in a ||
   "unknown" in b ||
@@ -191,6 +206,7 @@ export function createVideoStore(
   const memberPath = (takeId: string) =>
     join(library.takeDir(takeId), "video.json");
   const lockPath = join(dir, ".lock");
+  const aliasPath = join(dir, ".aliases.json");
   const ownerPath = join(lockPath, "owner");
   const say = options.log ?? ((line: string) => console.warn(line));
   const staleMs = options.lockStaleMs ?? LOCK_STALE_MS;
@@ -376,8 +392,55 @@ export function createVideoStore(
     }
   }
 
-  const get = async (id: string) =>
+  const rawGet = async (id: string) =>
     isVideoId(id) ? readJson<VideoRecord>(recordPath(id)) : null;
+
+  /** Absent is none; anything but an object of key strings throws. */
+  async function aliases(): Promise<Aliases> {
+    const table = await readJson<unknown>(aliasPath);
+    if (table === null) return {};
+    if (
+      typeof table !== "object" ||
+      Array.isArray(table) ||
+      Object.values(table).some((v) => typeof v !== "string")
+    ) {
+      throw new VideoError(
+        "videoUnreadable",
+        `${aliasPath} is not a table of repo keys`,
+      );
+    }
+    return table as Aliases;
+  }
+
+  /** For reading records: a table that will not read resolves nothing, and
+   *  says so here; the Studio's upkeep, which reads it strictly, names it
+   *  in a row. */
+  async function readableAliases(): Promise<Aliases> {
+    try {
+      return await aliases();
+    } catch (error) {
+      say(
+        `${messageOf(error)}; flows are listed under the repo keys they recorded`,
+      );
+      return {};
+    }
+  }
+
+  const resolveRepo = (repo: VideoRepo, table: Aliases): VideoRepo =>
+    "key" in repo ? { key: resolveKey(table, repo.key) } : repo;
+
+  const resolved = (rec: VideoRecord, table: Aliases): VideoRecord => ({
+    ...rec,
+    repo: resolveRepo(rec.repo, table),
+    ...(rec.kept?.key !== undefined && {
+      kept: { ...rec.kept, key: resolveKey(table, rec.kept.key) },
+    }),
+  });
+
+  const get = async (id: string) => {
+    const rec = await rawGet(id);
+    return rec && resolved(rec, await readableAliases());
+  };
 
   async function ids(path: string): Promise<string[]> {
     try {
@@ -393,14 +456,15 @@ export function createVideoStore(
 
   async function list() {
     const out: Array<VideoRecord | { id: string; unreadable: string }> = [];
+    const table = await readableAliases();
     for (const f of await ids(dir)) {
       // Only `<uuid>.json` is a record: `.expiry.json`, `.lock` and
       // `.DS_Store` are not, and a row for one could never be deleted.
       const id = f.slice(0, -".json".length);
       if (!f.endsWith(".json") || !isVideoId(id)) continue;
       try {
-        const rec = await get(id);
-        if (rec) out.push(rec);
+        const rec = await rawGet(id);
+        if (rec) out.push(resolved(rec, table));
       } catch (error) {
         out.push({ id, unreadable: messageOf(error) });
       }
@@ -413,6 +477,7 @@ export function createVideoStore(
     repo: VideoRepo,
     exceptId?: string,
   ): Promise<VideoRecord | null> {
+    repo = resolveRepo(repo, await readableAliases());
     for (const r of await list()) {
       if ("unreadable" in r || r.id === exceptId) continue;
       if (sharesRepo(r.repo, repo) && sameName(r.name, name)) return r;
@@ -611,6 +676,31 @@ export function createVideoStore(
     await write(recordPath(id), { ...rec, kept: { ...rec.kept, key } });
     return { ok: true };
   };
+  const followUnlocked: VideoStore["follow"] = async (pairs) => {
+    let table = await aliases();
+    for (const { from, to } of pairs) {
+      const end = resolveKey(table, from);
+      if (resolveKey(table, to) !== end) table = { ...table, [end]: to };
+    }
+    if (pairs.length > 0) await write(aliasPath, table);
+    let moved = 0;
+    for (const f of await ids(dir)) {
+      const id = f.slice(0, -".json".length);
+      if (!f.endsWith(".json") || !isVideoId(id)) continue;
+      let rec: VideoRecord | null;
+      try {
+        rec = await rawGet(id);
+      } catch {
+        continue; // the listing names a record that will not read
+      }
+      if (rec === null) continue;
+      const now = resolved(rec, table);
+      if (JSON.stringify(now) === JSON.stringify(rec)) continue;
+      await write(recordPath(id), now);
+      moved++;
+    }
+    return { moved };
+  };
   const mergeUnlocked: VideoStore["merge"] = async (fromId, intoId) => {
     if (fromId === intoId) return { ok: false, reason: "sameFlow", id: fromId };
     for (const id of [fromId, intoId]) {
@@ -655,6 +745,9 @@ export function createVideoStore(
     setKeptKey: (id, mark, key) =>
       waitLocked(() => setKeptKeyUnlocked(id, mark, key)),
     merge: (f, i) => waitLocked(() => mergeUnlocked(f, i)),
+    aliases,
+    resolve: async (repo) => resolveRepo(repo, await readableAliases()),
+    follow: (pairs) => waitLocked(() => followUnlocked(pairs)),
     get,
     list,
     rename: (id, name) => waitLocked(() => renameUnlocked(id, name)),
@@ -706,6 +799,7 @@ export function createVideoStore(
             setKept: setKeptUnlocked,
             setKeptKey: setKeptKeyUnlocked,
             merge: mergeUnlocked,
+            follow: followUnlocked,
             rename: renameUnlocked,
             join: joinUnlocked,
           }),
