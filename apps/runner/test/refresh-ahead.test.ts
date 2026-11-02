@@ -171,7 +171,6 @@ describe("a refresh says when the library is ahead of the file", () => {
         viewport: null,
         device: null,
         look: null,
-        trim: null,
         steps: [
           {
             do: "click",

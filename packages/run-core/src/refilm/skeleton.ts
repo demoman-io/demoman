@@ -1,10 +1,4 @@
-import type {
-  DemoScript,
-  SceneDocument,
-  ScriptTrim,
-  ZoomIntent,
-} from "@demoman/scene-schema";
-import { ScriptTrimSchema, ZoomIntentSchema } from "@demoman/scene-schema";
+import type { DemoScript, SceneDocument } from "@demoman/scene-schema";
 
 // What a CLI run keeps of its script beside the take (spec 2026-10-14
 // re-film §1): the order, the pauses, which action each step made, and the
@@ -27,8 +21,6 @@ export type SkeletonStep =
       /** When the camera was back at full frame after the latest zoom at or
        *  before this step, in ms after its marker; null if none. */
       zoomOutMs: number | null;
-      /** What the script asked of a click's or drag's zoom, as `look` is. */
-      zoom?: ZoomIntent;
     };
 
 export interface ScriptSkeleton {
@@ -45,8 +37,9 @@ export interface ScriptSkeleton {
    *  scene.json, so a take restyled in the studio keeps that look
    *  (`mergeSkeleton`). */
   look: NonNullable<DemoScript["look"]> | null;
-  /** What the script asked for the video's ends; null if it asked none. */
-  trim: ScriptTrim | null;
+  // No `trim` or step `zoom`: a re-record writes them back from the scene,
+  // the one record of them (R18). A v2 file from before that may still carry
+  // them; the parse drops them.
   steps: SkeletonStep[];
 }
 
@@ -105,7 +98,6 @@ export function skeletonOf(
     device: script.device ?? null,
     ...(script.account === undefined ? {} : { account: script.account }),
     look: script.look ?? null,
-    trim: script.trim ?? null,
     steps: script.steps.map((step, index): SkeletonStep => {
       if (step.do === "pause") return { do: "pause", ms: step.ms };
       const done = walked.get(index);
@@ -120,9 +112,6 @@ export function skeletonOf(
           anchor === undefined ? null : anchorDigest(anchor.fingerprint),
         finishMs: done?.timing?.finishMs ?? null,
         zoomOutMs: done?.timing?.zoomOutMs ?? null,
-        ...("zoom" in step && step.zoom !== undefined
-          ? { zoom: step.zoom }
-          : {}),
       };
     }),
   };
@@ -177,13 +166,6 @@ export function parseSkeleton(
     return no("script.json's look is not an object or null");
   if (raw.account !== undefined && typeof raw.account !== "string")
     return no("script.json's account is not a name");
-  if (!v1 && !("trim" in raw))
-    return no("script.json has no trim (null when the script named none)");
-  if (!v1 && raw.trim !== null) {
-    const trim = ScriptTrimSchema.safeParse(raw.trim);
-    if (!trim.success)
-      return no(`script.json's trim is not a trim: ${trim.error.message}`);
-  }
   if (!Array.isArray(raw.steps)) return no("script.json has no steps");
   for (const [i, step] of raw.steps.entries()) {
     if (!isObject(step)) return no(`script.json's steps.${i} is not an object`);
@@ -216,25 +198,20 @@ export function parseSkeleton(
       if (!(key in step) || !nullOr(step[key], (v) => typeof v === "number"))
         return no(`script.json's steps.${i}'s ${key} is not a number or null`);
     }
-    if (
-      step.zoom !== undefined &&
-      !ZoomIntentSchema.safeParse(step.zoom).success
-    )
-      return no(
-        `script.json's steps.${i}'s zoom is not false or { scale } (over 1, at most the camera's limit)`,
-      );
   }
-  if (!v1) return { ok: true, skeleton: raw as unknown as ScriptSkeleton };
-  // A v1 file asked nothing of the ends and measured no finish.
-  const steps = (raw.steps as Record<string, unknown>[]).map((step) =>
-    step.do === "pause" ? step : { ...step, finishMs: null, zoomOutMs: null },
-  );
+  // A v1 file measured no finish; a v2 file this branch wrote first may
+  // carry `trim` and a step `zoom`, which nothing reads (R18).
+  const { trim: _trim, ...kept } = raw;
+  const steps = (raw.steps as Record<string, unknown>[]).map((step) => {
+    if (step.do === "pause") return step;
+    const { zoom: _zoom, ...rest } = step;
+    return v1 ? { ...rest, finishMs: null, zoomOutMs: null } : rest;
+  });
   return {
     ok: true,
     skeleton: {
-      ...raw,
+      ...kept,
       skeletonVersion: SKELETON_VERSION,
-      trim: null,
       steps,
     } as unknown as ScriptSkeleton,
   };

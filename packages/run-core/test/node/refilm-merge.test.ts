@@ -28,7 +28,6 @@ function skeletonFor(doc: SceneDocument): ScriptSkeleton {
   if (derived.outcome !== "derived") throw new Error("fixture derives nothing");
   return {
     skeletonVersion: 2,
-    trim: null,
     name: "Fixture",
     scriptVersion: 1,
     viewport: null,
@@ -817,7 +816,7 @@ describe("write-back", () => {
       { actionId: "act-2", offsetMs: -250 },
       { actionId: "act-3", offsetMs: 900 },
     );
-    const { trim: _t, ...v2 } = skeletonFor(doc);
+    const v2 = skeletonFor(doc);
     const v1 = parseSkeleton({
       ...v2,
       skeletonVersion: 1,

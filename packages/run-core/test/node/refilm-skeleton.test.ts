@@ -152,14 +152,16 @@ describe("skeleton v2", () => {
     { index: 3, actionId: "ac-wait" },
   ];
 
-  it("writes v2 with each step's finish and zoom-out", () => {
+  it("writes v2 with each step's finish and zoom-out, and no trim", () => {
     const withIntent = {
       ...script,
       trim: { end: { ms: 0, step: 2, after: "action" } },
     } as DemoScript;
     const sk = skeletonOf(withIntent, timed, scene);
     expect(sk.skeletonVersion).toBe(2);
-    expect(sk.trim).toEqual({ end: { ms: 0, step: 2, after: "action" } });
+    // R18: the scene is the one record of a trim; the script asked one.
+    expect(withIntent.trim).toBeDefined();
+    expect("trim" in sk).toBe(false);
     expect(sk.steps[0]).toMatchObject({ finishMs: 300, zoomOutMs: null });
     expect(sk.steps[2]).toMatchObject({ finishMs: 1200, zoomOutMs: 2500 });
     // Not performed, so nothing was measured; a pause carries neither.
@@ -173,7 +175,7 @@ describe("skeleton v2", () => {
     });
   });
 
-  it("keeps a click's zoom as asked, and no key for one never asked", () => {
+  it("writes no step zoom, whatever the script asked", () => {
     const zs = {
       scriptVersion: 8,
       name: "Z",
@@ -189,14 +191,9 @@ describe("skeleton v2", () => {
       [0, 1, 2].map((index) => ({ index, actionId: null })),
       scene,
     );
-    expect(sk.steps[0]).toMatchObject({ zoom: { scale: 1.8 } });
-    expect(sk.steps[1]).toMatchObject({ zoom: false });
-    expect(sk.steps[2] && "zoom" in sk.steps[2]).toBe(false);
-    const back = parseSkeleton(JSON.parse(JSON.stringify(sk)));
-    expect(back.ok && back.skeleton.steps[1]).toMatchObject({ zoom: false });
-    expect(back.ok && back.skeleton.steps[0]).toMatchObject({
-      zoom: { scale: 1.8 },
-    });
+    // Premise: two of the script's steps asked a zoom.
+    expect(zs.steps.filter((s) => "zoom" in s)).toHaveLength(2);
+    expect(sk.steps.filter((s) => "zoom" in s)).toEqual([]);
   });
 
   it("reads a v1 file as having no timing", () => {
@@ -216,7 +213,7 @@ describe("skeleton v2", () => {
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.skeleton.skeletonVersion).toBe(2);
-    expect(out.skeleton.trim).toBeNull();
+    expect("trim" in out.skeleton).toBe(false);
     expect(out.skeleton.steps[1]).toMatchObject({
       finishMs: null,
       zoomOutMs: null,
@@ -224,46 +221,39 @@ describe("skeleton v2", () => {
     expect(out.skeleton.steps[0]).toEqual({ do: "pause", ms: 5 });
   });
 
-  const v2 = (trim: unknown, zoom?: unknown) => ({
-    skeletonVersion: 2,
-    name: "x",
-    scriptVersion: 8,
-    viewport: null,
-    device: null,
-    look: null,
-    trim,
-    steps: [
+  // A v2 file this branch wrote before R18: its trim and zoom, even ones
+  // the schema would refuse, are not read, so they cannot refuse the file.
+  it("reads a v2 file that still carries trim and a step zoom, without them", () => {
+    const out = parseSkeleton({
+      skeletonVersion: 2,
+      name: "x",
+      scriptVersion: 8,
+      viewport: null,
+      device: null,
+      look: null,
+      trim: { end: { ms: 0, after: "action" }, middle: {} },
+      steps: [
+        {
+          do: "click",
+          actionId: "a",
+          anchorDigest: null,
+          finishMs: 1,
+          zoomOutMs: 2,
+          zoom: 1.8,
+        },
+      ],
+    });
+    if (!out.ok) throw new Error(out.error);
+    expect("trim" in out.skeleton).toBe(false);
+    expect(out.skeleton.steps).toEqual([
       {
         do: "click",
         actionId: "a",
         anchorDigest: null,
         finishMs: 1,
-        zoomOutMs: null,
-        ...(zoom === undefined ? {} : { zoom }),
+        zoomOutMs: 2,
       },
-    ],
-  });
-
-  it.each([
-    ["a bare number", 1.8],
-    ["a non-numeric scale", { scale: "x" }],
-    ["a scale of 1", { scale: 1 }],
-  ])("refuses a zoom that is %s", (_, zoom) => {
-    expect(parseSkeleton(v2(null, zoom))).toEqual({
-      ok: false,
-      error: expect.stringContaining("steps.0's zoom"),
-    });
-  });
-
-  it.each([
-    ["a negative ms", { start: { ms: -1 } }],
-    ["an unknown key", { start: { ms: 1 }, middle: {} }],
-    ["an unknown after", { end: { ms: 1, after: "later" } }],
-  ])("refuses a trim with %s", (_, trim) => {
-    expect(parseSkeleton(v2(trim))).toEqual({
-      ok: false,
-      error: expect.stringContaining("trim is not a trim"),
-    });
+    ]);
   });
 
   it("refuses a v2 step whose finishMs is a string, by name", () => {
@@ -274,7 +264,6 @@ describe("skeleton v2", () => {
       viewport: null,
       device: null,
       look: null,
-      trim: null,
       steps: [
         {
           do: "click",

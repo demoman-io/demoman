@@ -23,7 +23,6 @@ describe("editedSinceRecorded", () => {
     // What a CLI run of this take would save: every action, its own digest.
     const sk: ScriptSkeleton = {
       skeletonVersion: 2,
-      trim: null,
       name: doc.meta.name,
       scriptVersion: 1,
       viewport: null,
@@ -113,7 +112,6 @@ describe("editedSinceRecorded", () => {
     if (anchor === undefined) throw new Error("fixture anchor missing");
     const sk: ScriptSkeleton = {
       skeletonVersion: 2,
-      trim: null,
       name: "x",
       scriptVersion: 1,
       viewport: null,
@@ -161,7 +159,6 @@ describe("editedSinceRecorded", () => {
     if (anchor === undefined) throw new Error("fixture anchor missing");
     const sk: ScriptSkeleton = {
       skeletonVersion: 2,
-      trim: null,
       name: "x",
       scriptVersion: 1,
       viewport: null,
@@ -204,7 +201,6 @@ describe("targetCheckOf", () => {
   it("is checked for a readable skeleton", () => {
     const sk: ScriptSkeleton = {
       skeletonVersion: 2,
-      trim: null,
       name: "x",
       scriptVersion: 1,
       viewport: null,
