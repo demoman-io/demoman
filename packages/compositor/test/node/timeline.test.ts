@@ -5,6 +5,7 @@ import { planScene } from "../../src/plan/plan";
 import {
   buildTimeline,
   motionSpansOf,
+  sourceDurationOf,
   type Timeline,
   type TimeSpan,
   toOutputMs,
@@ -53,6 +54,40 @@ function bundle(overrides: Partial<FrameBundle> = {}): FrameBundle {
 }
 
 const plan = planScene(readonlyScene());
+
+describe("sourceDurationOf", () => {
+  // One answer from the bundle alone: the take asks it before writing a
+  // trim (replay-engine's `trimFromScript`), the timeline before playing.
+  it("runs to the cursor's last travel past the closing still, and the timeline reads that answer whatever its hints", () => {
+    const travelling = bundle({
+      cursorSamples: [
+        { sourceTimeMs: 0, x: 0, y: 0 },
+        { sourceTimeMs: 9000, x: 0, y: 0 },
+        { sourceTimeMs: 11_000, x: 300, y: 200 },
+      ],
+    });
+    // Premise: the travel ends past the last keyframe and marker (9000).
+    expect(travelling.keyframes.at(-1)?.sourceTimeMs).toBe(9000);
+    expect(sourceDurationOf(travelling)).toBe(11_000);
+    // A hint past the travel moves only what plays at rate 1, not the end.
+    const hinted = buildTimeline(plan, travelling, [
+      { startMs: 10_000, endMs: 14_000 },
+    ]);
+    expect(hinted.sourceDurationMs).toBe(11_000);
+    expect(buildTimeline(plan, travelling).sourceDurationMs).toBe(11_000);
+  });
+
+  it("counts a capture's drawn settle after the travel", () => {
+    const capture = bundle({
+      source: "capture",
+      cursorSamples: [
+        { sourceTimeMs: 9000, x: 0, y: 0 },
+        { sourceTimeMs: 11_000, x: 300, y: 200 },
+      ],
+    });
+    expect(sourceDurationOf(capture)).toBeGreaterThan(11_000);
+  });
+});
 
 describe("motionSpansOf", () => {
   it("reads motion spans straight from the bundle", () => {

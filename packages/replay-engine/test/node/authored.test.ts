@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cursorEntryPoint, madeFromOf } from "@demoman/compositor";
+import {
+  cursorEntryPoint,
+  madeFromOf,
+  sourceDurationOf,
+} from "@demoman/compositor";
 import type { AnchorIntent } from "@demoman/resolver";
 import {
   BRANDING_DEFAULTS,
@@ -37,6 +41,7 @@ import type {
   ResolveReport,
 } from "../../src/types.js";
 import type { WalkSource, WalkStep } from "../../src/walk.js";
+import { proceduralBundle } from "../helpers/bundles.js";
 
 /**
  * The authored source and the assembler, driven directly.
@@ -1667,5 +1672,54 @@ describe("cameraInputs, given the walk's decisions", () => {
     ]);
     expect(scaleAt(actions[1] as SceneAction)).toBe(0.4);
     expect(scaleAt(actions[0] as SceneAction)).toBe(1);
+  });
+});
+
+describe("a trim's end, against how long the take filmed", () => {
+  it("places a tail inside cursor travel past the closing still", async () => {
+    const authored: DemoScript = {
+      ...oneStepScript(),
+      trim: { end: { ms: 9500, after: "action" } },
+    };
+    const driven = await drive(authored);
+    const actionId = driven.run.steps[0]?.actionId as string;
+    const timing = {
+      markerMs: 400,
+      startMs: 0,
+      finishMs: 100,
+      zoomOutMs: null,
+    };
+    // The pointer keeps travelling to 12000, past the last keyframe (9000)
+    // and the last marker.
+    const bundle = proceduralBundle({
+      markers: [{ actionId, sourceTimeMs: 400 }],
+      cursorSamples: [
+        ...proceduralBundle().cursorSamples,
+        { sourceTimeMs: 12_000, x: 100, y: 100 },
+      ],
+    });
+    const tailAt = timing.markerMs + timing.finishMs + 9500;
+    const lastStill = bundle.keyframes.at(-1)?.sourceTimeMs ?? 0;
+    // Premise: the tail lies past every still and marker, and inside the
+    // travel, which is how long the compositor says the take filmed.
+    const evidence = JSON.stringify({ tailAt, lastStill });
+    expect(tailAt, evidence).toBeGreaterThan(lastStill);
+    expect(sourceDurationOf(bundle), evidence).toBe(12_000);
+
+    const placed = assembleAuthored(authored, {
+      sceneId: driven.deps.sceneId,
+      createdAt: driven.deps.createdAt,
+      viewport: VIEWPORT,
+      actions: driven.run.actions,
+      anchors: driven.run.anchors,
+      walked: walkedStub({ bundle }),
+      startingBranding: driven.deps.startingBranding,
+      camera: { camera: [], zoomsSkipped: [] },
+      steps: driven.run.steps.map((s) => ({ ...s, timing })),
+    });
+    expect(placed.trimUnplaced, evidence).toBeUndefined();
+    expect(placed.document?.edits.trim, evidence).toEqual({
+      tail: { actionId, offsetMs: timing.finishMs + 9500 },
+    });
   });
 });

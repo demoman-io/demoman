@@ -1,11 +1,14 @@
 import type { SourcePoint } from "@demoman/scene-schema";
 import {
+  type CursorSample,
   type Degradation,
   type FrameBundle,
   gapPacedLive,
   isRealTime,
 } from "../bundle.js";
 import { clamp } from "../geometry.js";
+import { CURSOR_SPRING_TAU_MS, springSettleMs } from "./cursor-spring.js";
+import { inScreenSpace } from "./screen-space.js";
 import type { AuthoredPace, PlannedPace, RenderPlan } from "./types.js";
 
 export interface TimeSpan {
@@ -796,22 +799,62 @@ function interruptionsOf(
   return merge(out);
 }
 
+/** Below this, sample-to-sample movement is jitter or a hold, not travel. */
+export const CURSOR_MOTION_EPSILON_PX = 0.5;
+
 /**
- * How long the bundle filmed, in source ms: its last keyframe, marker or
- * motion. The timeline's `sourceDurationMs`, and what an end past it is
- * clamped to; exported so a take can ask the same question before it writes
- * a trim (`@demoman/replay-engine`'s `trimFromScript`). `motion` defaults to
- * the bundle's own (`motionSpansOf` with no hints).
+ * Spans in which the cursor is actually travelling.
+ *
+ * The design doc claimed dead air contains no cursor motion "by
+ * construction". It plainly does: the pointer crosses the screen between one
+ * action and the next while the page underneath it sits perfectly still, so
+ * the retimer saw a static page, called it dead air and compressed it. On the
+ * harvested fixture two ~1270ms travels were squeezed into 400ms each and the
+ * pointer whipped across at 3.2x. A polished recording never speeds up a
+ * cursor move, and the reason it looks wrong is that a sped-up pointer is the one
+ * thing in the frame a viewer knows the real speed of.
+ *
+ * These come back as `buildTimeline` hints, so they merge with the harvested
+ * motion spans and get the same treatment: passed through at rate 1.0. Holds
+ * and dwells produce no span, so genuine dead air still compresses.
  */
-export function sourceDurationOf(
-  bundle: FrameBundle,
-  motion: TimeSpan[] = motionSpansOf(bundle),
-): number {
+export function cursorMotionSpans(samples: CursorSample[]): TimeSpan[] {
+  const spans: TimeSpan[] = [];
+  for (let i = 1; i < samples.length; i++) {
+    const from = samples[i - 1];
+    const to = samples[i];
+    if (!from || !to) continue;
+    if (to.sourceTimeMs <= from.sourceTimeMs) continue;
+    if (Math.hypot(to.x - from.x, to.y - from.y) < CURSOR_MOTION_EPSILON_PX) {
+      continue;
+    }
+    spans.push({ startMs: from.sourceTimeMs, endMs: to.sourceTimeMs });
+  }
+  return spans;
+}
+
+/**
+ * How long the bundle filmed, in source ms: its last keyframe, marker,
+ * motion, or cursor travel (and, on a capture, the drawn cursor's settle
+ * after it). The timeline's `sourceDurationMs`, and what an end past it is
+ * clamped to. A question of the bundle alone, so a take asks it before it
+ * writes a trim (`@demoman/replay-engine`'s `trimFromScript`) and gets the
+ * answer the render will: the render's keyframe-diff hints lie between
+ * keyframes, and its cursor hints are this travel.
+ */
+export function sourceDurationOf(bundle: FrameBundle): number {
   const lastKeyframe = bundle.keyframes[bundle.keyframes.length - 1];
+  // In screen space, as the render reads it: the travel threshold is px.
+  const travel = cursorMotionSpans(
+    inScreenSpace(bundle, undefined).bundle.cursorSamples,
+  ).at(-1);
+  const settleMs =
+    bundle.source === "capture" ? springSettleMs(CURSOR_SPRING_TAU_MS) : 0;
   return Math.max(
     lastKeyframe?.sourceTimeMs ?? 0,
     ...bundle.markers.map((m) => m.sourceTimeMs),
-    ...motion.map((m) => m.endMs),
+    ...motionSpansOf(bundle).map((m) => m.endMs),
+    travel === undefined ? 0 : travel.endMs + settleMs,
   );
 }
 
@@ -829,7 +872,7 @@ export function buildTimeline(
   hints: TimeSpan[] = [],
 ): Timeline {
   const motion = motionSpansOf(bundle, hints);
-  const sourceDurationMs = sourceDurationOf(bundle, motion);
+  const sourceDurationMs = sourceDurationOf(bundle);
 
   const { cuts, unplacedCuts } = cutRanges(plan, bundle, sourceDurationMs);
   const interruptions = interruptionsOf(bundle, cuts);
