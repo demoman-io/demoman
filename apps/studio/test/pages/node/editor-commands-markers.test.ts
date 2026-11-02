@@ -52,6 +52,7 @@ describe("zooms", () => {
         anchorId: "a-checkout",
         marker: { actionId: "act-3", offsetMs: -350 },
         scale: 1.8,
+        source: "author",
       },
     ]);
   });
