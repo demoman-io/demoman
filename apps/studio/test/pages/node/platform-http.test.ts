@@ -969,7 +969,7 @@ describe("frames, outputs, nav", () => {
     await platform.scenes.get("t1");
     expect(platform.nav.rerun("t1", false)).toEqual({
       kind: "line",
-      text: `Ask your agent to film it again: \`run({ flow: { id: "${VIDEO}" } })\``,
+      text: `Ask your agent to record it again: \`run({ flow: { id: "${VIDEO}" } })\``,
     });
   });
 

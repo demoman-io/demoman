@@ -55,7 +55,7 @@ const motionOf = (s) =>
 
 const html = readFileSync(
   values.sample ??
-    join(repo, "docs", "store-assets", "sample-app", "index.html"),
+    join(repo, "internal", "docs", "store-assets", "sample-app", "index.html"),
 );
 const server = createServer((req, res) => {
   if (req.url !== "/index.html") return void res.writeHead(404).end();

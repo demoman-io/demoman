@@ -37,7 +37,8 @@ import { rerunAdvice, rerunLineOf } from "../../../pages/src/shell/runs-link";
  *   "Queued (2 ahead)" fails.
  */
 
-const REFILM = 'Ask your agent to film it again: `run({ flow: { id: "v1" } })`';
+const REFILM =
+  'Ask your agent to record it again: `run({ flow: { id: "v1" } })`';
 const line = { kind: "line" as const, text: REFILM };
 /** What a reader sees: the words, the span's backticks gone (ruling R20). */
 const REFILM_WORDS = REFILM.replaceAll("`", "");

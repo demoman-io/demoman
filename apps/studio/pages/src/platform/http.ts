@@ -106,7 +106,7 @@ const STUDIO_FIRST_TAKE_HINT =
  *  agent call that films the flow again, as a new video (spec 2026-10-30
  *  flows-and-bulk-delete §1.1). */
 export const refilmLine = (videoId: string): string =>
-  `Ask your agent to film it again: \`run({ flow: { id: "${videoId}" } })\``;
+  `Ask your agent to record it again: \`run({ flow: { id: "${videoId}" } })\``;
 /** The same, for a video in no flow yet: there is no call to name. */
 export const REFILM_NO_VIDEO = "Ask your agent to film this again.";
 /** The same, for a video whose video.json would not read: why, not "in no flow". */

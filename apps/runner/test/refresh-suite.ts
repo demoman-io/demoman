@@ -620,7 +620,7 @@ export const firstFilm = () => {
         .toString()
         .slice(0, 7);
       expect(a.line).toBe(
-        `Demo: \`${A}\` · matches all 2 steps · filmed at \`${headSha}\``,
+        `Demo: \`${A}\` · matches all 2 steps · recorded at \`${headSha}\``,
       );
       expect((await bytes(out.aGif)).subarray(0, 6).toString("latin1")).toMatch(
         /^GIF8[79]a$/,
