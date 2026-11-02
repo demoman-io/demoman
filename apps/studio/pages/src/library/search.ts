@@ -6,6 +6,7 @@
 import {
   type FlowText,
   hasWords,
+  matchAt,
   matchedOutsideName,
   phraseHits,
 } from "@demoman/run-core";
@@ -34,11 +35,29 @@ export function cardText(card: LibraryCard): FlowText {
 export const cardHits = (card: LibraryCard, query: string): number =>
   phraseHits(query, cardText(card), typingOf(query));
 
-/** Where a match outside the name was found: `step: …` or `page: /route`. */
-export function whyOf(card: LibraryCard, query: string): string | null {
-  const m = matchedOutsideName(query, cardText(card), typingOf(query));
+/** A why this long reads whole beside a name at its floor in the narrowest
+ *  wide list: the name cell's 160px minimum leaves it 84px (index.html),
+ *  twelve characters of 13px Geist. A longer one starts at its matched
+ *  word, which a cut why then still paints. */
+export const WHY_WHOLE = 12;
+
+/** Where a match outside the name was found: `step: …` or `page: /route`,
+ *  as shown (`text`, from the matched word on when it starts late) and in
+ *  full for the title. */
+export type Why = { text: string; full: string };
+export function whyOf(card: LibraryCard, query: string): Why | null {
+  const typing = typingOf(query);
+  const m = matchedOutsideName(query, cardText(card), typing);
   if (m === null) return null;
-  return "step" in m ? `step: ${m.step}` : `page: ${pathOf(m.page) || "/"}`;
+  const [kind, said] =
+    "step" in m ? ["step", m.step] : ["page", pathOf(m.page) || "/"];
+  const full = `${kind}: ${said}`;
+  const word = matchAt(query, said, typing);
+  // A route keeps the slash its segment starts with.
+  const at = kind === "page" ? said.lastIndexOf("/", word) : word;
+  return at > 0 && full.length > WHY_WHOLE
+    ? { text: `${kind}: …${said.slice(at)}`, full }
+    : { text: full, full };
 }
 
 /** The cards with a hit, built the way `narrow` builds its model; every

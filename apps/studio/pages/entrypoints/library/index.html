@@ -812,13 +812,14 @@
         white-space: nowrap;
         color: var(--ink-faint);
       }
-      /* The why keeps its width and the name gives way, so the matched
-         word reads (the name's rule is with the name's, below); the why
-         is cut only where it alone is wider than the cell (its 12px and
-         the gap of 8 kept). */
+      /* The why keeps its width and the name gives way, down to a floor
+         of 35% of the cell: 56px of name at the narrowest (160px), where
+         40% cut a five-letter matched word (the name's rule is with the
+         name's, below). A longer why is cut after the floor, its 12px and
+         the gap of 8, and starts at the matched word (`whyOf`). */
       .library-list [data-col="name"] > .match-why {
         flex: none;
-        max-width: calc(100% - 20px);
+        max-width: calc(65% - 20px);
         margin-left: 12px;
       }
       /* Wide, the why follows the name; the copy in Where waits. */

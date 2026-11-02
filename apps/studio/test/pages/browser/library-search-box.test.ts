@@ -4,6 +4,7 @@ import { page, userEvent } from "@vitest/browser/context";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import studioCss from "../../../pages/assets/studio.css?raw";
 import shell from "../../../pages/entrypoints/library/index.html?raw";
+import { WHY_WHOLE } from "../../../pages/src/library/search";
 import {
   createMemoryPlatform,
   type MemoryPlatform,
@@ -55,8 +56,11 @@ const video = (id: string, name: string, steps: string[]): VideoSummary => ({
 });
 const VIDEOS = [
   video("invite", "Invite a teammate", ["click Send invite"]),
-  video("billing", "Update billing", ["click Save"]),
+  video("billing", "Update billing", ["click Save", "tap OK"]),
   video("onboard", "Team onboarding", ["click Invite member"]),
+  video("signup", "Sign up a new customer", [
+    "type alice@example.com into Email address",
+  ]),
 ];
 
 const originalUrl = location.href;
@@ -93,8 +97,8 @@ function bootOnce(): Promise<void> {
     });
     await import("../../../pages/entrypoints/library/main");
     await vi.waitFor(() => {
-      if (document.querySelectorAll("[data-list] [data-flow]").length !== 3) {
-        throw new Error("three flows not drawn yet");
+      if (document.querySelectorAll("[data-list] [data-flow]").length !== 4) {
+        throw new Error("four flows not drawn yet");
       }
     });
   })();
@@ -170,6 +174,70 @@ function paintedWhole(e: HTMLElement): { shown: boolean; whole: boolean } {
   };
 }
 
+/** A row's name beside its why, as painted: the name's width against its
+ *  floor (35% of the cell, index.html), and the matched word
+ *  inside the part of the why that is drawn (short of a cut why's "…"). */
+function floorAndWord(flow: string, word: string) {
+  const cell = node(`[data-flow="${flow}"] [data-col="name"]`);
+  const name = node(`[data-flow="${flow}"] [data-name-text]`);
+  const w = why(flow, "name");
+  const style = getComputedStyle(cell);
+  const content =
+    cell.clientWidth -
+    Number.parseFloat(style.paddingLeft) -
+    Number.parseFloat(style.paddingRight);
+  const probe = document.createElement("span");
+  probe.className = "match-why";
+  probe.style.cssText = "position: absolute; max-width: none";
+  cell.append(probe);
+  probe.textContent = w.title;
+  const full = rect(probe).width;
+  probe.textContent = "…";
+  const ellipsis = rect(probe).width;
+  probe.remove();
+  const floor = 0.35 * content;
+  const n = rect(name);
+  const mid = (n.top + n.bottom) / 2;
+  const nameHit = document.elementFromPoint(n.left + floor - 2, mid);
+  const text = w.firstChild as Text;
+  const at = (text.data ?? "").indexOf(word);
+  const range = document.createRange();
+  range.setStart(text, Math.max(at, 0));
+  range.setEnd(text, Math.max(at, 0) + word.length);
+  const r = range.getBoundingClientRect();
+  const cut = w.scrollWidth > w.clientWidth;
+  const drawnTo = rect(w).right - (cut ? ellipsis : 0);
+  const wordHit = document.elementFromPoint(
+    r.left + r.width / 2,
+    (r.top + r.bottom) / 2,
+  );
+  return {
+    evidence: JSON.stringify({
+      text: text.data,
+      title: w.title,
+      cell: content,
+      full,
+      floor,
+      name: n.width,
+      word: [r.left, r.right],
+      drawnTo,
+      cut,
+      fonts: [...document.fonts].map((f) => `${f.family} ${f.status}`),
+    }),
+    cell: content,
+    /** Premise: the whole sentence would not fit the cell. */
+    fullWiderThanCell: full > content,
+    nameAtFloor:
+      n.width >= floor - 0.5 && nameHit !== null && name.contains(nameHit),
+    wordPainted:
+      at >= 0 &&
+      r.width > 0 &&
+      r.right <= drawnTo + 0.5 &&
+      wordHit !== null &&
+      w.contains(wordHit),
+  };
+}
+
 describe("the library's search box", () => {
   it("sits in the tab row, right of the tabs and left of the toggle, on one line", async () => {
     await bootOnce();
@@ -229,10 +297,11 @@ describe("the library's search box", () => {
     expect(input().value).toBe("invi");
     expect(input().selectionStart).toBe(4);
     // Wide, the why follows the name, and Where keeps the route.
+    const wide = floorAndWord("onboard", "Invite");
     expect(
-      paintedWhole(why("onboard", "name")),
-      why("onboard", "name").textContent ?? "",
-    ).toEqual({ shown: true, whole: true });
+      { nameAtFloor: wide.nameAtFloor, wordPainted: wide.wordPainted },
+      wide.evidence,
+    ).toEqual({ nameAtFloor: true, wordPainted: true });
     expect(rect(why("onboard", "name")).left).toBeGreaterThanOrEqual(
       rect(node('[data-flow="onboard"] [data-name-text]')).right,
     );
@@ -258,6 +327,49 @@ describe("the library's search box", () => {
     });
   });
 
+  it("a long why keeps the name's floor and paints its matched word, 1440 to 830", async () => {
+    await bootOnce();
+    // 830 is where the name column sits at its 160px minimum, the least
+    // room a why beside the name has (asserted below).
+    for (const width of [1440, 900, 830]) {
+      await page.viewport(width, 900);
+      await userEvent.fill(input(), "email");
+      await vi.waitFor(() => {
+        if (flows().join() !== "signup") throw new Error("not narrowed yet");
+      });
+      const at = floorAndWord("signup", "Email");
+      expect(at.fullWiderThanCell, `${width}: premise ${at.evidence}`).toBe(
+        true,
+      );
+      if (width === 830) {
+        expect(at.cell, `premise: the narrowest cell ${at.evidence}`).toBe(160);
+      }
+      expect(
+        { nameAtFloor: at.nameAtFloor, wordPainted: at.wordPainted },
+        `${width}: ${at.evidence}`,
+      ).toEqual({ nameAtFloor: true, wordPainted: true });
+      expect(why("signup", "where").checkVisibility()).toBe(false);
+      await page.screenshot({
+        path: `__screenshots__/library-search-box/long-why-${width}x900.png`,
+      });
+    }
+    // And a why short enough to stay whole (`WHY_WHOLE`) is whole there.
+    await userEvent.fill(input(), "ok");
+    await vi.waitFor(() => {
+      if (flows().join() !== "billing") throw new Error("not narrowed yet");
+    });
+    const short = why("billing", "name");
+    expect(short.textContent, "premise: whole, at the threshold").toBe(
+      "step: tap OK",
+    );
+    expect(short.textContent?.length).toBe(WHY_WHOLE);
+    expect(paintedWhole(short), short.textContent ?? "").toEqual({
+      shown: true,
+      whole: true,
+    });
+    await page.viewport(1440, 900);
+  });
+
   it("Esc in the box clears it and keeps a ticked flow ticked", async () => {
     await bootOnce();
     await userEvent.fill(input(), "inv");
@@ -269,7 +381,7 @@ describe("the library's search box", () => {
     await userEvent.click(input());
     await userEvent.keyboard("{Escape}");
     expect(input().value).toBe("");
-    expect(flows()).toHaveLength(3);
+    expect(flows()).toHaveLength(4);
     expect(
       (node('[data-select="invite"]') as HTMLInputElement).checked,
       "the tick Esc in the box left",
@@ -300,7 +412,8 @@ describe("the library's search box", () => {
     const why = node(
       'article[data-video="onboard"] [data-meta] [data-match-why]',
     );
-    expect(why.textContent).toBe("step: click Invite member");
+    expect(why.textContent).toBe("step: …Invite member");
+    expect(why.title).toBe("step: click Invite member");
     expect(rect(why).width).toBeGreaterThan(40);
     await page.screenshot({
       path: "__screenshots__/library-search-box/grid-1440x900.png",

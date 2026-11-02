@@ -259,9 +259,11 @@ describe("library main — search", () => {
     expect(location.search).toBe(`${AT_WEB}&q=inv`);
     // Replaced, not pushed: Back leaves the search as a whole.
     expect(history.length).toBe(entries);
-    expect(
-      rowOf("t-onboard")?.querySelector("[data-match-why]")?.textContent,
-    ).toBe("step: click Invite member");
+    // From the matched word, the whole step in its title.
+    const why =
+      rowOf("t-onboard")?.querySelector<HTMLElement>("[data-match-why]");
+    expect(why?.textContent).toBe("step: …Invite member");
+    expect(why?.title).toBe("step: click Invite member");
     // A flow matched by its name says nothing more.
     expect(rowOf("t-invite")?.querySelector("[data-match-why]")).toBeNull();
     // Each tab says what it would show.
@@ -323,8 +325,9 @@ describe("library main — search", () => {
     // On a card the why takes Where's place on the meta line.
     const meta = $('article[data-video="onboard"] [data-meta]');
     expect(meta?.querySelector("[data-match-why]")?.textContent).toBe(
-      "step: click Invite member",
+      "step: …Invite member",
     );
+    expect(meta?.getAttribute("title")).toBe("step: click Invite member");
     expect(meta?.textContent).not.toContain("app.test");
     // Premise for that: a card matched by name still says where.
     expect($('article[data-video="invite"] [data-meta]')?.textContent).toMatch(

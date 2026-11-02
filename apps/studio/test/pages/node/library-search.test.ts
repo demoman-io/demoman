@@ -10,6 +10,7 @@ import {
   searching,
   searchModel,
   typingOf,
+  WHY_WHOLE,
   whyOf,
 } from "../../../pages/src/library/search";
 import type {
@@ -171,14 +172,56 @@ describe("searchModel", () => {
 
 describe("whyOf", () => {
   it("names the step, or the page, but not a name match", () => {
-    expect(whyOf(cardOf("Team onboarding"), "invite")).toBe(
-      "step: click Invite member",
-    );
+    expect(whyOf(cardOf("Team onboarding"), "invite")).toEqual({
+      text: "step: …Invite member",
+      full: "step: click Invite member",
+    });
     expect(whyOf(cardOf("Invite a teammate"), "invite")).toBeNull();
-    expect(whyOf(cardOf("Update billing"), "settings")).toBe(
-      "page: /settings/billing",
-    );
+    expect(whyOf(cardOf("Update billing"), "settings")).toEqual({
+      text: "page: /settings/billing",
+      full: "page: /settings/billing",
+    });
     expect(whyOf(cardOf("Team onboarding"), "")).toBeNull();
+  });
+
+  const one = (steps: string[], pages = ["https://app.test/"]) => {
+    const g = flow("S", "Sign up a customer", pages, steps, null);
+    return cardsOf({
+      ...model,
+      rows: g.versions,
+      groups: [g],
+    })[0] as (typeof cards)[number];
+  };
+  const LONG = "type alice@example.com into Email address";
+  it("starts a long why at its first matched word, whole in the title", () => {
+    // Premise: long enough to be cut, and the word not its first.
+    expect(`step: ${LONG}`.length).toBeGreaterThan(WHY_WHOLE);
+    expect(LONG.indexOf("Email")).toBeGreaterThan(0);
+    expect(whyOf(one([LONG]), "email")).toEqual({
+      text: "step: …Email address",
+      full: `step: ${LONG}`,
+    });
+    // The matcher's own words: typing a prefix, and the first of two.
+    expect(whyOf(one([LONG]), "addr")?.text).toBe("step: …address");
+    expect(whyOf(one([LONG]), "address email ")?.text).toBe(
+      "step: …Email address",
+    );
+    // A route starts at the slash before its segment.
+    expect(
+      whyOf(one([], ["https://app.test/settings/team/billing"]), "billing")
+        ?.text,
+    ).toBe("page: …/billing");
+  });
+  it("keeps a short why whole", () => {
+    // Premise: short, and the word not its first, so only length keeps it.
+    expect("step: tap OK".length).toBeLessThanOrEqual(WHY_WHOLE);
+    expect(whyOf(one(["tap OK"]), "ok")).toEqual({
+      text: "step: tap OK",
+      full: "step: tap OK",
+    });
+    // One past the threshold starts at its word.
+    expect("step: click OK".length).toBeGreaterThan(WHY_WHOLE);
+    expect(whyOf(one(["click OK"]), "ok")?.text).toBe("step: …OK");
   });
 });
 

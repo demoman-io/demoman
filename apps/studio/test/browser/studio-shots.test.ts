@@ -250,6 +250,12 @@ const GLOBEX = "github.com/globex/api";
 const LOCAL = "local:/Users/me/scratch";
 /** The word only the globex flow's steps hold: its last button's name. */
 const SEARCHED = "ledger";
+/** The globex flow's name: wider than the name's floor beside a why. */
+const GLOBEX_NAME = "Filter the open invoices by customer";
+/** The checkout button's name: its step is wider than the name cell, so
+ *  the why starts at SEARCHED (`whyOf`), and runs on past the cap after it,
+ *  so the name is held at its floor. */
+const RECONCILE = `Reconcile the ${SEARCHED} against the open invoices`;
 
 /** The projects home: acme/web's two flows (the invoice one kept in a real
  *  checkout), globex/api's one, an unpushed repo's one, flows in no
@@ -278,7 +284,8 @@ async function seedProjects(): Promise<{
   // A second owner's project: one flow of one take.
   const lone = (PLAIN[0] as PlainTake).id;
   const made = await store.create({
-    name: "Filter invoices",
+    // Long enough that, beside the search's why, it is cut at its floor.
+    name: GLOBEX_NAME,
     repo: { key: GLOBEX },
     startPage: "https://app.example.com/",
   });
@@ -295,7 +302,7 @@ async function seedProjects(): Promise<{
             ...a,
             fingerprint: {
               ...a.fingerprint,
-              accessibleName: "Reconcile ledger",
+              accessibleName: RECONCILE,
             },
           }
         : a,
@@ -4004,7 +4011,7 @@ describe("the Studio's screenshot set", () => {
       expect(
         videos.find((v) => v.id === globex)?.steps,
         `premise: the globex flow's steps hold the word ${listed}`,
-      ).toContain(`click Reconcile ${SEARCHED}`);
+      ).toContain(`click ${RECONCILE}`);
       expect(
         videos.filter((v) => word.test(v.name)).map((v) => v.id),
         `premise: no flow's name holds the word ${listed}`,
@@ -4029,10 +4036,11 @@ describe("the Studio's screenshot set", () => {
       const page = context.pages()[0] as Page;
       const console_ = watchConsole(page);
       const shots: string[] = [];
-      const why = `step: click Reconcile ${SEARCHED}`;
+      const why = `step: …${SEARCHED} against the open invoices`;
+      const whyFull = `step: click ${RECONCILE}`;
       // The listed flows (and takes in no flow), and the search's paint.
       const look = () =>
-        page.evaluate(() => {
+        page.evaluate((searched) => {
           const centre = (r: DOMRect) =>
             [r.left + r.width / 2, r.top + r.height / 2] as const;
           const hits = (e: Element) => {
@@ -4045,6 +4053,74 @@ describe("the Studio's screenshot set", () => {
             if (e === null) return null;
             const r = e.getBoundingClientRect();
             return [r.left, r.top, r.right, r.bottom].map(Math.round);
+          };
+          // The why against its cell: the whole sentence's width (the
+          // premise that it is cut), the name's painted width against its
+          // floor (35% of the cell, index.html), and the matched word inside
+          // the part of the why that is drawn, short of a cut why's "…".
+          const besideName = (w: HTMLElement, searched: string) => {
+            const cell = w.closest<HTMLElement>("[data-col]") as HTMLElement;
+            const style = getComputedStyle(cell);
+            const content =
+              cell.clientWidth -
+              Number.parseFloat(style.paddingLeft) -
+              Number.parseFloat(style.paddingRight);
+            const probe = document.createElement("span");
+            probe.className = "match-why";
+            probe.style.cssText = "position: absolute; max-width: none";
+            cell.append(probe);
+            probe.textContent = w.title;
+            const full = probe.getBoundingClientRect().width;
+            probe.textContent = "…";
+            const ellipsis = probe.getBoundingClientRect().width;
+            probe.remove();
+            const name = cell.querySelector("[data-name-text]");
+            const n = name?.getBoundingClientRect();
+            const floor = 0.35 * content;
+            const nameHit =
+              n === undefined
+                ? null
+                : document.elementFromPoint(
+                    n.left + floor - 2,
+                    n.top + n.height / 2,
+                  );
+            const text = w.firstChild as Text | null;
+            const i = text?.data.indexOf(searched) ?? -1;
+            const range = document.createRange();
+            if (text !== null && i >= 0) {
+              range.setStart(text, i);
+              range.setEnd(text, i + searched.length);
+            }
+            const r = range.getBoundingClientRect();
+            const drawnTo =
+              w.getBoundingClientRect().right -
+              (w.scrollWidth > w.clientWidth ? ellipsis : 0);
+            const wordHit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            return {
+              title: w.title,
+              cell: content,
+              full,
+              floor,
+              name: n?.width ?? null,
+              word: [r.left, r.right],
+              drawnTo,
+              fullWiderThanCell: full > content,
+              nameWiderThanFloor: name !== null && name.scrollWidth > floor,
+              nameAtFloor:
+                n !== undefined &&
+                n.width >= floor - 0.5 &&
+                nameHit !== null &&
+                (name?.contains(nameHit) ?? false),
+              wordPainted:
+                i >= 0 &&
+                r.width > 0 &&
+                r.right <= drawnTo + 0.5 &&
+                wordHit !== null &&
+                w.contains(wordHit),
+            };
           };
           const box = document.querySelector<HTMLInputElement>("[data-search]");
           const row = document.querySelector("[data-tabs-row]");
@@ -4078,6 +4154,7 @@ describe("the Studio's screenshot set", () => {
                       0) +
                       0.5,
                 rect: rect(w),
+                ...besideName(w, searched),
               })),
             })),
             box:
@@ -4108,7 +4185,7 @@ describe("the Studio's screenshot set", () => {
                   },
             search: location.search,
           };
-        });
+        }, SEARCHED);
       type Seen = Awaited<ReturnType<typeof look>>;
       const until = async (
         at: string,
@@ -4183,12 +4260,42 @@ describe("the Studio's screenshot set", () => {
           ["name", why],
           ["where", why],
         ]);
+        expect(
+          whys.map((x) => x.title),
+          `${at}: premise: the whole step is in the title ${ev}`,
+        ).toEqual([whyFull, whyFull]);
         const shown = whys.filter((x) => x.drawn);
+        // Beside the name it runs past its cap and is cut; in Where's
+        // place, over Videos and Length, it reads whole.
         expect(
           shown.map((x) => ({ slot: x.slot, hit: x.hit, whole: x.whole })),
-          `${at}: one copy of the why is painted whole, its own at its centre ${ev}`,
+          `${at}: one copy of the why is painted, its own at its centre ${ev}`,
         ).toEqual([
-          { slot: w === 720 ? "where" : "name", hit: true, whole: true },
+          { slot: w === 720 ? "where" : "name", hit: true, whole: w === 720 },
+        ]);
+        // The matched word is painted, and wide, the name keeps its floor.
+        // Premise: the whole step is wider than the cell, so the why is
+        // cut, and the name wider than its floor, so the floor holds it.
+        expect(
+          shown.map((x) => ({
+            fullWiderThanCell: x.fullWiderThanCell,
+            nameWiderThanFloor: x.slot === "name" ? x.nameWiderThanFloor : null,
+          })),
+          `${at}: premise: the step wider than its cell, the name than its floor ${ev}`,
+        ).toEqual([
+          {
+            fullWiderThanCell: true,
+            nameWiderThanFloor: w === 720 ? null : true,
+          },
+        ]);
+        expect(
+          shown.map((x) => ({
+            wordPainted: x.wordPainted,
+            nameAtFloor: x.slot === "name" ? x.nameAtFloor : null,
+          })),
+          `${at}: the matched word painted, the name at least its floor ${ev}`,
+        ).toEqual([
+          { wordPainted: true, nameAtFloor: w === 720 ? null : true },
         ]);
         expect(
           await inked(shown[0]?.rect as number[]),

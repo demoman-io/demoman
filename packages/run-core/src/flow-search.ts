@@ -66,3 +66,12 @@ export function matchedOutsideName(
   const page = flow.pages.find((p) => hits(phrase, typing, [p]).size > 0);
   return page !== undefined ? { page } : null;
 }
+
+/** Where in `text` the first word `phrase` matches begins; -1 when none.
+ *  A word is what `nameWords` splits on, so it answers as the matcher does. */
+export function matchAt(phrase: string, text: string, typing = false): number {
+  for (const m of text.matchAll(/[\p{L}\p{N}]+/gu)) {
+    if (hits(phrase, typing, [m[0]]).size > 0) return m.index;
+  }
+  return -1;
+}

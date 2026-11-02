@@ -21,6 +21,7 @@ import {
   type Where,
   whereFor,
 } from "./list-model";
+import type { Why } from "./search";
 import type {
   LibraryCard,
   LibraryModel,
@@ -210,7 +211,7 @@ function entryRow(
   flows: Map<string, VideoGroup>,
   where: Where,
   dayFlows: readonly string[] = [],
-  why: (card: LibraryCard) => string | null = () => null,
+  why: (card: LibraryCard) => Why | null = () => null,
 ): HTMLElement {
   const row = el("div", { role: "row", "data-key": e.key });
   const cells = Object.fromEntries(
@@ -421,7 +422,7 @@ export function renderList(
   /** The saved sort, or a search's own order. */
   order: ListOrder = view.sort,
   /** Why a search found each flow (`whyOf`). */
-  why?: (card: LibraryCard) => string | null,
+  why?: (card: LibraryCard) => Why | null,
 ): HTMLElement {
   const entries = listEntries(model, order, now);
   const where = whereFor(cardsOf(model), withRepo);

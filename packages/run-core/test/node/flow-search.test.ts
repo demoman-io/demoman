@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   hasWords,
+  matchAt,
   matchedOutsideName,
   phraseHits,
 } from "../../src/flow-search.js";
@@ -59,5 +60,21 @@ describe("matchedOutsideName", () => {
       page: "http://localhost:3000/team",
     });
     expect(matchedOutsideName("billing", F)).toBeNull();
+  });
+});
+
+describe("matchAt", () => {
+  it("is where the first matched word starts, by the matcher's own rules", () => {
+    const s = "type alice@example.com into Email address";
+    expect(matchAt("email", s)).toBe(s.indexOf("Email"));
+    // A whole word, not a substring: "example" holds no "ample".
+    expect(matchAt("ample", s)).toBe(-1);
+    // Singularised, and a stop word is no match.
+    expect(matchAt("emails", s)).toBe(s.indexOf("Email"));
+    expect(matchAt("to", "click Save to the list")).toBe(-1);
+    expect(matchAt("list", "click Save to the list")).toBe(18);
+    // Typing: the last word is a prefix.
+    expect(matchAt("addr", s, true)).toBe(s.indexOf("address"));
+    expect(matchAt("addr", s)).toBe(-1);
   });
 });

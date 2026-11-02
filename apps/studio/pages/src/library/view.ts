@@ -24,7 +24,7 @@ import {
   type RailProject,
   type Tab,
 } from "./projects";
-import { cardHits, searching, whyOf } from "./search";
+import { cardHits, searching, type Why, whyOf } from "./search";
 import type { SelectHow, Selection } from "./selection";
 import type {
   LibraryCard,
@@ -1193,7 +1193,7 @@ function row(
   /** What the line says of where the flow opened. */
   where: Where,
   /** Why a search found it, said in Where's place (`whyOf`). */
-  why: string | null = null,
+  why: Why | null = null,
 ): HTMLElement {
   const flowId = group?.video.id ?? null;
   const article = el("article", {
@@ -1298,7 +1298,7 @@ function row(
   const meta = el("p", {
     class: "row-meta",
     "data-meta": "",
-    title: why ?? at.title,
+    title: why?.full ?? at.title,
   });
   meta.append(
     why === null ? at.text : matchWhy(why),
@@ -1360,8 +1360,12 @@ function row(
 
 /** Why a search found a flow, dim, after its name or in Where's place;
  *  `slot` names which, in a list row that carries both. */
-export const matchWhy = (why: string, slot = ""): HTMLElement =>
-  el("span", { class: "match-why", "data-match-why": slot, title: why }, why);
+export const matchWhy = (why: Why, slot = ""): HTMLElement =>
+  el(
+    "span",
+    { class: "match-why", "data-match-why": slot, title: why.full },
+    why.text,
+  );
 
 /** A card's buttons — Back to the original footage, Restore, Edit, Delete,
  *  whichever it has — and the sentence that stands where Restore would, or
