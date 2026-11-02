@@ -124,12 +124,12 @@ export async function summarise(
   library: Library,
   video: VideoRecord,
 ): Promise<VideoSummary> {
-  return (await described(store, library, video)).summary;
+  return (await describeVideo(store, library, video)).summary;
 }
 
 /** A video's summary, and every step it shows (the summary lists only the
  *  first `STEPS_MAX`). */
-async function described(
+export async function describeVideo(
   store: VideoStore,
   library: Library,
   video: VideoRecord,
@@ -396,7 +396,7 @@ export async function videosOp(
     const found: { summary: VideoSummary; hits: number }[] = [];
     for (const v of records) {
       if ("unreadable" in v || !sharesRepo(v.repo, here)) continue;
-      const { summary, steps } = await described(store, library, v);
+      const { summary, steps } = await describeVideo(store, library, v);
       found.push({
         summary,
         // Every step, not only the ones the summary lists.

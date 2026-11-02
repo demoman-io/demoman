@@ -42,6 +42,7 @@ export {
   type VideoStore,
 } from "./executor/videos.js";
 export {
+  describeVideo,
   keptOf,
   summarise,
   type VideoSummary,

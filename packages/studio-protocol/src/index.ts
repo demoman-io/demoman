@@ -221,6 +221,7 @@ export interface VideoSummary {
     expired: boolean;
   } | null;
   pages: string[];
+  /** Every step of the shown version, uncut: the library searches them. */
   steps: string[];
   /** Every version's exports, each with its take; a version whose list
    *  will not read is `{ takeId, unreadable }`. */

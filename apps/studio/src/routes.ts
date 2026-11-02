@@ -8,6 +8,7 @@ import {
 } from "@demoman/run-core";
 import {
   createVideoStore,
+  describeVideo,
   ensureVideos,
   expireOld,
   expiryStatus,
@@ -24,9 +25,7 @@ import {
   readUserSettings,
   readWallpaper,
   renameKept,
-  summarise,
   VideoError,
-  type VideoSummary,
 } from "@demoman/runner/studio";
 import { migrateToCurrent, type SceneDocument } from "@demoman/scene-schema";
 import {
@@ -345,7 +344,7 @@ export function createRoutes(o: {
         continue;
       }
       try {
-        const summary: VideoSummary = await summarise(videos, library, v);
+        const { summary, steps } = await describeVideo(videos, library, v);
         for (const version of await videos.versions(v.id)) {
           videoOf[version.takeId] = {
             videoId: v.id,
@@ -355,7 +354,7 @@ export function createRoutes(o: {
             filmedCode: await filmedCodeOf(version.takeId),
           };
         }
-        listed.push(summary);
+        listed.push({ ...summary, steps });
       } catch (error) {
         say({
           folder: v.id,

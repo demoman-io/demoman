@@ -150,6 +150,29 @@ describe("the takes listing's videos", () => {
     expect(body.unreadable).toEqual([]);
   });
 
+  it("lists every step of a video, not the agent's first 12", async () => {
+    // Red: list through `summarise` — the steps stop at the agent's 12.
+    const library = createLibrary(home);
+    const scene = await library.getScene("inv-2");
+    const first = scene?.actions[0];
+    if (scene === null || first === undefined) throw new Error("no scene");
+    await library.putScene({
+      ...scene,
+      // Keep the originals (the camera names them) and pad with clones.
+      actions: [
+        ...scene.actions,
+        ...Array.from({ length: 15 - scene.actions.length }, (_, i) => ({
+          ...first,
+          id: `many-${i}`,
+        })),
+      ],
+    });
+    // Premise: the shown version (the newest complete) has 15 actions.
+    expect((await library.getScene("inv-2"))?.actions).toHaveLength(15);
+    const body = await listing();
+    expect(body.videos.find((v) => v.id === invoice)?.steps).toHaveLength(15);
+  });
+
   it("videoOf carries the report's filmed commit", async () => {
     const code = { commit: "abc1234", tree: "def5678", dirty: false };
     const library = createLibrary(home);
