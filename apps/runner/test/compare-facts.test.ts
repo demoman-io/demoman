@@ -88,11 +88,7 @@ describe("factsFromRun — the report as the gate counts it", () => {
       ...base,
       report: { outcome: "complete", steps: [] },
       scene: {
-        skipped: [
-          { actionId: "a", reason: "off" },
-          { actionId: "b", reason: "tooClose" },
-          { actionId: "c", reason: "off" },
-        ],
+        skipped: [{ reason: "off" }, { reason: "tooClose" }, { reason: "off" }],
       },
     });
     expect(f.zoomsSkipped).toBe(1);
