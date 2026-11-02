@@ -21,11 +21,17 @@ import { NEUTRAL_BACKGROUND, WALLPAPERS } from "@demoman/scene-schema";
 import {
   DEFAULT_LIBRARY_VIEW,
   pathFor,
+  placeSearch,
   type TakesAnswer,
 } from "@demoman/studio-protocol";
 import type { Page, Route } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { distance, limeOutsideItsPlaces, pixelsAt } from "./look-probes.js";
+import {
+  distance,
+  limeOutsideItsPlaces,
+  luma,
+  pixelsAt,
+} from "./look-probes.js";
 import type { PlainTake } from "./painted-take.js";
 import {
   api,
@@ -36,6 +42,7 @@ import {
   watchConsole,
 } from "./studio-harness.js";
 import {
+  GRID_VIEW,
   joinVideo,
   ONE_VERSION_EXPORT,
   openPage,
@@ -2832,6 +2839,513 @@ describe("the Studio's screenshot set", () => {
           .filter((l) => !/\/api\/wallpaper\?ref=assets%2Fmoved\.webp/.test(l)),
         console_.lines.join("\n"),
       ).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
+
+  // The library by project (spec 2026-11-01-library-projects-design): the
+  // rail, each tab, a day ticked through its heading's box, the layout
+  // toggle in the tab row, and the owner line over a project's name, at the
+  // laptop sizes, a short window and a narrow one. Asserted on the paint.
+  it.runIf(process.platform === "darwin")(
+    "shoots the projects rail, each tab, a ticked day and the toggle in the tab row, each asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-projects-"));
+      homes.push(home);
+      const checkout = await mkdtemp(join(tmpdir(), "studio-shots-projrepo-"));
+      homes.push(checkout);
+      await seedHome(home, VIDEO_TAKES);
+      const invoice = await joinVideo(home);
+      const ACME = "github.com/acme/web";
+      const GLOBEX = "github.com/globex/api";
+      const library = createLibrary(home);
+      const store = createVideoStore(home, library);
+      // A second owner's project: one flow of one take.
+      const lone = (PLAIN[0] as PlainTake).id;
+      const made = await store.create({
+        name: "Filter invoices",
+        repo: { key: GLOBEX },
+        startPage: "https://app.example.com/",
+      });
+      if (!made.ok) throw new Error("the globex flow could not be made");
+      const read = await library.getSceneRead(lone);
+      expect(read, `premise: ${lone} was seeded`).not.toBeNull();
+      await library.putJson(lone, "status.json", { outcome: "complete" });
+      await store.join(lone, {
+        videoId: made.video.id,
+        made: {
+          repo: { none: "seeded" },
+          agent: { none: "seeded" },
+          by: { none: "seeded" },
+          door: "mcp",
+        },
+        recordedRevision: read?.revision ?? null,
+      });
+      // The invoice flow is kept in acme/web: one flow on each of its tabs.
+      const file = `${KEPT_DIR}/${keptFileName("Create an invoice")}`;
+      await mkdir(join(checkout, KEPT_DIR), { recursive: true });
+      await writeFile(
+        join(checkout, file),
+        serializeKept({
+          keptVersion: 2,
+          flow: invoice,
+          deliver: "files",
+          name: "Create an invoice",
+          script: {
+            scriptVersion: 1,
+            name: "Create an invoice",
+            target: "https://app.example.com/",
+            viewport: { width: 1280, height: 800 },
+            steps: [{ do: "waitForLoad" }],
+          } as KeptVideo["script"],
+          scale: 1,
+          logo: null,
+          wallpaper: null,
+          outputs: [
+            {
+              path: "o.mp4",
+              fileType: "mp4",
+              aspect: "16:9",
+              quality: "share",
+            },
+          ],
+          report: null,
+        } satisfies KeptVideo),
+      );
+      expect(
+        (await store.setKept(invoice, { root: checkout, file, key: ACME })).ok,
+        "premise: the invoice flow is marked kept",
+      ).toBe(true);
+      await mkdir(SHOTS, { recursive: true });
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      // The premise, as the studio answers it: two project keys, flows in
+      // no project, and the one kept flow.
+      const takes = await api(studio, pathFor("takes"));
+      expect(takes.status, takes.text).toBe(200);
+      const answer = takes.json() as TakesAnswer;
+      const keys = answer.videos.map((v) =>
+        "key" in v.repo ? v.repo.key : null,
+      );
+      expect(
+        [...new Set(keys.filter((k) => k !== null))].sort(),
+        JSON.stringify(answer.videos),
+      ).toEqual([ACME, GLOBEX]);
+      // The studio wraps every take in a flow, so each card is a video; the
+      // ones with no repo key are No project.
+      const noKey = keys.filter((k) => k === null).length;
+      expect(noKey, "premise: flows in no project").toBeGreaterThan(0);
+      expect(
+        answer.videos.filter((v) => v.kept !== null).map((v) => v.id),
+        "premise: one kept flow",
+      ).toEqual([invoice]);
+      const acmeFlows = keys.filter((k) => k === ACME).length;
+      expect(acmeFlows, "premise: acme/web has two flows").toBe(2);
+      const counts = {
+        all: answer.videos.length,
+        acme: acmeFlows,
+        none: noKey,
+      };
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+        200,
+      );
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      const shots: string[] = [];
+      const FLOWS = "[data-list] [role=row][data-scene]:not([data-video-row])";
+      const acmeAt = `${studio.origin}/${placeSearch({ project: ACME })}`;
+      type Look = {
+        /** How many flow rows (and takes in no flow) the place lists. */
+        rows: number;
+        /** The pressed tab, or null when the place shows none. */
+        tab: "inRepo" | "notInRepo" | "all" | null;
+        /** The place pressed in the rail. */
+        place: string;
+        /** The owner line over the title, or null when the place has none. */
+        owner: string | null;
+        /** A date heading carries a select-all box. */
+        box: boolean;
+      };
+      const open = async (url: string, at: string, tab: string | null) => {
+        await page.goto(url);
+        if (tab !== null) await page.locator(`[data-tab="${tab}"]`).click();
+        try {
+          await vi.waitFor(
+            async () => {
+              const cards = await page
+                .locator("article.card[data-row]")
+                .count();
+              const rows = await page.locator(FLOWS).count();
+              if (cards !== 0 || rows === 0) {
+                throw new Error(`${cards} cards, ${rows} rows`);
+              }
+            },
+            { timeout: PAINT_MS, interval: 100 },
+          );
+        } catch (error) {
+          throw new Error(
+            `${at}: the list did not paint: ${String(error)}; page: ${await pageEvidence(page)}; log: ${studio.logs.join("\n")}`,
+          );
+        }
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+      };
+      const shoot = async (name: string, at: string, look: Look) => {
+        const shot = join(SHOTS, `library-projects-${name}-dark.png`);
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        const p = await painted(page);
+        expect(p.theme, `${at}: the page's theme`).toBe("dark");
+        expect(
+          p.scrollWidth,
+          `${at}: no sideways scroll (${JSON.stringify(p)})`,
+        ).toBeLessThanOrEqual(p.innerWidth);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        const seen = await page.evaluate(() => {
+          const rect = (s: string) =>
+            document.querySelector(s)?.getBoundingClientRect() ?? null;
+          const centre = (r: DOMRect) =>
+            [r.left + r.width / 2, r.top + r.height / 2] as const;
+          const row = rect("[data-tabs-row]");
+          const toggle = rect("[data-layout-toggle]");
+          const button = document.querySelector("[data-layout-toggle] button");
+          let toggleHit = false;
+          if (button !== null) {
+            const [x, y] = centre(button.getBoundingClientRect());
+            const hit = document.elementFromPoint(x, y);
+            toggleHit = hit !== null && button.contains(hit);
+          }
+          const box = document.querySelector<HTMLInputElement>(
+            "[data-heading] [data-select-group]",
+          );
+          let boxHit: boolean | null = null;
+          if (box !== null) {
+            const [x, y] = centre(box.getBoundingClientRect());
+            boxHit = document.elementFromPoint(x, y) === box;
+          }
+          const owner =
+            document.querySelector<HTMLElement>("[data-place-owner]");
+          const name = rect("[data-place-name]");
+          const railBox = rect("[data-rail]");
+          let ownerSeen: {
+            text: string | null;
+            onScreen: boolean;
+            hit: boolean;
+            clipped: string[];
+            aboveName: boolean;
+            clearOfRail: boolean;
+            rect: number[];
+          } | null = null;
+          if (owner !== null) {
+            const o = owner.getBoundingClientRect();
+            const [x, y] = centre(o);
+            const hit = document.elementFromPoint(x, y);
+            // An ancestor that clips (overflow other than visible) and does
+            // not hold the whole line.
+            const clipped: string[] = [];
+            for (let a = owner.parentElement; a !== null; a = a.parentElement) {
+              const cs = getComputedStyle(a);
+              if (cs.overflowX === "visible" && cs.overflowY === "visible") {
+                continue;
+              }
+              const r = a.getBoundingClientRect();
+              if (
+                o.left < r.left - 0.5 ||
+                o.right > r.right + 0.5 ||
+                o.top < r.top - 0.5 ||
+                o.bottom > r.bottom + 0.5
+              ) {
+                clipped.push(`${a.tagName.toLowerCase()}.${a.className}`);
+              }
+            }
+            ownerSeen = {
+              text: owner.textContent,
+              onScreen:
+                o.width > 0 &&
+                o.height > 0 &&
+                o.top >= 0 &&
+                o.left >= 0 &&
+                o.right <= innerWidth &&
+                o.bottom <= innerHeight,
+              hit: hit !== null && owner.contains(hit),
+              clipped,
+              aboveName: name !== null && o.bottom <= name.top + 0.5,
+              clearOfRail:
+                railBox !== null &&
+                (o.bottom <= railBox.top + 0.5 ||
+                  o.top >= railBox.bottom - 0.5 ||
+                  o.right <= railBox.left + 0.5 ||
+                  o.left >= railBox.right - 0.5),
+              rect: [o.left, o.top, o.right, o.bottom].map(Math.round),
+            };
+          }
+          return {
+            rows: document.querySelectorAll(
+              "[data-list] [role=row][data-scene]:not([data-video-row])",
+            ).length,
+            // Only the tabs that are painted: a hidden row keeps its state.
+            pressedTabs: [
+              ...document.querySelectorAll<HTMLElement>(
+                "[data-tab][aria-pressed='true']",
+              ),
+            ]
+              .filter((b) => b.getClientRects().length > 0)
+              .map((b) => b.dataset.tab),
+            place:
+              document
+                .querySelector('[data-rail] [data-place][aria-current="true"]')
+                ?.getAttribute("data-place") ?? null,
+            rowInside:
+              row !== null &&
+              toggle !== null &&
+              toggle.left >= row.left - 0.5 &&
+              toggle.right <= row.right + 0.5 &&
+              toggle.top >= row.top - 0.5 &&
+              toggle.bottom <= row.bottom + 0.5,
+            rects: { row, toggle },
+            toggleHit,
+            boxHit,
+            ownerSeen,
+          };
+        });
+        const ev = `${at}: ${JSON.stringify(seen)}`;
+        expect(seen.rows, `${at}: the flows listed ${ev}`).toBe(look.rows);
+        expect(seen.place, `${at}: the rail's current place ${ev}`).toBe(
+          look.place,
+        );
+        expect(seen.pressedTabs, `${at}: the pressed tab ${ev}`).toEqual(
+          look.tab === null ? [] : [look.tab],
+        );
+        expect(
+          seen.rowInside,
+          `${at}: the toggle sits in the tab row ${ev}`,
+        ).toBe(true);
+        expect(
+          seen.toggleHit,
+          `${at}: the toggle is painted, not under the row ${ev}`,
+        ).toBe(true);
+        expect(
+          seen.boxHit,
+          `${at}: the heading's box is its own at its centre ${ev}`,
+        ).toBe(look.box ? true : null);
+        expect(
+          p.rail.every((r) => r.painted),
+          `${at}: rail ${JSON.stringify(p.rail)}`,
+        ).toBe(true);
+        if (look.owner === null) {
+          expect(seen.ownerSeen, `${at}: no owner line`).toBeNull();
+          return;
+        }
+        const o = seen.ownerSeen;
+        expect(o?.text, `${at}: the owner line ${ev}`).toBe(look.owner);
+        expect(o, `${at}: the owner line is painted ${ev}`).toMatchObject({
+          onScreen: true,
+          hit: true,
+          clipped: [],
+          aboveName: true,
+          clearOfRail: true,
+        });
+        // The pixels: its text is lighter than the ground around it.
+        const [l, t, r, b] = (o as { rect: number[] }).rect as [
+          number,
+          number,
+          number,
+          number,
+        ];
+        const pts: [number, number][] = [];
+        for (let y = t; y <= b; y += 2) {
+          for (let x = l; x <= r; x += 2) pts.push([x, y]);
+        }
+        const lumas = (await pixelsAt(page, pts)).map(luma);
+        expect(
+          Math.max(...lumas) - Math.min(...lumas),
+          `${at}: the owner line's text is painted over the ground ${ev}`,
+        ).toBeGreaterThan(40);
+      };
+      const acme = placeSearch({ project: ACME });
+
+      for (const size of SIZES) {
+        const wh = `${size.width}x${size.height}`;
+        await sizeWindow(context, page, size.width, size.height);
+        await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        let at = `projects all ${wh}`;
+        await open(`${studio.origin}/${placeSearch("all")}`, at, null);
+        await shoot(`all-${wh}`, at, {
+          rows: counts.all,
+          tab: "all",
+          place: placeSearch("all"),
+          owner: null,
+          box: true,
+        });
+        for (const [tab, rows] of [
+          ["inRepo", 1],
+          ["notInRepo", 1],
+          ["all", counts.acme],
+        ] as const) {
+          at = `projects acme/web ${tab} ${wh}`;
+          await open(acmeAt, at, tab);
+          await shoot(`acme-${tab}-${wh}`, at, {
+            rows,
+            tab,
+            place: acme,
+            owner: "acme",
+            box: true,
+          });
+        }
+        at = `projects none ${wh}`;
+        await open(`${studio.origin}/${placeSearch("none")}`, at, null);
+        await shoot(`none-${wh}`, at, {
+          rows: counts.none,
+          tab: null,
+          place: placeSearch("none"),
+          owner: null,
+          box: true,
+        });
+        // A day ticked through its heading's box; the bar reads its count.
+        at = `projects acme/web a ticked day ${wh}`;
+        await open(acmeAt, at, "all");
+        const heading = page.locator("[data-heading]").first();
+        await heading.hover();
+        const group = heading.locator("[data-select-group]");
+        const ids = JSON.parse(
+          (await group.getAttribute("data-select-group")) as string,
+        ) as string[];
+        expect(ids.length, `${at}: premise: the day holds both flows`).toBe(2);
+        await group.click();
+        try {
+          await vi.waitFor(
+            async () => {
+              const said = await page
+                .locator("[data-selection-count]")
+                .textContent({ timeout: 1000 });
+              if (said !== "2 flows selected") {
+                throw new Error(`the bar says ${said}`);
+              }
+            },
+            { timeout: PAINT_MS, interval: 100 },
+          );
+        } catch (error) {
+          throw new Error(
+            `${at}: ${String(error)}; page: ${await pageEvidence(page)}`,
+          );
+        }
+        expect(
+          await group.isChecked(),
+          `${at}: the heading's box is ticked`,
+        ).toBe(true);
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        await shoot(`ticked-${wh}`, at, {
+          rows: counts.acme,
+          tab: "all",
+          place: acme,
+          owner: "acme",
+          box: true,
+        });
+      }
+
+      // A short window, and the narrow one with the owner line over a
+      // project's name (it stands above the title, out of the flow).
+      for (const [w, h] of [
+        [1280, 800],
+        [720, 900],
+      ] as const) {
+        const at = `projects acme/web ${w}x${h}`;
+        await sizeWindow(context, page, w, h);
+        await open(acmeAt, at, "all");
+        await shoot(`acme-all-${w}x${h}`, at, {
+          rows: counts.acme,
+          tab: "all",
+          place: acme,
+          owner: "acme",
+          box: true,
+        });
+      }
+
+      // The grid: a date heading's box sits inside the section's summary,
+      // so its click and Space tick the day without folding the section.
+      {
+        const at = "projects grid 1440x900";
+        await sizeWindow(context, page, 1440, 900);
+        await storeLibraryView(studio, GRID_VIEW);
+        await page.goto(acmeAt);
+        const section = page.locator("details.section[data-section]").first();
+        await section.waitFor();
+        const box = section.locator("summary [data-select-group]");
+        const opens = () =>
+          section.evaluate((d) => (d as HTMLDetailsElement).open);
+        const bar = async (want: string | null) => {
+          try {
+            await vi.waitFor(
+              async () => {
+                const said = await page
+                  .locator("[data-selection-count]")
+                  .textContent({ timeout: 1000 })
+                  .catch(() => null);
+                if (said !== want) throw new Error(`the bar says ${said}`);
+              },
+              { timeout: PAINT_MS, interval: 100 },
+            );
+          } catch (error) {
+            throw new Error(
+              `${at}: ${String(error)}; open ${await opens()}; page: ${await pageEvidence(page)}`,
+            );
+          }
+        };
+        expect(await opens(), `${at}: premise: the section is open`).toBe(true);
+        expect(
+          (
+            JSON.parse(
+              (await box.getAttribute("data-select-group")) as string,
+            ) as string[]
+          ).length,
+          `${at}: premise: the box holds the day's two flows`,
+        ).toBe(2);
+        await section.locator("summary.section-head").hover();
+        await box.click();
+        await bar("2 flows selected");
+        expect(await box.isChecked(), `${at}: the click ticked it`).toBe(true);
+        expect(await opens(), `${at}: the click did not fold the section`).toBe(
+          true,
+        );
+        await box.click();
+        await bar(null);
+        await box.focus();
+        await page.keyboard.press("Space");
+        await bar("2 flows selected");
+        expect(await box.isChecked(), `${at}: Space ticked it`).toBe(true);
+        expect(await opens(), `${at}: Space did not fold the section`).toBe(
+          true,
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        const shot = join(
+          SHOTS,
+          "library-projects-grid-ticked-1440x900-dark.png",
+        );
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        const hit = await box.evaluate((b) => {
+          const r = b.getBoundingClientRect();
+          return (
+            document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            ) === b
+          );
+        });
+        expect(hit, `${at}: the grid heading's box is painted`).toBe(true);
+      }
+      expect(shots).toHaveLength(SIZES.length * 6 + 3);
+      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
     },
