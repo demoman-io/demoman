@@ -17,7 +17,7 @@ export interface LibraryRow {
   /** The path it started on, `/checkout`; empty for the root. A developer's
    *  takes are mostly on one localhost, and the path is what tells one
    *  flow from another. Query and hash are dropped: they are state, not
-   *  place. */
+   *  place; a hash router's `#/route` is the place, and is kept. */
   path: string;
   createdAt: string;
   /** The row's second line beside the origin: when the take was made, to
@@ -310,11 +310,13 @@ export const hostOf = (url: string): string => {
 };
 
 /** A page's path without its trailing slash, "" for the root or a URL that
- *  does not parse. */
+ *  does not parse. A hash router's route (`/#/checkout`) follows the path:
+ *  there the hash is the place. */
 export const pathOf = (url: string): string => {
   try {
-    const p = new URL(url).pathname;
-    return p === "/" ? "" : p.replace(/\/$/, "");
+    const u = new URL(url);
+    const route = u.hash.startsWith("#/") ? u.hash.slice(1).split("?")[0] : "";
+    return `${u.pathname.replace(/\/$/, "")}${route}`.replace(/\/$/, "");
   } catch {
     return "";
   }

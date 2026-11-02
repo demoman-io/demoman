@@ -164,7 +164,7 @@ describe("buildLibraryModel", () => {
     expect(byId.get("b")?.label).toBe("Checkout");
   });
 
-  it("keeps the host and the start path apart, dropping query and hash", () => {
+  it("keeps the host and the start path apart, dropping query and hash but a hash router's route", () => {
     const at = (url: string) =>
       ({
         meta: {
@@ -180,6 +180,8 @@ describe("buildLibraryModel", () => {
         at("http://localhost:4000/checkout/?step=2#pay"),
         at("http://localhost:4000/"),
         at("not a url"),
+        at("http://localhost:4000/#/checkout/?step=2"),
+        at("http://localhost:4000/app/#/"),
       ],
       migrating: false,
       migrationFailed: false,
@@ -199,6 +201,10 @@ describe("buildLibraryModel", () => {
       origin: "not a url",
       path: "",
     });
+    expect(by.get("http://localhost:4000/#/checkout/?step=2")?.path).toBe(
+      "/checkout",
+    );
+    expect(by.get("http://localhost:4000/app/#/")?.path).toBe("/app");
   });
 
   it("formats bytes for people", () => {

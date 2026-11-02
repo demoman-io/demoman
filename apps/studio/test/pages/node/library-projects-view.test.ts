@@ -294,7 +294,7 @@ describe("library main — the project rail, title band and tab row", () => {
     expect(where()).toContain("acme/web");
     railItem(`?project=${encodeURIComponent(WEB)}`)?.click();
     expect(where()).not.toContain("acme/web");
-    expect(where()).toContain("app.test/orders");
+    expect(where()).toBe("/orders");
   });
 
   it("switching place with a selection clears it, and Delete names no hidden flow", async () => {

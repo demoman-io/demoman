@@ -9,7 +9,7 @@ import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
 import { collapsedKeys, groupBox, openRename, renderList } from "./list";
 import { placeIn, restorePlace } from "./list-keys";
-import { whereOf } from "./list-model";
+import { type Where, whereFor } from "./list-model";
 import { previewText } from "./preview";
 import {
   type Place,
@@ -1149,8 +1149,8 @@ function row(
   rowStatus: Map<string, string>,
   /** Whether the video's versions were open before this render. */
   versionsOpen: boolean,
-  /** The line leads with the repo; false inside a project. */
-  withRepo = true,
+  /** What the line says of where the flow opened. */
+  where: Where,
 ): HTMLElement {
   const flowId = group?.video.id ?? null;
   const article = el("article", {
@@ -1248,15 +1248,15 @@ function row(
   // the path is what tells the checkout flow from the settings page. The
   // full line is the title, for when it is clipped.
   // A video's line leads with its repo, when it is known.
-  const where = whereOf({ row: r, group }, withRepo);
+  const at = where({ row: r, group });
   const line = el("div", { class: "row-line" });
   // Under a heading that names the day the date would say it twice, so
   // the line keeps only the time; under a month it keeps both.
   line.append(
     el(
       "p",
-      { class: "row-meta", "data-meta": "", title: where },
-      `${where} · ${namesDay ? r.time : r.when}`,
+      { class: "row-meta", "data-meta": "", title: at.title },
+      `${at.text} · ${namesDay ? r.time : r.when}`,
     ),
   );
   // The size is the storage controls' information; a page that draws none
@@ -1650,7 +1650,7 @@ function section(
   rowStatus: Map<string, string>,
   groupOf: Map<string, VideoGroup>,
   versionsOpen: Set<string>,
-  withRepo: boolean,
+  where: Where,
 ): { box: HTMLElement; articles: (readonly [string, HTMLElement])[] } {
   const headingId = sectionHeadingId(s.key);
   const box = el("details", {
@@ -1693,7 +1693,7 @@ function section(
       group,
       rowStatus,
       group !== null && versionsOpen.has(group.video.id),
-      withRepo,
+      where,
     );
     list.append(article);
     return [r.sceneId, article] as const;
@@ -1956,6 +1956,7 @@ export function renderLibrary(
   }
   // One card per video: the sections count cards, not takes.
   const cards = cardsOf(model);
+  const where = whereFor(cards, withRepo);
   const leads = cards.map((c) => c.row);
   const groupOf = new Map(
     cards.flatMap((c) =>
@@ -1999,7 +2000,7 @@ export function renderLibrary(
       rowStatus,
       groupOf,
       versionsOpen,
-      withRepo,
+      where,
     );
     list.append(built.box);
     articles.push(...built.articles);

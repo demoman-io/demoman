@@ -6,10 +6,12 @@ import { describe, expect, it } from "vitest";
 import {
   firstClickDescending,
   flowSize,
+  hostLabel,
   type ListSort,
   listEntries,
   nextSort,
   sortCards,
+  whereFor,
   whereOf,
 } from "../../../pages/src/library/list-model";
 import type {
@@ -219,7 +221,9 @@ describe("sortCards", () => {
       { column: "where", descending: false },
     ).map((c) => c.group?.video.id ?? c.row.sceneId);
     expect(same).toEqual(["loose", "B", "C"]);
-    expect(whereOf(cardOf("B"), true)).toBe(whereOf(cardOf("C"), true));
+    expect(whereOf(cardOf("B"), true, "whole")).toBe(
+      whereOf(cardOf("C"), true, "whole"),
+    );
   });
 });
 
@@ -254,10 +258,128 @@ describe("sorting rules", () => {
 
 describe("whereOf", () => {
   it("leads with the repo when known, and not otherwise", () => {
-    expect(whereOf(cardOf("A"), true)).toBe(
+    expect(whereOf(cardOf("A"), true, "whole")).toBe(
       "acme/web · app.example.com/orders",
     );
-    expect(whereOf(cardOf("B"), true)).toBe("app.example.com/orders");
+    expect(whereOf(cardOf("B"), true, "whole")).toBe("app.example.com/orders");
+  });
+});
+
+// Where names the route (2026-11-02): `localhost:8123` told no flow from
+// another. The host shows only where it does.
+describe("whereFor", () => {
+  const ACME = { key: "github.com/acme/web" };
+  const API = { key: "github.com/acme/api" };
+  const at = (id: string, url: string, repo: VideoSummary["repo"]) => {
+    const u = new URL(url);
+    return flow(
+      id,
+      id,
+      [
+        take(id, today, {
+          origin: u.host,
+          path: u.pathname === "/" ? "" : u.pathname,
+        }),
+      ],
+      repo,
+    );
+  };
+  const cardsFrom = (gs: VideoGroup[]) =>
+    cardsOf({
+      ...model,
+      rows: gs.flatMap((g) => g.versions),
+      groups: gs,
+    });
+  const textOf = (
+    gs: VideoGroup[],
+    withRepo: boolean,
+  ): Record<string, string> => {
+    const cs = cardsFrom(gs);
+    const where = whereFor(cs, withRepo);
+    return Object.fromEntries(
+      cs.map((c) => [c.group?.video.id, where(c).text]),
+    );
+  };
+
+  it("names the route alone in a project on one host, the home page as /", () => {
+    const gs = [
+      at("pay", "http://localhost:8123/checkout", ACME),
+      at("home", "http://localhost:8123/", ACME),
+    ];
+    expect(textOf(gs, false)).toEqual({ pay: "/checkout", home: "/" });
+    expect(textOf(gs, true)).toEqual({
+      pay: "acme/web · /checkout",
+      home: "acme/web · /",
+    });
+  });
+
+  it("names the host in a project on more than one, a loopback one by its port", () => {
+    const gs = [
+      at("app", "http://localhost:3000/settings", ACME),
+      at("admin", "http://localhost:3001/settings", ACME),
+      at("prod", "https://app.acme.com/checkout", ACME),
+      // Another project's one host does not count toward acme/web's.
+      at("api", "http://localhost:4000/docs", API),
+    ];
+    expect(textOf(gs, true)).toEqual({
+      app: "acme/web · :3000/settings",
+      admin: "acme/web · :3001/settings",
+      prod: "acme/web · app.acme.com/checkout",
+      api: "acme/api · /docs",
+    });
+  });
+
+  it("names the host under No project, where the site is what tells flows apart", () => {
+    const gs = [
+      at("wiki", "https://en.wikipedia.org/wiki/Cat", { none: "no repo" }),
+      at("lost", "http://localhost:8123/x", { unknown: true }),
+    ];
+    expect(textOf(gs, true)).toEqual({
+      wiki: "no repo · en.wikipedia.org/wiki/Cat",
+      lost: ":8123/x",
+    });
+  });
+
+  it("titles every card with its whole host", () => {
+    const [c] = cardsFrom([at("pay", "http://localhost:8123/checkout", ACME)]);
+    expect(whereFor([c as never], false)(c as never)).toEqual({
+      text: "/checkout",
+      title: "localhost:8123/checkout",
+    });
+  });
+
+  it("hostLabel shortens a loopback host with a port, and only that", () => {
+    expect(
+      [
+        "localhost:3001",
+        "127.0.0.1:5173",
+        "[::1]:8080",
+        "localhost",
+        "app.acme.com:8443",
+        "localhost.example.com:80",
+      ].map(hostLabel),
+    ).toEqual([
+      ":3001",
+      ":5173",
+      ":8080",
+      "localhost",
+      "app.acme.com:8443",
+      "localhost.example.com:80",
+    ]);
+  });
+
+  it("sorts by project, then route, then host", () => {
+    const cs = cardsFrom([
+      at("prod", "https://app.acme.com/checkout", ACME),
+      at("bill", "http://localhost:3000/billing", ACME),
+      at("pay", "http://localhost:3000/checkout", ACME),
+      at("docs", "http://localhost:4000/a", API),
+    ]);
+    expect(
+      sortCards(cs, { column: "where", descending: false }).map(
+        (c) => c.group?.video.id,
+      ),
+    ).toEqual(["docs", "bill", "prod", "pay"]);
   });
 });
 

@@ -11,9 +11,15 @@ import type {
 import { setCodeText, withoutTicks } from "../shell/code-spans";
 import { icon } from "../shell/icons";
 import { attachListKeys } from "./list-keys";
-import { type ListEntry, listEntries, nextSort, whereOf } from "./list-model";
+import {
+  type ListEntry,
+  listEntries,
+  nextSort,
+  type Where,
+  whereFor,
+} from "./list-model";
 import type { LibraryModel, LibraryRow, VideoGroup } from "./state";
-import { formatBytes } from "./state";
+import { cardsOf, formatBytes } from "./state";
 import {
   cardButtons,
   commitSpan,
@@ -118,9 +124,10 @@ function textCell(
   cells: Record<Col, HTMLElement>,
   col: Col,
   text: string,
+  title = text,
 ): void {
   cells[col].textContent = text;
-  cells[col].title = text;
+  cells[col].title = title;
 }
 
 const chevron = (): SVGSVGElement => {
@@ -183,7 +190,7 @@ function entryRow(
   rowStatus: Map<string, string>,
   /** Each flow drawn so far, by id: a video row's buttons name its flow. */
   flows: Map<string, VideoGroup>,
-  withRepo: boolean,
+  where: Where,
   dayFlows: readonly string[] = [],
 ): HTMLElement {
   const row = el("div", { role: "row", "data-key": e.key });
@@ -245,7 +252,8 @@ function entryRow(
     );
     const strip = tags(r, actions, false);
     if (strip !== null) cells.name.append(strip);
-    textCell(cells, "where", whereOf(card, withRepo));
+    const at = where(card);
+    textCell(cells, "where", at.text, at.title);
     cells.videos.textContent = String(group?.versions.length ?? 1);
     cells.recorded.textContent = e.namesDay ? r.time : r.when;
     cells.recorded.title = r.when;
@@ -383,6 +391,7 @@ export function renderList(
   withRepo = true,
 ): HTMLElement {
   const entries = listEntries(model, view.sort, now);
+  const where = whereFor(cardsOf(model), withRepo);
   const grid = el("div", {
     role: "treegrid",
     class: "library-list",
@@ -406,14 +415,7 @@ export function renderList(
     }
   }
   for (const e of entries) {
-    const row = entryRow(
-      e,
-      actions,
-      rowStatus,
-      flows,
-      withRepo,
-      ofDay.get(e.key),
-    );
+    const row = entryRow(e, actions, rowStatus, flows, where, ofDay.get(e.key));
     const pos = (seen.get(e.parent) ?? 0) + 1;
     seen.set(e.parent, pos);
     row.setAttribute("aria-level", String(e.level));

@@ -278,7 +278,7 @@ describe("narrow, tabCounts, showsTabs", () => {
 describe("whereOf", () => {
   it("drops the repo part without withRepo", () => {
     const [c] = cards([flow("w", { key: "github.com/a/b" })]);
-    expect(whereOf(c as never, true)).toBe("a/b · app.test/");
-    expect(whereOf(c as never, false)).toBe("app.test/");
+    expect(whereOf(c as never, true, "short")).toBe("a/b · app.test/");
+    expect(whereOf(c as never, false, "short")).toBe("app.test/");
   });
 });

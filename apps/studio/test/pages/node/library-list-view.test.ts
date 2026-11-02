@@ -232,9 +232,10 @@ describe("the list view", () => {
   it("cells say what §2.1 says", () => {
     const { grid } = draw();
     const a = rowOf(grid, "f:A");
-    expect(cell(a, "where").textContent).toBe(
-      "acme/web · app.example.com/orders",
-    );
+    // The route alone: acme/web's flows here all ran on one host. The
+    // title keeps it.
+    expect(cell(a, "where").textContent).toBe("acme/web · /orders");
+    expect(cell(a, "where").title).toBe("acme/web · app.example.com/orders");
     expect(cell(a, "videos").textContent).toBe("3");
     expect(cell(a, "size").textContent).toBe("7 MB");
     const b = rowOf(grid, "f:B");

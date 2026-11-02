@@ -329,8 +329,13 @@ describe("library main — videos", () => {
     await import("../../../pages/entrypoints/library/main");
     const inv = await invoiceCard();
     // Red: drop repoLabel from the card's line.
+    // The route alone (acme/web's flows here ran on one host); the
+    // title keeps the host.
     expect(inv.querySelector("[data-meta]")?.textContent).toMatch(
-      /^acme\/web · app\.test\/invoices · /,
+      /^acme\/web · \/invoices · /,
+    );
+    expect(inv.querySelector("[data-meta]")?.getAttribute("title")).toBe(
+      "acme/web · app.test/invoices",
     );
     expect(card(SIGNUP)?.querySelector("[data-meta]")?.textContent).toMatch(
       /^no repo · /,
