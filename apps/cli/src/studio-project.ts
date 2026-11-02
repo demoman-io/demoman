@@ -10,5 +10,5 @@ export async function callerProject(
 ): Promise<{ key?: string; why?: string }> {
   const repo = await readRepo(cwd, git);
   if (repo.ok) return { key: repo.repo.key };
-  return repo.none.startsWith("not a git checkout") ? {} : { why: repo.none };
+  return /not a git repository/i.test(repo.none) ? {} : { why: repo.none };
 }

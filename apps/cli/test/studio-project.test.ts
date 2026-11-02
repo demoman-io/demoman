@@ -23,8 +23,23 @@ describe("callerProject", () => {
   });
 
   it("outside a repo there is no project", async () => {
+    // The premise: git itself says this folder is not a repository.
+    const read = await readRepo(scratch, execGit);
+    expect(read.ok ? "" : read.none).toContain("not a git repository");
     // Red: report "not a git checkout" as a reason.
     expect(await callerProject(scratch)).toEqual({});
+  });
+
+  it("a refusal at the first git step (dubious ownership) says why", async () => {
+    const git: GitRunner = async () => ({
+      code: 128,
+      stdout: "",
+      stderr: "fatal: detected dubious ownership in repository at '/x'",
+    });
+    const got = await callerProject(scratch, git);
+    // Red: treat every first-step failure as "not a repository".
+    expect(got.key).toBeUndefined();
+    expect(got.why).toContain("dubious ownership");
   });
 
   it("a repo git cannot read says why, and has no key", async () => {
