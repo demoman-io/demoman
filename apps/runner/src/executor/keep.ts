@@ -78,7 +78,8 @@ export type KeepRefusal =
    *  reason and sentence in the detail), or an accounts.json that will not
    *  choose an account: a refresh would refuse the same way. */
   | "cannotRefilm"
-  /** The request itself is refused (a `files` output given as a path). */
+  /** The request itself is refused (a `files` output given as a path, or
+   *  a name two flows in this repo share). */
   | "keepRefused"
   /** The recipe was written but the old file it replaces could not be
    *  removed: two files name the flow until it is deleted. */
@@ -177,9 +178,16 @@ export async function keepVideo(
   const mine = records.filter(
     (v): v is VideoRecord => !("unreadable" in v) && sharesRepo(v.repo, here),
   );
-  const video =
-    mine.find((v) => v.id === args.video) ??
-    mine.find((v) => v.name === args.video);
+  const byName = mine.filter((v) => v.name === args.video);
+  const byId = mine.find((v) => v.id === args.video);
+  // Two keys merged into one repo can bring two flows of one name together.
+  if (byId === undefined && byName.length > 1) {
+    return refuse(
+      "keepRefused",
+      `${byName.length} flows in this repo are called "${args.video}" (${byName.map((v) => v.id).join(" and ")}), so nothing was added — pass the id of the one to add`,
+    );
+  }
+  const video = byId ?? byName[0];
   if (video === undefined) {
     const unread = records.flatMap((v) =>
       "unreadable" in v ? [`${v.id}: ${v.unreadable}`] : [],

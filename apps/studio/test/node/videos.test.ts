@@ -274,24 +274,52 @@ describe("the takes listing's videos", () => {
 
   describe("a project follows its checkout", () => {
     const git = (cwd: string, ...args: string[]) =>
-      execFileSync("git", args, { cwd, stdio: "pipe" });
-    /** A flow recorded in `root` while its repo read `key`, with its kept
-     *  mark carrying the same key. */
-    async function recordedIn(root: string, key: string): Promise<string> {
+      execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
+    /** A checkout with one commit and `origin` at `remote`; its HEAD. */
+    const checkout = async (prefix: string, remote: string) => {
+      const root = await mkdtemp(join(tmpdir(), prefix));
+      git(root, "init", "-q");
+      git(root, "remote", "add", "origin", remote);
+      git(
+        root,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        // Its own message: two empty commits made in one second by one
+        // author are otherwise one commit.
+        `commit in ${root}`,
+      );
+      return { root, head: git(root, "rev-parse", "HEAD") };
+    };
+    let takeNo = 0;
+    /** A flow recorded in `root` at `commit` while its repo read `key`,
+     *  with its kept mark carrying the same key. */
+    async function recordedIn(
+      root: string,
+      key: string,
+      commit: string | null,
+      name = "Pay a bill",
+    ): Promise<string> {
       const library = createLibrary(home);
       const store = createVideoStore(home, library);
       const made = await store.create({
-        name: "Pay a bill",
+        name,
         repo: { key },
         startPage: "https://app.example.com/bills",
       });
       if (!made.ok) throw new Error("could not make the flow");
-      await seedTake(home, { id: "pay-1", status: { outcome: "complete" } });
-      await store.join("pay-1", {
+      const takeId = `pay-${++takeNo}`;
+      await seedTake(home, { id: takeId, status: { outcome: "complete" } });
+      await store.join(takeId, {
         videoId: made.video.id,
         made: {
           ...MADE,
-          repo: { key, root, remote: null, branch: null, commit: null },
+          repo: { key, root, remote: null, branch: null, commit },
         },
         recordedRevision: null,
       });
@@ -308,11 +336,12 @@ describe("the takes listing's videos", () => {
     // Red: drop the followCheckouts pass from the upkeep — the listing
     // still says github.com/a/r, and no alias is written.
     it("after `git remote set-url`, the listing serves the flow and its mark under the new key", async () => {
-      const root = await mkdtemp(join(tmpdir(), "studio-set-url-"));
+      const { root, head } = await checkout(
+        "studio-set-url-",
+        "git@github.com:a/r.git",
+      );
       try {
-        git(root, "init", "-q");
-        git(root, "remote", "add", "origin", "git@github.com:a/r.git");
-        const id = await recordedIn(root, "github.com/a/r");
+        const id = await recordedIn(root, "github.com/a/r", head);
         git(root, "remote", "set-url", "origin", "git@github.com:b/r.git");
         // Premise: recorded under the old key; the checkout reads the new.
         expect((await onDisk(id)).repo).toEqual({ key: "github.com/a/r" });
@@ -342,7 +371,7 @@ describe("the takes listing's videos", () => {
     it("a checkout git cannot read is a row naming the flow, and the flow stays", async () => {
       const root = await mkdtemp(join(tmpdir(), "studio-not-git-"));
       try {
-        const id = await recordedIn(root, "github.com/a/r");
+        const id = await recordedIn(root, "github.com/a/r", null);
         // Premise: the folder exists and is no git checkout.
         expect((await readRepo(root)).ok).toBe(false);
         const body = await listing();
@@ -360,6 +389,105 @@ describe("the takes listing's videos", () => {
         });
       } finally {
         await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    // Red: drop the commit check — github.com/x/other's flows would take
+    // in a/r's, an alias of two different repos.
+    it("another repo cloned at a checkout's path is not aliased, and the row says why", async () => {
+      const other = await checkout(
+        "studio-reclone-",
+        "git@github.com:x/other.git",
+      );
+      const gone = await checkout("studio-gone-", "git@github.com:a/r.git");
+      try {
+        // Recorded in a/r at a commit the new clone at that path lacks.
+        const id = await recordedIn(other.root, "github.com/a/r", gone.head);
+        // Premise: the commits differ and the new clone reads another key.
+        expect(other.head).not.toBe(gone.head);
+        const read = await readRepo(other.root);
+        expect(read.ok && read.repo.key).toBe("github.com/x/other");
+        const body = await listing();
+        const said = JSON.stringify(body.unreadable);
+        const row = body.unreadable.find(
+          (u) => u.folder === "following projects' checkouts",
+        );
+        expect(row?.reason, said).toContain(
+          `flow "Pay a bill" (${id}) at ${other.root}`,
+        );
+        expect(row?.reason, said).toContain("may be another repo");
+        expect(body.videos.find((v) => v.id === id)?.repo).toEqual({
+          key: "github.com/a/r",
+        });
+        await expect(
+          readFile(join(home, "videos", ".aliases.json"), "utf8"),
+        ).rejects.toThrow(/ENOENT/);
+      } finally {
+        await rm(other.root, { recursive: true, force: true });
+        await rm(gone.root, { recursive: true, force: true });
+      }
+    });
+
+    // Red: drop the isLocalKey check — a/r's flows move to local:<root>.
+    it("after `git remote remove origin`, no alias and the flow stays, with no row", async () => {
+      const { root, head } = await checkout(
+        "studio-no-remote-",
+        "git@github.com:a/r.git",
+      );
+      try {
+        const id = await recordedIn(root, "github.com/a/r", head);
+        git(root, "remote", "remove", "origin");
+        // Premise: the checkout reads a local key now.
+        const read = await readRepo(root);
+        expect(read.ok && read.repo.key.startsWith("local:")).toBe(true);
+        const body = await listing();
+        const said = JSON.stringify(body.unreadable);
+        expect(body.videos.find((v) => v.id === id)?.repo, said).toEqual({
+          key: "github.com/a/r",
+        });
+        expect(
+          body.unreadable.filter((u) => u.folder.includes("checkouts")),
+        ).toEqual([]);
+        await expect(
+          readFile(join(home, "videos", ".aliases.json"), "utf8"),
+        ).rejects.toThrow(/ENOENT/);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    // Red: drop the collisions from the upkeep's row.
+    it("two flows of one name brought into one project are named in the row", async () => {
+      const old = await checkout("studio-old-clone-", "git@github.com:a/r.git");
+      const fresh = await checkout(
+        "studio-new-clone-",
+        "git@github.com:b/r.git",
+      );
+      try {
+        const first = await recordedIn(old.root, "github.com/a/r", old.head);
+        const second = await recordedIn(
+          fresh.root,
+          "github.com/b/r",
+          fresh.head,
+        );
+        git(old.root, "remote", "set-url", "origin", "git@github.com:b/r.git");
+        // Premise: one name in two repos, until the old clone moves.
+        expect((await onDisk(first)).name).toBe((await onDisk(second)).name);
+        expect((await onDisk(first)).repo).not.toEqual(
+          (await onDisk(second)).repo,
+        );
+        const body = await listing();
+        const said = JSON.stringify(body.unreadable);
+        const row = body.unreadable.find(
+          (u) => u.folder === "following projects' checkouts",
+        );
+        const [a, b] = [first, second].sort();
+        expect(row?.reason, said).toContain(
+          `flows "Pay a bill" (${a}) and (${b}) are now in one project`,
+        );
+      } finally {
+        await rm(old.root, { recursive: true, force: true });
+        await rm(fresh.root, { recursive: true, force: true });
       }
     });
 

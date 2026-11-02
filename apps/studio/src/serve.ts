@@ -118,6 +118,14 @@ export function buildHandlers(o: {
   const exists = async (id: string): Promise<boolean> =>
     library.isTakeId(id) && (await library.getSceneRead(id)) !== null;
 
+  const videos = createVideoStore(o.home, library, { log: o.log });
+  /** `key` through the library's aliases; a table that will not read is
+   *  logged by the store, and the key goes as asked. */
+  const projectKey = async (key: string): Promise<string> => {
+    const r = await videos.resolve({ key });
+    return "key" in r ? r.key : key;
+  };
+
   const libraryRefusal = (error: unknown): StudioResponse => {
     if (error instanceof LibraryError) {
       return refuse(500, error.reason, `${error.message}.`);
@@ -174,9 +182,13 @@ export function buildHandlers(o: {
           return libraryRefusal(error);
         }
       }
+      // A clone still on a repo's old remote asks for the old key; the
+      // library lists that project under the key it resolves to.
+      const resolved =
+        project === undefined ? undefined : await projectKey(project);
       const opened = await o.window.open({
         ...(takeId === undefined ? {} : { takeId }),
-        ...(project === undefined ? {} : { project }),
+        ...(resolved === undefined ? {} : { project: resolved }),
       });
       if (!("ok" in opened)) return json(500, opened);
       o.onWindowOpened?.();

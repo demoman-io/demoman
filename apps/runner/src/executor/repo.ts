@@ -65,6 +65,16 @@ export function storedRemote(url: string): string {
     .replace(/[?#].*$/, "");
 }
 
+/** Whether `sha` names a commit in the repo at `dir`: git answering no is
+ *  false; git not running throws. */
+export async function hasCommit(
+  dir: string,
+  sha: string,
+  run: GitRunner = execGit,
+): Promise<boolean> {
+  return (await run(["cat-file", "-e", `${sha}^{commit}`], dir)).code === 0;
+}
+
 export async function readRepo(
   dir: string,
   run: GitRunner = execGit,

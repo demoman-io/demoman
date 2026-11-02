@@ -19,7 +19,7 @@ import { messageOf } from "../report.js";
 import type { Library } from "./library.js";
 import type { RepoRef } from "./repo.js";
 import { type Aliases, resolveKey } from "./repo-aliases.js";
-import { sameName } from "./video-match.js";
+import { normaliseName, sameName } from "./video-match.js";
 
 export type VideoRepo = { key: string } | { none: string } | { unknown: true };
 
@@ -117,8 +117,13 @@ export interface VideoStore {
   /** Under the lock: records each `from → to` (from `from`'s current end,
    *  so aliases chain; never one that would close a cycle), then rewrites
    *  every record and kept mark whose key resolves to another, re-reading
-   *  each so a change made meanwhile stays. Answers how many it rewrote. */
-  follow(aliases: { from: string; to: string }[]): Promise<{ moved: number }>;
+   *  each so a change made meanwhile stays. Answers how many it rewrote,
+   *  and every name two or more flows now share in one repo (merging two
+   *  keys can bring an old clone's "Checkout" and a new clone's together). */
+  follow(aliases: { from: string; to: string }[]): Promise<{
+    moved: number;
+    collisions: { name: string; ids: string[] }[];
+  }>;
   /** Under the lock: re-points every take of `fromId` to `intoId`, then
    *  removes `fromId`'s record. Names the flow that is missing. */
   merge(
@@ -684,7 +689,8 @@ export function createVideoStore(
     }
     if (pairs.length > 0) await write(aliasPath, table);
     let moved = 0;
-    for (const f of await ids(dir)) {
+    const named = new Map<string, { name: string; ids: string[] }>();
+    for (const f of (await ids(dir)).sort()) {
       const id = f.slice(0, -".json".length);
       if (!f.endsWith(".json") || !isVideoId(id)) continue;
       let rec: VideoRecord | null;
@@ -695,11 +701,18 @@ export function createVideoStore(
       }
       if (rec === null) continue;
       const now = resolved(rec, table);
+      if ("key" in now.repo) {
+        const at = `${now.repo.key}\n${normaliseName(now.name)}`;
+        const group = named.get(at) ?? { name: now.name, ids: [] };
+        group.ids.push(id);
+        named.set(at, group);
+      }
       if (JSON.stringify(now) === JSON.stringify(rec)) continue;
       await write(recordPath(id), now);
       moved++;
     }
-    return { moved };
+    const collisions = [...named.values()].filter((g) => g.ids.length > 1);
+    return { moved, collisions };
   };
   const mergeUnlocked: VideoStore["merge"] = async (fromId, intoId) => {
     if (fromId === intoId) return { ok: false, reason: "sameFlow", id: fromId };

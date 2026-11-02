@@ -47,7 +47,12 @@ async function recorded(name: string, key: string, root: string) {
   await take(made.video.id, key, root);
   return made.video.id;
 }
-async function take(videoId: string, key: string, root: string) {
+async function take(
+  videoId: string,
+  key: string,
+  root: string,
+  commit: string | null = COMMIT,
+) {
   const id = `t${++takes}`;
   const doc = structuredClone(readOnlySceneJson()) as SceneDocument;
   doc.meta.id = id;
@@ -55,7 +60,7 @@ async function take(videoId: string, key: string, root: string) {
   await store.join(id, {
     videoId,
     made: {
-      repo: { key, root, remote: null, branch: null, commit: null },
+      repo: { key, root, remote: null, branch: null, commit },
       agent: { none: "a test" },
       by: { none: "a test" },
       door: "mcp",
@@ -63,6 +68,15 @@ async function take(videoId: string, key: string, root: string) {
     recordedRevision: null,
   });
 }
+
+/** The commit every take records unless told otherwise. */
+const COMMIT = "c0ffee0000000000000000000000000000000000";
+/** git's answer to "is this commit in that checkout": only COMMIT is. */
+const proves = async (_dir: string, sha: string) => sha === COMMIT;
+const follow = (
+  read: (dir: string) => Promise<RepoRead>,
+  has: (dir: string, sha: string) => Promise<boolean> = proves,
+) => followCheckouts(store, lib, read, has);
 
 /** git, as each checkout answers it now. */
 const reads =
@@ -106,21 +120,19 @@ describe("followCheckouts", () => {
     await expect(readFile(aliasPath(), "utf8")).rejects.toThrow(/ENOENT/);
     expect(await store.aliases()).toEqual({});
 
-    const r = await followCheckouts(
-      store,
-      lib,
-      reads({ [one]: "github.com/o/r" }),
-    );
-    expect(r).toEqual({ moved: 1, failed: [] });
+    const r = await follow(reads({ [one]: "github.com/o/r" }));
+    expect(r).toEqual({ moved: 1, failed: [], collisions: [] });
     expect(JSON.parse(await readFile(aliasPath(), "utf8"))).toEqual({
       [local]: "github.com/o/r",
     });
     expect((await onDisk(f)).repo).toEqual({ key: "github.com/o/r" });
 
     // Run again: nothing more to do, and the table is unchanged.
-    expect(
-      await followCheckouts(store, lib, reads({ [one]: "github.com/o/r" })),
-    ).toEqual({ moved: 0, failed: [] });
+    expect(await follow(reads({ [one]: "github.com/o/r" }))).toEqual({
+      moved: 0,
+      failed: [],
+      collisions: [],
+    });
     expect(await store.aliases()).toEqual({ [local]: "github.com/o/r" });
   });
 
@@ -135,12 +147,8 @@ describe("followCheckouts", () => {
     expect((await onDisk(f)).repo).toEqual({ key: "github.com/a/r" });
     expect((await onDisk(f)).kept?.key).toBe("github.com/a/r");
 
-    const r = await followCheckouts(
-      store,
-      lib,
-      reads({ [one]: "github.com/b/r" }),
-    );
-    expect(r).toEqual({ moved: 1, failed: [] });
+    const r = await follow(reads({ [one]: "github.com/b/r" }));
+    expect(r).toEqual({ moved: 1, failed: [], collisions: [] });
     expect(await store.aliases()).toEqual({
       "github.com/a/r": "github.com/b/r",
     });
@@ -162,9 +170,10 @@ describe("followCheckouts", () => {
     for (const id of [f, g])
       expect((await onDisk(id)).repo).toEqual({ key: "github.com/a/r" });
 
-    expect(await followCheckouts(store, lib, now)).toEqual({
+    expect(await follow(now)).toEqual({
       moved: 2,
       failed: [],
+      collisions: [],
     });
     expect((await onDisk(g)).repo).toEqual({ key: "github.com/b/r" });
 
@@ -189,9 +198,10 @@ describe("followCheckouts", () => {
       ),
     ).toEqual([f]);
     // And the second clone, still reading the old key, adds no alias back.
-    expect(await followCheckouts(store, lib, now)).toEqual({
+    expect(await follow(now)).toEqual({
       moved: 1, // h, re-keyed now an alias pass ran
       failed: [],
+      collisions: [],
     });
     expect(await store.aliases()).toEqual({
       "github.com/a/r": "github.com/b/r",
@@ -228,16 +238,12 @@ describe("followCheckouts", () => {
     const f = await recorded("Checkout", "github.com/a/r", one);
     // Premise: recorded under a.
     expect((await onDisk(f)).repo).toEqual({ key: "github.com/a/r" });
-    await followCheckouts(store, lib, reads({ [one]: "github.com/b/r" }));
+    await follow(reads({ [one]: "github.com/b/r" }));
     // Premise: the first move happened, so the record carries b now.
     expect((await onDisk(f)).repo).toEqual({ key: "github.com/b/r" });
 
-    const r = await followCheckouts(
-      store,
-      lib,
-      reads({ [one]: "github.com/c/r" }),
-    );
-    expect(r).toEqual({ moved: 1, failed: [] });
+    const r = await follow(reads({ [one]: "github.com/c/r" }));
+    expect(r).toEqual({ moved: 1, failed: [], collisions: [] });
     const table = await store.aliases();
     expect(table).toEqual({
       "github.com/a/r": "github.com/b/r",
@@ -253,9 +259,10 @@ describe("followCheckouts", () => {
     expect((await onDisk(f)).repo).toEqual({ key: "github.com/a/r" });
     await rm(one, { recursive: true });
     const read = vi.fn(reads({}));
-    expect(await followCheckouts(store, lib, read)).toEqual({
+    expect(await follow(read)).toEqual({
       moved: 0,
       failed: [],
+      collisions: [],
     });
     expect(read).not.toHaveBeenCalled();
     expect((await onDisk(f)).repo).toEqual({ key: "github.com/a/r" });
@@ -264,7 +271,7 @@ describe("followCheckouts", () => {
   it("a checkout git cannot read leaves its flows and is named, with why", async () => {
     const f = await recorded("Checkout", "github.com/a/r", one);
     expect((await onDisk(f)).repo).toEqual({ key: "github.com/a/r" });
-    const r = await followCheckouts(store, lib, async () => ({
+    const r = await follow(async () => ({
       ok: false,
       none: "not a git checkout: fatal: bad object",
     }));
@@ -278,6 +285,7 @@ describe("followCheckouts", () => {
           why: "not a git checkout: fatal: bad object",
         },
       ],
+      collisions: [],
     });
     expect((await onDisk(f)).repo).toEqual({ key: "github.com/a/r" });
   });
@@ -285,26 +293,118 @@ describe("followCheckouts", () => {
   it("a flow changed while git was read keeps the change and still moves", async () => {
     const f = await recorded("Checkout", "github.com/a/r", one);
     expect((await onDisk(f)).repo).toEqual({ key: "github.com/a/r" });
-    const r = await followCheckouts(store, lib, async (dir) => {
+    const r = await follow(async (dir) => {
       expect((await store.rename(f, "Pay")).ok).toBe(true);
       return reads({ [one]: "github.com/b/r" })(dir);
     });
-    expect(r).toEqual({ moved: 1, failed: [] });
+    expect(r).toEqual({ moved: 1, failed: [], collisions: [] });
     expect(await onDisk(f)).toMatchObject({
       name: "Pay",
       repo: { key: "github.com/b/r" },
     });
   });
 
+  // Red: drop the commit check in followCheckouts — the other repo's key
+  // is aliased onto this one.
+  it("another repo cloned where a checkout was: no recorded commit is in it, so no alias, and it says why", async () => {
+    const f = await recorded("Checkout", "github.com/a/r", one);
+    // Premise: the take recorded a commit, which the new clone lacks.
+    expect((await store.videoOf(`t${takes}`))?.made.repo).toMatchObject({
+      commit: COMMIT,
+    });
+    const r = await follow(
+      reads({ [one]: "github.com/x/other" }),
+      async () => false,
+    );
+    expect(r.moved).toBe(0);
+    expect(r.failed).toHaveLength(1);
+    expect(r.failed[0]).toMatchObject({ flow: f, name: "Checkout", root: one });
+    expect(r.failed[0]?.why).toContain("github.com/x/other");
+    expect(r.failed[0]?.why).toContain("c0ffee0");
+    expect(r.failed[0]?.why).toContain("may be another repo");
+    expect(await store.aliases()).toEqual({});
+    expect((await onDisk(f)).repo).toEqual({ key: "github.com/a/r" });
+  });
+
+  it("a checkout whose takes recorded no commit is not aliased, and says no commit proves it", async () => {
+    const made = await store.create({
+      name: "Checkout",
+      repo: { key: "github.com/a/r" },
+      startPage: "/",
+    });
+    if (!made.ok) throw new Error("no flow");
+    await take(made.video.id, "github.com/a/r", one, null);
+    // Premise: nothing recorded a commit.
+    expect((await store.videoOf(`t${takes}`))?.made.repo).toMatchObject({
+      commit: null,
+    });
+    const has = vi.fn(proves);
+    const r = await follow(reads({ [one]: "github.com/b/r" }), has);
+    expect(has).not.toHaveBeenCalled();
+    expect(r.failed[0]?.why).toContain(
+      "no recorded commit proves it is the same repo",
+    );
+    expect(await store.aliases()).toEqual({});
+  });
+
+  it("a kept mark's root is proved by the commits its flow's takes recorded elsewhere", async () => {
+    const f = await recorded("Checkout", "github.com/a/r", two);
+    await store.setKept(f, {
+      root: one,
+      file: "k.json",
+      key: "github.com/a/r",
+    });
+    // Premise: no take was recorded in the mark's root.
+    expect((await store.videoOf(`t${takes}`))?.made.repo).toMatchObject({
+      root: two,
+    });
+    const seen: string[] = [];
+    const r = await follow(
+      reads({ [one]: "github.com/b/r", [two]: "github.com/a/r" }),
+      async (dir, sha) => {
+        seen.push(dir);
+        return proves(dir, sha);
+      },
+    );
+    expect(seen).toEqual([one]);
+    expect(r).toEqual({ moved: 1, failed: [], collisions: [] });
+    expect(await store.aliases()).toEqual({
+      "github.com/a/r": "github.com/b/r",
+    });
+  });
+
+  // Red: drop the isLocalKey check — the hosted key is aliased to local:.
+  it("a checkout that lost its remote has not moved: no alias, its flows stay, nothing said", async () => {
+    const f = await recorded("Checkout", "github.com/a/r", one);
+    expect((await onDisk(f)).repo).toEqual({ key: "github.com/a/r" });
+    const r = await follow(reads({ [one]: `local:${one}/.git` }));
+    expect(r).toEqual({ moved: 0, failed: [], collisions: [] });
+    expect(await store.aliases()).toEqual({});
+    expect((await onDisk(f)).repo).toEqual({ key: "github.com/a/r" });
+  });
+
+  // Red: drop the collisions from follow's answer.
+  it("two same-named flows brought into one repo are answered as a collision", async () => {
+    const f = await recorded("Checkout", "github.com/a/r", one);
+    const g = await recorded("Checkout", "github.com/b/r", two);
+    // Premise: one name, two repos, so the name check let both be.
+    expect((await onDisk(f)).name).toBe((await onDisk(g)).name);
+    const r = await follow(
+      reads({ [one]: "github.com/b/r", [two]: "github.com/b/r" }),
+    );
+    expect(r.moved).toBe(1);
+    expect(r.collisions).toEqual([{ name: "Checkout", ids: [f, g].sort() }]);
+  });
+
   it("a table that will not read is refused by name, and the listing says so and still lists", async () => {
     const f = await recorded("Checkout", "github.com/a/r", one);
     await writeFile(aliasPath(), "{nope");
-    await expect(
-      followCheckouts(store, lib, reads({ [one]: "github.com/b/r" })),
-    ).rejects.toThrow(VideoError);
-    await expect(
-      followCheckouts(store, lib, reads({ [one]: "github.com/b/r" })),
-    ).rejects.toThrow(aliasPath());
+    await expect(follow(reads({ [one]: "github.com/b/r" }))).rejects.toThrow(
+      VideoError,
+    );
+    await expect(follow(reads({ [one]: "github.com/b/r" }))).rejects.toThrow(
+      aliasPath(),
+    );
     // Nothing moved on the way.
     expect((await onDisk(f)).repo).toEqual({ key: "github.com/a/r" });
     said.length = 0;

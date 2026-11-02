@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -196,6 +196,27 @@ describe("the window route (openStudio's hop to the window)", () => {
     // Red: drop `project` from the target buildHandlers.window builds.
     expect(answer).toEqual({ status: 200, json: { path: "/" } });
     expect(opens).toEqual([{ project: "k" }]);
+  });
+
+  // Red: send `project` as posted in serve.ts's window handler.
+  it("sends a project asked for by an aliased key to the key it resolves to", async () => {
+    opens.length = 0;
+    const aliases = join(home, "videos", ".aliases.json");
+    await mkdir(join(home, "videos"), { recursive: true });
+    await writeFile(
+      aliases,
+      JSON.stringify({
+        "github.com/a/r": "github.com/b/r",
+        "github.com/b/r": "github.com/c/r",
+      }),
+    );
+    try {
+      const answer = await post({ project: "github.com/a/r" });
+      expect(answer).toEqual({ status: 200, json: { path: "/" } });
+      expect(opens).toEqual([{ project: "github.com/c/r" }]);
+    } finally {
+      await rm(aliases, { force: true });
+    }
   });
 
   it("refuses a project that is not a string, opening nothing", async () => {

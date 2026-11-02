@@ -12,6 +12,7 @@ import {
   expireOld,
   expiryStatus,
   followCheckouts,
+  hasCommit,
   keptOf,
   keyKeptMarks,
   type Library,
@@ -206,14 +207,26 @@ export function createRoutes(o: {
       }
       // After keying marks, so a mark keyed just now is followed too.
       try {
-        const followed = await followCheckouts(videos, library, readRepo);
-        if (followed.failed.length > 0) {
+        const followed = await followCheckouts(
+          videos,
+          library,
+          readRepo,
+          hasCommit,
+        );
+        const said = [
+          ...followed.failed.map(
+            (f) => `flow "${f.name}" (${f.flow}) at ${f.root}: ${f.why}`,
+          ),
+          ...followed.collisions.map(
+            (c) =>
+              `flows "${c.name}" (${c.ids.join(") and (")}) are now in one project; rename one`,
+          ),
+        ];
+        if (said.length > 0) {
           rows.push({
             folder: "following projects' checkouts",
             kind: "upkeep",
-            reason: followed.failed
-              .map((f) => `flow "${f.name}" (${f.flow}) at ${f.root}: ${f.why}`)
-              .join("; "),
+            reason: said.join("; "),
           });
         }
       } catch (error) {

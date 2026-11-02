@@ -450,6 +450,58 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     }
   });
 
+  // Red: drop keep.ts's byName.length > 1 refusal — keep adds whichever of
+  // the two flows the folder lists first.
+  it("a name two flows share after their repos merged refuses, naming both, and adds nothing", async () => {
+    const mine = await freshVideo("scene-twin-1", "Twin flow");
+    const theirs = await freshVideo("scene-twin-2", "Twin flow (other)");
+    const aliasPath = join(home, "videos", ".aliases.json");
+    const theirsPath = join(home, "videos", `${theirs}.json`);
+    const record = JSON.parse(await readFile(theirsPath, "utf8"));
+    // An old clone's flow of the same name, under the key that now
+    // resolves to this repo's.
+    await writeFile(
+      theirsPath,
+      JSON.stringify({
+        ...record,
+        name: "Twin flow",
+        repo: { key: "github.com/old/r" },
+      }),
+    );
+    await writeFile(aliasPath, JSON.stringify({ "github.com/old/r": repoKey }));
+    try {
+      // Premise: both are this repo's flows, and both are called this.
+      const listed = (await videos.list()).filter(
+        (v) => "name" in v && v.name === "Twin flow",
+      );
+      expect(listed.map((v) => v.id).sort()).toEqual([mine, theirs].sort());
+      expect(
+        listed.every(
+          (v) => "repo" in v && "key" in v.repo && v.repo.key === repoKey,
+        ),
+      ).toBe(true);
+      const before = await repoFiles();
+      const out = await keepVideo(
+        {
+          video: "Twin flow",
+          to: [gif("twin.gif")],
+          deliver: "files",
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      expect(out).toMatchObject({ ok: false, reason: "keepRefused" });
+      const detail = (out as { detail: string }).detail;
+      expect(detail).toContain(mine);
+      expect(detail).toContain(theirs);
+      expect(await repoFiles()).toEqual(before);
+    } finally {
+      await rm(aliasPath, { force: true });
+      // Its own name again, so later cases' names stay unique.
+      await writeFile(theirsPath, JSON.stringify(record));
+    }
+  });
+
   it("a run re-points a library mark left on a file moved elsewhere", async () => {
     const { id, legacy, file } = await keptInOldFolder(
       "scene-move-3",
