@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary, type Library } from "../src/executor/library.js";
 import { execGit, type RepoRead, readRepo } from "../src/executor/repo.js";
 import { followCheckouts, resolveKey } from "../src/executor/repo-aliases.js";
@@ -13,6 +14,7 @@ import {
   type VideoStore,
 } from "../src/executor/videos.js";
 import { matchesFor, videosOp } from "../src/executor/videos-op.js";
+import { WALLPAPERS_DIR } from "./fixture.js";
 import { readOnlySceneJson } from "./fixtures/scene.js";
 
 let home: string;
@@ -416,5 +418,134 @@ describe("followCheckouts", () => {
     await recorded("Checkout", "github.com/a/r", one);
     await writeFile(aliasPath(), JSON.stringify({ "github.com/a/r": 3 }));
     await expect(store.aliases()).rejects.toThrow(/not a table/);
+  });
+});
+
+// Ruling R14: an agent in a checkout whose key moved before the Studio
+// opened still finds its old flows, since the query and the run follow the
+// checkout they are in first, by the same proof as the Studio's pass.
+describe("the checkout an agent is in follows first", () => {
+  const git = async (dir: string, ...args: string[]) => {
+    const r = await execGit(args, dir);
+    if (r.code !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+    return r.stdout.trim();
+  };
+  /** `one` as a checkout of a/r with a commit; a flow "Checkout" recorded
+   *  there at it, and another recorded in `two` (no checkout) under x/y. */
+  async function movedCheckout() {
+    await git(one, "init", "-q");
+    await git(one, "remote", "add", "origin", "git@github.com:a/r.git");
+    await git(
+      one,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "x",
+    );
+    const head = await git(one, "rev-parse", "HEAD");
+    const read = await readRepo(one);
+    if (!read.ok) throw new Error(read.none);
+    const { root } = read.repo;
+    const made = await store.create({
+      name: "Checkout",
+      repo: { key: "github.com/a/r" },
+      startPage: "/",
+    });
+    if (!made.ok) throw new Error("could not make the flow");
+    await take(made.video.id, "github.com/a/r", root, head);
+    const elsewhere = await recorded("Elsewhere", "github.com/x/y", two);
+    await git(one, "remote", "set-url", "origin", "git@github.com:b/r.git");
+    // Premise: recorded under a/r; the checkout reads b/r now.
+    expect((await onDisk(made.video.id)).repo).toEqual({
+      key: "github.com/a/r",
+    });
+    const now = await readRepo(one);
+    expect(now.ok && now.repo.key).toBe("github.com/b/r");
+    return { flow: made.video.id, elsewhere, root };
+  }
+
+  // Red: drop videos-op.ts's followHere — the query lists nothing; or
+  // drop followCheckouts' `only` — `two`'s flow is read as this checkout,
+  // and its commit not being there is said.
+  it("flows({ query }) in the moved checkout finds the old flow, and follows no other", async () => {
+    const { flow, elsewhere } = await movedCheckout();
+    const r = await videosOp(
+      { store, library: lib, dir: one },
+      { query: "checkout" },
+    );
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    const v = r.value as {
+      videos: { id: string; repo: unknown }[];
+      unreadable: unknown[];
+    };
+    expect(
+      v.videos.map((x) => [x.id, x.repo]),
+      JSON.stringify(v),
+    ).toEqual([[flow, { key: "github.com/b/r" }]]);
+    expect(v.unreadable).toEqual([]);
+    expect((await onDisk(elsewhere)).repo).toEqual({ key: "github.com/x/y" });
+  });
+
+  // Red: drop followHere's `failed` from the answer — the query lists
+  // nothing, and nothing says why.
+  it("a moved checkout whose commit does not prove it is said in the answer", async () => {
+    await git(one, "init", "-q");
+    await git(one, "remote", "add", "origin", "git@github.com:b/r.git");
+    const read = await readRepo(one);
+    if (!read.ok) throw new Error(read.none);
+    // Recorded there under a/r at COMMIT, which this checkout lacks.
+    const f = await recorded("Checkout", "github.com/a/r", read.repo.root);
+    const r = await videosOp(
+      { store, library: lib, dir: one },
+      { query: "checkout" },
+    );
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    const v = r.value as {
+      videos: unknown[];
+      unreadable: { id: string; unreadable: string }[];
+    };
+    expect(v.videos).toEqual([]);
+    expect(v.unreadable.map((u) => u.id)).toEqual([f]);
+    expect(v.unreadable[0]?.unreadable).toContain("may be another repo");
+  });
+
+  // Red: drop executor.ts's followHere — the old flow stays under a/r and
+  // { new: "Checkout" } is refused as nothing, or starts a second flow.
+  it("a run into { new } with the old flow's name is refused as taken", async () => {
+    const { flow } = await movedCheckout();
+    const lines: string[] = [];
+    const executor = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
+      home,
+      headless: true,
+      log: (l) => void lines.push(l),
+    });
+    try {
+      const out = await executor.request("run", {
+        project: one,
+        script: {
+          scriptVersion: 1,
+          name: "Checkout",
+          target: "http://127.0.0.1:1/",
+          viewport: { width: 1280, height: 800 },
+          steps: [{ do: "waitForLoad" }],
+        },
+        video: { new: "Checkout" },
+      });
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      expect(out.value, JSON.stringify(out.value)).toMatchObject({
+        outcome: "refusedBeforeRun",
+        reason: "nameTaken",
+        holder: { id: flow },
+      });
+      expect((await store.list()).length).toBe(2);
+    } finally {
+      await executor.close();
+    }
   });
 });

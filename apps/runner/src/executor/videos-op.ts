@@ -13,6 +13,7 @@ import { adoptKept, findKept } from "./kept-flows.js";
 import { type Library, LibraryError } from "./library.js";
 import { ensureVideos, startPage } from "./migrate-videos.js";
 import { readRepo } from "./repo.js";
+import { followHere } from "./repo-aliases.js";
 import { phraseHits, similarNames } from "./video-match.js";
 import {
   sharesRepo,
@@ -284,6 +285,13 @@ export async function videosOp(
     const unreadable: { id: string; unreadable: string }[] = joined.skipped.map(
       (s) => ({ id: s.takeId, unreadable: s.reason }),
     );
+    // A query follows its own checkout before reading the records (ruling
+    // R14): a checkout whose key moved still lists its old flows.
+    const read = typeof file === "string" ? null : await readRepo(deps.dir);
+    if (read?.ok) {
+      for (const m of await followHere(store, library, read))
+        unreadable.push({ id: m.id, unreadable: m.why });
+    }
     const records = await store.list();
     for (const v of records) {
       if ("unreadable" in v) unreadable.push(v);
@@ -379,10 +387,11 @@ export async function videosOp(
       };
     }
 
-    const read = await readRepo(deps.dir);
+    // Read above, before the records; never null for a query.
+    const repoRead = read ?? (await readRepo(deps.dir));
     // A clone still on a repo's old remote lists the repo's flows.
     const here = await store.resolve(
-      read.ok ? { key: read.repo.key } : { none: read.none },
+      repoRead.ok ? { key: repoRead.repo.key } : { none: repoRead.none },
     );
     const found: { summary: VideoSummary; hits: number }[] = [];
     for (const v of records) {
