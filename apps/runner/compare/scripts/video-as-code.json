@@ -1,0 +1,26 @@
+{
+  "scriptVersion": 8,
+  "name": "Nylon — trim and per-click zoom",
+  "target": "{sample}/index.html",
+  "trim": { "start": { "ms": 300 }, "end": { "ms": 400 } },
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "pause", "ms": 1500 },
+    {
+      "do": "click",
+      "on": { "role": "link", "name": "Customers" },
+      "zoom": false
+    },
+    { "do": "pause", "ms": 1200 },
+    { "do": "click", "on": { "role": "button", "name": "Status" } },
+    { "do": "pause", "ms": 1200 },
+    {
+      "do": "click",
+      "on": { "role": "button", "name": "Export" },
+      "zoom": { "scale": 1.4 }
+    },
+    { "do": "pause", "ms": 1200 },
+    { "do": "click", "on": { "role": "link", "name": "Reports" } },
+    { "do": "pause", "ms": 800 }
+  ]
+}
