@@ -337,6 +337,12 @@
   color: var(--ink-faint);
   font-weight: 400;
 }
+/* In the rail the name is --ink-2, so the dim part goes a step below
+   --ink-faint (--ink-3) to read apart from it unselected, hovered and
+   current alike; --ink-4 still clears 4.5:1 on the ground. */
+[data-studio] .side-item .proj-dim {
+  color: var(--ink-4);
+}
 [data-studio] .library-side .place-name {
   display: inline-block;
   max-width: 100%;

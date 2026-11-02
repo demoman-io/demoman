@@ -3007,6 +3007,8 @@ describe("the Studio's screenshot set", () => {
         place: string;
         /** The owner line over the title, or null when the place has none. */
         owner: string | null;
+        /** The title is a local project's: a name and a dim "local". */
+        local?: boolean;
         /** A date heading carries a select-all box. */
         box: boolean;
         /** The kept flow's "In repo" tag keeps its glyph, painted. */
@@ -3227,6 +3229,116 @@ describe("the Studio's screenshot set", () => {
           tops.every((t, i) => i === 0 || t - (tops[i - 1] as number) > 2),
           `${at}: each rail item has its own row ${JSON.stringify(seen.railItems)}`,
         ).toBe(true);
+        // The dim part of a project's name reads dimmer than the name beside
+        // it in every rail state, on the computed colours and on the pixels.
+        const dims = await page.evaluate(() => {
+          const box = (e: Element) => {
+            const r = e.getBoundingClientRect();
+            return [r.left, r.top, r.right, r.bottom].map(Math.round);
+          };
+          const rgb = (e: Element) =>
+            (getComputedStyle(e).color.match(/[\d.]+/g) ?? [])
+              .slice(0, 3)
+              .map(Number);
+          return [
+            ...document.querySelectorAll<HTMLElement>("[data-rail] .side-item"),
+          ].flatMap((a) => {
+            const dim = a.querySelector(".proj-dim");
+            const name = a.querySelector(".place-name");
+            if (dim === null || name === null) return [];
+            return [
+              {
+                text: (a as HTMLElement).innerText.replace(/\s+/g, " ").trim(),
+                current: a.getAttribute("aria-current") === "true",
+                dim: { rgb: rgb(dim), box: box(dim) },
+                name: { rgb: rgb(name), box: box(name) },
+              },
+            ];
+          });
+        });
+        const maxLuma = async (b: number[]) => {
+          const [l, t, r, bt] = b as [number, number, number, number];
+          const pts: [number, number][] = [];
+          for (let y = t; y <= bt; y += 1) {
+            for (let x = l; x <= r; x += 1) pts.push([x, y]);
+          }
+          return Math.max(...(await pixelsAt(page, pts)).map(luma));
+        };
+        const unselected = dims.filter((d) => !d.current);
+        expect(
+          dims.map((d) => d.text),
+          `${at}: premise: the owner/repo items and the local one carry a dim part`,
+        ).toEqual([
+          `acme/web ${counts.acme}`,
+          `globex/api ${counts.globex}`,
+          `scratch local ${counts.local}`,
+        ]);
+        expect(
+          unselected.length,
+          `${at}: premise: at most one of them is current, the rest are unselected`,
+        ).toBeGreaterThanOrEqual(2);
+        for (const d of dims) {
+          const step =
+            luma(d.name.rgb as [number, number, number]) -
+            luma(d.dim.rgb as [number, number, number]);
+          expect(
+            step,
+            `${at}: "${d.text}"'s dim part is dimmer than its name by a visible step ${JSON.stringify(d)}`,
+          ).toBeGreaterThanOrEqual(30);
+          const dimPx = await maxLuma(d.dim.box);
+          const namePx = await maxLuma(d.name.box);
+          expect(
+            dimPx,
+            `${at}: "${d.text}"'s dim part is painted over the ground`,
+          ).toBeGreaterThan(60);
+          expect(
+            namePx - dimPx,
+            `${at}: "${d.text}": the name's pixels are brighter than the dim part's (${namePx} vs ${dimPx})`,
+          ).toBeGreaterThanOrEqual(15);
+        }
+        if (look.local === true) {
+          const loc = await page.evaluate(() => {
+            const e = document.querySelector<HTMLElement>(
+              "[data-place-title] [data-place-local]",
+            );
+            const n = document.querySelector(
+              "[data-place-title] [data-place-name]",
+            );
+            if (e === null || n === null) return null;
+            const r = e.getBoundingClientRect();
+            const nr = n.getBoundingClientRect();
+            return {
+              text: e.textContent,
+              rect: [r.left, r.top, r.right, r.bottom].map(Math.round),
+              rightOfName: r.left >= nr.right - 0.5,
+              sameLine: r.top < nr.bottom && r.bottom > nr.top,
+              nameRect: [nr.left, nr.top, nr.right, nr.bottom].map(Math.round),
+            };
+          });
+          expect(
+            loc?.text,
+            `${at}: the title's local marker ${JSON.stringify(loc)}`,
+          ).toBe(" local");
+          expect(
+            loc,
+            `${at}: the marker follows the name on its line`,
+          ).toMatchObject({
+            rightOfName: true,
+            sameLine: true,
+          });
+          const dimPx = await maxLuma((loc as { rect: number[] }).rect);
+          const namePx = await maxLuma(
+            (loc as { nameRect: number[] }).nameRect,
+          );
+          expect(
+            dimPx,
+            `${at}: the local marker is painted over the ground`,
+          ).toBeGreaterThan(60);
+          expect(
+            namePx - dimPx,
+            `${at}: the title's name is brighter than its local marker (${namePx} vs ${dimPx})`,
+          ).toBeGreaterThanOrEqual(15);
+        }
         if (look.tagGlyph === true) {
           expect(
             seen.tagGlyphPainted,
@@ -3364,6 +3476,28 @@ describe("the Studio's screenshot set", () => {
         });
       }
 
+      // A local project's title: its folder name and a dim "local".
+      for (const [w, h] of [
+        [1440, 900],
+        [720, 900],
+      ] as const) {
+        const at = `projects local ${w}x${h}`;
+        await sizeWindow(context, page, w, h);
+        await open(
+          `${studio.origin}/${placeSearch({ project: LOCAL })}`,
+          at,
+          "all",
+        );
+        await shoot(`local-${w}x${h}`, at, {
+          rows: counts.local,
+          tab: "all",
+          place: placeSearch({ project: LOCAL }),
+          owner: null,
+          local: true,
+          box: true,
+        });
+      }
+
       // The grid: a date heading's box sits inside the section's summary,
       // so its click and Space tick the day without folding the section.
       {
@@ -3439,7 +3573,7 @@ describe("the Studio's screenshot set", () => {
         });
         expect(hit, `${at}: the grid heading's box is painted`).toBe(true);
       }
-      expect(shots).toHaveLength(SIZES.length * 6 + 3);
+      expect(shots).toHaveLength(SIZES.length * 6 + 5);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
