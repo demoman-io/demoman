@@ -4184,6 +4184,9 @@ describe("the Studio's screenshot set", () => {
                     row: rect(row),
                   },
             search: location.search,
+            list:
+              document.querySelector("[data-list]")?.getBoundingClientRect()
+                .width ?? null,
           };
         }, SEARCHED);
       type Seen = Awaited<ReturnType<typeof look>>;
@@ -4240,6 +4243,12 @@ describe("the Studio's screenshot set", () => {
         shots.push(shot);
         const s = await look();
         const ev = `${at}: ${JSON.stringify(s)}`;
+        // Premise: a list of 600 or more, where the box keeps its place in
+        // the row; under 600 it folds (the narrow pass below).
+        expect(
+          s.list,
+          `${at}: premise: the list's width ${ev}`,
+        ).toBeGreaterThanOrEqual(600);
         const p = await painted(page);
         expect(p.theme, `${at}: the page's theme`).toBe("dark");
         expect(
@@ -4335,6 +4344,174 @@ describe("the Studio's screenshot set", () => {
         );
       }
 
+      // Under a 600px list (spec 2026-11-02 search-narrow): empty and
+      // unfocused the box is its glyph alone, between the tabs and the
+      // toggle; holding the word unfocused it stays open there, the word
+      // in view. Each on its paint.
+      {
+        const at = "search narrow 560x900";
+        await sizeWindow(context, page, 560, 900);
+        await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        await page.goto(all);
+        await until(at, "premise: All flows lists every flow", (s) =>
+          videos.every((v) => s.rows.some((r) => r.id === v.id)),
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        // The row as painted: the field, the tabs' right end, the toggle,
+        // the glyph, and what is on top at the field's middle.
+        const row = () =>
+          page.evaluate(() => {
+            const r = (sel: string) => {
+              const e = document.querySelector(sel);
+              if (e === null) return null;
+              const b = e.getBoundingClientRect();
+              return [b.left, b.top, b.right, b.bottom];
+            };
+            const input = document.querySelector<HTMLInputElement>(
+              "[data-search]",
+            ) as HTMLInputElement;
+            const f = input.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              f.left + f.width / 2,
+              f.top + f.height / 2,
+            );
+            const pills = [
+              ...document.querySelectorAll(".place-tabs [data-tab]"),
+            ].map((p) => p.getBoundingClientRect());
+            return {
+              list:
+                document.querySelector("[data-list]")?.getBoundingClientRect()
+                  .width ?? null,
+              field: r(".search-field"),
+              input: [f.left, f.top, f.right, f.bottom],
+              glyph: r(".search-field > svg"),
+              toggle: r("[data-layout-toggle]"),
+              pillsRight: Math.max(...pills.map((p) => p.right)),
+              pillTops: [...new Set(pills.map((p) => Math.round(p.top)))],
+              hit: hit === input,
+              whole: input.scrollWidth <= input.clientWidth,
+              value: input.value,
+              focused: document.activeElement === input,
+              scroll: [
+                document.documentElement.scrollWidth,
+                document.documentElement.clientWidth,
+              ],
+            };
+          });
+        type Row = Awaited<ReturnType<typeof row>>;
+        const between = (x: Row) => {
+          const [fl, , fr] = x.field as number[];
+          const [tl] = x.toggle as number[];
+          return (
+            (fl as number) >= x.pillsRight + 7.5 &&
+            (fr as number) <= (tl as number) - 7.5
+          );
+        };
+        const folded = await row();
+        const ev = `${at}: ${JSON.stringify(folded)}`;
+        const shot = join(SHOTS, "library-search-folded-560x900-dark.png");
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        expect(
+          folded.list,
+          `${at}: premise: a list under 600 ${ev}`,
+        ).toBeLessThan(600);
+        expect(
+          folded.scroll[0],
+          `${at}: no sideways scroll ${ev}`,
+        ).toBeLessThanOrEqual(folded.scroll[1] as number);
+        expect(
+          folded.pillTops,
+          `${at}: the tabs on one line ${ev}`,
+        ).toHaveLength(1);
+        const [il, it_, ir, ib] = folded.input as [
+          number,
+          number,
+          number,
+          number,
+        ];
+        expect(
+          {
+            width: Math.round(ir - il),
+            between: between(folded),
+            hit: folded.hit,
+            value: folded.value,
+            focused: folded.focused,
+          },
+          `${at}: the glyph's square between the tabs and the toggle, on top ${ev}`,
+        ).toEqual({
+          width: 32,
+          between: true,
+          hit: true,
+          value: "",
+          focused: false,
+        });
+        // The glyph is painted, and nothing left of it (the placeholder
+        // would start at the square's left edge).
+        const [gl] = folded.glyph as number[];
+        const mid = (it_ + ib) / 2;
+        expect(
+          await inked([
+            Math.ceil(gl as number),
+            Math.round(mid - 6),
+            Math.floor(ir - 4),
+            Math.round(mid + 6),
+          ]),
+          `${at}: the glyph's ink ${ev}`,
+        ).toBeGreaterThan(20);
+        expect(
+          await inked([
+            Math.ceil(il + 2),
+            Math.round(mid - 6),
+            Math.floor((gl as number) - 2),
+            Math.round(mid + 6),
+          ]),
+          `${at}: no ink left of the glyph ${ev}`,
+        ).toBeLessThan(8);
+
+        await page.locator("[data-search]").pressSequentially(SEARCHED);
+        await until(at, "the results are the globex flow alone", onlyGlobex);
+        await page.locator("[data-search]").blur();
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        const held = await row();
+        const hev = `${at} held: ${JSON.stringify(held)}`;
+        const heldShot = join(SHOTS, "library-search-held-560x900-dark.png");
+        await page.screenshot({ path: heldShot });
+        shots.push(heldShot);
+        const [hl, ht, hr, hb] = held.input as [number, number, number, number];
+        expect(
+          {
+            between: between(held),
+            hit: held.hit,
+            whole: held.whole,
+            value: held.value,
+            focused: held.focused,
+            open: hr - hl > 64,
+          },
+          `${at}: holding the word, open between the tabs and the toggle ${hev}`,
+        ).toEqual({
+          between: true,
+          hit: true,
+          whole: true,
+          value: SEARCHED,
+          focused: false,
+          open: true,
+        });
+        const [, , gr] = held.glyph as number[];
+        expect(
+          await inked([
+            Math.ceil((gr as number) + 2),
+            Math.round(ht + 6),
+            Math.floor(hr - 4),
+            Math.round(hb - 6),
+          ]),
+          `${at}: the word's ink in the box ${hev}`,
+        ).toBeGreaterThan(40);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+      }
+
       // The word in acme/web, which has none of it: "None here.", and a
       // link to where it is, painted.
       {
@@ -4401,7 +4578,7 @@ describe("the Studio's screenshot set", () => {
         ).toBeGreaterThan(40);
         expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
       }
-      expect(shots).toHaveLength(3);
+      expect(shots).toHaveLength(5);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
