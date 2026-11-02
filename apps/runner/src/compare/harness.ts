@@ -150,7 +150,14 @@ export function serveSample(
   repo: string,
   say: (line: string) => void,
 ): { server: Server; origin: Promise<string> } {
-  const html = join(repo, "docs", "store-assets", "sample-app", "index.html");
+  const html = join(
+    repo,
+    "internal",
+    "docs",
+    "store-assets",
+    "sample-app",
+    "index.html",
+  );
   const server = createServer((req, res) => {
     if (req.url !== "/index.html") {
       res.writeHead(404).end();

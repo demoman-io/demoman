@@ -690,14 +690,14 @@ export function codeClause(
   const filmed = parseFilmedCode(raw);
   if (filmed === null || "none" in filmed) return "commit unknown";
   if (head !== null && headTree !== null && filmed.tree === headTree)
-    return `filmed at ${short(head)}`;
+    return `recorded at ${short(head)}`;
   if (filmed.commit === null)
     return "filmed from uncommitted changes before the first commit";
   if (head === null || headTree === null)
-    return `filmed at ${short(filmed.commit)}${filmed.dirty ? " with uncommitted changes" : ""}, not checked against the PR`;
+    return `recorded at ${short(filmed.commit)}${filmed.dirty ? " with uncommitted changes" : ""}, not checked against the PR`;
   if (filmed.dirty)
     return `filmed from uncommitted changes on ${short(filmed.commit)}`;
-  return `filmed at ${short(filmed.commit)}, not the PR's head ${short(head)}`;
+  return `recorded at ${short(filmed.commit)}, not the PR's head ${short(head)}`;
 }
 
 /**

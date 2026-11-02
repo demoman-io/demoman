@@ -1184,21 +1184,21 @@ describe("codeClause", () => {
       { commit: A, tree: T, dirty: true },
       B,
       T,
-      `filmed at \`bbbbbbb\``,
+      `recorded at \`bbbbbbb\``,
     ],
     [
       "head unknown",
       { commit: A, tree: T, dirty: false },
       null,
       null,
-      "filmed at `aaaaaaa`, not checked against the PR",
+      "recorded at `aaaaaaa`, not checked against the PR",
     ],
     [
       "head tree unknown, dirty",
       { commit: A, tree: T, dirty: true },
       B,
       null,
-      "filmed at `aaaaaaa` with uncommitted changes, not checked against the PR",
+      "recorded at `aaaaaaa` with uncommitted changes, not checked against the PR",
     ],
     [
       "another tree, dirty",
@@ -1212,7 +1212,7 @@ describe("codeClause", () => {
       { commit: A, tree: T, dirty: false },
       B,
       U,
-      "filmed at `aaaaaaa`, not the PR's head `bbbbbbb`",
+      "recorded at `aaaaaaa`, not the PR's head `bbbbbbb`",
     ],
     [
       "no commit yet",
@@ -1232,10 +1232,10 @@ describe("prLine", () => {
       prLine(
         "Create an invoice",
         { clause: "matches all 3 steps", details: null },
-        "filmed at `abc1234`",
+        "recorded at `abc1234`",
       ),
     ).toEqual({
-      line: "Demo: `Create an invoice` · matches all 3 steps · filmed at `abc1234`",
+      line: "Demo: `Create an invoice` · matches all 3 steps · recorded at `abc1234`",
       details: null,
     });
   });
@@ -1411,7 +1411,7 @@ describe("the line on an attached comment", () => {
       expect(
         JSON.parse(await readFile(reportPath(), "utf8")).filmedCode.tree,
       ).toBe(tree);
-      const want = `Demo: \`Orders walkthrough\` · matches all 3 steps · filmed at \`${head.slice(0, 7)}\``;
+      const want = `Demo: \`Orders walkthrough\` · matches all 3 steps · recorded at \`${head.slice(0, 7)}\``;
       await commentOn(want);
       const answer = await attach({ into: "comment", pr: 7 });
       expect(answer, JSON.stringify(answer)).toMatchObject({
@@ -1441,7 +1441,7 @@ describe("the line on an attached comment", () => {
       expect(JSON.parse(await readFile(reportPath(), "utf8")).outcome).toBe(
         "stopped",
       );
-      const line = `Demo: \`Orders walkthrough\` · stopped after step 1 of 3 · filmed at \`${head.slice(0, 7)}\``;
+      const line = `Demo: \`Orders walkthrough\` · stopped after step 1 of 3 · recorded at \`${head.slice(0, 7)}\``;
       await commentOn(line);
       const answer = await attach({ into: "comment", pr: 7 });
       expect(answer).toMatchObject({

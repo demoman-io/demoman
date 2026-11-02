@@ -850,7 +850,7 @@ describe("the Studio's screenshot set", () => {
         ]);
         const expired = rows[2];
         expect(expired?.line, said).toContain(
-          "Expired — ask your agent to film it again",
+          "Expired — ask your agent to record it again",
         );
         // The call names the flow, which a run films again; never the
         // video, which the runner refuses.

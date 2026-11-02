@@ -28,7 +28,7 @@ import { editorDom } from "../helpers/editor-dom";
  */
 
 const LINE =
-  'Ask your agent to film it again: `run({ flow: { id: "scene-readonly-001" } })`';
+  'Ask your agent to record it again: `run({ flow: { id: "scene-readonly-001" } })`';
 const LINE_WORDS = LINE.replaceAll("`", "");
 
 vi.mock("@demoman/compositor", async (importOriginal) => {
@@ -173,7 +173,7 @@ vi.mock("#platform", async (importOriginal) => {
       firstTakeHint: () => "",
       rerun: (id) => ({
         kind: "line",
-        text: `Ask your agent to film it again: \`run({ flow: { id: "${id}" } })\``,
+        text: `Ask your agent to record it again: \`run({ flow: { id: "${id}" } })\``,
       }),
       kits: () => "/settings.html",
       onOpen: () => undefined,
