@@ -62,9 +62,10 @@
         font: 700 30px/1.2 "Outfit", ui-sans-serif, system-ui, sans-serif;
         letter-spacing: -0.02em;
       }
-      /* The jump list: Settings' section nav, stacked — the section in view
-         in the stronger control tone, the rest muted text that firms under
-         the pointer, a count at the end. Unlabelled: the author's call. */
+      /* The project rail's places (All flows, each owner's projects, No
+         project, Couldn't read): the place shown (aria-current) in the
+         stronger control tone, the rest muted text that firms under the
+         pointer, a count at the end. */
       /* A column at every width: wrapped into rows, the last projects of one
          owner shared a row with "No project" and read as that owner's. */
       .side-list { display: flex; flex-direction: column; gap: 2px; }
@@ -1055,10 +1056,11 @@
         }
         .library-list [data-col="videos"] { display: none; }
       }
-      /* "Couldn't read" under the list, in its rows (list spec §2.3): the
-         list's columns, so the name, reason and size stand under Name,
-         Where and Size. Delete floats over the row's end, as a flow's
-         actions do, and shows at rest: it is all these rows do. */
+      /* "Couldn't read" in the list layout, drawn in its own place (no flow
+         rows and no column heads above it): the list's column template, so
+         the name, reason and size sit where a flow's Name, Where and Size
+         would. Delete floats over the row's end, as a flow's actions do,
+         and shows at rest: it is all these rows do. */
       .unreadable-list > .unreadable-row {
         position: relative;
         display: grid;

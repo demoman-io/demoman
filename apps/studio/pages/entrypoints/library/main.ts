@@ -303,11 +303,11 @@ const viewRead = platform.libraryView.read().then(
 
 /**
  * Where the library is (spec 2026-11-01 library-projects-design, "Where the
- * Studio lands"): the address's `?project=`, else the take the editor came
- * back from (`?from=`), else the saved pick, else All flows. Decided at the
- * first paint, which has the flows to read a take's project from, and
- * written into the address so Back returns to it. Only a rail click saves
- * a pick.
+ * Studio lands"): the take the editor came back from (`?from=`, when it is
+ * in the listing), else the address's `?project=`, else the saved pick,
+ * else All flows. Decided at the first paint, which has the flows to read
+ * a take's project from, and written into the address so Back returns to
+ * it. Only a rail click saves a pick.
  */
 let place: Place | null = null;
 const asked = parsePlace(location.search);
