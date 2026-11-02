@@ -294,10 +294,10 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
      the video that the step did what it should before saying so.
    - A re-film's report carries `rerecord`: `from` (the old video), `notes`
      (as `report.skeleton` above, `stepDropped` with `why` `actionGone` or
-     `neverPerformed`; `migrated`: a `sentence`) and `notCarried` (each `removed`, `split`,
+     `neverPerformed`; `migrated`, `trimClampedToStep`, `zoomNotWritten`: a `sentence`) and `notCarried` (each `removed`, `split`,
      mask, hold, gap or trim the old video had and the new one lacks, and
-     each zoom the editor aimed or ended by hand, `zoom`; every other zoom
-     the new video makes again from its own clicks). Name each
+     each zoom added or moved in the editor, `zoom`; others are remade
+     from clicks). Name each
      to the user; a mask not carried may show what the old video hid.
 3. **Read the video.** The report carries `video` and `recording`. Read
    `video.summary` first (a count per label: `inside`, `atEdge`, `cutOff`,
@@ -351,7 +351,7 @@ user's default brand kit; a derived draft keeps its video's branding. `look.bran
    A GIF is as wide as fits 10 MB (`warnings.gifSize` says how wide and
    which widths were refused); one over 10 MB at its narrowest says so: offer the MP4.
    Stills take `stills: { width, zoom }`, both optional; by
-   default a still is the whole window, up to 2560 px wide. `width` is px (320-3840) or `"native"`, the video's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in.
+   default a still is the whole window, up to 2560 px wide. `width` is px (320-3840) or `"native"`, the video's own size; `zoom` is `"none"` or `"step"`, which frames each step as the video zooms on it, all the way in. Only when asked.
 2. `saved` - the file is at `file.path`, absolute: in `~/Downloads`, or the
    server's `--out-dir`. For `stills`, `fileType`
    is `stills` and the answer carries `folder: { path, files }` instead of
