@@ -213,7 +213,9 @@ function reduce(
             ? {
                 ...c,
                 scale: command.scale,
-                ...(c.source === "click"
+                // No source (a take before v15) cannot say a click made it,
+                // so its scale is recorded too, and the re-record names it.
+                ...(c.source !== "author"
                   ? { scaleSetBy: "author" as const }
                   : {}),
               }
@@ -249,12 +251,15 @@ function reduce(
       };
     }
 
-    // Deleting a zoom the click made is an edit the script must hear about:
-    // an "off" entry is what a re-record carries (or names in notCarried).
+    // Deleting a zoom on a click or drag is an edit the script must hear
+    // about, whoever made the zoom (R19): "no zoom on this click" either
+    // way, and an "off" entry is what a re-record carries.
     case "removeZoom": {
       const zoom = zoomById(scene, command.id);
       const camera = scene.camera.filter((c) => c.id !== command.id);
-      if (zoom.source !== "click") return { ...scene, camera };
+      const on = scene.actions.find((a) => a.id === zoom.marker.actionId);
+      if (on?.kind !== "click" && on?.kind !== "drag")
+        return { ...scene, camera };
       return {
         ...scene,
         camera,

@@ -375,12 +375,15 @@ export function notCarriedOf(
     // `source` says who made a zoom: an author's is theirs, a click's is
     // generated again by the new take (its scale and removal are written
     // back). With none (a take saved before v15), only the editor writes a
-    // `point` (aimed where the author clicked the Zoom lane) or `end` (a
-    // return the author placed).
+    // `point` (aimed where the author clicked the Zoom lane), an `end` (a
+    // return the author placed) or a `scaleSetBy` (a scale the author set,
+    // on a zoom that cannot say a click made it, so not written back).
     ...scene.camera
       .filter((c) =>
         c.source === undefined
-          ? c.point !== undefined || c.end !== undefined
+          ? c.point !== undefined ||
+            c.end !== undefined ||
+            c.scaleSetBy !== undefined
           : c.source === "author",
       )
       .map((c) => ({ kind: "zoom" as const, id: c.id })),

@@ -1,4 +1,9 @@
-import { MOTION_DEFAULTS, SceneDocumentSchema } from "@demoman/scene-schema";
+import { refilmScript } from "@demoman/run-core";
+import {
+  MOTION_DEFAULTS,
+  type SceneDocument,
+  SceneDocumentSchema,
+} from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../../../packages/replay-engine/test/helpers/scenes";
 import { applyCommand } from "../../../pages/src/editor/commands";
@@ -499,13 +504,79 @@ describe("zoom edits are recorded for the script", () => {
     expect(next.zoomsSkipped).toEqual([{ actionId: "act-3", reason: "off" }]);
   });
 
-  it("removing a zoom with no source leaves zoomsSkipped alone", () => {
+  /** What a re-record makes of the edited take: the script and its notes. */
+  const rerecord = (scene: SceneDocument) => {
+    const out = refilmScript(scene, { kind: "none" });
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    const steps = out.script.steps as { recorded?: string; zoom?: unknown }[];
+    return { act3: steps.find((s) => s.recorded === "act-3"), out };
+  };
+
+  // R19: "no zoom on this click" is the author's intent whoever made it.
+  it("removing a click zoom the author moved still records off, and the re-record writes zoom false", () => {
+    const moved = applyCommand(
+      withZoom({ source: "click" }),
+      {
+        kind: "setZoomRange",
+        id: "cam-1",
+        start: { actionId: "act-3", offsetMs: -900 },
+        end: null,
+      },
+      ids(),
+    );
+    // Premise: the move made it the author's, which is what used to skip.
+    expect(moved.camera[0]?.source).toBe("author");
+    expect(moved.actions.find((a) => a.id === "act-3")?.kind).toBe("click");
+    const next = applyCommand(
+      moved,
+      { kind: "removeZoom", id: "cam-1" },
+      ids(),
+    );
+    expect(next.zoomsSkipped).toEqual([{ actionId: "act-3", reason: "off" }]);
+    const { act3, out } = rerecord(next);
+    expect(act3, JSON.stringify(out)).toMatchObject({ zoom: false });
+  });
+
+  it("removing a zoom with no source (a take before v15) on a click records off", () => {
     const next = applyCommand(
       withZoom({}),
       { kind: "removeZoom", id: "cam-1" },
       ids(),
     );
+    expect(next.zoomsSkipped).toEqual([{ actionId: "act-3", reason: "off" }]);
+    const { act3, out } = rerecord(next);
+    expect(act3, JSON.stringify(out)).toMatchObject({ zoom: false });
+  });
+
+  it("removing a zoom on a step that is not a click or drag records nothing", () => {
+    const scene = {
+      ...readonlyScene(),
+      camera: [{ ...zoomOn({}), marker: { actionId: "act-1", offsetMs: 0 } }],
+    };
+    // Premise: act-1 is a type, which no click zoom is generated for.
+    expect(scene.actions.find((a) => a.id === "act-1")?.kind).toBe("type");
+    const next = applyCommand(
+      scene,
+      { kind: "removeZoom", id: "cam-1" },
+      ids(),
+    );
+    expect(next.camera).toEqual([]);
     expect(next.zoomsSkipped).toBeUndefined();
+  });
+
+  // A zoom with no source cannot say whether a click made it, so its new
+  // scale is recorded as the author's choice and the re-record names it.
+  it("rescaling a zoom with no source is named in notCarried, never silent", () => {
+    const next = applyCommand(
+      withZoom({}),
+      { kind: "setZoomScale", id: "cam-1", scale: 2 },
+      ids(),
+    );
+    expect(next.camera[0]?.source).toBeUndefined();
+    expect(next.camera[0]?.scaleSetBy).toBe("author");
+    const { act3, out } = rerecord(next);
+    expect(out.refilm.notCarried).toContainEqual({ kind: "zoom", id: "cam-1" });
+    expect(act3 && "zoom" in act3, JSON.stringify(out)).toBe(false);
   });
 
   it("addZoom writes source author and clears the off entry", () => {
@@ -530,7 +601,7 @@ describe("zoom edits are recorded for the script", () => {
     expect(next.zoomsSkipped).toEqual([{ actionId: "act-2", reason: "off" }]);
   });
 
-  it("setZoomScale on a click zoom sets scaleSetBy author; no source is unchanged", () => {
+  it("setZoomScale on a click zoom sets scaleSetBy author; an author's is unchanged", () => {
     const click = applyCommand(
       withZoom({ source: "click" }),
       { kind: "setZoomScale", id: "cam-1", scale: 2 },
@@ -538,12 +609,12 @@ describe("zoom edits are recorded for the script", () => {
     );
     expect(click.camera[0]?.scaleSetBy).toBe("author");
     expect(click.camera[0]?.scale).toBe(2);
-    const plain = applyCommand(
-      withZoom({}),
+    const author = applyCommand(
+      withZoom({ source: "author" }),
       { kind: "setZoomScale", id: "cam-1", scale: 2 },
       ids(),
     );
-    expect(plain.camera[0]?.scaleSetBy).toBeUndefined();
+    expect(author.camera[0]?.scaleSetBy).toBeUndefined();
   });
 
   it("setZoomRange and setZoomTarget on a click zoom make it the author's, keeping scaleSetBy", () => {
