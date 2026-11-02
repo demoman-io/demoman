@@ -457,7 +457,7 @@ Studio exports go to `~/Downloads`.
   the same or `{ "by": { x, y } }` px; `at` is a spot in the box, 0–1). An unknown key is refused and named.
 - `trim`: `{ "start"?: { "ms", "step"? }, "end"?: { "ms", "step"?, "after"? } }`, the video kept before the first and after the last shown step. `step` is 1-based, not a `pause`; `after` is `"zoomOut"` (default) or `"action"`. To end every video right after its last step, give every script `"trim": { "end": { "ms": 0 } }`.
 - A `click` or `drag` takes `zoom`: `false` for none, or `{ "scale": 1.5 }` (over 1, at most 2.5).
-- `scrollTo` takes optional `landing: { "top": <px> }`, the viewport y of
+- `scrollTo` takes `landing: { "top": <px> }`, optional: the viewport y of
   the element's top edge once scrolled; absent is centred.
 - `viewport` absent means the size the user chose: the screen's, which
   `snapshot` measured `inFirstViewport` against. Leave `viewport` out unless the user asked.
