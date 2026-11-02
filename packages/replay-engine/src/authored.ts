@@ -27,6 +27,7 @@ import {
   cursorEntryPoint,
   type MadeFromStep,
   planCursorSegment,
+  sourceDurationOf,
   transformAt,
   VERBS,
   type Vec,
@@ -1309,14 +1310,10 @@ function trimFromScript(
     const at = performed(
       asked.end.step === undefined ? shown.at(-1) : asked.end.step - 1,
     );
-    // The take's source length as the compositor measures it
-    // (`buildTimeline`'s `sourceDurationMs`): its last keyframe, marker or
-    // motion span.
-    const filmedThrough = Math.max(
-      ...(bundle?.keyframes.map((k) => k.sourceTimeMs) ?? []),
-      ...(bundle?.markers.map((m) => m.sourceTimeMs) ?? []),
-      ...(bundle?.motionSpans.map((m) => m.endMs) ?? []),
-    );
+    // The compositor's own answer to how long the take filmed, which is
+    // what it would clamp a later end to. No bundle: nothing was filmed.
+    const filmedThrough =
+      bundle === null ? Number.NEGATIVE_INFINITY : sourceDurationOf(bundle);
     if (at === undefined) unplaced.push("end");
     else {
       const { markerMs, finishMs, zoomOutMs } = at.timing;

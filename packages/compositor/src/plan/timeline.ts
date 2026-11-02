@@ -797,6 +797,25 @@ function interruptionsOf(
 }
 
 /**
+ * How long the bundle filmed, in source ms: its last keyframe, marker or
+ * motion. The timeline's `sourceDurationMs`, and what an end past it is
+ * clamped to; exported so a take can ask the same question before it writes
+ * a trim (`@demoman/replay-engine`'s `trimFromScript`). `motion` defaults to
+ * the bundle's own (`motionSpansOf` with no hints).
+ */
+export function sourceDurationOf(
+  bundle: FrameBundle,
+  motion: TimeSpan[] = motionSpansOf(bundle),
+): number {
+  const lastKeyframe = bundle.keyframes[bundle.keyframes.length - 1];
+  return Math.max(
+    lastKeyframe?.sourceTimeMs ?? 0,
+    ...bundle.markers.map((m) => m.sourceTimeMs),
+    ...motion.map((m) => m.endMs),
+  );
+}
+
+/**
  * Dead air only, never through in-app motion (v8 §4).
  *
  * On a static idle span the frames are identical, so compressing it is a cut
@@ -810,12 +829,7 @@ export function buildTimeline(
   hints: TimeSpan[] = [],
 ): Timeline {
   const motion = motionSpansOf(bundle, hints);
-  const lastKeyframe = bundle.keyframes[bundle.keyframes.length - 1];
-  const sourceDurationMs = Math.max(
-    lastKeyframe?.sourceTimeMs ?? 0,
-    ...bundle.markers.map((m) => m.sourceTimeMs),
-    ...motion.map((m) => m.endMs),
-  );
+  const sourceDurationMs = sourceDurationOf(bundle, motion);
 
   const { cuts, unplacedCuts } = cutRanges(plan, bundle, sourceDurationMs);
   const interruptions = interruptionsOf(bundle, cuts);
