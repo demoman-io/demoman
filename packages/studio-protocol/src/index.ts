@@ -424,6 +424,8 @@ export interface LibraryViewAnswer {
 }
 export interface WindowBody {
   takeId?: string;
+  /** The caller's repo key: the library opens on that project. */
+  project?: string;
 }
 
 /** `POST /api/window`: the page the window was opened or sent to

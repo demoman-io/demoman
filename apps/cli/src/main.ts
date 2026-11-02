@@ -63,6 +63,7 @@ import {
   writeTextFile,
 } from "./setup-deps.js";
 import { parseStudioArgs } from "./studio-args.js";
+import { callerProject } from "./studio-project.js";
 import { VERSION } from "./version.js";
 
 const log = (line: string): void => {
@@ -207,7 +208,15 @@ async function mcp(args: string[]): Promise<void> {
       home: demomanHome(),
       log,
     }),
-    studio: (a) => openStudio({ home: demomanHome(), ...a, ...STUDIO_SPAWN }),
+    studio: async (a) => {
+      const project = await callerProject(process.cwd());
+      return openStudio({
+        home: demomanHome(),
+        ...a,
+        ...(project === undefined ? {} : { project }),
+        ...STUDIO_SPAWN,
+      });
+    },
     log,
   });
 }
@@ -244,8 +253,10 @@ async function studio(args: string[]): Promise<void> {
     process.exit(0);
   }
   if (parsed.kind === "open") {
+    const project = await callerProject(process.cwd());
     const answer = await openStudio({
       home,
+      ...(project === undefined ? {} : { project }),
       ...(parsed.takeId === undefined ? {} : { takeId: parsed.takeId }),
       ...STUDIO_SPAWN,
     });

@@ -148,7 +148,17 @@ export function buildHandlers(o: {
           `No window was opened: ${body.error}.`,
         );
       }
-      const takeId = (body.value as { takeId?: unknown } | null)?.takeId;
+      const { takeId, project } = (body.value ?? {}) as {
+        takeId?: unknown;
+        project?: unknown;
+      };
+      if (project !== undefined && typeof project !== "string") {
+        return refuse(
+          400,
+          "windowDidNotOpen",
+          "No window was opened: project is not a string.",
+        );
+      }
       if (takeId !== undefined && typeof takeId !== "string") {
         return refuse(
           400,
@@ -164,9 +174,10 @@ export function buildHandlers(o: {
           return libraryRefusal(error);
         }
       }
-      const opened = await o.window.open(
-        takeId === undefined ? {} : { takeId },
-      );
+      const opened = await o.window.open({
+        ...(takeId === undefined ? {} : { takeId }),
+        ...(project === undefined ? {} : { project }),
+      });
       if (!("ok" in opened)) return json(500, opened);
       o.onWindowOpened?.();
       const answer: WindowAnswer = { path: opened.path };
@@ -244,7 +255,7 @@ export interface ServeOptions {
   createWindow?: (w: {
     origin: string;
     /** A fresh entry URL: a single-use ticket, never the token (R12). */
-    entryUrl: (takeId?: string) => string;
+    entryUrl: (takeId?: string, project?: string) => string;
     events: EventHub;
     log: (line: string) => void;
   }) => StudioWindow;
@@ -504,7 +515,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
 
   window = (o.createWindow ?? defaultWindow(o))({
     origin: studioServer.origin,
-    entryUrl: (takeId) => studioServer.entryUrl(takeId),
+    entryUrl: (takeId, project) => studioServer.entryUrl(takeId, project),
     events,
     log,
   });

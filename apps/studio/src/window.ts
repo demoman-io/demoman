@@ -16,6 +16,7 @@ export interface StudioWindow {
    *  not be opened, moved there or brought forward is refused. */
   open(target: {
     takeId?: string;
+    project?: string;
   }): Promise<{ ok: true; path: string } | Refusal>;
   /** Called each time the last page the person can see closes. */
   onAllClosed(fn: () => void): void;
@@ -66,7 +67,7 @@ export function createStudioWindow(o: {
   /** A fresh entry URL with a single-use ticket (ruling R12). It reaches
    *  the browser only through Playwright's pipe, never its argv, which any
    *  local user can read and race the window to redeem. */
-  entryUrl: (takeId?: string) => string;
+  entryUrl: (takeId?: string, project?: string) => string;
   events: Pick<EventHub, "send" | "size">;
   executablePath?: string;
   headless?: boolean;
@@ -201,8 +202,12 @@ export function createStudioWindow(o: {
 
   /** Sends `page` through a fresh entry link. A door that refused it (a
    *  ticket spent by someone else) throws: the window shows "link expired". */
-  async function enter(page: Page, takeId?: string): Promise<void> {
-    const response = await page.goto(o.entryUrl(takeId));
+  async function enter(
+    page: Page,
+    takeId?: string,
+    project?: string,
+  ): Promise<void> {
+    const response = await page.goto(o.entryUrl(takeId, project));
     if (response && !response.ok()) {
       throw new Error(`the Studio answered ${response.status()}`);
     }
@@ -243,7 +248,7 @@ export function createStudioWindow(o: {
         : visibleWindowRefusal(host.platform, host.env);
     if (noWindow !== null)
       return { reason: "windowDidNotOpen", detail: noWindow };
-    const path = pagePathFor(target.takeId);
+    const path = pagePathFor(target.takeId, target.project);
     const got = await ensure();
     if (!got.ok) return { reason: got.reason, detail: got.detail };
 
@@ -255,7 +260,7 @@ export function createStudioWindow(o: {
         );
       }
       try {
-        await enter(page, target.takeId);
+        await enter(page, target.takeId, target.project);
       } catch (error) {
         return didNotOpen(
           `the Studio's window opened but could not be sent to ${path} (${messageOf(error)})`,
@@ -267,7 +272,10 @@ export function createStudioWindow(o: {
 
     const live = livePages()[0];
     if (live !== undefined) {
-      if (o.events.size() > 0) {
+      // Neither a take nor a project: the window stays where it is.
+      if (target.takeId === undefined && target.project === undefined) {
+        // sends nothing
+      } else if (o.events.size() > 0) {
         // The page navigates itself after its owed writes (Task 12); a
         // server-side goto could drop an edit still being saved.
         o.events.send({ type: "open", path });
@@ -276,7 +284,7 @@ export function createStudioWindow(o: {
         // drop (one still loading has none yet): navigated from here,
         // through an entry link, so its cookie is set whatever it held.
         try {
-          await enter(live, target.takeId);
+          await enter(live, target.takeId, target.project);
         } catch (error) {
           return didNotOpen(
             `the Studio's window could not be sent to ${path} (${messageOf(error)})`,
@@ -298,7 +306,7 @@ export function createStudioWindow(o: {
     // not an app window: it has an address bar and tabs.
     try {
       const page = await got.context.newPage();
-      await enter(page, target.takeId);
+      await enter(page, target.takeId, target.project);
     } catch (error) {
       return didNotOpen(
         `the Studio's window would not open: ${messageOf(error)}`,

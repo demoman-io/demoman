@@ -1,12 +1,15 @@
+import { placeSearch } from "@demoman/studio-protocol";
+
 /**
  * The page a window shows for a take: the editor on it, or the library when
  * no take is named. The same path is sent to a live window (SSE `open`) and
  * reached by a fresh one through the entry link's redirect.
  */
-export function pagePathFor(takeId?: string): string {
-  return takeId === undefined
-    ? "/"
-    : `/editor.html?scene=${encodeURIComponent(takeId)}`;
+export function pagePathFor(takeId?: string, project?: string): string {
+  if (takeId !== undefined) {
+    return `/editor.html?scene=${encodeURIComponent(takeId)}`;
+  }
+  return project === undefined ? "/" : `/${placeSearch({ project })}`;
 }
 
 /**
@@ -19,8 +22,10 @@ export function entryUrlFor(
   origin: string,
   ticket: string,
   takeId?: string,
+  project?: string,
 ): string {
   const q = new URLSearchParams({ t: ticket });
   if (takeId !== undefined) q.set("take", takeId);
+  if (project !== undefined) q.set("project", project);
   return `${origin}/?${q.toString()}`;
 }

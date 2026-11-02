@@ -67,7 +67,7 @@ export interface StudioServer {
   token: string;
   /** A fresh entry URL on `takeId` (the library without one), carrying a
    *  new single-use ticket, never the token (ruling R12). */
-  entryUrl(takeId?: string): string;
+  entryUrl(takeId?: string, project?: string): string;
   close(): Promise<void>;
 }
 
@@ -136,15 +136,18 @@ export async function createStudioServer(o: {
       // redirect goes straight to its editor, so the window's history never
       // holds the token or a library page it did not ask for.
       const take = url.searchParams.get("take");
+      const project = url.searchParams.get("project");
       const qs = url.searchParams.toString();
       res.writeHead(302, {
         ...SECURITY_HEADERS,
         Location:
           take !== null && take !== ""
             ? pagePathFor(take)
-            : qs
-              ? `/?${qs}`
-              : "/",
+            : project !== null && project !== ""
+              ? pagePathFor(undefined, project)
+              : qs
+                ? `/?${qs}`
+                : "/",
         "Set-Cookie": `${STUDIO_COOKIE}=${token}; HttpOnly; SameSite=Strict; Path=/`,
       });
       res.end();
@@ -212,7 +215,8 @@ export async function createStudioServer(o: {
     origin: bare,
     port,
     token,
-    entryUrl: (takeId) => entryUrlFor(bare, tickets.mint(), takeId),
+    entryUrl: (takeId, project) =>
+      entryUrlFor(bare, tickets.mint(), takeId, project),
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((e) => (e ? reject(e) : resolve()));
