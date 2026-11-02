@@ -28,6 +28,7 @@ const SAMPLE: Record<string, string> = { id: "take-1", ref: "kf:take-1:0" };
 
 let home: string;
 let composed: Record<string, unknown>;
+const opens: unknown[] = [];
 
 beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "studio-contract-"));
@@ -51,7 +52,10 @@ beforeAll(async () => {
       log: () => {},
     }),
     window: {
-      open: () => Promise.reject(new Error("no window opens in this test")),
+      open: async (target) => {
+        opens.push(target);
+        return { ok: true, path: "/" };
+      },
     },
   });
 });
@@ -172,5 +176,39 @@ describe("the route contract", () => {
     expect([...new Set(named)].sort()).toEqual(
       ids.filter((id) => id !== "window").sort(),
     );
+  });
+});
+
+describe("the window route (openStudio's hop to the window)", () => {
+  const post = (body: unknown) =>
+    (composed.window as Handler)({
+      method: "POST",
+      params: {},
+      query: new URLSearchParams(),
+      headers: {},
+      body: async () => Buffer.from(JSON.stringify(body)),
+      raw: undefined as never,
+    });
+
+  it("passes a posted project to window.open", async () => {
+    opens.length = 0;
+    const answer = await post({ project: "k" });
+    // Red: drop `project` from the target buildHandlers.window builds.
+    expect(answer).toEqual({ status: 200, json: { path: "/" } });
+    expect(opens).toEqual([{ project: "k" }]);
+  });
+
+  it("refuses a project that is not a string, opening nothing", async () => {
+    opens.length = 0;
+    const answer = await post({ project: 42 });
+    // Red: delete the project type check.
+    expect(answer).toMatchObject({
+      status: 400,
+      json: {
+        reason: "windowDidNotOpen",
+        detail: "No window was opened: project is not a string.",
+      },
+    });
+    expect(opens).toEqual([]);
   });
 });
