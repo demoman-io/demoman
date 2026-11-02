@@ -1,12 +1,24 @@
 // packages/run-core/test/node/refilm-merge.test.ts
-import { type SceneDocument, scriptFromTake } from "@demoman/scene-schema";
+import {
+  DemoScriptSchema,
+  SCRIPT_VERSION_EDITS,
+  type SceneDocument,
+  SceneDocumentSchema,
+  scriptFromTake,
+  type ZoomIntent,
+} from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
+import { zoomsForClicks } from "../../src/auto-zoom.js";
 import {
   mergeSkeleton,
   notCarriedOf,
   refilmScript,
 } from "../../src/refilm/merge.js";
-import type { ScriptSkeleton } from "../../src/refilm/skeleton.js";
+import {
+  parseSkeleton,
+  type ScriptSkeleton,
+} from "../../src/refilm/skeleton.js";
+import { MIN_ZOOM_GAP_MS } from "../../src/zoom-defaults.js";
 import { scene } from "./refilm-fixture.js";
 
 /** The fixture's actions as a skeleton: a pause between every two steps,
@@ -15,7 +27,7 @@ function skeletonFor(doc: SceneDocument): ScriptSkeleton {
   const derived = scriptFromTake(doc);
   if (derived.outcome !== "derived") throw new Error("fixture derives nothing");
   return {
-    skeletonVersion: 1,
+    skeletonVersion: 2,
     name: "Fixture",
     scriptVersion: 1,
     viewport: null,
@@ -23,16 +35,22 @@ function skeletonFor(doc: SceneDocument): ScriptSkeleton {
     look: null,
     steps: derived.draft.steps.flatMap((s, i) => [
       ...(i === 0 ? [] : [{ do: "pause" as const, ms: 700 + i }]),
-      { do: s.do, actionId: s.recorded ?? null, anchorDigest: null },
+      {
+        do: s.do,
+        actionId: s.recorded ?? null,
+        anchorDigest: null,
+        finishMs: null,
+        zoomOutMs: null,
+      },
     ]),
   };
 }
 
 /** A re-film's options (`refilmScript`'s): refuse a changed verb, and the
- *  scene's own name. */
+ *  scene it reads names and Studio edits from. */
 const refuse = (doc: SceneDocument) => ({
   onVerbChange: "refuse" as const,
-  sceneName: doc.meta.name,
+  scene: doc,
 });
 
 const derivedOf = (doc: SceneDocument) => {
@@ -356,6 +374,8 @@ describe("mergeSkeleton", () => {
     const step = sk.steps[i] as {
       actionId: string | null;
       anchorDigest: string | null;
+      finishMs: number | null;
+      zoomOutMs: number | null;
     };
     sk.steps[i] = { ...step, do: "click" };
     return { sk, i, actionId: step.actionId };
@@ -386,7 +406,7 @@ describe("mergeSkeleton", () => {
     const out = mergeSkeleton(
       derivedOf(doc),
       { kind: "ok", skeleton: sk },
-      { onVerbChange: "useScene", sceneName: doc.meta.name },
+      { onVerbChange: "useScene", scene: doc },
     );
     if (!out.ok) throw new Error(JSON.stringify(out));
     expect(out.draft.steps[i]).toMatchObject({
@@ -475,6 +495,8 @@ describe("refilmScript", () => {
       ...(sk.steps[i] as {
         actionId: string | null;
         anchorDigest: string | null;
+        finishMs: number | null;
+        zoomOutMs: number | null;
       }),
       do: "click",
     };
@@ -600,12 +622,13 @@ describe("notCarriedOf", () => {
         trim: { head: { actionId: a, offsetMs: 0 } },
       },
     } as unknown as SceneDocument;
+    // The head is written back into the script (`trim.start`), so it is
+    // carried, never listed.
     expect(notCarriedOf(edited)).toEqual([
       { kind: "removed", id: "cut-1" },
       { kind: "split", id: "split-1" },
       { kind: "mask", id: "mask-1" },
       { kind: "gap", id: "gap-1" },
-      { kind: "trim", id: "head" },
     ]);
     // Premise: the fixture carries a mask, and nothing else. Asserted
     // against the file's own edits so a changed fixture goes red here.
@@ -622,5 +645,451 @@ describe("notCarriedOf", () => {
       edits: { ...doc.edits, masks: [] },
     } as SceneDocument;
     expect(notCarriedOf(cleared)).toEqual([]);
+  });
+});
+
+// Write-back (spec 2026-11-01 video-as-code §4): the Studio's trim and zoom
+// edits become the script's `trim` and `zoom`, so a re-record keeps them.
+describe("write-back", () => {
+  /** The fixture with its mask cleared, so `notCarried` is only what the
+   *  write-back leaves; parsed, so every scene here is one the library reads. */
+  const plain = (edit: (d: SceneDocument) => SceneDocument = (d) => d) =>
+    SceneDocumentSchema.parse(
+      edit({ ...scene(), edits: { ...scene().edits, masks: [] } }),
+    );
+
+  /** `sk` with the step that filmed `actionId` timed, as a v2 run saves it. */
+  const timed = (
+    sk: ScriptSkeleton,
+    actionId: string,
+    finishMs: number,
+    zoomOutMs: number | null,
+  ): ScriptSkeleton => ({
+    ...sk,
+    steps: sk.steps.map((s) =>
+      s.do !== "pause" && s.actionId === actionId
+        ? { ...s, finishMs, zoomOutMs }
+        : s,
+    ),
+  });
+
+  const trimmed = (
+    head?: { actionId: string; offsetMs: number },
+    tail?: { actionId: string; offsetMs: number },
+  ) =>
+    plain((d) => ({
+      ...d,
+      edits: {
+        ...d.edits,
+        trim: {
+          ...(head === undefined ? {} : { head }),
+          ...(tail === undefined ? {} : { tail }),
+        },
+      },
+    }));
+
+  /** The re-record's script, parsed as the run's door parses it. */
+  const rerecorded = (doc: SceneDocument, sk: ScriptSkeleton) => {
+    const out = refilmScript(doc, { kind: "ok", skeleton: sk });
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    return { ...out, parsed: DemoScriptSchema.parse(out.script) };
+  };
+
+  it("the fixture's shown steps: act-1 first (step 1), act-3 last (step 5), act-4 not shown (step 7)", () => {
+    const doc = plain();
+    const out = mergeSkeleton(
+      derivedOf(doc),
+      { kind: "ok", skeleton: skeletonFor(doc) },
+      refuse(doc),
+    );
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    // Premise for every step number below.
+    expect(
+      out.draft.steps.map((s) => (s.do === "pause" ? "pause" : s.recorded)),
+    ).toEqual(["act-1", "pause", "act-2", "pause", "act-3", "pause", "act-4"]);
+    expect(out.draft.steps.map((s) => s.do)).toEqual([
+      "hover",
+      "pause",
+      "click",
+      "pause",
+      "type",
+      "pause",
+      "waitForLoad",
+    ]);
+  });
+
+  it("nothing in the scene, nothing in the script", () => {
+    // The take as a run saves it today: a generated zoom on its click, with
+    // a source and no scale anyone set.
+    const doc = plain((d) => ({
+      ...d,
+      camera: d.camera.map((c) => ({ ...c, source: "click" as const })),
+    }));
+    expect(doc.camera).toHaveLength(1); // premise: a zoom is there to ignore
+    const sk = skeletonFor(doc);
+    const { script, parsed, refilm } = rerecorded(
+      doc,
+      timed(sk, "act-3", 400, 1500),
+    );
+    expect(script).not.toHaveProperty("trim");
+    expect((script.steps as object[]).filter((s) => "zoom" in s)).toEqual([]);
+    expect(parsed.scriptVersion).toBeLessThan(SCRIPT_VERSION_EDITS);
+    expect(refilm.notes).toEqual([]);
+    expect(refilm.notCarried).toEqual([]);
+  });
+
+  it.each<
+    [number, number, number | null, { ms: number; after?: "action" }, string]
+  >([
+    // [offsetMs, finishMs, zoomOutMs, end, why]
+    [1800, 400, 1500, { ms: 300 }, "past the zoom-out: the default"],
+    [900, 400, 1500, { ms: 500, after: "action" }, "before the zoom-out"],
+    // The base was the finish, so the end says so: a re-record that zooms
+    // there would otherwise wait for that zoom-out and end later.
+    [900, 400, null, { ms: 500, after: "action" }, "no zoom-out: the finish"],
+    [1500, 400, 1500, { ms: 0 }, "right at the zoom-out"],
+    [
+      1000,
+      900,
+      300,
+      { ms: 100, after: "action" },
+      "a zoom-out before the finish: measured from the finish",
+    ],
+  ])(
+    "a Studio tail trim becomes trim.end: offset %d, finish %d, zoom-out %s (%s)",
+    (offsetMs, finishMs, zoomOutMs, end) => {
+      const doc = trimmed(undefined, { actionId: "act-3", offsetMs });
+      const { parsed, refilm } = rerecorded(
+        doc,
+        timed(skeletonFor(doc), "act-3", finishMs, zoomOutMs),
+      );
+      // act-3 is the last shown step, so `step` is left to the default.
+      expect(parsed.trim).toEqual({ end });
+      expect(parsed.scriptVersion).toBe(SCRIPT_VERSION_EDITS);
+      expect(refilm.notCarried).toEqual([]);
+      expect(refilm.notes).toEqual([]);
+    },
+  );
+
+  it("a tail the author cut inside the step ends right after it, and says so", () => {
+    const doc = trimmed(undefined, { actionId: "act-3", offsetMs: 100 });
+    const { parsed, refilm } = rerecorded(
+      doc,
+      timed(skeletonFor(doc), "act-3", 400, 1500),
+    );
+    expect(parsed.trim).toEqual({ end: { ms: 0, after: "action" } });
+    expect(refilm.notes).toEqual([{ kind: "trimClampedToStep", side: "end" }]);
+  });
+
+  it("a tail on a step that is not the last shown names it", () => {
+    const doc = trimmed(undefined, { actionId: "act-2", offsetMs: 700 });
+    const { parsed } = rerecorded(
+      doc,
+      timed(skeletonFor(doc), "act-2", 200, 1000),
+    );
+    expect(parsed.trim).toEqual({ end: { step: 3, ms: 500, after: "action" } });
+  });
+
+  it("a Studio head trim on the third step names step 3", () => {
+    const doc = trimmed({ actionId: "act-2", offsetMs: -250 });
+    const { parsed, refilm } = rerecorded(doc, skeletonFor(doc));
+    expect(parsed.trim).toEqual({ start: { step: 3, ms: 250 } });
+    expect(parsed.scriptVersion).toBe(SCRIPT_VERSION_EDITS);
+    expect(refilm.notCarried).toEqual([]);
+  });
+
+  it("a head on the first shown step leaves step to the default; one inside the step is measured from the next step", () => {
+    const first = trimmed({ actionId: "act-1", offsetMs: -120 });
+    expect(rerecorded(first, skeletonFor(first)).parsed.trim).toEqual({
+      start: { ms: 120 },
+    });
+    const inside = trimmed({ actionId: "act-1", offsetMs: 300 });
+    const out = rerecorded(inside, skeletonFor(inside));
+    // act-1 at 500 + 300 = 800; act-2 (step 3) is marked at 1200.
+    expect(out.parsed.trim).toEqual({ start: { step: 3, ms: 400 } });
+    expect(out.refilm.notes).toEqual([]);
+  });
+
+  // R20: a head after its step's marker is measured from the next step.
+  it("a head after a waitFor's marker is measured from the next click", () => {
+    const doc = plain((d) => {
+      const wait = d.actions.find((a) => a.kind === "waitFor");
+      if (wait === undefined) throw new Error("fixture has no waitFor");
+      const at = [500, 3432, 4000, 4200];
+      return {
+        ...d,
+        actions: d.actions.map((a, i) =>
+          i === 0
+            ? ({
+                ...wait,
+                id: a.id,
+                anchorId: a.anchorId,
+                marker: a.marker,
+                timestamp: 500,
+              } as typeof a)
+            : { ...a, timestamp: at[i] ?? a.timestamp },
+        ),
+      };
+    });
+    const head = { actionId: "act-1", offsetMs: 886 };
+    const sk = skeletonFor(doc);
+    // Premise: the head is after its marker, act-1 is not a shown step, and
+    // the click's marker is 2932 ms after it.
+    expect(head.offsetMs).toBeGreaterThan(0);
+    expect(sk.steps[0]?.do).toBe("waitFor");
+    expect(doc.actions[1]?.kind).toBe("click");
+    expect(
+      (doc.actions[1]?.timestamp ?? 0) - (doc.actions[0]?.timestamp ?? 0),
+    ).toBe(2932);
+    const withHead = {
+      ...doc,
+      edits: { ...doc.edits, trim: { head } },
+    } as SceneDocument;
+    const { parsed, refilm } = rerecorded(withHead, sk);
+    expect(parsed.trim).toEqual({ start: { ms: 2046 } });
+    expect(refilm.notes).toEqual([]);
+  });
+
+  it("a head after the last action's marker has no next step: it clamps and says so", () => {
+    const doc = trimmed({ actionId: "act-4", offsetMs: 300 });
+    // Unparsed: a start on the last step, past the last shown one, is a
+    // script the schema refuses, which is not what this case asks.
+    const out = refilmScript(doc, { kind: "ok", skeleton: skeletonFor(doc) });
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    expect(out.script.trim).toEqual({ start: { step: 7, ms: 0 } });
+    expect(out.refilm.notes).toEqual([
+      { kind: "trimClampedToStep", side: "start" },
+    ]);
+  });
+
+  it("a v1 skeleton leaves the tail in notCarried and carries the head", () => {
+    const doc = trimmed(
+      { actionId: "act-2", offsetMs: -250 },
+      { actionId: "act-3", offsetMs: 900 },
+    );
+    const v2 = skeletonFor(doc);
+    const v1 = parseSkeleton({
+      ...v2,
+      skeletonVersion: 1,
+      steps: v2.steps.map((s) => {
+        if (s.do === "pause") return s;
+        const { finishMs: _f, zoomOutMs: _z, ...rest } = s;
+        return rest;
+      }),
+    });
+    if (!v1.ok) throw new Error(v1.error);
+    // Premise: the v1 file knows no finish for the tail's step.
+    expect(
+      v1.skeleton.steps.find((s) => s.do !== "pause" && s.actionId === "act-3"),
+    ).toMatchObject({ finishMs: null });
+    const { parsed, refilm } = rerecorded(doc, v1.skeleton);
+    expect(parsed.trim).toEqual({ start: { step: 3, ms: 250 } });
+    expect(refilm.notCarried).toEqual([{ kind: "trim", id: "tail" }]);
+    // No skeleton at all: the same, the head carried from the scene alone.
+    const none = refilmScript(doc, { kind: "none" });
+    if (!none.ok) throw new Error(JSON.stringify(none));
+    expect(DemoScriptSchema.parse(none.script).trim).toEqual({
+      start: { step: 2, ms: 250 },
+    });
+    expect(none.refilm.notCarried).toEqual([{ kind: "trim", id: "tail" }]);
+  });
+
+  /** The fixture with one click's zoom edited as the Studio records it. */
+  const zoomed = (edit: Partial<SceneDocument>) =>
+    plain((d) => ({ ...d, ...edit }) as SceneDocument);
+
+  const zoomOf = (script: { steps: object[] }, actionId: string) =>
+    script.steps.find((s) => "recorded" in s && s.recorded === actionId);
+
+  it("an off skip becomes zoom false", () => {
+    const doc = zoomed({
+      camera: [],
+      zoomsSkipped: [{ actionId: "act-2", reason: "off" }],
+    });
+    const { parsed } = rerecorded(doc, skeletonFor(doc));
+    expect(zoomOf(parsed, "act-2")).toMatchObject({ do: "click", zoom: false });
+    expect(parsed.scriptVersion).toBe(SCRIPT_VERSION_EDITS);
+    expect(parsed.steps.filter((s) => "zoom" in s)).toHaveLength(1);
+  });
+
+  it("scaleSetBy author becomes zoom scale", () => {
+    const doc = zoomed({
+      camera: scene().camera.map((c) => ({
+        ...c,
+        source: "click" as const,
+        scaleSetBy: "author" as const,
+        scale: 1.8,
+      })),
+    });
+    // Premise: the edited zoom is the one on act-2's click.
+    expect(doc.camera[0]?.marker.actionId).toBe("act-2");
+    const { parsed, refilm } = rerecorded(doc, skeletonFor(doc));
+    expect(zoomOf(parsed, "act-2")).toMatchObject({ zoom: { scale: 1.8 } });
+    expect(refilm.notCarried).toEqual([]);
+    // The same zoom with no one's scale is the camera's to choose again.
+    const generated = zoomed({
+      camera: scene().camera.map((c) => ({ ...c, source: "click" as const })),
+    });
+    expect(
+      zoomOf(rerecorded(generated, skeletonFor(generated)).parsed, "act-2"),
+    ).not.toHaveProperty("zoom");
+  });
+
+  it("a zoom the scene asks of a step that is not a click or drag is not written, and says so", () => {
+    const doc = zoomed({
+      zoomsSkipped: [{ actionId: "act-3", reason: "off" }],
+    });
+    const { parsed, refilm } = rerecorded(doc, skeletonFor(doc));
+    expect(zoomOf(parsed, "act-3")).not.toHaveProperty("zoom");
+    expect(refilm.notes).toEqual([
+      { kind: "zoomNotWritten", actionId: "act-3", why: "notClickOrDrag" },
+    ]);
+  });
+
+  it("a scale the script cannot hold is not written, and says so", () => {
+    const doc = zoomed({
+      camera: scene().camera.map((c) => ({
+        ...c,
+        source: "click" as const,
+        scaleSetBy: "author" as const,
+        scale: 4,
+      })),
+    });
+    const { parsed, refilm } = rerecorded(doc, skeletonFor(doc));
+    expect(zoomOf(parsed, "act-2")).not.toHaveProperty("zoom");
+    expect(refilm.notes).toEqual([
+      { kind: "zoomNotWritten", actionId: "act-2", why: "invalidScale" },
+    ]);
+  });
+
+  it("askedScale survives two re-records", () => {
+    // act-1 made a click on act-2's element, so act-2 comes too soon after
+    // act-1's zoom for one of its own.
+    const twoClicks = plain((d) => ({
+      ...d,
+      camera: [],
+      actions: d.actions.map((a) =>
+        a.id === "act-1" ? ({ ...a, kind: "click" } as typeof a) : a,
+      ),
+    }));
+    const [a1, a2] = twoClicks.actions;
+    expect(Math.abs((a2?.timestamp ?? 0) - (a1?.timestamp ?? 0))).toBeLessThan(
+      MIN_ZOOM_GAP_MS,
+    );
+    /** The take a run of `script` saves: its zooms decided from the
+     *  script's intent by `zoomsForClicks`, as Tasks 3–5 record them. */
+    const recorded = (script: { steps: object[] }) => {
+      const intent = (id: string) =>
+        (zoomOf(script, id) as { zoom?: ZoomIntent } | undefined)?.zoom;
+      const { camera, zoomsSkipped } = zoomsForClicks(
+        twoClicks.actions,
+        twoClicks.meta.capture.viewport,
+        undefined,
+        intent,
+      );
+      return SceneDocumentSchema.parse({
+        ...twoClicks,
+        camera,
+        ...(zoomsSkipped.length === 0 ? {} : { zoomsSkipped }),
+      });
+    };
+    const first = recorded({
+      steps: [{ do: "click", recorded: "act-2", zoom: { scale: 2 } }],
+    });
+    // Premise: the gap rule refused the asked scale and kept it as asked.
+    expect(first.zoomsSkipped).toEqual([
+      expect.objectContaining({
+        actionId: "act-2",
+        reason: "sameTarget",
+        askedScale: 2,
+      }),
+    ]);
+    // The skeleton's own record of the ask is not what the merge reads.
+    const sk = skeletonFor(first);
+    const once = rerecorded(first, sk).parsed;
+    expect(zoomOf(once, "act-2")).toMatchObject({ zoom: { scale: 2 } });
+    expect(zoomOf(once, "act-1")).not.toHaveProperty("zoom");
+    const second = recorded(once);
+    expect(second.zoomsSkipped).toEqual(first.zoomsSkipped);
+    const twice = rerecorded(second, sk).parsed;
+    expect(zoomOf(twice, "act-2")).toMatchObject({ zoom: { scale: 2 } });
+    expect(twice.steps).toEqual(once.steps);
+  });
+
+  it("derive's draft carries the same fields", () => {
+    const doc = trimmed({ actionId: "act-2", offsetMs: -250 });
+    const out = mergeSkeleton(
+      derivedOf(doc),
+      { kind: "ok", skeleton: skeletonFor(doc) },
+      { onVerbChange: "useScene", scene: doc },
+    );
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    expect(out.draft.trim).toEqual({ start: { step: 3, ms: 250 } });
+  });
+});
+
+describe("notCarriedOf, with the skeleton", () => {
+  const withTail = () => {
+    const doc = scene();
+    return {
+      ...doc,
+      edits: {
+        ...doc.edits,
+        masks: [],
+        trim: {
+          head: { actionId: "act-1", offsetMs: -50 },
+          tail: { actionId: "act-3", offsetMs: 900 },
+        },
+      },
+    } as SceneDocument;
+  };
+
+  it("lists a tail only when its step's finish is unknown", () => {
+    const doc = withTail();
+    const sk = skeletonFor(doc);
+    // Premise: skeletonFor times no step.
+    expect(sk.steps.every((s) => s.do === "pause" || s.finishMs === null)).toBe(
+      true,
+    );
+    expect(notCarriedOf(doc, sk)).toEqual([{ kind: "trim", id: "tail" }]);
+    expect(notCarriedOf(doc)).toEqual([{ kind: "trim", id: "tail" }]);
+    const known: ScriptSkeleton = {
+      ...sk,
+      steps: sk.steps.map((s) =>
+        s.do !== "pause" && s.actionId === "act-3"
+          ? { ...s, finishMs: 400, zoomOutMs: null }
+          : s,
+      ),
+    };
+    expect(notCarriedOf(doc, known)).toEqual([]);
+  });
+
+  it("an author zoom on a click is notCarried; a click zoom is not; a sourceless anchor zoom is not", () => {
+    const doc = scene();
+    const base = doc.camera[0];
+    // Premise: the fixture's zoom is sourceless, on an anchor, no point or end.
+    expect(base?.source).toBeUndefined();
+    expect(base?.point).toBeUndefined();
+    expect(base?.end).toBeUndefined();
+    const withZooms = {
+      ...doc,
+      edits: { ...doc.edits, masks: [] },
+      camera: [
+        base,
+        { ...base, id: "cam-author", source: "author" },
+        // A drag's generated zoom aims at a point and is still the camera's.
+        {
+          id: "cam-click",
+          kind: "zoom",
+          point: { x: 10, y: 10 },
+          marker: { actionId: "act-2", offsetMs: 0 },
+          end: { actionId: "act-2", offsetMs: 900 },
+          source: "click",
+        },
+      ],
+    } as SceneDocument;
+    expect(notCarriedOf(withZooms)).toEqual([
+      { kind: "zoom", id: "cam-author" },
+    ]);
   });
 });

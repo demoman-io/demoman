@@ -4,7 +4,7 @@
   "properties": {
     "schemaVersion": {
       "type": "number",
-      "const": 14
+      "const": 15
     },
     "meta": {
       "type": "object",
@@ -1194,6 +1194,20 @@
           },
           "note": {
             "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "click",
+              "author"
+            ]
+          },
+          "scaleSetBy": {
+            "type": "string",
+            "enum": [
+              "script",
+              "author"
+            ]
           }
         },
         "required": [
@@ -1228,6 +1242,9 @@
               },
               "gapMs": {
                 "type": "number"
+              },
+              "askedScale": {
+                "type": "number"
               }
             },
             "required": [
@@ -1235,6 +1252,24 @@
               "reason",
               "afterActionId",
               "gapMs"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "actionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "const": "off"
+              }
+            },
+            "required": [
+              "actionId",
+              "reason"
             ],
             "additionalProperties": false
           },

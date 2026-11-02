@@ -92,6 +92,14 @@ describe("the recipe's examples and snapshot reading", () => {
     expect(recipe).toMatch(/`click` \(optional `at: \{ x, y \}`/);
   });
 
+  // Red if the format stops teaching a script's trim or a click's zoom.
+  it("teaches trim and zoom, and the one-line end preference", () => {
+    expect(recipe).toMatch(/"trim": \{ "end": \{ "ms": 0 \} \}/);
+    expect(recipe).toMatch(/`zoom`: `false` for none/);
+    expect(recipe).toMatch(/`trimNotes`/);
+    expect(recipe).toMatch(/`zoomNotes`/);
+  });
+
   it("shows every verb and every target shape at least once, and a scroll's landing", () => {
     const steps: ScriptStep[] = blocks().flatMap(
       (b) => DemoScriptSchema.parse(JSON.parse(b)).steps,
@@ -447,6 +455,14 @@ describe("the CLI's recipe", () => {
   it("does not tell the agent the CLI was asked for with a flag", () => {
     expect(INSTRUCTIONS_CLI).not.toContain("--browser cli");
     expect(RECIPE).not.toContain("--browser");
+  });
+
+  // Red if a cut for room drops a contract an agent acts on (R17): a key the
+  // schema refuses, and where a Studio export lands.
+  it("says an unknown key in a step or look is refused, and where Studio exports go", () => {
+    expect(RECIPE).toContain("An unknown key is refused and named.");
+    expect(RECIPE).toContain("An unknown key in `look` is refused and named.");
+    expect(RECIPE).toContain("Studio exports go to `~/Downloads`.");
   });
 
   it("keeps the CLI recipe within Codex's 10,000-token cut", () => {

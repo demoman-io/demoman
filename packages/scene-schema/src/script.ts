@@ -95,6 +95,25 @@ export const SCRIPT_VERSION_DRAG = 6;
  */
 export const SCRIPT_VERSION_PRESS = 7;
 
+/**
+ * The first version with a `trim` or a click's or drag's `zoom` (2026-11-01).
+ * The top-level script object is not strict, so a build from before strips
+ * `trim` and films the whole take, and its step members are strict, so it
+ * refuses `zoom` by name. The first is a silent drop reporting success; the
+ * bump turns it into a refusal of the version, by `SCRIPT_VERSION_KIT`'s
+ * reasoning.
+ */
+export const SCRIPT_VERSION_EDITS = 8;
+
+/**
+ * The largest zoom a script may ask a click for. The camera clamps to
+ * `CAMERA_DEFAULTS.maxScale` (2.5, in `@demoman/compositor`, which depends on
+ * this package and so cannot be imported here); a higher ask would be clamped
+ * in silence and the film would differ from the script, so it is refused at
+ * the door instead. Keep the two equal.
+ */
+export const ZOOM_MAX_SCALE = 2.5;
+
 /** An account name: it becomes a file name under the sessions folder. */
 export const ACCOUNT_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
@@ -193,6 +212,31 @@ export const DragToSchema = z.union([
     .strict(),
 ]);
 
+/**
+ * What a script says about one click's or drag's zoom: `false` for none, or a
+ * scale the camera holds there, over 1 (which would be no zoom, so say `false`)
+ * and at most `ZOOM_MAX_SCALE`. Absent leaves the decision to the camera.
+ */
+export const ZoomIntentSchema = z.union([
+  z.literal(false),
+  z
+    .object({
+      scale: z
+        .number()
+        .gt(1, {
+          message: "a zoom scale is over 1; use `zoom: false` for none",
+        })
+        .max(ZOOM_MAX_SCALE, {
+          message: `a zoom scale is at most ${ZOOM_MAX_SCALE}, the camera's limit`,
+        }),
+    })
+    .strict(),
+]);
+export type ZoomIntent = z.infer<typeof ZoomIntentSchema>;
+
+/** The zoom a script asked for at an action, if it named one. */
+export type ZoomIntentOf = (actionId: string) => ZoomIntent | undefined;
+
 export const ScriptStepSchema = z.discriminatedUnion("do", [
   z
     .object({
@@ -200,6 +244,7 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
       on: ScriptTargetSchema,
       /** Where in the target's box to click (its centre if absent). */
       at: DragSpotSchema.optional(),
+      zoom: ZoomIntentSchema.optional(),
       /**
        * The recorded action this step was derived from (`scriptFromTake` writes
        * it). How the recording layer pairs a run's step with the author's —
@@ -260,6 +305,7 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
       do: z.literal("drag"),
       from: DragFromSchema,
       to: DragToSchema,
+      zoom: ZoomIntentSchema.optional(),
       recorded: RecordedSchema,
     })
     .strict(),
@@ -299,6 +345,68 @@ const ACTS_ON_THE_PAGE: Record<ScriptStep["do"], boolean> = {
 };
 
 /**
+ * The steps whose beats appear in the film, which is what a trim's `step`
+ * counts against. `waitFor`, `waitForLoad` and `pause` perform nothing the
+ * viewer sees. `Record<…, boolean>` for `ACTS_ON_THE_PAGE`'s reason: a verb
+ * added to the union and forgotten here fails to compile.
+ */
+export const SHOWN_STEP: Record<ScriptStep["do"], boolean> = {
+  click: true,
+  type: true,
+  hover: true,
+  scrollTo: true,
+  waitFor: false,
+  drag: true,
+  press: true,
+  waitForLoad: false,
+  pause: false,
+};
+
+/**
+ * The step `trim[side]` is measured from, 0-based into `steps`: its `step`,
+ * or the first (start) or last (end) shown step when absent. Null when it
+ * names none and no step is shown. The one reading of a trim's step, for the
+ * parse, the run, the report and the re-record alike.
+ */
+export function trimStepIndex(
+  script: { steps: readonly { do: ScriptStep["do"] }[]; trim?: ScriptTrim },
+  side: "start" | "end",
+): number | null {
+  const step = script.trim?.[side]?.step;
+  if (step !== undefined) return step - 1;
+  const shown = script.steps.flatMap((s, i) => (SHOWN_STEP[s.do] ? [i] : []));
+  return (side === "start" ? shown[0] : shown.at(-1)) ?? null;
+}
+
+/**
+ * Where the film starts and ends, against the take. `ms` is cut from the
+ * ends (0 or more); `step` (1-based into `steps`, any but a `pause`) names
+ * the step the cut is measured from, the first and last shown step if absent.
+ * `end.after` says what the end waits for; absent means the zoom-out, and the
+ * parse writes no default, so later readers see the absence.
+ */
+export const ScriptTrimSchema = z
+  .object({
+    start: z
+      .object({
+        ms: z.number().finite().nonnegative(),
+        step: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    end: z
+      .object({
+        ms: z.number().finite().nonnegative(),
+        step: z.number().int().positive().optional(),
+        after: z.enum(["zoomOut", "action"]).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type ScriptTrim = z.infer<typeof ScriptTrimSchema>;
+
+/**
  * A script's branding: the document's, except that a script written before
  * v8 (2026-10-05) — `derive` copied the take's whole branding into `look` —
  * has no `padding`. A document is migrated and a script is not, so the
@@ -318,6 +426,7 @@ const ScriptVersionSchema = z.literal([
   SCRIPT_VERSION_ACCOUNT,
   SCRIPT_VERSION_DRAG,
   SCRIPT_VERSION_PRESS,
+  SCRIPT_VERSION_EDITS,
 ]);
 export type ScriptVersion = z.infer<typeof ScriptVersionSchema>;
 
@@ -349,6 +458,8 @@ const DemoScriptShape = z.object({
     })
     .optional(),
   steps: z.array(ScriptStepSchema).min(1),
+  /** Cut the film's start and end (`ScriptTrimSchema`). Absent: the whole take. */
+  trim: ScriptTrimSchema.optional(),
   /**
    * The take that steps' `recorded` ids refer to (`scriptFromTake` writes it).
    * Absent on a script nobody derived from a recording.
@@ -464,6 +575,7 @@ export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
       });
     });
   }
+  if (script.trim) trimIssues(script, ctx);
   if (script.steps.some((step) => ACTS_ON_THE_PAGE[step.do])) return;
   ctx.addIssue({
     code: "custom",
@@ -478,6 +590,43 @@ export const DemoScriptSchema = DemoScriptShape.superRefine((script, ctx) => {
     minimumScriptVersion(script),
   ),
 }));
+
+/** Refuse a trim `step` that cannot be measured from, in words. */
+function trimIssues(
+  script: { steps: ScriptStep[]; trim?: ScriptTrim },
+  ctx: z.RefinementCtx,
+): void {
+  const { steps, trim = {} } = script;
+  let bad = false;
+  for (const edge of ["start", "end"] as const) {
+    const step = trim[edge]?.step;
+    if (step === undefined) continue;
+    const why =
+      step > steps.length
+        ? `trim.${edge}.step is ${step}, but the script has ${steps.length} steps`
+        : steps[step - 1]?.do === "pause"
+          ? `trim.${edge}.step is ${step}, a pause: name a step that does something`
+          : undefined;
+    if (!why) continue;
+    bad = true;
+    ctx.addIssue({
+      code: "custom",
+      message: why,
+      path: ["trim", edge, "step"],
+    });
+  }
+  // Resolved, not as written: a start naming the last step is as broken
+  // against the default end as against an explicit one.
+  const start = trimStepIndex(script, "start");
+  const end = trimStepIndex(script, "end");
+  if (!bad && start !== null && end !== null && start > end) {
+    ctx.addIssue({
+      code: "custom",
+      message: `trim starts at step ${start + 1}, after the step it ends at (${end + 1}): the film would be empty`,
+      path: ["trim", "start", "step"],
+    });
+  }
+}
 
 export type DemoScriptInput = z.input<typeof DemoScriptShape>;
 
@@ -495,6 +644,15 @@ export function minimumScriptVersion(script: DemoScriptInput): ScriptVersion {
     [script.device !== undefined, SCRIPT_VERSION_DEVICE],
     [script.account !== undefined, SCRIPT_VERSION_ACCOUNT],
     [script.steps.some((step) => step.do === "drag"), SCRIPT_VERSION_DRAG],
+    [
+      script.trim !== undefined ||
+        script.steps.some(
+          (step) =>
+            (step.do === "click" || step.do === "drag") &&
+            step.zoom !== undefined,
+        ),
+      SCRIPT_VERSION_EDITS,
+    ],
     [
       script.steps.some(
         (step) => step.do === "press" || (step.do === "click" && step.at),

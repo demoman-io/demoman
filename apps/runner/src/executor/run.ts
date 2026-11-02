@@ -645,6 +645,7 @@ export async function runScript(
     ...(notStored.length > 0 ? { notStored } : {}),
     walk: walked,
     steps: walked.steps,
+    script,
     ...(detail === undefined ? {} : { detail }),
     size,
   });

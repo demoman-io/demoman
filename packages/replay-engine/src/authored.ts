@@ -27,6 +27,7 @@ import {
   cursorEntryPoint,
   type MadeFromStep,
   planCursorSegment,
+  sourceDurationOf,
   transformAt,
   VERBS,
   type Vec,
@@ -48,11 +49,15 @@ import {
   type SceneBranding,
   type SceneDocument,
   SceneDocumentSchema,
+  type SceneMarker,
   type SceneZoomSkipped,
   type ScriptStep,
   type ScriptTarget,
   type StrategyName,
   spotIn,
+  trimStepIndex,
+  type ZoomIntent,
+  type ZoomIntentOf,
 } from "@demoman/scene-schema";
 import { WAIT_POLL_MS, WAIT_TIMEOUT_MS } from "./constants.js";
 import { rectCentre } from "./geometry.js";
@@ -63,6 +68,7 @@ import {
   type EngineDeps,
   type RoomPolicy,
   runWalk,
+  type StepTiming,
   stopForResolveFailure,
   type WaitSaw,
   type WalkSource,
@@ -211,6 +217,9 @@ export interface AuthoredStep {
   /** On a `waitForLoad` that was met: whether a load started since the
    *  previous step began. False is a wait that passed without a navigation. */
   loadSeen?: boolean;
+  /** How the step played, as the walk measured it (`StepTiming`). Absent
+   *  for a step the walk did not perform. */
+  timing?: StepTiming;
 }
 
 export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
@@ -219,7 +228,12 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
    * viewport, which only the caller can build (the zoom rule and the
    * take's motion live above this package). Absent: no act ends, no waits.
    */
-  roomFor?(viewport: { width: number; height: number }): RoomPolicy;
+  roomFor?(
+    viewport: { width: number; height: number },
+    /** The script's zoom intent per action: the run's one lookup, the
+     *  same function `cameraFor` is handed. */
+    intentOf: ZoomIntentOf,
+  ): RoomPolicy;
   /**
    * Resolves an intent against the live page and captures a real anchor from
    * whatever it found. Task 5's round trip in the extension
@@ -288,6 +302,8 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
     /** The page's zoom at an action (`ViewportTransform`): a click's rect
      *  is in the page's own px, which a zoomed-out page shows smaller. */
     scaleAt: (action: SceneAction) => number,
+    /** What the script said about a click's or drag's zoom, by action id. */
+    intentOf: ZoomIntentOf,
   ): CameraPlan;
 }
 
@@ -314,6 +330,14 @@ export interface AuthoredResult extends ReplayResult {
   documentError: string | null;
   /** What the run measured per attempted step. See `AuthoredStep`. */
   steps: AuthoredStep[];
+  /** The script's `trim.start` asked for more than the take holds before
+   *  its step, so the head keeps all there is (`keptMs`). Absent otherwise. */
+  trimClamped?: { side: "start"; askedMs: number; keptMs: number };
+  /** Sides of the script's `trim` the take could not place, so left uncut:
+   *  the step it is measured from was never performed, or (the end) the
+   *  run stopped before it filmed that far. Absent when every asked side
+   *  was placed. */
+  trimUnplaced?: ("start" | "end")[];
 }
 
 /**
@@ -482,6 +506,9 @@ interface AuthoredRun {
   actions: SceneAction[];
   anchors: SceneAnchor[];
   madeFrom: MadeFromStep[];
+  /** The script's zoom intent per action id. Filled when the action is
+   *  minted, because the room asks about a click before it commits. */
+  zoomIntentOf: ZoomIntentOf;
   /** Why the SOURCE stopped, or null. Not the walk's own reason. */
   stop(): ReplayStopReason | null;
   firstCursor: Vec;
@@ -528,6 +555,8 @@ export function createAuthoredRun(
   const actions: SceneAction[] = [];
   const anchors: SceneAnchor[] = [];
   const madeFrom: MadeFromStep[] = [];
+  const zoomIntents = new Map<string, ZoomIntent>();
+  const timings = new Map<string, StepTiming>();
   let stop: ReplayStopReason | null = null;
 
   // The take's own time base: every stamp is a delta on the injected clock, so
@@ -626,9 +655,15 @@ export function createAuthoredRun(
     // answered, from the frames' own `madeFrom`.
     record.marker = action.marker;
     record.rect = rect;
+    // Told by the walk as it counted the step, which is before this commit.
+    const timing = timings.get(action.id);
+    if (timing !== undefined) record.timing = timing;
   };
 
   const source: WalkSource = {
+    onFinished: (actionId, timing) => {
+      timings.set(actionId, timing);
+    },
     async *steps(): AsyncGenerator<WalkStep> {
       for (const [index, step] of script.steps.entries()) {
         if (step.do === "pause") {
@@ -910,6 +945,14 @@ export function createAuthoredRun(
           },
           record.textHidden !== null && record.textHidden !== undefined,
         );
+        // Before the yield: the walk asks the room about this click while
+        // handling it, ahead of the commit. An unperformed step leaves an
+        // entry for an id nothing else holds.
+        if (
+          (step.do === "click" || step.do === "drag") &&
+          step.zoom !== undefined
+        )
+          zoomIntents.set(action.id, step.zoom);
 
         // Set by `onResolved`. Cast so the checker does not narrow it to the
         // `null` it starts as: it is written inside a callback it cannot see.
@@ -1032,6 +1075,7 @@ export function createAuthoredRun(
     actions,
     anchors,
     madeFrom,
+    zoomIntentOf: (actionId) => zoomIntents.get(actionId),
     stop: () => stop,
     firstCursor,
   };
@@ -1092,9 +1136,17 @@ export function assembleAuthored(
     device?: CaptureDevice;
     /** The caller's display scale; absent when it does not know. */
     displayScale?: number;
+    /** What the walk measured per step, which the script's trim is cut from. */
+    steps: AuthoredStep[];
   },
-): { document: SceneDocument | null; error: string | null } {
+): {
+  document: SceneDocument | null;
+  error: string | null;
+  trimClamped?: AuthoredResult["trimClamped"];
+  trimUnplaced?: AuthoredResult["trimUnplaced"];
+} {
   if (args.actions.length === 0) return { document: null, error: null };
+  const trim = trimFromScript(script, args.steps, args.walked.bundle);
 
   const document: SceneDocument = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -1142,8 +1194,16 @@ export function assembleAuthored(
     ...(args.camera.zoomsSkipped.length > 0
       ? { zoomsSkipped: args.camera.zoomsSkipped }
       : {}),
-    // Nothing has edited this take: it is one second old.
-    edits: { masks: [], holds: [], gaps: [], splits: [], removed: [] },
+    // Nothing has edited this take: it is one second old. The script's trim
+    // is the run's, written as the markers a Studio trim would be.
+    edits: {
+      masks: [],
+      holds: [],
+      gaps: [],
+      splits: [],
+      removed: [],
+      ...(trim.trim === undefined ? {} : { trim: trim.trim }),
+    },
     // Nothing observed any of these. The walk has no network, console or
     // navigation collector, and an entry in `urlTrace` would have to claim an
     // instant the run never measured — it only knows which page each step's
@@ -1180,12 +1240,90 @@ export function assembleAuthored(
   // stop reason — for a caller that has frames on disk and needs to hear
   // about them.
   const parsed = SceneDocumentSchema.safeParse(document);
-  if (parsed.success) return { document: parsed.data, error: null };
+  if (parsed.success) {
+    return {
+      document: parsed.data,
+      error: null,
+      ...(trim.clamped === undefined ? {} : { trimClamped: trim.clamped }),
+      ...(trim.unplaced.length === 0 ? {} : { trimUnplaced: trim.unplaced }),
+    };
+  }
   return {
     document: null,
     error: `the take assembled from ${args.actions.length} performed step(s) was refused by the schema: ${parsed.error.issues
       .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
       .join("; ")}`,
+  };
+}
+
+/**
+ * The script's `trim` as `edits.trim` markers (spec 2026-11-01 §2), from what
+ * the walk measured: the head `start.ms` before its step's marker, the tail
+ * `end.ms` after its step's finish — or after its zoom-out, for `"zoomOut"`.
+ *
+ * A start longer than the take holds before its step keeps all there is and
+ * says so (`clamped`). A side the take cannot place is not written and is
+ * listed in `unplaced`: its step was never performed, or — the end — the
+ * tail lands past the last thing filmed, as on a run the walk stopped
+ * before its tail sleep. Written there, the compositor would clamp it to
+ * the take's end and say nothing (`resolveRange`).
+ */
+function trimFromScript(
+  script: DemoScript,
+  steps: AuthoredStep[],
+  bundle: ReplayResult["bundle"],
+): {
+  trim?: { head?: SceneMarker; tail?: SceneMarker };
+  clamped?: NonNullable<AuthoredResult["trimClamped"]>;
+  unplaced: ("start" | "end")[];
+} {
+  const unplaced: ("start" | "end")[] = [];
+  const asked = script.trim;
+  if (asked === undefined) return { unplaced };
+  const performed = (index: number | null) => {
+    const record = steps.find((r) => r.index === index);
+    return record?.actionId != null && record.timing !== undefined
+      ? { actionId: record.actionId, timing: record.timing }
+      : undefined;
+  };
+  const trim: { head?: SceneMarker; tail?: SceneMarker } = {};
+  let clamped: NonNullable<AuthoredResult["trimClamped"]> | undefined;
+  if (asked.start !== undefined) {
+    const at = performed(trimStepIndex(script, "start"));
+    if (at === undefined) unplaced.push("start");
+    else {
+      // Everything from the first frame to the marker is all there is.
+      const kept = Math.min(asked.start.ms, at.timing.markerMs);
+      // `0 -`: a kept 0 is +0, not the -0 a bare minus would write.
+      trim.head = { actionId: at.actionId, offsetMs: 0 - kept };
+      if (kept < asked.start.ms) {
+        clamped = { side: "start", askedMs: asked.start.ms, keptMs: kept };
+      }
+    }
+  }
+  if (asked.end !== undefined) {
+    const at = performed(trimStepIndex(script, "end"));
+    // The compositor's own answer to how long the take filmed, which is
+    // what it would clamp a later end to. No bundle: nothing was filmed.
+    const filmedThrough =
+      bundle === null ? Number.NEGATIVE_INFINITY : sourceDurationOf(bundle);
+    if (at === undefined) unplaced.push("end");
+    else {
+      const { markerMs, finishMs, zoomOutMs } = at.timing;
+      // Absent `after` is "zoomOut": the parse writes no default.
+      const base =
+        asked.end.after !== "action" && zoomOutMs !== null
+          ? Math.max(finishMs, zoomOutMs)
+          : finishMs;
+      const offsetMs = base + asked.end.ms;
+      if (markerMs + offsetMs > filmedThrough) unplaced.push("end");
+      else trim.tail = { actionId: at.actionId, offsetMs };
+    }
+  }
+  return {
+    ...(trim.head === undefined && trim.tail === undefined ? {} : { trim }),
+    ...(clamped === undefined ? {} : { clamped }),
+    unplaced,
   };
 }
 
@@ -1312,7 +1450,7 @@ export async function runAuthored(
   // Each click's zoom is decided once, by the walk; the take is handed what
   // it was decided on (`cameraInputs`).
   const decided = new Map<string, { unwaitedMs: number; scale: number }>();
-  const policy = deps.roomFor?.(viewport);
+  const policy = deps.roomFor?.(viewport, run.zoomIntentOf);
   const room: RoomPolicy | undefined =
     policy === undefined
       ? undefined
@@ -1348,6 +1486,15 @@ export async function runAuthored(
       // anything.
       hoverSensitive: false,
       firstCursor: run.firstCursor,
+      // Absent `after` is "zoomOut": the parse writes no default.
+      ...(script.trim?.end === undefined
+        ? {}
+        : {
+            tail: {
+              ms: script.trim.end.ms,
+              after: script.trim.end.after ?? "zoomOut",
+            },
+          }),
     },
   );
   // No bundle, no frames to agree with: the walk's own `reason` already says
@@ -1373,11 +1520,17 @@ export async function runAuthored(
     // zooms are decided on time with the replay's added room taken out, as
     // the walk decided them; the page's zoom is read on the real clock it
     // was recorded on (`cameraInputs`).
-    camera: deps.cameraFor(inputs.actions, viewport, inputs.scaleAt),
+    camera: deps.cameraFor(
+      inputs.actions,
+      viewport,
+      inputs.scaleAt,
+      run.zoomIntentOf,
+    ),
     ...(device === null ? {} : { device: captureDeviceOf(device) }),
     ...(deps.displayScale === undefined
       ? {}
       : { displayScale: deps.displayScale }),
+    steps: run.steps,
   });
 
   return {
@@ -1391,5 +1544,11 @@ export async function runAuthored(
     document: assembled.document,
     documentError: assembled.error,
     steps: run.steps,
+    ...(assembled.trimClamped === undefined
+      ? {}
+      : { trimClamped: assembled.trimClamped }),
+    ...(assembled.trimUnplaced === undefined
+      ? {}
+      : { trimUnplaced: assembled.trimUnplaced }),
   };
 }

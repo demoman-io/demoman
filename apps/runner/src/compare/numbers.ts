@@ -171,7 +171,7 @@ export interface BundleFactsRead {
 }
 /** What film:compare reads from a take's scene. */
 export interface SceneFactsRead {
-  skipped: unknown[];
+  skipped: { reason: string }[];
 }
 
 export type Verdict =

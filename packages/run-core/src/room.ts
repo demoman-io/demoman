@@ -5,7 +5,7 @@ import {
   returnsBetween,
 } from "@demoman/compositor";
 import { type RoomPolicy, SETTLE_MS } from "@demoman/replay-engine";
-import type { SceneMotion } from "@demoman/scene-schema";
+import type { SceneMotion, ZoomIntentOf } from "@demoman/scene-schema";
 import { decideZoom, type LastZoom } from "./auto-zoom.js";
 
 /**
@@ -34,6 +34,7 @@ export const PAN_MARGIN_MS = 300;
 export function createRoomPolicy(
   viewport: { width: number; height: number },
   motion: SceneMotion,
+  intentOf?: ZoomIntentOf,
 ): RoomPolicy {
   let last: LastZoom | null = null;
   let clicks = 0;
@@ -55,13 +56,14 @@ export function createRoomPolicy(
     // The camera's own landing, plus a settle so the film ends still.
     settledAfterMs: (heldUntilMs) =>
       pullOutLandsAt(heldUntilMs, timings) + SETTLE_MS,
-    zooms({ anchorId, rect, unwaitedMs, scale }) {
+    zooms({ actionId, anchorId, rect, unwaitedMs, scale }) {
       const id = `click-${++clicks}`;
       const decided = decideZoom(
         last,
         { id, anchorId, timestamp: unwaitedMs, rect },
         viewport,
         () => scale,
+        intentOf?.(actionId),
       );
       if (decided.zoom) last = { id, anchorId, timestamp: unwaitedMs };
       return decided.zoom;

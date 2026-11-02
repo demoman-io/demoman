@@ -409,6 +409,7 @@ describe("a local refresh after a refresh wrote the receipt", () => {
         revision: "r-user",
         notes: [],
       }),
+      getSkeleton: async () => ({ kind: "none" }),
     } as unknown as RefreshDeps["library"];
     return d;
   };

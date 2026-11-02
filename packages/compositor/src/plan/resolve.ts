@@ -35,12 +35,16 @@ import { inScreenSpace, segmentsInScreenSpace } from "./screen-space.js";
 import { CURSOR_REST_MS, CURSOR_SMOOTHING_MS, smoothCursor } from "./smooth.js";
 import {
   buildTimeline,
+  CURSOR_MOTION_EPSILON_PX,
+  cursorMotionSpans,
   type Timeline,
   type TimeSpan,
   toOutputMs,
   toSourceMs,
 } from "./timeline.js";
 import type { RenderPlan } from "./types.js";
+
+export { cursorMotionSpans };
 
 export interface ResolvedCosmetic {
   id: string;
@@ -420,40 +424,6 @@ function synthesizeCursor(
   }
 
   return samples.sort((a, b) => a.sourceTimeMs - b.sourceTimeMs);
-}
-
-/** Below this, sample-to-sample movement is jitter or a hold, not travel. */
-const CURSOR_MOTION_EPSILON_PX = 0.5;
-
-/**
- * Spans in which the cursor is actually travelling.
- *
- * The design doc claimed dead air contains no cursor motion "by
- * construction". It plainly does: the pointer crosses the screen between one
- * action and the next while the page underneath it sits perfectly still, so
- * the retimer saw a static page, called it dead air and compressed it. On the
- * harvested fixture two ~1270ms travels were squeezed into 400ms each and the
- * pointer whipped across at 3.2x. A polished recording never speeds up a
- * cursor move, and the reason it looks wrong is that a sped-up pointer is the one
- * thing in the frame a viewer knows the real speed of.
- *
- * These come back as `buildTimeline` hints, so they merge with the harvested
- * motion spans and get the same treatment: passed through at rate 1.0. Holds
- * and dwells produce no span, so genuine dead air still compresses.
- */
-export function cursorMotionSpans(samples: CursorSample[]): TimeSpan[] {
-  const spans: TimeSpan[] = [];
-  for (let i = 1; i < samples.length; i++) {
-    const from = samples[i - 1];
-    const to = samples[i];
-    if (!from || !to) continue;
-    if (to.sourceTimeMs <= from.sourceTimeMs) continue;
-    if (Math.hypot(to.x - from.x, to.y - from.y) < CURSOR_MOTION_EPSILON_PX) {
-      continue;
-    }
-    spans.push({ startMs: from.sourceTimeMs, endMs: to.sourceTimeMs });
-  }
-  return spans;
 }
 
 /**

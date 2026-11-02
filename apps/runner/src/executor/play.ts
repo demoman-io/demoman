@@ -280,8 +280,8 @@ export async function playOnStage(
     cameraFor: zoomsForClicks,
     // Spec 2026-10-19: the camera never sets off toward a zoom while an
     // earlier step is still acting; the replay waits for room instead.
-    roomFor: (vp) =>
-      createRoomPolicy(vp, script.look?.motion ?? MOTION_DEFAULTS),
+    roomFor: (vp, intentOf) =>
+      createRoomPolicy(vp, script.look?.motion ?? MOTION_DEFAULTS, intentOf),
   });
   options.mark?.("walk");
   // Spread both ways round: `attributeClosedWindow` refines the run's stop

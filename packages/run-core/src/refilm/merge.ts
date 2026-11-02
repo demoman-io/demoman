@@ -2,11 +2,16 @@ import {
   type Derivation,
   type DraftStep,
   type Hole,
+  SCRIPT_VERSION_EDITS,
   type SceneDocument,
   type ScriptDraft,
+  type ScriptTrim,
   scriptFromTake,
+  trimStepIndex,
+  type ZoomIntent,
+  ZoomIntentSchema,
 } from "@demoman/scene-schema";
-import type { SkeletonRead } from "./skeleton.js";
+import type { ScriptSkeleton, SkeletonRead } from "./skeleton.js";
 
 // The re-film's script (spec 2026-10-14 re-film §2): the skeleton's order,
 // pauses and look, with each acting step's content — target, typed text,
@@ -37,6 +42,16 @@ export type RefilmNote =
       actionId: string;
       was: string;
       now: string;
+    }
+  /** A Studio trim marker inside its step, which a script cannot name: the
+   *  start is the step's marker, the end right after its action. */
+  | { kind: "trimClampedToStep"; side: "start" | "end" }
+  /** A zoom edit the scene holds that the script cannot carry: on a step
+   *  that is not a click or drag, or a scale outside `ZoomIntentSchema`'s. */
+  | {
+      kind: "zoomNotWritten";
+      actionId: string;
+      why: "notClickOrDrag" | "invalidScale";
     };
 
 export interface NotCarried {
@@ -50,7 +65,11 @@ export interface RefilmInfo {
   notCarried: NotCarried[];
 }
 
-export type MergedStep = DraftStep | { do: "pause"; ms: number };
+type Zoomable = Extract<DraftStep, { do: "click" | "drag" }>;
+export type MergedStep =
+  | Exclude<DraftStep, Zoomable>
+  | (Zoomable & { zoom?: ZoomIntent })
+  | { do: "pause"; ms: number };
 
 export interface MergedDraft
   extends Omit<ScriptDraft, "steps" | "look" | "scriptVersion"> {
@@ -59,6 +78,8 @@ export interface MergedDraft
   account?: string;
   steps: MergedStep[];
   look?: unknown;
+  /** The Studio's trim, written back (spec 2026-11-01 video-as-code §4). */
+  trim?: ScriptTrim;
 }
 
 export type Merge =
@@ -74,16 +95,36 @@ export interface MergeOptions {
    *  takes the scene's step and notes it (`verbChanged`), for a draft the
    *  author checks before running it. */
   onVerbChange: "refuse" | "useScene";
-  /** The take's own `meta.name` as scene.json holds it — never the
-   *  derivation's, which stands in "untitled take …" for a blank one. A
-   *  take renamed in the studio keeps that name; a blank one takes the
-   *  name the script was filmed under. */
-  sceneName: string;
+  /** The take's scene.json, as the library read it. Its `meta.name` —
+   *  never the derivation's, which stands in "untitled take …" for a blank
+   *  one — names the script: a take renamed in the studio keeps that name;
+   *  a blank one takes the name the script was filmed under. Its trim and
+   *  zoom edits are written back into the script. */
+  scene: SceneDocument;
 }
 
 type Placed = { step: MergedStep; from: number | null };
 
 export function mergeSkeleton(
+  derivation: Derived,
+  read: SkeletonRead,
+  options: MergeOptions,
+): Merge {
+  const merged = placeSteps(derivation, read, options);
+  if (!merged.ok) return merged;
+  const back = writeBack(
+    merged.draft,
+    options.scene,
+    read.kind === "ok" ? read.skeleton : undefined,
+  );
+  return {
+    ...merged,
+    draft: back.draft,
+    notes: [...merged.notes, ...back.notes],
+  };
+}
+
+function placeSteps(
   derivation: Derived,
   read: SkeletonRead,
   options: MergeOptions,
@@ -188,7 +229,10 @@ export function mergeSkeleton(
     draft: {
       ...rest,
       scriptVersion: Math.max(sk.scriptVersion, draft.scriptVersion),
-      name: options.sceneName.trim() === "" ? sk.name : options.sceneName,
+      name:
+        options.scene.meta.name.trim() === ""
+          ? sk.name
+          : options.scene.meta.name,
       ...(sk.viewport === null ? {} : { viewport: sk.viewport }),
       ...(sk.device === null ? {} : { device: sk.device }),
       ...(sk.account === undefined ? {} : { account: sk.account }),
@@ -199,9 +243,146 @@ export function mergeSkeleton(
   };
 }
 
+/** The finish and zoom-out of the step that filmed `actionId`, or null when
+ *  either the skeleton or that finish is unknown: the one answer to whether
+ *  a Studio tail can be written back, read by the merge and `notCarriedOf`. */
+function tailBase(
+  skeleton: ScriptSkeleton | undefined,
+  actionId: string,
+): { finishMs: number; zoomOutMs: number | null } | null {
+  const step = skeleton?.steps.find(
+    (s) => s.do !== "pause" && s.actionId === actionId,
+  );
+  if (step === undefined || step.do === "pause" || step.finishMs === null)
+    return null;
+  return { finishMs: step.finishMs, zoomOutMs: step.zoomOutMs };
+}
+
+/** The scene's trim and zoom edits as the script's `trim` and step `zoom`
+ *  (spec §4), inverting how a run writes them. Zoom intent is read from the
+ *  scene alone, never the skeleton's record of what the script asked. */
+function writeBack(
+  draft: MergedDraft,
+  scene: SceneDocument,
+  skeleton: ScriptSkeleton | undefined,
+): { draft: MergedDraft; notes: RefilmNote[] } {
+  const notes: RefilmNote[] = [];
+  const steps = [...draft.steps];
+  const at = (actionId: string): number => {
+    const k = steps.findIndex(
+      (s) => s.do !== "pause" && s.recorded === actionId,
+    );
+    // Every action in scene.json is a draft step, and the merge places each.
+    if (k === -1)
+      throw new Error(
+        `write-back: action "${actionId}" is in scene.json and in no step of the merged script`,
+      );
+    return k;
+  };
+  const trim: ScriptTrim = {};
+  const { head, tail } = scene.edits.trim ?? {};
+  if (head !== undefined) {
+    let k = at(head.actionId);
+    let ms = 0 - head.offsetMs;
+    if (head.offsetMs > 0) {
+      // After its step's marker the start cannot be measured from that step:
+      // measure it from the next acting step whose marker is at or after it.
+      const time = (actionId: string) =>
+        scene.actions.find((a) => a.id === actionId)?.timestamp;
+      const headAt = (time(head.actionId) ?? 0) + head.offsetMs;
+      const markerOf = (i: number): number | undefined => {
+        const s = steps[i];
+        return s === undefined || s.do === "pause" || s.recorded == null
+          ? undefined
+          : time(s.recorded);
+      };
+      let next = -1;
+      for (let i = k + 1; i < steps.length && next === -1; i++)
+        if ((markerOf(i) ?? -1) >= headAt) next = i;
+      if (next === -1) {
+        notes.push({ kind: "trimClampedToStep", side: "start" });
+        ms = 0;
+      } else {
+        k = next;
+        ms = (markerOf(next) as number) - headAt;
+      }
+    }
+    trim.start = {
+      ...(k === trimStepIndex({ steps }, "start") ? {} : { step: k + 1 }),
+      ms,
+    };
+  }
+  const base = tail === undefined ? null : tailBase(skeleton, tail.actionId);
+  if (tail !== undefined && base !== null) {
+    const k = at(tail.actionId);
+    const { finishMs, zoomOutMs } = base;
+    let end: NonNullable<ScriptTrim["end"]>;
+    // The default `after` only when the zoom-out was the base: measured from
+    // the finish, the end says `"action"`, or a re-record that zooms there
+    // would wait for that zoom-out and end later than the trim.
+    if (
+      zoomOutMs !== null &&
+      zoomOutMs > finishMs &&
+      tail.offsetMs >= zoomOutMs
+    )
+      end = { ms: tail.offsetMs - zoomOutMs };
+    else if (tail.offsetMs >= finishMs)
+      end = { ms: tail.offsetMs - finishMs, after: "action" };
+    else {
+      notes.push({ kind: "trimClampedToStep", side: "end" });
+      end = { ms: 0, after: "action" };
+    }
+    trim.end = {
+      ...(k === trimStepIndex({ steps }, "end") ? {} : { step: k + 1 }),
+      ...end,
+    };
+  }
+  const intents = new Map<string, ZoomIntent>();
+  for (const s of scene.zoomsSkipped ?? []) {
+    if (s.reason === "off") intents.set(s.actionId, false);
+    else if ("askedScale" in s && s.askedScale !== undefined)
+      intents.set(s.actionId, { scale: s.askedScale });
+  }
+  for (const c of scene.camera) {
+    // An absent scale fails `ZoomIntentSchema` below, and is named there.
+    if (c.source === "click" && c.scaleSetBy !== undefined)
+      intents.set(c.marker.actionId, { scale: c.scale as number });
+  }
+  for (const [actionId, zoom] of intents) {
+    const k = at(actionId);
+    const step = steps[k] as MergedStep;
+    if (step.do !== "click" && step.do !== "drag")
+      notes.push({ kind: "zoomNotWritten", actionId, why: "notClickOrDrag" });
+    else if (!ZoomIntentSchema.safeParse(zoom).success)
+      notes.push({ kind: "zoomNotWritten", actionId, why: "invalidScale" });
+    else steps[k] = { ...step, zoom };
+  }
+  const zoomed = steps.some((s) => "zoom" in s);
+  const trimmed = trim.start !== undefined || trim.end !== undefined;
+  return {
+    draft: {
+      ...draft,
+      ...(trimmed || zoomed
+        ? {
+            scriptVersion: Math.max(draft.scriptVersion, SCRIPT_VERSION_EDITS),
+          }
+        : {}),
+      ...(trimmed ? { trim } : {}),
+      steps,
+    },
+    notes,
+  };
+}
+
 /** Every editor edit bound to the old take's action ids, which a new take
- *  does not share: the re-film's report names each one left behind. */
-export function notCarriedOf(scene: SceneDocument): NotCarried[] {
+ *  does not share: the re-film's report names each one left behind. A trim
+ *  and a zoom the merge writes back into the script (spec 2026-11-01 §4) are
+ *  carried, so not listed: the head always, a tail when `skeleton` holds its
+ *  step's finish. */
+export function notCarriedOf(
+  scene: SceneDocument,
+  skeleton?: ScriptSkeleton,
+): NotCarried[] {
   const e = scene.edits;
   return [
     ...(e.removed ?? []).map((r) => ({ kind: "removed" as const, id: r.id })),
@@ -209,17 +390,24 @@ export function notCarriedOf(scene: SceneDocument): NotCarried[] {
     ...e.masks.map((m) => ({ kind: "mask" as const, id: m.id })),
     ...e.holds.map((h) => ({ kind: "hold" as const, id: h.id })),
     ...(e.gaps ?? []).map((g) => ({ kind: "gap" as const, id: g.id })),
-    ...(e.trim?.head === undefined
-      ? []
-      : [{ kind: "trim" as const, id: "head" }]),
-    ...(e.trim?.tail === undefined
+    ...(e.trim?.tail === undefined ||
+    tailBase(skeleton, e.trim.tail.actionId) !== null
       ? []
       : [{ kind: "trim" as const, id: "tail" }]),
-    // Only the editor writes a zoom's `point` (aimed where the author
-    // clicked the Zoom lane) or `end` (a return the author placed); every
-    // other zoom is one the new take generates again from its own clicks.
+    // `source` says who made a zoom: an author's is theirs, a click's is
+    // generated again by the new take (its scale and removal are written
+    // back). With none (a take saved before v15), only the editor writes a
+    // `point` (aimed where the author clicked the Zoom lane), an `end` (a
+    // return the author placed) or a `scaleSetBy` (a scale the author set,
+    // on a zoom that cannot say a click made it, so not written back).
     ...scene.camera
-      .filter((c) => c.point !== undefined || c.end !== undefined)
+      .filter((c) =>
+        c.source === undefined
+          ? c.point !== undefined ||
+            c.end !== undefined ||
+            c.scaleSetBy !== undefined
+          : c.source === "author",
+      )
       .map((c) => ({ kind: "zoom" as const, id: c.id })),
   ];
 }
@@ -254,7 +442,7 @@ export function refilmScript(
   }
   const merged = mergeSkeleton(derivation, read, {
     onVerbChange: "refuse",
-    sceneName: scene.meta.name,
+    scene,
   });
   if (!merged.ok) return merged;
   if (merged.holes.length > 0) {
@@ -275,7 +463,10 @@ export function refilmScript(
     refilm: {
       from: scene.meta.id,
       notes: merged.notes,
-      notCarried: notCarriedOf(scene),
+      notCarried: notCarriedOf(
+        scene,
+        read.kind === "ok" ? read.skeleton : undefined,
+      ),
     },
   };
 }

@@ -137,8 +137,11 @@ export function factsFromRun(args: {
         ? null
         : Math.max(0, ...(film.steps ?? []).map((s) => s.outputMs ?? 0)),
     actingSteps: args.actingSteps,
+    // A zoom the script asked away (`off`) is not one the camera skipped.
     zoomsSkipped:
-      scene !== null && !("failed" in scene) ? scene.skipped.length : 0,
+      scene !== null && !("failed" in scene)
+        ? scene.skipped.filter((z) => z.reason !== "off").length
+        : 0,
     detailViolations:
       args.exportAnswer?.warnings?.detailViolations?.length ?? 0,
     summary: args.exportAnswer?.summary ?? null,

@@ -82,6 +82,18 @@ describe("factsFromRun — the report as the gate counts it", () => {
     expect([f.bundleFailed, f.sceneFailed]).toEqual([null, null]);
   });
 
+  // A zoom the script asked away (`off`) is not a zoom the camera skipped.
+  it("counts zooms skipped, leaving out the ones turned off", () => {
+    const f = factsFromRun({
+      ...base,
+      report: { outcome: "complete", steps: [] },
+      scene: {
+        skipped: [{ reason: "off" }, { reason: "tooClose" }, { reason: "off" }],
+      },
+    });
+    expect(f.zoomsSkipped).toBe(1);
+  });
+
   it("carries a failed bundle or scene read as the failure, not as empty values", () => {
     const f = factsFromRun({
       ...base,

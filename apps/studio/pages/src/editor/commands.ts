@@ -172,9 +172,19 @@ function reduce(
           : { point: { x: target.x, y: target.y } }),
         marker: { actionId: command.marker.actionId, offsetMs },
         scale: command.scale,
+        source: "author" as const,
         ...(command.note === undefined ? {} : { note: command.note }),
       };
-      return { ...scene, camera: [...scene.camera, event] };
+      // The author zoomed this click themselves: its "off" note is stale.
+      const { zoomsSkipped, ...base } = scene;
+      const kept = (zoomsSkipped ?? []).filter(
+        (s) => !(s.actionId === command.marker.actionId && s.reason === "off"),
+      );
+      return {
+        ...base,
+        camera: [...scene.camera, event],
+        ...(kept.length > 0 ? { zoomsSkipped: kept } : {}),
+      };
     }
 
     case "setZoomRange": {
@@ -186,6 +196,7 @@ function reduce(
         command.end === null
           ? { ...rest, marker: command.start }
           : { ...rest, marker: command.start, end: command.end };
+      if (zoom.source === "click") next.source = "author";
       return {
         ...scene,
         camera: scene.camera.map((c) => (c.id === zoom.id ? next : c)),
@@ -198,7 +209,17 @@ function reduce(
       return {
         ...scene,
         camera: scene.camera.map((c) =>
-          c.id === zoom.id ? { ...c, scale: command.scale } : c,
+          c.id === zoom.id
+            ? {
+                ...c,
+                scale: command.scale,
+                // No source (a take before v15) cannot say a click made it,
+                // so its scale is recorded too, and the re-record names it.
+                ...(c.source !== "author"
+                  ? { scaleSetBy: "author" as const }
+                  : {}),
+              }
+            : c,
         ),
       };
     }
@@ -218,18 +239,41 @@ function reduce(
         ...scene,
         camera: scene.camera.map((c) =>
           c.id === zoom.id
-            ? { ...rest, point: { x: command.point.x, y: command.point.y } }
+            ? {
+                ...rest,
+                point: { x: command.point.x, y: command.point.y },
+                ...(zoom.source === "click"
+                  ? { source: "author" as const }
+                  : {}),
+              }
             : c,
         ),
       };
     }
 
-    case "removeZoom":
-      zoomById(scene, command.id);
+    // Deleting a zoom on a click or drag is an edit the script must hear
+    // about, whoever made the zoom (R19): "no zoom on this click" either
+    // way, and an "off" entry is what a re-record carries.
+    case "removeZoom": {
+      const zoom = zoomById(scene, command.id);
+      const camera = scene.camera.filter((c) => c.id !== command.id);
+      const on = scene.actions.find((a) => a.id === zoom.marker.actionId);
+      if (on?.kind !== "click" && on?.kind !== "drag")
+        return { ...scene, camera };
+      // Another zoom still on the step keeps the step zoomed: no "off".
+      if (camera.some((c) => c.marker.actionId === zoom.marker.actionId))
+        return { ...scene, camera };
       return {
         ...scene,
-        camera: scene.camera.filter((c) => c.id !== command.id),
+        camera,
+        zoomsSkipped: [
+          ...(scene.zoomsSkipped ?? []).filter(
+            (s) => s.actionId !== zoom.marker.actionId,
+          ),
+          { actionId: zoom.marker.actionId, reason: "off" as const },
+        ],
       };
+    }
 
     case "addMask": {
       indexOfAction(scene, command.start.actionId);

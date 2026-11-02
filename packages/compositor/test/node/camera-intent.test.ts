@@ -101,7 +101,7 @@ describe("planCameraIntents", () => {
       // because nothing typechecked this directory — `planCameraIntents` only
       // reads `actions` and `camera`, so the test kept passing against a
       // document shape that no longer exists.
-      schemaVersion: 14 as const,
+      schemaVersion: 15 as const,
       meta: {
         id: "scene-sort-diverge",
         name: "Sort order test",

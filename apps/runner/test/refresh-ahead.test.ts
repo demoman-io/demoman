@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { SkeletonRead } from "@demoman/run-core";
 import {
   FLOWS_DIR,
   LEGACY_FLOWS_DIR as KEPT_DIR,
@@ -62,7 +63,14 @@ const version = (takeId: string): Version => ({
 });
 
 let repo: string;
-let current: { takeId: string; revision: string; masks: string[] };
+let current: {
+  takeId: string;
+  revision: string;
+  masks: string[];
+  /** A Studio tail trim on act-1, when set. */
+  tail?: boolean;
+  skeleton: SkeletonRead;
+};
 let reads: number;
 
 beforeEach(async () => {
@@ -74,7 +82,12 @@ beforeEach(async () => {
     join(repo, RECEIPT_DIR, keptFileName(NAME)),
     serializeReceipt(committed),
   );
-  current = { takeId: "t1", revision: "r1", masks: [] };
+  current = {
+    takeId: "t1",
+    revision: "r1",
+    masks: [],
+    skeleton: { kind: "none" },
+  };
   reads = 0;
 });
 
@@ -96,12 +109,16 @@ const deps = (): RefreshDeps => ({
         edits: {
           masks: current.masks.map((id) => ({ id })),
           holds: [],
+          ...(current.tail
+            ? { trim: { tail: { actionId: "act-1", offsetMs: 900 } } }
+            : {}),
         },
         camera: [],
       },
       revision: current.revision,
       notes: [],
     }),
+    getSkeleton: async () => current.skeleton,
   } as unknown as Library,
   // The film itself is refused: the line must survive a video that fails.
   executor: () =>
@@ -138,6 +155,36 @@ describe("a refresh says when the library is ahead of the file", () => {
     current.revision = "r2";
     current.masks = ["m1"];
     expect((await notes("local"))?.[0]).toContain("mask m1");
+  });
+  it("names a Studio tail only when the skeleton cannot write it back", async () => {
+    current.revision = "r2";
+    current.tail = true;
+    expect((await notes("local"))?.[0]).toContain("trim tail");
+    // The step's finish is known: the re-record writes the tail into the
+    // script, so add has nothing to refuse.
+    current.skeleton = {
+      kind: "ok",
+      skeleton: {
+        skeletonVersion: 2,
+        name: NAME,
+        scriptVersion: 1,
+        viewport: null,
+        device: null,
+        look: null,
+        steps: [
+          {
+            do: "click",
+            actionId: "act-1",
+            anchorDigest: null,
+            finishMs: 400,
+            zoomOutMs: null,
+          },
+        ],
+      },
+    };
+    const note = (await notes("local"))?.[0];
+    expect(note).toContain("run `demoman add");
+    expect(note).not.toContain("trim tail");
   });
   it("says the library cannot be read, rather than saying nothing", async () => {
     const d = deps();

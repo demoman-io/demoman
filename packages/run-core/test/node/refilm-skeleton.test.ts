@@ -137,6 +137,150 @@ describe("anchorDigest", () => {
   });
 });
 
+describe("skeleton v2", () => {
+  const timed = [
+    {
+      index: 0,
+      actionId: "ac-load",
+      timing: { markerMs: 0, startMs: 0, finishMs: 300, zoomOutMs: null },
+    },
+    {
+      index: 2,
+      actionId: "ac-type",
+      timing: { markerMs: 900, startMs: -100, finishMs: 1200, zoomOutMs: 2500 },
+    },
+    { index: 3, actionId: "ac-wait" },
+  ];
+
+  it("writes v2 with each step's finish and zoom-out, and no trim", () => {
+    const withIntent = {
+      ...script,
+      trim: { end: { ms: 0, step: 2, after: "action" } },
+    } as DemoScript;
+    const sk = skeletonOf(withIntent, timed, scene);
+    expect(sk.skeletonVersion).toBe(2);
+    // R18: the scene is the one record of a trim; the script asked one.
+    expect(withIntent.trim).toBeDefined();
+    expect("trim" in sk).toBe(false);
+    expect(sk.steps[0]).toMatchObject({ finishMs: 300, zoomOutMs: null });
+    expect(sk.steps[2]).toMatchObject({ finishMs: 1200, zoomOutMs: 2500 });
+    // Not performed, so nothing was measured; a pause carries neither.
+    expect(sk.steps[3]).toMatchObject({ finishMs: null, zoomOutMs: null });
+    expect(sk.steps[1]).toEqual({ do: "pause", ms: 600 });
+    // The axis stays the marker's: no absolute time is stored.
+    expect(JSON.stringify(sk)).not.toContain("markerMs");
+    expect(parseSkeleton(JSON.parse(JSON.stringify(sk)))).toEqual({
+      ok: true,
+      skeleton: sk,
+    });
+  });
+
+  it("writes no step zoom, whatever the script asked", () => {
+    const zs = {
+      scriptVersion: 8,
+      name: "Z",
+      target: "http://x/",
+      steps: [
+        { do: "click", on: { stableId: "a" }, zoom: { scale: 1.8 } },
+        { do: "click", on: { stableId: "a" }, zoom: false },
+        { do: "click", on: { stableId: "a" } },
+      ],
+    } as unknown as DemoScript;
+    const sk = skeletonOf(
+      zs,
+      [0, 1, 2].map((index) => ({ index, actionId: null })),
+      scene,
+    );
+    // Premise: two of the script's steps asked a zoom.
+    expect(zs.steps.filter((s) => "zoom" in s)).toHaveLength(2);
+    expect(sk.steps.filter((s) => "zoom" in s)).toEqual([]);
+  });
+
+  it("reads a v1 file as having no timing", () => {
+    const v1 = {
+      skeletonVersion: 1,
+      name: "x",
+      scriptVersion: 1,
+      viewport: null,
+      device: null,
+      look: null,
+      steps: [
+        { do: "pause", ms: 5 },
+        { do: "click", actionId: "a", anchorDigest: null },
+      ],
+    };
+    const out = parseSkeleton(v1);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.skeleton.skeletonVersion).toBe(2);
+    expect("trim" in out.skeleton).toBe(false);
+    expect(out.skeleton.steps[1]).toMatchObject({
+      finishMs: null,
+      zoomOutMs: null,
+    });
+    expect(out.skeleton.steps[0]).toEqual({ do: "pause", ms: 5 });
+  });
+
+  // A v2 file this branch wrote before R18: its trim and zoom, even ones
+  // the schema would refuse, are not read, so they cannot refuse the file.
+  it("reads a v2 file that still carries trim and a step zoom, without them", () => {
+    const out = parseSkeleton({
+      skeletonVersion: 2,
+      name: "x",
+      scriptVersion: 8,
+      viewport: null,
+      device: null,
+      look: null,
+      trim: { end: { ms: 0, after: "action" }, middle: {} },
+      steps: [
+        {
+          do: "click",
+          actionId: "a",
+          anchorDigest: null,
+          finishMs: 1,
+          zoomOutMs: 2,
+          zoom: 1.8,
+        },
+      ],
+    });
+    if (!out.ok) throw new Error(out.error);
+    expect("trim" in out.skeleton).toBe(false);
+    expect(out.skeleton.steps).toEqual([
+      {
+        do: "click",
+        actionId: "a",
+        anchorDigest: null,
+        finishMs: 1,
+        zoomOutMs: 2,
+      },
+    ]);
+  });
+
+  it("refuses a v2 step whose finishMs is a string, by name", () => {
+    const out = parseSkeleton({
+      skeletonVersion: 2,
+      name: "x",
+      scriptVersion: 1,
+      viewport: null,
+      device: null,
+      look: null,
+      steps: [
+        {
+          do: "click",
+          actionId: "a",
+          anchorDigest: null,
+          finishMs: "300",
+          zoomOutMs: null,
+        },
+      ],
+    });
+    expect(out).toEqual({
+      ok: false,
+      error: expect.stringContaining("steps.0's finishMs"),
+    });
+  });
+});
+
 describe("parseSkeleton", () => {
   it("accepts what skeletonOf writes, through JSON", () => {
     const sk = skeletonOf(script, steps, scene);
@@ -151,7 +295,7 @@ describe("parseSkeleton", () => {
     [
       "a newer version",
       {
-        skeletonVersion: 2,
+        skeletonVersion: 3,
         name: "x",
         scriptVersion: 1,
         viewport: null,

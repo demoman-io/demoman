@@ -1250,9 +1250,15 @@ export async function libraryAhead(
         return null;
       since = ` (going by time: made or edited after it was recorded at ${receipt.filmedAt}, by that machine's clock)`;
     }
+    // The skeleton says whether a Studio tail can be written back, as the
+    // re-record that `add` runs reads it.
+    const skeleton = await deps.library.getSkeleton(current.takeId);
     const left = leftBehind({
       from: current.takeId,
-      notCarried: notCarriedOf(read.scene),
+      notCarried: notCarriedOf(
+        read.scene,
+        skeleton.kind === "ok" ? skeleton.skeleton : undefined,
+      ),
       notes: read.notes.map((sentence) => ({
         kind: "migrated" as const,
         sentence,

@@ -93,6 +93,7 @@ export {
   insideCutOpen,
   isUnkeptMotion,
   type ResolvedCut,
+  sourceDurationOf,
   type Timeline,
   type TimelineSegment,
   type TimeSpan,

@@ -3,7 +3,7 @@ import { oklchToHex } from "./color.js";
 import { CaptureDeviceSchema } from "./device.js";
 import { DEFAULT_WALLPAPER_ID } from "./wallpapers.js";
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
 
 const Rect = z.object({
   x: z.number(),
@@ -321,6 +321,20 @@ const CameraEvent = z.object({
   /** Why the aim is not what the click asked for (`aimFallback`), or
    *  anything else the editor owes the author about this zoom. */
   note: z.string().optional(),
+  /**
+   * Where this zoom came from: `click` was generated for a click, `author`
+   * was written by the author (the Studio's addZoom, or a click zoom the
+   * author moved; a script's `zoom` stays `click` with `scaleSetBy: "script"`). The record that
+   * write-back reads; never inferred from the event's shape. Absent on every
+   * take saved before v15 — those are not guessed.
+   */
+  source: z.enum(["click", "author"]).optional(),
+  /**
+   * Who chose `scale`: `script` set it explicitly, `author` is the studio's
+   * own edit. The record that write-back reads, never inferred from the
+   * scale's value. Absent when the scale was the default.
+   */
+  scaleSetBy: z.enum(["script", "author"]).optional(),
 });
 
 /**
@@ -333,6 +347,7 @@ const CameraEvent = z.object({
  * - `tooClose`: the click came `gapMs` after the zoom on `afterActionId`,
  *   under the gap a glide between two zooms needs to read as a move;
  * - `sameTarget`: the same, on the element that zoom is already framing;
+ * - `off`: the script turned this click's zoom off (`zoom: false`);
  * - `targetTooWide`: the widest zoom that keeps the clicked element whole
  *   is `scale`, under the floor;
  * - `textTooWide`: the widest zoom that cuts no line of text on screen is
@@ -345,7 +360,8 @@ const CameraEvent = z.object({
  * the fit floors to hundredths, and a target many windows tall fits at none.
  * Either one refused here threw at Stop and lost the take, for a note.
  *
- * Optional, with no version bump — the widening rule `motion` follows.
+ * Optional, with no version bump when it was added — the widening rule
+ * `motion` follows. (`off` and `askedScale` came with v15.)
  * Absent on a take whose zooms left no click out, and on every take saved
  * before the field existed, whose skips were never recorded.
  */
@@ -355,6 +371,13 @@ const ZoomSkipped = z.union([
     reason: z.enum(["tooClose", "sameTarget"]),
     afterActionId: z.string().min(1),
     gapMs: z.number(),
+    /** The scale the script asked for on this click, which the gap refused.
+     *  The record that write-back reads, never inferred. */
+    askedScale: z.number().optional(),
+  }),
+  z.object({
+    actionId: z.string().min(1),
+    reason: z.literal("off"),
   }),
   z.object({
     actionId: z.string().min(1),

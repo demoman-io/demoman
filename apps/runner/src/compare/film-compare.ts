@@ -61,7 +61,7 @@ interface BundleFacts {
   spans: [number, number, number][];
 }
 interface SceneFacts {
-  skipped: unknown[];
+  skipped: { reason: string }[];
 }
 const answer = parseAnswer;
 
