@@ -957,10 +957,14 @@ async function deleteSelected(): Promise<void> {
     return;
   }
   if (!go) return;
+  // A Back while it asked switched place and cleared the ticks: only a flow
+  // still ticked goes (spec: a switch with a selection deletes nothing).
+  const still = ids.filter((id) => selection.ids.has(id));
+  if (still.length === 0) return;
   bulk = { busy: true, said: null };
   showSelection();
   const outcomes: BulkOutcome[] = [];
-  for (const id of ids) {
+  for (const id of still) {
     const name = groups.get(id)?.name ?? id;
     try {
       const r = await platform.videos.remove(id);
@@ -1024,7 +1028,9 @@ async function deleteSelected(): Promise<void> {
 window.addEventListener("popstate", () => {
   place = parsePlace(location.search) ?? "all";
   tab = "all";
-  clearForSwitch();
+  // A bulk delete under way keeps its lock and its ticks; it settles both
+  // itself when it ends.
+  if (bulk?.busy !== true) clearForSwitch();
   if (lastModel !== null) paint(lastModel);
 });
 
