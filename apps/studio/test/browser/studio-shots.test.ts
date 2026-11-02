@@ -4069,6 +4069,14 @@ describe("the Studio's screenshot set", () => {
                 text: w.textContent,
                 drawn: w.getClientRects().length > 0,
                 hit: hits(w),
+                // Painted whole: no ellipsis inside it, and its right edge
+                // inside its cell, so the cell's clip cuts nothing either.
+                whole:
+                  w.scrollWidth <= w.clientWidth &&
+                  w.getBoundingClientRect().right <=
+                    (w.closest("[data-col]")?.getBoundingClientRect().right ??
+                      0) +
+                      0.5,
                 rect: rect(w),
               })),
             })),
@@ -4177,9 +4185,11 @@ describe("the Studio's screenshot set", () => {
         ]);
         const shown = whys.filter((x) => x.drawn);
         expect(
-          shown.map((x) => ({ slot: x.slot, hit: x.hit })),
-          `${at}: one copy of the why is painted, its own at its centre ${ev}`,
-        ).toEqual([{ slot: w === 720 ? "where" : "name", hit: true }]);
+          shown.map((x) => ({ slot: x.slot, hit: x.hit, whole: x.whole })),
+          `${at}: one copy of the why is painted whole, its own at its centre ${ev}`,
+        ).toEqual([
+          { slot: w === 720 ? "where" : "name", hit: true, whole: true },
+        ]);
         expect(
           await inked(shown[0]?.rect as number[]),
           `${at}: the why's words are painted over the ground ${ev}`,

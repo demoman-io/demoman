@@ -229,7 +229,10 @@ describe("the library's search box", () => {
     expect(input().value).toBe("invi");
     expect(input().selectionStart).toBe(4);
     // Wide, the why follows the name, and Where keeps the route.
-    expect(paintedWhole(why("onboard", "name")).shown).toBe(true);
+    expect(
+      paintedWhole(why("onboard", "name")),
+      why("onboard", "name").textContent ?? "",
+    ).toEqual({ shown: true, whole: true });
     expect(rect(why("onboard", "name")).left).toBeGreaterThanOrEqual(
       rect(node('[data-flow="onboard"] [data-name-text]')).right,
     );

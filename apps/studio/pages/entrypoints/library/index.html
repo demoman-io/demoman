@@ -773,7 +773,7 @@
       }
       /* The search box, right of the tabs and before the toggle: the
          system's field, its glyph inside the left edge and the `/` hint
-         inside the right (studio.css pads the text clear of both). On a
+         inside the right (the Studio sheet pads the text clear of both). On a
          row too narrow for it, it wraps under the tabs. */
       .search-field {
         position: relative;
@@ -812,7 +812,15 @@
         white-space: nowrap;
         color: var(--ink-faint);
       }
-      .library-list [data-col="name"] > .match-why { flex: 0 1 auto; margin-left: 12px; }
+      /* The why keeps its width and the name gives way, so the matched
+         word reads (the name's rule is with the name's, below); the why
+         is cut only where it alone is wider than the cell (its 12px and
+         the gap of 8 kept). */
+      .library-list [data-col="name"] > .match-why {
+        flex: none;
+        max-width: calc(100% - 20px);
+        margin-left: 12px;
+      }
       /* Wide, the why follows the name; the copy in Where waits. */
       .library-list [data-col="where"] > .match-why { display: none; }
       /* Chrome's own clear button: Esc clears, and the box adds nothing. */
@@ -947,6 +955,11 @@
          (DEM-34). */
       .library-list [data-col="name"]:has(> .row-tags) > [data-name-text] {
         max-width: calc(100% - 20px - 8px);
+      }
+      /* Beside a search's why, the name is what gives way. */
+      .library-list [data-col="name"]:has(> .match-why) > [data-name-text] {
+        flex: 0 1 auto;
+        min-width: 0;
       }
       .library-list [data-video-row] [data-col="name"] { padding-left: 16px; }
       .library-list .row-tags {
