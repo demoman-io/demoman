@@ -408,14 +408,21 @@ describe("a re-record writes the Studio's trim and zoom edits back", () => {
       const againSkeleton = await library.getSkeleton(again.takeId);
       if (againSkeleton.kind !== "ok")
         throw new Error(JSON.stringify(againSkeleton));
-      expect(
-        againSkeleton.skeleton.trim,
-        JSON.stringify(againSkeleton),
-      ).toEqual({
-        end: { ms: 200, after: "action" },
-      });
       const newReports = again.at(REPORTS);
       const newPlaceOrder = again.at(PLACE_ORDER);
+      // The script's ask is not kept (R18), so the trim is read where the
+      // run wrote it. Premise: the re-record's last click zooms out past the
+      // tail, so an end written without `after: "action"` would land there.
+      const againLast = againSkeleton.skeleton.steps[PLACE_ORDER];
+      const againZoomOut =
+        againLast !== undefined && againLast.do !== "pause"
+          ? againLast.zoomOutMs
+          : null;
+      expect(againZoomOut, JSON.stringify(againSkeleton)).not.toBeNull();
+      expect(
+        newPlaceOrder.finishMs + 200,
+        JSON.stringify(againLast),
+      ).toBeLessThan(againZoomOut as number);
       expect(
         zoomOn(again.scene, newReports.actionId),
         JSON.stringify(again.scene.camera),
