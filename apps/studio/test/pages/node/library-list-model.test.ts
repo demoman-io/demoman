@@ -121,9 +121,18 @@ describe("the fixture", () => {
 
 describe("listEntries by rank", () => {
   const rank = (c: (typeof cards)[number]): number =>
-    c.group?.video.id === "B" ? 2 : c.group === null ? 1 : 1;
+    c.group?.video.id === "B" ? 2 : 1;
+  // Oldest first, so a stable sort alone would leave the ties oldest first.
+  const oldestFirst: LibraryModel = {
+    ...model,
+    rows: [...model.rows].reverse(),
+  };
   it("is flat, highest rank first, then newest", () => {
-    const entries = listEntries(model, { rank }, NOW);
+    expect(
+      cardsOf(oldestFirst).map((c) => c.group?.video.id ?? c.row.sceneId),
+      "premise: the cards come in oldest first",
+    ).toEqual(["C", "B", "loose", "A"]);
+    const entries = listEntries(oldestFirst, { rank }, NOW);
     expect(entries.some((e) => e.kind === "heading")).toBe(false);
     expect(entries.filter((e) => e.kind === "flow").map((e) => e.key)).toEqual([
       "f:B",
