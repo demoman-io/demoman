@@ -170,7 +170,7 @@ describe("the motion block", () => {
 
   it("is a widening, not a new version", () => {
     // 13 is mask ends in source time (audit run 1), not the motion block.
-    expect(CURRENT_SCHEMA_VERSION).toBe(14);
+    expect(CURRENT_SCHEMA_VERSION).toBe(15);
   });
 });
 

@@ -77,7 +77,7 @@ function clickAction(i: number): SceneDocument["actions"][number] {
  *  the same length would produce. */
 function sceneOf(steps: number): SceneDocument {
   return {
-    schemaVersion: 14,
+    schemaVersion: 15,
     meta: {
       id: "scene-run-report-fixture",
       name: "run report fixture",

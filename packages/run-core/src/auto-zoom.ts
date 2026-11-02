@@ -218,6 +218,8 @@ export function zoomSkippedNote(skip: SceneZoomSkipped): string {
       ? `${Math.abs(skip.gapMs)}ms ${skip.gapMs < 0 ? "before" : "after"} ${skip.afterActionId}`
       : "";
   switch (skip.reason) {
+    case "off":
+      return `${head}: turned off.`;
     case "tooClose":
       return `${head}: too close to the previous zoom (${gap}, minimum ${MIN_ZOOM_GAP_MS}ms).`;
     case "sameTarget":

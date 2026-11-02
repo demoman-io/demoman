@@ -48,7 +48,7 @@ function anchor(
 /** Mirrors packages/compositor/test/fixtures/scene.ts so the two read as one app. */
 export function readonlyScene(): SceneDocument {
   return {
-    schemaVersion: 14,
+    schemaVersion: 15,
     meta: {
       id: "scene-readonly-001",
       name: "Orders walkthrough",

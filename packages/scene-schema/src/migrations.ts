@@ -305,6 +305,11 @@ const steps: Record<number, MigrationStep> = {
   // exists. Nothing in a v13 document changes; the bump makes an older build
   // refuse a take it would play with the click at the centre.
   13: (doc) => ({ ...doc, schemaVersion: 14 }),
+  // v14 -> v15 (2026-11-01): a camera event may carry `source` and
+  // `scaleSetBy`, a skip may be `off` or carry `askedScale`. Old events get no
+  // guessed source; the bump makes an older build refuse a take it would
+  // write back wrongly.
+  14: (doc) => ({ ...doc, schemaVersion: 15 }),
 };
 
 /**
