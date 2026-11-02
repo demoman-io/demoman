@@ -196,9 +196,12 @@ export type ListEntry =
       flowId: string;
     };
 
+/** A sort the reader chose, or a rank (search): flat, best first. */
+export type ListOrder = ListSort | { rank: (card: LibraryCard) => number };
+
 export function listEntries(
   model: LibraryModel,
-  sort: ListSort,
+  order: ListOrder,
   now: Date,
 ): ListEntry[] {
   const cards = cardsOf(model);
@@ -233,6 +236,13 @@ export function listEntries(
       });
     }
   };
+  if ("rank" in order) {
+    const ranked = cards.map((c) => [order.rank(c), c] as const);
+    ranked.sort((a, b) => b[0] - a[0] || timeOf(b[1]) - timeOf(a[1]));
+    for (const [, card] of ranked) addFlow(card, null, false);
+    return out;
+  }
+  const sort = order;
   if (sort.column === "recorded" && sort.descending) {
     const sorted = sortCards(cards, sort);
     const byLead = new Map(sorted.map((c) => [c.row.sceneId, c]));

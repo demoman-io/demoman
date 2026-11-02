@@ -110,7 +110,7 @@ export function railOf(
   return { all: cards.length, projects, none, unreadable };
 }
 
-const inPlace = (c: LibraryCard, place: Place): boolean =>
+export const inPlace = (c: LibraryCard, place: Place): boolean =>
   place === "all"
     ? true
     : place === "unreadable"
@@ -120,7 +120,7 @@ const inPlace = (c: LibraryCard, place: Place): boolean =>
         : projectKeyOf(c) === place.project;
 
 const isKept = (c: LibraryCard): boolean => c.row.kept != null;
-const inTab = (c: LibraryCard, tab: Tab): boolean =>
+export const inTab = (c: LibraryCard, tab: Tab): boolean =>
   tab === "all" || (tab === "inRepo") === isKept(c);
 
 export function narrow(

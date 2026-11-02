@@ -119,6 +119,26 @@ describe("the fixture", () => {
   });
 });
 
+describe("listEntries by rank", () => {
+  const rank = (c: (typeof cards)[number]): number =>
+    c.group?.video.id === "B" ? 2 : c.group === null ? 1 : 1;
+  it("is flat, highest rank first, then newest", () => {
+    const entries = listEntries(model, { rank }, NOW);
+    expect(entries.some((e) => e.kind === "heading")).toBe(false);
+    expect(entries.filter((e) => e.kind === "flow").map((e) => e.key)).toEqual([
+      "f:B",
+      "f:A",
+      "t:loose",
+      "f:C",
+    ]);
+  });
+  it("positive control: the same model under Recorded still has headings", () => {
+    expect(
+      listEntries(model, RECENT, NOW).some((e) => e.kind === "heading"),
+    ).toBe(true);
+  });
+});
+
 describe("listEntries", () => {
   it("under Recorded newest-first gives headings, then flows at level 2, then every video at level 3", () => {
     const seq = listEntries(model, RECENT, NOW).map(
