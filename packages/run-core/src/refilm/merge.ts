@@ -282,12 +282,34 @@ function writeBack(
   const trim: ScriptTrim = {};
   const { head, tail } = scene.edits.trim ?? {};
   if (head !== undefined) {
-    const k = at(head.actionId);
-    if (head.offsetMs > 0)
-      notes.push({ kind: "trimClampedToStep", side: "start" });
+    let k = at(head.actionId);
+    let ms = 0 - head.offsetMs;
+    if (head.offsetMs > 0) {
+      // After its step's marker the start cannot be measured from that step:
+      // measure it from the next acting step whose marker is at or after it.
+      const time = (actionId: string) =>
+        scene.actions.find((a) => a.id === actionId)?.timestamp;
+      const headAt = (time(head.actionId) ?? 0) + head.offsetMs;
+      const markerOf = (i: number): number | undefined => {
+        const s = steps[i];
+        return s === undefined || s.do === "pause" || s.recorded == null
+          ? undefined
+          : time(s.recorded);
+      };
+      let next = -1;
+      for (let i = k + 1; i < steps.length && next === -1; i++)
+        if ((markerOf(i) ?? -1) >= headAt) next = i;
+      if (next === -1) {
+        notes.push({ kind: "trimClampedToStep", side: "start" });
+        ms = 0;
+      } else {
+        k = next;
+        ms = (markerOf(next) as number) - headAt;
+      }
+    }
     trim.start = {
       ...(k === trimStepIndex({ steps }, "start") ? {} : { step: k + 1 }),
-      ms: head.offsetMs > 0 ? 0 : 0 - head.offsetMs,
+      ms,
     };
   }
   const base = tail === undefined ? null : tailBase(skeleton, tail.actionId);

@@ -798,14 +798,65 @@ describe("write-back", () => {
     expect(refilm.notCarried).toEqual([]);
   });
 
-  it("a head on the first shown step leaves step to the default; one inside the step starts at it, and says so", () => {
+  it("a head on the first shown step leaves step to the default; one inside the step is measured from the next step", () => {
     const first = trimmed({ actionId: "act-1", offsetMs: -120 });
     expect(rerecorded(first, skeletonFor(first)).parsed.trim).toEqual({
       start: { ms: 120 },
     });
     const inside = trimmed({ actionId: "act-1", offsetMs: 300 });
     const out = rerecorded(inside, skeletonFor(inside));
-    expect(out.parsed.trim).toEqual({ start: { ms: 0 } });
+    // act-1 at 500 + 300 = 800; act-2 (step 3) is marked at 1200.
+    expect(out.parsed.trim).toEqual({ start: { step: 3, ms: 400 } });
+    expect(out.refilm.notes).toEqual([]);
+  });
+
+  // R20: a head after its step's marker is measured from the next step.
+  it("a head after a waitFor's marker is measured from the next click", () => {
+    const doc = plain((d) => {
+      const wait = d.actions.find((a) => a.kind === "waitFor");
+      if (wait === undefined) throw new Error("fixture has no waitFor");
+      const at = [500, 3432, 4000, 4200];
+      return {
+        ...d,
+        actions: d.actions.map((a, i) =>
+          i === 0
+            ? ({
+                ...wait,
+                id: a.id,
+                anchorId: a.anchorId,
+                marker: a.marker,
+                timestamp: 500,
+              } as typeof a)
+            : { ...a, timestamp: at[i] ?? a.timestamp },
+        ),
+      };
+    });
+    const head = { actionId: "act-1", offsetMs: 886 };
+    const sk = skeletonFor(doc);
+    // Premise: the head is after its marker, act-1 is not a shown step, and
+    // the click's marker is 2932 ms after it.
+    expect(head.offsetMs).toBeGreaterThan(0);
+    expect(sk.steps[0]?.do).toBe("waitFor");
+    expect(doc.actions[1]?.kind).toBe("click");
+    expect(
+      (doc.actions[1]?.timestamp ?? 0) - (doc.actions[0]?.timestamp ?? 0),
+    ).toBe(2932);
+    const withHead = {
+      ...doc,
+      edits: { ...doc.edits, trim: { head } },
+    } as SceneDocument;
+    const { parsed, refilm } = rerecorded(withHead, sk);
+    expect(parsed.trim).toEqual({ start: { ms: 2046 } });
+    expect(refilm.notes).toEqual([]);
+  });
+
+  it("a head after the last action's marker has no next step: it clamps and says so", () => {
+    const doc = trimmed({ actionId: "act-4", offsetMs: 300 });
+    // Unparsed: a start on the last step, past the last shown one, is a
+    // script the schema refuses, which is not what this case asks.
+    const out = refilmScript(doc, { kind: "ok", skeleton: skeletonFor(doc) });
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    expect(out.script.trim).toEqual({ start: { step: 7, ms: 0 } });
     expect(out.refilm.notes).toEqual([
       { kind: "trimClampedToStep", side: "start" },
     ]);
