@@ -107,6 +107,68 @@ const flows = () =>
     (r) => r.dataset.flow,
   );
 const rect = (e: Element) => e.getBoundingClientRect();
+/** How many near-white pixels Chrome painted inside `r` (CSS px). */
+async function brightIn(r: {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}): Promise<number> {
+  // Unsaved, the provider answers with the base64 string itself
+  // (library-list-shell.test.ts).
+  const shot: unknown = await page.screenshot({ base64: true, save: false });
+  const base64 =
+    typeof shot === "string" ? shot : (shot as { base64: string }).base64;
+  const image = new Image();
+  image.src = base64.startsWith("data:")
+    ? base64
+    : `data:image/png;base64,${base64}`;
+  await image.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const context = canvas.getContext("2d") as CanvasRenderingContext2D;
+  context.drawImage(image, 0, 0);
+  const k = image.width / window.innerWidth;
+  const x = Math.ceil(r.left * k);
+  const y = Math.ceil(r.top * k);
+  const data = context.getImageData(
+    x,
+    y,
+    Math.floor(r.right * k) - x,
+    Math.floor(r.bottom * k) - y,
+  ).data;
+  let n = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (Math.min(data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0) > 140) n++;
+  }
+  return n;
+}
+
+/** A flow row's why in its name cell or its Where cell. */
+const why = (flow: string, slot: "name" | "where") =>
+  node(`[data-flow="${flow}"] [data-col="${slot}"] > [data-match-why]`);
+/** Its text as painted: drawn, whole inside its cell (not cut by the
+ *  cell's ellipsis), and on top at its middle. */
+function paintedWhole(e: HTMLElement): { shown: boolean; whole: boolean } {
+  if (!e.checkVisibility()) return { shown: false, whole: false };
+  const cell = e.parentElement as HTMLElement;
+  const text = document.createRange();
+  text.selectNodeContents(e);
+  const r = text.getBoundingClientRect();
+  const c = rect(cell);
+  const hit = document.elementFromPoint(
+    r.left + r.width / 2,
+    (r.top + r.bottom) / 2,
+  );
+  return {
+    shown: hit !== null && e.contains(hit),
+    whole:
+      r.width > 0 &&
+      r.right <= c.right + 0.5 &&
+      cell.scrollWidth <= cell.clientWidth,
+  };
+}
 
 describe("the library's search box", () => {
   it("sits in the tab row, right of the tabs and left of the toggle, on one line", async () => {
@@ -166,6 +228,28 @@ describe("the library's search box", () => {
     await userEvent.keyboard("i");
     expect(input().value).toBe("invi");
     expect(input().selectionStart).toBe(4);
+    // Wide, the why follows the name, and Where keeps the route.
+    expect(paintedWhole(why("onboard", "name")).shown).toBe(true);
+    expect(rect(why("onboard", "name")).left).toBeGreaterThanOrEqual(
+      rect(node('[data-flow="onboard"] [data-name-text]')).right,
+    );
+    expect(why("onboard", "where").checkVisibility()).toBe(false);
+    expect(
+      node('[data-flow="onboard"] [data-where-text]').checkVisibility(),
+    ).toBe(true);
+    // Chrome's own clear button (a white ✕ at the field's right end while
+    // it holds text) is not drawn: Esc clears. Premise: the sampler sees
+    // the typed text's white ink at the field's left.
+    const f = rect(input());
+    const band = { top: f.top + 4, bottom: f.bottom - 4 };
+    expect(
+      await brightIn({ ...band, left: f.left + 28, right: f.left + 70 }),
+      "the typed text's ink",
+    ).toBeGreaterThan(10);
+    expect(
+      await brightIn({ ...band, left: f.right - 44, right: f.right - 4 }),
+      "a clear button's ink",
+    ).toBe(0);
     await page.screenshot({
       path: "__screenshots__/library-search-box/typed-1440x900.png",
     });
@@ -244,6 +328,27 @@ describe("the library's search box", () => {
         box.top + box.height / 2,
       ),
     ).toBe(input());
+    // Narrow, the why takes Where's place whole, over Videos and Length,
+    // and the name cell's copy goes; a row found by name is as it was.
+    const narrow = paintedWhole(why("onboard", "where"));
+    expect(narrow, why("onboard", "where").textContent ?? "").toEqual({
+      shown: true,
+      whole: true,
+    });
+    expect(why("onboard", "name").checkVisibility()).toBe(false);
+    expect(
+      node('[data-flow="onboard"] [data-where-text]').checkVisibility(),
+    ).toBe(false);
+    expect(
+      node('[data-flow="onboard"] [data-col="videos"]').checkVisibility(),
+    ).toBe(false);
+    expect(
+      node('[data-flow="invite"] [data-col="videos"]').checkVisibility(),
+    ).toBe(true);
+    // Recorded stays on the row's one line.
+    expect(
+      rect(node('[data-flow="onboard"] [data-col="recorded"]')).top,
+    ).toBeCloseTo(rect(node('[data-flow="onboard"] [data-col="name"]')).top, 0);
     await page.screenshot({
       path: "__screenshots__/library-search-box/typed-720x900.png",
     });

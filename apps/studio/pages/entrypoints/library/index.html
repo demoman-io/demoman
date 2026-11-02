@@ -812,7 +812,15 @@
         white-space: nowrap;
         color: var(--ink-faint);
       }
-      .library-list .match-why { flex: 0 1 auto; margin-left: 12px; }
+      .library-list [data-col="name"] > .match-why { flex: 0 1 auto; margin-left: 12px; }
+      /* Wide, the why follows the name; the copy in Where waits. */
+      .library-list [data-col="where"] > .match-why { display: none; }
+      /* Chrome's own clear button: Esc clears, and the box adds nothing. */
+      .search-field > input::-webkit-search-cancel-button {
+        -webkit-appearance: none;
+        appearance: none;
+        display: none;
+      }
       .none-here { margin: 28px 0 0; color: var(--ink-muted); }
       /* A search's cards: one run, spaced from the tabs as a section's are. */
       .rows[data-results] { margin-top: 14px; }
@@ -1115,6 +1123,24 @@
         :is(.library-list, .unreadable-list) [data-col="size"] { display: none; }
         /* The reason runs on to Recorded, the size it stood beside gone. */
         .unreadable-list > .unreadable-row > [data-col="where"] { grid-column: 4 / -2; }
+      }
+      /* Where the name column narrows, the why takes Where's place, as on
+         a card, and runs on to Recorded over Videos and Length, as the
+         unreadable rows' reason does: in the name cell it was cut to "st…". */
+      @container library (max-width: 759px) {
+        .library-list [data-col="name"] > .match-why,
+        .library-list [data-col="where"] > [data-where-text]:has(+ .match-why) {
+          display: none;
+        }
+        .library-list [data-col="where"] > .match-why { display: inline; }
+        .library-list > [role="row"]:has(> [data-col="where"] > .match-why) > [data-col="where"] {
+          grid-column: 4 / -2;
+        }
+        .library-list
+          > [role="row"]:has(> [data-col="where"] > .match-why)
+          > :is([data-col="videos"], [data-col="length"]) {
+          display: none;
+        }
       }
       @container library (max-width: 639px) {
         :is(.library-list, .unreadable-list) {

@@ -33,6 +33,7 @@ vi.mock("../../../pages/src/shell/confirm-dialog", async (importOriginal) => ({
 
 const WEB = "github.com/acme/web";
 const API = "github.com/acme/api";
+const SCRATCH = "local:/Users/me/scratch";
 const AT_WEB = `?project=${encodeURIComponent(WEB)}`;
 const AT_API = `?project=${encodeURIComponent(API)}`;
 
@@ -71,8 +72,21 @@ const video = (
   addedTo: null,
 });
 
-// Three flows in acme/web whose names and steps differ, one in acme/api, and
-// a take in no flow; `day` is the take's date, newest first in the list.
+/** Kept in its repo: under In repo, the only one of acme/web's flows. */
+const kept = (v: VideoSummary): VideoSummary => ({
+  ...v,
+  kept: {
+    file: `.demoman/videos/${v.id}.json`,
+    root: "/r",
+    deliver: "commit",
+    key: WEB,
+  },
+  addedTo: WEB,
+});
+
+// Three flows in acme/web whose names and steps differ (billing kept), one
+// in acme/api, one in a local repo, and a take in no flow; `day` is the
+// take's date, newest first in the list.
 const FLOWS: [VideoSummary, number][] = [
   [
     video(
@@ -85,12 +99,14 @@ const FLOWS: [VideoSummary, number][] = [
     25,
   ],
   [
-    video(
-      "billing",
-      "Update billing",
-      WEB,
-      ["https://app.test/settings/billing"],
-      ["click Save"],
+    kept(
+      video(
+        "billing",
+        "Update billing",
+        WEB,
+        ["https://app.test/settings/billing"],
+        ["click Save"],
+      ),
     ),
     24,
   ],
@@ -114,6 +130,7 @@ const FLOWS: [VideoSummary, number][] = [
     ),
     21,
   ],
+  [video("scratch", "Token scratch", SCRATCH, [], []), 18],
 ];
 const seed = (libraryView?: LibraryViewChoice): MemorySeed => ({
   scenes: [
@@ -364,7 +381,16 @@ describe("library main — search", () => {
     type("token");
     expect(flowsDrawn()).toEqual([]);
     const none = $("[data-none-here]") as HTMLElement;
-    expect(none.textContent).toBe("None here. 1 in acme/api, 1 in No project.");
+    expect(none.textContent).toBe(
+      "None here. 1 in acme/api, 1 in scratch local, 1 in No project.",
+    );
+    // Named as the rail names them, from the rail's own parts.
+    expect($$("[data-rail] .side-label").map((l) => l.textContent)).toContain(
+      "scratch local",
+    );
+    expect(none.querySelector("[data-place-local]")?.textContent).toBe(
+      " local",
+    );
     // Not the empty library's card.
     expect($("[data-empty]")).toBeNull();
     const links = [
@@ -372,12 +398,31 @@ describe("library main — search", () => {
     ];
     expect(links.map((a) => a.textContent)).toEqual([
       "1 in acme/api",
+      "1 in scratch local",
       "1 in No project",
     ]);
     links[0]?.click();
     expect(location.search).toBe(`${AT_API}&q=token`);
     expect(flowsDrawn()).toEqual(["t-token"]);
     expect(box().value).toBe("token");
+  });
+
+  it("None here counts every tab, as the link lands on All", async () => {
+    await boot(`/${AT_WEB}`);
+    $('[data-tab="inRepo"]')?.click();
+    // Premise: In repo holds billing alone, and acme/api's match is not
+    // kept, so under this tab it is in the other one.
+    expect(flowsDrawn()).toEqual(["t-billing"]);
+    expect(FLOWS.find(([v]) => v.id === "token")?.[0].kept).toBeNull();
+    type("token");
+    const link = $(
+      `[data-none-here] a[data-place="${CSS.escape(AT_API)}"]`,
+    ) as HTMLAnchorElement;
+    expect(link?.textContent).toBe("1 in acme/api");
+    link.click();
+    expect(location.search).toBe(`${AT_API}&q=token`);
+    expect($('[data-tab="all"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(flowsDrawn()).toHaveLength(1);
   });
 
   it("a search that hides a ticked flow drops it: Delete names only what shows", async () => {

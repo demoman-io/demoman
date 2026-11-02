@@ -411,7 +411,8 @@ function paint(model: LibraryModel): void {
       search: {
         query,
         sort: searchSort,
-        elsewhere: elsewhere(cards, place, tab, query),
+        // Counted under All: a link there lands on All (`goPlace`).
+        elsewhere: elsewhere(cards, place, "all", query),
       },
     },
   );

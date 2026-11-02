@@ -270,11 +270,19 @@ function entryRow(
       el("span", { "data-name-text": "", title: label }, label),
     );
     const matched = why(card);
-    if (matched !== null) cells.name.append(matchWhy(matched));
+    if (matched !== null) cells.name.append(matchWhy(matched, "name"));
     const strip = tags(r, actions, false);
     if (strip !== null) cells.name.append(strip);
     const at = where(card);
     textCell(cells, "where", at.text, at.title);
+    // Said again in Where, which a narrow list shows instead of the name
+    // cell's (the cards' rule; index.html).
+    if (matched !== null) {
+      cells.where.replaceChildren(
+        el("span", { "data-where-text": "" }, at.text),
+        matchWhy(matched, "where"),
+      );
+    }
     cells.videos.textContent = String(group?.versions.length ?? 1);
     cells.recorded.textContent = e.namesDay ? r.time : r.when;
     cells.recorded.title = r.when;

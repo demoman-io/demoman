@@ -505,7 +505,9 @@ function railList(
 
 /** The title band: a project as the rail names it; the
  *  other places by their words. */
-function placeTitle(place: PlaceView | undefined): (Node | string)[] {
+function placeTitle(
+  place: Pick<PlaceView, "place" | "rail"> | undefined,
+): (Node | string)[] {
   if (place === undefined) return ["Flows"];
   const p = place.place;
   if (typeof p === "string") return [PLACE_WORDS[p]];
@@ -1356,9 +1358,10 @@ function row(
   return article;
 }
 
-/** Why a search found a flow, dim, after its name or in Where's place. */
-export const matchWhy = (why: string): HTMLElement =>
-  el("span", { class: "match-why", "data-match-why": "", title: why }, why);
+/** Why a search found a flow, dim, after its name or in Where's place;
+ *  `slot` names which, in a list row that carries both. */
+export const matchWhy = (why: string, slot = ""): HTMLElement =>
+  el("span", { class: "match-why", "data-match-why": slot, title: why }, why);
 
 /** A card's buttons — Back to the original footage, Restore, Edit, Delete,
  *  whichever it has — and the sentence that stands where Restore would, or
@@ -1896,32 +1899,20 @@ function unreadableRows(
  *  matches as a link there. */
 function noneHere(
   elsewhere: { place: Place; count: number }[],
-  rail: Rail | undefined,
+  rail: Rail,
   query: string,
   actions: LibraryActions,
 ): HTMLElement {
   const line = el("p", { class: "none-here", "data-none-here": "" });
   line.append("None here.");
   for (const [i, { place, count }] of elsewhere.entries()) {
-    const found =
-      typeof place === "object"
-        ? rail?.projects.find((p) => p.key === place.project)
-        : undefined;
-    const name =
-      typeof place === "string"
-        ? PLACE_WORDS[place]
-        : found === undefined
-          ? place.project
-          : `${found.owner === null ? "" : `${found.owner}/`}${found.name}`;
-    const link = el(
-      "a",
-      {
-        // The query goes along, for a link opened in a new tab.
-        href: `${placeSearch(place)}&q=${encodeURIComponent(query)}`,
-        "data-place": placeSearch(place),
-      },
-      `${count} in ${name}`,
-    );
+    const link = el("a", {
+      // The query goes along, for a link opened in a new tab.
+      href: `${placeSearch(place)}&q=${encodeURIComponent(query)}`,
+      "data-place": placeSearch(place),
+    });
+    // Named as the rail names it.
+    link.append(`${count} in `, ...placeTitle({ place, rail }));
     link.addEventListener("click", (event) => {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
         return;
@@ -2012,7 +2003,10 @@ export function renderLibrary(
   const search = place?.search;
   const query = search?.query ?? "";
   const finding =
-    search !== undefined && place?.place !== "unreadable" && searching(query);
+    search !== undefined &&
+    place !== undefined &&
+    place.place !== "unreadable" &&
+    searching(query);
   // After whatever the list drew, on every path out of it.
   const appendUnreadable = (): void => {
     if (unreadable.length > 0) {
@@ -2029,7 +2023,7 @@ export function renderLibrary(
   if (model.rows.length === 0) {
     applySelection(root, actions, undefined);
     if (finding) {
-      list.append(noneHere(search.elsewhere, place?.rail, query, actions));
+      list.append(noneHere(search.elsewhere, place.rail, query, actions));
       return;
     }
     // A library of only unreadable folders is not empty: the empty card
