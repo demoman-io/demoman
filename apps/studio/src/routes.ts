@@ -165,7 +165,8 @@ export function createRoutes(o: {
   // The follow pass spawns git in every recorded checkout, so it runs on
   // start and then at most once per `followEveryMs`, as expireOld throttles
   // itself; a skipped listing says the last pass's rows again, so a row does
-  // not flicker in and out between listings.
+  // not flicker in and out between listings. A rename or a flow's delete
+  // clears them, so a row it settled, or one naming a gone flow, is not said.
   const followEvery = o.followEveryMs ?? 60_000;
   const now = o.now ?? Date.now;
   let lastFollow: { at: number; rows: UnreadableTake[] } | null = null;
@@ -604,6 +605,7 @@ export function createRoutes(o: {
             try {
               if ((await videos.versions(videoId)).length === 0) {
                 await videos.remove(videoId);
+                lastFollow = null;
               }
             } catch (error) {
               parts.push(
@@ -665,7 +667,11 @@ export function createRoutes(o: {
           { videos },
         );
       });
-      if (done.ok) return json(200, {});
+      if (done.ok) {
+        // A rename may settle a collision the last follow pass named.
+        lastFollow = null;
+        return json(200, {});
+      }
       if (done.reason === "videoNotFound") return noVideo(id);
       if ("detail" in done) {
         return refuse(
@@ -696,6 +702,7 @@ export function createRoutes(o: {
           // A record that will not read: its "Couldn't read" row's Delete
           // removes the record alone, and its recordings stay as takes.
           await videos.remove(id);
+          lastFollow = null;
           const answer: DeleteAnswer = {
             note: "Only the unreadable record was removed; its videos stay.",
           };
@@ -737,6 +744,7 @@ export function createRoutes(o: {
       }
       try {
         await onVideoChain(() => videos.remove(id));
+        lastFollow = null;
       } catch (error) {
         const answer: DeleteAnswer = {
           note: noteOf(parts),

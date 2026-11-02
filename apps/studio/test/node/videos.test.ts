@@ -581,6 +581,77 @@ describe("the takes listing's videos", () => {
       },
     );
 
+    describe("a cached collision row", () => {
+      /** Two flows "Pay a bill" brought into one project, listed once under
+       *  a throttle long enough that no listing here follows again. */
+      async function collided() {
+        await h.close();
+        h = await startStudio(home, { followEveryMs: 3_600_000 });
+        const old = await checkout(
+          "studio-cache-old-",
+          "git@github.com:a/r.git",
+        );
+        const fresh = await checkout(
+          "studio-cache-new-",
+          "git@github.com:b/r.git",
+        );
+        roots.push(old.root, fresh.root);
+        const first = await recordedIn(old.root, "github.com/a/r", old.head);
+        const second = await recordedIn(
+          fresh.root,
+          "github.com/b/r",
+          fresh.head,
+        );
+        git(old.root, "remote", "set-url", "origin", "git@github.com:b/r.git");
+        const body = await listing();
+        // Premise: the pass named the collision, and caches it for an hour.
+        expect(collisionRow(body), JSON.stringify(body.unreadable)).toContain(
+          "are now in one project; rename one",
+        );
+        expect(collisionRow(await listing())).toBe(collisionRow(body));
+        return { first, second };
+      }
+      const collisionRow = (body: TakesAnswer) =>
+        body.unreadable.find(
+          (u) => u.folder === "following projects' checkouts",
+        )?.reason;
+      let roots: string[] = [];
+      afterEach(async () => {
+        for (const r of roots) await rm(r, { recursive: true, force: true });
+        roots = [];
+      });
+
+      // Red: drop videoRename's `lastFollow = null` — the cached row still
+      // says "rename one" after the rename that settled it.
+      it("a rename that settles it clears the row on the next listing", async () => {
+        const { first } = await collided();
+        const r = await h.call(pathFor("videoRename", { id: first }), {
+          method: "PUT",
+          body: JSON.stringify({ name: "Pay a bill again" }),
+        });
+        expect(r.status, r.text).toBe(200);
+        const body = await listing();
+        expect(collisionRow(body), JSON.stringify(body.unreadable)).toBe(
+          undefined,
+        );
+      });
+
+      // Red: drop videoDelete's `lastFollow = null` — the row names a flow
+      // that is gone.
+      it("deleting one of the pair clears the row on the next listing", async () => {
+        const { second } = await collided();
+        const r = await h.call(pathFor("videoDelete", { id: second }), {
+          method: "DELETE",
+        });
+        expect(r.status, r.text).toBe(200);
+        const body = await listing();
+        expect(body.videos.some((v) => v.id === second)).toBe(false);
+        expect(collisionRow(body), JSON.stringify(body.unreadable)).toBe(
+          undefined,
+        );
+      });
+    });
+
     it("an alias table that will not read is a row naming it, and every flow still lists", async () => {
       const path = join(home, "videos", ".aliases.json");
       await writeFile(path, "{nope");
