@@ -745,13 +745,15 @@ describe("write-back", () => {
     // [offsetMs, finishMs, zoomOutMs, end, why]
     [1800, 400, 1500, { ms: 300 }, "past the zoom-out: the default"],
     [900, 400, 1500, { ms: 500, after: "action" }, "before the zoom-out"],
-    [900, 400, null, { ms: 500 }, "no zoom yet: the finish is the zoom-out"],
+    // The base was the finish, so the end says so: a re-record that zooms
+    // there would otherwise wait for that zoom-out and end later.
+    [900, 400, null, { ms: 500, after: "action" }, "no zoom-out: the finish"],
     [1500, 400, 1500, { ms: 0 }, "right at the zoom-out"],
     [
       1000,
       900,
       300,
-      { ms: 100 },
+      { ms: 100, after: "action" },
       "a zoom-out before the finish: measured from the finish",
     ],
   ])(

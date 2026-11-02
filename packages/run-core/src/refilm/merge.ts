@@ -294,10 +294,16 @@ function writeBack(
   if (tail !== undefined && base !== null) {
     const k = at(tail.actionId);
     const { finishMs, zoomOutMs } = base;
-    const zoomedOut =
-      zoomOutMs === null ? finishMs : Math.max(finishMs, zoomOutMs);
     let end: NonNullable<ScriptTrim["end"]>;
-    if (tail.offsetMs >= zoomedOut) end = { ms: tail.offsetMs - zoomedOut };
+    // The default `after` only when the zoom-out was the base: measured from
+    // the finish, the end says `"action"`, or a re-record that zooms there
+    // would wait for that zoom-out and end later than the trim.
+    if (
+      zoomOutMs !== null &&
+      zoomOutMs > finishMs &&
+      tail.offsetMs >= zoomOutMs
+    )
+      end = { ms: tail.offsetMs - zoomOutMs };
     else if (tail.offsetMs >= finishMs)
       end = { ms: tail.offsetMs - finishMs, after: "action" };
     else {
