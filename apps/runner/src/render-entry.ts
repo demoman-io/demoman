@@ -80,6 +80,9 @@ export interface RenderManifest {
   /** Stills only: the output instants to take (`renderOutput`'s). Absent:
    *  one per step. */
   outputTimesMs?: number[];
+  /** Mp4 or gif only: just the still screens, each `width` wide
+   *  (`renderOutput`'s `screensOnly`). Absent: the whole file. */
+  screensOnly?: { width: number };
 }
 
 export interface RenderedFacts extends RenderFacts {
@@ -280,6 +283,9 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
     ...(manifest.outputTimesMs === undefined
       ? {}
       : { outputTimesMs: manifest.outputTimesMs }),
+    ...(manifest.screensOnly === undefined
+      ? {}
+      : { screensOnly: manifest.screensOnly }),
     onFrame: wholePercent((done, total, width, pass) =>
       width === undefined
         ? report?.(done, total)

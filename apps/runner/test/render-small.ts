@@ -169,7 +169,7 @@ export async function renderSmallFilm(
 
 /** A real `FIXTURE_WIDTH`x`FIXTURE_HEIGHT` JPEG of one flat colour, encoded by
  *  the page's own canvas — as `frame.jpg` was made. */
-async function fillJpeg(page: Page, color: string): Promise<Uint8Array> {
+export async function fillJpeg(page: Page, color: string): Promise<Uint8Array> {
   const base64 = await page.evaluate(
     async ([fill, w, h]) => {
       const canvas = new OffscreenCanvas(w as number, h as number);
