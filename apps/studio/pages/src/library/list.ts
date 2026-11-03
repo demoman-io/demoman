@@ -155,6 +155,42 @@ const chevron = (): SVGSVGElement => {
   return chev;
 };
 
+/** A row's buttons as a menu behind a ⋯, for a touchscreen, where no
+ *  hover reveals them and drawn at rest they covered Recorded
+ *  (2026-11-03; index.html shows one or the other). Each item is its
+ *  button's glyph and title up to the dash, and presses that button. */
+function rowMenu(
+  buttons: HTMLElement,
+  label: string,
+  key: string,
+): HTMLElement[] {
+  const id = `row-menu-${key}`;
+  const more = el("button", {
+    type: "button",
+    class: "btn btn-quiet btn-icon row-more",
+    popovertarget: id,
+    "aria-label": `More for ${label}`,
+    title: "More",
+  });
+  more.append(icon("ellipsis"));
+  const menu = el("div", { id, popover: "", role: "menu", class: "row-menu" });
+  for (const b of buttons.querySelectorAll<HTMLButtonElement>("button")) {
+    const item = el("button", { type: "button", role: "menuitem" });
+    if (b.classList.contains("btn-danger")) item.classList.add("btn-danger");
+    item.append(
+      ...[...b.childNodes].map((n) => n.cloneNode(true)),
+      b.title.split(" — ")[0] ?? b.title,
+    );
+    item.disabled = b.disabled;
+    item.addEventListener("click", () => {
+      menu.hidePopover();
+      b.click();
+    });
+    menu.append(item);
+  }
+  return [more, menu];
+}
+
 /** Each flow row's rename, and each take's in no flow: what Enter on the
  *  name cell and the row's Rename button open (§4.6). */
 const renamers = new WeakMap<HTMLElement, () => void>();
@@ -326,7 +362,7 @@ function entryRow(
       rename,
       buttons.querySelector('[data-action="edit"], [data-action="delete"]'),
     );
-    cells.actions.append(buttons);
+    cells.actions.append(buttons, ...rowMenu(buttons, label, e.key));
     if (rerunLine !== null) {
       const rerun = el("p", { "data-rerun-line": "", class: "row-rerun" });
       setCodeText(rerun, rerunLine);
@@ -378,14 +414,13 @@ function entryRow(
     cells.recorded.title = v.when;
     cells.size.textContent =
       v.sizeBytes === undefined ? "—" : formatBytes(v.sizeBytes);
-    cells.actions.append(
-      versionButtons(
-        v,
-        flows.get(e.flowId) as VideoGroup,
-        actions,
-        footage === "here",
-      ),
+    const buttons = versionButtons(
+      v,
+      flows.get(e.flowId) as VideoGroup,
+      actions,
+      footage === "here",
     );
+    cells.actions.append(buttons, ...rowMenu(buttons, name, e.key));
     const status = rowStatus.get(statusKey("take", v.sceneId));
     if (status !== undefined) said.push(sentence(status));
   }

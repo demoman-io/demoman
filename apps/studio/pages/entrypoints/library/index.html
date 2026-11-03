@@ -3,6 +3,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Flows - Demoman</title>
     <!-- The shell — tokens, faces, the top bar and tabs, cards, buttons, notices
          — is shared with the popup. Only this page's own rules are inline
@@ -1205,14 +1206,59 @@
         opacity: 0;
         pointer-events: none;
       }
-      /* Where nothing hovers they show always, so they never cover: the
-         date stays readable beside them. */
+      /* Where nothing hovers (a touchscreen) they would show always, and
+         over Recorded they covered the date (2026-11-03): there they fold
+         into a menu behind a ⋯ (list.ts `rowMenu`), which takes the end of
+         a Recorded track grown by its width. */
+      .library-list .row-more { display: none; }
       @media (hover: none) {
-        .library-list .row-actions {
-          opacity: 1;
+        .library-list .row-actions { display: none; }
+        .library-list .row-more {
+          display: inline-flex;
           pointer-events: auto;
-          background: none;
         }
+        :is(.library-list, .unreadable-list) { --recorded: calc(9em + 32px); }
+        .library-list > [role="row"] > [data-col="recorded"] { padding-right: 32px; }
+      }
+      /* Under its ⋯, the end aligned, or above it when the screen ends. */
+      .row-menu {
+        inset: auto;
+        margin: 4px 0;
+        position-area: bottom span-left;
+        position-try-fallbacks: flip-block;
+        min-width: 176px;
+        padding: 4px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--shell);
+        color: var(--ink);
+        box-shadow: 0 0 0 1px var(--line-2), 0 12px 32px rgb(0 0 0 / 0.5);
+        line-height: normal;
+        pointer-events: auto;
+      }
+      .row-menu > button {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        height: 40px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 6px;
+        background: none;
+        color: inherit;
+        font: inherit;
+        font-size: 14px;
+        text-align: left;
+      }
+      .row-menu > button:is(:hover, :active, :focus-visible) { background: var(--control-hover); }
+      .row-menu > button.btn-danger { color: var(--error); }
+      .row-menu > button:disabled { color: var(--ink-faint); }
+      .row-menu svg { width: 16px; height: 16px; flex: none; }
+      /* A finger's row (2026-11-03): 44px, the least a tap target should
+         be, where the pointer is coarse; a mouse keeps the dense 34. */
+      @media (pointer: coarse) {
+        :is(.library-list, .unreadable-list) { --list-row: 44px; }
       }
       .library-list > [aria-expanded="true"] .chev { transform: rotate(90deg); }
       /* An opening flow's videos fade in; no height animation. */
@@ -1306,6 +1352,17 @@
             var(--recorded);
         }
         .library-list [data-col="videos"] { display: none; }
+      }
+      /* A phone's list (under 480, the tab row's cut too) drops Where: at
+         31px it read "/or…". The name takes its room, and a search's why
+         goes back beside the name, as wide. A video's export labels, in
+         its Where, go with it. */
+      @container library (max-width: 479px) {
+        .library-list {
+          grid-template-columns: 20px minmax(0, 1fr) var(--recorded);
+        }
+        .library-list [data-col="where"] { display: none; }
+        .library-list [data-col="name"] > .match-why { display: inline; }
       }
       /* "Couldn't read" in the list layout, drawn in its own place (no flow
          rows and no column heads above it): the list's column template, so

@@ -349,6 +349,13 @@ const GLYPHS = {
     "M15 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z",
     "M4 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z",
   ],
+  /** A list row's menu on a touchscreen (2026-11-03). Lucide `ellipsis`,
+   *  its three circles written as paths. */
+  ellipsis: [
+    "M6 12a1 1 0 1 1-2 0 1 1 0 1 1 2 0z",
+    "M13 12a1 1 0 1 1-2 0 1 1 0 1 1 2 0z",
+    "M20 12a1 1 0 1 1-2 0 1 1 0 1 1 2 0z",
+  ],
   /** Rename a flow on its list row. Lucide `pencil-line`: here the pencil
    *  does say "edit this text". */
   pencilLine: [

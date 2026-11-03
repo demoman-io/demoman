@@ -3,6 +3,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Settings - Demoman</title>
     <!-- The shell — tokens, faces, the top bar and tabs, cards,
          buttons, switches, notices — is shared with the popup and the
@@ -156,6 +157,10 @@
          next, rather than wrapping Delete alone under Duplicate. */
       @container (max-width: 420px) {
         .kit-name { flex-basis: 100%; }
+        /* Two tiles across on a phone (2026-11-03): at their fixed width
+           only one fit, and half the card stood empty beside it. */
+        .kit-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .kit-tile { width: auto; }
       }
       .kit-hero { display: flex; justify-content: center; margin-bottom: 8px; }
       /* Stacked, the groups take the picture's width and centre line, so a

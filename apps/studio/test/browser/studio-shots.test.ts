@@ -4781,4 +4781,104 @@ describe("the Studio's screenshot set", () => {
     },
     LANE_MS,
   );
+
+  // A phone as Chrome's device mode makes one (2026-11-03): touch, no
+  // hover, 390x844 at 3x. A narrowed desktop window still hovers, and
+  // the row actions it hides at rest were drawn over Recorded on a phone.
+  it.runIf(process.platform === "darwin")(
+    "shoots the library, the editor and Settings as a phone draws them",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-phone-"));
+      homes.push(home);
+      const { editorTake } = await seedHome(home, VIDEO_TAKES);
+      await joinVideo(home);
+      await mkdir(SHOTS, { recursive: true });
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, opened.text).toBe(200);
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Emulation.setDeviceMetricsOverride", {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 3,
+        mobile: true,
+      });
+      await cdp.send("Emulation.setTouchEmulationEnabled", {
+        enabled: true,
+        maxTouchPoints: 5,
+      });
+      await cdp.send("Emulation.setEmulatedMedia", {
+        features: [
+          { name: "hover", value: "none" },
+          { name: "any-hover", value: "none" },
+          { name: "pointer", value: "coarse" },
+          { name: "any-pointer", value: "coarse" },
+        ],
+      });
+      const shoot = async (name: string) => {
+        const p = await page.evaluate(() => ({
+          w: innerWidth,
+          hoverNone: matchMedia("(hover: none)").matches,
+          scrollWidth: document.documentElement.scrollWidth,
+        }));
+        // Premises: the page is a phone's, and it hovers nothing.
+        expect(p, name).toMatchObject({ w: 390, hoverNone: true });
+        // Not `fullPage`: Playwright's resize for it drops the emulation
+        // above mid-shot, and a fading swap was caught half done.
+        await page.screenshot({ path: join(SHOTS, `phone-${name}.png`) });
+        expect(
+          await page.evaluate(() => matchMedia("(hover: none)").matches),
+          `${name}: still a phone after the shot`,
+        ).toBe(true);
+        return p;
+      };
+      await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+      await page.goto(`${studio.origin}/`);
+      await page.locator("[role=treegrid] [data-flow]").first().waitFor();
+      await settle(page, "phone list");
+      await shoot("library-list");
+      await page
+        .locator("[role=treegrid] [data-flow] [data-col=open]")
+        .first()
+        .click();
+      await settle(page, "phone list opened");
+      await shoot("library-list-opened");
+      // A row's buttons behind its ⋯ (none hover here), the menu open.
+      await page
+        .locator("[role=treegrid] [data-flow] .row-more")
+        .first()
+        .click();
+      await page.locator(".row-menu:popover-open").waitFor();
+      await shoot("library-list-menu");
+      await page.keyboard.press("Escape");
+      await page
+        .locator("[data-search] input, input[type=search]")
+        .first()
+        .fill("invoice");
+      await settle(page, "phone search");
+      await shoot("library-search");
+      await storeLibraryView(studio, GRID_VIEW);
+      await page.goto(`${studio.origin}/`);
+      await page.locator("article.card[data-row]").first().waitFor();
+      await settle(page, "phone grid");
+      await shoot("library-grid");
+      await page.goto(`${studio.origin}/editor.html?scene=${editorTake}`);
+      await page.locator("#preview").waitFor();
+      await settle(page, "phone editor");
+      await shoot("editor");
+      await page.goto(`${studio.origin}/settings.html`);
+      await page.locator("[data-kit-tile]").first().waitFor();
+      await settle(page, "phone settings");
+      await shoot("settings");
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
 });

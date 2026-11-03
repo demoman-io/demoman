@@ -426,6 +426,45 @@ describe("the library's search box", () => {
     });
   });
 
+  // Red: Where kept at a phone's width, 31px of "/or…", the why in it.
+  it("drops Where on a phone, the why back beside the name, and keeps it at 560", async () => {
+    await bootOnce();
+    await userEvent.fill(input(), "email");
+    await vi.waitFor(() => {
+      if (flows().join() !== "signup") throw new Error("not narrowed yet");
+    });
+    await page.viewport(560, 640);
+    const where = node('[data-flow="signup"] [data-col="where"]');
+    expect(where.checkVisibility(), "premise: Where shows at 560").toBe(true);
+    expect(why("signup", "where").checkVisibility()).toBe(true);
+    await page.viewport(390, 640);
+    const head = node('[data-list-head] [data-col="where"]');
+    expect({
+      cell: where.checkVisibility(),
+      head: head.checkVisibility(),
+    }).toEqual({
+      cell: false,
+      head: false,
+    });
+    const at = floorAndWord("signup", "Email");
+    expect(
+      { nameAtFloor: at.nameAtFloor, wordPainted: at.wordPainted },
+      at.evidence,
+    ).toEqual({ nameAtFloor: true, wordPainted: true });
+    // The name's cell reaches Recorded: no empty track between them.
+    const name = rect(node('[data-flow="signup"] [data-col="name"]'));
+    const recorded = rect(node('[data-flow="signup"] [data-col="recorded"]'));
+    expect(
+      recorded.left - name.right,
+      JSON.stringify({ name, recorded }),
+    ).toBeLessThanOrEqual(12.5);
+    const html = document.documentElement;
+    expect(html.scrollWidth).toBeLessThanOrEqual(html.clientWidth);
+    await page.screenshot({
+      path: "__screenshots__/library-search-box/phone-why-390x640.png",
+    });
+  });
+
   it("fits a 720px window with no sideways scroll, the box still drawn", async () => {
     await bootOnce();
     await page.viewport(720, 900);

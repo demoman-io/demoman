@@ -1102,30 +1102,93 @@ describe("the look pass's focus, cover and Couldn't read heading", () => {
     expect(close(outside, ink, 24), `${outside} vs ${ink}`).toBe(true);
   });
 
-  // Red: the cover's opaque ground kept on a device that never hovers,
-  // where the actions always show.
-  it("on a device with no hover the dates still paint beside the buttons", async () => {
-    await page.viewport(960, 640);
-    mount();
-    // The page's own `(hover: none)` rules, applied as such a device
-    // applies them. Not CDP's emulation: touch emulation turns the query
-    // true but the lane's screenshot still paints the hover rules
-    // (measured: the same glyphs with the cover's ground on and off), and
-    // setEmulatedMedia does not emulate `hover` at all.
-    const sheet = document.head.querySelector("[data-shell]") as HTMLElement;
-    const query = "@media (hover: none)";
-    expect(sheet.textContent?.split(query).length ?? 0).toBeGreaterThan(1);
-    sheet.textContent = (sheet.textContent ?? "").replaceAll(
-      query,
-      "@media all",
-    );
-    const actions = cell("f:N0", "actions").querySelector(
-      ".row-actions",
-    ) as HTMLElement;
-    // Premise: the buttons show at rest there.
-    expect(getComputedStyle(actions).opacity).toBe("1");
-    expect(dateGlyphs(await pixels(), "f:N0")).toBeGreaterThan(5);
-  });
+  // Red: the buttons drawn at rest where nothing hovers, over Recorded,
+  // the date under them (2026-11-03, the author's phone emulation).
+  for (const width of [960, 390]) {
+    it(`at ${width}px on a touchscreen the buttons fold behind a ⋯ right of a whole date, 44px rows, and its menu presses them`, async () => {
+      await page.viewport(width, 640);
+      const removed: string[] = [];
+      const remove = ACTIONS.remove;
+      ACTIONS.remove = (...args: unknown[]) => {
+        removed.push(String(args[0]));
+      };
+      try {
+        mount();
+        // The page's own touch rules, applied as such a device applies
+        // them (CDP's emulation leaves the screenshot painting the hover
+        // rules, measured on the cover).
+        const sheet = document.head.querySelector(
+          "[data-shell]",
+        ) as HTMLElement;
+        for (const query of [
+          "@media (hover: none)",
+          "@media (pointer: coarse)",
+        ]) {
+          expect(sheet.textContent, `premise: ${query}`).toContain(query);
+          sheet.textContent = (sheet.textContent ?? "").replaceAll(
+            query,
+            "@media all",
+          );
+        }
+        const paint = await pixels();
+        for (const key of ["f:N0", "t:loose"]) {
+          const actions = cell(key, "actions");
+          const more = actions.querySelector(".row-more") as HTMLElement;
+          const row_ = actions.querySelector(".row-actions") as HTMLElement;
+          const recorded = cell(key, "recorded");
+          const date = textBox(recorded);
+          const m = more.getBoundingClientRect();
+          const said = JSON.stringify({ key, date, m });
+          expect(row_.checkVisibility(), said).toBe(false);
+          expect(more.checkVisibility(), said).toBe(true);
+          expect(m.width, said).toBeGreaterThanOrEqual(28);
+          // The date whole, left of the ⋯, and painted.
+          expect(recorded.scrollWidth, said).toBeLessThanOrEqual(
+            recorded.clientWidth,
+          );
+          expect(date.right, said).toBeLessThanOrEqual(m.left);
+          let bright = 0;
+          for (let x = Math.ceil(date.left); x < date.right; x++) {
+            for (let y = Math.ceil(date.top); y < date.bottom; y++) {
+              if (Math.max(...paint(x + 0.5, y + 0.5).slice(0, 3)) > 120) {
+                bright++;
+              }
+            }
+          }
+          expect(bright, said).toBeGreaterThan(20);
+          const hit = at(m.left + m.width / 2, m.top + m.height / 2);
+          expect(hit !== null && more.contains(hit), said).toBe(true);
+          expect(row(key).getBoundingClientRect().height, said).toBe(44);
+        }
+        // The menu: the row's buttons by name, on screen, each pressing its
+        // button.
+        const actions = cell("f:N0", "actions");
+        await userEvent.click(actions.querySelector(".row-more") as Element);
+        const menu = actions.querySelector(".row-menu") as HTMLElement;
+        expect(menu.matches(":popover-open")).toBe(true);
+        const items = [...menu.querySelectorAll<HTMLElement>("button")];
+        expect(items.map((b) => b.textContent)).toEqual([
+          "Rename",
+          "Edit",
+          "Delete",
+        ]);
+        const html = document.documentElement;
+        for (const b of items) {
+          const r = b.getBoundingClientRect();
+          const said = JSON.stringify({ text: b.textContent, r });
+          expect(r.left, said).toBeGreaterThanOrEqual(0);
+          expect(r.right, said).toBeLessThanOrEqual(html.clientWidth);
+          expect(r.bottom, said).toBeLessThanOrEqual(html.clientHeight);
+          expect(at(r.left + r.width / 2, r.top + r.height / 2), said).toBe(b);
+        }
+        await userEvent.click(items[2] as HTMLElement);
+        expect(removed).toHaveLength(1);
+        expect(menu.matches(":popover-open")).toBe(false);
+      } finally {
+        ACTIONS.remove = remove;
+      }
+    });
+  }
 
   // Red: the heading's actions cell at the row's top, in the 14px above
   // its label's line.
@@ -1417,7 +1480,9 @@ describe("under a 760px list the rows line up with the tab row", () => {
           return out;
         };
         const rest = ink(await pixels());
-        await userEvent.hover(cell(key, "where"));
+        // The chevron's cell: a phone's list has no Where to hover, and a
+        // heading's Where lies over its name cell's middle.
+        await userEvent.hover(cell(key, "open"));
         expect(getComputedStyle(box).opacity, said).toBe("1");
         const shown = ink(await pixels());
         const changed = shown.filter((p, i) => !close(p, rest[i] ?? [], 6));
@@ -1428,7 +1493,7 @@ describe("under a 760px list the rows line up with the tab row", () => {
         const hit = at(b.left + b.width / 2, b.top + b.height / 2);
         expect(hit, said).toBe(box);
         expect([...row(key).children].map(rectOf), said).toEqual(cells);
-        await userEvent.unhover(cell(key, "where"));
+        await userEvent.unhover(cell(key, "open"));
       }
     });
   }

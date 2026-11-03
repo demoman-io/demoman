@@ -861,6 +861,12 @@
 [data-studio] .kit-tile {
   width: 148px;
 }
+/* Two across on a phone: the settings page's grid sizes them there. */
+@container (max-width: 420px) {
+  [data-studio] .kit-tile {
+    width: auto;
+  }
+}
 [data-studio] .kit-pick {
   border: 0;
   border-radius: var(--r-panel);

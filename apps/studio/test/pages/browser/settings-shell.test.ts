@@ -415,6 +415,19 @@ describe.each(["light", "dark"] as const)("the Settings page, %s", (scheme) => {
       expect(r.left).toBeGreaterThanOrEqual(card.left);
       expect(r.right).toBeLessThanOrEqual(card.right + 0.5);
     }
+    // Two tiles across (2026-11-03), filling the card's width: red with
+    // the fixed-width tiles, which left one per line and half the card
+    // empty.
+    const [a, b, c] = [...kit.querySelectorAll(".kit-strip > *")].map((t) =>
+      t.getBoundingClientRect(),
+    ) as [DOMRect, DOMRect, DOMRect];
+    const strip = (
+      kit.querySelector(".kit-strip") as HTMLElement
+    ).getBoundingClientRect();
+    const said = JSON.stringify({ a, b, c, strip });
+    expect(Math.abs(a.top - b.top), said).toBeLessThan(1);
+    expect(c.top, said).toBeGreaterThan(a.bottom);
+    expect(b.right, said).toBeGreaterThan(strip.right - 1);
     paintKits(kit);
     kit.scrollIntoView({ block: "start" });
     await page.screenshot({
