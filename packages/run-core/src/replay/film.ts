@@ -22,6 +22,7 @@ import {
   type SceneBranding,
   type SceneDocument,
   type ScriptStep,
+  spotIn,
 } from "@demoman/scene-schema";
 import { pointRect } from "../drag-points.js";
 
@@ -354,13 +355,21 @@ export function filmQuality(
       scene.branding,
       frame,
     );
-    // A drag is framed by its two points (`dragPoints`); anything else, or a
-    // drag whose end cannot be placed, by its element's box.
+    // A drag is framed by its two points (`dragPoints`); a click on a box
+    // the shot cannot hold (a page-sized canvas) by the spot it lands, as
+    // the walk pressed it; anything else by its element's box.
     const points =
       action.kind === "drag"
         ? dragPoints(action, target, endAt.get(action.id))
         : null;
-    const startRect = points === null ? target : pointRect(points.start);
+    const tooBig =
+      target.width > visible.width || target.height > visible.height;
+    const startRect =
+      points !== null
+        ? pointRect(points.start)
+        : action.kind === "click" && tooBig
+          ? pointRect(spotIn(target, action.at))
+          : target;
     const endRect =
       points === null ? endAt.get(action.id) : pointRect(points.end);
     const label = framingOf(startRect, visible, shot);
