@@ -578,6 +578,143 @@ describe("the workflow's shape", () => {
   });
 });
 
+describe("release and daily triggers", () => {
+  const release = ciWorkflow({
+    version: "0.2.0",
+    trigger: "release",
+    route: "pr",
+  });
+  const daily = ciWorkflow({ version: "0.2.0", trigger: "daily", route: "pr" });
+
+  it("records a published release at its tag", () => {
+    expect(release).toContain("on:\n  release:\n    types: [published]\n");
+    expect(release).toContain(`ref: ${expr("github.event.release.tag_name")}`);
+    expect(release).not.toContain("push:");
+  });
+
+  it("records once a day on the branch it watches, and only on the schedule", () => {
+    expect(daily).toContain('on:\n  schedule:\n    - cron: "17 6 * * *"\n');
+    expect(daily).not.toContain("workflow_dispatch");
+    // The schedule runs on the default branch: the checkout names no ref.
+    expect(lines(daily).filter((l) => l.trim().startsWith("ref:"))).toEqual([]);
+  });
+
+  it("guards neither with the loop guard, which only a push can trip", () => {
+    for (const y of [release, daily]) {
+      expect(y).not.toContain("Skip Demoman's own commits");
+      expect(y).not.toContain("steps.guard");
+      expect(lines(y).filter((l) => l.startsWith("    if:"))).toEqual([]);
+    }
+    // Premise: the push workflow still has it.
+    expect(push).toContain("Skip Demoman's own commits");
+  });
+
+  it("asks both to start the app, as push does", () => {
+    for (const y of [release, daily]) expect(y).toContain("Start your app");
+  });
+
+  it("refuses the main route on a release, which checks out a tag", () => {
+    expect(() =>
+      ciWorkflow({ version: "0.2.0", trigger: "release", route: "main" }),
+    ).toThrow(
+      "--route main cannot go with a release trigger: the released commit is a tag, not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a daily or push trigger.",
+    );
+    expect(() =>
+      ciWorkflow({ version: "0.2.0", trigger: "daily", route: "main" }),
+    ).not.toThrow();
+  });
+});
+
+describe("the daily run stops early when nothing is new", () => {
+  const daily = (artifact: boolean) =>
+    ciWorkflow({
+      version: "0.2.0",
+      trigger: "daily",
+      route: "pr",
+      ...(artifact ? { artifact: true } : {}),
+    });
+  const names = (y: string) =>
+    lines(y)
+      .filter(
+        (l) => l.startsWith("      - name:") || l.startsWith("      - uses:"),
+      )
+      .map((l) => l.trim());
+  const at = (y: string, name: string) =>
+    names(y).findIndex((n) => n.includes(name));
+
+  it("checks before Chromium and the app, after the last run's videos are fetched", () => {
+    for (const y of [daily(false), daily(true)]) {
+      const check = at(y, "Anything new since the last refresh?");
+      expect(check, names(y).join("\n")).toBeGreaterThan(
+        at(y, "actions/setup-node"),
+      );
+      expect(check).toBeLessThan(at(y, "Install Chromium"));
+      expect(check).toBeLessThan(at(y, "Refresh the repo's flows"));
+      expect(y.indexOf("id: fresh")).toBeLessThan(
+        y.indexOf("# Start your app"),
+      );
+    }
+    const a = daily(true);
+    expect(at(a, "Fetch the last run's videos")).toBeLessThan(
+      at(a, "Anything new since the last refresh?"),
+    );
+  });
+
+  it("runs the check with the fetched receipts, and stops only on its 3", () => {
+    expect(daily(true)).toContain(
+      "if npx --prefix ~/ -y demoman@0.2.0 refresh --check --previous demoman-out $since; then",
+    );
+    expect(daily(false)).toContain(
+      "if npx --prefix ~/ -y demoman@0.2.0 refresh --check $since; then",
+    );
+    const y = daily(false);
+    expect(y).toContain('[ "$code" -eq 3 ] || exit "$code"');
+    expect(y).toContain('echo "skip=true" >> "$GITHUB_OUTPUT"');
+    expect(y).toContain(
+      `echo "Nothing but the refresh's own files changed since each repo flow was last recorded or refreshed; nothing to refresh."`,
+    );
+  });
+
+  it("anchors on this workflow's own last successful scheduled run, an ancestor of HEAD", () => {
+    const y = daily(false);
+    expect(y).toContain("actions: read");
+    expect(y).toContain("runs?event=schedule&status=success&per_page=20");
+    expect(y).toContain(
+      'select(((.path // "") | startswith($ENV.WF)) and .head_repository.id == .repository.id)',
+    );
+    expect(y).toContain('git merge-base --is-ancestor "$s" HEAD');
+    expect(y).toContain('since="--since $s"');
+    // A listing that fails is said, and the check judges by the receipts.
+    expect(y).toContain(
+      "::warning::This workflow's earlier runs could not be listed, so each flow is judged by its receipt.",
+    );
+    expect(y).toContain(`GH_TOKEN: ${expr("github.token")}`);
+  });
+
+  it("skips every step after the check when it says so", () => {
+    const y = daily(true);
+    const after = lines(y).slice(
+      lines(y).findIndex((l) => l.includes("id: fresh")) + 1,
+    );
+    const conds = after.filter((l) => l.trim().startsWith("if: ${{"));
+    expect(conds.length).toBeGreaterThanOrEqual(5);
+    for (const c of conds)
+      expect(c).toContain("steps.fresh.outputs.skip != 'true'");
+  });
+
+  it("is the daily run's alone: every other trigger records regardless", () => {
+    for (const t of ["push", "release", { deployment: "P" }] as const)
+      expect(
+        ciWorkflow({
+          version: "0.2.0",
+          trigger: t,
+          route: "pr",
+          artifact: true,
+        }),
+      ).not.toContain("refresh --check");
+  });
+});
+
 describe("ciSetup", () => {
   const io = (
     over: {
@@ -619,6 +756,43 @@ describe("ciSetup", () => {
     );
     expect(said).toContain("Start your app");
     expect(said).toContain("_ORIGIN");
+  });
+
+  it("takes release and daily by name, and an environment named like them by deployment:", async () => {
+    const r = io();
+    expect(
+      await ciSetup(["--ci", "--trigger", "release", "--route", "pr"], r.io),
+    ).toBe(0);
+    expect(r.wrote[0]?.[1]).toContain("  release:");
+    const d = io();
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "main"], d.io),
+    ).toBe(0);
+    expect(d.wrote[0]?.[1]).toContain("  schedule:");
+    const e = io();
+    expect(
+      await ciSetup(
+        ["--ci", "--trigger", "deployment:release", "--route", "pr"],
+        e.io,
+      ),
+    ).toBe(0);
+    expect(e.wrote[0]?.[1]).toContain(
+      "github.event.deployment.environment == 'release'",
+    );
+    const m = io();
+    expect(
+      await ciSetup(["--ci", "--trigger", "release", "--route", "main"], m.io),
+    ).toBe(1);
+    expect(m.said.join("\n")).toContain("cannot go with a release trigger");
+    expect(m.wrote).toEqual([]);
+  });
+
+  it("names every trigger when there is no terminal to ask in", async () => {
+    const m = io();
+    expect(await ciSetup(["--ci"], m.io)).toBe(1);
+    expect(m.said.join("\n")).toContain(
+      "pass --trigger release|daily|push|<environment> and --route pr|main",
+    );
   });
 
   it("stops, writing nothing, without a terminal or with a file already there", async () => {

@@ -381,14 +381,22 @@ export function ciPrompts(): NonNullable<CiIo["ask"]> {
       const how = await select({
         message: "When should Demoman refresh the repo's flows?",
         options: [
-          { value: "push", label: "On each merge to main" },
           { value: "deployment", label: "After a successful deployment" },
+          { value: "release", label: "When a release is published" },
+          { value: "daily", label: "Once a day" },
+          {
+            value: "push",
+            label: "On each merge to main (records every repo flow each time)",
+          },
         ],
       });
       if (isCancel(how)) return null;
-      if (how === "push") return "push";
+      if (how !== "deployment") return how;
       const env = await text({ message: "The deployment environment's name" });
-      return isCancel(env) || env.trim() === "" ? null : env.trim();
+      // Prefixed, so an environment named like a trigger stays an environment.
+      return isCancel(env) || env.trim() === ""
+        ? null
+        : `deployment:${env.trim()}`;
     },
     route: async () => {
       const route = await select({

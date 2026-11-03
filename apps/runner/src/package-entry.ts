@@ -27,6 +27,7 @@ export {
   type RefreshVideo,
   refreshKept,
 } from "./executor/refresh.js";
+export { checkCurrent } from "./executor/refresh-check.js";
 export { execGit, type GitRunner, readRepo } from "./executor/repo.js";
 export { samePicture } from "./executor/same-picture.js";
 export type { ExecutorOptions, LocalExecutor } from "./executor/types.js";

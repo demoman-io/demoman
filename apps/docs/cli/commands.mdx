@@ -26,15 +26,24 @@ terminal (a script, CI) nothing is asked.
 ### setup --ci
 
 ```bash
-npx demoman setup --ci [--trigger push|<environment>] [--route pr|main] [--artifact]
+npx demoman setup --ci [--trigger release|daily|push|<environment>] [--route pr|main] [--artifact]
 ```
 
-Writes `.github/workflows/demoman.yml`, which runs `demoman refresh --deliver`
-on each merge to main (`push`) or after each successful deployment to the named
-environment. `--route pr` opens a pull request with the changed files, and
+Writes `.github/workflows/demoman.yml`, which runs `demoman refresh --deliver`:
+
+- `<environment>`: after each successful deployment to that environment,
+  and records the deployed app (`deployment:<name>` for an environment named
+  `release`, `daily` or `push`).
+- `release`: when a release is published, at its tag.
+- `daily`: once a day on the default branch. When nothing but the refresh's
+  own files changed since each repo flow was recorded, or since the workflow's
+  last successful run, it stops before installing Chromium or starting the
+  app.
+- `push`: on each merge to main. This records every repo flow on every merge.
+ `--route pr` opens a pull request with the changed files, and
 needs "Allow GitHub Actions to create and approve pull requests" on in the
 repository's Actions settings; `--route main` commits them. A trigger or route
-not given is asked. `--artifact` downloads the `demoman-videos` artifact of this workflow's newest run on its own trigger and branch (never a fork's or another workflow's) into `demoman-out`, refreshes with `--out-dir demoman-out --previous demoman-out`, and uploads that folder as the next `demoman-videos` artifact. For `push`, fill in the workflow's "Start your app" step.
+not given is asked. `--artifact` downloads the `demoman-videos` artifact of this workflow's newest run on its own trigger and branch (never a fork's or another workflow's) into `demoman-out`, refreshes with `--out-dir demoman-out --previous demoman-out`, and uploads that folder as the next `demoman-videos` artifact. For `release`, `daily` and `push`, fill in the workflow's "Start your app" step.
 
 ## signin
 
@@ -127,6 +136,7 @@ lacks.
 | `--base-url <origin>` | Record the app at this origin instead of the one each video was recorded at, such as a preview deployment |
 | `--deliver pr\|main` | After refreshing, commit only the files that changed: `main` pushes one `Refresh demo videos` commit to the checked-out branch; `pr` force-pushes it to `demoman/refresh` and opens or updates one pull request (the workflow's `GITHUB_TOKEN` needs "Allow GitHub Actions to create and approve pull requests"). Exits 1 if delivery fails |
 | `--out-dir <folder>` | Write the flows added with `--deliver files` into this folder, with their receipts and `demoman-refresh.json`, which lists what each flow made. Nothing is committed. A `files` flow fails without it, and the others still refresh |
+| `--check` | Record nothing; print each flow's state and exit 3 when every flow was recorded at a commit that nothing but refresh's own files (outputs, reports, receipts) changed after, else 0. A flow with no receipt, one recorded from uncommitted changes, or one git cannot compare counts as changed. Accepts only `--previous`, for `files` flows' receipts, and `--since <sha>`: the commit the last successful refresh ran at, after which only refresh's own files changed means every flow is current (an unchanged refresh writes no receipt, so the receipts alone would go on asking to record again after any unrelated commit). The daily workflow passes its own last successful scheduled run |
 | `--previous <folder>` | A copy of everything earlier `--out-dir` runs delivered, kept whole (such as your bucket synced back down): a `files` flow is compared with the receipt and video there, and is `unchanged` when the picture matches. One earlier run's folder alone is not enough, since an `unchanged` or `added` run writes no receipt into `--out-dir`; the `--out-dir` itself is, since refresh then replaces only what changed |
 
 ## join-flow
