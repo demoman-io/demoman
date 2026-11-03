@@ -98,20 +98,25 @@ type Look = { name: string; block: number; levels: number; allowed: number };
  *  video frames, so they carry none of the encoder's coding error.
  *
  *   share of the picture changed         sharply (allowed 0.0008%)   faintly (allowed 0.017%)
- *   unchanged re-films and slower apps       0.0000% (macOS, ubuntu-22.04, ubuntu-24.04)   0.0000%
+ *   unchanged re-films (order, reports)     0.0000%                  0.0000%
+ *   the same, a slower app (macOS only)      0.0000%                  0.0000%
  *   one digit, $1,200.00 to $1,207.00        0.0020% (2.5x over)      -
  *   nav text gray-700 to gray-500            -                        0.0611% (3.6x over)
  *   a button blue to a green as light        0.344%                   -
  *   a dark panel #111827 to #7f1d1d          13.0%                    -
  *
  * A "-" is a look the case did not reach: the detail line names the first
- * look that counts it changed. Local numbers are identical over two runs of
- * refresh-unchanged and refresh-restyle; CI's two `package` jobs and `refresh`
- * job read the unchanged videos at 0.0000% on both looks and a changed one
- * at 2.32-2.36% sharply. The unchanged side has no noise to be clear of, so
- * its margin is the allowed share itself; the changed side is at least 2.5x
- * over, against the 1.8x and 1.4x `LOOKS` was accepted at. The same limits
- * apply: a glyph moving under about 60 levels or a shade under 13 is not seen.
+ * look that counts it changed. Locally the numbers are identical over two
+ * runs of refresh-unchanged and refresh-restyle. On CI (run 41624628018) the
+ * two `package` jobs (ubuntu-22.04, ubuntu-24.04) and the `refresh` job
+ * measured only the unchanged order and reports videos, 0.0000% on both
+ * looks, and a changed order video at 2.32-2.36% sharply. The digit, grey
+ * text, button and panel rows, and the 2.5x below, are LOCAL ONLY: ci-ts.yml
+ * has no workflow_dispatch, so the slow restyle lane did not run on CI. The
+ * unchanged side reads 0, under `allowed` by its whole value (it has no
+ * noise to be clear of); the changed side is at least 2.5x over locally,
+ * against the 1.8x and 1.4x `LOOKS` was accepted at. The same limits apply:
+ * a glyph moving under about 60 levels or a shade under 13 is not seen.
  */
 export const STILL_LOOKS: readonly Look[] = LOOKS;
 export const PICTURE_OPTIONS: PictureOptions = {
