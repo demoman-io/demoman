@@ -186,7 +186,10 @@ describe("renderToFiles with screensOnly", () => {
         expect(target.width, "the output target's width").not.toBe(WIDTH);
         // The PNGs' own width, from the IHDR header: not redrawn first.
         for (const f of only.files) {
-          expect(f.bytes.subarray(1, 4).toString("latin1"), f.name).toBe("PNG");
+          expect(
+            f.bytes.subarray(1, 4).toString("latin1"),
+            String(f.name),
+          ).toBe("PNG");
           expect(
             f.bytes.readUInt32BE(16),
             `${f.name}'s own width (target ${target.width})`,
