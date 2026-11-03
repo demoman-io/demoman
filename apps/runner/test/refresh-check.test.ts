@@ -158,7 +158,7 @@ describe("checkCurrent", () => {
     expect(alone).toEqual({
       current: false,
       lines: [
-        "Place an order: its recording names no commit (kept before receipts were recorded)",
+        "Place an order: recorded with no commit (kept before receipts were recorded)",
       ],
     });
     const anchored = await checkCurrent(
@@ -240,7 +240,7 @@ describe("checkCurrent", () => {
     expect(r.lines).toEqual([
       "Open reports: recorded from uncommitted changes",
       "Place an order: no receipt yet",
-      "Sign up: its recording names no commit (not a git checkout)",
+      "Sign up: recorded with no commit (not a git checkout)",
     ]);
   });
 

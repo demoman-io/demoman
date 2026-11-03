@@ -97,7 +97,7 @@ export async function checkCurrent(
     }
     const code = had.receipt.filmedCode;
     if ("none" in code) {
-      say(`${kept.name}: its recording names no commit (${code.none})`);
+      say(`${kept.name}: recorded with no commit (${code.none})`);
       continue;
     }
     if (code.dirty) {
@@ -105,7 +105,7 @@ export async function checkCurrent(
       continue;
     }
     if (code.commit === null) {
-      say(`${kept.name}: its recording names no commit`);
+      say(`${kept.name}: recorded with no commit`);
       continue;
     }
     const short = code.commit.slice(0, 7);
