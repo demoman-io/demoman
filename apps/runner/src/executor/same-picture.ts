@@ -1,11 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type KeptScreens,
   type KeptWindow,
   messageOf,
 } from "@demoman/run-core";
+import { screenImageName } from "@demoman/run-core/render";
 import { bundleEntry } from "../bundle-js.js";
 import type {
   DecodeProbeEntry,
@@ -78,6 +80,7 @@ import type { BrowserSession } from "./browser.js";
  * change to the background) is not seen. A file kept before windows were
  * recorded is compared whole, as before.
  */
+type Look = { name: string; block: number; levels: number; allowed: number };
 /** The two ways a screen is looked at (above), each with the share of the
  *  picture it may count changed before the picture has. `sharply` sees a
  *  small, strong change (one digit of body text); `faintly` a weak change
@@ -90,6 +93,9 @@ export const LOOKS = [
  *  `PICTURE_OPTIONS.width`: past the anti-aliased rounded edge (measured in
  *  the calibration comment above). */
 export const WINDOW_INSET_PX = 2;
+/** The looks for a comparison of screen images; the same as `LOOKS` until
+ *  they are measured on stills. */
+export const STILL_LOOKS = LOOKS;
 export const PICTURE_OPTIONS: PictureOptions = {
   width: 1280,
   looks: LOOKS.map(({ block, levels }) => ({ block, levels })),
@@ -99,6 +105,9 @@ export const PICTURE_OPTIONS: PictureOptions = {
  *  be off and still be the same window: its rect is recorded to 0.01 px,
  *  and an unchanged film's is the same to the last digit. */
 export const WINDOW_MOVED_PX = 1;
+
+const LOOK_CHANGED =
+  "the look changed: the background, padding or logo round the window is not the one the committed video was filmed with";
 
 const ENTRY_PATH = fileURLToPath(
   new URL(
@@ -150,8 +159,7 @@ export async function samePicture(
   ) {
     return {
       same: false,
-      detail:
-        "the look changed: the background, padding or logo round the window is not the one the committed video was filmed with",
+      detail: LOOK_CHANGED,
     };
   }
   const shared = sharedScreens(committedScreens, freshScreens);
@@ -230,6 +238,140 @@ export async function samePicture(
   return comparePictures(diff, shared, freshScreens.steps + 1, deps.steps);
 }
 
+type ScreenImages = {
+  dir: string;
+  screens: KeptScreens;
+  /** The output target's pixels, which the screens' windows are in. */
+  size: { width: number; height: number };
+};
+
+/**
+ * `samePicture` over the screen images a screens-only render wrote
+ * (`screenImageName`), one folder per side. The same early answers; an image
+ * a shared screen needs that is missing, or is not a PNG, is `uncomparable`
+ * and names the file: never "same".
+ */
+export async function sameScreens(
+  committed: ScreenImages,
+  fresh: ScreenImages,
+  deps: {
+    session: Pick<BrowserSession, "openWorkPage">;
+    steps?: readonly { do: string }[];
+    log: (line: string) => void;
+  },
+): Promise<{ same: boolean; detail: string } | { uncomparable: string }> {
+  if (committed.screens.steps !== fresh.screens.steps) {
+    return {
+      same: false,
+      detail: `the video's steps changed, ${committed.screens.steps} to ${fresh.screens.steps}`,
+    };
+  }
+  if (
+    committed.screens.look !== undefined &&
+    fresh.screens.look !== undefined &&
+    committed.screens.look !== fresh.screens.look
+  ) {
+    return { same: false, detail: LOOK_CHANGED };
+  }
+  const shared = sharedScreens(committed.screens, fresh.screens);
+  if (shared.length === 0)
+    return { uncomparable: "no screen of the video is still in both films" };
+  const files = new Map<string, Buffer>();
+  const paths = new Map<string, string>();
+  for (const [prefix, side] of [
+    ["/a/", committed],
+    ["/b/", fresh],
+  ] as const) {
+    for (const s of shared) {
+      const name = screenImageName(s.step);
+      const path = join(side.dir, name);
+      paths.set(`${prefix}${name}`, path);
+      try {
+        files.set(`${prefix}${name}`, await readFile(path));
+      } catch (error) {
+        return {
+          uncomparable:
+            (error as NodeJS.ErrnoException).code === "ENOENT"
+              ? `${path} is missing`
+              : `${path} could not be read (${messageOf(error)})`,
+        };
+      }
+    }
+  }
+  const urls = (prefix: string) =>
+    shared.map((s) => `${prefix}${screenImageName(s.step)}`);
+  const work = await deps.session.openWorkPage();
+  if (!work.ok) throw new Error(`no page to decode on: ${work.detail}`);
+  const server = createServer((req, res) => {
+    const bytes = files.get(req.url ?? "");
+    if (bytes === undefined) {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<!doctype html><meta charset=utf-8><title>compare</title>");
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": "image/png",
+      "content-length": String(bytes.byteLength),
+    });
+    res.end(bytes);
+  });
+  let diff: ScreensDiff | PictureUnreadable;
+  try {
+    const origin = await listenOnLoopback(server);
+    await work.page.goto(origin);
+    await work.page.addScriptTag({ content: await bundleEntry(ENTRY_PATH) });
+    diff = await work.page.evaluate(
+      ([name, a, b, sizeA, sizeB, windows, options]) => {
+        const entry = (
+          globalThis as unknown as Record<string, DecodeProbeEntry>
+        )[name as string];
+        if (entry === undefined) throw new Error(`${name} is not installed`);
+        return entry.imagesDiff(
+          a as string[],
+          b as string[],
+          sizeA as ScreenImages["size"],
+          sizeB as ScreenImages["size"],
+          windows as (KeptWindow | null)[],
+          options as PictureOptions,
+        );
+      },
+      [
+        DECODE_PROBE_GLOBAL,
+        urls("/a/"),
+        urls("/b/"),
+        committed.size,
+        fresh.size,
+        shared.map((s) =>
+          s.windowB === undefined ? null : (s.windowA ?? null),
+        ),
+        PICTURE_OPTIONS,
+      ] as const,
+    );
+  } finally {
+    server.close();
+    await work.page.close().catch((error: unknown) => {
+      deps.log(
+        `refresh: the comparison's page would not close (${messageOf(error)})`,
+      );
+    });
+  }
+  if ("unreadable" in diff) {
+    // The page leads its message with the url it served.
+    const at = diff.error.indexOf(": ");
+    const url = diff.error.slice(0, at);
+    return {
+      uncomparable: `${paths.get(url) ?? url} could not be read as a PNG (${diff.error.slice(at + 2)})`,
+    };
+  }
+  return comparePictures(
+    diff,
+    shared,
+    fresh.screens.steps + 1,
+    deps.steps,
+    STILL_LOOKS,
+  );
+}
+
 /** The script step a screen's `step` (an index into the film's actions)
  *  comes from: `pause` makes no action (`authoredTotal`), every other step
  *  makes one. Null when the script has no such step. */
@@ -291,6 +433,7 @@ export function comparePictures(
   shared: ReturnType<typeof sharedScreens>,
   total: number,
   steps?: readonly { do: string }[],
+  looks: readonly Look[] = LOOKS,
 ): { same: boolean; detail: string } | { uncomparable: string } {
   const { a, b, changed } = diff;
   if (a.width !== b.width || a.height !== b.height) {
@@ -324,7 +467,7 @@ export function comparePictures(
   }
   const pct = (share: number) => `${(share * 100).toFixed(4)}%`;
   // Per look: its largest share, and the screen it was read at.
-  const worst = LOOKS.map((look, j) => {
+  const worst = looks.map((look, j) => {
     let share = 0;
     let at = 0;
     for (const [i, shares] of changed.entries()) {
