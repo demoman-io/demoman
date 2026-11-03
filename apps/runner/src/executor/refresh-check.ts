@@ -13,9 +13,16 @@ import { readKeptFlows } from "./kept-flows.js";
  * outputs and report, or a receipt. Merging the refresh's own pull request
  * changes exactly those, so it never reads as new. Anything that cannot be
  * read is a flow to record, never a current one.
+ *
+ * An unchanged refresh writes nothing, so a receipt stays at the commit its
+ * video was recorded at while unrelated commits land after it. `since` is
+ * the commit the workflow's last successful run refreshed at: that run
+ * recorded or confirmed every flow there, so when only refresh files
+ * changed since it, every readable flow is current whatever its receipt
+ * says.
  */
 export async function checkCurrent(
-  args: { repoRoot: string; previous?: string },
+  args: { repoRoot: string; previous?: string; since?: string },
   deps: {
     /** The paths git says changed between `commit` and HEAD. */
     changedSince(commit: string): Promise<string[] | { none: string }>;
@@ -33,10 +40,21 @@ export async function checkCurrent(
   const ours = (p: string) => written.has(p) || p.startsWith(`${RECEIPT_DIR}/`);
   const lines: string[] = [];
   let current = true;
+  const anchor =
+    args.since === undefined ? null : await deps.changedSince(args.since);
+  const anchored =
+    Array.isArray(anchor) && anchor.every((p) => ours(p))
+      ? (args.since as string).slice(0, 7)
+      : null;
   const say = (line: string, isCurrent = false) => {
     lines.push(line);
     if (!isCurrent) current = false;
   };
+  if (anchor !== null && !Array.isArray(anchor))
+    say(
+      `the last successful refresh, ${(args.since as string).slice(0, 7)}, could not be compared with HEAD (${anchor.none}); each flow is judged by its receipt`,
+      true,
+    );
   for (const e of entries) {
     const n = basename(e.file);
     if ("unreadable" in e) {
@@ -44,6 +62,13 @@ export async function checkCurrent(
       continue;
     }
     const { kept } = e;
+    if (anchored !== null) {
+      say(
+        `${kept.name}: current (nothing but refresh files changed since ${anchored}, the last successful refresh)`,
+        true,
+      );
+      continue;
+    }
     // Where refresh reads it: beside the outputs for a files flow.
     const receiptFile =
       kept.deliver === "files"
@@ -55,10 +80,13 @@ export async function checkCurrent(
           ? null
           : resolve(args.previous)
         : root;
-    const had =
+    const read =
       from === null
         ? ({ missing: true } as const)
         : await readReceiptFile(join(from, receiptFile), receiptFile);
+    // A version 1 recipe is its own receipt until a refresh writes one.
+    const had =
+      "missing" in read && e.migrated !== null ? { receipt: e.migrated } : read;
     if ("missing" in had) {
       say(`${kept.name}: no receipt yet`);
       continue;

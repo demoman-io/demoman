@@ -662,17 +662,33 @@ describe("the daily run stops early when nothing is new", () => {
 
   it("runs the check with the fetched receipts, and stops only on its 3", () => {
     expect(daily(true)).toContain(
-      "if npx --prefix ~/ -y demoman@0.2.0 refresh --check --previous demoman-out; then",
+      "if npx --prefix ~/ -y demoman@0.2.0 refresh --check --previous demoman-out $since; then",
     );
     expect(daily(false)).toContain(
-      "if npx --prefix ~/ -y demoman@0.2.0 refresh --check; then",
+      "if npx --prefix ~/ -y demoman@0.2.0 refresh --check $since; then",
     );
     const y = daily(false);
     expect(y).toContain('[ "$code" -eq 3 ] || exit "$code"');
     expect(y).toContain('echo "skip=true" >> "$GITHUB_OUTPUT"');
     expect(y).toContain(
-      'echo "Every repo flow was recorded at this commit; nothing to refresh."',
+      `echo "Nothing but the refresh's own files changed since each repo flow was last recorded or refreshed; nothing to refresh."`,
     );
+  });
+
+  it("anchors on this workflow's own last successful scheduled run, an ancestor of HEAD", () => {
+    const y = daily(false);
+    expect(y).toContain("actions: read");
+    expect(y).toContain("runs?event=schedule&status=success&per_page=20");
+    expect(y).toContain(
+      'select(((.path // "") | startswith($ENV.WF)) and .head_repository.id == .repository.id)',
+    );
+    expect(y).toContain('git merge-base --is-ancestor "$s" HEAD');
+    expect(y).toContain('since="--since $s"');
+    // A listing that fails is said, and the check judges by the receipts.
+    expect(y).toContain(
+      "::warning::This workflow's earlier runs could not be listed, so each flow is judged by its receipt.",
+    );
+    expect(y).toContain(`GH_TOKEN: ${expr("github.token")}`);
   });
 
   it("skips every step after the check when it says so", () => {

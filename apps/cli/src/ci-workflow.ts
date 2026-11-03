@@ -181,14 +181,29 @@ export function ciWorkflow(o: CiOptions): string {
   // Exit 3 is refresh --check's "nothing new"; any other failure stops the job.
   const freshStep = `      - name: Anything new since the last refresh?
         id: fresh
+        env:
+          GH_TOKEN: ${expr("github.token")}
         run: |
-          if ${npx} refresh --check${o.artifact === true ? " --previous demoman-out" : ""}; then
+          wf=\${GITHUB_WORKFLOW_REF%%@*}
+          export WF=\${wf#"$GITHUB_REPOSITORY"/}
+          # The commit this workflow's last successful scheduled run refreshed
+          # at: it recorded or confirmed every flow there.
+          since=""
+          if s=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/\${WF##*/}/runs?event=schedule&status=success&per_page=20" --jq '[.workflow_runs[] | select(((.path // "") | startswith($ENV.WF)) and .head_repository.id == .repository.id)] | .[0].head_sha // ""'); then
+            if [ -n "$s" ] && git merge-base --is-ancestor "$s" HEAD 2>/dev/null; then
+              since="--since $s"
+            fi
+          else
+            echo "::warning::This workflow's earlier runs could not be listed, so each flow is judged by its receipt."
+          fi
+          # $since is unquoted on purpose: empty, or two words.
+          if ${npx} refresh --check${o.artifact === true ? " --previous demoman-out" : ""} $since; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
           else
             code=$?
             [ "$code" -eq 3 ] || exit "$code"
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Every repo flow was recorded at this commit; nothing to refresh."
+            echo "Nothing but the refresh's own files changed since each repo flow was last recorded or refreshed; nothing to refresh."
           fi
 `;
   const script = GUARD_SCRIPT.split("\n")
@@ -199,7 +214,7 @@ on:
 ${on}
 permissions:
   contents: write
-  pull-requests: write${o.artifact === true ? "\n  actions: read" : ""}
+  pull-requests: write${o.artifact === true || kind === "daily" ? "\n  actions: read" : ""}
 concurrency:
   group: demoman-refresh
   cancel-in-progress: false

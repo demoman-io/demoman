@@ -119,8 +119,9 @@ flags:
   environment, and records the deployed app.
 - `--trigger release` runs when a release is published, at its tag.
 - `--trigger daily` runs once a day. A day with nothing new stops before
-  Chromium and the app: when every repo flow was recorded at a commit that
-  only the refresh's own files changed after (`demoman refresh --check`).
+  Chromium and the app: when only the refresh's own files changed since each
+  repo flow was recorded, or since the workflow's last successful run
+  (`demoman refresh --check --since`).
   An app whose picture changes with no commit, such as live data or an
   unpinned dependency, is checked again only by the other triggers.
 - `--trigger push` runs on each push to the default branch, and records

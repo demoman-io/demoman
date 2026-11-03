@@ -36,9 +36,11 @@ const kept: KeptVideo = {
 };
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
-const check = async (cwd: string) => {
+const check = async (cwd: string, since?: string) => {
   const said: string[] = [];
-  const code = await refreshCheck(cwd, undefined, { say: (l) => said.push(l) });
+  const code = await refreshCheck(cwd, undefined, since, {
+    say: (l) => said.push(l),
+  });
   return { code, out: said.join("\n") };
 };
 
@@ -91,5 +93,12 @@ describe("demoman refresh --check", () => {
     const r = await check(repo);
     expect(r.out).toContain("1 other file changed since");
     expect(r.code, r.out).toBe(0);
+  });
+
+  it("answers 3 the day after, when the last successful refresh ran at HEAD", async () => {
+    // The receipt still names the first commit: an unchanged refresh wrote nothing.
+    const r = await check(repo, git(repo, "rev-parse", "HEAD"));
+    expect(r.out).toContain("the last successful refresh");
+    expect(r.code, r.out).toBe(3);
   });
 });

@@ -486,7 +486,7 @@ async function refresh(args: string[]): Promise<void> {
   if (parsed.check === true) {
     // 3: nothing new since the last refresh; the workflow skips the rest.
     process.exit(
-      await refreshCheck(repo.repo.root, previous, {
+      await refreshCheck(repo.repo.root, previous, parsed.since, {
         say: (l) => process.stdout.write(`${l}\n`),
       }),
     );

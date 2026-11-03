@@ -85,6 +85,107 @@ const changed =
   };
 
 describe("checkCurrent", () => {
+  const SINCE = "ffff00001111222233334444555566667777aaaa";
+  it("is current when only refresh files changed since the last successful refresh, though the receipt is older", async () => {
+    const a = flow(1, "Place an order");
+    await add(a, receipt(a, { commit: AT, tree: "t", dirty: false }));
+    // A README fix after the recording: an unchanged refresh wrote nothing.
+    const r = await checkCurrent(
+      { repoRoot: repo, since: SINCE },
+      {
+        changedSince: async (c) =>
+          c === AT ? ["README.md"] : c === SINCE ? [] : { none: `asked ${c}` },
+      },
+    );
+    expect(r).toEqual({
+      current: true,
+      lines: [
+        "Place an order: current (nothing but refresh files changed since ffff000, the last successful refresh)",
+      ],
+    });
+  });
+
+  it("says when the last successful refresh cannot be compared, and judges by the receipts", async () => {
+    const a = flow(1, "Place an order");
+    await add(a, receipt(a, { commit: AT, tree: "t", dirty: false }));
+    const r = await checkCurrent(
+      { repoRoot: repo, since: SINCE },
+      {
+        changedSince: async (c) =>
+          c === SINCE ? { none: "fatal: bad object" } : [],
+      },
+    );
+    expect(r).toEqual({
+      current: true,
+      lines: [
+        "Place an order: current (recorded at a1b2c3d)",
+        "the last successful refresh, ffff000, could not be compared with HEAD (fatal: bad object); each flow is judged by its receipt",
+      ],
+    });
+  });
+
+  it("still records when something changed since both the recording and the last refresh", async () => {
+    const a = flow(1, "Place an order");
+    await add(a, receipt(a, { commit: AT, tree: "t", dirty: false }));
+    const r = await checkCurrent(
+      { repoRoot: repo, since: SINCE },
+      { changedSince: async () => ["src/app.tsx"] },
+    );
+    expect(r.current).toBe(false);
+    expect(r.lines).toEqual([
+      "Place an order: recorded at a1b2c3d; 1 other file changed since",
+    ]);
+  });
+
+  it("reads a version 1 recipe's own receipt, as refresh does, and the anchor makes it current", async () => {
+    const a = flow(1, "Place an order");
+    // keptVersion 1 carried its receipt inside the recipe (`migrated`).
+    const { flow: id, deliver: _d, keptVersion: _k, ...rest } = a;
+    const v1 = {
+      ...rest,
+      keptVersion: 1,
+      from: { videoId: id, takeId: "t1", recordedRevision: "r1" },
+      screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
+    };
+    await writeFile(
+      join(repo, FLOWS_DIR, keptFileName(a.name)),
+      JSON.stringify(v1),
+    );
+    const alone = await checkCurrent(
+      { repoRoot: repo },
+      { changedSince: changed([]) },
+    );
+    expect(alone).toEqual({
+      current: false,
+      lines: [
+        "Place an order: its recording names no commit (kept before receipts were recorded)",
+      ],
+    });
+    const anchored = await checkCurrent(
+      { repoRoot: repo, since: SINCE },
+      {
+        changedSince: async (c) => (c === SINCE ? ["docs/1.mp4"] : { none: c }),
+      },
+    );
+    expect(anchored.current).toBe(true);
+  });
+
+  it("never lets the anchor cover an unreadable recipe or a new one", async () => {
+    const a = flow(1, "Place an order");
+    await writeFile(join(repo, FLOWS_DIR, "broken.json"), "{");
+    await add(a, null);
+    const r = await checkCurrent(
+      { repoRoot: repo, since: SINCE },
+      // The new recipe is itself a change since the last refresh.
+      { changedSince: async () => [`${FLOWS_DIR}/${keptFileName(a.name)}`] },
+    );
+    expect(r.current).toBe(false);
+    expect(
+      r.lines.some((l) => l.startsWith(`${FLOWS_DIR}/broken.json: `)),
+    ).toBe(true);
+    expect(r.lines).toContain("Place an order: no receipt yet");
+  });
+
   it("is current when only paths a refresh writes changed since each recording", async () => {
     const a = flow(1, "Place an order");
     const b = flow(2, "Open reports");

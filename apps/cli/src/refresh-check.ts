@@ -6,11 +6,16 @@ import { checkCurrent, execGit, type GitRunner } from "@demoman/runner/package";
 export async function refreshCheck(
   root: string,
   previous: string | undefined,
+  since: string | undefined,
   io: { say(line: string): void; git?: GitRunner },
 ): Promise<0 | 3> {
   const git = io.git ?? execGit;
   const r = await checkCurrent(
-    { repoRoot: root, ...(previous === undefined ? {} : { previous }) },
+    {
+      repoRoot: root,
+      ...(previous === undefined ? {} : { previous }),
+      ...(since === undefined ? {} : { since }),
+    },
     {
       changedSince: async (commit) => {
         const d = await git(

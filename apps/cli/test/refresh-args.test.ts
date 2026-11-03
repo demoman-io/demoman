@@ -14,9 +14,18 @@ describe("parseRefreshArgs", () => {
       check: true,
       previous: "last",
     });
+    expect(
+      parseRefreshArgs(["--check", "--since", "abc1234", "--previous", "p"]),
+    ).toEqual({ only: [], check: true, since: "abc1234", previous: "p" });
+    expect(parseRefreshArgs(["--since", "abc1234"])).toEqual({
+      error: "--since goes only with --check",
+    });
+    expect(parseRefreshArgs(["--check", "--since", "not a sha"])).toEqual({
+      error: '--since is a commit sha, not "not a sha"',
+    });
     for (const more of [["--deliver", "pr"], ["a-flow"], ["--out-dir", "o"]])
       expect(parseRefreshArgs(["--check", ...more])).toEqual({
-        error: "--check takes only --previous",
+        error: "--check takes only --previous and --since",
       });
   });
   it("still refuses a flag it does not know, saying which", () => {
