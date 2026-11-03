@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -145,27 +145,23 @@ it(
     expect(k.code, said(k)).toBe(0);
     const original = await kept();
 
-    // The same picture, the first time: `add` wrote a version 1 receipt,
-    // with no screen images, so this refresh exports to compare, says so,
-    // and writes them: `added`, so a delivery commits them. (Until `add`
-    // writes the images itself.)
-    const first = await cli("refresh");
-    console.info(`[refresh] same, v1 receipt: ${first.stdout.trim()}`);
-    expect(first.code, said(first)).toBe(0);
-    expect(first.stdout, said(first)).toMatch(
-      new RegExp(
-        `${NAME}: added: .*\\(\\.demoman/receipts/\\S+\\.json had no screen images, so this refresh exported to compare; the next one compares its screens\\)`,
+    // `add` wrote the screen images beside the receipt: the premise of a
+    // first refresh that compares them. Red if `add` stops writing them.
+    const receiptName = /^Added "[^"]*" to the repo: (\S+)$/m.exec(
+      k.stdout,
+    )?.[1];
+    expect(receiptName, said(k)).toBeDefined();
+    await access(
+      join(
+        repo,
+        ".demoman/receipts",
+        `${basename(receiptName as string, ".json")}.screens`,
+        "final.png",
       ),
     );
-    // The export's line splits its in-page time; red if the page stops
-    // reading the sink's times and falls back to the unsplit wording.
-    expect(first.stderr, said(first)).toMatch(
-      /timing export \S+ mp4: .*in page: .*s drawing, [\d.]+s copying [1-9]\d* frames to the encoder, [\d.]+s waiting on the encoder, [\d.]+s finishing the file/,
-    );
-    expect((await kept()).equals(original), said(first)).toBe(true);
 
-    // Unchanged again: the screens decide, and nothing is exported. Red if
-    // an unchanged refresh exports.
+    // The same picture, the first time: the screens decide, and nothing is
+    // exported. Red if an unchanged refresh exports.
     const same = await cli("refresh");
     console.info(`[refresh] unchanged: ${same.stdout.trim()}`);
     expect(same.code, said(same)).toBe(0);
@@ -273,10 +269,9 @@ it(
 
     const original = await readFile(join(repo, navMp4));
     const same = await cli("refresh", nav);
-    console.info(`[refresh] nav same, v1 receipt: ${same.stdout.trim()}`);
+    console.info(`[refresh] nav same: ${same.stdout.trim()}`);
     expect(same.code, said(same)).toBe(0);
-    // A version 1 receipt the same: added, its receipt written with images.
-    expect(same.stdout, said(same)).toContain(`${nav}: added`);
+    expect(same.stdout, said(same)).toContain(`${nav}: unchanged`);
     expect(
       (await readFile(join(repo, navMp4))).equals(original),
       said(same),

@@ -43,6 +43,7 @@ import {
   REFRESH_LIST_FILE,
   type RefilmInfo,
   type RunReport,
+  screensDirOf,
   serializeKept,
   serializeReceipt,
   servedRunReport,
@@ -316,9 +317,8 @@ export async function keepVideo(
   const temp = await mkdtemp(join(tmpdir(), "demoman-keep-"));
   try {
     const rendered: Uint8Array[] = [];
-    let screens: KeptScreens | undefined;
     const judged = judgedOutput(base.outputs);
-    for (const [i, o] of deliver === "files" ? [] : base.outputs.entries()) {
+    for (const o of deliver === "files" ? [] : base.outputs) {
       deps.log(`keep: exporting ${o.path}`);
       const answer = await exportTake(
         {
@@ -348,8 +348,44 @@ export async function keepVideo(
           `${o.path} was rendered without its wallpaper: ${answer.warnings.wallpaperWarning.sentence}`,
         );
       }
-      if (i === judged) screens = answer.screens;
       rendered.push(await readFile(answer.file.path));
+    }
+    // The images a refresh compares with: the judged output's screens alone.
+    let screens: KeptScreens | undefined;
+    let shots: { dir: string; size: { width: number; height: number } } | null =
+      null;
+    if (deliver === "commit") {
+      const o = base.outputs[judged] as KeptOutput;
+      deps.log(`keep: rendering the screens of ${o.path}`);
+      const shot = await exportTake(
+        {
+          takeId: built.takeId,
+          fileType: o.fileType,
+          aspect: o.aspect,
+          unlisted: true,
+          screensOnly: true,
+          ...(o.fileType === "mp4" ? { quality: o.quality } : {}),
+        },
+        { ...deps.export, outDir: temp },
+        () => undefined,
+      );
+      if (shot.outcome !== "saved" || shot.fileType !== "screens") {
+        return refuse("exportFailed", `${o.path}'s screens: ${shot.summary}`);
+      }
+      if (shot.warnings.logo !== null) {
+        return refuse(
+          "logoUnreadable",
+          `${o.path}'s screens were rendered without the logo: ${shot.warnings.logo}`,
+        );
+      }
+      if (shot.warnings.wallpaperWarning?.kind === "leftOut") {
+        return refuse(
+          "wallpaperUnreadable",
+          `${o.path}'s screens were rendered without the wallpaper: ${shot.warnings.wallpaperWarning.sentence}`,
+        );
+      }
+      screens = shot.screens;
+      shots = { dir: shot.folder.path, size: shot.size };
     }
     if (
       deliver === "commit" &&
@@ -370,9 +406,9 @@ export async function keepVideo(
       deliver === "files" || screens === undefined
         ? null
         : {
-            receiptVersion: 1,
-            screensDir: null,
-            screensSize: null,
+            receiptVersion: 2,
+            screensDir: screensDirOf(receiptRel),
+            screensSize: shots?.size ?? null,
             flow: video.id,
             video: built.takeId,
             filmedAt: filmedAtOf(runReport),
@@ -408,6 +444,13 @@ export async function keepVideo(
         }
       }
       if (receipt !== null) {
+        // Before the receipt, as the outputs are: it never names images
+        // that are not there.
+        if (shots !== null && receipt.screensDir !== null) {
+          const at = join(dirname(receiptRel), receipt.screensDir);
+          await placeFolder(join(root, at), shots.dir, deps.log);
+          written.push(at);
+        }
         await place(join(root, receiptRel), serializeReceipt(receipt));
         written.push(receiptRel);
       }

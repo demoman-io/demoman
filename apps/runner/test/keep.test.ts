@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { type FrameBundle, wallpaperShape } from "@demoman/compositor";
 import {
   frameOf,
@@ -21,6 +21,7 @@ import {
   serializeReceipt,
   targetFor,
 } from "@demoman/run-core";
+import { screenImageName } from "@demoman/run-core/render";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../packages/compositor/test/fixtures/scene.js";
@@ -37,7 +38,7 @@ import { createVideoStore, type VideoStore } from "../src/executor/videos.js";
 import { makeDiskTake, putTake } from "./disk-take.js";
 import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
 import { readKeptV2 } from "./kept-v2.js";
-import { sampleMp4 } from "./mp4-probe.js";
+import { sampleImage, sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): the disk take
 // about 2 s; the clean keep (a share MP4 and a GIF) about 15 s. x5 for CI
@@ -287,6 +288,7 @@ describe("keep, a clean take", () => {
           "docs/hero-report.json",
           ".demoman/flows/logos/acme.svg",
           `.demoman/receipts/${keptFileName("Add a task")}`,
+          `.demoman/receipts/${keptFileName("Add a task").replace(/\.json$/, "")}.screens`,
           file,
         ].sort(),
       );
@@ -570,6 +572,51 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       await chmod(join(repo, ".demoman/videos"), 0o755);
     }
   });
+
+  // Red if keep stops writing the images (the folder is missing or short) or
+  // writes them at another width than a refresh's own screens render.
+  it(
+    "keep writes a v2 receipt and one image per still screen beside it",
+    async () => {
+      await freshVideo("scene-img-1", "Images");
+      const out = await keepVideo(
+        { video: "Images", to: [gif("docs/img.gif")], repoRoot: repo },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      const { receipt, receiptFile } = await readKeptV2(repo, out.file);
+      expect(receipt.receiptVersion).toBe(2);
+      expect(
+        receipt.screens.moments.length,
+        "premise: moments",
+      ).toBeGreaterThan(1);
+      expect(receipt.screensDir).toBe(
+        `${keptFileName("Images").replace(/\.json$/, "")}.screens`,
+      );
+      expect(receipt.screensSize).not.toBeNull();
+      const dir = join(
+        repo,
+        dirname(receiptFile),
+        receipt.screensDir as string,
+      );
+      const names = receipt.screens.moments.map((m) => screenImageName(m.step));
+      expect((await readdir(dir)).sort()).toEqual([...names].sort());
+      for (const n of names) {
+        const read = await sampleImage(
+          await readFile(join(dir, n)),
+          "image/png",
+          {
+            colors: [],
+          },
+        );
+        expect(read.width, n).toBe(1280);
+      }
+      expect(out.written).toContain(
+        join(dirname(receiptFile), receipt.screensDir as string),
+      );
+    },
+    KEEP_MS,
+  );
 
   it(
     "keep writes recipe v2, the receipt, and marks the flow kept",
@@ -882,6 +929,47 @@ describe("keep refuses, writing nothing", () => {
       });
       const out = await refused("Never still");
       expect(out.detail).toContain("no still screen to compare against");
+    },
+    KEEP_MS,
+  );
+
+  // Red if keep forgives a screens render that failed: a receipt would name
+  // images that are not there.
+  it(
+    "a screens render that fails refuses the keep with its reason, writing nothing",
+    async () => {
+      const { scene } = await videoOf("scene-img-2", "Screens fail");
+      await copyFrames(scene.meta.id);
+      const before = await repoFiles();
+      let opened = 0;
+      const d = deps();
+      const out = await keepVideo(
+        { video: "Screens fail", to: [mp4("docs/sf.mp4")], repoRoot: repo },
+        {
+          ...d,
+          export: {
+            ...d.export,
+            session: new Proxy(session, {
+              get: (t, k) =>
+                k === "openWorkPage"
+                  ? async (...a: never[]) =>
+                      ++opened === 2
+                        ? {
+                            ok: false as const,
+                            reason: "x",
+                            detail: "screens page gone",
+                          }
+                        : (t.openWorkPage as (...a: never[]) => unknown)(...a)
+                  : Reflect.get(t, k),
+            }),
+          },
+        },
+      );
+      expect(opened, "premise: the screens render opened its own page").toBe(2);
+      expect(await repoFiles()).toEqual(before);
+      expect(out).toMatchObject({ ok: false, reason: "exportFailed" });
+      if (out.ok) return;
+      expect(out.detail).toContain("screens page gone");
     },
     KEEP_MS,
   );
