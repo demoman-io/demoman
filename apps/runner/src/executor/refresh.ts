@@ -31,6 +31,7 @@ import {
   servedRunReport,
 } from "@demoman/run-core";
 import type { DemoScript } from "@demoman/scene-schema";
+import { type StageTimes, stageTimes } from "../stage-times.js";
 import { codeClause, prLine } from "./attach.js";
 import type { BrowserSession } from "./browser.js";
 import {
@@ -391,7 +392,11 @@ export async function refreshKept(
     }
     for (const one of filmed) {
       try {
-        videos.push(await deliverOne(one, deps));
+        const video = await deliverOne(one, deps);
+        one.times.mark("write");
+        one.times.note(video.outcome);
+        deps.log(one.times.line(`refresh "${one.job.kept.name}"`));
+        videos.push(video);
       } catch (error) {
         failed(
           { name: one.job.kept.name, file: one.job.file, kept: one.job.kept },
@@ -454,6 +459,8 @@ type Filmed = {
   renderedScreens: KeptScreens[];
   /** The take's report.json, served; or why it is not had. */
   stored: { value: unknown } | { not: string };
+  /** Wall-clock per stage, said once the video is delivered. */
+  times: StageTimes;
 };
 
 async function filmOne(
@@ -464,6 +471,7 @@ async function filmOne(
   deps: RefreshDeps,
 ): Promise<Filmed | { failed: string }> {
   const { kept, script } = job;
+  const times = stageTimes();
   const run = async () => {
     const out = await executor.request("run", {
       script,
@@ -479,6 +487,8 @@ async function filmOne(
       : { outcome: "refusedBeforeRun", reason: out.reason, detail: out.detail };
   };
   const answer = await run();
+  // The group's first run includes the browser launch.
+  times.mark("record");
   const unclean = uncleanRun(answer);
   if (unclean !== null) return { failed: unclean };
   const report = answer as unknown as RunReport;
@@ -512,6 +522,7 @@ async function filmOne(
       };
     rendered.push(exported.file.path);
     renderedScreens.push(exported.screens);
+    times.mark(`export ${o.fileType}`);
   }
   const read = await createLibrary(home).getJson(takeId, "report.json");
   const stored: Filmed["stored"] =
@@ -521,7 +532,7 @@ async function filmOne(
           not: `video ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
         };
   if ("not" in stored) deps.log(`refresh: "${kept.name}": ${stored.not}`);
-  return { job, report, takeId, rendered, renderedScreens, stored };
+  return { job, report, takeId, rendered, renderedScreens, stored, times };
 }
 
 /**
@@ -533,10 +544,12 @@ async function filmOne(
  * The recipe is never written.
  */
 async function deliverOne(
-  { job, report, takeId, rendered, renderedScreens, stored }: Filmed,
+  { job, report, takeId, rendered, renderedScreens, stored, times }: Filmed,
   deps: RefreshDeps,
 ): Promise<RefreshVideo> {
   const { kept, previous, receiptFile, file, from, to } = job;
+  // Every video is filmed before any is delivered: this one waited for them.
+  times.mark("queued");
   const said: string[] = [];
   const notes: string[] = [...job.notes];
   const j = judgedOutput(kept.outputs);
@@ -615,6 +628,7 @@ async function deliverOne(
         `${judged.path} could not be compared with its new export, so nothing was replaced: ${messageOf(error)}`,
       );
     }
+    times.mark("compare");
     if ("uncomparable" in cmp) {
       return fail(
         `${judged.path} could not be compared with its new export, so nothing was replaced: ${cmp.uncomparable}`,
