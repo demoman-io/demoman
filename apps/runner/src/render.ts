@@ -381,9 +381,16 @@ export async function renderToFiles(input: {
       ...(outputTimesMs === undefined ? {} : { outputTimesMs }),
     });
     times?.mark("render");
-    const { renderMs, framesMs, frameReads } = facts.timing;
+    const { renderMs, framesMs, frameReads, sink } = facts.timing;
+    const s = (ms: number) => `${(ms / 1000).toFixed(2)}s`;
+    const rest = renderMs - framesMs;
+    // An MP4's sink is timed: what is left of the rest is drawing.
+    const split =
+      sink === null
+        ? `${s(rest)} drawing, encoding and finishing`
+        : `${s(rest - sink.copyMs - sink.encodeMs - sink.finishMs)} drawing, ${s(sink.copyMs)} copying ${sink.frames} frames to the encoder, ${s(sink.encodeMs)} waiting on the encoder, ${s(sink.finishMs)} finishing the file`;
     times?.note(
-      `in page: render ${(renderMs / 1000).toFixed(2)}s, of it ${(framesMs / 1000).toFixed(2)}s waiting on ${frameReads} frame reads, ${((renderMs - framesMs) / 1000).toFixed(2)}s drawing, encoding and finishing (${facts.rendered.width}x${facts.rendered.height} ${facts.rendered.fps}fps)`,
+      `in page: render ${s(renderMs)}, of it ${s(framesMs)} waiting on ${frameReads} frame reads, ${split} (${facts.rendered.width}x${facts.rendered.height} ${facts.rendered.fps}fps)`,
     );
 
     const files: Rendered["files"] = [];

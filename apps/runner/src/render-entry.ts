@@ -20,10 +20,12 @@
  * shared with the extension's export), with the take's logo. The point above
  * still holds, and `framesFor` is now literally the same function.
  */
-import type {
-  FrameBundle,
-  FrameImage,
-  RenderTarget,
+import {
+  type FrameBundle,
+  type FrameImage,
+  type RenderTarget,
+  SINK_TIMES_GLOBAL,
+  type SinkTimes,
 } from "@demoman/compositor";
 import type { CapRender, FileType, StillsOptions } from "@demoman/run-core";
 import { decodeLogo } from "@demoman/run-core/logo";
@@ -85,8 +87,14 @@ export interface RenderedFacts extends RenderFacts {
    *  null for mp4 and gif (the caller names them), set for each still. */
   files: { name: string | null; byteLength: number }[];
   /** Where the page's time went (`stage-times.ts`): all of `renderOutput`,
-   *  and the part of it spent waiting on source frames (fetch and decode). */
-  timing: { renderMs: number; framesMs: number; frameReads: number };
+   *  the part of it spent waiting on source frames (fetch and decode), and,
+   *  for an MP4, the part spent in its sink (null for a GIF or stills). */
+  timing: {
+    renderMs: number;
+    framesMs: number;
+    frameReads: number;
+    sink: SinkTimes | null;
+  };
 }
 
 export interface RenderEntry {
@@ -218,6 +226,8 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
   ] as
     | ((done: number, total: number, width?: number, pass?: CapRender) => void)
     | undefined;
+  const sink: SinkTimes = { copyMs: 0, encodeMs: 0, finishMs: 0, frames: 0 };
+  (globalThis as Record<string, unknown>)[SINK_TIMES_GLOBAL] = sink;
   const started = performance.now();
   const source = await framesFor(bundle, load);
   let framesMs = 0;
@@ -290,6 +300,7 @@ async function render(manifest: RenderManifest): Promise<RenderedFacts> {
       renderMs: performance.now() - started,
       framesMs,
       frameReads,
+      sink: fileType === "mp4" ? sink : null,
     },
   };
 }

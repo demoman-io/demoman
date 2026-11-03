@@ -75,12 +75,16 @@ const cli = (...args: string[]): Promise<Cli> =>
         },
         maxBuffer: 16 << 20,
       },
-      (err, stdout, stderr) =>
+      (err, stdout, stderr) => {
+        // Where a refresh's time goes on the runner (stage-times.ts).
+        for (const l of stderr.split("\n").filter((l) => l.includes("timing ")))
+          console.info(`[timing] ${args[0]}: ${l}`);
         done({
           code: err ? (typeof err.code === "number" ? err.code : 127) : 0,
           stdout,
           stderr,
-        }),
+        });
+      },
     ),
   );
 const said = (r: Cli) =>
@@ -146,6 +150,16 @@ it(
     console.info(`[refresh] unchanged: ${same.stdout.trim()}`);
     expect(same.code, said(same)).toBe(0);
     expect(same.stdout, said(same)).toContain(`${NAME}: unchanged`);
+    expect(same.stderr, said(same)).toMatch(
+      new RegExp(
+        `timing refresh "${NAME}": record [\\d.]+s, export mp4 [\\d.]+s, queued [\\d.]+s, compare [\\d.]+s, write [\\d.]+s; total [\\d.]+s; unchanged`,
+      ),
+    );
+    // The export's line splits its in-page time; red if the page stops
+    // reading the sink's times and falls back to the unsplit wording.
+    expect(same.stderr, said(same)).toMatch(
+      /timing export \S+ mp4: .*in page: .*s drawing, [\d.]+s copying [1-9]\d* frames to the encoder, [\d.]+s waiting on the encoder, [\d.]+s finishing the file/,
+    );
     expect((await kept()).equals(original), said(same)).toBe(true);
 
     // Changed: the heading differs (premise), and the new file shows it.
