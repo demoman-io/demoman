@@ -342,18 +342,33 @@ describe("whereFor", () => {
     });
   });
 
-  it("names the host in a project on more than one, a loopback one by its port", () => {
+  it("never names the author's machine in a project, whatever the port", () => {
+    const gs = [
+      at("app", "http://localhost:5173/settings", ACME),
+      at("bumped", "http://localhost:5174/settings", ACME),
+      at("ip", "http://127.0.0.1:4174/", ACME),
+    ];
+    expect(textOf(gs, false)).toEqual({
+      app: "/settings",
+      bumped: "/settings",
+      ip: "/",
+    });
+  });
+
+  it("names a site other than the author's machine in a project on more than one host", () => {
     const gs = [
       at("app", "http://localhost:3000/settings", ACME),
       at("admin", "http://localhost:3001/settings", ACME),
       at("prod", "https://app.acme.com/checkout", ACME),
+      at("stage", "https://stage.acme.com/checkout", ACME),
       // Another project's one host does not count toward acme/web's.
       at("api", "http://localhost:4000/docs", API),
     ];
     expect(textOf(gs, true)).toEqual({
-      app: "acme/web · :3000/settings",
-      admin: "acme/web · :3001/settings",
+      app: "acme/web · /settings",
+      admin: "acme/web · /settings",
       prod: "acme/web · app.acme.com/checkout",
+      stage: "acme/web · stage.acme.com/checkout",
       api: "acme/api · /docs",
     });
   });
@@ -365,7 +380,7 @@ describe("whereFor", () => {
     ];
     expect(textOf(gs, true)).toEqual({
       wiki: "no repo · en.wikipedia.org/wiki/Cat",
-      lost: ":8123/x",
+      lost: "localhost/x",
     });
   });
 
@@ -377,7 +392,7 @@ describe("whereFor", () => {
     });
   });
 
-  it("hostLabel shortens a loopback host with a port, and only that", () => {
+  it("hostLabel names every loopback host localhost, and only those", () => {
     expect(
       [
         "localhost:3001",
@@ -388,9 +403,9 @@ describe("whereFor", () => {
         "localhost.example.com:80",
       ].map(hostLabel),
     ).toEqual([
-      ":3001",
-      ":5173",
-      ":8080",
+      "localhost",
+      "localhost",
+      "localhost",
       "localhost",
       "app.acme.com:8443",
       "localhost.example.com:80",

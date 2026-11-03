@@ -32,12 +32,13 @@ export function nextSort(
     : { column: clicked, descending: firstClickDescending(clicked) };
 }
 
-/** A host as Where names it: a loopback one by its port alone (`:3001`),
- *  any other whole. */
+const LOOPBACK = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/;
+
+/** A host as Where names it: any loopback one as `localhost`, its port
+ *  dropped (a dev server moves to the next port when its own is busy, so
+ *  the port names no app), any other whole. */
 export function hostLabel(origin: string): string {
-  return (
-    /^(?:localhost|127\.0\.0\.1|\[::1\])(:\d+)$/.exec(origin)?.[1] ?? origin
-  );
+  return LOOPBACK.test(origin) ? "localhost" : origin;
 }
 
 /** `repo · host/route`, the card's where-line without its time: the repo
@@ -61,8 +62,10 @@ export type Where = (card: LibraryCard) => { text: string; title: string };
 
 /** Where for `cards` drawn together (2026-11-02): the route, and the host
  *  only where it tells flows apart. Under No project the site is what
- *  does; in a project, only when its flows here ran on more than one
- *  host (the admin app on another port, the production site). */
+ *  does; in a project, only a site that is not the author's machine
+ *  (2026-11-03: a dev server's port moves, so it names no app), and only
+ *  when the project's flows here ran on more than one host. A bare route
+ *  reads as local. */
 export function whereFor(
   cards: readonly LibraryCard[],
   withRepo: boolean,
@@ -76,7 +79,9 @@ export function whereFor(
   }
   return (card) => {
     const k = projectKeyOf(card);
-    const many = k === null || (hosts.get(k)?.size ?? 0) > 1;
+    const many =
+      k === null ||
+      ((hosts.get(k)?.size ?? 0) > 1 && !LOOPBACK.test(card.row.origin));
     return {
       text: whereOf(card, withRepo, many ? "short" : null),
       title: whereOf(card, withRepo, "whole"),
