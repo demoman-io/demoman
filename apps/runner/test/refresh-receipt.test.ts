@@ -241,14 +241,15 @@ const one = async (d = deps()) => {
 };
 
 describe("a refresh against the receipt", () => {
-  it("a v1 repo refreshes unchanged, its file untouched, and gains a receipt with images", async () => {
+  it("a v1 repo refreshes the same picture as added, its file untouched, and gains a receipt with images", async () => {
     const text = v1Text(recipe());
     await writeFile(join(repo, FILE), text);
     // Premise: the file is the v1 shape, and no receipt sits beside it.
     expect(JSON.parse(text).keptVersion).toBe(1);
     expect(existsSync(join(repo, RECEIPT))).toBe(false);
     const v = await one();
-    expect(v.outcome, JSON.stringify(v)).toBe("unchanged");
+    // `added`: its receipt and images are written, and must be committed.
+    expect(v.outcome, JSON.stringify(v)).toBe("added");
     expect(v.sameAs).toEqual({ video: "t1" });
     // Compared against the v1 file's own screens.
     expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
@@ -292,7 +293,8 @@ describe("a refresh against the receipt", () => {
     // Premise: the two names make different files.
     expect(keptFileName("Renamed in the studio")).not.toBe(keptFileName(NAME));
     const v = await one();
-    expect(v.outcome, JSON.stringify(v)).toBe("unchanged");
+    // A v1 receipt the same: added, with its images.
+    expect(v.outcome, JSON.stringify(v)).toBe("added");
     expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
   });
 
@@ -574,7 +576,10 @@ describe("a refresh decides from the screens, then exports", () => {
       JSON.parse(await readFile(join(repo, RECEIPT), "utf8")).receiptVersion,
     ).toBe(1);
     const v = await one();
-    expect(v.outcome, JSON.stringify(v)).toBe("unchanged");
+    // Added, not unchanged: its receipt and images are written, and a
+    // delivery commits only changed, added or uncompared videos.
+    expect(v.outcome, JSON.stringify(v)).toBe("added");
+    expect(v.line).toContain(NAME);
     expect(exported()).toEqual(["screens", "mp4"]);
     expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
     expect(screensCompared).toEqual([]);
@@ -799,17 +804,18 @@ describe("the files route", () => {
     });
   });
 
-  it("a files flow with a previous receipt can be unchanged", async () => {
+  it("a files flow with a previous v1 receipt and the same picture is added, its receipt written again", async () => {
     await writeV2(filesRecipe(), null);
     await writeFile(join(prev, BARE), "delivered film");
     await writeFile(join(prev, RECEIPT_NAME), serializeReceipt(receipt()));
     const [v] = await refreshInto({ previous: prev });
-    expect(v?.outcome, JSON.stringify(v)).toBe("unchanged");
+    // A v1 receipt the same: added, its receipt written again with images.
+    expect(v?.outcome, JSON.stringify(v)).toBe("added");
     expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
-    // Nothing to deliver: the previous folder's film stands.
+    // No output to deliver: the previous folder's film stands.
     expect(existsSync(join(out, BARE))).toBe(false);
     expect((await listIn()).videos[0]).toMatchObject({
-      outcome: "unchanged",
+      outcome: "added",
       sameAs: { video: "t1", commit: FILMED, dirty: false },
       // Its v1 receipt, written again as v2 beside its images.
       files: [{ path: RECEIPT_NAME, fileType: "json", aspect: null }],
@@ -819,12 +825,13 @@ describe("the files route", () => {
     );
   });
 
-  it("with --previous the same folder as --out-dir, an unchanged flow's receipt and video stay in it", async () => {
+  it("with --previous the same folder as --out-dir, the same picture's video stays and its receipt still names it", async () => {
     await writeV2(filesRecipe(), null);
     await writeFile(join(out, BARE), "delivered film");
     await writeFile(join(out, RECEIPT_NAME), serializeReceipt(receipt()));
     const [v] = await refreshInto({ previous: out });
-    expect(v?.outcome, JSON.stringify(v)).toBe("unchanged");
+    // A v1 receipt the same: added, its receipt written again with images.
+    expect(v?.outcome, JSON.stringify(v)).toBe("added");
     // Premise: the comparison read the receipt in that folder.
     expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
     // The next run, downloading this folder, compares with the same receipt.

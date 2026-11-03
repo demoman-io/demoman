@@ -145,15 +145,16 @@ it(
     expect(k.code, said(k)).toBe(0);
     const original = await kept();
 
-    // Unchanged, the first time: `add` wrote a version 1 receipt, with no
-    // screen images, so this refresh exports to compare, says so, and
-    // writes them. (Until `add` writes the images itself.)
+    // The same picture, the first time: `add` wrote a version 1 receipt,
+    // with no screen images, so this refresh exports to compare, says so,
+    // and writes them: `added`, so a delivery commits them. (Until `add`
+    // writes the images itself.)
     const first = await cli("refresh");
-    console.info(`[refresh] unchanged, v1: ${first.stdout.trim()}`);
+    console.info(`[refresh] same, v1 receipt: ${first.stdout.trim()}`);
     expect(first.code, said(first)).toBe(0);
     expect(first.stdout, said(first)).toMatch(
       new RegExp(
-        `${NAME}: unchanged: .*\\(\\.demoman/receipts/\\S+\\.json had no screen images, so this refresh exported to compare; the next one compares its screens\\)`,
+        `${NAME}: added: .*\\(\\.demoman/receipts/\\S+\\.json had no screen images, so this refresh exported to compare; the next one compares its screens\\)`,
       ),
     );
     // The export's line splits its in-page time; red if the page stops
@@ -272,9 +273,10 @@ it(
 
     const original = await readFile(join(repo, navMp4));
     const same = await cli("refresh", nav);
-    console.info(`[refresh] nav unchanged: ${same.stdout.trim()}`);
+    console.info(`[refresh] nav same, v1 receipt: ${same.stdout.trim()}`);
     expect(same.code, said(same)).toBe(0);
-    expect(same.stdout, said(same)).toContain(`${nav}: unchanged`);
+    // A version 1 receipt the same: added, its receipt written with images.
+    expect(same.stdout, said(same)).toContain(`${nav}: added`);
     expect(
       (await readFile(join(repo, navMp4))).equals(original),
       said(same),

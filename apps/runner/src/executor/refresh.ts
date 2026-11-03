@@ -60,7 +60,8 @@ export interface RefreshVideo {
   flow: string | null;
   deliver: KeptDeliver | null;
   /** `changed`: the picture differs from the previous receipt's film.
-   *  `added`: the same picture, with an output that did not exist written.
+   *  `added`: the same picture, with an output that did not exist written,
+   *  or a version 1 receipt written again with its screen images.
    *  `uncompared`: no previous film to compare against; delivered as new. */
   outcome: "changed" | "added" | "uncompared" | "unchanged" | "failed";
   /** Why it failed (the run's verdict line, or what refused), or what the
@@ -740,8 +741,8 @@ async function filmOne(
  * each by rename from a finished file or folder beside it. The same picture
  * writes only an output with no committed file (`added`), and the receipt,
  * which describes the judged output, stays; a version 1 receipt is written
- * again as version 2 with the images, still naming the committed video. The
- * recipe is never written.
+ * again as version 2 with the images, still naming the committed video, and
+ * is `added` too, so a delivery commits it. The recipe is never written.
  */
 async function deliverOne(
   {
@@ -874,8 +875,6 @@ async function deliverOne(
     );
     return answer("failed", written, null);
   }
-  if (same === true && toWrite.length === 0)
-    return answer("unchanged", written, null);
   // The commit the line names is the one the run filmed, never HEAD read
   // again; a dirty film is not its commit's tree, so it is not called so.
   const code =
