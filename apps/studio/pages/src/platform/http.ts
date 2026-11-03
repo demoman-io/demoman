@@ -100,7 +100,7 @@ export const KITS_BUSY =
 
 /** The empty library's hint in the studio, which has no toolbar icon. */
 const STUDIO_FIRST_TAKE_HINT =
-  "Ask your agent for a demo video. Each flow shows up here, grouped by the day it was last filmed.";
+  "Ask your agent for a demo video. Each flow shows up here, grouped by the day it was last recorded.";
 
 /** The line that replaces every Runs link in the studio (spec §5): the
  *  agent call that films the flow again, as a new video (spec 2026-10-30
@@ -108,7 +108,7 @@ const STUDIO_FIRST_TAKE_HINT =
 export const refilmLine = (videoId: string): string =>
   `Ask your agent to record it again: \`run({ flow: { id: "${videoId}" } })\``;
 /** The same, for a video in no flow yet: there is no call to name. */
-export const REFILM_NO_VIDEO = "Ask your agent to film this again.";
+export const REFILM_NO_VIDEO = "Ask your agent to record this again.";
 /** The same, for a video whose video.json would not read: why, not "in no flow". */
 export const refilmVideoUnread = (why: string): string =>
   `Couldn't read which flow this video is in: ${why}`;

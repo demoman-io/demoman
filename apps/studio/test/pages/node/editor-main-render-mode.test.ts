@@ -228,7 +228,7 @@ describe("editor main — the render-mode question is gone", () => {
     // The studio's re-film line (`nav.rerun`); the extension's said
     // "re-shoot it in Runs".
     expect(document.getElementById("banner")?.textContent).toMatch(
-      /^This video has no frames — Ask your agent to film/,
+      /^This video has no frames — Ask your agent to record/,
     );
   });
 

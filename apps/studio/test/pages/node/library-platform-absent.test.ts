@@ -139,7 +139,7 @@ describe("the top bar", () => {
 describe("the library with the Studio's sizes and unreadable folders", () => {
   const MB = 1024 ** 2;
   const STUDIO_HINT =
-    "Ask your agent for a demo video. Each flow shows up here, grouped by the day it was last filmed.";
+    "Ask your agent for a demo video. Each flow shows up here, grouped by the day it was last recorded.";
   const scene = (id: string, name: string) =>
     ({
       meta: {

@@ -16,16 +16,16 @@ import type { CaptureStatus } from "./storage/types";
  */
 const CAPTURE_REASON_TEXT: Record<string, string> = {
   attachFailed: "Couldn't record the screen, so this video has no motion",
-  debuggerDetached: "Filming stopped partway through",
+  debuggerDetached: "The video stopped partway through",
   // Its fought-for sibling. Both stop the video; only this one has already
   // tried to get it back, and the difference is what tells an author whether
   // to record again or to look at their browser.
-  debuggerLost: "Filming stopped and couldn't restart",
+  debuggerLost: "The video stopped and couldn't restart",
   // Recovered: the frames resume, so this one is about a hole rather than an
   // ending, and the coverage figure beside it says how big.
   debuggerRecovered: "A stretch in the middle is missing",
   workerRestarted:
-    "The extension restarted mid-film, so this video has no motion",
+    "The extension restarted mid-recording, so this video has no motion",
   noKeyframes: "Nothing could be photographed, so there's no video",
   screencastUnavailable: "Motion couldn't be recorded, so this video is stills",
   muxFailed: "The motion couldn't be encoded, so this video is stills",
@@ -34,11 +34,11 @@ const CAPTURE_REASON_TEXT: Record<string, string> = {
   budgetSpent: "The video outran its motion budget, so the rest is stills",
   credentialSuspended: "Motion paused while you typed in a password field",
   motionIncomplete: "Some motion couldn't be saved, so parts are stills",
-  motionInterrupted: "Filming was interrupted, so parts are stills",
+  motionInterrupted: "Motion was interrupted, so parts are stills",
   spansDiscarded:
     "Some motion couldn't be encoded, so those moments are stills",
   storageRefused:
-    "This video's frames couldn't be saved — free up space and film it again",
+    "This video's frames couldn't be saved — free up space and record it again",
   // Not the disk: the frames were recorded and the bundle that indexes them
   // failed validation, so there was nothing valid to store. Recording again
   // may well hit it again, and the detail after the colon is what to report.
