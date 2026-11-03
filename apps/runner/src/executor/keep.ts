@@ -1037,6 +1037,9 @@ export async function renameKept(
   // The receipt goes with the recipe; a v1 recipe carries its own, which
   // the v2 recipe written below does not, so it is written out.
   let carry: (() => Promise<unknown>) | null = null;
+  // The receipt's screen folder goes with it: the old name is free to be
+  // kept again, and must not take the folder a renamed flow reads.
+  let screens: { from: string; to: string; receipt: KeptReceipt } | null = null;
   const had =
     old.deliver === "commit"
       ? await readReceiptFile(join(root, oldReceipt), oldReceipt)
@@ -1051,6 +1054,13 @@ export async function renameKept(
     // A move to the same file name in the new folder keeps its receipt.
     if ("receipt" in had && moves && receipt !== oldReceipt) {
       carry = () => rename(join(root, oldReceipt), join(root, receipt));
+      if (had.receipt.screensDir !== null) {
+        screens = {
+          from: `${RECEIPT_DIR}/${had.receipt.screensDir}`,
+          to: `${RECEIPT_DIR}/${screensDirOf(receipt)}`,
+          receipt: had.receipt,
+        };
+      }
     } else if ("missing" in had && parsed.migrated !== null) {
       const migrated = parsed.migrated;
       carry = () => place(join(root, receipt), serializeReceipt(migrated));
@@ -1063,6 +1073,7 @@ export async function renameKept(
     for (const p of [
       file,
       ...(carry === null ? [] : [receipt]),
+      ...(screens === null ? [] : [screens.to]),
       ...(legacy === a.file ? [] : [legacy]),
     ]) {
       if (
@@ -1112,6 +1123,27 @@ export async function renameKept(
           : rename(join(root, receipt), join(root, oldReceipt)),
       left: `the receipt is left at ${receipt}`,
     });
+  }
+  if (screens !== null) {
+    const { from, to, receipt: r } = screens;
+    steps.push(
+      {
+        what: `move ${from} to ${to}`,
+        run: () => rename(join(root, from), join(root, to)),
+        undo: () => rename(join(root, to), join(root, from)),
+        left: `the screens are left at ${to}`,
+      },
+      {
+        what: `point ${receipt} at ${to}`,
+        run: () =>
+          place(
+            join(root, receipt),
+            serializeReceipt({ ...r, screensDir: screensDirOf(receipt) }),
+          ),
+        undo: () => place(join(root, receipt), serializeReceipt(r)),
+        left: `${receipt} is left naming ${to}`,
+      },
+    );
   }
   steps.push(
     {
@@ -1572,6 +1604,24 @@ export async function removeRepoFlow(
         `removed ${file}, but could not remove its receipt (${messageOf(error)}) — delete ${receipt}`,
       );
     }
+  }
+  const screensDir = `${RECEIPT_DIR}/${screensDirOf(receipt)}`;
+  const screensThere = await there(screensDir);
+  if (screensThere === true) {
+    try {
+      await rm(join(root, screensDir), { recursive: true });
+      removed.push(screensDir);
+    } catch (error) {
+      return refuse(
+        "repoFlowUnwritable",
+        `removed ${file}, but could not remove its screens (${messageOf(error)}) — delete ${screensDir}`,
+      );
+    }
+  } else if (screensThere !== false) {
+    return refuse(
+      "repoFlowUnwritable",
+      `removed ${file}, but whether ${screensDir} is there cannot be told (${screensThere.unknown}) — delete it if it is`,
+    );
   }
   // Remove never touches an export: one not known to be absent is listed.
   const exportsLeft: string[] = [];
