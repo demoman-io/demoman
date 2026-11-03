@@ -7,6 +7,18 @@ describe("parseRefreshArgs", () => {
       parseRefreshArgs(["a-flow", "--out-dir", "out", "--previous", "last"]),
     ).toEqual({ only: ["a-flow"], outDir: "out", previous: "last" });
   });
+  it("takes --check alone or with --previous, and nothing else beside it", () => {
+    expect(parseRefreshArgs(["--check"])).toEqual({ only: [], check: true });
+    expect(parseRefreshArgs(["--check", "--previous", "last"])).toEqual({
+      only: [],
+      check: true,
+      previous: "last",
+    });
+    for (const more of [["--deliver", "pr"], ["a-flow"], ["--out-dir", "o"]])
+      expect(parseRefreshArgs(["--check", ...more])).toEqual({
+        error: "--check takes only --previous",
+      });
+  });
   it("still refuses a flag it does not know, saying which", () => {
     expect(parseRefreshArgs(["--to", "x"])).toMatchObject({
       error: expect.stringContaining("--to"),

@@ -6,6 +6,8 @@ export type RefreshArgs = {
   baseUrl?: string;
   outDir?: string;
   previous?: string;
+  /** `--check`: say whether anything is new since the last refresh. */
+  check?: true;
 };
 
 /** `demoman refresh`'s arguments, or why they are refused. */
@@ -17,6 +19,7 @@ export function parseRefreshArgs(
     deliver?: string;
     "out-dir"?: string;
     previous?: string;
+    check?: boolean;
   };
   let positionals: string[];
   try {
@@ -27,6 +30,7 @@ export function parseRefreshArgs(
         deliver: { type: "string" },
         "out-dir": { type: "string" },
         previous: { type: "string" },
+        check: { type: "boolean" },
       },
       allowPositionals: true,
       strict: true,
@@ -34,6 +38,14 @@ export function parseRefreshArgs(
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }
+  if (
+    values.check === true &&
+    (positionals.length > 0 ||
+      values.deliver !== undefined ||
+      values["base-url"] !== undefined ||
+      values["out-dir"] !== undefined)
+  )
+    return { error: "--check takes only --previous" };
   if (values.deliver !== undefined && !/^(pr|main)$/.test(values.deliver))
     return { error: `--deliver is pr or main, not "${values.deliver}"` };
   let baseUrl: string | undefined;
@@ -54,5 +66,6 @@ export function parseRefreshArgs(
     ...(baseUrl === undefined ? {} : { baseUrl }),
     ...(values["out-dir"] === undefined ? {} : { outDir: values["out-dir"] }),
     ...(values.previous === undefined ? {} : { previous: values.previous }),
+    ...(values.check === true ? { check: true as const } : {}),
   };
 }

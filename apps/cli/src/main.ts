@@ -23,6 +23,7 @@ import {
 import { createUpdateCheck } from "@demoman/mcp/update-check";
 import { isExportQuality } from "@demoman/run-core";
 import {
+  checkCurrent,
   createLocalExecutor,
   execGit,
   fullChromiumPath,
@@ -53,6 +54,7 @@ import { deliver } from "./deliver.js";
 import { keepLines, removeLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
 import { parseRefreshArgs } from "./refresh-args.js";
+import { refreshCheck } from "./refresh-check.js";
 import { refreshLines } from "./refresh-lines.js";
 import { parseSetupArgs, setup } from "./setup.js";
 import {
@@ -480,6 +482,14 @@ async function refresh(args: string[]): Promise<void> {
   if (!repo.ok) {
     return fail(
       `${repo.none} — run refresh inside the repo the flows belong to`,
+    );
+  }
+  if (parsed.check === true) {
+    // 3: nothing new since the last refresh; the workflow skips the rest.
+    process.exit(
+      await refreshCheck(repo.repo.root, previous, {
+        say: (l) => process.stdout.write(`${l}\n`),
+      }),
     );
   }
   requirePageBundles(
