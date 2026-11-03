@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -7,6 +7,7 @@ import {
   type KeptVideo,
   keptFileName,
   RECEIPT_DIR,
+  screensDirOf,
   serializeKept,
   serializeReceipt,
 } from "@demoman/run-core";
@@ -57,6 +58,8 @@ const receipt = (
   filmedCode: code,
   screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
   recordedRevision: null,
+  screensDir: null,
+  screensSize: null,
 });
 
 let repo: string;
@@ -208,6 +211,38 @@ describe("checkCurrent", () => {
       "Place an order: current (recorded at a1b2c3d)",
     ]);
     expect(r.current).toBe(true);
+  });
+
+  it("counts a receipt's screen images as refresh's own, so its commit is not something new", async () => {
+    const a = flow(1, "Place an order");
+    // Where refresh writes them (refresh-suite pins it): beside the receipt.
+    const dir = screensDirOf(keptFileName(a.name));
+    await add(a, {
+      ...receipt(a, { commit: AT, tree: "t", dirty: false }),
+      screensDir: dir,
+      screensSize: { width: 1280, height: 720 },
+    });
+    const written = JSON.parse(
+      await readFile(join(repo, RECEIPT_DIR, keptFileName(a.name)), "utf8"),
+    );
+    expect(written, "premise: a receipt that names its screens").toMatchObject({
+      receiptVersion: 2,
+      screensDir: dir,
+    });
+    const screens = `${RECEIPT_DIR}/${dir}`;
+    const r = await checkCurrent(
+      { repoRoot: repo },
+      {
+        changedSince: changed([
+          `${screens}/step-1.png`,
+          `${screens}/final.png`,
+        ]),
+      },
+    );
+    expect(r).toEqual({
+      current: true,
+      lines: ["Place an order: current (recorded at a1b2c3d)"],
+    });
   });
 
   it("must record when anything else changed, and says how much", async () => {

@@ -29,6 +29,7 @@ import {
   lookDigest,
   RECEIPT_DIR,
   type RunReport,
+  screensDirOf,
   serializeKept,
   verdictLine,
   webpSize,
@@ -218,6 +219,10 @@ async function withKept<T>(
   } finally {
     await rm(file, { force: true });
     await rm(join(repo, RECEIPT_DIR, keptFileName(video.name)), {
+      force: true,
+    });
+    await rm(join(repo, RECEIPT_DIR, screensDirOf(keptFileName(video.name))), {
+      recursive: true,
       force: true,
     });
     for (const o of video.outputs)
@@ -604,6 +609,7 @@ export const firstFilm = () => {
           out.aGif,
           out.aMp4,
           "docs/order-report.json",
+          `${RECEIPT_DIR}/${screensDirOf(keptFileName(A))}`,
           `${RECEIPT_DIR}/${keptFileName(A)}`,
         ].sort(),
       );
@@ -869,7 +875,8 @@ export const shortEnding = () => {
         }
         const v = byName(r, name);
         noiseLine("short ending, slower", v.detail);
-        const slower = exported.find((e) => e.fileType === "mp4")?.screens;
+        // The screens render's: an unchanged refresh exports no MP4.
+        const slower = exported.find((e) => e.fileType === "screens")?.screens;
         expect(slower && final(slower), JSON.stringify(exported)).toBe(true);
         expect(v.outcome, v.detail).toBe("unchanged");
       });
@@ -1030,14 +1037,26 @@ export const compareFailures = () => {
     ONE_MS,
   );
 
+  // Only a version 1 receipt's comparison decodes the committed file: a
+  // version 2 one compares its images.
   it(
     "delivers as new over a committed file that is not a decodable video, saying so",
     async () => {
+      const receiptFile = `${RECEIPT_DIR}/${keptFileName(B)}`;
+      const v2 = JSON.parse((await bytes(receiptFile)).toString());
+      // The premise: the receipt was version 2, and is made version 1.
+      expect(v2.receiptVersion).toBe(2);
+      const { screensDir: _d, screensSize: _s, ...v1 } = v2;
+      await writeFile(
+        join(repo, receiptFile),
+        JSON.stringify({ ...v1, receiptVersion: 1 }),
+      );
       await writeFile(join(repo, out.bMp4), "not a video");
       const r = await refresh([B]);
       const b = byName(r, B);
       expect(b.outcome, JSON.stringify(r)).toBe("uncompared");
       expect(b.notes).toEqual([
+        `${receiptFile} had no screen images, so this refresh exported to compare; the next one compares its screens`,
         expect.stringMatching(
           /^docs\/reports\.mp4 was replaced without a comparison: the committed file could not be decoded \(.+\)$/,
         ),
@@ -1112,7 +1131,8 @@ export const replaceChain = () => {
       expect(byName(r, A).outputs).toContain(receiptFile);
       expect(byName(r, A).outputs).not.toContain(file);
       expect((await bytes(file)).equals(recipe)).toBe(true);
-      const judged = exported.find((e) => e.fileType === "mp4");
+      // The receipt records the screens render's screens, which decided.
+      const judged = exported.find((e) => e.fileType === "screens");
       expect(judged, JSON.stringify(exported)).toBeDefined();
       const after = (await keptOf(A)).screens;
       expect(after).toEqual(judged?.screens);
@@ -1197,7 +1217,7 @@ export const replaceChain = () => {
       );
       await rm(join(repo, out.aMp4));
       injectExport = (v) =>
-        v.fileType === "mp4"
+        v.fileType === "screens"
           ? { ...v, screens: { ...(v.screens as KeptScreens), moments: [] } }
           : v;
       let r: RefreshResult;
@@ -1213,9 +1233,9 @@ export const replaceChain = () => {
         `${out.aMp4}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
       );
       expect(a.outputs).toEqual([]);
-      // The premise: the export really answered with no screen.
+      // The premise: the screens render really answered.
       expect(
-        exported.some((e) => e.fileType === "mp4"),
+        exported.some((e) => e.fileType === "screens"),
         JSON.stringify(exported),
       ).toBe(true);
       const after = await Promise.all([out.aGif, file, receiptFile].map(bytes));
@@ -1406,10 +1426,14 @@ export const upload = () => {
         // Nothing changed since: unchanged.
         const second = byName(again, C);
         expect(second.outcome, JSON.stringify(again)).toBe("unchanged");
-        // The premise: each refresh's export warned soft, and nothing else.
-        expect(exported.slice(before).map((e) => e.wallpaper)).toEqual([
-          "soft",
-          "soft",
+        // The premise: each render warned soft, and nothing else: the
+        // first refresh's screens and MP4, the unchanged one's screens.
+        expect(
+          exported.slice(before).map((e) => [e.fileType, e.wallpaper]),
+        ).toEqual([
+          ["screens", "soft"],
+          ["mp4", "soft"],
+          ["screens", "soft"],
         ]);
         // The picture: the margin is the upload's green.
         const [reading] = (

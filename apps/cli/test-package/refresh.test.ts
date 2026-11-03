@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -145,20 +145,31 @@ it(
     expect(k.code, said(k)).toBe(0);
     const original = await kept();
 
-    // Unchanged: same app, same picture, the file is not touched.
+    // `add` wrote the screen images beside the receipt: the premise of a
+    // first refresh that compares them. Red if `add` stops writing them.
+    const receiptName = /^Added "[^"]*" to the repo: (\S+)$/m.exec(
+      k.stdout,
+    )?.[1];
+    expect(receiptName, said(k)).toBeDefined();
+    await access(
+      join(
+        repo,
+        ".demoman/receipts",
+        `${basename(receiptName as string, ".json")}.screens`,
+        "final.png",
+      ),
+    );
+
+    // The same picture, the first time: the screens decide, and nothing is
+    // exported. Red if an unchanged refresh exports.
     const same = await cli("refresh");
     console.info(`[refresh] unchanged: ${same.stdout.trim()}`);
     expect(same.code, said(same)).toBe(0);
     expect(same.stdout, said(same)).toContain(`${NAME}: unchanged`);
     expect(same.stderr, said(same)).toMatch(
       new RegExp(
-        `timing refresh "${NAME}": record [\\d.]+s, export mp4 [\\d.]+s, queued [\\d.]+s, compare [\\d.]+s, write [\\d.]+s; total [\\d.]+s; unchanged`,
+        `timing refresh "${NAME}": record [\\d.]+s, screens [\\d.]+s, compare [\\d.]+s, queued [\\d.]+s, write [\\d.]+s; total [\\d.]+s; unchanged`,
       ),
-    );
-    // The export's line splits its in-page time; red if the page stops
-    // reading the sink's times and falls back to the unsplit wording.
-    expect(same.stderr, said(same)).toMatch(
-      /timing export \S+ mp4: .*in page: .*s drawing, [\d.]+s copying [1-9]\d* frames to the encoder, [\d.]+s waiting on the encoder, [\d.]+s finishing the file/,
     );
     expect((await kept()).equals(original), said(same)).toBe(true);
 
@@ -175,6 +186,12 @@ it(
     console.info(`[refresh] changed: ${changed.stdout.trim()}`);
     expect(changed.code, said(changed)).toBe(0);
     expect(changed.stdout, said(changed)).toContain(`${NAME}: changed`);
+    // The screens decided, then the MP4 was exported to be written.
+    expect(changed.stderr, said(changed)).toMatch(
+      new RegExp(
+        `timing refresh "${NAME}": record [\\d.]+s, screens [\\d.]+s, compare [\\d.]+s, export mp4 [\\d.]+s, queued [\\d.]+s, write [\\d.]+s; total [\\d.]+s; changed`,
+      ),
+    );
     const changedFilm = await kept();
     expect(changedFilm.equals(original), said(changed)).toBe(false);
     expect(
@@ -193,7 +210,7 @@ it(
     expect(broken.stdout, said(broken)).toContain(`${NAME}: failed`);
     expect((await kept()).equals(changedFilm), said(broken)).toBe(true);
   },
-  STEP_MS * 5,
+  STEP_MS * 6,
 );
 
 // The regression guard for a take with no motion frames: on a Mac, the nav
@@ -252,7 +269,7 @@ it(
 
     const original = await readFile(join(repo, navMp4));
     const same = await cli("refresh", nav);
-    console.info(`[refresh] nav unchanged: ${same.stdout.trim()}`);
+    console.info(`[refresh] nav same: ${same.stdout.trim()}`);
     expect(same.code, said(same)).toBe(0);
     expect(same.stdout, said(same)).toContain(`${nav}: unchanged`);
     expect(

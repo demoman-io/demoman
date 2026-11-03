@@ -282,6 +282,37 @@ describe("deliver", () => {
     expect(a.detail).toBe("committed 3 video(s) on main");
   });
 
+  // A version 1 receipt refreshed the same is `added`: its receipt is
+  // written again with a folder of screen images, and both are committed,
+  // or every later refresh decodes the full export again.
+  it("an added video whose outputs are its receipt and images folder gets them staged", async () => {
+    const images = ".demoman/receipts/x.screens";
+    mkdirSync(join(repo, images), { recursive: true });
+    writeFileSync(join(repo, images, "step-0.png"), "png");
+    writeFileSync(join(repo, images, "final.png"), "png");
+    writeFileSync(join(repo, ".demoman/receipts/x.json"), "{}");
+    const a = await run(
+      "main",
+      result([
+        {
+          outcome: "added",
+          outputs: [images, ".demoman/receipts/x.json"],
+        },
+      ]),
+    );
+    expect(a).toMatchObject({ delivered: "main", ok: true });
+    expect(
+      git(repo, "show", "--name-only", "--format=", "HEAD").split("\n").sort(),
+    ).toEqual(
+      [
+        `${images}/final.png`,
+        `${images}/step-0.png`,
+        ".demoman/receipts/x.json",
+        "docs/add-task.mp4",
+      ].sort(),
+    );
+  });
+
   it("main: a failed push is reported, not delivered", async () => {
     git(repo, "remote", "set-url", "origin", join(dir, "nowhere.git"));
     const a = await run("main", result());

@@ -4,6 +4,7 @@ import {
   copyFile,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -12,9 +13,13 @@ import { join } from "node:path";
 import {
   FLOWS_DIR,
   LEGACY_FLOWS_DIR as KEPT_DIR,
+  type KeptReceipt,
   type KeptVideo,
   keptFileName,
+  parseReceipt,
+  screensDirOf,
   serializeKept,
+  serializeReceipt,
 } from "@demoman/run-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { removeRepoFlow, renameKept } from "../src/executor/keep.js";
@@ -172,13 +177,91 @@ describe("renameKept", () => {
   });
 });
 
+const receiptV2 = (file: string): KeptReceipt => ({
+  receiptVersion: 2,
+  screensDir: screensDirOf(file),
+  screensSize: { width: 1280, height: 720 },
+  flow: FLOW_ID,
+  video: "take-1",
+  filmedAt: null,
+  filmedCode: { none: "test" },
+  screens: { steps: 1, moments: [{ step: 0, ms: 0 }] },
+  recordedRevision: null,
+});
+const hasAt = (p: string) =>
+  access(join(root, p)).then(
+    () => true,
+    () => false,
+  );
+
+describe("renameKept moves the screens folder with the receipt", () => {
+  const NEW = "Place a big order";
+  const oldReceipt = `.demoman/receipts/${keptFileName(NAME)}`;
+  const newReceipt = `.demoman/receipts/${keptFileName(NEW)}`;
+  const oldDir = `.demoman/receipts/${screensDirOf(oldReceipt)}`;
+  const newDir = `.demoman/receipts/${screensDirOf(newReceipt)}`;
+  const fake = (setKeptOk: boolean) =>
+    ({
+      list: async () => [{ id: FLOW_ID, name: NAME, repo: undefined }],
+      rename: async () => ({ ok: true as const }),
+      setKept: async () =>
+        setKeptOk ? { ok: true as const } : { ok: false as const, reason: "x" },
+    }) as unknown as VideoStore;
+  beforeEach(async () => {
+    await mkdir(join(root, oldDir), { recursive: true });
+    await writeFile(join(root, oldDir, "step-1.png"), "png");
+    await writeFile(
+      join(root, oldReceipt),
+      serializeReceipt(receiptV2(oldReceipt)),
+    );
+  });
+
+  it("moves the folder and points the receipt at it", async () => {
+    // Premise: the folder and receipt start under the old name.
+    expect([await hasAt(oldDir), await hasAt(newDir)]).toEqual([true, false]);
+    const out = await renameKept(
+      { root, file: FILE, name: NEW },
+      { videos: fake(true) },
+    );
+    expect(out, JSON.stringify(out)).toMatchObject({ ok: true });
+    expect([await hasAt(oldDir), await hasAt(newDir)]).toEqual([false, true]);
+    expect(await hasAt(`${newDir}/step-1.png`)).toBe(true);
+    const parsed = parseReceipt(
+      await readFile(join(root, newReceipt), "utf8"),
+      newReceipt,
+    );
+    expect(parsed.ok && parsed.receipt.screensDir).toBe(
+      screensDirOf(newReceipt),
+    );
+  });
+
+  it("a later step failing puts the folder and receipt back", async () => {
+    const before = await readFile(join(root, oldReceipt), "utf8");
+    const out = await renameKept(
+      { root, file: FILE, name: NEW },
+      { videos: fake(false) },
+    );
+    expect(out).toMatchObject({ ok: false, reason: "repoFlowUnwritable" });
+    expect(!out.ok && out.detail).toContain("every step before it was undone");
+    expect([await hasAt(oldDir), await hasAt(newDir)]).toEqual([true, false]);
+    expect(await readFile(join(root, oldReceipt), "utf8")).toBe(before);
+  });
+});
+
 describe("removeRepoFlow", () => {
   const RECEIPT = `.demoman/receipts/${keptFileName(NAME)}`;
-  const has = (p: string) =>
-    access(join(root, p)).then(
-      () => true,
-      () => false,
-    );
+  const has = hasAt;
+
+  it("deletes the screens folder too and lists it", async () => {
+    const dir = `.demoman/receipts/${screensDirOf(RECEIPT)}`;
+    await mkdir(join(root, dir), { recursive: true });
+    await writeFile(join(root, dir, "step-1.png"), "png");
+    await writeFile(join(root, RECEIPT), "{}");
+    expect(await has(dir)).toBe(true);
+    const out = await removeRepoFlow({ root, flow: NAME });
+    expect(out).toMatchObject({ ok: true, removed: [FILE, RECEIPT, dir] });
+    expect(await has(dir)).toBe(false);
+  });
 
   it("deletes the recipe and receipt and leaves the exports", async () => {
     await mkdir(join(root, ".demoman/receipts"), { recursive: true });

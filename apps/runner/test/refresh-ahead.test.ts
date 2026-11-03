@@ -44,6 +44,8 @@ const kept: KeptVideo = {
 /** What the committed files show: video t1 at revision r1. */
 const committed: KeptReceipt = {
   receiptVersion: 1,
+  screensDir: null,
+  screensSize: null,
   flow: FLOW_ID,
   video: "t1",
   filmedAt: null,

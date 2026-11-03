@@ -3,6 +3,7 @@ import {
   type FrameBundle,
   LANDSCAPE_1080P,
   type RenderTarget,
+  type Screens,
   wallpaperShape,
 } from "@demoman/compositor";
 import {
@@ -31,6 +32,7 @@ import {
   stillsFolder,
   targetCheckOf,
   targetFor,
+  type WallpaperWarning,
   withSummary,
   zoomWarnings,
 } from "@demoman/run-core";
@@ -46,6 +48,7 @@ import type { BrowserSession } from "./browser.js";
 import { tagBytes as tagFileBytes, type VideoTag } from "./export-tag.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
+import { PICTURE_OPTIONS } from "./same-picture.js";
 import { checkExportFolder, saveExport, saveStillsFolder } from "./save.js";
 import { readUserSettings } from "./user-settings.js";
 import type { VideoStore } from "./videos.js";
@@ -78,6 +81,24 @@ const FILE_TYPES = ["mp4", "gif", "stills"] as const;
 
 export type Exporting = Extract<ExportReport, { outcome: "exporting" }>;
 
+/** A screens-only export (`screensOnly: true`, for `refresh` and `keep`):
+ *  one image per still screen of the mp4 or gif output, named by
+ *  `screenImageName`, `PICTURE_OPTIONS.width` wide, in a folder of its own.
+ *  `size` is the output target's, which the screens' windows are in. */
+export type ScreensAnswer = {
+  outcome: "saved";
+  fileType: "screens";
+  takeId: string;
+  folder: { path: string };
+  screens: Screens;
+  size: { width: number; height: number };
+  warnings: {
+    logo: string | null;
+    wallpaperWarning: WallpaperWarning | null;
+  };
+  summary: string;
+};
+
 /**
  * The CLI's `export`: the extension's `exportTake` (`adapters/agent-export.ts`)
  * with its ports swapped — the take library on disk for IndexedDB, a work page
@@ -92,10 +113,22 @@ export type Exporting = Extract<ExportReport, { outcome: "exporting" }>;
  * outcome; rejects only on a bug.
  */
 export async function exportTake(
+  args: Record<string, unknown> & { screensOnly: true },
+  deps: ExportDeps,
+  onProgress: (report: Exporting) => void,
+): Promise<ExportAnswer | ScreensAnswer>;
+/** `screensOnly` is internal (never an MCP argument): a caller asking for
+ *  it uses the signature above. */
+export async function exportTake(
   args: Record<string, unknown>,
   deps: ExportDeps,
   onProgress: (report: Exporting) => void,
-): Promise<ExportAnswer> {
+): Promise<ExportAnswer>;
+export async function exportTake(
+  args: Record<string, unknown>,
+  deps: ExportDeps,
+  onProgress: (report: Exporting) => void,
+): Promise<ExportAnswer | ScreensAnswer> {
   const { library } = deps;
   // Why the Settings quality could not be read, once it has been: a failed
   // export says it too, not only a saved MP4 (`videoSize`).
@@ -148,6 +181,9 @@ export async function exportTake(
     );
   }
   const asked = fileType as FileType;
+  const screensOnly = args.screensOnly === true;
+  if (screensOnly && asked === "stills")
+    throw new Error("screensOnly applies to an mp4 or gif export, not stills");
   const stills = stillsOptionsOf(args.stills, asked);
   if (typeof stills === "string")
     return refused("invalidStillsOptions", stills);
@@ -250,7 +286,10 @@ export async function exportTake(
       store,
       deps,
       onProgress,
+      screensOnly,
     });
+    if (answer.outcome === "saved" && answer.fileType === "screens")
+      return answer;
     // `unlisted`: `keep` and `refresh` render into a temp folder they then
     // empty, so a row would list a file that is gone. Not an MCP argument.
     return answer.outcome === "saved" && args.unlisted !== true
@@ -430,7 +469,9 @@ async function exportLeased(a: {
   store: ReturnType<Library["frameStore"]>;
   deps: ExportDeps;
   onProgress: (report: Exporting) => void;
-}): Promise<ExportAnswer> {
+  /** Only the still screens' images (`ScreensAnswer`), at the target. */
+  screensOnly: boolean;
+}): Promise<ExportAnswer | ScreensAnswer> {
   const {
     takeId,
     asked,
@@ -444,6 +485,7 @@ async function exportLeased(a: {
     store,
     deps,
     onProgress,
+    screensOnly,
   } = a;
   const { library } = deps;
   const times = stageTimes();
@@ -522,13 +564,20 @@ async function exportLeased(a: {
       fileType: asked,
       logo,
       wallpaper,
-      // As wide as fits: sharp on a Retina screen when the take is short,
-      // narrower (and said) when it is long.
-      ...(asked === "gif" ? { gifBudget: { maxBytes: GIF_BUDGET_BYTES } } : {}),
+      // Screens render at the target itself: a budget or a cap sizes a
+      // file, and screens make none, only images as wide as the
+      // comparison reads.
+      ...(screensOnly
+        ? { screensOnly: { width: PICTURE_OPTIONS.width } }
+        : asked === "gif"
+          ? // As wide as fits: sharp on a Retina screen when the take is
+            // short, narrower (and said) when it is long.
+            { gifBudget: { maxBytes: GIF_BUDGET_BYTES } }
+          : {}),
       // A cap steps down to the share target, then this take's 1080p share
       // frame (the floor), then a bitrate that fits (`capLadder`): Auto's
       // frames are its own, re-solved.
-      ...(maxBytes === null
+      ...(maxBytes === null || screensOnly
         ? {}
         : {
             mp4Cap: {
@@ -586,6 +635,61 @@ async function exportLeased(a: {
   }
 
   onProgress({ outcome: "exporting", phase: "saving", done: 0, total: 0 });
+  // The look is recorded beside the bytes the render was handed: a file's
+  // contents are part of it (`lookDigest`).
+  const look = lookDigest(scene.branding, {
+    logo: logo?.ok ? fileDigest(logo.bytes) : null,
+    wallpaper: wallpaper?.ok ? fileDigest(wallpaper.bytes) : null,
+  });
+  if (screensOnly) {
+    // As a video's: no screens is a failed render, never one that "has
+    // none"; and each screen has its one image, by its name.
+    const named = rendered.files.flatMap((f) =>
+      f.name === null ? [] : [{ name: f.name, bytes: f.bytes }],
+    );
+    if (
+      rendered.screens === undefined ||
+      named.length !== rendered.files.length ||
+      named.length !== rendered.screens.moments.length
+    ) {
+      return withSummary({
+        outcome: "renderFailed",
+        takeId,
+        error: `the ${asked} screens render made ${named.length} named images of ${rendered.files.length} for ${rendered.screens?.moments.length ?? "no"} screens`,
+      });
+    }
+    const saved = await saveStillsFolder(
+      deps.outDir,
+      `${takeId} screens`,
+      named,
+    );
+    times.mark("save");
+    deps.log(times.line(`export ${takeId} screens`));
+    if (saved.kind === "failed") {
+      return withSummary({
+        outcome: "saveFailed",
+        takeId,
+        error: saved.error,
+        fileType: asked,
+      });
+    }
+    return {
+      outcome: "saved",
+      fileType: "screens",
+      takeId,
+      folder: { path: saved.path },
+      screens: { ...rendered.screens, look },
+      size: {
+        width: rendered.rendered.width,
+        height: rendered.rendered.height,
+      },
+      warnings: {
+        logo: rendered.logoWarning,
+        wallpaperWarning: rendered.wallpaperWarning,
+      },
+      summary: `Rendered ${saved.files.length} screen images of video ${takeId} into ${saved.path}.`,
+    };
+  }
   const tagger = await taggerFor(takeId, deps);
   const base = exportBaseName(tagger.videoName ?? sceneLabel(scene.meta));
   const warnings = {
@@ -694,15 +798,7 @@ async function exportLeased(a: {
       ...warnings,
       ...tagger.untagged,
       ...tagger.taggedWithoutCommit,
-      // The look is recorded here, beside the bytes the render was handed:
-      // a file's contents are part of it (`lookDigest`).
-      screens: {
-        ...rendered.screens,
-        look: lookDigest(scene.branding, {
-          logo: logo?.ok ? fileDigest(logo.bytes) : null,
-          wallpaper: wallpaper?.ok ? fileDigest(wallpaper.bytes) : null,
-        }),
-      },
+      screens: { ...rendered.screens, look },
       ...(rendered.gifBudget === undefined
         ? {}
         : { gifSize: rendered.gifBudget }),

@@ -1,11 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type KeptScreens,
   type KeptWindow,
   messageOf,
 } from "@demoman/run-core";
+import { screenImageName } from "@demoman/run-core/render";
 import { bundleEntry } from "../bundle-js.js";
 import type {
   DecodeProbeEntry,
@@ -90,15 +92,51 @@ export const LOOKS = [
  *  `PICTURE_OPTIONS.width`: past the anti-aliased rounded edge (measured in
  *  the calibration comment above). */
 export const WINDOW_INSET_PX = 2;
+type Look = { name: string; block: number; levels: number; allowed: number };
+/** The looks for a comparison of screen images: the values of `LOOKS`, kept
+ *  after measuring them on stills (2026-11-03). Still screens are PNGs, not
+ *  video frames, so they carry none of the encoder's coding error.
+ *
+ *   share of the picture changed         sharply (allowed 0.0008%)   faintly (allowed 0.017%)
+ *   unchanged re-films (order, reports)     0.0000%                  0.0000%
+ *   the same, a slower app (macOS only)      0.0000%                  0.0000%
+ *   one digit, $1,200.00 to $1,207.00        0.0020% (2.5x over)      -
+ *   nav text gray-700 to gray-500            -                        0.0611% (3.6x over)
+ *   a button blue to a green as light        0.344%                   -
+ *   a dark panel #111827 to #7f1d1d          13.0%                    -
+ *
+ * A "-" is a look the case did not reach: the detail line names the first
+ * look that counts it changed. Locally the numbers are identical over two
+ * runs of refresh-unchanged and refresh-restyle. On CI (run 41624628018) the
+ * two `package` jobs (ubuntu-22.04, ubuntu-24.04) and the `refresh` job
+ * measured only the unchanged order and reports videos, 0.0000% on both
+ * looks, and a changed order video at 2.32-2.36% sharply. The digit, grey
+ * text, button and panel rows, and the 2.5x below, are LOCAL ONLY: ci-ts.yml
+ * has no workflow_dispatch, so the slow restyle lane did not run on CI. The
+ * unchanged side reads 0, under `allowed` by its whole value (it has no
+ * noise to be clear of); the changed side is at least 2.5x over locally,
+ * against the 1.8x and 1.4x `LOOKS` was accepted at. The same limits apply:
+ * a glyph moving under about 60 levels or a shade under 13 is not seen.
+ */
+export const STILL_LOOKS: readonly Look[] = LOOKS;
 export const PICTURE_OPTIONS: PictureOptions = {
   width: 1280,
   looks: LOOKS.map(({ block, levels }) => ({ block, levels })),
   inset: WINDOW_INSET_PX,
 };
+/** What the page reads a comparison of screen images with: the same looks
+ *  `comparePictures` judges them by. */
+export const STILL_PICTURE_OPTIONS: PictureOptions = {
+  ...PICTURE_OPTIONS,
+  looks: STILL_LOOKS.map(({ block, levels }) => ({ block, levels })),
+};
 /** How far, in pixels at `PICTURE_OPTIONS.width`, a moved window edge may
  *  be off and still be the same window: its rect is recorded to 0.01 px,
  *  and an unchanged film's is the same to the last digit. */
 export const WINDOW_MOVED_PX = 1;
+
+const LOOK_CHANGED =
+  "the look changed: the background, padding or logo round the window is not the one the committed video was filmed with";
 
 const ENTRY_PATH = fileURLToPath(
   new URL(
@@ -150,8 +188,7 @@ export async function samePicture(
   ) {
     return {
       same: false,
-      detail:
-        "the look changed: the background, padding or logo round the window is not the one the committed video was filmed with",
+      detail: LOOK_CHANGED,
     };
   }
   const shared = sharedScreens(committedScreens, freshScreens);
@@ -230,6 +267,140 @@ export async function samePicture(
   return comparePictures(diff, shared, freshScreens.steps + 1, deps.steps);
 }
 
+type ScreenImages = {
+  dir: string;
+  screens: KeptScreens;
+  /** The output target's pixels, which the screens' windows are in. */
+  size: { width: number; height: number };
+};
+
+/**
+ * `samePicture` over the screen images a screens-only render wrote
+ * (`screenImageName`), one folder per side. The same early answers; an image
+ * a shared screen needs that is missing, or is not a PNG, is `uncomparable`
+ * and names the file: never "same".
+ */
+export async function sameScreens(
+  committed: ScreenImages,
+  fresh: ScreenImages,
+  deps: {
+    session: Pick<BrowserSession, "openWorkPage">;
+    steps?: readonly { do: string }[];
+    log: (line: string) => void;
+  },
+): Promise<{ same: boolean; detail: string } | { uncomparable: string }> {
+  if (committed.screens.steps !== fresh.screens.steps) {
+    return {
+      same: false,
+      detail: `the video's steps changed, ${committed.screens.steps} to ${fresh.screens.steps}`,
+    };
+  }
+  if (
+    committed.screens.look !== undefined &&
+    fresh.screens.look !== undefined &&
+    committed.screens.look !== fresh.screens.look
+  ) {
+    return { same: false, detail: LOOK_CHANGED };
+  }
+  const shared = sharedScreens(committed.screens, fresh.screens);
+  if (shared.length === 0)
+    return { uncomparable: "no screen of the video is still in both films" };
+  const files = new Map<string, Buffer>();
+  const paths = new Map<string, string>();
+  for (const [prefix, side] of [
+    ["/a/", committed],
+    ["/b/", fresh],
+  ] as const) {
+    for (const s of shared) {
+      const name = screenImageName(s.step);
+      const path = join(side.dir, name);
+      paths.set(`${prefix}${name}`, path);
+      try {
+        files.set(`${prefix}${name}`, await readFile(path));
+      } catch (error) {
+        return {
+          uncomparable:
+            (error as NodeJS.ErrnoException).code === "ENOENT"
+              ? `${path} is missing`
+              : `${path} could not be read (${messageOf(error)})`,
+        };
+      }
+    }
+  }
+  const urls = (prefix: string) =>
+    shared.map((s) => `${prefix}${screenImageName(s.step)}`);
+  const work = await deps.session.openWorkPage();
+  if (!work.ok) throw new Error(`no page to decode on: ${work.detail}`);
+  const server = createServer((req, res) => {
+    const bytes = files.get(req.url ?? "");
+    if (bytes === undefined) {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<!doctype html><meta charset=utf-8><title>compare</title>");
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": "image/png",
+      "content-length": String(bytes.byteLength),
+    });
+    res.end(bytes);
+  });
+  let diff: ScreensDiff | PictureUnreadable;
+  try {
+    const origin = await listenOnLoopback(server);
+    await work.page.goto(origin);
+    await work.page.addScriptTag({ content: await bundleEntry(ENTRY_PATH) });
+    diff = await work.page.evaluate(
+      ([name, a, b, sizeA, sizeB, windows, options]) => {
+        const entry = (
+          globalThis as unknown as Record<string, DecodeProbeEntry>
+        )[name as string];
+        if (entry === undefined) throw new Error(`${name} is not installed`);
+        return entry.imagesDiff(
+          a as string[],
+          b as string[],
+          sizeA as ScreenImages["size"],
+          sizeB as ScreenImages["size"],
+          windows as (KeptWindow | null)[],
+          options as PictureOptions,
+        );
+      },
+      [
+        DECODE_PROBE_GLOBAL,
+        urls("/a/"),
+        urls("/b/"),
+        committed.size,
+        fresh.size,
+        shared.map((s) =>
+          s.windowB === undefined ? null : (s.windowA ?? null),
+        ),
+        STILL_PICTURE_OPTIONS,
+      ] as const,
+    );
+  } finally {
+    server.close();
+    await work.page.close().catch((error: unknown) => {
+      deps.log(
+        `refresh: the comparison's page would not close (${messageOf(error)})`,
+      );
+    });
+  }
+  if ("unreadable" in diff) {
+    // The page leads its message with the url it served.
+    const at = diff.error.indexOf(": ");
+    const url = diff.error.slice(0, at);
+    return {
+      uncomparable: `${paths.get(url) ?? url} could not be read as a PNG (${diff.error.slice(at + 2)})`,
+    };
+  }
+  return comparePictures(
+    diff,
+    shared,
+    fresh.screens.steps + 1,
+    deps.steps,
+    STILL_LOOKS,
+  );
+}
+
 /** The script step a screen's `step` (an index into the film's actions)
  *  comes from: `pause` makes no action (`authoredTotal`), every other step
  *  makes one. Null when the script has no such step. */
@@ -291,6 +462,7 @@ export function comparePictures(
   shared: ReturnType<typeof sharedScreens>,
   total: number,
   steps?: readonly { do: string }[],
+  looks: readonly Look[] = LOOKS,
 ): { same: boolean; detail: string } | { uncomparable: string } {
   const { a, b, changed } = diff;
   if (a.width !== b.width || a.height !== b.height) {
@@ -324,7 +496,7 @@ export function comparePictures(
   }
   const pct = (share: number) => `${(share * 100).toFixed(4)}%`;
   // Per look: its largest share, and the screen it was read at.
-  const worst = LOOKS.map((look, j) => {
+  const worst = looks.map((look, j) => {
     let share = 0;
     let at = 0;
     for (const [i, shares] of changed.entries()) {

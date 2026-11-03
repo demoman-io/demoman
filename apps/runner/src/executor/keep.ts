@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  cp,
   lstat,
   mkdir,
   mkdtemp,
@@ -42,6 +43,7 @@ import {
   REFRESH_LIST_FILE,
   type RefilmInfo,
   type RunReport,
+  screensDirOf,
   serializeKept,
   serializeReceipt,
   servedRunReport,
@@ -315,9 +317,8 @@ export async function keepVideo(
   const temp = await mkdtemp(join(tmpdir(), "demoman-keep-"));
   try {
     const rendered: Uint8Array[] = [];
-    let screens: KeptScreens | undefined;
     const judged = judgedOutput(base.outputs);
-    for (const [i, o] of deliver === "files" ? [] : base.outputs.entries()) {
+    for (const o of deliver === "files" ? [] : base.outputs) {
       deps.log(`keep: exporting ${o.path}`);
       const answer = await exportTake(
         {
@@ -347,8 +348,44 @@ export async function keepVideo(
           `${o.path} was rendered without its wallpaper: ${answer.warnings.wallpaperWarning.sentence}`,
         );
       }
-      if (i === judged) screens = answer.screens;
       rendered.push(await readFile(answer.file.path));
+    }
+    // The images a refresh compares with: the judged output's screens alone.
+    let screens: KeptScreens | undefined;
+    let shots: { dir: string; size: { width: number; height: number } } | null =
+      null;
+    if (deliver === "commit") {
+      const o = base.outputs[judged] as KeptOutput;
+      deps.log(`keep: rendering the screens of ${o.path}`);
+      const shot = await exportTake(
+        {
+          takeId: built.takeId,
+          fileType: o.fileType,
+          aspect: o.aspect,
+          unlisted: true,
+          screensOnly: true,
+          ...(o.fileType === "mp4" ? { quality: o.quality } : {}),
+        },
+        { ...deps.export, outDir: temp },
+        () => undefined,
+      );
+      if (shot.outcome !== "saved" || shot.fileType !== "screens") {
+        return refuse("exportFailed", `${o.path}'s screens: ${shot.summary}`);
+      }
+      if (shot.warnings.logo !== null) {
+        return refuse(
+          "logoUnreadable",
+          `${o.path}'s screens were rendered without the logo: ${shot.warnings.logo}`,
+        );
+      }
+      if (shot.warnings.wallpaperWarning?.kind === "leftOut") {
+        return refuse(
+          "wallpaperUnreadable",
+          `${o.path}'s screens were rendered without the wallpaper: ${shot.warnings.wallpaperWarning.sentence}`,
+        );
+      }
+      screens = shot.screens;
+      shots = { dir: shot.folder.path, size: shot.size };
     }
     if (
       deliver === "commit" &&
@@ -369,7 +406,9 @@ export async function keepVideo(
       deliver === "files" || screens === undefined
         ? null
         : {
-            receiptVersion: 1,
+            receiptVersion: 2,
+            screensDir: screensDirOf(receiptRel),
+            screensSize: shots?.size ?? null,
             flow: video.id,
             video: built.takeId,
             filmedAt: filmedAtOf(runReport),
@@ -405,6 +444,13 @@ export async function keepVideo(
         }
       }
       if (receipt !== null) {
+        // Before the receipt, as the outputs are: it never names images
+        // that are not there.
+        if (shots !== null && receipt.screensDir !== null) {
+          const at = join(dirname(receiptRel), receipt.screensDir);
+          await placeFolder(join(root, at), shots.dir, deps.log);
+          written.push(at);
+        }
         await place(join(root, receiptRel), serializeReceipt(receipt));
         written.push(receiptRel);
       }
@@ -991,6 +1037,9 @@ export async function renameKept(
   // The receipt goes with the recipe; a v1 recipe carries its own, which
   // the v2 recipe written below does not, so it is written out.
   let carry: (() => Promise<unknown>) | null = null;
+  // The receipt's screen folder goes with it: the old name is free to be
+  // kept again, and must not take the folder a renamed flow reads.
+  let screens: { from: string; to: string; receipt: KeptReceipt } | null = null;
   const had =
     old.deliver === "commit"
       ? await readReceiptFile(join(root, oldReceipt), oldReceipt)
@@ -1005,6 +1054,13 @@ export async function renameKept(
     // A move to the same file name in the new folder keeps its receipt.
     if ("receipt" in had && moves && receipt !== oldReceipt) {
       carry = () => rename(join(root, oldReceipt), join(root, receipt));
+      if (had.receipt.screensDir !== null) {
+        screens = {
+          from: `${RECEIPT_DIR}/${had.receipt.screensDir}`,
+          to: `${RECEIPT_DIR}/${screensDirOf(receipt)}`,
+          receipt: had.receipt,
+        };
+      }
     } else if ("missing" in had && parsed.migrated !== null) {
       const migrated = parsed.migrated;
       carry = () => place(join(root, receipt), serializeReceipt(migrated));
@@ -1017,6 +1073,7 @@ export async function renameKept(
     for (const p of [
       file,
       ...(carry === null ? [] : [receipt]),
+      ...(screens === null ? [] : [screens.to]),
       ...(legacy === a.file ? [] : [legacy]),
     ]) {
       if (
@@ -1066,6 +1123,27 @@ export async function renameKept(
           : rename(join(root, receipt), join(root, oldReceipt)),
       left: `the receipt is left at ${receipt}`,
     });
+  }
+  if (screens !== null) {
+    const { from, to, receipt: r } = screens;
+    steps.push(
+      {
+        what: `move ${from} to ${to}`,
+        run: () => rename(join(root, from), join(root, to)),
+        undo: () => rename(join(root, to), join(root, from)),
+        left: `the screens are left at ${to}`,
+      },
+      {
+        what: `point ${receipt} at ${to}`,
+        run: () =>
+          place(
+            join(root, receipt),
+            serializeReceipt({ ...r, screensDir: screensDirOf(receipt) }),
+          ),
+        undo: () => place(join(root, receipt), serializeReceipt(r)),
+        left: `${receipt} is left naming ${to}`,
+      },
+    );
   }
   steps.push(
     {
@@ -1374,6 +1452,49 @@ export async function place(
   }
 }
 
+/**
+ * `place` for a folder: `from`'s files are copied into a finished folder
+ * beside `dest`, which then takes its name by rename, so `dest` is never
+ * half written. The folder it replaces is moved aside first and removed
+ * after; one that will not go is said to `log`, never a failed place.
+ * Returns the temp folder's path.
+ */
+export async function placeFolder(
+  dest: string,
+  from: string,
+  log: (line: string) => void,
+): Promise<string> {
+  await mkdir(dirname(dest), { recursive: true });
+  const temp = `${dest}.${randomUUID()}.tmp`;
+  const aside = `${dest}.${randomUUID()}.old`;
+  let moved = false;
+  try {
+    await cp(from, temp, { recursive: true });
+    moved = await rename(dest, aside).then(
+      () => true,
+      (error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      },
+    );
+    await rename(temp, dest);
+  } catch (error) {
+    await rm(temp, { recursive: true, force: true }).catch(() => undefined);
+    if (moved)
+      await rename(aside, dest).catch((back: unknown) => {
+        throw new Error(
+          `${messageOf(error)}, and the folder it was replacing could not be put back from ${aside} (${messageOf(back)})`,
+        );
+      });
+    throw error;
+  }
+  if (moved)
+    await rm(aside, { recursive: true, force: true }).catch((error: unknown) =>
+      log(`refresh: ${aside} was not removed (${messageOf(error)})`),
+    );
+  return temp;
+}
+
 export type RemoveAnswer =
   | {
       ok: true;
@@ -1483,6 +1604,24 @@ export async function removeRepoFlow(
         `removed ${file}, but could not remove its receipt (${messageOf(error)}) — delete ${receipt}`,
       );
     }
+  }
+  const screensDir = `${RECEIPT_DIR}/${screensDirOf(receipt)}`;
+  const screensThere = await there(screensDir);
+  if (screensThere === true) {
+    try {
+      await rm(join(root, screensDir), { recursive: true });
+      removed.push(screensDir);
+    } catch (error) {
+      return refuse(
+        "repoFlowUnwritable",
+        `removed ${file}, but could not remove its screens (${messageOf(error)}) — delete ${screensDir}`,
+      );
+    }
+  } else if (screensThere !== false) {
+    return refuse(
+      "repoFlowUnwritable",
+      `removed ${file}, but whether ${screensDir} is there cannot be told (${screensThere.unknown}) — delete it if it is`,
+    );
   }
   // Remove never touches an export: one not known to be absent is listed.
   const exportsLeft: string[] = [];

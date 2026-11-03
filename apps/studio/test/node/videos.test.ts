@@ -910,6 +910,8 @@ describe("renaming a kept flow", () => {
   const receiptText = () =>
     serializeReceipt({
       receiptVersion: 1,
+      screensDir: null,
+      screensSize: null,
       flow: invoice,
       video: "inv-2",
       filmedAt: null,

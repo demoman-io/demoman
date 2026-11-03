@@ -7,6 +7,7 @@ import {
   comparePictures,
   LOOKS,
   PICTURE_OPTIONS,
+  STILL_LOOKS,
   samePicture,
   sharedScreens,
 } from "../src/executor/same-picture.js";
@@ -182,6 +183,19 @@ describe("comparePictures", () => {
       detail:
         "at most 0.0000% sharply and 0.0000% faintly of the picture changed, over 3 of 4 screens",
     });
+  });
+  it("takes its looks as a parameter, STILL_LOOKS the same as LOOKS for now", () => {
+    const changed = diff([0, 0.002, 0]);
+    expect(comparePictures(changed, shared, 4, undefined, STILL_LOOKS)).toEqual(
+      comparePictures(changed, shared, 4),
+    );
+    // Premise: LOOKS reads this as changed, so the lenient list below is
+    // what makes it same.
+    expect(comparePictures(changed, shared, 4)).toMatchObject({ same: false });
+    const lenient = LOOKS.map((look) => ({ ...look, allowed: 1 }));
+    expect(
+      comparePictures(changed, shared, 4, undefined, lenient),
+    ).toMatchObject({ same: true });
   });
   it("names the step and time of the screen that changed", () => {
     const out = comparePictures(diff([0, 0.002, 0]), shared, 4);

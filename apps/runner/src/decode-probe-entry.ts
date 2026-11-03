@@ -174,6 +174,18 @@ export interface DecodeProbeEntry {
     windows: (ScreenWindow | null)[],
     options: PictureOptions,
   ): Promise<ScreensDiff | PictureUnreadable>;
+  /** `screensDiff` over still images: `urlsA[i]` against `urlsB[i]`, each
+   *  drawn `options.width` wide. The files report `sizeA` and `sizeB`, the
+   *  output target's pixels the windows are in, with `length` and `frame` 0;
+   *  no entry of `changed` is null. */
+  imagesDiff(
+    urlsA: string[],
+    urlsB: string[],
+    sizeA: { width: number; height: number },
+    sizeB: { width: number; height: number },
+    windows: (ScreenWindow | null)[],
+    options: PictureOptions,
+  ): Promise<ScreensDiff | PictureUnreadable>;
   /** Every frame of the film at `url`, decoded in order: its timestamp, and
    *  how much its picture changed from the frame before. */
   frameTimes(url: string): Promise<FrameTimes>;
@@ -919,6 +931,61 @@ async function screensDiff(
   }
 }
 
+/** `screensDiff` over still images (`DecodeProbeEntry.imagesDiff`). An image
+ *  that will not load is `unreadable`, its message led by its url. */
+async function imagesDiff(
+  urlsA: string[],
+  urlsB: string[],
+  sizeA: { width: number; height: number },
+  sizeB: { width: number; height: number },
+  windows: (ScreenWindow | null)[],
+  o: PictureOptions,
+): Promise<ScreensDiff | PictureUnreadable> {
+  const file = (size: { width: number; height: number }): PictureFile => ({
+    ...size,
+    length: 0,
+    frame: 0,
+  });
+  const answer: ScreensDiff = {
+    a: file(sizeA),
+    b: file(sizeB),
+    changed: [],
+  };
+  if (sizeA.width !== sizeB.width || sizeA.height !== sizeB.height)
+    return answer;
+  const read = async (side: "a" | "b", url: string): Promise<Drawn> => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`answered ${res.status}`);
+      const bitmap = await createImageBitmap(await res.blob());
+      try {
+        return drawnOf(bitmap, bitmap.width, bitmap.height, o.width);
+      } finally {
+        bitmap.close();
+      }
+    } catch (error) {
+      throw new Unreadable(
+        side,
+        `${url}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+  try {
+    for (const [i, urlA] of urlsA.entries()) {
+      const da = await read("a", urlA);
+      const gb = await read("b", urlsB[i] as string);
+      const w = windows[i] ?? null;
+      const db = w === null ? gb : insideOnly(da, gb, w, sizeB.width, o.inset);
+      answer.changed.push(o.looks.map((look) => changedShare(da, db, look)));
+    }
+  } catch (error) {
+    if (error instanceof Unreadable)
+      return { unreadable: error.side, error: error.message };
+    throw error;
+  }
+  return answer;
+}
+
 /** A failure to read one file's frames, and which file. */
 class Unreadable extends Error {
   constructor(
@@ -1009,6 +1076,7 @@ function meanAbsoluteDifference(
 
 const entry: DecodeProbeEntry = {
   screensDiff,
+  imagesDiff,
   decodeFrame,
   readCrops,
   sampleFrames,
