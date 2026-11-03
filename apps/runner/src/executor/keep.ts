@@ -370,6 +370,8 @@ export async function keepVideo(
         ? null
         : {
             receiptVersion: 1,
+            screensDir: null,
+            screensSize: null,
             flow: video.id,
             video: built.takeId,
             filmedAt: filmedAtOf(runReport),

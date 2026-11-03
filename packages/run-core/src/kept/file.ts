@@ -3,7 +3,7 @@ import { type DemoScript, DemoScriptSchema } from "@demoman/scene-schema";
 import { EXPORT_QUALITY_VALUES, type ExportQuality } from "../export/target.js";
 import { isFlowId } from "../served-words.js";
 import { normaliseName } from "../video-name.js";
-import { type KeptReceipt, parseScreens, RECEIPT_VERSION } from "./receipt.js";
+import { type KeptReceipt, parseScreens } from "./receipt.js";
 
 export const KEPT_VERSION = 2;
 /** The first format: screens and `from` lived in the recipe. Read, never written. */
@@ -202,7 +202,9 @@ export function parseKept(text: string, file: string): Parsed {
     if (!sc.ok) return bad(sc.detail);
     const f = raw.from as Record<string, string>;
     migrated = {
-      receiptVersion: RECEIPT_VERSION,
+      receiptVersion: 1,
+      screensDir: null,
+      screensSize: null,
       flow,
       video: f.takeId as string,
       filmedAt: null,

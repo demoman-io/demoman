@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type KeptReceipt,
   parseReceipt,
+  screensDirOf,
   serializeReceipt,
 } from "../../src/kept/receipt.js";
 
@@ -21,6 +22,14 @@ const receipt: KeptReceipt = {
     look: "1a2b3c",
   },
   recordedRevision: "r1",
+  screensDir: null,
+  screensSize: null,
+};
+const v2: KeptReceipt = {
+  ...receipt,
+  receiptVersion: 2,
+  screensDir: "order.screens",
+  screensSize: { width: 1440, height: 900 },
 };
 
 const refusal = (text: string) => {
@@ -81,12 +90,83 @@ describe("the receipt", () => {
     expect(refusal(withChange({ filmedCode: { commit: 3 } }))).toContain(
       "filmedCode",
     );
-    expect(refusal(withChange({ receiptVersion: 2 }))).toContain(
-      "receiptVersion",
+    expect(refusal(withChange({ receiptVersion: 3 }))).toContain(
+      "receiptVersion is 3; this Demoman reads 1 and 2",
     );
   });
 
   it("names the file when the JSON is invalid", () => {
     expect(refusal("{nope")).toContain("r.json");
+  });
+
+  it("reads a version 1 receipt as naming no screen folder", () => {
+    // Premise: the fixture is version 1 and writes no folder.
+    const text = serializeReceipt(receipt);
+    expect(JSON.parse(text).receiptVersion).toBe(1);
+    const parsed = parseReceipt(text, "r.json");
+    expect(parsed).toEqual({ ok: true, receipt });
+    expect(parsed.ok && parsed.receipt.screensDir).toBeNull();
+  });
+
+  it("round-trips a version 2 receipt that names its screen folder and size", () => {
+    const text = serializeReceipt(v2);
+    expect(JSON.parse(text).receiptVersion).toBe(2);
+    expect(JSON.parse(text).screensDir).toBe("order.screens");
+    expect(parseReceipt(text, "r.json")).toEqual({ ok: true, receipt: v2 });
+  });
+
+  it("refuses a screen folder that is not beside the receipt", () => {
+    // Premise: the same change with a folder beside the receipt is accepted.
+    expect(
+      parseReceipt(
+        withChange({
+          receiptVersion: 2,
+          screensDir: "order.screens",
+          screensSize: { width: 1440, height: 900 },
+        }),
+        "r.json",
+      ).ok,
+    ).toBe(true);
+    expect(
+      refusal(
+        withChange({
+          receiptVersion: 2,
+          screensDir: "../x",
+          screensSize: { width: 1440, height: 900 },
+        }),
+      ),
+    ).toContain("screensDir must be a folder beside the receipt");
+  });
+
+  it("refuses a version 2 receipt whose screen size is not whole pixels", () => {
+    expect(
+      refusal(
+        withChange({
+          receiptVersion: 2,
+          screensDir: "order.screens",
+        }),
+      ),
+    ).toContain("screensSize must be { width, height } in whole pixels");
+  });
+
+  it("refuses a screens folder under version 1, which has none", () => {
+    expect(
+      refusal(
+        withChange({
+          screensDir: "order.screens",
+          screensSize: { width: 1440, height: 900 },
+        }),
+      ),
+    ).toContain("screensDir needs receiptVersion 2");
+  });
+
+  it("writes version 2 only when it names a screen folder", () => {
+    expect(JSON.parse(serializeReceipt(receipt)).receiptVersion).toBe(1);
+    expect(JSON.parse(serializeReceipt(v2)).receiptVersion).toBe(2);
+  });
+
+  it("names the screen folder beside a receipt, dropping only .json", () => {
+    expect(screensDirOf("order.json")).toBe("order.screens");
+    expect(screensDirOf("order.receipt.json")).toBe("order.receipt.screens");
   });
 });

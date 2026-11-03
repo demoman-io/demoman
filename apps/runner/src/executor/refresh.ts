@@ -694,6 +694,8 @@ async function deliverOne(
         receiptFile,
         serializeReceipt({
           receiptVersion: 1,
+          screensDir: null,
+          screensSize: null,
           flow: kept.flow,
           video: takeId,
           filmedAt: filmedAtOf({ value: report }),

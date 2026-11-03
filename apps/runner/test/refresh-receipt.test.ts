@@ -67,6 +67,8 @@ const recipe = (outputs = [MP4]): KeptVideo => ({
 });
 const receipt = (more: Partial<KeptReceipt> = {}): KeptReceipt => ({
   receiptVersion: 1,
+  screensDir: null,
+  screensSize: null,
   flow: FLOW,
   video: "t1",
   filmedAt: null,

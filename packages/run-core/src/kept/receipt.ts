@@ -4,11 +4,12 @@ import { type FilmedCode, parseFilmedCode } from "../replay/report.js";
 import { isFlowId } from "../served-words.js";
 import type { KeptMoment, KeptScreens } from "./file.js";
 
-export const RECEIPT_VERSION = 1;
+export const RECEIPT_VERSION = 2;
 export const RECEIPT_DIR = ".demoman/receipts";
 
 export type KeptReceipt = {
-  receiptVersion: 1;
+  /** 2 when it names a screen folder; 1 when it names none. */
+  receiptVersion: 1 | 2;
   flow: string;
   /** The take id of the video the files were rendered from. */
   video: string;
@@ -19,7 +20,23 @@ export type KeptReceipt = {
   screens: KeptScreens;
   /** The scene revision the files were built from; `libraryAhead` reads it. */
   recordedRevision: string | null;
+  /** The folder of still screen images, relative to the receipt's folder;
+   *  null exactly when receiptVersion is 1. */
+  screensDir: string | null;
+  /** The output target's size, which the screens' windows are measured in;
+   *  null exactly when receiptVersion is 1. */
+  screensSize: { width: number; height: number } | null;
 };
+
+/** The folder a receipt's screen images live in, beside it: `order.json`
+ *  names `order.screens`. */
+export function screensDirOf(receiptFile: string): string {
+  const base = receiptFile.split(/[\\/]/).pop() ?? receiptFile;
+  return `${base.replace(/\.json$/, "")}.screens`;
+}
+
+const isWholePixels = (v: unknown): v is number =>
+  Number.isInteger(v) && (v as number) > 0;
 
 type Screens =
   | { ok: true; screens: KeptScreens }
@@ -126,10 +143,11 @@ export function parseReceipt(text: string, file: string): Parsed {
     return bad(`is not valid JSON (${e instanceof Error ? e.message : e})`);
   }
   if (!isObj(raw)) return bad("is not a JSON object");
-  if (raw.receiptVersion !== RECEIPT_VERSION)
+  if (raw.receiptVersion !== 1 && raw.receiptVersion !== 2)
     return bad(
-      `receiptVersion is ${JSON.stringify(raw.receiptVersion)}; this Demoman reads ${RECEIPT_VERSION}`,
+      `receiptVersion is ${JSON.stringify(raw.receiptVersion)}; this Demoman reads 1 and 2`,
     );
+  const receiptVersion: 1 | 2 = raw.receiptVersion === 2 ? 2 : 1;
   if (typeof raw.flow !== "string" || !isFlowId(raw.flow))
     return bad("flow must be a flow id");
   if (typeof raw.video !== "string" || raw.video === "")
@@ -149,28 +167,60 @@ export function parseReceipt(text: string, file: string): Parsed {
     return bad("recordedRevision must be a string or null");
   const screens = parseScreens(raw.screens, "screens");
   if (!screens.ok) return bad(screens.detail);
+  let screensDir: string | null = null;
+  let screensSize: KeptReceipt["screensSize"] = null;
+  if (receiptVersion === 2) {
+    const dir = raw.screensDir;
+    if (
+      typeof dir !== "string" ||
+      dir === "" ||
+      dir.startsWith("/") ||
+      dir.split(/[\\/]/).includes("..")
+    )
+      return bad("screensDir must be a folder beside the receipt");
+    const size = raw.screensSize;
+    if (
+      !isObj(size) ||
+      !isWholePixels(size.width) ||
+      !isWholePixels(size.height)
+    )
+      return bad("screensSize must be { width, height } in whole pixels");
+    screensDir = dir;
+    screensSize = { width: size.width, height: size.height };
+  } else if (raw.screensDir !== undefined || raw.screensSize !== undefined)
+    return bad("screensDir needs receiptVersion 2");
   return {
     ok: true,
     receipt: {
-      receiptVersion: RECEIPT_VERSION,
+      receiptVersion,
       flow: raw.flow,
       video: raw.video,
       filmedAt,
       filmedCode,
       screens: screens.screens,
       recordedRevision,
+      screensDir,
+      screensSize,
     },
   };
 }
 
 export function serializeReceipt(r: KeptReceipt): string {
+  if ((r.screensDir === null) !== (r.screensSize === null))
+    throw new Error(
+      "a receipt names its screen folder and size together, or neither",
+    );
   const ordered = {
-    receiptVersion: r.receiptVersion,
+    // Version 2 only when it names a folder, so no receipt names one nobody wrote.
+    receiptVersion: r.screensDir === null ? 1 : 2,
     flow: r.flow,
     video: r.video,
     filmedAt: r.filmedAt,
     filmedCode: r.filmedCode,
     recordedRevision: r.recordedRevision,
+    ...(r.screensDir === null || r.screensSize === null
+      ? {}
+      : { screensDir: r.screensDir, screensSize: r.screensSize }),
     // `window` and `look` only when recorded, as the recipe once wrote them.
     screens: {
       steps: r.screens.steps,
