@@ -58,7 +58,7 @@ const scene: SceneDocument = {
   camera: [],
   edits: {
     ...readonlyScene().edits,
-    trim: { head: { actionId: "act-1", offsetMs: -200 }, tail: null },
+    trim: { head: { actionId: "act-1", offsetMs: -200 } },
   },
 };
 const bundle: FrameBundle = proceduralBundle({
