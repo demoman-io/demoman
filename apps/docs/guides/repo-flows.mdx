@@ -106,7 +106,7 @@ folder stays whole for the next run. With none, every video reads
 `uncompared`. A `files` flow refreshed without
 `--out-dir` fails, and the others still refresh.
 
-## Run it on every merge
+## Run it in CI
 
 ```bash
 npx demoman setup --ci
@@ -115,10 +115,19 @@ npx demoman setup --ci
 Writes `.github/workflows/demoman.yml` at the repo root. Asked, or given as
 flags:
 
-- `--trigger push` runs on each push to the default branch. Fill in the
-  workflow's "Start your app" step: refresh records the app at its address.
-  `--trigger <environment>` runs after each successful deployment to that
+- `--trigger <environment>` runs after each successful deployment to that
   environment, and records the deployed app.
+- `--trigger release` runs when a release is published, at its tag.
+- `--trigger daily` runs once a day. A day with nothing new stops before
+  Chromium and the app: when every repo flow was recorded at a commit that
+  only the refresh's own files changed after (`demoman refresh --check`).
+  An app whose picture changes with no commit, such as live data or an
+  unpinned dependency, is checked again only by the other triggers.
+- `--trigger push` runs on each push to the default branch, and records
+  every repo flow each time.
+
+For release, daily and push, fill in the workflow's "Start your app" step:
+refresh records the app at its address.
 - `--route pr` opens a pull request with the changed files. `--route main`
   commits them to the branch.
 
@@ -131,8 +140,8 @@ holds every files flow's video and receipt. The first run, or one whose
 earlier artifact has expired, finds none and says so in the log; its videos
 read `uncompared`.
 
-A deployment trigger cannot use `--route main`: the deployed commit is not a
-branch. Setup refuses the pair and names `pr`.
+A deployment or release trigger cannot use `--route main`: the commit it
+checks out is not a branch. Setup refuses the pair and names `pr`.
 
 The workflow checks out the full history (`fetch-depth: 0`) with any Git
 LFS files (`lfs: true`, so a video in LFS is compared, not a pointer), installs
