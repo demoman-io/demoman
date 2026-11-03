@@ -311,13 +311,15 @@ describe("the library's search box", () => {
     ).toBe(true);
     // Chrome's own clear button (a white ✕ at the field's right end while
     // it holds text) is not drawn: Esc clears. Premise: the sampler sees
-    // the typed text's white ink at the field's left.
+    // the typed text's white ink at the field's left. Any at all: how many
+    // pixels read near-white is the face's (CI's ubuntu runner drew 7 where
+    // this Mac draws more, 2026-11-03), and seeing them is the premise.
     const f = rect(input());
     const band = { top: f.top + 4, bottom: f.bottom - 4 };
     expect(
       await brightIn({ ...band, left: f.left + 28, right: f.left + 70 }),
       "the typed text's ink",
-    ).toBeGreaterThan(10);
+    ).toBeGreaterThan(0);
     expect(
       await brightIn({ ...band, left: f.right - 44, right: f.right - 4 }),
       "a clear button's ink",
