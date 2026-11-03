@@ -145,20 +145,34 @@ it(
     expect(k.code, said(k)).toBe(0);
     const original = await kept();
 
-    // Unchanged: same app, same picture, the file is not touched.
+    // Unchanged, the first time: `add` wrote a version 1 receipt, with no
+    // screen images, so this refresh exports to compare, says so, and
+    // writes them. (Until `add` writes the images itself.)
+    const first = await cli("refresh");
+    console.info(`[refresh] unchanged, v1: ${first.stdout.trim()}`);
+    expect(first.code, said(first)).toBe(0);
+    expect(first.stdout, said(first)).toMatch(
+      new RegExp(
+        `${NAME}: unchanged: .*\\(\\.demoman/receipts/\\S+\\.json had no screen images, so this refresh exported to compare; the next one compares its screens\\)`,
+      ),
+    );
+    // The export's line splits its in-page time; red if the page stops
+    // reading the sink's times and falls back to the unsplit wording.
+    expect(first.stderr, said(first)).toMatch(
+      /timing export \S+ mp4: .*in page: .*s drawing, [\d.]+s copying [1-9]\d* frames to the encoder, [\d.]+s waiting on the encoder, [\d.]+s finishing the file/,
+    );
+    expect((await kept()).equals(original), said(first)).toBe(true);
+
+    // Unchanged again: the screens decide, and nothing is exported. Red if
+    // an unchanged refresh exports.
     const same = await cli("refresh");
     console.info(`[refresh] unchanged: ${same.stdout.trim()}`);
     expect(same.code, said(same)).toBe(0);
     expect(same.stdout, said(same)).toContain(`${NAME}: unchanged`);
     expect(same.stderr, said(same)).toMatch(
       new RegExp(
-        `timing refresh "${NAME}": record [\\d.]+s, export mp4 [\\d.]+s, queued [\\d.]+s, compare [\\d.]+s, write [\\d.]+s; total [\\d.]+s; unchanged`,
+        `timing refresh "${NAME}": record [\\d.]+s, screens [\\d.]+s, compare [\\d.]+s, queued [\\d.]+s, write [\\d.]+s; total [\\d.]+s; unchanged`,
       ),
-    );
-    // The export's line splits its in-page time; red if the page stops
-    // reading the sink's times and falls back to the unsplit wording.
-    expect(same.stderr, said(same)).toMatch(
-      /timing export \S+ mp4: .*in page: .*s drawing, [\d.]+s copying [1-9]\d* frames to the encoder, [\d.]+s waiting on the encoder, [\d.]+s finishing the file/,
     );
     expect((await kept()).equals(original), said(same)).toBe(true);
 
@@ -175,6 +189,12 @@ it(
     console.info(`[refresh] changed: ${changed.stdout.trim()}`);
     expect(changed.code, said(changed)).toBe(0);
     expect(changed.stdout, said(changed)).toContain(`${NAME}: changed`);
+    // The screens decided, then the MP4 was exported to be written.
+    expect(changed.stderr, said(changed)).toMatch(
+      new RegExp(
+        `timing refresh "${NAME}": record [\\d.]+s, screens [\\d.]+s, compare [\\d.]+s, export mp4 [\\d.]+s, queued [\\d.]+s, write [\\d.]+s; total [\\d.]+s; changed`,
+      ),
+    );
     const changedFilm = await kept();
     expect(changedFilm.equals(original), said(changed)).toBe(false);
     expect(
@@ -193,7 +213,7 @@ it(
     expect(broken.stdout, said(broken)).toContain(`${NAME}: failed`);
     expect((await kept()).equals(changedFilm), said(broken)).toBe(true);
   },
-  STEP_MS * 5,
+  STEP_MS * 6,
 );
 
 // The regression guard for a take with no motion frames: on a Mac, the nav

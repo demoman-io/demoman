@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  cp,
   lstat,
   mkdir,
   mkdtemp,
@@ -1374,6 +1375,49 @@ export async function place(
     await rm(temp, { force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * `place` for a folder: `from`'s files are copied into a finished folder
+ * beside `dest`, which then takes its name by rename, so `dest` is never
+ * half written. The folder it replaces is moved aside first and removed
+ * after; one that will not go is said to `log`, never a failed place.
+ * Returns the temp folder's path.
+ */
+export async function placeFolder(
+  dest: string,
+  from: string,
+  log: (line: string) => void,
+): Promise<string> {
+  await mkdir(dirname(dest), { recursive: true });
+  const temp = `${dest}.${randomUUID()}.tmp`;
+  const aside = `${dest}.${randomUUID()}.old`;
+  let moved = false;
+  try {
+    await cp(from, temp, { recursive: true });
+    moved = await rename(dest, aside).then(
+      () => true,
+      (error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      },
+    );
+    await rename(temp, dest);
+  } catch (error) {
+    await rm(temp, { recursive: true, force: true }).catch(() => undefined);
+    if (moved)
+      await rename(aside, dest).catch((back: unknown) => {
+        throw new Error(
+          `${messageOf(error)}, and the folder it was replacing could not be put back from ${aside} (${messageOf(back)})`,
+        );
+      });
+    throw error;
+  }
+  if (moved)
+    await rm(aside, { recursive: true, force: true }).catch((error: unknown) =>
+      log(`refresh: ${aside} was not removed (${messageOf(error)})`),
+    );
+  return temp;
 }
 
 export type RemoveAnswer =

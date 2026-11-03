@@ -7,13 +7,14 @@ import {
   stat,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import {
   type ExportAnswer,
   type FilmedCode,
   FLOWS_DIR,
   judgedOutput,
   type KeptDeliver,
+  type KeptOutput,
   type KeptReceipt,
   type KeptScreens,
   type KeptVideo,
@@ -26,6 +27,7 @@ import {
   type RefreshListEntry,
   type RunReport,
   refreshListOf,
+  screensDirOf,
   serializeReceipt,
   serializeRefreshList,
   servedRunReport,
@@ -34,17 +36,19 @@ import type { DemoScript } from "@demoman/scene-schema";
 import { type StageTimes, stageTimes } from "../stage-times.js";
 import { codeClause, prLine } from "./attach.js";
 import type { BrowserSession } from "./browser.js";
+import type { ScreensAnswer } from "./export.js";
 import {
   filmedAtOf,
   filmedCodeIn,
   libraryAhead,
   place,
+  placeFolder,
   readReceiptFile,
   repoPath,
 } from "./keep.js";
 import { readKeptFlows } from "./kept-flows.js";
 import { createLibrary, type Library } from "./library.js";
-import { samePicture } from "./same-picture.js";
+import { samePicture, sameScreens } from "./same-picture.js";
 import type { LocalExecutor } from "./types.js";
 import type { VideoStore } from "./videos.js";
 
@@ -107,8 +111,10 @@ export interface RefreshDeps {
   }): LocalExecutor;
   /** The browser that decodes outputs to compare them. */
   session: Pick<BrowserSession, "openWorkPage">;
-  /** The picture comparison; the real one unless a test stands in. */
+  /** The picture comparisons, of a decoded film (a version 1 receipt's)
+   *  and of screen images; the real ones unless a test stands in. */
   samePicture?: typeof samePicture;
+  sameScreens?: typeof sameScreens;
   env: NodeJS.ProcessEnv;
   log: (line: string) => void;
 }
@@ -122,6 +128,8 @@ type Job = {
   /** What the committed files show: the receipt, else a v1 file's own; null
    *  when there is neither, and the film is delivered uncompared. */
   previous: KeptReceipt | null;
+  /** What a note calls `previous`: its receipt, or the v1 file it came from. */
+  previousAt: string;
   receiptFile: string;
   file: string;
   script: DemoScript;
@@ -164,10 +172,11 @@ export function uncleanRun(answer: Record<string, unknown>): string | null {
 
 /**
  * `demoman refresh`: re-films each kept video's script with no agent,
- * judges the run, exports each output, and compares the judged output's
- * picture with the one the previous receipt describes. A changed or
- * uncompared film replaces every output, the report and the receipt (each
- * by rename from a finished file beside it); the recipe is never written.
+ * judges the run, renders the judged output's still screens alone and
+ * compares them with the previous receipt's images, then exports only what
+ * it must write (`filmOne`). A changed or uncompared film replaces every
+ * output, the report, the images and the receipt (each by rename from a
+ * finished file or folder beside it); the recipe is never written.
  * A video that fails leaves its committed files as they were and says why;
  * the others still refresh.
  */
@@ -341,7 +350,22 @@ export async function refreshKept(
     const display = `${width}x${height}@${kept.scale}`;
     groups.set(display, [
       ...(groups.get(display) ?? []),
-      { kept, previous, receiptFile, file, script, notes, from, to },
+      {
+        kept,
+        previous,
+        previousAt:
+          "receipt" in had
+            ? toFolder
+              ? (receiptAt as string)
+              : receiptFile
+            : file,
+        receiptFile,
+        file,
+        script,
+        notes,
+        from,
+        to,
+      },
     ]);
   }
   for (const a of args.only ?? []) {
@@ -450,19 +474,45 @@ async function remove(dir: string, deps: RefreshDeps): Promise<void> {
   );
 }
 
-/** A video filmed clean and exported: each output's new file, in order. */
+/** A video filmed clean, judged from its screens, and exported where it
+ *  must be written. */
 type Filmed = {
   job: Job;
   report: RunReport;
   takeId: string;
-  rendered: string[];
-  renderedScreens: KeptScreens[];
+  /** Each exported output's new file, by its index in `kept.outputs`. */
+  rendered: Map<number, string>;
+  /** The judged output's screens render: its screens, the folder of their
+   *  images, and the size their windows are measured in. */
+  shots: {
+    screens: KeptScreens;
+    dir: string;
+    size: { width: number; height: number };
+  };
+  /** The comparison's answer: null when there was nothing to compare
+   *  against; `failure` when it could not be made. */
+  same: boolean | null;
+  failure: string | null;
+  /** The outputs to write, by index: every one of a new picture, else those
+   *  with no committed file. */
+  toWrite: number[];
+  /** What the comparison found, and what is new. */
+  said: string[];
   /** The take's report.json, served; or why it is not had. */
   stored: { value: unknown } | { not: string };
   /** Wall-clock per stage, said once the video is delivered. */
   times: StageTimes;
 };
 
+/**
+ * Films the video, renders the judged output's screens alone, and compares
+ * them with the previous receipt's images; then exports only what must be
+ * written: every output when the picture changed or there was nothing to
+ * compare against, else each output with no committed file. A version 1
+ * receipt has no images: its comparison is today's, on the judged output's
+ * full export, and says so. The comparison is decided here, once; nothing
+ * is written until every video is filmed (`deliverOne`).
+ */
 async function filmOne(
   job: Job,
   root: string,
@@ -470,7 +520,7 @@ async function filmOne(
   home: string,
   deps: RefreshDeps,
 ): Promise<Filmed | { failed: string }> {
-  const { kept, script } = job;
+  const { kept, script, previous, from, receiptFile } = job;
   const times = stageTimes();
   const run = async () => {
     const out = await executor.request("run", {
@@ -494,22 +544,37 @@ async function filmOne(
   const report = answer as unknown as RunReport;
   const takeId = report.provenance.takeId;
   if (takeId === null) return { failed: "the run is clean but made no video" };
+  const read = await createLibrary(home).getJson(takeId, "report.json");
+  const stored: Filmed["stored"] =
+    "value" in read
+      ? { value: servedRunReport(read.value as RunReport) }
+      : {
+          not: `video ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
+        };
+  if ("not" in stored) deps.log(`refresh: "${kept.name}": ${stored.not}`);
 
-  const rendered: string[] = [];
-  const renderedScreens: KeptScreens[] = [];
-  for (const o of kept.outputs) {
+  /** One output's export, or with `screensOnly` its screens alone. */
+  const exportOf = async <S extends boolean>(o: KeptOutput, screensOnly: S) => {
     const out = await executor.request("export", {
       takeId,
       fileType: o.fileType,
       aspect: o.aspect,
       // Its file is renamed into the repo; no row names the temp one.
       unlisted: true,
-      // A GIF has no quality to choose; export refuses one.
+      // A GIF has no quality to choose; export refuses one. The screens
+      // render at the target the output's own export renders at.
       ...(o.fileType === "mp4" ? { quality: o.quality } : {}),
+      ...(screensOnly ? { screensOnly: true } : {}),
     });
     if (!out.ok) return { failed: `${o.path}: ${out.detail}` };
-    const exported = out.value as ExportAnswer & { summary?: string };
-    if (exported.outcome !== "saved" || exported.fileType === "stills")
+    const exported = out.value as (ExportAnswer | ScreensAnswer) & {
+      summary?: string;
+    };
+    if (
+      exported.outcome !== "saved" ||
+      exported.fileType === "stills" ||
+      (exported.fileType === "screens") !== screensOnly
+    )
       return { failed: `${o.path}: ${exported.summary ?? exported.outcome}` };
     if (exported.warnings.logo !== null)
       return {
@@ -520,41 +585,188 @@ async function filmOne(
       return {
         failed: `${o.path} was rendered without its wallpaper: ${exported.warnings.wallpaperWarning.sentence}`,
       };
-    rendered.push(exported.file.path);
-    renderedScreens.push(exported.screens);
-    times.mark(`export ${o.fileType}`);
+    return exported as Extract<
+      typeof exported,
+      { fileType: S extends true ? "screens" : "mp4" | "gif" }
+    >;
+  };
+
+  const j = judgedOutput(kept.outputs);
+  const judged = kept.outputs[j] as KeptOutput;
+  const shot = await exportOf(judged, true);
+  if ("failed" in shot) return shot;
+  times.mark("screens");
+  const shots: Filmed["shots"] = {
+    screens: shot.screens as KeptScreens,
+    dir: shot.folder.path,
+    size: shot.size,
+  };
+  const said: string[] = [];
+  const rendered = new Map<number, string>();
+  const fullScreens = new Map<number, KeptScreens>();
+  const filmed = (
+    same: boolean | null,
+    toWrite: number[] = [],
+    failure: string | null = null,
+  ): Filmed => ({
+    job,
+    report,
+    takeId,
+    rendered,
+    shots,
+    same,
+    failure,
+    toWrite,
+    said,
+    stored,
+    times,
+  });
+  // A receipt with no screen is one every later refresh refuses, and a
+  // comparison of none compared nothing: fail now, with nothing written.
+  if (shots.screens.moments.length === 0)
+    return filmed(
+      null,
+      [],
+      `${judged.path}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
+    );
+  const exportAll = async (which: number[]) => {
+    for (const i of which) {
+      if (rendered.has(i)) continue;
+      const o = kept.outputs[i] as KeptOutput;
+      const exported = await exportOf(o, false);
+      if ("failed" in exported) return exported;
+      rendered.set(i, exported.file.path);
+      fullScreens.set(i, exported.screens as KeptScreens);
+      times.mark(`export ${o.fileType}`);
+    }
+    return null;
+  };
+  const exists = (p: string) =>
+    from === null
+      ? Promise.resolve(false)
+      : access(join(from, p)).then(
+          () => true,
+          () => false,
+        );
+  const uncompared = (against: string, why: string) =>
+    `${judged.path} could not be compared with its new ${against}, so nothing was replaced: ${why}`;
+  const compareDeps = {
+    session: deps.session,
+    steps: kept.script.steps,
+    log: deps.log,
+  };
+  // null: nothing to compare against, so the film is delivered as new.
+  let same: boolean | null = null;
+  if (previous === null) {
+    // Its note (the receipt is missing) is already in `notes`.
+  } else if (!(await exists(judged.path))) {
+    job.notes.push(`${judged.path} is missing`);
+  } else if (previous.screensDir === null || previous.screensSize === null) {
+    job.notes.push(
+      `${job.previousAt} had no screen images, so this refresh exported to compare; the next one compares its screens`,
+    );
+    const failed = await exportAll(kept.outputs.map((_, i) => i));
+    if (failed !== null) return failed;
+    let cmp: Awaited<ReturnType<typeof samePicture>>;
+    try {
+      cmp = await (deps.samePicture ?? samePicture)(
+        join(from as string, judged.path),
+        rendered.get(j) as string,
+        judged.fileType,
+        previous.screens,
+        fullScreens.get(j) as KeptScreens,
+        compareDeps,
+      );
+    } catch (error) {
+      return filmed(null, [], uncompared("export", messageOf(error)));
+    }
+    times.mark("compare");
+    if ("uncomparable" in cmp)
+      return filmed(null, [], uncompared("export", cmp.uncomparable));
+    if ("undecodable" in cmp) {
+      if (cmp.undecodable === "new")
+        return filmed(
+          null,
+          [],
+          `${judged.path}'s new export could not be decoded as ${judged.fileType.toUpperCase()} (${cmp.detail}), so nothing was replaced`,
+        );
+      // The one forgiven: a committed file that is no picture is replaced.
+      job.notes.push(
+        `${judged.path} was replaced without a comparison: the committed file could not be decoded (${cmp.detail})`,
+      );
+    } else {
+      same = cmp.same;
+      said.push(`${judged.path}: ${cmp.detail}`);
+    }
+  } else {
+    let cmp: Awaited<ReturnType<typeof sameScreens>>;
+    try {
+      cmp = await (deps.sameScreens ?? sameScreens)(
+        {
+          // The folder is named relative to the receipt's own.
+          dir: join(from as string, dirname(receiptFile), previous.screensDir),
+          screens: previous.screens,
+          size: previous.screensSize,
+        },
+        shots,
+        compareDeps,
+      );
+    } catch (error) {
+      return filmed(null, [], uncompared("screens", messageOf(error)));
+    }
+    times.mark("compare");
+    if ("uncomparable" in cmp)
+      return filmed(null, [], uncompared("screens", cmp.uncomparable));
+    same = cmp.same;
+    said.push(`${judged.path}: ${cmp.detail}`);
   }
-  const read = await createLibrary(home).getJson(takeId, "report.json");
-  const stored: Filmed["stored"] =
-    "value" in read
-      ? { value: servedRunReport(read.value as RunReport) }
-      : {
-          not: `video ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
-        };
-  if ("not" in stored) deps.log(`refresh: "${kept.name}": ${stored.not}`);
-  return { job, report, takeId, rendered, renderedScreens, stored, times };
+  if (same === null) said.push("nothing to compare against; delivered as new");
+  const toWrite: number[] = [];
+  for (const [i, o] of kept.outputs.entries()) {
+    if (same !== true) toWrite.push(i);
+    else if (i !== j && !(await exists(o.path))) {
+      toWrite.push(i);
+      said.push(`${o.path} is new`);
+    }
+  }
+  const failed = await exportAll(toWrite);
+  if (failed !== null) return failed;
+  return filmed(same, toWrite);
 }
 
 /**
- * Judges the video's one output (`judgedOutput`) against the previous
- * receipt's film. A changed or uncompared film replaces every output, the
- * report and then the receipt, each by rename from a finished file beside
- * it. The same picture writes only an output with no committed file
- * (`added`), and the receipt, which describes the judged output, stays.
- * The recipe is never written.
+ * Writes what `filmOne` decided. A changed or uncompared film replaces every
+ * output, the report, the receipt's screen images and then the receipt,
+ * each by rename from a finished file or folder beside it. The same picture
+ * writes only an output with no committed file (`added`), and the receipt,
+ * which describes the judged output, stays; a version 1 receipt is written
+ * again as version 2 with the images, still naming the committed video. The
+ * recipe is never written.
  */
 async function deliverOne(
-  { job, report, takeId, rendered, renderedScreens, stored, times }: Filmed,
+  {
+    job,
+    report,
+    takeId,
+    rendered,
+    shots,
+    same,
+    failure,
+    toWrite,
+    said,
+    stored,
+    times,
+  }: Filmed,
   deps: RefreshDeps,
 ): Promise<RefreshVideo> {
-  const { kept, previous, receiptFile, file, from, to } = job;
+  const { kept, previous, receiptFile, file, to } = job;
   // Every video is filmed before any is delivered: this one waited for them.
   times.mark("queued");
-  const said: string[] = [];
   const notes: string[] = [...job.notes];
-  const j = judgedOutput(kept.outputs);
-  const judged = kept.outputs[j] as (typeof kept.outputs)[number];
-  const screens = renderedScreens[j] as KeptScreens;
+  const { screens } = shots;
+  // Beside the receipt, named after it; a repo path, or a files flow's name.
+  const screensDir = screensDirOf(receiptFile);
+  const screensAt = join(dirname(receiptFile), screensDir);
   // Null when unknown; the receipt gets the reason, a malformed one said.
   const filmedCode = parseFilmedCode(report.filmedCode);
   const receiptCode = filmedCodeIn(report);
@@ -584,89 +796,30 @@ async function deliverOne(
       (outcome === "unchanged" || outcome === "added") && previous !== null
         ? { video: previous.video }
         : null,
-    files: outputs.map((path) => {
-      const o = kept.outputs.find((k) => k.path === path);
-      return o === undefined
-        ? { path, fileType: "json" as const, aspect: null }
-        : { path, fileType: o.fileType, aspect: o.aspect };
-    }),
+    // The list names files; the images' folder goes with its receipt.
+    files: outputs
+      .filter((path) => path !== screensAt)
+      .map((path) => {
+        const o = kept.outputs.find((k) => k.path === path);
+        return o === undefined
+          ? { path, fileType: "json" as const, aspect: null }
+          : { path, fileType: o.fileType, aspect: o.aspect };
+      }),
     screens,
     report: "value" in stored ? stored.value : null,
   });
-  // Nothing is written until the comparison is made: one that cannot be
-  // made fails the video with its files as they were.
-  const fail = (why: string) => {
-    said.splice(0, said.length, why);
+  // A comparison that could not be made fails the video with its files as
+  // they were.
+  if (failure !== null) {
+    said.splice(0, said.length, failure);
     return answer("failed", [], null);
-  };
-  const exists = (p: string) =>
-    from === null
-      ? Promise.resolve(false)
-      : access(join(from, p)).then(
-          () => true,
-          () => false,
-        );
-  // null: nothing to compare against, so the film is delivered as new.
-  let same: boolean | null = null;
-  if (previous === null) {
-    // Its note (the receipt is missing) is already in `notes`.
-  } else if (!(await exists(judged.path))) {
-    notes.push(`${judged.path} is missing`);
-  } else {
-    let cmp: Awaited<ReturnType<typeof samePicture>>;
-    try {
-      cmp = await (deps.samePicture ?? samePicture)(
-        join(from as string, judged.path),
-        rendered[j] as string,
-        judged.fileType,
-        previous.screens,
-        screens,
-        { session: deps.session, steps: kept.script.steps, log: deps.log },
-      );
-    } catch (error) {
-      return fail(
-        `${judged.path} could not be compared with its new export, so nothing was replaced: ${messageOf(error)}`,
-      );
-    }
-    times.mark("compare");
-    if ("uncomparable" in cmp) {
-      return fail(
-        `${judged.path} could not be compared with its new export, so nothing was replaced: ${cmp.uncomparable}`,
-      );
-    }
-    if ("undecodable" in cmp) {
-      if (cmp.undecodable === "new") {
-        return fail(
-          `${judged.path}'s new export could not be decoded as ${judged.fileType.toUpperCase()} (${cmp.detail}), so nothing was replaced`,
-        );
-      }
-      // The one forgiven: a committed file that is no picture is replaced.
-      notes.push(
-        `${judged.path} was replaced without a comparison: the committed file could not be decoded (${cmp.detail})`,
-      );
-    } else {
-      same = cmp.same;
-      said.push(`${judged.path}: ${cmp.detail}`);
-    }
   }
-  if (same === null) said.push("nothing to compare against; delivered as new");
-  // The outputs to write: all of them on a new film; else those not there.
-  const toWrite: number[] = [];
-  for (const [i, o] of kept.outputs.entries()) {
-    if (same !== true) toWrite.push(i);
-    else if (i !== j && !(await exists(o.path))) {
-      toWrite.push(i);
-      said.push(`${o.path} is new`);
-    }
-  }
-  if (toWrite.length === 0) return answer("unchanged", [], null);
-  // A receipt with no screen is one every later refresh refuses: fail now,
-  // with nothing written, as keep does.
-  if (same !== true && screens.moments.length === 0) {
-    return fail(
-      `${judged.path}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
-    );
-  }
+  // A version 1 receipt gets its images now, so the next refresh compares
+  // screens.
+  const writeReceipt =
+    same !== true || (previous !== null && previous.screensDir === null);
+  if (toWrite.length === 0 && !writeReceipt)
+    return answer("unchanged", [], null);
 
   const written: string[] = [];
   const put = async (path: string, bytes: Uint8Array | string) => {
@@ -677,33 +830,41 @@ async function deliverOne(
   try {
     // A files delivery cut short must not leave new outputs beside the old
     // receipt: with it gone first, the next refresh reads "missing".
-    if (same !== true && kept.deliver === "files")
+    if (writeReceipt && kept.deliver === "files")
       await rm(join(to, receiptFile), { force: true });
     for (const i of toWrite) {
-      const o = kept.outputs[i] as (typeof kept.outputs)[number];
-      await put(o.path, await readFile(rendered[i] as string));
+      const o = kept.outputs[i] as KeptOutput;
+      await put(o.path, await readFile(rendered.get(i) as string));
     }
-    if (same !== true) {
-      if (kept.report !== null) {
-        if ("value" in stored)
-          await put(kept.report, `${JSON.stringify(stored.value, null, 2)}\n`);
-        else notes.push(`${kept.report} was not written: ${stored.not}`);
-      }
-      // Last: the receipt says what the committed video now shows.
+    if (same !== true && kept.report !== null) {
+      if ("value" in stored)
+        await put(kept.report, `${JSON.stringify(stored.value, null, 2)}\n`);
+      else notes.push(`${kept.report} was not written: ${stored.not}`);
+    }
+    if (writeReceipt) {
+      const temp = await placeFolder(join(to, screensAt), shots.dir, deps.log);
+      deps.log(`refresh: renamed ${relative(to, temp)} over ${screensAt}`);
+      written.push(screensAt);
+      // Last: the receipt says what the committed video now shows. The same
+      // picture is still the committed video, with the images judged so.
       await put(
         receiptFile,
         serializeReceipt({
-          receiptVersion: 1,
-          screensDir: null,
-          screensSize: null,
-          flow: kept.flow,
-          video: takeId,
-          filmedAt: filmedAtOf({ value: report }),
-          filmedCode: receiptCode,
+          ...(same === true && previous !== null
+            ? previous
+            : {
+                flow: kept.flow,
+                video: takeId,
+                filmedAt: filmedAtOf({ value: report }),
+                filmedCode: receiptCode,
+                // The take is in a library thrown away after: no library
+                // holds a revision of it to be ahead of.
+                recordedRevision: null,
+              }),
+          receiptVersion: 2,
           screens,
-          // The take is in a library thrown away after: no library holds
-          // a revision of it to be ahead of.
-          recordedRevision: null,
+          screensDir,
+          screensSize: shots.size,
         }),
       );
     }
@@ -713,6 +874,8 @@ async function deliverOne(
     );
     return answer("failed", written, null);
   }
+  if (same === true && toWrite.length === 0)
+    return answer("unchanged", written, null);
   // The commit the line names is the one the run filmed, never HEAD read
   // again; a dirty film is not its commit's tree, so it is not called so.
   const code =
