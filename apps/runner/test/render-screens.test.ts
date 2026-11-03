@@ -181,6 +181,17 @@ describe("renderToFiles with screensOnly", () => {
           fileType,
           logo: null,
         });
+        // Premise: the target is not already 1280 wide, so the scaler has
+        // real work to do (the mp4 target is wider, the gif's narrower).
+        expect(target.width, "the output target's width").not.toBe(WIDTH);
+        // The PNGs' own width, from the IHDR header: not redrawn first.
+        for (const f of only.files) {
+          expect(f.bytes.subarray(1, 4).toString("latin1"), f.name).toBe("PNG");
+          expect(
+            f.bytes.readUInt32BE(16),
+            `${f.name}'s own width (target ${target.width})`,
+          ).toBe(WIDTH);
+        }
         // Premise: the fixture has screens, more than one, so a loop over
         // them that ran zero times could not pass.
         const moments = only.screens?.moments ?? [];
