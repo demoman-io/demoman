@@ -3,6 +3,7 @@
 // The library's list view as data: the entries a treegrid draws, in order.
 // Spec 2026-10-31-library-list-view-design §2.1–2.3 and §3.
 import type { LibrarySortColumn } from "@demoman/studio-protocol";
+import { projectKeyOf } from "./projects";
 import type {
   LibraryCard,
   LibraryModel,
@@ -31,10 +32,61 @@ export function nextSort(
     : { column: clicked, descending: firstClickDescending(clicked) };
 }
 
-/** `repo · host/path`, the card's where-line without its time. */
-export function whereOf(card: LibraryCard): string {
-  const repo = card.group === null ? null : repoLabel(card.group.video.repo);
-  return `${repo === null ? "" : `${repo} · `}${card.row.origin}${card.row.path}`;
+const LOOPBACK = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/;
+
+/** A host as Where names it: any loopback one as `localhost`, its port
+ *  dropped (a dev server moves to the next port when its own is busy, so
+ *  the port names no app), any other whole. */
+export function hostLabel(origin: string): string {
+  return LOOPBACK.test(origin) ? "localhost" : origin;
+}
+
+/** `repo · host/route`, the card's where-line without its time: the repo
+ *  when `withRepo` and known, the host when asked for (`short` as
+ *  `hostLabel` names it), and the route the flow opened on, `/` for the
+ *  home page. */
+export function whereOf(
+  card: LibraryCard,
+  withRepo: boolean,
+  host: "short" | "whole" | null,
+): string {
+  const repo =
+    !withRepo || card.group === null ? null : repoLabel(card.group.video.repo);
+  const { origin, path } = card.row;
+  const at = host === null ? "" : host === "short" ? hostLabel(origin) : origin;
+  return `${repo === null ? "" : `${repo} · `}${at}${path || "/"}`;
+}
+
+/** What Where says for a card, and its whole host for the title. */
+export type Where = (card: LibraryCard) => { text: string; title: string };
+
+/** Where for `cards` drawn together (2026-11-02): the route, and the host
+ *  only where it tells flows apart. Under No project the site is what
+ *  does; in a project, only a site that is not the author's machine
+ *  (2026-11-03: a dev server's port moves, so it names no app), and only
+ *  when the project's flows here ran on more than one host. A bare route
+ *  reads as local. */
+export function whereFor(
+  cards: readonly LibraryCard[],
+  withRepo: boolean,
+): Where {
+  const hosts = new Map<string, Set<string>>();
+  for (const c of cards) {
+    const k = projectKeyOf(c);
+    if (k !== null) {
+      hosts.set(k, (hosts.get(k) ?? new Set<string>()).add(c.row.origin));
+    }
+  }
+  return (card) => {
+    const k = projectKeyOf(card);
+    const many =
+      k === null ||
+      ((hosts.get(k)?.size ?? 0) > 1 && !LOOPBACK.test(card.row.origin));
+    return {
+      text: whereOf(card, withRepo, many ? "short" : null),
+      title: whereOf(card, withRepo, "whole"),
+    };
+  };
 }
 
 export type FlowSize =
@@ -68,12 +120,14 @@ const countOf = (c: LibraryCard): number => c.group?.versions.length ?? 1;
 function keyOf(
   c: LibraryCard,
   column: LibrarySortColumn,
-): number | string | null {
+): number | string | readonly string[] | null {
   switch (column) {
     case "name":
       return labelOf(c);
     case "where":
-      return whereOf(c);
+      // Project, then route, then host: every `/checkout` together, the
+      // local one beside the production one.
+      return [projectKeyOf(c) ?? "", c.row.path || "/", c.row.origin];
     case "videos":
       return countOf(c);
     case "recorded":
@@ -83,6 +137,17 @@ function keyOf(
       return s.kind === "known" ? s.bytes : null;
     }
   }
+}
+
+/** Part by part, the first that differs. */
+function textCompare(x: readonly string[], y: readonly string[]): number {
+  for (let i = 0; i < x.length; i++) {
+    const c = (x[i] ?? "").localeCompare(y[i] ?? "", undefined, {
+      numeric: true,
+    });
+    if (c !== 0) return c;
+  }
+  return 0;
 }
 
 export function sortCards(
@@ -97,9 +162,12 @@ export function sortCards(
       if (x !== y) return x === null ? 1 : -1;
     } else if (x !== y) {
       const c =
-        typeof x === "string"
-          ? x.localeCompare(y as string, undefined, { numeric: true })
-          : x - (y as number);
+        typeof x === "number"
+          ? x - (y as number)
+          : textCompare(
+              typeof x === "string" ? [x] : x,
+              typeof y === "string" ? [y] : (y as readonly string[]),
+            );
       if (c !== 0) return c * dir;
     }
     return timeOf(b) - timeOf(a);
@@ -133,9 +201,12 @@ export type ListEntry =
       flowId: string;
     };
 
+/** A sort the reader chose, or a rank (search): flat, best first. */
+export type ListOrder = ListSort | { rank: (card: LibraryCard) => number };
+
 export function listEntries(
   model: LibraryModel,
-  sort: ListSort,
+  order: ListOrder,
   now: Date,
 ): ListEntry[] {
   const cards = cardsOf(model);
@@ -170,6 +241,13 @@ export function listEntries(
       });
     }
   };
+  if ("rank" in order) {
+    const ranked = cards.map((c) => [order.rank(c), c] as const);
+    ranked.sort((a, b) => b[0] - a[0] || timeOf(b[1]) - timeOf(a[1]));
+    for (const [, card] of ranked) addFlow(card, null, false);
+    return out;
+  }
+  const sort = order;
   if (sort.column === "recorded" && sort.descending) {
     const sorted = sortCards(cards, sort);
     const byLead = new Map(sorted.map((c) => [c.row.sceneId, c]));

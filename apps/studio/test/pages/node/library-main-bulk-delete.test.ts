@@ -59,6 +59,7 @@ const video = (
   steps: [],
   exports: [],
   kept,
+  addedTo: kept != null && "key" in kept ? kept.key : null,
 });
 
 const KEPT_FILE = ".demoman/videos/create-invoice.json";
@@ -198,7 +199,12 @@ describe("library main — bulk delete", () => {
   });
 
   describe("a kept flow", () => {
-    const KEPT = { root: "/repo", file: KEPT_FILE, deliver: "commit" } as const;
+    const KEPT = {
+      root: "/repo",
+      file: KEPT_FILE,
+      deliver: "commit",
+      key: null,
+    } as const;
     beforeEach(() => {
       memory = seed(CARDS, KEPT);
       state.memory = memory;
@@ -526,6 +532,91 @@ describe("library main — bulk delete", () => {
     ).toBe(true);
   });
 
+  it("Back while a bulk delete runs repaints the place and keeps the run's lock and ticks", async () => {
+    await open();
+    let release: () => void = () => {};
+    memory.answer(
+      "videos.remove",
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true as const });
+        }),
+    );
+    await tick(SIGNUP);
+    pressDelete();
+    await vi.waitFor(() => {
+      if (
+        !document
+          .querySelector("[data-selection-count]")
+          ?.textContent?.startsWith("Deleting")
+      ) {
+        throw new Error("not busy yet");
+      }
+    });
+    try {
+      // Every flow here is in no repo, so No project still draws all three.
+      history.pushState({}, "", "/?project=none");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      // Premise: the popstate repainted the place it names.
+      expect(
+        document
+          .querySelector('[data-rail] [aria-current="true"]')
+          ?.getAttribute("data-place"),
+      ).toBe("?project=none");
+      // Red: clear the selection and the run on every popstate — the boxes
+      // open mid-run and a second Delete asks again.
+      expect(
+        [...document.querySelectorAll<HTMLInputElement>("[data-select]")].map(
+          (b) => b.disabled,
+        ),
+      ).toEqual([true, true, true]);
+      expect(box(SIGNUP)?.checked).toBe(true);
+      pressDelete();
+      expect(confirmDialog.ask).toHaveBeenCalledTimes(1);
+      release();
+      await vi.waitFor(() => {
+        if (bar() !== null) throw new Error("bar still up");
+      });
+      expect(removes(memory).map((c) => c.args[0])).toEqual([SIGNUP]);
+      expect(document.querySelector("[data-toast-text]")?.textContent).toBe(
+        "Deleted 1 flow",
+      );
+    } finally {
+      history.replaceState({}, "", "/");
+    }
+  });
+
+  it("Back while the confirmation asks deletes nothing", async () => {
+    await open();
+    await tick(SIGNUP, REPORT);
+    confirmDialog.ask.mockImplementation(async () => {
+      history.pushState({}, "", "/?project=all");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      return true;
+    });
+    try {
+      pressDelete();
+      await vi.waitFor(() => {
+        if (confirmDialog.ask.mock.calls.length === 0) {
+          throw new Error("not asked yet");
+        }
+      });
+      // Premise: the Back took effect, clearing the ticks.
+      await vi.waitFor(() => {
+        if (bar() !== null) throw new Error("bar still up");
+      });
+      // Nothing happening has no condition to wait for: one macrotask lets
+      // deleteSelected run on past its question (the red run shows it does).
+      await new Promise((r) => setTimeout(r, 0));
+      // Red: delete the ids read before the question, not those still ticked.
+      expect(removes(memory)).toEqual([]);
+      expect(box(SIGNUP)).not.toBeNull();
+      expect(box(REPORT)).not.toBeNull();
+    } finally {
+      history.replaceState({}, "", "/");
+    }
+  });
+
   it("Esc clears the selection", async () => {
     await open();
     await tick(SIGNUP);
@@ -547,6 +638,7 @@ describe("library main — bulk delete", () => {
     state.memory = seed({
       layout: "list",
       sort: { column: "name", descending: false },
+      project: null,
     });
     // jsdom has no layout, and no scroll into view for the keys to call.
     Element.prototype.scrollIntoView ??= () => undefined;

@@ -118,6 +118,14 @@ export function buildHandlers(o: {
   const exists = async (id: string): Promise<boolean> =>
     library.isTakeId(id) && (await library.getSceneRead(id)) !== null;
 
+  const videos = createVideoStore(o.home, library, { log: o.log });
+  /** `key` through the library's aliases; a table that will not read is
+   *  logged by the store, and the key goes as asked. */
+  const projectKey = async (key: string): Promise<string> => {
+    const r = await videos.resolve({ key });
+    return "key" in r ? r.key : key;
+  };
+
   const libraryRefusal = (error: unknown): StudioResponse => {
     if (error instanceof LibraryError) {
       return refuse(500, error.reason, `${error.message}.`);
@@ -148,7 +156,17 @@ export function buildHandlers(o: {
           `No window was opened: ${body.error}.`,
         );
       }
-      const takeId = (body.value as { takeId?: unknown } | null)?.takeId;
+      const { takeId, project } = (body.value ?? {}) as {
+        takeId?: unknown;
+        project?: unknown;
+      };
+      if (project !== undefined && typeof project !== "string") {
+        return refuse(
+          400,
+          "windowDidNotOpen",
+          "No window was opened: project is not a string.",
+        );
+      }
       if (takeId !== undefined && typeof takeId !== "string") {
         return refuse(
           400,
@@ -164,9 +182,14 @@ export function buildHandlers(o: {
           return libraryRefusal(error);
         }
       }
-      const opened = await o.window.open(
-        takeId === undefined ? {} : { takeId },
-      );
+      // A clone still on a repo's old remote asks for the old key; the
+      // library lists that project under the key it resolves to.
+      const resolved =
+        project === undefined ? undefined : await projectKey(project);
+      const opened = await o.window.open({
+        ...(takeId === undefined ? {} : { takeId }),
+        ...(resolved === undefined ? {} : { project: resolved }),
+      });
       if (!("ok" in opened)) return json(500, opened);
       o.onWindowOpened?.();
       const answer: WindowAnswer = { path: opened.path };
@@ -244,7 +267,7 @@ export interface ServeOptions {
   createWindow?: (w: {
     origin: string;
     /** A fresh entry URL: a single-use ticket, never the token (R12). */
-    entryUrl: (takeId?: string) => string;
+    entryUrl: (takeId?: string, project?: string) => string;
     events: EventHub;
     log: (line: string) => void;
   }) => StudioWindow;
@@ -504,7 +527,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
 
   window = (o.createWindow ?? defaultWindow(o))({
     origin: studioServer.origin,
-    entryUrl: (takeId) => studioServer.entryUrl(takeId),
+    entryUrl: (takeId, project) => studioServer.entryUrl(takeId, project),
     events,
     log,
   });

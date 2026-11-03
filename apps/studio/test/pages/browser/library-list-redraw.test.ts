@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The page's own markup and rules, and the real view, so the rows redrawn
 // are the rows the page renders.
 import shell from "../../../pages/entrypoints/library/index.html?raw";
+import { setExpanded } from "../../../pages/src/library/list";
 import {
   clickSelect,
   emptySelection,
@@ -70,6 +71,7 @@ const flow = (id: string, name: string, versions: LibraryRow[]): VideoGroup => {
       steps: [],
       exports: [],
       kept: null,
+      addedTo: null,
     } as VideoSummary,
     current: numbered[0] ?? null,
     versions: numbered,
@@ -77,7 +79,7 @@ const flow = (id: string, name: string, versions: LibraryRow[]): VideoGroup => {
 };
 
 // Today: A (two videos), B, E, and a take in no flow; Yesterday: C; a
-// past month, folded by default: D.
+// past month, closed by the fixture: D.
 const a2 = take("a2", new Date(2026, 9, 30, 9));
 const a1 = take("a1", new Date(2026, 9, 30, 8, 30));
 const b1 = take("b1", new Date(2026, 9, 30, 8));
@@ -165,10 +167,13 @@ function mount(): void {
   mountShell("dark", css);
   document.body.innerHTML = body;
   selection = emptySelection();
-  view = { layout: "list", sort: RECORDED };
+  view = { layout: "list", sort: RECORDED, project: null };
   rowStatus = new Map();
   acts = actions();
   redraw();
+  // Every section opens on its own; the author has closed the old month,
+  // so D sits under a closed one, as the cases below sample.
+  setExpanded(node("[data-list] [data-heading^='month:']"), false);
   before = document.createElement("button");
   before.textContent = "before";
   grid().before(before);
@@ -351,15 +356,15 @@ describe("folds", () => {
     };
     redraw();
     keep("after a redraw");
-    acts.setView({ layout: "list", sort: BY_NAME });
+    acts.setView({ layout: "list", sort: BY_NAME, project: null });
     // Premise: a flat sort, no headings.
     expect(grid().querySelector("[data-heading]"), where()).toBeNull();
     expect(expanded("f:A"), where()).toBe("true");
-    acts.setView({ layout: "list", sort: RECORDED });
+    acts.setView({ layout: "list", sort: RECORDED, project: null });
     keep("after a sort and back");
-    acts.setView({ layout: "grid", sort: RECORDED });
+    acts.setView({ layout: "grid", sort: RECORDED, project: null });
     expect(document.querySelector("[data-list]"), "cards drawn").toBeNull();
-    acts.setView({ layout: "list", sort: RECORDED });
+    acts.setView({ layout: "list", sort: RECORDED, project: null });
     keep("after Grid and back");
   });
 
@@ -390,15 +395,15 @@ describe("selection", () => {
     await press("{ArrowDown} ", "f:A");
     await press("{End}{ArrowUp} ", "f:C");
     expect(ticked(), where()).toEqual(["f:A", "f:C"]);
-    acts.setView({ layout: "list", sort: BY_NAME });
+    acts.setView({ layout: "list", sort: BY_NAME, project: null });
     expect(ticked().sort(), where()).toEqual(["f:A", "f:C"]);
-    acts.setView({ layout: "grid", sort: BY_NAME });
+    acts.setView({ layout: "grid", sort: BY_NAME, project: null });
     expect(
       [...document.querySelectorAll<HTMLElement>("article[data-selected]")]
         .map((a) => a.dataset.video)
         .sort(),
     ).toEqual(["A", "C"]);
-    acts.setView({ layout: "list", sort: RECORDED });
+    acts.setView({ layout: "list", sort: RECORDED, project: null });
     expect(ticked(), where()).toEqual(["f:A", "f:C"]);
   });
 });

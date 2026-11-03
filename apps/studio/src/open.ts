@@ -280,6 +280,8 @@ async function acquireStartLock(
 export async function openStudio(o: {
   home: string;
   takeId?: string;
+  /** The caller's repo key: the Studio lands on that project. */
+  project?: string;
   version: string;
   serve: { command: string; args: string[] };
   waitMs?: number;
@@ -369,7 +371,10 @@ export async function openStudio(o: {
     state,
     "POST",
     "/api/window",
-    o.takeId === undefined ? {} : { takeId: o.takeId },
+    {
+      ...(o.takeId === undefined ? {} : { takeId: o.takeId }),
+      ...(o.project === undefined ? {} : { project: o.project }),
+    },
     WINDOW_TIMEOUT_MS,
   );
   if (!win.ok) {

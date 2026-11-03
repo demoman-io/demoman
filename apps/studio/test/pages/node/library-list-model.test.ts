@@ -6,10 +6,12 @@ import { describe, expect, it } from "vitest";
 import {
   firstClickDescending,
   flowSize,
+  hostLabel,
   type ListSort,
   listEntries,
   nextSort,
   sortCards,
+  whereFor,
   whereOf,
 } from "../../../pages/src/library/list-model";
 import type {
@@ -64,6 +66,7 @@ const flow = (
     steps: [],
     exports: [],
     kept: null,
+    addedTo: null,
   } as VideoSummary,
   current: versions[0] ?? null,
   versions: versions.map((v, i) => ({ ...v, version: versions.length - i })),
@@ -113,6 +116,35 @@ describe("the fixture", () => {
     expect(
       groups.filter((g) => g.versions.every((v) => v.sizeBytes === undefined)),
     ).toHaveLength(1);
+  });
+});
+
+describe("listEntries by rank", () => {
+  const rank = (c: (typeof cards)[number]): number =>
+    c.group?.video.id === "B" ? 2 : 1;
+  // Oldest first, so a stable sort alone would leave the ties oldest first.
+  const oldestFirst: LibraryModel = {
+    ...model,
+    rows: [...model.rows].reverse(),
+  };
+  it("is flat, highest rank first, then newest", () => {
+    expect(
+      cardsOf(oldestFirst).map((c) => c.group?.video.id ?? c.row.sceneId),
+      "premise: the cards come in oldest first",
+    ).toEqual(["C", "B", "loose", "A"]);
+    const entries = listEntries(oldestFirst, { rank }, NOW);
+    expect(entries.some((e) => e.kind === "heading")).toBe(false);
+    expect(entries.filter((e) => e.kind === "flow").map((e) => e.key)).toEqual([
+      "f:B",
+      "f:A",
+      "t:loose",
+      "f:C",
+    ]);
+  });
+  it("positive control: the same model under Recorded still has headings", () => {
+    expect(
+      listEntries(model, RECENT, NOW).some((e) => e.kind === "heading"),
+    ).toBe(true);
   });
 });
 
@@ -218,7 +250,9 @@ describe("sortCards", () => {
       { column: "where", descending: false },
     ).map((c) => c.group?.video.id ?? c.row.sceneId);
     expect(same).toEqual(["loose", "B", "C"]);
-    expect(whereOf(cardOf("B"))).toBe(whereOf(cardOf("C")));
+    expect(whereOf(cardOf("B"), true, "whole")).toBe(
+      whereOf(cardOf("C"), true, "whole"),
+    );
   });
 });
 
@@ -253,8 +287,143 @@ describe("sorting rules", () => {
 
 describe("whereOf", () => {
   it("leads with the repo when known, and not otherwise", () => {
-    expect(whereOf(cardOf("A"))).toBe("acme/web · app.example.com/orders");
-    expect(whereOf(cardOf("B"))).toBe("app.example.com/orders");
+    expect(whereOf(cardOf("A"), true, "whole")).toBe(
+      "acme/web · app.example.com/orders",
+    );
+    expect(whereOf(cardOf("B"), true, "whole")).toBe("app.example.com/orders");
+  });
+});
+
+// Where names the route (2026-11-02): `localhost:8123` told no flow from
+// another. The host shows only where it does.
+describe("whereFor", () => {
+  const ACME = { key: "github.com/acme/web" };
+  const API = { key: "github.com/acme/api" };
+  const at = (id: string, url: string, repo: VideoSummary["repo"]) => {
+    const u = new URL(url);
+    return flow(
+      id,
+      id,
+      [
+        take(id, today, {
+          origin: u.host,
+          path: u.pathname === "/" ? "" : u.pathname,
+        }),
+      ],
+      repo,
+    );
+  };
+  const cardsFrom = (gs: VideoGroup[]) =>
+    cardsOf({
+      ...model,
+      rows: gs.flatMap((g) => g.versions),
+      groups: gs,
+    });
+  const textOf = (
+    gs: VideoGroup[],
+    withRepo: boolean,
+  ): Record<string, string> => {
+    const cs = cardsFrom(gs);
+    const where = whereFor(cs, withRepo);
+    return Object.fromEntries(
+      cs.map((c) => [c.group?.video.id, where(c).text]),
+    );
+  };
+
+  it("names the route alone in a project on one host, the home page as /", () => {
+    const gs = [
+      at("pay", "http://localhost:8123/checkout", ACME),
+      at("home", "http://localhost:8123/", ACME),
+    ];
+    expect(textOf(gs, false)).toEqual({ pay: "/checkout", home: "/" });
+    expect(textOf(gs, true)).toEqual({
+      pay: "acme/web · /checkout",
+      home: "acme/web · /",
+    });
+  });
+
+  it("never names the author's machine in a project, whatever the port", () => {
+    const gs = [
+      at("app", "http://localhost:5173/settings", ACME),
+      at("bumped", "http://localhost:5174/settings", ACME),
+      at("ip", "http://127.0.0.1:4174/", ACME),
+    ];
+    expect(textOf(gs, false)).toEqual({
+      app: "/settings",
+      bumped: "/settings",
+      ip: "/",
+    });
+  });
+
+  it("names a site other than the author's machine in a project on more than one host", () => {
+    const gs = [
+      at("app", "http://localhost:3000/settings", ACME),
+      at("admin", "http://localhost:3001/settings", ACME),
+      at("prod", "https://app.acme.com/checkout", ACME),
+      at("stage", "https://stage.acme.com/checkout", ACME),
+      // Another project's one host does not count toward acme/web's.
+      at("api", "http://localhost:4000/docs", API),
+    ];
+    expect(textOf(gs, true)).toEqual({
+      app: "acme/web · /settings",
+      admin: "acme/web · /settings",
+      prod: "acme/web · app.acme.com/checkout",
+      stage: "acme/web · stage.acme.com/checkout",
+      api: "acme/api · /docs",
+    });
+  });
+
+  it("names the host under No project, where the site is what tells flows apart", () => {
+    const gs = [
+      at("wiki", "https://en.wikipedia.org/wiki/Cat", { none: "no repo" }),
+      at("lost", "http://localhost:8123/x", { unknown: true }),
+    ];
+    expect(textOf(gs, true)).toEqual({
+      wiki: "no repo · en.wikipedia.org/wiki/Cat",
+      lost: "localhost/x",
+    });
+  });
+
+  it("titles every card with its whole host", () => {
+    const [c] = cardsFrom([at("pay", "http://localhost:8123/checkout", ACME)]);
+    expect(whereFor([c as never], false)(c as never)).toEqual({
+      text: "/checkout",
+      title: "localhost:8123/checkout",
+    });
+  });
+
+  it("hostLabel names every loopback host localhost, and only those", () => {
+    expect(
+      [
+        "localhost:3001",
+        "127.0.0.1:5173",
+        "[::1]:8080",
+        "localhost",
+        "app.acme.com:8443",
+        "localhost.example.com:80",
+      ].map(hostLabel),
+    ).toEqual([
+      "localhost",
+      "localhost",
+      "localhost",
+      "localhost",
+      "app.acme.com:8443",
+      "localhost.example.com:80",
+    ]);
+  });
+
+  it("sorts by project, then route, then host", () => {
+    const cs = cardsFrom([
+      at("prod", "https://app.acme.com/checkout", ACME),
+      at("bill", "http://localhost:3000/billing", ACME),
+      at("pay", "http://localhost:3000/checkout", ACME),
+      at("docs", "http://localhost:4000/a", API),
+    ]);
+    expect(
+      sortCards(cs, { column: "where", descending: false }).map(
+        (c) => c.group?.video.id,
+      ),
+    ).toEqual(["docs", "bill", "prod", "pay"]);
   });
 });
 

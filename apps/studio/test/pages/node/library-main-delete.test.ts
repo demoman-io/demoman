@@ -446,7 +446,7 @@ describe("library main — a note carried from the editor's Delete", () => {
     });
     expect(notice.className).toBe("notice");
     // A reload must not say it again.
-    expect(window.location.search).toBe("");
+    expect(window.location.search).not.toContain("note=");
   });
 
   it("toasts the editor's clean delete, and leaves the notice line empty", async () => {
@@ -463,7 +463,7 @@ describe("library main — a note carried from the editor's Delete", () => {
     });
     const notice = document.querySelector("#notice") as HTMLElement;
     expect(notice.classList.contains("hidden")).toBe(true);
-    expect(window.location.search).toBe("");
+    expect(window.location.search).not.toContain("note=");
   });
 
   it("says nothing without a note (a delete with no note)", async () => {

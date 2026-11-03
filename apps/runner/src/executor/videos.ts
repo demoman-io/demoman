@@ -18,7 +18,8 @@ import type { SceneDocument } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import type { Library } from "./library.js";
 import type { RepoRef } from "./repo.js";
-import { sameName } from "./video-match.js";
+import { type Aliases, resolveKey } from "./repo-aliases.js";
+import { normaliseName, sameName } from "./video-match.js";
 
 export type VideoRepo = { key: string } | { none: string } | { unknown: true };
 
@@ -30,7 +31,7 @@ export interface VideoRecord {
   createdAt: string;
   /** The checkout and repo-relative kept file that commit this flow's id;
    *  written once by `keep` or `adopt`. */
-  kept?: { root: string; file: string };
+  kept?: { root: string; file: string; key?: string };
 }
 
 export interface Made {
@@ -67,7 +68,7 @@ export class VideoError extends Error {
 }
 
 type Taken = { ok: false; reason: "nameTaken"; holder: VideoRecord };
-type Kept = { root: string; file: string };
+type Kept = { root: string; file: string; key?: string };
 
 /** `exclusive`'s answer: `fn`'s value, or the lock another process holds. */
 export type Exclusive<T> = { ok: true; value: T } | { ok: false; held: string };
@@ -97,6 +98,32 @@ export interface VideoStore {
     id: string,
     kept: Kept | null,
   ): Promise<{ ok: true } | { ok: false; reason: "videoNotFound" }>;
+  /** Under the lock: writes `key` into the mark, only while the record's mark
+   *  still has this root and file. */
+  setKeptKey(
+    id: string,
+    mark: { root: string; file: string },
+    key: string,
+  ): Promise<
+    { ok: true } | { ok: false; reason: "videoNotFound" | "markMoved" }
+  >;
+  /** The repo-key aliases (`old → new`) upkeep recorded when a checkout's
+   *  key changed; `{}` when none were. Throws `videoUnreadable` naming the
+   *  file when it will not read. `get` and `list` answer records with their
+   *  keys resolved through it. */
+  aliases(): Promise<Aliases>;
+  /** `repo` with its key resolved through the aliases. */
+  resolve(repo: VideoRepo): Promise<VideoRepo>;
+  /** Under the lock: records each `from → to` (from `from`'s current end,
+   *  so aliases chain; never one that would close a cycle), then rewrites
+   *  every record and kept mark whose key resolves to another, re-reading
+   *  each so a change made meanwhile stays. Answers how many it rewrote,
+   *  and every name two or more flows now share in one repo (merging two
+   *  keys can bring an old clone's "Checkout" and a new clone's together). */
+  follow(aliases: { from: string; to: string }[]): Promise<{
+    moved: number;
+    collisions: { name: string; ids: string[] }[];
+  }>;
   /** Under the lock: re-points every take of `fromId` to `intoId`, then
    *  removes `fromId`'s record. Names the flow that is missing. */
   merge(
@@ -137,7 +164,9 @@ const isMissing = (e: unknown) => (e as { code?: string }).code === "ENOENT";
  *  checks agents' ids against too. */
 export const isVideoId = isFlowId;
 
-/** Unknown matches any repo; two `none`s are one ("no repo") for name uniqueness. */
+/** Unknown matches any repo; two `none`s are one ("no repo") for name
+ *  uniqueness. Keys are compared as given: resolve both first
+ *  (`VideoStore.resolve`; records from `get` and `list` already are). */
 export const sharesRepo = (a: VideoRepo, b: VideoRepo) =>
   "unknown" in a ||
   "unknown" in b ||
@@ -182,6 +211,7 @@ export function createVideoStore(
   const memberPath = (takeId: string) =>
     join(library.takeDir(takeId), "video.json");
   const lockPath = join(dir, ".lock");
+  const aliasPath = join(dir, ".aliases.json");
   const ownerPath = join(lockPath, "owner");
   const say = options.log ?? ((line: string) => console.warn(line));
   const staleMs = options.lockStaleMs ?? LOCK_STALE_MS;
@@ -367,8 +397,55 @@ export function createVideoStore(
     }
   }
 
-  const get = async (id: string) =>
+  const rawGet = async (id: string) =>
     isVideoId(id) ? readJson<VideoRecord>(recordPath(id)) : null;
+
+  /** Absent is none; anything but an object of key strings throws. */
+  async function aliases(): Promise<Aliases> {
+    const table = await readJson<unknown>(aliasPath);
+    if (table === null) return {};
+    if (
+      typeof table !== "object" ||
+      Array.isArray(table) ||
+      Object.values(table).some((v) => typeof v !== "string")
+    ) {
+      throw new VideoError(
+        "videoUnreadable",
+        `${aliasPath} is not a table of repo keys`,
+      );
+    }
+    return table as Aliases;
+  }
+
+  /** For reading records: a table that will not read resolves nothing, and
+   *  says so here; the Studio's upkeep, which reads it strictly, names it
+   *  in a row. */
+  async function readableAliases(): Promise<Aliases> {
+    try {
+      return await aliases();
+    } catch (error) {
+      say(
+        `${messageOf(error)}; flows are listed under the repo keys they recorded`,
+      );
+      return {};
+    }
+  }
+
+  const resolveRepo = (repo: VideoRepo, table: Aliases): VideoRepo =>
+    "key" in repo ? { key: resolveKey(table, repo.key) } : repo;
+
+  const resolved = (rec: VideoRecord, table: Aliases): VideoRecord => ({
+    ...rec,
+    repo: resolveRepo(rec.repo, table),
+    ...(rec.kept?.key !== undefined && {
+      kept: { ...rec.kept, key: resolveKey(table, rec.kept.key) },
+    }),
+  });
+
+  const get = async (id: string) => {
+    const rec = await rawGet(id);
+    return rec && resolved(rec, await readableAliases());
+  };
 
   async function ids(path: string): Promise<string[]> {
     try {
@@ -384,14 +461,15 @@ export function createVideoStore(
 
   async function list() {
     const out: Array<VideoRecord | { id: string; unreadable: string }> = [];
+    const table = await readableAliases();
     for (const f of await ids(dir)) {
       // Only `<uuid>.json` is a record: `.expiry.json`, `.lock` and
       // `.DS_Store` are not, and a row for one could never be deleted.
       const id = f.slice(0, -".json".length);
       if (!f.endsWith(".json") || !isVideoId(id)) continue;
       try {
-        const rec = await get(id);
-        if (rec) out.push(rec);
+        const rec = await rawGet(id);
+        if (rec) out.push(resolved(rec, table));
       } catch (error) {
         out.push({ id, unreadable: messageOf(error) });
       }
@@ -404,6 +482,7 @@ export function createVideoStore(
     repo: VideoRepo,
     exceptId?: string,
   ): Promise<VideoRecord | null> {
+    repo = resolveRepo(repo, await readableAliases());
     for (const r of await list()) {
       if ("unreadable" in r || r.id === exceptId) continue;
       if (sharesRepo(r.repo, repo) && sameName(r.name, name)) return r;
@@ -590,6 +669,51 @@ export function createVideoStore(
     await write(recordPath(id), kept ? { ...rest, kept } : rest);
     return { ok: true };
   };
+  const setKeptKeyUnlocked: VideoStore["setKeptKey"] = async (
+    id,
+    mark,
+    key,
+  ) => {
+    const rec = await get(id);
+    if (!rec) return { ok: false, reason: "videoNotFound" };
+    if (rec.kept?.root !== mark.root || rec.kept.file !== mark.file)
+      return { ok: false, reason: "markMoved" };
+    await write(recordPath(id), { ...rec, kept: { ...rec.kept, key } });
+    return { ok: true };
+  };
+  const followUnlocked: VideoStore["follow"] = async (pairs) => {
+    let table = await aliases();
+    for (const { from, to } of pairs) {
+      const end = resolveKey(table, from);
+      if (resolveKey(table, to) !== end) table = { ...table, [end]: to };
+    }
+    if (pairs.length > 0) await write(aliasPath, table);
+    let moved = 0;
+    const named = new Map<string, { name: string; ids: string[] }>();
+    for (const f of (await ids(dir)).sort()) {
+      const id = f.slice(0, -".json".length);
+      if (!f.endsWith(".json") || !isVideoId(id)) continue;
+      let rec: VideoRecord | null;
+      try {
+        rec = await rawGet(id);
+      } catch {
+        continue; // the listing names a record that will not read
+      }
+      if (rec === null) continue;
+      const now = resolved(rec, table);
+      if ("key" in now.repo) {
+        const at = `${now.repo.key}\n${normaliseName(now.name)}`;
+        const group = named.get(at) ?? { name: now.name, ids: [] };
+        group.ids.push(id);
+        named.set(at, group);
+      }
+      if (JSON.stringify(now) === JSON.stringify(rec)) continue;
+      await write(recordPath(id), now);
+      moved++;
+    }
+    const collisions = [...named.values()].filter((g) => g.ids.length > 1);
+    return { moved, collisions };
+  };
   const mergeUnlocked: VideoStore["merge"] = async (fromId, intoId) => {
     if (fromId === intoId) return { ok: false, reason: "sameFlow", id: fromId };
     for (const id of [fromId, intoId]) {
@@ -631,7 +755,12 @@ export function createVideoStore(
     create: (a) => waitLocked(() => createUnlocked(a)),
     adopt: (a) => waitLocked(() => adoptUnlocked(a)),
     setKept: (id, kept) => waitLocked(() => setKeptUnlocked(id, kept)),
+    setKeptKey: (id, mark, key) =>
+      waitLocked(() => setKeptKeyUnlocked(id, mark, key)),
     merge: (f, i) => waitLocked(() => mergeUnlocked(f, i)),
+    aliases,
+    resolve: async (repo) => resolveRepo(repo, await readableAliases()),
+    follow: (pairs) => waitLocked(() => followUnlocked(pairs)),
     get,
     list,
     rename: (id, name) => waitLocked(() => renameUnlocked(id, name)),
@@ -681,7 +810,9 @@ export function createVideoStore(
             create: createUnlocked,
             adopt: adoptUnlocked,
             setKept: setKeptUnlocked,
+            setKeptKey: setKeptKeyUnlocked,
             merge: mergeUnlocked,
+            follow: followUnlocked,
             rename: renameUnlocked,
             join: joinUnlocked,
           }),

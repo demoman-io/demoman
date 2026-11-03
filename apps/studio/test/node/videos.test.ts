@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -20,7 +21,11 @@ import {
   serializeKept,
   serializeReceipt,
 } from "@demoman/run-core";
-import { createLibrary, createVideoStore } from "@demoman/runner/studio";
+import {
+  createLibrary,
+  createVideoStore,
+  readRepo,
+} from "@demoman/runner/studio";
 import { CURRENT_SCHEMA_VERSION } from "@demoman/scene-schema";
 import { pathFor, type TakesAnswer } from "@demoman/studio-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -145,6 +150,29 @@ describe("the takes listing's videos", () => {
     expect(body.unreadable).toEqual([]);
   });
 
+  it("lists every step of a video, not the agent's first 12", async () => {
+    // Red: list through `summarise` — the steps stop at the agent's 12.
+    const library = createLibrary(home);
+    const scene = await library.getScene("inv-2");
+    const first = scene?.actions[0];
+    if (scene === null || first === undefined) throw new Error("no scene");
+    await library.putScene({
+      ...scene,
+      // Keep the originals (the camera names them) and pad with clones.
+      actions: [
+        ...scene.actions,
+        ...Array.from({ length: 15 - scene.actions.length }, (_, i) => ({
+          ...first,
+          id: `many-${i}`,
+        })),
+      ],
+    });
+    // Premise: the shown version (the newest complete) has 15 actions.
+    expect((await library.getScene("inv-2"))?.actions).toHaveLength(15);
+    const body = await listing();
+    expect(body.videos.find((v) => v.id === invoice)?.steps).toHaveLength(15);
+  });
+
   it("videoOf carries the report's filmed commit", async () => {
     const code = { commit: "abc1234", tree: "def5678", dirty: false };
     const library = createLibrary(home);
@@ -240,6 +268,428 @@ describe("the takes listing's videos", () => {
       }
     },
   );
+
+  it("an upkeep that cannot key a mark says which", async () => {
+    // Red: drop the keyKeptMarks pass (or its row) from the upkeep — no row
+    // names the flow and its root; or name the flow by its id alone.
+    const root = await mkdtemp(join(tmpdir(), "studio-unkeyed-root-"));
+    try {
+      const store = createVideoStore(home, createLibrary(home));
+      await store.setKept(invoice, { root, file: "a.demoman.json" });
+      // Premise: the mark has no key, and its root is a folder that is no
+      // git checkout.
+      expect((await store.get(invoice))?.kept?.key).toBeUndefined();
+      const body = await listing();
+      const said = JSON.stringify(body.unreadable);
+      const row = body.unreadable.find(
+        (u) => u.folder === "telling kept flows' projects",
+      );
+      expect(row?.kind, said).toBe("upkeep");
+      expect(row?.reason, said).toContain(
+        `flow "Create an invoice" (${invoice}) at ${root}`,
+      );
+      expect(row?.reason, said).toContain("not a git checkout");
+      expect((await store.get(invoice))?.kept?.key).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  describe("a project follows its checkout", () => {
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
+    /** A checkout with one commit and `origin` at `remote`; its HEAD. */
+    const checkout = async (prefix: string, remote: string) => {
+      const root = await mkdtemp(join(tmpdir(), prefix));
+      git(root, "init", "-q");
+      git(root, "remote", "add", "origin", remote);
+      git(
+        root,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        // Its own message: two empty commits made in one second by one
+        // author are otherwise one commit.
+        `commit in ${root}`,
+      );
+      return { root, head: git(root, "rev-parse", "HEAD") };
+    };
+    let takeNo = 0;
+    /** A flow recorded in `root` at `commit` while its repo read `key`,
+     *  with its kept mark carrying the same key. */
+    async function recordedIn(
+      root: string,
+      key: string,
+      commit: string | null,
+      name = "Pay a bill",
+    ): Promise<string> {
+      const library = createLibrary(home);
+      const store = createVideoStore(home, library);
+      const made = await store.create({
+        name,
+        repo: { key },
+        startPage: "https://app.example.com/bills",
+      });
+      if (!made.ok) throw new Error("could not make the flow");
+      const takeId = `pay-${++takeNo}`;
+      await seedTake(home, { id: takeId, status: { outcome: "complete" } });
+      await store.join(takeId, {
+        videoId: made.video.id,
+        made: {
+          ...MADE,
+          repo: { key, root, remote: null, branch: null, commit },
+        },
+        recordedRevision: null,
+      });
+      await store.setKept(made.video.id, {
+        root,
+        file: ".demoman/flows/pay-a-bill.json",
+        key,
+      });
+      return made.video.id;
+    }
+    const onDisk = async (id: string) =>
+      JSON.parse(await readFile(join(home, "videos", `${id}.json`), "utf8"));
+
+    // Red: drop the followCheckouts pass from the upkeep — the listing
+    // still says github.com/a/r, and no alias is written.
+    it("after `git remote set-url`, the listing serves the flow and its mark under the new key", async () => {
+      const { root, head } = await checkout(
+        "studio-set-url-",
+        "git@github.com:a/r.git",
+      );
+      try {
+        const id = await recordedIn(root, "github.com/a/r", head);
+        git(root, "remote", "set-url", "origin", "git@github.com:b/r.git");
+        // Premise: recorded under the old key; the checkout reads the new.
+        expect((await onDisk(id)).repo).toEqual({ key: "github.com/a/r" });
+        expect((await onDisk(id)).kept.key).toBe("github.com/a/r");
+        const read = await readRepo(root);
+        expect(read.ok && read.repo.key).toBe("github.com/b/r");
+
+        const body = await listing();
+        const said = JSON.stringify(body.unreadable);
+        const v = body.videos.find((x) => x.id === id);
+        expect(v?.repo, said).toEqual({ key: "github.com/b/r" });
+        expect(v?.addedTo, said).toBe("github.com/b/r");
+        expect(
+          body.unreadable.filter((u) => u.folder.includes("checkouts")),
+        ).toEqual([]);
+        expect(
+          JSON.parse(
+            await readFile(join(home, "videos", ".aliases.json"), "utf8"),
+          ),
+        ).toEqual({ "github.com/a/r": "github.com/b/r" });
+        expect((await onDisk(id)).repo).toEqual({ key: "github.com/b/r" });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("a checkout git cannot read is a row naming the flow, and the flow stays", async () => {
+      const root = await mkdtemp(join(tmpdir(), "studio-not-git-"));
+      try {
+        const id = await recordedIn(root, "github.com/a/r", null);
+        // Premise: the folder exists and is no git checkout.
+        expect((await readRepo(root)).ok).toBe(false);
+        const body = await listing();
+        const said = JSON.stringify(body.unreadable);
+        const row = body.unreadable.find(
+          (u) => u.folder === "following projects' checkouts",
+        );
+        expect(row?.kind, said).toBe("upkeep");
+        expect(row?.reason, said).toContain(
+          `flow "Pay a bill" (${id}) at ${root}`,
+        );
+        expect(row?.reason, said).toContain("not a git checkout");
+        expect(body.videos.find((x) => x.id === id)?.repo).toEqual({
+          key: "github.com/a/r",
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    // Red: drop the commit check — github.com/x/other's flows would take
+    // in a/r's, an alias of two different repos.
+    it("another repo cloned at a checkout's path is not aliased, and the row says why", async () => {
+      const other = await checkout(
+        "studio-reclone-",
+        "git@github.com:x/other.git",
+      );
+      const gone = await checkout("studio-gone-", "git@github.com:a/r.git");
+      try {
+        // Recorded in a/r at a commit the new clone at that path lacks.
+        const id = await recordedIn(other.root, "github.com/a/r", gone.head);
+        // Premise: the commits differ and the new clone reads another key.
+        expect(other.head).not.toBe(gone.head);
+        const read = await readRepo(other.root);
+        expect(read.ok && read.repo.key).toBe("github.com/x/other");
+        const body = await listing();
+        const said = JSON.stringify(body.unreadable);
+        const row = body.unreadable.find(
+          (u) => u.folder === "following projects' checkouts",
+        );
+        expect(row?.reason, said).toContain(
+          `flow "Pay a bill" (${id}) at ${other.root}`,
+        );
+        expect(row?.reason, said).toContain("may be another repo");
+        expect(body.videos.find((v) => v.id === id)?.repo).toEqual({
+          key: "github.com/a/r",
+        });
+        await expect(
+          readFile(join(home, "videos", ".aliases.json"), "utf8"),
+        ).rejects.toThrow(/ENOENT/);
+      } finally {
+        await rm(other.root, { recursive: true, force: true });
+        await rm(gone.root, { recursive: true, force: true });
+      }
+    });
+
+    // Red: drop the isLocalKey check — a/r's flows move to local:<root>.
+    it("after `git remote remove origin`, no alias and the flow stays, with no row", async () => {
+      const { root, head } = await checkout(
+        "studio-no-remote-",
+        "git@github.com:a/r.git",
+      );
+      try {
+        const id = await recordedIn(root, "github.com/a/r", head);
+        git(root, "remote", "remove", "origin");
+        // Premise: the checkout reads a local key now.
+        const read = await readRepo(root);
+        expect(read.ok && read.repo.key.startsWith("local:")).toBe(true);
+        const body = await listing();
+        const said = JSON.stringify(body.unreadable);
+        expect(body.videos.find((v) => v.id === id)?.repo, said).toEqual({
+          key: "github.com/a/r",
+        });
+        expect(
+          body.unreadable.filter((u) => u.folder.includes("checkouts")),
+        ).toEqual([]);
+        await expect(
+          readFile(join(home, "videos", ".aliases.json"), "utf8"),
+        ).rejects.toThrow(/ENOENT/);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    // Red: drop the collisions from the upkeep's row.
+    it("two flows of one name brought into one project are named in the row", async () => {
+      const old = await checkout("studio-old-clone-", "git@github.com:a/r.git");
+      const fresh = await checkout(
+        "studio-new-clone-",
+        "git@github.com:b/r.git",
+      );
+      try {
+        const first = await recordedIn(old.root, "github.com/a/r", old.head);
+        const second = await recordedIn(
+          fresh.root,
+          "github.com/b/r",
+          fresh.head,
+        );
+        git(old.root, "remote", "set-url", "origin", "git@github.com:b/r.git");
+        // Premise: one name in two repos, until the old clone moves.
+        expect((await onDisk(first)).name).toBe((await onDisk(second)).name);
+        expect((await onDisk(first)).repo).not.toEqual(
+          (await onDisk(second)).repo,
+        );
+        const body = await listing();
+        const said = JSON.stringify(body.unreadable);
+        const row = body.unreadable.find(
+          (u) => u.folder === "following projects' checkouts",
+        );
+        const [a, b] = [first, second].sort();
+        expect(row?.reason, said).toContain(
+          `flows "Pay a bill" (${a}) and (${b}) are now in one project`,
+        );
+      } finally {
+        await rm(old.root, { recursive: true, force: true });
+        await rm(fresh.root, { recursive: true, force: true });
+      }
+    });
+
+    // Red: drop the throttle — the second listing follows c/r to d/r too;
+    // or answer a skipped pass with no rows — its row flickers out.
+    it("listings inside the interval follow once and repeat its row; after it, they follow again", async () => {
+      let clock = 1_000_000;
+      await h.close();
+      h = await startStudio(home, { followEveryMs: 60_000, now: () => clock });
+      const notGit = await mkdtemp(join(tmpdir(), "studio-throttle-not-git-"));
+      const { root, head } = await checkout(
+        "studio-throttle-",
+        "git@github.com:a/r.git",
+      );
+      try {
+        const stuck = await recordedIn(notGit, "github.com/n/r", null);
+        const moving = await recordedIn(
+          root,
+          "github.com/a/r",
+          head,
+          "Send a bill",
+        );
+        const rowOf = (body: TakesAnswer) =>
+          body.unreadable.find(
+            (u) => u.folder === "following projects' checkouts",
+          )?.reason;
+        const keyOf = (body: TakesAnswer) =>
+          body.videos.find((v) => v.id === moving)?.repo;
+        git(root, "remote", "set-url", "origin", "git@github.com:b/r.git");
+        const first = await listing();
+        expect(keyOf(first), JSON.stringify(first.unreadable)).toEqual({
+          key: "github.com/b/r",
+        });
+        expect(rowOf(first)).toContain(`flow "Pay a bill" (${stuck})`);
+
+        git(root, "remote", "set-url", "origin", "git@github.com:c/r.git");
+        // Premise: a pass now would move the flow to c/r.
+        const read = await readRepo(root);
+        expect(read.ok && read.repo.key).toBe("github.com/c/r");
+        clock += 59_999;
+        const second = await listing();
+        expect(keyOf(second)).toEqual({ key: "github.com/b/r" });
+        expect(rowOf(second)).toBe(rowOf(first));
+
+        clock += 1;
+        const third = await listing();
+        expect(keyOf(third), JSON.stringify(third.unreadable)).toEqual({
+          key: "github.com/c/r",
+        });
+        expect(rowOf(third)).toContain(`flow "Pay a bill" (${stuck})`);
+      } finally {
+        await rm(notGit, { recursive: true, force: true });
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    // Red: let followCheckouts throw from videos.follow — the row says only
+    // that it could not follow, and the checkout that would not read is lost.
+    it.skipIf(process.getuid?.() === 0)(
+      "a re-keying that fails is said beside the checkouts that would not read",
+      async () => {
+        const notGit = await mkdtemp(join(tmpdir(), "studio-fail-not-git-"));
+        const { root, head } = await checkout(
+          "studio-fail-",
+          "git@github.com:a/r.git",
+        );
+        const dir = join(home, "videos");
+        try {
+          const stuck = await recordedIn(notGit, "github.com/n/r", null);
+          await recordedIn(root, "github.com/a/r", head, "Send a bill");
+          git(root, "remote", "set-url", "origin", "git@github.com:b/r.git");
+          // The lock and the table cannot be written: re-keying fails.
+          await chmod(dir, 0o500);
+          const body = await listing();
+          const said = JSON.stringify(body.unreadable);
+          const rows = body.unreadable.filter(
+            (u) => u.folder === "following projects' checkouts",
+          );
+          expect(rows, said).toHaveLength(1);
+          expect(rows[0]?.reason, said).toContain(
+            "projects could not follow their checkouts (",
+          );
+          expect(rows[0]?.reason, said).toContain(
+            `flow "Pay a bill" (${stuck}) at ${notGit}: not a git checkout`,
+          );
+        } finally {
+          await chmod(dir, 0o755);
+          await rm(notGit, { recursive: true, force: true });
+          await rm(root, { recursive: true, force: true });
+        }
+      },
+    );
+
+    describe("a cached collision row", () => {
+      /** Two flows "Pay a bill" brought into one project, listed once under
+       *  a throttle long enough that no listing here follows again. */
+      async function collided() {
+        await h.close();
+        h = await startStudio(home, { followEveryMs: 3_600_000 });
+        const old = await checkout(
+          "studio-cache-old-",
+          "git@github.com:a/r.git",
+        );
+        const fresh = await checkout(
+          "studio-cache-new-",
+          "git@github.com:b/r.git",
+        );
+        roots.push(old.root, fresh.root);
+        const first = await recordedIn(old.root, "github.com/a/r", old.head);
+        const second = await recordedIn(
+          fresh.root,
+          "github.com/b/r",
+          fresh.head,
+        );
+        git(old.root, "remote", "set-url", "origin", "git@github.com:b/r.git");
+        const body = await listing();
+        // Premise: the pass named the collision, and caches it for an hour.
+        expect(collisionRow(body), JSON.stringify(body.unreadable)).toContain(
+          "are now in one project; rename one",
+        );
+        expect(collisionRow(await listing())).toBe(collisionRow(body));
+        return { first, second };
+      }
+      const collisionRow = (body: TakesAnswer) =>
+        body.unreadable.find(
+          (u) => u.folder === "following projects' checkouts",
+        )?.reason;
+      let roots: string[] = [];
+      afterEach(async () => {
+        for (const r of roots) await rm(r, { recursive: true, force: true });
+        roots = [];
+      });
+
+      // Red: drop videoRename's `lastFollow = null` — the cached row still
+      // says "rename one" after the rename that settled it.
+      it("a rename that settles it clears the row on the next listing", async () => {
+        const { first } = await collided();
+        const r = await h.call(pathFor("videoRename", { id: first }), {
+          method: "PUT",
+          body: JSON.stringify({ name: "Pay a bill again" }),
+        });
+        expect(r.status, r.text).toBe(200);
+        const body = await listing();
+        expect(collisionRow(body), JSON.stringify(body.unreadable)).toBe(
+          undefined,
+        );
+      });
+
+      // Red: drop videoDelete's `lastFollow = null` — the row names a flow
+      // that is gone.
+      it("deleting one of the pair clears the row on the next listing", async () => {
+        const { second } = await collided();
+        const r = await h.call(pathFor("videoDelete", { id: second }), {
+          method: "DELETE",
+        });
+        expect(r.status, r.text).toBe(200);
+        const body = await listing();
+        expect(body.videos.some((v) => v.id === second)).toBe(false);
+        expect(collisionRow(body), JSON.stringify(body.unreadable)).toBe(
+          undefined,
+        );
+      });
+    });
+
+    it("an alias table that will not read is a row naming it, and every flow still lists", async () => {
+      const path = join(home, "videos", ".aliases.json");
+      await writeFile(path, "{nope");
+      const body = await listing();
+      const said = JSON.stringify(body.unreadable);
+      const row = body.unreadable.find(
+        (u) => u.folder === "following projects' checkouts",
+      );
+      expect(row?.kind, said).toBe("upkeep");
+      expect(row?.reason, said).toContain(path);
+      expect(body.videos.map((v) => v.id).sort()).toEqual(
+        [invoice, signup].sort(),
+      );
+    });
+  });
 
   it("a take whose video.json will not read is a row, and every video still lists", async () => {
     // Red (final review 4): read memberships unguarded — the migration
@@ -435,6 +885,7 @@ describe("renaming a kept flow", () => {
     });
   const OLD = keptFileName("Create an invoice");
   const NEW = keptFileName("Send an invoice");
+  const KEY = "github.com/acme/app";
   let checkout: string;
   const recipe = (): KeptVideo => ({
     keptVersion: 2,
@@ -477,6 +928,7 @@ describe("renaming a kept flow", () => {
     const marked = await store.setKept(invoice, {
       root,
       file: `${KEPT_DIR}/${OLD}`,
+      key: KEY,
     });
     if (!marked.ok) throw new Error("the fixture's flow was not marked kept");
   }
@@ -498,6 +950,7 @@ describe("renaming a kept flow", () => {
       root: checkout,
       file: `${KEPT_DIR}/${OLD}`,
       deliver: "commit",
+      key: KEY,
     });
     expect(NEW).not.toBe(OLD);
     // Red: call videos.rename alone for a kept flow — the recipe keeps the
@@ -518,6 +971,7 @@ describe("renaming a kept flow", () => {
       root: checkout,
       file: `${FLOWS_DIR}/${NEW}`,
       deliver: "commit",
+      key: KEY,
     });
   });
 
@@ -628,7 +1082,12 @@ describe("renaming a kept flow", () => {
     oldReceipt: true,
     newReceipt: false,
     name: "Create an invoice",
-    kept: { root: checkout, file: `${KEPT_DIR}/${OLD}`, deliver: "commit" },
+    kept: {
+      root: checkout,
+      file: `${KEPT_DIR}/${OLD}`,
+      deliver: "commit",
+      key: KEY,
+    },
   });
   const refusal = (r: { json: () => unknown }) =>
     r.json() as { reason: string; detail: string };
@@ -653,7 +1112,12 @@ describe("renaming a kept flow", () => {
       oldReceipt: false,
       newReceipt: true,
       name: "Send an invoice",
-      kept: { root: checkout, file: `${FLOWS_DIR}/${NEW}`, deliver: "commit" },
+      kept: {
+        root: checkout,
+        file: `${FLOWS_DIR}/${NEW}`,
+        deliver: "commit",
+        key: KEY,
+      },
     });
   });
 

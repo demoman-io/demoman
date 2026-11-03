@@ -17,7 +17,7 @@ export interface LibraryRow {
   /** The path it started on, `/checkout`; empty for the root. A developer's
    *  takes are mostly on one localhost, and the path is what tells one
    *  flow from another. Query and hash are dropped: they are state, not
-   *  place. */
+   *  place; a hash router's `#/route` is the place, and is kept. */
   path: string;
   createdAt: string;
   /** The row's second line beside the origin: when the take was made, to
@@ -75,6 +75,10 @@ export interface LibraryRow {
   /** Its video's recipe, as the listing reads it; absent for a take in no
    *  video. A row with a recipe, or with one that will not read, is kept. */
   kept?: VideoSummary["kept"];
+  /** A kept flow whose repo could not be told (its mark has no key): the
+   *  project it is listed under instead, so the row can say so (spec
+   *  "Failure paths"). Absent otherwise. */
+  keptUnder?: string;
 }
 
 /** The filmed commit as a row shows it: seven characters, `*` when the
@@ -306,11 +310,13 @@ export const hostOf = (url: string): string => {
 };
 
 /** A page's path without its trailing slash, "" for the root or a URL that
- *  does not parse. */
+ *  does not parse. A hash router's route (`/#/checkout`) follows the path:
+ *  there the hash is the place. */
 export const pathOf = (url: string): string => {
   try {
-    const p = new URL(url).pathname;
-    return p === "/" ? "" : p.replace(/\/$/, "");
+    const u = new URL(url);
+    const route = u.hash.startsWith("#/") ? u.hash.slice(1).split("?")[0] : "";
+    return `${u.pathname.replace(/\/$/, "")}${route}`.replace(/\/$/, "");
   } catch {
     return "";
   }
@@ -334,7 +340,7 @@ export function whenLabel(at: Date, withYear: boolean): string {
 
 /**
  * One section of the list: a heading, the rows under it, and whether it
- * starts folded. Keys are stable across renders so the page can carry an
+ * starts folded (never, since 2026-11-01: every section opens). Keys are stable across renders so the page can carry an
  * open or closed state from one render to the next: `today`, `yesterday`,
  * `day:YYYY-MM-DD` for the rest of the last week, `month:YYYY-MM` for
  * everything older, `undated` for a row whose date will not parse.
@@ -342,9 +348,8 @@ export function whenLabel(at: Date, withYear: boolean): string {
 export interface LibrarySection {
   key: string;
   label: string;
-  /** True for a month before the current one: the page starts it closed,
-   *  so a library that has grown shows this week open and the past as a
-   *  short list of month lines. */
+  /** Always false: every section starts open, and its chevron closes it.
+   *  Kept so the page's default reads the section, not a constant. */
   folded: boolean;
   /** True when the heading names one day — Today, Yesterday, "Fri, Oct 2" —
    *  so its rows show only their time. A month or Undated does not. */
@@ -377,21 +382,13 @@ export function sectionsOf(
   now: Date,
 ): LibrarySection[] {
   const today = startOfDay(now);
-  const thisMonth = now.getFullYear() * 12 + now.getMonth();
   const sections = new Map<string, LibrarySection>();
   for (const r of rows) {
     const made = new Date(r.createdAt);
     let key: string;
     let label: string;
-    let folded = false;
     let namesDay = true;
-    // A flow in the repo is the repo's, not a day's: it heads the list, one that
-    // will not read too, where the problem is seen.
-    if (r.kept != null) {
-      namesDay = false;
-      key = "kept";
-      label = "In repo";
-    } else if (Number.isNaN(made.getTime())) {
+    if (Number.isNaN(made.getTime())) {
       namesDay = false;
       key = "undated";
       label = "Undated";
@@ -416,21 +413,17 @@ export function sectionsOf(
           month: "long",
           year: "numeric",
         });
-        folded = made.getFullYear() * 12 + made.getMonth() < thisMonth;
         namesDay = false;
       }
     }
     const section = sections.get(key);
     if (section === undefined) {
-      sections.set(key, { key, label, folded, namesDay, rows: [r] });
+      sections.set(key, { key, label, folded: false, namesDay, rows: [r] });
     } else {
       section.rows.push(r);
     }
   }
-  const kept = sections.get("kept");
-  return kept === undefined
-    ? [...sections.values()]
-    : [kept, ...[...sections.values()].filter((s) => s !== kept)];
+  return [...sections.values()];
 }
 
 /**
@@ -487,7 +480,12 @@ export function buildLibraryModel(args: {
   videoOf?: TakesAnswer["videoOf"];
 }): LibraryModel {
   const videoOf = args.videoOf ?? {};
-  const keptOf = new Map((args.videos ?? []).map((v) => [v.id, v.kept]));
+  const videoBy = new Map((args.videos ?? []).map((v) => [v.id, v]));
+  // projectKeyOf's fallback when the mark has no key, as a label.
+  const keptUnder = (v: VideoSummary | undefined) =>
+    v?.kept == null || "unknown" in v.kept || v.addedTo !== null
+      ? {}
+      : { keptUnder: ("key" in v.repo && repoLabel(v.repo)) || "No project" };
   const byId = new Map((args.summary?.demos ?? []).map((d) => [d.sceneId, d]));
   const rows: LibraryRow[] = [...args.scenes]
     .sort((a, b) => b.meta.createdAt.localeCompare(a.meta.createdAt))
@@ -497,6 +495,7 @@ export function buildLibraryModel(args: {
         d?.motion ??
         (args.summary === undefined ? "complete" : "keyframesOnly");
       const made = new Date(scene.meta.createdAt);
+      const video = videoBy.get(videoOf[scene.meta.id]?.videoId ?? "");
       return {
         sceneId: scene.meta.id,
         name: scene.meta.name,
@@ -533,7 +532,8 @@ export function buildLibraryModel(args: {
               expired: videoOf[scene.meta.id]?.expired,
               exports: videoOf[scene.meta.id]?.exports,
               filmedCode: videoOf[scene.meta.id]?.filmedCode,
-              kept: keptOf.get(videoOf[scene.meta.id]?.videoId ?? "") ?? null,
+              kept: video?.kept ?? null,
+              ...keptUnder(video),
             }),
       };
     });

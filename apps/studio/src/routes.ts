@@ -8,21 +8,24 @@ import {
 } from "@demoman/run-core";
 import {
   createVideoStore,
+  describeVideo,
   ensureVideos,
   expireOld,
   expiryStatus,
+  followCheckouts,
+  hasCommit,
   keptOf,
+  keyKeptMarks,
   type Library,
   LibraryError,
   pidAlive,
   readLeases,
   readLogo,
+  readRepo,
   readUserSettings,
   readWallpaper,
   renameKept,
-  summarise,
   VideoError,
-  type VideoSummary,
 } from "@demoman/runner/studio";
 import { migrateToCurrent, type SceneDocument } from "@demoman/scene-schema";
 import {
@@ -135,6 +138,11 @@ export function createRoutes(o: {
    *  on each listing: the studio's server starting (spec §5). Off in the
    *  route tests, whose homes are removed under a pass still writing. */
   upkeepOnStart?: boolean;
+  /** At most one follow pass per this many ms (60 s unless given; 0 in the
+   *  route tests, so each listing follows). */
+  followEveryMs?: number;
+  /** The follow throttle's clock; injected by tests. */
+  now?: () => number;
 }): Omit<StudioHandlers, "window" | "exportStart"> {
   const { library, home, log } = o;
   const reveal = o.reveal ?? revealInFinder;
@@ -151,6 +159,48 @@ export function createRoutes(o: {
     const run = videoChain.then(fn, fn);
     videoChain = run.catch(() => undefined);
     return run;
+  };
+
+  // The follow pass spawns git in every recorded checkout, so it runs on
+  // start and then at most once per `followEveryMs`, as expireOld throttles
+  // itself; a skipped listing says the last pass's rows again, so a row does
+  // not flicker in and out between listings. A rename or a flow's delete
+  // clears them, so a row it settled, or one naming a gone flow, is not said.
+  const followEvery = o.followEveryMs ?? 60_000;
+  const now = o.now ?? Date.now;
+  let lastFollow: { at: number; rows: UnreadableTake[] } | null = null;
+  const followed = async (): Promise<UnreadableTake[]> => {
+    if (lastFollow !== null && now() - lastFollow.at < followEvery)
+      return lastFollow.rows;
+    const at = now();
+    const rows: UnreadableTake[] = [];
+    const folder = "following projects' checkouts";
+    try {
+      const f = await followCheckouts(videos, library, readRepo, hasCommit);
+      // A re-keying that failed still says the checkouts that would not read.
+      const said = [
+        ...(f.error === undefined
+          ? []
+          : [`projects could not follow their checkouts (${f.error})`]),
+        ...f.failed.map(
+          (x) => `flow "${x.name}" (${x.flow}) at ${x.root}: ${x.why}`,
+        ),
+        ...f.collisions.map(
+          (c) =>
+            `flows "${c.name}" (${c.ids.join(") and (")}) are now in one project; rename one`,
+        ),
+      ];
+      if (said.length > 0)
+        rows.push({ folder, kind: "upkeep", reason: said.join("; ") });
+    } catch (error) {
+      rows.push({
+        folder,
+        kind: "upkeep",
+        reason: `projects could not follow their checkouts (${messageOf(error)})`,
+      });
+    }
+    lastFollow = { at, rows };
+    return rows;
   };
 
   /**
@@ -183,6 +233,26 @@ export function createRoutes(o: {
           kind: "upkeep",
         });
       }
+      try {
+        const keyed = await keyKeptMarks(videos, readRepo);
+        if (keyed.failed.length > 0) {
+          rows.push({
+            folder: "telling kept flows' projects",
+            kind: "upkeep",
+            reason: keyed.failed
+              .map((f) => `flow "${f.name}" (${f.flow}) at ${f.root}: ${f.why}`)
+              .join("; "),
+          });
+        }
+      } catch (error) {
+        rows.push({
+          folder: "telling kept flows' projects",
+          kind: "upkeep",
+          reason: `could not be told (${messageOf(error)})`,
+        });
+      }
+      // After keying marks, so a mark keyed just now is followed too.
+      rows.push(...(await followed()));
       const expiry = await expireOld(videos, library, new Date());
       // A pass that ran within the hour is not run again, so a failure it
       // met is read back from the state file rather than said only once.
@@ -274,7 +344,7 @@ export function createRoutes(o: {
         continue;
       }
       try {
-        const summary: VideoSummary = await summarise(videos, library, v);
+        const { summary, steps } = await describeVideo(videos, library, v);
         for (const version of await videos.versions(v.id)) {
           videoOf[version.takeId] = {
             videoId: v.id,
@@ -284,7 +354,7 @@ export function createRoutes(o: {
             filmedCode: await filmedCodeOf(version.takeId),
           };
         }
-        listed.push(summary);
+        listed.push({ ...summary, steps });
       } catch (error) {
         say({
           folder: v.id,
@@ -534,6 +604,7 @@ export function createRoutes(o: {
             try {
               if ((await videos.versions(videoId)).length === 0) {
                 await videos.remove(videoId);
+                lastFollow = null;
               }
             } catch (error) {
               parts.push(
@@ -595,7 +666,11 @@ export function createRoutes(o: {
           { videos },
         );
       });
-      if (done.ok) return json(200, {});
+      if (done.ok) {
+        // A rename may settle a collision the last follow pass named.
+        lastFollow = null;
+        return json(200, {});
+      }
       if (done.reason === "videoNotFound") return noVideo(id);
       if ("detail" in done) {
         return refuse(
@@ -626,6 +701,7 @@ export function createRoutes(o: {
           // A record that will not read: its "Couldn't read" row's Delete
           // removes the record alone, and its recordings stay as takes.
           await videos.remove(id);
+          lastFollow = null;
           const answer: DeleteAnswer = {
             note: "Only the unreadable record was removed; its videos stay.",
           };
@@ -667,6 +743,7 @@ export function createRoutes(o: {
       }
       try {
         await onVideoChain(() => videos.remove(id));
+        lastFollow = null;
       } catch (error) {
         const answer: DeleteAnswer = {
           note: noteOf(parts),
@@ -966,7 +1043,7 @@ export function createRoutes(o: {
         );
       }
       const sent = (body.value as { view?: unknown } | null)?.view;
-      // The three fields only: a choice that carries more is stored without it.
+      // The view's fields only: a choice that carries more is stored without it.
       const view = isLibraryViewChoice(sent)
         ? {
             layout: sent.layout,
@@ -974,6 +1051,7 @@ export function createRoutes(o: {
               column: sent.sort.column,
               descending: sent.sort.descending,
             },
+            project: sent.project ?? null,
           }
         : sent;
       const refused = await writeSetting(home, "libraryView", view);

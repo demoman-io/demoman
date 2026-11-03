@@ -50,6 +50,7 @@ const flow = (id: string, row: LibraryRow): VideoGroup => ({
     steps: [],
     exports: [],
     kept: null,
+    addedTo: null,
   } as VideoSummary,
   current: row,
   versions: [{ ...row, version: 1 }],
@@ -93,6 +94,12 @@ const draw = (
   const root = document.createElement("div");
   document.body.replaceChildren(root);
   renderLibrary(root, model, acts, new Map(), NOW, selection, bulk);
+  // Every section opens on its own; the author closes the old month, so
+  // the cases below sample a flow under a closed section.
+  const old = root
+    .querySelector<HTMLDetailsElement>('[data-row="d"]')
+    ?.closest("details");
+  if (old != null) old.open = false;
   return { root, acts };
 };
 
@@ -103,7 +110,7 @@ const picked = (...ids: string[]): Selection => ({
 });
 
 describe("bulk selection in the library view", () => {
-  it("the fixture has three flows, one in a folded month, and one loose take", () => {
+  it("the fixture has three flows, one in a month the author closed, and one loose take", () => {
     const { root } = draw(emptySelection());
     expect(root.querySelectorAll("article[data-video]")).toHaveLength(3);
     expect(

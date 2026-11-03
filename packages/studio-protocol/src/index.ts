@@ -221,6 +221,7 @@ export interface VideoSummary {
     expired: boolean;
   } | null;
   pages: string[];
+  /** Every step of the shown version, uncut: the library searches them. */
   steps: string[];
   /** Every version's exports, each with its take; a version whose list
    *  will not read is `{ takeId, unreadable }`. */
@@ -231,11 +232,15 @@ export interface VideoSummary {
   /** The recipe that keeps this flow; `unknown` says why a kept record's
    *  file cannot be used. */
   kept:
-    | { file: string; root: string; deliver: KeptDeliver }
+    | { file: string; root: string; deliver: KeptDeliver; key: string | null }
     | null
     | {
         unknown: string;
       };
+  /** The repo key the flow was added to, as its kept mark recorded it,
+   *  whether or not that checkout still exists; null when there is no mark
+   *  or it has no key. The flow's project (spec "The model", rule 1). */
+  addedTo: string | null;
 }
 export interface VersionExport {
   path: string;
@@ -373,12 +378,16 @@ export type LibrarySortColumn =
 export interface LibraryViewChoice {
   layout: LibraryLayout;
   sort: { column: LibrarySortColumn; descending: boolean };
+  /** The saved pick: a `placeSearch` value without the `?project=`
+   *  ("all", "none", "unreadable" or a project key), or null for none. */
+  project: string | null;
 }
 /** Decided here once; the studio serves it when nothing is stored. Frozen:
  *  every reader is handed this one object. */
 export const DEFAULT_LIBRARY_VIEW: LibraryViewChoice = Object.freeze({
   layout: "list",
   sort: Object.freeze({ column: "recorded", descending: true }),
+  project: null,
 });
 const LAYOUTS: readonly string[] = ["list", "grid"];
 const SORT_COLUMNS: readonly string[] = [
@@ -390,7 +399,14 @@ const SORT_COLUMNS: readonly string[] = [
 ];
 export function isLibraryViewChoice(v: unknown): v is LibraryViewChoice {
   if (typeof v !== "object" || v === null) return false;
-  const { layout, sort } = v as { layout?: unknown; sort?: unknown };
+  const { layout, sort, project } = v as {
+    layout?: unknown;
+    sort?: unknown;
+    project?: unknown;
+  };
+  // Absent in files written before the project model; read as null.
+  if (project !== undefined && project !== null && typeof project !== "string")
+    return false;
   if (typeof layout !== "string" || !LAYOUTS.includes(layout)) return false;
   if (typeof sort !== "object" || sort === null) return false;
   const { column, descending } = sort as {
@@ -413,6 +429,8 @@ export interface LibraryViewAnswer {
 }
 export interface WindowBody {
   takeId?: string;
+  /** The caller's repo key: the library opens on that project. */
+  project?: string;
 }
 
 /** `POST /api/window`: the page the window was opened or sent to
@@ -462,3 +480,25 @@ export type StudioEvent =
   | { type: "watchFailed"; feed: "takes" | "kits"; detail: string }
   | { type: "open"; path: string }
   | { type: "server:stopping" };
+
+/** Where the library page is looking: one project (a repo key), everything,
+ *  the takes with no project, or the folders that would not read. The page
+ *  and the server write and read `/?project=` with these two functions. */
+export type Place = { project: string } | "all" | "none" | "unreadable";
+
+const RESERVED_PLACES = ["all", "none", "unreadable"] as const;
+
+/** Reads `?project=`. `all`, `none` and `unreadable` are reserved; any other
+ *  value is a project key; absent or empty is null. */
+export function parsePlace(search: string): Place | null {
+  const v = new URLSearchParams(search).get("project");
+  if (v === null || v === "") return null;
+  return (RESERVED_PLACES as readonly string[]).includes(v)
+    ? (v as Place)
+    : { project: v };
+}
+
+/** The inverse of `parsePlace`. */
+export function placeSearch(p: Place): string {
+  return `?project=${encodeURIComponent(typeof p === "string" ? p : p.project)}`;
+}

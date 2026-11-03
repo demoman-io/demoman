@@ -13,6 +13,7 @@ import { adoptKept, findKept } from "./kept-flows.js";
 import { type Library, LibraryError } from "./library.js";
 import { ensureVideos, startPage } from "./migrate-videos.js";
 import { readRepo } from "./repo.js";
+import { followHere } from "./repo-aliases.js";
 import { phraseHits, similarNames } from "./video-match.js";
 import {
   sharesRepo,
@@ -50,11 +51,15 @@ export interface VideoSummary {
    *  more), or `unknown` when one might and cannot be read: a recipe that
    *  will not read, or two that name the flow. */
   kept:
-    | { file: string; root: string; deliver: KeptDeliver }
+    | { file: string; root: string; deliver: KeptDeliver; key: string | null }
     | null
     | {
         unknown: string;
       };
+  /** The repo key the flow was added to, as its kept mark recorded it,
+   *  whether or not that checkout still exists (a worktree removed after
+   *  the merge); null when there is no mark or it has no key. */
+  addedTo: string | null;
 }
 
 /** Reads the recipe a record points at (the same parser the kept folder's
@@ -79,7 +84,12 @@ export async function keptOf(
   const text = await readFile(join(root, file), "utf8").catch(() => null);
   const parsed = text === null ? null : parseKept(text, file);
   if (parsed?.ok === true && parsed.kept.flow === video.id)
-    return { file, root, deliver: parsed.kept.deliver };
+    return {
+      file,
+      root,
+      deliver: parsed.kept.deliver,
+      key: video.kept.key ?? null,
+    };
   // The marked file is gone, moved or another flow's: the folder says
   // which recipe, if any, keeps this flow.
   let found: Awaited<ReturnType<typeof findKept>>;
@@ -92,7 +102,12 @@ export async function keptOf(
   }
   if (found === null) return null;
   if ("kept" in found)
-    return { file: found.file, root, deliver: found.kept.deliver };
+    return {
+      file: found.file,
+      root,
+      deliver: found.kept.deliver,
+      key: video.kept.key ?? null,
+    };
   if ("duplicate" in found)
     return {
       unknown: `${found.duplicate.join(" and ")} in ${root} both name this flow`,
@@ -109,12 +124,12 @@ export async function summarise(
   library: Library,
   video: VideoRecord,
 ): Promise<VideoSummary> {
-  return (await described(store, library, video)).summary;
+  return (await describeVideo(store, library, video)).summary;
 }
 
 /** A video's summary, and every step it shows (the summary lists only the
  *  first `STEPS_MAX`). */
-async function described(
+export async function describeVideo(
   store: VideoStore,
   library: Library,
   video: VideoRecord,
@@ -175,6 +190,7 @@ async function described(
     steps: steps.slice(0, STEPS_MAX),
     exports,
     kept: await keptOf(video),
+    addedTo: video.kept?.key ?? null,
   };
   return { summary, steps };
 }
@@ -189,9 +205,10 @@ export async function matchesFor(
   repo: VideoRepo,
 ): Promise<VideoSummary[]> {
   const out: VideoSummary[] = [];
+  const mine = await store.resolve(repo);
   for (const v of await store.list()) {
     if ("unreadable" in v) continue;
-    if (sharesRepo(v.repo, repo) && similarNames(v.name, name)) {
+    if (sharesRepo(v.repo, mine) && similarNames(v.name, name)) {
       out.push(await summarise(store, library, v));
     }
   }
@@ -268,6 +285,13 @@ export async function videosOp(
     const unreadable: { id: string; unreadable: string }[] = joined.skipped.map(
       (s) => ({ id: s.takeId, unreadable: s.reason }),
     );
+    // A query follows its own checkout before reading the records (ruling
+    // R14): a checkout whose key moved still lists its old flows.
+    const read = typeof file === "string" ? null : await readRepo(deps.dir);
+    if (read?.ok) {
+      for (const m of await followHere(store, library, read))
+        unreadable.push({ id: m.id, unreadable: m.why });
+    }
     const records = await store.list();
     for (const v of records) {
       if ("unreadable" in v) unreadable.push(v);
@@ -363,14 +387,16 @@ export async function videosOp(
       };
     }
 
-    const read = await readRepo(deps.dir);
-    const here: VideoRepo = read.ok
-      ? { key: read.repo.key }
-      : { none: read.none };
+    // Read above, before the records; never null for a query.
+    const repoRead = read ?? (await readRepo(deps.dir));
+    // A clone still on a repo's old remote lists the repo's flows.
+    const here = await store.resolve(
+      repoRead.ok ? { key: repoRead.repo.key } : { none: repoRead.none },
+    );
     const found: { summary: VideoSummary; hits: number }[] = [];
     for (const v of records) {
       if ("unreadable" in v || !sharesRepo(v.repo, here)) continue;
-      const { summary, steps } = await described(store, library, v);
+      const { summary, steps } = await describeVideo(store, library, v);
       found.push({
         summary,
         // Every step, not only the ones the summary lists.

@@ -871,6 +871,7 @@ describe("libraryView", () => {
     expect(got.view).toEqual({
       layout: "list",
       sort: { column: "recorded", descending: true },
+      project: null,
     });
     expect(got.unreadable).toBeUndefined();
   });
@@ -886,13 +887,21 @@ describe("libraryView", () => {
       }),
     );
     expect(await get()).toEqual({
-      view: { layout: "grid", sort: { column: "name", descending: false } },
+      view: {
+        layout: "grid",
+        sort: { column: "name", descending: false },
+        project: null,
+      },
     });
   });
 
   it("a PUT then GET round-trips and keeps the file's other keys", async () => {
     await writeFile(settings(), JSON.stringify({ pullRequests: "ask" }));
-    const view = { layout: "grid", sort: { column: "size", descending: true } };
+    const view = {
+      layout: "grid",
+      sort: { column: "size", descending: true },
+      project: null,
+    };
     const res = await put({ view });
     expect(res.status, res.text).toBe(200);
     expect((await get()).view).toEqual(view);
@@ -902,6 +911,52 @@ describe("libraryView", () => {
   });
 
   // Red: the route storing the body's view as sent, extra keys and all.
+  it("a stored view without project reads as project null", async () => {
+    await writeFile(
+      settings(),
+      JSON.stringify({
+        libraryView: {
+          layout: "grid",
+          sort: { column: "name", descending: false },
+        },
+      }),
+    );
+    const got = await get();
+    expect(got.view).toEqual({
+      layout: "grid",
+      sort: { column: "name", descending: false },
+      project: null,
+    });
+    expect(got.unreadable).toBeUndefined();
+  });
+
+  it("a PUT with a project stores and serves it", async () => {
+    const view = {
+      layout: "list",
+      sort: { column: "name", descending: false },
+      project: "none",
+    };
+    const res = await put({ view });
+    expect(res.status, res.text).toBe(200);
+    expect(res.json()).toEqual({ view });
+    expect((await get()).view).toEqual(view);
+    const file = JSON.parse(await readFile(settings(), "utf8"));
+    expect(file.libraryView).toEqual(view);
+  });
+
+  it("a PUT with project 42 is refused libraryViewInvalid", async () => {
+    const res = await put({
+      view: {
+        layout: "list",
+        sort: { column: "name", descending: false },
+        project: 42,
+      },
+    });
+    expect(res.status, res.text).toBe(400);
+    expect(res.json()).toMatchObject({ reason: "libraryViewInvalid" });
+    await expect(stat(settings())).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("a PUT with extra keys stores the three fields only", async () => {
     const res = await put({
       view: {
@@ -914,6 +969,7 @@ describe("libraryView", () => {
     const view = {
       layout: "list",
       sort: { column: "name", descending: false },
+      project: null,
     };
     expect(res.json()).toEqual({ view });
     const file = JSON.parse(await readFile(settings(), "utf8"));

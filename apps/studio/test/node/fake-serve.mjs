@@ -26,6 +26,8 @@ await runServe({
   log: (line) => process.stderr.write(`${line}\n`),
   createWindow: () => ({
     async open(t) {
+      // open.test.ts reads what reached the window from studio.log.
+      process.stderr.write(`fake window: open ${JSON.stringify(t)}\n`);
       return { ok: true, path: pagePathFor(t.takeId) };
     },
     onAllClosed() {},

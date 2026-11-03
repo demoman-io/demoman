@@ -322,6 +322,79 @@
   font-size: 11.5px;
   color: var(--ink-4);
 }
+/* The title band and the rail name a project alike: the owner and the
+   "local" marker dim, the name at full strength. */
+[data-studio] .library-side h1 {
+  white-space: nowrap;
+}
+@media (min-width: 1024px) {
+  [data-studio] .library-side h1 {
+    width: max-content;
+    max-width: 70vw;
+  }
+}
+[data-studio] .proj-dim {
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+/* In the rail the name is --ink-2, so the dim part goes a step below
+   --ink-faint (--ink-3) to read apart from it unselected, hovered and
+   current alike; --ink-4 still clears 4.5:1 on the ground. */
+[data-studio] .side-item .proj-dim {
+  color: var(--ink-4);
+}
+[data-studio] .library-side .place-name {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+[data-studio] .side-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A project's label is a row in which the dim owner gives way first, so
+   the repo name keeps its room and its own ellipsis. As one inline run,
+   the label's ellipsis swallowed the whole name (an inline-block) and
+   left `owner/…` (2026-11-02). The full key is the item's title. */
+[data-studio] :is(.side-label, .place-switch-name):has(> .place-name) {
+  display: flex;
+}
+[data-studio] :is(.side-label, .place-switch-name) > .place-owner {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+[data-studio] :is(.side-label, .place-switch-name) > .place-name {
+  flex: none;
+}
+[data-studio] :is(.side-label, .place-switch-name) > .place-local {
+  flex: none;
+  white-space: pre;
+}
+/* The tabs: quiet pills, the pressed one as the editor rail's is, each
+   with its count. */
+[data-studio] .place-tabs .btn[aria-pressed="true"] {
+  background: var(--fill-3);
+  color: var(--ink);
+}
+[data-studio] .place-tabs .side-count {
+  margin-left: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+/* A phone's list: tighter, so the three fit beside the box's glyph and
+   the toggle. */
+@container library (max-width: 479px) {
+  [data-studio] .place-tabs .btn:not(.btn-icon) {
+    gap: 6px;
+    padding: 0 9px;
+  }
+}
 
 /* ───────── Type: Geist at the site's weights (spec §3.3) ───────── */
 
@@ -788,6 +861,12 @@
 [data-studio] .kit-tile {
   width: 148px;
 }
+/* Two across on a phone: the settings page's grid sizes them there. */
+@container (max-width: 420px) {
+  [data-studio] .kit-tile {
+    width: auto;
+  }
+}
 [data-studio] .kit-pick {
   border: 0;
   border-radius: var(--r-panel);
@@ -945,6 +1024,12 @@
 [data-studio] button.take-meta[aria-expanded="true"] {
   background: var(--fill-2);
   color: var(--ink-2);
+}
+/* The narrow switcher's menu of places takes it too. */
+[data-studio] .place-menu {
+  border-radius: var(--r-frame);
+  background: var(--bg-2);
+  box-shadow: var(--shadow-pop);
 }
 /* Take info: the floating surface every popover here takes. */
 [data-studio] #take-info {
@@ -1234,6 +1319,34 @@ input:is([type="text"], [type="search"], [type="number"], :not([type])):not(
   box-shadow: inset 0 0 0 1px var(--line-2);
   color: var(--ink);
   font-size: 13px;
+}
+/* The library's search box pads its text clear of the glyph and the `/`
+   hint drawn inside it; as specific as the rule above, and after it. */
+[data-studio] .search-field > input[type="search"][data-search]:not(#name) {
+  padding: 0 34px 0 30px;
+}
+/* Under a 600px list the hint is not drawn, and folded to its glyph the
+   box has no room for padding at all (library/index.html). */
+@container library (max-width: 599px) {
+  [data-studio] .search-field > input[type="search"][data-search]:not(#name) {
+    padding-right: 10px;
+  }
+  [data-studio]
+    .search-field:not(:focus-within)
+    > input[type="search"][data-search]:placeholder-shown:not(#name) {
+    padding: 0;
+  }
+}
+/* On a phone's list a held box folds to its glyph while a tab holds the
+   keys (library/index.html): no padding, and its query not drawn. */
+@container library (max-width: 479px) {
+  [data-studio]
+    .tabs-row:has(> .place-tabs:focus-within)
+    > .search-field:not(:focus-within)
+    > input[type="search"][data-search]:not(#name) {
+    padding: 0;
+    color: transparent;
+  }
 }
 [data-studio] .branding-controls input[type="color"] {
   border-color: var(--line-2);

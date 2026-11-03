@@ -244,6 +244,24 @@ describe("openStudio", () => {
   );
 
   it(
+    "posts the project, so it reaches the Studio's window",
+    async () => {
+      const a = await openStudio({
+        home,
+        project: "k",
+        version: "0.0.0-test",
+        serve: serveFake(),
+      });
+      expect(a).toEqual({ outcome: "opened" });
+      // Red: leave `project` out of openStudio's POST body.
+      expect(await readFile(join(home, "studio.log"), "utf8")).toContain(
+        'fake window: open {"project":"k"}',
+      );
+    },
+    CASE_MS,
+  );
+
+  it(
     "stops an older Studio with nothing queued and starts its own (version skew)",
     async () => {
       await openStudio({ home, version: "0.0.1", serve: serveFake("0.0.1") });

@@ -58,12 +58,7 @@ import { refilmFromVideo } from "./refilm.js";
 import { type GitRunner, readRepo } from "./repo.js";
 import { createSessionStore, siteOf } from "./sessions.js";
 import { sameName } from "./video-match.js";
-import {
-  sharesRepo,
-  type VideoRecord,
-  type VideoRepo,
-  type VideoStore,
-} from "./videos.js";
+import { sharesRepo, type VideoRecord, type VideoStore } from "./videos.js";
 import { readWallpaper } from "./wallpaper-read.js";
 
 export type KeepRefusal =
@@ -83,7 +78,8 @@ export type KeepRefusal =
    *  reason and sentence in the detail), or an accounts.json that will not
    *  choose an account: a refresh would refuse the same way. */
   | "cannotRefilm"
-  /** The request itself is refused (a `files` output given as a path). */
+  /** The request itself is refused (a `files` output given as a path, or
+   *  a name two flows in this repo share). */
   | "keepRefused"
   /** The recipe was written but the old file it replaces could not be
    *  removed: two files name the flow until it is deleted. */
@@ -175,16 +171,23 @@ export async function keepVideo(
 
   // The video: by id or exact name, among this repo's.
   const repo = await readRepo(root, deps.git);
-  const here: VideoRepo = repo.ok
-    ? { key: repo.repo.key }
-    : { none: repo.none };
+  const here = await deps.videos.resolve(
+    repo.ok ? { key: repo.repo.key } : { none: repo.none },
+  );
   const records = await deps.videos.list();
   const mine = records.filter(
     (v): v is VideoRecord => !("unreadable" in v) && sharesRepo(v.repo, here),
   );
-  const video =
-    mine.find((v) => v.id === args.video) ??
-    mine.find((v) => v.name === args.video);
+  const byName = mine.filter((v) => v.name === args.video);
+  const byId = mine.find((v) => v.id === args.video);
+  // Two keys merged into one repo can bring two flows of one name together.
+  if (byId === undefined && byName.length > 1) {
+    return refuse(
+      "keepRefused",
+      `${byName.length} flows in this repo are called "${args.video}" (${byName.map((v) => v.id).join(" and ")}), so nothing was added — pass the id of the one to add`,
+    );
+  }
+  const video = byId ?? byName[0];
   if (video === undefined) {
     const unread = records.flatMap((v) =>
       "unreadable" in v ? [`${v.id}: ${v.unreadable}`] : [],
@@ -421,6 +424,7 @@ export async function keepVideo(
       const marked = await deps.videos.setKept(video.id, {
         root,
         file: fileRel,
+        ...(repo.ok && { key: repo.repo.key }),
       });
       if (!marked.ok) {
         markNote = `the library could not mark "${video.name}" as in the repo (${marked.reason}), so it will not show In repo until you add it again`;
@@ -813,7 +817,12 @@ export async function rewriteKept(
         (video.kept.root === root && video.kept.file !== rel))
     ) {
       try {
-        const marked = await deps.videos.setKept(videoId, { root, file: rel });
+        const read = await readRepo(root, deps.git);
+        const marked = await deps.videos.setKept(videoId, {
+          root,
+          file: rel,
+          ...(read.ok && { key: read.repo.key }),
+        });
         if (!marked.ok)
           deps.log(
             `kept: ${rel}: the library could not mark flow ${videoId} as kept (${marked.reason})`,
@@ -1082,7 +1091,13 @@ export async function renameKept(
       what: `point the library's flow at ${file}`,
       run: async () =>
         failed(
-          await deps.videos.setKept(rec.id, { root, file }),
+          await deps.videos.setKept(rec.id, {
+            root,
+            file,
+            // The mark is renamed in place: its repo is the one it named.
+            ...(rec.kept?.root === root &&
+              rec.kept.key !== undefined && { key: rec.kept.key }),
+          }),
           `flow ${rec.id} is not in the library`,
         ),
       undo: async () =>

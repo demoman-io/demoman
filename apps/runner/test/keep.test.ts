@@ -395,6 +395,113 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     ).toEqual([]);
   });
 
+  // Red: drop `key` from keep.ts's setKept and the mark has no key.
+  it("add writes the repo's key into the flow's kept mark", async () => {
+    const id = await freshVideo("scene-key-1", "Key flow");
+    const out = await keepVideo(
+      {
+        video: "Key flow",
+        to: [gif("key.gif")],
+        deliver: "files",
+        repoRoot: repo,
+      },
+      deps(),
+    );
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    // Premise: the key to expect is a real one.
+    expect(repoKey).toBeTruthy();
+    expect((await videos.get(id))?.kept).toEqual({
+      root: repo,
+      file: out.file,
+      key: repoKey,
+    });
+  });
+
+  // Red: drop keep.ts's `videos.resolve` of `here` — the flow, moved to the
+  // repo's new key, is no flow of this checkout and keep says unknownVideo.
+  it("a checkout still on the repo's old key adds a flow upkeep moved to its new key", async () => {
+    const id = await freshVideo("scene-alias-1", "Moved flow");
+    const aliasPath = join(home, "videos", ".aliases.json");
+    const recordPath = join(home, "videos", `${id}.json`);
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    // As upkeep leaves it after this repo was renamed on its host.
+    await writeFile(aliasPath, JSON.stringify({ [repoKey]: "github.com/n/r" }));
+    await writeFile(
+      recordPath,
+      JSON.stringify({ ...record, repo: { key: "github.com/n/r" } }),
+    );
+    try {
+      // Premise: the checkout reads the old key, the record holds the new.
+      const read = await readRepo(repo);
+      expect(read.ok && read.repo.key).toBe(repoKey);
+      expect(repoKey).not.toBe("github.com/n/r");
+      const out = await keepVideo(
+        {
+          video: "Moved flow",
+          to: [gif("moved.gif")],
+          deliver: "files",
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      expect(out.ok, JSON.stringify(out)).toBe(true);
+    } finally {
+      await rm(aliasPath, { force: true });
+    }
+  });
+
+  // Red: drop keep.ts's byName.length > 1 refusal — keep adds whichever of
+  // the two flows the folder lists first.
+  it("a name two flows share after their repos merged refuses, naming both, and adds nothing", async () => {
+    const mine = await freshVideo("scene-twin-1", "Twin flow");
+    const theirs = await freshVideo("scene-twin-2", "Twin flow (other)");
+    const aliasPath = join(home, "videos", ".aliases.json");
+    const theirsPath = join(home, "videos", `${theirs}.json`);
+    const record = JSON.parse(await readFile(theirsPath, "utf8"));
+    // An old clone's flow of the same name, under the key that now
+    // resolves to this repo's.
+    await writeFile(
+      theirsPath,
+      JSON.stringify({
+        ...record,
+        name: "Twin flow",
+        repo: { key: "github.com/old/r" },
+      }),
+    );
+    await writeFile(aliasPath, JSON.stringify({ "github.com/old/r": repoKey }));
+    try {
+      // Premise: both are this repo's flows, and both are called this.
+      const listed = (await videos.list()).filter(
+        (v) => "name" in v && v.name === "Twin flow",
+      );
+      expect(listed.map((v) => v.id).sort()).toEqual([mine, theirs].sort());
+      expect(
+        listed.every(
+          (v) => "repo" in v && "key" in v.repo && v.repo.key === repoKey,
+        ),
+      ).toBe(true);
+      const before = await repoFiles();
+      const out = await keepVideo(
+        {
+          video: "Twin flow",
+          to: [gif("twin.gif")],
+          deliver: "files",
+          repoRoot: repo,
+        },
+        deps(),
+      );
+      expect(out).toMatchObject({ ok: false, reason: "keepRefused" });
+      const detail = (out as { detail: string }).detail;
+      expect(detail).toContain(mine);
+      expect(detail).toContain(theirs);
+      expect(await repoFiles()).toEqual(before);
+    } finally {
+      await rm(aliasPath, { force: true });
+      // Its own name again, so later cases' names stay unique.
+      await writeFile(theirsPath, JSON.stringify(record));
+    }
+  });
+
   it("a run re-points a library mark left on a file moved elsewhere", async () => {
     const { id, legacy, file } = await keptInOldFolder(
       "scene-move-3",
@@ -405,7 +512,11 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     expect((await videos.get(id))?.kept?.file).toBe(legacy);
     const answer = await rewriteKept(repo, id, deps());
     expect(answer, JSON.stringify(answer)).toEqual({ rewritten: file });
-    expect((await videos.get(id))?.kept).toEqual({ root: repo, file });
+    expect((await videos.get(id))?.kept).toEqual({
+      root: repo,
+      file,
+      key: repoKey,
+    });
   });
 
   it("a run rewrites neither of two files naming its flow", async () => {
@@ -450,7 +561,11 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       expect(out.detail).toContain(`delete ${legacy}`);
       // The new file is the flow's recipe either way: the library follows it,
       // so deleting the old one as told leaves nothing pointing at it.
-      expect((await videos.get(id))?.kept).toEqual({ root: repo, file });
+      expect((await videos.get(id))?.kept).toEqual({
+        root: repo,
+        file,
+        key: repoKey,
+      });
     } finally {
       await chmod(join(repo, ".demoman/videos"), 0o755);
     }
@@ -482,6 +597,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       expect((await videos.get(videoId))?.kept).toEqual({
         root: repo,
         file: out.file,
+        key: repoKey,
       });
       expect(out.markNote).toBeUndefined();
     },
@@ -543,6 +659,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       expect((await videos.get(videoId))?.kept).toEqual({
         root: repo,
         file: out.file,
+        key: repoKey,
       });
     },
     KEEP_MS,

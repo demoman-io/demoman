@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The page's own markup and rules, and the real view, so the rows the keys
 // move over are the rows the page renders.
 import shell from "../../../pages/entrypoints/library/index.html?raw";
+import { setExpanded } from "../../../pages/src/library/list";
 import { TYPE_AHEAD_MS } from "../../../pages/src/library/list-keys";
 import { nextSort } from "../../../pages/src/library/list-model";
 import {
@@ -72,6 +73,7 @@ const flow = (id: string, name: string, versions: LibraryRow[]): VideoGroup => {
       steps: [],
       exports: [],
       kept: null,
+      addedTo: null,
     } as VideoSummary,
     current: numbered[0] ?? null,
     versions: numbered,
@@ -79,7 +81,7 @@ const flow = (id: string, name: string, versions: LibraryRow[]): VideoGroup => {
 };
 
 // Today: A (two videos), B, E, and a take in no flow; Yesterday: C; a
-// past month, folded by default: D.
+// past month, closed by the fixture: D.
 const a2 = take("a2", new Date(2026, 9, 30, 9));
 const a1 = take("a1", new Date(2026, 9, 30, 8, 30));
 const b1 = take("b1", new Date(2026, 9, 30, 8));
@@ -159,7 +161,11 @@ function mount(ticked: readonly string[] = [], withBulk?: Bulk) {
   renderLibrary(node("#root"), MODEL, acts, new Map(), NOW, selection, bulk, {
     layout: "list",
     sort: SORT,
+    project: null,
   });
+  // Every section opens on its own; the author has closed the old month,
+  // so D sits under a closed one, as the cases below sample.
+  setExpanded(node("[data-list] [data-heading^='month:']"), false);
   before = document.createElement("button");
   before.textContent = "before";
   grid().before(before);
@@ -273,7 +279,7 @@ describe("the fixture", () => {
       "f:C",
       expect.stringMatching(/^h:month:/),
     ]);
-    // A has two videos, hidden while it is closed; D is under a folded month.
+    // A has two videos, hidden while it is closed; D is under a closed month.
     expect(row("v:a2").hidden).toBe(true);
     expect(row("v:a1").hidden).toBe(true);
     expect(row("f:D").hidden).toBe(true);
@@ -318,6 +324,7 @@ describe("the column headings", () => {
     expect(acts.setView, where()).toHaveBeenCalledWith({
       layout: "list",
       sort: nextSort(SORT, "name"),
+      project: null,
     });
     await press("{ArrowDown}", "h:today");
     expect(tabStops(), where()).toEqual(["h:today"]);

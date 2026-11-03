@@ -71,6 +71,18 @@ export function selectAll(
   };
 }
 
+/** A date heading's box: every id of the day ticked, or, when they all
+ *  are, none of them; the rest and the anchor stay. */
+export function toggleGroup(s: Selection, ids: readonly string[]): Selection {
+  const next = new Set(s.ids);
+  const all = ids.length > 0 && ids.every((id) => next.has(id));
+  for (const id of ids) {
+    if (all) next.delete(id);
+    else next.add(id);
+  }
+  return { ids: next, anchor: s.anchor, range: [] };
+}
+
 /** Drops ids no longer on the page — a flow another window or an agent
  *  deleted — and the anchor with them. */
 export function pruneSelection(

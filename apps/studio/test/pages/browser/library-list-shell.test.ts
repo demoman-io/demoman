@@ -69,6 +69,7 @@ const flow = (id: string, name: string, versions: LibraryRow[]): VideoGroup => {
       steps: [],
       exports: [],
       kept: null,
+      addedTo: null,
     } as VideoSummary,
     current: numbered[0] ?? null,
     versions: numbered,
@@ -127,6 +128,7 @@ const ACTIONS = {
   rename: noop,
   renameVideo: noop,
   select: noop,
+  selectGroup: noop,
   setView: noop,
   rerunLine: () => "Run it again to film it.",
   // The page's measurer writes a length into the cell it is handed.
@@ -164,7 +166,11 @@ function draw(ticked: readonly string[] = []) {
     NOW,
     { ids: new Set(ticked), anchor: ticked[0] ?? null, range: [] },
     undefined,
-    { layout: "list", sort: { column: "recorded", descending: true } },
+    {
+      layout: "list",
+      sort: { column: "recorded", descending: true },
+      project: null,
+    },
   );
 }
 
@@ -627,6 +633,9 @@ describe("the list's look", () => {
     const name = cell("f:R", "name").querySelector(
       "[data-name-text]",
     ) as HTMLElement;
+    // Two words: under a 760px list the box holds no track, and the name
+    // cell (202px here) fits "Reclaimed" and the whole tag.
+    name.textContent = "Reclaimed checkout";
     const strip = row("f:R").querySelector(".row-tags") as HTMLElement;
     const em = Number.parseFloat(getComputedStyle(name).fontSize);
     const said = JSON.stringify({
@@ -705,11 +714,11 @@ describe("the list's look", () => {
     await page.viewport(1280, 720);
     mount();
     const bar = node(".topbar");
-    const jump = node("[data-jumps] a");
+    const title = node("[data-place-title]");
     const toggle = node("[data-layout-toggle] [data-layout='grid']");
     for (const scroll of [0, 24, 90]) {
       window.scrollTo(0, scroll);
-      for (const e of [bar, jump, toggle]) {
+      for (const e of [bar, title, toggle]) {
         const b = e.getBoundingClientRect();
         if (b.bottom <= 0) continue;
         const y = Math.max(b.top, 0) + Math.min(b.height, b.bottom) / 2;
@@ -720,7 +729,7 @@ describe("the list's look", () => {
         ).toBeNull();
       }
     }
-    // The list sits right of the jump list, not under it.
+    // The list sits right of the side column, not under it.
     expect(grid().getBoundingClientRect().left).toBeGreaterThanOrEqual(
       node(".library-side").getBoundingClientRect().right,
     );
@@ -832,7 +841,11 @@ describe("the list's look, as the author reviewed it", () => {
       NOW,
       { ids: new Set(), anchor: null, range: [] },
       undefined,
-      { layout: "list", sort: { column: "name", descending: false } },
+      {
+        layout: "list",
+        sort: { column: "name", descending: false },
+        project: null,
+      },
     );
     expect(
       head().querySelector('[data-col="recorded"]')?.hasAttribute("aria-sort"),
@@ -870,8 +883,14 @@ describe("the list's look, as the author reviewed it", () => {
       cell("f:A", "open").querySelector(".chev") as Element
     ).getBoundingClientRect();
     const said = JSON.stringify({ listLeft, chev, label, flowName });
-    // The chevron leads, at the list's left edge, smaller than a flow's.
-    expect(chev.left, said).toBeLessThanOrEqual(listLeft + 1);
+    // The day's box leads, at the list's left edge, and the chevron
+    // follows it, smaller than a flow's.
+    const dayBox = cell("h:today", "select")
+      .querySelector(".select-box")
+      ?.getBoundingClientRect() as DOMRect;
+    expect(dayBox, said).toBeDefined(); // premise: the fixture draws one
+    expect(dayBox.left, said).toBeLessThanOrEqual(listLeft + 10);
+    expect(chev.left, said).toBeGreaterThanOrEqual(dayBox.right);
     expect(chev.width, said).toBeLessThan(flowChev.width);
     // The label follows it, left of the Name column; a flow's name
     // starts further right.
@@ -1083,30 +1102,93 @@ describe("the look pass's focus, cover and Couldn't read heading", () => {
     expect(close(outside, ink, 24), `${outside} vs ${ink}`).toBe(true);
   });
 
-  // Red: the cover's opaque ground kept on a device that never hovers,
-  // where the actions always show.
-  it("on a device with no hover the dates still paint beside the buttons", async () => {
-    await page.viewport(960, 640);
-    mount();
-    // The page's own `(hover: none)` rules, applied as such a device
-    // applies them. Not CDP's emulation: touch emulation turns the query
-    // true but the lane's screenshot still paints the hover rules
-    // (measured: the same glyphs with the cover's ground on and off), and
-    // setEmulatedMedia does not emulate `hover` at all.
-    const sheet = document.head.querySelector("[data-shell]") as HTMLElement;
-    const query = "@media (hover: none)";
-    expect(sheet.textContent?.split(query).length ?? 0).toBeGreaterThan(1);
-    sheet.textContent = (sheet.textContent ?? "").replaceAll(
-      query,
-      "@media all",
-    );
-    const actions = cell("f:N0", "actions").querySelector(
-      ".row-actions",
-    ) as HTMLElement;
-    // Premise: the buttons show at rest there.
-    expect(getComputedStyle(actions).opacity).toBe("1");
-    expect(dateGlyphs(await pixels(), "f:N0")).toBeGreaterThan(5);
-  });
+  // Red: the buttons drawn at rest where nothing hovers, over Recorded,
+  // the date under them (2026-11-03, the author's phone emulation).
+  for (const width of [960, 390]) {
+    it(`at ${width}px on a touchscreen the buttons fold behind a ⋯ right of a whole date, 44px rows, and its menu presses them`, async () => {
+      await page.viewport(width, 640);
+      const removed: string[] = [];
+      const remove = ACTIONS.remove;
+      ACTIONS.remove = (...args: unknown[]) => {
+        removed.push(String(args[0]));
+      };
+      try {
+        mount();
+        // The page's own touch rules, applied as such a device applies
+        // them (CDP's emulation leaves the screenshot painting the hover
+        // rules, measured on the cover).
+        const sheet = document.head.querySelector(
+          "[data-shell]",
+        ) as HTMLElement;
+        for (const query of [
+          "@media (hover: none)",
+          "@media (pointer: coarse)",
+        ]) {
+          expect(sheet.textContent, `premise: ${query}`).toContain(query);
+          sheet.textContent = (sheet.textContent ?? "").replaceAll(
+            query,
+            "@media all",
+          );
+        }
+        const paint = await pixels();
+        for (const key of ["f:N0", "t:loose"]) {
+          const actions = cell(key, "actions");
+          const more = actions.querySelector(".row-more") as HTMLElement;
+          const row_ = actions.querySelector(".row-actions") as HTMLElement;
+          const recorded = cell(key, "recorded");
+          const date = textBox(recorded);
+          const m = more.getBoundingClientRect();
+          const said = JSON.stringify({ key, date, m });
+          expect(row_.checkVisibility(), said).toBe(false);
+          expect(more.checkVisibility(), said).toBe(true);
+          expect(m.width, said).toBeGreaterThanOrEqual(28);
+          // The date whole, left of the ⋯, and painted.
+          expect(recorded.scrollWidth, said).toBeLessThanOrEqual(
+            recorded.clientWidth,
+          );
+          expect(date.right, said).toBeLessThanOrEqual(m.left);
+          let bright = 0;
+          for (let x = Math.ceil(date.left); x < date.right; x++) {
+            for (let y = Math.ceil(date.top); y < date.bottom; y++) {
+              if (Math.max(...paint(x + 0.5, y + 0.5).slice(0, 3)) > 120) {
+                bright++;
+              }
+            }
+          }
+          expect(bright, said).toBeGreaterThan(20);
+          const hit = at(m.left + m.width / 2, m.top + m.height / 2);
+          expect(hit !== null && more.contains(hit), said).toBe(true);
+          expect(row(key).getBoundingClientRect().height, said).toBe(44);
+        }
+        // The menu: the row's buttons by name, on screen, each pressing its
+        // button.
+        const actions = cell("f:N0", "actions");
+        await userEvent.click(actions.querySelector(".row-more") as Element);
+        const menu = actions.querySelector(".row-menu") as HTMLElement;
+        expect(menu.matches(":popover-open")).toBe(true);
+        const items = [...menu.querySelectorAll<HTMLElement>("button")];
+        expect(items.map((b) => b.textContent)).toEqual([
+          "Rename",
+          "Edit",
+          "Delete",
+        ]);
+        const html = document.documentElement;
+        for (const b of items) {
+          const r = b.getBoundingClientRect();
+          const said = JSON.stringify({ text: b.textContent, r });
+          expect(r.left, said).toBeGreaterThanOrEqual(0);
+          expect(r.right, said).toBeLessThanOrEqual(html.clientWidth);
+          expect(r.bottom, said).toBeLessThanOrEqual(html.clientHeight);
+          expect(at(r.left + r.width / 2, r.top + r.height / 2), said).toBe(b);
+        }
+        await userEvent.click(items[2] as HTMLElement);
+        expect(removed).toHaveLength(1);
+        expect(menu.matches(":popover-open")).toBe(false);
+      } finally {
+        ACTIONS.remove = remove;
+      }
+    });
+  }
 
   // Red: the heading's actions cell at the row's top, in the 14px above
   // its label's line.
@@ -1172,7 +1254,11 @@ describe("the look pass's focus, cover and Couldn't read heading", () => {
       NOW,
       { ids: new Set(), anchor: null, range: [] },
       undefined,
-      { layout: "list", sort: { column: "name", descending: false } },
+      {
+        layout: "list",
+        sort: { column: "name", descending: false },
+        project: null,
+      },
     );
     expect(sortedHead().getAttribute("aria-sort")).toBe("ascending");
     // Turned half a turn: up.
@@ -1200,7 +1286,11 @@ describe("the look pass's focus, cover and Couldn't read heading", () => {
       NOW,
       { ids: new Set(), anchor: null, range: [] },
       undefined,
-      { layout: "list", sort: { column: "recorded", descending: true } },
+      {
+        layout: "list",
+        sort: { column: "recorded", descending: true },
+        project: null,
+      },
     );
     const section = node("[data-unreadable]");
     // Premise: it is drawn under the list, as rows.
@@ -1237,6 +1327,328 @@ describe("the look pass's focus, cover and Couldn't read heading", () => {
       1,
     );
   });
+});
+
+// Under a 760px list (spec 2026-11-02 search-narrow §2): the box holds no
+// track, so the rows start where the tab row does. Measured against each
+// other, never against fixed positions: the runner's fonts are not these.
+// 640 high, so the frame is not scaled and the pixels read whole.
+describe("under a 760px list the rows line up with the tab row", () => {
+  const UNREADABLE = [
+    { folder: "take-half-written", reason: "no scene.json", sizeBytes: 30 },
+  ];
+  /** As `draw`, with a "Couldn't read" row under the list. */
+  function drawWithUnreadable() {
+    renderLibrary(
+      node("#root"),
+      { ...MODEL, unreadable: UNREADABLE },
+      ACTIONS,
+      new Map([[statusKey("video", "S"), REFUSED]]),
+      NOW,
+      { ids: new Set(), anchor: null, range: [] },
+      undefined,
+      {
+        layout: "list",
+        sort: { column: "recorded", descending: true },
+        project: null,
+      },
+    );
+  }
+  const left = (e: Element) => e.getBoundingClientRect().left;
+  const chevOf = (key: string) =>
+    cell(key, "open").querySelector(".chev") as Element;
+  const nameOf = (key: string) =>
+    textBox(cell(key, "name").querySelector("[data-name-text]") as Element);
+
+  // 720, 640, 560 and 390: each of the three narrow templates, and a phone.
+  for (const width of [720, 640, 560, 390]) {
+    // Red: the 28px select track and the 24px gaps kept under 760, which
+    // put every chevron 52px in from the tab row's edge.
+    it(`at ${width}px the chevrons start at the tab row's edge, and names, heads and labels share one line`, async () => {
+      await page.viewport(width, 640);
+      mount();
+      drawWithUnreadable();
+      await userEvent.click(cell("f:A", "open"));
+      const tabsRow = node("[data-tabs-row]");
+      const edge = left(tabsRow);
+      const title = textBox(node("[data-place-title]"));
+      const said = () =>
+        JSON.stringify({
+          edge,
+          title: title.left,
+          list: grid().getBoundingClientRect().width,
+          chevs: ["f:A", "f:N0", "h:today"].map((k) => left(chevOf(k))),
+          names: ["f:A", "f:N0", "t:loose", "v:a2", "h:today"].map(
+            (k) => nameOf(k).left,
+          ),
+        });
+      // Premises: the list is under 760, the tab row is drawn, and the
+      // rows hold a heading, flows, a take, A's videos and a reason.
+      expect(grid().getBoundingClientRect().width, said()).toBeLessThan(760);
+      expect(tabsRow.getBoundingClientRect().width, said()).toBeGreaterThan(0);
+      expect(row("v:a2").hidden).toBe(false);
+      expect(node(".unreadable-list .unreadable-row")).not.toBeNull();
+      // The chevrons, a flow's and a heading's, on the tab row's edge and
+      // the title's text edge above it.
+      for (const key of ["f:A", "f:N0", "h:today"]) {
+        expect(Math.abs(left(chevOf(key)) - edge), said()).toBeLessThanOrEqual(
+          1,
+        );
+      }
+      expect(Math.abs(title.left - edge), said()).toBeLessThanOrEqual(1);
+      // The rows, and so their hairlines, start there too.
+      for (const r of [head(), row("f:A"), node(".unreadable-row")]) {
+        expect(Math.abs(left(r) - edge), said()).toBeLessThanOrEqual(1);
+      }
+      // The Name head's text over the names; a heading's label in the
+      // same line; a take's name too; the "Couldn't read" name as well.
+      const nameHead = textBox(
+        head().querySelector('[data-col="name"]') as Element,
+      ).left;
+      for (const key of ["f:A", "f:N0", "t:loose", "h:today"]) {
+        expect(
+          Math.abs(nameOf(key).left - nameHead),
+          said(),
+        ).toBeLessThanOrEqual(1);
+      }
+      expect(
+        Math.abs(textBox(node("[data-unreadable-name]")).left - nameHead),
+        said(),
+      ).toBeLessThanOrEqual(1);
+      // A video's name keeps its indent under its flow's.
+      expect(nameOf("v:a2").left - nameOf("f:A").left, said()).toBeCloseTo(
+        16,
+        0,
+      );
+      // The name follows the chevron closely: one narrow gap past it.
+      const chevCell = cell("f:A", "open").getBoundingClientRect();
+      expect(nameHead - chevCell.right, said()).toBeLessThanOrEqual(16);
+    });
+
+    // Red: the 559 template with 28px and 24px gaps, 381px of tracks in
+    // a 326px list, which ran Recorded past the window's edge at 390.
+    it(`at ${width}px Recorded is painted whole inside the list, and nothing scrolls sideways`, async () => {
+      await page.viewport(width, 640);
+      mount();
+      const html = document.documentElement;
+      const g = grid().getBoundingClientRect();
+      expect(html.scrollWidth).toBeLessThanOrEqual(html.clientWidth);
+      expect(grid().scrollWidth).toBeLessThanOrEqual(grid().clientWidth);
+      expect(g.right).toBeLessThanOrEqual(html.clientWidth);
+      for (const key of ["f:A", "f:N0", "t:loose"]) {
+        const c = cell(key, "recorded");
+        const r = c.getBoundingClientRect();
+        const text = textBox(c);
+        const said = JSON.stringify({ key, r, text, g, w: c.scrollWidth });
+        // Premise: the cell holds a date.
+        expect((c.textContent ?? "").trim(), said).not.toBe("");
+        expect(r.right, said).toBeLessThanOrEqual(g.right + 0.5);
+        expect(text.right, said).toBeLessThanOrEqual(r.right + 0.5);
+        expect(c.scrollWidth, said).toBeLessThanOrEqual(c.clientWidth);
+        const hit = at(text.left + text.width / 2, text.top + text.height / 2);
+        expect(hit === null ? null : c.contains(hit), said).toBe(true);
+      }
+    });
+  }
+
+  // Red: the box left in a track (or clipped by its cell's overflow when
+  // hung), so it showed nothing left of the chevron, or moved the row.
+  for (const width of [560, 390]) {
+    it(`at ${width}px a row's box hangs left of its chevron, inside the window, painted when shown, and nothing moves`, async () => {
+      await page.viewport(width, 640);
+      mount();
+      for (const key of ["f:N0", "h:today"]) {
+        const box = cell(key, "select").querySelector(
+          ".select-box",
+        ) as HTMLElement;
+        // Premise: the fixture draws a box on a flow and on a heading.
+        expect(box, key).not.toBeNull();
+        const cells = [...row(key).children].map(rectOf);
+        const b = box.getBoundingClientRect();
+        const chev = chevOf(key).getBoundingClientRect();
+        const said = JSON.stringify({ key, b, chev });
+        expect(b.right, said).toBeLessThanOrEqual(chev.left);
+        expect(b.left, said).toBeGreaterThanOrEqual(0);
+        // The box's own pixels at rest, and shown under the pointer.
+        const ink = (paint: (x: number, y: number) => number[]) => {
+          const out: number[][] = [];
+          for (let y = Math.ceil(b.top); y < b.bottom; y += 2) {
+            for (let x = Math.ceil(b.left); x < b.right; x += 2) {
+              out.push(paint(x + 0.5, y + 0.5));
+            }
+          }
+          return out;
+        };
+        const rest = ink(await pixels());
+        // The chevron's cell: a phone's list has no Where to hover, and a
+        // heading's Where lies over its name cell's middle.
+        await userEvent.hover(cell(key, "open"));
+        expect(getComputedStyle(box).opacity, said).toBe("1");
+        const shown = ink(await pixels());
+        const changed = shown.filter((p, i) => !close(p, rest[i] ?? [], 6));
+        expect(
+          changed.length,
+          `${said}: pixels the box changed`,
+        ).toBeGreaterThan(4);
+        const hit = at(b.left + b.width / 2, b.top + b.height / 2);
+        expect(hit, said).toBe(box);
+        expect([...row(key).children].map(rectOf), said).toEqual(cells);
+        await userEvent.unhover(cell(key, "open"));
+      }
+    });
+  }
+
+  // Red: the head's margin cell, or the margin beside the bar, left with
+  // no ground: a column of boxes slid past "Name" and the bar.
+  for (const how of ["ticked", "no hover"] as const) {
+    it(`at 390, scrolled, ${how}: the head${how === "ticked" ? " and the bar cover" : " covers"} the margin the boxes hang in`, async () => {
+      await page.viewport(390, 640);
+      mount(false, how === "ticked" ? ["N0"] : []);
+      if (how === "no hover") {
+        // The page's own `(hover: none)` rules, as the no-hover case
+        // above applies them.
+        const sheet = document.head.querySelector(
+          "[data-shell]",
+        ) as HTMLElement;
+        const query = "@media (hover: none)";
+        expect(sheet.textContent?.split(query).length ?? 0).toBeGreaterThan(1);
+        sheet.textContent = (sheet.textContent ?? "").replaceAll(
+          query,
+          "@media all",
+        );
+      }
+      window.scrollTo(0, 600);
+      const boxes = [
+        ...grid().querySelectorAll<HTMLElement>("[role=row] .select-box"),
+      ];
+      // Premise: the boxes show at rest (ticked, or no hover).
+      for (const b of boxes) expect(getComputedStyle(b).opacity).toBe("1");
+      const h = head().getBoundingClientRect();
+      const regions: [string, number, number][] = [["head", h.top, h.bottom]];
+      if (how === "ticked") {
+        const b = node("[data-selection-bar]").getBoundingClientRect();
+        // Premise: the bar and the head are stuck, the head under the bar.
+        expect(b.top).toBeCloseTo(12, 0);
+        expect(h.top).toBeCloseTo(b.bottom, 0);
+        regions.push(["bar", b.top, b.bottom], ["above the bar", 0, b.top]);
+      } else {
+        expect(h.top).toBeCloseTo(0, 0);
+      }
+      // Scrolled, the lane's shot is the whole document with the window
+      // painted at its offset: read it in the document's coordinates.
+      const shot = await pixels();
+      const paint = (x: number, y: number) => shot(x, y + scrollY);
+      // Premise: so read, the head's "Name" is inked over its ground.
+      const nameBox = textBox(
+        head().querySelector('[data-col="name"]') as Element,
+      );
+      const nameY = nameBox.top + nameBox.height / 2;
+      let nameInk = 0;
+      for (let x = Math.ceil(nameBox.left); x < nameBox.right; x++) {
+        if (!close(paint(x + 0.5, nameY), paint(3, nameY), 6)) nameInk++;
+      }
+      expect(
+        nameInk,
+        `${how}: premise: the head's Name read where painted`,
+      ).toBeGreaterThan(4);
+      for (const [name, top, bottom] of regions) {
+        // Premise: a row's box lies behind it.
+        const under = boxes.find((b) => {
+          const r = b.getBoundingClientRect();
+          return r.top < bottom - 1 && r.bottom > top + 1;
+        });
+        expect(under, `${how}: a box behind the ${name}`).toBeDefined();
+        const r = (under as HTMLElement).getBoundingClientRect();
+        const y = (Math.max(r.top, top) + Math.min(r.bottom, bottom)) / 2;
+        // The ground at the window's edge, on the same line.
+        const ground = paint(3, y);
+        const seen: string[] = [];
+        for (let x = Math.ceil(r.left); x < r.right; x += 2) {
+          const p = paint(x + 0.5, y);
+          if (!close(p, ground, 4)) seen.push(`${x}:${p.slice(0, 3)}`);
+        }
+        expect(seen, `${how}: the ${name} at y ${y}, ground ${ground}`).toEqual(
+          [],
+        );
+        // And on top there: not a row's box.
+        const hit = at(r.left + r.width / 2, y);
+        expect(
+          hit?.closest(
+            "[role=row]:not([data-list-head]) [data-col='select']",
+          ) ?? null,
+          `${how}: the ${name} on top: ${hit?.outerHTML.slice(0, 80)}`,
+        ).toBeNull();
+      }
+      // Below the head, a box still shows beside its row.
+      const shown = boxes.find((b) => {
+        const r = b.getBoundingClientRect();
+        return r.top > h.bottom + 2 && r.bottom < innerHeight - 2;
+      }) as HTMLElement;
+      expect(shown, `${how}: a box below the head`).toBeDefined();
+      const r = shown.getBoundingClientRect();
+      const ground = paint(3, r.top + r.height / 2);
+      let ink = 0;
+      for (let y = Math.ceil(r.top); y < r.bottom; y += 2) {
+        for (let x = Math.ceil(r.left); x < r.right; x += 2) {
+          if (!close(paint(x + 0.5, y + 0.5), ground, 6)) ink++;
+        }
+      }
+      expect(ink, `${how}: the box below the head is painted`).toBeGreaterThan(
+        4,
+      );
+      expect(at(r.left + r.width / 2, r.top + r.height / 2), how).toBe(shown);
+    });
+  }
+
+  // Red: the box hung with no room, its ring cut by its cell's clip or
+  // the window's edge.
+  it("at 390px the keys reach a row's hanging box, and its ring paints whole", async () => {
+    await page.viewport(390, 640);
+    mount();
+    row("f:N0").focus();
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+    const box = document.activeElement as HTMLElement;
+    // Premise: the keys landed on N0's box.
+    expect(box.dataset.select).toBe("N0");
+    expect(box.matches(":focus-visible")).toBe(true);
+    const ink = parse(getComputedStyle(box).outlineColor);
+    const b = box.getBoundingClientRect();
+    const paint = await pixels();
+    const said = JSON.stringify(b);
+    expect(b.left - 4, said).toBeGreaterThanOrEqual(0);
+    // The ring: 2px out, 2px wide, on each side.
+    for (const [x, y] of [
+      [b.left - 3, b.top + b.height / 2],
+      [b.right + 3, b.top + b.height / 2],
+      [b.left + b.width / 2, b.top - 3],
+      [b.left + b.width / 2, b.bottom + 3],
+    ] as const) {
+      expect(
+        close(paint(x, y), ink, 24),
+        `${x},${y} ${paint(x, y)} ${said}`,
+      ).toBe(true);
+    }
+  });
+});
+
+describe("a day's box while flows are ticked", () => {
+  // Red: the heading's box cell left unpositioned once the list's boxes
+  // dropped the thumbnail's z-index: shown (opacity 1, no stacking of its
+  // own), it went under the label's cell that spans the row.
+  for (const width of [960, 390]) {
+    it(`at ${width}px, a flow ticked, a day's box is on top at its centre`, async () => {
+      await page.viewport(width, 640);
+      mount(false, ["A"]);
+      const box = cell("h:today", "select").querySelector(
+        ".select-box",
+      ) as HTMLElement;
+      // Premise: shown, as a tick shows it.
+      expect(getComputedStyle(box).opacity).toBe("1");
+      const b = box.getBoundingClientRect();
+      const hit = at(b.left + b.width / 2, b.top + b.height / 2);
+      expect(hit, `${width}: ${hit?.outerHTML.slice(0, 80)}`).toBe(box);
+    });
+  }
 });
 
 describe("the list's motion", () => {

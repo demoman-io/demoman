@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The page's own markup and rules, and the real view, so the rows clicked
 // are the rows the page renders.
 import shell from "../../../pages/entrypoints/library/index.html?raw";
+import { setExpanded } from "../../../pages/src/library/list";
 import type { Selection } from "../../../pages/src/library/selection";
 import type {
   LibraryModel,
@@ -74,6 +75,7 @@ const flow = (id: string, versions: LibraryRow[]): VideoGroup => {
       steps: [],
       exports: [],
       kept: null,
+      addedTo: null,
     } as VideoSummary,
     current: numbered[0] ?? null,
     versions: numbered,
@@ -81,7 +83,7 @@ const flow = (id: string, versions: LibraryRow[]): VideoGroup => {
 };
 
 // Today: A (two videos), B (its motion reclaimed: a rerun line), E (its
-// lead expired); Yesterday: C; a past month, folded by default: D. And a
+// lead expired); Yesterday: C; a past month, closed by the fixture: D. And a
 // take in no flow, today.
 const a2 = take("a2", new Date(2026, 9, 30, 9));
 const a1 = take("a1", new Date(2026, 9, 30, 8, 30));
@@ -138,8 +140,17 @@ function mount(selection?: Selection, layout: "list" | "grid" = "list") {
     {
       layout,
       sort: { column: "recorded", descending: true },
+      project: null,
     },
   );
+  // Every section opens on its own; the author has closed the old month,
+  // so D sits under a closed one, as the cases below sample.
+  if (layout === "list") {
+    setExpanded(node("[data-list] [data-heading^='month:']"), false);
+  } else {
+    (node("details[data-section^='month:']") as HTMLDetailsElement).open =
+      false;
+  }
 }
 
 const row = (key: string): HTMLElement =>
@@ -165,7 +176,7 @@ describe("the fixture", () => {
     expect(
       MODEL.groups?.find((g) => g.video.id === "E")?.current?.sceneId,
     ).toBe("e1");
-    // D sits under a past month, folded at first.
+    // D sits under a past month, closed by the fixture.
     const month = row("f:D").previousElementSibling as HTMLElement;
     expect(month.dataset.heading).toMatch(/^month:/);
     expect(month.getAttribute("aria-expanded")).toBe("false");
@@ -316,15 +327,6 @@ describe("a click in the list", () => {
     expect(row("v:a2").hidden).toBe(false);
     expect(row("v:b1").hidden).toBe(true);
     expect(acts.edit).not.toHaveBeenCalled();
-  });
-
-  it("on a jump link to a folded heading opens it", async () => {
-    mount();
-    const month = row("f:D").previousElementSibling as HTMLElement;
-    const link = node(`[data-jumps] a[data-nav="${month.id}"]`);
-    await userEvent.click(link);
-    expect(month.getAttribute("aria-expanded")).toBe("true");
-    expect(row("f:D").hidden).toBe(false);
   });
 });
 

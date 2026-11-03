@@ -59,6 +59,7 @@ import {
 } from "./pull-requests.js";
 import { refilmFromVideo } from "./refilm.js";
 import { execGit, readFilmedCode, readRepo } from "./repo.js";
+import { followHere } from "./repo-aliases.js";
 import { runScript } from "./run.js";
 import { runningWords } from "./running.js";
 import {
@@ -605,6 +606,12 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       // Never refuses the run: a failure is logged here and said by status.
       const expiry = await expireOld(videos, library, new Date());
       if ("failed" in expiry) log(`expiry failed: ${expiry.failed}`);
+      // This checkout's flows follow it first (ruling R14), so a `{ new }`
+      // whose name an old flow here holds is refused as taken.
+      if (repoRead.ok) {
+        for (const m of await followHere(videos, library, repoRead))
+          log(`following this checkout: ${m.id}: ${m.why}`);
+      }
       if ("id" in asked) {
         into = isVideoId(asked.id) ? await videos.get(asked.id) : null;
         if (into === null && isFlowId(asked.id)) {

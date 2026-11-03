@@ -72,6 +72,7 @@ const video = (
   steps: [],
   exports: [],
   kept: null,
+  addedTo: null,
 });
 
 const KEPT = "/Users/me/Downloads/Create an invoice.mp4";
@@ -174,6 +175,7 @@ describe("library main — videos", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
+    window.history.replaceState({}, "", "/");
   });
 
   it("draws one card per video, showing its current version, with its versions newest first", async () => {
@@ -327,8 +329,13 @@ describe("library main — videos", () => {
     await import("../../../pages/entrypoints/library/main");
     const inv = await invoiceCard();
     // Red: drop repoLabel from the card's line.
+    // The route alone (acme/web's flows here ran on one host); the
+    // title keeps the host.
     expect(inv.querySelector("[data-meta]")?.textContent).toMatch(
-      /^acme\/web · app\.test\/invoices · /,
+      /^acme\/web · \/invoices · /,
+    );
+    expect(inv.querySelector("[data-meta]")?.getAttribute("title")).toBe(
+      "acme/web · app.test/invoices",
     );
     expect(card(SIGNUP)?.querySelector("[data-meta]")?.textContent).toMatch(
       /^no repo · /,
@@ -451,6 +458,8 @@ describe("library main — videos", () => {
       ],
     });
     state.memory = memory;
+    // The folders that would not read are drawn in their own place.
+    window.history.replaceState({}, "", "/?project=unreadable");
     await import("../../../pages/entrypoints/library/main");
     const rows = await vi.waitFor(() => {
       const found = [...document.querySelectorAll("[data-unreadable-row]")];

@@ -173,6 +173,7 @@ describe("the library page on a platform with a take folder", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    window.history.replaceState({}, "", "/");
   });
 
   it("a takes change re-reads, and three in a burst cost two reads, not four", async () => {
@@ -302,6 +303,15 @@ describe("the library page on a platform with a take folder", () => {
     });
     broken = true;
     for (const fn of fake.changeListeners) fn();
+    // The folders that would not read are a place of their own.
+    const rail = await vi.waitFor(() => {
+      const a = document.querySelector<HTMLElement>(
+        '[data-rail] [data-place="?project=unreadable"]',
+      );
+      if (a === null) throw new Error("no Couldn't read in the rail");
+      return a;
+    });
+    rail.click();
     const row = await vi.waitFor(() => {
       const node = document.querySelector('[data-unreadable-row="t1"]');
       if (node === null) throw new Error("no unreadable row drawn");
@@ -345,6 +355,7 @@ describe("the library page on a platform with a take folder", () => {
       return r;
     };
     confirmDialog.ask.mockResolvedValue(true);
+    window.history.replaceState({}, "", "/?project=unreadable");
     await openPage();
     const unreadable = await vi.waitFor(() => {
       const node = document.querySelector('[data-unreadable-row="bad-take"]');
@@ -374,10 +385,12 @@ describe("the library page on a platform with a take folder", () => {
     );
   });
 
-  // Launch D3's screenshot pass: the unreadable folders sit after every
-  // day, below the fold of a long library, so the jump list names them.
-  // Red if `jumpList` drops its unreadable link.
-  it("the jump list names the folders that couldn't be read, and links to them", async () => {
+  // Launch D3's screenshot pass: the unreadable folders were below the fold
+  // of a long library, so the left column names them. Since the projects
+  // rail (2026-11-01) they are a place of their own, the rail's last item.
+  // Red if the rail drops its Couldn't read item, or the item opens a
+  // place that does not draw them.
+  it("the rail names the folders that couldn't be read, and goes to them", async () => {
     const take = await scene("take-1", "One");
     await fakePlatform(async () =>
       listing([take], {
@@ -394,27 +407,28 @@ describe("the library page on a platform with a take folder", () => {
     await openPage();
     const link = await vi.waitFor(() => {
       const a = document.querySelector<HTMLAnchorElement>(
-        '[data-jumps] a[data-nav="unreadable"]',
+        '[data-rail] [data-place="?project=unreadable"]',
       );
       if (a === null) {
         throw new Error(
-          `no link: ${document.querySelector("[data-jumps]")?.innerHTML}`,
+          `no link: ${document.querySelector("[data-rail]")?.innerHTML}`,
         );
       }
       return a;
     });
-    // Premise: the take's own day is listed too, so the list is the dated
-    // one with the unreadable link after it.
+    // Premise: the take is listed too, under All flows and No project.
     const labels = [
-      ...document.querySelectorAll("[data-jumps] .side-label"),
+      ...document.querySelectorAll("[data-rail] .side-label"),
     ].map((l) => l.textContent);
-    expect(labels).toHaveLength(2);
-    expect(labels.at(-1)).toBe("Couldn't read");
+    expect(labels).toEqual(["All flows", "No project", "Couldn't read"]);
     expect(link.querySelector(".side-count")?.textContent).toBe("1");
-    const target = document.getElementById(
-      link.getAttribute("href")?.slice(1) ?? "",
-    );
-    expect(target?.hasAttribute("data-unreadable")).toBe(true);
+    expect(document.querySelector("[data-unreadable]")).toBeNull();
+    link.click();
+    expect(
+      document.querySelector(
+        '[data-unreadable] [data-unreadable-row="bad-take"]',
+      ),
+    ).not.toBeNull();
   });
 
   it("a thumb that fails shows the preview-failed state with the Studio's words", async () => {

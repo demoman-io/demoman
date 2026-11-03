@@ -77,8 +77,8 @@ function call(
 
 const cookie = () => `studio=${studio.token}`;
 /** A fresh entry link's path and query: `/?t=<ticket>[&take=…]`. */
-const entry = (takeId?: string) => {
-  const url = new URL(studio.entryUrl(takeId));
+const entry = (takeId?: string, project?: string) => {
+  const url = new URL(studio.entryUrl(takeId, project));
   return `${url.pathname}${url.search}`;
 };
 const good = () => ({ Cookie: cookie(), [STUDIO_HEADER]: "1" });
@@ -204,6 +204,16 @@ describe("the entry link", () => {
     expect(r.headers["set-cookie"]).toEqual([
       `studio=${studio.token}; HttpOnly; SameSite=Strict; Path=/`,
     ]);
+  });
+
+  it("an entry naming a project redirects to that project's library", async () => {
+    // Red: drop the `project` branch from the door's redirect.
+    const key = "local:/Users/x/My Repo/.git";
+    const r = await call(entry(undefined, key));
+    expect(r.status).toBe(302);
+    expect(r.headers.location).toBe(
+      "/?project=local%3A%2FUsers%2Fx%2FMy%20Repo%2F.git",
+    );
   });
 
   it("an entry naming a take redirects to that take's editor (Task 7)", async () => {

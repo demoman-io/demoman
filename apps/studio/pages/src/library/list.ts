@@ -11,9 +11,24 @@ import type {
 import { setCodeText, withoutTicks } from "../shell/code-spans";
 import { icon } from "../shell/icons";
 import { attachListKeys } from "./list-keys";
-import { type ListEntry, listEntries, nextSort, whereOf } from "./list-model";
-import type { LibraryModel, LibraryRow, VideoGroup } from "./state";
-import { formatBytes } from "./state";
+import {
+  firstClickDescending,
+  type ListEntry,
+  type ListOrder,
+  type ListSort,
+  listEntries,
+  nextSort,
+  type Where,
+  whereFor,
+} from "./list-model";
+import type { Why } from "./search";
+import type {
+  LibraryCard,
+  LibraryModel,
+  LibraryRow,
+  VideoGroup,
+} from "./state";
+import { cardsOf, formatBytes } from "./state";
 import {
   cardButtons,
   commitSpan,
@@ -21,6 +36,7 @@ import {
   expiredLine,
   exportsList,
   type LibraryActions,
+  matchWhy,
   nameField,
   sectionId,
   statusKey,
@@ -81,18 +97,21 @@ export function collapsedKeys(root: HTMLElement): Set<string> {
   );
 }
 
+/** `sorted` is the order drawn, or null for a search's most matched
+ *  first, which no column says. */
 function headRow(
   view: LibraryViewChoice,
   actions: LibraryActions,
+  sorted: ListSort | null,
 ): HTMLElement {
   const row = el("div", { role: "row", "data-list-head": "" });
   for (const [col, label, sort, shown] of COLUMNS) {
     const head = el("div", { role: "columnheader", "data-col": col });
     if (!shown) head.setAttribute("aria-label", label);
-    if (sort !== null && sort === view.sort.column) {
+    if (sort !== null && sort === sorted?.column) {
       head.setAttribute(
         "aria-sort",
-        view.sort.descending ? "descending" : "ascending",
+        sorted.descending ? "descending" : "ascending",
       );
     }
     const setView = actions.setView;
@@ -102,7 +121,13 @@ function headRow(
       // CSS turns it up for ascending.
       if (head.hasAttribute("aria-sort")) button.append(icon("chevronDown"));
       button.addEventListener("click", () =>
-        setView({ layout: view.layout, sort: nextSort(view.sort, sort) }),
+        setView({
+          ...view,
+          sort:
+            sorted === null
+              ? { column: sort, descending: firstClickDescending(sort) }
+              : nextSort(sorted, sort),
+        }),
       );
       head.append(button);
     } else if (shown) {
@@ -118,9 +143,10 @@ function textCell(
   cells: Record<Col, HTMLElement>,
   col: Col,
   text: string,
+  title = text,
 ): void {
   cells[col].textContent = text;
-  cells[col].title = text;
+  cells[col].title = title;
 }
 
 const chevron = (): SVGSVGElement => {
@@ -128,6 +154,42 @@ const chevron = (): SVGSVGElement => {
   chev.classList.add("chev");
   return chev;
 };
+
+/** A row's buttons as a menu behind a ⋯, for a touchscreen, where no
+ *  hover reveals them and drawn at rest they covered Recorded
+ *  (2026-11-03; index.html shows one or the other). Each item is its
+ *  button's glyph and title up to the dash, and presses that button. */
+function rowMenu(
+  buttons: HTMLElement,
+  label: string,
+  key: string,
+): HTMLElement[] {
+  const id = `row-menu-${key}`;
+  const more = el("button", {
+    type: "button",
+    class: "btn btn-quiet btn-icon row-more",
+    popovertarget: id,
+    "aria-label": `More for ${label}`,
+    title: "More",
+  });
+  more.append(icon("ellipsis"));
+  const menu = el("div", { id, popover: "", role: "menu", class: "row-menu" });
+  for (const b of buttons.querySelectorAll<HTMLButtonElement>("button")) {
+    const item = el("button", { type: "button", role: "menuitem" });
+    if (b.classList.contains("btn-danger")) item.classList.add("btn-danger");
+    item.append(
+      ...[...b.childNodes].map((n) => n.cloneNode(true)),
+      b.title.split(" — ")[0] ?? b.title,
+    );
+    item.disabled = b.disabled;
+    item.addEventListener("click", () => {
+      menu.hidePopover();
+      b.click();
+    });
+    menu.append(item);
+  }
+  return [more, menu];
+}
 
 /** Each flow row's rename, and each take's in no flow: what Enter on the
  *  name cell and the row's Rename button open (§4.6). */
@@ -154,6 +216,27 @@ function renameButton(label: string): HTMLElement {
 const sentence = (text: string): HTMLElement =>
   el("p", { class: "notice notice-error" }, text);
 
+/** A date heading's box, ticking the day's flows (`ids`, in the model as
+ *  drawn). Its own click: the heading's would fold it. `applySelection`
+ *  sets it from the selection. Absent `selectGroup` or no flows: no box. */
+export function groupBox(
+  label: string,
+  ids: readonly string[],
+  actions: LibraryActions,
+): HTMLElement {
+  const box = el("input", {
+    type: "checkbox",
+    class: "select-box",
+    "data-select-group": JSON.stringify(ids),
+    "aria-label": `Select ${label}`,
+  });
+  box.addEventListener("click", (event) => {
+    event.stopPropagation();
+    actions.selectGroup?.([...ids]);
+  });
+  return box;
+}
+
 /** One entry's row: its cells, then the line that says what happened to
  *  it, if anything was said. */
 function entryRow(
@@ -162,6 +245,9 @@ function entryRow(
   rowStatus: Map<string, string>,
   /** Each flow drawn so far, by id: a video row's buttons name its flow. */
   flows: Map<string, VideoGroup>,
+  where: Where,
+  dayFlows: readonly string[] = [],
+  why: (card: LibraryCard) => Why | null = () => null,
 ): HTMLElement {
   const row = el("div", { role: "row", "data-key": e.key });
   const cells = Object.fromEntries(
@@ -180,6 +266,9 @@ function entryRow(
     row.id = sectionId(section.key);
     row.setAttribute("aria-label", section.label);
     cells.open.append(chevron());
+    if (actions.selectGroup !== undefined && dayFlows.length > 0) {
+      cells.select.append(groupBox(section.label, dayFlows, actions));
+    }
     cells.name.append(
       el("span", { "data-name-text": "" }, section.label),
       el(
@@ -217,9 +306,20 @@ function entryRow(
     cells.name.append(
       el("span", { "data-name-text": "", title: label }, label),
     );
+    const matched = why(card);
+    if (matched !== null) cells.name.append(matchWhy(matched, "name"));
     const strip = tags(r, actions, false);
     if (strip !== null) cells.name.append(strip);
-    textCell(cells, "where", whereOf(card));
+    const at = where(card);
+    textCell(cells, "where", at.text, at.title);
+    // Said again in Where, which a narrow list shows instead of the name
+    // cell's (the cards' rule; index.html).
+    if (matched !== null) {
+      cells.where.replaceChildren(
+        el("span", { "data-where-text": "" }, at.text),
+        matchWhy(matched, "where"),
+      );
+    }
     cells.videos.textContent = String(group?.versions.length ?? 1);
     cells.recorded.textContent = e.namesDay ? r.time : r.when;
     cells.recorded.title = r.when;
@@ -262,7 +362,7 @@ function entryRow(
       rename,
       buttons.querySelector('[data-action="edit"], [data-action="delete"]'),
     );
-    cells.actions.append(buttons);
+    cells.actions.append(buttons, ...rowMenu(buttons, label, e.key));
     if (rerunLine !== null) {
       const rerun = el("p", { "data-rerun-line": "", class: "row-rerun" });
       setCodeText(rerun, rerunLine);
@@ -314,14 +414,13 @@ function entryRow(
     cells.recorded.title = v.when;
     cells.size.textContent =
       v.sizeBytes === undefined ? "—" : formatBytes(v.sizeBytes);
-    cells.actions.append(
-      versionButtons(
-        v,
-        flows.get(e.flowId) as VideoGroup,
-        actions,
-        footage === "here",
-      ),
+    const buttons = versionButtons(
+      v,
+      flows.get(e.flowId) as VideoGroup,
+      actions,
+      footage === "here",
     );
+    cells.actions.append(buttons, ...rowMenu(buttons, name, e.key));
     const status = rowStatus.get(statusKey("take", v.sceneId));
     if (status !== undefined) said.push(sentence(status));
   }
@@ -342,8 +441,8 @@ function entryRow(
 /**
  * Draws the treegrid into `list` and returns it. A row under a closed row
  * is `hidden`. A heading or flow keeps the fold it had (`was.collapsed`);
- * one the last draw did not have (`was.drawn`) takes its default — a past
- * month folded, as its card section starts, and every flow closed.
+ * one the last draw did not have (`was.drawn`) takes its default — every
+ * section open, and every flow closed.
  */
 export function renderList(
   list: HTMLElement,
@@ -353,8 +452,15 @@ export function renderList(
   now: Date,
   view: LibraryViewChoice,
   was: { collapsed: ReadonlySet<string>; drawn?: ReadonlySet<string> },
+  /** Where leads with the repo; false inside a project. */
+  withRepo = true,
+  /** The saved sort, or a search's own order. */
+  order: ListOrder = view.sort,
+  /** Why a search found each flow (`whyOf`). */
+  why?: (card: LibraryCard) => Why | null,
 ): HTMLElement {
-  const entries = listEntries(model, view.sort, now);
+  const entries = listEntries(model, order, now);
+  const where = whereFor(cardsOf(model), withRepo);
   const grid = el("div", {
     role: "treegrid",
     class: "library-list",
@@ -363,7 +469,7 @@ export function renderList(
     "aria-label": "Flows",
     "aria-rowcount": String(entries.length + 1),
   });
-  grid.append(headRow(view, actions));
+  grid.append(headRow(view, actions, "rank" in order ? null : order));
 
   const setSize = new Map<string | null, number>();
   for (const e of entries)
@@ -371,8 +477,22 @@ export function renderList(
   const seen = new Map<string | null, number>();
   const flows = new Map<string, VideoGroup>();
 
+  const ofDay = new Map<string, string[]>();
   for (const e of entries) {
-    const row = entryRow(e, actions, rowStatus, flows);
+    if (e.kind === "flow" && e.parent !== null && e.flowId !== null) {
+      ofDay.set(e.parent, [...(ofDay.get(e.parent) ?? []), e.flowId]);
+    }
+  }
+  for (const e of entries) {
+    const row = entryRow(
+      e,
+      actions,
+      rowStatus,
+      flows,
+      where,
+      ofDay.get(e.key),
+      why,
+    );
     const pos = (seen.get(e.parent) ?? 0) + 1;
     seen.set(e.parent, pos);
     row.setAttribute("aria-level", String(e.level));

@@ -7,12 +7,27 @@ import { setCodeText } from "../shell/code-spans";
 import { emptyState } from "../shell/empty-state";
 import { type GlyphName, icon } from "../shell/icons";
 import { EXTENSION_FIRST_TAKE_HINT } from "./hints";
-import { collapsedKeys, openRename, renderList, setExpanded } from "./list";
+import { collapsedKeys, groupBox, openRename, renderList } from "./list";
 import { placeIn, restorePlace } from "./list-keys";
-import { whereOf } from "./list-model";
+import {
+  type ListOrder,
+  type ListSort,
+  listEntries,
+  type Where,
+  whereFor,
+} from "./list-model";
 import { previewText } from "./preview";
+import {
+  type Place,
+  placeSearch,
+  type Rail,
+  type RailProject,
+  type Tab,
+} from "./projects";
+import { cardHits, searching, type Why, whyOf } from "./search";
 import type { SelectHow, Selection } from "./selection";
 import type {
+  LibraryCard,
   LibraryModel,
   LibraryRow,
   LibrarySection,
@@ -92,6 +107,9 @@ export interface LibraryActions {
   ): void;
   /** Cmd+A: tick every flow in `visibleOrder`. */
   selectAll?(visibleOrder: readonly string[]): void;
+  /** A date heading's box: tick the day's `ids`, or untick them when all
+   *  are ticked. */
+  selectGroup?(ids: string[]): void;
   /** The selection bar's Cancel. */
   clearSelection?(): void;
   /** The selection bar's Delete: the page asks once, then deletes. */
@@ -101,6 +119,28 @@ export interface LibraryActions {
   setView?(view: LibraryViewChoice): void;
   /** Fill a list row's Length cell with its video's edited length. */
   measure?(sceneId: string, cell: HTMLElement): void;
+  /** A rail item: show that place. */
+  goPlace?(p: Place): void;
+  /** In repo, Not in repo or All. */
+  goTab?(t: Tab): void;
+  /** The search box's text, at each keystroke. Absent: no box. */
+  search?(query: string): void;
+}
+
+/** Where the library is and what its rail and tabs say (spec 2026-11-01
+ *  library-projects-design, "The page"). `tabs: null` hides the tabs. */
+export interface PlaceView {
+  place: Place;
+  tab: Tab;
+  rail: Rail;
+  tabs: Record<Tab, number> | null;
+  /** The box's text; the order a heading click chose for this search, or
+   *  null for most matched first; the other places' matches. */
+  search?: {
+    query: string;
+    sort: ListSort | null;
+    elsewhere: { place: Place; count: number }[];
+  };
 }
 
 /** An expired video's line leads with the fact (spec 2026-10-30
@@ -116,13 +156,32 @@ export const expiredLine = (
       ? `Expired — ${line.charAt(0).toLowerCase()}${line.slice(1)}`
       : line;
 
-/** The flows in open sections, in page order: what a shift-click ranges
- *  over. Read at the click, so a section folded since the render counts. */
+/** On a phone's row the tabs scroll inside their strip (index.html): the
+ *  pressed one is scrolled into it, sideways only, so the page never
+ *  moves. Read once the row is on the page; a detached one measures 0. */
+function keepPressedTabInView(tabsRow: HTMLElement): void {
+  const strip = tabsRow.querySelector<HTMLElement>(".place-tabs");
+  const tab = strip?.querySelector<HTMLElement>('[aria-pressed="true"]');
+  if (strip == null || tab == null || strip.scrollWidth <= strip.clientWidth) {
+    return;
+  }
+  // Inside the strip's padding, the room its focus ring needs.
+  const pad = Number.parseFloat(getComputedStyle(strip).paddingLeft) || 0;
+  const s = strip.getBoundingClientRect();
+  const t = tab.getBoundingClientRect();
+  if (t.left < s.left + pad) strip.scrollLeft -= s.left + pad - t.left;
+  else if (t.right > s.right - pad)
+    strip.scrollLeft += t.right - (s.right - pad);
+}
+
+/** The flows in open sections, or a search's run of results, in page
+ *  order: what a shift-click ranges over. Read at the click, so a section
+ *  folded since the render counts. */
 function visibleFlows(from: Element): string[] {
   const library = from.closest("[data-library]") ?? from.ownerDocument;
   return [
     ...library.querySelectorAll<HTMLInputElement>(
-      "details[open] [data-select]",
+      ":is(details[open], [data-results]) [data-select]",
     ),
   ].map((box) => box.dataset.select as string);
 }
@@ -212,6 +271,15 @@ export function applySelection(
     box.closest("article")?.toggleAttribute("data-selected", on);
     box.closest("[role=row]")?.setAttribute("aria-selected", String(on));
   }
+  for (const box of root.querySelectorAll<HTMLInputElement>(
+    "[data-select-group]",
+  )) {
+    const ids = JSON.parse(box.dataset.selectGroup as string) as string[];
+    const n = ids.filter((id) => selected.has(id)).length;
+    box.checked = n > 0 && n === ids.length;
+    box.indeterminate = n > 0 && n < ids.length;
+    box.disabled = busy;
+  }
   let bar = root.querySelector<HTMLElement>("[data-selection-bar]");
   if (selected.size === 0) {
     bar?.remove();
@@ -289,6 +357,10 @@ function meterBar(): { bar: HTMLElement; set(fraction: number): void } {
 /** The storage panel's id, which its trigger's `popovertarget` names. */
 const STORAGE_PANEL = "storage-panel";
 
+/** The narrow switcher's menu: the rail's places (spec 2026-11-01
+ *  library-projects-design, Addendum). */
+const PLACE_MENU = "place-menu";
+
 /** The gutter the panel keeps from the window's edges, as the page does. */
 const PANEL_GUTTER = 16;
 const PANEL_WIDTH = 300;
@@ -312,6 +384,9 @@ function placePanel(
   /** Keep the side it opened on: a scroll that moves the trigger must not
    *  flip an open panel from above it to below. */
   keepSide = false,
+  /** Hang from the trigger's left edge: the title's switcher, at the
+   *  page's left, rather than the storage trigger at its right. */
+  fromLeft = false,
 ): void {
   const r = trigger.getBoundingClientRect();
   const page = document.documentElement.clientWidth;
@@ -319,7 +394,8 @@ function placePanel(
   // Its right edge on the trigger's — the trigger sits at the top bar's
   // right end — unless that would cross the window's left gutter, where
   // it hangs from the trigger's left edge instead.
-  const start = r.right - width >= PANEL_GUTTER ? r.right - width : r.left;
+  const start =
+    !fromLeft && r.right - width >= PANEL_GUTTER ? r.right - width : r.left;
   const left = Math.max(
     PANEL_GUTTER,
     Math.min(start, page - PANEL_GUTTER - width),
@@ -357,18 +433,109 @@ const budgetGb = (bytes: number): string =>
 interface Header {
   /** The page's two columns: `side` and `content`. */
   box: HTMLElement;
-  /** Re-filled on every render: the jump list of sections. */
-  jumps: HTMLElement;
-  /** The list's column. Its toggle and notices stay; the rest is
+  /** The list's column. Its tab row and notices stay; the rest is
    *  replaced. */
   content: HTMLElement;
-  toggle: HTMLElement;
+  tabsRow: HTMLElement;
   notices: HTMLElement;
   update(
     model: LibraryModel,
     actions: LibraryActions,
     view: LibraryViewChoice | undefined,
+    place: PlaceView | undefined,
   ): void;
+}
+
+const TABS: [Tab, string][] = [
+  ["inRepo", "In repo"],
+  ["notInRepo", "Not in repo"],
+  ["all", "All"],
+];
+
+const PLACE_WORDS = {
+  all: "All flows",
+  none: "No project",
+  unreadable: "Couldn't read",
+} as const;
+
+/** A project as its host names it: a dim `owner/`, the name, and for a
+ *  repo with no host a dim "local". */
+function projectNodes(
+  p: Pick<RailProject, "owner" | "name" | "local">,
+): Node[] {
+  const dim = (cls: string, text: string): HTMLElement =>
+    el("span", { class: `proj-dim ${cls}`, [`data-${cls}`]: "" }, text);
+  return [
+    ...(p.owner === null ? [] : [dim("place-owner", `${p.owner}/`)]),
+    el("span", { class: "place-name", "data-place-name": "" }, p.name),
+    ...(p.local ? [dim("place-local", " local")] : []),
+  ];
+}
+
+/** The rail: All flows, then the projects, No project, Couldn't read.
+ *  Each item is a link to its own address, so it opens in a new tab too;
+ *  a plain click stays in the page. */
+function railList(
+  rail: Rail,
+  current: Place,
+  actions: LibraryActions,
+): HTMLElement {
+  const list = el("div", { class: "side-list" });
+  const at = placeSearch(current);
+  const item = (
+    p: Place,
+    label: (Node | string)[],
+    count: number,
+    title = label.join(""),
+  ): void => {
+    const search = placeSearch(p);
+    const link = el("a", {
+      href: search,
+      class: "side-item",
+      "data-place": search,
+      "aria-current": String(search === at),
+      title,
+    });
+    const text = el("span", { class: "side-label" });
+    text.append(...label);
+    link.append(text, el("span", { class: "side-count" }, String(count)));
+    link.addEventListener("click", (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      event.preventDefault();
+      actions.goPlace?.(p);
+    });
+    list.append(link);
+  };
+  item("all", [PLACE_WORDS.all], rail.all);
+  for (const p of rail.projects) {
+    item({ project: p.key }, projectNodes(p), p.count, p.key);
+  }
+  if (rail.none > 0 || current === "none") {
+    item("none", [PLACE_WORDS.none], rail.none);
+  }
+  if (rail.unreadable > 0 || current === "unreadable") {
+    item("unreadable", [PLACE_WORDS.unreadable], rail.unreadable);
+  }
+  return list;
+}
+
+/** The title band: a project as the rail names it; the
+ *  other places by their words. */
+function placeTitle(
+  place: Pick<PlaceView, "place" | "rail"> | undefined,
+): (Node | string)[] {
+  if (place === undefined) return ["Flows"];
+  const p = place.place;
+  if (typeof p === "string") return [PLACE_WORDS[p]];
+  const found = place.rail.projects.find((r) => r.key === p.project);
+  if (found === undefined) {
+    return [
+      el("span", { class: "place-name", "data-place-name": "" }, p.project),
+    ];
+  }
+  return projectNodes(found);
 }
 
 /**
@@ -389,15 +556,110 @@ function createHeader(withStorage: boolean): Header {
   let actions: LibraryActions | null = null;
   let view: LibraryViewChoice | undefined;
   // Settings' shape (2026-10-08): a column at the left, held in view on a
-  // wide window, with the title and a jump list of the sections; the
-  // list in the column beside it. The storage trigger
+  // wide window, with the title band and the rail of projects (spec
+  // 2026-11-01 library-projects-design); the list in the column beside it. The storage trigger
   // goes in the top bar (see `storage` below).
   const box = el("div", { class: "library", "data-library": "" });
   const side = el("aside", { class: "library-side", "data-header": "" });
-  const jumps = el("nav", {
+  // The title band names the place. Below 1024px, where the rail is not
+  // drawn, it is a button that opens the rail's places as a menu instead
+  // (the page's stylesheet shows one or the other). The button comes first
+  // so the stylesheet can hide the plain title only when there is one.
+  const title = el("h1", {});
+  const titleText = el("span", { "data-place-title": "" }, "Flows");
+  const switchName = el("span", { class: "place-switch-name" });
+  const switcher = el("button", {
+    type: "button",
+    class: "place-switch",
+    "data-place-switch": "",
+    popovertarget: PLACE_MENU,
+    "aria-controls": PLACE_MENU,
+    "aria-haspopup": "menu",
+    "aria-expanded": "false",
+  });
+  switcher.hidden = true;
+  switcher.append(switchName, icon("chevronDown"));
+  title.append(switcher, titleText);
+  // A popover, as the storage panel is: the top layer paints it over the
+  // list, and the browser closes it on Esc (focus back on the button) and
+  // on a click outside it.
+  const menu = el("div", {
+    id: PLACE_MENU,
+    class: "place-menu",
+    popover: "",
+    role: "menu",
+    // Its own name: the rail's nav is "Projects" (ruling R16).
+    "aria-label": "Switch project",
+    "data-place-menu": "",
+  });
+  const menuItems = () => [
+    ...menu.querySelectorAll<HTMLElement>("[data-place]"),
+  ];
+  let menuResized: AbortController | null = null;
+  menu.addEventListener("beforetoggle", (event) => {
+    if ((event as ToggleEvent).newState === "open") {
+      placePanel(menu, switcher, false, true);
+    }
+  });
+  menu.addEventListener("toggle", (event) => {
+    const open = (event as ToggleEvent).newState === "open";
+    switcher.setAttribute("aria-expanded", String(open));
+    menuResized?.abort();
+    menuResized = null;
+    if (!open) return;
+    placePanel(menu, switcher, false, true);
+    (
+      menu.querySelector<HTMLElement>('[aria-current="true"]') ?? menuItems()[0]
+    )?.focus();
+    menuResized = new AbortController();
+    // Wider than the switcher's breakpoint, the button is gone and the
+    // rail is back: the menu goes with it.
+    window.addEventListener(
+      "resize",
+      () => {
+        if (switcher.getClientRects().length === 0) menu.hidePopover();
+        else placePanel(menu, switcher, false, true);
+      },
+      { signal: menuResized.signal },
+    );
+  });
+  menu.addEventListener("keydown", (event) => {
+    const items = menuItems();
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const n = items.length;
+    const to =
+      event.key === "ArrowDown"
+        ? (at + 1) % n
+        : event.key === "ArrowUp"
+          ? (at - 1 + n) % n
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? n - 1
+              : null;
+    if (to === null || n === 0) return;
+    event.preventDefault();
+    items[to]?.focus();
+  });
+  // A pick is the rail's own click (it calls `goPlace` and cancels the
+  // link's navigation); Enter on an item is that click. A modified click,
+  // which opens the place in a new tab, leaves the menu open.
+  menu.addEventListener("click", (event) => {
+    if (!event.defaultPrevented) return;
+    menu.hidePopover();
+    switcher.focus();
+  });
+  // Tab out of the menu closes it, as a menu does.
+  menu.addEventListener("focusout", (event) => {
+    const to = event.relatedTarget as Node | null;
+    if (to !== null && !menu.contains(to) && menu.matches(":popover-open")) {
+      menu.hidePopover();
+    }
+  });
+  const rail = el("nav", {
     class: "side-group",
-    "aria-label": "Sections",
-    "data-jumps": "",
+    "aria-label": "Projects",
+    "data-rail": "",
   });
   const content = el("div", { class: "library-content" });
 
@@ -434,8 +696,41 @@ function createHeader(withStorage: boolean): Header {
   // read without opening anything, and the trigger is one press away.
   const notices = el("div", { "data-notices": "" });
 
-  // List or Grid, at the top of the list column (list spec §1). Built once,
-  // so the button just pressed is still there to hold focus.
+  // The tab row heads the list column: the tabs at its left, List or Grid
+  // at its right (list spec §1). Built once, so the button just pressed is
+  // still there to hold focus.
+  const tabsRow = el("div", { class: "tabs-row", "data-tabs-row": "" });
+  const tabs = el("div", { class: "place-tabs" });
+  const tabCounts = new Map<Tab, HTMLElement>();
+  for (const [t, label] of TABS) {
+    const count = el("span", { class: "side-count" });
+    const button = el(
+      "button",
+      { type: "button", class: "btn btn-quiet", "data-tab": t },
+      label,
+    );
+    button.append(count);
+    button.addEventListener("click", () => actions?.goTab?.(t));
+    tabCounts.set(t, count);
+    tabs.append(button);
+  }
+  // The search box, between the tabs and the toggle: built here once, so
+  // the repaint each keystroke asks for keeps its focus and caret.
+  const searchField = el("label", { class: "search-field" });
+  const input = el("input", {
+    type: "search",
+    "data-search": "",
+    "aria-label": "Search flows",
+    placeholder: "Search",
+  });
+  input.addEventListener("input", () => actions?.search?.(input.value));
+  // Esc clears the box; the page's own Esc (the selection) skips a field.
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || input.value === "") return;
+    event.preventDefault();
+    actions?.search?.("");
+  });
+  searchField.append(icon("search"), input, el("kbd", {}, "/"));
   const toggle = el("div", {
     class: "layout-toggle",
     "data-layout-toggle": "",
@@ -455,7 +750,7 @@ function createHeader(withStorage: boolean): Header {
     button.append(icon(glyph));
     button.addEventListener("click", () => {
       if (view === undefined || view.layout === layout) return;
-      actions?.setView?.({ layout, sort: { ...view.sort } });
+      actions?.setView?.({ ...view, layout, sort: { ...view.sort } });
     });
     toggle.append(button);
   }
@@ -562,8 +857,9 @@ function createHeader(withStorage: boolean): Header {
     foot,
   );
   storage.append(trigger, panel);
-  side.append(el("h1", {}, "Flows"), jumps);
-  content.append(toggle, notices);
+  side.append(title, rail, menu);
+  tabsRow.append(tabs, searchField, toggle);
+  content.append(tabsRow, notices);
   box.append(side, content);
   // The page's top bar carries a slot for it, left of the theme switch
   // (library/index.html). A document without one — a test that mounts the
@@ -574,11 +870,10 @@ function createHeader(withStorage: boolean): Header {
 
   return {
     box,
-    jumps,
     content,
-    toggle,
+    tabsRow,
     notices,
-    update(model, next, nextView) {
+    update(model, next, nextView, place) {
       actions = next;
       view = nextView;
       toggle.hidden = view === undefined || next.setView === undefined;
@@ -587,6 +882,61 @@ function createHeader(withStorage: boolean): Header {
           "aria-pressed",
           String(b.dataset.layout === view?.layout),
         );
+      }
+      // A phone's row hides the pressed button (index.html), so the one
+      // just pressed would drop its focus: it hands it to the one shown.
+      const pressed = document.activeElement;
+      if (
+        pressed instanceof HTMLElement &&
+        toggle.contains(pressed) &&
+        !pressed.checkVisibility()
+      ) {
+        [...toggle.querySelectorAll<HTMLElement>("button")]
+          .find((b) => b.checkVisibility())
+          ?.focus();
+      }
+      tabs.hidden = place?.tabs == null;
+      for (const b of tabs.querySelectorAll<HTMLElement>("[data-tab]")) {
+        const t = b.dataset.tab as Tab;
+        b.setAttribute("aria-pressed", String(t === place?.tab));
+        (tabCounts.get(t) as HTMLElement).textContent = String(
+          place?.tabs?.[t] ?? "",
+        );
+      }
+      searchField.hidden =
+        next.search === undefined || place?.place === "unreadable";
+      const query = place?.search?.query ?? "";
+      if (input.value !== query) input.value = query;
+      tabsRow.hidden = toggle.hidden && tabs.hidden && searchField.hidden;
+      titleText.replaceChildren(...placeTitle(place));
+      // No rail, no places to switch between: the plain title alone.
+      switchName.replaceChildren(
+        ...(place === undefined ? [] : placeTitle(place)),
+      );
+      switcher.hidden = place === undefined;
+      // The rail and the menu are rebuilt; the item that had the keyboard
+      // keeps it.
+      for (const list of [rail, menu]) {
+        const focused =
+          document.activeElement?.closest<HTMLElement>("[data-place]");
+        const had = list.contains(focused ?? null)
+          ? focused?.dataset.place
+          : undefined;
+        list.replaceChildren(
+          ...(place === undefined
+            ? []
+            : [railList(place.rail, place.place, next)]),
+        );
+        if (had !== undefined) {
+          list
+            .querySelector<HTMLElement>(`[data-place="${CSS.escape(had)}"]`)
+            ?.focus();
+        }
+      }
+      menu.querySelector(".side-list")?.setAttribute("role", "none");
+      for (const item of menuItems()) {
+        item.setAttribute("role", "menuitem");
+        item.tabIndex = -1;
       }
       if (model.totalBytes === undefined) {
         total.remove();
@@ -725,7 +1075,7 @@ export function tags(
         title:
           "unknown" in r.kept
             ? r.kept.unknown
-            : `${r.kept.root}/${r.kept.file}`,
+            : `${r.kept.root}/${r.kept.file}${r.keptUnder === undefined ? "" : ` — its repo could not be read, so it is listed under ${r.keptUnder}`}`,
       }),
     );
   }
@@ -870,6 +1220,10 @@ function row(
   rowStatus: Map<string, string>,
   /** Whether the video's versions were open before this render. */
   versionsOpen: boolean,
+  /** What the line says of where the flow opened. */
+  where: Where,
+  /** Why a search found it, said in Where's place (`whyOf`). */
+  why: Why | null = null,
 ): HTMLElement {
   const flowId = group?.video.id ?? null;
   const article = el("article", {
@@ -967,17 +1321,20 @@ function row(
   // the path is what tells the checkout flow from the settings page. The
   // full line is the title, for when it is clipped.
   // A video's line leads with its repo, when it is known.
-  const where = whereOf({ row: r, group });
+  const at = where({ row: r, group });
   const line = el("div", { class: "row-line" });
   // Under a heading that names the day the date would say it twice, so
   // the line keeps only the time; under a month it keeps both.
-  line.append(
-    el(
-      "p",
-      { class: "row-meta", "data-meta": "", title: where },
-      `${where} · ${namesDay ? r.time : r.when}`,
-    ),
+  const meta = el("p", {
+    class: "row-meta",
+    "data-meta": "",
+    title: why?.full ?? at.title,
+  });
+  meta.append(
+    why === null ? at.text : matchWhy(why),
+    ` · ${namesDay ? r.time : r.when}`,
   );
+  line.append(meta);
   // The size is the storage controls' information; a page that draws none
   // has no sizes to state. The studio has no controls but states each
   // folder's size (`sizeBytes`), which is what a delete would free.
@@ -1030,6 +1387,15 @@ function row(
   }
   return article;
 }
+
+/** Why a search found a flow, dim, after its name or in Where's place;
+ *  `slot` names which, in a list row that carries both. */
+export const matchWhy = (why: Why, slot = ""): HTMLElement =>
+  el(
+    "span",
+    { class: "match-why", "data-match-why": slot, title: why.full },
+    why.text,
+  );
 
 /** A card's buttons — Back to the original footage, Restore, Edit, Delete,
  *  whichever it has — and the sentence that stands where Restore would, or
@@ -1357,57 +1723,6 @@ const cardStatus = (
         : rowStatus.get(statusKey("take", r.sceneId))));
 
 /**
- * The jump list: a link per section, with its count, marked current by
- * `trackSectionNav` as the list scrolls (main.ts). A link to a folded
- * month opens it on the way: jumping to a closed fold would land on one
- * line and leave the author to open it.
- */
-function jumpList(
-  sections: readonly LibrarySection[],
-  unreadable: number,
-): HTMLElement {
-  const list = el("div", { class: "side-list" });
-  for (const s of sections) {
-    const id = sectionId(s.key);
-    const link = el("a", {
-      href: `#${id}`,
-      class: "side-item",
-      "data-nav": id,
-      title: s.label,
-    });
-    link.append(
-      el("span", { class: "side-label" }, s.label),
-      el("span", { class: "side-count" }, String(s.rows.length)),
-    );
-    link.addEventListener("click", () => {
-      const target = document.getElementById(id);
-      if (target instanceof HTMLDetailsElement) target.open = true;
-      else if (target?.getAttribute("aria-expanded") === "false") {
-        setExpanded(target, true);
-      }
-    });
-    list.append(link);
-  }
-  // The studio's folders that would not read sit after every day, so on a
-  // long library they are far below the fold: the list names them too, or
-  // nothing in view says they are there.
-  if (unreadable > 0) {
-    const link = el("a", {
-      href: `#${UNREADABLE_ID}`,
-      class: "side-item",
-      "data-nav": UNREADABLE_ID,
-      title: "Couldn't read",
-    });
-    link.append(
-      el("span", { class: "side-label" }, "Couldn't read"),
-      el("span", { class: "side-count" }, String(unreadable)),
-    );
-    list.append(link);
-  }
-  return list;
-}
-
-/**
  * One section: a `<details>` whose summary is the heading and the count,
  * and whose body is the grid of cards. A `<details>` for every section,
  * not only the folded ones, so Today folds with the same control a past
@@ -1420,6 +1735,7 @@ function section(
   rowStatus: Map<string, string>,
   groupOf: Map<string, VideoGroup>,
   versionsOpen: Set<string>,
+  where: Where,
 ): { box: HTMLElement; articles: (readonly [string, HTMLElement])[] } {
   const headingId = sectionHeadingId(s.key);
   const box = el("details", {
@@ -1437,8 +1753,12 @@ function section(
   // Settings' chevron, the same glyph and class its site lines open with.
   const chev = icon("chevronRight");
   chev.classList.add("chev");
+  const ids = s.rows.flatMap((r) => groupOf.get(r.sceneId)?.video.id ?? []);
   summary.append(
     chev,
+    ...(ids.length > 0 && actions.selectGroup !== undefined
+      ? [groupBox(s.label, ids, actions)]
+      : []),
     el("h2", { id: headingId }, s.label),
     el(
       "span",
@@ -1458,6 +1778,7 @@ function section(
       group,
       rowStatus,
       group !== null && versionsOpen.has(group.video.id),
+      where,
     );
     list.append(article);
     return [r.sceneId, article] as const;
@@ -1608,6 +1929,37 @@ function unreadableRows(
   return list;
 }
 
+/** A search with nothing here: the line, and each other place that has
+ *  matches as a link there. */
+function noneHere(
+  elsewhere: { place: Place; count: number }[],
+  rail: Rail,
+  query: string,
+  actions: LibraryActions,
+): HTMLElement {
+  const line = el("p", { class: "none-here", "data-none-here": "" });
+  line.append("None here.");
+  for (const [i, { place, count }] of elsewhere.entries()) {
+    const link = el("a", {
+      // The query goes along, for a link opened in a new tab.
+      href: `${placeSearch(place)}&q=${encodeURIComponent(query)}`,
+      "data-place": placeSearch(place),
+    });
+    // Named as the rail names it.
+    link.append(`${count} in `, ...placeTitle({ place, rail }));
+    link.addEventListener("click", (event) => {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      event.preventDefault();
+      actions.goPlace?.(place);
+    });
+    line.append(i === 0 ? " " : ", ", link);
+  }
+  if (elsewhere.length > 0) line.append(".");
+  return line;
+}
+
 export function renderLibrary(
   root: HTMLElement,
   model: LibraryModel,
@@ -1622,6 +1974,10 @@ export function renderLibrary(
   bulk?: { busy: boolean; said: string | null },
   /** Absent draws cards: only the page passes a view, and it always does. */
   view?: LibraryViewChoice,
+  /** The place drawn, its rail and tabs; `model` is already narrowed to it.
+   *  Absent (a test mounting the list alone): no rail, no tabs, and every
+   *  row, the "Couldn't read" ones after the list. */
+  place?: PlaceView,
 ): void {
   // A name the author is typing on one card survives a render another
   // card's rename triggers: its text, focus and caret move
@@ -1648,7 +2004,7 @@ export function renderLibrary(
   };
   listFolds.set(root, was);
   // Where the keyboard was in the list, if it was there.
-  const place = placeIn(root.querySelector<HTMLElement>("[data-list]"));
+  const keyAt = placeIn(root.querySelector<HTMLElement>("[data-list]"));
   // Everything but the header is replaced. The header is updated in
   // place and never leaves the page: removing it would close an open
   // storage panel and blur a budget being typed (see `createHeader`).
@@ -1659,18 +2015,33 @@ export function renderLibrary(
     );
     headers.set(root, head);
   }
-  head.update(model, actions, view);
+  head.update(model, actions, view, place);
   for (const child of [...root.childNodes]) {
     if (child !== head.box) child.remove();
   }
   if (head.box.parentNode !== root) root.prepend(head.box);
+  keepPressedTabInView(head.tabsRow);
   for (const child of [...head.content.childNodes]) {
-    if (child !== head.notices && child !== head.toggle) child.remove();
+    if (child !== head.notices && child !== head.tabsRow) child.remove();
   }
-  head.jumps.replaceChildren();
   // The list goes in the content column from here on.
   const list = head.content;
-  const unreadable = model.unreadable ?? [];
+  // The folders that would not read are a place of their own, drawn there
+  // only, never under a project.
+  const unreadable =
+    place === undefined || place.place === "unreadable"
+      ? (model.unreadable ?? [])
+      : [];
+  // Inside a project every row's repo is that project: said once, above.
+  const withRepo = place === undefined || typeof place.place === "string";
+  // Couldn't read has no box, so nothing is searched there.
+  const search = place?.search;
+  const query = search?.query ?? "";
+  const finding =
+    search !== undefined &&
+    place !== undefined &&
+    place.place !== "unreadable" &&
+    searching(query);
   // After whatever the list drew, on every path out of it.
   const appendUnreadable = (): void => {
     if (unreadable.length > 0) {
@@ -1686,12 +2057,19 @@ export function renderLibrary(
   };
   if (model.rows.length === 0) {
     applySelection(root, actions, undefined);
+    if (finding) {
+      list.append(noneHere(search.elsewhere, place.rail, query, actions));
+      return;
+    }
     // A library of only unreadable folders is not empty: the empty card
     // would hide the rows that say what is wrong.
     if (unreadable.length > 0) {
       appendUnreadable();
       return;
     }
+    // A place with nothing in it, in a library that has flows elsewhere:
+    // the rail and tabs say so. The card is for a library with no flows.
+    if (place !== undefined && place.rail.all > 0) return;
     // Settings' empty state, on a card. The hint names where Record is in
     // the author's terms: "the popup" is ours.
     const card = el("div", { "data-empty": "", class: "card empty-card" });
@@ -1707,6 +2085,7 @@ export function renderLibrary(
   }
   // One card per video: the sections count cards, not takes.
   const cards = cardsOf(model);
+  const where = whereFor(cards, withRepo);
   const leads = cards.map((c) => c.row);
   const groupOf = new Map(
     cards.flatMap((c) =>
@@ -1716,14 +2095,23 @@ export function renderLibrary(
   // Sections by when the take was made — landmarks in a list that was one
   // flat wall of equal cards.
   const articles: (readonly [string, HTMLElement])[] = [];
-  const sections = sectionsOf(leads, now);
+  // While searching, most matched first unless a heading chose otherwise.
+  const order: ListOrder | null = finding
+    ? (search.sort ?? { rank: (c: LibraryCard) => cardHits(c, query) })
+    : null;
   if (view?.layout === "list") {
-    const grid = renderList(list, model, actions, rowStatus, now, view, was);
-    // The list's headings are the cards' sections; a flat sort has none,
-    // and no jump list (list spec §2.3).
-    if (grid.querySelector("[data-heading]") !== null) {
-      head.jumps.append(jumpList(sections, unreadable.length));
-    }
+    const grid = renderList(
+      list,
+      model,
+      actions,
+      rowStatus,
+      now,
+      view,
+      was,
+      withRepo,
+      order ?? view.sort,
+      finding ? (c) => whyOf(c, query) : undefined,
+    );
     appendUnreadable();
     // After the grid is in the page, as previews are: the measurer waits
     // for a cell to be visible.
@@ -1736,11 +2124,32 @@ export function renderLibrary(
     // Folds are back already; then a name being typed, else the focus.
     const typed = restoreTyping(root, typing);
     applySelection(root, actions, selection, bulk);
-    if (!typed) restorePlace(grid, place);
+    if (!typed) restorePlace(grid, keyAt);
     return;
   }
-  head.jumps.append(jumpList(sections, unreadable.length));
-  for (const s of sections) {
+  if (order !== null) {
+    // The results are one run in the list's order, with no date headings.
+    const run = el("div", { class: "rows", "data-results": "" });
+    for (const e of listEntries(model, order, now)) {
+      if (e.kind !== "flow") continue;
+      const { row: r, group } = e.card;
+      const article = row(
+        r,
+        actions,
+        cardStatus(r, group, rowStatus),
+        false,
+        group,
+        rowStatus,
+        group !== null && versionsOpen.has(group.video.id),
+        where,
+        whyOf(e.card, query),
+      );
+      run.append(article);
+      articles.push([r.sceneId, article]);
+    }
+    list.append(run);
+  }
+  for (const s of order === null ? sectionsOf(leads, now) : []) {
     const built = section(
       s,
       wasOpen.get(s.key) ?? !s.folded,
@@ -1748,6 +2157,7 @@ export function renderLibrary(
       rowStatus,
       groupOf,
       versionsOpen,
+      where,
     );
     list.append(built.box);
     articles.push(...built.articles);

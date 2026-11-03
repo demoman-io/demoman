@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -20,12 +21,19 @@ import { createLibrary, createVideoStore } from "@demoman/runner/studio";
 import { NEUTRAL_BACKGROUND, WALLPAPERS } from "@demoman/scene-schema";
 import {
   DEFAULT_LIBRARY_VIEW,
+  type LibraryViewChoice,
   pathFor,
+  placeSearch,
   type TakesAnswer,
 } from "@demoman/studio-protocol";
 import type { Page, Route } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { distance, limeOutsideItsPlaces, pixelsAt } from "./look-probes.js";
+import {
+  distance,
+  limeOutsideItsPlaces,
+  luma,
+  pixelsAt,
+} from "./look-probes.js";
 import type { PlainTake } from "./painted-take.js";
 import {
   api,
@@ -36,6 +44,7 @@ import {
   watchConsole,
 } from "./studio-harness.js";
 import {
+  GRID_VIEW,
   joinVideo,
   ONE_VERSION_EXPORT,
   openPage,
@@ -236,6 +245,141 @@ function luminance(css: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+const ACME = "github.com/acme/web";
+const GLOBEX = "github.com/globex/api";
+const LOCAL = "local:/Users/me/scratch";
+/** The word only the globex flow's steps hold: its last button's name. */
+const SEARCHED = "ledger";
+/** The globex flow's name: wider than the name's floor beside a why. */
+const GLOBEX_NAME = "Filter the open invoices by customer";
+/** The checkout button's name: its step is wider than the name cell, so
+ *  the why starts at SEARCHED (`whyOf`), and runs on past the cap after it,
+ *  so the name is held at its floor. */
+const RECONCILE = `Reconcile the ${SEARCHED} against the open invoices`;
+
+/** The projects home: acme/web's two flows (the invoice one kept in a real
+ *  checkout), globex/api's one, an unpushed repo's one, flows in no
+ *  project, and the folder that would not read. */
+async function seedProjects(): Promise<{
+  home: string;
+  invoice: string;
+  globex: string;
+}> {
+  const home = await mkdtemp(join(tmpdir(), "studio-shots-projects-"));
+  homes.push(home);
+  const checkout = await mkdtemp(join(tmpdir(), "studio-shots-projrepo-"));
+  homes.push(checkout);
+  // A real checkout of acme/web, as a kept mark's key is read from its
+  // root: the upkeep reads it again to follow a moved repo, and a root
+  // that is no checkout would be a "Couldn't read" row of its own.
+  for (const args of [
+    ["init", "-q"],
+    ["remote", "add", "origin", "git@github.com:acme/web.git"],
+  ])
+    execFileSync("git", args, { cwd: checkout, stdio: "pipe" });
+  await seedHome(home, VIDEO_TAKES);
+  const invoice = await joinVideo(home);
+  const library = createLibrary(home);
+  const store = createVideoStore(home, library);
+  // A second owner's project: one flow of one take.
+  const lone = (PLAIN[0] as PlainTake).id;
+  const made = await store.create({
+    // Long enough that, beside the search's why, it is cut at its floor.
+    name: GLOBEX_NAME,
+    repo: { key: GLOBEX },
+    startPage: "https://app.example.com/",
+  });
+  if (!made.ok) throw new Error("the globex flow could not be made");
+  // Its checkout button named for itself, so one flow's steps hold a word
+  // (SEARCHED) no other flow has; renamed before it joins, at its revision.
+  const scene = await library.getScene(lone);
+  if (scene === null) throw new Error(`${lone} was not seeded`);
+  await library.putScene({
+    ...scene,
+    anchors: scene.anchors.map((a) =>
+      a.id === "a-checkout"
+        ? {
+            ...a,
+            fingerprint: {
+              ...a.fingerprint,
+              accessibleName: RECONCILE,
+            },
+          }
+        : a,
+    ),
+  });
+  const read = await library.getSceneRead(lone);
+  expect(read, `premise: ${lone} was seeded`).not.toBeNull();
+  await library.putJson(lone, "status.json", { outcome: "complete" });
+  await store.join(lone, {
+    videoId: made.video.id,
+    made: {
+      repo: { none: "seeded" },
+      agent: { none: "seeded" },
+      by: { none: "seeded" },
+      door: "mcp",
+    },
+    recordedRevision: read?.revision ?? null,
+  });
+  // An unpushed repo: one flow of one more take, keyed by its folder.
+  const loneLocal = (PLAIN[1] as PlainTake).id;
+  const scratch = await store.create({
+    name: "Scratch",
+    repo: { key: LOCAL },
+    startPage: "https://app.example.com/",
+  });
+  if (!scratch.ok) throw new Error("the local flow could not be made");
+  const readLocal = await library.getSceneRead(loneLocal);
+  expect(readLocal, `premise: ${loneLocal} was seeded`).not.toBeNull();
+  await library.putJson(loneLocal, "status.json", { outcome: "complete" });
+  await store.join(loneLocal, {
+    videoId: scratch.video.id,
+    made: {
+      repo: { none: "seeded" },
+      agent: { none: "seeded" },
+      by: { none: "seeded" },
+      door: "mcp",
+    },
+    recordedRevision: readLocal?.revision ?? null,
+  });
+  // The invoice flow is kept in acme/web: one flow on each of its tabs.
+  const file = `${KEPT_DIR}/${keptFileName("Create an invoice")}`;
+  await mkdir(join(checkout, KEPT_DIR), { recursive: true });
+  await writeFile(
+    join(checkout, file),
+    serializeKept({
+      keptVersion: 2,
+      flow: invoice,
+      deliver: "files",
+      name: "Create an invoice",
+      script: {
+        scriptVersion: 1,
+        name: "Create an invoice",
+        target: "https://app.example.com/",
+        viewport: { width: 1280, height: 800 },
+        steps: [{ do: "waitForLoad" }],
+      } as KeptVideo["script"],
+      scale: 1,
+      logo: null,
+      wallpaper: null,
+      outputs: [
+        {
+          path: "o.mp4",
+          fileType: "mp4",
+          aspect: "16:9",
+          quality: "share",
+        },
+      ],
+      report: null,
+    } satisfies KeptVideo),
+  );
+  expect(
+    (await store.setKept(invoice, { root: checkout, file, key: ACME })).ok,
+    "premise: the invoice flow is marked kept",
+  ).toBe(true);
+  return { home, invoice, globex: made.video.id };
+}
+
 describe("the Studio's screenshot set", () => {
   it.runIf(process.platform === "darwin")(
     "shoots the editor, library and Brand kit pages at two sizes in the Studio's one theme, and the editor stacked, each asserted on its paint",
@@ -421,26 +565,25 @@ describe("the Studio's screenshot set", () => {
                 lengths[(cut[0] as PlainTake).id],
                 `${lengthsSaid}: the cut take's length is its own`,
               ).not.toBe(lengths[(plain[0] as PlainTake).id]);
-              // Both days, then the folder that would not read: named in the
-              // jump list, which is in view where the section is not.
+              // The rail (the jump list until 2026-11-01): All flows, the
+              // takes in no project, then the folder that would not read,
+              // each painted.
               expect(
-                p.jumps.map((j) => [/ (\d+)$/.exec(j.text)?.[1], j.painted]),
-                `${at}: the jump list ${JSON.stringify(p.jumps)}`,
+                p.rail,
+                `${at}: the rail ${JSON.stringify(p.rail)}`,
               ).toEqual([
-                ["2", true],
-                ["2", true],
-                ["1", true],
+                { text: `All flows ${ids.length}`, painted: true },
+                { text: `No project ${ids.length}`, painted: true },
+                { text: "Couldn't read 1", painted: true },
               ]);
-              expect(p.jumps[0]?.text).toBe("Yesterday 2");
-              expect(p.jumps[2]?.text).toBe("Couldn't read 1");
 
-              // The unreadable row, scrolled to: every library shot above
-              // has it below the fold, so it gets a shot of its own.
-              await page.evaluate(() =>
-                document
-                  .getElementById("unreadable")
-                  ?.scrollIntoView({ block: "start", behavior: "instant" }),
-              );
+              // The unreadable row, in its own place (by its address: a
+              // rail click would save the pick): it gets a shot of its own.
+              await page.goto(`${studio.origin}/?project=unreadable`);
+              await page
+                .locator(`[data-unreadable-row="${UNREADABLE}"]`)
+                .waitFor();
+              await settle(page, at);
               const rowFile = join(
                 SHOTS,
                 `library-unreadable-${size.width}x${size.height}-${theme}.png`,
@@ -1119,19 +1262,30 @@ describe("the Studio's screenshot set", () => {
           3,
         );
         expect(await rowsPainted(`${FLOWS}[aria-expanded="true"]`)).toEqual([]);
-        // "Couldn't read" in the list's rows (spec §2.3): in the list's
-        // column, with no card drawn there, its Delete painted.
-        await page
-          .locator(`[data-unreadable-row="${UNREADABLE}"]`)
-          .scrollIntoViewIfNeeded();
+        // "Couldn't read" in the list's rows (spec §2.3), in its own place
+        // since the projects rail (2026-11-01): no card drawn there, each
+        // part painted, its Delete at the row's end. With no treegrid
+        // beside it, the old "under each column's heading" and "below the
+        // list" checks have nothing to measure against.
+        await page.goto(`${studio.origin}/?project=unreadable`);
+        await page.locator(`[data-unreadable-row="${UNREADABLE}"]`).waitFor();
         const unreadable = await page.evaluate((folder) => {
-          const grid = document.querySelector("[role=treegrid]");
+          const content = document.querySelector(".library-content");
+          const list = document.querySelector(".unreadable-list");
           const section = document.querySelector("[data-unreadable]");
           const row = document.querySelector<HTMLElement>(
             `[data-unreadable-row="${CSS.escape(folder)}"]`,
           );
-          if (grid === null || section === null || row === null) return null;
-          const g = grid.getBoundingClientRect();
+          if (
+            content === null ||
+            list === null ||
+            section === null ||
+            row === null
+          ) {
+            return null;
+          }
+          const c = content.getBoundingClientRect();
+          const l = list.getBoundingClientRect();
           const r = row.getBoundingClientRect();
           const lands = (sel: string): boolean => {
             const el = row.querySelector(sel);
@@ -1147,59 +1301,34 @@ describe("the Studio's screenshot set", () => {
             }
             return hit !== null && el.contains(hit) && o === 1;
           };
-          // Each part under its list column's heading.
-          const under = (part: string, col: string): boolean => {
-            const a = row.querySelector(`[data-col="${part}"]`);
-            const h = grid.querySelector(
-              `[role=columnheader][data-col="${col}"]`,
-            );
-            if (a === null || h === null) return false;
-            const pa = a.getBoundingClientRect();
-            const ph = h.getBoundingClientRect();
-            return Math.abs(pa.left - ph.left) < 1;
-          };
-          // A number stands under its heading by the right edge.
-          const sizeHead = grid.querySelector(
-            "[role=columnheader][data-col='size']",
-          );
-          const size = row.querySelector("[data-col='size']");
-          const sized =
-            sizeHead !== null &&
-            size !== null &&
-            sizeHead.checkVisibility() &&
-            Math.abs(
-              size.getBoundingClientRect().right -
-                sizeHead.getBoundingClientRect().right,
-            ) < 1;
-          // Delete floats over the row's end, as a flow's actions do.
           const del = row.querySelector('[data-action="delete"]');
-          const ends =
-            del !== null &&
-            Math.abs(del.getBoundingClientRect().right - g.right) < 1;
           return {
             cards: section.querySelectorAll(".card, article").length,
-            columns: [under("name", "name"), under("where", "where"), sized],
-            ends,
-            inColumn: r.left >= g.left - 0.5 && r.right <= g.right + 0.5,
-            below: r.top >= g.bottom - 0.5,
+            treegrid: document.querySelector("[role=treegrid]") !== null,
+            ends:
+              del !== null &&
+              Math.abs(del.getBoundingClientRect().right - l.right) < 1,
+            inColumn: r.left >= c.left - 0.5 && r.right <= c.right + 0.5,
             height: Math.round(r.height),
             name: lands('[data-col="name"]'),
             reason: lands('[data-col="where"]'),
+            size: lands('[data-col="size"]'),
             remove: lands('[data-action="delete"]'),
           };
         }, UNREADABLE);
         expect(unreadable, `${at}: Couldn't read, as painted`).toEqual({
           cards: 0,
-          columns: [true, true, true],
+          treegrid: false,
           ends: true,
           inColumn: true,
-          below: true,
           height: 34,
           name: true,
           reason: true,
+          size: true,
           remove: true,
         });
-        await page.evaluate(() => window.scrollTo(0, 0));
+        // Back to All flows, by its address (a rail click saves the pick).
+        await openList(at);
 
         at = `library list open ${wh}`;
         const closedColumns = await columnsAt();
@@ -1332,7 +1461,11 @@ describe("the Studio's screenshot set", () => {
         // The sort was the author's choice, kept by the studio.
         const kept = await api(studio, "/api/settings/library-view");
         expect(kept.json(), at).toEqual({
-          view: { layout: "list", sort: { column: "size", descending: true } },
+          view: {
+            layout: "list",
+            sort: { column: "size", descending: true },
+            project: null,
+          },
         });
       }
 
@@ -1393,36 +1526,79 @@ describe("the Studio's screenshot set", () => {
           hit: true,
         })),
       );
-      // Red: the unreadable row's size kept where the list drops its Size
-      // column, so the grid puts it under Recorded. Its Delete is left
-      // out: it floats over every row's end, which is Recorded's.
-      const underRecorded = await page.evaluate((folder) => {
-        const head = document.querySelector(
-          "[data-list-head] [role=columnheader][data-col='recorded']",
-        );
-        const row = document.querySelector(
-          `[data-unreadable-row="${CSS.escape(folder)}"]`,
-        );
-        if (head === null || row === null) return null;
-        const h = head.getBoundingClientRect();
-        // Its cells; a status line under them spans every column.
-        return [
-          ...row.querySelectorAll(
-            ":scope > [data-col]:not([data-col='actions'])",
-          ),
-        ].flatMap((c) => {
-          const b = c.getBoundingClientRect();
-          return b.width > 0 && b.left < h.right && b.right > h.left
-            ? [`${(c as HTMLElement).dataset.col} "${c.textContent}"`]
-            : [];
-        });
-      }, UNREADABLE);
+      // The narrow list in Couldn't read: the size cell goes with the Size
+      // column, and no painted cell runs under Delete, which floats over
+      // the row's end. Red: drop `.unreadable-list` from the narrow
+      // container's `[data-col="size"]` rule.
+      const unreadAt = "library unreadable narrow 720x900";
+      await page.goto(`${studio.origin}/?project=unreadable`);
+      await page.locator(`[data-unreadable-row="${UNREADABLE}"]`).waitFor();
+      // Not `shoot`: that asserts the treegrid, which this place has none of.
+      const unreadFile = join(
+        SHOTS,
+        "library-unreadable-narrow-720x900-dark.png",
+      );
+      await page.screenshot({ path: unreadFile });
+      shots.push(unreadFile);
+      const unreadPaint = await painted(page);
+      expect(unreadPaint.theme, `${unreadAt}: the page's theme`).toBe("dark");
       expect(
-        underRecorded,
-        `${at}: what the unreadable row puts under Recorded`,
-      ).toEqual([]);
+        unreadPaint.scrollWidth,
+        `${unreadAt}: no sideways scroll (${JSON.stringify(unreadPaint)})`,
+      ).toBeLessThanOrEqual(unreadPaint.innerWidth);
+      expect(await limeOutsideItsPlaces(page), `${unreadAt}: lime`).toEqual([]);
+      const narrowRow = await page.evaluate((folder) => {
+        const content = document.querySelector(".library-content");
+        const row = document.querySelector<HTMLElement>(
+          `.unreadable-list [data-unreadable-row="${CSS.escape(folder)}"]`,
+        );
+        const del = row?.querySelector('[data-action="delete"]');
+        if (content == null || row == null || del == null) return null;
+        const cs = getComputedStyle(content);
+        const inner =
+          content.clientWidth -
+          Number.parseFloat(cs.paddingLeft) -
+          Number.parseFloat(cs.paddingRight);
+        const name = row.querySelector('[data-col="name"]') as HTMLElement;
+        const n = name.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          n.left + Math.min(n.width / 2, 20),
+          n.top + n.height / 2,
+        );
+        const d = del.getBoundingClientRect();
+        const size = row.querySelector<HTMLElement>('[data-col="size"]');
+        return {
+          container: inner,
+          namePainted: hit !== null && name.contains(hit),
+          sizePainted:
+            size?.checkVisibility() === true &&
+            size.getBoundingClientRect().width > 0,
+          underDelete: [
+            ...row.querySelectorAll<HTMLElement>(
+              ":scope > [data-col]:not([data-col='actions'])",
+            ),
+          ].flatMap((c) => {
+            const b = c.getBoundingClientRect();
+            return b.width > 0 &&
+              b.left < d.right &&
+              b.right > d.left &&
+              b.top < d.bottom &&
+              b.bottom > d.top
+              ? [`${c.dataset.col} "${c.textContent}"`]
+              : [];
+          }),
+        };
+      }, UNREADABLE);
+      const narrowSaid = `${unreadAt}: ${JSON.stringify(narrowRow)}`;
+      expect(narrowRow, narrowSaid).not.toBeNull();
+      // Premises: the row is drawn and painted, and the list is narrow
+      // enough for its container rule.
+      expect(narrowRow?.namePainted, narrowSaid).toBe(true);
+      expect(narrowRow?.container, narrowSaid).toBeLessThan(760);
+      expect(narrowRow?.sizePainted, narrowSaid).toBe(false);
+      expect(narrowRow?.underDelete, narrowSaid).toEqual([]);
 
-      expect(shots).toHaveLength(SIZES.length * 4 + 2);
+      expect(shots).toHaveLength(SIZES.length * 4 + 3);
       // The refused rename's 409 is the browser's own line for a refusal
       // the page answered; nothing else may fault.
       expect(
@@ -1440,12 +1616,13 @@ describe("the Studio's screenshot set", () => {
   // Kept flows and filmed commits (share links part 1, Task 9): "Create an
   // invoice" kept in a checkout, its versions filmed at two commits (the
   // newest with changes) and one with none. In the list as it opens, the
-  // Kept heading above Today with the flow under it and its tag; the flow
+  // flow under its recorded day's heading (a kept flow has no heading of its
+  // own) with its In repo tag; the flow
   // opened, each video's commit beside its name. At both sizes (720 is
   // under 900 tall). Each asserted on its paint, and the premises (the
   // listing says it is kept, and what each version filmed) asserted first.
   it.runIf(process.platform === "darwin")(
-    "shoots a flow in the repo under its In repo heading with its tag, and its videos' commits, each asserted on its paint",
+    "shoots a flow in the repo under its day's heading with its In repo tag, and its videos' commits, each asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-kept-"));
       homes.push(home);
@@ -1485,6 +1662,9 @@ describe("the Studio's screenshot set", () => {
       const marked = await createVideoStore(home, library).setKept(invoice, {
         root: checkout,
         file,
+        // Keyed, as every mark is by now: the checkout is no git repo, so an
+        // unkeyed mark would be an upkeep row beside the cards.
+        key: "github.com/acme/app",
       });
       expect(marked.ok, "premise: the flow is marked kept").toBe(true);
       const CODE = {
@@ -1537,7 +1717,13 @@ describe("the Studio's screenshot set", () => {
         serializeKept({ ...recipe, flow: loneFlow, name: "Filter invoices" }),
       );
       expect(
-        (await store.setKept(loneFlow, { root: checkout, file: loneFile })).ok,
+        (
+          await store.setKept(loneFlow, {
+            root: checkout,
+            file: loneFile,
+            key: "github.com/acme/app",
+          })
+        ).ok,
         "premise: the one-video flow is marked kept",
       ).toBe(true);
       const LONE_CODE = { commit: "c0ffee1234ab", tree: "t0", dirty: false };
@@ -1553,6 +1739,7 @@ describe("the Studio's screenshot set", () => {
         root: checkout,
         file,
         deliver: "files",
+        key: "github.com/acme/app",
       });
       for (const take of [v1, v2, v3]) {
         expect(answer.videoOf[take]?.filmedCode, take).toEqual(CODE[take]);
@@ -1648,8 +1835,8 @@ describe("the Studio's screenshot set", () => {
         await page.mouse.move(0, 0);
         await settle(page, at);
         await shoot(`library-list-kept-${wh}`, at);
-        // The headings in order, and the kept flow the first row under
-        // the first of them.
+        // No section is keyed or labelled In repo; the kept flow sits under
+        // the heading of the day it was recorded.
         const order = await page.evaluate(() =>
           [
             ...document.querySelectorAll<HTMLElement>(
@@ -1659,23 +1846,28 @@ describe("the Studio's screenshot set", () => {
             .filter((r) => !r.hidden)
             .map((r) => r.dataset.key as string),
         );
-        expect(order.filter((k) => k.startsWith("h:")).slice(0, 2), at).toEqual(
-          ["h:kept", "h:today"],
+        const headings = order.filter((k) => k.startsWith("h:"));
+        expect(order, `${at}: premise: the kept flow is listed`).toContain(
+          `f:${invoice}`,
         );
-        expect(order.slice(0, 2), at).toEqual(["h:kept", `f:${invoice}`]);
         expect(
-          await page
-            .locator('[data-heading="kept"] [data-name-text]')
-            .textContent(),
-          at,
-        ).toBe("In repo");
+          headings.length,
+          `${at}: premise: the list has day headings`,
+        ).toBeGreaterThan(0);
+        expect(headings, `${at}: no kept section`).not.toContain("h:kept");
         expect(
-          await shown([
-            ['[data-heading="kept"] [data-name-text]', nameCell],
-            ['[data-heading="today"] [data-name-text]', nameCell],
-          ]),
-          `${at}: the Kept and Today headings`,
-        ).toEqual([visible, visible]);
+          await page.locator('[data-heading="kept"]').count(),
+          `${at}: no kept heading is painted`,
+        ).toBe(0);
+        const above = order
+          .slice(0, order.indexOf(`f:${invoice}`))
+          .filter((k) => k.startsWith("h:"))
+          .at(-1);
+        expect(above, `${at}: the flow's heading`).toBe("h:today");
+        expect(
+          await shown([['[data-heading="today"] [data-name-text]', nameCell]]),
+          `${at}: the Today heading`,
+        ).toEqual([visible]);
         // The tag: its word, its tooltip (where the recipe is), its glyph
         // drawn, and all of it painted inside the name cell.
         const tag = page.locator(tagSel);
@@ -1742,19 +1934,19 @@ describe("the Studio's screenshot set", () => {
           `${at}: the commits and the exports`,
         ).toEqual([visible, visible, visible, visible]);
 
-        // The cards: the same Kept section first, the tag on the card's
-        // picture, and the commits in its opened versions.
+        // The cards: the same day sections with no kept one, the flow in
+        // Today, the tag on the card's picture, and the commits in its
+        // opened versions.
         at = `library kept cards ${wh}`;
         await openPage(page, studio, "library", editorTake, new Set(), 6);
         const card = `article[data-video="${invoice}"]`;
-        expect(
-          await page.evaluate(() =>
-            [...document.querySelectorAll<HTMLElement>("[data-section]")].map(
-              (x) => x.dataset.section,
-            ),
+        const sections = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>("[data-section]")].map(
+            (x) => x.dataset.section,
           ),
-          at,
-        ).toEqual(expect.arrayContaining(["kept", "today"]));
+        );
+        expect(sections, `${at}: premise: Today is listed`).toContain("today");
+        expect(sections, `${at}: no kept section`).not.toContain("kept");
         expect(
           await page.evaluate(
             (sel) =>
@@ -1763,16 +1955,8 @@ describe("the Studio's screenshot set", () => {
                 ?.closest<HTMLElement>("[data-section]")?.dataset.section,
             card,
           ),
-          at,
-        ).toBe("kept");
-        expect(
-          await page.evaluate(
-            () =>
-              document.querySelector<HTMLElement>("[data-section]")?.dataset
-                .section,
-          ),
-          `${at}: Kept is the first section`,
-        ).toBe("kept");
+          `${at}: the kept card sits in Today`,
+        ).toBe("today");
         await page.locator(`${card} .versions-count`).click();
         const version = (id: string) => `${card} [data-version-row="${id}"]`;
         await page.locator(version(v1)).scrollIntoViewIfNeeded();
@@ -2798,6 +2982,1615 @@ describe("the Studio's screenshot set", () => {
     LANE_MS,
   );
 
+  // The library by project (spec 2026-11-01-library-projects-design): the
+  // rail, each tab, a day ticked through its heading's box, the layout
+  // toggle in the tab row, and the owner line over a project's name, at the
+  // laptop sizes, a short window and a narrow one. Asserted on the paint.
+  it.runIf(process.platform === "darwin")(
+    "shoots the projects rail, each tab, a ticked day and the toggle in the tab row, each asserted on its paint",
+    async () => {
+      const { home, invoice } = await seedProjects();
+      await mkdir(SHOTS, { recursive: true });
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      // The premise, as the studio answers it: three project keys, flows in
+      // no project, and the one kept flow.
+      const takes = await api(studio, pathFor("takes"));
+      expect(takes.status, takes.text).toBe(200);
+      const answer = takes.json() as TakesAnswer;
+      const keys = answer.videos.map((v) =>
+        "key" in v.repo ? v.repo.key : null,
+      );
+      expect(
+        [...new Set(keys.filter((k) => k !== null))].sort(),
+        JSON.stringify(answer.videos),
+      ).toEqual([ACME, GLOBEX, LOCAL]);
+      // The studio wraps every take in a flow, so each card is a video; the
+      // ones with no repo key are No project.
+      const noKey = keys.filter((k) => k === null).length;
+      expect(noKey, "premise: flows in no project").toBeGreaterThan(0);
+      expect(
+        answer.videos.filter((v) => v.kept !== null).map((v) => v.id),
+        "premise: one kept flow",
+      ).toEqual([invoice]);
+      const acmeFlows = keys.filter((k) => k === ACME).length;
+      expect(acmeFlows, "premise: acme/web has two flows").toBe(2);
+      const counts = {
+        all: answer.videos.length,
+        acme: acmeFlows,
+        none: noKey,
+        globex: keys.filter((k) => k === GLOBEX).length,
+        local: keys.filter((k) => k === LOCAL).length,
+        unreadable: answer.unreadable.length,
+      };
+      expect(counts.globex, "premise: globex/api has one flow").toBe(1);
+      expect(counts.local, "premise: the unpushed repo has one flow").toBe(1);
+      expect(counts.unreadable, "premise: one folder would not read").toBe(1);
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+        200,
+      );
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      const shots: string[] = [];
+      const FLOWS = "[data-list] [role=row][data-scene]:not([data-video-row])";
+      const acmeAt = `${studio.origin}/${placeSearch({ project: ACME })}`;
+      type Look = {
+        /** How many flow rows (and takes in no flow) the place lists. */
+        rows: number;
+        /** The pressed tab, or null when the place shows none. */
+        tab: "inRepo" | "notInRepo" | "all" | null;
+        /** The place pressed in the rail. */
+        place: string;
+        /** The owner line over the title, or null when the place has none. */
+        owner: string | null;
+        /** The title is a local project's: a name and a dim "local". */
+        local?: boolean;
+        /** A date heading carries a select-all box. */
+        box: boolean;
+        /** The kept flow's "In repo" tag keeps its glyph, painted. */
+        tagGlyph?: boolean;
+      };
+      const open = async (url: string, at: string, tab: string | null) => {
+        await page.goto(url);
+        if (tab !== null) await page.locator(`[data-tab="${tab}"]`).click();
+        try {
+          await vi.waitFor(
+            async () => {
+              const cards = await page
+                .locator("article.card[data-row]")
+                .count();
+              const rows = await page.locator(FLOWS).count();
+              if (cards !== 0 || rows === 0) {
+                throw new Error(`${cards} cards, ${rows} rows`);
+              }
+            },
+            { timeout: PAINT_MS, interval: 100 },
+          );
+        } catch (error) {
+          throw new Error(
+            `${at}: the list did not paint: ${String(error)}; page: ${await pageEvidence(page)}; log: ${studio.logs.join("\n")}`,
+          );
+        }
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+      };
+      const maxLuma = async (b: number[]) => {
+        const [l, t, r, bt] = b as [number, number, number, number];
+        const pts: [number, number][] = [];
+        for (let y = t; y <= bt; y += 1) {
+          for (let x = l; x <= r; x += 1) pts.push([x, y]);
+        }
+        return Math.max(...(await pixelsAt(page, pts)).map(luma));
+      };
+      // The rail's places as painted in `scope` (the rail, or the switcher's
+      // open menu): the fixture's words and counts, one to a row, and the
+      // dim part of a project's name dimmer than the name beside it, on the
+      // computed colours and on the pixels.
+      const railLook = async (scope: string, at: string) => {
+        const railItems = await page.evaluate(
+          (scope) =>
+            [
+              ...document.querySelectorAll<HTMLElement>(
+                `${scope} .side-list > *`,
+              ),
+            ].map((c) => ({
+              // textContent: a project's label is a flex row, whose
+              // parts innerText puts on lines of their own.
+              text: [
+                c.querySelector(".side-label")?.textContent ?? "",
+                c.querySelector(".side-count")?.textContent ?? "",
+              ].join(" "),
+              top: Math.round(c.getBoundingClientRect().top),
+            })),
+          scope,
+        );
+        const ev = `${at}: ${JSON.stringify(railItems)}`;
+        expect(
+          railItems.map((r) => r.text),
+          `${at}: the places' labels and counts ${ev}`,
+        ).toEqual([
+          `All flows ${counts.all}`,
+          `acme/web ${counts.acme}`,
+          `globex/api ${counts.globex}`,
+          `scratch local ${counts.local}`,
+          `No project ${counts.none}`,
+          `Couldn't read ${counts.unreadable}`,
+        ]);
+        // One item to a row, top to bottom in the order above.
+        const tops = railItems.map((r) => r.top);
+        expect(
+          tops.every((t, i) => i === 0 || t - (tops[i - 1] as number) > 2),
+          `${at}: each place has its own row ${ev}`,
+        ).toBe(true);
+        // The dim part of a project's name reads dimmer than the name beside
+        // it in every rail state, on the computed colours and on the pixels.
+        const dims = await page.evaluate((scope) => {
+          const box = (e: Element) => {
+            const r = e.getBoundingClientRect();
+            return [r.left, r.top, r.right, r.bottom].map(Math.round);
+          };
+          const rgb = (e: Element) =>
+            (getComputedStyle(e).color.match(/[\d.]+/g) ?? [])
+              .slice(0, 3)
+              .map(Number);
+          return [
+            ...document.querySelectorAll<HTMLElement>(`${scope} .side-item`),
+          ].flatMap((a) => {
+            const dim = a.querySelector(".proj-dim");
+            const name = a.querySelector(".place-name");
+            if (dim === null || name === null) return [];
+            return [
+              {
+                text: [
+                  a.querySelector(".side-label")?.textContent ?? "",
+                  a.querySelector(".side-count")?.textContent ?? "",
+                ].join(" "),
+                current: a.getAttribute("aria-current") === "true",
+                dim: { rgb: rgb(dim), box: box(dim) },
+                name: { rgb: rgb(name), box: box(name) },
+              },
+            ];
+          });
+        }, scope);
+        const unselected = dims.filter((d) => !d.current);
+        expect(
+          dims.map((d) => d.text),
+          `${at}: premise: the owner/repo items and the local one carry a dim part`,
+        ).toEqual([
+          `acme/web ${counts.acme}`,
+          `globex/api ${counts.globex}`,
+          `scratch local ${counts.local}`,
+        ]);
+        expect(
+          unselected.length,
+          `${at}: premise: at most one of them is current, the rest are unselected`,
+        ).toBeGreaterThanOrEqual(2);
+        for (const d of dims) {
+          const step =
+            luma(d.name.rgb as [number, number, number]) -
+            luma(d.dim.rgb as [number, number, number]);
+          expect(
+            step,
+            `${at}: "${d.text}"'s dim part is dimmer than its name by a visible step ${JSON.stringify(d)}`,
+          ).toBeGreaterThanOrEqual(30);
+          const dimPx = await maxLuma(d.dim.box);
+          const namePx = await maxLuma(d.name.box);
+          expect(
+            dimPx,
+            `${at}: "${d.text}"'s dim part is painted over the ground`,
+          ).toBeGreaterThan(60);
+          expect(
+            namePx - dimPx,
+            `${at}: "${d.text}": the name's pixels are brighter than the dim part's (${namePx} vs ${dimPx})`,
+          ).toBeGreaterThanOrEqual(15);
+        }
+      };
+      const shoot = async (name: string, at: string, look: Look) => {
+        const shot = join(SHOTS, `library-projects-${name}-dark.png`);
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        const p = await painted(page);
+        expect(p.theme, `${at}: the page's theme`).toBe("dark");
+        expect(
+          p.scrollWidth,
+          `${at}: no sideways scroll (${JSON.stringify(p)})`,
+        ).toBeLessThanOrEqual(p.innerWidth);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        // Under 1024px the rail folds into the title band's switcher (spec
+        // 2026-11-01, Addendum): the place is named by its button, and the
+        // rail's places are its menu's.
+        const narrow = p.innerWidth < 1024;
+        const band = narrow ? "[data-place-switch]" : "[data-place-title]";
+        const seen = await page.evaluate(
+          ([flow, band]) => {
+            const drawn = (s: string) =>
+              (document.querySelector(s)?.getClientRects().length ?? 0) > 0;
+            const glyph = document.querySelector(
+              `[data-list] [data-flow="${flow}"] [data-kept] svg`,
+            );
+            let tagGlyphPainted: boolean | null = null;
+            if (glyph !== null) {
+              const g = glyph.getBoundingClientRect();
+              const hit = document.elementFromPoint(
+                g.left + g.width / 2,
+                g.top + g.height / 2,
+              );
+              tagGlyphPainted =
+                g.width > 0 && hit !== null && !!hit.closest("[data-kept]");
+            }
+            const rect = (s: string) =>
+              document.querySelector(s)?.getBoundingClientRect() ?? null;
+            const centre = (r: DOMRect) =>
+              [r.left + r.width / 2, r.top + r.height / 2] as const;
+            const row = rect("[data-tabs-row]");
+            const toggle = rect("[data-layout-toggle]");
+            const button = document.querySelector(
+              "[data-layout-toggle] button",
+            );
+            let toggleHit = false;
+            if (button !== null) {
+              const [x, y] = centre(button.getBoundingClientRect());
+              const hit = document.elementFromPoint(x, y);
+              toggleHit = hit !== null && button.contains(hit);
+            }
+            const box = document.querySelector<HTMLInputElement>(
+              "[data-heading] [data-select-group]",
+            );
+            let boxHit: boolean | null = null;
+            if (box !== null) {
+              const [x, y] = centre(box.getBoundingClientRect());
+              boxHit = document.elementFromPoint(x, y) === box;
+            }
+            const owner = document.querySelector<HTMLElement>(
+              `${band} [data-place-owner]`,
+            );
+            const name = rect(`${band} [data-place-name]`);
+            const railBox = rect("[data-rail]");
+            const bandBox = rect(band);
+            const switcher = document.querySelector("[data-place-switch]");
+            let switchHit = false;
+            if (switcher !== null) {
+              const [x, y] = centre(switcher.getBoundingClientRect());
+              const hit = document.elementFromPoint(x, y);
+              switchHit = hit !== null && switcher.contains(hit);
+            }
+            let ownerSeen: {
+              text: string | null;
+              onScreen: boolean;
+              hit: boolean;
+              clipped: string[];
+              leftOfName: boolean;
+              clearOfRail: boolean;
+              inBand: boolean;
+              rect: number[];
+            } | null = null;
+            if (owner !== null) {
+              const o = owner.getBoundingClientRect();
+              const [x, y] = centre(o);
+              const hit = document.elementFromPoint(x, y);
+              // An ancestor that clips (overflow other than visible) and does
+              // not hold the whole line.
+              const clipped: string[] = [];
+              for (
+                let a = owner.parentElement;
+                a !== null;
+                a = a.parentElement
+              ) {
+                const cs = getComputedStyle(a);
+                if (cs.overflowX === "visible" && cs.overflowY === "visible") {
+                  continue;
+                }
+                const r = a.getBoundingClientRect();
+                if (
+                  o.left < r.left - 0.5 ||
+                  o.right > r.right + 0.5 ||
+                  o.top < r.top - 0.5 ||
+                  o.bottom > r.bottom + 0.5
+                ) {
+                  clipped.push(`${a.tagName.toLowerCase()}.${a.className}`);
+                }
+              }
+              ownerSeen = {
+                text: owner.textContent,
+                onScreen:
+                  o.width > 0 &&
+                  o.height > 0 &&
+                  o.top >= 0 &&
+                  o.left >= 0 &&
+                  o.right <= innerWidth &&
+                  o.bottom <= innerHeight,
+                hit: hit !== null && owner.contains(hit),
+                clipped,
+                leftOfName:
+                  name !== null &&
+                  o.right <= name.left + 0.5 &&
+                  o.top < name.bottom &&
+                  o.bottom > name.top,
+                clearOfRail:
+                  railBox !== null &&
+                  (o.bottom <= railBox.top + 0.5 ||
+                    o.top >= railBox.bottom - 0.5 ||
+                    o.right <= railBox.left + 0.5 ||
+                    o.left >= railBox.right - 0.5),
+                // Across, inside the title band's element; down, its middle
+                // there (a glyph's box stands taller than a line of 1).
+                inBand:
+                  bandBox !== null &&
+                  o.left >= bandBox.left - 0.5 &&
+                  o.right <= bandBox.right + 0.5 &&
+                  y >= bandBox.top &&
+                  y <= bandBox.bottom,
+                rect: [o.left, o.top, o.right, o.bottom].map(Math.round),
+              };
+            }
+            return {
+              rows: document.querySelectorAll(
+                "[data-list] [role=row][data-scene]:not([data-video-row])",
+              ).length,
+              // Only the tabs that are painted: a hidden row keeps its state.
+              pressedTabs: [
+                ...document.querySelectorAll<HTMLElement>(
+                  "[data-tab][aria-pressed='true']",
+                ),
+              ]
+                .filter((b) => b.getClientRects().length > 0)
+                .map((b) => b.dataset.tab),
+              // The rail's, or the switcher menu's: the one the width uses.
+              place:
+                document
+                  .querySelector(
+                    `${band === "[data-place-switch]" ? "[data-place-menu]" : "[data-rail]"} [data-place][aria-current="true"]`,
+                  )
+                  ?.getAttribute("data-place") ?? null,
+              railDrawn: drawn("[data-rail]"),
+              switchDrawn: drawn("[data-place-switch]"),
+              plainTitleDrawn: drawn("[data-place-title]"),
+              switchHit,
+              plainTitleText:
+                document.querySelector("[data-place-title]")?.textContent ??
+                null,
+              switchText:
+                switcher?.querySelector(".place-switch-name")?.textContent ??
+                null,
+              rowInside:
+                row !== null &&
+                toggle !== null &&
+                toggle.left >= row.left - 0.5 &&
+                toggle.right <= row.right + 0.5 &&
+                toggle.top >= row.top - 0.5 &&
+                toggle.bottom <= row.bottom + 0.5,
+              rects: { row, toggle },
+              toggleHit,
+              boxHit,
+              ownerSeen,
+              tagGlyphPainted,
+            };
+          },
+          [invoice, band] as const,
+        );
+        const ev = `${at}: ${JSON.stringify(seen)}`;
+        expect(seen.rows, `${at}: the flows listed ${ev}`).toBe(look.rows);
+        expect(seen.place, `${at}: the rail's current place ${ev}`).toBe(
+          look.place,
+        );
+        expect(seen.pressedTabs, `${at}: the pressed tab ${ev}`).toEqual(
+          look.tab === null ? [] : [look.tab],
+        );
+        expect(
+          seen.rowInside,
+          `${at}: the toggle sits in the tab row ${ev}`,
+        ).toBe(true);
+        expect(
+          seen.toggleHit,
+          `${at}: the toggle is painted, not under the row ${ev}`,
+        ).toBe(true);
+        expect(
+          seen.boxHit,
+          `${at}: the heading's box is its own at its centre ${ev}`,
+        ).toBe(look.box ? true : null);
+        // Premise: the rail is built at every width, so its not being drawn
+        // under 1024px is the stylesheet's rule, not an empty rail.
+        expect(p.rail.length, `${at}: the rail has items`).toBeGreaterThan(0);
+        if (narrow) {
+          expect(
+            p.rail.some((r) => r.painted),
+            `${at}: no rail item is painted ${JSON.stringify(p.rail)}`,
+          ).toBe(false);
+          expect(
+            {
+              railDrawn: seen.railDrawn,
+              switchDrawn: seen.switchDrawn,
+              switchHit: seen.switchHit,
+              plainTitleDrawn: seen.plainTitleDrawn,
+            },
+            `${at}: the switcher, not the rail ${ev}`,
+          ).toEqual({
+            railDrawn: false,
+            switchDrawn: true,
+            switchHit: true,
+            plainTitleDrawn: false,
+          });
+          // The button names the place as the plain title would.
+          expect(seen.plainTitleText, `${at}: premise: a title`).toBeTruthy();
+          expect(seen.switchText, `${at}: the button's words ${ev}`).toBe(
+            seen.plainTitleText,
+          );
+          // The menu is closed until it is pressed.
+          expect(
+            await page
+              .locator("[data-place-menu]")
+              .evaluate((m) => m.matches(":popover-open")),
+            `${at}: the menu is closed`,
+          ).toBe(false);
+          expect(
+            await page
+              .locator("[data-place-switch]")
+              .getAttribute("aria-expanded"),
+            `${at}: the button says the menu is closed`,
+          ).toBe("false");
+        } else {
+          expect(
+            p.rail.every((r) => r.painted),
+            `${at}: rail ${JSON.stringify(p.rail)}`,
+          ).toBe(true);
+          expect(
+            { railDrawn: seen.railDrawn, switchDrawn: seen.switchDrawn },
+            `${at}: the rail, not the switcher ${ev}`,
+          ).toEqual({ railDrawn: true, switchDrawn: false });
+          await railLook("[data-rail]", at);
+        }
+        if (look.local === true) {
+          const loc = await page.evaluate((band) => {
+            const e = document.querySelector<HTMLElement>(
+              `${band} [data-place-local]`,
+            );
+            const n = document.querySelector(`${band} [data-place-name]`);
+            if (e === null || n === null) return null;
+            const r = e.getBoundingClientRect();
+            const nr = n.getBoundingClientRect();
+            return {
+              text: e.textContent,
+              rect: [r.left, r.top, r.right, r.bottom].map(Math.round),
+              rightOfName: r.left >= nr.right - 0.5,
+              sameLine: r.top < nr.bottom && r.bottom > nr.top,
+              nameRect: [nr.left, nr.top, nr.right, nr.bottom].map(Math.round),
+            };
+          }, band);
+          expect(
+            loc?.text,
+            `${at}: the title's local marker ${JSON.stringify(loc)}`,
+          ).toBe(" local");
+          expect(
+            loc,
+            `${at}: the marker follows the name on its line`,
+          ).toMatchObject({
+            rightOfName: true,
+            sameLine: true,
+          });
+          const dimPx = await maxLuma((loc as { rect: number[] }).rect);
+          const namePx = await maxLuma(
+            (loc as { nameRect: number[] }).nameRect,
+          );
+          expect(
+            dimPx,
+            `${at}: the local marker is painted over the ground`,
+          ).toBeGreaterThan(60);
+          expect(
+            namePx - dimPx,
+            `${at}: the title's name is brighter than its local marker (${namePx} vs ${dimPx})`,
+          ).toBeGreaterThanOrEqual(15);
+        }
+        if (look.tagGlyph === true) {
+          expect(
+            seen.tagGlyphPainted,
+            `${at}: the kept flow's tag keeps its glyph, painted ${ev}`,
+          ).toBe(true);
+        }
+        if (look.owner === null) {
+          expect(seen.ownerSeen, `${at}: no owner line`).toBeNull();
+          return;
+        }
+        const o = seen.ownerSeen;
+        expect(o?.text, `${at}: the owner line ${ev}`).toBe(look.owner);
+        expect(o, `${at}: the owner line is painted ${ev}`).toMatchObject({
+          onScreen: true,
+          hit: true,
+          clipped: [],
+          leftOfName: true,
+          clearOfRail: true,
+          inBand: true,
+        });
+        // The pixels: its text is lighter than the ground around it.
+        const [l, t, r, b] = (o as { rect: number[] }).rect as [
+          number,
+          number,
+          number,
+          number,
+        ];
+        const pts: [number, number][] = [];
+        for (let y = t; y <= b; y += 2) {
+          for (let x = l; x <= r; x += 2) pts.push([x, y]);
+        }
+        const lumas = (await pixelsAt(page, pts)).map(luma);
+        expect(
+          Math.max(...lumas) - Math.min(...lumas),
+          `${at}: the owner line's text is painted over the ground ${ev}`,
+        ).toBeGreaterThan(40);
+      };
+      const acme = placeSearch({ project: ACME });
+
+      for (const size of SIZES) {
+        const wh = `${size.width}x${size.height}`;
+        await sizeWindow(context, page, size.width, size.height);
+        await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        let at = `projects all ${wh}`;
+        await open(`${studio.origin}/${placeSearch("all")}`, at, null);
+        await shoot(`all-${wh}`, at, {
+          rows: counts.all,
+          tab: "all",
+          place: placeSearch("all"),
+          owner: null,
+          box: true,
+        });
+        for (const [tab, rows] of [
+          ["inRepo", 1],
+          ["notInRepo", 1],
+          ["all", counts.acme],
+        ] as const) {
+          at = `projects acme/web ${tab} ${wh}`;
+          await open(acmeAt, at, tab);
+          await shoot(`acme-${tab}-${wh}`, at, {
+            rows,
+            tab,
+            place: acme,
+            owner: "acme/",
+            box: true,
+          });
+        }
+        at = `projects none ${wh}`;
+        await open(`${studio.origin}/${placeSearch("none")}`, at, null);
+        await shoot(`none-${wh}`, at, {
+          rows: counts.none,
+          tab: null,
+          place: placeSearch("none"),
+          owner: null,
+          box: true,
+        });
+        // A day ticked through its heading's box; the bar reads its count.
+        at = `projects acme/web a ticked day ${wh}`;
+        await open(acmeAt, at, "all");
+        const heading = page.locator("[data-heading]").first();
+        await heading.hover();
+        const group = heading.locator("[data-select-group]");
+        const ids = JSON.parse(
+          (await group.getAttribute("data-select-group")) as string,
+        ) as string[];
+        expect(ids.length, `${at}: premise: the day holds both flows`).toBe(2);
+        await group.click();
+        try {
+          await vi.waitFor(
+            async () => {
+              const said = await page
+                .locator("[data-selection-count]")
+                .textContent({ timeout: 1000 });
+              if (said !== "2 flows selected") {
+                throw new Error(`the bar says ${said}`);
+              }
+            },
+            { timeout: PAINT_MS, interval: 100 },
+          );
+        } catch (error) {
+          throw new Error(
+            `${at}: ${String(error)}; page: ${await pageEvidence(page)}`,
+          );
+        }
+        expect(
+          await group.isChecked(),
+          `${at}: the heading's box is ticked`,
+        ).toBe(true);
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        await shoot(`ticked-${wh}`, at, {
+          rows: counts.acme,
+          tab: "all",
+          place: acme,
+          owner: "acme/",
+          box: true,
+        });
+      }
+
+      // A short window, and the narrow one, where the switcher's button
+      // names the project in the title band.
+      for (const [w, h] of [
+        [1280, 800],
+        [720, 900],
+      ] as const) {
+        const at = `projects acme/web ${w}x${h}`;
+        await sizeWindow(context, page, w, h);
+        await open(acmeAt, at, "all");
+        await shoot(`acme-all-${w}x${h}`, at, {
+          rows: counts.acme,
+          tab: "all",
+          place: acme,
+          owner: "acme/",
+          box: true,
+          tagGlyph: w === 720,
+        });
+      }
+
+      // A local project's title: its folder name and a dim "local".
+      for (const [w, h] of [
+        [1440, 900],
+        [720, 900],
+      ] as const) {
+        const at = `projects local ${w}x${h}`;
+        await sizeWindow(context, page, w, h);
+        await open(
+          `${studio.origin}/${placeSearch({ project: LOCAL })}`,
+          at,
+          "all",
+        );
+        await shoot(`local-${w}x${h}`, at, {
+          rows: counts.local,
+          tab: "all",
+          place: placeSearch({ project: LOCAL }),
+          owner: null,
+          local: true,
+          box: true,
+        });
+      }
+
+      // The narrow switcher opened (spec 2026-11-01, Addendum): the rail's
+      // places with their counts in a menu over the list, the current one
+      // marked. Esc and a click outside close it; a pick, by click or by
+      // keyboard, changes the place and saves the pick.
+      {
+        const at = "projects switcher 720x900";
+        await sizeWindow(context, page, 720, 900);
+        await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        await open(acmeAt, at, "all");
+        const button = page.locator("[data-place-switch]");
+        const menu = page.locator("[data-place-menu]");
+        const state = () =>
+          page.evaluate(() => ({
+            open:
+              document
+                .querySelector("[data-place-menu]")
+                ?.matches(":popover-open") ?? null,
+            expanded: document
+              .querySelector("[data-place-switch]")
+              ?.getAttribute("aria-expanded"),
+            focus:
+              document.activeElement === null
+                ? null
+                : document.activeElement.matches("[data-place-switch]")
+                  ? "switch"
+                  : (document.activeElement.getAttribute("data-place") ??
+                    document.activeElement.tagName),
+            search: location.search,
+            title:
+              document.querySelector("[data-place-title]")?.textContent ?? null,
+          }));
+        const until = async (
+          what: string,
+          ok: (s: Awaited<ReturnType<typeof state>>) => boolean,
+        ) => {
+          try {
+            await vi.waitFor(
+              async () => {
+                const now = await state();
+                if (!ok(now)) throw new Error(JSON.stringify(now));
+              },
+              { timeout: PAINT_MS, interval: 50 },
+            );
+          } catch (error) {
+            throw new Error(
+              `${at}: ${what}: ${String(error)}; page: ${await pageEvidence(page)}`,
+            );
+          }
+        };
+        const saved = async () =>
+          (
+            (await api(studio, "/api/settings/library-view")).json() as {
+              view: LibraryViewChoice;
+            }
+          ).view.project;
+        const places = [
+          placeSearch("all"),
+          acme,
+          placeSearch({ project: GLOBEX }),
+          placeSearch({ project: LOCAL }),
+          placeSearch("none"),
+          placeSearch("unreadable"),
+        ];
+        expect(await saved(), `${at}: premise: no pick saved`).toBeNull();
+        await button.click();
+        await until(
+          "the button opens the menu, on the current place",
+          (s) => s.open === true && s.expanded === "true" && s.focus === acme,
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        const shot = join(
+          SHOTS,
+          "library-projects-switcher-open-720x900-dark.png",
+        );
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        const m = await menu.evaluate((menu) => {
+          const r = menu.getBoundingClientRect();
+          const b = (
+            document.querySelector("[data-place-switch]") as Element
+          ).getBoundingClientRect();
+          const under = [
+            document.querySelector("[data-tabs-row]"),
+            document.querySelector("[data-list]"),
+          ].flatMap((e) => (e === null ? [] : [e.getBoundingClientRect()]));
+          return {
+            rect: [r.left, r.top, r.right, r.bottom].map(Math.round),
+            inWindow:
+              r.left >= 0 &&
+              r.top >= 0 &&
+              r.right <= innerWidth &&
+              r.bottom <= innerHeight,
+            underButton: r.top >= b.bottom - 0.5,
+            clipped: menu.scrollHeight > menu.clientHeight + 0.5,
+            items: [...menu.querySelectorAll<HTMLElement>("[data-place]")].map(
+              (a) => {
+                const ir = a.getBoundingClientRect();
+                const hit = document.elementFromPoint(
+                  ir.left + ir.width / 2,
+                  ir.top + ir.height / 2,
+                );
+                return {
+                  place: a.dataset.place,
+                  role: a.getAttribute("role"),
+                  current: a.getAttribute("aria-current") === "true",
+                  hit: hit !== null && a.contains(hit),
+                  inside:
+                    ir.top >= r.top - 0.5 &&
+                    ir.bottom <= r.bottom + 0.5 &&
+                    ir.left >= r.left - 0.5 &&
+                    ir.right <= r.right + 0.5,
+                  overPage: under.some(
+                    (u) =>
+                      ir.left < u.right &&
+                      ir.right > u.left &&
+                      ir.top < u.bottom &&
+                      ir.bottom > u.top,
+                  ),
+                  // A point in the row's left padding: its fill, not its text.
+                  fillAt: [
+                    Math.round(ir.left + 4),
+                    Math.round(ir.top + ir.height / 2),
+                  ],
+                };
+              },
+            ),
+          };
+        });
+        const ev = `${at}: ${JSON.stringify(m)}`;
+        expect(
+          m.items.map((i) => i.place),
+          `${at}: every place ${ev}`,
+        ).toEqual(places);
+        expect(
+          m.items.every((i) => i.role === "menuitem"),
+          ev,
+        ).toBe(true);
+        expect(
+          m.items.filter((i) => i.current).map((i) => i.place),
+          `${at}: the current place ${ev}`,
+        ).toEqual([acme]);
+        // Premise: the menu lies over the tab row or the list, so a hit on
+        // each row is the menu painted on top, not a clear patch of page.
+        expect(
+          m.items.some((i) => i.overPage),
+          `${at}: premise: over the list ${ev}`,
+        ).toBe(true);
+        expect(
+          m.items.every((i) => i.hit),
+          `${at}: every row painted on top ${ev}`,
+        ).toBe(true);
+        expect(
+          m.items.every((i) => i.inside),
+          `${at}: every row inside the menu ${ev}`,
+        ).toBe(true);
+        expect(
+          {
+            inWindow: m.inWindow,
+            underButton: m.underButton,
+            clipped: m.clipped,
+          },
+          `${at}: the menu in the window, under its button, not cut ${ev}`,
+        ).toEqual({ inWindow: true, underButton: true, clipped: false });
+        // The current row's fill is its own on the pixels.
+        const fills = (
+          await pixelsAt(
+            page,
+            m.items.map((i) => i.fillAt as [number, number]),
+          )
+        ).map(luma);
+        const currentFill = fills[1] as number;
+        for (const [i, f] of fills.entries()) {
+          if (i === 1) continue;
+          expect(
+            currentFill - f,
+            `${at}: the current row's fill reads apart from ${places[i]}'s (${fills.join(", ")})`,
+          ).toBeGreaterThanOrEqual(4);
+        }
+        await railLook("[data-place-menu]", at);
+
+        // Esc closes it and gives the button the keyboard back. The lime
+        // probe above blurred the row the menu opened on; it goes back
+        // there first, where opening the menu had put it.
+        await menu.locator(`[data-place="${acme}"]`).focus();
+        await until(
+          "premise: the keyboard is in the menu",
+          (s) => s.open === true && s.focus === acme,
+        );
+        await page.keyboard.press("Escape");
+        await until(
+          "Esc closes the menu",
+          (s) =>
+            s.open === false && s.expanded === "false" && s.focus === "switch",
+        );
+        // A click outside closes it and picks nothing.
+        await button.click();
+        await until("it opens again", (s) => s.open === true);
+        await page.mouse.click(700, 880);
+        await until(
+          "a click outside closes it",
+          (s) => s.open === false && s.expanded === "false",
+        );
+        expect((await state()).search, `${at}: nothing picked`).toBe(acme);
+        expect(await saved(), `${at}: nothing saved`).toBeNull();
+
+        // A click on a place picks it, as the rail's click does.
+        await button.click();
+        await until("it opens to pick", (s) => s.open === true);
+        await menu.locator(`[data-place="${places[2]}"]`).click();
+        await until(
+          "a click picks globex/api",
+          (s) =>
+            s.open === false &&
+            s.search === places[2] &&
+            s.title === "globex/api",
+        );
+        expect(
+          await button.textContent(),
+          `${at}: the button names the pick`,
+        ).toBe("globex/api");
+        await vi.waitFor(
+          async () => {
+            if ((await saved()) !== GLOBEX)
+              throw new Error(`saved ${await saved()}`);
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+
+        // And by keyboard: Enter on the button, End, Enter.
+        await button.focus();
+        await page.keyboard.press("Enter");
+        await until(
+          "Enter opens it on the current place",
+          (s) => s.open === true && s.focus === places[2],
+        );
+        await page.keyboard.press("End");
+        await until("End reaches the last place", (s) => s.focus === places[5]);
+        await page.keyboard.press("ArrowUp");
+        await until("ArrowUp steps back one", (s) => s.focus === places[4]);
+        await page.keyboard.press("Enter");
+        await until(
+          "Enter picks No project",
+          (s) =>
+            s.open === false &&
+            s.search === places[4] &&
+            s.title === "No project" &&
+            s.focus === "switch",
+        );
+        await vi.waitFor(
+          async () => {
+            if ((await saved()) !== "none")
+              throw new Error(`saved ${await saved()}`);
+          },
+          { timeout: PAINT_MS, interval: 50 },
+        );
+      }
+
+      // The grid: a date heading's box sits inside the section's summary,
+      // so its click and Space tick the day without folding the section.
+      {
+        const at = "projects grid 1440x900";
+        await sizeWindow(context, page, 1440, 900);
+        await storeLibraryView(studio, GRID_VIEW);
+        await page.goto(acmeAt);
+        const section = page.locator("details.section[data-section]").first();
+        await section.waitFor();
+        const box = section.locator("summary [data-select-group]");
+        const opens = () =>
+          section.evaluate((d) => (d as HTMLDetailsElement).open);
+        const bar = async (want: string | null) => {
+          try {
+            await vi.waitFor(
+              async () => {
+                const said = await page
+                  .locator("[data-selection-count]")
+                  .textContent({ timeout: 1000 })
+                  .catch(() => null);
+                if (said !== want) throw new Error(`the bar says ${said}`);
+              },
+              { timeout: PAINT_MS, interval: 100 },
+            );
+          } catch (error) {
+            throw new Error(
+              `${at}: ${String(error)}; open ${await opens()}; page: ${await pageEvidence(page)}`,
+            );
+          }
+        };
+        expect(await opens(), `${at}: premise: the section is open`).toBe(true);
+        expect(
+          (
+            JSON.parse(
+              (await box.getAttribute("data-select-group")) as string,
+            ) as string[]
+          ).length,
+          `${at}: premise: the box holds the day's two flows`,
+        ).toBe(2);
+        await section.locator("summary.section-head").hover();
+        await box.click();
+        await bar("2 flows selected");
+        expect(await box.isChecked(), `${at}: the click ticked it`).toBe(true);
+        expect(await opens(), `${at}: the click did not fold the section`).toBe(
+          true,
+        );
+        await box.click();
+        await bar(null);
+        await box.focus();
+        await page.keyboard.press("Space");
+        await bar("2 flows selected");
+        expect(await box.isChecked(), `${at}: Space ticked it`).toBe(true);
+        expect(await opens(), `${at}: Space did not fold the section`).toBe(
+          true,
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        const shot = join(
+          SHOTS,
+          "library-projects-grid-ticked-1440x900-dark.png",
+        );
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        const hit = await box.evaluate((b) => {
+          const r = b.getBoundingClientRect();
+          return (
+            document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            ) === b
+          );
+        });
+        expect(hit, `${at}: the grid heading's box is painted`).toBe(true);
+      }
+      expect(shots).toHaveLength(SIZES.length * 6 + 6);
+      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
+
+  // The library's search box (spec 2026-11-02 library-search): a word only
+  // one flow's steps hold, typed in All flows, at the projects home. The
+  // results, the why beside the flow, the box in the tab row and the
+  // address, each on its paint; the same results after a reload; and the
+  // same word in a project that has none of it.
+  it.runIf(process.platform === "darwin")(
+    "shoots a search in the tab row, its results and why they matched, each asserted on its paint",
+    async () => {
+      const { home, globex } = await seedProjects();
+      await mkdir(SHOTS, { recursive: true });
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      // The premise, as the studio lists it: the word is in the globex
+      // flow's steps, and in no flow's name, page or other steps.
+      const takes = await api(studio, pathFor("takes"));
+      expect(takes.status, takes.text).toBe(200);
+      const { videos } = takes.json() as TakesAnswer;
+      const word = new RegExp(`\\b${SEARCHED}`, "i");
+      const listed = JSON.stringify(
+        videos.map((v) => ({ id: v.id, name: v.name, steps: v.steps })),
+      );
+      expect(
+        videos.find((v) => v.id === globex)?.steps,
+        `premise: the globex flow's steps hold the word ${listed}`,
+      ).toContain(`click ${RECONCILE}`);
+      expect(
+        videos.filter((v) => word.test(v.name)).map((v) => v.id),
+        `premise: no flow's name holds the word ${listed}`,
+      ).toEqual([]);
+      expect(
+        videos
+          .filter((v) => [...v.steps, ...v.pages].some((s) => word.test(s)))
+          .map((v) => v.id),
+        `premise: no other flow's steps or pages hold it ${listed}`,
+      ).toEqual([globex]);
+      expect(videos.length, "premise: more flows than the one").toBeGreaterThan(
+        1,
+      );
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+        200,
+      );
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      const shots: string[] = [];
+      const why = `step: …${SEARCHED} against the open invoices`;
+      const whyFull = `step: click ${RECONCILE}`;
+      // The listed flows (and takes in no flow), and the search's paint.
+      const look = () =>
+        page.evaluate((searched) => {
+          const centre = (r: DOMRect) =>
+            [r.left + r.width / 2, r.top + r.height / 2] as const;
+          const hits = (e: Element) => {
+            const r = e.getBoundingClientRect();
+            if (r.width === 0 || r.height === 0) return false;
+            const hit = document.elementFromPoint(...centre(r));
+            return hit !== null && e.contains(hit);
+          };
+          const rect = (e: Element | null) => {
+            if (e === null) return null;
+            const r = e.getBoundingClientRect();
+            return [r.left, r.top, r.right, r.bottom].map(Math.round);
+          };
+          // The why against its cell: the whole sentence's width (the
+          // premise that it is cut), the name's painted width against its
+          // floor (35% of the cell, index.html), and the matched word inside
+          // the part of the why that is drawn, short of a cut why's "…".
+          const besideName = (w: HTMLElement, searched: string) => {
+            const cell = w.closest<HTMLElement>("[data-col]") as HTMLElement;
+            const style = getComputedStyle(cell);
+            const content =
+              cell.clientWidth -
+              Number.parseFloat(style.paddingLeft) -
+              Number.parseFloat(style.paddingRight);
+            const probe = document.createElement("span");
+            probe.className = "match-why";
+            probe.style.cssText = "position: absolute; max-width: none";
+            cell.append(probe);
+            probe.textContent = w.title;
+            const full = probe.getBoundingClientRect().width;
+            probe.textContent = "…";
+            const ellipsis = probe.getBoundingClientRect().width;
+            probe.remove();
+            const name = cell.querySelector("[data-name-text]");
+            const n = name?.getBoundingClientRect();
+            const floor = 0.35 * content;
+            const nameHit =
+              n === undefined
+                ? null
+                : document.elementFromPoint(
+                    n.left + floor - 2,
+                    n.top + n.height / 2,
+                  );
+            const text = w.firstChild as Text | null;
+            const i = text?.data.indexOf(searched) ?? -1;
+            const range = document.createRange();
+            if (text !== null && i >= 0) {
+              range.setStart(text, i);
+              range.setEnd(text, i + searched.length);
+            }
+            const r = range.getBoundingClientRect();
+            const drawnTo =
+              w.getBoundingClientRect().right -
+              (w.scrollWidth > w.clientWidth ? ellipsis : 0);
+            const wordHit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            return {
+              title: w.title,
+              cell: content,
+              full,
+              floor,
+              name: n?.width ?? null,
+              word: [r.left, r.right],
+              drawnTo,
+              fullWiderThanCell: full > content,
+              nameWiderThanFloor: name !== null && name.scrollWidth > floor,
+              nameAtFloor:
+                n !== undefined &&
+                n.width >= floor - 0.5 &&
+                nameHit !== null &&
+                (name?.contains(nameHit) ?? false),
+              wordPainted:
+                i >= 0 &&
+                r.width > 0 &&
+                r.right <= drawnTo + 0.5 &&
+                wordHit !== null &&
+                w.contains(wordHit),
+            };
+          };
+          const box = document.querySelector<HTMLInputElement>("[data-search]");
+          const row = document.querySelector("[data-tabs-row]");
+          const toggle = document.querySelector("[data-layout-toggle]");
+          const b = box?.getBoundingClientRect();
+          const t = toggle?.getBoundingClientRect();
+          const rw = row?.getBoundingClientRect();
+          return {
+            rows: [
+              ...document.querySelectorAll<HTMLElement>(
+                "[data-list] [role=row][data-scene]:not([data-video-row])",
+              ),
+            ].map((r) => ({
+              id: r.dataset.flow ?? r.dataset.take ?? "",
+              painted: hits(r),
+              // Each copy of the why: where it lives, its words, whether
+              // it is drawn and its own at its centre.
+              whys: [
+                ...r.querySelectorAll<HTMLElement>("[data-match-why]"),
+              ].map((w) => ({
+                slot: w.dataset.matchWhy,
+                text: w.textContent,
+                drawn: w.getClientRects().length > 0,
+                hit: hits(w),
+                // Painted whole: no ellipsis inside it, and its right edge
+                // inside its cell, so the cell's clip cuts nothing either.
+                whole:
+                  w.scrollWidth <= w.clientWidth &&
+                  w.getBoundingClientRect().right <=
+                    (w.closest("[data-col]")?.getBoundingClientRect().right ??
+                      0) +
+                      0.5,
+                rect: rect(w),
+                ...besideName(w, searched),
+              })),
+            })),
+            box:
+              box === null || b === undefined
+                ? null
+                : {
+                    value: box.value,
+                    hit: hits(box),
+                    inRow: row?.contains(box) === true,
+                    // Inside the row's box, and before the toggle: left of
+                    // it on its line, or on a line above it.
+                    insideRow:
+                      rw !== undefined &&
+                      b.left >= rw.left - 0.5 &&
+                      b.right <= rw.right + 0.5 &&
+                      b.top >= rw.top - 0.5 &&
+                      b.bottom <= rw.bottom + 0.5,
+                    beforeToggle:
+                      toggle !== null &&
+                      t !== undefined &&
+                      (box.compareDocumentPosition(toggle) &
+                        Node.DOCUMENT_POSITION_FOLLOWING) !==
+                        0 &&
+                      (b.right <= t.left + 0.5 || b.bottom <= t.top + 0.5),
+                    rect: rect(box),
+                    toggle: rect(toggle),
+                    row: rect(row),
+                  },
+            search: location.search,
+            list:
+              document.querySelector("[data-list]")?.getBoundingClientRect()
+                .width ?? null,
+          };
+        }, SEARCHED);
+      type Seen = Awaited<ReturnType<typeof look>>;
+      const until = async (
+        at: string,
+        what: string,
+        ok: (s: Seen) => boolean,
+      ) => {
+        try {
+          await vi.waitFor(
+            async () => {
+              const now = await look();
+              if (!ok(now)) throw new Error(JSON.stringify(now));
+            },
+            { timeout: PAINT_MS, interval: 50 },
+          );
+        } catch (error) {
+          throw new Error(
+            `${at}: ${what}: ${String(error)}; page: ${await pageEvidence(page)}; log: ${studio.logs.join("\n")}`,
+          );
+        }
+      };
+      const onlyGlobex = (s: Seen) =>
+        s.rows.length === 1 && s.rows[0]?.id === globex;
+      // The text inside a box is lighter than the ground it sits on.
+      const inked = async (box: number[]) => {
+        const [l, t, r, b] = box as [number, number, number, number];
+        const pts: [number, number][] = [];
+        for (let y = t; y <= b; y += 1) {
+          for (let x = l; x <= r; x += 2) pts.push([x, y]);
+        }
+        const lumas = (await pixelsAt(page, pts)).map(luma);
+        return Math.max(...lumas) - Math.min(...lumas);
+      };
+      const all = `${studio.origin}/${placeSearch("all")}`;
+      for (const [w, h] of [
+        [1440, 900],
+        [1280, 720],
+        [720, 900],
+      ] as const) {
+        const at = `search ${w}x${h}`;
+        await sizeWindow(context, page, w, h);
+        await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        await page.goto(all);
+        await until(at, "premise: All flows lists every flow", (s) =>
+          videos.every((v) => s.rows.some((r) => r.id === v.id)),
+        );
+        await page.locator("[data-search]").pressSequentially(SEARCHED);
+        await until(at, "the results are the globex flow alone", onlyGlobex);
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        const shot = join(SHOTS, `library-search-${w}x${h}-dark.png`);
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        const s = await look();
+        const ev = `${at}: ${JSON.stringify(s)}`;
+        // Premise: a list of 600 or more, where the box keeps its place in
+        // the row; under 600 it folds (the narrow pass below).
+        expect(
+          s.list,
+          `${at}: premise: the list's width ${ev}`,
+        ).toBeGreaterThanOrEqual(600);
+        const p = await painted(page);
+        expect(p.theme, `${at}: the page's theme`).toBe("dark");
+        expect(
+          p.scrollWidth,
+          `${at}: no sideways scroll (${JSON.stringify(p)})`,
+        ).toBeLessThanOrEqual(p.innerWidth);
+        expect(
+          s.rows.map((r) => ({ id: r.id, painted: r.painted })),
+          `${at}: the results ${ev}`,
+        ).toEqual([{ id: globex, painted: true }]);
+        // Both copies carry the why; the width shows one of them, wide the
+        // name cell's, under a 760px list Where's.
+        const whys = s.rows[0]?.whys ?? [];
+        expect(
+          whys.map((x) => [x.slot, x.text]),
+          `${at}: premise: the row carries the why twice ${ev}`,
+        ).toEqual([
+          ["name", why],
+          ["where", why],
+        ]);
+        expect(
+          whys.map((x) => x.title),
+          `${at}: premise: the whole step is in the title ${ev}`,
+        ).toEqual([whyFull, whyFull]);
+        const shown = whys.filter((x) => x.drawn);
+        // Beside the name it runs past its cap and is cut; in Where's
+        // place, over Videos and Length, it reads whole.
+        expect(
+          shown.map((x) => ({ slot: x.slot, hit: x.hit, whole: x.whole })),
+          `${at}: one copy of the why is painted, its own at its centre ${ev}`,
+        ).toEqual([
+          { slot: w === 720 ? "where" : "name", hit: true, whole: w === 720 },
+        ]);
+        // The matched word is painted, and wide, the name keeps its floor.
+        // Premise: the whole step is wider than the cell, so the why is
+        // cut, and the name wider than its floor, so the floor holds it.
+        expect(
+          shown.map((x) => ({
+            fullWiderThanCell: x.fullWiderThanCell,
+            nameWiderThanFloor: x.slot === "name" ? x.nameWiderThanFloor : null,
+          })),
+          `${at}: premise: the step wider than its cell, the name than its floor ${ev}`,
+        ).toEqual([
+          {
+            fullWiderThanCell: true,
+            nameWiderThanFloor: w === 720 ? null : true,
+          },
+        ]);
+        expect(
+          shown.map((x) => ({
+            wordPainted: x.wordPainted,
+            nameAtFloor: x.slot === "name" ? x.nameAtFloor : null,
+          })),
+          `${at}: the matched word painted, the name at least its floor ${ev}`,
+        ).toEqual([
+          { wordPainted: true, nameAtFloor: w === 720 ? null : true },
+        ]);
+        expect(
+          await inked(shown[0]?.rect as number[]),
+          `${at}: the why's words are painted over the ground ${ev}`,
+        ).toBeGreaterThan(40);
+        expect(
+          {
+            value: s.box?.value,
+            hit: s.box?.hit,
+            inRow: s.box?.inRow,
+            insideRow: s.box?.insideRow,
+            beforeToggle: s.box?.beforeToggle,
+          },
+          `${at}: the box, painted in the tab row before the toggle ${ev}`,
+        ).toEqual({
+          value: SEARCHED,
+          hit: true,
+          inRow: true,
+          insideRow: true,
+          beforeToggle: true,
+        });
+        const address = new URLSearchParams(s.search);
+        expect(
+          [address.get("project"), address.get("q")],
+          `${at}: the address carries the search ${ev}`,
+        ).toEqual(["all", SEARCHED]);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+        // A reload reads the search back from the address.
+        await page.reload();
+        await until(
+          at,
+          "after a reload, the same results and the word in the box",
+          (s) =>
+            onlyGlobex(s) &&
+            s.rows[0]?.painted === true &&
+            s.box?.value === SEARCHED,
+        );
+      }
+
+      // Under a 600px list (spec 2026-11-02 search-narrow): empty and
+      // unfocused the box is its glyph alone, between the tabs and the
+      // toggle; holding the word unfocused it stays open there, the word
+      // in view. Each on its paint.
+      {
+        const at = "search narrow 560x900";
+        await sizeWindow(context, page, 560, 900);
+        await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+        await page.goto(all);
+        await until(at, "premise: All flows lists every flow", (s) =>
+          videos.every((v) => s.rows.some((r) => r.id === v.id)),
+        );
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        // The row as painted: the field, the tabs' right end, the toggle,
+        // the glyph, and what is on top at the field's middle.
+        const row = () =>
+          page.evaluate(() => {
+            const r = (sel: string) => {
+              const e = document.querySelector(sel);
+              if (e === null) return null;
+              const b = e.getBoundingClientRect();
+              return [b.left, b.top, b.right, b.bottom];
+            };
+            const input = document.querySelector<HTMLInputElement>(
+              "[data-search]",
+            ) as HTMLInputElement;
+            const f = input.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              f.left + f.width / 2,
+              f.top + f.height / 2,
+            );
+            const pills = [
+              ...document.querySelectorAll(".place-tabs [data-tab]"),
+            ].map((p) => p.getBoundingClientRect());
+            return {
+              list:
+                document.querySelector("[data-list]")?.getBoundingClientRect()
+                  .width ?? null,
+              field: r(".search-field"),
+              input: [f.left, f.top, f.right, f.bottom],
+              glyph: r(".search-field > svg"),
+              toggle: r("[data-layout-toggle]"),
+              pillsRight: Math.max(...pills.map((p) => p.right)),
+              pillTops: [...new Set(pills.map((p) => Math.round(p.top)))],
+              hit: hit === input,
+              whole: input.scrollWidth <= input.clientWidth,
+              value: input.value,
+              focused: document.activeElement === input,
+              scroll: [
+                document.documentElement.scrollWidth,
+                document.documentElement.clientWidth,
+              ],
+            };
+          });
+        type Row = Awaited<ReturnType<typeof row>>;
+        const between = (x: Row) => {
+          const [fl, , fr] = x.field as number[];
+          const [tl] = x.toggle as number[];
+          return (
+            (fl as number) >= x.pillsRight + 7.5 &&
+            (fr as number) <= (tl as number) - 7.5
+          );
+        };
+        const folded = await row();
+        const ev = `${at}: ${JSON.stringify(folded)}`;
+        const shot = join(SHOTS, "library-search-folded-560x900-dark.png");
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        expect(
+          folded.list,
+          `${at}: premise: a list under 600 ${ev}`,
+        ).toBeLessThan(600);
+        expect(
+          folded.scroll[0],
+          `${at}: no sideways scroll ${ev}`,
+        ).toBeLessThanOrEqual(folded.scroll[1] as number);
+        expect(
+          folded.pillTops,
+          `${at}: the tabs on one line ${ev}`,
+        ).toHaveLength(1);
+        const [il, it_, ir, ib] = folded.input as [
+          number,
+          number,
+          number,
+          number,
+        ];
+        expect(
+          {
+            width: Math.round(ir - il),
+            between: between(folded),
+            // Beside the toggle, the row's 12px gap from it.
+            toToggle: Math.round(
+              ((folded.toggle as number[])[0] as number) - ir,
+            ),
+            hit: folded.hit,
+            value: folded.value,
+            focused: folded.focused,
+          },
+          `${at}: the glyph's square between the tabs and the toggle, beside the toggle, on top ${ev}`,
+        ).toEqual({
+          width: 32,
+          between: true,
+          toToggle: 12,
+          hit: true,
+          value: "",
+          focused: false,
+        });
+        // The glyph is painted, and nothing left of it (the placeholder
+        // would start at the square's left edge).
+        const [gl] = folded.glyph as number[];
+        const mid = (it_ + ib) / 2;
+        expect(
+          await inked([
+            Math.ceil(gl as number),
+            Math.round(mid - 6),
+            Math.floor(ir - 4),
+            Math.round(mid + 6),
+          ]),
+          `${at}: the glyph's ink ${ev}`,
+        ).toBeGreaterThan(20);
+        expect(
+          await inked([
+            Math.ceil(il + 2),
+            Math.round(mid - 6),
+            Math.floor((gl as number) - 2),
+            Math.round(mid + 6),
+          ]),
+          `${at}: no ink left of the glyph ${ev}`,
+        ).toBeLessThan(8);
+
+        await page.locator("[data-search]").pressSequentially(SEARCHED);
+        await until(at, "the results are the globex flow alone", onlyGlobex);
+        await page.locator("[data-search]").blur();
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        const held = await row();
+        const hev = `${at} held: ${JSON.stringify(held)}`;
+        const heldShot = join(SHOTS, "library-search-held-560x900-dark.png");
+        await page.screenshot({ path: heldShot });
+        shots.push(heldShot);
+        const [hl, ht, hr, hb] = held.input as [number, number, number, number];
+        expect(
+          {
+            between: between(held),
+            hit: held.hit,
+            whole: held.whole,
+            value: held.value,
+            focused: held.focused,
+            open: hr - hl > 64,
+          },
+          `${at}: holding the word, open between the tabs and the toggle ${hev}`,
+        ).toEqual({
+          between: true,
+          hit: true,
+          whole: true,
+          value: SEARCHED,
+          focused: false,
+          open: true,
+        });
+        const [, , gr] = held.glyph as number[];
+        expect(
+          await inked([
+            Math.ceil((gr as number) + 2),
+            Math.round(ht + 6),
+            Math.floor(hr - 4),
+            Math.round(hb - 6),
+          ]),
+          `${at}: the word's ink in the box ${hev}`,
+        ).toBeGreaterThan(40);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+      }
+
+      // The word in acme/web, which has none of it: "None here.", and a
+      // link to where it is, painted.
+      {
+        const at = "search none here 1440x900";
+        await sizeWindow(context, page, 1440, 900);
+        await page.goto(`${studio.origin}/${placeSearch({ project: ACME })}`);
+        await until(
+          at,
+          "premise: acme/web lists flows",
+          (s) => s.rows.length > 0,
+        );
+        await page.locator("[data-search]").pressSequentially(SEARCHED);
+        const line = page.locator("[data-none-here]");
+        await line.waitFor({ timeout: PAINT_MS });
+        await page.mouse.move(0, 0);
+        await settle(page, at);
+        const none = await line.evaluate((p) => {
+          const hits = (e: Element) => {
+            const r = e.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              r.left + r.width / 2,
+              r.top + r.height / 2,
+            );
+            return r.width > 0 && hit !== null && e.contains(hit);
+          };
+          const rect = (e: Element) => {
+            const r = e.getBoundingClientRect();
+            return [r.left, r.top, r.right, r.bottom].map(Math.round);
+          };
+          const link = p.querySelector("a");
+          return {
+            text: p.textContent,
+            hit: hits(p),
+            rect: rect(p),
+            link:
+              link === null
+                ? null
+                : {
+                    text: link.textContent,
+                    place: link.dataset.place,
+                    href: link.getAttribute("href"),
+                    hit: hits(link),
+                    rect: rect(link),
+                  },
+            rows: document.querySelectorAll(
+              "[data-list] [role=row][data-scene]",
+            ).length,
+          };
+        });
+        const ev = `${at}: ${JSON.stringify(none)}`;
+        expect(
+          { text: none.text, hit: none.hit, rows: none.rows },
+          `${at}: the line, painted, with no rows ${ev}`,
+        ).toEqual({ text: "None here. 1 in globex/api.", hit: true, rows: 0 });
+        expect(none.link, `${at}: its link, painted ${ev}`).toMatchObject({
+          text: "1 in globex/api",
+          place: placeSearch({ project: GLOBEX }),
+          href: `${placeSearch({ project: GLOBEX })}&q=${SEARCHED}`,
+          hit: true,
+        });
+        expect(
+          await inked(none.link?.rect as number[]),
+          `${at}: the link's words are painted over the ground ${ev}`,
+        ).toBeGreaterThan(40);
+        expect(await limeOutsideItsPlaces(page), `${at}: lime`).toEqual([]);
+      }
+      expect(shots).toHaveLength(5);
+      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
+
   // The take an agent asked for while a kit save was in flight, and the
   // save failed: Settings stays (leaving would take the failure out of
   // view), and the notice offers the take. The save is held at the route
@@ -2983,6 +4776,106 @@ describe("the Studio's screenshot set", () => {
             !(noSips && /^response: 500 GET \S+\/thumbs\//.test(l)),
         );
       expect(faults, console_.lines.join("\n")).toEqual([]);
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS,
+  );
+
+  // A phone as Chrome's device mode makes one (2026-11-03): touch, no
+  // hover, 390x844 at 3x. A narrowed desktop window still hovers, and
+  // the row actions it hides at rest were drawn over Recorded on a phone.
+  it.runIf(process.platform === "darwin")(
+    "shoots the library, the editor and Settings as a phone draws them",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-phone-"));
+      homes.push(home);
+      const { editorTake } = await seedHome(home, VIDEO_TAKES);
+      await joinVideo(home);
+      await mkdir(SHOTS, { recursive: true });
+      const studio = await startStudio(home, join(home, "out"));
+      running = studio;
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, opened.text).toBe(200);
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Emulation.setDeviceMetricsOverride", {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 3,
+        mobile: true,
+      });
+      await cdp.send("Emulation.setTouchEmulationEnabled", {
+        enabled: true,
+        maxTouchPoints: 5,
+      });
+      await cdp.send("Emulation.setEmulatedMedia", {
+        features: [
+          { name: "hover", value: "none" },
+          { name: "any-hover", value: "none" },
+          { name: "pointer", value: "coarse" },
+          { name: "any-pointer", value: "coarse" },
+        ],
+      });
+      const shoot = async (name: string) => {
+        const p = await page.evaluate(() => ({
+          w: innerWidth,
+          hoverNone: matchMedia("(hover: none)").matches,
+          scrollWidth: document.documentElement.scrollWidth,
+        }));
+        // Premises: the page is a phone's, and it hovers nothing.
+        expect(p, name).toMatchObject({ w: 390, hoverNone: true });
+        // Not `fullPage`: Playwright's resize for it drops the emulation
+        // above mid-shot, and a fading swap was caught half done.
+        await page.screenshot({ path: join(SHOTS, `phone-${name}.png`) });
+        expect(
+          await page.evaluate(() => matchMedia("(hover: none)").matches),
+          `${name}: still a phone after the shot`,
+        ).toBe(true);
+        return p;
+      };
+      await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+      await page.goto(`${studio.origin}/`);
+      await page.locator("[role=treegrid] [data-flow]").first().waitFor();
+      await settle(page, "phone list");
+      await shoot("library-list");
+      await page
+        .locator("[role=treegrid] [data-flow] [data-col=open]")
+        .first()
+        .click();
+      await settle(page, "phone list opened");
+      await shoot("library-list-opened");
+      // A row's buttons behind its ⋯ (none hover here), the menu open.
+      await page
+        .locator("[role=treegrid] [data-flow] .row-more")
+        .first()
+        .click();
+      await page.locator(".row-menu:popover-open").waitFor();
+      await shoot("library-list-menu");
+      await page.keyboard.press("Escape");
+      await page
+        .locator("[data-search] input, input[type=search]")
+        .first()
+        .fill("invoice");
+      await settle(page, "phone search");
+      await shoot("library-search");
+      await storeLibraryView(studio, GRID_VIEW);
+      await page.goto(`${studio.origin}/`);
+      await page.locator("article.card[data-row]").first().waitFor();
+      await settle(page, "phone grid");
+      await shoot("library-grid");
+      await page.goto(`${studio.origin}/editor.html?scene=${editorTake}`);
+      await page.locator("#preview").waitFor();
+      await settle(page, "phone editor");
+      await shoot("editor");
+      await page.goto(`${studio.origin}/settings.html`);
+      await page.locator("[data-kit-tile]").first().waitFor();
+      await settle(page, "phone settings");
+      await shoot("settings");
       running = null;
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
     },

@@ -3,6 +3,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Flows - Demoman</title>
     <!-- The shell — tokens, faces, the top bar and tabs, cards, buttons, notices
          — is shared with the popup. Only this page's own rules are inline
@@ -35,23 +36,53 @@
         --control-hover: var(--control-hover-ground);
       }
       .library-content { min-width: 0; }
-      /* The jump list is for the held column: stacked over the list, the
-         sections follow straight on, and a row of them would only push
-         the list further down. */
+      /* Under 1024px the rail is not drawn: a full column of places above
+         the list took most of the window (the author, 2026-11-01). The
+         title is a button that opens the same places as a menu instead
+         (view.ts). Wide, the switcher is not drawn. */
+      .place-switch { display: none; }
       @media (max-width: 1023px) {
-        [data-jumps] { display: none; }
+        [data-rail] { display: none; }
+        .place-switch:not([hidden]) {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          max-width: 100%;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: inherit;
+          font: inherit;
+          letter-spacing: inherit;
+          cursor: pointer;
+        }
+        .place-switch:not([hidden]) + [data-place-title] { display: none; }
       }
+      /* Shrinks, so the name's own ellipsis (.place-name) has a width to
+         keep to; not clipped itself, or the glyphs' descenders go. */
+      .place-switch-name { min-width: 0; }
+      .place-switch svg {
+        flex: none;
+        width: 20px;
+        height: 20px;
+        color: var(--ink-faint);
+        transition: transform 120ms ease;
+      }
+      .place-switch[aria-expanded="true"] svg { transform: rotate(180deg); }
       @media (min-width: 1024px) {
         .library { grid-template-columns: 184px minmax(0, 1fr); gap: 48px; }
-        /* Held, and never taller than the window: a library of many months
-           scrolls its own column rather than running the trigger off the
-           foot of the screen. */
+        /* Held, and never taller than the window: a long rail scrolls
+           itself rather than running off the foot of the screen. The rail,
+           not the column, so the title band's name can run on past the
+           column into the band. */
         .library-side {
           position: sticky;
           top: 24px;
           max-height: calc(100vh - 48px);
-          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
         }
+        [data-rail] { min-height: 0; overflow-y: auto; }
         .library-content { padding-top: calc(36px + 28px); }
         .side-list { flex-direction: column; }
       }
@@ -60,10 +91,13 @@
         font: 700 30px/1.2 "Outfit", ui-sans-serif, system-ui, sans-serif;
         letter-spacing: -0.02em;
       }
-      /* The jump list: Settings' section nav, stacked — the section in view
-         in the stronger control tone, the rest muted text that firms under
-         the pointer, a count at the end. Unlabelled: the author's call. */
-      .side-list { display: flex; flex-wrap: wrap; gap: 2px; }
+      /* The project rail's places (All flows, each owner's projects, No
+         project, Couldn't read): the place shown (aria-current) in the
+         stronger control tone, the rest muted text that firms under the
+         pointer, a count at the end. */
+      /* A column at every width: wrapped into rows, the last projects of one
+         owner shared a row with "No project" and read as that owner's. */
+      .side-list { display: flex; flex-direction: column; gap: 2px; }
       .side-item {
         display: flex; align-items: center; gap: 8px;
         min-width: 0;
@@ -155,7 +189,8 @@
          page, so the panel's edge ran into the card beneath it. No
          `display` here: the UA's `[popover]:not(:popover-open)` is what
          keeps it hidden. */
-      .storage-panel {
+      .storage-panel,
+      .place-menu {
         position: absolute;
         /* Capped to the room beside its trigger by view.ts's placePanel
            when it does not fit; it scrolls inside then. */
@@ -173,6 +208,9 @@
           var(--shadow-overlay);
         font-size: 13px;
       }
+      /* The switcher's menu: the storage panel's surface, holding the rail's
+         own rows. */
+      .place-menu { padding: 4px; }
       /* Manrope since 2026-10-06, as every heading under the page title is:
          Outfit is the page title's and the dialogs'. */
       .storage-title {
@@ -222,13 +260,11 @@
       /* The list, in sections by when the take was made: Today, Yesterday,
          the last week by weekday, then a month at a time (view.ts,
          state.ts's sectionsOf). Each section is a fold whose summary is
-         its heading and count, so a past month — folded to start with —
-         is one line, and a library that has grown shows this week open
-         and the rest as a short list of months. */
+         its heading and count; every section starts open, and its
+         chevron closes it. */
       /* Settings' rhythm (2026-10-06): 28px from the title block to the
          first day; 40px after a day that is open, Settings' gap between
-         sections; 8px between folded months, so the past reads as a short
-         list of lines. */
+         sections; 8px between closed ones. */
       .section { margin-top: 8px; }
       .library-content > .section:first-of-type { margin-top: 0; }
       .section[open] + .section { margin-top: 40px; }
@@ -513,8 +549,22 @@
          §4.4) — not a click's focus, which outlasts the pointer. */
       .library-list .select-box {
         position: static;
+        /* Not the thumbnail's 1: a flex item takes a z-index unpositioned,
+           and the boxes painted over the sticky head as rows scrolled
+           under it. A heading's box is lifted by its cell (below). */
+        z-index: auto;
       }
       .library-list > [data-key]:is(:hover, :focus-visible, :has(:focus-visible)) .select-box {
+        opacity: 1;
+      }
+      /* A grid section's own: in its head, left of the label, shown on the
+         head's hover or focus and while flows are ticked (the list's heading
+         box is shown by its row's hover, above). */
+      .section-head .select-box {
+        position: static;
+        flex: none;
+      }
+      .section-head:is(:hover, :focus-within) .select-box {
         opacity: 1;
       }
       article.card[data-selected] {
@@ -705,17 +755,177 @@
          The widths are the list's own (a container), not the window's:
          the side column comes and goes at 1024px. */
       .library-content { container: library / inline-size; }
+      /* The tab row: In repo · Not in repo · All at the left, List or
+         Grid at the right, even when the tabs are hidden. */
+      .tabs-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+      /* The tabs keep one line: under a 600px list the box folds (below)
+         rather than push them onto two. */
+      .place-tabs { display: flex; gap: 4px; }
       .layout-toggle {
         display: flex;
         justify-content: flex-end;
         gap: 2px;
-        margin-bottom: 8px;
+        margin-left: auto;
       }
       /* Above the studio stylesheet's transparent `.btn-quiet.btn-icon`. */
       .layout-toggle .btn.btn-icon[aria-pressed="true"] {
         background: var(--control-hover);
         color: var(--ink);
       }
+      /* The search box, right of the tabs and before the toggle: the
+         system's field, its glyph inside the left edge and the `/` hint
+         inside the right (the Studio sheet pads the text clear of both).
+         Under a 600px list it folds to its glyph (below). */
+      .search-field {
+        position: relative;
+        display: flex;
+        align-items: center;
+        flex: 0 1 260px;
+        min-width: 180px;
+        margin-left: auto;
+      }
+      .search-field:not([hidden]) + .layout-toggle { margin-left: 0; }
+      .search-field > input { width: 100%; }
+      .search-field > :is(svg, kbd) {
+        position: absolute;
+        pointer-events: none;
+        color: var(--ink-faint);
+      }
+      .search-field > svg { left: 10px; width: 14px; height: 14px; }
+      .search-field > kbd {
+        right: 8px;
+        min-width: 18px;
+        padding: 0 4px;
+        border-radius: 4px;
+        box-shadow: inset 0 0 0 1px var(--line-2);
+        font-family: inherit;
+        font-size: 11px;
+        line-height: 18px;
+        text-align: center;
+      }
+      .search-field:focus-within > kbd { display: none; }
+      /* Under a 600px list, where the box would wrap under the tabs: empty
+         and unfocused it is its glyph alone, a pill's height square, still
+         the input (a press focuses it); focused it opens across the row
+         over the tabs, up to the toggle; holding a query it keeps the room
+         between the tabs and the toggle, so the query is always in view.
+         The Studio sheet takes the input's padding (as specific as its
+         own). The `/` hint goes: there is no room for it. */
+      @container library (max-width: 599px) {
+        .tabs-row { position: relative; flex-wrap: nowrap; }
+        .place-tabs .btn { white-space: nowrap; }
+        .search-field { flex: 1 1 0; min-width: 32px; margin-left: 0; }
+        .search-field > kbd { display: none; }
+        /* The toggle keeps the row's end, the box in the row or over it;
+           folded, the glyph stands beside it (the approved mockup). */
+        .search-field:not([hidden]) + .layout-toggle { margin-left: auto; }
+        .search-field:not(:focus-within):has(> input:placeholder-shown) {
+          flex: 0 0 32px;
+          margin-left: auto;
+        }
+        .search-field:not(:focus-within):has(> input:placeholder-shown) + .layout-toggle {
+          margin-left: 0;
+        }
+        .search-field:not(:focus-within) > input:placeholder-shown {
+          cursor: pointer;
+        }
+        .search-field:not(:focus-within) > input::placeholder { color: transparent; }
+        /* Open over the row, up to the toggle: its two 32px buttons and
+           their 2px (shell.css `.btn-icon`, `.layout-toggle` above) and
+           the row's 12px gap. With no toggle, to the row's end. */
+        .search-field:focus-within {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: calc(66px + 12px);
+          z-index: 2;
+        }
+        .search-field:focus-within:has(+ .layout-toggle[hidden]) { right: 0; }
+      }
+      /* A phone's list: tighter tabs (the Studio sheet's padding), the
+         toggle's one button the layout not shown, and no room beside the
+         tabs, so a held query keeps the box open over them until cleared.
+         At 480 the box beside the tabs is about 112px, its query 72; at
+         440 it was 32, too little to read "invite" whole. */
+      @container library (max-width: 479px) {
+        .tabs-row { gap: 8px; }
+        /* Three-digit counts do not fit a phone's row: the tabs scroll
+           sideways inside their strip, with no scrollbar, rather than push
+           the toggle past the list's end; view.ts keeps the pressed one in
+           view. The 4px of padding, given back by the margin, is room for
+           a tab's focus ring, which the strip's clip would cut. */
+        .place-tabs {
+          gap: 2px;
+          min-width: 0;
+          margin: -4px;
+          padding: 4px;
+          overflow-x: auto;
+          scrollbar-width: none;
+        }
+        .layout-toggle .btn[aria-pressed="true"] { display: none; }
+        /* Open over the tabs, up to the toggle's one 32px button and the
+           row's 8px gap. With no toggle, to the row's end. */
+        .search-field:is(:focus-within, :not(:has(> input:placeholder-shown))) {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: calc(32px + 8px);
+          z-index: 2;
+        }
+        .search-field:is(:focus-within, :not(:has(> input:placeholder-shown))):has(
+            + .layout-toggle[hidden]
+          ) {
+          right: 0;
+        }
+        /* While a tab holds the keys, a held box steps aside to its glyph
+           beside the toggle, so the focused tab is not under it; it is
+           still the input, the next Tab stop. The Studio sheet hides its
+           text while it is folded so. */
+        .tabs-row:has(> .place-tabs:focus-within) > .search-field:not(:focus-within) {
+          position: relative;
+          flex: 0 0 32px;
+          margin-left: auto;
+        }
+        .tabs-row:has(> .place-tabs:focus-within) > .search-field:not(:focus-within) + .layout-toggle {
+          margin-left: 0;
+        }
+      }
+      /* Why a search found a flow: dim, after the name or in Where's
+         place, cut before the name is. */
+      .match-why {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--ink-faint);
+      }
+      /* The why keeps its width and the name gives way, down to a floor
+         of 35% of the cell: 56px of name at the narrowest (160px), where
+         40% cut a five-letter matched word (the name's rule is with the
+         name's, below). A longer why is cut after the floor, its 12px and
+         the gap of 8, and starts at the matched word (`whyOf`). */
+      .library-list [data-col="name"] > .match-why {
+        flex: none;
+        max-width: calc(65% - 20px);
+        margin-left: 12px;
+      }
+      /* Wide, the why follows the name; the copy in Where waits. */
+      .library-list [data-col="where"] > .match-why { display: none; }
+      /* Chrome's own clear button: Esc clears, and the box adds nothing. */
+      .search-field > input::-webkit-search-cancel-button {
+        -webkit-appearance: none;
+        appearance: none;
+        display: none;
+      }
+      .none-here { margin: 28px 0 0; color: var(--ink-muted); }
+      /* A search's cards: one run, spaced from the tabs as a section's are. */
+      .rows[data-results] { margin-top: 14px; }
       :is(.library-list, .unreadable-list) {
         --list-row: 34px;
         /* Wide enough for a video row's "Sep 26, 11:00 AM": as content
@@ -840,6 +1050,11 @@
       .library-list [data-col="name"]:has(> .row-tags) > [data-name-text] {
         max-width: calc(100% - 20px - 8px);
       }
+      /* Beside a search's why, the name is what gives way. */
+      .library-list [data-col="name"]:has(> .match-why) > [data-name-text] {
+        flex: 0 1 auto;
+        min-width: 0;
+      }
       .library-list [data-video-row] [data-col="name"] { padding-left: 16px; }
       .library-list .row-tags {
         position: static;
@@ -861,10 +1076,17 @@
          to auto-placement would find no room on it. Videos, Length and
          Size keep their tracks while drawn; Recorded is always the last. */
       .library-list > [data-heading] > [role="gridcell"] { grid-row: 1; }
-      .library-list > [data-heading] > :is([data-col="select"], [data-col="open"]) { grid-column: 1; }
+      /* Positioned, so the box is over the label's cell that spans it, and
+         still under the sticky head (z 1) as rows scroll. */
+      .library-list > [data-heading] > [data-col="select"] {
+        grid-column: 1;
+        position: relative;
+      }
+      .library-list > [data-heading] > [data-col="open"] { grid-column: 2; }
       .library-list > [data-heading] > [data-col="name"] {
         grid-column: 1 / -1;
-        padding-left: 20px;
+        /* Past the box and the chevron. */
+        padding-left: calc(28px + 20px + var(--gap));
       }
       .library-list > [data-heading] > [data-col="where"] { grid-column: 4; }
       .library-list > [data-heading] > [data-col="videos"] { grid-column: 5; }
@@ -984,14 +1206,59 @@
         opacity: 0;
         pointer-events: none;
       }
-      /* Where nothing hovers they show always, so they never cover: the
-         date stays readable beside them. */
+      /* Where nothing hovers (a touchscreen) they would show always, and
+         over Recorded they covered the date (2026-11-03): there they fold
+         into a menu behind a ⋯ (list.ts `rowMenu`), which takes the end of
+         a Recorded track grown by its width. */
+      .library-list .row-more { display: none; }
       @media (hover: none) {
-        .library-list .row-actions {
-          opacity: 1;
+        .library-list .row-actions { display: none; }
+        .library-list .row-more {
+          display: inline-flex;
           pointer-events: auto;
-          background: none;
         }
+        :is(.library-list, .unreadable-list) { --recorded: calc(9em + 32px); }
+        .library-list > [role="row"] > [data-col="recorded"] { padding-right: 32px; }
+      }
+      /* Under its ⋯, the end aligned, or above it when the screen ends. */
+      .row-menu {
+        inset: auto;
+        margin: 4px 0;
+        position-area: bottom span-left;
+        position-try-fallbacks: flip-block;
+        min-width: 176px;
+        padding: 4px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--shell);
+        color: var(--ink);
+        box-shadow: 0 0 0 1px var(--line-2), 0 12px 32px rgb(0 0 0 / 0.5);
+        line-height: normal;
+        pointer-events: auto;
+      }
+      .row-menu > button {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        height: 40px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 6px;
+        background: none;
+        color: inherit;
+        font: inherit;
+        font-size: 14px;
+        text-align: left;
+      }
+      .row-menu > button:is(:hover, :active, :focus-visible) { background: var(--control-hover); }
+      .row-menu > button.btn-danger { color: var(--error); }
+      .row-menu > button:disabled { color: var(--ink-faint); }
+      .row-menu svg { width: 16px; height: 16px; flex: none; }
+      /* A finger's row (2026-11-03): 44px, the least a tap target should
+         be, where the pointer is coarse; a mouse keeps the dense 34. */
+      @media (pointer: coarse) {
+        :is(.library-list, .unreadable-list) { --list-row: 44px; }
       }
       .library-list > [aria-expanded="true"] .chev { transform: rotate(90deg); }
       /* An opening flow's videos fade in; no height animation. */
@@ -1004,20 +1271,76 @@
         .library-list [data-col="open"] .chev,
         .library-list .row-actions { transition: none; }
       }
+      /* Under a 760px list the box holds no track and the gaps narrow, so
+         the chevron starts at the list's left edge (the tab row's) and the
+         name follows it closely: 96px of a 560px list was all box, chevron
+         and gaps, and the rows read shifted right of the tab row. The box
+         hangs in the margin left of the chevron, the width its track had,
+         and shows by the same rules; the placements below are the wide
+         ones a track to the left. */
       @container library (max-width: 759px) {
         :is(.library-list, .unreadable-list) {
+          --gap: 12px;
           grid-template-columns:
-            28px 20px minmax(140px, 3fr) minmax(0, 2fr)
+            20px minmax(140px, 3fr) minmax(0, 2fr)
             56px 64px var(--recorded);
         }
+        .library-list > [role="row"] > [data-col="select"] {
+          position: absolute;
+          top: 0;
+          right: 100%;
+          width: 28px;
+          height: calc(var(--list-row) - 1px);
+        }
+        /* The sticky head and the selection bar stand over the rows as
+           they scroll, so they cover the margin the boxes hang in too, or a
+           column of boxes slides past them: the bar from 12px above it,
+           its sticky top. */
+        .library-list > [data-list-head] > [data-col="select"] {
+          height: var(--list-row);
+          background: var(--shell);
+        }
+        .selection-bar::before {
+          content: "";
+          position: absolute;
+          top: -12px;
+          bottom: 0;
+          right: 100%;
+          width: 28px;
+          background: var(--shell);
+        }
+        .library-list > [data-heading] > [data-col="open"] { grid-column: 1; }
+        .library-list > [data-heading] > [data-col="name"] {
+          padding-left: calc(20px + var(--gap));
+        }
+        .library-list > [data-heading] > [data-col="where"] { grid-column: 3; }
+        .library-list > [data-heading] > [data-col="videos"] { grid-column: 4; }
+        .library-list > [data-heading] > [data-col="length"] { grid-column: 5; }
+        .library-list > [role="row"] > [data-status] { grid-column: 2 / -1; }
         :is(.library-list, .unreadable-list) [data-col="size"] { display: none; }
-        /* The reason runs on to Recorded, the size it stood beside gone. */
-        .unreadable-list > .unreadable-row > [data-col="where"] { grid-column: 4 / -2; }
+      }
+      /* Where the name column narrows, the why takes Where's place, as on
+         a card, and runs on to Recorded over Videos and Length, as the
+         unreadable rows' reason does: in the name cell it was cut to "st…". */
+      @container library (max-width: 759px) {
+        .library-list [data-col="name"] > .match-why,
+        .library-list [data-col="where"] > [data-where-text]:has(+ .match-why) {
+          display: none;
+        }
+        .library-list [data-col="where"] > .match-why { display: inline; }
+        .library-list > [role="row"]:has(> [data-col="where"] > .match-why) > [data-col="where"] {
+          grid-column: 3 / -2;
+        }
+        .library-list
+          > [role="row"]:has(> [data-col="where"] > .match-why)
+          > :is([data-col="videos"], [data-col="length"]) {
+          display: none;
+        }
       }
       @container library (max-width: 639px) {
         :is(.library-list, .unreadable-list) {
           grid-template-columns:
-            28px 20px minmax(120px, 3fr) minmax(0, 2fr)
+            20px minmax(120px, 3fr) minmax(0, 2fr)
             56px var(--recorded);
         }
         .library-list [data-col="length"] { display: none; }
@@ -1025,15 +1348,27 @@
       @container library (max-width: 559px) {
         :is(.library-list, .unreadable-list) {
           grid-template-columns:
-            28px 20px minmax(120px, 3fr) minmax(0, 2fr)
+            20px minmax(120px, 3fr) minmax(0, 2fr)
             var(--recorded);
         }
         .library-list [data-col="videos"] { display: none; }
       }
-      /* "Couldn't read" under the list, in its rows (list spec §2.3): the
-         list's columns, so the name, reason and size stand under Name,
-         Where and Size. Delete floats over the row's end, as a flow's
-         actions do, and shows at rest: it is all these rows do. */
+      /* A phone's list (under 480, the tab row's cut too) drops Where: at
+         31px it read "/or…". The name takes its room, and a search's why
+         goes back beside the name, as wide. A video's export labels, in
+         its Where, go with it. */
+      @container library (max-width: 479px) {
+        .library-list {
+          grid-template-columns: 20px minmax(0, 1fr) var(--recorded);
+        }
+        .library-list [data-col="where"] { display: none; }
+        .library-list [data-col="name"] > .match-why { display: inline; }
+      }
+      /* "Couldn't read" in the list layout, drawn in its own place (no flow
+         rows and no column heads above it): the list's column template, so
+         the name, reason and size sit where a flow's Name, Where and Size
+         would. Delete floats over the row's end, as a flow's actions do,
+         and shows at rest: it is all these rows do. */
       .unreadable-list > .unreadable-row {
         position: relative;
         display: grid;
@@ -1065,12 +1400,23 @@
         white-space: normal;
       }
       .unreadable-list > .unreadable-row > [data-status] > p { margin: 0; }
+      /* Under a 760px list, the same a track to the left (above), after
+         the rules it overrides; the reason runs on to Recorded, the size it
+         stood beside gone. */
+      @container library (max-width: 759px) {
+        .unreadable-list > .unreadable-row > [data-col="name"] { grid-column: 2; }
+        .unreadable-list > .unreadable-row > [data-col="where"] { grid-column: 3 / -2; }
+        .unreadable-list > .unreadable-row > [data-status] { grid-column: 2 / -1; }
+      }
 
       /* Last: every `display` above loses to `hidden` (shell.css's note on
          `.hidden`). */
       .library-list [hidden],
       .library-list > [role="row"] > [data-status][hidden],
-      .layout-toggle[hidden] { display: none; }
+      .layout-toggle[hidden],
+      .search-field[hidden],
+      .tabs-row[hidden],
+      .place-tabs[hidden] { display: none; }
 
       /* The empty states: the shell's `.empty`, on a card, as on Settings. */
       .empty-card {

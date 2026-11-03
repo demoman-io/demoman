@@ -99,9 +99,9 @@ function harness(
   const window = createStudioWindow({
     home: "/tmp/studio-window-test",
     origin: ORIGIN,
-    entryUrl: (takeId) => {
+    entryUrl: (takeId, project) => {
       minted += 1;
-      return `${ORIGIN}/?t=ticket-${minted}${takeId === undefined ? "" : `&take=${takeId}`}`;
+      return `${ORIGIN}/?t=ticket-${minted}${takeId === undefined ? "" : `&take=${takeId}`}${project === undefined ? "" : `&project=${project}`}`;
     },
     events: { send: (e) => sent.push(e), size: () => o.listening ?? 1 },
     log: (l) => logs.push(l),
@@ -182,12 +182,58 @@ describe("open on a live window (fix 1: never ok when it did not move)", () => {
   it("with a page listening, sends `open` and brings the window forward", async () => {
     const h = harness({ listening: 1 });
     expect(await h.window.open({})).toEqual({ ok: true, path: "/" });
+    expect(h.sent).toEqual([]);
     const answer = await h.window.open({ takeId: "t1" });
     expect(answer).toEqual({ ok: true, path: "/editor.html?scene=t1" });
     expect(h.sent).toEqual([{ type: "open", path: "/editor.html?scene=t1" }]);
     expect(appPage(h.ctx()).fronted).toBe(1);
     // The launch's own entry, and no other.
     expect(appPage(h.ctx()).gotos).toEqual([`${ORIGIN}/?t=ticket-1`]);
+  });
+
+  it("open with a project sends a live window there", async () => {
+    const h = harness({ listening: 1 });
+    await h.window.open({});
+    const answer = await h.window.open({ project: "k" });
+    // Red: ignore `project` in openNow, so nothing is sent.
+    expect(answer).toEqual({ ok: true, path: "/?project=k" });
+    expect(h.sent).toEqual([{ type: "open", path: "/?project=k" }]);
+    expect(appPage(h.ctx()).fronted).toBe(1);
+  });
+
+  it("neither, a page listening → nothing sent, brought forward", async () => {
+    const h = harness({ listening: 1 });
+    await h.window.open({});
+    await h.window.open({});
+    // Red: send `open` to "/" as before.
+    expect(h.sent).toEqual([]);
+    expect(appPage(h.ctx()).gotos).toEqual([`${ORIGIN}/?t=ticket-1`]);
+    expect(appPage(h.ctx()).fronted).toBe(1);
+  });
+
+  it("neither, nobody listening → entered through a fresh entry link", async () => {
+    const h = harness({ listening: 0 });
+    await h.window.open({});
+    const answer = await h.window.open({});
+    // Red: only bring the window forward when neither is given, whoever
+    // listens; an expired link or a dead stream then stays broken.
+    expect(appPage(h.ctx()).gotos).toEqual([
+      `${ORIGIN}/?t=ticket-1`,
+      `${ORIGIN}/?t=ticket-2`,
+    ]);
+    expect(answer).toEqual({ ok: true, path: "/" });
+    expect(h.sent).toEqual([]);
+  });
+
+  it("with no page listening, a project navigates through an entry link carrying it", async () => {
+    const h = harness({ listening: 0 });
+    await h.window.open({});
+    await h.window.open({ project: "k" });
+    // Red: leave `project` out of `enter`.
+    expect(appPage(h.ctx()).gotos).toEqual([
+      `${ORIGIN}/?t=ticket-1`,
+      `${ORIGIN}/?t=ticket-2&project=k`,
+    ]);
   });
 
   it("with no page listening, navigates the window through a fresh entry link", async () => {

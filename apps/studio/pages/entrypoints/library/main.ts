@@ -9,19 +9,34 @@ import {
 import { createPlatform } from "#platform";
 import { editedLength } from "../../src/library/length";
 import { createLengthCache, paintLength } from "../../src/library/length-cache";
+import type { ListSort } from "../../src/library/list-model";
 import type { PreviewMounter, PreviewPorts } from "../../src/library/preview";
 import { createPreviewMounter } from "../../src/library/preview";
+import {
+  narrow,
+  type Place,
+  parsePlace,
+  placeSearch,
+  projectKeyOf,
+  railOf,
+  showsTabs,
+  type Tab,
+  tabCounts,
+} from "../../src/library/projects";
+import { elsewhere, searching, searchModel } from "../../src/library/search";
 import {
   clickSelect,
   emptySelection,
   pruneSelection,
   type Selection,
   selectAll,
+  toggleGroup,
 } from "../../src/library/selection";
 import type { BulkOutcome, LibraryModel } from "../../src/library/state";
 import {
   buildLibraryModel,
   bulkSentence,
+  cardsOf,
   keptSentence,
 } from "../../src/library/state";
 import {
@@ -32,7 +47,6 @@ import {
   statusKey,
   unreadableKind,
 } from "../../src/library/view";
-import { trackSectionNav } from "../../src/settings/section-nav";
 import { takeNote, VIDEO_DELETED } from "../../src/shell/carried-note";
 import {
   askToConfirm,
@@ -49,10 +63,6 @@ import { mountTopbar } from "../../src/shell/topbar";
 
 const root = document.querySelector("#root") as HTMLElement;
 const noticeEl = document.querySelector("#notice") as HTMLElement;
-// The left column's jump list marks the section in view, as Settings'
-// nav does (2026-10-08). Links are rebuilt on every paint, so each paint
-// puts the mark back.
-const jumps = trackSectionNav(root);
 // Everything outside the page — the stores, the background's commands, the
 // other pages' URLs — comes through the platform.
 const platform = createPlatform();
@@ -293,6 +303,75 @@ const viewRead = platform.libraryView.read().then(
   },
 );
 
+/**
+ * Where the library is (spec 2026-11-01 library-projects-design, "Where the
+ * Studio lands"): the take the editor came back from (`?from=`, when it is
+ * in the listing), else the address's `?project=`, else the saved pick,
+ * else All flows. Decided at the first paint, which has the flows to read
+ * a take's project from, and written into the address so Back returns to
+ * it. Only a rail click saves a pick.
+ */
+let place: Place | null = null;
+const asked = parsePlace(location.search);
+const cameFrom = new URLSearchParams(location.search).get("from");
+let tab: Tab = "all";
+/** The search box's text, kept in the address as `q`, and the order a
+ *  heading click chose for this search alone (never saved). */
+let query = new URLSearchParams(location.search).get("q") ?? "";
+let searchSort: ListSort | null = null;
+
+/** The flows a place, tab and query show. */
+const shownIn = (model: LibraryModel, p: Place): LibraryModel =>
+  searchModel(narrow(model, p, tab), query);
+
+/** The saved pick, or All flows when there is none or its place has
+ *  nothing left (a project, No project or Couldn't read): a known, normal
+ *  state, said nowhere. */
+function pickedPlace(model: LibraryModel): Place {
+  const picked =
+    view.project === null
+      ? null
+      : parsePlace(`?project=${encodeURIComponent(view.project)}`);
+  if (picked === null || picked === "all") return "all";
+  const left =
+    picked === "unreadable"
+      ? (model.unreadable ?? []).length
+      : cardsOf(model).filter(
+          (c) =>
+            projectKeyOf(c) === (picked === "none" ? null : picked.project),
+        ).length;
+  return left > 0 ? picked : "all";
+}
+
+function landing(model: LibraryModel): Place {
+  if (cameFrom !== null) {
+    const card = cardsOf(model).find((c) =>
+      (c.group?.versions ?? [c.row]).some((r) => r.sceneId === cameFrom),
+    );
+    if (card !== undefined) {
+      const key = projectKeyOf(card);
+      return key === null ? "none" : { project: key };
+    }
+  }
+  return asked ?? pickedPlace(model);
+}
+
+/** The address of `p`, keeping the rest of the query but `from`. */
+function addressOf(p: Place): string {
+  const url = new URL(location.href);
+  url.searchParams.delete("from");
+  url.searchParams.delete("project");
+  const rest = url.searchParams.toString();
+  return `${url.pathname}${placeSearch(p)}${rest === "" ? "" : `&${rest}`}${url.hash}`;
+}
+
+/** Switching place or tab drops the selection: a flow ticked where the
+ *  author can no longer see it must not be deleted. */
+function clearForSwitch(): void {
+  selection = emptySelection();
+  bulk = undefined;
+}
+
 function paint(model: LibraryModel): void {
   dropStatusesWithNoRow(model);
   // A ticked flow another window or an agent deleted leaves the selection.
@@ -307,17 +386,36 @@ function paint(model: LibraryModel): void {
   mounter?.dispose();
   for (const stop of lengthWaits.splice(0)) stop();
   mounter = createPreviewMounter(previewPorts);
+  if (place === null) {
+    place = landing(model);
+    history.replaceState(history.state, "", addressOf(place));
+  }
+  const cards = cardsOf(model);
   renderLibrary(
     root,
-    model,
+    shownIn(model, place),
     actions,
     rowStatus,
     undefined,
     selection,
     bulk,
     view,
+    {
+      place,
+      tab,
+      rail: railOf(cards, (model.unreadable ?? []).length, place),
+      // Each tab says what it would show with this query.
+      tabs: showsTabs(cards, place)
+        ? tabCounts(cardsOf(searchModel(model, query)), place)
+        : null,
+      search: {
+        query,
+        sort: searchSort,
+        // Counted under All: a link there lands on All (`goPlace`).
+        elsewhere: elsewhere(cards, place, "all", query),
+      },
+    },
   );
-  jumps.mark();
 }
 
 /** Shows the selection on the cards in place: a tick is this page's own
@@ -460,6 +558,12 @@ const actions: LibraryActions = {
   /** Kept for this session at once; a write that fails or replaced the
    *  settings file is said, and the view stays as chosen. */
   setView: (next) => {
+    // A heading click sorts this search's results, not the saved view.
+    if (searching(query) && next.layout === view.layout) {
+      searchSort = { ...next.sort };
+      if (lastModel !== null) paint(lastModel);
+      return;
+    }
     view = next;
     if (lastModel !== null) paint(lastModel);
     platform.libraryView.write(next).then(
@@ -474,6 +578,60 @@ const actions: LibraryActions = {
         say(`The view was not saved: ${why.replace(/\.$/, "")}.`, "warn");
       },
     );
+  },
+  goPlace: (p) => {
+    if (bulk?.busy === true) return;
+    place = p;
+    tab = "all";
+    clearForSwitch();
+    if (location.search !== new URL(addressOf(p), location.href).search) {
+      history.pushState(history.state, "", addressOf(p));
+    }
+    if (lastModel !== null) paint(lastModel);
+    // Only a click in the rail saves the pick. Kept for this session at
+    // once; a write that fails is said on the console, as a view that
+    // could not be read is; a settings file it replaced, on the notice.
+    view = { ...view, project: typeof p === "string" ? p : p.project };
+    platform.libraryView.write(view).then(
+      (done) => {
+        if (done.replaced === undefined) return;
+        console.warn(`demoman library: ${done.replaced}`);
+        say(done.replaced, "warn");
+      },
+      (error: unknown) => {
+        console.warn(
+          `demoman library: the project picked was not saved: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      },
+    );
+  },
+  search: (q) => {
+    query = q;
+    if (!searching(q)) searchSort = null;
+    // A ticked flow the results hide is not deleted: as a place switch,
+    // but only what went out of sight.
+    if (bulk?.busy !== true && lastModel !== null && place !== null) {
+      selection = pruneSelection(
+        selection,
+        new Set(
+          (shownIn(lastModel, place).groups ?? []).map((g) => g.video.id),
+        ),
+      );
+    }
+    // Replaced, not pushed: Back leaves the search as a whole.
+    const url = new URL(location.href);
+    if (q === "") url.searchParams.delete("q");
+    else url.searchParams.set("q", q);
+    history.replaceState(history.state, "", url);
+    if (lastModel !== null) paint(lastModel);
+  },
+  goTab: (t) => {
+    if (bulk?.busy === true) return;
+    tab = t;
+    clearForSwitch();
+    if (lastModel !== null) paint(lastModel);
   },
   measure: (sceneId: string, cell: HTMLElement): void => {
     // Said each time, and painted `—`: nothing about a failure is kept, so
@@ -704,6 +862,12 @@ const actions: LibraryActions = {
     bulk = undefined;
     showSelection();
   },
+  selectGroup: (ids) => {
+    if (bulk?.busy === true) return;
+    selection = toggleGroup(selection, ids);
+    bulk = undefined;
+    showSelection();
+  },
   clearSelection: () => {
     if (bulk?.busy === true) return;
     selection = emptySelection();
@@ -842,10 +1006,14 @@ async function deleteSelected(): Promise<void> {
     return;
   }
   if (!go) return;
+  // A Back while it asked switched place and cleared the ticks: only a flow
+  // still ticked goes (spec: a switch with a selection deletes nothing).
+  const still = ids.filter((id) => selection.ids.has(id));
+  if (still.length === 0) return;
   bulk = { busy: true, said: null };
   showSelection();
   const outcomes: BulkOutcome[] = [];
-  for (const id of ids) {
+  for (const id of still) {
     const name = groups.get(id)?.name ?? id;
     try {
       const r = await platform.videos.remove(id);
@@ -905,6 +1073,18 @@ async function deleteSelected(): Promise<void> {
   }
 }
 
+// Back and Forward between places the rail pushed.
+window.addEventListener("popstate", () => {
+  place = parsePlace(location.search) ?? "all";
+  tab = "all";
+  query = new URLSearchParams(location.search).get("q") ?? "";
+  searchSort = null;
+  // A bulk delete under way keeps its lock and its ticks; it settles both
+  // itself when it ends.
+  if (bulk?.busy !== true) clearForSwitch();
+  if (lastModel !== null) paint(lastModel);
+});
+
 // Esc clears the selection, as it closes the panels. Not while a dialog
 // is open (it answers Esc itself) or a field has the key.
 document.addEventListener("keydown", (event) => {
@@ -914,6 +1094,25 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   actions.clearSelection?.();
+});
+
+// `/` goes to the search box, unless a dialog or a field has the keys.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) {
+    return;
+  }
+  const box = document.querySelector<HTMLInputElement>("[data-search]");
+  if (box === null || box.closest("[hidden]") !== null) return;
+  if (document.querySelector("dialog[open]") !== null) return;
+  const active = document.activeElement as HTMLElement | null;
+  if (
+    active?.matches("input:not([type=checkbox]), textarea, select") === true ||
+    active?.isContentEditable === true
+  ) {
+    return;
+  }
+  event.preventDefault();
+  box.focus();
 });
 
 // A take landed, changed or went in the studio's folder: read again. The

@@ -4,9 +4,16 @@ import { afterAll, describe, expect, it } from "vitest";
 // the helper — and the real view, so the rows measured are the rows the
 // page renders.
 import shell from "../../../pages/entrypoints/library/index.html?raw";
-import type {
-  LibraryModel,
-  LibraryRow,
+import {
+  type Place,
+  placeSearch,
+  type Rail,
+  railOf,
+} from "../../../pages/src/library/projects";
+import {
+  cardsOf,
+  type LibraryModel,
+  type LibraryRow,
 } from "../../../pages/src/library/state";
 import { renderLibrary } from "../../../pages/src/library/view";
 import {
@@ -108,10 +115,32 @@ const noop = {
 // measure. (A row made after `now` also counts as today.)
 const NOW = new Date(2026, 8, 13, 20);
 
-function mount(scheme: "light" | "dark", model: LibraryModel = MODEL) {
+function mount(
+  scheme: "light" | "dark",
+  model: LibraryModel = MODEL,
+  /** Draw the projects rail, at All flows, as the page does. */
+  withRail = false,
+) {
   mountShell(scheme, css);
   document.body.innerHTML = bodyHtml;
-  renderLibrary(node("#root"), model, noop, new Map(), NOW);
+  renderLibrary(
+    node("#root"),
+    model,
+    noop,
+    new Map(),
+    NOW,
+    undefined,
+    undefined,
+    undefined,
+    withRail
+      ? {
+          place: "all",
+          tab: "all",
+          rail: railOf(cardsOf(model), 0, "all"),
+          tabs: null,
+        }
+      : undefined,
+  );
   node("#notice").classList.remove("hidden");
   node("#notice").textContent = "Couldn't read storage: no reply.";
   return { surface, ink, radius };
@@ -353,22 +382,26 @@ describe.each(["light", "dark"] as const)(
       ).toBe("pointer");
     });
 
-    // Settings' shape since 2026-10-08: the title and the jump list in a
-    // left column held in view; the list beside it, its first day level
-    // with the jump list (the filter row sat there until 2026-10-30). The
-    // storage trigger is in the top bar.
-    it("holds the title and jump list in a column, the first day level with them", async () => {
+    // Settings' shape since 2026-10-08: the title and the rail (the jump
+    // list until 2026-11-01) in a left column held in view; the list
+    // beside it, its first day level with the rail (the filter row sat
+    // there until 2026-10-30). The storage trigger is in the top bar.
+    it("holds the title and rail in a column, the first day level with them", async () => {
       await page.viewport(1280, 900);
-      mount(scheme);
+      mount(scheme, MODEL, true);
       const side = node("[data-header]");
       const title = node("[data-header] h1").getBoundingClientRect();
-      const jumps = node("[data-jumps]").getBoundingClientRect();
+      const rail = node("[data-rail]").getBoundingClientRect();
+      // Premise: the rail is drawn, not an empty box.
+      expect(node("[data-rail] [data-place]").textContent).toContain(
+        "All flows",
+      );
       const first = node('[data-section="today"]').getBoundingClientRect();
       expect(getComputedStyle(side).position).toBe("sticky");
-      expect(jumps.top - title.bottom).toBeCloseTo(28, 0);
+      expect(rail.top - title.bottom).toBeCloseTo(28, 0);
       expect(
-        Math.abs(first.top - jumps.top),
-        `the first day at ${first.top}, the jump list at ${jumps.top}`,
+        Math.abs(first.top - rail.top),
+        `the first day at ${first.top}, the rail at ${rail.top}`,
       ).toBeLessThan(1);
       expect(side.getBoundingClientRect().right).toBeLessThanOrEqual(
         first.left,
@@ -460,6 +493,258 @@ describe.each(["light", "dark"] as const)(
     });
   },
 );
+
+// Below 1024px the rail folds into a switcher in the title band (spec
+// 2026-11-01 library-projects-design, Addendum): the title is a button that
+// opens a menu of the rail's places. The menu is a popover, so its closing
+// on Esc and a click outside is the browser's, and only a real one shows it.
+describe("the narrow switcher", () => {
+  const RAIL: Rail = {
+    all: 6,
+    projects: [
+      {
+        key: "github.com/acme/web",
+        owner: "acme",
+        name: "web",
+        local: false,
+        count: 2,
+      },
+      {
+        key: "local:/r/scratch",
+        owner: null,
+        name: "scratch",
+        local: true,
+        count: 1,
+      },
+    ],
+    none: 2,
+    unreadable: 1,
+  };
+  const PLACES = [
+    placeSearch("all"),
+    placeSearch({ project: "github.com/acme/web" }),
+    placeSearch({ project: "local:/r/scratch" }),
+    placeSearch("none"),
+    placeSearch("unreadable"),
+  ];
+  let picked: Place[] = [];
+  function mountAt(place: Place) {
+    renderLibrary(
+      node("#root"),
+      MODEL,
+      {
+        ...noop,
+        goPlace(p) {
+          picked.push(p);
+          mountAt(p);
+        },
+      },
+      new Map(),
+      NOW,
+      undefined,
+      undefined,
+      undefined,
+      { place, tab: "all", rail: RAIL, tabs: null },
+    );
+  }
+  function mountNarrow(width = 720) {
+    mountShell("dark", css);
+    document.body.innerHTML = bodyHtml;
+    picked = [];
+    mountAt({ project: "github.com/acme/web" });
+    return page.viewport(width, 900);
+  }
+  const button = () => node("[data-place-switch]");
+  const menu = () => node("[data-place-menu]");
+  const isOpen = () => menu().matches(":popover-open");
+  const focusedPlace = () =>
+    (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(
+      "[data-place-menu] [data-place]",
+    )?.dataset.place ?? null;
+  const drawn = (e: Element) => e.getClientRects().length > 0;
+  const until = async (what: string, ok: () => boolean) => {
+    await expect
+      .poll(ok, {
+        message: `${what}: ${document.activeElement?.outerHTML.slice(0, 120)}`,
+      })
+      .toBe(true);
+  };
+  const open = async () => {
+    await userEvent.click(button());
+    await until("the menu opens", isOpen);
+  };
+
+  afterAll(async () => {
+    await page.viewport(1280, 900);
+  });
+
+  it("draws the switcher and not the rail under 1024px, and the rail and not the switcher at 1024", async () => {
+    await mountNarrow();
+    // Premise: the rail is built, so not drawing it is the rule's doing.
+    expect(document.querySelectorAll("[data-rail] [data-place]")).toHaveLength(
+      5,
+    );
+    expect(drawn(node("[data-rail]")), "the rail at 720").toBe(false);
+    expect(drawn(button()), "the switcher at 720").toBe(true);
+    expect(drawn(node("[data-place-title]")), "the plain title at 720").toBe(
+      false,
+    );
+    expect(button().textContent).toBe("acme/web");
+    await page.viewport(1024, 900);
+    expect(drawn(node("[data-rail]")), "the rail at 1024").toBe(true);
+    expect(drawn(button()), "the switcher at 1024").toBe(false);
+    expect(drawn(node("[data-place-title]")), "the plain title at 1024").toBe(
+      true,
+    );
+  });
+
+  it("is a button that says it opens a menu, and says when it is open", async () => {
+    await mountNarrow();
+    expect(button().tagName).toBe("BUTTON");
+    expect(button().getAttribute("aria-haspopup")).toBe("menu");
+    expect(button().getAttribute("aria-expanded")).toBe("false");
+    expect(isOpen()).toBe(false);
+    await open();
+    await until(
+      "aria-expanded follows",
+      () => button().getAttribute("aria-expanded") === "true",
+    );
+    expect(menu().getAttribute("role")).toBe("menu");
+    const items = [...menu().querySelectorAll<HTMLElement>("[data-place]")];
+    expect(items.map((i) => i.dataset.place)).toEqual(PLACES);
+    expect(items.map((i) => i.getAttribute("role"))).toEqual(
+      PLACES.map(() => "menuitem"),
+    );
+    // The rail's words and counts.
+    expect(items.map((i) => i.innerText.replace(/\s+/g, " ").trim())).toEqual([
+      "All flows 6",
+      "acme/web 2",
+      "scratch local 1",
+      "No project 2",
+      "Couldn't read 1",
+    ]);
+    expect(
+      items
+        .filter((i) => i.getAttribute("aria-current") === "true")
+        .map((i) => i.dataset.place),
+    ).toEqual([PLACES[1]]);
+    // It opens on the current place.
+    await until(
+      "focus on the current place",
+      () => focusedPlace() === PLACES[1],
+    );
+  });
+
+  it("moves with the arrow keys, Home and End, and picks with Enter", async () => {
+    await mountNarrow();
+    await open();
+    await until(
+      "focus on the current place",
+      () => focusedPlace() === PLACES[1],
+    );
+    await userEvent.keyboard("{ArrowDown}");
+    expect(focusedPlace()).toBe(PLACES[2]);
+    await userEvent.keyboard("{End}");
+    expect(focusedPlace()).toBe(PLACES[4]);
+    await userEvent.keyboard("{ArrowDown}");
+    expect(focusedPlace(), "down from the last wraps to the first").toBe(
+      PLACES[0],
+    );
+    await userEvent.keyboard("{ArrowUp}");
+    expect(focusedPlace(), "up from the first wraps to the last").toBe(
+      PLACES[4],
+    );
+    await userEvent.keyboard("{Home}");
+    expect(focusedPlace()).toBe(PLACES[0]);
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
+    expect(focusedPlace()).toBe(PLACES[3]);
+    expect(picked, "premise: nothing picked yet").toEqual([]);
+    await userEvent.keyboard("{Enter}");
+    expect(picked).toEqual(["none"]);
+    await until("a pick closes the menu", () => !isOpen());
+    expect(button().textContent).toBe("No project");
+    expect(document.activeElement).toBe(button());
+    expect(button().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("picks with a click, as the rail does", async () => {
+    await mountNarrow();
+    await open();
+    await userEvent.click(
+      node(`[data-place-menu] [data-place="${PLACES[0]}"]`),
+    );
+    expect(picked).toEqual(["all"]);
+    await until("a pick closes the menu", () => !isOpen());
+    expect(button().textContent).toBe("All flows");
+  });
+
+  it("closes on Esc and gives the button the keyboard back", async () => {
+    await mountNarrow();
+    await open();
+    await until("focus in the menu", () => focusedPlace() !== null);
+    await userEvent.keyboard("{Escape}");
+    await until("Esc closes the menu", () => !isOpen());
+    expect(document.activeElement).toBe(button());
+    expect(button().getAttribute("aria-expanded")).toBe("false");
+    expect(picked).toEqual([]);
+  });
+
+  it("closes on a click outside it, picking nothing", async () => {
+    await mountNarrow();
+    await open();
+    // A point on the page below the menu, clear of it and the button.
+    const y = menu().getBoundingClientRect().bottom + 40;
+    expect(y, "premise: the point is in the window").toBeLessThan(innerHeight);
+    await page
+      .elementLocator(document.body)
+      .click({ position: { x: innerWidth - 40, y } });
+    await until("a click outside closes the menu", () => !isOpen());
+    expect(picked).toEqual([]);
+  });
+
+  it("closes when Tab takes the keyboard out of it", async () => {
+    await mountNarrow();
+    await open();
+    await until("focus in the menu", () => focusedPlace() !== null);
+    await userEvent.keyboard("{Tab}");
+    // Premise: Tab reached something on the page, outside the menu.
+    expect(document.activeElement === document.body).toBe(false);
+    expect(menu().contains(document.activeElement)).toBe(false);
+    await until("Tab out closes the menu", () => !isOpen());
+  });
+
+  it("goes with its button when the window widens past 1024px", async () => {
+    await mountNarrow();
+    await open();
+    await page.viewport(1280, 900);
+    await until("the menu closes with the button gone", () => !isOpen());
+    expect(drawn(node("[data-rail]"))).toBe(true);
+  });
+
+  it("is painted on top of the list and inside the window", async () => {
+    await mountNarrow();
+    await open();
+    const m = menu().getBoundingClientRect();
+    expect(m.left).toBeGreaterThanOrEqual(0);
+    expect(m.right).toBeLessThanOrEqual(innerWidth);
+    expect(m.bottom).toBeLessThanOrEqual(innerHeight);
+    expect(m.top, "under its button").toBeGreaterThanOrEqual(
+      button().getBoundingClientRect().bottom,
+    );
+    for (const item of menu().querySelectorAll<HTMLElement>("[data-place]")) {
+      const r = item.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        r.left + r.width / 2,
+        r.top + r.height / 2,
+      );
+      expect(hit !== null && item.contains(hit), item.dataset.place).toBe(true);
+      expect(
+        r.bottom,
+        `${item.dataset.place} inside the menu`,
+      ).toBeLessThanOrEqual(m.bottom + 0.5);
+    }
+  });
+});
 
 describe("the Recordings grid", () => {
   /** How many cards share the first row: distinct left edges among the
@@ -580,13 +865,13 @@ describe("the Recordings grid", () => {
     },
   );
 
-  // A past month starts folded. Its summary is a line below Today's last
+  // A past month the author closed. Its summary is a line below Today's last
   // card, nothing inside it is painted, and opening it puts its cards
   // below the summary rather than over anything. Checked at a short
   // window as well, where the editor's preview once painted over the
   // timeline while every rect reported a clean gap.
   it.each([900, 600])(
-    "folds a past month under the open sections at a %ipx-tall window",
+    "a closed past month sits under the open sections at a %ipx-tall window",
     async (height) => {
       await page.viewport(1120, height);
       mount("light", {
@@ -605,7 +890,8 @@ describe("the Recordings grid", () => {
       const july = node(
         '[data-section^="month:2026-07"]',
       ) as HTMLDetailsElement;
-      expect(july.open).toBe(false);
+      expect(july.open, "a past month starts open").toBe(true);
+      july.open = false; // as the author's click on its summary
       const summary = july.querySelector("summary") as HTMLElement;
       // Below the fold at the short window: bring it up before hit-testing,
       // since elementFromPoint knows nothing outside the viewport. Every
@@ -667,6 +953,8 @@ describe("the Recordings grid", () => {
       ],
     });
     const july = node('[data-section^="month:2026-07"]') as HTMLDetailsElement;
+    expect(july.open, "a past month starts open").toBe(true);
+    july.open = false; // as the author's click on its summary
     july.querySelector("summary")?.scrollIntoView({ block: "center" });
     const box = node('[data-row="july"] [data-preview]');
     const seen: boolean[] = [];

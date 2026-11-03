@@ -19,11 +19,13 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { removeRepoFlow, renameKept } from "../src/executor/keep.js";
 import {
+  adoptKept,
   findKept,
   readKeptFlows,
   repoFlowFiles,
 } from "../src/executor/kept-flows.js";
-import type { VideoStore } from "../src/executor/videos.js";
+import { createLibrary } from "../src/executor/library.js";
+import { createVideoStore, type VideoStore } from "../src/executor/videos.js";
 
 const FLOW_ID = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
 const NAME = "Place an order";
@@ -251,6 +253,27 @@ describe("removeRepoFlow", () => {
       expect(await has(FILE)).toBe(false);
     } finally {
       await chmod(join(root, ".demoman/receipts"), 0o755);
+    }
+  });
+
+  // Red: drop `key` from adoptKept's mark and the record has none.
+  it("adoptKept writes the repo's key into the kept mark", async () => {
+    const home = await mkdtemp(join(tmpdir(), "demoman-kept-home-"));
+    try {
+      const store = createVideoStore(home, createLibrary(home));
+      const found = await findKept(root, FLOW_ID);
+      if (found === null || !("kept" in found)) throw new Error("fixture");
+      const adopted = await adoptKept(store, root, found, {
+        key: "github.com/acme/shop",
+      });
+      if (!adopted.ok) throw new Error("not adopted");
+      expect((await store.get(FLOW_ID))?.kept).toEqual({
+        root,
+        file: FILE,
+        key: "github.com/acme/shop",
+      });
+    } finally {
+      await rm(home, { recursive: true, force: true });
     }
   });
 

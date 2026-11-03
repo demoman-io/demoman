@@ -63,6 +63,7 @@ export interface MemorySeed {
 export const CARDS: LibraryViewChoice = {
   layout: "grid",
   sort: { ...DEFAULT_LIBRARY_VIEW.sort },
+  project: null,
 };
 
 type Impl = (...args: never[]) => unknown;

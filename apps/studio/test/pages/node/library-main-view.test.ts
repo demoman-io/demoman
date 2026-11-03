@@ -52,11 +52,13 @@ const video: VideoSummary = {
   steps: [],
   exports: [],
   kept: null,
+  addedTo: null,
 };
 
 const GRID: LibraryViewChoice = {
   layout: "grid",
   sort: { column: "recorded", descending: true },
+  project: null,
 };
 
 const treegrid = () => document.querySelector("[role=treegrid]");
@@ -176,7 +178,7 @@ describe("library main — the view", () => {
     expect(treegrid()).toBeNull();
     expect(cards().length).toBeGreaterThan(0);
     expect(calls("libraryView", "write").map((c) => c.args[0])).toEqual([
-      { layout: "grid", sort: DEFAULT_LIBRARY_VIEW.sort },
+      { layout: "grid", sort: DEFAULT_LIBRARY_VIEW.sort, project: null },
     ]);
     // A whole turn, not a microtask: a render the toggle started reaches
     // the folder only after the refresher's queue and the view read.
@@ -188,7 +190,11 @@ describe("library main — the view", () => {
     await drawn();
     button('[data-sort="size"]').click();
     expect(calls("libraryView", "write").map((c) => c.args[0])).toEqual([
-      { layout: "list", sort: { column: "size", descending: true } },
+      {
+        layout: "list",
+        sort: { column: "size", descending: true },
+        project: null,
+      },
     ]);
     // The redraw shows it: the Size heading is the sorted one now.
     expect(

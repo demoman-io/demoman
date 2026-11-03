@@ -17,6 +17,7 @@ export {
   exportTake,
 } from "./executor/export.js";
 export { renameKept } from "./executor/keep.js";
+export { keyKeptMarks } from "./executor/kept-keys.js";
 export { judgeKitsText, readKits } from "./executor/kits.js";
 export {
   createLibrary,
@@ -29,6 +30,8 @@ export {
 export { readLogo } from "./executor/logo-ref.js";
 export { ensureVideos } from "./executor/migrate-videos.js";
 export { couldNotCheck, postToolUseAnswer } from "./executor/pr-hook.js";
+export { hasCommit, readRepo } from "./executor/repo.js";
+export { followCheckouts } from "./executor/repo-aliases.js";
 export {
   readUserSettings,
   type UserSettings,
@@ -39,6 +42,7 @@ export {
   type VideoStore,
 } from "./executor/videos.js";
 export {
+  describeVideo,
   keptOf,
   summarise,
   type VideoSummary,

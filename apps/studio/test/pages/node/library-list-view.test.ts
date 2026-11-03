@@ -65,6 +65,7 @@ const flow = (
       steps: [],
       exports: [],
       kept: null,
+      addedTo: null,
     } as VideoSummary,
     current: numbered[0] ?? null,
     versions: numbered,
@@ -115,10 +116,11 @@ const model: LibraryModel = {
 };
 
 const RECENT: ListSort = { column: "recorded", descending: true };
-const LIST: LibraryViewChoice = { layout: "list", sort: RECENT };
+const LIST: LibraryViewChoice = { layout: "list", sort: RECENT, project: null };
 const BY_NAME: LibraryViewChoice = {
   layout: "list",
   sort: { column: "name", descending: false },
+  project: null,
 };
 
 const actions = () => ({
@@ -230,9 +232,10 @@ describe("the list view", () => {
   it("cells say what §2.1 says", () => {
     const { grid } = draw();
     const a = rowOf(grid, "f:A");
-    expect(cell(a, "where").textContent).toBe(
-      "acme/web · app.example.com/orders",
-    );
+    // The route alone: acme/web's flows here all ran on one host. The
+    // title keeps it.
+    expect(cell(a, "where").textContent).toBe("acme/web · /orders");
+    expect(cell(a, "where").title).toBe("acme/web · app.example.com/orders");
     expect(cell(a, "videos").textContent).toBe("3");
     expect(cell(a, "size").textContent).toBe("7 MB");
     const b = rowOf(grid, "f:B");
@@ -444,7 +447,7 @@ describe("the list view", () => {
   });
 
   it("headings appear only under Recorded descending", () => {
-    const { root, grid } = draw();
+    const { grid } = draw();
     const headings = [
       ...(grid?.querySelectorAll<HTMLElement>("[role=row][data-heading]") ??
         []),
@@ -454,16 +457,13 @@ describe("the list view", () => {
       "h:yesterday",
       "h:month:2026-09",
     ]);
-    // The past month starts folded and hides what is under it.
+    // The past month starts open and shows what is under it.
     const month = rowOf(grid, "h:month:2026-09");
-    expect(month.getAttribute("aria-expanded")).toBe("false");
-    expect(rowOf(grid, "f:C").hidden).toBe(true);
+    expect(month.getAttribute("aria-expanded")).toBe("true");
+    expect(rowOf(grid, "f:C").hidden).toBe(false);
     expect(rowOf(grid, "f:A").hidden).toBe(false);
     // A closed flow hides its videos.
     expect(rowOf(grid, "v:a3").hidden).toBe(true);
-    expect(
-      root.querySelector("[data-jumps]")?.querySelectorAll("[data-nav]"),
-    ).toHaveLength(3);
     for (const sort of [
       BY_NAME,
       { layout: "list", sort: { column: "recorded", descending: false } },
@@ -499,11 +499,6 @@ describe("the list view", () => {
     expect(rowOf(again, "f:A").hidden).toBe(true);
     // Flows it drew closed stay closed.
     expect(rowOf(again, "f:C").getAttribute("aria-expanded")).toBe("false");
-  });
-
-  it("a flat sort hides the jump list", () => {
-    const { root } = draw(BY_NAME);
-    expect(root.querySelector("[data-jumps]")?.childElementCount).toBe(0);
   });
 
   it("an empty library draws the empty card, not a treegrid", () => {
@@ -619,6 +614,7 @@ describe("the list view", () => {
     expect(acts.setView).toHaveBeenCalledWith({
       layout: "grid",
       sort: { column: "name", descending: false },
+      project: null,
     });
     // Grid pressed once the page draws cards.
     const cards = draw({ ...BY_NAME, layout: "grid" }).root;
@@ -662,18 +658,22 @@ describe("the list view", () => {
     expect(sortBy(LIST, "size")).toEqual({
       layout: "list",
       sort: { column: "size", descending: true },
+      project: null,
     });
     const bySize: LibraryViewChoice = {
       layout: "list",
       sort: { column: "size", descending: true },
+      project: null,
     };
     expect(sortBy(bySize, "size")).toEqual({
       layout: "list",
       sort: { column: "size", descending: false },
+      project: null,
     });
     expect(sortBy(LIST, "name")).toEqual({
       layout: "list",
       sort: { column: "name", descending: false },
+      project: null,
     });
   });
 
@@ -701,5 +701,87 @@ describe("the list view", () => {
       (cell(rowOf(grid, "f:B"), "select").firstElementChild as HTMLInputElement)
         .checked,
     ).toBe(true);
+  });
+});
+
+describe("a date heading's box", () => {
+  const box = (grid: HTMLElement | null, key: string) =>
+    cell(rowOf(grid, key), "select").querySelector<HTMLInputElement>(
+      "input.select-box",
+    );
+  const drawSel = (picked: string[], view = LIST) => {
+    const root = document.createElement("div");
+    document.body.replaceChildren(root);
+    const acts = { ...actions(), selectGroup: vi.fn() };
+    const sel = { ids: new Set(picked), anchor: null, range: [] };
+    renderLibrary(root, model, acts, new Map(), NOW, sel, undefined, view);
+    return { acts, grid: root.querySelector<HTMLElement>("[data-list]") };
+  };
+
+  it("is named for the day and ticked only when every flow of it is", () => {
+    // premise: Today holds flow A and a loose take; Yesterday holds B.
+    const { grid } = drawSel(["A"]);
+    expect(rowOf(grid, "h:today").getAttribute("aria-label")).toBe("Today");
+    expect(rowOf(grid, "h:yesterday")).not.toBeNull();
+    const today = box(grid, "h:today");
+    expect(today?.getAttribute("aria-label")).toBe("Select Today");
+    expect(today?.checked).toBe(true);
+    expect(today?.indeterminate).toBe(false);
+    expect(box(grid, "h:yesterday")?.checked).toBe(false);
+  });
+
+  it("is half-ticked when only some of the day's flows are", () => {
+    const d1 = take("d1", new Date(2026, 9, 30, 4));
+    const m = {
+      ...model,
+      rows: [...model.rows, d1],
+      groups: [...groups, flow("D", "Flow D", [d1])],
+    };
+    const root = document.createElement("div");
+    document.body.replaceChildren(root);
+    const sel = { ids: new Set(["A"]), anchor: null, range: [] };
+    const acts = { ...actions(), selectGroup: vi.fn() };
+    renderLibrary(root, m, acts, new Map(), NOW, sel, undefined, LIST);
+    const grid = root.querySelector<HTMLElement>("[data-list]");
+    const today = box(grid, "h:today");
+    expect(rowOf(grid, "f:D")).not.toBeNull(); // premise: two flows today
+    expect(today?.checked).toBe(false);
+    expect(today?.indeterminate).toBe(true);
+  });
+
+  it("a click asks for exactly that day's flows, and does not fold it", () => {
+    const { acts, grid } = drawSel([]);
+    const heading = rowOf(grid, "h:today");
+    const before = heading.getAttribute("aria-expanded");
+    expect(before).not.toBeNull(); // premise: a heading folds
+    box(grid, "h:today")?.click();
+    expect(acts.selectGroup).toHaveBeenCalledExactlyOnceWith(["A"]);
+    expect(heading.getAttribute("aria-expanded")).toBe(before);
+  });
+
+  it("a flat sort has no headings, so no heading box", () => {
+    const { grid } = drawSel([], BY_NAME);
+    expect(grid?.querySelector("[data-heading]")).toBeNull(); // premise
+    expect(grid?.querySelector("[data-select-group]")).toBeNull();
+  });
+
+  it("the grid's section head has it too", () => {
+    const root = document.createElement("div");
+    document.body.replaceChildren(root);
+    const acts = { ...actions(), selectGroup: vi.fn() };
+    const sel = { ids: new Set(["A"]), anchor: null, range: [] };
+    renderLibrary(root, model, acts, new Map(), NOW, sel, undefined, {
+      ...LIST,
+      layout: "grid",
+    });
+    const head = root.querySelector<HTMLElement>(
+      "[data-section=today] > summary",
+    );
+    expect(head).not.toBeNull(); // premise
+    const b = head?.querySelector<HTMLInputElement>("[data-select-group]");
+    expect(b?.getAttribute("aria-label")).toBe("Select Today");
+    expect(b?.checked).toBe(true);
+    b?.click();
+    expect(acts.selectGroup).toHaveBeenCalledExactlyOnceWith(["A"]);
   });
 });

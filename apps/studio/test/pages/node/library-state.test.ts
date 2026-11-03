@@ -1,5 +1,6 @@
 // apps/studio/test/pages/node/library-state.test.ts
 import type { SceneDocument } from "@demoman/scene-schema";
+import type { VideoSummary } from "@demoman/studio-protocol";
 import { describe, expect, it } from "vitest";
 import type { StorageSummary } from "../../../pages/src/core/storage/types";
 import type { LibraryRow } from "../../../pages/src/library/state";
@@ -11,6 +12,7 @@ import {
   repoLabel,
   sectionsOf,
 } from "../../../pages/src/library/state";
+import { tags } from "../../../pages/src/library/view";
 
 // `meta.capture.originUrl` is where @demoman/scene-schema's SceneDocument
 // actually nests it (`capture` is a field of `meta`, not a sibling) — the
@@ -162,7 +164,7 @@ describe("buildLibraryModel", () => {
     expect(byId.get("b")?.label).toBe("Checkout");
   });
 
-  it("keeps the host and the start path apart, dropping query and hash", () => {
+  it("keeps the host and the start path apart, dropping query and hash but a hash router's route", () => {
     const at = (url: string) =>
       ({
         meta: {
@@ -178,6 +180,8 @@ describe("buildLibraryModel", () => {
         at("http://localhost:4000/checkout/?step=2#pay"),
         at("http://localhost:4000/"),
         at("not a url"),
+        at("http://localhost:4000/#/checkout/?step=2"),
+        at("http://localhost:4000/app/#/"),
       ],
       migrating: false,
       migrationFailed: false,
@@ -197,6 +201,10 @@ describe("buildLibraryModel", () => {
       origin: "not a url",
       path: "",
     });
+    expect(by.get("http://localhost:4000/#/checkout/?step=2")?.path).toBe(
+      "/checkout",
+    );
+    expect(by.get("http://localhost:4000/app/#/")?.path).toBe("/app");
   });
 
   it("formats bytes for people", () => {
@@ -353,7 +361,7 @@ describe("sectionsOf", () => {
     expect(of("seven")).toBe("month:2026-09");
   });
 
-  it("folds the months before this one, and nothing newer", () => {
+  it("starts every section open, a past month too", () => {
     const sections = sectionsOf(
       [
         row("t", at(2026, 9, 14, 8)),
@@ -366,8 +374,8 @@ describe("sectionsOf", () => {
     expect(sections.map((s) => [s.key, s.folded])).toEqual([
       ["today", false],
       ["month:2026-09", false],
-      ["month:2026-08", true],
-      ["month:2026-01", true],
+      ["month:2026-08", false],
+      ["month:2026-01", false],
     ]);
   });
 
@@ -401,14 +409,14 @@ describe("sectionsOf", () => {
     expect(sectionsOf([], now)).toEqual([]);
   });
 
-  it("heads flows in the repo In repo, above Today, one whose recipe will not read too", () => {
-    const today = at(2026, 9, 14, 8);
+  it("puts a kept flow, one whose recipe will not read too, in its day's section", () => {
     const kept = {
-      ...row("kept", today),
+      ...row("kept", at(2026, 9, 14, 8)),
       kept: {
         root: "/repo",
         file: ".demoman/videos/a.json",
         deliver: "commit",
+        key: null,
       },
     } satisfies LibraryRow;
     const lost = {
@@ -416,20 +424,19 @@ describe("sectionsOf", () => {
       kept: { unknown: ".demoman/videos/b.json in /gone is gone" },
     } satisfies LibraryRow;
     const plain = { ...row("plain", at(2026, 9, 14, 9)), kept: null };
-    // Red: drop the kept branch in sectionsOf — "kept" lands under Today
-    // and "lost" under Yesterday. A newer plain row arrives first, so Kept
-    // leads only because it is put first.
+    // Premise: both marks are really on the rows handed in.
+    expect(kept.kept.file).toBe(".demoman/videos/a.json");
+    expect("unknown" in lost.kept).toBe(true);
+    // Red: restore the kept branch in sectionsOf — "kept" heads the list.
     const sections = sectionsOf([plain, kept, lost], now);
     expect(
       sections.map((s) => [s.key, s.label, s.rows.map((r) => r.sceneId)]),
     ).toEqual([
-      ["kept", "In repo", ["kept", "lost"]],
-      ["today", "Today", ["plain"]],
+      ["today", "Today", ["plain", "kept"]],
+      ["yesterday", "Yesterday", ["lost"]],
     ]);
-    // Premise: "kept" was made today, so without its recipe it is Today's.
-    expect(sectionsOf([{ ...kept, kept: null }], now)[0]?.key).toBe("today");
-    // Kept names no day: its rows say their dates.
-    expect(sections[0]).toMatchObject({ namesDay: false, folded: false });
+    expect(sections.some((s) => s.key === "kept")).toBe(false);
+    expect(sections[0]).toMatchObject({ namesDay: true });
   });
 });
 
@@ -596,6 +603,7 @@ describe("videoGroupsOf, through buildLibraryModel", () => {
     steps: [],
     exports: [],
     kept: null,
+    addedTo: null,
   });
   const model = () =>
     buildLibraryModel({
@@ -761,5 +769,86 @@ describe("bulkSentence", () => {
       text: "No flows were deleted. A stayed: the studio did not answer. B stayed: it is being exported.",
       level: "warn",
     });
+  });
+});
+
+describe("a kept mark with no key (spec, Failure paths)", () => {
+  const at = (id: string) =>
+    ({
+      meta: {
+        id,
+        name: id,
+        createdAt: "2026-09-01T00:00:00Z",
+        capture: { originUrl: "https://app.test/x" },
+      },
+    }) as never;
+  const KEPT = {
+    root: "/repo",
+    file: ".demoman/videos/a.json",
+    deliver: "files",
+  } as const;
+  const video = (
+    id: string,
+    repo: VideoSummary["repo"],
+    key: string | null,
+  ): VideoSummary => ({
+    id,
+    name: id,
+    repo,
+    startPage: "https://app.test/",
+    versions: 1,
+    current: null,
+    pages: [],
+    steps: [],
+    exports: [],
+    kept: { ...KEPT, key },
+    addedTo: key,
+  });
+  const ids = ["recorded", "nowhere", "keyed"];
+  const model = buildLibraryModel({
+    scenes: ids.map(at),
+    migrating: false,
+    migrationFailed: false,
+    notice: null,
+    needsLook: new Set(),
+    videos: [
+      video("recorded", { key: "github.com/acme/shop" }, null),
+      video("nowhere", { none: "no git" }, null),
+      video("keyed", { key: "github.com/acme/shop" }, "github.com/acme/web"),
+    ],
+    videoOf: Object.fromEntries(
+      ids.map((id) => [
+        id,
+        {
+          videoId: id,
+          version: 1,
+          expired: false,
+          exports: [],
+          filmedCode: null,
+        },
+      ]),
+    ),
+  });
+  const title = (id: string) => {
+    const row = model.rows.find((r) => r.sceneId === id);
+    if (row === undefined) throw new Error(`no row ${id}`);
+    return tags(row, {} as never)
+      ?.querySelector("[data-kept]")
+      ?.getAttribute("title");
+  };
+
+  it("its In repo tag says its repo could not be read, and where it is listed", () => {
+    // Red: drop keptUnder from the tag's title (or from the row) — the
+    // flow sits under its recorded project and nothing says why.
+    expect(title("recorded")).toBe(
+      "/repo/.demoman/videos/a.json — its repo could not be read, so it is listed under acme/shop",
+    );
+    expect(title("nowhere")).toBe(
+      "/repo/.demoman/videos/a.json — its repo could not be read, so it is listed under No project",
+    );
+  });
+
+  it("a keyed mark's tag names only its recipe", () => {
+    expect(title("keyed")).toBe("/repo/.demoman/videos/a.json");
   });
 });

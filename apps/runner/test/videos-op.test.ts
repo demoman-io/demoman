@@ -24,6 +24,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { tagBytes } from "../src/executor/export-tag.js";
 import { createLibrary } from "../src/executor/library.js";
+import { readRepo } from "../src/executor/repo.js";
 import { createVideoStore, type VideoRepo } from "../src/executor/videos.js";
 import {
   summarise,
@@ -483,9 +484,12 @@ describe("videosOp", () => {
       await videosOp({ store, library: lib, dir: project }, { file }),
     ) as unknown as { videos: { id: string; name: string }[] };
     expect(got.videos.map((v) => [v.id, v.name])).toEqual([[FLOW, NAME]]);
+    const read = await readRepo(repo);
+    if (!read.ok) throw new Error(read.none);
     expect((await store.get(FLOW))?.kept).toEqual({
       root: await realpath(repo),
       file: `${KEPT_DIR}/${keptFileName(NAME)}`,
+      key: read.repo.key,
     });
   });
 
@@ -530,7 +534,7 @@ describe("videosOp", () => {
       ],
       report: null,
     });
-    const summaryOf = async () => {
+    const summaryOf = async (key?: string) => {
       const lib = createLibrary(home);
       const store = createVideoStore(home, lib);
       const adopted = await store.adopt({
@@ -538,7 +542,7 @@ describe("videosOp", () => {
         name: NAME,
         repo: { none: "test" },
         startPage: "http://localhost:1/app",
-        kept: { root: home, file },
+        kept: { root: home, file, ...(key !== undefined && { key }) },
       });
       if (!adopted.ok) throw new Error("fixture not adopted");
       return summarise(store, lib, adopted.video);
@@ -551,6 +555,52 @@ describe("videosOp", () => {
         file,
         root: home,
         deliver: "files",
+        key: null,
+      });
+    });
+
+    // Red: keptOf drops `key` from its answers and this reads undefined.
+    it("keptOf passes the mark's key through", async () => {
+      await mkdir(join(home, KEPT_DIR), { recursive: true });
+      await writeFile(join(home, file), serializeKept(recipe(FLOW)));
+      expect((await summaryOf("github.com/acme/shop")).kept).toEqual({
+        file,
+        root: home,
+        deliver: "files",
+        key: "github.com/acme/shop",
+      });
+    });
+
+    it("keptOf passes the key through when the recipe moved", async () => {
+      await mkdir(join(home, FLOWS_DIR), { recursive: true });
+      await writeFile(
+        join(home, FLOWS_DIR, "moved.json"),
+        serializeKept(recipe(FLOW)),
+      );
+      const got = (await summaryOf("github.com/acme/shop")).kept;
+      // Premise: the folder search answered, not the marked file.
+      expect(got).toMatchObject({ file: `${FLOWS_DIR}/moved.json` });
+      expect(got).toMatchObject({ key: "github.com/acme/shop" });
+    });
+
+    it("keptOf answers key null for a mark written before keys", async () => {
+      await mkdir(join(home, KEPT_DIR), { recursive: true });
+      await writeFile(join(home, file), serializeKept(recipe(FLOW)));
+      const lib = createLibrary(home);
+      const store = createVideoStore(home, lib);
+      const adopted = await store.adopt({
+        id: FLOW,
+        name: NAME,
+        repo: { none: "test" },
+        startPage: "x",
+        kept: { root: home, file },
+      });
+      if (!adopted.ok) throw new Error("fixture not adopted");
+      // Premise: the record's mark has no key at all.
+      expect(adopted.video.kept).toEqual({ root: home, file });
+      expect("key" in (adopted.video.kept ?? {})).toBe(false);
+      expect((await summarise(store, lib, adopted.video)).kept).toMatchObject({
+        key: null,
       });
     });
 
@@ -580,9 +630,46 @@ describe("videosOp", () => {
         file,
         root: checkout,
         deliver: "files",
+        key: null,
       });
       await rm(checkout, { recursive: true, force: true });
       expect((await summarise(store, lib, adopted.video)).kept).toBeNull();
+    });
+
+    it("a keyed mark whose checkout is gone answers kept null and addedTo its key", async () => {
+      // The author's normal flow: added in a worktree, merged, the worktree
+      // removed. Red: answer addedTo from keptOf (null once the root is gone).
+      const checkout = await mkdtemp(join(tmpdir(), "demoman-gone-"));
+      const lib = createLibrary(home);
+      const store = createVideoStore(home, lib);
+      const adopted = await store.adopt({
+        id: FLOW,
+        name: NAME,
+        repo: { none: "test" },
+        startPage: "http://localhost:1/app",
+        kept: { root: checkout, file, key: "github.com/acme/shop" },
+      });
+      if (!adopted.ok) throw new Error("fixture not adopted");
+      await rm(checkout, { recursive: true, force: true });
+      const got = await summarise(store, lib, adopted.video);
+      expect(got.kept).toBeNull();
+      expect(got.addedTo).toBe("github.com/acme/shop");
+    });
+
+    it("addedTo is null with no mark, and with a mark that has no key", async () => {
+      const lib = createLibrary(home);
+      const store = createVideoStore(home, lib);
+      const plain = await store.adopt({
+        id: FLOW,
+        name: NAME,
+        repo: { key: "github.com/acme/shop" },
+        startPage: "x",
+        kept: { root: home, file },
+      });
+      if (!plain.ok) throw new Error("fixture not adopted");
+      expect((await summarise(store, lib, plain.video)).addedTo).toBeNull();
+      const { kept: _, ...unmarked } = plain.video;
+      expect((await summarise(store, lib, unmarked)).addedTo).toBeNull();
     });
 
     it("a recipe moved to another file in the checkout is found there", async () => {
@@ -593,6 +680,7 @@ describe("videosOp", () => {
         file: moved,
         root: home,
         deliver: "files",
+        key: null,
       });
     });
 

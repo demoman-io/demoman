@@ -63,6 +63,7 @@ import {
   writeTextFile,
 } from "./setup-deps.js";
 import { parseStudioArgs } from "./studio-args.js";
+import { callerProject } from "./studio-project.js";
 import { VERSION } from "./version.js";
 
 const log = (line: string): void => {
@@ -207,7 +208,16 @@ async function mcp(args: string[]): Promise<void> {
       home: demomanHome(),
       log,
     }),
-    studio: (a) => openStudio({ home: demomanHome(), ...a, ...STUDIO_SPAWN }),
+    studio: async (a) => {
+      const { key, why } = await callerProject(process.cwd());
+      if (why !== undefined) log(`the Studio opens without a project: ${why}`);
+      return openStudio({
+        home: demomanHome(),
+        ...a,
+        ...(key === undefined ? {} : { project: key }),
+        ...STUDIO_SPAWN,
+      });
+    },
     log,
   });
 }
@@ -244,14 +254,16 @@ async function studio(args: string[]): Promise<void> {
     process.exit(0);
   }
   if (parsed.kind === "open") {
+    const { key, why } = await callerProject(process.cwd());
     const answer = await openStudio({
       home,
+      ...(key === undefined ? {} : { project: key }),
       ...(parsed.takeId === undefined ? {} : { takeId: parsed.takeId }),
       ...STUDIO_SPAWN,
     });
     if ("outcome" in answer) {
       process.stdout.write(
-        `${answer.note === undefined ? "" : `${answer.note}\n`}Opened the Studio.\n`,
+        `${answer.note === undefined ? "" : `${answer.note}\n`}${why === undefined ? "" : `The Studio opened without a project: ${why}\n`}Opened the Studio.\n`,
       );
       process.exit(0);
     }
