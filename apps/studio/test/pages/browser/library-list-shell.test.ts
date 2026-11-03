@@ -1664,7 +1664,9 @@ describe("the list's motion", () => {
       if (event.target === r) runs.push(r?.dataset.key as string);
     });
     await userEvent.click(cell("f:A", "open"));
-    await expect.poll(() => runs).toEqual(["v:a2", "v:a1"]);
+    // Both fades start from one click, so the order their transitionrun
+    // events arrive in is not promised: CI's runner gave a1 first.
+    await expect.poll(() => [...runs].sort()).toEqual(["v:a1", "v:a2"]);
     draw();
     // Premise: the redraw drew A open, with new rows.
     expect(row("f:A").getAttribute("aria-expanded")).toBe("true");
