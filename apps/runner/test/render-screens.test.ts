@@ -185,8 +185,7 @@ describe("renderToFiles with screensOnly", () => {
         // real work to do (the mp4 target is wider, the gif's narrower).
         if (fileType === "mp4")
           expect(target.width, "the mp4 target's width").toBeGreaterThan(WIDTH);
-        else
-          expect(target.width, "the gif target's width").toBeLessThan(WIDTH);
+        else expect(target.width, "the gif target's width").toBeLessThan(WIDTH);
         // The PNGs' own width, from the IHDR header: not redrawn first.
         for (const f of only.files) {
           expect(

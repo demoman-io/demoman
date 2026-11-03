@@ -13,8 +13,8 @@ import { join } from "node:path";
 import {
   FLOWS_DIR,
   LEGACY_FLOWS_DIR as KEPT_DIR,
-  type KeptVideo,
   type KeptReceipt,
+  type KeptVideo,
   keptFileName,
   parseReceipt,
   screensDirOf,
@@ -230,7 +230,9 @@ describe("renameKept moves the screens folder with the receipt", () => {
       await readFile(join(root, newReceipt), "utf8"),
       newReceipt,
     );
-    expect(parsed.ok && parsed.receipt.screensDir).toBe(screensDirOf(newReceipt));
+    expect(parsed.ok && parsed.receipt.screensDir).toBe(
+      screensDirOf(newReceipt),
+    );
   });
 
   it("a later step failing puts the folder and receipt back", async () => {
