@@ -578,6 +578,53 @@ describe("the workflow's shape", () => {
   });
 });
 
+describe("release and daily triggers", () => {
+  const release = ciWorkflow({
+    version: "0.2.0",
+    trigger: "release",
+    route: "pr",
+  });
+  const daily = ciWorkflow({ version: "0.2.0", trigger: "daily", route: "pr" });
+
+  it("records a published release at its tag", () => {
+    expect(release).toContain("on:\n  release:\n    types: [published]\n");
+    expect(release).toContain(`ref: ${expr("github.event.release.tag_name")}`);
+    expect(release).not.toContain("push:");
+  });
+
+  it("records once a day on the branch it watches, and only on the schedule", () => {
+    expect(daily).toContain('on:\n  schedule:\n    - cron: "17 6 * * *"\n');
+    expect(daily).not.toContain("workflow_dispatch");
+    // The schedule runs on the default branch: the checkout names no ref.
+    expect(lines(daily).filter((l) => l.trim().startsWith("ref:"))).toEqual([]);
+  });
+
+  it("guards neither with the loop guard, which only a push can trip", () => {
+    for (const y of [release, daily]) {
+      expect(y).not.toContain("Skip Demoman's own commits");
+      expect(y).not.toContain("steps.guard");
+      expect(lines(y).filter((l) => l.startsWith("    if:"))).toEqual([]);
+    }
+    // Premise: the push workflow still has it.
+    expect(push).toContain("Skip Demoman's own commits");
+  });
+
+  it("asks both to start the app, as push does", () => {
+    for (const y of [release, daily]) expect(y).toContain("Start your app");
+  });
+
+  it("refuses the main route on a release, which checks out a tag", () => {
+    expect(() =>
+      ciWorkflow({ version: "0.2.0", trigger: "release", route: "main" }),
+    ).toThrow(
+      "--route main cannot go with a release trigger: the released commit is a tag, not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a daily or push trigger.",
+    );
+    expect(() =>
+      ciWorkflow({ version: "0.2.0", trigger: "daily", route: "main" }),
+    ).not.toThrow();
+  });
+});
+
 describe("ciSetup", () => {
   const io = (
     over: {
@@ -619,6 +666,43 @@ describe("ciSetup", () => {
     );
     expect(said).toContain("Start your app");
     expect(said).toContain("_ORIGIN");
+  });
+
+  it("takes release and daily by name, and an environment named like them by deployment:", async () => {
+    const r = io();
+    expect(
+      await ciSetup(["--ci", "--trigger", "release", "--route", "pr"], r.io),
+    ).toBe(0);
+    expect(r.wrote[0]?.[1]).toContain("  release:");
+    const d = io();
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "main"], d.io),
+    ).toBe(0);
+    expect(d.wrote[0]?.[1]).toContain("  schedule:");
+    const e = io();
+    expect(
+      await ciSetup(
+        ["--ci", "--trigger", "deployment:release", "--route", "pr"],
+        e.io,
+      ),
+    ).toBe(0);
+    expect(e.wrote[0]?.[1]).toContain(
+      "github.event.deployment.environment == 'release'",
+    );
+    const m = io();
+    expect(
+      await ciSetup(["--ci", "--trigger", "release", "--route", "main"], m.io),
+    ).toBe(1);
+    expect(m.said.join("\n")).toContain("cannot go with a release trigger");
+    expect(m.wrote).toEqual([]);
+  });
+
+  it("names every trigger when there is no terminal to ask in", async () => {
+    const m = io();
+    expect(await ciSetup(["--ci"], m.io)).toBe(1);
+    expect(m.said.join("\n")).toContain(
+      "pass --trigger release|daily|push|<environment> and --route pr|main",
+    );
   });
 
   it("stops, writing nothing, without a terminal or with a file already there", async () => {

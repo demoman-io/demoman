@@ -94,7 +94,7 @@ const USAGE = `demoman ${VERSION}
   npx demoman setup          install the browser and connect your coding agents
     [--yes] [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
   npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
-  npx demoman setup --ci [--trigger push|<environment>] [--route pr|main] [--artifact]
+  npx demoman setup --ci [--trigger release|daily|push|<environment>] [--route pr|main] [--artifact]
                              write .github/workflows/demoman.yml, which refreshes the repo's flows on each merge
   npx demoman signin <url>   sign in to your app once, so agents can record behind the login
   npx demoman signin --account <name> [--site <origin>] [--project <dir>]

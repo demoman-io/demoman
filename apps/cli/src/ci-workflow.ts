@@ -1,6 +1,7 @@
-// `demoman setup --ci`: the GitHub Actions workflow that films the kept
-// videos again on each merge to main (or each successful deployment) and
-// delivers what changed with `demoman refresh --deliver`.
+// `demoman setup --ci`: the GitHub Actions workflow that records the repo's
+// flows again after each successful deployment, each published release, once
+// a day, or on each merge to main, and delivers what changed with
+// `demoman refresh --deliver`.
 
 import { parseArgs } from "node:util";
 import { COMMIT_SUBJECT } from "./deliver.js";
@@ -8,7 +9,7 @@ import { PACKAGE_NAME } from "./names.js";
 
 export interface CiOptions {
   version: string;
-  trigger: "push" | { deployment: string };
+  trigger: "push" | "release" | "daily" | { deployment: string };
   route: "pr" | "main";
   /** The branch a push trigger watches; `main` when not given. */
   branch?: string;
@@ -32,8 +33,15 @@ if printf '%s' "$msg" | grep -qE '\\[skip demoman\\]|/demoman/refresh|^${COMMIT_
   echo "Skipping: this commit is Demoman's own refresh, and refreshing on it would loop."
 fi`;
 
+export const RELEASE_MAIN =
+  "--route main cannot go with a release trigger: the released commit is a tag, not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a daily or push trigger.";
+
 export function ciWorkflow(o: CiOptions): string {
-  const deployment = o.trigger === "push" ? null : o.trigger.deployment;
+  const deployment =
+    typeof o.trigger === "string" ? null : o.trigger.deployment;
+  const kind = typeof o.trigger === "string" ? o.trigger : "deployment";
+  // Only a push can be Demoman's own commit; the other triggers have no loop.
+  const guarded = kind === "push" || kind === "deployment";
   // The name goes inside a single-quoted expression string.
   if (deployment !== null && !/^[\w .-]+$/.test(deployment)) {
     throw new Error(
@@ -49,29 +57,44 @@ export function ciWorkflow(o: CiOptions): string {
   if (deployment !== null && o.route === "main") {
     throw new Error(DEPLOYMENT_MAIN);
   }
+  if (kind === "release" && o.route === "main") throw new Error(RELEASE_MAIN);
   const npx = `npx --prefix ~/ -y ${PACKAGE_NAME}@${o.version}`;
-  const on =
-    deployment === null
-      ? `  push:\n    branches: [${branch}]`
-      : "  deployment_status:";
+  const on = {
+    push: `  push:\n    branches: [${branch}]`,
+    release: "  release:\n    types: [published]",
+    daily: '  schedule:\n    - cron: "17 6 * * *"',
+    deployment: "  deployment_status:",
+  }[kind];
   const guard =
-    deployment === null
+    kind === "push"
       ? expr(
           "!contains(github.event.head_commit.message, '[skip demoman]') && github.actor != 'github-actions[bot]'",
         )
-      : `github.event.deployment_status.state == 'success' && github.event.deployment.environment == '${deployment}'`;
+      : kind === "deployment"
+        ? `github.event.deployment_status.state == 'success' && github.event.deployment.environment == '${deployment}'`
+        : null;
   const sha = expr(
     deployment === null ? "github.sha" : "github.event.deployment.sha",
   );
   const ref =
-    deployment === null
-      ? ""
-      : `\n          ref: ${expr("github.event.deployment.sha")}`;
+    kind === "deployment"
+      ? `\n          ref: ${expr("github.event.deployment.sha")}`
+      : kind === "release"
+        ? `\n          ref: ${expr("github.event.release.tag_name")}`
+        : "";
+  // Whether a later step runs: null when nothing before it can skip the job.
+  const skipCond = guarded ? "steps.guard.outputs.skip != 'true'" : null;
+  const ifRun = skipCond === null ? "" : `\n        if: ${expr(skipCond)}`;
   const start =
     deployment === null
-      ? `      # Start your app here and wait for it, for example (keep the \`if\`):
+      ? skipCond === null
+        ? `      # Start your app here and wait for it, for example:
       # - name: Start your app
-      #   if: ${expr("steps.guard.outputs.skip != 'true'")}
+      #   run: npm ci && npm run build && (npm start &) && npx wait-on http://localhost:3000
+`
+        : `      # Start your app here and wait for it, for example (keep the \`if\`):
+      # - name: Start your app
+      #   if: ${expr(skipCond)}
       #   run: npm ci && npm run build && (npm start &) && npx wait-on http://localhost:3000
 `
       : "";
@@ -86,7 +109,6 @@ export function ciWorkflow(o: CiOptions): string {
     deployment === null
       ? ""
       : `\n          DEMOMAN_BASE_URL: ${expr("github.event.deployment_status.environment_url")}`;
-  const run = expr("steps.guard.outputs.skip != 'true'");
   // The artifact is cumulative: the last one is downloaded into demoman-out
   // and refresh compares against it in place, so an unchanged flow's receipt
   // and video stay for the next run. A missing folder is refresh's "nothing
@@ -98,12 +120,11 @@ export function ciWorkflow(o: CiOptions): string {
   // same name, which must never stand in for what was delivered.
   const fetch =
     o.artifact === true
-      ? `      - name: Fetch the last run's videos
-        if: ${run}
+      ? `      - name: Fetch the last run's videos${ifRun}
         env:
           GH_TOKEN: ${expr("github.token")}
-          EVENT: ${deployment === null ? "push" : "deployment_status"}
-          BRANCH: "${deployment === null ? branch : ""}"
+          EVENT: ${{ push: "push", release: "release", daily: "schedule", deployment: "deployment_status" }[kind]}
+          BRANCH: "${kind === "push" || kind === "daily" ? branch : ""}"
           ENVIRONMENT: "${deployment ?? ""}"
         run: |
           wf=\${GITHUB_WORKFLOW_REF%%@*}
@@ -163,37 +184,35 @@ concurrency:
   cancel-in-progress: false
 jobs:
   refresh:
-    if: ${guard}
-    runs-on: ubuntu-24.04
+${guard === null ? "" : `    if: ${guard}\n`}    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           # A committed video in LFS is compared, not replaced as a pointer.
           lfs: true${ref}
-      - name: Skip Demoman's own commits
+${
+  guarded
+    ? `      - name: Skip Demoman's own commits
         id: guard
         env:
           SHA: ${sha}
         run: |
 ${script}
-      - uses: actions/setup-node@v4
-        if: ${run}
+`
+    : ""
+}      - uses: actions/setup-node@v4${ifRun}
         with:
           node-version: 22
-      - uses: actions/cache@v4
-        if: ${run}
+      - uses: actions/cache@v4${ifRun}
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${o.version}
-      - name: Install Chromium
-        if: ${run}
+      - name: Install Chromium${ifRun}
         run: ${npx} setup --browser-only
-      - name: Install fonts
-        if: ${run}
+      - name: Install fonts${ifRun}
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
-${start}${fetch}      - name: Refresh the repo's flows
-        if: ${run}
+${start}${fetch}      - name: Refresh the repo's flows${ifRun}
         run: ${npx} refresh --deliver ${o.route}${baseUrl}${outDir}
         env:
           GH_TOKEN: ${expr("github.token")}${baseUrlEnv}
@@ -205,7 +224,7 @@ ${start}${fetch}      - name: Refresh the repo's flows
 ${
   o.artifact === true
     ? `      - uses: actions/upload-artifact@v4
-        if: ${expr("always() && steps.guard.outputs.skip != 'true'")}
+        if: ${expr(skipCond === null ? "always()" : `always() && ${skipCond}`)}
         with:
           name: demoman-videos
           path: demoman-out
@@ -225,7 +244,7 @@ export function ciNotes(o: CiOptions): string[] {
           'Turn on "Allow GitHub Actions to create and approve pull requests" in the repository\'s Settings > Actions > General; GitHub refuses the pull request while it is off.',
         ]
       : []),
-    ...(o.trigger === "push"
+    ...(typeof o.trigger === "string"
       ? [
           `Fill in the "Start your app" step in ${CI_WORKFLOW_PATH}: refresh records the app at its base URL, so it must be running.`,
         ]
@@ -238,7 +257,7 @@ export interface CiIo {
   version: string;
   /** Null when there is no terminal to ask in. */
   ask: {
-    trigger(): Promise<"push" | string | null>;
+    trigger(): Promise<"push" | "release" | "daily" | string | null>;
     route(): Promise<"pr" | "main" | null>;
   } | null;
   /** The repository's root, or why there is none. */
@@ -251,7 +270,7 @@ export interface CiIo {
   say(line: string): void;
 }
 
-/** `setup --ci [--trigger push|<environment>] [--route pr|main] [--artifact]`: returns the exit code. */
+/** `setup --ci [--trigger release|daily|push|deployment:<environment>|<environment>] [--route pr|main] [--artifact]`: returns the exit code. */
 export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   const stop = (why: string): number => {
     io.say(`Demoman setup stopped: ${why}`);
@@ -285,12 +304,16 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   ) {
     return stop(`--route is pr or main; got "${values.route}".`);
   }
-  if (
-    values.trigger !== undefined &&
-    values.trigger !== "push" &&
-    values.route === "main"
-  ) {
-    return stop(DEPLOYMENT_MAIN);
+  const asked = values.trigger === undefined ? null : triggerOf(values.trigger);
+  const refusedMain = (t: CiOptions["trigger"]) =>
+    t === "release"
+      ? RELEASE_MAIN
+      : typeof t === "object"
+        ? DEPLOYMENT_MAIN
+        : null;
+  if (asked !== null && values.route === "main") {
+    const why = refusedMain(asked);
+    if (why !== null) return stop(why);
   }
   const where = await io.root();
   if ("none" in where) {
@@ -303,7 +326,8 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
       `${CI_WORKFLOW_PATH} already exists; delete it to write it again.`,
     );
   }
-  const trigger = values.trigger ?? (await io.ask?.trigger()) ?? null;
+  const answered = asked === null ? ((await io.ask?.trigger()) ?? null) : null;
+  const trigger = asked ?? (answered === null ? null : triggerOf(answered));
   const route =
     (values.route as "pr" | "main" | undefined) ??
     (await io.ask?.route()) ??
@@ -311,17 +335,20 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   if (trigger === null || route === null) {
     io.say(
       io.ask === null
-        ? "Demoman setup stopped: with no terminal to ask in, pass --trigger push|<environment> and --route pr|main."
+        ? "Demoman setup stopped: with no terminal to ask in, pass --trigger release|daily|push|<environment> and --route pr|main."
         : "Setup cancelled; nothing was written.",
     );
     return 1;
   }
-  if (trigger !== "push" && route === "main") return stop(DEPLOYMENT_MAIN);
-  const read = trigger === "push" ? await io.defaultBranch() : null;
+  const why = route === "main" ? refusedMain(trigger) : null;
+  if (why !== null) return stop(why);
+  // The branch a push or the daily schedule watches.
+  const read =
+    trigger === "push" || trigger === "daily" ? await io.defaultBranch() : null;
   const branch = read ?? "main";
   const o: CiOptions = {
     version: io.version,
-    trigger: trigger === "push" ? "push" : { deployment: trigger },
+    trigger,
     route,
     branch,
     ...(values.artifact === true ? { artifact: true } : {}),
@@ -347,4 +374,15 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   }
   for (const n of ciNotes(o)) io.say(`- ${n}`);
   return 0;
+}
+
+/** A `--trigger` value or a prompt's answer: the three words are triggers,
+ *  `deployment:<name>` an environment of any name, and any other word an
+ *  environment as before. */
+function triggerOf(given: string): CiOptions["trigger"] {
+  if (given === "push" || given === "release" || given === "daily")
+    return given;
+  return {
+    deployment: given.startsWith("deployment:") ? given.slice(11) : given,
+  };
 }
