@@ -93,8 +93,26 @@ export const LOOKS = [
  *  the calibration comment above). */
 export const WINDOW_INSET_PX = 2;
 type Look = { name: string; block: number; levels: number; allowed: number };
-/** The looks for a comparison of screen images; the same as `LOOKS` until
- *  they are measured on stills. */
+/** The looks for a comparison of screen images: the values of `LOOKS`, kept
+ *  after measuring them on stills (2026-11-03). Still screens are PNGs, not
+ *  video frames, so they carry none of the encoder's coding error.
+ *
+ *   share of the picture changed         sharply (allowed 0.0008%)   faintly (allowed 0.017%)
+ *   unchanged re-films and slower apps       0.0000% (macOS, ubuntu-22.04, ubuntu-24.04)   0.0000%
+ *   one digit, $1,200.00 to $1,207.00        0.0020% (2.5x over)      -
+ *   nav text gray-700 to gray-500            -                        0.0611% (3.6x over)
+ *   a button blue to a green as light        0.344%                   -
+ *   a dark panel #111827 to #7f1d1d          13.0%                    -
+ *
+ * A "-" is a look the case did not reach: the detail line names the first
+ * look that counts it changed. Local numbers are identical over two runs of
+ * refresh-unchanged and refresh-restyle; CI's two `package` jobs and `refresh`
+ * job read the unchanged videos at 0.0000% on both looks and a changed one
+ * at 2.32-2.36% sharply. The unchanged side has no noise to be clear of, so
+ * its margin is the allowed share itself; the changed side is at least 2.5x
+ * over, against the 1.8x and 1.4x `LOOKS` was accepted at. The same limits
+ * apply: a glyph moving under about 60 levels or a shade under 13 is not seen.
+ */
 export const STILL_LOOKS: readonly Look[] = LOOKS;
 export const PICTURE_OPTIONS: PictureOptions = {
   width: 1280,
