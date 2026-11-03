@@ -74,6 +74,8 @@ beforeAll(() => {
       },
       screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
       recordedRevision: null,
+      screensDir: null,
+      screensSize: null,
     }),
   );
   git(repo, "add", ".");
