@@ -15,6 +15,8 @@ import { sameScreens } from "../src/executor/same-picture.js";
 const SETUP_MS = 60_000;
 const CASE_MS = 60_000;
 
+/** The badge drawn on every image, at the image's own 1280 width. */
+const BADGE = { x: 900, y: 300, width: 200, height: 100 };
 const SIZE = { width: 2560, height: 1440 };
 const screens: KeptScreens = {
   steps: 2,
@@ -31,12 +33,16 @@ let session: BrowserSession;
 const dirs: Record<string, string> = {};
 
 /** A 1280x720 page with a big heading and some body text, as PNG bytes. */
-async function drawn(heading: string, colour: string): Promise<Buffer> {
+async function drawn(
+  heading: string,
+  colour: string,
+  badge = "#2563eb",
+): Promise<Buffer> {
   const work = await session.openWorkPage();
   if (!work.ok) throw new Error(work.detail);
   try {
     const base64 = await work.page.evaluate(
-      async ([text, fill]) => {
+      async ([text, fill, badgeFill, box]) => {
         const canvas = new OffscreenCanvas(1280, 720);
         const ctx = canvas.getContext(
           "2d",
@@ -46,6 +52,9 @@ async function drawn(heading: string, colour: string): Promise<Buffer> {
         ctx.fillStyle = fill as string;
         ctx.font = "bold 120px sans-serif";
         ctx.fillText(text as string, 80, 200);
+        ctx.fillStyle = badgeFill as string;
+        const b = box as typeof BADGE;
+        ctx.fillRect(b.x, b.y, b.width, b.height);
         ctx.fillStyle = "#374151";
         ctx.font = "40px sans-serif";
         ctx.fillText("Invoices due this week", 80, 400);
@@ -58,7 +67,7 @@ async function drawn(heading: string, colour: string): Promise<Buffer> {
         for (const b of bytes) binary += String.fromCharCode(b);
         return btoa(binary);
       },
-      [heading, colour] as const,
+      [heading, colour, badge, BADGE] as const,
     );
     return Buffer.from(base64, "base64");
   } finally {
@@ -74,6 +83,43 @@ async function folder(name: string, bytes: Buffer[]): Promise<string> {
   return dir;
 }
 
+/** The target the windows below are in; its images are 1280 wide. */
+const TARGET = { width: 2560, height: 1758 };
+const windowed = (x: number, y: number, width: number, height: number) => ({
+  ...screens,
+  moments: screens.moments.map((m) => ({
+    ...m,
+    window: { x, y, width, height, radius: 0 },
+  })),
+});
+/** Whether a window (target pixels) holds the whole badge once scaled to the
+ *  image's 1280, or none of it. */
+function holdsBadge(w: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}) {
+  const k = 1280 / TARGET.width;
+  const [x0, y0, x1, y1] = [
+    w.x * k,
+    w.y * k,
+    (w.x + w.width) * k,
+    (w.y + w.height) * k,
+  ];
+  const across =
+    x0 < BADGE.x + BADGE.width &&
+    x1 > BADGE.x &&
+    y0 < BADGE.y + BADGE.height &&
+    y1 > BADGE.y;
+  const whole =
+    x0 <= BADGE.x &&
+    x1 >= BADGE.x + BADGE.width &&
+    y0 <= BADGE.y &&
+    y1 >= BADGE.y + BADGE.height;
+  return { across, whole };
+}
+
 const side = (dir: string, size = SIZE) => ({ dir, screens, size });
 const deps = () => ({ session, log: console.warn });
 
@@ -87,6 +133,11 @@ beforeAll(async () => {
   dirs.a = await folder("a", [plain, plain, plain]);
   dirs.same = await folder("same", [plain, plain, plain]);
   dirs.edited = await folder("edited", [plain, edited, plain]);
+  dirs.badge = await folder("badge", [
+    plain,
+    await drawn("Revenue", "#111827", "#16a34a"),
+    plain,
+  ]);
   dirs.missing = await folder("missing", [plain, plain]);
   dirs.notPng = await folder("notPng", [
     plain,
@@ -186,6 +237,42 @@ describe("sameScreens", () => {
       expect(out).toEqual({
         same: false,
         detail: "the frame size changed, 2560x1440 to 1920x1080",
+      });
+    },
+    CASE_MS,
+  );
+
+  // Windows are in the target's pixels, the images 1280 wide: a window read
+  // at the wrong scale lands somewhere else on the image.
+  it(
+    "pixels outside the window count as unchanged, inside it as changed",
+    async () => {
+      const around = { x: 1600, y: 500, width: 800, height: 400 };
+      const away = { x: 100, y: 100, width: 1200, height: 400 };
+      // Premise: scaled to 1280, one holds the badge and the other none of it.
+      expect(holdsBadge(around)).toEqual({ across: true, whole: true });
+      expect(holdsBadge(away).across).toBe(false);
+      const run = (w: typeof around, dir: string) => {
+        const win = windowed(w.x, w.y, w.width, w.height);
+        return sameScreens(
+          { dir: dirs.a as string, screens: win, size: TARGET },
+          { dir, screens: win, size: TARGET },
+          deps(),
+        );
+      };
+      // Premise: the badge differs on step 1, and the heading does not.
+      const inside = await run(around, dirs.badge as string);
+      expect(inside, "the badge changed inside its window").toMatchObject({
+        same: false,
+      });
+      const outside = await run(away, dirs.badge as string);
+      expect(outside, "the badge changed outside the window").toMatchObject({
+        same: true,
+      });
+      // Control: the window `away` does see a change in what it holds.
+      const heading = await run(away, dirs.edited as string);
+      expect(heading, "the heading changed inside its window").toMatchObject({
+        same: false,
       });
     },
     CASE_MS,

@@ -80,7 +80,6 @@ import type { BrowserSession } from "./browser.js";
  * change to the background) is not seen. A file kept before windows were
  * recorded is compared whole, as before.
  */
-type Look = { name: string; block: number; levels: number; allowed: number };
 /** The two ways a screen is looked at (above), each with the share of the
  *  picture it may count changed before the picture has. `sharply` sees a
  *  small, strong change (one digit of body text); `faintly` a weak change
@@ -93,13 +92,20 @@ export const LOOKS = [
  *  `PICTURE_OPTIONS.width`: past the anti-aliased rounded edge (measured in
  *  the calibration comment above). */
 export const WINDOW_INSET_PX = 2;
+type Look = { name: string; block: number; levels: number; allowed: number };
 /** The looks for a comparison of screen images; the same as `LOOKS` until
  *  they are measured on stills. */
-export const STILL_LOOKS = LOOKS;
+export const STILL_LOOKS: readonly Look[] = LOOKS;
 export const PICTURE_OPTIONS: PictureOptions = {
   width: 1280,
   looks: LOOKS.map(({ block, levels }) => ({ block, levels })),
   inset: WINDOW_INSET_PX,
+};
+/** What the page reads a comparison of screen images with: the same looks
+ *  `comparePictures` judges them by. */
+export const STILL_PICTURE_OPTIONS: PictureOptions = {
+  ...PICTURE_OPTIONS,
+  looks: STILL_LOOKS.map(({ block, levels }) => ({ block, levels })),
 };
 /** How far, in pixels at `PICTURE_OPTIONS.width`, a moved window edge may
  *  be off and still be the same window: its rect is recorded to 0.01 px,
@@ -344,7 +350,7 @@ export async function sameScreens(
         shared.map((s) =>
           s.windowB === undefined ? null : (s.windowA ?? null),
         ),
-        PICTURE_OPTIONS,
+        STILL_PICTURE_OPTIONS,
       ] as const,
     );
   } finally {
