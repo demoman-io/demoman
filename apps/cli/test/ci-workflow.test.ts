@@ -625,6 +625,80 @@ describe("release and daily triggers", () => {
   });
 });
 
+describe("the daily run stops early when nothing is new", () => {
+  const daily = (artifact: boolean) =>
+    ciWorkflow({
+      version: "0.2.0",
+      trigger: "daily",
+      route: "pr",
+      ...(artifact ? { artifact: true } : {}),
+    });
+  const names = (y: string) =>
+    lines(y)
+      .filter(
+        (l) => l.startsWith("      - name:") || l.startsWith("      - uses:"),
+      )
+      .map((l) => l.trim());
+  const at = (y: string, name: string) =>
+    names(y).findIndex((n) => n.includes(name));
+
+  it("checks before Chromium and the app, after the last run's videos are fetched", () => {
+    for (const y of [daily(false), daily(true)]) {
+      const check = at(y, "Anything new since the last refresh?");
+      expect(check, names(y).join("\n")).toBeGreaterThan(
+        at(y, "actions/setup-node"),
+      );
+      expect(check).toBeLessThan(at(y, "Install Chromium"));
+      expect(check).toBeLessThan(at(y, "Refresh the repo's flows"));
+      expect(y.indexOf("id: fresh")).toBeLessThan(
+        y.indexOf("# Start your app"),
+      );
+    }
+    const a = daily(true);
+    expect(at(a, "Fetch the last run's videos")).toBeLessThan(
+      at(a, "Anything new since the last refresh?"),
+    );
+  });
+
+  it("runs the check with the fetched receipts, and stops only on its 3", () => {
+    expect(daily(true)).toContain(
+      "if npx --prefix ~/ -y demoman@0.2.0 refresh --check --previous demoman-out; then",
+    );
+    expect(daily(false)).toContain(
+      "if npx --prefix ~/ -y demoman@0.2.0 refresh --check; then",
+    );
+    const y = daily(false);
+    expect(y).toContain('[ "$code" -eq 3 ] || exit "$code"');
+    expect(y).toContain('echo "skip=true" >> "$GITHUB_OUTPUT"');
+    expect(y).toContain(
+      'echo "Every repo flow was recorded at this commit; nothing to refresh."',
+    );
+  });
+
+  it("skips every step after the check when it says so", () => {
+    const y = daily(true);
+    const after = lines(y).slice(
+      lines(y).findIndex((l) => l.includes("id: fresh")) + 1,
+    );
+    const conds = after.filter((l) => l.trim().startsWith("if: ${{"));
+    expect(conds.length).toBeGreaterThanOrEqual(5);
+    for (const c of conds)
+      expect(c).toContain("steps.fresh.outputs.skip != 'true'");
+  });
+
+  it("is the daily run's alone: every other trigger records regardless", () => {
+    for (const t of ["push", "release", { deployment: "P" }] as const)
+      expect(
+        ciWorkflow({
+          version: "0.2.0",
+          trigger: t,
+          route: "pr",
+          artifact: true,
+        }),
+      ).not.toContain("refresh --check");
+  });
+});
+
 describe("ciSetup", () => {
   const io = (
     over: {

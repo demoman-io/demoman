@@ -83,8 +83,16 @@ export function ciWorkflow(o: CiOptions): string {
         ? `\n          ref: ${expr("github.event.release.tag_name")}`
         : "";
   // Whether a later step runs: null when nothing before it can skip the job.
-  const skipCond = guarded ? "steps.guard.outputs.skip != 'true'" : null;
+  // The daily run's check (`refresh --check`) skips what follows it when
+  // every flow was recorded at this commit.
+  const skipCond = guarded
+    ? "steps.guard.outputs.skip != 'true'"
+    : kind === "daily"
+      ? "steps.fresh.outputs.skip != 'true'"
+      : null;
   const ifRun = skipCond === null ? "" : `\n        if: ${expr(skipCond)}`;
+  // Steps before the daily check run whatever it answers.
+  const ifEarly = kind === "daily" ? "" : ifRun;
   const start =
     deployment === null
       ? skipCond === null
@@ -120,7 +128,7 @@ export function ciWorkflow(o: CiOptions): string {
   // same name, which must never stand in for what was delivered.
   const fetch =
     o.artifact === true
-      ? `      - name: Fetch the last run's videos${ifRun}
+      ? `      - name: Fetch the last run's videos${ifEarly}
         env:
           GH_TOKEN: ${expr("github.token")}
           EVENT: ${{ push: "push", release: "release", daily: "schedule", deployment: "deployment_status" }[kind]}
@@ -170,6 +178,19 @@ export function ciWorkflow(o: CiOptions): string {
           fi
 `
       : "";
+  // Exit 3 is refresh --check's "nothing new"; any other failure stops the job.
+  const freshStep = `      - name: Anything new since the last refresh?
+        id: fresh
+        run: |
+          if ${npx} refresh --check${o.artifact === true ? " --previous demoman-out" : ""}; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            code=$?
+            [ "$code" -eq 3 ] || exit "$code"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Every repo flow was recorded at this commit; nothing to refresh."
+          fi
+`;
   const script = GUARD_SCRIPT.split("\n")
     .map((l) => `          ${l}`)
     .join("\n");
@@ -201,10 +222,10 @@ ${
 ${script}
 `
     : ""
-}      - uses: actions/setup-node@v4${ifRun}
+}      - uses: actions/setup-node@v4${ifEarly}
         with:
           node-version: 22
-      - uses: actions/cache@v4${ifRun}
+${kind === "daily" ? `${fetch}${freshStep}` : ""}      - uses: actions/cache@v4${ifRun}
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${o.version}
@@ -212,7 +233,7 @@ ${script}
         run: ${npx} setup --browser-only
       - name: Install fonts${ifRun}
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
-${start}${fetch}      - name: Refresh the repo's flows${ifRun}
+${start}${kind === "daily" ? "" : fetch}      - name: Refresh the repo's flows${ifRun}
         run: ${npx} refresh --deliver ${o.route}${baseUrl}${outDir}
         env:
           GH_TOKEN: ${expr("github.token")}${baseUrlEnv}
