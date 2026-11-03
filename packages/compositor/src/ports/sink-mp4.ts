@@ -16,6 +16,26 @@ import type { VideoSink } from "./types.js";
  */
 export const ENCODER_USED_GLOBAL = "__demomanMp4Encoder";
 
+/**
+ * Where every `createMp4Sink` in this page adds the wall-clock its frames
+ * spent in it (`SinkTimes`), when the global is there: the render page sets
+ * it before a render and reads it after. A measurement aid; nothing reads
+ * it to decide anything.
+ */
+export const SINK_TIMES_GLOBAL = "__demomanMp4SinkTimes";
+
+/** Milliseconds, summed over every sink a render opens (an MP4 cap
+ *  re-renders). */
+export interface SinkTimes {
+  /** `new VideoSample(canvas)`: copying each drawn frame out of the canvas. */
+  copyMs: number;
+  /** `source.add`: blocked while the encoder's queue is full. */
+  encodeMs: number;
+  /** `finish()`: flushing the encoder and writing the file. */
+  finishMs: number;
+  frames: number;
+}
+
 /** The record `createMp4Sink` leaves at `ENCODER_USED_GLOBAL`. */
 export interface EncoderUsed {
   /** Asked for: `quality` from `RenderTarget.encoder`, else the target's
@@ -49,6 +69,11 @@ export interface EncoderUsed {
  * both a realtime-assembled sample and an offline one from the same harvest;
  * only the offline one passed the human smoothness bar.
  */
+const sinkTimes = () =>
+  (globalThis as Record<string, unknown>)[SINK_TIMES_GLOBAL] as
+    | SinkTimes
+    | undefined;
+
 export function createMp4Sink(target: RenderTarget): VideoSink {
   const output = new Output({
     format: new Mp4OutputFormat(),
@@ -109,13 +134,21 @@ export function createMp4Sink(target: RenderTarget): VideoSink {
         throw new Error("sink already finish()ed; cannot accept more frames");
       started ??= output.start();
       await started;
+      const times = sinkTimes();
+      const t0 = performance.now();
       const sample = new VideoSample(canvas, {
         timestamp: timestampSec,
         duration: durationSec,
       });
+      const t1 = performance.now();
       await source.add(sample);
       sample.close();
       frames += 1;
+      if (times !== undefined) {
+        times.copyMs += t1 - t0;
+        times.encodeMs += performance.now() - t1;
+        times.frames += 1;
+      }
     },
     // Bytes or a reason, never an empty array: a 0-byte file stored as a
     // successful output is a Download button that does nothing, and the
@@ -128,7 +161,10 @@ export function createMp4Sink(target: RenderTarget): VideoSink {
       }
       started ??= output.start();
       await started;
+      const t = performance.now();
       await output.finalize();
+      const times = sinkTimes();
+      if (times !== undefined) times.finishMs += performance.now() - t;
       const buffer = (output.target as BufferTarget).buffer;
       if (!buffer) {
         throw new Error(

@@ -155,6 +155,11 @@ it(
         `timing refresh "${NAME}": record [\\d.]+s, export mp4 [\\d.]+s, queued [\\d.]+s, compare [\\d.]+s, write [\\d.]+s; total [\\d.]+s; unchanged`,
       ),
     );
+    // The export's line splits its in-page time; red if the page stops
+    // reading the sink's times and falls back to the unsplit wording.
+    expect(same.stderr, said(same)).toMatch(
+      /timing export \S+ mp4: .*in page: .*s drawing, [\d.]+s copying [1-9]\d* frames to the encoder, [\d.]+s waiting on the encoder, [\d.]+s finishing the file/,
+    );
     expect((await kept()).equals(original), said(same)).toBe(true);
 
     // Changed: the heading differs (premise), and the new file shows it.

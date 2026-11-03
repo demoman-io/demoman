@@ -126,6 +126,8 @@ export {
   createMp4Sink,
   ENCODER_USED_GLOBAL,
   type EncoderUsed,
+  SINK_TIMES_GLOBAL,
+  type SinkTimes,
 } from "./ports/sink-mp4.js";
 export { createPngSink } from "./ports/sink-png.js";
 export { createOffscreenSurface } from "./ports/surface.js";

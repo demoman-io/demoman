@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createMp4Sink, ENCODER_USED_GLOBAL } from "../../src/ports/sink-mp4";
+import {
+  createMp4Sink,
+  ENCODER_USED_GLOBAL,
+  SINK_TIMES_GLOBAL,
+  type SinkTimes,
+} from "../../src/ports/sink-mp4";
 import {
   LANDSCAPE_1080P,
   type RenderTarget,
@@ -14,6 +19,8 @@ const muxer = vi.hoisted(() => ({
   buffer: null as ArrayBuffer | null,
   /** Every `new VideoSampleSource(options)`, in order. */
   sourceOptions: [] as unknown[],
+  /** How long each `source.add` blocks, standing in for a full encoder. */
+  addMs: 0,
 }));
 
 vi.mock("mediabunny", () => ({
@@ -43,7 +50,9 @@ vi.mock("mediabunny", () => ({
     constructor(options: unknown) {
       muxer.sourceOptions.push(options);
     }
-    async add() {}
+    async add() {
+      if (muxer.addMs > 0) await new Promise((r) => setTimeout(r, muxer.addMs));
+    }
   },
 }));
 
@@ -59,6 +68,31 @@ describe("createMp4Sink.finish", () => {
     const sink = createMp4Sink(LANDSCAPE_1080P);
     await sink.addFrame({} as never, 0, 1 / 30);
     await expect(sink.finish()).rejects.toThrow(/no bytes/i);
+  });
+
+  // The render page sets the record, an MP4 cap opens several sinks in one
+  // render, and the export's timing line reads the sum. Red if a sink stops
+  // adding to it, or attributes the encoder's wait to anything else.
+  it("adds its frames and the encoder's wait to the page's sink times", async () => {
+    const times: SinkTimes = { copyMs: 0, encodeMs: 0, finishMs: 0, frames: 0 };
+    (globalThis as Record<string, unknown>)[SINK_TIMES_GLOBAL] = times;
+    muxer.buffer = new Uint8Array([1]).buffer;
+    muxer.addMs = 20;
+    try {
+      for (const frames of [2, 1]) {
+        const sink = createMp4Sink(LANDSCAPE_1080P);
+        for (let i = 0; i < frames; i++)
+          await sink.addFrame({} as never, i / 30, 1 / 30);
+        await sink.finish();
+      }
+    } finally {
+      muxer.addMs = 0;
+      delete (globalThis as Record<string, unknown>)[SINK_TIMES_GLOBAL];
+    }
+    expect(times.frames).toBe(3);
+    // Three adds that each block 20 ms (timers may fire a little early).
+    expect(times.encodeMs).toBeGreaterThanOrEqual(3 * 18);
+    expect(times.copyMs).toBeLessThan(times.encodeMs);
   });
 
   it("hands back the muxer's bytes when there are some", async () => {
