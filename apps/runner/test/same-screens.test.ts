@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { KeptScreens } from "@demoman/run-core";
@@ -70,6 +70,36 @@ async function drawn(
       [heading, colour, badge, BADGE] as const,
     );
     return Buffer.from(base64, "base64");
+  } finally {
+    await work.page.close();
+  }
+}
+
+/** Whether two PNGs differ in any pixel of a rect (image pixels). */
+async function differsIn(
+  a: Buffer,
+  b: Buffer,
+  r: { x: number; y: number; width: number; height: number },
+): Promise<boolean> {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    return await work.page.evaluate(
+      async ([x, y, r0]) => {
+        const read = async (base64: string) => {
+          const bmp = await createImageBitmap(
+            await (await fetch(`data:image/png;base64,${base64}`)).blob(),
+          );
+          const c = new OffscreenCanvas(bmp.width, bmp.height);
+          const ctx = c.getContext("2d") as OffscreenCanvasRenderingContext2D;
+          ctx.drawImage(bmp, 0, 0);
+          return ctx.getImageData(r0.x, r0.y, r0.width, r0.height).data;
+        };
+        const [p, q] = await Promise.all([read(x), read(y)]);
+        return p.some((v, i) => v !== q[i]);
+      },
+      [a.toString("base64"), b.toString("base64"), r] as const,
+    );
   } finally {
     await work.page.close();
   }
@@ -260,7 +290,26 @@ describe("sameScreens", () => {
           deps(),
         );
       };
-      // Premise: the badge differs on step 1, and the heading does not.
+      // Premise: the badge folder's step 1 differs from the plain one inside
+      // the badge's rect, and not in the heading's rows above it.
+      const [plain1, badge1] = await Promise.all(
+        [dirs.a, dirs.badge].map((d) =>
+          readFile(join(d as string, NAMES[1] as string)),
+        ),
+      );
+      expect(
+        await differsIn(plain1 as Buffer, badge1 as Buffer, BADGE),
+        "the badge pixels differ",
+      ).toBe(true);
+      expect(
+        await differsIn(plain1 as Buffer, badge1 as Buffer, {
+          x: 0,
+          y: 0,
+          width: 1280,
+          height: BADGE.y,
+        }),
+        "the heading rows are identical",
+      ).toBe(false);
       const inside = await run(around, dirs.badge as string);
       expect(inside, "the badge changed inside its window").toMatchObject({
         same: false,

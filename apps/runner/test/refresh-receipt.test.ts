@@ -103,6 +103,8 @@ let exports: Record<string, unknown>[];
 /** An output type whose full export fails. */
 let failExport: string | null;
 let same: boolean;
+/** The size the fake screens render reports. */
+let freshSize: { width: number; height: number };
 /** Run while filming: what changes in the repo between the read and the write. */
 let duringRun: (() => Promise<void>) | null;
 /** Whether the fake run filmed uncommitted changes. */
@@ -135,6 +137,7 @@ beforeEach(async () => {
   exports = [];
   failExport = null;
   same = true;
+  freshSize = SIZE;
   duringRun = null;
   dirty = false;
 });
@@ -190,7 +193,7 @@ const deps = (): RefreshDeps => ({
               fileType: "screens",
               folder: { path: folder },
               screens: NEW,
-              size: SIZE,
+              size: freshSize,
               warnings: { logo: null, wallpaperWarning: null },
             },
           };
@@ -531,6 +534,10 @@ describe("a refresh decides from the screens, then exports", () => {
   it("v2, changed: exports every output after the screens, and writes them with the images and receipt", async () => {
     await writeWithScreens(recipe([MP4, GIF]));
     same = false;
+    freshSize = { width: 1280, height: 720 };
+    // Premise: the fresh render's size is not the committed receipt's.
+    expect((await receiptOf()).screensSize).toEqual(SIZE);
+    expect(freshSize).not.toEqual(SIZE);
     const v = await one();
     expect(v.outcome, JSON.stringify(v)).toBe("changed");
     expect(exported()).toEqual(["screens", "mp4", "gif"]);
@@ -547,7 +554,7 @@ describe("a refresh decides from the screens, then exports", () => {
       video: "t-new",
       screens: NEW,
       screensDir: screensDirOf(RECEIPT),
-      screensSize: SIZE,
+      screensSize: freshSize,
     });
     expect(v.screens).toEqual(NEW);
     // The list names files, not the images' folder.
