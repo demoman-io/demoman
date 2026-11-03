@@ -98,28 +98,16 @@ export async function renderScene(args: {
     );
   }
 
-  // Keyframe diffing needs pixels, which is why it lives out here rather
-  // than in the pure planning stage. On a healthy render it finds nothing.
-  const hints =
-    target.format === "png"
-      ? []
-      : await detectKeyframeMotion(
-          bundle,
-          ports.frames,
-          plan.retiming.motionDiffThreshold,
-        );
-
-  // The same composition the editor's preview scrubs — see `composeForTarget`.
   const {
     resolved: composed,
     presentation,
     violations,
-  } = composeForTarget({
+  } = await composeLikeRender({
     plan,
     bundle,
     scene,
     target,
-    hints,
+    ports,
     logo,
     wallpaper,
   });
@@ -206,30 +194,14 @@ export async function renderScene(args: {
     onFrame?.(i + 1, frameCount);
   }
 
-  const found: Screens = scene
-    ? screenMoments(composed, scene, bundle)
-    : { steps: 0, moments: [] };
-  // Each screen's window, by the camera that drew that frame.
-  const r = (v: number) => Math.round(v * 100) / 100;
-  const screens: Screens = {
-    ...found,
-    moments: found.moments.map((m) => {
-      const w = windowOnScreen(
-        presentation,
-        sceneCameraAt(composed, presentation, target, startMs + m.ms),
-      );
-      return {
-        ...m,
-        window: {
-          x: r(w.x),
-          y: r(w.y),
-          width: r(w.width),
-          height: r(w.height),
-          radius: r(w.radius),
-        },
-      };
-    }),
-  };
+  const screens = screensWithWindows(
+    composed,
+    presentation,
+    target,
+    scene,
+    bundle,
+    startMs,
+  );
 
   // Bytes or a throw. An empty array here was the "dead Download button"
   // shape: a 0-byte output stored and listed as a success.
@@ -257,6 +229,158 @@ export async function renderScene(args: {
     clampedRanges: composed.clampedRanges,
     screens,
     deepestScale: composed.cameraKeys.reduce((m, k) => Math.max(m, k.scale), 1),
+  };
+}
+
+type Composed = ReturnType<typeof composeForTarget>;
+
+/** The composition `renderScene` walks: keyframe hints for a non-png target,
+ *  then `composeForTarget`. `renderScreens` calls the same, so a screen is
+ *  decided from one composition. */
+async function composeLikeRender(args: {
+  plan: RenderPlan;
+  bundle: FrameBundle;
+  scene?: SceneDocument;
+  target: RenderTarget;
+  ports: CompositorPorts;
+  logo: FrameImage | null;
+  wallpaper: FrameImage | null;
+}): Promise<Composed> {
+  const { plan, bundle, scene, target, ports, logo, wallpaper } = args;
+  // Keyframe diffing needs pixels, which is why it lives out here rather
+  // than in the pure planning stage. On a healthy render it finds nothing.
+  const hints =
+    target.format === "png"
+      ? []
+      : await detectKeyframeMotion(
+          bundle,
+          ports.frames,
+          plan.retiming.motionDiffThreshold,
+        );
+  // The same composition the editor's preview scrubs — see `composeForTarget`.
+  return composeForTarget({
+    plan,
+    bundle,
+    scene,
+    target,
+    hints,
+    logo,
+    wallpaper,
+  });
+}
+
+/** The still screens a render stops on, each with its window by the camera
+ *  that drew that frame. The one place screens are decided. */
+function screensWithWindows(
+  composed: Composed["resolved"],
+  presentation: Composed["presentation"],
+  target: RenderTarget,
+  scene: SceneDocument | undefined,
+  bundle: FrameBundle,
+  startMs: number,
+): Screens {
+  const found: Screens = scene
+    ? screenMoments(composed, scene, bundle)
+    : { steps: 0, moments: [] };
+  const r = (v: number) => Math.round(v * 100) / 100;
+  return {
+    ...found,
+    moments: found.moments.map((m) => {
+      const w = windowOnScreen(
+        presentation,
+        sceneCameraAt(composed, presentation, target, startMs + m.ms),
+      );
+      return {
+        ...m,
+        window: {
+          x: r(w.x),
+          y: r(w.y),
+          width: r(w.width),
+          height: r(w.height),
+          radius: r(w.radius),
+        },
+      };
+    }),
+  };
+}
+
+/**
+ * Composes exactly as `renderScene` does and draws only its still screens,
+ * through `ports.images` and never the target's own sink. One image per
+ * `screens.moments` entry, in order; none when the scene has none (the
+ * caller decides that is a failure). No unsmearing: nothing moves at a
+ * still screen, by `busySpans`.
+ */
+export async function renderScreens(args: {
+  plan: RenderPlan;
+  bundle: FrameBundle;
+  scene: SceneDocument;
+  target: RenderTarget;
+  ports: CompositorPorts;
+  logo?: FrameImage | null;
+  wallpaper?: FrameImage | null;
+}): Promise<{
+  screens: Screens;
+  images: { step: number | null; bytes: Uint8Array }[];
+  detailViolations: DetailViolation[];
+  unavailableSpans: UnavailableSpan[];
+}> {
+  const { plan, bundle, scene, target, ports } = args;
+  const { logo = null, wallpaper = null } = args;
+  const sink = ports.images;
+  if (!sink) throw new Error("renderScreens needs an image sink");
+  const { resolved, presentation, violations } = await composeLikeRender({
+    plan,
+    bundle,
+    scene,
+    target,
+    ports,
+    logo,
+    wallpaper,
+  });
+  const { startMs } = resolved.range;
+  const screens = screensWithWindows(
+    resolved,
+    presentation,
+    target,
+    scene,
+    bundle,
+    startMs,
+  );
+  const canvas = ports.surface.create(target.width, target.height);
+  const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
+  for (const [i, m] of screens.moments.entries()) {
+    const outputTimeMs = startMs + m.ms;
+    const image = await ports.frames.at(
+      toSourceMs(resolved.timeline, outputTimeMs),
+    );
+    await renderFrame({
+      resolved,
+      target,
+      presentation,
+      frames: {
+        at: async () => image,
+        describe: () => ports.frames.describe(),
+      },
+      ctx,
+      outputTimeMs,
+    });
+    await sink.add(canvas, `screen-${i}.png`);
+  }
+  const files = await sink.finish();
+  if (files.length !== screens.moments.length) {
+    throw new Error(
+      `${screens.moments.length} screens drawn but the image sink returned ${files.length} files`,
+    );
+  }
+  return {
+    screens,
+    images: screens.moments.map((m, i) => ({
+      step: m.step,
+      bytes: (files[i] as { bytes: Uint8Array }).bytes,
+    })),
+    detailViolations: violations,
+    unavailableSpans: ports.frames.unavailable?.() ?? [],
   };
 }
 
