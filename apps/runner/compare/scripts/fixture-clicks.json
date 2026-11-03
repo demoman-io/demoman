@@ -1,0 +1,13 @@
+{
+  "scriptVersion": 1,
+  "name": "Fixture app — clicks and a search",
+  "target": "{sample}/index.html",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "role": "link", "name": "Customers" } },
+    { "do": "type", "into": { "stableId": "search" }, "text": "8891" },
+    { "do": "click", "on": { "stableId": "nav-reports" } },
+    { "do": "click", "on": { "stableId": "checkout-btn" } },
+    { "do": "pause", "ms": 800 }
+  ]
+}

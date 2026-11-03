@@ -1,0 +1,48 @@
+name: GPU args
+
+# What headless Chrome's launch flags do to an export on Linux
+# (apps/runner/compare/gpu-args.mjs): the measurement that adds a Linux entry
+# to `GPU_ARGS_BY_PLATFORM` in apps/runner/src/launch.ts. Manual only. A GPU
+# runner is a larger runner (GitHub Team or Enterprise Cloud); pass its label
+# in `runners`, e.g. '["ubuntu-24.04", "gpu-t4"]'.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runners:
+        description: JSON list of runner labels
+        default: '["ubuntu-22.04", "ubuntu-24.04"]'
+      rounds:
+        description: Exports per flag set
+        default: "2"
+  # A perf/ branch that touches the measurement runs it on the standard
+  # runners: workflow_dispatch reaches only workflows already on main.
+  push:
+    branches: ["perf/**"]
+    paths:
+      - ".github/workflows/gpu-args.yml"
+      - "apps/runner/compare/gpu-args.mjs"
+
+jobs:
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.runners || '["ubuntu-22.04", "ubuntu-24.04"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          browser: "true"
+      - name: What GPU the machine has
+        run: nvidia-smi || lspci | grep -iE 'vga|3d|display' || echo "no GPU listed"
+      - name: Export one take per flag set
+        env:
+          ROUNDS: ${{ inputs.rounds || '2' }}
+        run: >
+          node apps/runner/compare/gpu-args.mjs --repo .
+          --script apps/runner/compare/scripts/fixture-clicks.json
+          --sample packages/compositor/scripts/fixture-app.html
+          --rounds "$ROUNDS"
