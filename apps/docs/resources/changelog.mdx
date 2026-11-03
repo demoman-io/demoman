@@ -3,7 +3,16 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
-<Update label="Unreleased" description="Flows in the repo, receipts and the files route">
+<Update label="0.8.2" description="Video as code, flows in the repo, and a library you can search">
+  - A script can say where the video starts and ends with `trim`, and turn a click's zoom off or set its scale with `zoom` on a click or drag. A re-record writes the Studio's trim and zoom edits back into the script, and the run report lists any edit it could not carry.
+  - The Studio's library is grouped by project and opens on the one you are working in. A search box (`/`) matches a flow's name, its pages and its steps, and your agent's `flows({ query })` matches the same way.
+  - The library has a List view, now the default, with sortable columns. Tick several flows or videos and delete them at once.
+  - The Studio works on a phone or a touchscreen.
+  - The Export panel ticks MP4, GIF and PNG stills together, and one Export makes them all.
+  - Your agent's tools speak of flows and videos: a flow is what is recorded, a video one recording of it.
+  - The recipe and the run report steer smaller models, such as Haiku, to a working script.
+  - A click on a canvas bigger than the screen, such as Excalidraw's, is no longer reported as cut off.
+  - When a repo is not on github.com, or GitHub is not answering, attach says how to hand the video over yourself instead of asking you to sign in to `gh`.
   - `demoman keep` is now `demoman add`, and repo flows live in `.demoman/flows/`; `keep` and `.demoman/videos/` still work. `demoman remove <flow>` takes a flow out of the repo and leaves its exports.
   - A flow in the repo is two files: its recipe in `.demoman/flows/<name>.json` and a receipt in `.demoman/receipts/<name>.json` that refresh writes. Refresh never rewrites the recipe.
   - A repo flow's id is in its recipe, so every machine that clones the repo shares one flow. `npx demoman join-flow <from> <into>` moves a flow's videos into the repo flow that has its name.
