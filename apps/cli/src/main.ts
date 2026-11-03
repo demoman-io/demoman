@@ -23,7 +23,6 @@ import {
 import { createUpdateCheck } from "@demoman/mcp/update-check";
 import { isExportQuality } from "@demoman/run-core";
 import {
-  checkCurrent,
   createLocalExecutor,
   execGit,
   fullChromiumPath,
