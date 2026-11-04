@@ -1,7 +1,7 @@
 // One plan for CI setup, checked from a clean checkout before anything is
 // written; then the secrets, the Actions setting, the setup pull request and
 // its run. Both doors (the terminal and the MCP `ci` tool) call these two.
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   APP_FILE,
@@ -306,6 +306,27 @@ const orMissing = <T>(p: Promise<T>): Promise<T | null> =>
     throw e;
   });
 const readOrNull = (path: string) => orMissing(readFile(path));
+
+/** A failed app step tells the person to fix app.json; when the check used a
+ *  draft that is not on disk, write it there (uncommitted, Decision 2) so
+ *  that advice has a file to act on. Never overwrites. */
+async function draftLeft(
+  root: string,
+  step: string,
+  app: CiPlan["app"],
+): Promise<string> {
+  if (step !== "app" || app === null || app.source.kind === "file") return "";
+  const path = join(root, APP_FILE);
+  try {
+    await mkdir(join(root, ".demoman"), { recursive: true });
+    await writeFile(path, app.text, { flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return "";
+    return `; ${APP_FILE} could not be written (${messageOf(error)}): write it yourself with the command fixed`;
+  }
+  const from = "file" in app.source ? ` from ${app.source.file}` : "";
+  return `; the check used a drafted ${APP_FILE}${from}, now written to the working tree uncommitted`;
+}
 
 async function shown(git: GitRunner, root: string, ref: string, path: string) {
   const r = await git(["show", `${ref}:${path}`], root);
@@ -699,7 +720,7 @@ async function makePlan(
       ? stop(check.reason, `${hide(check.detail)}; nothing was written`)
       : stop(
           check.reason,
-          `the check failed on its ${check.step} step: ${hide(check.detail)}`,
+          `the check failed on its ${check.step} step: ${hide(check.detail)}${await draftLeft(root, check.step, app)}`,
           { step: check.step, tail: hide(check.tail) },
         );
   const checked: CiPlan["check"] =

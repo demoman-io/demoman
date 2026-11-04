@@ -114,7 +114,8 @@ npx demoman setup --ci
 
 Setup shows one plan and asks once. It checks the setup from a clean
 checkout first, so the plan carries the result; nothing is written to your
-checkout, branch or default branch. Then, on your confirmation, it sets the
+checkout, branch or default branch, except a drafted `.demoman/app.json` when
+the app step fails. Then, on your confirmation, it sets the
 secrets, turns on the Actions setting, opens a pull request titled "Set up
 Demoman" from `demoman/setup`, and watches its first run.
 
@@ -214,7 +215,7 @@ the confirmation. Reasons it names:
 | `filesUnreadable` | A file to commit could not be read; nothing was done |
 | `checkoutFailed` | The clean checkout could not be made (no commit, git failing, or a file path outside the repo) |
 | `appPortTaken` | Something already answers at `url`; the check will not record it as the app |
-| `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appDockerMissing` | The check could not install or start the app or its services; the output's last lines come with it |
+| `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appDockerMissing` | The check could not install or start the app or its services; the output's last lines come with it. When the check used a drafted `.demoman/app.json`, setup writes it to your working tree, uncommitted, so you can fix the command and run setup again |
 | `refreshFailed` | The check's refresh failed on a flow |
 | `checkStopped` | Ctrl-C ended the check; its worktree is removed and nothing was written |
 | `secretRefused` | GitHub refused a secret; the answer names which were set and kept, and no pull request is opened |

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -664,6 +664,35 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     expect(isStop(r) && r.detail).toContain("nothing answered");
     // Nothing ran after the check.
     expect(f.calls.at(-1)).toBe("verifySetup");
+  });
+
+  // Red when a failed app step says to fix app.json but the drafted file is
+  // nowhere on disk (seen in the manual setup run), or when one there is
+  // overwritten.
+  it("a failed app step writes the drafted app.json, uncommitted, and never overwrites one", async () => {
+    const failed = {
+      verified: {
+        passed: false as const,
+        step: "app" as const,
+        reason: "appInstallFailed",
+        detail: `\`npm ci\` exited with code 1; fix the install command in ${APP_FILE}, then run again`,
+        tail: "",
+      },
+    };
+    const root = await repo();
+    // No app from the door: the detected draft (package.json).
+    const r = await plan(root, fakes(failed), { app: undefined });
+    expect(isStop(r) && r.detail).toContain(
+      `the check used a drafted ${APP_FILE} from package.json, now written to the working tree uncommitted`,
+    );
+    const written = await readFile(join(root, APP_FILE), "utf8");
+    expect(written).toBe(serializeApp(app()));
+
+    const own = await repo({ appJson: serializeApp(app()) });
+    const before = await readFile(join(own, APP_FILE), "utf8");
+    const r2 = await plan(own, fakes(failed), { app: undefined });
+    expect(isStop(r2) && r2.detail).not.toContain("drafted");
+    expect(await readFile(join(own, APP_FILE), "utf8")).toBe(before);
   });
 
   // Red if a check's output reaches a stop unredacted: the app gets every value.
