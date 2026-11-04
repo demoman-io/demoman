@@ -336,12 +336,44 @@ export function drawBackground(
   ctx.fillRect(0, 0, target.width, target.height);
   const image = presentation.wallpaper;
   if (image === null || bg.kind === "solid" || bg.kind === "gradient") return;
-  const { sx, sy, sw, sh } = coverRect(image, target);
   // Under the camera the image is magnified up to `maxScale`: ask for the
   // best filter rather than whatever the context was left at.
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
+  const m = ctx.getTransform();
+  if (m.a === 1 && m.d === 1 && m.b === 0 && m.c === 0) {
+    // Unzoomed, most frames: the image is decoded for the deepest zoom
+    // (`wallpaperRasterSize`), and shrinking it at "high" every frame was
+    // 18% of a CPU-drawn export (DEM-45). The same shrink, done once, is
+    // within a level of it, so BACKGROUND_PAINT_VERSION stays.
+    ctx.drawImage(unzoomedCopy(image, target), 0, 0);
+    return;
+  }
+  const { sx, sy, sw, sh } = coverRect(image, target);
   ctx.drawImage(image.image, sx, sy, sw, sh, 0, 0, target.width, target.height);
+}
+
+/** Per image, its cover crop shrunk to one output size at "high", made on
+ *  the first unzoomed frame and remade when the output size changes. */
+const unzoomedCopies = new WeakMap<object, OffscreenCanvas>();
+
+function unzoomedCopy(
+  image: FrameImage,
+  target: RenderTarget,
+): OffscreenCanvas {
+  const held = unzoomedCopies.get(image.image);
+  if (held?.width === target.width && held.height === target.height) {
+    return held;
+  }
+  const copy = new OffscreenCanvas(target.width, target.height);
+  const g = copy.getContext("2d");
+  if (g === null) throw new Error("the wallpaper's copy has no 2D context");
+  const { sx, sy, sw, sh } = coverRect(image, target);
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(image.image, sx, sy, sw, sh, 0, 0, target.width, target.height);
+  unzoomedCopies.set(image.image, copy);
+  return copy;
 }
 
 function framePath(

@@ -2,7 +2,7 @@ import {
   NEUTRAL_BACKGROUND,
   type SceneBackground,
 } from "@demoman/scene-schema";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FrameImage } from "../../src/ports/types";
 import {
   derivePresentation,
@@ -332,5 +332,202 @@ describe("wallpaper pixels", () => {
     drawBackground(ctx, target, presentation);
     expect(ctx.imageSmoothingEnabled).toBe(true);
     expect(ctx.imageSmoothingQuality).toBe("high");
+  });
+});
+
+/** A wallpaper as an export decodes one: larger than the output (the cover
+ *  size times the deepest zoom), with detail a resample has to filter — a
+ *  1px checker over the quadrants, so a blurred or misplaced copy differs
+ *  from the direct draw by far more than a level. */
+const BIG = { width: 4800, height: 3600 };
+function detailedFixture(): OffscreenCanvas {
+  const c = new OffscreenCanvas(BIG.width, BIG.height);
+  const g = c.getContext("2d") as OffscreenCanvasRenderingContext2D;
+  const half = { w: BIG.width / 2, h: BIG.height / 2 };
+  for (const [x, y, colour] of [
+    [0, 0, CORNERS.topLeft],
+    [half.w, 0, CORNERS.topRight],
+    [0, half.h, CORNERS.bottomLeft],
+    [half.w, half.h, CORNERS.bottomRight],
+  ] as const) {
+    g.fillStyle = css(colour);
+    g.fillRect(x, y, half.w, half.h);
+  }
+  // A checker of 10px cells, about 4px at 1080p: coarse enough to survive
+  // the 2.5x shrink as texture (3px cells averaged to within 10 levels of
+  // flat), fine enough that any blur or offset changes it.
+  g.fillStyle = "rgb(250,250,250)";
+  for (let y = 0; y < BIG.height; y += 10) {
+    for (let x = (y / 10) % 2 === 0 ? 0 : 10; x < BIG.width; x += 20) {
+      g.fillRect(x, y, 10, 10);
+    }
+  }
+  return c;
+}
+
+function presentationWith(target: RenderTarget, wallpaper: FrameImage) {
+  return derivePresentation(
+    { background: WALLPAPER, logo: null, padding: 0.08 },
+    target,
+    VIEWPORT,
+    null,
+    wallpaper,
+  );
+}
+
+/** Today's draw of the image, done directly: the cover crop resampled onto
+ *  the canvas at "high" under whatever transform `ctx` carries. */
+function directDraw(
+  ctx: OffscreenCanvasRenderingContext2D,
+  target: RenderTarget,
+  wallpaper: FrameImage,
+): void {
+  const { sx, sy, sw, sh } = coverRect(wallpaper, target);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(
+    wallpaper.image,
+    sx,
+    sy,
+    sw,
+    sh,
+    0,
+    0,
+    target.width,
+    target.height,
+  );
+}
+
+/** The largest per-channel difference between two same-size canvases. */
+function maxDifference(a: OffscreenCanvas, b: OffscreenCanvas): number {
+  const da = (
+    a.getContext("2d") as OffscreenCanvasRenderingContext2D
+  ).getImageData(0, 0, a.width, a.height).data;
+  const db = (
+    b.getContext("2d") as OffscreenCanvasRenderingContext2D
+  ).getImageData(0, 0, b.width, b.height).data;
+  let worst = 0;
+  for (let i = 0; i < da.length; i++) {
+    if (i % 4 === 3) continue;
+    worst = Math.max(worst, Math.abs((da[i] as number) - (db[i] as number)));
+  }
+  return worst;
+}
+
+/** How often `image` was the source of a drawImage, on any 2D context. */
+function countDrawsOf(image: CanvasImageSource) {
+  const spy = vi.spyOn(
+    OffscreenCanvasRenderingContext2D.prototype,
+    "drawImage",
+  );
+  return {
+    count: () => spy.mock.calls.filter((call) => call[0] === image).length,
+    restore: () => spy.mockRestore(),
+  };
+}
+
+describe("the wallpaper's unzoomed copy (DEM-45)", () => {
+  it("the fixture carries its checker after a direct draw", async () => {
+    const target = LANDSCAPE_1080P;
+    const reference = new OffscreenCanvas(target.width, target.height);
+    directDraw(
+      reference.getContext("2d") as OffscreenCanvasRenderingContext2D,
+      target,
+      await asFrameImage(detailedFixture()),
+    );
+    // Texture survives the shrink: neighbouring pixels in one quadrant
+    // differ, so the comparisons below sample detail, not flat colour.
+    // Green: the top-left quadrant is red (220,30,30), so red barely tells
+    // it from the white cells (250); green differs by 220.
+    const px = pixels(reference);
+    const row = Array.from({ length: 40 }, (_, i) => px(200 + i, 200));
+    const spread =
+      Math.max(...row.map((p) => p[1])) - Math.min(...row.map((p) => p[1]));
+    expect(spread, `green spread along row 200: ${spread}`).toBeGreaterThan(40);
+  });
+
+  it("resamples the large copy once across frames the camera has not zoomed", async () => {
+    const target = LANDSCAPE_1080P;
+    const wallpaper = await asFrameImage(detailedFixture());
+    const presentation = presentationWith(target, wallpaper);
+    const canvas = new OffscreenCanvas(target.width, target.height);
+    const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
+    const draws = countDrawsOf(wallpaper.image);
+    try {
+      for (let frame = 0; frame < 3; frame++) {
+        drawBackground(ctx, target, presentation);
+      }
+      expect(draws.count(), "large-copy draws over 3 unzoomed frames").toBe(1);
+    } finally {
+      draws.restore();
+    }
+  });
+
+  it("an unzoomed frame matches the direct draw within a level", async () => {
+    const target = LANDSCAPE_1080P;
+    const wallpaper = await asFrameImage(detailedFixture());
+    const painted = new OffscreenCanvas(target.width, target.height);
+    const pctx = painted.getContext("2d") as OffscreenCanvasRenderingContext2D;
+    const presentation = presentationWith(target, wallpaper);
+    // Twice: the second frame is the one drawn from the cached copy.
+    drawBackground(pctx, target, presentation);
+    drawBackground(pctx, target, presentation);
+    const reference = new OffscreenCanvas(target.width, target.height);
+    directDraw(
+      reference.getContext("2d") as OffscreenCanvasRenderingContext2D,
+      target,
+      wallpaper,
+    );
+    expect(maxDifference(painted, reference)).toBeLessThanOrEqual(1);
+  });
+
+  it("a zoomed frame is today's draw, from the large copy", async () => {
+    const target = LANDSCAPE_1080P;
+    const wallpaper = await asFrameImage(detailedFixture());
+    const presentation = presentationWith(target, wallpaper);
+    const zoom = (c: OffscreenCanvas) => {
+      const g = c.getContext("2d") as OffscreenCanvasRenderingContext2D;
+      g.translate(target.width / 2, target.height / 2);
+      g.scale(2, 2);
+      g.translate(-target.width / 2, -target.height / 2);
+      return g;
+    };
+    const painted = new OffscreenCanvas(target.width, target.height);
+    const pctx = zoom(painted);
+    const draws = countDrawsOf(wallpaper.image);
+    try {
+      drawBackground(pctx, target, presentation);
+      drawBackground(pctx, target, presentation);
+      expect(draws.count(), "large-copy draws over 2 zoomed frames").toBe(2);
+    } finally {
+      draws.restore();
+    }
+    const reference = new OffscreenCanvas(target.width, target.height);
+    directDraw(zoom(reference), target, wallpaper);
+    expect(maxDifference(painted, reference)).toBe(0);
+  });
+
+  it("rebuilds the copy for a new output size", async () => {
+    const wallpaper = await asFrameImage(detailedFixture());
+    const small = at(LANDSCAPE_1080P, 1280, 720);
+    for (const target of [LANDSCAPE_1080P, small]) {
+      const painted = new OffscreenCanvas(target.width, target.height);
+      const pctx = painted.getContext(
+        "2d",
+      ) as OffscreenCanvasRenderingContext2D;
+      const presentation = presentationWith(target, wallpaper);
+      drawBackground(pctx, target, presentation);
+      drawBackground(pctx, target, presentation);
+      const reference = new OffscreenCanvas(target.width, target.height);
+      directDraw(
+        reference.getContext("2d") as OffscreenCanvasRenderingContext2D,
+        target,
+        wallpaper,
+      );
+      expect(
+        maxDifference(painted, reference),
+        `${target.width}x${target.height}`,
+      ).toBeLessThanOrEqual(1);
+    }
   });
 });
