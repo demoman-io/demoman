@@ -48,6 +48,8 @@ type Answer = Record<string, unknown>;
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const CONFIRM =
   "show the person these lines; only on their yes, call ci again with the same choices and confirmed: true. The pull request carries the files as checked here: an edit made after this plan is not in it; plan again to include it";
+/** A shown plan's check goes stale: past this, confirmed plans again. */
+export const PLAN_KEPT_MS = 30 * 60_000;
 /** What `watch: true` cannot go with: it plans and applies nothing. */
 const NOT_WITH_WATCH = [
   "trigger",
@@ -68,11 +70,13 @@ export function createCiTool(io: {
     root: string,
     progress: (line: string) => void,
   ): Omit<CiDeps, "log" | "signal">;
+  now?: () => number;
 }): (a: CiToolArgs, progress: (line: string) => void) => Promise<Answer> {
-  /** The plan each repo was last shown, with the values it read. */
+  const now = io.now ?? Date.now;
+  /** The plan each repo was last shown, when, and the values it read. */
   const shown = new Map<
     string,
-    { key: string; plan: CiPlan; values: SecretValues }
+    { key: string; plan: CiPlan; values: SecretValues; at: number }
   >();
 
   return async (a, progress) => {
@@ -134,7 +138,8 @@ export function createCiTool(io: {
       ]);
 
       const last = shown.get(root);
-      if (a.confirmed === true && last?.key === key) {
+      const stale = last?.key === key && now() - last.at > PLAN_KEPT_MS;
+      if (a.confirmed === true && last?.key === key && !stale) {
         // Applied once: a second confirmed plans again.
         shown.delete(root);
         values = last.values;
@@ -164,16 +169,18 @@ export function createCiTool(io: {
           reason: "invalidArgs",
           detail: `replaceSecrets names ${unknown.join(", ")}, which this setup does not use (it uses ${uses.join(", ") || "none"}); nothing was written`,
         });
-      shown.set(root, { key, plan, values });
+      shown.set(root, { key, plan, values, at: now() });
       return said({
         outcome: "plan",
         // `contents` (the checked bytes) is not enumerable: never sent.
         plan,
         lines: planLines(plan),
         next:
-          a.confirmed === true
-            ? `No plan with these choices was shown by this server, so nothing was done: ${CONFIRM}`
-            : `Nothing was done yet: ${CONFIRM}`,
+          a.confirmed !== true
+            ? `Nothing was done yet: ${CONFIRM}`
+            : stale
+              ? `The plan shown was more than ${PLAN_KEPT_MS / 60_000} minutes old, so nothing was done; this is a fresh plan, checked again: ${CONFIRM}`
+              : `No plan with these choices was shown by this server, so nothing was done: ${CONFIRM}`,
       });
     } catch (e) {
       return {

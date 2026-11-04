@@ -86,6 +86,7 @@ function tool(
     watched?: Watched;
     openSetupPr?: CiDeps["openSetupPr"];
     lsRemote?: { code: number; stdout: string; stderr: string };
+    now?: () => number;
   } = {},
 ) {
   const root = o.root ?? repoDir();
@@ -106,6 +107,7 @@ function tool(
     setupBranch: null,
   };
   const ci = createCiTool({
+    ...(o.now ? { now: o.now } : {}),
     root: async (project) => ({ root: project ?? root }),
     deps: (_root, progress) => ({
       version: "0.9.0",
@@ -236,6 +238,23 @@ describe("the ci tool", () => {
     const again = await t.call({ trigger: "daily", confirmed: true });
     expect(again.outcome).toBe("plan");
     expect(t.calls.filter((c) => c === "openSetupPr")).toHaveLength(1);
+  });
+
+  // Finding 14, red: drop the age check; a confirmation hours later applies
+  // a check that no longer says what the repo holds.
+  it("plans again, saying why, when confirmed comes more than 30 minutes after the plan", async () => {
+    let clock = 0;
+    const t = tool({ now: () => clock });
+    await t.call({ trigger: "daily" });
+    clock = 31 * 60_000;
+    const late = await t.call({ trigger: "daily", confirmed: true });
+    expect(late.outcome).toBe("plan");
+    expect(String(late.next)).toContain("more than 30 minutes old");
+    expect(t.calls.filter((c) => outward.includes(c))).toEqual([]);
+    expect(t.calls.filter((c) => c === "verifySetup")).toHaveLength(2);
+    // The fresh plan can be confirmed.
+    const done = await t.call({ trigger: "daily", confirmed: true });
+    expect(done.outcome).toBe("opened");
   });
 
   // Red if confirmed applies a plan the agent never saw.
