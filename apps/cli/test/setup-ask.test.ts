@@ -1,8 +1,10 @@
-import { readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EXPORT_QUALITY_VALUES, PULL_REQUESTS_VALUES } from "@demoman/run-core";
 import { describe, expect, it } from "vitest";
-import { realSetupDeps, SETUP_HINTS } from "../src/setup-deps.js";
+import { realDocker, realSetupDeps, SETUP_HINTS } from "../src/setup-deps.js";
 
 const dist = fileURLToPath(new URL("../pkg/dist", import.meta.url));
 const io = (stdinTTY: boolean, stdoutTTY: boolean, env = {}) => ({
@@ -57,5 +59,23 @@ describe("the setup command Demoman hands an agent", () => {
     const commands = main.match(/`npx [^`]*/g) ?? [];
     expect(commands.length).toBeGreaterThanOrEqual(6);
     for (const c of commands) expect(c).toMatch(/^`npx --prefix ~\/ /);
+  });
+});
+
+describe("the setup check's docker", () => {
+  it("says a docker stopped by a signal as stopped, never as missing", async () => {
+    // Red while a signal reads as 127, the code for a missing command.
+    const dir = mkdtempSync(join(tmpdir(), "demoman-docker-"));
+    const bin = join(dir, "docker");
+    writeFileSync(bin, "#!/bin/sh\nkill -TERM $$\n");
+    chmodSync(bin, 0o755);
+    const said: string[] = [];
+    expect(await realDocker((l) => said.push(l), bin)(["info"])).toEqual({
+      code: 143,
+    });
+    expect(said.join("\n")).toContain("`docker info` was stopped by SIGTERM");
+    expect(await realDocker(() => {}, join(dir, "missing"))(["info"])).toEqual({
+      code: 127,
+    });
   });
 });

@@ -476,12 +476,14 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   if (route !== undefined && route !== "pr" && route !== "main")
     return stop(`--route is pr or main; got "${route}".`);
   const ask = flags.yes === true ? null : io.ask;
+  const given = flags.trigger === undefined ? null : triggerOf(flags.trigger);
   if (ask === null && flags.yes !== true) {
     const missing = [
-      ...(flags.trigger === undefined
-        ? ["--trigger release|daily|push|<environment>"]
+      ...(given === null ? ["--trigger release|daily|push|<environment>"] : []),
+      // Release and deployment triggers deliver by pull request only.
+      ...(route === undefined && (given === null || mainCan(given))
+        ? ["--route pr|main"]
         : []),
-      ...(route === undefined ? ["--route pr|main"] : []),
     ];
     return stop(
       `with no terminal to ask in, nothing was read or written: pass --yes to apply the plan with the defaults${missing.length > 0 ? `, and ${missing.join(" and ")} to choose otherwise` : ""}.`,
@@ -501,9 +503,7 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
     log: (l) => io.say(redact(l, values)),
   };
   const choices: CiChoices = {
-    ...(flags.trigger === undefined
-      ? {}
-      : { trigger: triggerOf(flags.trigger) }),
+    ...(given === null ? {} : { trigger: given }),
     ...(route === undefined ? {} : { route }),
     ...(flags.artifact === true ? { artifact: true } : {}),
     ...(flags["replace-secret"] === undefined
@@ -524,15 +524,14 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
       facts.setupBranch === null
     ) {
       if (choices.trigger === undefined) {
-        const t = await ask.trigger(triggerOffers(facts));
+        const offers = triggerOffers(facts);
+        const t = await ask.trigger(
+          route === "main" ? offers.filter((o) => mainCan(o.trigger)) : offers,
+        );
         if (t === null) return cancelled();
         choices.trigger = t;
       }
-      // Release and deployment triggers deliver by pull request only.
-      if (
-        choices.route === undefined &&
-        (choices.trigger === "push" || choices.trigger === "daily")
-      ) {
+      if (choices.route === undefined && mainCan(choices.trigger)) {
         const r = await ask.route(facts.defaultBranch);
         if (r === null) return cancelled();
         choices.route = r;
@@ -556,6 +555,13 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
     } finally {
       restore();
     }
+    // Only the check stops on the signal; a Ctrl-C anywhere else in the
+    // pass still ends setup here, before any further question.
+    if (
+      abort.signal.aborted &&
+      !("reason" in plan && plan.reason === "checkStopped")
+    )
+      return cancelled();
     if (!("reason" in plan)) break;
     if (handled.has(plan.reason)) return said(plan);
     handled.add(plan.reason);
@@ -604,6 +610,15 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
       }
     } else return said(plan);
   }
+
+  const uses = plan.secrets.map((x) => x.name);
+  const unknown = (choices.replaceSecrets ?? []).filter(
+    (n) => !uses.includes(n),
+  );
+  if (unknown.length > 0)
+    return stop(
+      `--replace-secret ${unknown.join(", ")} names no secret this setup uses (it uses ${uses.join(", ") || "none"}); nothing was written. Fix the name, then run setup again.`,
+    );
 
   // One confirmation, after the check (Decision 1).
   const lines = planLines(plan);
@@ -672,6 +687,10 @@ async function fillHoles(
         refused: `${parsed.detail}; run setup again and answer it, or write ${APP_FILE}.`,
       };
 }
+
+/** Whether `--route main` can go with the trigger. */
+const mainCan = (t: CiOptions["trigger"]): boolean =>
+  t === "push" || t === "daily";
 
 /** A `--trigger` value: the three words are triggers,
  *  `deployment:<name>` an environment of any name, and any other word an

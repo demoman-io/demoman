@@ -884,6 +884,8 @@ describe("ciSetup", () => {
       detected?: Awaited<ReturnType<CiDeps["detectApp"]>>;
       verify?: CiDeps["verifySetup"];
       watched?: Watched;
+      /** Runs inside each readGithub. */
+      onRead?: () => void;
     } = {},
   ) {
     const root = o.root ?? repoDir();
@@ -907,6 +909,7 @@ describe("ciSetup", () => {
           : { code: 128, stdout: "", stderr: "fatal: no such path" },
       readGithub: async () => {
         calls.push("readGithub");
+        o.onRead?.();
         return {
           slug: "o/r",
           defaultBranch: "trunk",
@@ -1294,6 +1297,87 @@ describe("ciSetup", () => {
     expect(await ciSetup([...yes, "--route", "sideways"], b.io)).toBe(1);
     expect(b.said.join("")).toContain("--route is pr or main");
     expect([...a.calls, ...b.calls]).toEqual([]);
+  });
+
+  it("Ctrl-C while GitHub is read cancels setup, asking nothing after", async () => {
+    // Red if the swallowed Ctrl-C lets the door go on to prompt for a secret.
+    const { ask, asked } = asker({
+      secret: async () => SECRET,
+      confirm: async () => true,
+    });
+    const m = door({
+      ask,
+      needed: [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
+      onRead: () => m.sig.interrupt?.(),
+    });
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+    ).toBe(1);
+    expect(asked).toEqual([]);
+    expect(m.said).toContain("Setup cancelled; nothing was written.");
+    expect(m.sig.restored).toBe(1);
+    expect(m.calls).toEqual(["readGithub"]);
+  });
+
+  it("stops on a --replace-secret name the setup does not use, naming it", async () => {
+    // Red if a mistyped name is ignored and the old secret silently kept.
+    const m = door({
+      needed: [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
+    });
+    const root = m.root;
+    writeFileSync(join(root, "prod.env"), `STRIPE_KEY=${SECRET}\n`);
+    expect(
+      await ciSetup(
+        [
+          ...yes,
+          "--env-file",
+          join(root, "prod.env"),
+          "--replace-secret",
+          "STRPE_KEY",
+        ],
+        m.io,
+      ),
+    ).toBe(1);
+    const all = m.said.join("\n");
+    expect(all).toContain("STRPE_KEY");
+    expect(all).toContain("STRIPE_KEY");
+    expect(all).not.toContain(SECRET);
+    expect(m.calls.filter((c) => outward.includes(c))).toEqual([]);
+  });
+
+  it("with no terminal, leaves --route out when the trigger allows only a pull request", async () => {
+    for (const t of ["release", "Production"]) {
+      const m = door();
+      expect(await ciSetup(["--ci", "--trigger", t], m.io)).toBe(1);
+      expect(m.said.join("\n")).toMatch(/--yes/);
+      expect(m.said.join("\n")).not.toMatch(/--route/);
+    }
+  });
+
+  it("with --route main, offers only the triggers main can take", async () => {
+    // Red if release or a deployment is offered and refused after the answer.
+    const { ask, asked } = asker({
+      trigger: async () => "daily",
+      confirm: async () => true,
+    });
+    const m = door({
+      ask,
+      facts: {
+        hasReleases: true,
+        deployments: [
+          { environment: "production", url: "https://x.example", sha: "a" },
+        ],
+      },
+    });
+    expect(await ciSetup(["--ci", "--route", "main"], m.io)).toBe(0);
+    const offers = asked.find(([k]) => k === "trigger")?.[1][0] as Array<{
+      trigger: unknown;
+      offered: boolean;
+    }>;
+    expect(offers.filter((o) => o.offered).map((o) => o.trigger)).toEqual([
+      "daily",
+      "push",
+    ]);
   });
 
   it("asks the trigger from the offers and the route with the real branch", async () => {

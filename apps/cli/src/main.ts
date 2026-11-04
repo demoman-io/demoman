@@ -76,6 +76,7 @@ import {
   ciPrompts,
   readSkill,
   readTextFile,
+  realDocker,
   realSetupDeps,
   writeTextFile,
 } from "./setup-deps.js";
@@ -750,18 +751,7 @@ switch (command) {
                 verifySetup(a, {
                   git: execGit,
                   refresh: checkRefresh(d.log),
-                  docker: (args) =>
-                    new Promise((done) =>
-                      execFile("docker", args, (err) =>
-                        done({
-                          code: err
-                            ? typeof err.code === "number"
-                              ? err.code
-                              : 127
-                            : 0,
-                        }),
-                      ),
-                    ),
+                  docker: realDocker(d.log),
                   log: d.log,
                   ...(d.signal === undefined ? {} : { signal: d.signal }),
                 }),

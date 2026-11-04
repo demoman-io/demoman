@@ -1,5 +1,5 @@
 // apps/cli/src/setup-deps.ts — the real commands behind setup.ts.
-import { type SpawnSyncReturns, spawnSync } from "node:child_process";
+import { execFile, type SpawnSyncReturns, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -13,7 +13,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { constants, homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import {
   confirm,
@@ -381,6 +381,27 @@ export function realSetupDeps(
       write: (key, value) => writeSetting(demomanHome(), key, value),
     },
   };
+}
+
+/** The setup check's `docker`: a missing command is 127; one stopped by a
+ *  signal is said as stopped, with the shell's 128 + signal number. */
+export function realDocker(
+  log: (line: string) => void,
+  command = "docker",
+): (args: string[]) => Promise<{ code: number }> {
+  return (args) =>
+    new Promise((done) =>
+      execFile(command, args, (err) => {
+        if (err === null) return done({ code: 0 });
+        if (err.signal) {
+          log(
+            `\`docker ${args.join(" ")}\` was stopped by ${err.signal}, so whether Docker answers is unknown`,
+          );
+          return done({ code: 128 + (constants.signals[err.signal] ?? 0) });
+        }
+        done({ code: typeof err.code === "number" ? err.code : 127 });
+      }),
+    );
 }
 
 /** `setup --ci`'s questions; null (or false from confirm) is a cancel. */
