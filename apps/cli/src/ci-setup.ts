@@ -827,6 +827,8 @@ export async function applyCiSetup(
       `${pr.detail}. Secrets ${done}${setting === null ? "" : `; the Actions setting is ${setting.kind === "alreadyOn" ? "already on" : "turned on"}`}`,
     );
 
+  // Said before the watch, which can take half an hour.
+  deps.log(`Opened the setup pull request: ${pr.opened.url}`);
   const watched = await deps.watchSetupRun({
     slug,
     branch: SETUP_BRANCH,

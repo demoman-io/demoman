@@ -676,8 +676,6 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
 
   const done = await applyCiSetup(plan, deps, values);
   if ("reason" in done) return said(done);
-  if ("opened" in done.pr)
-    io.say(`Opened the setup pull request: ${done.pr.opened.url}`);
   for (const l of watchedLines(done.watched)) io.say(l);
   return done.watched !== null && "passed" in done.watched ? 0 : 1;
 }

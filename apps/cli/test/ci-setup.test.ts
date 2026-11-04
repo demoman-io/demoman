@@ -973,6 +973,21 @@ describe("applyCiSetup", () => {
     expect(r).toMatchObject({ setting: null });
   });
 
+  // Red: the line is said only after the watch (up to 33 minutes later).
+  it("says the pull request's link before the watch starts", async () => {
+    const { f, p, values } = await ready();
+    const watch = f.deps.watchSetupRun;
+    let before: string[] = [];
+    f.deps.watchSetupRun = (a) => {
+      before = [...f.logged];
+      return watch(a);
+    };
+    await applyCiSetup(p, f.deps, values);
+    expect(before).toContain(
+      "Opened the setup pull request: https://github.com/o/r/pull/7",
+    );
+  });
+
   it("a PR failure: no watch", async () => {
     const { f, p, values } = await ready();
     f.deps.openSetupPr = async () => {

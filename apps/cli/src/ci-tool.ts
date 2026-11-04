@@ -148,12 +148,7 @@ export function createCiTool(io: {
           secrets: done.secrets,
           setting: done.setting,
           run,
-          lines: [
-            ...("opened" in done.pr
-              ? [`Opened the setup pull request: ${done.pr.opened.url}`]
-              : []),
-            ...watchedLines(run),
-          ],
+          lines: watchedLines(run),
         });
       }
 

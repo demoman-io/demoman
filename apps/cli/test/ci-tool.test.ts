@@ -220,6 +220,15 @@ describe("the ci tool", () => {
     });
     // One check: the plan shown, not a second one.
     expect(t.calls).toEqual(["verifySetup", "setSecrets", ...outward.slice(1)]);
+    // The link as progress, before the watch; not repeated in the answer.
+    const opened = t.said.indexOf(
+      "Opened the setup pull request: https://github.com/o/r/pull/7",
+    );
+    expect(opened).toBeGreaterThan(-1);
+    expect(opened).toBeLessThan(
+      t.said.findIndex((l) => l.startsWith("Waiting for the setup run")),
+    );
+    expect(String(done.lines)).not.toContain("Opened the setup pull request");
     expect(t.seen.pr?.files.map((f) => f.path)).toEqual(
       (shown.plan as { files: string[] }).files,
     );

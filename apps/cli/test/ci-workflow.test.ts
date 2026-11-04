@@ -1155,7 +1155,13 @@ describe("ciSetup", () => {
       await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
     ).toBe(0);
     const all = m.said.join("\n");
-    expect(all).toContain("https://github.com/o/r/pull/7");
+    // Once, before the watch's verdict.
+    expect(
+      m.said.filter((l) => l.includes("https://github.com/o/r/pull/7")),
+    ).toEqual(["Opened the setup pull request: https://github.com/o/r/pull/7"]);
+    expect(m.said.findIndex((l) => l.includes("pull/7"))).toBeLessThan(
+      m.said.findIndex((l) => l.includes("passed")),
+    );
     expect(all).toMatch(
       /passed.*https:\/\/github\.com\/o\/r\/actions\/runs\/9/,
     );
