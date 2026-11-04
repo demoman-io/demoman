@@ -190,6 +190,9 @@ describe("startApp", () => {
     expect(f.detail).toContain("exited with code 1");
     expect(f.detail).toContain(`\`${START}\``);
     expect(f.tail).toContain("exiting at once");
+    // Its group is gone and nothing answers: nothing is left to name.
+    expect(f.detail).not.toContain("could not stop");
+    expect(f.detail).not.toContain("started after it exited");
   });
 
   it("a start that daemonizes and exits 0 is started, and stop says what it could not stop", async () => {

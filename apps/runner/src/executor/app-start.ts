@@ -166,11 +166,12 @@ export async function startApp(
   const stopAll = async (): Promise<string[]> => {
     const left: string[] = [];
     if (proc) {
-      // Exited before stop: whatever it left running is out of reach.
+      // Exited before stop: whatever it left running is out of reach, and is
+      // named only when it still listens at the URL (nothing did before).
       const exitedFirst = proc.exited.done;
       if (!(await endGroup(proc.child)))
         left.push(`the process \`${app.start}\``);
-      else if (exitedFirst)
+      else if (exitedFirst && (await listening(app.url)))
         left.push(`the process \`${app.start}\` started after it exited`);
     }
     for (const c of containers) {
