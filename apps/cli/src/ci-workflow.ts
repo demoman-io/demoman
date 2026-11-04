@@ -159,7 +159,8 @@ export function ciWorkflow(o: CiOptions): string {
   const refreshIf = expr(
     `github.event_name != 'pull_request'${guard === null ? "" : ` && (${guard})`}`,
   );
-  const services = servicesBlock(o.app);
+  // A deployment trigger records the deployed app (--base-url): nothing to serve.
+  const services = deployment === null ? servicesBlock(o.app) : "";
   return `name: Demoman
 on:
 ${on}
@@ -184,7 +185,7 @@ ${refreshSteps(o, {
     if: ${expr("github.event_name == 'pull_request'")}
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      contents: read${deployment === null ? "" : "\n      deployments: read"}
     concurrency:
       group: demoman-check-${expr("github.ref")}
       cancel-in-progress: true
@@ -211,9 +212,11 @@ function refreshSteps(
   { deliver, outDir }: { deliver: boolean; outDir: string },
 ): string {
   const shape = shapeOf(o);
-  // The check is none of the triggers: no loop guard, no deployment, no skip.
+  // The check is none of the triggers: no loop guard, no deployed commit,
+  // no skip; under a deployment trigger it still records the deployed app.
   const kind: string = deliver ? shape.kind : "check";
   const deployment = deliver ? shape.deployment : null;
+  const environment = shape.deployment;
   const guarded = deliver && shape.guarded;
   const branch = shape.branch;
   const npx = `npx --prefix ~/ -y ${PACKAGE_NAME}@${o.version}`;
@@ -240,14 +243,29 @@ function refreshSteps(
   // The URL is set by whoever may post deployment statuses: it reaches the
   // shell through env, never interpolated into the run line. A deployment
   // that names none stops the step with that said, not a usage error.
+  // The check runs on a pull request, so it reads the URL of the
+  // environment's newest successful deployment itself (deployedStep).
   const baseUrl =
-    deployment === null
+    environment === null
       ? ""
       : ` --base-url "\${DEMOMAN_BASE_URL:?the deployment named no environment_url, so there is no deployed app to record}"`;
   const baseUrlEnv =
-    deployment === null
+    environment === null
       ? ""
-      : `\n          DEMOMAN_BASE_URL: ${expr("github.event.deployment_status.environment_url")}`;
+      : `\n          DEMOMAN_BASE_URL: ${expr(deliver ? "github.event.deployment_status.environment_url" : "steps.deployed.outputs.url")}`;
+  const deployedStep =
+    deliver || environment === null
+      ? ""
+      : `      - name: Find the deployed app
+        id: deployed
+        env:
+          GH_TOKEN: ${expr("github.token")}
+          ENVIRONMENT: "${environment}"
+        run: |
+${DEPLOYED_SCRIPT.split("\n")
+  .map((l) => `          ${l}`)
+  .join("\n")}
+`;
   // The artifact is cumulative: the last one is downloaded into demoman-out
   // and refresh compares against it in place, so an unchanged flow's receipt
   // and video stay for the next run. A missing folder is refresh's "nothing
@@ -376,7 +394,7 @@ ${kind === "daily" ? `${fetch}${freshStep}` : ""}      - uses: actions/cache@v4$
         run: ${npx} setup --browser-only
       - name: Install fonts${ifRun}
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
-${kind === "daily" ? "" : fetch}${deliver ? "" : forkStep}      - name: Refresh the repo's flows${ifRun}
+${kind === "daily" ? "" : fetch}${deliver ? "" : forkStep}${deployedStep}      - name: Refresh the repo's flows${ifRun}
         run: ${npx} refresh${deliver ? ` --deliver ${o.route}` : ""}${baseUrl}${outDir}
         env:
           GH_TOKEN: ${expr("github.token")}${baseUrlEnv}${secretEnv}
@@ -391,6 +409,27 @@ ${
     : ""
 }`;
 }
+
+/** The check's deployed URL: the newest successful deployment to
+ *  $ENVIRONMENT that names an environment_url, written to the step's output. */
+export const DEPLOYED_SCRIPT = `if ! ids=$(gh api -X GET "repos/$GITHUB_REPOSITORY/deployments" -f environment="$ENVIRONMENT" -f per_page=30 --jq '.[].id'); then
+  echo "::error::The $ENVIRONMENT deployments could not be listed, so this check has no deployed app to record; re-run this check."
+  exit 1
+fi
+url=""
+for id in $ids; do
+  if ! url=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=30" --jq '[.[] | select(.state == "success" and (.environment_url // "") != "")][0].environment_url // ""'); then
+    echo "::error::Deployment $id's statuses could not be read, so this check has no deployed app to record; re-run this check."
+    exit 1
+  fi
+  if [ -n "$url" ]; then break; fi
+done
+if [ -z "$url" ]; then
+  echo "::error::No successful deployment to $ENVIRONMENT names an environment_url, so this check has no deployed app to record; deploy to $ENVIRONMENT, then re-run this check."
+  exit 1
+fi
+echo "Recording against the newest successful $ENVIRONMENT deployment: $url"
+echo "url=$url" >> "$GITHUB_OUTPUT"`;
 
 export const DEPLOYMENT_MAIN =
   "--route main cannot go with a deployment trigger: the deployed commit is not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a push trigger.";

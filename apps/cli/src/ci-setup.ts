@@ -149,6 +149,9 @@ export type CiPlan = {
   artifact: boolean;
   /** null only for a deployment trigger without app.json. */
   app: { spec: AppSpec; source: PlanAppSource; text: string } | null;
+  /** A deployment trigger's environment and its URL now; CI records the
+   *  deployed app there and starts none. */
+  deployment: { environment: string; url: string } | null;
   /** Never a failed check: that is a stop. */
   check: Exclude<Verified, { passed: false }>;
   secrets: Array<{
@@ -635,6 +638,7 @@ async function makePlan(
   const made: CiPlan = {
     root,
     ...shape,
+    deployment,
     offers,
     check: checked,
     actionsSetting: route === "pr" ? "turnOn" : "notNeeded",
@@ -709,9 +713,11 @@ export function planLines(p: CiPlan): string[] {
     p.route === "pr"
       ? "Delivers what changed as a pull request."
       : `Delivers what changed as a commit on ${p.repo.defaultBranch}.`,
-    p.app === null
-      ? "Starts no app: records the deployed one."
-      : `Starts the app with ${p.app.spec.start} at ${p.app.spec.url} (from ${source}).`,
+    p.deployment !== null
+      ? `Starts no app: records the newest successful ${p.deployment.environment} deployment (now ${p.deployment.url}).`
+      : p.app === null
+        ? "Starts no app: records the deployed one."
+        : `Starts the app with ${p.app.spec.start} at ${p.app.spec.url} (from ${source}).`,
     "passed" in c
       ? `Checked from a clean checkout: ${c.flow} recorded in ${c.recordSeconds} s${c.appSeconds > 0 ? ` (the app started in ${c.appSeconds} s)` : ""}.`
       : `Not checked locally: ${c.skipped}.`,

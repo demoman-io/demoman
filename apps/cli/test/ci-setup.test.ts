@@ -665,6 +665,24 @@ describe("planCiSetup's plan", () => {
     });
   });
 
+  // R30, red: planLines says "Starts the app" whenever app.json is there.
+  it("a deployment plan with app.json says it records the deployment and starts no app", async () => {
+    const f = fakes({
+      github: facts({
+        deployments: [
+          { environment: "production", url: "https://x.example", sha: "a" },
+        ],
+      }),
+    });
+    const p = await okPlan(await repo(), f);
+    expect(p.app, "premise: app.json is in the plan").not.toBeNull();
+    const said = planLines(p);
+    expect(said).toContain(
+      "Starts no app: records the newest successful production deployment (now https://x.example).",
+    );
+    expect(said.join("\n")).not.toContain("Starts the app");
+  });
+
   it("holds the workflow, app.json and the flow's delivery when none is on the default branch", async () => {
     const f = fakes();
     const p = await okPlan(await repo({ digest: "match" }), f);

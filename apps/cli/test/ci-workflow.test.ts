@@ -1409,8 +1409,10 @@ describe("the workflow starts nothing, passes named secrets, runs services, and 
   };
   const jobs = (y: string) => parse(y).jobs as { refresh: Job; check: Job };
   const refreshStep = (j: Job, deliver: boolean) =>
-    j.steps.find((s) =>
-      s.run?.includes(` refresh${deliver ? " --deliver" : " --out-dir"}`),
+    j.steps.find(
+      (s) =>
+        s.name === "Refresh the repo's flows" &&
+        s.run?.includes(" --deliver") === deliver,
     );
 
   it("passes each account's secret and origin and each app secret, in both jobs", () => {
@@ -1507,13 +1509,19 @@ describe("the workflow starts nothing, passes named secrets, runs services, and 
     for (const y of every) {
       const { check, refresh } = jobs(y);
       expect(check.if).toBe(expr("github.event_name == 'pull_request'"));
-      expect(check.permissions).toEqual({ contents: "read" });
+      expect(check.permissions).toEqual(
+        y.includes("deployment_status:")
+          ? { contents: "read", deployments: "read" }
+          : { contents: "read" },
+      );
       expect(check.concurrency).toEqual({
         group: `demoman-check-${expr("github.ref")}`,
         "cancel-in-progress": true,
       });
       const mine = refreshStep(check, false);
-      expect(mine?.run).toContain("refresh --out-dir demoman-check");
+      expect(mine?.run).toMatch(
+        / refresh( --base-url "[^"]+")? --out-dir demoman-check$/,
+      );
       expect(JSON.stringify(check)).not.toContain("--deliver");
       expect(JSON.stringify(check)).not.toContain("contents: write");
       expect(refresh.permissions?.contents).toBe("write");
@@ -1608,5 +1616,148 @@ describe("the workflow starts nothing, passes named secrets, runs services, and 
     );
     expect(JSON.stringify(check)).not.toContain("steps.fresh");
     expect(JSON.stringify(refresh)).toContain("steps.fresh");
+  });
+});
+
+// R30: the check runs on a pull request, where no deployment_status event
+// names a URL; it reads the environment's newest successful deployment.
+describe("the deployment trigger's check records the deployed app", () => {
+  type Step = {
+    name?: string;
+    id?: string;
+    run?: string;
+    env?: Record<string, string>;
+  };
+  type Job = {
+    permissions?: Record<string, string>;
+    services?: unknown;
+    steps: Step[];
+  };
+  const deployApp = ciWorkflow({
+    version: "0.2.0",
+    trigger: { deployment: "Production" },
+    route: "pr",
+    app,
+    secrets,
+  });
+  const jobs = (y: string) => parse(y).jobs as { refresh: Job; check: Job };
+
+  // Red: refreshSteps sets the check's deployment to null again.
+  it("passes --base-url from the found deployment, read through env", () => {
+    const { check } = jobs(deployApp);
+    const refresh = check.steps.find(
+      (s) => s.name === "Refresh the repo's flows",
+    );
+    expect(refresh?.run).toContain('--base-url "${DEMOMAN_BASE_URL:?');
+    expect(refresh?.run).toContain("refresh --base-url");
+    expect(refresh?.env?.DEMOMAN_BASE_URL).toBe(
+      expr("steps.deployed.outputs.url"),
+    );
+    const names = check.steps.map((s) => s.name ?? "");
+    expect(names.indexOf("Find the deployed app")).toBeGreaterThan(-1);
+    expect(names.indexOf("Find the deployed app")).toBeLessThan(
+      names.indexOf("Refresh the repo's flows"),
+    );
+    const find = check.steps.find((s) => s.name === "Find the deployed app");
+    expect(find?.id).toBe("deployed");
+    expect(find?.env).toEqual({
+      GH_TOKEN: expr("github.token"),
+      ENVIRONMENT: "Production",
+    });
+    expect(check.permissions).toEqual({
+      contents: "read",
+      deployments: "read",
+    });
+  });
+
+  // Red: drop the deployment test on the services block.
+  it("serves nothing under a deployment trigger, even with app.json's services", () => {
+    const { check, refresh } = jobs(deployApp);
+    expect(check.services).toBeUndefined();
+    expect(refresh.services).toBeUndefined();
+    expect(
+      jobs(withApp).check.services,
+      "premise: services render elsewhere",
+    ).toBeDefined();
+  });
+
+  const find = jobs(deployApp).check.steps.find(
+    (s) => s.name === "Find the deployed app",
+  );
+  /** The step's script with a fake gh: `ids` the deployments, `statuses` each one's. */
+  const shell = (
+    ids: string,
+    statuses: Record<string, unknown[]>,
+    fail = "",
+  ) => {
+    const cwd = mkdtempSync(join(tmpdir(), "dep-"));
+    const bin = join(cwd, "bin");
+    mkdirSync(bin);
+    for (const [id, list] of Object.entries(statuses))
+      writeFileSync(join(cwd, `${id}.json`), JSON.stringify(list));
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/sh
+echo "gh $*" >> "${cwd}/log"
+[ "$FAIL" = "$2" ] && exit 1
+case "$2" in
+  -X) printf '%s\\n' ${ids} ;;
+  *) id=$(printf '%s' "$2" | sed 's|.*/deployments/\\([0-9]*\\)/.*|\\1|'); jq -r "$4" "${cwd}/$id.json" ;;
+esac
+`,
+      { mode: 0o755 },
+    );
+    writeFileSync(join(cwd, "out"), "");
+    const r = spawnSync("bash", ["-e", "-c", find?.run ?? ""], {
+      cwd,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        GITHUB_REPOSITORY: "o/r",
+        GITHUB_OUTPUT: join(cwd, "out"),
+        ENVIRONMENT: "Production",
+        FAIL: fail,
+      },
+    });
+    return {
+      ...r,
+      out: readFileSync(join(cwd, "out"), "utf8"),
+      log: readFileSync(join(cwd, "log"), "utf8"),
+    };
+  };
+
+  it("takes the newest successful deployment's environment_url", () => {
+    const r = shell("9 8", {
+      9: [{ state: "failure", environment_url: "https://bad.example" }],
+      8: [
+        { state: "success", environment_url: "https://new.example" },
+        { state: "success", environment_url: "https://old.example" },
+      ],
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.out).toBe("url=https://new.example\n");
+    expect(r.log).toContain(
+      "gh api -X GET repos/o/r/deployments -f environment=Production -f per_page=30",
+    );
+  });
+
+  it("fails naming the environment when no successful deployment names a URL", () => {
+    const r = shell("9", {
+      9: [{ state: "success", target_url: "https://logs.example" }],
+    });
+    expect(r.status).toBe(1);
+    expect(r.out).toBe("");
+    expect(r.stdout).toContain(
+      "No successful deployment to Production names an environment_url",
+    );
+  });
+
+  it("says the list could not be read, never that there is no deployment", () => {
+    const r = shell("9", {}, "-X");
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain(
+      "The Production deployments could not be listed",
+    );
   });
 });
