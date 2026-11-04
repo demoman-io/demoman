@@ -1,0 +1,110 @@
+// The setup pull request, built on a branch in a temporary worktree so the
+// person's checkout, current branch, index and default branch are never touched.
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import type { GitRunner } from "@demoman/runner/package";
+import type { Gh } from "./gh-run.js";
+
+export const SETUP_BRANCH = "demoman/setup";
+export const SETUP_TITLE = "Set up Demoman";
+export type SetupPr =
+  | { opened: { number: number; url: string; branch: string; sha: string } }
+  | {
+      failed: "push" | "pr" | "worktree";
+      detail: string;
+      branchUrl?: string;
+    };
+
+export async function openSetupPr(
+  a: {
+    root: string;
+    slug: string;
+    base: string;
+    files: Array<{ path: string; text: string | Uint8Array }>;
+    body: string;
+  },
+  deps: { git: GitRunner; gh: Gh },
+): Promise<SetupPr> {
+  const { git, gh } = deps;
+  const tmp = await mkdtemp(join(tmpdir(), "demoman-setup-"));
+  let added = false;
+  const stage = async (
+    what: string,
+    args: string[],
+    cwd = tmp,
+  ): Promise<string | undefined> => {
+    const r = await git(args, cwd);
+    return r.code === 0
+      ? undefined
+      : `\`git ${args.join(" ")}\` (${what}) exited with code ${r.code}: ${r.stderr.trim()}`;
+  };
+  try {
+    const fetchFailed = await stage(
+      "fetch",
+      ["fetch", "origin", a.base],
+      a.root,
+    );
+    if (fetchFailed) return { failed: "worktree", detail: fetchFailed };
+    const addFailed = await stage(
+      "worktree",
+      ["worktree", "add", "-b", SETUP_BRANCH, tmp, `origin/${a.base}`],
+      a.root,
+    );
+    if (addFailed) return { failed: "worktree", detail: addFailed };
+    added = true;
+    for (const f of a.files) {
+      const p = join(tmp, f.path);
+      await mkdir(dirname(p), { recursive: true });
+      await writeFile(p, f.text);
+    }
+    const built =
+      (await stage("add", ["add", "--", ...a.files.map((f) => f.path)])) ??
+      (await stage("commit", ["commit", "-m", SETUP_TITLE]));
+    if (built) return { failed: "worktree", detail: built };
+
+    const pushed = await git(["push", "origin", SETUP_BRANCH], tmp);
+    if (pushed.code !== 0) {
+      const words = pushed.stderr.trim();
+      const exists = /non-fast-forward|fetch first|\(already exists\)/.test(
+        words,
+      );
+      return {
+        failed: "push",
+        detail: exists
+          ? `a setup branch already exists on origin (${SETUP_BRANCH}); merge or close its pull request, or delete the branch, then run setup again. git said: ${words}`
+          : `\`git push origin ${SETUP_BRANCH}\` exited with code ${pushed.code}: ${words}`,
+      };
+    }
+    const sha = (await git(["rev-parse", "HEAD"], tmp)).stdout.trim();
+
+    const pr = await gh([
+      "pr",
+      "create",
+      "--base",
+      a.base,
+      "--head",
+      SETUP_BRANCH,
+      "--title",
+      SETUP_TITLE,
+      "--body",
+      a.body,
+    ]);
+    const url = pr.stdout.trim().split("\n").pop() ?? "";
+    const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
+    if (pr.code !== 0 || !Number.isInteger(number))
+      return {
+        failed: "pr",
+        branchUrl: `https://github.com/${a.slug}/tree/${SETUP_BRANCH}`,
+        detail: `the branch ${SETUP_BRANCH} is pushed but the pull request was not opened (${pr.stderr.trim() || pr.stdout.trim() || `gh exited with code ${pr.code}`}); open it with: gh pr create --base ${a.base} --head ${SETUP_BRANCH} --title "${SETUP_TITLE}"`,
+      };
+    return { opened: { number, url, branch: SETUP_BRANCH, sha } };
+  } finally {
+    if (added) {
+      await git(["worktree", "remove", "--force", tmp], a.root);
+      await git(["branch", "-D", SETUP_BRANCH], a.root);
+    }
+    await rm(tmp, { recursive: true, force: true });
+    await git(["worktree", "prune"], a.root);
+  }
+}
