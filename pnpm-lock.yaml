@@ -54,6 +54,9 @@ importers:
       vitest:
         specifier: 3.2.7
         version: 3.2.7(@types/node@26.2.0)(@vitest/browser@3.2.7)(jiti@2.7.0)(jsdom@30.0.1)(lightningcss@1.33.0)(tsx@4.23.12)(yaml@2.9.1)
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
 
   apps/mcp:
     dependencies:

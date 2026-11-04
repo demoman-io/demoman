@@ -8,8 +8,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AppSpec } from "@demoman/run-core";
 import { describe, expect, it } from "vitest";
-import { ciSetup, ciWorkflow, expr } from "../src/ci-workflow.js";
+import { parse } from "yaml";
+import {
+  type CiOptions,
+  ciSetup,
+  expr,
+  ciWorkflow as workflow,
+} from "../src/ci-workflow.js";
+
+const ciWorkflow = (
+  o: Omit<CiOptions, "app" | "secrets"> & Partial<CiOptions>,
+): string => workflow({ app: null, secrets: { accounts: [], app: [] }, ...o });
 
 // No YAML parser is in the repo's dependencies, so the structure is asserted
 // by the lines that carry it; every key sits at a fixed indent.
@@ -18,6 +29,57 @@ const deploy = ciWorkflow({
   version: "0.2.0",
   trigger: { deployment: "Production" },
   route: "pr",
+});
+const releaseY = ciWorkflow({
+  version: "0.2.0",
+  trigger: "release",
+  route: "pr",
+});
+const dailyY = ciWorkflow({ version: "0.2.0", trigger: "daily", route: "pr" });
+const triggers = [
+  "push",
+  "release",
+  "daily",
+  { deployment: "Production" },
+] as const;
+const app: AppSpec = {
+  appVersion: 1,
+  install: ["npm ci"],
+  start: "npm start",
+  url: "http://localhost:3000",
+  timeoutSeconds: 60,
+  env: {},
+  secrets: ["STRIPE_KEY"],
+  services: {
+    postgres: {
+      image: "postgres:16",
+      ports: ["5432:5432"],
+      env: { POSTGRES_PASSWORD: "dev" },
+      options: "--health-cmd pg_isready",
+    },
+  },
+};
+const secrets = { accounts: ["SELLER"], app: ["STRIPE_KEY"] };
+/** Every trigger, with and without an artifact, with and without app and secrets. */
+const every = triggers.flatMap((trigger) =>
+  [false, true].flatMap((artifact) =>
+    [false, true].map((full) =>
+      ciWorkflow({
+        version: "0.2.0",
+        trigger,
+        route: "pr",
+        ...(artifact ? { artifact } : {}),
+        ...(full ? { app, secrets } : {}),
+      }),
+    ),
+  ),
+);
+const withApp = ciWorkflow({
+  version: "0.2.0",
+  trigger: "push",
+  route: "pr",
+  app,
+  secrets,
 });
 const lines = (y: string) => y.split("\n");
 const npx = (y: string) => lines(y).filter((l) => l.includes("npx --prefix"));
@@ -61,7 +123,7 @@ describe("ciWorkflow artifact", () => {
     expect(step).toContain("          EVENT: push");
     expect(step).toContain('          BRANCH: "main"');
     // gh reads another run's artifacts only with actions: read.
-    expect(lines(art)).toContain("  actions: read");
+    expect(lines(art)).toContain("      actions: read");
   });
 
   /** The fetch step's script, as the workflow runs it. */
@@ -332,9 +394,14 @@ exit 0
     expect(got.from).toBe("500");
   });
   it("without artifact, neither appears", () => {
-    expect(push).not.toContain("--out-dir");
+    // The check job's own --out-dir is not the cumulative artifact's.
+    expect(push.slice(0, push.indexOf("\n  check:\n"))).not.toContain(
+      "--out-dir",
+    );
     expect(push).not.toContain("--previous");
-    expect(push).not.toContain("upload-artifact");
+    expect(push.slice(0, push.indexOf("\n  check:\n"))).not.toContain(
+      "upload-artifact",
+    );
     expect(push).not.toContain("gh run download");
     expect(push).not.toContain("actions: read");
   });
@@ -342,7 +409,7 @@ exit 0
 
 describe("ciWorkflow", () => {
   it("pins the version in both npx lines", () => {
-    expect(npx(push)).toHaveLength(2);
+    expect(npx(push)).toHaveLength(4); // two per job
     for (const l of npx(push)) expect(l).toContain("demoman@0.2.0");
     expect(push).toContain("setup --browser-only");
     expect(push).not.toContain("setup --yes");
@@ -350,11 +417,13 @@ describe("ciWorkflow", () => {
 
   it("indents with spaces only and has the three top-level keys", () => {
     expect(push).not.toContain("\t");
-    for (const key of ["name:", "on:", "permissions:", "jobs:"]) {
+    for (const key of ["name:", "on:", "jobs:"]) {
       expect(lines(push)).toContain(key === "name:" ? "name: Demoman" : key);
     }
-    expect(push).toContain("  contents: write");
-    expect(push).toContain("  pull-requests: write");
+    // Write permission is the refresh job's, never the workflow's.
+    expect(lines(push)).not.toContain("permissions:");
+    expect(push).toContain("      contents: write");
+    expect(push).toContain("      pull-requests: write");
   });
 
   it("checks out the full history, for deliver's commit check", () => {
@@ -374,12 +443,16 @@ describe("ciWorkflow", () => {
   it("guards the push job against its own commits", () => {
     expect(push).toContain("[skip demoman]");
     expect(push).toContain("github.actor != 'github-actions[bot]'");
-    expect(lines(push).filter((l) => l.startsWith("    if:"))).toHaveLength(1);
+    expect(parse(push).jobs.refresh.if).toContain(
+      "!contains(github.event.head_commit.message, '[skip demoman]')",
+    );
   });
 
-  it("starts the app for push, and not for a deployment", () => {
-    expect(push).toContain("Start your app");
-    expect(deploy).not.toContain("Start your app");
+  it("has no start step in any trigger", () => {
+    for (const y of [push, deploy, releaseY, dailyY]) {
+      expect(y).not.toMatch(/Start your app/);
+      expect(y).not.toContain("wait-on");
+    }
   });
 
   it("triggers on deployment_status and refreshes the deployed URL", () => {
@@ -426,7 +499,7 @@ describe("ciWorkflow", () => {
   });
 
   it("interpolates no expression into any run line, in either shape", () => {
-    for (const y of [push, deploy]) {
+    for (const y of [push, deploy, withApp]) {
       const runs = lines(y).filter((l) => l.trim().startsWith("run:"));
       expect(
         runs.length,
@@ -472,7 +545,7 @@ describe("the loop guard", () => {
   /** The steps of the job, each as its own block of lines. */
   const steps = (y: string) =>
     y
-      .slice(y.indexOf("    steps:\n") + 11)
+      .slice(y.indexOf("    steps:\n") + 11, y.indexOf("\n  check:\n"))
       .split(/\n(?= {6}- )/)
       .filter((b) => b.startsWith("      - "));
 
@@ -549,8 +622,15 @@ describe("the loop guard", () => {
 describe("the workflow's shape", () => {
   it("serialises runs", () => {
     expect(push).toContain(
-      "concurrency:\n  group: demoman-refresh\n  cancel-in-progress: false",
+      "    concurrency:\n      group: demoman-refresh\n      cancel-in-progress: false",
     );
+    for (const y of every) {
+      expect(parse(y).jobs.refresh.concurrency).toEqual({
+        group: "demoman-refresh",
+        "cancel-in-progress": false,
+      });
+      expect(parse(y).concurrency).toBeUndefined();
+    }
   });
   it("watches the branch it is given, main by default", () => {
     expect(push).toContain("branches: [main]");
@@ -561,11 +641,6 @@ describe("the workflow's shape", () => {
       branch: "master",
     });
     expect(m).toContain("branches: [master]");
-  });
-  it("names _ORIGIN beside each secret", () => {
-    expect(push).toContain("# DEMOMAN_SECRET_SELLER: ");
-    expect(push).toContain("# DEMOMAN_SECRET_SELLER_ORIGIN: ");
-    expect(push).toContain("{ secret: NAME }");
   });
   it("refuses the main route on a deployment", () => {
     expect(() =>
@@ -603,14 +678,13 @@ describe("release and daily triggers", () => {
     for (const y of [release, daily]) {
       expect(y).not.toContain("Skip Demoman's own commits");
       expect(y).not.toContain("steps.guard");
-      expect(lines(y).filter((l) => l.startsWith("    if:"))).toEqual([]);
+      // Only the pull_request exclusion conditions the refresh job.
+      expect(parse(y).jobs.refresh.if).toBe(
+        expr("github.event_name != 'pull_request'"),
+      );
     }
     // Premise: the push workflow still has it.
     expect(push).toContain("Skip Demoman's own commits");
-  });
-
-  it("asks both to start the app, as push does", () => {
-    for (const y of [release, daily]) expect(y).toContain("Start your app");
   });
 
   it("refuses the main route on a release, which checks out a tag", () => {
@@ -651,7 +725,7 @@ describe("the daily run stops early when nothing is new", () => {
       expect(check).toBeLessThan(at(y, "Install Chromium"));
       expect(check).toBeLessThan(at(y, "Refresh the repo's flows"));
       expect(y.indexOf("id: fresh")).toBeLessThan(
-        y.indexOf("# Start your app"),
+        y.indexOf("Refresh the repo's flows"),
       );
     }
     const a = daily(true);
@@ -693,8 +767,9 @@ describe("the daily run stops early when nothing is new", () => {
 
   it("skips every step after the check when it says so", () => {
     const y = daily(true);
-    const after = lines(y).slice(
-      lines(y).findIndex((l) => l.includes("id: fresh")) + 1,
+    const refreshJob = lines(y.slice(0, y.indexOf("\n  check:\n")));
+    const after = refreshJob.slice(
+      refreshJob.findIndex((l) => l.includes("id: fresh")) + 1,
     );
     const conds = after.filter((l) => l.trim().startsWith("if: ${{"));
     expect(conds.length).toBeGreaterThanOrEqual(5);
@@ -750,12 +825,10 @@ describe("ciSetup", () => {
     expect(await ciSetup(flags, m.io)).toBe(0);
     expect(m.wrote[0]?.[0]).toBe(".github/workflows/demoman.yml");
     expect(m.wrote[0]?.[1]).toBe(push);
-    const said = m.said.join("\n");
-    expect(said).toContain(
-      "Allow GitHub Actions to create and approve pull requests",
-    );
-    expect(said).toContain("Start your app");
-    expect(said).toContain("_ORIGIN");
+    // The notes went with the start step and the commented secrets.
+    expect(m.said).toEqual([
+      "Wrote .github/workflows/demoman.yml (at the repo root).",
+    ]);
   });
 
   it("takes release and daily by name, and an environment named like them by deployment:", async () => {
@@ -855,5 +928,195 @@ describe("ciSetup", () => {
     expect(b.said.join("\n")).toContain(
       "Could not read origin's default branch",
     );
+  });
+});
+
+describe("the workflow starts nothing, passes named secrets, runs services, and checks itself", () => {
+  type Job = {
+    if?: string;
+    permissions?: Record<string, string>;
+    concurrency?: Record<string, unknown>;
+    services?: Record<string, Record<string, unknown>>;
+    steps: Array<{ name?: string; run?: string; env?: Record<string, string> }>;
+  };
+  const jobs = (y: string) => parse(y).jobs as { refresh: Job; check: Job };
+  const refreshStep = (j: Job, deliver: boolean) =>
+    j.steps.find((s) =>
+      s.run?.includes(` refresh${deliver ? " --deliver" : " --out-dir"}`),
+    );
+
+  it("passes each account's secret and origin and each app secret, in both jobs", () => {
+    for (const y of every.filter((y) => y.includes("DEMOMAN_SECRET_SELLER"))) {
+      for (const [job, deliver] of [
+        [jobs(y).refresh, true],
+        [jobs(y).check, false],
+      ] as const) {
+        expect(refreshStep(job, deliver)?.env).toMatchObject({
+          DEMOMAN_SECRET_SELLER: expr("secrets.DEMOMAN_SECRET_SELLER"),
+          DEMOMAN_SECRET_SELLER_ORIGIN: expr(
+            "secrets.DEMOMAN_SECRET_SELLER_ORIGIN",
+          ),
+          STRIPE_KEY: expr("secrets.STRIPE_KEY"),
+        });
+      }
+    }
+    expect(withApp, "premise: the secrets are in this variant").toContain(
+      "DEMOMAN_SECRET_SELLER",
+    );
+  });
+
+  it("names no secret and keeps no commented secret lines when there are none", () => {
+    for (const y of [push, deploy, releaseY, dailyY]) {
+      expect(y).not.toContain("secrets.");
+      expect(y).not.toContain("# DEMOMAN_SECRET");
+      expect(y).not.toContain("Secrets on a fork's pull request");
+    }
+  });
+
+  it("refuses a secret name a workflow cannot carry", () => {
+    for (const bad of ["a b", "GITHUB_TOKEN", "X\n  Y: z"]) {
+      expect(() =>
+        ciWorkflow({
+          version: "0.2.0",
+          trigger: "push",
+          route: "pr",
+          secrets: { accounts: [], app: [bad] },
+        }),
+      ).toThrow(/secret name/);
+    }
+  });
+
+  it("renders the app's services into both jobs, and none without them", () => {
+    const j = jobs(withApp);
+    for (const job of [j.refresh, j.check]) {
+      expect(job.services).toEqual({
+        postgres: {
+          image: "postgres:16",
+          ports: ["5432:5432"],
+          env: { POSTGRES_PASSWORD: "dev" },
+          options: "--health-cmd pg_isready",
+        },
+      });
+    }
+    for (const y of [push, deploy, releaseY, dailyY]) {
+      expect(y).not.toContain("services:");
+    }
+    expect(() =>
+      ciWorkflow({
+        version: "0.2.0",
+        trigger: "push",
+        route: "pr",
+        app: {
+          ...app,
+          services: {
+            x: { image: "i", ports: [], env: {}, options: expr("secrets.A") },
+          },
+        },
+      }),
+    ).toThrow(/service/);
+  });
+
+  it("watches the pull request's own paths under every trigger", () => {
+    for (const y of every) {
+      expect(parse(y).on.pull_request).toEqual({
+        paths: [".github/workflows/demoman.yml", ".demoman/**"],
+      });
+    }
+  });
+
+  it("keeps the refresh job off pull requests under every trigger", () => {
+    for (const y of every) {
+      expect(jobs(y).refresh.if, y).toMatch(
+        /^\$\{\{ github\.event_name != 'pull_request'( && \(.+\))? \}\}$/,
+      );
+    }
+    expect(jobs(deploy).refresh.if).toContain(
+      "github.event.deployment.environment == 'Production'",
+    );
+  });
+
+  it("checks on the pull request alone, read-only, delivering nothing, in its own group", () => {
+    for (const y of every) {
+      const { check, refresh } = jobs(y);
+      expect(check.if).toBe(expr("github.event_name == 'pull_request'"));
+      expect(check.permissions).toEqual({ contents: "read" });
+      expect(check.concurrency).toEqual({
+        group: `demoman-check-${expr("github.ref")}`,
+        "cancel-in-progress": true,
+      });
+      const mine = refreshStep(check, false);
+      expect(mine?.run).toContain("refresh --out-dir demoman-check");
+      expect(JSON.stringify(check)).not.toContain("--deliver");
+      expect(JSON.stringify(check)).not.toContain("contents: write");
+      expect(refresh.permissions?.contents).toBe("write");
+    }
+  });
+
+  it("says why a fork's pull request cannot run the check, and stops", () => {
+    const step = jobs(withApp).check.steps.find((s) =>
+      s.name?.startsWith("Secrets on a fork"),
+    ) as { if?: string; run?: string } | undefined;
+    expect(step?.if).toBe(
+      expr(
+        "github.event.pull_request.head.repo.full_name != github.repository",
+      ),
+    );
+    const r = spawnSync("bash", ["-c", step?.run ?? ""], { encoding: "utf8" });
+    expect(r.status).toBe(1);
+    expect(r.stdout.trim()).toBe(
+      "::error::Secrets are not given to pull requests from forks, so this check cannot sign in or start the app; a maintainer can run it from a branch in this repository.",
+    );
+    // It comes before the refresh, so the sign-in never gets to fail.
+    const names = jobs(withApp).check.steps.map((s) => s.name ?? "");
+    expect(
+      names.findIndex((n) => n.startsWith("Secrets on a fork")),
+    ).toBeLessThan(names.indexOf("Refresh the repo's flows"));
+  });
+
+  it("copies the commit flows' files under demoman-check/repo and uploads always", () => {
+    const { steps } = jobs(withApp).check;
+    const gather = steps.find((s) => s.name?.startsWith("Gather"));
+    const dir = mkdtempSync(join(tmpdir(), "check-"));
+    mkdirSync(join(dir, "demoman-check"));
+    mkdirSync(join(dir, ".demoman/flows"), { recursive: true });
+    writeFileSync(join(dir, ".demoman/flows/a b.mp4"), "v");
+    writeFileSync(join(dir, "other.txt"), "x");
+    writeFileSync(
+      join(dir, "demoman-check/demoman-refresh.json"),
+      JSON.stringify({
+        videos: [
+          { deliver: "commit", files: [{ path: ".demoman/flows/a b.mp4" }] },
+          { deliver: "files", files: [{ path: "other.txt" }] },
+        ],
+      }),
+    );
+    // BSD cp has no --parents; the runner is Linux, so ditto it with ditto-free rsync -R.
+    const gnu = spawnSync("cp", ["--parents", "--version"]);
+    if (gnu.status === 0) {
+      const r = spawnSync("bash", ["-e", "-c", gather?.run ?? ""], {
+        cwd: dir,
+        encoding: "utf8",
+      });
+      expect(r.status, r.stderr).toBe(0);
+      expect(
+        existsSync(join(dir, "demoman-check/repo/.demoman/flows/a b.mp4")),
+      ).toBe(true);
+      expect(existsSync(join(dir, "demoman-check/repo/other.txt"))).toBe(false);
+    }
+    expect(gather).toMatchObject({ if: "always()" });
+    const up = steps.at(-1) as Record<string, unknown>;
+    expect(up).toMatchObject({
+      if: "always()",
+      with: { name: "demoman-check", path: "demoman-check" },
+    });
+  });
+
+  it("checks out, installs and records the same way in both jobs", () => {
+    const { check, refresh } = jobs(dailyY);
+    expect(check.steps.map((s) => s.name).filter(Boolean)).toEqual(
+      expect.arrayContaining(["Install Chromium", "Install fonts"]),
+    );
+    expect(JSON.stringify(check)).not.toContain("steps.fresh");
+    expect(JSON.stringify(refresh)).toContain("steps.fresh");
   });
 });
