@@ -195,6 +195,9 @@ export async function verifySetup(
       // and export to settle before the checkout and outDir it writes into
       // are removed; thread a signal through refreshKept if that waits too
       // long.
+      deps.log(
+        "stopping: waiting for the recording in progress to end, then removing the clean checkout",
+      );
       await refreshing.catch((error: unknown) =>
         deps.log(`the stopped refresh threw: ${messageOf(error)}`),
       );

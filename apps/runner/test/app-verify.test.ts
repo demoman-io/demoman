@@ -519,10 +519,12 @@ describe("verifySetup", () => {
   it("stops mid-refresh on abort: waits for the refresh, stops the app, removes the checkout, and says so", async () => {
     const stop = new AbortController();
     let checkoutWhenSettled: boolean | null = null;
+    const lines: string[] = [];
     const r = await verifySetup(
       { root, files: files(), target: { app: app() }, secrets: {} },
       deps({
         signal: stop.signal,
+        log: (line: string) => lines.push(line),
         refresh: refreshStub(async () => {
           stop.abort();
           await new Promise((later) => setTimeout(later, 20));
@@ -533,6 +535,9 @@ describe("verifySetup", () => {
     );
     const tmp = checkout();
     expect(checkoutWhenSettled).toBe(true);
+    expect(lines).toContain(
+      "stopping: waiting for the recording in progress to end, then removing the clean checkout",
+    );
     expect(r).toEqual({
       passed: false,
       step: "refresh",
