@@ -5,7 +5,19 @@ import type { RefreshResult } from "@demoman/runner/package";
  *  unchanged or failed; then why, or how near an unchanged one came), its
  *  notes beside it, and 1 when any video failed (CI's only
  *  signal). */
-export function refreshLines(result: RefreshResult): {
+export function refreshLines(
+  result: RefreshResult,
+  /** What starting the app said, printed first. */
+  app: string[] = [],
+): {
+  lines: string[];
+  code: 0 | 1;
+} {
+  const { lines, code } = videoLines(result);
+  return { lines: [...app, ...lines], code };
+}
+
+function videoLines(result: RefreshResult): {
   lines: string[];
   code: 0 | 1;
 } {

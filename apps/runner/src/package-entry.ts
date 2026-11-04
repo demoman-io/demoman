@@ -32,6 +32,11 @@ export {
   type RefreshVideo,
   refreshKept,
 } from "./executor/refresh.js";
+export {
+  type AppPlan,
+  appPlanFor,
+  withApp,
+} from "./executor/refresh-app.js";
 export { checkCurrent } from "./executor/refresh-check.js";
 export { execGit, type GitRunner, readRepo } from "./executor/repo.js";
 export { samePicture } from "./executor/same-picture.js";

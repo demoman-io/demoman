@@ -97,4 +97,14 @@ describe("refreshLines", () => {
       code: 0,
     });
   });
+
+  // Red when refreshLines drops its second argument: a reused local app is
+  // then not said.
+  it("prints what starting the app said first", () => {
+    expect(
+      refreshLines({ videos: [video("a", {})] }, ["used the app at http://x"])
+        .lines[0],
+    ).toBe("used the app at http://x");
+    expect(refreshLines({ videos: [video("a", {})] }).lines).toHaveLength(1);
+  });
 });

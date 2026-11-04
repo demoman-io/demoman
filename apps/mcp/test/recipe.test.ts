@@ -351,6 +351,7 @@ describe("the CLI's recipe", () => {
     // yet; drop it here when the `ci` tool lands and the recipe names it.
     // The app* start refusals (startApp) likewise reach no agent tool until
     // refresh and the `ci` tool call startApp; drop them with appInvalid.
+    // appOriginMismatch: only `refresh` raises it, at the terminal.
     const TERMINAL_REASONS = [
       "sameFlow",
       "markMoved",
@@ -361,6 +362,7 @@ describe("the CLI's recipe", () => {
       "appServiceFailed",
       "appPortTaken",
       "appDockerMissing",
+      "appOriginMismatch",
     ];
     const reasons = [...reasonsInCode(CLI_SOURCES), ...CLI_TOOL_REASONS].filter(
       (r) => !TERMINAL_REASONS.includes(r),

@@ -23,6 +23,7 @@ import {
 import { createUpdateCheck } from "@demoman/mcp/update-check";
 import { isExportQuality } from "@demoman/run-core";
 import {
+  appPlanFor,
   createLocalExecutor,
   execGit,
   fullChromiumPath,
@@ -38,6 +39,7 @@ import {
   signin,
   signinAccount,
   usePrebuiltPages,
+  withApp,
 } from "@demoman/runner/package";
 import {
   couldNotCheck,
@@ -504,39 +506,59 @@ async function refresh(args: string[]): Promise<void> {
     log,
   });
   let result: RefreshResult | { threw: string };
+  let appLines: string[] = [];
   try {
     const refreshHome = demomanHome();
-    result = await refreshKept(
+    const plan = await appPlanFor(repo.repo.root, {
+      ...(baseUrl === undefined ? {} : { baseUrl }),
+    });
+    const around = await withApp(
+      plan,
       {
-        repoRoot: repo.repo.root,
-        ...(only.length > 0 ? { only } : {}),
-        ...(baseUrl === undefined ? {} : { baseUrl }),
-        ...(outDir === undefined ? {} : { outDir }),
-        ...(previous === undefined ? {} : { previous }),
-        library: process.env.CI === "true" ? "throwaway" : "local",
-      },
-      {
-        library: createLibrary(refreshHome),
-        videos: createVideoStore(refreshHome, createLibrary(refreshHome), {
-          log,
-        }),
-        executor: (o) =>
-          createLocalExecutor({
-            ...o,
-            headless: true,
-            wallpapersDir: WALLPAPERS_DIR,
-            // Films at the kept scale, which DEMOMAN_DISPLAY names.
-            standInDisplay: true,
-            executablePath: fullChromiumPath(),
-            installCommand: install,
-            signinCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} signin`,
-            log,
-          }),
-        session,
+        root: repo.repo.root,
         env: process.env,
+        ci: process.env.CI === "true",
         log,
       },
+      () =>
+        refreshKept(
+          {
+            repoRoot: repo.repo.root,
+            ...(only.length > 0 ? { only } : {}),
+            ...(baseUrl === undefined ? {} : { baseUrl }),
+            ...(outDir === undefined ? {} : { outDir }),
+            ...(previous === undefined ? {} : { previous }),
+            library: process.env.CI === "true" ? "throwaway" : "local",
+          },
+          {
+            library: createLibrary(refreshHome),
+            videos: createVideoStore(refreshHome, createLibrary(refreshHome), {
+              log,
+            }),
+            executor: (o) =>
+              createLocalExecutor({
+                ...o,
+                headless: true,
+                wallpapersDir: WALLPAPERS_DIR,
+                // Films at the kept scale, which DEMOMAN_DISPLAY names.
+                standInDisplay: true,
+                executablePath: fullChromiumPath(),
+                installCommand: install,
+                signinCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} signin`,
+                log,
+              }),
+            session,
+            env: process.env,
+            log,
+          },
+        ),
     );
+    if (!around.ok) {
+      await session.close().catch(() => undefined);
+      return fail(`${around.refusal.reason}: ${around.refusal.detail}`);
+    }
+    result = around.value;
+    appLines = around.lines;
   } catch (error) {
     result = { threw: error instanceof Error ? error.message : String(error) };
   } finally {
@@ -547,7 +569,7 @@ async function refresh(args: string[]): Promise<void> {
       );
   }
   if ("threw" in result) return fail(result.threw);
-  const { lines, code } = refreshLines(result);
+  const { lines, code } = refreshLines(result, appLines);
   for (const line of lines) process.stdout.write(`${line}\n`);
   // The finished flows are said first; the list's failure then fails the run.
   if (result.listError !== undefined) return fail(result.listError);
