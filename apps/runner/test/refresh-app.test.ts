@@ -204,16 +204,33 @@ describe("withApp", () => {
     ]);
   });
 
+  // Red when `services: "docker"` is passed off CI: the stub is then called.
   it("off CI the real startApp never runs docker", async () => {
-    const docker = vi.fn(async () => ({ code: 0, stdout: "", stderr: "" }));
-    const fetchMock = vi.fn(async () => ({ status: 200 }) as Response);
+    const docker = vi.fn(async () => ({ code: 1, stdout: "", stderr: "" }));
+    const fetchMock = vi.fn(async () => {
+      throw new Error("refused");
+    });
     const r = await withApp(
-      { kind: "start", app: app() },
+      {
+        kind: "start",
+        app: app({
+          start: "node -e 0",
+          timeoutSeconds: 1,
+          services: {
+            postgres: {
+              image: "postgres",
+              ports: ["5432:5432"],
+              env: {},
+              options: null,
+            },
+          },
+        }),
+      },
       o(false),
       async () => 1,
       { docker, fetch: fetchMock as unknown as typeof fetch },
     );
-    expect(r).toMatchObject({ ok: true });
+    expect(r).toMatchObject({ ok: false });
     expect(docker).not.toHaveBeenCalled();
   });
 

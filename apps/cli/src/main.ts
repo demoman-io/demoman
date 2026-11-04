@@ -56,7 +56,7 @@ import { keepLines, removeLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
 import { parseRefreshArgs } from "./refresh-args.js";
 import { refreshCheck } from "./refresh-check.js";
-import { refreshLines } from "./refresh-lines.js";
+import { appRefusal, refreshLines } from "./refresh-lines.js";
 import { parseSetupArgs, setup } from "./setup.js";
 import {
   ciPrompts,
@@ -555,7 +555,7 @@ async function refresh(args: string[]): Promise<void> {
     );
     if (!around.ok) {
       await session.close().catch(() => undefined);
-      return fail(`${around.refusal.reason}: ${around.refusal.detail}`);
+      return fail(appRefusal(around.refusal).line);
     }
     result = around.value;
     appLines = around.lines;

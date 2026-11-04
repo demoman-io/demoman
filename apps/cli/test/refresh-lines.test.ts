@@ -1,6 +1,6 @@
 import type { RefreshResult } from "@demoman/runner/package";
 import { describe, expect, it } from "vitest";
-import { refreshLines } from "../src/refresh-lines.js";
+import { appRefusal, refreshLines } from "../src/refresh-lines.js";
 
 type Video = RefreshResult["videos"][number];
 const video = (name: string, more: Partial<Video>): Video => ({
@@ -106,5 +106,12 @@ describe("refreshLines", () => {
         .lines[0],
     ).toBe("used the app at http://x");
     expect(refreshLines({ videos: [video("a", {})] }).lines).toHaveLength(1);
+  });
+
+  // Red when appRefusal exits 0 or drops the reason or the detail.
+  it("fails with the app refusal's reason and detail", () => {
+    expect(
+      appRefusal({ reason: "appNeverAnswered", detail: "no answer at :3000" }),
+    ).toEqual({ line: "appNeverAnswered: no answer at :3000", code: 1 });
   });
 });

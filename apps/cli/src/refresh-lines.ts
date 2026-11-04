@@ -37,3 +37,12 @@ function videoLines(result: RefreshResult): {
     code: result.videos.some((v) => v.outcome === "failed") ? 1 : 0,
   };
 }
+
+/** What `demoman refresh` says and exits with when the app does not start:
+ *  the reason and its detail, exit 1. Nothing was refreshed or recorded. */
+export function appRefusal(refusal: { reason: string; detail: string }): {
+  line: string;
+  code: 1;
+} {
+  return { line: `${refusal.reason}: ${refusal.detail}`, code: 1 };
+}
