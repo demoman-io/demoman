@@ -187,7 +187,34 @@ describe("openSetupPr", () => {
       "a setup branch already exists",
     );
     expect(prs).toEqual([]);
+    expect(worktrees().match(/^worktree /gm)).toHaveLength(1);
     expect(existsSync(join(root, "n.txt"))).toBe(false);
     expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
+  });
+
+  it("says a failed fetch as a worktree failure, with no push and no PR", async () => {
+    const r = await openSetupPr(
+      { ...args([{ path: "n.txt", text: "n" }]), base: "nope" },
+      { git, gh: gh() },
+    );
+    expect(r).toMatchObject({ failed: "worktree" });
+    expect("failed" in r && r.detail).toContain("git fetch origin nope");
+    expect("failed" in r && r.detail).toMatch(/couldn't find remote ref nope/);
+    expect(prs).toEqual([]);
+    expect(sh(root, "ls-remote", "origin", SETUP_BRANCH)).toBe("");
+    expect(worktrees().match(/^worktree /gm)).toHaveLength(1);
+  });
+
+  it("refuses a path outside the repo and writes nothing outside the worktree", async () => {
+    const outside = join(tmpdir(), "escaped.txt"); // the temp worktree lives in tmpdir
+    const r = await openSetupPr(args([{ path: "../escaped.txt", text: "x" }]), {
+      git,
+      gh: gh(),
+    });
+    expect(r).toMatchObject({ failed: "worktree" });
+    expect("failed" in r && r.detail).toContain("../escaped.txt");
+    expect(existsSync(outside)).toBe(false);
+    expect(prs).toEqual([]);
+    expect(worktrees().match(/^worktree /gm)).toHaveLength(1);
   });
 });

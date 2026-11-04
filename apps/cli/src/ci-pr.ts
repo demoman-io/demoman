@@ -2,7 +2,7 @@
 // person's checkout, current branch, index and default branch are never touched.
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import type { GitRunner } from "@demoman/runner/package";
 import type { Gh } from "./gh-run.js";
 
@@ -53,10 +53,23 @@ export async function openSetupPr(
     );
     if (addFailed) return { failed: "worktree", detail: addFailed };
     added = true;
-    for (const f of a.files) {
-      const p = join(tmp, f.path);
-      await mkdir(dirname(p), { recursive: true });
-      await writeFile(p, f.text);
+    try {
+      for (const f of a.files) {
+        const p = join(tmp, f.path);
+        const rel = relative(tmp, p);
+        if (isAbsolute(f.path) || rel.startsWith("..") || isAbsolute(rel))
+          return {
+            failed: "worktree",
+            detail: `the file path ${f.path} points outside the repo, so nothing was written; give a path inside the repo and run setup again`,
+          };
+        await mkdir(dirname(p), { recursive: true });
+        await writeFile(p, f.text);
+      }
+    } catch (e) {
+      return {
+        failed: "worktree",
+        detail: `a setup file could not be written (${e instanceof Error ? e.message : String(e)}); check the folder is writable, then run setup again`,
+      };
     }
     const built =
       (await stage("add", ["add", "--", ...a.files.map((f) => f.path)])) ??
