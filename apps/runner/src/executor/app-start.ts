@@ -48,13 +48,34 @@ const KILL_WAIT_MS = 5_000;
 const DRAIN_MS = 500;
 const TAIL_LINES = 40;
 
+/** A `docker info` that hangs (a stuck daemon) is Docker not answering. */
+export const DOCKER_INFO_MS = 20_000;
+/** What a `docker info` stopped at DOCKER_INFO_MS exits with, as timeout(1). */
+export const DOCKER_TIMED_OUT = 124;
+export const dockerInfoSaid = (code: number): string =>
+  code === DOCKER_TIMED_OUT
+    ? `\`docker info\` did not answer within ${DOCKER_INFO_MS / 1000} s`
+    : `\`docker info\` exited with code ${code}`;
+
 const defaultDocker: AppStartDeps["docker"] = (args) =>
   new Promise((resolve) => {
-    execFile("docker", args, (err, stdout, stderr) => {
-      const code =
-        err === null ? 0 : typeof err.code === "number" ? err.code : -1;
-      resolve({ code, stdout, stderr: stderr || (err?.message ?? "") });
-    });
+    const info = args[0] === "info";
+    execFile(
+      "docker",
+      args,
+      { timeout: info ? DOCKER_INFO_MS : 0 },
+      (err, stdout, stderr) => {
+        const code =
+          err === null
+            ? 0
+            : info && err.killed
+              ? DOCKER_TIMED_OUT
+              : typeof err.code === "number"
+                ? err.code
+                : -1;
+        resolve({ code, stdout, stderr: stderr || (err?.message ?? "") });
+      },
+    );
   });
 
 const lastLines = (text: string, n: number) =>
@@ -182,7 +203,7 @@ export async function startApp(
     if (info.code !== 0) {
       return {
         reason: "appDockerMissing",
-        detail: `${APP_FILE} needs ${services.map(([n]) => n).join(", ")}, and Docker is not installed or not running (\`docker info\` exited with code ${info.code}); start Docker, then run again`,
+        detail: `${APP_FILE} needs ${services.map(([n]) => n).join(", ")}, and Docker is not installed or not running (${dockerInfoSaid(info.code)}); start Docker, then run again`,
         tail: tailOf(info.stderr),
       };
     }

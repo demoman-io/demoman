@@ -23,6 +23,8 @@ export {
 export {
   type AppStarted,
   type AppStartRefusal,
+  DOCKER_INFO_MS,
+  DOCKER_TIMED_OUT,
   startApp,
 } from "./executor/app-start.js";
 export {

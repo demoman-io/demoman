@@ -35,6 +35,8 @@ import {
 } from "@demoman/run-core";
 import {
   chromiumDepsCommand,
+  DOCKER_INFO_MS,
+  DOCKER_TIMED_OUT,
   fullChromiumPath,
   launchFailure,
   playwrightCliPath,
@@ -383,16 +385,20 @@ export function realSetupDeps(
   };
 }
 
-/** The setup check's `docker`: a missing command is 127; one stopped by a
- *  signal is said as stopped, with the shell's 128 + signal number. */
+/** The setup check's `docker`: a missing command is 127; one that does not
+ *  answer within `timeoutMs` is DOCKER_TIMED_OUT (Docker not answering); one
+ *  stopped by another signal is said as stopped, with the shell's 128 +
+ *  signal number. */
 export function realDocker(
   log: (line: string) => void,
   command = "docker",
+  timeoutMs = DOCKER_INFO_MS,
 ): (args: string[]) => Promise<{ code: number }> {
   return (args) =>
     new Promise((done) =>
-      execFile(command, args, (err) => {
+      execFile(command, args, { timeout: timeoutMs }, (err) => {
         if (err === null) return done({ code: 0 });
+        if (err.killed) return done({ code: DOCKER_TIMED_OUT });
         if (err.signal) {
           log(
             `\`docker ${args.join(" ")}\` was stopped by ${err.signal}, so whether Docker answers is unknown`,

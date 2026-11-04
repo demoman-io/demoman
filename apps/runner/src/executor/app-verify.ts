@@ -10,7 +10,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { APP_FILE, type AppSpec, messageOf } from "@demoman/run-core";
-import { type AppStarted, startApp } from "./app-start.js";
+import { type AppStarted, dockerInfoSaid, startApp } from "./app-start.js";
 import { readKeptFlows } from "./kept-flows.js";
 import type { RefreshResult, RefreshVideo, refreshKept } from "./refresh.js";
 import type { GitRunner } from "./repo.js";
@@ -68,7 +68,7 @@ export async function verifySetup(
       const info = await deps.docker(["info"]);
       if (info.code !== 0)
         return {
-          skipped: `${APP_FILE} needs ${services.join(", ")}, and Docker does not answer here (\`docker info\` exited with code ${info.code}), so the setup was not checked locally; start Docker to check it, or let the first CI run check it`,
+          skipped: `${APP_FILE} needs ${services.join(", ")}, and Docker does not answer here (${dockerInfoSaid(info.code)}), so the setup was not checked locally; start Docker to check it, or let the first CI run check it`,
         };
     }
   }

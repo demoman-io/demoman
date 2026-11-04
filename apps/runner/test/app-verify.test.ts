@@ -440,6 +440,35 @@ describe("verifySetup", () => {
     expect(started).toEqual([]);
   });
 
+  // Finding 13: a `docker info` stopped at its timeout reads as not answering.
+  it("says a docker info past its timeout as not answering in time", async () => {
+    const r = await verifySetup(
+      {
+        root,
+        files: files(),
+        target: {
+          app: app({
+            services: {
+              postgres: {
+                image: "postgres:16",
+                ports: [],
+                env: {},
+                options: null,
+              },
+            },
+          }),
+        },
+        secrets: {},
+      },
+      deps({ docker: async () => ({ code: 124 }) }),
+    );
+    expect(r).toEqual({
+      skipped: expect.stringContaining(
+        "`docker info` did not answer within 20 s",
+      ),
+    });
+  });
+
   it("starts the app when it needs services and Docker answers", async () => {
     const withDb = app({
       services: {

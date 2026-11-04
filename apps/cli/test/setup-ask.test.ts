@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EXPORT_QUALITY_VALUES, PULL_REQUESTS_VALUES } from "@demoman/run-core";
+import { DOCKER_TIMED_OUT } from "@demoman/runner/package";
 import { describe, expect, it } from "vitest";
 import { realDocker, realSetupDeps, SETUP_HINTS } from "../src/setup-deps.js";
 
@@ -77,5 +78,20 @@ describe("the setup check's docker", () => {
     expect(await realDocker(() => {}, join(dir, "missing"))(["info"])).toEqual({
       code: 127,
     });
+  });
+
+  // Finding 13, red: no timeout, and a stuck daemon holds the check forever.
+  it("says a docker that does not answer in time as Docker not answering", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "demoman-docker-"));
+    const bin = join(dir, "docker");
+    writeFileSync(bin, "#!/bin/sh\nexec sleep 30\n");
+    chmodSync(bin, 0o755);
+    const said: string[] = [];
+    const t0 = Date.now();
+    expect(await realDocker((l) => said.push(l), bin, 300)(["info"])).toEqual({
+      code: DOCKER_TIMED_OUT,
+    });
+    expect(Date.now() - t0).toBeLessThan(5_000);
+    expect(said).toEqual([]);
   });
 });
