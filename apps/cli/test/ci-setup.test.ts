@@ -519,6 +519,37 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     ]);
   });
 
+  // Review finding 2. Red when a whole draft is taken as an AppSpec without
+  // parseApp: a NaN timeout never ends the start's wait, and a URL list is
+  // no URL.
+  for (const [what, over, field] of [
+    ["a NaN timeout", { timeoutSeconds: Number.NaN }, "timeoutSeconds"],
+    ["a zero timeout", { timeoutSeconds: 0 }, "timeoutSeconds"],
+    [
+      "a URL list",
+      { url: "http://localhost:3000, http://localhost:4000" },
+      "url",
+    ],
+  ] as const) {
+    it(`a detected draft with no holes and ${what}: appInvalid, no secrets read, no check`, async () => {
+      const f = fakes({
+        detected: {
+          draft: { ...app(), ...over },
+          source: { kind: "playwright", file: "playwright.config.ts" },
+          holes: [],
+        },
+      });
+      const r = await plan(await repo(), f, { app: undefined });
+      expect(isStop(r) && r.reason).toBe("appInvalid");
+      expect(isStop(r) && r.detail).toContain(`(${field})`);
+      expect(isStop(r) && r.detail).toContain("playwright.config.ts");
+      expect(f.calls.filter((c) => !c.startsWith("git"))).toEqual([
+        "readGithub",
+        "detectApp",
+      ]);
+    });
+  }
+
   it("a missing secret: named, never a value, and the check never ran", async () => {
     const f = fakes({
       needed: [

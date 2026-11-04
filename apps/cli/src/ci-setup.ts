@@ -503,8 +503,23 @@ async function makePlan(
           `${APP_FILE} cannot be proposed whole; still unknown: ${proposal.holes.map((h) => `${h.field} (${h.why})`).join("; ")}`,
           { proposal },
         );
-      const spec = proposal.draft as AppSpec;
-      app = { spec, source: proposal.source, text: serializeApp(spec) };
+      // Whole is not valid: a detected timeout or URL can still be bad.
+      const from =
+        "file" in proposal.source ? proposal.source.file : "the repo";
+      const parsed = parseApp(
+        serializeApp(proposal.draft as AppSpec),
+        `${APP_FILE} as proposed from ${from}`,
+      );
+      if (!parsed.ok)
+        return stop(
+          "appInvalid",
+          `${parsed.detail} (${parsed.field}); write ${APP_FILE} with it fixed, then run setup again`,
+        );
+      app = {
+        spec: parsed.app,
+        source: proposal.source,
+        text: serializeApp(parsed.app),
+      };
     }
   }
 

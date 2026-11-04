@@ -122,8 +122,9 @@ async function fromPlaywright(root: string): Promise<Found | null> {
       else if (port && port !== "other") url = `http://localhost:${port.value}`;
       else notPlain(u ? "url" : "port", "url");
       const t = plain(body, "timeout");
-      if (t && t !== "other")
-        timeoutSeconds = Math.ceil(Number(t.value) / 1000);
+      const ms = t && t !== "other" ? Number(t.value) : 0;
+      // '0', or not a number: not a wait app.json can hold, so the default.
+      if (ms > 0) timeoutSeconds = Math.ceil(ms / 1000);
     }
     const pm = await managerOf(root);
     return {
@@ -240,7 +241,11 @@ async function fromWorkflows(
     const w = steps[cy]?.with;
     if (cy >= 0 && typeof w?.start === "string") {
       const build = typeof w.build === "string" ? [w.build] : [];
-      const waitOn = w["wait-on"];
+      // The action waits on a comma list; the first is the app's URL.
+      const waitOn =
+        typeof w["wait-on"] === "string"
+          ? w["wait-on"].split(",")[0]?.trim()
+          : undefined;
       return {
         source,
         draft: draftOf({

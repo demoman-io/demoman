@@ -271,6 +271,39 @@ describe("detectApp", () => {
     });
   });
 
+  // Review finding 2. Red when the Cypress action's comma list is taken as
+  // one URL, or a timeout that is not a positive number of ms is kept.
+  it("workflow: the Cypress action's wait-on list gives its first URL", async () => {
+    const dir = await copyOf("cypress-action");
+    const file = join(dir, ".github/workflows/cy.yml");
+    const yml = await readFile(file, "utf8");
+    expect(yml).toContain('wait-on: "http://localhost:3000"');
+    await writeFile(
+      file,
+      yml.replace(
+        'wait-on: "http://localhost:3000"',
+        "wait-on: 'http://localhost:3000, http://localhost:4000'",
+      ),
+    );
+    const got = await detectApp(dir, null);
+    if ("none" in got) throw new Error(got.none);
+    expect(got.draft.url).toBe("http://localhost:3000");
+  });
+  it("playwright: a timeout that is not a positive number of ms keeps the default", async () => {
+    const yes = await text("playwright", "playwright.config.ts");
+    expect(yes).toContain("timeout: 90000,");
+    for (const t of ["'0'", "0", "'soon'"]) {
+      const dir = await copyOf("playwright");
+      await writeFile(
+        join(dir, "playwright.config.ts"),
+        yes.replace("timeout: 90000,", `timeout: ${t},`),
+      );
+      const got = await detectApp(dir, null);
+      if ("none" in got) throw new Error(got.none);
+      expect(got.draft.timeoutSeconds).toBe(120);
+    }
+  });
+
   describe("wait-on targets", () => {
     async function urlFor(waitOn: string) {
       const dir = await copyOf("wait-on");
