@@ -122,8 +122,11 @@ The plan lists:
 
 - the trigger: after a successful deployment, when a release is published,
   once a day, or on each merge. The default is deployment if the repo has
-  a successful deployment that names a URL, else release if it publishes releases, else daily; push
-  is never the default. A trigger the repo has no record of is not offered.
+  a successful deployment that names a URL (a production environment first,
+  never a preview one), else release if it publishes releases, else daily; push
+  is never the default. A trigger the repo has no record of is not offered,
+  nor an environment whose name has characters other than letters, digits,
+  spaces, `_`, `.` and `-`.
   Push shows its measured cost per merge, or "not measured" with why when
   the check was skipped.
 - the route: `pr` (the default) or `main`.
@@ -137,7 +140,7 @@ The plan lists:
 
 | Flag | |
 | --- | --- |
-| `--trigger <environment>` | After each successful deployment to that environment; records the deployed app |
+| `--trigger <environment>` | After each successful deployment to that environment; records the deployed app, and the self-check records its newest successful deployment |
 | `--trigger release` | When a release is published, at its tag |
 | `--trigger daily` | Once a day. A day with nothing new stops before Chromium and the app (`demoman refresh --check --since`) |
 | `--trigger push` | On each push to the default branch; records every repo flow each time |
@@ -175,7 +178,12 @@ naming the flows, when a flow records at a different origin than `url`. Off CI i
 answering at `url`, and otherwise runs `start`. It never starts services: when
 the app does not answer and the file declares services, the refusal names
 each with its port, to start them yourself. In CI it always starts its own,
-and the workflow gives the job the services.
+and the workflow gives the job the services, corepack (pnpm, yarn) and bun
+when the commands use it.
+
+If a workflow of yours already starts the app before `demoman refresh` (a
+"Start your app" step, or `wait-on`), delete that step: refresh now starts
+the app from this file, and both would take the same port.
 
 ### The self-check
 
@@ -199,8 +207,9 @@ the confirmation. Reasons it names:
 | `routeRefused` | A trigger and route that cannot go together |
 | `workflowRefused` | The workflow cannot be written from these names or values; the detail says which. A secret name needs renaming (in `app.json`'s `secrets` or the account), an environment name or `${{` in a service value means writing that part of the workflow by hand, and a branch name a workflow does not accept needs the branch renamed |
 | `appUnknown`, `appHoles`, `appInvalid` | No app found, a field still unknown, or `app.json` is invalid |
+| `appOriginMismatch` | A flow records at another origin than `app.json`'s `url`; the detail names each flow and origin |
 | `secretsUnknown` | A flow's recipe is unreadable, or no sign-in account can be chosen for its site |
-| `secretMissing`, `secretTooShort`, `secretsUnreadable`, `envFileUnreadable` | A secret has no value, a value is too short, GitHub's list of secrets could not be read, or the env file could not |
+| `secretMissing`, `secretTooShort`, `secretsUnreadable`, `envFileUnreadable` | A secret has no value, an account's value is shorter than 8 characters, GitHub's list of secrets could not be read, or the env file could not |
 | `setupUnreadable` | A read or git command failed while planning; nothing was written |
 | `filesUnreadable` | A file to commit could not be read; nothing was done |
 | `checkoutFailed` | The clean checkout could not be made (no commit, git failing, or a file path outside the repo) |

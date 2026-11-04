@@ -8,6 +8,7 @@ description: "What changed in each release."
   - `.demoman/app.json` records how the app starts: install, start, url, timeout, env, secrets and services. `refresh` starts the app from it, and uses one already answering when run locally.
   - The workflow checks itself on pull requests that change it or `.demoman/`, and says so when a fork's pull request has no secrets.
   - Your agent's `add` and `ci` tools do the same; `ci` acts only once you have agreed to its plan.
+  - If your own workflow starts the app before `demoman refresh` (a "Start your app" step), delete that step: refresh starts it from `app.json` now, and both would take the same port.
 </Update>
 
 <Update label="0.8.2" description="Video as code, flows in the repo, and a library you can search">
