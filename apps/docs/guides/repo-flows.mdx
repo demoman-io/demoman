@@ -197,13 +197,13 @@ the confirmation. Reasons it names:
 | `noRepoFlows`, `flowUnreadable` | No repo flow to refresh, or a recipe will not read |
 | `noRelease`, `noDeployment` | The chosen trigger has nothing on record |
 | `routeRefused` | A trigger and route that cannot go together |
-| `workflowRefused` | The workflow cannot be written from these names or values (a secret name, an environment or branch name, or `${{` in a service value); the detail says which, and the fix is to write that part by hand |
+| `workflowRefused` | The workflow cannot be written from these names or values; the detail says which. A secret name needs renaming (in `app.json`'s `secrets` or the account), an environment name or `${{` in a service value means writing that part of the workflow by hand, and a branch name a workflow does not accept needs the branch renamed |
 | `appUnknown`, `appHoles`, `appInvalid` | No app found, a field still unknown, or `app.json` is invalid |
 | `secretsUnknown` | A flow's recipe is unreadable, or no sign-in account can be chosen for its site |
 | `secretMissing`, `secretTooShort`, `secretsUnreadable`, `envFileUnreadable` | A secret has no value, a value is too short, GitHub's list of secrets could not be read, or the env file could not |
 | `setupUnreadable` | A read or git command failed while planning; nothing was written |
 | `filesUnreadable` | A file to commit could not be read; nothing was done |
-| `checkoutFailed` | The clean checkout could not be made (no commit, or git failing) |
+| `checkoutFailed` | The clean checkout could not be made (no commit, git failing, or a file path outside the repo) |
 | `appPortTaken` | Something already answers at `url`; the check will not record it as the app |
 | `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appDockerMissing` | The check could not install or start the app or its services; the output's last lines come with it |
 | `refreshFailed` | The check's refresh failed on a flow |
