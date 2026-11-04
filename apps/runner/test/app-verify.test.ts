@@ -513,21 +513,26 @@ describe("verifySetup", () => {
     expect(removeCalls()).toHaveLength(1);
   });
 
-  // R3. Red when an abort waits for the refresh, leaves the app up, or
-  // leaves the checkout behind.
-  it("stops mid-refresh on abort: stops the app, removes the checkout, and says so", async () => {
+  // R3, review finding 3. Red when an abort removes the checkout while the
+  // refresh still writes into it, leaves the app up, or leaves the checkout
+  // behind.
+  it("stops mid-refresh on abort: waits for the refresh, stops the app, removes the checkout, and says so", async () => {
     const stop = new AbortController();
+    let checkoutWhenSettled: boolean | null = null;
     const r = await verifySetup(
       { root, files: files(), target: { app: app() }, secrets: {} },
       deps({
         signal: stop.signal,
-        refresh: refreshStub(() => {
+        refresh: refreshStub(async () => {
           stop.abort();
-          return new Promise<RefreshResult>(() => undefined);
+          await new Promise((later) => setTimeout(later, 20));
+          checkoutWhenSettled = existsSync(checkout());
+          return { videos: [video()] };
         }),
       }),
     );
     const tmp = checkout();
+    expect(checkoutWhenSettled).toBe(true);
     expect(r).toEqual({
       passed: false,
       step: "refresh",

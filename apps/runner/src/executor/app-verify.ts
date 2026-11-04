@@ -179,19 +179,27 @@ export async function verifySetup(
         );
     }
     const t0 = performance.now();
-    const result = await orStop(
-      deps.refresh(
-        {
-          repoRoot: tmp,
-          only: [flow],
-          library: "throwaway",
-          outDir,
-          ...("baseUrl" in target ? { baseUrl: target.baseUrl } : {}),
-        },
-        env,
-      ),
+    const refreshing = deps.refresh(
+      {
+        repoRoot: tmp,
+        only: [flow],
+        library: "throwaway",
+        outDir,
+        ...("baseUrl" in target ? { baseUrl: target.baseUrl } : {}),
+      },
+      env,
     );
-    if (result === STOPPED) return stop();
+    const result = await orStop(refreshing);
+    if (result === STOPPED) {
+      // shortcut: refreshKept takes no signal, so this waits for its one run
+      // and export to settle before the checkout and outDir it writes into
+      // are removed; thread a signal through refreshKept if that waits too
+      // long.
+      await refreshing.catch((error: unknown) =>
+        deps.log(`the stopped refresh threw: ${messageOf(error)}`),
+      );
+      return stop();
+    }
     const recordSeconds = Math.round((performance.now() - t0) / 100) / 10;
     const bad = result.videos.find((v) => v.outcome === "failed");
     if (bad !== undefined) return fail("refreshFailed", bad.detail);
