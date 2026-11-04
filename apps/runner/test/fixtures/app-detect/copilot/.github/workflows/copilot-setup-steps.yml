@@ -1,0 +1,17 @@
+name: Copilot Setup Steps
+on: workflow_dispatch
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_DB: app
+        options: --health-cmd pg_isready
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - run: npm run build

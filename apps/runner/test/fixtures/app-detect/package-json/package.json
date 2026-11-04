@@ -1,0 +1,7 @@
+{
+  "name": "plain",
+  "scripts": {
+    "build": "tsc",
+    "dev": "vite --port 3000"
+  }
+}

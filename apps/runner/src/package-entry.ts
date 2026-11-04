@@ -11,6 +11,11 @@ export {
   usePrebuiltPages,
 } from "./bundle-js.js";
 export {
+  type AppProposal,
+  type AppSource,
+  detectApp,
+} from "./executor/app-detect.js";
+export {
   type AppStarted,
   type AppStartRefusal,
   startApp,
