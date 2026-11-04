@@ -8,7 +8,7 @@
 // read: the check sees what CI will.
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { APP_FILE, type AppSpec, messageOf } from "@demoman/run-core";
 import { type AppStarted, startApp } from "./app-start.js";
 import { readKeptFlows } from "./kept-flows.js";
@@ -120,8 +120,12 @@ export async function verifySetup(
     made = true;
     for (const f of a.files) {
       const to = resolve(tmp, f.path);
-      if (relative(tmp, to).startsWith(".."))
-        return fail("checkoutFailed", `${f.path} is outside the repo`);
+      const rel = relative(tmp, to);
+      if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))
+        return fail(
+          "checkoutFailed",
+          `${f.path} is outside the repo, so it was not written; give its path from the repo's root, then run again`,
+        );
       await mkdir(dirname(to), { recursive: true });
       await writeFile(to, f.text);
     }
@@ -140,9 +144,10 @@ export async function verifySetup(
       });
       const r = await orStop(starting);
       if (r === STOPPED) {
-        // shortcut: waits for startApp to settle (up to the app's
-        // timeoutSeconds) so whatever it started can be stopped; pass the
-        // signal into startApp if that wait bites.
+        // shortcut: waits for startApp to settle (its services' docker run
+        // and health waits, every install command, then up to timeoutSeconds
+        // for the URL) so whatever it started can be stopped; pass the signal
+        // into startApp if Ctrl-C during an install waits too long.
         const late = await starting;
         if (!("reason" in late)) app = late;
         return stop();
@@ -194,7 +199,10 @@ export async function verifySetup(
       return fail("refreshFailed", result.listError);
     const video = result.videos.find((v) => v.name === flow);
     if (video === undefined)
-      return fail("refreshFailed", `refresh answered nothing for "${flow}"`);
+      return fail(
+        "refreshFailed",
+        `refresh answered no video for "${flow}", so whether it records is unknown; run \`npx demoman refresh "${flow}"\` in the repo to see why, then run again`,
+      );
     return {
       passed: true,
       flow,

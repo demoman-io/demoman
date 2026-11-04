@@ -510,4 +510,94 @@ describe("verifySetup", () => {
     expect(removeCalls()).toEqual([["worktree", "remove", "--force", tmp]]);
     expect(existsSync(tmp)).toBe(false);
   });
+  // R3, Finding 1. Red when the app an aborted start finishes with is not
+  // kept to be stopped (Ctrl-C during an install leaves it running).
+  it("stops during the app start on abort: waits for the start, stops what it started, removes the checkout", async () => {
+    const stop = new AbortController();
+    const r = await verifySetup(
+      { root, files: files(), target: { app: app() }, secrets: {} },
+      deps({
+        signal: stop.signal,
+        startApp: startStub(async () => {
+          stop.abort();
+          await new Promise((later) => setTimeout(later, 20));
+          return {
+            reused: false,
+            said: "started",
+            seconds: 1,
+            stop: async () => {
+              stops++;
+              return [];
+            },
+          };
+        }),
+      }),
+    );
+    const tmp = checkout();
+    expect(r).toEqual({
+      passed: false,
+      step: "app",
+      reason: "checkStopped",
+      detail: `stopped; removed the checkout at ${tmp}`,
+      tail: "",
+    });
+    expect(stops).toBe(1);
+    expect(refreshed).toEqual([]);
+    expect(removeCalls()).toEqual([["worktree", "remove", "--force", tmp]]);
+    expect(existsSync(tmp)).toBe(false);
+  });
+
+  // R18. Red when a name that starts with two dots is read as leaving the
+  // repo, or a path that leaves it is written.
+  it("writes a root file named ..env, and refuses a path outside the repo with the next action", async () => {
+    const ok = await verifySetup(
+      {
+        root,
+        files: [...files(), { path: "..env", text: "A=1\n" }],
+        target: { app: app() },
+        secrets: {},
+      },
+      deps(),
+    );
+    expect(ok).toMatchObject({ passed: true });
+    started = [];
+    refreshed = [];
+    gitCalls = [];
+    const r = await verifySetup(
+      {
+        root,
+        files: [...files(), { path: "../escape.txt", text: "x" }],
+        target: { app: app() },
+        secrets: {},
+      },
+      deps(),
+    );
+    expect(r).toEqual({
+      passed: false,
+      step: "checkout",
+      reason: "checkoutFailed",
+      detail:
+        "../escape.txt is outside the repo, so it was not written; give its path from the repo's root, then run again",
+      tail: "",
+    });
+    expect(started).toEqual([]);
+    expect(removeCalls()).toHaveLength(1);
+  });
+
+  // R18. Red when an empty refresh answer reads as a pass, or names no next
+  // action.
+  it("fails when refresh answers no video for the flow, naming the command to see why", async () => {
+    const r = await verifySetup(
+      { root, files: files(), target: { app: app() }, secrets: {} },
+      deps({ refresh: refreshStub(async () => ({ videos: [] })) }),
+    );
+    expect(r).toEqual({
+      passed: false,
+      step: "refresh",
+      reason: "refreshFailed",
+      detail:
+        'refresh answered no video for "Short", so whether it records is unknown; run `npx demoman refresh "Short"` in the repo to see why, then run again',
+      tail: "",
+    });
+  });
 });
