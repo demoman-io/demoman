@@ -46,6 +46,6 @@ pnpm -r build
 pnpm --filter @demoman/compositor exec playwright install --with-deps chromium
 
 node apps/runner/compare/gpu-args.mjs --repo . \
-  --script apps/runner/compare/scripts/fixture-clicks.json \
+  --script apps/runner/compare/fixture-clicks.json \
   --sample packages/compositor/scripts/fixture-app.html \
   --rounds "${ROUNDS:-1}"

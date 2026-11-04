@@ -1,13 +1,13 @@
 // What a headless Chrome's launch flags do to an export: one take, exported
 // once per flag set, in rounds.
-//   node apps/runner/compare/gpu-args.mjs --repo <root> --script <file> --sample <index.html> [--rounds 2] [--sets all|"<name>;<name>"]
+//   node apps/runner/compare/gpu-args.mjs --repo <root> --script <file> --sample <index.html> [--rounds 2] [--sets all|"<name>;<name>"] [--browsers full|shell|"full;shell"]
 // Records the script once with <root>'s built runner, then for each round and
 // each flag set (`SETS`) sets `HEADLESS_GPU_ARGS` to it, exports the same take
 // from a fresh browser on the full Chromium the CLI launches, and prints the
 // export's `timing export` line and what WebGL says it draws with. The render
 // time is the evidence; the WebGL line only says which backend came up
 // (`chrome://gpu` says "Hardware accelerated" either way, README).
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -22,6 +22,10 @@ const { values } = parseArgs({
     rounds: { type: "string", default: "2" },
     // Names from SETS separated by ";" (some names hold commas), or "all".
     sets: { type: "string", default: "all" },
+    // "full" (the Chromium the CLI launches), "shell" (Playwright's headless
+    // shell, what a headless launch picks when it names no executable), or
+    // both separated by ";".
+    browsers: { type: "string", default: "full" },
   },
 });
 if (!values.repo || !values.script || !values.sample) {
@@ -81,7 +85,28 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const sample = `http://127.0.0.1:${server.address().port}`;
 
-const executablePath = fullChromiumPath();
+// The headless shell Playwright installs beside the full Chromium, at the
+// same revision: <cache>/chromium-<rev>/… and <cache>/chromium_headless_shell-<rev>/….
+function headlessShellPath(full) {
+  const m = /^(.*)[\\/]chromium-(\d+)[\\/]/.exec(full);
+  if (m === null) throw new Error(`no chromium-<rev> folder in ${full}`);
+  const dir = join(m[1], `chromium_headless_shell-${m[2]}`);
+  const sub = readdirSync(dir).find((d) => d.startsWith("chrome-headless-shell"));
+  if (sub === undefined) throw new Error(`no headless shell in ${dir}`);
+  return join(dir, sub, "chrome-headless-shell");
+}
+const full = fullChromiumPath();
+const BROWSERS = { full: () => full, shell: () => headlessShellPath(full) };
+const chosenBrowsers = values.browsers.split(";");
+const unknownBrowsers = chosenBrowsers.filter((b) => !(b in BROWSERS));
+if (unknownBrowsers.length > 0) {
+  say(`no browser named ${unknownBrowsers.join(", ")}; browsers: full, shell`);
+  process.exit(2);
+}
+const paths = Object.fromEntries(chosenBrowsers.map((b) => [b, BROWSERS[b]()]));
+for (const b of chosenBrowsers) say(`${b}: ${paths[b]}`);
+// The take is recorded on the full Chromium, as the CLI records.
+let executablePath = full;
 const home = mkdtempSync(join(tmpdir(), "gpu-args-home-"));
 let lastTiming = null;
 const executorFor = () =>
@@ -146,9 +171,17 @@ try {
   say(
     `take ${takeId} recorded with [${filmedArgs.join(" ")}]: padding ${scene.branding.padding}, background ${scene.branding.background.kind}, ${scene.camera.length} camera events`,
   );
+  const runs = chosenBrowsers.flatMap((browser) =>
+    chosen.map((set) => ({
+      browser,
+      set,
+      name: chosenBrowsers.length > 1 ? `${browser}, ${set}` : set,
+    })),
+  );
   for (let round = 1; round <= Number(values.rounds); round++) {
-    for (const name of chosen) {
-      useArgs(SETS[name]);
+    for (const { browser, set, name } of runs) {
+      executablePath = paths[browser];
+      useArgs(SETS[set]);
       const renderer = await webglRenderer().catch(
         (e) => `WebGL read failed: ${e instanceof Error ? e.message : e}`,
       );
@@ -179,7 +212,7 @@ try {
   rmSync(home, { recursive: true, force: true });
 }
 say("summary (render seconds by round):");
-for (const name of chosen) {
+for (const name of [...new Set(results.map((r) => r.name))]) {
   const times = results.filter((r) => r.name === name).map((r) => r.render);
   say(`  ${name.padEnd(30)} ${times.join(" / ") || "no export"}`);
 }

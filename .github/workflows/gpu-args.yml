@@ -17,7 +17,10 @@ on:
         default: "2"
       sets:
         description: Flag sets from gpu-args.mjs's SETS, separated by ";", or "all"
-        default: "none;disable-gpu;no accelerated canvas"
+        default: "none"
+      browsers:
+        description: full (the Chromium the CLI launches), shell (the Playwright headless shell), or both separated by ;
+        default: "full;shell"
   # A perf/ branch that touches the measurement runs it on the standard
   # runners: workflow_dispatch reaches only workflows already on main.
   push:
@@ -44,12 +47,15 @@ jobs:
       - name: Export one take per flag set
         env:
           ROUNDS: ${{ inputs.rounds || '2' }}
-          # The sets the open question needs (DEM-43): all seven at two
-          # rounds would outrun the 45-minute limit.
-          SETS: ${{ inputs.sets || 'none;disable-gpu;no accelerated canvas' }}
+          # The open question's sets: full Chromium against the headless
+          # shell on one machine (DEM-45). All seven sets at two rounds would
+          # outrun the 45-minute limit.
+          SETS: ${{ inputs.sets || 'none' }}
+          BROWSERS: ${{ inputs.browsers || 'full;shell' }}
         run: >
           node apps/runner/compare/gpu-args.mjs --repo .
-          --script apps/runner/compare/scripts/fixture-clicks.json
+          --script apps/runner/compare/fixture-clicks.json
           --sample packages/compositor/scripts/fixture-app.html
           --rounds "$ROUNDS"
           --sets "$SETS"
+          --browsers "$BROWSERS"

@@ -47,7 +47,7 @@ built runner (`pnpm -r build`). Every run and export also logs one
   camera blur, 41 s with no padding (the frame's two shadows) and 16 s with
   neither, the same within 2.5 s on a second take.
   On a runner without a GPU, `.github/workflows/export-variants.yml` runs
-  it on the public fixture app (`scripts/fixture-clicks.json`).
+  it on the public fixture app (`fixture-clicks.json`).
 - `gpu-args.mjs --repo <root> --script <file> --sample <index.html> [--rounds 2] [--sets all|"<name>;<name>"]`
   records one take and exports it once per set of Chrome launch flags,
   printing each render's seconds and the WebGL renderer that came up. On
