@@ -366,7 +366,11 @@ async function flowFiles(
 /** Every value but an account's origin (not secret) as `<redacted>`. */
 export function redact(text: string, values: SecretValues): string {
   const secret = [...values]
-    .filter(([n, v]) => v !== "" && !n.endsWith(SECRET_ORIGIN_SUFFIX))
+    .filter(
+      ([n, v]) =>
+        v !== "" &&
+        !(n.startsWith(SECRET_PREFIX) && n.endsWith(SECRET_ORIGIN_SUFFIX)),
+    )
     .map(([, v]) => v)
     .sort((a, b) => b.length - a.length);
   return secret.reduce((t, v) => t.replaceAll(v, "<redacted>"), text);

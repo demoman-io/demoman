@@ -22,6 +22,7 @@ import {
   defaultTrigger,
   planCiSetup,
   planLines,
+  redact,
   triggerOffers,
 } from "../src/ci-setup.js";
 import { DEPLOYMENT_MAIN } from "../src/ci-workflow.js";
@@ -350,6 +351,19 @@ describe("triggerOffers and defaultTrigger", () => {
         { trigger: "daily", label: "", offered: true, why: "" },
       ]),
     ).toBe("daily");
+  });
+});
+
+// Finding 9, red: skip every name ending _ORIGIN again.
+describe("redact", () => {
+  it("leaves an account's origin readable, and hides an app secret named like one", () => {
+    const values = new Map([
+      ["DEMOMAN_SECRET_A_ORIGIN", "https://app.example"],
+      ["CDN_ORIGIN", "https://cdn-key-1234.example"],
+    ]);
+    expect(
+      redact("at https://app.example via https://cdn-key-1234.example", values),
+    ).toBe("at https://app.example via <redacted>");
   });
 });
 
