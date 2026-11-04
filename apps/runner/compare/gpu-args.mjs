@@ -91,7 +91,9 @@ function headlessShellPath(full) {
   const m = /^(.*)[\\/]chromium-(\d+)[\\/]/.exec(full);
   if (m === null) throw new Error(`no chromium-<rev> folder in ${full}`);
   const dir = join(m[1], `chromium_headless_shell-${m[2]}`);
-  const sub = readdirSync(dir).find((d) => d.startsWith("chrome-headless-shell"));
+  const sub = readdirSync(dir).find((d) =>
+    d.startsWith("chrome-headless-shell"),
+  );
   if (sub === undefined) throw new Error(`no headless shell in ${dir}`);
   return join(dir, sub, "chrome-headless-shell");
 }
