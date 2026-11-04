@@ -1349,6 +1349,8 @@ describe("ciSetup", () => {
     expect(all).toContain("STRIPE_KEY");
     expect(all).not.toContain(SECRET);
     expect(m.calls.filter((c) => outward.includes(c))).toEqual([]);
+    // Review finding 5: refused before the check, not after it.
+    expect(m.calls).not.toContain("verifySetup");
   });
 
   it("with no terminal, leaves --route out when the trigger allows only a pull request", async () => {

@@ -550,6 +550,20 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     });
   }
 
+  // Review finding 5. Red when a name to replace that the setup does not
+  // use is refused only after GitHub's secrets are read and the check ran.
+  it("a name to replace that no secret has: invalidArgs naming both, before GitHub's secrets or the check", async () => {
+    const f = fakes({ needed: [account("DEMOMAN_SECRET_SELLER")] });
+    const r = await plan(await repo(), f, {
+      replaceSecrets: ["DEMOMAN_SECRET_SELER"],
+    });
+    expect(isStop(r) && r.reason).toBe("invalidArgs");
+    expect(isStop(r) && r.detail).toContain("DEMOMAN_SECRET_SELER");
+    expect(isStop(r) && r.detail).toContain("DEMOMAN_SECRET_SELLER");
+    expect(f.calls).not.toContain("existingSecrets");
+    expect(f.calls).not.toContain("verifySetup");
+  });
+
   it("a missing secret: named, never a value, and the check never ran", async () => {
     const f = fakes({
       needed: [

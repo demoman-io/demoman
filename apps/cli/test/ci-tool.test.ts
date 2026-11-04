@@ -457,11 +457,13 @@ describe("the ci tool", () => {
     expect([...none.calls, ...unread.calls]).toEqual([]);
   });
 
-  // Red if a replaceSecrets name the setup does not use is dropped silently.
-  it("refuses a replaceSecrets name the setup does not use", async () => {
+  // Red if a replaceSecrets name the setup does not use is dropped silently,
+  // or refused only after the check (review finding 5).
+  it("refuses a replaceSecrets name the setup does not use, before the check", async () => {
     const t = tool();
     const a = await t.call({ trigger: "daily", replaceSecrets: ["NOPE"] });
     expect(a).toMatchObject({ reason: "invalidArgs" });
     expect(String(a.detail)).toContain("NOPE");
+    expect(t.calls).toEqual([]);
   });
 });

@@ -662,15 +662,6 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
     } else return said(plan);
   }
 
-  const uses = plan.secrets.map((x) => x.name);
-  const unknown = (choices.replaceSecrets ?? []).filter(
-    (n) => !uses.includes(n),
-  );
-  if (unknown.length > 0)
-    return stop(
-      `--replace-secret ${unknown.join(", ")} names no secret this setup uses (it uses ${uses.join(", ") || "none"}); nothing was written. Fix the name, then run setup again.`,
-    );
-
   // One confirmation, after the check (Decision 1).
   const lines = planLines(plan);
   if (ask === null) for (const l of lines) io.say(l);

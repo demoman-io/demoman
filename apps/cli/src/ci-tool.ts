@@ -162,13 +162,6 @@ export function createCiTool(io: {
       shown.delete(root);
       const plan = await planCiSetup(root, choices, deps, values);
       if ("reason" in plan) return said(stopped(plan, values));
-      const uses = plan.secrets.map((s) => s.name);
-      const unknown = (a.replaceSecrets ?? []).filter((n) => !uses.includes(n));
-      if (unknown.length > 0)
-        return said({
-          reason: "invalidArgs",
-          detail: `replaceSecrets names ${unknown.join(", ")}, which this setup does not use (it uses ${uses.join(", ") || "none"}); nothing was written`,
-        });
       shown.set(root, { key, plan, values, at: now() });
       return said({
         outcome: "plan",

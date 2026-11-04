@@ -541,6 +541,16 @@ async function makePlan(
       "secretsUnknown",
       `${need.refused}; fix it, then run setup again`,
     );
+  // Known now: a mistyped name to replace stops before GitHub or the check.
+  const uses = need.needed.map((n) => n.name);
+  const unknown = (choices.replaceSecrets ?? []).filter(
+    (n) => !uses.includes(n),
+  );
+  if (unknown.length > 0)
+    return stop(
+      "invalidArgs",
+      `asked to replace ${list(unknown)}, and this setup uses no secret by ${unknown.length === 1 ? "that name" : "those names"} (it uses ${list(uses) || "none"}); nothing was written; fix the name, then run setup again`,
+    );
   const existing = await deps.existingSecrets(facts.slug);
   if (!Array.isArray(existing))
     return stop(
