@@ -32,6 +32,7 @@ import {
 } from "../src/executor/browser.js";
 import { exportTake } from "../src/executor/export.js";
 import { type KeepDeps, keepVideo, rewriteKept } from "../src/executor/keep.js";
+import { readKeptFlows } from "../src/executor/kept-flows.js";
 import { createLibrary, type Library } from "../src/executor/library.js";
 import { execGit, readRepo } from "../src/executor/repo.js";
 import { createSessionStore } from "../src/executor/sessions.js";
@@ -589,6 +590,19 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       expect(receipt.receiptVersion).toBe(2);
       // Red if keep stops recording the script it delivered from.
       expect(receipt.scriptDigest).toBe(scriptDigest(kept.script));
+      // Review finding 8: the digest keep wrote is the one setup computes
+      // for the committed script, read back through readKeptFlows as
+      // planCiSetup reads it (Decision 5); red when keep digests anything
+      // but the script it writes.
+      const read = (await readKeptFlows(repo)).entries.find(
+        (e) => e.file === out.file,
+      );
+      if (read === undefined || !("kept" in read))
+        throw new Error(`${out.file} did not read back as a repo flow`);
+      expect(read.kept.script.steps.length, "premise: steps").toBeGreaterThan(
+        0,
+      );
+      expect(receipt.scriptDigest).toBe(scriptDigest(read.kept.script));
       expect(
         receipt.screens.moments.length,
         "premise: moments",
