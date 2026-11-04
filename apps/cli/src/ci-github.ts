@@ -19,6 +19,9 @@ export type GithubFacts = {
   hasReleases: boolean;
   workflowOnDefault: boolean;
   setupBranch: { pr: { number: number; url: string } | null } | null;
+  /** The git remote whose URL is `slug`: what setup fetches from and pushes
+   *  to, so git and gh act on one repo. */
+  remote: string;
 };
 export type GhUnusable = {
   reason: "ghMissing" | "ghSignedOut" | "notGitHub";
@@ -51,17 +54,18 @@ async function read(gh: Gh, args: string[]): Promise<Read> {
   };
 }
 
-function lsRemote(
+function gitIn(
   root: string,
+  args: string[],
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((done) =>
     execFile(
       "git",
-      ["ls-remote", "--heads", "origin", BRANCH],
+      args,
       { cwd: root },
       (err, stdout, stderr) =>
         done({
-          code: err ? 1 : 0,
+          code: err ? (typeof err.code === "number" ? err.code : -1) : 0,
           stdout,
           stderr: err ? stderr || String(err) : "",
         }),
@@ -134,6 +138,36 @@ export async function readGithub(
   }
   const defaultBranch = repo.defaultBranchRef.name;
 
+  // gh may answer for a repo origin is not (a fork's clone, gh's default
+  // set to upstream): git must push where gh opens the pull request.
+  const urls = await gitIn(root, [
+    "config",
+    "--get-regexp",
+    "^remote\\..*\\.url$",
+  ]);
+  // Exit 1 is "no remotes": no match below, said there.
+  if (urls.code !== 0 && urls.code !== 1)
+    return unreadable("the git remotes (git config)", urls.stderr);
+  const remotes = urls.stdout.split("\n").flatMap((l) => {
+    const m = /^remote\.(.+)\.url (.+)$/.exec(l.trim());
+    return m ? [{ name: m[1] as string, url: m[2] as string }] : [];
+  });
+  const named = (u: string) =>
+    u
+      .replace(/\/+$/, "")
+      .replace(/\.git$/, "")
+      .split(/[/:]/)
+      .slice(-2)
+      .join("/")
+      .toLowerCase();
+  const mine = remotes.filter((r) => named(r.url) === slug.toLowerCase());
+  const remote = (mine.find((r) => r.name === "origin") ?? mine[0])?.name;
+  if (remote === undefined)
+    return {
+      reason: "notGitHub",
+      detail: `gh answers for ${slug}, and no git remote here is that repo (${remotes.map((r) => `${r.name} (${r.url.replace(/\/\/[^/@]*@/, "//")})`).join(", ") || "there are none"}); point gh at the repo to set up with \`gh repo set-default\`, or add a remote for ${slug}, then run setup again`,
+    };
+
   const dep = await read(gh, ["api", `repos/${slug}/deployments?per_page=30`]);
   if (!dep.ok || !Array.isArray(dep.json)) {
     return unreadable(
@@ -193,14 +227,16 @@ export async function readGithub(
   if (!wf.ok && !wf.notFound)
     return unreadable(`${slug}'s .github/workflows/demoman.yml`, wf.why);
 
-  const remote = await lsRemote(root);
-  if (remote.code !== 0)
-    return unreadable(`${BRANCH} on origin (git ls-remote)`, remote.stderr);
+  const heads = await gitIn(root, ["ls-remote", "--heads", remote, BRANCH]);
+  if (heads.code !== 0)
+    return unreadable(`${BRANCH} on ${remote} (git ls-remote)`, heads.stderr);
   let setupBranch: GithubFacts["setupBranch"] = null;
-  if (remote.stdout.trim()) {
+  if (heads.stdout.trim()) {
     const prs = await read(gh, [
       "pr",
       "list",
+      "--repo",
+      slug,
       "--head",
       BRANCH,
       "--state",
@@ -223,6 +259,7 @@ export async function readGithub(
     hasReleases,
     workflowOnDefault: wf.ok,
     setupBranch,
+    remote,
   };
 }
 

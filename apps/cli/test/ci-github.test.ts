@@ -28,7 +28,9 @@ const base: Record<string, Answer> = {
     404,
     "Not Found",
   ),
-  "pr list --head demoman/setup --state open --json number,url": ok([]),
+  "pr list --repo o/r --head demoman/setup --state open --json number,url": ok(
+    [],
+  ),
 };
 function fake(
   over: Record<string, Answer> = {},
@@ -47,15 +49,25 @@ function fake(
   };
 }
 
-// A checkout whose origin is a bare repo, with or without demoman/setup on it.
+const run = (cwd: string, ...a: string[]) =>
+  execFileSync("git", a, { cwd, stdio: "pipe" });
+/** A remote named for its GitHub URL, which git reads as a local bare repo. */
+function remote(work: string, name: string, slug: string): string {
+  const bare = join(work, "..", `${name}.git`);
+  run(join(work, ".."), "init", "-q", "--bare", bare);
+  const url = `https://github.com/${slug}.git`;
+  run(work, "remote", "add", name, url);
+  run(work, "config", `url.${bare}.insteadOf`, url);
+  return bare;
+}
+
+// A checkout whose origin is o/r (a bare repo), with or without
+// demoman/setup on it.
 function checkout(withSetup: boolean): string {
   const dir = mkdtempSync(join(tmpdir(), "ci-github-"));
-  const run = (cwd: string, ...a: string[]) =>
-    execFileSync("git", a, { cwd, stdio: "pipe" });
   run(dir, "init", "-q", "-b", "main", "work");
-  run(dir, "init", "-q", "--bare", "origin.git");
   const work = join(dir, "work");
-  run(work, "remote", "add", "origin", join(dir, "origin.git"));
+  remote(work, "origin", S);
   run(
     work,
     "-c",
@@ -73,7 +85,64 @@ function checkout(withSetup: boolean): string {
   return work;
 }
 
+// A fork's clone: origin is the person's fork, upstream the repo gh answers
+// for, which alone has demoman/setup.
+function forkClone(withUpstream: boolean): string {
+  const dir = mkdtempSync(join(tmpdir(), "ci-github-"));
+  run(dir, "init", "-q", "-b", "main", "work");
+  const work = join(dir, "work");
+  remote(work, "origin", "me/r");
+  run(
+    work,
+    "-c",
+    "user.name=t",
+    "-c",
+    "user.email=t@t",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "a",
+  );
+  if (withUpstream) {
+    remote(work, "upstream", S);
+    run(work, "push", "-q", "upstream", "HEAD:refs/heads/demoman/setup");
+  }
+  return work;
+}
+
 describe("readGithub", () => {
+  // Review finding 6. Red when the branch is read on origin (the fork) while
+  // gh answers for upstream, or `gh pr list` runs without --repo.
+  it("in a fork's clone, reads the setup branch on the remote that is gh's repo, and asks gh about that repo", async () => {
+    const calls: Array<{ args: string[] }> = [];
+    const r = await readGithub(fake({}, calls), forkClone(true));
+    expect(r).toMatchObject({
+      slug: S,
+      remote: "upstream",
+      setupBranch: { pr: null },
+    });
+    const list = calls.find((c) => c.args[0] === "pr")?.args;
+    expect(list?.slice(0, 4)).toEqual(["pr", "list", "--repo", S]);
+  });
+  it("refuses notGitHub naming gh's repo and each remote when no remote is that repo", async () => {
+    const calls: Array<{ args: string[] }> = [];
+    const work = forkClone(false);
+    run(work, "remote", "add", "x", "https://me:tok123@github.com/x/y.git");
+    const r = await readGithub(fake({}, calls), work);
+    expect(r).toMatchObject({ reason: "notGitHub" });
+    const detail = (r as { detail: string }).detail;
+    expect(detail).toContain(S);
+    expect(detail).toContain("origin (https://github.com/me/r.git)");
+    expect(detail).toContain("gh repo set-default");
+    // A token in a remote's URL is never said.
+    expect(detail).toContain("x (https://github.com/x/y.git)");
+    expect(detail).not.toContain("tok123");
+    // Nothing else was read off a repo the push would not reach.
+    expect(calls.some((c) => c.args[0] === "api")).toBe(false);
+  });
+
+
   it("says ghMissing, with how to install, when gh cannot be spawned", async () => {
     const r = await readGithub(
       fake({ "--version": { code: 127, stderr: "Error: spawn gh ENOENT" } }),
@@ -160,6 +229,7 @@ describe("readGithub", () => {
       hasReleases: false,
       workflowOnDefault: false,
       setupBranch: null,
+      remote: "origin",
     });
   });
   it("reads a read-only viewer as unable to push", async () => {
@@ -238,9 +308,8 @@ describe("readGithub", () => {
         [`api repos/${S}/contents/.github/workflows/demoman.yml?ref=main`]: ok({
           name: "demoman.yml",
         }),
-        "pr list --head demoman/setup --state open --json number,url": ok([
-          { number: 7, url: "https://github.com/o/r/pull/7" },
-        ]),
+        "pr list --repo o/r --head demoman/setup --state open --json number,url":
+          ok([{ number: 7, url: "https://github.com/o/r/pull/7" }]),
       }),
       checkout(true),
     );

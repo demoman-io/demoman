@@ -46,6 +46,7 @@ const gh =
 const args = (files: Array<{ path: string; text: string | Uint8Array }>) => ({
   root,
   slug: "o/r",
+  remote: "origin",
   base: "main",
   files,
   body: "the body",
@@ -121,6 +122,8 @@ describe("openSetupPr", () => {
       [
         "pr",
         "create",
+        "--repo",
+        "o/r",
         "--base",
         "main",
         "--head",
@@ -133,6 +136,31 @@ describe("openSetupPr", () => {
     ]);
     expect(worktrees().match(/^worktree /gm)).toHaveLength(1);
     expect(sh(root, "branch", "--list", SETUP_BRANCH)).toBe("");
+  });
+
+  // Review finding 6. Red when the branch is built from or pushed to origin
+  // (the person's fork) while the pull request is opened on gh's repo.
+  it("in a fork's clone, builds from and pushes to the remote that is the repo", async () => {
+    const dir = join(root, "..");
+    const upstream = join(dir, "upstream.git");
+    sh(dir, "init", "--bare", "-b", "main", upstream);
+    sh(root, "remote", "add", "upstream", upstream);
+    sh(root, "push", "upstream", "main:main");
+    // Upstream's main moves on: the branch must start from it, not origin's.
+    sh(root, "commit", "--allow-empty", "-m", "upstream only");
+    sh(root, "push", "upstream", "HEAD:main");
+    const r = await openSetupPr(
+      { ...args([{ path: "n.txt", text: "n" }]), remote: "upstream" },
+      { git, gh: gh() },
+    );
+    expect(r).toMatchObject({ opened: { branch: SETUP_BRANCH } });
+    expect(sh(root, "ls-remote", "origin", SETUP_BRANCH)).toBe("");
+    expect(
+      sh(root, "log", "--format=%s", `upstream/${SETUP_BRANCH}`)
+        .trim()
+        .split("\n"),
+    ).toEqual([SETUP_TITLE, "upstream only", "init"]);
+    expect(prs[0]?.slice(0, 4)).toEqual(["pr", "create", "--repo", "o/r"]);
   });
 
   // Finding 10, red: `worktree add -b demoman/setup` fails on the person's
@@ -192,7 +220,7 @@ describe("openSetupPr", () => {
     });
     expect("failed" in r && r.detail).toContain("not allowed");
     expect("failed" in r && r.detail).toContain(
-      `gh pr create --base main --head ${SETUP_BRANCH} --title "Set up Demoman"`,
+      `gh pr create --repo o/r --base main --head ${SETUP_BRANCH} --title "Set up Demoman"`,
     );
     expect(sh(root, "ls-remote", "origin", SETUP_BRANCH)).toContain(
       SETUP_BRANCH,

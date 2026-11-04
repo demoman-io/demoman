@@ -74,6 +74,7 @@ describe("setup --ci's questions", () => {
     hasReleases: true,
     workflowOnDefault: false,
     setupBranch: null,
+    remote: "origin",
   };
   beforeEach(() => {
     script.length = 0;

@@ -919,6 +919,7 @@ describe("ciSetup", () => {
           hasReleases: false,
           workflowOnDefault: false,
           setupBranch: null,
+          remote: "origin",
           ...o.facts,
         };
       },

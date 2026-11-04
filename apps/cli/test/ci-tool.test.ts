@@ -105,6 +105,7 @@ function tool(
     hasReleases: false,
     workflowOnDefault: false,
     setupBranch: null,
+    remote: "origin",
   };
   const ci = createCiTool({
     ...(o.now ? { now: o.now } : {}),

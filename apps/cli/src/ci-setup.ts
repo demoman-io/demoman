@@ -168,7 +168,7 @@ export type PlanAppSource = AppSource | { kind: "file"; file: typeof APP_FILE };
 
 export type CiPlan = {
   root: string;
-  repo: { slug: string; defaultBranch: string };
+  repo: { slug: string; defaultBranch: string; remote: string };
   trigger: CiOptions["trigger"];
   offers: TriggerOffer[];
   route: "pr" | "main";
@@ -421,7 +421,7 @@ async function makePlan(
         )
       : stop(
           "setupBranchExists",
-          `the branch ${SETUP_BRANCH} is on origin with no open pull request; delete it (git push origin --delete ${SETUP_BRANCH}), then run setup again`,
+          `the branch ${SETUP_BRANCH} is on ${facts.remote} with no open pull request; delete it (git push ${facts.remote} --delete ${SETUP_BRANCH}), then run setup again`,
         );
 
   const offers = triggerOffers(facts);
@@ -622,7 +622,11 @@ async function makePlan(
     artifact: choices.artifact === true,
     app,
     secrets,
-    repo: { slug: facts.slug, defaultBranch: facts.defaultBranch },
+    repo: {
+      slug: facts.slug,
+      defaultBranch: facts.defaultBranch,
+      remote: facts.remote,
+    },
   };
   let workflow: string;
   try {
@@ -633,7 +637,7 @@ async function makePlan(
 
   // The files: the workflow, app.json unless committed as is, and each flow
   // not yet on the default branch.
-  const base = `origin/${facts.defaultBranch}`;
+  const base = `${facts.remote}/${facts.defaultBranch}`;
   // Only the flow folders: the whole tree can exceed git's output buffer.
   const tree = await deps.git(
     ["ls-tree", "-r", "--name-only", base, "--", ".demoman"],
@@ -913,6 +917,7 @@ export async function applyCiSetup(
   const pr = await deps.openSetupPr({
     root: plan.root,
     slug,
+    remote: plan.repo.remote,
     base: defaultBranch,
     files: contents,
     body: ["Demoman's CI setup:", "", ...planLines(plan)].join("\n"),

@@ -1,5 +1,5 @@
 // The setup pull request, built in a detached temporary worktree and pushed
-// to the branch on origin, so the person's checkout, branches, index and
+// to the branch on the repo's remote, so the person's checkout, branches, index and
 // default branch are never touched.
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,6 +21,8 @@ export async function openSetupPr(
   a: {
     root: string;
     slug: string;
+    /** The git remote that is `slug` (GithubFacts.remote). */
+    remote: string;
     base: string;
     files: Array<{ path: string; text: string | Uint8Array }>;
     body: string;
@@ -43,13 +45,13 @@ export async function openSetupPr(
   try {
     const fetchFailed = await stage(
       "fetch",
-      ["fetch", "origin", a.base],
+      ["fetch", a.remote, a.base],
       a.root,
     );
     if (fetchFailed) return { failed: "worktree", detail: fetchFailed };
     const addFailed = await stage(
       "worktree",
-      ["worktree", "add", "--detach", tmp, `origin/${a.base}`],
+      ["worktree", "add", "--detach", tmp, `${a.remote}/${a.base}`],
       a.root,
     );
     if (addFailed) return { failed: "worktree", detail: addFailed };
@@ -80,7 +82,7 @@ export async function openSetupPr(
     if (built) return { failed: "worktree", detail: built };
 
     const refspec = `HEAD:refs/heads/${SETUP_BRANCH}`;
-    const pushed = await git(["push", "--no-verify", "origin", refspec], tmp);
+    const pushed = await git(["push", "--no-verify", a.remote, refspec], tmp);
     if (pushed.code !== 0) {
       const words = pushed.stderr.trim();
       const exists = /non-fast-forward|fetch first|\(already exists\)/.test(
@@ -89,8 +91,8 @@ export async function openSetupPr(
       return {
         failed: "push",
         detail: exists
-          ? `a setup branch already exists on origin (${SETUP_BRANCH}); merge or close its pull request, or delete the branch, then run setup again. git said: ${words}`
-          : `\`git push origin ${refspec}\` exited with code ${pushed.code}: ${words}`,
+          ? `a setup branch already exists on ${a.remote} (${SETUP_BRANCH}); merge or close its pull request, or delete the branch, then run setup again. git said: ${words}`
+          : `\`git push ${a.remote} ${refspec}\` exited with code ${pushed.code}: ${words}`,
       };
     }
     const sha = (await git(["rev-parse", "HEAD"], tmp)).stdout.trim();
@@ -98,6 +100,8 @@ export async function openSetupPr(
     const pr = await gh([
       "pr",
       "create",
+      "--repo",
+      a.slug,
       "--base",
       a.base,
       "--head",
@@ -113,7 +117,7 @@ export async function openSetupPr(
       return {
         failed: "pr",
         branchUrl: `https://github.com/${a.slug}/tree/${SETUP_BRANCH}`,
-        detail: `the branch ${SETUP_BRANCH} is pushed but the pull request was not opened (${pr.stderr.trim() || pr.stdout.trim() || `gh exited with code ${pr.code}`}); open it with: gh pr create --base ${a.base} --head ${SETUP_BRANCH} --title "${SETUP_TITLE}"`,
+        detail: `the branch ${SETUP_BRANCH} is pushed but the pull request was not opened (${pr.stderr.trim() || pr.stdout.trim() || `gh exited with code ${pr.code}`}); open it with: gh pr create --repo ${a.slug} --base ${a.base} --head ${SETUP_BRANCH} --title "${SETUP_TITLE}"`,
       };
     return { opened: { number, url, branch: SETUP_BRANCH, sha } };
   } finally {

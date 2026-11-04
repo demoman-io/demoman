@@ -146,6 +146,7 @@ const facts = (over: Partial<GithubFacts> = {}): GithubFacts => ({
   hasReleases: false,
   workflowOnDefault: false,
   setupBranch: null,
+  remote: "origin",
   ...over,
 });
 
@@ -1036,6 +1037,23 @@ describe("applyCiSetup", () => {
     f.calls.length = 0;
     return { f, p, values };
   }
+
+  // Review finding 6. Red when the default branch is read off origin, or
+  // the pull request is pushed there, while the repo is another remote.
+  it("reads the default branch on, and opens the pull request through, the repo's remote", async () => {
+    const f = fakes({ github: facts({ remote: "upstream" }) });
+    const p = await okPlan(await repo(), f);
+    expect(p.repo).toEqual({
+      slug: "o/r",
+      defaultBranch: "trunk",
+      remote: "upstream",
+    });
+    const reads = f.gitArgs.filter((a) => a[0] === "ls-tree");
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.every((a) => a.includes("upstream/trunk"))).toBe(true);
+    await applyCiSetup(p, f.deps, new Map());
+    expect(f.seen.pr).toMatchObject({ slug: "o/r", remote: "upstream" });
+  });
 
   // Red if apply reads the files again: an edit while the confirmation
   // waits would reach the pull request unchecked.

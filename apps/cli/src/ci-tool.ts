@@ -195,19 +195,19 @@ async function watch(
   const facts = await deps.readGithub(root);
   if ("reason" in facts) return { reason: facts.reason, detail: facts.detail };
   const head = await deps.git(
-    ["ls-remote", "--heads", "origin", SETUP_BRANCH],
+    ["ls-remote", "--heads", facts.remote, SETUP_BRANCH],
     root,
   );
   if (head.code !== 0)
     return {
       reason: "githubUnreadable",
-      detail: `could not read origin's ${SETUP_BRANCH} (${head.stderr.trim() || `git exited with code ${head.code}`}); nothing was assumed, try again`,
+      detail: `could not read ${facts.remote}'s ${SETUP_BRANCH} (${head.stderr.trim() || `git exited with code ${head.code}`}); nothing was assumed, try again`,
     };
   const sha = head.stdout.split(/\s/)[0] ?? "";
   if (sha === "")
     return {
       reason: "noSetupBranch",
-      detail: `${SETUP_BRANCH} is not on origin, so there is no setup run to watch; call ci without watch to set up`,
+      detail: `${SETUP_BRANCH} is not on ${facts.remote}, so there is no setup run to watch; call ci without watch to set up`,
     };
   const run = runOf(
     await deps.watchSetupRun({ slug: facts.slug, branch: SETUP_BRANCH, sha }),
