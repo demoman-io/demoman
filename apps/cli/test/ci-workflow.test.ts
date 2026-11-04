@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -8,10 +9,17 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AppSpec } from "@demoman/run-core";
+import { type AppSpec, serializeApp } from "@demoman/run-core";
+import type { Verified } from "@demoman/runner/package";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import type { GithubFacts } from "../src/ci-github.js";
+import { envFileValues, type NeededSecret } from "../src/ci-secrets.js";
+import type { CiDeps } from "../src/ci-setup.js";
+import type { Watched } from "../src/ci-watch.js";
 import {
+  type CiAsk,
+  type CiIo,
   type CiOptions,
   ciSetup,
   expr,
@@ -791,142 +799,518 @@ describe("the daily run stops early when nothing is new", () => {
 });
 
 describe("ciSetup", () => {
-  const io = (
-    over: {
-      exists?: boolean;
-      root?: { root: string } | { none: string };
-      branch?: string | null;
-      ask?: unknown;
+  const SECRET = "sk_live_terminal-door-secret-42";
+  const checkApp: AppSpec = {
+    appVersion: 1,
+    install: ["npm ci"],
+    start: "npm start",
+    url: "http://127.0.0.1:3999/",
+    timeoutSeconds: 60,
+    env: {},
+    secrets: [],
+    services: {},
+  };
+  /** A repo with one kept flow and, unless `appJson` is false, app.json. */
+  function repoDir(o: { appJson?: boolean; envFile?: string } = {}): string {
+    const root = mkdtempSync(join(tmpdir(), "demoman-ci-door-"));
+    mkdirSync(join(root, ".demoman", "flows"), { recursive: true });
+    writeFileSync(
+      join(root, ".demoman", "flows", "checkout.json"),
+      JSON.stringify({
+        keptVersion: 2,
+        flow: randomUUID(),
+        deliver: "files",
+        name: "Checkout",
+        script: {
+          scriptVersion: 1,
+          name: "Checkout",
+          target: "http://127.0.0.1:3999/",
+          viewport: { width: 1280, height: 800 },
+          steps: [{ do: "waitForLoad" }],
+        },
+        scale: 1,
+        logo: null,
+        wallpaper: null,
+        outputs: [
+          { path: "o.mp4", fileType: "mp4", aspect: "16:9", quality: "share" },
+        ],
+        report: null,
+      }),
+    );
+    if (o.appJson !== false)
+      writeFileSync(join(root, ".demoman", "app.json"), serializeApp(checkApp));
+    if (o.envFile !== undefined) writeFileSync(join(root, ".env"), o.envFile);
+    return root;
+  }
+  const passedCheck: Verified = {
+    passed: true,
+    flow: "Checkout",
+    outcome: "unchanged",
+    recordSeconds: 8,
+    appSeconds: 3,
+    lines: [],
+  };
+  const passedRun: Watched = {
+    passed: {
+      runUrl: "https://github.com/o/r/actions/runs/9",
+      artifactUrl: "https://github.com/o/r/actions/runs/9#artifacts",
+      lines: [],
+    },
+  };
+  /** Every question answered by `answers`; one not given fails the test. */
+  function asker(answers: Partial<CiAsk>) {
+    const asked: Array<[string, unknown[]]> = [];
+    const ask = Object.fromEntries(
+      (
+        ["trigger", "route", "appHole", "secret", "envFile", "confirm"] as const
+      ).map((k) => [
+        k,
+        async (...a: unknown[]) => {
+          asked.push([k, a]);
+          const f = answers[k] as ((...x: unknown[]) => unknown) | undefined;
+          if (f === undefined) throw new Error(`asked ${k}`);
+          return f(...a);
+        },
+      ]),
+    ) as unknown as CiAsk;
+    return { ask, asked };
+  }
+  function door(
+    o: {
+      root?: string;
+      ask?: CiAsk | null;
+      facts?: Partial<GithubFacts>;
+      needed?: NeededSecret[];
+      detected?: Awaited<ReturnType<CiDeps["detectApp"]>>;
+      verify?: CiDeps["verifySetup"];
+      watched?: Watched;
     } = {},
-  ) => {
+  ) {
+    const root = o.root ?? repoDir();
     const said: string[] = [];
-    const wrote: Array<[string, string]> = [];
-    const asked = { n: 0 };
-    return {
-      said,
-      wrote,
-      asked,
-      io: {
-        version: "0.2.0",
-        ask: (over.ask ?? null) as never,
-        root: async () => over.root ?? { root: "/repo" },
-        defaultBranch: async () =>
-          over.branch === undefined ? "main" : over.branch,
-        exists: () => over.exists ?? false,
-        write: (p: string, t: string) => void wrote.push([p, t]),
-        say: (l: string) => void said.push(l),
+    const calls: string[] = [];
+    const seen: {
+      verify?: Parameters<CiDeps["verifySetup"]>;
+      set?: Parameters<CiDeps["setSecrets"]>;
+      pr?: Parameters<CiDeps["openSetupPr"]>[0];
+    } = {};
+    const sig: { interrupt: (() => void) | null; restored: number } = {
+      interrupt: null,
+      restored: 0,
+    };
+    const deps: Omit<CiDeps, "log" | "signal"> = {
+      version: "0.9.0",
+      env: {},
+      git: async (args) =>
+        args[0] === "ls-tree"
+          ? { code: 0, stdout: "", stderr: "" }
+          : { code: 128, stdout: "", stderr: "fatal: no such path" },
+      readGithub: async () => {
+        calls.push("readGithub");
+        return {
+          slug: "o/r",
+          defaultBranch: "trunk",
+          canPush: true,
+          isAdmin: true,
+          deployments: [],
+          hasReleases: false,
+          workflowOnDefault: false,
+          setupBranch: null,
+          ...o.facts,
+        };
+      },
+      detectApp: async () =>
+        o.detected ?? { none: "nothing to propose from: looked nowhere" },
+      neededSecrets: async () => ({ needed: o.needed ?? [] }),
+      localValues: async (_root, needed) => ({
+        values: new Map(),
+        missing: needed.map((n) => n.name),
+        tooShort: [],
+      }),
+      envFileValues,
+      existingSecrets: async () => [],
+      verifySetup: async (...a) => {
+        calls.push("verifySetup");
+        seen.verify = a;
+        return o.verify ? o.verify(...a) : passedCheck;
+      },
+      setSecrets: async (...a) => {
+        calls.push("setSecrets");
+        seen.set = a;
+        return { set: [...a[1].keys()], kept: [], failed: [] };
+      },
+      allowActionPullRequests: async () => {
+        calls.push("allowActionPullRequests");
+        return { kind: "turnedOn" };
+      },
+      openSetupPr: async (a) => {
+        calls.push("openSetupPr");
+        seen.pr = a;
+        return {
+          opened: {
+            number: 7,
+            url: "https://github.com/o/r/pull/7",
+            branch: "demoman/setup",
+            sha: "s1",
+          },
+        };
+      },
+      watchSetupRun: async () => {
+        calls.push("watchSetupRun");
+        return o.watched ?? passedRun;
       },
     };
-  };
-  const flags = ["--ci", "--trigger", "push", "--route", "pr"];
+    const io: CiIo = {
+      ask: o.ask ?? null,
+      root: async () => ({ root }),
+      deps: () => deps,
+      exists: (p) => existsSync(join(root, p)),
+      onInterrupt: (h) => {
+        sig.interrupt = h;
+        return () => {
+          sig.interrupt = null;
+          sig.restored += 1;
+        };
+      },
+      say: (l) => void said.push(l),
+    };
+    return { io, said, calls, seen, sig, root };
+  }
+  const yes = ["--ci", "--yes"];
+  const outward = ["setSecrets", "allowActionPullRequests", "openSetupPr"];
 
-  it("writes the file and says the settings that make it work", async () => {
-    const m = io();
-    expect(await ciSetup(flags, m.io)).toBe(0);
-    expect(m.wrote[0]?.[0]).toBe(".github/workflows/demoman.yml");
-    expect(m.wrote[0]?.[1]).toBe(push);
-    // The notes went with the start step and the commented secrets.
-    expect(m.said).toEqual([
-      "Wrote .github/workflows/demoman.yml (at the repo root).",
+  it("with no terminal and no --yes, reads and writes nothing and names exactly the flags missing", async () => {
+    // Red if ciSetup reads GitHub before refusing, or names a flag already given.
+    const a = door();
+    expect(await ciSetup(["--ci"], a.io)).toBe(1);
+    expect(a.calls).toEqual([]);
+    expect(a.said.join("\n")).toMatch(/--yes/);
+    expect(a.said.join("\n")).toMatch(/--trigger/);
+    expect(a.said.join("\n")).toMatch(/--route/);
+    const b = door();
+    expect(await ciSetup(["--ci", "--route", "pr"], b.io)).toBe(1);
+    expect(b.said.join("\n")).toMatch(/--trigger/);
+    expect(b.said.join("\n")).not.toMatch(/--route/);
+    const c = door();
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], c.io),
+    ).toBe(1);
+    expect(c.said.join("\n")).toMatch(/--yes/);
+    expect(c.said.join("\n")).not.toMatch(/--trigger|--route/);
+    expect([...a.calls, ...b.calls, ...c.calls]).toEqual([]);
+  });
+
+  it("--yes takes the default trigger and a pull request, asking nothing, and says the plan", async () => {
+    // Red if --yes asks, or does not default trigger and route.
+    const { ask, asked } = asker({});
+    const m = door({ ask, facts: { hasReleases: true } });
+    expect(await ciSetup(yes, m.io)).toBe(0);
+    expect(asked).toEqual([]);
+    const body = m.seen.pr?.body ?? "";
+    expect(body).toContain(
+      "Records the repo flows when a release is published.",
+    );
+    expect(body).toContain("Delivers what changed as a pull request.");
+    expect(m.said).toContain(
+      "Records the repo flows when a release is published.",
+    );
+    expect(m.calls).toEqual([
+      "readGithub",
+      "verifySetup",
+      "setSecrets",
+      "allowActionPullRequests",
+      "openSetupPr",
+      "watchSetupRun",
     ]);
   });
 
-  it("takes release and daily by name, and an environment named like them by deployment:", async () => {
-    const r = io();
-    expect(
-      await ciSetup(["--ci", "--trigger", "release", "--route", "pr"], r.io),
-    ).toBe(0);
-    expect(r.wrote[0]?.[1]).toContain("  release:");
-    const d = io();
-    expect(
-      await ciSetup(["--ci", "--trigger", "daily", "--route", "main"], d.io),
-    ).toBe(0);
-    expect(d.wrote[0]?.[1]).toContain("  schedule:");
-    const e = io();
-    expect(
-      await ciSetup(
-        ["--ci", "--trigger", "deployment:release", "--route", "pr"],
-        e.io,
-      ),
-    ).toBe(0);
-    expect(e.wrote[0]?.[1]).toContain(
-      "github.event.deployment.environment == 'release'",
-    );
-    const m = io();
-    expect(
-      await ciSetup(["--ci", "--trigger", "release", "--route", "main"], m.io),
-    ).toBe(1);
-    expect(m.said.join("\n")).toContain("cannot go with a release trigger");
-    expect(m.wrote).toEqual([]);
-  });
-
-  it("names every trigger when there is no terminal to ask in", async () => {
-    const m = io();
-    expect(await ciSetup(["--ci"], m.io)).toBe(1);
-    expect(m.said.join("\n")).toContain(
-      "pass --trigger release|daily|push|<environment> and --route pr|main",
-    );
-  });
-
-  it("stops, writing nothing, without a terminal or with a file already there", async () => {
-    const a = io();
-    expect(await ciSetup(["--ci"], a.io)).toBe(1);
-    expect(a.said.join("")).toContain("--trigger");
-    const b = io({ exists: true });
-    expect(await ciSetup(flags, b.io)).toBe(1);
-    expect(a.wrote.length + b.wrote.length).toBe(0);
-  });
-
-  it("stops outside a git repo", async () => {
-    const m = io({ root: { none: "not a git repository" } });
-    expect(await ciSetup(flags, m.io)).toBe(1);
-    expect(m.said.join("")).toContain("not a git repository");
-    expect(m.wrote).toEqual([]);
-  });
-
-  it("looks for an existing file before asking anything", async () => {
-    const m = io({
-      exists: true,
-      ask: {
-        trigger: async () => {
-          throw new Error("asked");
-        },
-        route: async () => "pr",
+  it("asks a missing secret with a password prompt and never says its value, the check's log included", async () => {
+    // Red if the check's log reaches say unredacted, or secret() is not asked.
+    const { ask, asked } = asker({
+      secret: async () => SECRET,
+      confirm: async () => true,
+    });
+    const m = door({
+      ask,
+      needed: [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
+      verify: async (_a, d) => {
+        d.log(`the app said STRIPE_KEY=${SECRET}`);
+        return passedCheck;
       },
     });
-    expect(await ciSetup(["--ci"], m.io)).toBe(1);
-    expect(m.said.join("")).toContain("already exists");
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+    ).toBe(0);
+    expect(asked.filter(([k]) => k === "secret")).toEqual([
+      ["secret", ["STRIPE_KEY", "app.json"]],
+    ]);
+    expect(m.seen.set?.[1].get("STRIPE_KEY")).toBe(SECRET);
+    const all = m.said.join("\n");
+    expect(all).not.toContain(SECRET);
+    expect(all).toContain("the app said STRIPE_KEY=<redacted>");
   });
 
-  it("refuses --route main with a deployment trigger, by flags and by prompt", async () => {
-    const a = io();
+  it("with --yes and no terminal, a missing secret stops naming it and .demoman/secrets.env", async () => {
+    const m = door({
+      needed: [
+        {
+          name: "DEMOMAN_SECRET_SELLER",
+          for: "account",
+          why: "account seller",
+        },
+      ],
+    });
+    expect(await ciSetup(yes, m.io)).toBe(1);
+    const all = m.said.join("\n");
+    expect(all).toContain("DEMOMAN_SECRET_SELLER");
+    expect(all).toContain(".demoman/secrets.env");
+    expect(m.calls.filter((c) => c !== "readGithub")).toEqual([]);
+  });
+
+  it("--env-file offers only the names the setup asks for, and imports the chosen", async () => {
+    // Red if the prompt lists every name in the file.
+    const root = repoDir();
+    const file = join(root, "prod.env");
+    writeFileSync(file, `STRIPE_KEY=${SECRET}\nUNRELATED=nope\n`);
+    const { ask, asked } = asker({
+      envFile: async (_p, names) => names,
+      confirm: async () => true,
+    });
+    const m = door({
+      root,
+      ask,
+      needed: [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
+    });
     expect(
       await ciSetup(
-        ["--ci", "--trigger", "Production", "--route", "main"],
-        a.io,
+        ["--ci", "--trigger", "daily", "--route", "pr", "--env-file", file],
+        m.io,
       ),
-    ).toBe(1);
-    const b = io({
-      ask: { trigger: async () => "Production", route: async () => "main" },
-    });
-    expect(await ciSetup(["--ci"], b.io)).toBe(1);
-    for (const m of [a, b]) {
-      expect(m.said.join("")).toContain("not a branch");
-      expect(m.said.join("")).toContain("--route pr");
-      expect(m.wrote).toEqual([]);
-    }
+    ).toBe(0);
+    expect(asked.find(([k]) => k === "envFile")?.[1]).toEqual([
+      file,
+      ["STRIPE_KEY"],
+    ]);
+    expect(asked.some(([k]) => k === "secret")).toBe(false);
+    expect(m.seen.set?.[1].get("STRIPE_KEY")).toBe(SECRET);
+    expect(m.said.join("\n")).not.toContain(SECRET);
   });
 
-  it("writes the default branch it read, and says it assumed main when it cannot read one", async () => {
-    const a = io({ branch: "master" });
-    expect(await ciSetup(flags, a.io)).toBe(0);
-    expect(a.wrote[0]?.[1]).toContain("branches: [master]");
-    expect(a.said.join("")).not.toContain("assum");
-    const b = io({ branch: null });
-    expect(await ciSetup(flags, b.io)).toBe(0);
-    expect(b.wrote[0]?.[1]).toContain("branches: [main]");
-    expect(b.said.join("\n")).toContain(
-      "Could not read origin's default branch",
+  it("offers a .env at the root in a terminal", async () => {
+    const root = repoDir({ envFile: `STRIPE_KEY=${SECRET}\n` });
+    const { ask, asked } = asker({
+      envFile: async (_p, names) => names,
+      confirm: async () => true,
+    });
+    const m = door({
+      root,
+      ask,
+      needed: [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
+    });
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+    ).toBe(0);
+    expect(asked.find(([k]) => k === "envFile")?.[1]).toEqual([
+      join(root, ".env"),
+      ["STRIPE_KEY"],
+    ]);
+  });
+
+  it("runs the check before the one confirmation, shows the plan there, and a no writes nothing", async () => {
+    // Red if confirm is asked before the check, or a "no" still applies.
+    const order: string[] = [];
+    const { ask, asked } = asker({
+      confirm: async () => {
+        order.push("confirm");
+        return false;
+      },
+    });
+    const m = door({
+      ask,
+      verify: async () => {
+        order.push("check");
+        return passedCheck;
+      },
+    });
+    expect(
+      await ciSetup(["--ci", "--trigger", "push", "--route", "pr"], m.io),
+    ).toBe(1);
+    expect(order).toEqual(["check", "confirm"]);
+    const lines = asked.find(([k]) => k === "confirm")?.[1][0] as string[];
+    expect(lines).toContain(
+      'Opens the pull request "Set up Demoman" from demoman/setup into trunk with:',
+    );
+    expect(lines).toContain("  .github/workflows/demoman.yml");
+    expect(lines.some((l) => l.startsWith("Runner time: about"))).toBe(true);
+    expect(m.calls.filter((c) => outward.includes(c))).toEqual([]);
+    expect(m.said.join("\n")).toContain("nothing was written");
+  });
+
+  it("closes on the pull request, the run's verdict and the artifact link", async () => {
+    const m = door({ ask: asker({ confirm: async () => true }).ask });
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+    ).toBe(0);
+    const all = m.said.join("\n");
+    expect(all).toContain("https://github.com/o/r/pull/7");
+    expect(all).toMatch(
+      /passed.*https:\/\/github\.com\/o\/r\/actions\/runs\/9/,
+    );
+    expect(all).toContain("https://github.com/o/r/actions/runs/9#artifacts");
+  });
+
+  it("closes a failed run on its step and tail, and an unread count as unknown with the note", async () => {
+    const m = door({
+      watched: {
+        failed: {
+          runUrl: "https://github.com/o/r/actions/runs/9",
+          step: "Refresh the repo flows",
+          tail: "Error: the app did not answer",
+          failedRuns: null,
+          gaveUp: false,
+          note: "How many setup runs have failed is unknown (the list could not be read).",
+        },
+      },
+    });
+    expect(await ciSetup(yes, m.io)).toBe(1);
+    const all = m.said.join("\n");
+    expect(all).toContain("Refresh the repo flows");
+    expect(all).toContain("Error: the app did not answer");
+    expect(all).toContain(
+      "How many setup runs have failed is unknown (the list could not be read).",
+    );
+    expect(all).not.toMatch(/null/);
+  });
+
+  it("says an unknown outcome as unknown, never failed", async () => {
+    // Red if unknown is worded as a failure.
+    const m = door({
+      watched: {
+        unknown: {
+          runUrl: "https://github.com/o/r/actions/runs/9",
+          why: "GitHub could not be read 5 times in a row.",
+        },
+      },
+    });
+    expect(await ciSetup(yes, m.io)).toBe(1);
+    const last = m.said.slice(-2).join("\n");
+    expect(last).toContain("unknown");
+    expect(last).toContain("GitHub could not be read 5 times in a row.");
+    expect(last).not.toMatch(/fail/i);
+  });
+
+  it("Ctrl-C during the check stops it, says the stop line, and restores Ctrl-C", async () => {
+    // Red if no signal reaches verifySetup, or the handler is left installed.
+    const m = door({
+      verify: async (_a, d) => {
+        expect(d.signal?.aborted).toBe(false);
+        m.sig.interrupt?.();
+        expect(d.signal?.aborted).toBe(true);
+        return {
+          passed: false,
+          step: "app",
+          reason: "checkStopped",
+          detail: "stopped; removed the checkout at /tmp/demoman-verify-x",
+          tail: "",
+        };
+      },
+    });
+    expect(await ciSetup(yes, m.io)).toBe(1);
+    expect(m.said.join("\n")).toContain(
+      "stopped; removed the checkout at /tmp/demoman-verify-x; nothing was written",
+    );
+    expect(m.sig.interrupt).toBeNull();
+    expect(m.sig.restored).toBe(1);
+    expect(m.calls.filter((c) => outward.includes(c))).toEqual([]);
+  });
+
+  it("asks each hole in the proposed app.json, then checks the filled one", async () => {
+    const { ask, asked } = asker({
+      appHole: async () => "http://127.0.0.1:4000/",
+      confirm: async () => true,
+    });
+    const m = door({
+      root: repoDir({ appJson: false }),
+      ask,
+      detected: {
+        draft: { ...checkApp, url: null },
+        source: { kind: "packageJson", file: "package.json" },
+        holes: [{ field: "url", why: "no recorded origin to serve" }],
+      },
+    });
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+    ).toBe(0);
+    expect(asked.find(([k]) => k === "appHole")?.[1]).toEqual([
+      "url",
+      "no recorded origin to serve",
+    ]);
+    expect(m.seen.verify?.[0].target).toEqual({
+      app: { ...checkApp, url: "http://127.0.0.1:4000/" },
+    });
+    expect(m.seen.pr?.files.map((f) => f.path)).toContain(".demoman/app.json");
+  });
+
+  it("with --yes, a hole stops naming it and app.json", async () => {
+    const m = door({
+      root: repoDir({ appJson: false }),
+      detected: {
+        draft: { ...checkApp, url: null },
+        source: { kind: "packageJson", file: "package.json" },
+        holes: [{ field: "url", why: "no recorded origin to serve" }],
+      },
+    });
+    expect(await ciSetup(yes, m.io)).toBe(1);
+    const all = m.said.join("\n");
+    expect(all).toContain("url (no recorded origin to serve)");
+    expect(all).toContain(".demoman/app.json");
+    expect(m.calls).toEqual(["readGithub"]);
+  });
+
+  it("takes an environment named like a trigger by deployment:, and refuses --route main with it", async () => {
+    const m = door({
+      facts: {
+        deployments: [
+          { environment: "release", url: "https://x.example", sha: "a" },
+        ],
+      },
+    });
+    expect(
+      await ciSetup(
+        ["--ci", "--yes", "--trigger", "deployment:release", "--route", "main"],
+        m.io,
+      ),
+    ).toBe(1);
+    expect(m.said.join("\n")).toContain("not a branch");
+    expect(m.calls).toEqual(["readGithub"]);
+  });
+
+  it("stops outside a git repo, and on an unknown --route", async () => {
+    const a = door();
+    a.io.root = async () => ({ none: "not a git repository" });
+    expect(await ciSetup(yes, a.io)).toBe(1);
+    expect(a.said.join("")).toContain("not a git repository");
+    const b = door();
+    expect(await ciSetup([...yes, "--route", "sideways"], b.io)).toBe(1);
+    expect(b.said.join("")).toContain("--route is pr or main");
+    expect([...a.calls, ...b.calls]).toEqual([]);
+  });
+
+  it("asks the trigger from the offers and the route with the real branch", async () => {
+    const { ask, asked } = asker({
+      trigger: async () => "push",
+      route: async () => "main",
+      confirm: async () => true,
+    });
+    const m = door({ ask });
+    expect(await ciSetup(["--ci"], m.io)).toBe(0);
+    const offers = asked.find(([k]) => k === "trigger")?.[1][0] as Array<{
+      label: string;
+    }>;
+    expect(offers.map((o) => o.label)).toContain("on each merge to trunk");
+    expect(asked.find(([k]) => k === "route")?.[1]).toEqual(["trunk"]);
+    expect(m.seen.pr?.body).toContain(
+      "Delivers what changed as a commit on trunk.",
     );
   });
 });

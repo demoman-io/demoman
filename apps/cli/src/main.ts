@@ -8,9 +8,9 @@
 // First, before anything that could print: console.log/info/debug to stderr.
 import "@demoman/mcp/stdout-guard";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -25,6 +25,7 @@ import { isExportQuality } from "@demoman/run-core";
 import {
   appPlanFor,
   createLocalExecutor,
+  detectApp,
   execGit,
   fullChromiumPath,
   joinFlow as joinFlowInto,
@@ -39,6 +40,8 @@ import {
   signin,
   signinAccount,
   usePrebuiltPages,
+  type VerifyDeps,
+  verifySetup,
   withApp,
 } from "@demoman/runner/package";
 import {
@@ -50,8 +53,19 @@ import {
 } from "@demoman/runner/studio";
 import { openStudio, runServe, stopStudio } from "@demoman/studio";
 import { refreshAgentSkill } from "./agent-skill.js";
+import { allowActionPullRequests, readGithub } from "./ci-github.js";
+import { openSetupPr } from "./ci-pr.js";
+import {
+  envFileValues,
+  existingSecrets,
+  localValues,
+  neededSecrets,
+  setSecrets,
+} from "./ci-secrets.js";
+import { watchSetupRun } from "./ci-watch.js";
 import { ciSetup } from "./ci-workflow.js";
 import { deliver } from "./deliver.js";
+import { realGh } from "./gh-run.js";
 import { keepLines, removeLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
 import { parseRefreshArgs } from "./refresh-args.js";
@@ -98,7 +112,9 @@ const USAGE = `demoman ${VERSION}
     [--yes] [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
   npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
   npx demoman setup --ci [--trigger release|daily|push|<environment>] [--route pr|main] [--artifact]
-                             write .github/workflows/demoman.yml, which refreshes the repo's flows on each merge
+    [--yes] [--env-file <path>] [--replace-secret <NAME>]…
+                             check CI's refresh of the repo's flows from a clean checkout, then set its
+                             secrets and open the setup pull request, and watch its first run
   npx demoman signin <url>   sign in to your app once, so agents can record behind the login
   npx demoman signin --account <name> [--site <origin>] [--project <dir>]
                              sign in as a demo account from .demoman/accounts.json (CI, or a check)
@@ -463,6 +479,57 @@ async function remove(args: string[]): Promise<void> {
   process.stdout.write(`${lines}\n`);
 }
 
+const INSTALL_COMMAND = `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup`;
+/** refreshKept's deps, for `refresh` and for the setup check. */
+function keptRefreshDeps(
+  session: ReturnType<typeof createBrowserSession>,
+  env: NodeJS.ProcessEnv,
+  say: (line: string) => void,
+): Parameters<typeof refreshKept>[1] {
+  const home = demomanHome();
+  return {
+    library: createLibrary(home),
+    videos: createVideoStore(home, createLibrary(home), { log: say }),
+    executor: (o) =>
+      createLocalExecutor({
+        ...o,
+        headless: true,
+        wallpapersDir: WALLPAPERS_DIR,
+        // Films at the kept scale, which DEMOMAN_DISPLAY names.
+        standInDisplay: true,
+        executablePath: fullChromiumPath(),
+        installCommand: INSTALL_COMMAND,
+        signinCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} signin`,
+        log: say,
+      }),
+    session,
+    env,
+    log: say,
+  };
+}
+
+/** The setup check's refresh (R14): its own browser, closed after; every
+ *  line through the check's redacting `say`. */
+function checkRefresh(say: (line: string) => void): VerifyDeps["refresh"] {
+  return async (args, env) => {
+    const session = createBrowserSession({
+      headless: true,
+      executablePath: fullChromiumPath(),
+      installCommand: INSTALL_COMMAND,
+      log: say,
+    });
+    try {
+      return await refreshKept(args, keptRefreshDeps(session, env, say));
+    } finally {
+      await session
+        .close()
+        .catch((error: unknown) =>
+          say(`the browser would not close (${String(error)})`),
+        );
+    }
+  };
+}
+
 /** `demoman refresh`: every kept video in the repo (or those named) filmed
  *  again with no agent; an export is replaced only when its picture changed.
  *  Always into a library thrown away after; off CI (`CI` not "true") the
@@ -497,18 +564,16 @@ async function refresh(args: string[]): Promise<void> {
     join(fileURLToPath(new URL(".", import.meta.url)), "page"),
     (line) => fail(line),
   );
-  const install = `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} setup`;
   // Decodes the exports to compare them, out of sight.
   const session = createBrowserSession({
     headless: true,
     executablePath: fullChromiumPath(),
-    installCommand: install,
+    installCommand: INSTALL_COMMAND,
     log,
   });
   let result: RefreshResult | { threw: string };
   let appLines: string[] = [];
   try {
-    const refreshHome = demomanHome();
     const plan = await appPlanFor(repo.repo.root, {
       ...(baseUrl === undefined ? {} : { baseUrl }),
     });
@@ -530,27 +595,7 @@ async function refresh(args: string[]): Promise<void> {
             ...(previous === undefined ? {} : { previous }),
             library: process.env.CI === "true" ? "throwaway" : "local",
           },
-          {
-            library: createLibrary(refreshHome),
-            videos: createVideoStore(refreshHome, createLibrary(refreshHome), {
-              log,
-            }),
-            executor: (o) =>
-              createLocalExecutor({
-                ...o,
-                headless: true,
-                wallpapersDir: WALLPAPERS_DIR,
-                // Films at the kept scale, which DEMOMAN_DISPLAY names.
-                standInDisplay: true,
-                executablePath: fullChromiumPath(),
-                installCommand: install,
-                signinCommand: `npx --prefix ~/ ${PACKAGE_NAME}@${VERSION} signin`,
-                log,
-              }),
-            session,
-            env: process.env,
-            log,
-          },
+          keptRefreshDeps(session, process.env, log),
         ),
     );
     if (!around.ok) {
@@ -670,35 +715,75 @@ switch (command) {
     break;
   case "setup": {
     if (rest.includes("--ci")) {
-      const tty = process.stdin.isTTY === true;
+      requirePageBundles(
+        join(fileURLToPath(new URL(".", import.meta.url)), "page"),
+        (line) => log(line),
+      );
+      const say = (l: string) => void process.stdout.write(`${l}\n`);
+      // An agent's shell, a pipe or CI: nobody can answer, so nothing is asked.
+      const tty =
+        process.stdin.isTTY === true &&
+        process.stdout.isTTY === true &&
+        process.env.CI === undefined;
       let ciRoot = process.cwd();
       process.exit(
         await ciSetup(rest, {
-          version: VERSION,
           ask: tty ? ciPrompts() : null,
           root: async () => {
             const r = await readRepo(process.cwd(), execGit);
             if (r.ok) ciRoot = r.repo.root;
             return r.ok ? { root: r.repo.root } : { none: r.none };
           },
-          defaultBranch: async () => {
-            try {
-              const r = await execGit(
-                ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-                process.cwd(),
-              );
-              const name = r.stdout.trim().replace(/^origin\//, "");
-              return r.code === 0 && name !== "" ? name : null;
-            } catch {
-              return null; // git not running: the caller says it assumed main
-            }
+          deps: (root) => {
+            const gh = realGh(root);
+            return {
+              version: VERSION,
+              env: process.env,
+              git: execGit,
+              readGithub: (r) => readGithub(gh, r),
+              detectApp,
+              neededSecrets,
+              localValues,
+              envFileValues,
+              existingSecrets: (slug) => existingSecrets(gh, slug),
+              verifySetup: (a, d) =>
+                verifySetup(a, {
+                  git: execGit,
+                  refresh: checkRefresh(d.log),
+                  docker: (args) =>
+                    new Promise((done) =>
+                      execFile("docker", args, (err) =>
+                        done({
+                          code: err
+                            ? typeof err.code === "number"
+                              ? err.code
+                              : 127
+                            : 0,
+                        }),
+                      ),
+                    ),
+                  log: d.log,
+                  ...(d.signal === undefined ? {} : { signal: d.signal }),
+                }),
+              setSecrets: (...a) => setSecrets(gh, ...a),
+              allowActionPullRequests: (slug) =>
+                allowActionPullRequests(gh, slug),
+              openSetupPr: (a) => openSetupPr(a, { git: execGit, gh }),
+              watchSetupRun: (a) =>
+                watchSetupRun(a, {
+                  gh,
+                  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+                  now: Date.now,
+                  progress: say,
+                }),
+            };
           },
           exists: (p) => existsSync(join(ciRoot, p)),
-          write: (p, text) => {
-            mkdirSync(dirname(join(ciRoot, p)), { recursive: true });
-            writeFileSync(join(ciRoot, p), text);
+          onInterrupt: (stop) => {
+            process.on("SIGINT", stop);
+            return () => void process.off("SIGINT", stop);
           },
-          say: (l) => process.stdout.write(`${l}\n`),
+          say,
         }),
       );
     }

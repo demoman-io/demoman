@@ -3,8 +3,24 @@
 // a day, or on each merge to main, and delivers what changed with
 // `demoman refresh --deliver`.
 
+import { join } from "node:path";
 import { parseArgs } from "node:util";
-import type { AppSpec } from "@demoman/run-core";
+import { APP_FILE, type AppSpec, parseApp } from "@demoman/run-core";
+import type { AppProposal } from "@demoman/runner/package";
+import { SETUP_BRANCH } from "./ci-pr.js";
+import { envFileNames, type SecretValues } from "./ci-secrets.js";
+import {
+  applyCiSetup,
+  type CiChoices,
+  type CiDeps,
+  type CiPlan,
+  type CiStop,
+  planCiSetup,
+  planLines,
+  redact,
+  type TriggerOffer,
+  triggerOffers,
+} from "./ci-setup.js";
 import { COMMIT_SUBJECT } from "./deliver.js";
 import { PACKAGE_NAME } from "./names.js";
 
@@ -378,131 +394,286 @@ ${
 export const DEPLOYMENT_MAIN =
   "--route main cannot go with a deployment trigger: the deployed commit is not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a push trigger.";
 
+/** The terminal's questions; null (or false from confirm) is a cancel. */
+export type CiAsk = {
+  /** Only the offered triggers, the default chosen first. */
+  trigger(offers: TriggerOffer[]): Promise<CiOptions["trigger"] | null>;
+  route(branch: string): Promise<"pr" | "main" | null>;
+  appHole(field: string, why: string): Promise<string | null>;
+  /** Typed unseen. */
+  secret(name: string, why: string): Promise<string | null>;
+  /** Which of `names` to take from the file. */
+  envFile(path: string, names: string[]): Promise<string[] | null>;
+  confirm(lines: string[]): Promise<boolean>;
+};
+
 export interface CiIo {
-  version: string;
   /** Null when there is no terminal to ask in. */
-  ask: {
-    trigger(): Promise<"push" | "release" | "daily" | string | null>;
-    route(): Promise<"pr" | "main" | null>;
-  } | null;
+  ask: CiAsk | null;
   /** The repository's root, or why there is none. */
   root(): Promise<{ root: string } | { none: string }>;
-  /** origin's default branch, null when it cannot be read. */
-  defaultBranch(): Promise<string | null>;
+  /** Everything the plan reads and does, `gh` bound to the root. */
+  deps(root: string): Omit<CiDeps, "log" | "signal">;
   /** Paths are relative to the root. */
   exists(path: string): boolean;
-  write(path: string, text: string): void;
+  /** Ctrl-C while the check runs (R3); answers what restores it. */
+  onInterrupt(stop: () => void): () => void;
   say(line: string): void;
 }
 
-/** `setup --ci [--trigger release|daily|push|deployment:<environment>|<environment>] [--route pr|main] [--artifact]`: returns the exit code. */
+const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** `setup --ci [--trigger …] [--route pr|main] [--artifact] [--yes]
+ *  [--env-file <path>] [--replace-secret <NAME>]…`: read and propose, ask the
+ *  holes and missing values, check, show the plan, one confirmation, apply,
+ *  watch. Returns the exit code. */
 export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   const stop = (why: string): number => {
     io.say(`Demoman setup stopped: ${why}`);
     return 1;
   };
-  let values: {
+  const cancelled = (): number => {
+    io.say("Setup cancelled; nothing was written.");
+    return 1;
+  };
+  const said = (s: CiStop): number => {
+    if (s.reason === "checkStopped") {
+      io.say(`Demoman setup ${s.detail}.`);
+      return 1;
+    }
+    stop(s.detail);
+    for (const l of (s.tail ?? "").split("\n")) if (l !== "") io.say(`  ${l}`);
+    return 1;
+  };
+  let flags: {
     ci?: boolean;
     trigger?: string;
     route?: string;
     artifact?: boolean;
+    yes?: boolean;
+    "env-file"?: string;
+    "replace-secret"?: string[];
   };
   try {
-    ({ values } = parseArgs({
+    ({ values: flags } = parseArgs({
       args,
       options: {
         ci: { type: "boolean" },
         trigger: { type: "string" },
         route: { type: "string" },
         artifact: { type: "boolean" },
+        yes: { type: "boolean" },
+        "env-file": { type: "string" },
+        "replace-secret": { type: "string", multiple: true },
       },
       strict: true,
       allowPositionals: false,
     }));
   } catch (error) {
-    return stop(`${error instanceof Error ? error.message : String(error)}.`);
+    return stop(`${messageOf(error)}.`);
   }
-  if (
-    values.route !== undefined &&
-    values.route !== "pr" &&
-    values.route !== "main"
-  ) {
-    return stop(`--route is pr or main; got "${values.route}".`);
-  }
-  const asked = values.trigger === undefined ? null : triggerOf(values.trigger);
-  const refusedMain = (t: CiOptions["trigger"]) =>
-    t === "release"
-      ? RELEASE_MAIN
-      : typeof t === "object"
-        ? DEPLOYMENT_MAIN
-        : null;
-  if (asked !== null && values.route === "main") {
-    const why = refusedMain(asked);
-    if (why !== null) return stop(why);
+  const { route } = flags;
+  if (route !== undefined && route !== "pr" && route !== "main")
+    return stop(`--route is pr or main; got "${route}".`);
+  const ask = flags.yes === true ? null : io.ask;
+  if (ask === null && flags.yes !== true) {
+    const missing = [
+      ...(flags.trigger === undefined
+        ? ["--trigger release|daily|push|<environment>"]
+        : []),
+      ...(route === undefined ? ["--route pr|main"] : []),
+    ];
+    return stop(
+      `with no terminal to ask in, nothing was read or written: pass --yes to apply the plan with the defaults${missing.length > 0 ? `, and ${missing.join(" and ")} to choose otherwise` : ""}.`,
+    );
   }
   const where = await io.root();
-  if ("none" in where) {
+  if ("none" in where)
     return stop(
       `${where.none} — run setup --ci inside the repo the workflow is for.`,
     );
+  const { root } = where;
+
+  // Never said: every line the check or this door says is redacted by it.
+  const values: SecretValues = new Map();
+  const deps: CiDeps = {
+    ...io.deps(root),
+    log: (l) => io.say(redact(l, values)),
+  };
+  const choices: CiChoices = {
+    ...(flags.trigger === undefined
+      ? {}
+      : { trigger: triggerOf(flags.trigger) }),
+    ...(route === undefined ? {} : { route }),
+    ...(flags.artifact === true ? { artifact: true } : {}),
+    ...(flags["replace-secret"] === undefined
+      ? {}
+      : { replaceSecrets: flags["replace-secret"] }),
+  };
+
+  // The trigger and route, asked from what the repo has on GitHub.
+  if (
+    ask !== null &&
+    (choices.trigger === undefined || choices.route === undefined)
+  ) {
+    const facts = await deps.readGithub(root);
+    // A repo setup cannot go on with is said by the plan, before any question.
+    if (
+      !("reason" in facts) &&
+      !facts.workflowOnDefault &&
+      facts.setupBranch === null
+    ) {
+      if (choices.trigger === undefined) {
+        const t = await ask.trigger(triggerOffers(facts));
+        if (t === null) return cancelled();
+        choices.trigger = t;
+      }
+      // Release and deployment triggers deliver by pull request only.
+      if (
+        choices.route === undefined &&
+        (choices.trigger === "push" || choices.trigger === "daily")
+      ) {
+        const r = await ask.route(facts.defaultBranch);
+        if (r === null) return cancelled();
+        choices.route = r;
+      }
+    }
   }
-  if (io.exists(CI_WORKFLOW_PATH)) {
-    return stop(
-      `${CI_WORKFLOW_PATH} already exists; delete it to write it again.`,
-    );
+
+  // Plan; a hole or a missing value is asked once, then planned again.
+  const handled = new Set<string>();
+  let plan: CiPlan | CiStop;
+  for (;;) {
+    const abort = new AbortController();
+    const restore = io.onInterrupt(() => abort.abort());
+    try {
+      plan = await planCiSetup(
+        root,
+        choices,
+        { ...deps, signal: abort.signal },
+        values,
+      );
+    } finally {
+      restore();
+    }
+    if (!("reason" in plan)) break;
+    if (handled.has(plan.reason)) return said(plan);
+    handled.add(plan.reason);
+    if (plan.reason === "appHoles" && plan.proposal !== undefined) {
+      if (ask === null)
+        return stop(
+          `${plan.detail}; write them in ${APP_FILE}, then run setup again.`,
+        );
+      const filled = await fillHoles(plan.proposal, ask);
+      if (filled === null) return cancelled();
+      if ("refused" in filled) return stop(filled.refused);
+      choices.app = filled.app;
+      choices.appBy = "person";
+    } else if (plan.reason === "secretMissing" && plan.secrets !== undefined) {
+      let missing = plan.secrets;
+      const path =
+        flags["env-file"] ??
+        (ask !== null && io.exists(".env") ? join(root, ".env") : undefined);
+      let chosen: string[] = [];
+      if (path !== undefined) {
+        let names: string[];
+        try {
+          names = await envFileNames(path, missing);
+        } catch (error) {
+          return stop(
+            `could not read ${path} (${messageOf(error)}); check the path, then run setup again.`,
+          );
+        }
+        const picked =
+          names.length === 0 || ask === null
+            ? names
+            : await ask.envFile(path, names);
+        if (picked === null) return cancelled();
+        chosen = picked;
+        if (chosen.length > 0) choices.envFile = { path, names: chosen };
+        missing = missing.filter((m) => !chosen.includes(m.name));
+      }
+      if (ask === null) {
+        if (chosen.length === 0) return said(plan);
+      } else {
+        for (const m of missing) {
+          const v = await ask.secret(m.name, m.why);
+          if (v === null) return cancelled();
+          values.set(m.name, v);
+        }
+      }
+    } else return said(plan);
   }
-  const answered = asked === null ? ((await io.ask?.trigger()) ?? null) : null;
-  const trigger = asked ?? (answered === null ? null : triggerOf(answered));
-  const route =
-    (values.route as "pr" | "main" | undefined) ??
-    (await io.ask?.route()) ??
-    null;
-  if (trigger === null || route === null) {
+
+  // One confirmation, after the check (Decision 1).
+  const lines = planLines(plan);
+  if (ask === null) for (const l of lines) io.say(l);
+  else if (!(await ask.confirm(lines))) return cancelled();
+
+  const done = await applyCiSetup(plan, deps, values);
+  if ("reason" in done) return said(done);
+  if ("opened" in done.pr)
+    io.say(`Opened the setup pull request: ${done.pr.opened.url}`);
+  const w = done.watched;
+  if (w === null || "unknown" in w) {
     io.say(
-      io.ask === null
-        ? "Demoman setup stopped: with no terminal to ask in, pass --trigger release|daily|push|<environment> and --route pr|main."
-        : "Setup cancelled; nothing was written.",
+      `Whether the setup run passed is unknown: ${w === null ? "it was not watched" : w.unknown.why}`,
     );
     return 1;
   }
-  const why = route === "main" ? refusedMain(trigger) : null;
-  if (why !== null) return stop(why);
-  // The branch a push or the daily schedule watches.
-  const read =
-    trigger === "push" || trigger === "daily" ? await io.defaultBranch() : null;
-  const branch = read ?? "main";
-  const o: CiOptions = {
-    version: io.version,
-    trigger,
-    route,
-    branch,
-    app: null,
-    secrets: { accounts: [], app: [] },
-    ...(values.artifact === true ? { artifact: true } : {}),
-  };
-  let text: string;
-  try {
-    text = ciWorkflow(o);
-  } catch (error) {
-    return stop(`${error instanceof Error ? error.message : String(error)}.`);
+  if ("passed" in w) {
+    io.say(`The setup run passed: ${w.passed.runUrl}`);
+    io.say(`Its videos: ${w.passed.artifactUrl}`);
+    return 0;
   }
-  try {
-    io.write(CI_WORKFLOW_PATH, text);
-  } catch (error) {
-    return stop(
-      `could not write ${CI_WORKFLOW_PATH} (${error instanceof Error ? error.message : String(error)}).`,
-    );
-  }
-  io.say(`Wrote ${CI_WORKFLOW_PATH} (at the repo root).`);
-  if (trigger === "push" && read === null) {
+  if ("cancelled" in w) {
     io.say(
-      `- Could not read origin's default branch, so the workflow watches \`main\`; change \`branches: [main]\` in it if yours differs.`,
+      `The setup run was cancelled: ${w.cancelled.runUrl}; re-run it there.`,
     );
+    return 1;
   }
-  return 0;
+  const f = w.failed;
+  io.say(`The setup run failed on its "${f.step}" step: ${f.runUrl}`);
+  for (const l of f.tail.split("\n")) if (l !== "") io.say(`  ${l}`);
+  if (f.failedRuns !== null)
+    io.say(
+      f.gaveUp
+        ? `${f.failedRuns} setup runs have failed on ${SETUP_BRANCH}, the most setup tries: fix the step above in the pull request yourself, or close it and run setup again.`
+        : `${f.failedRuns} of 3 setup runs have failed: fix the step above and push to ${SETUP_BRANCH} to run it again.`,
+    );
+  else if (f.note === undefined)
+    io.say("How many setup runs have failed is unknown.");
+  if (f.note !== undefined) io.say(f.note);
+  return 1;
 }
 
-/** A `--trigger` value or a prompt's answer: the three words are triggers,
+/** Each hole in the proposed app.json, asked; null is a cancel. */
+async function fillHoles(
+  p: AppProposal,
+  ask: CiAsk,
+): Promise<{ app: AppSpec } | { refused: string } | null> {
+  const draft: Record<string, unknown> & { env: Record<string, string> } =
+    structuredClone(p.draft);
+  for (const h of p.holes) {
+    const env = /^env\.(.+)$/.exec(h.field)?.[1];
+    if (h.field !== "start" && h.field !== "url" && env === undefined)
+      return {
+        refused: `${h.field}: ${h.why}; fix it, or write ${APP_FILE}, then run setup again.`,
+      };
+    const got = await ask.appHole(h.field, h.why);
+    if (got === null) return null;
+    if (env === undefined) draft[h.field] = got;
+    else draft.env[env] = got;
+  }
+  const parsed = parseApp(JSON.stringify(draft), APP_FILE);
+  return parsed.ok
+    ? { app: parsed.app }
+    : {
+        refused: `${parsed.detail}; run setup again and answer it, or write ${APP_FILE}.`,
+      };
+}
+
+/** A `--trigger` value: the three words are triggers,
  *  `deployment:<name>` an environment of any name, and any other word an
  *  environment as before. */
 function triggerOf(given: string): CiOptions["trigger"] {
