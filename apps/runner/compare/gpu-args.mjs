@@ -1,6 +1,6 @@
 // What a headless Chrome's launch flags do to an export: one take, exported
 // once per flag set, in rounds.
-//   node apps/runner/compare/gpu-args.mjs --repo <root> --script <file> --sample <index.html> [--rounds 2]
+//   node apps/runner/compare/gpu-args.mjs --repo <root> --script <file> --sample <index.html> [--rounds 2] [--sets all|"<name>;<name>"]
 // Records the script once with <root>'s built runner, then for each round and
 // each flag set (`SETS`) sets `HEADLESS_GPU_ARGS` to it, exports the same take
 // from a fresh browser on the full Chromium the CLI launches, and prints the
@@ -20,6 +20,8 @@ const { values } = parseArgs({
     script: { type: "string" },
     sample: { type: "string" },
     rounds: { type: "string", default: "2" },
+    // Names from SETS separated by ";" (some names hold commas), or "all".
+    sets: { type: "string", default: "all" },
   },
 });
 if (!values.repo || !values.script || !values.sample) {
@@ -49,7 +51,24 @@ const SETS = {
     "--enable-features=Vulkan",
   ],
   "enable-gpu, SwiftShader": ["--enable-gpu", "--enable-unsafe-swiftshader"],
+  // Without a GPU, two thirds of an export is "copying frames to the
+  // encoder" (DEM-43): maybe SwiftShader handing each frame back. These draw
+  // the canvas on the CPU from the start.
+  "disable-gpu": ["--disable-gpu"],
+  "no accelerated canvas": [
+    "--disable-accelerated-2d-canvas",
+    "--disable-gpu-compositing",
+  ],
 };
+const chosen =
+  values.sets === "all" ? Object.keys(SETS) : values.sets.split(";");
+const unknown = chosen.filter((name) => !(name in SETS));
+if (unknown.length > 0) {
+  say(
+    `no flag set named ${unknown.map((n) => `"${n}"`).join(", ")}; sets: ${Object.keys(SETS).join(", ")}`,
+  );
+  process.exit(2);
+}
 const filmedArgs = [...HEADLESS_GPU_ARGS];
 // launch() spreads this array at each launch; every launch below reads it.
 const useArgs = (args) => HEADLESS_GPU_ARGS.splice(0, Infinity, ...args);
@@ -128,8 +147,8 @@ try {
     `take ${takeId} recorded with [${filmedArgs.join(" ")}]: padding ${scene.branding.padding}, background ${scene.branding.background.kind}, ${scene.camera.length} camera events`,
   );
   for (let round = 1; round <= Number(values.rounds); round++) {
-    for (const [name, args] of Object.entries(SETS)) {
-      useArgs(args);
+    for (const name of chosen) {
+      useArgs(SETS[name]);
       const renderer = await webglRenderer().catch(
         (e) => `WebGL read failed: ${e instanceof Error ? e.message : e}`,
       );
@@ -160,7 +179,7 @@ try {
   rmSync(home, { recursive: true, force: true });
 }
 say("summary (render seconds by round):");
-for (const name of Object.keys(SETS)) {
+for (const name of chosen) {
   const times = results.filter((r) => r.name === name).map((r) => r.render);
   say(`  ${name.padEnd(30)} ${times.join(" / ") || "no export"}`);
 }
