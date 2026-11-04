@@ -460,6 +460,11 @@ describe("the CLI's recipe", () => {
     expect(sec).toContain("`confirmed: true`");
     expect(sec).toContain("`command`");
     expect(sec).toContain("`ci({ watch: true })`");
+    // From `ci`, a missing or short secret is the person's to give.
+    for (const r of ["secretMissing", "secretTooShort"]) {
+      const row = RECIPE.match(new RegExp(`^\\| \`${r}\` \\|.*$`, "m"))?.[0];
+      expect(row, r).toMatch(/`ci`[^|]*\|.*`ci`: give the person `command`/);
+    }
   });
 
   // Red if a `run({ takeId })` line comes back (run refuses takeId), or the

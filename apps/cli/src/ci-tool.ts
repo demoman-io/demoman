@@ -47,7 +47,16 @@ type Answer = Record<string, unknown>;
 
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const CONFIRM =
-  "show the person these lines; only on their yes, call ci again with the same choices and confirmed: true";
+  "show the person these lines; only on their yes, call ci again with the same choices and confirmed: true. The pull request carries the files as checked here: an edit made after this plan is not in it; plan again to include it";
+/** What `watch: true` cannot go with: it plans and applies nothing. */
+const NOT_WITH_WATCH = [
+  "trigger",
+  "route",
+  "artifact",
+  "app",
+  "replaceSecrets",
+  "confirmed",
+] as const;
 
 export function createCiTool(io: {
   /** The repo's root (project, else this server's folder), or why none. */
@@ -80,7 +89,15 @@ export function createCiTool(io: {
         };
       const { root } = where;
       const deps: CiDeps = { ...io.deps(root, say), log: say };
-      if (a.watch === true) return await watch(root, deps, values);
+      if (a.watch === true) {
+        const others = NOT_WITH_WATCH.filter((k) => a[k] !== undefined);
+        if (others.length > 0)
+          return {
+            reason: "invalidArgs",
+            detail: `watch takes no other choice, and was given ${others.join(", ")}; nothing was done. Call ci({ watch: true }) alone, or ci without watch to plan`,
+          };
+        return await watch(root, deps, values);
+      }
 
       // R7 (Decision 2): the agent's draft waits in the working tree,
       // uncommitted; the terminal's setup reads it from there.
@@ -140,6 +157,9 @@ export function createCiTool(io: {
         });
       }
 
+      // Only a plan answer leaves a plan to confirm: a stop or refusal for
+      // these choices must not let an earlier plan of them be applied.
+      shown.delete(root);
       const plan = await planCiSetup(root, choices, deps, values);
       if ("reason" in plan) return said(stopped(plan, values));
       const uses = plan.secrets.map((s) => s.name);

@@ -478,7 +478,7 @@ Studio exports go to `~/Downloads`.
 
 ## 7. Every reason
 
-`probe` can answer any reason `snapshot` can, and `run`'s `refusedBeforeRun` ones. Where: ¹ in `refusedBeforeRun` (`refusedBeforeExport` for `export`); ² in `stopped.reason`.
+`probe` can answer any reason `snapshot` can, and `run`'s `refusedBeforeRun` ones. Where: ¹ in `refusedBeforeRun`, `refusedBeforeExport` or `refusedBeforeAttach`; ² in `stopped.reason`, or `notAttached` for `attach`.
 
 | Reason | Where | What it means, and the move |
 | --- | --- | --- |
@@ -486,9 +486,9 @@ Studio exports go to `~/Downloads`.
 | `unsupportedPlatform` | `snapshot`, `run`, `export` | This machine cannot record (arm64 Linux, or another OS); quote `detail`. |
 | `sessionUnreadable` | `snapshot`, `run`¹ | A saved session file or folder could not be read, or is readable by others; `detail` names the fix. Tell the user. |
 | `sessionNotLoaded` | `snapshot`, `run`¹ | The browser refused the saved sessions; `detail` says why. Tell the user to run `npx demoman signin` again there. |
-| `signInFailed` | `snapshot`, `run`¹ | Demoman signed in as the account and the page still showed a sign-in page, or a step could not run; `detail` says where. It tried once. Fix the account's steps or secret, or tell the user; do not rerun unchanged. |
-| `secretMissing` | `snapshot`, `run`¹ | A `{secret:NAME}` has no `DEMOMAN_SECRET_NAME` and no line in `.demoman/secrets.env`; `detail` names both. Through `project` the environment is unused. Write one (section 1), or ask the user. |
-| `secretTooShort` | `snapshot`, `run`¹ | The secret `NAME` is under 8 characters. Write a longer one. |
+| `signInFailed` | `snapshot`, `run`¹ | Signed in as the account, the page still showed a sign-in page, or a step could not run; `detail` says where. It tried once. Fix the account's steps or secret, or tell the user; do not rerun unchanged. |
+| `secretMissing` | `snapshot`, `run`¹, `ci` | No `DEMOMAN_SECRET_NAME` for a `{secret:NAME}` in the environment (unused through `project`) or `.demoman/secrets.env`; `detail` names both. Write one (section 1) or ask the user; `ci`: give the person `command`. |
+| `secretTooShort` | `snapshot`, `run`¹, `ci` | The secret `NAME` is under 8 characters. Write a longer one; `ci`: give the person `command`. |
 | `secretUnbound` | `snapshot`, `run`¹ | `DEMOMAN_SECRET_NAME` has no `DEMOMAN_SECRET_NAME_ORIGIN` beside it, or one that is no origin; `detail` names the line and site. Nothing typed. Add it to `secrets.env` for an account you made; else tell the user. |
 | `secretOffOrigin` | `snapshot`, `run`¹ | A secret was about to be typed off its site: a sign-in step's page is not the site's origin, or the `_ORIGIN` names another site; `detail` names both. Nothing typed. Check the account's site and `goto`, then tell the user. |
 | `secretsFileNotIgnored` | `snapshot`, `run`¹ | Git does not ignore `.demoman/secrets.env`, so Demoman did not read it. Add it to `.gitignore` (`detail` says the line), or untrack it. |
@@ -496,12 +496,12 @@ Studio exports go to `~/Downloads`.
 | `accountsInvalid` | `snapshot`, `run`¹ | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names the field and the rule. Fix the file. |
 | `unknownAccount` | `snapshot`, `run`¹ | The script names an account the site lacks, or none and the site has no `default`; `detail` lists the accounts. Name one, or add it (section 1). |
 | `invalidProject` | `snapshot`, `run`¹, `attach` | `project` is not an absolute path to a folder. Pass one, or leave it out. |
-| `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach` (`refusedBeforeAttach`) | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing posted; do as `detail` says. |
-| `invalidAttach` | `attach` (`refusedBeforeAttach`) | The call is malformed; `detail` says how. Fix it. |
-| `uploadRefused` | `attach` (`notAttached`) | GitHub refused the video. Retry as the Pull requests text says. |
-| `partial` | `attach` (`notAttached`) | `gh` failed but the video is on the PR; do not post again. |
-| `unconfirmed` | `attach` (`notAttached`) | Unknown what landed. Do not post again; tell the user to look at the PR. |
-| `copyFailed` | `attach` (`notAttached`) | The video could not be copied; nothing posted. Hand the user the capped export's file. |
+| `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach`¹, `ci` | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing posted; do as `detail` says. |
+| `invalidAttach` | `attach`¹ | The call is malformed; `detail` says how. Fix it. |
+| `uploadRefused` | `attach`² | GitHub refused the video. Retry as the Pull requests text says. |
+| `partial` | `attach`² | `gh` failed but the video is on the PR; do not post again. |
+| `unconfirmed` | `attach`² | Unknown what landed. Do not post again; tell the user to look at the PR. |
+| `copyFailed` | `attach`² | The video could not be copied; nothing posted. Hand the user the capped export's file. |
 | `windowDidNotOpen` | `snapshot`; `run`¹; `studio` | The window would not open; try once more. |
 | `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
 | `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. Call `report(id)` on it; retry when it settles. |
@@ -531,7 +531,7 @@ Studio exports go to `~/Downloads`.
 | `invalidDevice` | `snapshot` | `device` is no phone or tablet Demoman has; `detail` lists them. |
 | `deviceFailed` | `snapshot`, `run` | The browser would not emulate the device; nothing was listed or recorded. Tell the user `detail`; do not run again. |
 | `nonHttpTarget` | `run`, `snapshot` | The target or url is not `http(s)`, or its host contains `*`. |
-| `invalidFileType` | `export`¹ | Not answered here: the schema takes only `mp4`, `gif`, `stills`. |
+| `invalidFileType` | `export`¹ | Not answered: the schema takes only `mp4`, `gif`, `stills`. |
 | `invalidStillsOptions` | `export`¹ | `stills` was given for an MP4 or GIF, or breaks section 5's width or zoom; `detail` says which. Fix the call. |
 | `invalidQuality`, `invalidMaxMB` | `export`¹, `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
 | `noVideoId`, `noFrames` | `export`¹ | No video id; no frames to render. |
@@ -554,7 +554,7 @@ Studio exports go to `~/Downloads`.
 ## 8. Repo flows and CI
 
 `add({ flow, to })` puts a flow in the repo; commit what it wrote. `ci`
-sets up CI to refresh the repo's flows, acting only with `confirmed: true`
-once the person agreed to its plan's `lines`. Never ask for a secret's
-value: give the person `command`. After pushing a fix to `demoman/setup`,
-`ci({ watch: true })`; at `gaveUp`, hand back.
+sets up CI for them, acting only on `confirmed: true` after the person
+agreed to the plan's `lines`. Never ask for a secret: give the person
+`command`. After pushing a fix to `demoman/setup`, `ci({ watch: true })`;
+at `gaveUp`, hand back.

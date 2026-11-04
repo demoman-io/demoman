@@ -240,6 +240,50 @@ describe("the ci tool", () => {
     expect(t.calls.filter((c) => outward.includes(c))).toEqual([]);
   });
 
+  // Review fix 1. Red if a plan that passed stays confirmable after a later
+  // plan of the same choices stopped: confirmed would apply the old plan.
+  it("forgets a shown plan when a later plan of the same choices stops", async () => {
+    let fail = false;
+    const t = tool({
+      verify: async () =>
+        fail
+          ? {
+              passed: false,
+              step: "refresh",
+              reason: "refreshFailed",
+              detail: "the flow failed",
+              tail: "",
+            }
+          : passedCheck,
+    });
+    expect((await t.call({ trigger: "daily" })).outcome).toBe("plan");
+    fail = true;
+    expect((await t.call({ trigger: "daily" })).reason).toBe("refreshFailed");
+    fail = false;
+    const c = await t.call({ trigger: "daily", confirmed: true });
+    expect(c.outcome).toBe("plan");
+    expect(t.calls.filter((x) => outward.includes(x))).toEqual([]);
+  });
+
+  // Review fix 3. Red if watch drops a choice given with it (an app never
+  // written, a confirmed never acted on) without saying so.
+  it("refuses watch with any other choice, naming them", async () => {
+    const root = repoDir({ appJson: false });
+    const t = tool({ root });
+    const a = await t.call({ watch: true, app: { ...APP }, confirmed: true });
+    expect(a).toMatchObject({ reason: "invalidArgs" });
+    expect(String(a.detail)).toContain("app, confirmed");
+    expect(existsSync(join(root, ".demoman", "app.json"))).toBe(false);
+    expect(t.calls).toEqual([]);
+  });
+
+  // Review fix 4. Red if the plan stops saying edits after it are not in
+  // the pull request.
+  it("says an edit after the plan is not in the pull request", async () => {
+    const a = await tool().call({ trigger: "daily" });
+    expect(String(a.next)).toMatch(/edit made after this plan is not in it/);
+  });
+
   // R7 (Decision 2). Red if the agent's app is not written, is written
   // when it does not parse, or the answer does not say so.
   it("writes a parsed app to the working tree's .demoman/app.json, uncommitted, and says so", async () => {
