@@ -59,16 +59,12 @@ function gitIn(
   args: string[],
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((done) =>
-    execFile(
-      "git",
-      args,
-      { cwd: root },
-      (err, stdout, stderr) =>
-        done({
-          code: err ? (typeof err.code === "number" ? err.code : -1) : 0,
-          stdout,
-          stderr: err ? stderr || String(err) : "",
-        }),
+    execFile("git", args, { cwd: root }, (err, stdout, stderr) =>
+      done({
+        code: err ? (typeof err.code === "number" ? err.code : -1) : 0,
+        stdout,
+        stderr: err ? stderr || String(err) : "",
+      }),
     ),
   );
 }

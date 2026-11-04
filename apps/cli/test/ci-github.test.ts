@@ -142,7 +142,6 @@ describe("readGithub", () => {
     expect(calls.some((c) => c.args[0] === "api")).toBe(false);
   });
 
-
   it("says ghMissing, with how to install, when gh cannot be spawned", async () => {
     const r = await readGithub(
       fake({ "--version": { code: 127, stderr: "Error: spawn gh ENOENT" } }),
