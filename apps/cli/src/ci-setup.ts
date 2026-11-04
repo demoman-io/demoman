@@ -741,6 +741,30 @@ async function fileTexts(
   return { files };
 }
 
+/** The files, each receipt's screens folder once with its image count. */
+function shownFiles(files: string[]): string[] {
+  const screens = new Map<string, number>();
+  for (const f of files) {
+    const dir = f.startsWith(`${RECEIPT_DIR}/`)
+      ? /^(.+)\/[^/]+$/.exec(f.slice(RECEIPT_DIR.length + 1))?.[1]
+      : undefined;
+    if (dir !== undefined) {
+      const key = `${RECEIPT_DIR}/${dir}/`;
+      screens.set(key, (screens.get(key) ?? 0) + 1);
+    }
+  }
+  const out: string[] = [];
+  for (const f of files) {
+    const key = [...screens.keys()].find((k) => f.startsWith(k));
+    const line =
+      key === undefined
+        ? f
+        : `${key} (${screens.get(key)} image${screens.get(key) === 1 ? "" : "s"})`;
+    if (!out.includes(line)) out.push(line);
+  }
+  return out;
+}
+
 export function planLines(p: CiPlan): string[] {
   const offer = p.offers.find(
     (o) => JSON.stringify(o.trigger) === JSON.stringify(p.trigger),
@@ -774,7 +798,7 @@ export function planLines(p: CiPlan): string[] {
         ? "Pull requests from workflows are already allowed."
         : "Needs no Actions setting changed.",
     `Opens the pull request "${p.title}" from ${p.branch} into ${p.repo.defaultBranch} with:`,
-    ...p.files.map((f) => `  ${f}`),
+    ...shownFiles(p.files).map((f) => `  ${f}`),
     ...p.scriptOnly.map(
       (s) =>
         `${s.flow}: the script alone (${s.why}); the first run delivers it as new.`,

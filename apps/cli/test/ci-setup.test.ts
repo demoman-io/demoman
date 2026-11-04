@@ -804,6 +804,21 @@ describe("planCiSetup's plan", () => {
     expect(f.seen.verify?.[0].files.map((x) => x.path)).toEqual(p.files);
   });
 
+  // Finding 12, red: every screen image is a plan line and a PR body line.
+  it("lists the screens folder once, with its image count", async () => {
+    const root = await repo();
+    await writeFile(
+      join(root, RECEIPT_DIR, "checkout.screens", "1.webp"),
+      "img",
+    );
+    const p = await okPlan(root, fakes());
+    expect(p.files).toContain(`${RECEIPT_DIR}/checkout.screens/1.webp`);
+    const said = planLines(p);
+    expect(said).toContain(`  ${RECEIPT_DIR}/checkout.screens/ (2 images)`);
+    expect(said.join("\n")).not.toContain(".webp");
+    expect(said).toContain(`  ${RECEIPT_DIR}/checkout.json`);
+  });
+
   it("leaves out a flow already on the default branch", async () => {
     const f = fakes({ onDefault: [`${FLOWS_DIR}/checkout.json`] });
     const p = await okPlan(await repo(), f);
