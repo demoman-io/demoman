@@ -122,9 +122,10 @@ The plan lists:
 
 - the trigger: after a successful deployment, when a release is published,
   once a day, or on each merge. The default is deployment if the repo has
-  deployed recently, else release if it publishes releases, else daily; push
+  a successful deployment that names a URL, else release if it publishes releases, else daily; push
   is never the default. A trigger the repo has no record of is not offered.
-  Push shows its measured cost per merge.
+  Push shows its measured cost per merge, or "not measured" with why when
+  the check was skipped.
 - the route: `pr` (the default) or `main`.
 - the files: `.github/workflows/demoman.yml`, `.demoman/app.json` unless
   committed as is, and each repo flow not yet on the default branch. A flow
@@ -168,7 +169,9 @@ It never reads `.env`.
 | `secrets` | Names of secrets the app needs, set on GitHub. Never values |
 | `services` | Each service by name: `image`, `ports`, `env`, `options` |
 
-`refresh` starts the app from this file. Off CI it uses an app already
+`refresh` starts the app from this file. With `--base-url` it ignores the file
+and records the app at that address. It refuses with `appOriginMismatch`,
+naming the flows, when a flow records at a different origin than `url`. Off CI it uses an app already
 answering at `url`, and otherwise runs `start`. It never starts services: when
 the app does not answer and the file declares services, the refusal names
 each with its port, to start them yourself. In CI it always starts its own,
@@ -179,7 +182,7 @@ and the workflow gives the job the services.
 The workflow also runs on pull requests that change `demoman.yml` or
 `.demoman/**`, as a `check` job that records every flow and commits nothing.
 It is the first run of the setup pull request. A pull request from a fork gets
-no secrets: the job says so instead of failing on a sign-in.
+no secrets: the job fails with a message saying so, rather than on a sign-in.
 
 ### Stops
 
@@ -193,9 +196,14 @@ the confirmation. Reasons it names:
 | `setupPrOpen`, `setupBranchExists` | A setup pull request is open, or `demoman/setup` is on origin without one |
 | `noRepoFlows`, `flowUnreadable` | No repo flow to refresh, or a recipe will not read |
 | `noRelease`, `noDeployment` | The chosen trigger has nothing on record |
-| `routeRefused`, `workflowRefused` | A trigger and route that cannot go together |
+| `routeRefused` | A trigger and route that cannot go together |
+| `workflowRefused` | The workflow cannot be written from these names or values (a secret name, an environment or branch name, or `${{` in a service value); the detail says which, and the fix is to write that part by hand |
 | `appUnknown`, `appHoles`, `appInvalid` | No app found, a field still unknown, or `app.json` is invalid |
-| `secretMissing`, `secretTooShort`, `secretsUnknown`, `secretsUnreadable`, `envFileUnreadable` | A secret has no value, a value is too short, or its names or GitHub's list could not be read |
+| `secretsUnknown` | A flow's recipe is unreadable, or no sign-in account can be chosen for its site |
+| `secretMissing`, `secretTooShort`, `secretsUnreadable`, `envFileUnreadable` | A secret has no value, a value is too short, GitHub's list of secrets could not be read, or the env file could not |
+| `setupUnreadable` | A read or git command failed while planning; nothing was written |
+| `filesUnreadable` | A file to commit could not be read; nothing was done |
+| `checkoutFailed` | The clean checkout could not be made (no commit, or git failing) |
 | `appPortTaken` | Something already answers at `url`; the check will not record it as the app |
 | `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appDockerMissing` | The check could not install or start the app or its services; the output's last lines come with it |
 | `refreshFailed` | The check's refresh failed on a flow |
