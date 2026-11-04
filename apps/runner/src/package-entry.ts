@@ -11,6 +11,11 @@ export {
   usePrebuiltPages,
 } from "./bundle-js.js";
 export {
+  chooseAccount,
+  findAccounts,
+  secretNamesIn,
+} from "./executor/accounts.js";
+export {
   type AppProposal,
   type AppSource,
   detectApp,
@@ -37,6 +42,7 @@ export {
   type RemoveAnswer,
   removeRepoFlow,
 } from "./executor/keep.js";
+export { readKeptFlows } from "./executor/kept-flows.js";
 export {
   type RefreshDeps,
   type RefreshResult,
@@ -51,6 +57,11 @@ export {
 export { checkCurrent } from "./executor/refresh-check.js";
 export { execGit, type GitRunner, readRepo } from "./executor/repo.js";
 export { samePicture } from "./executor/same-picture.js";
+export {
+  readSecretsFile,
+  SECRET_ORIGIN_SUFFIX,
+  SECRET_PREFIX,
+} from "./executor/secrets-env.js";
 export type { ExecutorOptions, LocalExecutor } from "./executor/types.js";
 export { chromiumDepsCommand, playwrightCliPath } from "./install-advice.js";
 export { type JoinAnswer, joinFlow } from "./join-flow.js";
