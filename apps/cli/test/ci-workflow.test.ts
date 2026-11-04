@@ -1550,11 +1550,12 @@ describe("the workflow starts nothing, passes named secrets, runs services, and 
     expect(r.stdout.trim()).toBe(
       "::error::Secrets are not given to pull requests from forks, so this check cannot sign in or start the app; a maintainer can run it from a branch in this repository.",
     );
-    // It comes before the refresh, so the sign-in never gets to fail.
+    // It is the first step (review finding 7), so a fork's pull request
+    // fails in seconds, before checkout, Node, Chromium and fonts, and the
+    // sign-in never gets to fail.
     const names = jobs(withApp).check.steps.map((s) => s.name ?? "");
-    expect(
-      names.findIndex((n) => n.startsWith("Secrets on a fork")),
-    ).toBeLessThan(names.indexOf("Refresh the repo's flows"));
+    expect(names.findIndex((n) => n.startsWith("Secrets on a fork"))).toBe(0);
+    expect(names.indexOf("Install Chromium")).toBeGreaterThan(0);
   });
 
   it("copies the commit flows' files under demoman-check/repo and uploads always", () => {

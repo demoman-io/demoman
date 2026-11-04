@@ -379,7 +379,8 @@ ${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - us
           echo "::error::${FORK_REFUSAL}"
           exit 1
 `;
-  return `      - uses: actions/checkout@v4
+  // First: a fork's pull request fails in seconds, before any install.
+  return `${deliver ? "" : forkStep}      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           # A committed video in LFS is compared, not replaced as a pointer.
@@ -405,7 +406,7 @@ ${kind === "daily" ? `${fetch}${freshStep}` : ""}${tools}      - uses: actions/c
         run: ${npx} setup --browser-only
       - name: Install fonts${ifRun}
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
-${kind === "daily" ? "" : fetch}${deliver ? "" : forkStep}${deployedStep}      - name: Refresh the repo's flows${ifRun}
+${kind === "daily" ? "" : fetch}${deployedStep}      - name: Refresh the repo's flows${ifRun}
         run: ${npx} refresh${deliver ? ` --deliver ${o.route}` : ""}${baseUrl}${outDir}
         env:
           GH_TOKEN: ${expr("github.token")}${baseUrlEnv}${secretEnv}
