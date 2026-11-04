@@ -179,12 +179,12 @@ describe("localValues", () => {
       { name: "OTHER", for: "app" as const, why: "app.json" },
     ];
     const r = await localValues(root, needed, {
-      STRIPE_KEY: "sk-env",
-      DEMOMAN_SECRET_SELLER: "env-password",
+      STRIPE_KEY: "sk-env-long-enough",
+      DEMOMAN_SECRET_SELLER: "env-password-1",
     });
     expect([...r.values]).toEqual([
-      ["DEMOMAN_SECRET_SELLER", "env-password"],
-      ["STRIPE_KEY", "sk-env"],
+      ["DEMOMAN_SECRET_SELLER", "env-password-1"],
+      ["STRIPE_KEY", "sk-env-long-enough"],
       ["DEMOMAN_SECRET_SELLER_ORIGIN", ORIGIN],
     ]);
     expect(r.missing).toEqual(["OTHER"]);
@@ -203,7 +203,24 @@ describe("localValues", () => {
         [{ name: "DEMOMAN_SECRET_A", for: "account", why: "x" }],
         {},
       ),
-    ).rejects.toThrow(/does not ignore it/);
+    ).resolves.toMatchObject({
+      unread: expect.stringContaining("does not ignore it"),
+      missing: ["DEMOMAN_SECRET_A"],
+    });
+  });
+});
+
+describe("localValues length", () => {
+  it("reports a value under the minimum by name, not by value", async () => {
+    const root = await repo({});
+    const r = await localValues(
+      root,
+      [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
+      { STRIPE_KEY: "short" },
+    );
+    expect(r.tooShort).toEqual(["STRIPE_KEY"]);
+    expect(r.missing).toEqual([]);
+    expect(r.values.size).toBe(0);
   });
 });
 
@@ -281,6 +298,34 @@ describe("setSecrets", () => {
       ],
     });
     expect(calls.map((c) => c.args[2])).toEqual(["a", "b"]);
+  });
+
+  it("removes the value itself from what gh said", async () => {
+    const gh: Gh = async (_a, o) => ({
+      code: 1,
+      stdout: "",
+      stderr: `rejected ${o?.input}`,
+    });
+    const r = await setSecrets(
+      gh,
+      "o/r",
+      new Map([["a", "plain-pass-1"]]),
+      [],
+      [],
+    );
+    expect(r.failed[0]?.said).toBe("rejected <redacted>");
+  });
+
+  it("keeps an existing secret even after setup stopped", async () => {
+    const { gh } = fakeGh(["a"]);
+    const values = new Map([
+      ["a", "aaaaaaaa"],
+      ["b", "bbbbbbbb"],
+      ["c", "cccccccc"],
+    ]);
+    const r = await setSecrets(gh, "o/r", values, [], ["b"]);
+    expect(r.kept).toEqual(["b"]);
+    expect(r.failed.map((f) => f.name)).toEqual(["a", "c"]);
   });
 
   it("scrubs what gh said", async () => {

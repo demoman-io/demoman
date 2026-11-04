@@ -59,8 +59,10 @@ export { execGit, type GitRunner, readRepo } from "./executor/repo.js";
 export { samePicture } from "./executor/same-picture.js";
 export {
   readSecretsFile,
+  SECRET_MIN_LENGTH,
   SECRET_ORIGIN_SUFFIX,
   SECRET_PREFIX,
+  SecretError,
 } from "./executor/secrets-env.js";
 export type { ExecutorOptions, LocalExecutor } from "./executor/types.js";
 export { chromiumDepsCommand, playwrightCliPath } from "./install-advice.js";

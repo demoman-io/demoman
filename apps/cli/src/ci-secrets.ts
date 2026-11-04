@@ -10,8 +10,10 @@ import {
   findAccounts,
   readKeptFlows,
   readSecretsFile,
+  SECRET_MIN_LENGTH,
   SECRET_ORIGIN_SUFFIX,
   SECRET_PREFIX,
+  SecretError,
   secretNamesIn,
 } from "@demoman/runner/package";
 import type { Gh } from "./gh-run.js";
@@ -66,25 +68,50 @@ export async function localValues(
   root: string,
   needed: NeededSecret[],
   env: NodeJS.ProcessEnv,
-): Promise<{ values: SecretValues; missing: string[] }> {
+): Promise<{
+  values: SecretValues;
+  missing: string[];
+  tooShort: string[];
+  /** Why secrets.env was not read (value-free), when it was refused. */
+  unread?: string;
+}> {
   const values: SecretValues = new Map();
   const absent = needed.filter((n) => !env[n.name]);
   for (const n of needed) {
     const v = env[n.name];
     if (v) values.set(n.name, v);
   }
+  let unread: string | undefined;
   if (absent.length > 0) {
-    const file = await readSecretsFile(join(root, ".demoman"));
-    for (const n of absent) {
+    let file: Awaited<ReturnType<typeof readSecretsFile>> | null = null;
+    try {
+      file = await readSecretsFile(join(root, ".demoman"));
+    } catch (error) {
+      if (!(error instanceof SecretError)) throw error;
+      unread = error.message;
+    }
+    for (const n of file === null ? [] : absent) {
       const v = n.name.startsWith(SECRET_PREFIX)
-        ? file.values.get(n.name.slice(SECRET_PREFIX.length))
+        ? file?.values.get(n.name.slice(SECRET_PREFIX.length))
         : undefined;
       if (v) values.set(n.name, v);
     }
   }
+  // A run refuses a secret under the minimum length; names only, never the value.
+  const tooShort = [...values]
+    .filter(
+      ([n, v]) =>
+        !n.endsWith(SECRET_ORIGIN_SUFFIX) && v.length < SECRET_MIN_LENGTH,
+    )
+    .map(([n]) => n);
+  for (const n of tooShort) values.delete(n);
   return {
     values,
-    missing: needed.filter((n) => !values.has(n.name)).map((n) => n.name),
+    missing: needed
+      .filter((n) => !values.has(n.name) && !tooShort.includes(n.name))
+      .map((n) => n.name),
+    tooShort,
+    ...(unread === undefined ? {} : { unread }),
   };
 }
 
@@ -140,13 +167,13 @@ export async function setSecrets(
   const out: SecretsSet = { set: [], kept: [], failed: [] };
   let stoppedAt: string | null = null;
   for (const [name, value] of values) {
-    if (stoppedAt !== null) {
+    if (existing.includes(name) && !replace.includes(name)) {
+      out.kept.push(name);
+    } else if (stoppedAt !== null) {
       out.failed.push({
         name,
         said: `not attempted: setup stopped at ${stoppedAt}`,
       });
-    } else if (existing.includes(name) && !replace.includes(name)) {
-      out.kept.push(name);
     } else {
       const r = await gh(["secret", "set", name, "--repo", slug], {
         input: value,
@@ -155,7 +182,10 @@ export async function setSecrets(
       else {
         stoppedAt = name;
         const said = (r.stderr || r.stdout).trim() || `gh exited ${r.code}`;
-        out.failed.push({ name, said: scrubSecrets(said) });
+        out.failed.push({
+          name,
+          said: scrubSecrets(said.replaceAll(value, "<redacted>")),
+        });
       }
     }
   }
