@@ -1761,3 +1761,58 @@ esac
     );
   });
 });
+
+// Finding 2: ubuntu-24.04 has npm alone; pnpm and yarn need corepack, bun its action.
+describe("the app's package manager is there in both jobs", () => {
+  type Job = { steps: Array<{ name?: string; uses?: string; run?: string }> };
+  const jobs = (y: string) => parse(y).jobs as { refresh: Job; check: Job };
+  const corepack = (j: Job) =>
+    j.steps.filter((s) => s.run === "corepack enable");
+  const bun = (j: Job) =>
+    j.steps.filter((s) => s.uses === "oven-sh/setup-bun@v2");
+  const bunApp = ciWorkflow({
+    version: "0.2.0",
+    trigger: "daily",
+    route: "pr",
+    app: {
+      ...app,
+      install: ["bun install --frozen-lockfile"],
+      start: "bun run dev",
+    },
+  });
+
+  // Red: drop the corepack step.
+  it("enables corepack before the refresh wherever refresh starts the app", () => {
+    for (const j of [jobs(withApp).refresh, jobs(withApp).check]) {
+      expect(corepack(j)).toHaveLength(1);
+      const at = (f: (s: Job["steps"][number]) => boolean) =>
+        j.steps.findIndex(f);
+      expect(at((s) => s.run === "corepack enable")).toBeLessThan(
+        at((s) => s.name === "Refresh the repo's flows"),
+      );
+      expect(bun(j)).toEqual([]);
+    }
+  });
+
+  // Red: drop the setup-bun step.
+  it("sets up bun when app.json's commands use it", () => {
+    for (const j of [jobs(bunApp).refresh, jobs(bunApp).check]) {
+      expect(bun(j)).toHaveLength(1);
+      expect(corepack(j)).toHaveLength(1);
+    }
+  });
+
+  it("adds neither when no app is started", () => {
+    const deployApp = ciWorkflow({
+      version: "0.2.0",
+      trigger: { deployment: "Production" },
+      route: "pr",
+      app: { ...app, start: "bun run dev" },
+    });
+    for (const y of [push, deployApp])
+      for (const j of [jobs(y).refresh, jobs(y).check]) {
+        expect(corepack(j)).toEqual([]);
+        expect(bun(j)).toEqual([]);
+      }
+  });
+});

@@ -353,6 +353,15 @@ ${DEPLOYED_SCRIPT.split("\n")
             echo "Nothing but the refresh's own files changed since each repo flow was last recorded or refreshed; nothing to refresh."
           fi
 `;
+  // Refresh starts the app from app.json, unless it records a deployment:
+  // ubuntu has npm only, so pnpm and yarn come through corepack, bun by its action.
+  const started = environment === null ? o.app : null;
+  const tools =
+    started === null
+      ? ""
+      : `      - name: Turn on pnpm and yarn${ifRun}
+        run: corepack enable
+${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - uses: oven-sh/setup-bun@v2${ifRun}\n` : ""}`;
   const script = GUARD_SCRIPT.split("\n")
     .map((l) => `          ${l}`)
     .join("\n");
@@ -386,7 +395,7 @@ ${script}
 }      - uses: actions/setup-node@v4${ifEarly}
         with:
           node-version: 22
-${kind === "daily" ? `${fetch}${freshStep}` : ""}      - uses: actions/cache@v4${ifRun}
+${kind === "daily" ? `${fetch}${freshStep}` : ""}${tools}      - uses: actions/cache@v4${ifRun}
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${o.version}
