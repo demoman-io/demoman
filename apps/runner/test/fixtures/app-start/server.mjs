@@ -5,8 +5,10 @@
 //   slow   listens on PORT after SLOW_MS (default 600)
 //   fork   starts a detached `normal` child that listens, writes its pid to
 //          PIDFILE, and exits 0 (a daemonizing start command)
+// PAGE, when set, is a file (from the working directory) served as the
+// HTML answer instead of "ok", read on each request.
 import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 
 const {
@@ -14,10 +16,15 @@ const {
   PORT,
   GREETING = "",
   PIDFILE,
+  PAGE,
   SLOW_MS = "600",
 } = process.env;
 const listen = () =>
-  createServer((_req, res) => res.end("ok")).listen(Number(PORT), () =>
+  createServer((_req, res) => {
+    if (!PAGE) return res.end("ok");
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(readFileSync(PAGE));
+  }).listen(Number(PORT), () =>
     console.log(`listening on ${PORT} ${GREETING}`),
   );
 

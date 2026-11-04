@@ -20,6 +20,12 @@ export {
   type AppStartRefusal,
   startApp,
 } from "./executor/app-start.js";
+export {
+  type Verified,
+  type VerifyDeps,
+  type VerifyTarget,
+  verifySetup,
+} from "./executor/app-verify.js";
 export { fullChromiumPath, launchFailure } from "./executor/browser.js";
 export { createLocalExecutor } from "./executor/executor.js";
 export {
