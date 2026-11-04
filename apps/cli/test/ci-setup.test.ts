@@ -183,8 +183,10 @@ function fakes(
     set?: Parameters<CiDeps["setSecrets"]>;
   } = {};
   const shown = { ...(o.head ?? {}) };
+  const gitArgs: string[][] = [];
   const git: GitRunner = async (args) => {
     calls.push(`git ${args[0]}`);
+    gitArgs.push(args);
     if (args[0] === "ls-tree")
       return { code: 0, stdout: (o.onDefault ?? []).join("\n"), stderr: "" };
     if (args[0] === "show") {
@@ -267,7 +269,7 @@ function fakes(
       };
     },
   };
-  return { deps, calls, logged, seen };
+  return { deps, calls, logged, seen, gitArgs };
 }
 
 const digestOf = (s: unknown) =>
@@ -532,7 +534,91 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
       tail: "last lines",
     });
     expect(isStop(r) && r.detail).toContain("nothing answered");
-    expect(f.calls).not.toContain("setSecrets");
+    // Nothing ran after the check.
+    expect(f.calls.at(-1)).toBe("verifySetup");
+  });
+
+  // Red if a check's output reaches a stop unredacted: the app gets every value.
+  it("a value the app echoed is redacted from the check's detail and tail", async () => {
+    const f = fakes({
+      needed: [
+        account("DEMOMAN_SECRET_SELLER"),
+        account("DEMOMAN_SECRET_SELLER_ORIGIN"),
+      ],
+      verified: {
+        passed: false,
+        step: "app",
+        reason: "appExited",
+        detail: `exited; env had ${VALUE}`,
+        tail: `SELLER=${VALUE}\nORIGIN=${ORIGIN}`,
+      },
+    });
+    const r = await plan(
+      await repo(),
+      f,
+      {},
+      new Map([
+        ["DEMOMAN_SECRET_SELLER", VALUE],
+        ["DEMOMAN_SECRET_SELLER_ORIGIN", ORIGIN],
+      ]),
+    );
+    expect(isStop(r) && r.tail).toBe(`SELLER=<redacted>\nORIGIN=${ORIGIN}`);
+    expect(isStop(r) && r.detail).toContain("env had <redacted>");
+    expect(JSON.stringify(r)).not.toContain(VALUE);
+  });
+
+  it("a passed check's lines are redacted too", async () => {
+    const f = fakes({
+      needed: [account("DEMOMAN_SECRET_SELLER")],
+      verified: { ...passed, lines: [`started with ${VALUE}`] },
+    });
+    const p = await okPlan(
+      await repo(),
+      f,
+      {},
+      new Map([["DEMOMAN_SECRET_SELLER", VALUE]]),
+    );
+    expect("passed" in p.check && p.check.lines).toEqual([
+      "started with <redacted>",
+    ]);
+  });
+
+  it("a stopped check is said as stopped", async () => {
+    const f = fakes({
+      verified: {
+        passed: false,
+        step: "app",
+        reason: "checkStopped",
+        detail: "stopped; removed the checkout at /tmp/x",
+        tail: "",
+      },
+    });
+    const r = await plan(await repo(), f);
+    expect(r).toEqual({
+      reason: "checkStopped",
+      detail: "stopped; removed the checkout at /tmp/x; nothing was written",
+    });
+  });
+
+  it("a release trigger with no release on record is refused", async () => {
+    const f = fakes();
+    const r = await plan(await repo(), f, { trigger: "release" });
+    expect(isStop(r) && r.reason).toBe("noRelease");
+    expect(f.calls).toEqual(["readGithub"]);
+  });
+
+  it("a read that fails other than missing is a named stop, not a rejection", async () => {
+    const root = await repo();
+    // A file where the screens folder should be: readdir fails ENOTDIR.
+    await rm(join(root, RECEIPT_DIR, "checkout.screens"), { recursive: true });
+    await writeFile(
+      join(root, RECEIPT_DIR, "checkout.screens"),
+      "not a folder",
+    );
+    const r = await plan(root, fakes());
+    expect(isStop(r) && r.reason).toBe("setupUnreadable");
+    expect(isStop(r) && r.detail).toContain("ENOTDIR");
+    expect(isStop(r) && r.detail).toContain("checkout.screens");
   });
 });
 
@@ -603,6 +689,15 @@ describe("planCiSetup's plan", () => {
     const p = await okPlan(await repo(), f);
     expect(p.files).not.toContain(`${FLOWS_DIR}/checkout.json`);
     expect(p.files).not.toContain("docs/o.mp4");
+    // The flow folders only, never the whole tree (git's output buffer).
+    expect(f.gitArgs.find((a) => a[0] === "ls-tree")).toEqual([
+      "ls-tree",
+      "-r",
+      "--name-only",
+      "origin/trunk",
+      "--",
+      ".demoman",
+    ]);
   });
 
   // R6: the working tree's app.json, proposed unless committed as is.
@@ -630,7 +725,7 @@ describe("planCiSetup's plan", () => {
   // R5: a delivery that does not match the committed script goes in as the script alone.
   // R24: match, edited and absent.
   it.each([
-    ["edited", "edited since it was delivered"],
+    ["edited", "does not match the script being committed"],
     ["absent", "no script digest in its receipt"],
   ] as const)(
     "a receipt whose digest is %s: the script alone, said",
@@ -714,7 +809,7 @@ describe("planCiSetup's plan", () => {
     expect(daily.pushCost).toBeNull();
     const push = await okPlan(await repo(), fakes(), { trigger: "push" });
     expect(push.pushCost).toBe(
-      "about 12 s of runner time per merge: 1 flow × 12 s measured here",
+      "about 12 s of runner time per merge: the app starts in 4 s, then 1 flow × 8 s measured here",
     );
     expect(planLines(push).join("\n")).toContain(push.pushCost as string);
   });
@@ -735,6 +830,29 @@ describe("applyCiSetup", () => {
     f.calls.length = 0;
     return { f, p, values };
   }
+
+  // Red if apply reads the files again: an edit while the confirmation
+  // waits would reach the pull request unchecked.
+  it("commits the bytes the check ran with, never a fresh read", async () => {
+    const f = fakes();
+    const root = await repo();
+    const p = await okPlan(root, f);
+    const flowPath = `${FLOWS_DIR}/checkout.json`;
+    const checked = f.seen.verify?.[0].files.find((x) => x.path === flowPath);
+    await writeFile(join(root, flowPath), "edited after the plan");
+    await applyCiSetup(p, f.deps, new Map());
+    const sent = f.seen.pr?.files.find((x) => x.path === flowPath);
+    expect(Buffer.from(sent?.text ?? "").toString()).toBe(
+      Buffer.from(checked?.text ?? "").toString(),
+    );
+    expect(Buffer.from(sent?.text ?? "").toString()).not.toBe(
+      "edited after the plan",
+    );
+    // Never serialized: the plan as JSON, and a copy, carry no bytes.
+    expect(JSON.stringify(p)).not.toContain("contents");
+    const copied = await applyCiSetup({ ...p }, f.deps, new Map());
+    expect(isStop(copied) && copied.reason).toBe("planWithoutFiles");
+  });
 
   it("sets secrets, turns the setting on, opens the PR, then watches", async () => {
     const { f, p, values } = await ready();

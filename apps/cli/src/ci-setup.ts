@@ -1,7 +1,7 @@
 // One plan for CI setup, checked from a clean checkout before anything is
 // written; then the secrets, the Actions setting, the setup pull request and
 // its run. Both doors (the terminal and the MCP `ci` tool) call these two.
-import { readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   APP_FILE,
@@ -164,7 +164,12 @@ export type CiPlan = {
   title: typeof SETUP_TITLE;
   /** Only when push is chosen. */
   pushCost: string | null;
+  /** The exact bytes the check ran with, which apply commits. Non-enumerable:
+   *  JSON.stringify and a spread leave it out, so a door never serializes
+   *  them; a copied plan has none, and apply refuses it. */
+  readonly contents?: SetupFiles;
 };
+type SetupFiles = Array<{ path: string; text: string | Uint8Array }>;
 
 export type CiStop = {
   reason: string;
@@ -261,11 +266,14 @@ function optionsOf(
   };
 }
 
-const readOrNull = (path: string) =>
-  readFile(path).catch((e: NodeJS.ErrnoException) => {
+/** null for a missing path; any other error is thrown, and planCiSetup
+ *  says it as a stop. */
+const orMissing = <T>(p: Promise<T>): Promise<T | null> =>
+  p.catch((e: NodeJS.ErrnoException) => {
     if (e.code === "ENOENT") return null;
     throw e;
   });
+const readOrNull = (path: string) => orMissing(readFile(path));
 
 async function shown(git: GitRunner, root: string, ref: string, path: string) {
   const r = await git(["show", `${ref}:${path}`], root);
@@ -301,13 +309,13 @@ async function flowFiles(
     receipt.scriptDigest === undefined
       ? "no script digest in its receipt"
       : receipt.scriptDigest !== scriptDigest(kept.script)
-        ? "edited since it was delivered"
+        ? "does not match the script being committed"
         : null;
   if (mismatch !== null) return { paths: script, scriptOnly: mismatch };
   const screens: string[] = [];
   if (receipt.screensDir !== null) {
     const dir = `${RECEIPT_DIR}/${receipt.screensDir}`;
-    const names = await readdir(join(root, dir)).catch(() => null);
+    const names = await orMissing(readdir(join(root, dir)));
     if (names === null)
       return { paths: script, scriptOnly: `${dir} is missing` };
     screens.push(...names.sort().map((n) => `${dir}/${n}`));
@@ -317,13 +325,22 @@ async function flowFiles(
     ...(kept.report === null ? [] : [kept.report]),
   ];
   for (const o of outputs) {
-    if ((await readOrNull(join(root, o))) === null)
+    if ((await orMissing(access(join(root, o)))) === null)
       return { paths: script, scriptOnly: `${o} is missing` };
   }
   return {
     paths: [...script, receiptFile, ...screens, ...outputs],
     scriptOnly: null,
   };
+}
+
+/** Every value but an account's origin (not secret) as `<redacted>`. */
+function redact(text: string, values: SecretValues): string {
+  const secret = [...values]
+    .filter(([n, v]) => v !== "" && !n.endsWith(SECRET_ORIGIN_SUFFIX))
+    .map(([, v]) => v)
+    .sort((a, b) => b.length - a.length);
+  return secret.reduce((t, v) => t.replaceAll(v, "<redacted>"), text);
 }
 
 export async function planCiSetup(
@@ -333,6 +350,24 @@ export async function planCiSetup(
   /** In: the values the door was given. Out: also every value read here
    *  (environment, secrets.env, the env file), so the same map goes to
    *  applyCiSetup. Never in the plan, a line or a stop. */
+  values: SecretValues,
+): Promise<CiPlan | CiStop> {
+  try {
+    return await makePlan(root, choices, deps, values);
+  } catch (e) {
+    // A read that failed (a folder that cannot be listed, git that would
+    // not start): said, never a rejection.
+    return stop(
+      "setupUnreadable",
+      `${redact(messageOf(e), values)}; nothing was written. Check that path or command works, then run setup again`,
+    );
+  }
+}
+
+async function makePlan(
+  root: string,
+  choices: CiChoices,
+  deps: CiDeps,
   values: SecretValues,
 ): Promise<CiPlan | CiStop> {
   const facts = await deps.readGithub(root);
@@ -358,6 +393,11 @@ export async function planCiSetup(
   const route = choices.route ?? "pr";
   const refused = routeRefusal(trigger, route);
   if (refused !== null) return stop("routeRefused", refused);
+  if (trigger === "release" && !facts.hasReleases)
+    return stop(
+      "noRelease",
+      `${facts.slug} has no published release on record, so there is nothing to record after; choose another trigger`,
+    );
   let deployment: { environment: string; url: string } | null = null;
   if (typeof trigger === "object") {
     const d = facts.deployments.find(
@@ -521,7 +561,11 @@ export async function planCiSetup(
   // The files: the workflow, app.json unless committed as is, and each flow
   // not yet on the default branch.
   const base = `origin/${facts.defaultBranch}`;
-  const tree = await deps.git(["ls-tree", "-r", "--name-only", base], root);
+  // Only the flow folders: the whole tree can exceed git's output buffer.
+  const tree = await deps.git(
+    ["ls-tree", "-r", "--name-only", base, "--", ".demoman"],
+    root,
+  );
   // shortcut: an unreadable default branch reads as empty, so every flow is
   // listed; files identical to the base add nothing to the commit.
   const onDefault = new Set(tree.code === 0 ? tree.stdout.split("\n") : []);
@@ -563,27 +607,36 @@ export async function planCiSetup(
     },
     { log: deps.log, ...(deps.signal ? { signal: deps.signal } : {}) },
   );
+  // verifySetup gives the app every value, so its output can echo one.
+  const hide = (t: string) => redact(t, values);
   if ("passed" in check && !check.passed)
-    return stop(
-      check.reason,
-      `the check failed on its ${check.step} step: ${check.detail}`,
-      { step: check.step, tail: check.tail },
-    );
+    return check.reason === "checkStopped"
+      ? stop(check.reason, `${hide(check.detail)}; nothing was written`)
+      : stop(
+          check.reason,
+          `the check failed on its ${check.step} step: ${hide(check.detail)}`,
+          { step: check.step, tail: hide(check.tail) },
+        );
+  const checked: CiPlan["check"] =
+    "passed" in check
+      ? { ...check, lines: check.lines.map(hide) }
+      : { skipped: hide(check.skipped) };
 
   let pushCost: string | null = null;
   if (trigger === "push") {
-    if ("passed" in check) {
-      const s = Math.round((check.recordSeconds + check.appSeconds) * 10) / 10;
+    if ("passed" in checked) {
+      // CI starts the app once per run, then records each flow.
+      const { appSeconds: a, recordSeconds: r } = checked;
       const k = flows.length;
-      pushCost = `about ${Math.round(k * s)} s of runner time per merge: ${k} flow${k === 1 ? "" : "s"} × ${s} s measured here`;
-    } else pushCost = `not measured: ${check.skipped}`;
+      pushCost = `about ${Math.round(a + k * r)} s of runner time per merge: ${a > 0 ? `the app starts in ${a} s, then ` : ""}${k} flow${k === 1 ? "" : "s"} × ${r} s measured here`;
+    } else pushCost = `not measured: ${checked.skipped}`;
   }
 
-  return {
+  const made: CiPlan = {
     root,
     ...shape,
     offers,
-    check,
+    check: checked,
     actionsSetting: route === "pr" ? "turnOn" : "notNeeded",
     files,
     scriptOnly,
@@ -591,6 +644,10 @@ export async function planCiSetup(
     title: SETUP_TITLE,
     pushCost,
   };
+  return Object.defineProperty(made, "contents", {
+    value: texts.files,
+    enumerable: false,
+  });
 }
 
 function originOf(target: unknown): string | null {
@@ -619,11 +676,8 @@ async function fileTexts(
   paths: string[],
   workflow: string,
   app: CiPlan["app"],
-): Promise<
-  | { files: Array<{ path: string; text: string | Uint8Array }> }
-  | { failed: string }
-> {
-  const files: Array<{ path: string; text: string | Uint8Array }> = [];
+): Promise<{ files: SetupFiles } | { failed: string }> {
+  const files: SetupFiles = [];
   for (const path of paths) {
     if (path === CI_WORKFLOW_PATH) files.push({ path, text: workflow });
     else if (path === APP_FILE && app !== null)
@@ -703,14 +757,14 @@ export async function applyCiSetup(
       "secretMissing",
       `no value for ${list(unset.map((s) => s.name))}, so nothing was done; run setup again`,
     );
-  let workflow: string;
-  try {
-    workflow = ciWorkflow(optionsOf(plan, deps.version));
-  } catch (e) {
-    return stop("workflowRefused", messageOf(e));
-  }
-  const texts = await fileTexts(plan.root, plan.files, workflow, plan.app);
-  if ("failed" in texts) return stop("filesUnreadable", texts.failed);
+  // The bytes the check ran with, never a fresh read: an edit while the
+  // confirmation waits must not reach the pull request unchecked.
+  const contents = plan.contents;
+  if (contents === undefined)
+    return stop(
+      "planWithoutFiles",
+      "this plan carries no checked files (it was copied or sent as JSON), so nothing was done; plan again, then apply that plan",
+    );
 
   const { slug, defaultBranch } = plan.repo;
   const toSet: SecretValues = new Map();
@@ -746,7 +800,7 @@ export async function applyCiSetup(
     root: plan.root,
     slug,
     base: defaultBranch,
-    files: texts.files,
+    files: contents,
     body: ["Demoman's CI setup:", "", ...planLines(plan)].join("\n"),
   });
   if ("failed" in pr)
