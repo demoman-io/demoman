@@ -27,23 +27,27 @@ terminal (a script, CI) nothing is asked.
 
 ```bash
 npx demoman setup --ci [--trigger release|daily|push|<environment>] [--route pr|main] [--artifact]
+  [--yes] [--env-file <path>] [--replace-secret <NAME>]...
 ```
 
-Writes `.github/workflows/demoman.yml`, which runs `demoman refresh --deliver`:
+Checks CI's refresh of the repo's flows from a clean checkout, shows one plan,
+and on one confirmation sets the secrets, turns on the Actions setting, opens
+the "Set up Demoman" pull request and watches its first run. It writes
+`.github/workflows/demoman.yml` and `.demoman/app.json`, the record of how the
+app starts that `refresh` uses. A trigger or route not given is asked.
 
-- `<environment>`: after each successful deployment to that environment,
-  and records the deployed app (`deployment:<name>` for an environment named
-  `release`, `daily` or `push`).
-- `release`: when a release is published, at its tag.
-- `daily`: once a day on the default branch. When nothing but the refresh's
-  own files changed since each repo flow was recorded, or since the workflow's
-  last successful run, it stops before installing Chromium or starting the
-  app.
-- `push`: on each merge to main. This records every repo flow on every merge.
- `--route pr` opens a pull request with the changed files, and
-needs "Allow GitHub Actions to create and approve pull requests" on in the
-repository's Actions settings; `--route main` commits them. A trigger or route
-not given is asked. `--artifact` downloads the `demoman-videos` artifact of this workflow's newest run on its own trigger and branch (never a fork's or another workflow's) into `demoman-out`, refreshes with `--out-dir demoman-out --previous demoman-out`, and uploads that folder as the next `demoman-videos` artifact. For `release`, `daily` and `push`, fill in the workflow's "Start your app" step.
+| Flag | |
+| --- | --- |
+| `--trigger <environment>` | After each successful deployment to that environment (`deployment:<name>` for an environment named `release`, `daily` or `push`) |
+| `--trigger release\|daily\|push` | When a release is published; once a day; on each push to the default branch |
+| `--route pr\|main` | Open a pull request with the changed files, or commit them. Needs "Allow GitHub Actions to create and approve pull requests" for `pr`; setup turns it on |
+| `--artifact` | Upload `demoman-out` as the `demoman-videos` artifact, compared against the last run's |
+| `--yes` | Confirm the plan's defaults. With no terminal and no `--yes`, nothing is written |
+| `--env-file <path>` | Read secret values from this file |
+| `--replace-secret <NAME>` | Replace a secret GitHub already has |
+
+See [Flows in the repo](/guides/repo-flows) for the plan, the app file, the
+self-check and what each stop means.
 
 ## signin
 

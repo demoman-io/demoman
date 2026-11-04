@@ -3,6 +3,13 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
+<Update label="Unreleased" description="Set up CI from one plan">
+  - `npx demoman setup --ci` checks the refresh from a clean checkout, shows one plan, and on one confirmation sets the secrets, turns on the Actions setting, opens a "Set up Demoman" pull request and watches its first run. `--yes`, `--env-file` and `--replace-secret` take the answers without a prompt.
+  - `.demoman/app.json` records how the app starts: install, start, url, timeout, env, secrets and services. `refresh` starts the app from it, and uses one already answering when run locally.
+  - The workflow checks itself on pull requests that change it or `.demoman/`, and says so when a fork's pull request has no secrets.
+  - Your agent's `add` and `ci` tools do the same; `ci` acts only once you have agreed to its plan.
+</Update>
+
 <Update label="0.8.2" description="Video as code, flows in the repo, and a library you can search">
   - A script can say where the video starts and ends with `trim`, and turn a click's zoom off or set its scale with `zoom` on a click or drag. A re-record writes the Studio's trim and zoom edits back into the script, and the run report lists any edit it could not carry.
   - The Studio's library is grouped by project and opens on the one you are working in. A search box (`/`) matches a flow's name, its pages and its steps, and your agent's `flows({ query })` matches the same way.
