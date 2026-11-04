@@ -148,6 +148,7 @@ type Job = {
 };
 async function workflowJobs(
   root: string,
+  bad: string[],
   only?: string,
 ): Promise<Array<{ file: string; name: string; job: Job }>> {
   const dir = ".github/workflows";
@@ -166,8 +167,9 @@ async function workflowJobs(
         jobs?: Record<string, Job>;
       } | null;
       jobs = doc?.jobs ?? {};
-    } catch {
-      continue; // a workflow that does not parse is not an answer
+    } catch (e) {
+      bad.push(`${dir}/${n} could not be parsed: ${oneLine(e)}`);
+      continue;
     }
     for (const [name, job] of Object.entries(jobs))
       out.push({ file: `${dir}/${n}`, name, job });
@@ -177,8 +179,59 @@ async function workflowJobs(
 const runs = (steps: Step[]) =>
   steps.flatMap((s) => (typeof s.run === "string" ? [s.run.trim()] : []));
 
-async function fromWorkflows(root: string): Promise<Found | null> {
-  for (const { file, name, job } of await workflowJobs(root)) {
+const oneLine = (e: unknown) =>
+  (e instanceof Error ? e.message : String(e)).split("\n")[0];
+/** wait-on options that take a value, so the value is not the target. */
+const WAIT_ON_VALUE_FLAGS = new Set([
+  "-t",
+  "--timeout",
+  "-i",
+  "--interval",
+  "-d",
+  "--delay",
+  "-w",
+  "--window",
+  "-c",
+  "--config",
+  "-s",
+  "--simultaneous",
+  "--httpTimeout",
+  "--tcpTimeout",
+  "--proxy",
+  "--auth",
+  "--header",
+  "-l",
+  "--log",
+  "-v",
+  "--verbose",
+]);
+/** The first target wait-on is given, as an http URL; null when it is not
+ *  an http(s) URL or host:port (tcp:3000, file:, socket: are not). */
+function waitOnUrl(run: string): string | null {
+  const tokens = run.split(/\bwait-on\s+/)[1]?.split(/\s+/) ?? [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i] ?? "";
+    if (t.startsWith("-")) {
+      if (WAIT_ON_VALUE_FLAGS.has(t)) i++;
+      continue;
+    }
+    const url = t.match(/^(?:https?|https?-get):\/\/\S+$/)
+      ? t.replace(/^(https?)-get:/, "$1:")
+      : null;
+    if (url) return url;
+    const hostPort = t.match(/^([A-Za-z0-9.-]+):\d+$/);
+    if (hostPort && !/^(tcp|file|socket|unix)$/.test(hostPort[1] ?? ""))
+      return `http://${t}`;
+    return null;
+  }
+  return null;
+}
+
+async function fromWorkflows(
+  root: string,
+  bad: string[],
+): Promise<Found | null> {
+  for (const { file, name, job } of await workflowJobs(root, bad)) {
     const steps = job.steps ?? [];
     const source: AppSource = { kind: "workflow", file, job: name };
     const cy = steps.findIndex((s) =>
@@ -207,10 +260,8 @@ async function fromWorkflows(root: string): Promise<Found | null> {
       };
     }
     const wait = steps.findIndex((s) => /\bwait-on\s+\S+/.test(s.run ?? ""));
-    const url = steps[wait]?.run?.match(
-      /\bwait-on\s+(?:http-get:\/\/)?(\S+)/,
-    )?.[1];
-    if (wait < 0 || !url) continue;
+    if (wait < 0) continue;
+    const url = waitOnUrl(steps[wait]?.run ?? "");
     const bg = steps.findIndex(
       (s, i) => i < wait && /&\s*$/.test(s.run?.trim() ?? ""),
     );
@@ -220,16 +271,24 @@ async function fromWorkflows(root: string): Promise<Found | null> {
       draft: draftOf({
         install: runs(steps.slice(0, bg)),
         start: (steps[bg]?.run ?? "").trim().replace(/\s*&$/, ""),
-        url: /^https?:\/\//.test(url) ? url : `http://${url}`,
+        url,
       }),
+      holes: url
+        ? []
+        : [
+            {
+              field: "url",
+              why: `the wait-on line in ${file} does not name an http(s) URL or host:port`,
+            },
+          ],
     };
   }
   return null;
 }
 
 // 3. Copilot setup steps ----------------------------------------------------
-async function fromCopilot(root: string): Promise<Found | null> {
-  const [first] = await workflowJobs(root, COPILOT);
+async function fromCopilot(root: string, bad: string[]): Promise<Found | null> {
+  const [first] = await workflowJobs(root, bad, COPILOT);
   if (!first) return null;
   const services: Record<string, AppService> = {};
   for (const [name, s] of Object.entries(first.job.services ?? {})) {
@@ -316,7 +375,12 @@ async function fromPackageJson(
   const pkg = await readPkg(root);
   if (!pkg) return null;
   const pm = (await managerOf(root)) ?? "npm";
-  const dirs = await workspaceDirs(root, pkg);
+  let dirs: string[] | null;
+  try {
+    dirs = await workspaceDirs(root, pkg);
+  } catch (e) {
+    return { none: `pnpm-workspace.yaml could not be parsed: ${oneLine(e)}` };
+  }
   if (dirs) {
     const port = origin ? new URL(origin).port : "";
     const candidates = [];
@@ -372,18 +436,22 @@ export async function detectApp(
   recordedOrigin: string | null,
 ): Promise<AppProposal | { none: string }> {
   let found: Found | { none: string } | null = null;
+  const bad: string[] = []; // workflow files that did not parse, said in the answer
   for (const source of [
     () => fromPlaywright(root),
-    () => fromWorkflows(root),
-    () => fromCopilot(root),
+    () => fromWorkflows(root, bad),
+    () => fromCopilot(root, bad),
     () => fromPackageJson(root, recordedOrigin),
   ]) {
     found = await source();
     if (found) break;
   }
-  if (!found) return { none: `nothing to propose from: looked in ${LOOKED}` };
-  if ("none" in found) return found;
+  const said = bad.length ? `; ${bad.join("; ")}` : "";
+  if (!found)
+    return { none: `nothing to propose from: looked in ${LOOKED}${said}` };
+  if ("none" in found) return { none: `${found.none}${said}` };
   const holes = [...(found.holes ?? [])];
+  for (const b of bad) holes.push({ field: b.split(" ")[0] ?? b, why: b });
   for (const f of ["start", "url"] as const) {
     if (found.draft[f] === null && !holes.some((h) => h.field === f))
       holes.push({

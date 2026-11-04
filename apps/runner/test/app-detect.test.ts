@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -233,5 +233,77 @@ describe("detectApp", () => {
     if ("none" in got) throw new Error(got.none);
     expect(got.source.kind).toBe("playwright");
     expect(got.draft.start).toBe("node s.js");
+  });
+
+  it("a workflow that does not parse is named in the answer, not skipped", async () => {
+    const dir = await copyOf("nothing");
+    await mkdir(join(dir, ".github/workflows"), { recursive: true });
+    await writeFile(
+      join(dir, ".github/workflows/bad.yml"),
+      "jobs: [unclosed\n",
+    );
+    const none = await detectApp(dir, ORIGIN);
+    expect(none).toEqual({
+      none: expect.stringContaining(
+        ".github/workflows/bad.yml could not be parsed",
+      ),
+    });
+    // and a later source that answers still carries it as a hole
+    await writeFile(
+      join(dir, "package.json"),
+      '{ "scripts": { "dev": "vite" } }',
+    );
+    const got = await detectApp(dir, ORIGIN);
+    if ("none" in got) throw new Error(got.none);
+    expect(got.source.kind).toBe("packageJson");
+    expect(got.holes).toContainEqual({
+      field: ".github/workflows/bad.yml",
+      why: expect.stringContaining("could not be parsed"),
+    });
+  });
+
+  it("a malformed pnpm-workspace.yaml is none, not a thrown error", async () => {
+    const dir = await copyOf("monorepo-one");
+    await writeFile(join(dir, "pnpm-workspace.yaml"), "packages: [unclosed\n");
+    const got = await detectApp(dir, ORIGIN);
+    expect(got).toEqual({
+      none: expect.stringContaining("pnpm-workspace.yaml could not be parsed"),
+    });
+  });
+
+  describe("wait-on targets", () => {
+    async function urlFor(waitOn: string) {
+      const dir = await copyOf("wait-on");
+      const file = join(dir, ".github/workflows/ci.yml");
+      const yml = (await readFile(file, "utf8")).replace(
+        "npx wait-on http://localhost:8080",
+        waitOn,
+      );
+      await writeFile(file, yml);
+      const got = await detectApp(dir, null);
+      if ("none" in got) throw new Error(got.none);
+      expect(got.source.kind).toBe("workflow");
+      return got;
+    }
+    it("skips option flags and their values", async () => {
+      const got = await urlFor("npx wait-on -t 60000 http://localhost:3000");
+      expect(got.draft.url).toBe("http://localhost:3000");
+    });
+    it("takes host:port and http-get:// as http", async () => {
+      expect((await urlFor("npx wait-on localhost:3000")).draft.url).toBe(
+        "http://localhost:3000",
+      );
+      expect(
+        (await urlFor("npx wait-on http-get://localhost:3000/health")).draft
+          .url,
+      ).toBe("http://localhost:3000/health");
+    });
+    it("tcp:3000 is not a URL: a hole, never a guess", async () => {
+      for (const target of ["tcp:3000", "tcp:localhost:3000"]) {
+        const got = await urlFor(`npx wait-on ${target}`);
+        expect(got.draft.url).toBeNull();
+        expect(got.holes.map((h) => h.field)).toContain("url");
+      }
+    });
   });
 });
