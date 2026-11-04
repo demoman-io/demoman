@@ -22,6 +22,7 @@ import {
   RECEIPT_DIR,
   REFRESH_LIST_FILE,
   screensDirOf,
+  scriptDigest,
   serializeKept,
   serializeReceipt,
 } from "@demoman/run-core";
@@ -286,6 +287,8 @@ describe("a refresh against the receipt", () => {
     expect(r.receipt.video).toBe("t-new");
     expect(r.receipt.screens).toEqual(NEW);
     expect(r.receipt.filmedCode).toMatchObject({ commit: FILMED });
+    // Red if refresh stops recording the script the files now show.
+    expect(r.receipt.scriptDigest).toBe(scriptDigest(recipe().script));
     expect(v.video).toBe("t-new");
     expect(v.screens).toEqual(NEW);
   });

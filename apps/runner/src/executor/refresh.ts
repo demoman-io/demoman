@@ -28,6 +28,7 @@ import {
   type RunReport,
   refreshListOf,
   screensDirOf,
+  scriptDigest,
   serializeReceipt,
   serializeRefreshList,
   servedRunReport,
@@ -866,6 +867,8 @@ async function deliverOne(
           screens,
           screensDir,
           screensSize: shots.size,
+          // The committed files now show this script, whichever take made them.
+          scriptDigest: scriptDigest(kept.script),
         }),
       );
     }

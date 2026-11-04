@@ -18,6 +18,7 @@ import {
   keptFileName,
   notCarriedOf,
   parseKept,
+  scriptDigest,
   serializeReceipt,
   targetFor,
 } from "@demoman/run-core";
@@ -584,8 +585,10 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
         deps(),
       );
       if (!out.ok) throw new Error(JSON.stringify(out));
-      const { receipt, receiptFile } = await readKeptV2(repo, out.file);
+      const { kept, receipt, receiptFile } = await readKeptV2(repo, out.file);
       expect(receipt.receiptVersion).toBe(2);
+      // Red if keep stops recording the script it delivered from.
+      expect(receipt.scriptDigest).toBe(scriptDigest(kept.script));
       expect(
         receipt.screens.moments.length,
         "premise: moments",
