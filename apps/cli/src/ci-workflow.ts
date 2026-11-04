@@ -439,7 +439,7 @@ if [ -z "$url" ]; then
   echo "::error::No successful deployment to $ENVIRONMENT names an environment_url, so this check has no deployed app to record; deploy to $ENVIRONMENT, then re-run this check."
   exit 1
 fi
-echo "Recording against the newest successful $ENVIRONMENT deployment: $url"
+echo "This check records the newest successful $ENVIRONMENT deployment: $url"
 echo "url=$url" >> "$GITHUB_OUTPUT"`;
 
 export const DEPLOYMENT_MAIN =
