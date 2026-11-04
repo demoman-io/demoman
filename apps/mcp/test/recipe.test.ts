@@ -347,7 +347,9 @@ describe("the CLI's recipe", () => {
     );
     expect(mergeCallers, "an agent tool now calls videos.merge").toEqual([]);
     // markMoved: the Studio's upkeep keys a kept mark; no agent tool calls it.
-    const TERMINAL_REASONS = ["sameFlow", "markMoved"];
+    // appInvalid: parseApp answers it, but no agent tool reads .demoman/app.json
+    // yet; drop it here when the `ci` tool lands and the recipe names it.
+    const TERMINAL_REASONS = ["sameFlow", "markMoved", "appInvalid"];
     const reasons = [...reasonsInCode(CLI_SOURCES), ...CLI_TOOL_REASONS].filter(
       (r) => !TERMINAL_REASONS.includes(r),
     );

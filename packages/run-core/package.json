@@ -38,7 +38,8 @@
     "@demoman/compositor": "workspace:*",
     "@demoman/replay-engine": "workspace:*",
     "@demoman/resolver": "workspace:*",
-    "@demoman/scene-schema": "workspace:*"
+    "@demoman/scene-schema": "workspace:*",
+    "zod": "^4.1.0"
   },
   "devDependencies": {
     "@vitest/browser": "3.2.7",

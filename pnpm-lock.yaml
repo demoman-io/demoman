@@ -288,6 +288,9 @@ importers:
       '@demoman/scene-schema':
         specifier: workspace:*
         version: link:../scene-schema
+      zod:
+        specifier: ^4.1.0
+        version: 4.4.3
     devDependencies:
       '@vitest/browser':
         specifier: 3.2.7
