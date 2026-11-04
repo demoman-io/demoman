@@ -239,7 +239,7 @@ function refreshSteps(
   // fork's pull request or another workflow can upload an artifact of the
   // same name, which must never stand in for what was delivered.
   const fetch =
-    o.artifact === true
+    deliver && o.artifact === true
       ? `      - name: Fetch the last run's videos${ifEarly}
         env:
           GH_TOKEN: ${expr("github.token")}

@@ -22,8 +22,8 @@ const ciWorkflow = (
   o: Omit<CiOptions, "app" | "secrets"> & Partial<CiOptions>,
 ): string => workflow({ app: null, secrets: { accounts: [], app: [] }, ...o });
 
-// No YAML parser is in the repo's dependencies, so the structure is asserted
-// by the lines that carry it; every key sits at a fixed indent.
+// Most structure is asserted by the lines that carry it (every key sits at a
+// fixed indent); `yaml`, a dev dependency, parses the variants where shape matters.
 const push = ciWorkflow({ version: "0.2.0", trigger: "push", route: "pr" });
 const deploy = ciWorkflow({
   version: "0.2.0",
@@ -1109,6 +1109,28 @@ describe("the workflow starts nothing, passes named secrets, runs services, and 
       if: "always()",
       with: { name: "demoman-check", path: "demoman-check" },
     });
+  });
+
+  it("fetches the last run's videos in the refresh job only, and writes no undefined", () => {
+    const withArtifact = triggers.flatMap((trigger) =>
+      [false, true].map((full) =>
+        ciWorkflow({
+          version: "0.2.0",
+          trigger,
+          route: "pr",
+          artifact: true,
+          ...(full ? { app, secrets } : {}),
+        }),
+      ),
+    );
+    for (const y of withArtifact) {
+      expect(y).not.toContain("undefined");
+      const { check, refresh } = jobs(y);
+      expect(check.steps.filter((s) => s.name?.startsWith("Fetch"))).toEqual(
+        [],
+      );
+      expect(refresh.steps.some((s) => s.name?.startsWith("Fetch"))).toBe(true);
+    }
   });
 
   it("checks out, installs and records the same way in both jobs", () => {
