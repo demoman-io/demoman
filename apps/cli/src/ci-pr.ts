@@ -1,5 +1,6 @@
-// The setup pull request, built on a branch in a temporary worktree so the
-// person's checkout, current branch, index and default branch are never touched.
+// The setup pull request, built in a detached temporary worktree and pushed
+// to the branch on origin, so the person's checkout, branches, index and
+// default branch are never touched.
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
@@ -48,7 +49,7 @@ export async function openSetupPr(
     if (fetchFailed) return { failed: "worktree", detail: fetchFailed };
     const addFailed = await stage(
       "worktree",
-      ["worktree", "add", "-b", SETUP_BRANCH, tmp, `origin/${a.base}`],
+      ["worktree", "add", "--detach", tmp, `origin/${a.base}`],
       a.root,
     );
     if (addFailed) return { failed: "worktree", detail: addFailed };
@@ -73,10 +74,13 @@ export async function openSetupPr(
     }
     const built =
       (await stage("add", ["add", "--", ...a.files.map((f) => f.path)])) ??
-      (await stage("commit", ["commit", "-m", SETUP_TITLE]));
+      // The person's hooks expect their own checkout (node_modules and all):
+      // in this bare worktree they fail on files they never wrote.
+      (await stage("commit", ["commit", "--no-verify", "-m", SETUP_TITLE]));
     if (built) return { failed: "worktree", detail: built };
 
-    const pushed = await git(["push", "origin", SETUP_BRANCH], tmp);
+    const refspec = `HEAD:refs/heads/${SETUP_BRANCH}`;
+    const pushed = await git(["push", "--no-verify", "origin", refspec], tmp);
     if (pushed.code !== 0) {
       const words = pushed.stderr.trim();
       const exists = /non-fast-forward|fetch first|\(already exists\)/.test(
@@ -86,7 +90,7 @@ export async function openSetupPr(
         failed: "push",
         detail: exists
           ? `a setup branch already exists on origin (${SETUP_BRANCH}); merge or close its pull request, or delete the branch, then run setup again. git said: ${words}`
-          : `\`git push origin ${SETUP_BRANCH}\` exited with code ${pushed.code}: ${words}`,
+          : `\`git push origin ${refspec}\` exited with code ${pushed.code}: ${words}`,
       };
     }
     const sha = (await git(["rev-parse", "HEAD"], tmp)).stdout.trim();
@@ -113,10 +117,7 @@ export async function openSetupPr(
       };
     return { opened: { number, url, branch: SETUP_BRANCH, sha } };
   } finally {
-    if (added) {
-      await git(["worktree", "remove", "--force", tmp], a.root);
-      await git(["branch", "-D", SETUP_BRANCH], a.root);
-    }
+    if (added) await git(["worktree", "remove", "--force", tmp], a.root);
     await rm(tmp, { recursive: true, force: true });
     await git(["worktree", "prune"], a.root);
   }

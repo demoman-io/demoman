@@ -135,6 +135,37 @@ describe("openSetupPr", () => {
     expect(sh(root, "branch", "--list", SETUP_BRANCH)).toBe("");
   });
 
+  // Finding 10, red: `worktree add -b demoman/setup` fails on the person's
+  // own branch of that name, after secrets and the setting were changed.
+  it("opens the pull request beside a local demoman/setup branch, which it leaves as it was", async () => {
+    sh(root, "branch", SETUP_BRANCH, "main");
+    const mine = sh(root, "rev-parse", SETUP_BRANCH);
+    const r = await openSetupPr(args([{ path: "n.txt", text: "n" }]), {
+      git,
+      gh: gh(),
+    });
+    expect(r).toMatchObject({ opened: { branch: SETUP_BRANCH } });
+    expect(
+      sh(root, "ls-tree", "-r", "--name-only", `origin/${SETUP_BRANCH}`),
+    ).toContain("n.txt");
+    expect(sh(root, "rev-parse", SETUP_BRANCH)).toBe(mine);
+    expect(worktrees().match(/^worktree /gm)).toHaveLength(1);
+  });
+
+  // Finding 11, red: drop --no-verify; the person's hooks run in a worktree
+  // without their node_modules.
+  it("commits and pushes past the person's own failing hooks", async () => {
+    for (const h of ["pre-commit", "commit-msg", "pre-push"])
+      writeFileSync(join(root, ".git", "hooks", h), "#!/bin/sh\nexit 1\n", {
+        mode: 0o755,
+      });
+    const r = await openSetupPr(args([{ path: "n.txt", text: "n" }]), {
+      git,
+      gh: gh(),
+    });
+    expect(r).toMatchObject({ opened: { branch: SETUP_BRANCH } });
+  });
+
   it("says a refused push with git's words, opens no PR, and removes the worktree", async () => {
     const hook = join(origin, "hooks", "pre-receive");
     writeFileSync(hook, "#!/bin/sh\necho 'no pushes today' >&2\nexit 1\n", {
