@@ -351,8 +351,6 @@ describe("the CLI's recipe", () => {
     );
     expect(mergeCallers, "an agent tool now calls videos.merge").toEqual([]);
     // markMoved: the Studio's upkeep keys a kept mark; no agent tool calls it.
-    // appOriginMismatch: only `refresh` raises it (appPlanFor), at the
-    // terminal; the `ci` tool's check refreshes without it.
     // repoCheckoutMissing: renameKept's, the Studio's rename only; `add` is
     // keepVideo, which never answers it.
     // checkStopped: the check stops only on an abort signal, and the `ci`
@@ -364,7 +362,6 @@ describe("the CLI's recipe", () => {
     const TERMINAL_REASONS = [
       "sameFlow",
       "markMoved",
-      "appOriginMismatch",
       "repoCheckoutMissing",
       "checkStopped",
       "planWithoutFiles",

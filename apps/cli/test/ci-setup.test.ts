@@ -600,6 +600,34 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     });
   });
 
+  // Red: drop the plan's appOriginMismatch check; CI's refresh refuses it
+  // after the check passed on the one flow it recorded.
+  it("an app.json that serves some flows but not all stops before the check, naming each", async () => {
+    const f = fakes();
+    const r = await plan(await repo(), f, {
+      app: app({ url: "http://localhost:4000/" }),
+    });
+    expect(isStop(r) && r.reason).toBe("appOriginMismatch");
+    expect(isStop(r) && r.detail).toContain(
+      "starts the app at http://localhost:4000, but Checkout (http://127.0.0.1:3999) records elsewhere",
+    );
+    expect(f.calls).not.toContain("verifySetup");
+    expect(f.calls).not.toContain("neededSecrets");
+  });
+
+  it("a deployment trigger records the deployed app, so app.json's origin is not compared", async () => {
+    const f = fakes({
+      github: facts({
+        deployments: [
+          { environment: "production", url: "https://x.example", sha: "a" },
+        ],
+      }),
+    });
+    await okPlan(await repo(), f, {
+      app: app({ url: "http://localhost:4000/" }),
+    });
+  });
+
   it("a release trigger with no release on record is refused", async () => {
     const f = fakes();
     const r = await plan(await repo(), f, { trigger: "release" });

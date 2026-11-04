@@ -51,6 +51,7 @@ export {
 } from "./executor/refresh.js";
 export {
   type AppPlan,
+  appOriginMismatch,
   appPlanFor,
   withApp,
 } from "./executor/refresh-app.js";

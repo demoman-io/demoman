@@ -1229,7 +1229,7 @@ describe("ciSetup", () => {
 
   it("asks each hole in the proposed app.json, then checks the filled one", async () => {
     const { ask, asked } = asker({
-      appHole: async () => "http://127.0.0.1:4000/",
+      appHole: async () => "http://127.0.0.1:3999/app",
       confirm: async () => true,
     });
     const m = door({
@@ -1249,7 +1249,7 @@ describe("ciSetup", () => {
       "no recorded origin to serve",
     ]);
     expect(m.seen.verify?.[0].target).toEqual({
-      app: { ...checkApp, url: "http://127.0.0.1:4000/" },
+      app: { ...checkApp, url: "http://127.0.0.1:3999/app" },
     });
     expect(m.seen.pr?.files.map((f) => f.path)).toContain(".demoman/app.json");
   });

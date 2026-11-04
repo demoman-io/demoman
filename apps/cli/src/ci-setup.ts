@@ -16,6 +16,7 @@ import {
 import {
   type AppProposal,
   type AppSource,
+  appOriginMismatch,
   type detectApp,
   type GitRunner,
   readKeptFlows,
@@ -473,6 +474,17 @@ async function makePlan(
       const spec = proposal.draft as AppSpec;
       app = { spec, source: proposal.source, text: serializeApp(spec) };
     }
+  }
+
+  // Refresh refuses an app.json that serves some flows but not all (R31):
+  // said here, before the check records only the first of them.
+  if (app !== null && deployment === null) {
+    const mismatch = appOriginMismatch(
+      app.spec.url,
+      flows.map((f) => f.kept),
+    );
+    if (mismatch !== null)
+      return stop("appOriginMismatch", `${mismatch}; then run setup again`);
   }
 
   // Secrets: named here, values never leave `values`.

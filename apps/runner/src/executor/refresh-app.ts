@@ -48,20 +48,31 @@ export async function appPlanFor(
   const parsed = parseApp(text, APP_FILE);
   if (!parsed.ok)
     return { kind: "refused", reason: "appInvalid", detail: parsed.detail };
-  const served = new URL(parsed.app.url).origin;
-  const elsewhere: string[] = [];
-  for (const e of (await readKeptFlows(root)).entries) {
-    if (!("kept" in e)) continue;
-    const origin = new URL(e.kept.script.target).origin;
-    if (origin !== served) elsewhere.push(`${e.kept.name} (${origin})`);
-  }
-  if (elsewhere.length > 0)
-    return {
-      kind: "refused",
-      reason: "appOriginMismatch",
-      detail: `${APP_FILE} starts the app at ${served}, but ${elsewhere.join(", ")} ${elsewhere.length === 1 ? "records" : "record"} elsewhere; point those flows at ${served}, or change the url in ${APP_FILE}`,
-    };
+  const mismatch = appOriginMismatch(
+    parsed.app.url,
+    (await readKeptFlows(root)).entries.flatMap((e) =>
+      "kept" in e ? [e.kept] : [],
+    ),
+  );
+  if (mismatch !== null)
+    return { kind: "refused", reason: "appOriginMismatch", detail: mismatch };
   return { kind: "start", app: parsed.app };
+}
+
+/** Why app.json cannot serve every flow (each flow elsewhere and its
+ *  origin), or null when it serves them all. */
+export function appOriginMismatch(
+  appUrl: string,
+  flows: Array<{ name: string; script: { target: string } }>,
+): string | null {
+  const served = new URL(appUrl).origin;
+  const elsewhere: string[] = [];
+  for (const f of flows) {
+    const origin = new URL(f.script.target).origin;
+    if (origin !== served) elsewhere.push(`${f.name} (${origin})`);
+  }
+  if (elsewhere.length === 0) return null;
+  return `${APP_FILE} starts the app at ${served}, but ${elsewhere.join(", ")} ${elsewhere.length === 1 ? "records" : "record"} elsewhere; point those flows at ${served}, or change the url in ${APP_FILE}`;
 }
 
 const hostPort = (p: string) => {

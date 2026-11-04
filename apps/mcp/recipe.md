@@ -549,7 +549,7 @@ Studio exports go to `~/Downloads`.
 | `pageFaulted`, `snapshotThrew`, `probeThrew` | `snapshot`, `probe` | The page's code threw, or a fault; quote `detail`. |
 | `portFailure` | `probe` | The browser gave way; not the script's fault. Probe once more; quote `detail` if it repeats. |
 | `notInRepo`, `outsideRepo`, `outputTaken`, `logoUnreadable`, `handSignIn`, `cannotRefilm`, `keepRefused`, `exportFailed`, `repoFlowUnwritable` | `add`, `ci` | `detail` says what was written and the fix. |
-| `appInvalid`, `appUnknown`, `appHoles`, `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appPortTaken`, `appDockerMissing`, `checkoutFailed`, `noRepoFlow`, `refreshFailed`, `checkThrew`, `alreadySetUp`, `setupPrOpen`, `setupBranchExists`, `noRepoFlows`, `noRelease`, `noDeployment`, `routeRefused`, `githubUnreadable`, `noSetupBranch`, `secretsUnknown`, `secretsUnreadable`, `workflowRefused`, `filesUnreadable`, `setupUnreadable`, `secretRefused`, `actionsRefused`, `actionsUnknown`, `prFailed` | `ci` | `detail` says what was done and the fix. |
+| `appInvalid`, `appOriginMismatch`, `appUnknown`, `appHoles`, `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appPortTaken`, `appDockerMissing`, `checkoutFailed`, `noRepoFlow`, `refreshFailed`, `checkThrew`, `alreadySetUp`, `setupPrOpen`, `setupBranchExists`, `noRepoFlows`, `noRelease`, `noDeployment`, `routeRefused`, `githubUnreadable`, `noSetupBranch`, `secretsUnknown`, `secretsUnreadable`, `workflowRefused`, `filesUnreadable`, `setupUnreadable`, `secretRefused`, `actionsRefused`, `actionsUnknown`, `prFailed` | `ci` | `detail` says what was done and the fix. |
 
 ## 8. Repo flows and CI
 
