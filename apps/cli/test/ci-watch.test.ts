@@ -18,6 +18,7 @@ function rig(o: {
   views?: (View | null)[];
   listed?: unknown[] | null;
   failedRuns?: number;
+  counted?: { conclusion: string }[] | "unreadable";
   log?: string;
 }) {
   let clock = 0;
@@ -27,6 +28,8 @@ function rig(o: {
   const gh: Gh = async (args) => {
     if (args[0] === "run" && args[1] === "list") {
       if (!args.join(" ").includes("headSha")) {
+        if (o.counted === "unreadable") return bad;
+        if (o.counted) return ok(JSON.stringify(o.counted));
         return ok(
           JSON.stringify(
             Array.from({ length: o.failedRuns ?? 0 }, () => ({
@@ -183,5 +186,56 @@ describe("watchSetupRun", () => {
     };
     expect(w.unknown.runUrl).toBe(URL);
     expect(w.unknown.why).toContain("still running");
+  });
+
+  it("an unreadable failed-run count is null with a note, never a guessed 1", async () => {
+    const r = rig({
+      views: [{ status: "completed", conclusion: "failure", failedStep: "x" }],
+      counted: "unreadable",
+    });
+    const w = (await run(r)) as {
+      failed: { failedRuns: number | null; gaveUp: boolean; note: string };
+    };
+    expect(w.failed.failedRuns).toBeNull();
+    expect(w.failed.gaveUp).toBe(false);
+    expect(w.failed.note).toContain("unknown");
+    expect(w.failed.note).toContain(URL);
+  });
+
+  it("a timed_out run counts as failed, at least once", async () => {
+    const r = rig({
+      views: [
+        { status: "completed", conclusion: "timed_out", failedStep: "x" },
+      ],
+      counted: [
+        { conclusion: "timed_out" },
+        { conclusion: "timed_out" },
+        { conclusion: "failure" },
+      ],
+    });
+    const w = (await run(r)) as {
+      failed: { failedRuns: number; gaveUp: boolean };
+    };
+    expect(w.failed.failedRuns).toBe(3);
+    expect(w.failed.gaveUp).toBe(true);
+  });
+
+  it("a list lagging behind the current run still counts it once", async () => {
+    const r = rig({
+      views: [{ status: "completed", conclusion: "failure", failedStep: "x" }],
+      counted: [],
+    });
+    expect(
+      ((await run(r)) as { failed: { failedRuns: number } }).failed.failedRuns,
+    ).toBe(1);
+  });
+
+  it("action_required is unknown with the run URL, not failed", async () => {
+    const r = rig({
+      views: [{ status: "completed", conclusion: "action_required" }],
+    });
+    const w = (await run(r)) as { unknown: { runUrl: string; why: string } };
+    expect(w.unknown.runUrl).toBe(URL);
+    expect("failed" in w).toBe(false);
   });
 });

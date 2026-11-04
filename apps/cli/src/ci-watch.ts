@@ -10,8 +10,9 @@ export type Watched =
         runUrl: string;
         step: string;
         tail: string;
-        failedRuns: number;
+        failedRuns: number | null;
         gaveUp: boolean;
+        note?: string;
       };
     }
   | { cancelled: { runUrl: string } }
@@ -179,36 +180,54 @@ export async function watchSetupRun(
               .slice(-40)
               .join("\n"),
           );
-          const counted = await read([
-            "run",
-            "list",
-            "--repo",
-            a.slug,
-            "--workflow",
-            "demoman.yml",
-            "--branch",
-            a.branch,
-            "--event",
-            "pull_request",
-            "--limit",
-            "50",
-            "--json",
-            "conclusion",
-          ]);
-          let failedRuns = 1;
-          try {
-            if (counted)
-              failedRuns = (
-                JSON.parse(counted) as { conclusion: string }[]
-              ).filter((r) => r.conclusion === "failure").length;
-          } catch {}
+          // The count is read like the watch is: a blip is retried, an unreadable list is null.
+          let failedRuns: number | null = null;
+          for (let n = 0; n < BLIPS && failedRuns === null; n++) {
+            if (n > 0) await sleep(POLL_MS);
+            const counted = await read([
+              "run",
+              "list",
+              "--repo",
+              a.slug,
+              "--workflow",
+              "demoman.yml",
+              "--branch",
+              a.branch,
+              "--event",
+              "pull_request",
+              "--limit",
+              "50",
+              "--json",
+              "conclusion",
+            ]);
+            try {
+              const rows = counted
+                ? (JSON.parse(counted) as { conclusion: string }[])
+                : null;
+              // This run failed even if the list lags behind it.
+              if (rows)
+                failedRuns = Math.max(
+                  1,
+                  rows.filter(
+                    (r) =>
+                      r.conclusion === "failure" ||
+                      r.conclusion === "timed_out",
+                  ).length,
+                );
+            } catch {
+              // unreadable: retried, then reported as unknown below
+            }
+          }
           return {
             failed: {
               runUrl: run.url,
               step,
               tail,
               failedRuns,
-              gaveUp: failedRuns >= 3,
+              gaveUp: failedRuns !== null && failedRuns >= 3,
+              ...(failedRuns === null && {
+                note: `How many setup runs have failed is unknown (the list could not be read), so the three-run stop was not applied. See ${run.url}.`,
+              }),
             },
           };
         }
