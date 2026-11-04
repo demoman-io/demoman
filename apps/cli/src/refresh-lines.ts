@@ -39,10 +39,21 @@ function videoLines(result: RefreshResult): {
 }
 
 /** What `demoman refresh` says and exits with when the app does not start:
- *  the reason and its detail, exit 1. Nothing was refreshed or recorded. */
-export function appRefusal(refusal: { reason: string; detail: string }): {
+ *  the reason and its detail, then the failing command's output tail
+ *  (already scrubbed) indented under it, exit 1. Nothing was refreshed or
+ *  recorded. */
+export function appRefusal(refusal: {
+  reason: string;
+  detail: string;
+  tail?: string;
+}): {
   line: string;
   code: 1;
 } {
-  return { line: `${refusal.reason}: ${refusal.detail}`, code: 1 };
+  const tail = (refusal.tail ?? "")
+    .split("\n")
+    .filter((l) => l !== "")
+    .map((l) => `\n  ${l}`)
+    .join("");
+  return { line: `${refusal.reason}: ${refusal.detail}${tail}`, code: 1 };
 }

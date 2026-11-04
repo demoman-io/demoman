@@ -114,4 +114,18 @@ describe("refreshLines", () => {
       appRefusal({ reason: "appNeverAnswered", detail: "no answer at :3000" }),
     ).toEqual({ line: "appNeverAnswered: no answer at :3000", code: 1 });
   });
+
+  // Red when appRefusal drops the tail: CI's log then says the install
+  // failed without the install's own words.
+  it("prints the failing command's output tail indented under the refusal", () => {
+    expect(
+      appRefusal({
+        reason: "appInstallFailed",
+        detail: "npm ci exited with code 1",
+        tail: "npm ERR! missing lockfile\n\nnpm ERR! see log\n",
+      }).line,
+    ).toBe(
+      "appInstallFailed: npm ci exited with code 1\n  npm ERR! missing lockfile\n  npm ERR! see log",
+    );
+  });
 });
