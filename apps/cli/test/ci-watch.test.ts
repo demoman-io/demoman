@@ -12,13 +12,17 @@ type View = {
 };
 const ok = (stdout: string) => ({ code: 0, stdout, stderr: "" });
 const bad = { code: 1, stdout: "", stderr: "network down" };
+const OPENED = "2026-11-01T10:00:00Z";
+const LATER = "2026-11-01T10:05:00Z";
 
 // views: one entry per `run view`; the last repeats. A null entry is a gh error.
 function rig(o: {
   views?: (View | null)[];
   listed?: unknown[] | null;
   failedRuns?: number;
-  counted?: { conclusion: string }[] | "unreadable";
+  counted?: { conclusion: string; createdAt?: string }[] | "unreadable";
+  /** The open setup pull request's createdAt; null: none open. */
+  prOpened?: string | null | "unreadable";
   log?: string;
 }) {
   let clock = 0;
@@ -26,14 +30,26 @@ function rig(o: {
   const progress: string[] = [];
   const views = o.views ?? [];
   const gh: Gh = async (args) => {
+    if (args[0] === "pr" && args[1] === "list") {
+      if (o.prOpened === "unreadable") return bad;
+      return ok(
+        JSON.stringify(
+          o.prOpened === null ? [] : [{ createdAt: o.prOpened ?? OPENED }],
+        ),
+      );
+    }
     if (args[0] === "run" && args[1] === "list") {
       if (!args.join(" ").includes("headSha")) {
         if (o.counted === "unreadable") return bad;
-        if (o.counted) return ok(JSON.stringify(o.counted));
+        if (o.counted)
+          return ok(
+            JSON.stringify(o.counted.map((c) => ({ createdAt: LATER, ...c }))),
+          );
         return ok(
           JSON.stringify(
             Array.from({ length: o.failedRuns ?? 0 }, () => ({
               conclusion: "failure",
+              createdAt: LATER,
             })),
           ),
         );
@@ -201,6 +217,46 @@ describe("watchSetupRun", () => {
     expect(w.failed.note).toContain("unknown");
     expect(w.failed.note).toContain(URL);
   });
+
+  // Red: count every failed run on the branch name, so two runs from a
+  // closed, earlier setup pull request make this first failure a give-up.
+  it("counts only runs since this pull request was opened", async () => {
+    const r = rig({
+      views: [{ status: "completed", conclusion: "failure", failedStep: "x" }],
+      counted: [
+        { conclusion: "failure" },
+        { conclusion: "failure", createdAt: "2026-10-30T09:00:00Z" },
+        { conclusion: "failure", createdAt: "2026-10-30T08:00:00Z" },
+      ],
+    });
+    const w = (await run(r)) as {
+      failed: { failedRuns: number; gaveUp: boolean };
+    };
+    expect(w.failed.failedRuns).toBe(1);
+    expect(w.failed.gaveUp).toBe(false);
+  });
+
+  it.each([
+    ["unreadable", "unreadable"],
+    ["not open", null],
+  ] as const)(
+    "a pull request %s leaves the count unknown with the note",
+    async (_, prOpened) => {
+      const r = rig({
+        views: [
+          { status: "completed", conclusion: "failure", failedStep: "x" },
+        ],
+        failedRuns: 3,
+        prOpened,
+      });
+      const w = (await run(r)) as {
+        failed: { failedRuns: number | null; gaveUp: boolean; note: string };
+      };
+      expect(w.failed.failedRuns).toBeNull();
+      expect(w.failed.gaveUp).toBe(false);
+      expect(w.failed.note).toContain("unknown");
+    },
+  );
 
   it("a timed_out run counts as failed, at least once", async () => {
     const r = rig({

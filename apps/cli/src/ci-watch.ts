@@ -180,10 +180,24 @@ export async function watchSetupRun(
               .slice(-40)
               .join("\n"),
           );
-          // The count is read like the watch is: a blip is retried, an unreadable list is null.
+          // The count is read like the watch is: a blip is retried, an
+          // unreadable list is null. Only this pull request's runs count:
+          // an earlier setup branch of the same name had its own.
           let failedRuns: number | null = null;
           for (let n = 0; n < BLIPS && failedRuns === null; n++) {
             if (n > 0) await sleep(POLL_MS);
+            const opened = await read([
+              "pr",
+              "list",
+              "--repo",
+              a.slug,
+              "--head",
+              a.branch,
+              "--state",
+              "open",
+              "--json",
+              "createdAt",
+            ]);
             const counted = await read([
               "run",
               "list",
@@ -198,20 +212,30 @@ export async function watchSetupRun(
               "--limit",
               "50",
               "--json",
-              "conclusion",
+              "conclusion,createdAt",
             ]);
             try {
+              const since = opened
+                ? Date.parse(
+                    (JSON.parse(opened) as { createdAt: string }[])[0]
+                      ?.createdAt ?? "",
+                  )
+                : Number.NaN;
               const rows = counted
-                ? (JSON.parse(counted) as { conclusion: string }[])
+                ? (JSON.parse(counted) as {
+                    conclusion: string;
+                    createdAt: string;
+                  }[])
                 : null;
               // This run failed even if the list lags behind it.
-              if (rows)
+              if (rows && !Number.isNaN(since))
                 failedRuns = Math.max(
                   1,
                   rows.filter(
                     (r) =>
-                      r.conclusion === "failure" ||
-                      r.conclusion === "timed_out",
+                      (r.conclusion === "failure" ||
+                        r.conclusion === "timed_out") &&
+                      Date.parse(r.createdAt) >= since,
                   ).length,
                 );
             } catch {
@@ -226,7 +250,7 @@ export async function watchSetupRun(
               failedRuns,
               gaveUp: failedRuns !== null && failedRuns >= 3,
               ...(failedRuns === null && {
-                note: `How many setup runs have failed is unknown (the list could not be read), so the three-run stop was not applied. See ${run.url}.`,
+                note: `How many setup runs have failed is unknown (the pull request or its runs could not be read), so the three-run stop was not applied. See ${run.url}.`,
               }),
             },
           };
