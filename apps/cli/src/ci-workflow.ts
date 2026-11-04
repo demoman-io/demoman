@@ -21,6 +21,7 @@ import {
   type TriggerOffer,
   triggerOffers,
 } from "./ci-setup.js";
+import type { Watched } from "./ci-watch.js";
 import { COMMIT_SUBJECT } from "./deliver.js";
 import { PACKAGE_NAME } from "./names.js";
 
@@ -629,37 +630,43 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   if ("reason" in done) return said(done);
   if ("opened" in done.pr)
     io.say(`Opened the setup pull request: ${done.pr.opened.url}`);
-  const w = done.watched;
-  if (w === null || "unknown" in w) {
-    io.say(
+  for (const l of watchedLines(done.watched)) io.say(l);
+  return done.watched !== null && "passed" in done.watched ? 0 : 1;
+}
+
+/** The setup run's verdict as lines; both doors say these. */
+export function watchedLines(w: Watched | null): string[] {
+  if (w === null || "unknown" in w)
+    return [
       `Whether the setup run passed is unknown: ${w === null ? "it was not watched" : w.unknown.why}`,
-    );
-    return 1;
-  }
-  if ("passed" in w) {
-    io.say(`The setup run passed: ${w.passed.runUrl}`);
-    io.say(`Its videos: ${w.passed.artifactUrl}`);
-    return 0;
-  }
-  if ("cancelled" in w) {
-    io.say(
+    ];
+  if ("passed" in w)
+    return [
+      `The setup run passed: ${w.passed.runUrl}`,
+      `Its videos: ${w.passed.artifactUrl}`,
+    ];
+  if ("cancelled" in w)
+    return [
       `The setup run was cancelled: ${w.cancelled.runUrl}; re-run it there.`,
-    );
-    return 1;
-  }
+    ];
   const f = w.failed;
-  io.say(`The setup run failed on its "${f.step}" step: ${f.runUrl}`);
-  for (const l of f.tail.split("\n")) if (l !== "") io.say(`  ${l}`);
-  if (f.failedRuns !== null)
-    io.say(
-      f.gaveUp
-        ? `${f.failedRuns} setup runs have failed on ${SETUP_BRANCH}, the most setup tries: fix the step above in the pull request yourself, or close it and run setup again.`
-        : `${f.failedRuns} of 3 setup runs have failed: fix the step above and push to ${SETUP_BRANCH} to run it again.`,
-    );
-  else if (f.note === undefined)
-    io.say("How many setup runs have failed is unknown.");
-  if (f.note !== undefined) io.say(f.note);
-  return 1;
+  return [
+    `The setup run failed on its "${f.step}" step: ${f.runUrl}`,
+    ...f.tail
+      .split("\n")
+      .filter((l) => l !== "")
+      .map((l) => `  ${l}`),
+    ...(f.failedRuns !== null
+      ? [
+          f.gaveUp
+            ? `${f.failedRuns} setup runs have failed on ${SETUP_BRANCH}, the most setup tries: fix the step above in the pull request yourself, or close it and run setup again.`
+            : `${f.failedRuns} of 3 setup runs have failed: fix the step above and push to ${SETUP_BRANCH} to run it again.`,
+        ]
+      : f.note === undefined
+        ? ["How many setup runs have failed is unknown."]
+        : []),
+    ...(f.note === undefined ? [] : [f.note]),
+  ];
 }
 
 /** Each hole in the proposed app.json, asked; null is a cancel. */

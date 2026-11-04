@@ -18,6 +18,7 @@ import {
   browserFlagRefusal,
   demomanHome,
   headlessFrom,
+  type RepoDoors,
   serveCli,
 } from "@demoman/mcp/serve-cli";
 import { createUpdateCheck } from "@demoman/mcp/update-check";
@@ -62,6 +63,8 @@ import {
   neededSecrets,
   setSecrets,
 } from "./ci-secrets.js";
+import type { CiDeps } from "./ci-setup.js";
+import { createCiTool } from "./ci-tool.js";
 import { watchSetupRun } from "./ci-watch.js";
 import { ciSetup } from "./ci-workflow.js";
 import { deliver } from "./deliver.js";
@@ -238,6 +241,7 @@ async function mcp(args: string[]): Promise<void> {
         ...STUDIO_SPAWN,
       });
     },
+    repo: repoDoors(),
     log,
   });
 }
@@ -370,11 +374,43 @@ async function add(args: string[]): Promise<void> {
   }
   const root = repo.repo.root;
   const inRoot = (p: string) => relative(root, resolve(p));
-  const to: KeepOutput[] = asked.map(([fileType, arg]) => {
+  requirePageBundles(
+    join(fileURLToPath(new URL(".", import.meta.url)), "page"),
+    (line) => fail(line),
+  );
+  const answer = await keepInRepo(
+    root,
+    {
+      video,
+      to: outputsOf(asked, quality, deliver === "files" ? (p) => p : inRoot),
+      ...(values.report === undefined
+        ? {}
+        : {
+            report: deliver === "files" ? values.report : inRoot(values.report),
+          }),
+      deliver,
+    },
+    log,
+  );
+  if ("threw" in answer) return fail(answer.threw);
+  if (!answer.ok) return fail(answer.detail);
+  process.stdout.write(`${keepLines(answer).join("\n")}\n`);
+  process.exit(0);
+}
+
+/** Each `--to`/`--gif` (or the `add` tool's `to`/`gif`) as an output: a
+ *  path, with an optional `:auto`, `:16:9` or `:9:16` frame. `place` turns
+ *  the path into the one keep is given (`files` outputs are names, not
+ *  places: left as given). */
+function outputsOf(
+  asked: ReadonlyArray<readonly ["mp4" | "gif", string]>,
+  quality: KeepOutput["quality"],
+  place: (path: string) => string,
+): KeepOutput[] {
+  return asked.map(([fileType, arg]) => {
     const m = /^(.*):(auto|16:9|9:16)$/.exec(arg);
     return {
-      // `files` outputs are names, not places: left as given.
-      path: deliver === "files" ? (m?.[1] ?? arg) : inRoot(m?.[1] ?? arg),
+      path: place(m?.[1] ?? arg),
       fileType,
       quality,
       ...(m?.[2] === undefined
@@ -382,10 +418,15 @@ async function add(args: string[]): Promise<void> {
         : { aspect: m[2] as NonNullable<KeepOutput["aspect"]> }),
     };
   });
-  requirePageBundles(
-    join(fileURLToPath(new URL(".", import.meta.url)), "page"),
-    (line) => fail(line),
-  );
+}
+
+/** keepVideo in the repo at `root`, rendering out of sight in a browser of
+ *  its own, closed after; a throw is answered, never lost. */
+async function keepInRepo(
+  root: string,
+  args: Omit<Parameters<typeof keepVideo>[0], "repoRoot">,
+  log: (line: string) => void,
+): Promise<KeepAnswer | { threw: string }> {
   const home = demomanHome();
   const library = createLibrary(home);
   const videos = createVideoStore(home, library, { log });
@@ -399,18 +440,7 @@ async function add(args: string[]): Promise<void> {
   let answer: KeepAnswer | { threw: string };
   try {
     answer = await keepVideo(
-      {
-        video,
-        to,
-        ...(values.report === undefined
-          ? {}
-          : {
-              report:
-                deliver === "files" ? values.report : inRoot(values.report),
-            }),
-        deliver,
-        repoRoot: root,
-      },
+      { ...args, repoRoot: root },
       {
         home,
         library,
@@ -439,10 +469,70 @@ async function add(args: string[]): Promise<void> {
         log(`the browser would not close (${String(error)})`),
       );
   }
-  if ("threw" in answer) return fail(answer.threw);
-  if (!answer.ok) return fail(answer.detail);
-  process.stdout.write(`${keepLines(answer).join("\n")}\n`);
-  process.exit(0);
+  return answer;
+}
+
+/** The `add` and `ci` tools' doors (Task 13): what `add` and `setup --ci`
+ *  do, reached from the MCP server. Paths are the repo root's. */
+function repoDoors(): RepoDoors {
+  const rootOf = async (project: string | undefined) => {
+    const r = await readRepo(project ?? process.cwd(), execGit);
+    return r.ok ? { root: r.repo.root } : { none: r.none };
+  };
+  // Progress stops reaching the agent at stillRunning; the log keeps it.
+  const logged = (progress: (l: string) => void) => (l: string) => {
+    log(l);
+    progress(l);
+  };
+  const ci = createCiTool({
+    root: rootOf,
+    deps: (root, progress) => ciDeps(root, progress),
+  });
+  return {
+    add: async (a, progress) => {
+      const where = await rootOf(a.project);
+      if ("none" in where)
+        return {
+          reason: "notInRepo",
+          detail: `${where.none}; pass project, the absolute path of the repo the flow belongs to`,
+        };
+      const { root } = where;
+      const answer = await keepInRepo(
+        root,
+        {
+          video: a.flow,
+          // Share, as the terminal's add: every refresh commits these again.
+          to: outputsOf(
+            [
+              ...a.to.map((p) => ["mp4", p] as const),
+              ...(a.gif ?? []).map((p) => ["gif", p] as const),
+            ],
+            "share",
+            (p) => relative(root, resolve(root, p)),
+          ),
+          deliver: "commit",
+        },
+        logged(progress),
+      );
+      if ("threw" in answer) return { reason: "threw", detail: answer.threw };
+      if (!answer.ok) return { reason: answer.reason, detail: answer.detail };
+      return {
+        outcome: "added",
+        summary: keepLines(answer)[0],
+        file: answer.file,
+        written: answer.written,
+        moved: answer.moved,
+        notes: [
+          answer.scaleGuess,
+          answer.screensNote,
+          answer.markNote,
+          answer.platformNote,
+        ].filter((n) => n !== undefined),
+      };
+    },
+    // Lines reach `logged` already redacted.
+    ci: (a, progress) => ci(a, logged(progress)),
+  };
 }
 
 /** `demoman remove`: a flow out of the repo; its exports stay. */
@@ -506,6 +596,44 @@ function keptRefreshDeps(
     session,
     env,
     log: say,
+  };
+}
+
+/** Everything setup's plan reads and does, `gh` bound to the root; the
+ *  watch's lines go to `progress`. Both doors (`setup --ci`, the `ci` tool). */
+function ciDeps(
+  root: string,
+  progress: (line: string) => void,
+): Omit<CiDeps, "log" | "signal"> {
+  const gh = realGh(root);
+  return {
+    version: VERSION,
+    env: process.env,
+    git: execGit,
+    readGithub: (r) => readGithub(gh, r),
+    detectApp,
+    neededSecrets,
+    localValues,
+    envFileValues,
+    existingSecrets: (slug) => existingSecrets(gh, slug),
+    verifySetup: (a, d) =>
+      verifySetup(a, {
+        git: execGit,
+        refresh: checkRefresh(d.log),
+        docker: realDocker(d.log),
+        log: d.log,
+        ...(d.signal === undefined ? {} : { signal: d.signal }),
+      }),
+    setSecrets: (...a) => setSecrets(gh, ...a),
+    allowActionPullRequests: (slug) => allowActionPullRequests(gh, slug),
+    openSetupPr: (a) => openSetupPr(a, { git: execGit, gh }),
+    watchSetupRun: (a) =>
+      watchSetupRun(a, {
+        gh,
+        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        now: Date.now,
+        progress,
+      }),
   };
 }
 
@@ -735,39 +863,7 @@ switch (command) {
             if (r.ok) ciRoot = r.repo.root;
             return r.ok ? { root: r.repo.root } : { none: r.none };
           },
-          deps: (root) => {
-            const gh = realGh(root);
-            return {
-              version: VERSION,
-              env: process.env,
-              git: execGit,
-              readGithub: (r) => readGithub(gh, r),
-              detectApp,
-              neededSecrets,
-              localValues,
-              envFileValues,
-              existingSecrets: (slug) => existingSecrets(gh, slug),
-              verifySetup: (a, d) =>
-                verifySetup(a, {
-                  git: execGit,
-                  refresh: checkRefresh(d.log),
-                  docker: realDocker(d.log),
-                  log: d.log,
-                  ...(d.signal === undefined ? {} : { signal: d.signal }),
-                }),
-              setSecrets: (...a) => setSecrets(gh, ...a),
-              allowActionPullRequests: (slug) =>
-                allowActionPullRequests(gh, slug),
-              openSetupPr: (a) => openSetupPr(a, { git: execGit, gh }),
-              watchSetupRun: (a) =>
-                watchSetupRun(a, {
-                  gh,
-                  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-                  now: Date.now,
-                  progress: say,
-                }),
-            };
-          },
+          deps: (root) => ciDeps(root, say),
           exists: (p) => existsSync(join(ciRoot, p)),
           onInterrupt: (stop) => {
             process.on("SIGINT", stop);

@@ -41,20 +41,24 @@ const tree = (d: string): string[] =>
  *  skipped, which no tool answers), and the tools themselves. */
 const CLI_SOURCES = [
   ...dir("apps/mcp/src"),
-  // keep's reasons answer `npx demoman keep` at the terminal, not a tool call.
-  ...dir("apps/runner/src/executor").filter((f) => !f.endsWith("/keep.ts")),
+  // keep.ts's reasons answer the `add` tool (Task 13), as `npx demoman add`.
+  ...dir("apps/runner/src/executor"),
   "apps/runner/src/platform.ts",
   ...tree("packages/run-core/src").filter((f) => !f.endsWith("auto-zoom.ts")),
+  // The `ci` tool's door and the setup core it drives, GitHub's reads with it.
+  "apps/cli/src/ci-tool.ts",
+  "apps/cli/src/ci-setup.ts",
+  "apps/cli/src/ci-github.ts",
 ];
 /** Answered by tools.ts itself rather than spelled through a helper the
  *  scan reads. */
 const CLI_TOOL_REASONS = ["browserSilent", "unknownRun"];
 /** Every way a reason is spelled where it is answered: a helper's first
- *  argument (`failure(`, `refused(`, `refusal(`, `refuse(` and the door's
- *  `refuseBeforeRun(`), a `LibraryError`'s or `VideoError`'s, or a
- *  `reason`/`failed` field. */
+ *  argument (`failure(`, `refused(`, `refusal(`, `refuse(`, the door's
+ *  `refuseBeforeRun(`, the setup check's `fail(` and setup's `stop(`), a
+ *  `LibraryError`'s or `VideoError`'s, or a `reason`/`failed` field. */
 const REASON =
-  /(?:failure|refuseBeforeRun|refused|refusal|refuse|new LibraryError|new VideoError)\(\s*"(\w+)"|reason\s*[:=]\s*"(\w+)"|failed\s*:\s*"(\w+)"/g;
+  /(?:failure|refuseBeforeRun|refused|refusal|refuse|fail|stop|new LibraryError|new VideoError)\(\s*"(\w+)"|reason\s*[:=]\s*"(\w+)"|failed\s*:\s*"(\w+)"/g;
 function reasonsInCode(sources: string[] = CLI_SOURCES): string[] {
   const found = new Set<string>();
   for (const file of sources) {
@@ -347,22 +351,24 @@ describe("the CLI's recipe", () => {
     );
     expect(mergeCallers, "an agent tool now calls videos.merge").toEqual([]);
     // markMoved: the Studio's upkeep keys a kept mark; no agent tool calls it.
-    // appInvalid: parseApp answers it, but no agent tool reads .demoman/app.json
-    // yet; drop it here when the `ci` tool lands and the recipe names it.
-    // The app* start refusals (startApp) likewise reach no agent tool until
-    // refresh and the `ci` tool call startApp; drop them with appInvalid.
-    // appOriginMismatch: only `refresh` raises it, at the terminal.
+    // appOriginMismatch: only `refresh` raises it (appPlanFor), at the
+    // terminal; the `ci` tool's check refreshes without it.
+    // repoCheckoutMissing: renameKept's, the Studio's rename only; `add` is
+    // keepVideo, which never answers it.
+    // checkStopped: the check stops only on an abort signal, and the `ci`
+    // tool gives it none (no cancellation through MCP yet).
+    // planWithoutFiles: applyCiSetup's answer to a copied plan; the `ci` tool
+    // applies only the plan object it kept (ci-tool.ts).
+    // envFileUnreadable: only setup --ci's --env-file reads a .env; the `ci`
+    // tool takes no env file (a value never passes through the agent).
     const TERMINAL_REASONS = [
       "sameFlow",
       "markMoved",
-      "appInvalid",
-      "appInstallFailed",
-      "appStartExited",
-      "appNeverAnswered",
-      "appServiceFailed",
-      "appPortTaken",
-      "appDockerMissing",
       "appOriginMismatch",
+      "repoCheckoutMissing",
+      "checkStopped",
+      "planWithoutFiles",
+      "envFileUnreadable",
     ];
     const reasons = [...reasonsInCode(CLI_SOURCES), ...CLI_TOOL_REASONS].filter(
       (r) => !TERMINAL_REASONS.includes(r),
@@ -386,7 +392,19 @@ describe("the CLI's recipe", () => {
         "videoUnwritable",
         "invalidProject",
         "unsupportedPlatform",
+        // The repo doors: keep's, the start's, the check's, setup's.
+        "handSignIn",
+        "appInvalid",
+        "appPortTaken",
+        "checkoutFailed",
+        "setupPrOpen",
+        "githubUnreadable",
+        "noSetupBranch",
       ]),
+    );
+    // Premise: each exemption is a reason the scan finds, or it exempts nothing.
+    expect(reasonsInCode(CLI_SOURCES)).toEqual(
+      expect.arrayContaining(TERMINAL_REASONS),
     );
     // The recipe names a reason as agents are served it (served-words.ts):
     // the code keeps the library's own names.
@@ -428,6 +446,20 @@ describe("the CLI's recipe", () => {
         .filter((k) => !notACliStop.includes(k))
         .filter((k) => !RECIPE.includes(`\`${k}\``)),
     ).toEqual([]);
+  });
+
+  // Task 13: the repo flows and CI are tools now. Red if the recipe stops
+  // naming them, sends the agent to the terminal to add a flow, or loses the
+  // rules the `ci` tool rests on (Decision 4, a value never through you).
+  it("teaches the add and ci tools, not npx demoman add", () => {
+    const sec = RECIPE.slice(RECIPE.indexOf("## 8. Repo flows and CI"));
+    expect(sec.length, "the section was found").toBeGreaterThan(300);
+    expect(sec).toMatch(/`add\(/);
+    expect(sec).toMatch(/`ci\(/);
+    expect(RECIPE).not.toContain("npx demoman add");
+    expect(sec).toContain("`confirmed: true`");
+    expect(sec).toContain("`command`");
+    expect(sec).toContain("`ci({ watch: true })`");
   });
 
   // Red if a `run({ takeId })` line comes back (run refuses takeId), or the

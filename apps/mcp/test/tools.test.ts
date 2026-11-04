@@ -20,6 +20,7 @@ import type { Link } from "../src/local-link";
 import type { LinksFor } from "../src/session-links";
 import {
   progressReading,
+  type RepoDoors,
   registerTools,
   type StudioToolAnswer,
 } from "../src/tools";
@@ -47,6 +48,7 @@ async function connect(
   updateCheck?: () => Promise<UpdateAnswer>,
   studio?: (args: { takeId?: string }) => Promise<StudioToolAnswer>,
   links?: LinksFor,
+  repo?: RepoDoors,
 ) {
   const calls: Array<{ op: string; args: Record<string, unknown> }> = [];
   const link: Link = {
@@ -70,6 +72,7 @@ async function connect(
     ...(updateCheck === undefined ? {} : { updateCheck }),
     ...(studio === undefined ? {} : { studio }),
     ...(links === undefined ? {} : { links }),
+    ...(repo === undefined ? {} : { repo }),
     capMs,
     newId: () => `id-${++n}`,
   });
@@ -1736,6 +1739,8 @@ describe("demoman-mcp's tools", () => {
       undefined,
       undefined,
       async () => ({ outcome: "opened" }),
+      undefined,
+      { add: async () => ({}), ci: async () => ({}) },
     );
     const tools = (await client.listTools()).tools;
     const table = TOOL_ANNOTATIONS as Record<string, Record<string, unknown>>;
@@ -1759,6 +1764,17 @@ describe("demoman-mcp's tools", () => {
       expect(table[n], n).toMatchObject({ destructiveHint: false });
       expect(table[n]?.readOnlyHint, n).not.toBe(true);
     }
+    // add can replace files in the repo; ci sets GitHub secrets (replacing
+    // one when asked) and opens a pull request under the user's account.
+    expect(table.add).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+    });
+    expect(table.ci).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    });
     // It posts under the user's GitHub account, to a PR anyone can read.
     expect(table.attach).toEqual({
       readOnlyHint: false,
@@ -1844,6 +1860,177 @@ describe("demoman-mcp's tools", () => {
       reason: "videoNotFound",
       detail: "No video has the id nope.",
     });
+  });
+});
+
+// Task 13: the repo doors, injected by the CLI bin as the Studio is, reaching
+// the CLI's own core. These tests hold this file's part: listing, the
+// arguments passed on as given, stops as refusals, and the long-call cap.
+// The ci door's own rules (confirmed, values) are apps/cli/test/ci-tool.test.ts.
+describe("the add and ci tools", () => {
+  const withRepo = (repo: RepoDoors, capMs = 200) =>
+    connect({}, capMs, undefined, undefined, undefined, undefined, repo);
+  const names = async (c: Client) =>
+    (await c.listTools()).tools.map((t) => t.name);
+
+  // Red if either is registered whether or not the bin injected the doors:
+  // demoman-mcp has no CLI core to reach.
+  it("lists neither without the repo doors, and both with them", async () => {
+    const without = await connect({});
+    expect(await names(without.client)).not.toContain("add");
+    expect(await names(without.client)).not.toContain("ci");
+    const withIt = await withRepo({
+      add: async () => ({}),
+      ci: async () => ({}),
+    });
+    expect(await names(withIt.client)).toEqual(
+      expect.arrayContaining(["add", "ci"]),
+    );
+  });
+
+  // Red if the tool sets confirmed (or drops a choice) on its way to the
+  // door: Decision 4 rests on the agent's own confirmed.
+  it("passes ci's arguments on as given, and answers the plan", async () => {
+    const asked: unknown[] = [];
+    const { client } = await withRepo({
+      add: async () => ({}),
+      ci: async (a) => {
+        asked.push(a);
+        return {
+          outcome: "plan",
+          lines: ["Records the repo flows once a day."],
+        };
+      },
+    });
+    const r = await client.callTool({
+      name: "ci",
+      arguments: { trigger: { deployment: "production" }, route: "pr" },
+    });
+    expect(r.isError).not.toBe(true);
+    expect(textOf(r)).toEqual({
+      outcome: "plan",
+      lines: ["Records the repo flows once a day."],
+    });
+    expect(asked).toEqual([
+      { trigger: { deployment: "production" }, route: "pr" },
+    ]);
+  });
+
+  // Red if a stop reads as an ordinary answer (CLAUDE.md, "Report before
+  // you forgive"), or loses the fields beside reason and detail.
+  it("answers a stop as a refusal with its reason, detail and fields", async () => {
+    const { client } = await withRepo({
+      add: async () => ({ reason: "unknownVideo", detail: 'no flow "x"' }),
+      ci: async () => ({
+        reason: "secretMissing",
+        detail: "no value for DEMOMAN_SECRET_SELLER",
+        secrets: [{ name: "DEMOMAN_SECRET_SELLER" }],
+        command: "npx demoman setup --ci",
+      }),
+    });
+    const c = await client.callTool({ name: "ci", arguments: {} });
+    expect(c.isError).toBe(true);
+    expect(textOf(c)).toEqual({
+      reason: "secretMissing",
+      detail: "no value for DEMOMAN_SECRET_SELLER",
+      secrets: [{ name: "DEMOMAN_SECRET_SELLER" }],
+      command: "npx demoman setup --ci",
+    });
+    const a = await client.callTool({
+      name: "add",
+      arguments: { flow: "x", to: ["docs/x.mp4"] },
+    });
+    expect(a.isError).toBe(true);
+    // In the words agents are served.
+    expect(textOf(a)).toMatchObject({ reason: "unknownFlow" });
+  });
+
+  // Red if a door that throws is answered as anything but a refusal.
+  it("answers a door that throws as a refusal naming the fault", async () => {
+    const { client } = await withRepo({
+      add: async () => {
+        throw new Error("disk full");
+      },
+      ci: async () => ({}),
+    });
+    const r = await client.callTool({
+      name: "add",
+      arguments: { flow: "x", to: ["docs/x.mp4"] },
+    });
+    expect(r.isError).toBe(true);
+    expect(textOf(r)).toEqual({ reason: "threw", detail: "disk full" });
+  });
+
+  // Red if a call past the cap is waited on (an MCP client cuts it), or
+  // report asks the page for an id only this process holds.
+  it("answers stillRunning past the cap, and report(id) the settled answer", async () => {
+    let land: (v: Record<string, unknown>) => void = () => {};
+    const { client, calls } = await withRepo(
+      {
+        add: () =>
+          new Promise((r) => {
+            land = r;
+          }),
+        ci: async () => ({}),
+      },
+      100,
+    );
+    const first = await client.callTool({
+      name: "add",
+      arguments: { flow: "x", to: ["docs/x.mp4"] },
+    });
+    expect(textOf(first)).toEqual({ outcome: "stillRunning", id: "id-1" });
+    const pending = await client.callTool({
+      name: "report",
+      arguments: { id: "id-1" },
+    });
+    expect(textOf(pending)).toEqual({ outcome: "stillRunning", id: "id-1" });
+    land({ outcome: "added", file: ".demoman/flows/x.json" });
+    const r = await client.callTool({
+      name: "report",
+      arguments: { id: "id-1" },
+    });
+    expect(textOf(r)).toEqual({
+      outcome: "added",
+      file: ".demoman/flows/x.json",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  // Red if a door's progress line does not reach the person as itself.
+  it("sends the door's progress lines as the message", async () => {
+    const { client } = await withRepo({
+      add: async () => ({}),
+      ci: async (_a, progress) => {
+        progress("Checking from a clean checkout: start with npm start");
+        return { outcome: "plan" };
+      },
+    });
+    const seen: Array<{ message?: string }> = [];
+    await client.callTool({ name: "ci", arguments: {} }, undefined, {
+      onprogress: (p) => seen.push(p),
+    });
+    expect(seen.map((p) => p.message)).toEqual([
+      "Checking from a clean checkout: start with npm start",
+    ]);
+  });
+
+  // Red if add with nothing to write reaches the door.
+  it("refuses an add with no output before the door", async () => {
+    const asked: unknown[] = [];
+    const { client } = await withRepo({
+      add: async (a) => {
+        asked.push(a);
+        return {};
+      },
+      ci: async () => ({}),
+    });
+    const r = await client.callTool({
+      name: "add",
+      arguments: { flow: "x", to: [] },
+    });
+    expect(textOf(r)).toMatchObject({ reason: "invalidArgs" });
+    expect(asked).toEqual([]);
   });
 });
 

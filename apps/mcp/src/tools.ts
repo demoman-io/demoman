@@ -253,6 +253,8 @@ export function progressReading(value: unknown): {
   if (v?.phase === "posting") {
     return { at: 0, message: "Posting the video to the pull request" };
   }
+  // The repo doors (`add`, `ci`) send their lines as they are.
+  if (typeof value === "string") return { at: 0, message: value };
   return { at: 0, message: JSON.stringify(value) };
 }
 
@@ -399,6 +401,31 @@ export type StudioToolAnswer =
   | { outcome: "opened"; takeId?: string; note?: string }
   | { reason: string; detail: string };
 
+/** The `add` and `ci` tools' doors (Task 13), given only by the CLI bin, as
+ *  the studio is: they reach the CLI's own core. Each answers an object; one
+ *  with a `reason` is a refusal. Never rejects on purpose; a rejection is
+ *  answered as `threw`. */
+export type RepoDoors = {
+  add(
+    a: { flow: string; to: string[]; gif?: string[]; project?: string },
+    progress: (line: string) => void,
+  ): Promise<Record<string, unknown>>;
+  ci(
+    a: {
+      trigger?: "release" | "daily" | "push" | { deployment: string };
+      route?: "pr" | "main";
+      artifact?: boolean;
+      app?: Record<string, unknown>;
+      replaceSecrets?: string[];
+      confirmed?: boolean;
+      watch?: boolean;
+      project?: string;
+    },
+    progress: (line: string) => void,
+  ): Promise<Record<string, unknown>>;
+};
+type RepoOp = "add" | "ci";
+
 export function registerTools(
   server: McpServer,
   bare: Link,
@@ -412,6 +439,8 @@ export function registerTools(
     /** Opens the studio window (launch D2). Given only by the CLI bin, so
      *  `demoman-mcp` lists no `studio` tool. */
     studio?: (args: { takeId?: string }) => Promise<StudioToolAnswer>;
+    /** The `add` and `ci` tools (Task 13). Given only by the CLI bin. */
+    repo?: RepoDoors;
     /** The links a saved export ends on (`session-links.ts`). Given only
      *  by the CLI path; absent, an export answers without them. */
     links?: LinksFor;
@@ -440,7 +469,7 @@ export function registerTools(
   const calls = new Map<
     string,
     {
-      op: "run" | "export" | "snapshot" | "probe" | "attach";
+      op: "run" | "export" | "snapshot" | "probe" | "attach" | RepoOp;
       call: Promise<Outcome>;
       watched: Watched;
     }
@@ -512,30 +541,64 @@ export function registerTools(
     };
   };
 
+  /** A repo door's answer: one with a `reason` is a refusal, with every
+   *  field it carries beside reason and detail. */
+  const repoAnswer = (o: Outcome): ToolResult => {
+    if (!o.ok) return fromOutcome(o);
+    const v = o.value as Record<string, unknown>;
+    if (typeof v.reason !== "string") return ok(v);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            { ...v, reason: servedReason(v.reason) },
+            null,
+            2,
+          ),
+        },
+      ],
+      isError: true,
+    };
+  };
+
   /** A settled call's answer: an export's with its links, a run's or
    *  probe's with its still. */
   const answer = async (op: string, o: Outcome): Promise<ToolResult> =>
-    op === "export"
-      ? fromOutcome(served(op, await withLinks(o)))
-      : op === "run" || op === "probe"
-        ? withStill(served(op, o))
-        : fromOutcome(served(op, o));
+    op === "add" || op === "ci"
+      ? repoAnswer(o)
+      : op === "export"
+        ? fromOutcome(served(op, await withLinks(o)))
+        : op === "run" || op === "probe"
+          ? withStill(served(op, o))
+          : fromOutcome(served(op, o));
 
   const longCall = async (
-    op: "run" | "export" | "snapshot" | "probe" | "attach",
+    op: "run" | "export" | "snapshot" | "probe" | "attach" | RepoOp,
     args: Record<string, unknown>,
     extra: Extra,
+    /** A call this process runs itself, rather than one sent to the page. */
+    local?: (progress: (value: unknown) => void) => Promise<Outcome>,
   ): Promise<ToolResult> => {
     const id = newId();
     const progress = progressSender(extra);
     const watched: Watched = { latest: undefined, settled: false, watch: null };
-    // The id rides with the call, so the page that takes it can answer
-    // `report` for THIS call and refuse an id it never ran.
-    const call = link.request(op, { ...args, callId: id }, (value) => {
+    const onProgress = (value: unknown) => {
       watched.latest = value;
       progress.send(value);
       watched.watch?.(value);
-    });
+    };
+    // The id rides with the call, so the page that takes it can answer
+    // `report` for THIS call and refuse an id it never ran.
+    // add and ci always come with `local`.
+    const call =
+      local === undefined
+        ? link.request(
+            op as Exclude<typeof op, RepoOp>,
+            { ...args, callId: id },
+            onProgress,
+          )
+        : local(onProgress);
     const settle = () => {
       watched.settled = true;
     };
@@ -836,6 +899,73 @@ export function registerTools(
     },
   );
 
+  const repo = options.repo;
+  if (repo !== undefined) {
+    /** A door's answer as an Outcome; a rejection is said, never lost. */
+    const settled = (p: Promise<Record<string, unknown>>): Promise<Outcome> =>
+      p.then(
+        (value) => ({ ok: true, value }),
+        (error: unknown) => ({
+          ok: true,
+          value: {
+            reason: "threw",
+            detail: error instanceof Error ? error.message : String(error),
+          },
+        }),
+      );
+    server.registerTool(
+      "add",
+      {
+        annotations: TOOL_ANNOTATIONS.add,
+        description:
+          'Add a flow to the repo, as `npx demoman add` does: its script in .demoman/flows/ and its exports in the repo, for the person to commit with the change. flow is the flow\'s id (flows lists them) or exact name; to lists MP4 paths and gif GIF paths, relative to the repo root, each optionally ending :auto, :16:9 or :9:16 for the frame; at least one. project: absolute path of another checkout. Answers {outcome: "added", file, written, moved, notes}; past about 50 s {outcome: "stillRunning", id}, then call report. A refusal carries reason and detail.',
+        inputSchema: {
+          flow: z.string().min(1),
+          to: z.array(z.string().min(1)),
+          gif: z.array(z.string().min(1)).optional(),
+          project: z.string().min(1).optional(),
+        },
+      },
+      async (args, extra) => {
+        if (args.to.length + (args.gif?.length ?? 0) === 0)
+          return refused(
+            "invalidArgs",
+            "add needs at least one output: a path in to (MP4) or gif",
+          );
+        return longCall("add", {}, extra as unknown as Extra, (p) =>
+          settled(repo.add(args, p)),
+        );
+      },
+    );
+    server.registerTool(
+      "ci",
+      {
+        annotations: TOOL_ANNOTATIONS.ci,
+        description:
+          'Set up CI to refresh the repo\'s flows (as `npx demoman setup --ci`): checks the refresh from a clean checkout of the repo (minutes), then answers {outcome: "plan", plan, lines, next} and does nothing else. Show the person lines; only on their yes, call again with the same choices and confirmed: true, which applies that plan: sets the repo\'s GitHub secrets, turns on the Actions setting for pull requests, opens the pull request "Set up Demoman" from demoman/setup, and watches its run: {outcome: "opened", pr, check, secrets, setting, run, lines}. trigger: release, daily, push or {deployment: <environment>}; absent, the plan\'s default. route: pr or main. app: the .demoman/app.json you propose ({appVersion: 1, install, start, url, ...}), written to the working tree uncommitted. watch: true watches the newest run on demoman/setup after you pushed a fix there; outcome gaveUp after three failed runs: hand back. A secret\'s value never passes through you: secretMissing or secretTooShort names the secrets and gives command for the person to run in their terminal. Past about 50 s {outcome: "stillRunning", id}, then call report. A refusal carries reason and detail.',
+        inputSchema: {
+          trigger: z
+            .union([
+              z.enum(["release", "daily", "push"]),
+              z.object({ deployment: z.string().min(1) }).strict(),
+            ])
+            .optional(),
+          route: z.enum(["pr", "main"]).optional(),
+          artifact: z.boolean().optional(),
+          app: z.record(z.string(), z.unknown()).optional(),
+          replaceSecrets: z.array(z.string().min(1)).optional(),
+          confirmed: z.boolean().optional(),
+          watch: z.boolean().optional(),
+          project: z.string().min(1).optional(),
+        },
+      },
+      async (args, extra) =>
+        longCall("ci", {}, extra as unknown as Extra, (p) =>
+          settled(repo.ci(args, p)),
+        ),
+    );
+  }
+
   const openStudio = options.studio;
   if (openStudio !== undefined) {
     server.registerTool(
@@ -874,7 +1004,7 @@ export function registerTools(
     {
       annotations: TOOL_ANNOTATIONS.report,
       description:
-        'The report of a run, export, attach or snapshot this server started, by the id stillRunning or queued gave. Waits up to about 40 s; if it has not finished, answers {outcome: "queued", …} while it waits in line, then its progress so far: {outcome: "running", …} for a run, {outcome: "exporting", …} for an export, {outcome: "attaching", …} for an attach, {outcome: "stillRunning", id} for a snapshot or probe.',
+        'The report of a run, export, attach, snapshot, probe, add or ci this server started, by the id stillRunning or queued gave. Waits up to about 40 s; if it has not finished, answers {outcome: "queued", …} while it waits in line, then its progress so far: {outcome: "running", …} for a run, {outcome: "exporting", …} for an export, {outcome: "attaching", …} for an attach, {outcome: "stillRunning", id} for a snapshot, probe, add or ci.',
       inputSchema: { id: z.string().min(1) },
     },
     async ({ id }, extra) => {
@@ -882,7 +1012,7 @@ export function registerTools(
       if (entry === undefined) {
         return refused(
           "unknownRun",
-          `no run, export, attach, snapshot or probe with id ${id} was started by this demoman-mcp — ids do not survive a restart of the server`,
+          `no run, export, attach, snapshot, probe, add or ci with id ${id} was started by this demoman-mcp — ids do not survive a restart of the server`,
         );
       }
       // One deadline over both waits below (REPORT_CALL_SHARE).
@@ -906,17 +1036,14 @@ export function registerTools(
         outcome !== STILL_RUNNING &&
         !outcome.ok &&
         (outcome.reason === "bridgeLost" || outcome.reason === "hubSilent");
-      if (
-        outcome !== STILL_RUNNING &&
-        (!lostCall || entry.op === "snapshot" || entry.op === "probe")
-      ) {
+      // The page keeps no snapshot by id, and add and ci run in this
+      // process: this server's call is the only place their answer lands.
+      const onlyHere = ["snapshot", "probe", "add", "ci"].includes(entry.op);
+      if (outcome !== STILL_RUNNING && (!lostCall || onlyHere)) {
         return answer(entry.op, outcome);
       }
-      if (outcome === STILL_RUNNING) {
-        // The page keeps no snapshot by id: this server's call is the only
-        // place its answer will land.
-        if (entry.op === "snapshot" || entry.op === "probe")
-          return ok({ outcome: "stillRunning", id });
+      if (outcome === STILL_RUNNING && onlyHere) {
+        return ok({ outcome: "stillRunning", id });
       }
       // Still going, or its call was lost with the socket while it carried
       // on in the page: the page that took THIS call is the one that knows.
