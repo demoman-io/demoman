@@ -66,6 +66,9 @@ export async function readGithub(
   root: string,
 ): Promise<GithubFacts | GhUnusable | Unreadable> {
   const v = await gh(["--version"]);
+  if (v.code !== 0 && !(v.code === 127 || /ENOENT/.test(v.stderr))) {
+    return unreadable("whether the GitHub CLI runs (gh --version)", v.stderr);
+  }
   if (v.code !== 0) {
     return {
       reason: "ghMissing",
@@ -87,9 +90,7 @@ export async function readGithub(
   ]);
   if (view.code !== 0) {
     if (
-      /not a git repository|known GitHub host|no git remotes|Could not resolve to a Repository/i.test(
-        view.stderr,
-      )
+      /not a git repository|known GitHub host|no git remotes/i.test(view.stderr)
     ) {
       return {
         reason: "notGitHub",
@@ -97,11 +98,17 @@ export async function readGithub(
           "this checkout has no GitHub remote; CI setup needs a repo on github.com",
       };
     }
+    if (/Could not resolve to a Repository/i.test(view.stderr)) {
+      return unreadable(
+        "the repo (gh repo view)",
+        "GitHub does not show this repo to the signed-in account; check that account has access to it",
+      );
+    }
     return unreadable("the repo (gh repo view)", view.stderr);
   }
   let repo: {
     nameWithOwner: string;
-    defaultBranchRef: { name: string };
+    defaultBranchRef: { name: string } | null;
     viewerPermission: string;
   };
   try {
@@ -110,10 +117,22 @@ export async function readGithub(
     return unreadable("the repo (gh repo view)", "the answer was not JSON");
   }
   const slug = repo.nameWithOwner;
+  if (!repo.defaultBranchRef?.name) {
+    return {
+      reason: "githubUnreadable",
+      detail:
+        "the repo has no default branch yet; push a first commit, then run setup again",
+    };
+  }
   const defaultBranch = repo.defaultBranchRef.name;
 
   const dep = await read(gh, ["api", `repos/${slug}/deployments?per_page=30`]);
-  if (!dep.ok) return unreadable(`repos/${slug}/deployments`, dep.why);
+  if (!dep.ok || !Array.isArray(dep.json)) {
+    return unreadable(
+      `repos/${slug}/deployments`,
+      dep.ok ? "the answer was not a list" : dep.why,
+    );
+  }
   const found: Array<{ id: number; d: GithubFacts["deployments"][number] }> =
     [];
   // The API lists newest first: walk each environment's deployments until one is a success.
@@ -128,8 +147,11 @@ export async function readGithub(
       "api",
       `repos/${slug}/deployments/${d.id}/statuses?per_page=30`,
     ]);
-    if (!st.ok)
-      return unreadable(`repos/${slug}/deployments/${d.id}/statuses`, st.why);
+    if (!st.ok || !Array.isArray(st.json))
+      return unreadable(
+        `repos/${slug}/deployments/${d.id}/statuses`,
+        st.ok ? "the answer was not a list" : st.why,
+      );
     const win = (
       st.json as Array<{
         state: string;
@@ -199,7 +221,8 @@ export async function readGithub(
 export type ActionsSetting =
   | { kind: "alreadyOn" }
   | { kind: "turnedOn" }
-  | { kind: "refused"; detail: string; url: string };
+  | { kind: "refused"; detail: string; url: string }
+  | { kind: "unknown"; detail: string; url: string };
 
 export async function allowActionPullRequests(
   gh: Gh,
@@ -207,8 +230,16 @@ export async function allowActionPullRequests(
 ): Promise<ActionsSetting> {
   const url = `https://github.com/${slug}/settings/actions`;
   const path = `repos/${slug}/actions/permissions/workflow`;
-  const refused = (what: string, stderr: string): ActionsSetting => {
+  // Only an HTTP 403/409 is GitHub saying no; anything else leaves the outcome unknown.
+  const fail = (what: string, stderr: string): ActionsSetting => {
     const msg = stderr.trim().split("\n")[0] || "no message";
+    if (!/HTTP (403|409)/.test(stderr)) {
+      return {
+        kind: "unknown",
+        detail: `could not ${what} (${msg}); nothing was assumed. Check it at ${url}, or run setup again`,
+        url,
+      };
+    }
     const why = /organi[sz]ation|enterprise/i.test(msg)
       ? "it reads as locked by the organisation"
       : "it reads as missing admin on the repo";
@@ -219,7 +250,7 @@ export async function allowActionPullRequests(
     };
   };
   const got = await gh(["api", path]);
-  if (got.code !== 0) return refused("reading the Actions setting", got.stderr);
+  if (got.code !== 0) return fail("read the Actions setting", got.stderr);
   let cur: {
     default_workflow_permissions: string;
     can_approve_pull_request_reviews: boolean;
@@ -227,7 +258,7 @@ export async function allowActionPullRequests(
   try {
     cur = JSON.parse(got.stdout);
   } catch {
-    return refused("reading the Actions setting", "the answer was not JSON");
+    return fail("read the Actions setting", "the answer was not JSON");
   }
   if (cur.can_approve_pull_request_reviews) return { kind: "alreadyOn" };
   const put = await gh(["api", path, "-X", "PUT", "--input", "-"], {
@@ -238,5 +269,5 @@ export async function allowActionPullRequests(
   });
   return put.code === 0
     ? { kind: "turnedOn" }
-    : refused("turning on pull requests from workflows", put.stderr);
+    : fail("confirm pull requests from workflows were turned on", put.stderr);
 }

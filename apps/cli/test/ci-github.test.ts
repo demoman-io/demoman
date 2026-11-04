@@ -106,6 +106,49 @@ describe("readGithub", () => {
     expect(r).toMatchObject({ reason: "notGitHub" });
   });
 
+  it("a gh --version that fails for another reason is githubUnreadable, not ghMissing", async () => {
+    const r = await readGithub(
+      fake({ "--version": { code: 1, stderr: "boom" } }),
+      "/x",
+    );
+    expect(r).toMatchObject({ reason: "githubUnreadable" });
+  });
+  it("an inaccessible repo is githubUnreadable naming access, not notGitHub", async () => {
+    const r = await readGithub(
+      fake({
+        "repo view --json nameWithOwner,defaultBranchRef,viewerPermission": {
+          code: 1,
+          stderr:
+            "GraphQL: Could not resolve to a Repository with the name 'o/r'.",
+        },
+      }),
+      "/x",
+    );
+    expect(r).toMatchObject({ reason: "githubUnreadable" });
+    expect((r as { detail: string }).detail).toContain("access");
+  });
+  it("an empty repo (no default branch) is githubUnreadable asking for a first commit", async () => {
+    const r = await readGithub(
+      fake({
+        "repo view --json nameWithOwner,defaultBranchRef,viewerPermission": ok({
+          nameWithOwner: S,
+          defaultBranchRef: null,
+          viewerPermission: "ADMIN",
+        }),
+      }),
+      "/x",
+    );
+    expect(r).toMatchObject({ reason: "githubUnreadable" });
+    expect((r as { detail: string }).detail).toContain("push a first commit");
+  });
+  it("a deployments answer of null is githubUnreadable, not a throw", async () => {
+    const r = await readGithub(
+      fake({ [`api repos/${S}/deployments?per_page=30`]: ok(null) }),
+      checkout(false),
+    );
+    expect(r).toMatchObject({ reason: "githubUnreadable" });
+  });
+
   it("reads the repo, its permissions, and a missing workflow and setup branch", async () => {
     const r = await readGithub(fake(), checkout(false));
     expect(r).toEqual({
@@ -274,6 +317,42 @@ describe("allowActionPullRequests", () => {
     const d = (r as { detail: string }).detail;
     expect(d).toContain("controlled by the organization");
     expect(d).toContain("organisation");
+  });
+  const gets = {
+    default_workflow_permissions: "read",
+    can_approve_pull_request_reviews: false,
+  };
+  const notAskedAboutAdmin = (r: { kind: string; detail?: string }) => {
+    expect(r.kind).toBe("unknown");
+    expect(r.detail).not.toMatch(/admin|organisation/i);
+    expect(r.detail).toContain(`https://github.com/${S}/settings/actions`);
+  };
+  it("a 500 on the GET is unknown, never refused", async () => {
+    notAskedAboutAdmin(
+      await allowActionPullRequests(
+        fake({ [path]: http(500, "Server Error") }),
+        S,
+      ),
+    );
+  });
+  it("a 502 on the PUT is unknown, never refused", async () => {
+    notAskedAboutAdmin(
+      await allowActionPullRequests(
+        fake({
+          [path]: ok(gets),
+          [`${path} -X PUT --input -`]: http(502, "Bad Gateway"),
+        }),
+        S,
+      ),
+    );
+  });
+  it("a missing gh is unknown, never refused", async () => {
+    notAskedAboutAdmin(
+      await allowActionPullRequests(
+        fake({ [path]: { code: 127, stderr: "Error: spawn gh ENOENT" } }),
+        S,
+      ),
+    );
   });
   it("refuses on a 403 as missing admin", async () => {
     const r = await allowActionPullRequests(
