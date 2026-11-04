@@ -97,13 +97,16 @@ export async function localValues(
       if (v) values.set(n.name, v);
     }
   }
-  // A run refuses a secret under the minimum length; names only, never the value.
-  const tooShort = [...values]
+  // A run refuses an account's secret under the minimum length; an app's
+  // own value is the app's business. Names only, never the value.
+  const tooShort = needed
     .filter(
-      ([n, v]) =>
-        !n.endsWith(SECRET_ORIGIN_SUFFIX) && v.length < SECRET_MIN_LENGTH,
+      (n) =>
+        n.for === "account" &&
+        !n.name.endsWith(SECRET_ORIGIN_SUFFIX) &&
+        (values.get(n.name)?.length ?? SECRET_MIN_LENGTH) < SECRET_MIN_LENGTH,
     )
-    .map(([n]) => n);
+    .map((n) => n.name);
   for (const n of tooShort) values.delete(n);
   return {
     values,

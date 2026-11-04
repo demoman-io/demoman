@@ -556,6 +556,7 @@ async function makePlan(
       if (local.tooShort.includes(n.name)) short.push(n.name);
       else missing.push(n);
     } else if (
+      n.for === "account" &&
       !n.name.endsWith(SECRET_ORIGIN_SUFFIX) &&
       v.length < SECRET_MIN_LENGTH
     )

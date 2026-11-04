@@ -211,16 +211,28 @@ describe("localValues", () => {
 });
 
 describe("localValues length", () => {
-  it("reports a value under the minimum by name, not by value", async () => {
+  it("reports an account's value under the minimum by name, not by value", async () => {
     const root = await repo({});
     const r = await localValues(
       root,
-      [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
-      { STRIPE_KEY: "short" },
+      [{ name: "DEMOMAN_SECRET_A", for: "account", why: "x" }],
+      { DEMOMAN_SECRET_A: "short" },
     );
-    expect(r.tooShort).toEqual(["STRIPE_KEY"]);
+    expect(r.tooShort).toEqual(["DEMOMAN_SECRET_A"]);
     expect(r.missing).toEqual([]);
     expect(r.values.size).toBe(0);
+  });
+
+  // Finding 8, red: apply the minimum to every secret again.
+  it("takes an app secret of any length: the minimum is a run's, for accounts", async () => {
+    const root = await repo({});
+    const r = await localValues(
+      root,
+      [{ name: "PORT_KEY", for: "app", why: "app.json" }],
+      { PORT_KEY: "abc" },
+    );
+    expect(r.tooShort).toEqual([]);
+    expect(r.values.get("PORT_KEY")).toBe("abc");
   });
 });
 

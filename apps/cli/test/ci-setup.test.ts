@@ -550,6 +550,16 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     expect(JSON.stringify(s)).not.toContain('"ab"');
   });
 
+  // Finding 8, red: the minimum applies to the app's secrets again.
+  it("an app secret shorter than the account minimum is planned, not refused", async () => {
+    const f = fakes({
+      needed: [{ name: "PIN", for: "app", why: "app.json" }],
+    });
+    const values = new Map([["PIN", "1234"]]);
+    const p = await okPlan(await repo(), f, {}, values);
+    expect(p.secrets).toEqual([{ name: "PIN", status: "set" }]);
+  });
+
   it("an unread secrets.env is said with the missing names", async () => {
     const f = fakes({
       needed: [account("DEMOMAN_SECRET_SELLER")],
