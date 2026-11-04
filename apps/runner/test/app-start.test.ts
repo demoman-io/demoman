@@ -134,7 +134,10 @@ afterEach(async () => {
     const pid = Number(await readFile(f, "utf8").catch(() => ""));
     if (pid > 0 && alive(pid)) process.kill(pid, "SIGKILL");
   }
-  for (const s of servers.splice(0)) s.close();
+  for (const s of servers.splice(0)) {
+    s.closeAllConnections();
+    s.close();
+  }
   await rm(root, { recursive: true, force: true });
 });
 
@@ -280,6 +283,41 @@ describe("startApp", () => {
     });
   });
 
+  describe('mode "own" when something holds the port but is not ready', () => {
+    const hold = async (handler: Parameters<typeof createServer>[1]) => {
+      const s = createServer(handler);
+      await new Promise<void>((r) => s.listen(port, r));
+      servers.push(s);
+      expect(await canListen(port)).toBe(false);
+    };
+    const own = () =>
+      startApp(app({ install: ["true"] }), opts(), { spawn: spawnSpy.fn });
+
+    it("refuses appPortTaken when it answers 500", async () => {
+      await hold((_q, res) => {
+        res.statusCode = 500;
+        res.end("broken dev server");
+      });
+      // Premise: it answers, and not ready by Playwright's rule.
+      expect((await fetch(url)).status).toBe(500);
+      const r = await own();
+      expect(isRefusal(r) && r.reason).toBe("appPortTaken");
+      expect((r as AppStartRefusal).detail).toContain(url);
+      expect(spawnSpy.calls).toEqual([]);
+    });
+
+    it("refuses appPortTaken when it takes the request and never answers", async () => {
+      await hold(() => {});
+      // Premise: a probe gets no answer in time.
+      await expect(
+        fetch(url, { signal: AbortSignal.timeout(300) }),
+      ).rejects.toThrow();
+      const r = await own();
+      expect(isRefusal(r) && r.reason).toBe("appPortTaken");
+      expect(spawnSpy.calls).toEqual([]);
+    });
+  });
+
   it("waits for a slow start, then stop() frees the port", async () => {
     const r = started(
       await startApp(app(), opts({ env: { ...opts().env, MODE: "slow" } }), {
@@ -293,6 +331,9 @@ describe("startApp", () => {
     expect(await r.stop()).toEqual([]);
     toStop.length = 0;
     expect(await canListen(port)).toBe(true);
+    // A second stop answers the same: it stopped the process, which did not
+    // exit by itself.
+    expect(await r.stop()).toEqual([]);
   });
 
   it("env and app.env reach install and start, run in root", async () => {
@@ -343,9 +384,21 @@ describe("startApp", () => {
     };
     const fakeDocker = (answer: (args: string[]) => number, stderr = "") => {
       const calls: string[][] = [];
+      const removed = new Set<string>();
       let inspects = 0;
       const docker: AppStartDeps["docker"] = async (args) => {
         calls.push(args);
+        if (args[0] === "rm") {
+          const name = args[2] as string;
+          if (removed.has(name))
+            return {
+              code: 1,
+              stdout: "",
+              stderr: `No such container: ${name}`,
+            };
+          removed.add(name);
+          return { code: 0, stdout: "", stderr: "" };
+        }
         if (args[0] === "inspect")
           return {
             code: 0,
@@ -442,9 +495,12 @@ describe("startApp", () => {
       expect(inspects.every((a) => a.at(-1) === pgName)).toBe(true);
       const redisName = runs[0]?.[4] as string;
       expect(await r.stop()).toEqual([]);
+      expect(await r.stop()).toEqual([]);
       toStop.length = 0;
-      expect(d.calls).toContainEqual(["rm", "-f", redisName]);
-      expect(d.calls).toContainEqual(["rm", "-f", pgName]);
+      expect(d.calls.filter((a) => a[0] === "rm")).toEqual([
+        ["rm", "-f", redisName],
+        ["rm", "-f", pgName],
+      ]);
     });
   });
 });

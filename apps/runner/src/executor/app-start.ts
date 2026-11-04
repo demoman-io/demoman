@@ -7,6 +7,7 @@
 // failed, the next action, and the failing command's last lines.
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { connect } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 import { APP_FILE, type AppSpec, scrubSecrets } from "@demoman/run-core";
 
@@ -121,14 +122,16 @@ export async function startApp(
     }
   };
 
-  if (await ready()) {
-    if (o.mode === "own") {
-      return {
-        reason: "appPortTaken",
-        detail: `something already answers at ${app.url} before the app was started; stop it (the check needs that port for the app it starts from ${APP_FILE}), then run again`,
-        tail: "",
-      };
-    }
+  // "own" refuses anything there, ready or not: a dev server answering 500,
+  // or slowly, must never be recorded as the app this call starts.
+  if (o.mode === "own" && (await listening(app.url))) {
+    return {
+      reason: "appPortTaken",
+      detail: `something already listens at ${app.url} before the app was started; stop it (the check needs that port for the app it starts from ${APP_FILE}), then run again`,
+      tail: "",
+    };
+  }
+  if (o.mode === "reuse" && (await ready())) {
     return {
       reused: true,
       said: `used the app already answering at ${app.url}`,
@@ -156,12 +159,19 @@ export async function startApp(
     }
     return left;
   };
+  // Once: a second stop would read its own kill as an exit, and re-remove
+  // containers already gone.
+  let stopped: Promise<string[]> | null = null;
+  const stop = () => {
+    stopped ??= stopAll();
+    return stopped;
+  };
   const refuse = async (
     reason: AppStartRefusal["reason"],
     detail: string,
     tail: string,
   ): Promise<AppStartRefusal> => {
-    const left = await stopAll();
+    const left = await stop();
     const also = left.length ? `; could not stop ${left.join(", ")}` : "";
     return { reason, detail: detail + also, tail: tailOf(tail) };
   };
@@ -267,7 +277,7 @@ export async function startApp(
     reused: false,
     said: `started the app with \`${app.start}\` from ${APP_FILE}`,
     seconds: Math.round((d.now() - t0) / 100) / 10,
-    stop: stopAll,
+    stop,
   };
 }
 
@@ -310,6 +320,22 @@ function launch(
   });
   const drained = new Promise<void>((r) => child.once("close", () => r()));
   return { child, exited, drained, output: () => buf };
+}
+
+/** Whether anything accepts a connection at the URL's host and port. */
+function listening(url: string): Promise<boolean> {
+  const u = new URL(url);
+  const port = Number(u.port) || (u.protocol === "https:" ? 443 : 80);
+  return new Promise((resolve) => {
+    const socket = connect({ host: u.hostname.replace(/^\[|\]$/g, ""), port });
+    const done = (yes: boolean) => {
+      socket.destroy();
+      resolve(yes);
+    };
+    socket.setTimeout(PROBE_MS, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
 }
 
 /** SIGTERM the whole process group, SIGKILL after 5 s; true once it is gone. */
