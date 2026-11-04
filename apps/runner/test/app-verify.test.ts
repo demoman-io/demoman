@@ -536,7 +536,7 @@ describe("verifySetup", () => {
     const tmp = checkout();
     expect(checkoutWhenSettled).toBe(true);
     expect(lines).toContain(
-      "stopping: waiting for the recording in progress to end, then removing the clean checkout",
+      "stopping: waiting for the run in progress to end, then removing the clean checkout",
     );
     expect(r).toEqual({
       passed: false,
