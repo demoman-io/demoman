@@ -193,6 +193,9 @@ export type CiPlan = {
   title: typeof SETUP_TITLE;
   /** Only when push is chosen. */
   pushCost: string | null;
+  /** HEAD's and the default branch's commits, when they differ: the check
+   *  ran on HEAD, the pull request is built on the default branch. */
+  offBase: { head: string; base: string } | null;
   /** The exact bytes the check ran with, which apply commits. Non-enumerable:
    *  JSON.stringify and a spread leave it out, so a door never serializes
    *  them; a copied plan has none, and apply refuses it. */
@@ -614,6 +617,14 @@ async function makePlan(
   // shortcut: an unreadable default branch reads as empty, so every flow is
   // listed; files identical to the base add nothing to the commit.
   const onDefault = new Set(tree.code === 0 ? tree.stdout.split("\n") : []);
+  // shortcut: a commit that cannot be read says nothing about the difference.
+  const [head, tip] = await Promise.all(
+    ["HEAD", base].map(async (ref) => {
+      const r = await deps.git(["rev-parse", ref], root);
+      return r.code === 0 ? r.stdout.trim() : null;
+    }),
+  );
+  const offBase = head && tip && head !== tip ? { head, base: tip } : null;
   const files: string[] = [CI_WORKFLOW_PATH];
   if (app !== null) {
     for (const ref of ["HEAD", base]) {
@@ -689,6 +700,7 @@ async function makePlan(
     branch: SETUP_BRANCH,
     title: SETUP_TITLE,
     pushCost,
+    offBase,
   };
   return Object.defineProperty(made, "contents", {
     value: texts.files,
@@ -787,6 +799,11 @@ export function planLines(p: CiPlan): string[] {
     "passed" in c
       ? `Checked from a clean checkout: ${c.flow} recorded in ${c.recordSeconds} s${c.appSeconds > 0 ? ` (the app started in ${c.appSeconds} s)` : ""}.`
       : `Not checked locally: ${c.skipped}.`,
+    ...(p.offBase === null
+      ? []
+      : [
+          `The check ran on HEAD (${p.offBase.head.slice(0, 7)}); the pull request is built on ${p.repo.defaultBranch} (${p.offBase.base.slice(0, 7)}), so its first run checks it there.`,
+        ]),
     ...(p.pushCost === null ? [] : [`Runner time: ${p.pushCost}.`]),
     ...p.secrets.map(
       (s) =>

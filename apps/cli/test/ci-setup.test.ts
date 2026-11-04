@@ -174,6 +174,8 @@ function fakes(
     head?: Record<string, string>;
     onDefault?: string[];
     detected?: Awaited<ReturnType<CiDeps["detectApp"]>>;
+    /** `git rev-parse <ref>`'s answers; absent refs fail. */
+    tips?: Record<string, string>;
   } = {},
 ) {
   const calls: string[] = [];
@@ -190,6 +192,12 @@ function fakes(
     gitArgs.push(args);
     if (args[0] === "ls-tree")
       return { code: 0, stdout: (o.onDefault ?? []).join("\n"), stderr: "" };
+    if (args[0] === "rev-parse") {
+      const sha = o.tips?.[args[1] as string];
+      return sha === undefined
+        ? { code: 128, stdout: "", stderr: "fatal: bad revision" }
+        : { code: 0, stdout: `${sha}\n`, stderr: "" };
+    }
     if (args[0] === "show") {
       const text = shown[args[1] as string];
       return text === undefined
@@ -817,6 +825,24 @@ describe("planCiSetup's plan", () => {
     expect(said).toContain(`  ${RECEIPT_DIR}/checkout.screens/ (2 images)`);
     expect(said.join("\n")).not.toContain(".webp");
     expect(said).toContain(`  ${RECEIPT_DIR}/checkout.json`);
+  });
+
+  // Finding 15, red: drop offBase; the plan then reads as if the check ran
+  // on what the pull request holds.
+  it("says the check ran on HEAD when HEAD is not the default branch's tip", async () => {
+    const off = await okPlan(
+      await repo(),
+      fakes({ tips: { HEAD: "a".repeat(40), "origin/trunk": "b".repeat(40) } }),
+    );
+    expect(planLines(off)).toContain(
+      "The check ran on HEAD (aaaaaaa); the pull request is built on trunk (bbbbbbb), so its first run checks it there.",
+    );
+    const on = await okPlan(
+      await repo(),
+      fakes({ tips: { HEAD: "a".repeat(40), "origin/trunk": "a".repeat(40) } }),
+    );
+    expect(on.offBase).toBeNull();
+    expect(planLines(on).join("\n")).not.toContain("The check ran on HEAD");
   });
 
   it("leaves out a flow already on the default branch", async () => {
