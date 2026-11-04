@@ -45,7 +45,8 @@ const draftOf = (over: Partial<AppDraft>): AppDraft => ({
 });
 
 type Manager = "pnpm" | "yarn" | "bun" | "npm";
-async function managerOf(root: string): Promise<Manager | null> {
+type Pm = { pm: Manager; locked: boolean };
+async function managerOf(root: string): Promise<Pm | null> {
   const locks: Array<[string, Manager]> = [
     ["pnpm-lock.yaml", "pnpm"],
     ["yarn.lock", "yarn"],
@@ -53,11 +54,19 @@ async function managerOf(root: string): Promise<Manager | null> {
     ["bun.lockb", "bun"],
     ["package-lock.json", "npm"],
   ];
-  for (const [file, pm] of locks) if (await exists(join(root, file))) return pm;
-  return (await exists(join(root, "package.json"))) ? "npm" : null;
+  for (const [file, pm] of locks)
+    if (await exists(join(root, file))) return { pm, locked: true };
+  return (await exists(join(root, "package.json")))
+    ? { pm: "npm", locked: false }
+    : null;
 }
-const installOf = (pm: Manager) =>
-  pm === "npm" ? "npm ci" : `${pm} install --frozen-lockfile`;
+// `npm ci` refuses a repo with no package-lock.json.
+const installOf = ({ pm, locked }: Pm) =>
+  pm === "npm"
+    ? locked
+      ? "npm ci"
+      : "npm install"
+    : `${pm} install --frozen-lockfile`;
 /** The script in a package; `name` filters to a workspace package. */
 function runOf(pm: Manager, script: string, name?: string): string {
   if (name === undefined) return `${pm} run ${script}`;
@@ -379,7 +388,8 @@ async function fromPackageJson(
 ): Promise<Found | { none: string } | null> {
   const pkg = await readPkg(root);
   if (!pkg) return null;
-  const pm = (await managerOf(root)) ?? "npm";
+  const found = (await managerOf(root)) ?? { pm: "npm", locked: false };
+  const pm = found.pm;
   let dirs: string[] | null;
   try {
     dirs = await workspaceDirs(root, pkg);
@@ -413,7 +423,7 @@ async function fromPackageJson(
       source: { kind: "packageJson", file: `${dir}/package.json` },
       draft: draftOf({
         install: [
-          installOf(pm),
+          installOf(found),
           ...(p.scripts?.build ? [runOf(pm, "build", name)] : []),
         ],
         start: runOf(pm, script, name),
@@ -426,7 +436,7 @@ async function fromPackageJson(
     source: { kind: "packageJson", file: "package.json" },
     draft: draftOf({
       install: [
-        installOf(pm),
+        installOf(found),
         ...(pkg.scripts?.build ? [runOf(pm, "build")] : []),
       ],
       start: script ? runOf(pm, script) : null,

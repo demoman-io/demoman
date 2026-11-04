@@ -154,6 +154,20 @@ describe("detectApp", () => {
     });
   });
 
+  // Red when npm with no package-lock.json is drafted as `npm ci`, which
+  // refuses to install without one (seen in the manual setup run).
+  it("package.json: npm with no lockfile installs with npm install, not npm ci", async () => {
+    const dir = await copyOf("package-json");
+    await rm(join(dir, "pnpm-lock.yaml"));
+    const got = await detectApp(dir, ORIGIN);
+    if ("none" in got) throw new Error(got.none);
+    expect(got.draft.install).toEqual(["npm install", "npm run build"]);
+    await writeFile(join(dir, "package-lock.json"), "{}\n");
+    const locked = await detectApp(dir, ORIGIN);
+    if ("none" in locked) throw new Error(locked.none);
+    expect(locked.draft.install).toEqual(["npm ci", "npm run build"]);
+  });
+
   it("package.json: with no recorded origin the url is a hole", async () => {
     const got = await detectApp(fix("package-json"), null);
     if ("none" in got) throw new Error(got.none);
