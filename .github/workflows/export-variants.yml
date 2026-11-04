@@ -1,0 +1,34 @@
+name: Export variants
+
+# What each look costs a CPU-drawn export on a runner without a GPU
+# (apps/runner/compare/export-variants.mjs): one take on the public fixture
+# app, exported as recorded, without the camera blur, without padding (so
+# without the frame's shadows), and so on (DEM-45). Manual, or on a perf/
+# branch that touches it: workflow_dispatch reaches only workflows on main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner label
+        default: ubuntu-24.04
+  push:
+    branches: ["perf/**"]
+    paths:
+      - ".github/workflows/export-variants.yml"
+      - "apps/runner/compare/export-variants.mjs"
+
+jobs:
+  measure:
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          browser: "true"
+      - name: Export one take per look
+        run: >
+          node apps/runner/compare/export-variants.mjs --repo .
+          --script apps/runner/compare/scripts/fixture-clicks.json
+          --sample packages/compositor/scripts/fixture-app.html

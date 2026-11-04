@@ -46,6 +46,16 @@ built runner (`pnpm -r build`). Every run and export also logs one
   (684 frames, 1920x1500 at 60 fps) rendered in 72 s as filmed, 31 s with no
   camera blur, 41 s with no padding (the frame's two shadows) and 16 s with
   neither, the same within 2.5 s on a second take.
+  On a runner without a GPU, `.github/workflows/export-variants.yml` runs
+  it on the public fixture app (`scripts/fixture-clicks.json`).
+- `gpu-args.mjs --repo <root> --script <file> --sample <index.html> [--rounds 2] [--sets all|"<name>;<name>"]`
+  records one take and exports it once per set of Chrome launch flags,
+  printing each render's seconds and the WebGL renderer that came up. On
+  2026-11-03, runners without a GPU rendered the fixture take in 185–198 s
+  under every set, `--disable-gpu` included; a Colab T4 rendered it in 22.5 s
+  with ANGLE on Vulkan against ~420 s without. `.github/workflows/gpu-args.yml`
+  runs it on GitHub runners; `gpu-args.sh` sets up a bare Linux notebook
+  (Colab or Kaggle, free T4) and runs it there.
 - `export-profile.mjs --repo <root> --script <file> [--out <trace.json>]`
   exports under a V8 CPU-profiler trace and prints self time per function on
   the render page. GPU work is charged to whatever waits on it first: on

@@ -144,9 +144,12 @@ export function displayArgs(display: Display): string[] {
  * take: its export rendered in 70.5 s without and 5.3 s with, the camera
  * blur's passes and the frame's two shadows being most of the difference.
  *
- * Per platform, and only where measured. Linux has no entry yet: CI's
- * runners have no GPU, and whether `--enable-gpu` helps or falls back there
- * is unmeasured. Adding one is the whole change — the encoder is pinned
+ * Per platform, and only where measured. Linux has no entry yet. Measured
+ * 2026-11-03 (`compare/gpu-args.mjs`): on runners without a GPU no flag set
+ * moved an export off ~190 s; on a T4, `--enable-gpu --ignore-gpu-blocklist
+ * --use-angle=vulkan --enable-features=Vulkan` rendered in 22.5 s against
+ * ~420 s. What recording does under those flags is not measured yet
+ * (DEM-42). Adding one is the whole change — the encoder is pinned
  * apart from the GPU (`render-entry.ts`'s `softwareEncoded`), launch.test.ts
  * runs its check on any platform listed here, and
  * `compare/export-variants.mjs` is the before/after.

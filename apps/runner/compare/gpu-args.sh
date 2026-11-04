@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # gpu-args.mjs on a Linux machine that is not one of our CI runners: a free
 # Colab or Kaggle notebook with an NVIDIA T4. In a notebook cell:
-#   !git clone -b perf/linux-gpu https://github.com/demoman-io/demoman && bash demoman/apps/runner/compare/gpu-args.sh
+#   !git clone https://github.com/demoman-io/demoman && bash demoman/apps/runner/compare/gpu-args.sh
 # Installs only what is missing (Node 24, pnpm, Chromium and its libraries,
 # and NVIDIA's Vulkan userspace when nvidia-smi answers), builds, and runs
 # gpu-args.mjs on the public fixture app. ROUNDS=2 for a second round; one by
