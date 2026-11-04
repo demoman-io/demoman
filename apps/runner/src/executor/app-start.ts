@@ -241,6 +241,14 @@ export async function startApp(
         ]);
         const status = h.stdout.trim();
         if (h.code === 0 && status === "healthy") break;
+        // --rm removes a service that exits, so inspect no longer finds it.
+        if (h.code !== 0) {
+          return refuse(
+            "appServiceFailed",
+            `the ${service} service (${s.image}) stopped before it became healthy (docker inspect exited with code ${h.code}: ${tailOf(lastLines(h.stderr.trim(), 1))}); check its image, env and options in ${APP_FILE}, then run again`,
+            h.stderr,
+          );
+        }
         if (status === "unhealthy" || d.now() >= deadline) {
           return refuse(
             "appServiceFailed",

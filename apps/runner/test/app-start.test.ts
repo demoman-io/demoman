@@ -456,6 +456,42 @@ describe("startApp", () => {
       expect(spawnSpy.calls).toEqual([]);
     });
 
+    it("refuses appServiceFailed at once when the container is gone before it is healthy", async () => {
+      // A service that exits is removed by --rm: inspect then fails. Time
+      // runs out after 40 polls, so only the failed inspect can answer at 1.
+      const calls: string[][] = [];
+      let t = 0;
+      const docker: AppStartDeps["docker"] = async (args) => {
+        calls.push(args);
+        if (args[0] === "inspect")
+          return {
+            code: 1,
+            stdout: "\n",
+            stderr: `Error: No such object: ${args.at(-1)}\n`,
+          };
+        return { code: 0, stdout: "abc123\n", stderr: "" };
+      };
+      const r = await startApp(
+        app({ services }),
+        opts({ services: "docker" }),
+        {
+          spawn: spawnSpy.fn,
+          docker,
+          now: () => t,
+          sleep: async (ms) => {
+            t += ms;
+          },
+        },
+      );
+      expect(isRefusal(r) && r.reason).toBe("appServiceFailed");
+      const f = r as AppStartRefusal;
+      expect(calls.filter((a) => a[0] === "inspect")).toHaveLength(1);
+      expect(f.detail).toContain("postgres");
+      expect(f.detail).toContain("Error: No such object: demoman-postgres-");
+      expect(f.detail).not.toContain("within");
+      expect(spawnSpy.calls).toEqual([]);
+    });
+
     it("runs each service, waits for health, and stop() removes each container", async () => {
       const d = fakeDocker(() => 0);
       let probes = 0;
