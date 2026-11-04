@@ -1,0 +1,339 @@
+// apps/runner/src/executor/app-start.ts
+//
+// Starts and stops the app `.demoman/app.json` describes: its services (in
+// Docker, or provided by the CI job), its install commands, its start
+// command, then waits for its URL to be ready by Playwright's rule (2xx,
+// 3xx, 400-403). Every way it can fail is a named refusal carrying what
+// failed, the next action, and the failing command's last lines.
+import { type ChildProcess, execFile, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
+import { APP_FILE, type AppSpec, scrubSecrets } from "@demoman/run-core";
+
+export type AppStartRefusal = {
+  reason:
+    | "appInstallFailed"
+    | "appStartExited"
+    | "appNeverAnswered"
+    | "appServiceFailed"
+    | "appPortTaken"
+    | "appDockerMissing";
+  /** What failed and the next action. */
+  detail: string;
+  /** The last 40 lines of the failing command's output, secrets scrubbed. */
+  tail: string;
+};
+export type AppStarted = {
+  /** True only off CI, when the URL already answered. */
+  reused: boolean;
+  said: string;
+  seconds: number;
+  /** What it could not stop, by name; [] when all stopped. */
+  stop(): Promise<string[]>;
+};
+export interface AppStartDeps {
+  spawn: typeof import("node:child_process").spawn;
+  fetch: typeof fetch;
+  docker(
+    args: string[],
+  ): Promise<{ code: number; stdout: string; stderr: string }>;
+  now(): number;
+  sleep(ms: number): Promise<void>;
+}
+
+const POLL_MS = 250;
+const PROBE_MS = 2_000;
+const KILL_WAIT_MS = 5_000;
+const DRAIN_MS = 500;
+const TAIL_LINES = 40;
+
+const defaultDocker: AppStartDeps["docker"] = (args) =>
+  new Promise((resolve) => {
+    execFile("docker", args, (err, stdout, stderr) => {
+      const code =
+        err === null ? 0 : typeof err.code === "number" ? err.code : -1;
+      resolve({ code, stdout, stderr: stderr || (err?.message ?? "") });
+    });
+  });
+
+const lastLines = (text: string, n: number) =>
+  text.split("\n").slice(-n).join("\n");
+
+/** `options` the way a shell reads it: whitespace splits, quotes group. */
+function shellWords(s: string): string[] {
+  const words: string[] = [];
+  let word: string | null = null;
+  let quote: string | null = null;
+  for (const ch of s) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else word += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      word ??= "";
+    } else if (/\s/.test(ch)) {
+      if (word !== null) words.push(word);
+      word = null;
+    } else word = (word ?? "") + ch;
+  }
+  if (word !== null) words.push(word);
+  return words;
+}
+
+export async function startApp(
+  app: AppSpec,
+  o: {
+    root: string;
+    env: NodeJS.ProcessEnv;
+    mode: "reuse" | "own";
+    services: "docker" | "provided";
+    log: (l: string) => void;
+  },
+  deps: Partial<AppStartDeps> = {},
+): Promise<AppStarted | AppStartRefusal> {
+  const d: AppStartDeps = {
+    spawn,
+    fetch: globalThis.fetch,
+    docker: defaultDocker,
+    now: Date.now,
+    sleep: (ms) => delay(ms),
+    ...deps,
+  };
+  const t0 = d.now();
+  const env = { ...o.env, ...app.env };
+  const secretValues = app.secrets
+    .map((n) => env[n])
+    .filter((v): v is string => !!v);
+  const tailOf = (text: string) => {
+    let out = scrubSecrets(lastLines(text.trimEnd(), TAIL_LINES));
+    for (const v of secretValues) out = out.replaceAll(v, "<redacted>");
+    return out;
+  };
+  const ready = async () => {
+    try {
+      const r = await d.fetch(app.url, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(PROBE_MS),
+      });
+      return r.status >= 200 && r.status <= 403;
+    } catch {
+      return false;
+    }
+  };
+
+  if (await ready()) {
+    if (o.mode === "own") {
+      return {
+        reason: "appPortTaken",
+        detail: `something already answers at ${app.url} before the app was started; stop it (the check needs that port for the app it starts from ${APP_FILE}), then run again`,
+        tail: "",
+      };
+    }
+    return {
+      reused: true,
+      said: `used the app already answering at ${app.url}`,
+      seconds: Math.round((d.now() - t0) / 100) / 10,
+      stop: async () => [],
+    };
+  }
+
+  const containers: { service: string; name: string }[] = [];
+  let proc: Launched | null = null;
+  const stopAll = async (): Promise<string[]> => {
+    const left: string[] = [];
+    if (proc) {
+      // Exited before stop: whatever it left running is out of reach.
+      const exitedFirst = proc.exited.done;
+      if (!(await endGroup(proc.child)))
+        left.push(`the process \`${app.start}\``);
+      else if (exitedFirst)
+        left.push(`the process \`${app.start}\` started after it exited`);
+    }
+    for (const c of containers) {
+      const r = await d.docker(["rm", "-f", c.name]);
+      if (r.code !== 0)
+        left.push(`the ${c.service} container ${c.name} (${r.stderr.trim()})`);
+    }
+    return left;
+  };
+  const refuse = async (
+    reason: AppStartRefusal["reason"],
+    detail: string,
+    tail: string,
+  ): Promise<AppStartRefusal> => {
+    const left = await stopAll();
+    const also = left.length ? `; could not stop ${left.join(", ")}` : "";
+    return { reason, detail: detail + also, tail: tailOf(tail) };
+  };
+
+  const services = Object.entries(app.services);
+  if (o.services === "docker" && services.length > 0) {
+    const info = await d.docker(["info"]);
+    if (info.code !== 0) {
+      return {
+        reason: "appDockerMissing",
+        detail: `${APP_FILE} needs ${services.map(([n]) => n).join(", ")}, and Docker is not installed or not running (\`docker info\` exited with code ${info.code}); start Docker, then run again`,
+        tail: tailOf(info.stderr),
+      };
+    }
+    const deadline = t0 + app.timeoutSeconds * 1000;
+    for (const [service, s] of services) {
+      const name = `demoman-${service}-${randomBytes(4).toString("hex")}`;
+      o.log(`starting ${service} (${s.image}) in Docker`);
+      const run = await d.docker([
+        "run",
+        "-d",
+        "--rm",
+        "--name",
+        name,
+        ...s.ports.flatMap((p) => ["-p", p]),
+        ...Object.entries(s.env).flatMap(([k, v]) => ["-e", `${k}=${v}`]),
+        ...shellWords(s.options ?? ""),
+        s.image,
+      ]);
+      if (run.code !== 0) {
+        return refuse(
+          "appServiceFailed",
+          `the ${service} service (${s.image}) did not start: docker run exited with code ${run.code}: ${tailOf(lastLines(run.stderr.trim(), 1))}; fix it in ${APP_FILE}'s services, then run again`,
+          run.stderr,
+        );
+      }
+      containers.push({ service, name });
+      if (!s.options?.includes("--health-cmd")) continue;
+      for (;;) {
+        const h = await d.docker([
+          "inspect",
+          "--format",
+          "{{.State.Health.Status}}",
+          name,
+        ]);
+        const status = h.stdout.trim();
+        if (h.code === 0 && status === "healthy") break;
+        if (status === "unhealthy" || d.now() >= deadline) {
+          return refuse(
+            "appServiceFailed",
+            `the ${service} service (${s.image}) did not become healthy within ${app.timeoutSeconds} s (last health: ${status || h.stderr.trim() || "unknown"}); check its health command in ${APP_FILE}, then run again`,
+            h.stderr,
+          );
+        }
+        await d.sleep(POLL_MS);
+      }
+    }
+  }
+
+  for (const cmd of app.install) {
+    o.log(`installing: \`${cmd}\``);
+    const inst = launch(d.spawn, cmd, o.root, env, false);
+    const { code, signal } = await inst.exited;
+    if (code !== 0) {
+      await Promise.race([inst.drained, delay(DRAIN_MS)]);
+      return refuse(
+        "appInstallFailed",
+        `\`${cmd}\` ${code === null ? `was stopped by ${signal}` : `exited with code ${code}`}; fix the install command in ${APP_FILE}, then run again`,
+        inst.output(),
+      );
+    }
+  }
+
+  o.log(`starting: \`${app.start}\``);
+  o.log(`waiting for ${app.url} (up to ${app.timeoutSeconds} s)`);
+  const started = launch(d.spawn, app.start, o.root, env, true);
+  proc = started;
+  const deadline = d.now() + app.timeoutSeconds * 1000;
+  for (;;) {
+    const ex = started.exited.done;
+    // A start that daemonizes exits 0 before the URL answers: keep waiting.
+    if (ex && ex.code !== 0) {
+      await Promise.race([started.drained, delay(DRAIN_MS)]);
+      return refuse(
+        "appStartExited",
+        `\`${app.start}\` ${ex.code === null ? `was stopped by ${ex.signal}` : `exited with code ${ex.code}`} before ${app.url} answered; fix the start command in ${APP_FILE}, then run again`,
+        started.output(),
+      );
+    }
+    if (await ready()) break;
+    if (d.now() >= deadline) {
+      return refuse(
+        "appNeverAnswered",
+        `nothing answered at ${app.url} within ${app.timeoutSeconds} s of \`${app.start}\`${ex ? " (it exited with code 0)" : ""}; check the URL and timeoutSeconds in ${APP_FILE}, then run again`,
+        started.output(),
+      );
+    }
+    await (ex
+      ? d.sleep(POLL_MS)
+      : Promise.race([d.sleep(POLL_MS), started.exited]));
+  }
+  return {
+    reused: false,
+    said: `started the app with \`${app.start}\` from ${APP_FILE}`,
+    seconds: Math.round((d.now() - t0) / 100) / 10,
+    stop: stopAll,
+  };
+}
+
+type Exit = { code: number | null; signal: NodeJS.Signals | null };
+type Launched = {
+  child: ChildProcess;
+  exited: Promise<Exit> & { done?: Exit };
+  drained: Promise<void>;
+  output(): string;
+};
+
+function launch(
+  spawnFn: AppStartDeps["spawn"],
+  cmd: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  detached: boolean,
+): Launched {
+  const child = spawnFn("sh", ["-c", cmd], {
+    cwd,
+    env,
+    detached,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let buf = "";
+  const keep = (chunk: Buffer) => {
+    buf = lastLines(buf + chunk.toString(), TAIL_LINES + 1);
+  };
+  child.stdout?.on("data", keep);
+  child.stderr?.on("data", keep);
+  const exited: Launched["exited"] = new Promise<Exit>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+    child.once("error", (e) => {
+      buf += `\n${e.message}`;
+      resolve({ code: -1, signal: null });
+    });
+  });
+  exited.then((e) => {
+    exited.done = e;
+  });
+  const drained = new Promise<void>((r) => child.once("close", () => r()));
+  return { child, exited, drained, output: () => buf };
+}
+
+/** SIGTERM the whole process group, SIGKILL after 5 s; true once it is gone. */
+async function endGroup(child: ChildProcess): Promise<boolean> {
+  const pid = child.pid;
+  if (pid === undefined) return true;
+  const alive = () => {
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code === "EPERM";
+    }
+  };
+  for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+    try {
+      process.kill(-pid, signal);
+    } catch {
+      // ESRCH: the group is already gone.
+    }
+    for (let waited = 0; alive() && waited < KILL_WAIT_MS; waited += 50) {
+      await delay(50);
+    }
+    if (!alive()) return true;
+  }
+  return false;
+}

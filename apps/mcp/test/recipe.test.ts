@@ -349,7 +349,19 @@ describe("the CLI's recipe", () => {
     // markMoved: the Studio's upkeep keys a kept mark; no agent tool calls it.
     // appInvalid: parseApp answers it, but no agent tool reads .demoman/app.json
     // yet; drop it here when the `ci` tool lands and the recipe names it.
-    const TERMINAL_REASONS = ["sameFlow", "markMoved", "appInvalid"];
+    // The app* start refusals (startApp) likewise reach no agent tool until
+    // refresh and the `ci` tool call startApp; drop them with appInvalid.
+    const TERMINAL_REASONS = [
+      "sameFlow",
+      "markMoved",
+      "appInvalid",
+      "appInstallFailed",
+      "appStartExited",
+      "appNeverAnswered",
+      "appServiceFailed",
+      "appPortTaken",
+      "appDockerMissing",
+    ];
     const reasons = [...reasonsInCode(CLI_SOURCES), ...CLI_TOOL_REASONS].filter(
       (r) => !TERMINAL_REASONS.includes(r),
     );

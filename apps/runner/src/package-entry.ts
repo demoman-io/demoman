@@ -10,6 +10,11 @@ export {
   pageEntryPath,
   usePrebuiltPages,
 } from "./bundle-js.js";
+export {
+  type AppStarted,
+  type AppStartRefusal,
+  startApp,
+} from "./executor/app-start.js";
 export { fullChromiumPath, launchFailure } from "./executor/browser.js";
 export { createLocalExecutor } from "./executor/executor.js";
 export {
