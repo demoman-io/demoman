@@ -353,6 +353,56 @@ describe("triggerOffers and defaultTrigger", () => {
   });
 });
 
+// Finding 7. Red: offer every environment, or take the newest offered.
+describe("which deployment is offered and the default", () => {
+  const d = (
+    environment: string,
+    more: Partial<GithubFacts["deployments"][number]> = {},
+  ) => ({
+    environment,
+    url: `https://${environment}.example`,
+    sha: "a",
+    ...more,
+  });
+
+  it("offers no environment the workflow cannot quote, saying why", () => {
+    const offers = triggerOffers(facts({ deployments: [d("prod's")] }));
+    expect(offers[0]).toMatchObject({
+      trigger: { deployment: "prod's" },
+      offered: false,
+    });
+    expect(offers[0]?.why).toContain("cannot quote");
+    expect(defaultTrigger(offers)).toBe("daily");
+  });
+
+  it("defaults to a production environment over a newer other one", () => {
+    const offers = triggerOffers(
+      facts({
+        deployments: [d("staging"), d("live", { production: true })],
+      }),
+    );
+    expect(offers.map((o) => o.trigger)).toEqual([
+      { deployment: "live" },
+      { deployment: "staging" },
+      "release",
+      "daily",
+      "push",
+    ]);
+    expect(defaultTrigger(offers)).toEqual({ deployment: "live" });
+  });
+
+  it("offers a transient environment but never defaults to it", () => {
+    const offers = triggerOffers(
+      facts({
+        deployments: [d("pr-12", { transient: true })],
+        hasReleases: true,
+      }),
+    );
+    expect(offers[0]).toMatchObject({ offered: true, transient: true });
+    expect(defaultTrigger(offers)).toBe("release");
+  });
+});
+
 describe("planCiSetup stops, in order, before anything later runs", () => {
   it("gh unusable: its reason and detail, nothing else read", async () => {
     const f = fakes({

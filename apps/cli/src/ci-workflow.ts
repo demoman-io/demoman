@@ -63,6 +63,8 @@ export const FORK_REFUSAL =
   "Secrets are not given to pull requests from forks, so this check cannot sign in or start the app; a maintainer can run it from a branch in this repository.";
 
 const SECRET_NAME = /^[A-Z_][A-Z0-9_]*$/;
+/** An environment name the workflow's condition can quote. */
+export const ENVIRONMENT_NAME = /^[\w .-]+$/;
 
 /** Every env name the workflow passes through: each account's value and the
  *  one origin it may be typed on, then the app's own. */
@@ -129,7 +131,7 @@ export function ciWorkflow(o: CiOptions): string {
     }
   }
   // The name goes inside a single-quoted expression string.
-  if (deployment !== null && !/^[\w .-]+$/.test(deployment)) {
+  if (deployment !== null && !ENVIRONMENT_NAME.test(deployment)) {
     throw new Error(
       `the deployment environment "${deployment}" has characters other than letters, digits, spaces, "_", "." and "-"; write the workflow's condition by hand`,
     );

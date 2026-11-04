@@ -55,6 +55,7 @@ import {
   type CiOptions,
   ciWorkflow,
   DEPLOYMENT_MAIN,
+  ENVIRONMENT_NAME,
   RELEASE_MAIN,
 } from "./ci-workflow.js";
 
@@ -63,6 +64,8 @@ export type TriggerOffer = {
   label: string;
   offered: boolean;
   why: string;
+  /** A preview environment: offered, never the default. */
+  transient?: boolean;
 };
 
 const labelOf = (t: CiOptions["trigger"], branch: string): string =>
@@ -86,22 +89,43 @@ export function triggerOffers(f: GithubFacts): TriggerOffer[] {
     offered,
     why,
   });
+  // Production environments first, so the default prefers them.
+  const byKind = [
+    ...f.deployments.filter((d) => d.production === true),
+    ...f.deployments.filter((d) => d.production !== true),
+  ];
   const deployments =
     f.deployments.length === 0
       ? [offer({ deployment: "" }, false, "no successful deployment on record")]
-      : f.deployments.map((d) =>
-          d.url === null
-            ? offer(
-                { deployment: d.environment },
-                false,
-                `${d.environment}'s deployments name no URL to record`,
-              )
+      : byKind.map((d) => {
+          const t = { deployment: d.environment };
+          if (!ENVIRONMENT_NAME.test(d.environment))
+            return offer(
+              t,
+              false,
+              `${d.environment} has characters other than letters, digits, spaces, "_", "." and "-", which the workflow's condition cannot quote`,
+            );
+          if (d.url === null)
+            return offer(
+              t,
+              false,
+              `${d.environment}'s newest successful deployment names no environment URL to record`,
+            );
+          return d.transient === true
+            ? {
+                ...offer(
+                  t,
+                  true,
+                  `${d.environment} is a transient (preview) environment, so it is never the default`,
+                ),
+                transient: true,
+              }
             : offer(
-                { deployment: d.environment },
+                t,
                 true,
                 `${d.environment} has a successful deployment on record`,
-              ),
-        );
+              );
+        });
   return [
     ...deployments,
     offer(
@@ -123,7 +147,8 @@ export function triggerOffers(f: GithubFacts): TriggerOffer[] {
 /** Decision 3: the first offered of deployment, release, daily; never push. */
 export function defaultTrigger(offers: TriggerOffer[]): CiOptions["trigger"] {
   return (
-    offers.find((o) => o.offered && o.trigger !== "push")?.trigger ?? "daily"
+    offers.find((o) => o.offered && o.trigger !== "push" && !o.transient)
+      ?.trigger ?? "daily"
   );
 }
 

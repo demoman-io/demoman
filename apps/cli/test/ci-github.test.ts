@@ -180,9 +180,24 @@ describe("readGithub", () => {
     const r = await readGithub(
       fake({
         [`api repos/${S}/deployments?per_page=30`]: ok([
-          { id: 3, environment: "production", sha: "c3" },
-          { id: 2, environment: "preview", sha: "b2" },
-          { id: 1, environment: "production", sha: "a1" },
+          {
+            id: 3,
+            environment: "production",
+            sha: "c3",
+            production_environment: true,
+          },
+          {
+            id: 2,
+            environment: "preview",
+            sha: "b2",
+            transient_environment: true,
+          },
+          {
+            id: 1,
+            environment: "production",
+            sha: "a1",
+            production_environment: true,
+          },
         ]),
         [`api repos/${S}/deployments/3/statuses?per_page=30`]: ok([
           { state: "failure" },
@@ -196,9 +211,23 @@ describe("readGithub", () => {
       }),
       checkout(false),
     );
+    // A target_url is a build log, never the app: no URL (finding 7; red
+    // with the target_url fallback back).
     expect((r as { deployments: unknown }).deployments).toEqual([
-      { environment: "preview", url: "https://pv.example", sha: "b2" },
-      { environment: "production", url: "https://prod.example", sha: "a1" },
+      {
+        environment: "preview",
+        url: null,
+        sha: "b2",
+        production: false,
+        transient: true,
+      },
+      {
+        environment: "production",
+        url: "https://prod.example",
+        sha: "a1",
+        production: true,
+        transient: false,
+      },
     ]);
   });
 

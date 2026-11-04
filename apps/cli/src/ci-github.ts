@@ -7,7 +7,15 @@ export type GithubFacts = {
   defaultBranch: string;
   canPush: boolean;
   isAdmin: boolean;
-  deployments: Array<{ environment: string; url: string | null; sha: string }>;
+  deployments: Array<{
+    environment: string;
+    /** The success's environment_url: the deployed app, never a log page. */
+    url: string | null;
+    sha: string;
+    /** GitHub's production_environment and transient_environment. */
+    production?: boolean;
+    transient?: boolean;
+  }>;
   hasReleases: boolean;
   workflowOnDefault: boolean;
   setupBranch: { pr: { number: number; url: string } | null } | null;
@@ -141,6 +149,8 @@ export async function readGithub(
     id: number;
     environment: string;
     sha: string;
+    production_environment?: boolean;
+    transient_environment?: boolean;
   }>) {
     if (done.has(d.environment)) continue;
     const st = await read(gh, [
@@ -153,11 +163,7 @@ export async function readGithub(
         st.ok ? "the answer was not a list" : st.why,
       );
     const win = (
-      st.json as Array<{
-        state: string;
-        environment_url?: string;
-        target_url?: string;
-      }>
+      st.json as Array<{ state: string; environment_url?: string }>
     ).find((s) => s.state === "success");
     if (!win) continue;
     done.add(d.environment);
@@ -165,8 +171,10 @@ export async function readGithub(
       id: d.id,
       d: {
         environment: d.environment,
-        url: win.environment_url || win.target_url || null,
+        url: win.environment_url || null,
         sha: d.sha,
+        production: d.production_environment === true,
+        transient: d.transient_environment === true,
       },
     });
   }
