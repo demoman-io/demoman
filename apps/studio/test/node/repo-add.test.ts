@@ -24,8 +24,10 @@ type KeepCall = Parameters<Keep>;
 type Removal = NonNullable<Parameters<typeof buildHandlers>[0]["removeFlow"]>;
 
 const flush = () => new Promise<void>((r) => setImmediate(r));
+// Bounded by time, not turns: a loaded CI runner needs more turns to start an export.
 const until = async (ok: () => boolean) => {
-  for (let i = 0; i < 200 && !ok(); i++) await flush();
+  const end = Date.now() + 5_000;
+  while (!ok() && Date.now() < end) await flush();
   expect(ok()).toBe(true);
 };
 
