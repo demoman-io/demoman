@@ -3,12 +3,18 @@ import type { LogoLoad } from "@demoman/run-core/render";
 import type { SceneAspect, SceneDocument } from "@demoman/scene-schema";
 import type {
   Addable,
+  CiApplyBody,
+  CiPlanBody,
+  CiStarted,
+  CiState,
   ExportQualityChoice,
   LibraryViewChoice,
   PullRequestsChoice,
   RepoAddBody,
   RepoAddStarted,
+  RepoPrBody,
   RepoRemoveAnswer,
+  SetupPrWire,
   StudioEvent,
   TakesAnswer,
 } from "@demoman/studio-protocol";
@@ -51,6 +57,14 @@ export interface Platform {
     remove(id: string): Promise<RemoveReply>;
   };
   bundles: BundleSource;
+  /** CI setup for a repo. Each rejects with the studio's sentence when
+   *  refused; plan and apply's outcome comes as `ci` events. */
+  repoCi: {
+    state(root: string): Promise<CiState>;
+    plan(body: CiPlanBody): Promise<CiStarted>;
+    apply(body: CiApplyBody): Promise<CiStarted>;
+    openPr(body: RepoPrBody): Promise<SetupPrWire>;
+  };
   outputs: { list(takeId: string): Promise<OutputRow[]> };
   logos: {
     put(file: File): Promise<{ ref: string }>;

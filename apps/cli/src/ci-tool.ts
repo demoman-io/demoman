@@ -230,7 +230,7 @@ async function watch(
 }
 
 /** The run's verdict with its log lines redacted. */
-function runOf(w: Watched | null, values: SecretValues): Watched {
+export function runOf(w: Watched | null, values: SecretValues): Watched {
   const h = (t: string) => redact(t, values);
   if (w === null)
     return { unknown: { runUrl: null, why: "it was not watched" } };

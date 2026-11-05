@@ -3,6 +3,8 @@
 // under raw node pulls in nothing else.
 import type { FrameBundle } from "@demoman/compositor";
 import type {
+  AppDraft,
+  AppSpec,
   ExportAnswer,
   ExportQuality,
   FileType,
@@ -28,6 +30,11 @@ export const ROUTES = {
   repoAddable: { method: "GET", path: "/api/videos/:id/repo" },
   repoAdd: { method: "POST", path: "/api/videos/:id/repo" },
   repoRemove: { method: "DELETE", path: "/api/videos/:id/repo" },
+  /** `?root=`: the repo's CI state (`CiState`). */
+  repoCiState: { method: "GET", path: "/api/repo/ci" },
+  repoCiPlan: { method: "POST", path: "/api/repo/ci/plan" },
+  repoCiApply: { method: "POST", path: "/api/repo/ci/apply" },
+  repoPr: { method: "POST", path: "/api/repo/pr" },
   bundle: { method: "GET", path: "/api/takes/:id/bundle" },
   frame: { method: "GET", path: "/api/takes/:id/frames/:ref" },
   thumb: { method: "GET", path: "/api/takes/:id/thumbs/:ref" },
@@ -154,6 +161,10 @@ export type StudioReason =
   /** The flow is being added to its repo; it cannot be added or removed
    *  until that ends. */
   | "repoBusy"
+  /** A CI request's body: no root, or a field of the wrong shape. */
+  | "ciBodyInvalid"
+  /** A CI job for this repo is running; it ends before another starts. */
+  | "ciBusy"
   /** The video records would not read or write (the runner's VideoError). */
   | "videoUnreadable"
   | "videoUnwritable"
@@ -548,11 +559,179 @@ export type StudioEvent =
       reason: string;
       detail: string;
     }
+  | { type: "ci"; jobId: string; phase: "progress"; line: string }
+  | {
+      type: "ci";
+      jobId: string;
+      phase: "done";
+      step: "plan" | "apply";
+      answer: CiAnswerWire;
+    }
   | { type: "kits" }
   | { type: "takes" }
   | { type: "watchFailed"; feed: "takes" | "kits"; detail: string }
   | { type: "open"; path: string }
   | { type: "server:stopping" };
+
+// CI setup's wire (Part C, Task 5): the CLI's Part B types without anything
+// that can hold a secret value (`values`, a plan's `contents`, `root`, the
+// app file's text, a local env file's path). The CLI's adapter assigns B's
+// results to these, so its typecheck fails if the two drift apart.
+
+/** B's `CiOptions["trigger"]`. */
+export type CiTriggerWire =
+  | "push"
+  | "release"
+  | "daily"
+  | { deployment: string };
+export interface CiChoicesWire {
+  trigger?: CiTriggerWire;
+  route?: "pr" | "main";
+  artifact?: boolean;
+  app?: AppSpec;
+  appBy?: "agent" | "person";
+  replaceSecrets?: string[];
+}
+/** The runner's `AppSource`, and B's `{ kind: "file" }`. */
+export type CiAppSourceWire =
+  | {
+      kind: "playwright" | "copilot" | "packageJson" | "file";
+      file: string;
+    }
+  | { kind: "workflow"; file: string; job: string }
+  | { kind: "agent" }
+  | { kind: "person" };
+export interface CiPlanWire {
+  repo: { slug: string; defaultBranch: string; remote: string };
+  trigger: CiTriggerWire;
+  offers: Array<{
+    trigger: CiTriggerWire;
+    label: string;
+    offered: boolean;
+    why: string;
+    transient?: boolean;
+  }>;
+  route: "pr" | "main";
+  artifact: boolean;
+  app: { spec: AppSpec; source: CiAppSourceWire } | null;
+  deployment: { environment: string; url: string } | null;
+  check:
+    | {
+        passed: true;
+        flow: string;
+        outcome: string;
+        recordSeconds: number;
+        appSeconds: number;
+        lines: string[];
+      }
+    | { skipped: string };
+  secrets: Array<{
+    name: string;
+    status: "set" | "replace" | "keep" | "missing";
+  }>;
+  actionsSetting: "turnOn" | "alreadyOn" | "notNeeded";
+  files: string[];
+  scriptOnly: Array<{ flow: string; why: string }>;
+  branch: string;
+  title: string;
+  pushCost: string | null;
+  offBase: { head: string; base: string } | null;
+}
+/** A plan the CLI holds, by `planId`: apply names it, never resends it. */
+export interface CiPlannedWire {
+  planId: string;
+  plan: CiPlanWire;
+  /** B's `planLines`: the confirmation text. */
+  lines: string[];
+}
+/** `reason` is B's open string (about 30 values). */
+export interface CiStopWire {
+  reason: string;
+  detail: string;
+  step?: string;
+  tail?: string;
+  proposal?: {
+    draft: AppDraft;
+    source: CiAppSourceWire;
+    holes: Array<{ field: string; why: string }>;
+  };
+  secrets?: Array<{ name: string; for: "account" | "app"; why: string }>;
+}
+export type SetupPrWire =
+  | { opened: { number: number; url: string; branch: string; sha: string } }
+  | {
+      failed: "push" | "pr" | "worktree";
+      detail: string;
+      branchUrl?: string;
+    };
+export type CiWatchedWire =
+  | { passed: { runUrl: string; artifactUrl: string; lines: string[] } }
+  | {
+      failed: {
+        runUrl: string;
+        step: string;
+        tail: string;
+        failedRuns: number | null;
+        gaveUp: boolean;
+        note?: string;
+      };
+    }
+  | { cancelled: { runUrl: string } }
+  | { unknown: { runUrl: string | null; why: string } };
+export interface CiAppliedWire {
+  pr: SetupPrWire;
+  secrets: {
+    set: string[];
+    kept: string[];
+    failed: Array<{ name: string; said: string }>;
+  };
+  setting:
+    | { kind: "alreadyOn" }
+    | { kind: "turnedOn" }
+    | { kind: "refused"; detail: string; url: string }
+    | { kind: "unknown"; detail: string; url: string }
+    | null;
+  watched: CiWatchedWire;
+  /** The run's verdict as the terminal says it. */
+  lines: string[];
+}
+export type CiAnswerWire = CiPlannedWire | CiAppliedWire | CiStopWire;
+/** `repoCiState`'s answer. `finished`: the last job for this repo that
+ *  ended, until another starts or the repo is set up. */
+export type CiState =
+  | { kind: "setUp" }
+  | { kind: "notSetUp" }
+  | { kind: "noGh"; detail: string }
+  | { kind: "unreadable"; detail: string }
+  | { kind: "running"; jobId: string }
+  | {
+      kind: "finished";
+      jobId: string;
+      step: "plan" | "apply";
+      answer: CiAnswerWire;
+    };
+/** `repoCiPlan`'s body: the only request that carries secret values. */
+export interface CiPlanBody {
+  root: string;
+  choices: CiChoicesWire;
+  secrets: Record<string, string>;
+}
+export interface CiApplyBody {
+  root: string;
+  planId: string;
+}
+/** `repoCiPlan` and `repoCiApply`'s 202: the outcome comes as `ci` events. */
+export interface CiStarted {
+  jobId: string;
+}
+export interface RepoPrBody {
+  root: string;
+  branch: string;
+  title: string;
+  body: string;
+  /** Repo paths, relative to `root`. */
+  files: string[];
+}
 
 /** Where the library page is looking: one project (a repo key), everything,
  *  the takes with no project, or the folders that would not read. The page

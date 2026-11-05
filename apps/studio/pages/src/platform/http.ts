@@ -14,6 +14,8 @@ import {
   type Addable,
   type AssetAnswer,
   type BundleAnswer,
+  type CiStarted,
+  type CiState,
   type DeleteAnswer,
   type ExportQualityAnswer,
   type ExportStartAnswer,
@@ -34,6 +36,7 @@ import {
   type RouteId,
   type SceneAnswer,
   type ScenePutAnswer,
+  type SetupPrWire,
   STUDIO_HEADER,
   type StudioEvent,
   type TakesAnswer,
@@ -802,6 +805,22 @@ export function createPlatform(
           repoListeners.set(jobId, fn);
           return () => repoListeners.delete(jobId);
         },
+      },
+    },
+    repoCi: {
+      async state(root) {
+        return answer<CiState>(
+          await request("repoCiState", { query: { root } }),
+        );
+      },
+      async plan(json) {
+        return answer<CiStarted>(await request("repoCiPlan", { json }));
+      },
+      async apply(json) {
+        return answer<CiStarted>(await request("repoCiApply", { json }));
+      },
+      async openPr(json) {
+        return answer<SetupPrWire>(await request("repoPr", { json }));
       },
     },
     folder: {

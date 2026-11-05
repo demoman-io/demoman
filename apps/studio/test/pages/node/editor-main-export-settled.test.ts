@@ -122,6 +122,12 @@ vi.mock("#platform", async (importOriginal) => {
       },
       remove: async () => ({ ok: true }),
     },
+    repoCi: {
+      state: async () => ({ kind: "notSetUp" }),
+      plan: async () => ({ jobId: "none" }),
+      apply: async () => ({ jobId: "none" }),
+      openPr: async () => ({ failed: "pr", detail: "" }),
+    },
     bundles: {
       active: async () => ({
         bundle: seen.withFrames ? bundle() : null,

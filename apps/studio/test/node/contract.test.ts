@@ -71,8 +71,9 @@ describe("the route contract", () => {
     // 22 since 2026-10-19 (themeGet and themePut left with the light
     // theme); 24 since 2026-10-24, with videoRename and videoDelete; 26
     // since 2026-10-28, with wallpaperPut and wallpaper; 28 since
-    // 2026-10-31, with libraryViewGet and libraryViewPut; 29 since 2026-11-05, with repoAddable; 31 with repoAdd and repoRemove.
-    expect(ids.length).toBe(31);
+    // 2026-10-31, with libraryViewGet and libraryViewPut; 29 since 2026-11-05, with repoAddable; 31 with repoAdd and repoRemove;
+    // 35 with repoCiState, repoCiPlan, repoCiApply and repoPr.
+    expect(ids.length).toBe(35);
   });
 
   it("every RouteId has a handler in the composed table, and nothing else does", () => {

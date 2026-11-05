@@ -1,3 +1,8 @@
+export type {
+  CiAppliedWire,
+  CiPlanWire,
+  CiStopWire,
+} from "@demoman/studio-protocol";
 export { saveLogo } from "./assets.js";
 export {
   createEventHub,
@@ -25,6 +30,7 @@ export {
   type RunExport,
   SCENE_NOT_SAVED,
 } from "./queue.js";
+export { type CiJobs, createCiJobs, type StudioCi } from "./repo-ci.js";
 export {
   CHANGED_ELSEWHERE,
   createRoutes,

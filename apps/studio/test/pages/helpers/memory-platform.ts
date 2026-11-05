@@ -231,6 +231,12 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
         throw new Error(`no thumbnail for "${ref}" in the memory platform`);
       }),
     },
+    repoCi: {
+      state: async () => ({ kind: "notSetUp" }),
+      plan: async () => ({ jobId: "none" }),
+      apply: async () => ({ jobId: "none" }),
+      openPr: async () => ({ failed: "pr", detail: "" }),
+    },
     bundles: {
       active: member("bundles", "active", async (sceneId: string) => ({
         bundle: seed.bundles?.[sceneId] ?? null,

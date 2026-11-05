@@ -42,6 +42,7 @@ import {
   type QueueRefusal,
   type RunExport,
 } from "./queue.js";
+import { type CiJobs, createCiJobs, type StudioCi } from "./repo-ci.js";
 import { createRoutes } from "./routes.js";
 import { createRunExport } from "./run-export.js";
 import {
@@ -121,6 +122,8 @@ export function buildHandlers(o: {
   reveal?: (path: string) => Promise<void>;
   /** `createRoutes`' own: join and expire now, as the server starts. */
   upkeepOnStart?: boolean;
+  /** The CI routes; absent, they answer `routeNotFound`. */
+  ci?: CiJobs;
 }): StudioHandlers {
   const { library } = o;
   const noTake = (id: string): StudioResponse =>
@@ -166,6 +169,7 @@ export function buildHandlers(o: {
       ...(o.reveal === undefined ? {} : { reveal: o.reveal }),
       upkeepOnStart: o.upkeepOnStart === true,
     }),
+    ...(o.ci ?? createCiJobs({ events: o.events, log: o.log })).handlers,
 
     async window(req) {
       const body = await bodyOf(req);
@@ -494,6 +498,9 @@ export interface ServeOptions {
   run?: RunExport;
   /** Tests: a stand-in; `notifyOnMac` otherwise. */
   notify?: (title: string, body: string) => Promise<void>;
+  /** CI setup, from the CLI's own orchestrator; absent, the CI routes
+   *  answer `routeNotFound`. */
+  repoCi?: StudioCi;
 }
 
 /** A macOS notification through `osascript`; the text travels as argv, so
@@ -526,9 +533,15 @@ export function notifyOnMac(title: string, body: string): Promise<void> {
   });
 }
 
-/** What a notification says for an export that ended; null for any other
- *  event. */
+/** What a notification says for an export or a CI apply that ended; null
+ *  for any other event. */
 function endedSentence(e: StudioEvent): string | null {
+  if (e.type === "ci") {
+    if (e.phase !== "done" || e.step !== "apply") return null;
+    const a = e.answer;
+    if ("reason" in a) return `CI setup stopped: ${a.detail}`;
+    return "lines" in a ? (a.lines[0] ?? null) : null;
+  }
   if (e.type !== "export") return null;
   if (e.phase === "failed") return e.detail;
   if (e.phase !== "saved") return null;
@@ -653,12 +666,20 @@ export async function runServe(o: ServeOptions): Promise<never> {
     const notice = notify("Demoman", sentence)
       .catch((error: unknown) => {
         log(
-          `studio: an export ended with no window open, and its notification did not show (${messageOf(error)}): ${sentence}`,
+          `studio: ${e.type === "ci" ? "CI setup" : "an export"} ended with no window open, and its notification did not show (${messageOf(error)}): ${sentence}`,
         );
       })
       .finally(() => notices.delete(notice));
     notices.add(notice);
   };
+  // An apply watches its run for up to about half an hour: a job of this
+  // server's, never stopped by a window closing (R11).
+  const ci = createCiJobs({
+    ...(o.repoCi === undefined ? {} : { ci: o.repoCi }),
+    events,
+    log,
+    tell: tellIfUnseen,
+  });
   const queue = createExportQueue({
     library,
     events: {
@@ -690,6 +711,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
     wallpapersDir: join(o.pagesDir, "wallpapers"),
     outDir: o.outDir,
     upkeepOnStart: true,
+    ci,
     window: {
       open: async (t) => {
         opening += 1;
@@ -834,6 +856,11 @@ export async function runServe(o: ServeOptions): Promise<never> {
         `studio: the window closed; finishing ${left} export${left === 1 ? "" : "s"} first`,
       );
       await queue.drained();
+      if (stopping || windowOpen) return;
+    }
+    if (ci.running() > 0) {
+      log("studio: the window closed; finishing CI setup first");
+      await ci.drained();
       if (stopping || windowOpen) return;
     }
     await stop(0);

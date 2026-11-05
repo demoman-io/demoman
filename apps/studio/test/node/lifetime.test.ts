@@ -10,6 +10,7 @@ import { STUDIO_HEADER } from "@demoman/studio-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pagePathFor } from "../../src/paths.js";
 import type { RunExport } from "../../src/queue.js";
+import type { StudioCi } from "../../src/repo-ci.js";
 import { runServe } from "../../src/serve.js";
 import {
   readStudioState,
@@ -76,6 +77,7 @@ async function serve(
     notifyFails?: string;
     /** The notification settles only once this does. */
     notifyHeld?: Promise<void>;
+    repoCi?: StudioCi;
   } = {},
 ): Promise<Serve> {
   const logs: string[] = [];
@@ -135,6 +137,7 @@ async function serve(
       await o.notifyHeld;
       if (o.notifyFails !== undefined) throw new Error(o.notifyFails);
     },
+    ...(o.repoCi === undefined ? {} : { repoCi: o.repoCi }),
   });
 
   let state: StudioState | null = null;
@@ -393,6 +396,48 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
     expect(s.logs.join("\n")).toContain(
       `its notification did not show (osascript is not there): Saved ${takeId}.mp4`,
     );
+  });
+
+  it("a CI apply outlives the window, and its verdict is notified (Review Focus 4)", async () => {
+    let finish: (a: Awaited<ReturnType<StudioCi["apply"]>>) => void = () => {};
+    const s = await serve({
+      repoCi: {
+        state: async () => ({ kind: "notSetUp" }),
+        plan: async () => ({ reason: "unused", detail: "" }),
+        apply: () =>
+          new Promise((r) => {
+            finish = r;
+          }),
+        openPr: async () => ({ failed: "pr", detail: "" }),
+      },
+    });
+    const opened = await call(s.state, "/api/window", {
+      method: "POST",
+      body: {},
+    });
+    expect(opened.status, opened.text).toBe(200);
+    const started = await call(s.state, "/api/repo/ci/apply", {
+      method: "POST",
+      body: { root: "/work/app", planId: "plan-1" },
+    });
+    expect(started.status, started.text).toBe(202);
+    s.fireAllClosed();
+    // Time for a stop to run its course: without the wait it exits in this.
+    await new Promise((r) => setTimeout(r, 200));
+    // Red if settle() stops the Studio with the apply's watch still running.
+    expect(s.exits).toEqual([]);
+    finish({
+      pr: { failed: "pr", detail: "" },
+      secrets: { set: [], kept: [], failed: [] },
+      setting: null,
+      watched: { unknown: { runUrl: null, why: "gh went away" } },
+      lines: ["Whether the setup run passed is unknown: gh went away"],
+    });
+    expect(await s.exited).toBe(0);
+    // Red if a ci done event is left out of endedSentence.
+    expect(s.notices).toEqual([
+      ["Demoman", "Whether the setup run passed is unknown: gh went away"],
+    ]);
   });
 
   it("a window asked for during that drain opens on the same process, which then outlives the drain", async () => {

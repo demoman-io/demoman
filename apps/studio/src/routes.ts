@@ -55,6 +55,7 @@ import { saveLogo, saveWallpaper } from "./assets.js";
 import type { EventHub } from "./events.js";
 import { createChains, isMissing, messageOf, readIfPresent } from "./files.js";
 import { createKitsFile } from "./kits.js";
+import type { CiRoute } from "./repo-ci.js";
 import type { Handler, StudioHandlers, StudioResponse } from "./server.js";
 import { readLibraryView, writeSetting } from "./settings.js";
 import { folderBytes } from "./sizes.js";
@@ -146,7 +147,10 @@ export function createRoutes(o: {
   followEveryMs?: number;
   /** The follow throttle's clock; injected by tests. */
   now?: () => number;
-}): Omit<StudioHandlers, "window" | "exportStart" | "repoAdd" | "repoRemove"> {
+}): Omit<
+  StudioHandlers,
+  "window" | "exportStart" | "repoAdd" | "repoRemove" | CiRoute
+> {
   const { library, home, log } = o;
   const reveal = o.reveal ?? revealInFinder;
   const sceneWrites = createChains();
@@ -452,7 +456,7 @@ export function createRoutes(o: {
 
   const handlers: Omit<
     StudioHandlers,
-    "window" | "exportStart" | "repoAdd" | "repoRemove"
+    "window" | "exportStart" | "repoAdd" | "repoRemove" | CiRoute
   > = {
     async ping() {
       const answer: PingAnswer = {
