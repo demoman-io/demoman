@@ -523,7 +523,7 @@ describe("the CI routes", () => {
           }),
         }),
       );
-      expect(accepted.json).not.toMatchObject({ reason: "prBranchRefused" });
+      expect(body(accepted)).not.toMatchObject({ reason: "prBranchRefused" });
       expect(asked).toEqual(["demoman/add-café-checkout"]);
     } finally {
       await rm(repo, { recursive: true, force: true });
