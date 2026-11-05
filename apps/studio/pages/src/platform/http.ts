@@ -60,6 +60,7 @@ import type {
   OutputRow,
   Platform,
   RemoveReply,
+  RepoEvent,
 } from "./types";
 
 export type {
@@ -356,6 +357,8 @@ export function createPlatform(
   const kitListeners = new Set<() => void>();
   const takesListeners = new Set<() => void>();
   const openListeners = new Set<(path: string) => void>();
+  const repoListeners = new Map<string, (e: RepoEvent) => void>();
+  const repoHeld = new Map<string, RepoEvent[]>();
 
   /** Each listener on its own: one that throws stops neither the rest nor
    *  the stream. */
@@ -450,6 +453,25 @@ export function createPlatform(
       case "takes":
         each(takesListeners, undefined, "takes");
         return;
+      case "repo": {
+        const listener = repoListeners.get(event.jobId);
+        if (listener !== undefined) {
+          try {
+            listener(event);
+          } catch (error) {
+            console.error("demoman studio: a repo listener failed", error);
+          }
+          return;
+        }
+        // Held for onRepo; capped, as another window's jobs are never claimed.
+        repoHeld.set(event.jobId, [
+          ...(repoHeld.get(event.jobId) ?? []),
+          event,
+        ]);
+        if (repoHeld.size > 20)
+          repoHeld.delete(repoHeld.keys().next().value as string);
+        return;
+      }
       case "watchFailed":
         // Only a trigger to read again: the GET answer carries the reason
         // (`unwatched`), so a page that opens after this still hears it.
@@ -695,6 +717,7 @@ export function createPlatform(
       sizes: got.sizes,
       unreadable: got.unreadable,
       unwatched: got.unwatched,
+      addable: got.addable,
     };
   }
 
@@ -742,13 +765,13 @@ export function createPlatform(
           await request("videoRename", { params: { id }, json: { name } }),
         );
       },
-      async addable(id) {
-        return answer<Addable>(
-          await request("repoAddable", { params: { id } }),
-        );
-      },
       remove: (id) => removeBy(request("videoDelete", { params: { id } })),
       repo: {
+        async addable(id) {
+          return answer<Addable>(
+            await request("repoAddable", { params: { id } }),
+          );
+        },
         async add(id, body) {
           return answer<RepoAddStarted>(
             await request("repoAdd", { params: { id }, json: body }),
@@ -758,6 +781,14 @@ export function createPlatform(
           return answer<RepoRemoveAnswer>(
             await request("repoRemove", { params: { id } }),
           );
+        },
+        onRepo(jobId, fn) {
+          // Events that came before this call (the stream can beat the
+          // POST's answer) are replayed first.
+          for (const e of repoHeld.get(jobId) ?? []) fn(e);
+          repoHeld.delete(jobId);
+          repoListeners.set(jobId, fn);
+          return () => repoListeners.delete(jobId);
         },
       },
     },

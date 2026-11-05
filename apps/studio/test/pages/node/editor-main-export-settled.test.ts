@@ -109,13 +109,14 @@ vi.mock("#platform", async (importOriginal) => {
     },
     videos: {
       rename: async () => {},
-      addable: async () => ({
-        ok: false,
-        reason: "noCheckout",
-        label: "not in a repo",
-        detail: "",
-      }),
       repo: {
+        addable: async () => ({
+          ok: false,
+          reason: "noCheckout",
+          label: "not in a repo",
+          detail: "",
+        }),
+        onRepo: () => () => {},
         add: async () => ({ jobId: "none" }),
         remove: async () => ({ removed: [], exportsLeft: [], notes: [] }),
       },

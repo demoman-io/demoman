@@ -768,6 +768,11 @@
   .btn:disabled {
     opacity: 0.5;
   }
+  /* Disabled but still focusable, so its reason can be read. */
+  .btn[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
   .btn-primary {
     background: var(--primary);
     color: var(--primary-ink);
@@ -1685,6 +1690,47 @@
 .confirm-dialog .btn:focus {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* The add sheet (src/shell/repo-sheet.ts) is the confirmation's dialog with
+   a form in it: left-aligned fields under the centred heading. */
+.repo-sheet form {
+  gap: 12px;
+  text-align: left;
+}
+.repo-sheet .confirm-title {
+  text-align: center;
+}
+.repo-sheet label {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.repo-sheet :is(input, select) {
+  box-sizing: border-box;
+  width: 100%;
+}
+.repo-sheet .confirm-actions {
+  margin-top: 12px;
+}
+.repo-sheet .repo-line {
+  margin: 0;
+  color: var(--ink-muted);
+}
+.repo-sheet .repo-written {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.repo-sheet .repo-written li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  overflow-wrap: anywhere;
 }
 
 /* The body's face, OUTSIDE `@layer shell` on purpose. Chrome injects a

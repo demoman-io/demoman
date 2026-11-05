@@ -3,6 +3,7 @@
 import type { FrameBundle } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
 import {
+  type Addable,
   DEFAULT_LIBRARY_VIEW,
   type LibraryViewChoice,
 } from "@demoman/studio-protocol";
@@ -58,6 +59,11 @@ import {
   deleteVideoOf,
 } from "../../src/shell/confirm-dialog";
 import { createRefresher } from "../../src/shell/refresher";
+import {
+  openRepoSheet,
+  removedLine,
+  removeQuestion,
+} from "../../src/shell/repo-sheet";
 import { showToast } from "../../src/shell/toast";
 import { mountTopbar } from "../../src/shell/topbar";
 
@@ -458,7 +464,82 @@ async function paintFresh({ keepNotice = false } = {}): Promise<void> {
     needsLook: new Set(),
   });
   lastModel = model;
+  addables = studio.addable ?? {};
   paint(model);
+}
+
+/** Whether each flow can be added to its repo, as the last listing said. */
+let addables: Record<string, Addable> = {};
+/** The flows whose add is under way in this window: their button says so
+ *  and a second press does nothing. */
+const addingNow = new Set<string>();
+
+const unperiod = (text: string): string => text.replace(/\.$/, "");
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+/** Add to repo: the sheet, then the row says how it went. A plain success
+ *  is the sheet's own toast; a failure is the row's status line. */
+async function addToRepo(id: string): Promise<void> {
+  const can = addables[id];
+  const flow = lastModel?.groups?.find((g) => g.video.id === id);
+  if (addingNow.has(id) || can === undefined || !can.ok || flow === undefined) {
+    return;
+  }
+  const key = statusKey("video", id);
+  rowStatus.delete(key);
+  addingNow.add(id);
+  await render().catch((error: unknown) => reportError("adding it", error));
+  try {
+    const done = await openRepoSheet({
+      video: { id, name: flow.video.name },
+      addable: can,
+      repo: platform.videos.repo,
+      ci: null,
+      reveal: (path) => platform.files.reveal({ kind: "path", path }),
+    });
+    if (done.failed !== undefined) {
+      rowStatus.set(key, `Couldn't add: ${unperiod(done.failed)}.`);
+    }
+  } catch (error) {
+    console.error("demoman library: opening the add sheet —", error);
+    rowStatus.set(key, `Couldn't add: ${unperiod(messageOf(error))}.`);
+  } finally {
+    addingNow.delete(id);
+  }
+  await render().catch((error: unknown) => reportError("adding it", error));
+}
+
+/** Remove from repo: asks, names the recipe that goes and the exports that
+ *  stay, then says it was done. */
+async function removeFromRepo(id: string): Promise<void> {
+  const flow = lastModel?.groups?.find((g) => g.video.id === id);
+  const kept = flow?.video.kept;
+  if (flow === undefined || kept == null || "unknown" in kept) return;
+  const key = statusKey("video", id);
+  let go: boolean;
+  try {
+    go = await askToConfirm(removeQuestion(flow.video, kept.file));
+  } catch (error) {
+    rowStatus.set(
+      key,
+      `Couldn't remove: the confirmation could not open — ${unperiod(messageOf(error))}.`,
+    );
+    await render();
+    return;
+  }
+  if (!go) return;
+  try {
+    const done = await platform.videos.repo.remove(id);
+    rowStatus.delete(key);
+    await render();
+    const said = removedLine(flow.video.name);
+    if (done.notes.length === 0) showToast(said);
+    else say([said, ...done.notes].join(" "), "info");
+  } catch (error) {
+    rowStatus.set(key, `Couldn't remove: ${unperiod(messageOf(error))}.`);
+    await render().catch((e: unknown) => reportError("removing it", e));
+  }
 }
 
 /** A refusal's reason, in the author's terms — one of three distinct
@@ -876,6 +957,12 @@ const actions: LibraryActions = {
   },
   deleteSelected: () => {
     void deleteSelected();
+  },
+  repo: {
+    addable: (id) => addables[id],
+    adding: (id) => addingNow.has(id),
+    add: (id) => void addToRepo(id),
+    remove: (id) => void removeFromRepo(id),
   },
   remove: (sceneId: string, kind: RowKind): void => {
     // The run in flight owns the deletes; a second dialog over it would

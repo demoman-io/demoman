@@ -9,6 +9,7 @@ import type {
   RepoAddBody,
   RepoAddStarted,
   RepoRemoveAnswer,
+  StudioEvent,
   TakesAnswer,
 } from "@demoman/studio-protocol";
 import type { BrandKitStore } from "../adapters/brand-kit-store";
@@ -16,6 +17,9 @@ import type { DeleteResult } from "../core/storage/types";
 import type { SaveView } from "../editor/export-run";
 import type { FileType } from "../editor/jobs";
 import type { BundleSource, StoredOutput } from "../editor/ports";
+
+/** One event of an add to a repo. */
+export type RepoEvent = Extract<StudioEvent, { type: "repo" }>;
 
 /**
  * Everything outside the page that the pages reach: the studio's stores,
@@ -161,13 +165,17 @@ export interface Platform {
   videos: {
     /** Rejects with the studio's sentence when the rename was refused. */
     rename(id: string, name: string): Promise<void>;
-    /** Whether the flow can be added to its repo, read now. */
-    addable(id: string): Promise<Addable>;
-    /** Adds the flow to its repo (the outcome comes as `repo` events) or
-     *  removes it. Reject with the studio's sentence when refused. */
+    /** Adding a flow to its repo and removing it. Each rejects with the
+     *  studio's sentence when refused. */
     repo: {
+      /** Whether the flow can be added, read now. */
+      addable(id: string): Promise<Addable>;
+      /** Starts the add; its outcome comes as `repo` events. */
       add(id: string, body: RepoAddBody): Promise<RepoAddStarted>;
       remove(id: string): Promise<RepoRemoveAnswer>;
+      /** The events of one add, from its first (replayed if it came before
+       *  this call). Returns a stop. */
+      onRepo(jobId: string, fn: (e: RepoEvent) => void): () => void;
     };
     /** Every version and the record. Rejects only when the request itself
      *  could not be made; a refusal resolves `{ ok: false }`. */
@@ -188,6 +196,9 @@ export interface FolderListing {
   sizes: Record<string, number>;
   unreadable: TakesAnswer["unreadable"];
   unwatched: string | null;
+  /** Whether each flow can be added to its repo (absent where the platform
+   *  has no repos). */
+  addable?: TakesAnswer["addable"];
 }
 
 /** The studio's take folder. */

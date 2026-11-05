@@ -196,13 +196,14 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       }),
     },
     videos: {
-      addable: async () => ({
-        ok: false,
-        reason: "noCheckout",
-        label: "not in a repo",
-        detail: "",
-      }),
       repo: {
+        addable: async () => ({
+          ok: false,
+          reason: "noCheckout",
+          label: "not in a repo",
+          detail: "",
+        }),
+        onRepo: () => () => {},
         add: async () => ({ jobId: "none" }),
         remove: async () => ({ removed: [], exportsLeft: [], notes: [] }),
       },

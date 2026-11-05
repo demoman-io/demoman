@@ -616,6 +616,10 @@
         background: var(--control-hover);
         color: var(--ink);
       }
+      .row-actions .btn-icon[aria-disabled="true"]:hover {
+        background: transparent;
+        color: var(--ink-muted);
+      }
       /* Delete keeps the shell's red hover. Restated here because the rule
          above matches it at the same specificity as the shell's own
          `.btn-icon.btn-danger` hover, and wins by coming later. */
