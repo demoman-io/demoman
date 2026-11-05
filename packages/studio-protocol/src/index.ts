@@ -25,6 +25,7 @@ export const ROUTES = {
   takeDelete: { method: "DELETE", path: "/api/takes/:id" },
   videoRename: { method: "PUT", path: "/api/videos/:id/name" },
   videoDelete: { method: "DELETE", path: "/api/videos/:id" },
+  repoAddable: { method: "GET", path: "/api/videos/:id/repo" },
   bundle: { method: "GET", path: "/api/takes/:id/bundle" },
   frame: { method: "GET", path: "/api/takes/:id/frames/:ref" },
   thumb: { method: "GET", path: "/api/takes/:id/thumbs/:ref" },
@@ -242,6 +243,13 @@ export interface VideoSummary {
    *  or it has no key. The flow's project (spec "The model", rule 1). */
   addedTo: string | null;
 }
+/** Whether a flow can be added to its repo: the runner's `Addable`
+ *  (`apps/runner/src/executor/addable.ts`), which the studio's routes assign
+ *  to this type, so the two cannot drift apart unnoticed. `label` is the
+ *  short reason and `detail` the sentence. */
+export type Addable =
+  | { ok: true; root: string; defaultPath: string }
+  | { ok: false; reason: string; label: string; detail: string };
 export interface VersionExport {
   path: string;
   fileType: FileType;
@@ -250,6 +258,9 @@ export interface VersionExport {
 export interface TakesAnswer {
   /** The videos the takes belong to. */
   videos: VideoSummary[];
+  /** Whether each video, by id, can be added to its repo. A video that
+   *  will not read has none: its row says why. */
+  addable: Record<string, Addable>;
   /** Each take that is a version of a video: which, its number, and
    *  whether its recording expired (its frames were removed). A take not
    *  here belongs to no video yet. */

@@ -56,12 +56,19 @@ export async function checkAddable(
     git: GitRunner;
     accounts?: Map<string, AccountsFound>;
     sessions?: SessionFile[];
+    /** readRepo's answers by directory, so flows in one checkout run git once. */
+    repos?: Map<string, Promise<Awaited<ReturnType<typeof readRepo>>>>;
   },
 ): Promise<Addable> {
   const { video } = a;
-  const where = await checkoutOf(video, deps.videos, (dir) =>
-    readRepo(dir, deps.git),
-  );
+  const where = await checkoutOf(video, deps.videos, (dir) => {
+    let read = deps.repos?.get(dir);
+    if (read === undefined) {
+      read = readRepo(dir, deps.git);
+      deps.repos?.set(dir, read);
+    }
+    return read;
+  });
   if ("missing" in where) {
     return {
       ok: false,

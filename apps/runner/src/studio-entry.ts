@@ -35,7 +35,7 @@ export {
 export { readLogo } from "./executor/logo-ref.js";
 export { ensureVideos } from "./executor/migrate-videos.js";
 export { couldNotCheck, postToolUseAnswer } from "./executor/pr-hook.js";
-export { hasCommit, readRepo } from "./executor/repo.js";
+export { execGit, hasCommit, readRepo } from "./executor/repo.js";
 export { followCheckouts } from "./executor/repo-aliases.js";
 export {
   readUserSettings,

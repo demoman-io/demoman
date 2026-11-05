@@ -2,6 +2,7 @@
 import type { LogoLoad } from "@demoman/run-core/render";
 import type { SceneAspect, SceneDocument } from "@demoman/scene-schema";
 import type {
+  Addable,
   ExportQualityChoice,
   LibraryViewChoice,
   PullRequestsChoice,
@@ -157,6 +158,8 @@ export interface Platform {
   videos: {
     /** Rejects with the studio's sentence when the rename was refused. */
     rename(id: string, name: string): Promise<void>;
+    /** Whether the flow can be added to its repo, read now. */
+    addable(id: string): Promise<Addable>;
     /** Every version and the record. Rejects only when the request itself
      *  could not be made; a refusal resolves `{ ok: false }`. */
     remove(id: string): Promise<RemoveReply>;

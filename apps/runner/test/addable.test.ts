@@ -277,4 +277,24 @@ describe("checkAddable", () => {
     );
     expect([...accounts.keys()]).toEqual([repo]);
   });
+
+  // Red if checkAddable stops reading through deps.repos: git runs once per flow.
+  it("flows in one checkout share one readRepo through deps.repos", async () => {
+    const a = await video("Memo A", repoRef);
+    const b = await video("Memo B", repoRef);
+    let runs = 0;
+    const git: typeof execGit = (args, cwd, env) => {
+      runs++;
+      return execGit(args, cwd, env);
+    };
+    await checkAddable({ video: a.record }, { videos, library, home, git });
+    const alone = runs;
+    expect(alone).toBeGreaterThan(0);
+    runs = 0;
+    const repos = new Map();
+    const deps = { videos, library, home, git, repos };
+    await checkAddable({ video: a.record }, deps);
+    await checkAddable({ video: b.record }, deps);
+    expect(runs).toBe(alone);
+  });
 });

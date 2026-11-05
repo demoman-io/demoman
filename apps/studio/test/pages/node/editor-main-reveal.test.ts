@@ -79,6 +79,12 @@ vi.mock("#platform", async (importOriginal) => {
     },
     videos: {
       rename: async () => {},
+      addable: async () => ({
+        ok: false,
+        reason: "noCheckout",
+        label: "not in a repo",
+        detail: "",
+      }),
       remove: async () => ({ ok: true }),
     },
     bundles: {

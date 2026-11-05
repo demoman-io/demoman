@@ -7,9 +7,11 @@ import {
   parseFilmedCode,
 } from "@demoman/run-core";
 import {
+  checkAddable,
   createVideoStore,
   describeVideo,
   ensureVideos,
+  execGit,
   expireOld,
   expiryStatus,
   followCheckouts,
@@ -29,6 +31,7 @@ import {
 } from "@demoman/runner/studio";
 import { migrateToCurrent, type SceneDocument } from "@demoman/scene-schema";
 import {
+  type Addable,
   type BundleAnswer,
   type DeleteAnswer,
   type ExportQualityAnswer,
@@ -320,9 +323,20 @@ export function createRoutes(o: {
    *  will not read is a row saying so, never a missing card. */
   async function videoListing(
     unreadable: UnreadableTake[],
-  ): Promise<Pick<TakesAnswer, "videos" | "videoOf">> {
+  ): Promise<Pick<TakesAnswer, "videos" | "videoOf" | "addable">> {
     const listed: VideoListing[] = [];
     const videoOf: TakesAnswer["videoOf"] = {};
+    const addable: Record<string, Addable> = {};
+    // One cache for this listing, so flows in one checkout read its
+    // accounts.json once; never kept across requests.
+    const deps: Parameters<typeof checkAddable>[1] = {
+      videos,
+      library,
+      home,
+      git: execGit,
+      accounts: new Map(),
+      repos: new Map(),
+    };
     const say = (row: UnreadableTake): void => {
       unreadable.push(row);
       log(`studio: ${row.folder}: ${row.reason}`);
@@ -336,7 +350,7 @@ export function createRoutes(o: {
         reason: messageOf(error),
         kind: "upkeep",
       });
-      return { videos: listed, videoOf };
+      return { videos: listed, videoOf, addable };
     }
     for (const v of records) {
       if ("unreadable" in v) {
@@ -354,6 +368,7 @@ export function createRoutes(o: {
             filmedCode: await filmedCodeOf(version.takeId),
           };
         }
+        addable[v.id] = await checkAddable({ video: v }, deps);
         listed.push({ ...summary, steps });
       } catch (error) {
         say({
@@ -363,7 +378,7 @@ export function createRoutes(o: {
         });
       }
     }
-    return { videos: listed, videoOf };
+    return { videos: listed, videoOf, addable };
   }
 
   const noTake = (id: string): StudioResponse =>
@@ -684,6 +699,25 @@ export function createRoutes(o: {
         "nameTaken",
         `Another flow is already called "${done.holder.name}".`,
       );
+    },
+
+    async repoAddable(req) {
+      const id = req.params.id as string;
+      const video = await videos.get(id);
+      if (video === null) return noVideo(id);
+      // A fresh cache per request: a hand sign-in answer must not go stale.
+      const answer: Addable = await checkAddable(
+        { video },
+        {
+          videos,
+          library,
+          home,
+          git: execGit,
+          accounts: new Map(),
+          repos: new Map(),
+        },
+      );
+      return json(200, answer);
     },
 
     async videoDelete(req) {

@@ -6,14 +6,25 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  realpath,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLibrary } from "@demoman/runner/studio";
-import { pathFor } from "@demoman/studio-protocol";
+import {
+  createLibrary,
+  createVideoStore,
+  readRepo,
+} from "@demoman/runner/studio";
+import type { SceneDocument } from "@demoman/scene-schema";
+import {
+  type Addable,
+  pathFor,
+  type TakesAnswer,
+} from "@demoman/studio-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createEventHub } from "../../src/events.js";
 import { ABSENT_REVISION, KITS_CHANGED_ELSEWHERE } from "../../src/kits.js";
@@ -1273,5 +1284,145 @@ describe("ping", () => {
       pid: process.pid,
       queued: 0,
     });
+  });
+});
+
+describe("which flows can be added", () => {
+  let repo: string;
+  let rootOf: string;
+  beforeEach(async () => {
+    repo = await mkdtemp(join(tmpdir(), "studio-addable-repo-"));
+    await new Promise((r) =>
+      spawn("git", ["init", "-q"], { cwd: repo }).on("exit", r),
+    );
+    rootOf = await realpath(repo);
+  });
+  afterEach(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+
+  /** A flow recorded in `repo`, its scene edited by `edit`. */
+  async function flow(
+    name: string,
+    id: string,
+    edit: (d: SceneDocument) => SceneDocument = (d) => d,
+  ): Promise<string> {
+    const { scene } = await seedTake(home, { id });
+    const library = createLibrary(home);
+    // The fixture carries a mask, which a flow cannot carry into a repo.
+    await library.putScene(
+      edit({ ...scene, edits: { ...scene.edits, masks: [] } }),
+    );
+    const read = await readRepo(repo);
+    if (!read.ok) throw new Error(read.none);
+    const store = createVideoStore(home, library);
+    const made = await store.create({
+      name,
+      repo: { key: read.repo.key },
+      startPage: scene.meta.capture.originUrl,
+    });
+    if (!made.ok) throw new Error(JSON.stringify(made));
+    await store.join(id, {
+      videoId: made.video.id,
+      made: {
+        repo: read.repo,
+        agent: { none: "test" },
+        by: { none: "test" },
+        door: "mcp",
+      },
+      recordedRevision: (await library.getSceneRead(id))?.revision ?? null,
+    });
+    return made.video.id;
+  }
+  const trimmed = (d: SceneDocument): SceneDocument => ({
+    ...d,
+    edits: { ...d.edits, trim: { tail: { actionId: "act-3", offsetMs: 0 } } },
+  });
+
+  // Red if takes() stops filling addable, or fills it with ok for every flow.
+  it("the listing says, per flow, whether it can be added", async () => {
+    const plain = await flow("Plain", "add-plain");
+    const cut = await flow("Cut", "add-cut", trimmed);
+    const body = (await h
+      .call(pathFor("takes"))
+      .then((r) => r.json())) as TakesAnswer;
+    // The suite's own loose take is a third video, joined by the listing.
+    expect(Object.keys(body.addable)).toEqual(
+      expect.arrayContaining([cut, plain]),
+    );
+    expect(body.videos.length).toBe(Object.keys(body.addable).length);
+    expect(body.addable[plain]).toMatchObject({ ok: true, root: rootOf });
+    expect(body.addable[cut]).toMatchObject({
+      ok: false,
+      reason: "notCarried",
+      label: "has a trim",
+    });
+  });
+
+  // Red if repoAddable answers from the listing's cache or ignores the saved scene.
+  it("the editor's read follows a save that removes the trim", async () => {
+    const cut = await flow("Cut", "add-cut", trimmed);
+    const ask = async () =>
+      (await h
+        .call(pathFor("repoAddable", { id: cut }))
+        .then((r) => r.json())) as Addable;
+    expect(await ask()).toMatchObject({ ok: false, label: "has a trim" });
+    const read = (await h
+      .call(pathFor("sceneGet", { id: "add-cut" }))
+      .then((r) => r.json())) as { scene: SceneDocument; revision: string };
+    const { trim: _trim, ...edits } = read.scene.edits;
+    const put = await h.call(pathFor("scenePut", { id: "add-cut" }), {
+      method: "PUT",
+      headers: {
+        "If-Match": read.revision,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ...read.scene, edits }),
+    });
+    expect(put.status, put.text).toBe(200);
+    expect(await ask()).toMatchObject({ ok: true, root: rootOf });
+    expect((await h.call(pathFor("repoAddable", { id: "nope" }))).status).toBe(
+      404,
+    );
+  });
+
+  // Red if the listing adds an addable entry for a record that will not read.
+  it("a video that will not read has no addable entry", async () => {
+    const plain = await flow("Plain", "add-plain");
+    const broken = await flow("Broken", "add-broken");
+    await writeFile(join(home, "videos", `${broken}.json`), "{ not json");
+    const body = (await h
+      .call(pathFor("takes"))
+      .then((r) => r.json())) as TakesAnswer;
+    expect(body.unreadable.some((u) => u.folder === broken)).toBe(true);
+    expect(body.addable[plain]?.ok).toBe(true);
+    expect(broken in body.addable).toBe(false);
+  });
+
+  // Red if the listing builds a cache per flow: accounts.json is read per flow.
+  it("three flows in one checkout read its accounts.json once", async () => {
+    for (const n of ["a", "b", "c"]) await flow(`Flow ${n}`, `add-${n}`);
+    await mkdir(join(repo, ".demoman"));
+    await writeFile(join(repo, ".demoman", "accounts.json"), "{}");
+    const fsp = (await import("node:fs/promises")).default;
+    const real = fsp.readFile;
+    const reads: string[] = [];
+    // The runner's dist is loaded by node itself, so its `readFile` import
+    // is patched through the builtin, not through vitest.
+    fsp.readFile = ((path: string, ...rest: unknown[]) => {
+      reads.push(String(path));
+      return (real as (...a: unknown[]) => unknown)(path, ...rest);
+    }) as typeof real;
+    syncBuiltinESMExports();
+    try {
+      const body = (await h
+        .call(pathFor("takes"))
+        .then((r) => r.json())) as TakesAnswer;
+      expect(Object.keys(body.addable).length).toBeGreaterThanOrEqual(3);
+    } finally {
+      fsp.readFile = real;
+      syncBuiltinESMExports();
+    }
+    expect(reads.filter((p) => p.endsWith("accounts.json")).length).toBe(1);
   });
 });

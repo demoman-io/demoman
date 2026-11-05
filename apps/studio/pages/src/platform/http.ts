@@ -11,6 +11,7 @@ import type { LogoLoad } from "@demoman/run-core/render";
 import { fitWallpaperImage } from "@demoman/run-core/wallpaper";
 import type { SceneDocument } from "@demoman/scene-schema";
 import {
+  type Addable,
   type AssetAnswer,
   type BundleAnswer,
   type DeleteAnswer,
@@ -737,6 +738,11 @@ export function createPlatform(
       async rename(id, name) {
         await answer<object>(
           await request("videoRename", { params: { id }, json: { name } }),
+        );
+      },
+      async addable(id) {
+        return answer<Addable>(
+          await request("repoAddable", { params: { id } }),
         );
       },
       remove: (id) => removeBy(request("videoDelete", { params: { id } })),

@@ -196,6 +196,12 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       }),
     },
     videos: {
+      addable: async () => ({
+        ok: false,
+        reason: "noCheckout",
+        label: "not in a repo",
+        detail: "",
+      }),
       rename: member("videos", "rename", async (id: string, name: string) => {
         const video = videos.find((v) => v.id === id);
         if (video === undefined) throw new Error(`There is no flow "${id}".`);
