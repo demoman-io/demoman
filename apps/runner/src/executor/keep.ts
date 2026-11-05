@@ -254,7 +254,7 @@ export async function keepVideo(
     const other = parseKept(await readFile(join(root, rel), "utf8"), rel);
     if (!other.ok) {
       deps.log(
-        `${other.detail} — so its outputs were not checked against this keep's`,
+        `${other.detail} — so its outputs were not checked against this add's`,
       );
       continue;
     }
@@ -320,7 +320,7 @@ export async function keepVideo(
     const rendered: Uint8Array[] = [];
     const judged = judgedOutput(base.outputs);
     for (const o of deliver === "files" ? [] : base.outputs) {
-      deps.log(`keep: exporting ${o.path}`);
+      deps.log(`add: exporting ${o.path}`);
       const answer = await exportTake(
         {
           takeId: built.takeId,
@@ -357,7 +357,7 @@ export async function keepVideo(
       null;
     if (deliver === "commit") {
       const o = base.outputs[judged] as KeptOutput;
-      deps.log(`keep: rendering the screens of ${o.path}`);
+      deps.log(`add: rendering the screens of ${o.path}`);
       const shot = await exportTake(
         {
           takeId: built.takeId,
@@ -441,7 +441,7 @@ export async function keepVideo(
           written.push(report);
         } else {
           deps.log(
-            `keep: ${report} is written by the next refresh — video ${built.takeId}'s run report ${"missing" in runReport ? "is missing" : `could not be read (${runReport.unreadable})`}`,
+            `add: ${report} is written by the next refresh — the run report of "${video.name}" ${"missing" in runReport ? "is missing" : `could not be read (${runReport.unreadable})`}`,
           );
         }
       }
@@ -514,7 +514,7 @@ export async function keepVideo(
     };
   } finally {
     await rm(temp, { recursive: true, force: true }).catch((error: unknown) =>
-      deps.log(`keep: ${temp} was not removed (${messageOf(error)})`),
+      deps.log(`add: ${temp} was not removed (${messageOf(error)})`),
     );
   }
 }
@@ -680,7 +680,7 @@ async function buildKept(
     filmedScale(bundle, scene.meta.capture.viewport.width);
   const scaleGuess =
     scale === null
-      ? `1x is a guess: video ${built.takeId} does not say the scale it was recorded at and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the recipe file to it, or the first refresh replaces a video that did not change`
+      ? `1x is a guess: "${video.name}" does not say the scale it was recorded at and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the recipe file to it, or the first refresh replaces a video that did not change`
       : null;
 
   // A file the script names, by its repo path: copied in under `folder`
@@ -936,11 +936,11 @@ export async function rewriteKept(
         });
         if (!marked.ok)
           deps.log(
-            `kept: ${rel}: the library could not mark flow ${videoId} as kept (${marked.reason})`,
+            `refresh: ${rel}: the library could not mark flow ${videoId} as in the repo (${marked.reason})`,
           );
       } catch (error) {
         deps.log(
-          `kept: ${rel}: the library could not mark flow ${videoId} as kept (${messageOf(error)})`,
+          `refresh: ${rel}: the library could not mark flow ${videoId} as in the repo (${messageOf(error)})`,
         );
       }
     }
