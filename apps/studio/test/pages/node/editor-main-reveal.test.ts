@@ -85,6 +85,10 @@ vi.mock("#platform", async (importOriginal) => {
         label: "not in a repo",
         detail: "",
       }),
+      repo: {
+        add: async () => ({ jobId: "none" }),
+        remove: async () => ({ removed: [], exportsLeft: [], notes: [] }),
+      },
       remove: async () => ({ ok: true }),
     },
     bundles: {

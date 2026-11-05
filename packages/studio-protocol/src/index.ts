@@ -26,6 +26,8 @@ export const ROUTES = {
   videoRename: { method: "PUT", path: "/api/videos/:id/name" },
   videoDelete: { method: "DELETE", path: "/api/videos/:id" },
   repoAddable: { method: "GET", path: "/api/videos/:id/repo" },
+  repoAdd: { method: "POST", path: "/api/videos/:id/repo" },
+  repoRemove: { method: "DELETE", path: "/api/videos/:id/repo" },
   bundle: { method: "GET", path: "/api/takes/:id/bundle" },
   frame: { method: "GET", path: "/api/takes/:id/frames/:ref" },
   thumb: { method: "GET", path: "/api/takes/:id/thumbs/:ref" },
@@ -141,6 +143,14 @@ export type StudioReason =
   /** A kept flow's rename could not write its checkout or its record;
    *  `detail` says what was done before it stopped. */
   | "repoFlowUnwritable"
+  /** An add's body: a path that is empty or absolute, an unknown delivery
+   *  or quality. */
+  | "repoBodyInvalid"
+  /** The flow could not be added when the button was pressed; `detail` is
+   *  the check's label and sentence. */
+  | "notAddable"
+  /** A remove of a flow whose recipe is not in the repo (the runner's). */
+  | "notInRepo"
   /** The video records would not read or write (the runner's VideoError). */
   | "videoUnreadable"
   | "videoUnwritable"
@@ -243,6 +253,23 @@ export interface VideoSummary {
    *  or it has no key. The flow's project (spec "The model", rule 1). */
   addedTo: string | null;
 }
+/** What the person chose to add a flow to its repo. */
+export interface RepoAddBody {
+  path: string;
+  deliver: KeptDeliver;
+  quality: ExportQuality;
+}
+/** `repoAdd`'s 202: the outcome comes as `repo` events. */
+export interface RepoAddStarted {
+  jobId: string;
+}
+/** `repoRemove`'s 200. */
+export interface RepoRemoveAnswer {
+  removed: string[];
+  exportsLeft: string[];
+  notes: string[];
+}
+
 /** Whether a flow can be added to its repo: the runner's `Addable`
  *  (`apps/runner/src/executor/addable.ts`), which the studio's routes assign
  *  to this type, so the two cannot drift apart unnoticed. `label` is the
@@ -481,6 +508,38 @@ export type StudioEvent =
   | {
       type: "export";
       takeId: string;
+      jobId: string;
+      phase: "failed";
+      reason: string;
+      detail: string;
+    }
+  | {
+      type: "repo";
+      videoId: string;
+      jobId: string;
+      phase: "queued";
+      position: number;
+    }
+  | {
+      type: "repo";
+      videoId: string;
+      jobId: string;
+      phase: "adding";
+      line: string;
+    }
+  | {
+      type: "repo";
+      videoId: string;
+      jobId: string;
+      phase: "added";
+      file: string;
+      written: string[];
+      notes: string[];
+      root: string;
+    }
+  | {
+      type: "repo";
+      videoId: string;
       jobId: string;
       phase: "failed";
       reason: string;

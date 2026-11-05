@@ -134,6 +134,8 @@ export async function startStudio(
     }),
     window: stubWindow,
     exportStart: stubExportStart,
+    repoAdd: stubExportStart,
+    repoRemove: stubExportStart,
   };
   const studio = await createStudioServer({
     handlers,

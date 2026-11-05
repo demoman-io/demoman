@@ -146,7 +146,7 @@ export function createRoutes(o: {
   followEveryMs?: number;
   /** The follow throttle's clock; injected by tests. */
   now?: () => number;
-}): Omit<StudioHandlers, "window" | "exportStart"> {
+}): Omit<StudioHandlers, "window" | "exportStart" | "repoAdd" | "repoRemove"> {
   const { library, home, log } = o;
   const reveal = o.reveal ?? revealInFinder;
   const sceneWrites = createChains();
@@ -450,7 +450,10 @@ export function createRoutes(o: {
     return refuse(409, "takeBusy", `${TAKE_BUSY[first.door]}${more}`);
   };
 
-  const handlers: Omit<StudioHandlers, "window" | "exportStart"> = {
+  const handlers: Omit<
+    StudioHandlers,
+    "window" | "exportStart" | "repoAdd" | "repoRemove"
+  > = {
     async ping() {
       const answer: PingAnswer = {
         version: o.version,
@@ -1205,6 +1208,9 @@ export function createRoutes(o: {
 
   const wrapped = Object.fromEntries(
     Object.entries(handlers).map(([id, h]) => [id, guarded(h)]),
-  ) as Omit<StudioHandlers, "window" | "exportStart">;
+  ) as Omit<
+    StudioHandlers,
+    "window" | "exportStart" | "repoAdd" | "repoRemove"
+  >;
   return wrapped;
 }

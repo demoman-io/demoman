@@ -21,7 +21,13 @@ export {
   type Exporting,
   exportTake,
 } from "./executor/export.js";
-export { renameKept } from "./executor/keep.js";
+export {
+  type KeepAnswer,
+  keepVideo,
+  type RemoveAnswer,
+  removeRepoFlow,
+  renameKept,
+} from "./executor/keep.js";
 export { keyKeptMarks } from "./executor/kept-keys.js";
 export { judgeKitsText, readKits } from "./executor/kits.js";
 export {

@@ -311,3 +311,43 @@ describe("the export queue", () => {
     expect(drained).toBe(true);
   });
 });
+
+describe("serial", () => {
+  // Red if serial runs at once instead of in the export's turn, or an export
+  // queued after it does not wait for it.
+  it("waits for a running export and is waited for by the next", async () => {
+    const { library } = await fakeLibrary(["a", "b"]);
+    const { run, calls } = heldRun();
+    const queue = createExportQueue({
+      library,
+      events: { send: () => {} },
+      run,
+      log: () => {},
+    });
+    await queue.start("a", { fileType: "mp4", revision: "rev-a" });
+    await flush();
+    expect(calls).toHaveLength(1);
+    let turn = "not started";
+    let release: () => void = () => {};
+    const served = queue.serial(async () => {
+      turn = "running";
+      await new Promise<void>((r) => {
+        release = r;
+      });
+      turn = "done";
+      return 7;
+    });
+    await queue.start("b", { fileType: "mp4", revision: "rev-b" });
+    await flush();
+    expect(turn).toBe("not started");
+    calls[0]?.finish(saved("a"));
+    await flush();
+    expect(turn).toBe("running");
+    expect(calls).toHaveLength(1);
+    release();
+    expect(await served).toBe(7);
+    await flush();
+    expect(calls).toHaveLength(2);
+    expect(turn).toBe("done");
+  });
+});

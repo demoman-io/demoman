@@ -6,6 +6,9 @@ import type {
   ExportQualityChoice,
   LibraryViewChoice,
   PullRequestsChoice,
+  RepoAddBody,
+  RepoAddStarted,
+  RepoRemoveAnswer,
   TakesAnswer,
 } from "@demoman/studio-protocol";
 import type { BrandKitStore } from "../adapters/brand-kit-store";
@@ -160,6 +163,12 @@ export interface Platform {
     rename(id: string, name: string): Promise<void>;
     /** Whether the flow can be added to its repo, read now. */
     addable(id: string): Promise<Addable>;
+    /** Adds the flow to its repo (the outcome comes as `repo` events) or
+     *  removes it. Reject with the studio's sentence when refused. */
+    repo: {
+      add(id: string, body: RepoAddBody): Promise<RepoAddStarted>;
+      remove(id: string): Promise<RepoRemoveAnswer>;
+    };
     /** Every version and the record. Rejects only when the request itself
      *  could not be made; a refusal resolves `{ ok: false }`. */
     remove(id: string): Promise<RemoveReply>;

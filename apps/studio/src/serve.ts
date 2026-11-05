@@ -1,25 +1,34 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
-import { mkdir } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { mkdir, stat } from "node:fs/promises";
+import { basename, isAbsolute, join } from "node:path";
 import {
   EXPORT_QUALITY_VALUES,
   type FileType,
   isExportQuality,
 } from "@demoman/run-core";
 import {
+  checkAddable,
   createBrowserSession,
   createLibrary,
   createVideoStore,
+  type ExportDeps,
+  execGit,
   exportTake,
   fullChromiumPath,
+  keepVideo,
   type Library,
   LibraryError,
   ownHome,
+  removeRepoFlow,
 } from "@demoman/runner/studio";
 import type {
   ExportStartAnswer,
   Refusal,
+  RepoAddBody,
+  RepoAddStarted,
+  RepoRemoveAnswer,
   StudioEvent,
   StudioReason,
   WindowAnswer,
@@ -99,6 +108,13 @@ export function buildHandlers(o: {
   log: (line: string) => void;
   version: string;
   queue: ExportQueue;
+  /** What an add renders with: the studio's own headless browser. */
+  session: ExportDeps["session"];
+  wallpapersDir: string;
+  outDir: string;
+  /** Tests: stand-ins for the runner's add and remove. */
+  keep?: typeof keepVideo;
+  removeFlow?: typeof removeRepoFlow;
   window: Pick<StudioWindow, "open">;
   /** Told after each window that opened, so the lifetime knows. */
   onWindowOpened?: () => void;
@@ -119,6 +135,10 @@ export function buildHandlers(o: {
     library.isTakeId(id) && (await library.getSceneRead(id)) !== null;
 
   const videos = createVideoStore(o.home, library, { log: o.log });
+  const keep = o.keep ?? keepVideo;
+  const removeFlow = o.removeFlow ?? removeRepoFlow;
+  const noVideo = (id: string): StudioResponse =>
+    refuse(404, "videoNotFound", `There is no flow "${id}".`);
   /** `key` through the library's aliases; a table that will not read is
    *  logged by the store, and the key goes as asked. */
   const projectKey = async (key: string): Promise<string> => {
@@ -193,6 +213,158 @@ export function buildHandlers(o: {
       if (!("ok" in opened)) return json(500, opened);
       o.onWindowOpened?.();
       const answer: WindowAnswer = { path: opened.path };
+      return json(200, answer);
+    },
+
+    async repoAdd(req) {
+      const id = req.params.id as string;
+      const video = await videos.get(id);
+      if (video === null) return noVideo(id);
+      const body = await bodyOf(req);
+      const { path, deliver, quality } = (
+        body.ok ? (body.value ?? {}) : {}
+      ) as Partial<Record<keyof RepoAddBody, unknown>>;
+      const invalid = !body.ok
+        ? body.error
+        : typeof path !== "string" ||
+            path.trim() === "" ||
+            isAbsolute(path) ||
+            path.startsWith("/") ||
+            path.startsWith("\\") ||
+            /^[a-zA-Z]:/.test(path)
+          ? "the path is empty or absolute"
+          : deliver !== "commit" && deliver !== "files"
+            ? `${JSON.stringify(deliver)} is not commit or files`
+            : !isExportQuality(quality)
+              ? `${JSON.stringify(quality)} is not ${EXPORT_QUALITY_VALUES.join(", ")}`
+              : null;
+      if (invalid !== null) {
+        return refuse(400, "repoBodyInvalid", `Nothing was added: ${invalid}.`);
+      }
+      const add = { path, deliver, quality } as RepoAddBody;
+      // A fresh cache per request, as repoAddable: never a shared deps object.
+      const can = await checkAddable(
+        { video },
+        {
+          videos,
+          library,
+          home: o.home,
+          git: execGit,
+          accounts: new Map(),
+          repos: new Map(),
+        },
+      );
+      if (!can.ok) {
+        return refuse(
+          409,
+          can.reason === "noCheckout" ? "repoCheckoutMissing" : "notAddable",
+          `${can.label}. ${can.detail}`,
+        );
+      }
+      const jobId = randomUUID();
+      const at = { type: "repo", videoId: id, jobId } as const;
+      o.events.send({ ...at, phase: "queued", position: o.queue.size() });
+      void o.queue
+        .serial(async () => {
+          const answer = await keep(
+            {
+              video: id,
+              repoRoot: can.root,
+              deliver: add.deliver,
+              to: [{ path: add.path, fileType: "mp4", quality: add.quality }],
+            },
+            {
+              home: o.home,
+              library,
+              videos,
+              git: execGit,
+              log: (line) => {
+                o.log(`studio: add ${jobId}: ${line}`);
+                o.events.send({ ...at, phase: "adding", line });
+              },
+              export: {
+                library,
+                videos,
+                session: o.session,
+                door: "studio",
+                home: o.home,
+                wallpapersDir: o.wallpapersDir,
+                outDir: o.outDir,
+                log: o.log,
+              },
+            },
+          );
+          if (!answer.ok) {
+            o.events.send({
+              ...at,
+              phase: "failed",
+              reason: answer.reason,
+              detail: answer.detail,
+            });
+            return;
+          }
+          o.events.send({
+            ...at,
+            phase: "added",
+            file: answer.file,
+            written: answer.written,
+            // So a consumer reading only the phase still meets them.
+            notes: [
+              answer.markNote,
+              answer.platformNote,
+              answer.scaleGuess,
+              answer.screensNote,
+            ].filter((n): n is string => n !== undefined),
+            root: can.root,
+          });
+        })
+        .catch((error: unknown) => {
+          o.log(`studio: add ${jobId} threw: ${messageOf(error)}`);
+          o.events.send({
+            ...at,
+            phase: "failed",
+            reason: "internalError",
+            detail: `The add stopped with an error: ${messageOf(error)}.`,
+          });
+        });
+      const started: RepoAddStarted = { jobId };
+      return json(202, started);
+    },
+
+    async repoRemove(req) {
+      const id = req.params.id as string;
+      const video = await videos.get(id);
+      if (video === null) return noVideo(id);
+      // removeFlow finds the recipe by the flow's id in the marked checkout.
+      const root = video.kept?.root;
+      if (
+        root === undefined ||
+        !(await stat(root).then(
+          () => true,
+          () => false,
+        ))
+      ) {
+        return refuse(
+          409,
+          "repoCheckoutMissing",
+          root === undefined
+            ? "The flow is not in a repo."
+            : `${root} is gone.`,
+        );
+      }
+      const done = await removeFlow({ root, flow: id }, { videos });
+      if (!done.ok) {
+        return refuse(
+          done.reason === "repoFlowUnwritable" ? 500 : 409,
+          done.reason === "duplicateFlow" ? "nameTaken" : done.reason,
+          done.detail,
+        );
+      }
+      const answer: RepoRemoveAnswer = {
+        removed: done.removed,
+        exportsLeft: done.exportsLeft,
+        notes: done.markNote === undefined ? [] : [done.markNote],
+      };
       return json(200, answer);
     },
 
@@ -474,6 +646,9 @@ export async function runServe(o: ServeOptions): Promise<never> {
     log,
     version: o.version,
     queue,
+    session: renderer,
+    wallpapersDir: join(o.pagesDir, "wallpapers"),
+    outDir: o.outDir,
     upkeepOnStart: true,
     window: {
       open: async (t) => {

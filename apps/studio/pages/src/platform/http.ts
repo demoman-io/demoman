@@ -28,6 +28,8 @@ import {
   type PingAnswer,
   type PullRequestsAnswer,
   pathFor,
+  type RepoAddStarted,
+  type RepoRemoveAnswer,
   ROUTES,
   type RouteId,
   type SceneAnswer,
@@ -746,6 +748,18 @@ export function createPlatform(
         );
       },
       remove: (id) => removeBy(request("videoDelete", { params: { id } })),
+      repo: {
+        async add(id, body) {
+          return answer<RepoAddStarted>(
+            await request("repoAdd", { params: { id }, json: body }),
+          );
+        },
+        async remove(id) {
+          return answer<RepoRemoveAnswer>(
+            await request("repoRemove", { params: { id } }),
+          );
+        },
+      },
     },
     folder: {
       read: readFolder,
