@@ -155,6 +155,7 @@ describe("adding a flow to its repo, and removing it", () => {
           state: async () => ({ kind: "setUp" }),
           plan: async () => ({ reason: "unused", detail: "" }),
           apply: async () => ({ reason: "unused", detail: "" }),
+          forget: () => {},
           openPr: async (_root, a) => {
             prFiles.push(a.files);
             return { failed: "pr", detail: "" };

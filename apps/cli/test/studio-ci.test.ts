@@ -170,4 +170,37 @@ describe("the Studio's CI door", () => {
     // Red if depsOf drops the plan's signal, or passes one to apply (R11).
     expect(signals).toEqual([stopper.signal, undefined]);
   });
+
+  it("forgets the plan held for a repo, and only that repo's", async () => {
+    let applies = 0;
+    const ci = createStudioCi({
+      deps: depsAnswering(facts(false)),
+      planCiSetup: async () => livePlan(),
+      applyCiSetup: async () => {
+        applies += 1;
+        return { reason: "prFailed", detail: "" };
+      },
+    });
+    const planOf = async (root: string) => {
+      const p = await ci.plan(
+        root,
+        {},
+        new Map(),
+        () => {},
+        new AbortController().signal,
+      );
+      if (!("planId" in p)) throw new Error(JSON.stringify(p));
+      return p.planId;
+    };
+    const here = await planOf(ROOT);
+    const there = await planOf("/work/other");
+    ci.forget(ROOT);
+    // Red if forget leaves the repo's plan held, or drops another repo's.
+    expect(await ci.apply(ROOT, here, () => {})).toMatchObject({
+      reason: "planNotFound",
+    });
+    expect(applies).toBe(0);
+    await ci.apply("/work/other", there, () => {});
+    expect(applies).toBe(1);
+  });
 });

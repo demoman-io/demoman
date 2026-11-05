@@ -170,6 +170,9 @@ export type StudioReason =
   | "prFileRefused"
   /** A pull request's branch is not a `demoman/add-<file>` branch. */
   | "prBranchRefused"
+  /** An apply named a plan the server does not hold (applied, replaced,
+   *  out of date after an add, or from before a restart). */
+  | "planNotFound"
   /** The video records would not read or write (the runner's VideoError). */
   | "videoUnreadable"
   | "videoUnwritable"

@@ -78,6 +78,7 @@ function setup(ci: Partial<StudioCi> = {}) {
       plan: async () => planned(),
       apply: async () => applied(),
       openPr: async () => ({ failed: "pr", detail: "" }),
+      forget: () => {},
       ...ci,
     },
     events: { send: (e) => sent.push(e) },
@@ -89,6 +90,14 @@ function setup(ci: Partial<StudioCi> = {}) {
 }
 
 const body = (r: unknown) => (r as { json: unknown }).json;
+
+/** A plan for ROOT, ended: the server then holds `plan-1`. */
+async function planOnce(h: ReturnType<typeof setup>["h"]): Promise<void> {
+  await h.repoCiPlan(
+    req({ body: JSON.stringify({ root: ROOT, choices: {}, secrets: {} }) }),
+  );
+  await flush();
+}
 
 describe("the CI routes", () => {
   it("answer routeNotFound without repoCi", async () => {
@@ -263,6 +272,7 @@ describe("the CI routes", () => {
   it("an apply's done event goes to tellIfUnseen, and the jobs drain", async () => {
     const gate = held<CiAppliedWire>();
     const { h, told, jobs } = setup({ apply: () => gate.promise });
+    await planOnce(h);
     await h.repoCiApply(
       req({ body: JSON.stringify({ root: ROOT, planId: "plan-1" }) }),
     );
@@ -276,7 +286,10 @@ describe("the CI routes", () => {
     gate.settle(applied());
     await flush();
     // Red if a finished job is not told, or drained() does not wait for it.
-    expect(told).toMatchObject([{ type: "ci", phase: "done", step: "apply" }]);
+    expect(told).toMatchObject([
+      { type: "ci", phase: "done", step: "plan" },
+      { type: "ci", phase: "done", step: "apply" },
+    ]);
     expect(drained).toBe(true);
   });
 
@@ -341,6 +354,7 @@ describe("the CI routes", () => {
         plan: async () => planned(),
         apply: async () => applied(),
         openPr: async () => ({ failed: "pr", detail: "" }),
+        forget: () => {},
       },
       events: { send: () => {} },
       log: (l) => logs.push(l),
@@ -348,10 +362,12 @@ describe("the CI routes", () => {
         throw new Error("the notifier broke");
       },
     });
-    const go = () =>
-      jobs.handlers.repoCiApply(
+    const go = async () => {
+      await planOnce(jobs.handlers);
+      return jobs.handlers.repoCiApply(
         req({ body: JSON.stringify({ root: ROOT, planId: "plan-1" }) }),
       );
+    };
     expect(await go()).toMatchObject({ status: 202 });
     await jobs.drained();
     // Red if the root's job is let go only after `tell` returns.
@@ -491,5 +507,46 @@ describe("the CI routes", () => {
       ).toMatchObject({ status: 409, json: { reason: "prBranchRefused" } });
     }
     expect(asked).toEqual([]);
+  });
+
+  it("refuses an apply of a plan it does not hold, and never asks the CLI", async () => {
+    const asked: string[] = [];
+    const { h } = setup({
+      apply: async (_root, planId) => {
+        asked.push(planId);
+        return applied();
+      },
+    });
+    const apply = (planId: string) =>
+      h.repoCiApply(req({ body: JSON.stringify({ root: ROOT, planId }) }));
+    // Red if repoCiApply hands the CLI a planId the server holds no plan for.
+    expect(await apply("plan-1")).toMatchObject({
+      status: 409,
+      json: { reason: "planNotFound" },
+    });
+    await planOnce(h);
+    expect(await apply("plan-2")).toMatchObject({
+      status: 409,
+      json: { reason: "planNotFound" },
+    });
+    expect(asked).toEqual([]);
+    // Premise: the plan it holds is applied.
+    expect(await apply("plan-1")).toMatchObject({ status: 202 });
+    await flush();
+    expect(asked).toEqual(["plan-1"]);
+  });
+
+  it("an add makes the CLI forget the repo's plan, and refuses its apply", async () => {
+    const forgot: string[] = [];
+    const { h, jobs } = setup({ forget: (root) => forgot.push(root) });
+    await planOnce(h);
+    jobs.added(ROOT, ["docs/a.mp4"]);
+    // Red if added() leaves the CLI's hold, or the server's, in place.
+    expect(forgot).toEqual([ROOT]);
+    expect(
+      await h.repoCiApply(
+        req({ body: JSON.stringify({ root: ROOT, planId: "plan-1" }) }),
+      ),
+    ).toMatchObject({ status: 409, json: { reason: "planNotFound" } });
   });
 });

@@ -43,6 +43,8 @@ export interface StudioCi {
     root: string,
     a: { branch: string; title: string; body: string; files: string[] },
   ): Promise<SetupPrWire>;
+  /** Drops the plan held for `root`: an add made it out of date. */
+  forget(root: string): void;
 }
 
 export type CiRoute = "repoCiState" | "repoCiPlan" | "repoCiApply" | "repoPr";
@@ -288,9 +290,10 @@ export function createCiJobs(o: {
       const set = written.get(root) ?? new Set<string>();
       for (const f of files) set.add(f);
       written.set(root, set);
-      // A plan made before this add is out of date: a reopened sheet reads
-      // none, and so offers a fresh Check.
+      // A plan made before this add is out of date, here and in the CLI's
+      // hold: it cannot be applied, and a reopened sheet offers Check.
       held.delete(root);
+      ci.forget(root);
       const ended = last.get(root);
       if (ended !== undefined && "planId" in ended.answer) last.delete(root);
     },
@@ -357,15 +360,18 @@ export function createCiJobs(o: {
           return badBody("planId is not a string");
         }
         const plan = held.get(root);
-        const values =
-          plan?.planId === planId ? plan.values : new Map<string, string>();
-        const started = start(root, "apply", values, (progress) =>
+        if (plan?.planId !== planId) {
+          return refuse(
+            409,
+            "planNotFound",
+            "Nothing was applied: the plan is out of date. Check again.",
+          );
+        }
+        const started = start(root, "apply", plan.values, (progress) =>
           ci.apply(root, planId, progress),
         );
         // Applied once; its values go when the job does.
-        if (started.status === 202 && plan?.planId === planId) {
-          held.delete(root);
-        }
+        if (started.status === 202) held.delete(root);
         return started;
       },
 

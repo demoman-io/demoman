@@ -66,6 +66,26 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
+/** A plan the CI stubs answer: the server then holds `plan-1`. */
+const planned = {
+  planId: "plan-1",
+  plan: {},
+  lines: [],
+} as unknown as Awaited<ReturnType<StudioCi["plan"]>>;
+
+/** Plans for /work/app and waits until the server holds the plan. */
+async function planHeld(s: Serve): Promise<void> {
+  const started = await call(s.state, "/api/repo/ci/plan", {
+    method: "POST",
+    body: { root: "/work/app", choices: {}, secrets: {} },
+  });
+  expect(started.status, started.text).toBe(202);
+  await vi.waitFor(async () => {
+    const state = await call(s.state, "/api/repo/ci?root=%2Fwork%2Fapp");
+    expect(state.json()).toMatchObject({ kind: "finished" });
+  });
+}
+
 async function serve(
   o: {
     pagesDir?: string;
@@ -403,12 +423,13 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
     const s = await serve({
       repoCi: {
         state: async () => ({ kind: "notSetUp" }),
-        plan: async () => ({ reason: "unused", detail: "" }),
+        plan: async () => planned,
         apply: () =>
           new Promise((r) => {
             finish = r;
           }),
         openPr: async () => ({ failed: "pr", detail: "" }),
+        forget: () => {},
       },
     });
     const opened = await call(s.state, "/api/window", {
@@ -417,6 +438,7 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
     });
     expect(opened.status, opened.text).toBe(200);
     const stream = await events(s.state);
+    await planHeld(s);
     const started = await call(s.state, "/api/repo/ci/apply", {
       method: "POST",
       body: { root: "/work/app", planId: "plan-1" },
@@ -463,6 +485,7 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
         },
         apply: async () => ({ reason: "unused", detail: "" }),
         openPr: async () => ({ failed: "pr", detail: "" }),
+        forget: () => {},
       },
     });
     await call(s.state, "/api/window", { method: "POST", body: {} });
@@ -494,15 +517,17 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
     const s = await serve({
       repoCi: {
         state: async () => ({ kind: "notSetUp" }),
-        plan: async () => ({ reason: "unused", detail: "" }),
+        plan: async () => planned,
         apply: () =>
           new Promise((r) => {
             finish = r;
           }),
         openPr: async () => ({ failed: "pr", detail: "" }),
+        forget: () => {},
       },
     });
     await call(s.state, "/api/window", { method: "POST", body: {} });
+    await planHeld(s);
     await call(s.state, "/api/repo/ci/apply", {
       method: "POST",
       body: { root: "/work/app", planId: "plan-1" },

@@ -5062,6 +5062,7 @@ describe("the Studio's screenshot set", () => {
             lines: [],
           };
         },
+        forget: () => {},
         openPr: async () => ({ failed: "pr", detail: "" }),
       };
 

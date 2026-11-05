@@ -61,6 +61,10 @@ export function createStudioCi(io: {
       ...(signal === undefined ? {} : { signal }),
     };
   };
+  /** Drops every plan held for `root`. */
+  const forget = (root: string): void => {
+    for (const [id, h] of held) if (h.root === root) held.delete(id);
+  };
 
   return {
     async state(root) {
@@ -74,7 +78,7 @@ export function createStudioCi(io: {
 
     async plan(root, c, given, progress, signal) {
       // A new plan for the repo replaces the one held.
-      for (const [id, h] of held) if (h.root === root) held.delete(id);
+      forget(root);
       // In and out: planCiSetup adds each value it reads.
       const values: SecretValues = new Map(given);
       // Picked: a local env file is the terminal's alone.
@@ -128,6 +132,8 @@ export function createStudioCi(io: {
       };
       return applied;
     },
+
+    forget,
 
     async openPr(root, a) {
       const deps = io.deps(root, () => {});
