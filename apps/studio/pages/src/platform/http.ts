@@ -53,7 +53,7 @@ import {
 } from "../core/brand-kit";
 import type { ReplayStatus } from "../core/replay/status";
 import type { SaveView } from "../editor/export-run";
-import { GONE_LINES, type GoneKind, showGone } from "./gone";
+import { GONE_LINES, type GoneKind, goneText, showGone } from "./gone";
 import type {
   ExportEvent,
   FolderListing,
@@ -246,10 +246,24 @@ export function createPlatform(
    *  by that is the page leaving, not the studio stopping. */
   let leaving = false;
   let goneKind: GoneKind | null = null;
+  const repoListeners = new Map<string, (e: RepoEvent) => void>();
+  const repoHeld = new Map<string, RepoEvent[]>();
   const gone = (kind: GoneKind): void => {
     if (leaving) return;
     goneKind ??= kind;
     showGone(kind);
+    // An add the sheet is waiting on will never hear its end: say so, in the
+    // house sentence, as that add's own failure.
+    for (const [jobId, listener] of [...repoListeners]) {
+      listener({
+        type: "repo",
+        videoId: "",
+        jobId,
+        phase: "failed",
+        reason: "studioGone",
+        detail: goneText(kind),
+      });
+    }
   };
 
   /**
@@ -357,8 +371,6 @@ export function createPlatform(
   const kitListeners = new Set<() => void>();
   const takesListeners = new Set<() => void>();
   const openListeners = new Set<(path: string) => void>();
-  const repoListeners = new Map<string, (e: RepoEvent) => void>();
-  const repoHeld = new Map<string, RepoEvent[]>();
 
   /** Each listener on its own: one that throws stops neither the rest nor
    *  the stream. */

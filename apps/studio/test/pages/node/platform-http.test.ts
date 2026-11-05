@@ -458,6 +458,25 @@ describe("a lost studio", () => {
     });
     expect(gone()).toBe("stopped");
   });
+
+  // Red if `gone` stops telling an add that is waiting on its events, which leaves the sheet running forever.
+  it("fails an add being waited on when the server stops", async () => {
+    const platform = createPlatform();
+    await vi.waitFor(() => {
+      if (studio.openStreams() === 0) throw new Error("no stream yet");
+    });
+    const heard: unknown[] = [];
+    platform.videos.repo.onRepo("job-1", (e) => heard.push(e));
+    studio.send({ type: "server:stopping" });
+    await vi.waitFor(() => {
+      if (heard.length === 0) throw new Error("not told yet");
+    });
+    expect(heard[0]).toMatchObject({
+      phase: "failed",
+      jobId: "job-1",
+      detail: "The Studio stopped — run npx demoman studio.",
+    });
+  });
 });
 
 describe("an expired session", () => {

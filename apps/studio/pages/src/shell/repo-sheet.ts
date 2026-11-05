@@ -84,7 +84,9 @@ export function repoSheetModel(a: RepoSheetArgs) {
     state = next;
     for (const fn of listeners) fn();
   };
+  let settled = false;
   const finish = (r: RepoSheetResult): void => {
+    settled = true;
     stop?.();
     settle(r);
     for (const fn of listeners) fn();
@@ -137,6 +139,8 @@ export function repoSheetModel(a: RepoSheetArgs) {
       try {
         const { jobId } = await a.repo.add(a.video.id, { ...fields });
         stop = a.repo.onRepo(jobId, on);
+        // A terminal event replayed inside `onRepo` finished already.
+        if (settled) stop();
       } catch (error) {
         finish({ added: null, prOpened: null, failed: messageOf(error) });
       }

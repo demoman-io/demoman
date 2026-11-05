@@ -986,6 +986,8 @@ export interface RepoState {
   adding: boolean;
   /** A sentence the last add or remove left, or null. */
   status: string | null;
+  /** A sentence that is not a failure (a remove's notes), or null. */
+  note?: string | null;
 }
 
 /**
@@ -1353,6 +1355,11 @@ function repoSection(
     }
     row.append(add);
   } else return null;
+  if (repo.note != null) {
+    const line = el("p", "notice", repo.note);
+    line.setAttribute("data-note", "");
+    row.append(line);
+  }
   if (repo.status !== null) {
     const line = el("p", "notice notice-error", repo.status);
     line.setAttribute("data-status", "");

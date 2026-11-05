@@ -1257,7 +1257,7 @@
       }
       .row-menu > button:is(:hover, :active, :focus-visible) { background: var(--control-hover); }
       .row-menu > button.btn-danger { color: var(--error); }
-      .row-menu > button:disabled { color: var(--ink-faint); }
+      .row-menu > button:is(:disabled, [aria-disabled="true"]) { color: var(--ink-faint); }
       .row-menu svg { width: 16px; height: 16px; flex: none; }
       /* A finger's row (2026-11-03): 44px, the least a tap target should
          be, where the pointer is coarse; a mouse keeps the dense 34. */

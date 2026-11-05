@@ -3301,6 +3301,8 @@ let repoFlow: {
   addable: Addable | undefined;
 } | null = null;
 let repoStatus: string | null = null;
+/** What a remove said that is not a failure. */
+let repoNote: string | null = null;
 let repoAdding = false;
 
 function repoState(): RepoState | null {
@@ -3313,6 +3315,7 @@ function repoState(): RepoState | null {
     addable: flow.addable,
     adding: repoAdding,
     status: repoStatus,
+    note: repoNote,
   };
 }
 
@@ -3321,10 +3324,16 @@ async function refreshRepo(): Promise<void> {
   const listing = await platform.folder.read();
   const id = listing.videoOf[sceneId]?.videoId;
   const video = listing.videos.find((v) => v.id === id);
-  repoFlow =
+  const next =
     id === undefined || video === undefined
       ? null
       : { video, addable: listing.addable?.[id] };
+  // What was said about the flow's last change is stale once it changes.
+  if (JSON.stringify(next) !== JSON.stringify(repoFlow)) {
+    repoStatus = null;
+    repoNote = null;
+  }
+  repoFlow = next;
   if (loaded) render(session.snapshot());
 }
 platform.folder?.onChange(() => void refreshRepo().catch(reportError));
@@ -3339,6 +3348,8 @@ async function addToRepo(): Promise<void> {
   if (repoAdding || flow === null || flow.addable?.ok !== true) return;
   repoAdding = true;
   repoStatus = null;
+  repoNote = null;
+  let said: string | null = null;
   render(session.snapshot());
   try {
     const done = await openRepoSheet({
@@ -3349,15 +3360,16 @@ async function addToRepo(): Promise<void> {
       reveal: (path) => platform.files.reveal({ kind: "path", path }),
     });
     if (done.failed !== undefined) {
-      repoStatus = `Couldn't add: ${unperiod(done.failed)}.`;
+      said = `Couldn't add: ${unperiod(done.failed)}.`;
     }
   } catch (error) {
     console.error("demoman editor: opening the add sheet —", error);
-    repoStatus = `Couldn't add: ${unperiod(messageOf(error))}.`;
+    said = `Couldn't add: ${unperiod(messageOf(error))}.`;
   } finally {
     repoAdding = false;
   }
   await refreshRepo();
+  repoStatus = said;
   render(session.snapshot());
 }
 
@@ -3366,15 +3378,20 @@ async function removeFromRepo(): Promise<void> {
   if (repoFlow === null || kept == null || "unknown" in kept) return;
   const { video } = repoFlow;
   repoStatus = null;
+  repoNote = null;
+  let said: string | null = null;
+  let note: string | null = null;
   if (!(await askToConfirm(removeQuestion(video, kept.file)))) return;
   try {
     const done = await platform.videos.repo.remove(video.id);
     if (done.notes.length === 0) showToast(removedLine(video.name));
-    else repoStatus = [removedLine(video.name), ...done.notes].join(" ");
+    else note = [removedLine(video.name), ...done.notes].join(" ");
   } catch (error) {
-    repoStatus = `Couldn't remove: ${unperiod(messageOf(error))}.`;
+    said = `Couldn't remove: ${unperiod(messageOf(error))}.`;
   }
   await refreshRepo();
+  repoStatus = said;
+  repoNote = note;
   render(session.snapshot());
 }
 

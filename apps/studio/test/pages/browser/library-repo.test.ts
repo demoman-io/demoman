@@ -237,6 +237,112 @@ for (const scheme of ["light", "dark"] as const) {
       ]);
       expect(dialog()).toBeNull();
     });
+
+    // Red if Remove's confirmation stops naming the recipe or the exports that stay.
+    it("asks before removing, names the exports, and toasts the removal", async () => {
+      await mountLibrary([
+        {
+          id: "in",
+          name: "Checkout",
+          video: {
+            kept: {
+              file: "checkout.json",
+              root: "/r",
+              deliver: "commit",
+              key: "k",
+            },
+            exports: [
+              {
+                takeId: "s-in",
+                path: "docs/demos/checkout.mp4",
+                fileType: "mp4",
+                exists: true,
+              },
+            ],
+          },
+        },
+      ]);
+      // Premise: an In repo flow offers Remove and no Add.
+      expect(document.querySelector('[data-action="repo-add"]')).toBeNull();
+      memory.videos.repo.remove = async () => ({
+        removed: ["checkout.json"],
+        exportsLeft: ["docs/demos/checkout.mp4"],
+        notes: [],
+      });
+      (await button("repo-remove", "in")).click();
+      const ask = await vi.waitFor(() => {
+        const d = dialog();
+        if (d === null) throw new Error("no confirm");
+        return d;
+      });
+      expect(ask.querySelector(".confirm-title")?.textContent).toBe(
+        "Remove from repo",
+      );
+      const said = ask.querySelector(".confirm-body")?.textContent ?? "";
+      expect(said).toContain("checkout.json");
+      expect(said).toContain("docs/demos/checkout.mp4");
+      await page.screenshot({ path: `${SHOTS}/remove-confirm-${scheme}.png` });
+      await userEvent.click(
+        ask.querySelector("[data-confirm-go]") as HTMLElement,
+      );
+      await vi.waitFor(() => {
+        expect(document.querySelector("[data-toast-text]")?.textContent).toBe(
+          'Removed "Checkout" from the repo. Its exports stay',
+        );
+      });
+    });
+
+    // Red if the last step's buttons clip instead of scrolling in a short window with many notes.
+    it("keeps a long last step's Done inside the dialog by scrolling", async () => {
+      await page.viewport(1100, 600);
+      await mountLibrary([{ id: "yes", name: "Checkout", addable: OK }]);
+      memory.videos.repo.add = async () => ({ jobId: "j1" });
+      memory.videos.repo.onRepo = (job, fn) => {
+        fn({
+          type: "repo",
+          videoId: "yes",
+          jobId: job,
+          phase: "added",
+          file: "c.json",
+          written: ["docs/demos/c.mp4", "docs/demos/c.json"],
+          notes: Array.from(
+            { length: 14 },
+            (_, i) =>
+              `Note ${i + 1}: the scale was guessed from the recorded window, check it.`,
+          ),
+          root: "/r",
+        } as RepoEvent);
+        return () => {};
+      };
+      (await button("repo-add", "yes")).click();
+      await vi.waitFor(() => {
+        if (dialog() === null) throw new Error("no sheet");
+      });
+      await userEvent.click(
+        document.querySelector("[data-repo-add]") as HTMLElement,
+      );
+      const done = await vi.waitFor(() => {
+        const d = document.querySelector<HTMLElement>("[data-repo-done]");
+        if (d === null) throw new Error("no last step");
+        return d;
+      });
+      const box = dialog() as HTMLDialogElement;
+      // Premise: the content is taller than the window, so it has to scroll.
+      expect(box.scrollHeight).toBeGreaterThan(window.innerHeight);
+      const edge = box.getBoundingClientRect();
+      expect(edge.top).toBeGreaterThanOrEqual(0);
+      expect(edge.bottom).toBeLessThanOrEqual(window.innerHeight);
+      box.scrollTop = box.scrollHeight;
+      const at = done.getBoundingClientRect();
+      expect(at.bottom).toBeLessThanOrEqual(edge.bottom);
+      expect(at.top).toBeGreaterThanOrEqual(edge.top);
+      expect(document.elementFromPoint(at.left + 5, at.top + 5)).toBe(
+        done.closest("button"),
+      );
+      await page.screenshot({
+        path: `${SHOTS}/sheet-long-notes-${scheme}.png`,
+      });
+    });
   });
 }
 
@@ -296,59 +402,61 @@ describe("a failed add, a refused one and Remove from repo", () => {
         document.querySelector('[data-row="s-yes"] [data-status]')?.textContent,
       ).toBe("Couldn't add: That flow is being added.");
     });
+    // A refusal is not a success.
+    expect(document.querySelector("[data-toast]")).toBeNull();
   });
 
-  // Red if Remove's confirmation stops naming the recipe or the exports that stay.
-  it("asks before removing, names the exports, and toasts the removal", async () => {
-    await mountLibrary([
-      {
-        id: "in",
-        name: "Checkout",
-        video: {
-          kept: {
-            file: "checkout.json",
-            root: "/r",
-            deliver: "commit",
-            key: "k",
-          },
-          exports: [
-            {
-              takeId: "s-in",
-              path: "docs/demos/checkout.mp4",
-              fileType: "mp4",
-              exists: true,
-            },
-          ],
-        },
-      },
-    ]);
-    // Premise: an In repo flow offers Remove and no Add.
-    expect(document.querySelector('[data-action="repo-add"]')).toBeNull();
-    memory.videos.repo.remove = async () => ({
-      removed: ["checkout.json"],
-      exportsLeft: ["docs/demos/checkout.mp4"],
-      notes: [],
+  // Red if a running add stops disabling its button, or a second press adds again.
+  it("guards a running add: disabled button, one add, Escape inert", async () => {
+    await mountLibrary([{ id: "yes", name: "Checkout", addable: OK }]);
+    const adds: unknown[] = [];
+    memory.videos.repo.add = async (_id, b) => {
+      adds.push(b);
+      return { jobId: "j1" };
+    };
+    let send: (e: RepoEvent) => void = () => {};
+    memory.videos.repo.onRepo = (_job, fn) => {
+      send = fn;
+      return () => {};
+    };
+    const first = await button("repo-add", "yes");
+    first.click();
+    await vi.waitFor(() => {
+      if (dialog() === null) throw new Error("no sheet");
     });
-    (await button("repo-remove", "in")).click();
-    const ask = await vi.waitFor(() => {
-      const d = dialog();
-      if (d === null) throw new Error("no confirm");
-      return d;
-    });
-    expect(ask.querySelector(".confirm-title")?.textContent).toBe(
-      "Remove from repo",
-    );
-    const said = ask.querySelector(".confirm-body")?.textContent ?? "";
-    expect(said).toContain("checkout.json");
-    expect(said).toContain("docs/demos/checkout.mp4");
-    await page.screenshot({ path: `${SHOTS}/remove-confirm-light.png` });
     await userEvent.click(
-      ask.querySelector("[data-confirm-go]") as HTMLElement,
+      document.querySelector("[data-repo-add]") as HTMLElement,
     );
     await vi.waitFor(() => {
-      expect(document.querySelector("[data-toast-text]")?.textContent).toBe(
-        'Removed "Checkout" from the repo. Its exports stay',
-      );
+      if (document.querySelector("[data-repo-line]") === null) {
+        throw new Error("not running");
+      }
     });
+    const now = await button("repo-add", "yes");
+    expect(now.getAttribute("aria-disabled")).toBe("true");
+    expect(now.title).toBe("Adding to repo…");
+    now.click();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(adds).toHaveLength(1);
+    expect(document.querySelectorAll("dialog[open]")).toHaveLength(1);
+    // Escape does not let go of a running add.
+    await userEvent.keyboard("{Escape}");
+    expect(dialog()).not.toBeNull();
+    // The stream failing ends it, in the house sentence, on the row.
+    send({
+      type: "repo",
+      videoId: "yes",
+      jobId: "j1",
+      phase: "failed",
+      reason: "studioGone",
+      detail: "The Studio stopped — run npx demoman studio.",
+    });
+    await vi.waitFor(() => {
+      expect(
+        document.querySelector('[data-row="s-yes"] [data-status]')?.textContent,
+      ).toBe("Couldn't add: The Studio stopped — run npx demoman studio.");
+    });
+    expect(dialog()).toBeNull();
+    expect(document.querySelector("[data-toast]")).toBeNull();
   });
 });
