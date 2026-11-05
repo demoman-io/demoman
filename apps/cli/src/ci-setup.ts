@@ -857,7 +857,7 @@ export function planLines(p: CiPlan): string[] {
     ...(p.pushCost === null ? [] : [`Runner time: ${p.pushCost}.`]),
     ...p.secrets.map(
       (s) =>
-        `Secret ${s.name}: ${{ set: "set on GitHub", replace: "replaced on GitHub", keep: "kept as GitHub has it", missing: "missing" }[s.status]}.`,
+        `Secret ${s.name}: ${{ set: "set on GitHub", replace: "replaced on GitHub", keep: "left as GitHub has it", missing: "missing" }[s.status]}.`,
     ),
     p.actionsSetting === "turnOn"
       ? `Turns on "Allow GitHub Actions to create and approve pull requests" for ${p.repo.slug}, if it is off.`
@@ -917,7 +917,7 @@ export async function applyCiSetup(
     plan.secrets.filter((s) => s.status === "replace").map((s) => s.name),
     plan.secrets.filter((s) => s.status !== "set").map((s) => s.name),
   );
-  const done = `set: ${list(secrets.set) || "none"}; kept: ${list(secrets.kept) || "none"}`;
+  const done = `set: ${list(secrets.set) || "none"}; left: ${list(secrets.kept) || "none"}`;
   if (secrets.failed.length > 0)
     return stop(
       "secretRefused",

@@ -1037,6 +1037,8 @@ describe("planCiSetup's plan", () => {
       "DEMOMAN_SECRET_C",
     ])
       expect(lines.some((l) => l.includes(n))).toBe(true);
+    // Red if a kept secret is said with "kept" again (a banned word).
+    expect(lines).toContain("Secret DEMOMAN_SECRET_B: left as GitHub has it.");
     expect(lines.join("\n")).not.toContain(VALUE);
   });
 
@@ -1139,6 +1141,8 @@ describe("applyCiSetup", () => {
     const r = await applyCiSetup(p, f.deps, values);
     expect(isStop(r) && r.reason).toBe("secretRefused");
     expect(isStop(r) && r.detail).toContain("DEMOMAN_SECRET_A");
+    // Red if the detail says "kept:" again (a banned word).
+    expect(isStop(r) && r.detail).toContain("set: none; left: none");
     expect(f.calls).not.toContain("allowActionPullRequests");
     expect(f.calls).not.toContain("openSetupPr");
     expect(JSON.stringify(r)).not.toContain(VALUE);
