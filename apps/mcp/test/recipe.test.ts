@@ -359,6 +359,7 @@ describe("the CLI's recipe", () => {
     // applies only the plan object it kept (ci-tool.ts).
     // envFileUnreadable: only setup --ci's --env-file reads a .env; the `ci`
     // tool takes no env file (a value never passes through the agent).
+    // noCheckout: checkAddable's, the Studio's listing and button only; add (keepVideo) takes its checkout and never answers it.
     const TERMINAL_REASONS = [
       "sameFlow",
       "markMoved",
@@ -366,6 +367,7 @@ describe("the CLI's recipe", () => {
       "checkStopped",
       "planWithoutFiles",
       "envFileUnreadable",
+      "noCheckout",
     ];
     const reasons = [...reasonsInCode(CLI_SOURCES), ...CLI_TOOL_REASONS].filter(
       (r) => !TERMINAL_REASONS.includes(r),
