@@ -3,7 +3,25 @@
 // a day, or on each merge to main, and delivers what changed with
 // `demoman refresh --deliver`.
 
+import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { APP_FILE, type AppSpec, parseApp } from "@demoman/run-core";
+import type { AppProposal } from "@demoman/runner/package";
+import { SETUP_BRANCH } from "./ci-pr.js";
+import { envFileNames, type SecretValues } from "./ci-secrets.js";
+import {
+  applyCiSetup,
+  type CiChoices,
+  type CiDeps,
+  type CiPlan,
+  type CiStop,
+  planCiSetup,
+  planLines,
+  redact,
+  type TriggerOffer,
+  triggerOffers,
+} from "./ci-setup.js";
+import type { Watched } from "./ci-watch.js";
 import { COMMIT_SUBJECT } from "./deliver.js";
 import { PACKAGE_NAME } from "./names.js";
 
@@ -15,6 +33,11 @@ export interface CiOptions {
   branch?: string;
   /** Write the files flows to demoman-out and upload it as an artifact. */
   artifact?: boolean;
+  /** How the app starts (.demoman/app.json); null when the repo has none. */
+  app: AppSpec | null;
+  /** Secret names the workflow passes through: bare account names (each
+   *  gives DEMOMAN_SECRET_N and its _ORIGIN) and the app's full env names. */
+  secrets: { accounts: string[]; app: string[] };
 }
 
 export const CI_WORKFLOW_PATH = ".github/workflows/demoman.yml";
@@ -36,19 +59,84 @@ fi`;
 export const RELEASE_MAIN =
   "--route main cannot go with a release trigger: the released commit is a tag, not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a daily or push trigger.";
 
-export function ciWorkflow(o: CiOptions): string {
+export const FORK_REFUSAL =
+  "Secrets are not given to pull requests from forks, so this check cannot sign in or start the app; a maintainer can run it from a branch in this repository.";
+
+const SECRET_NAME = /^[A-Z_][A-Z0-9_]*$/;
+/** An environment name the workflow's condition can quote. */
+export const ENVIRONMENT_NAME = /^[\w .-]+$/;
+
+/** Every env name the workflow passes through: each account's value and the
+ *  one origin it may be typed on, then the app's own. */
+function secretNames(o: CiOptions): string[] {
+  return [
+    ...o.secrets.accounts.flatMap((n) => [
+      `DEMOMAN_SECRET_${n}`,
+      `DEMOMAN_SECRET_${n}_ORIGIN`,
+    ]),
+    ...o.secrets.app,
+  ];
+}
+
+function shapeOf(o: CiOptions) {
   const deployment =
     typeof o.trigger === "string" ? null : o.trigger.deployment;
   const kind = typeof o.trigger === "string" ? o.trigger : "deployment";
-  // Only a push can be Demoman's own commit; the other triggers have no loop.
-  const guarded = kind === "push" || kind === "deployment";
+  return {
+    deployment,
+    kind,
+    // Only a push can be Demoman's own commit; the other triggers have no loop.
+    guarded: kind === "push" || kind === "deployment",
+    branch: o.branch ?? "main",
+  } as const;
+}
+
+/** The app's services as a job's `services:` block; every value is a quoted
+ *  scalar, so nothing in app.json can add a key or an expression. */
+function servicesBlock(app: AppSpec | null): string {
+  const entries = Object.entries(app?.services ?? {});
+  if (entries.length === 0) return "";
+  const q = (v: string): string => {
+    if (v.includes("${{")) {
+      throw new Error(
+        `.demoman/app.json has "\${{" in a service value; a workflow would evaluate it, so write the service by hand`,
+      );
+    }
+    return JSON.stringify(v);
+  };
+  const out = entries.map(([name, svc]) => {
+    const env = Object.entries(svc.env);
+    return [
+      `      ${q(name)}:`,
+      `        image: ${q(svc.image)}`,
+      ...(svc.ports.length > 0
+        ? ["        ports:", ...svc.ports.map((p) => `          - ${q(p)}`)]
+        : []),
+      ...(env.length > 0
+        ? ["        env:", ...env.map(([k, v]) => `          ${q(k)}: ${q(v)}`)]
+        : []),
+      ...(svc.options === null ? [] : [`        options: ${q(svc.options)}`]),
+    ].join("\n");
+  });
+  return `    services:\n${out.join("\n")}\n`;
+}
+
+export function ciWorkflow(o: CiOptions): string {
+  const { deployment, kind } = shapeOf(o);
+  for (const n of secretNames(o)) {
+    if (!SECRET_NAME.test(n) || n.startsWith("GITHUB_")) {
+      throw new Error(
+        `the secret name "${n}" is not A-Z, 0-9 and _, or starts with GITHUB_; a workflow cannot pass it through`,
+      );
+    }
+  }
   // The name goes inside a single-quoted expression string.
-  if (deployment !== null && !/^[\w .-]+$/.test(deployment)) {
+  if (deployment !== null && !ENVIRONMENT_NAME.test(deployment)) {
     throw new Error(
       `the deployment environment "${deployment}" has characters other than letters, digits, spaces, "_", "." and "-"; write the workflow's condition by hand`,
     );
   }
-  const branch = o.branch ?? "main";
+  const { branch } = shapeOf(o);
   if (!/^[\w./-]+$/.test(branch)) {
     throw new Error(
       `the branch "${branch}" has characters a workflow cannot take here`,
@@ -58,7 +146,6 @@ export function ciWorkflow(o: CiOptions): string {
     throw new Error(DEPLOYMENT_MAIN);
   }
   if (kind === "release" && o.route === "main") throw new Error(RELEASE_MAIN);
-  const npx = `npx --prefix ~/ -y ${PACKAGE_NAME}@${o.version}`;
   const on = {
     push: `  push:\n    branches: [${branch}]`,
     release: "  release:\n    types: [published]",
@@ -67,12 +154,74 @@ export function ciWorkflow(o: CiOptions): string {
   }[kind];
   const guard =
     kind === "push"
-      ? expr(
-          "!contains(github.event.head_commit.message, '[skip demoman]') && github.actor != 'github-actions[bot]'",
-        )
+      ? "!contains(github.event.head_commit.message, '[skip demoman]') && github.actor != 'github-actions[bot]'"
       : kind === "deployment"
         ? `github.event.deployment_status.state == 'success' && github.event.deployment.environment == '${deployment}'`
         : null;
+  const refreshIf = expr(
+    `github.event_name != 'pull_request'${guard === null ? "" : ` && (${guard})`}`,
+  );
+  // A deployment trigger records the deployed app (--base-url): nothing to serve.
+  const services = deployment === null ? servicesBlock(o.app) : "";
+  return `name: Demoman
+on:
+${on}
+  pull_request:
+    paths: [".github/workflows/demoman.yml", ".demoman/**"]
+jobs:
+  refresh:
+    if: ${refreshIf}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write${o.artifact === true || kind === "daily" ? "\n      actions: read" : ""}
+    concurrency:
+      group: demoman-refresh
+      cancel-in-progress: false
+${services}    steps:
+${refreshSteps(o, {
+  deliver: true,
+  outDir:
+    o.artifact === true ? " --out-dir demoman-out --previous demoman-out" : "",
+})}  check:
+    if: ${expr("github.event_name == 'pull_request'")}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read${deployment === null ? "" : "\n      deployments: read"}
+    concurrency:
+      group: demoman-check-${expr("github.ref")}
+      cancel-in-progress: true
+${services}    steps:
+${refreshSteps(o, { deliver: false, outDir: " --out-dir demoman-check" })}      - name: Gather the files a commit flow would write
+        if: always()
+        run: |
+          [ -f demoman-check/demoman-refresh.json ] || exit 0
+          mkdir -p demoman-check/repo
+          jq -r '.videos[] | select(.deliver == "commit") | .files[].path' demoman-check/demoman-refresh.json | xargs -r -I{} cp --parents {} demoman-check/repo/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: demoman-check
+          path: demoman-check
+`;
+}
+
+/** The steps both jobs share. `deliver` is the refresh job; without it these
+ *  are the self-check's steps, which run on the setup pull request and
+ *  deliver nothing. */
+function refreshSteps(
+  o: CiOptions,
+  { deliver, outDir }: { deliver: boolean; outDir: string },
+): string {
+  const shape = shapeOf(o);
+  // The check is none of the triggers: no loop guard, no deployed commit,
+  // no skip; under a deployment trigger it still records the deployed app.
+  const kind: string = deliver ? shape.kind : "check";
+  const deployment = deliver ? shape.deployment : null;
+  const environment = shape.deployment;
+  const guarded = deliver && shape.guarded;
+  const branch = shape.branch;
+  const npx = `npx --prefix ~/ -y ${PACKAGE_NAME}@${o.version}`;
   const sha = expr(
     deployment === null ? "github.sha" : "github.event.deployment.sha",
   );
@@ -93,41 +242,41 @@ export function ciWorkflow(o: CiOptions): string {
   const ifRun = skipCond === null ? "" : `\n        if: ${expr(skipCond)}`;
   // Steps before the daily check run whatever it answers.
   const ifEarly = kind === "daily" ? "" : ifRun;
-  const start =
-    deployment === null
-      ? skipCond === null
-        ? `      # Start your app here and wait for it, for example:
-      # - name: Start your app
-      #   run: npm ci && npm run build && (npm start &) && npx wait-on http://localhost:3000
-`
-        : `      # Start your app here and wait for it, for example (keep the \`if\`):
-      # - name: Start your app
-      #   if: ${expr(skipCond)}
-      #   run: npm ci && npm run build && (npm start &) && npx wait-on http://localhost:3000
-`
-      : "";
   // The URL is set by whoever may post deployment statuses: it reaches the
   // shell through env, never interpolated into the run line. A deployment
   // that names none stops the step with that said, not a usage error.
+  // The check runs on a pull request, so it reads the URL of the
+  // environment's newest successful deployment itself (deployedStep).
   const baseUrl =
-    deployment === null
+    environment === null
       ? ""
       : ` --base-url "\${DEMOMAN_BASE_URL:?the deployment named no environment_url, so there is no deployed app to record}"`;
   const baseUrlEnv =
-    deployment === null
+    environment === null
       ? ""
-      : `\n          DEMOMAN_BASE_URL: ${expr("github.event.deployment_status.environment_url")}`;
+      : `\n          DEMOMAN_BASE_URL: ${expr(deliver ? "github.event.deployment_status.environment_url" : "steps.deployed.outputs.url")}`;
+  const deployedStep =
+    deliver || environment === null
+      ? ""
+      : `      - name: Find the deployed app
+        id: deployed
+        env:
+          GH_TOKEN: ${expr("github.token")}
+          ENVIRONMENT: "${environment}"
+        run: |
+${DEPLOYED_SCRIPT.split("\n")
+  .map((l) => `          ${l}`)
+  .join("\n")}
+`;
   // The artifact is cumulative: the last one is downloaded into demoman-out
   // and refresh compares against it in place, so an unchanged flow's receipt
   // and video stay for the next run. A missing folder is refresh's "nothing
   // to compare against", said in its note.
-  const outDir =
-    o.artifact === true ? " --out-dir demoman-out --previous demoman-out" : "";
   // This workflow's own runs on its own trigger, in this repository: a
   // fork's pull request or another workflow can upload an artifact of the
   // same name, which must never stand in for what was delivered.
   const fetch =
-    o.artifact === true
+    deliver && o.artifact === true
       ? `      - name: Fetch the last run's videos${ifEarly}
         env:
           GH_TOKEN: ${expr("github.token")}
@@ -206,23 +355,32 @@ export function ciWorkflow(o: CiOptions): string {
             echo "Nothing but the refresh's own files changed since each repo flow was last recorded or refreshed; nothing to refresh."
           fi
 `;
+  // Refresh starts the app from app.json, unless it records a deployment:
+  // ubuntu has npm only, so pnpm and yarn come through corepack, bun by its action.
+  const started = environment === null ? o.app : null;
+  const tools =
+    started === null
+      ? ""
+      : `      - name: Turn on pnpm and yarn${ifRun}
+        run: corepack enable
+${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - uses: oven-sh/setup-bun@v2${ifRun}\n` : ""}`;
   const script = GUARD_SCRIPT.split("\n")
     .map((l) => `          ${l}`)
     .join("\n");
-  return `name: Demoman
-on:
-${on}
-permissions:
-  contents: write
-  pull-requests: write${o.artifact === true || kind === "daily" ? "\n  actions: read" : ""}
-concurrency:
-  group: demoman-refresh
-  cancel-in-progress: false
-jobs:
-  refresh:
-${guard === null ? "" : `    if: ${guard}\n`}    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
+  const secretEnv = secretNames(o)
+    .map((n) => `\n          ${n}: ${expr(`secrets.${n}`)}`)
+    .join("");
+  const forkStep =
+    secretNames(o).length === 0
+      ? ""
+      : `      - name: Secrets on a fork's pull request
+        if: ${expr("github.event.pull_request.head.repo.full_name != github.repository")}
+        run: |
+          echo "::error::${FORK_REFUSAL}"
+          exit 1
+`;
+  // First: a fork's pull request fails in seconds, before any install.
+  return `${deliver ? "" : forkStep}      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           # A committed video in LFS is compared, not replaced as a pointer.
@@ -240,7 +398,7 @@ ${script}
 }      - uses: actions/setup-node@v4${ifEarly}
         with:
           node-version: 22
-${kind === "daily" ? `${fetch}${freshStep}` : ""}      - uses: actions/cache@v4${ifRun}
+${kind === "daily" ? `${fetch}${freshStep}` : ""}${tools}      - uses: actions/cache@v4${ifRun}
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${o.version}
@@ -248,17 +406,12 @@ ${kind === "daily" ? `${fetch}${freshStep}` : ""}      - uses: actions/cache@v4$
         run: ${npx} setup --browser-only
       - name: Install fonts${ifRun}
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-core fonts-noto-color-emoji
-${start}${kind === "daily" ? "" : fetch}      - name: Refresh the repo's flows${ifRun}
-        run: ${npx} refresh --deliver ${o.route}${baseUrl}${outDir}
+${kind === "daily" ? "" : fetch}${deployedStep}      - name: Refresh the repo's flows${ifRun}
+        run: ${npx} refresh${deliver ? ` --deliver ${o.route}` : ""}${baseUrl}${outDir}
         env:
-          GH_TOKEN: ${expr("github.token")}${baseUrlEnv}
-          # One pair per demo account: NAME is what a kept script's { secret: NAME }
-          # names, and _ORIGIN is the one site it may be typed on (without it the
-          # run refuses the secret).
-          # DEMOMAN_SECRET_SELLER: ${expr("secrets.DEMOMAN_SECRET_SELLER")}
-          # DEMOMAN_SECRET_SELLER_ORIGIN: https://app.example.com
+          GH_TOKEN: ${expr("github.token")}${baseUrlEnv}${secretEnv}
 ${
-  o.artifact === true
+  deliver && o.artifact === true
     ? `      - uses: actions/upload-artifact@v4
         if: ${expr(skipCond === null ? "always()" : `always() && ${skipCond}`)}
         with:
@@ -269,150 +422,324 @@ ${
 }`;
 }
 
+/** The check's deployed URL: the newest successful deployment to
+ *  $ENVIRONMENT that names an environment_url, written to the step's output. */
+export const DEPLOYED_SCRIPT = `if ! ids=$(gh api -X GET "repos/$GITHUB_REPOSITORY/deployments" -f environment="$ENVIRONMENT" -f per_page=30 --jq '.[].id'); then
+  echo "::error::The $ENVIRONMENT deployments could not be listed, so this check has no deployed app to record; re-run this check."
+  exit 1
+fi
+url=""
+for id in $ids; do
+  if ! url=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=30" --jq '[.[] | select(.state == "success" and (.environment_url // "") != "")][0].environment_url // ""'); then
+    echo "::error::Deployment $id's statuses could not be read, so this check has no deployed app to record; re-run this check."
+    exit 1
+  fi
+  if [ -n "$url" ]; then break; fi
+done
+if [ -z "$url" ]; then
+  echo "::error::No successful deployment to $ENVIRONMENT names an environment_url, so this check has no deployed app to record; deploy to $ENVIRONMENT, then re-run this check."
+  exit 1
+fi
+echo "This check records the newest successful $ENVIRONMENT deployment: $url"
+echo "url=$url" >> "$GITHUB_OUTPUT"`;
+
 export const DEPLOYMENT_MAIN =
   "--route main cannot go with a deployment trigger: the deployed commit is not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a push trigger.";
 
-/** What `setup --ci` still needs from the person, by route and trigger. */
-export function ciNotes(o: CiOptions): string[] {
-  return [
-    ...(o.route === "pr"
-      ? [
-          'Turn on "Allow GitHub Actions to create and approve pull requests" in the repository\'s Settings > Actions > General; GitHub refuses the pull request while it is off.',
-        ]
-      : []),
-    ...(typeof o.trigger === "string"
-      ? [
-          `Fill in the "Start your app" step in ${CI_WORKFLOW_PATH}: refresh records the app at its base URL, so it must be running.`,
-        ]
-      : []),
-    "Add each demo account's DEMOMAN_SECRET_<NAME> to the repository secrets and to the workflow's env, with DEMOMAN_SECRET_<NAME>_ORIGIN naming the one site it may be typed on; the run refuses a secret without it.",
-  ];
-}
+/** The terminal's questions; null (or false from confirm) is a cancel. */
+export type CiAsk = {
+  /** Only the offered triggers, the default chosen first. */
+  trigger(offers: TriggerOffer[]): Promise<CiOptions["trigger"] | null>;
+  route(branch: string): Promise<"pr" | "main" | null>;
+  appHole(field: string, why: string): Promise<string | null>;
+  /** Typed unseen. */
+  secret(name: string, why: string): Promise<string | null>;
+  /** Which of `names` to take from the file. */
+  envFile(path: string, names: string[]): Promise<string[] | null>;
+  confirm(lines: string[]): Promise<boolean>;
+};
 
 export interface CiIo {
-  version: string;
   /** Null when there is no terminal to ask in. */
-  ask: {
-    trigger(): Promise<"push" | "release" | "daily" | string | null>;
-    route(): Promise<"pr" | "main" | null>;
-  } | null;
+  ask: CiAsk | null;
   /** The repository's root, or why there is none. */
   root(): Promise<{ root: string } | { none: string }>;
-  /** origin's default branch, null when it cannot be read. */
-  defaultBranch(): Promise<string | null>;
+  /** Everything the plan reads and does, `gh` bound to the root. */
+  deps(root: string): Omit<CiDeps, "log" | "signal">;
   /** Paths are relative to the root. */
   exists(path: string): boolean;
-  write(path: string, text: string): void;
+  /** Ctrl-C while the check runs (R3); answers what restores it. */
+  onInterrupt(stop: () => void): () => void;
   say(line: string): void;
 }
 
-/** `setup --ci [--trigger release|daily|push|deployment:<environment>|<environment>] [--route pr|main] [--artifact]`: returns the exit code. */
+const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** `setup --ci [--trigger …] [--route pr|main] [--artifact] [--yes]
+ *  [--env-file <path>] [--replace-secret <NAME>]…`: read and propose, ask the
+ *  holes and missing values, check, show the plan, one confirmation, apply,
+ *  watch. Returns the exit code. */
 export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   const stop = (why: string): number => {
     io.say(`Demoman setup stopped: ${why}`);
     return 1;
   };
-  let values: {
+  const cancelled = (): number => {
+    io.say("Setup cancelled; nothing was written.");
+    return 1;
+  };
+  const said = (s: CiStop): number => {
+    if (s.reason === "checkStopped") {
+      io.say(`Demoman setup ${s.detail}.`);
+      return 1;
+    }
+    stop(s.detail);
+    for (const l of (s.tail ?? "").split("\n")) if (l !== "") io.say(`  ${l}`);
+    return 1;
+  };
+  let flags: {
     ci?: boolean;
     trigger?: string;
     route?: string;
     artifact?: boolean;
+    yes?: boolean;
+    "env-file"?: string;
+    "replace-secret"?: string[];
   };
   try {
-    ({ values } = parseArgs({
+    ({ values: flags } = parseArgs({
       args,
       options: {
         ci: { type: "boolean" },
         trigger: { type: "string" },
         route: { type: "string" },
         artifact: { type: "boolean" },
+        yes: { type: "boolean" },
+        "env-file": { type: "string" },
+        "replace-secret": { type: "string", multiple: true },
       },
       strict: true,
       allowPositionals: false,
     }));
   } catch (error) {
-    return stop(`${error instanceof Error ? error.message : String(error)}.`);
+    return stop(`${messageOf(error)}.`);
   }
-  if (
-    values.route !== undefined &&
-    values.route !== "pr" &&
-    values.route !== "main"
-  ) {
-    return stop(`--route is pr or main; got "${values.route}".`);
-  }
-  const asked = values.trigger === undefined ? null : triggerOf(values.trigger);
-  const refusedMain = (t: CiOptions["trigger"]) =>
-    t === "release"
-      ? RELEASE_MAIN
-      : typeof t === "object"
-        ? DEPLOYMENT_MAIN
-        : null;
-  if (asked !== null && values.route === "main") {
-    const why = refusedMain(asked);
-    if (why !== null) return stop(why);
+  const { route } = flags;
+  if (route !== undefined && route !== "pr" && route !== "main")
+    return stop(`--route is pr or main; got "${route}".`);
+  const ask = flags.yes === true ? null : io.ask;
+  const given = flags.trigger === undefined ? null : triggerOf(flags.trigger);
+  if (ask === null && flags.yes !== true) {
+    const missing = [
+      ...(given === null ? ["--trigger release|daily|push|<environment>"] : []),
+      // Release and deployment triggers deliver by pull request only.
+      ...(route === undefined && (given === null || mainCan(given))
+        ? ["--route pr|main"]
+        : []),
+    ];
+    return stop(
+      `with no terminal to ask in, nothing was read or written: pass --yes to apply the plan with the defaults${missing.length > 0 ? `, and ${missing.join(" and ")} to choose otherwise` : ""}.`,
+    );
   }
   const where = await io.root();
-  if ("none" in where) {
+  if ("none" in where)
     return stop(
       `${where.none} — run setup --ci inside the repo the workflow is for.`,
     );
-  }
-  if (io.exists(CI_WORKFLOW_PATH)) {
-    return stop(
-      `${CI_WORKFLOW_PATH} already exists; delete it to write it again.`,
-    );
-  }
-  const answered = asked === null ? ((await io.ask?.trigger()) ?? null) : null;
-  const trigger = asked ?? (answered === null ? null : triggerOf(answered));
-  const route =
-    (values.route as "pr" | "main" | undefined) ??
-    (await io.ask?.route()) ??
-    null;
-  if (trigger === null || route === null) {
-    io.say(
-      io.ask === null
-        ? "Demoman setup stopped: with no terminal to ask in, pass --trigger release|daily|push|<environment> and --route pr|main."
-        : "Setup cancelled; nothing was written.",
-    );
-    return 1;
-  }
-  const why = route === "main" ? refusedMain(trigger) : null;
-  if (why !== null) return stop(why);
-  // The branch a push or the daily schedule watches.
-  const read =
-    trigger === "push" || trigger === "daily" ? await io.defaultBranch() : null;
-  const branch = read ?? "main";
-  const o: CiOptions = {
-    version: io.version,
-    trigger,
-    route,
-    branch,
-    ...(values.artifact === true ? { artifact: true } : {}),
+  const { root } = where;
+
+  // Never said: every line the check or this door says is redacted by it.
+  const values: SecretValues = new Map();
+  const deps: CiDeps = {
+    ...io.deps(root),
+    log: (l) => io.say(redact(l, values)),
   };
-  let text: string;
-  try {
-    text = ciWorkflow(o);
-  } catch (error) {
-    return stop(`${error instanceof Error ? error.message : String(error)}.`);
+  const choices: CiChoices = {
+    ...(given === null ? {} : { trigger: given }),
+    ...(route === undefined ? {} : { route }),
+    ...(flags.artifact === true ? { artifact: true } : {}),
+    ...(flags["replace-secret"] === undefined
+      ? {}
+      : { replaceSecrets: flags["replace-secret"] }),
+  };
+
+  // The trigger and route, asked from what the repo has on GitHub.
+  if (
+    ask !== null &&
+    (choices.trigger === undefined || choices.route === undefined)
+  ) {
+    const facts = await deps.readGithub(root);
+    // A repo setup cannot go on with is said by the plan, before any question.
+    if (
+      !("reason" in facts) &&
+      !facts.workflowOnDefault &&
+      facts.setupBranch === null
+    ) {
+      if (choices.trigger === undefined) {
+        const offers = triggerOffers(facts);
+        const t = await ask.trigger(
+          route === "main" ? offers.filter((o) => mainCan(o.trigger)) : offers,
+        );
+        if (t === null) return cancelled();
+        choices.trigger = t;
+      }
+      if (choices.route === undefined && mainCan(choices.trigger)) {
+        const r = await ask.route(facts.defaultBranch);
+        if (r === null) return cancelled();
+        choices.route = r;
+      }
+    }
   }
-  try {
-    io.write(CI_WORKFLOW_PATH, text);
-  } catch (error) {
-    return stop(
-      `could not write ${CI_WORKFLOW_PATH} (${error instanceof Error ? error.message : String(error)}).`,
-    );
+
+  // Plan; a hole or a missing value is asked once, then planned again.
+  const handled = new Set<string>();
+  let plan: CiPlan | CiStop;
+  for (;;) {
+    const abort = new AbortController();
+    const restore = io.onInterrupt(() => abort.abort());
+    try {
+      plan = await planCiSetup(
+        root,
+        choices,
+        { ...deps, signal: abort.signal },
+        values,
+      );
+    } finally {
+      restore();
+    }
+    // Only the check stops on the signal; a Ctrl-C anywhere else in the
+    // pass still ends setup here, before any further question.
+    if (
+      abort.signal.aborted &&
+      !("reason" in plan && plan.reason === "checkStopped")
+    )
+      return cancelled();
+    if (!("reason" in plan)) break;
+    if (handled.has(plan.reason)) return said(plan);
+    handled.add(plan.reason);
+    if (plan.reason === "appHoles" && plan.proposal !== undefined) {
+      if (ask === null)
+        return stop(
+          `${plan.detail}; write them in ${APP_FILE}, then run setup again.`,
+        );
+      const filled = await fillHoles(plan.proposal, ask);
+      if (filled === null) return cancelled();
+      if ("refused" in filled) return stop(filled.refused);
+      choices.app = filled.app;
+      choices.appBy = "person";
+    } else if (plan.reason === "secretMissing" && plan.secrets !== undefined) {
+      let missing = plan.secrets;
+      const path =
+        flags["env-file"] ??
+        (ask !== null && io.exists(".env") ? join(root, ".env") : undefined);
+      let chosen: string[] = [];
+      if (path !== undefined) {
+        let names: string[];
+        try {
+          names = await envFileNames(path, missing);
+        } catch (error) {
+          return stop(
+            `could not read ${path} (${messageOf(error)}); check the path, then run setup again.`,
+          );
+        }
+        const picked =
+          names.length === 0 || ask === null
+            ? names
+            : await ask.envFile(path, names);
+        if (picked === null) return cancelled();
+        chosen = picked;
+        if (chosen.length > 0) choices.envFile = { path, names: chosen };
+        missing = missing.filter((m) => !chosen.includes(m.name));
+      }
+      if (ask === null) {
+        if (chosen.length === 0) return said(plan);
+      } else {
+        for (const m of missing) {
+          const v = await ask.secret(m.name, m.why);
+          if (v === null) return cancelled();
+          values.set(m.name, v);
+        }
+      }
+    } else return said(plan);
   }
-  io.say(`Wrote ${CI_WORKFLOW_PATH} (at the repo root).`);
-  if (trigger === "push" && read === null) {
-    io.say(
-      `- Could not read origin's default branch, so the workflow watches \`main\`; change \`branches: [main]\` in it if yours differs.`,
-    );
-  }
-  for (const n of ciNotes(o)) io.say(`- ${n}`);
-  return 0;
+
+  // One confirmation, after the check (Decision 1).
+  const lines = planLines(plan);
+  if (ask === null) for (const l of lines) io.say(l);
+  else if (!(await ask.confirm(lines))) return cancelled();
+
+  const done = await applyCiSetup(plan, deps, values);
+  if ("reason" in done) return said(done);
+  for (const l of watchedLines(done.watched)) io.say(l);
+  return done.watched !== null && "passed" in done.watched ? 0 : 1;
 }
 
-/** A `--trigger` value or a prompt's answer: the three words are triggers,
+/** The setup run's verdict as lines; both doors say these. */
+export function watchedLines(w: Watched | null): string[] {
+  if (w === null || "unknown" in w)
+    return [
+      `Whether the setup run passed is unknown: ${w === null ? "it was not watched" : w.unknown.why}`,
+    ];
+  if ("passed" in w)
+    return [
+      `The setup run passed: ${w.passed.runUrl}`,
+      `Its videos: ${w.passed.artifactUrl}`,
+    ];
+  if ("cancelled" in w)
+    return [
+      `The setup run was cancelled: ${w.cancelled.runUrl}; re-run it there.`,
+    ];
+  const f = w.failed;
+  return [
+    `The setup run failed on its "${f.step}" step: ${f.runUrl}`,
+    ...f.tail
+      .split("\n")
+      .filter((l) => l !== "")
+      .map((l) => `  ${l}`),
+    ...(f.failedRuns !== null
+      ? [
+          f.gaveUp
+            ? `${f.failedRuns} setup runs have failed on ${SETUP_BRANCH}, the most setup tries: fix the step above in the pull request yourself, or close it and run setup again.`
+            : `${f.failedRuns} of 3 setup runs have failed: fix the step above and push to ${SETUP_BRANCH} to run it again.`,
+        ]
+      : f.note === undefined
+        ? ["How many setup runs have failed is unknown."]
+        : []),
+    ...(f.note === undefined ? [] : [f.note]),
+  ];
+}
+
+/** Each hole in the proposed app.json, asked; null is a cancel. */
+async function fillHoles(
+  p: AppProposal,
+  ask: CiAsk,
+): Promise<{ app: AppSpec } | { refused: string } | null> {
+  const draft: Record<string, unknown> & { env: Record<string, string> } =
+    structuredClone(p.draft);
+  for (const h of p.holes) {
+    const env = /^env\.(.+)$/.exec(h.field)?.[1];
+    if (h.field !== "start" && h.field !== "url" && env === undefined)
+      return {
+        refused: `${h.field}: ${h.why}; fix it, or write ${APP_FILE}, then run setup again.`,
+      };
+    const got = await ask.appHole(h.field, h.why);
+    if (got === null) return null;
+    if (env === undefined) draft[h.field] = got;
+    else draft.env[env] = got;
+  }
+  const parsed = parseApp(JSON.stringify(draft), APP_FILE);
+  return parsed.ok
+    ? { app: parsed.app }
+    : {
+        refused: `${parsed.detail}; run setup again and answer it, or write ${APP_FILE}.`,
+      };
+}
+
+/** Whether `--route main` can go with the trigger. */
+const mainCan = (t: CiOptions["trigger"]): boolean =>
+  t === "push" || t === "daily";
+
+/** A `--trigger` value: the three words are triggers,
  *  `deployment:<name>` an environment of any name, and any other word an
  *  environment as before. */
 function triggerOf(given: string): CiOptions["trigger"] {

@@ -19,7 +19,9 @@ export type ToolName =
   | "run"
   | "export"
   | "attach"
-  | "studio";
+  | "studio"
+  | "add"
+  | "ci";
 
 const READ_ONLY: ToolAnnotations = { readOnlyHint: true };
 /** Opens real pages and reads them. */
@@ -51,4 +53,10 @@ export const TOOL_ANNOTATIONS: {
   attach: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
   /** Opens the studio's window. */
   studio: { readOnlyHint: false, destructiveHint: false },
+  /** Writes the flow's file and its exports into the repo, replacing a
+   *  file already at an output's path. */
+  add: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+  /** Sets GitHub secrets (replacing one when asked), turns on an Actions
+   *  setting and opens a pull request under the user's account. */
+  ci: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
 };

@@ -1,5 +1,5 @@
 // apps/cli/src/setup-deps.ts — the real commands behind setup.ts.
-import { type SpawnSyncReturns, spawnSync } from "node:child_process";
+import { execFile, type SpawnSyncReturns, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -13,9 +13,17 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { constants, homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
-import { isCancel, multiselect, select, text } from "@clack/prompts";
+import {
+  confirm,
+  isCancel,
+  multiselect,
+  note,
+  password,
+  select,
+  text,
+} from "@clack/prompts";
 import { demomanHome } from "@demoman/mcp/serve-cli";
 import {
   EXPORT_QUALITY_LABELS,
@@ -27,6 +35,8 @@ import {
 } from "@demoman/run-core";
 import {
   chromiumDepsCommand,
+  DOCKER_INFO_MS,
+  DOCKER_TIMED_OUT,
   fullChromiumPath,
   launchFailure,
   playwrightCliPath,
@@ -34,7 +44,8 @@ import {
 import { readUserSettings } from "@demoman/runner/studio";
 import { writeSetting } from "@demoman/studio";
 import { chromium } from "playwright";
-import type { CiIo } from "./ci-workflow.js";
+import { defaultTrigger } from "./ci-setup.js";
+import type { CiAsk } from "./ci-workflow.js";
 import type { Answers, Questions, Ran, SetupDeps } from "./setup.js";
 
 /** How long a captured command (claude's git clone of the marketplace, the
@@ -374,39 +385,97 @@ export function realSetupDeps(
   };
 }
 
-/** The two questions of `setup --ci`; null is a cancel. */
-export function ciPrompts(): NonNullable<CiIo["ask"]> {
+/** The setup check's `docker`: a missing command is 127; one that does not
+ *  answer within `timeoutMs` is DOCKER_TIMED_OUT (Docker not answering); one
+ *  stopped by another signal is said as stopped, with the shell's 128 +
+ *  signal number. */
+export function realDocker(
+  log: (line: string) => void,
+  command = "docker",
+  timeoutMs = DOCKER_INFO_MS,
+): (args: string[]) => Promise<{ code: number }> {
+  return (args) =>
+    new Promise((done) =>
+      execFile(command, args, { timeout: timeoutMs }, (err) => {
+        if (err === null) return done({ code: 0 });
+        if (err.killed) return done({ code: DOCKER_TIMED_OUT });
+        if (err.signal) {
+          log(
+            `\`docker ${args.join(" ")}\` was stopped by ${err.signal}, so whether Docker answers is unknown`,
+          );
+          return done({ code: 128 + (constants.signals[err.signal] ?? 0) });
+        }
+        done({ code: typeof err.code === "number" ? err.code : 127 });
+      }),
+    );
+}
+
+/** `setup --ci`'s questions; null (or false from confirm) is a cancel. */
+export function ciPrompts(): CiAsk {
+  const filled = (v: string | undefined) =>
+    (v ?? "").trim() === "" ? "Needs a value" : undefined;
   return {
-    trigger: async () => {
-      const how = await select({
+    trigger: async (offers) => {
+      const shown = offers.filter((o) => o.offered);
+      const first = defaultTrigger(offers);
+      const at = await select({
         message: "When should Demoman refresh the repo's flows?",
-        options: [
-          { value: "deployment", label: "After a successful deployment" },
-          { value: "release", label: "When a release is published" },
-          { value: "daily", label: "Once a day" },
-          {
-            value: "push",
-            label: "On each merge to main (records every repo flow each time)",
-          },
-        ],
+        options: shown.map((o, i) => ({
+          value: i,
+          label: o.label,
+          hint: o.why,
+        })),
+        initialValue: Math.max(
+          0,
+          shown.findIndex(
+            (o) => JSON.stringify(o.trigger) === JSON.stringify(first),
+          ),
+        ),
       });
-      if (isCancel(how)) return null;
-      if (how !== "deployment") return how;
-      const env = await text({ message: "The deployment environment's name" });
-      // Prefixed, so an environment named like a trigger stays an environment.
-      return isCancel(env) || env.trim() === ""
-        ? null
-        : `deployment:${env.trim()}`;
+      return isCancel(at) ? null : (shown[at]?.trigger ?? null);
     },
-    route: async () => {
+    route: async (branch) => {
       const route = await select({
         message: "How should the changed videos reach the repo?",
         options: [
           { value: "pr", label: "In a pull request" },
-          { value: "main", label: "Committed straight to main" },
+          { value: "main", label: `Committed straight to ${branch}` },
         ],
       });
       return isCancel(route) ? null : (route as "pr" | "main");
+    },
+    appHole: async (field, why) => {
+      const got = await text({
+        message: `${field} in .demoman/app.json (${why})`,
+        validate: filled,
+      });
+      return isCancel(got) ? null : got.trim();
+    },
+    secret: async (name, why) => {
+      const got = await password({
+        message: `${name} (${why})`,
+        validate: filled,
+      });
+      return isCancel(got) ? null : got;
+    },
+    envFile: async (path, names) => {
+      const take = await confirm({
+        message: `${path} has ${names.join(", ")}. Use values from it?`,
+      });
+      if (isCancel(take)) return null;
+      if (!take) return [];
+      const chosen = await multiselect({
+        message: `Values from ${path}`,
+        options: names.map((n) => ({ value: n, label: n })),
+        initialValues: names,
+        required: false,
+      });
+      return isCancel(chosen) ? null : chosen;
+    },
+    confirm: async (lines) => {
+      note(lines.join("\n"), "The setup");
+      const go = await confirm({ message: "Set it up?" });
+      return go === true;
     },
   };
 }

@@ -1,7 +1,12 @@
 import type { SceneBranding } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../replay-engine/test/helpers/scenes";
-import { fileDigest, lookDigest, sceneDigest } from "../../src/scene-digest.js";
+import {
+  fileDigest,
+  lookDigest,
+  sceneDigest,
+  scriptDigest,
+} from "../../src/scene-digest.js";
 
 describe("sceneDigest", () => {
   it("is the same for the same content in any key order", () => {
@@ -143,5 +148,26 @@ describe("lookDigest", () => {
         files,
       ),
     ).toBe(lookDigest(sharp, files));
+  });
+});
+
+describe("scriptDigest", () => {
+  const script = {
+    scriptVersion: 1,
+    name: "Checkout",
+    target: "http://127.0.0.1:3999/",
+    viewport: { width: 1280, height: 800 },
+    steps: [{ do: "waitForLoad" }],
+  } as unknown as Parameters<typeof scriptDigest>[0];
+  it("is the same in any key order, and differs for an edited step", () => {
+    const reordered = Object.fromEntries(
+      Object.entries(script).reverse(),
+    ) as typeof script;
+    expect(scriptDigest(reordered)).toBe(scriptDigest(script));
+    const edited = {
+      ...script,
+      steps: [{ do: "click", target: { text: "Pay" } }],
+    } as unknown as typeof script;
+    expect(scriptDigest(edited)).not.toBe(scriptDigest(script));
   });
 });

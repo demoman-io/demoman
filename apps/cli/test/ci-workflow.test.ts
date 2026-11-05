@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -8,16 +9,85 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type AppSpec, serializeApp } from "@demoman/run-core";
+import type { Verified } from "@demoman/runner/package";
 import { describe, expect, it } from "vitest";
-import { ciSetup, ciWorkflow, expr } from "../src/ci-workflow.js";
+import { parse } from "yaml";
+import type { GithubFacts } from "../src/ci-github.js";
+import { envFileValues, type NeededSecret } from "../src/ci-secrets.js";
+import type { CiDeps } from "../src/ci-setup.js";
+import type { Watched } from "../src/ci-watch.js";
+import {
+  type CiAsk,
+  type CiIo,
+  type CiOptions,
+  ciSetup,
+  expr,
+  ciWorkflow as workflow,
+} from "../src/ci-workflow.js";
 
-// No YAML parser is in the repo's dependencies, so the structure is asserted
-// by the lines that carry it; every key sits at a fixed indent.
+const ciWorkflow = (
+  o: Omit<CiOptions, "app" | "secrets"> & Partial<CiOptions>,
+): string => workflow({ app: null, secrets: { accounts: [], app: [] }, ...o });
+
+// Most structure is asserted by the lines that carry it (every key sits at a
+// fixed indent); `yaml`, a dev dependency, parses the variants where shape matters.
 const push = ciWorkflow({ version: "0.2.0", trigger: "push", route: "pr" });
 const deploy = ciWorkflow({
   version: "0.2.0",
   trigger: { deployment: "Production" },
   route: "pr",
+});
+const releaseY = ciWorkflow({
+  version: "0.2.0",
+  trigger: "release",
+  route: "pr",
+});
+const dailyY = ciWorkflow({ version: "0.2.0", trigger: "daily", route: "pr" });
+const triggers = [
+  "push",
+  "release",
+  "daily",
+  { deployment: "Production" },
+] as const;
+const app: AppSpec = {
+  appVersion: 1,
+  install: ["npm ci"],
+  start: "npm start",
+  url: "http://localhost:3000",
+  timeoutSeconds: 60,
+  env: {},
+  secrets: ["STRIPE_KEY"],
+  services: {
+    postgres: {
+      image: "postgres:16",
+      ports: ["5432:5432"],
+      env: { POSTGRES_PASSWORD: "dev" },
+      options: "--health-cmd pg_isready",
+    },
+  },
+};
+const secrets = { accounts: ["SELLER"], app: ["STRIPE_KEY"] };
+/** Every trigger, with and without an artifact, with and without app and secrets. */
+const every = triggers.flatMap((trigger) =>
+  [false, true].flatMap((artifact) =>
+    [false, true].map((full) =>
+      ciWorkflow({
+        version: "0.2.0",
+        trigger,
+        route: "pr",
+        ...(artifact ? { artifact } : {}),
+        ...(full ? { app, secrets } : {}),
+      }),
+    ),
+  ),
+);
+const withApp = ciWorkflow({
+  version: "0.2.0",
+  trigger: "push",
+  route: "pr",
+  app,
+  secrets,
 });
 const lines = (y: string) => y.split("\n");
 const npx = (y: string) => lines(y).filter((l) => l.includes("npx --prefix"));
@@ -61,7 +131,7 @@ describe("ciWorkflow artifact", () => {
     expect(step).toContain("          EVENT: push");
     expect(step).toContain('          BRANCH: "main"');
     // gh reads another run's artifacts only with actions: read.
-    expect(lines(art)).toContain("  actions: read");
+    expect(lines(art)).toContain("      actions: read");
   });
 
   /** The fetch step's script, as the workflow runs it. */
@@ -332,9 +402,14 @@ exit 0
     expect(got.from).toBe("500");
   });
   it("without artifact, neither appears", () => {
-    expect(push).not.toContain("--out-dir");
+    // The check job's own --out-dir is not the cumulative artifact's.
+    expect(push.slice(0, push.indexOf("\n  check:\n"))).not.toContain(
+      "--out-dir",
+    );
     expect(push).not.toContain("--previous");
-    expect(push).not.toContain("upload-artifact");
+    expect(push.slice(0, push.indexOf("\n  check:\n"))).not.toContain(
+      "upload-artifact",
+    );
     expect(push).not.toContain("gh run download");
     expect(push).not.toContain("actions: read");
   });
@@ -342,7 +417,7 @@ exit 0
 
 describe("ciWorkflow", () => {
   it("pins the version in both npx lines", () => {
-    expect(npx(push)).toHaveLength(2);
+    expect(npx(push)).toHaveLength(4); // two per job
     for (const l of npx(push)) expect(l).toContain("demoman@0.2.0");
     expect(push).toContain("setup --browser-only");
     expect(push).not.toContain("setup --yes");
@@ -350,11 +425,13 @@ describe("ciWorkflow", () => {
 
   it("indents with spaces only and has the three top-level keys", () => {
     expect(push).not.toContain("\t");
-    for (const key of ["name:", "on:", "permissions:", "jobs:"]) {
+    for (const key of ["name:", "on:", "jobs:"]) {
       expect(lines(push)).toContain(key === "name:" ? "name: Demoman" : key);
     }
-    expect(push).toContain("  contents: write");
-    expect(push).toContain("  pull-requests: write");
+    // Write permission is the refresh job's, never the workflow's.
+    expect(lines(push)).not.toContain("permissions:");
+    expect(push).toContain("      contents: write");
+    expect(push).toContain("      pull-requests: write");
   });
 
   it("checks out the full history, for deliver's commit check", () => {
@@ -374,12 +451,16 @@ describe("ciWorkflow", () => {
   it("guards the push job against its own commits", () => {
     expect(push).toContain("[skip demoman]");
     expect(push).toContain("github.actor != 'github-actions[bot]'");
-    expect(lines(push).filter((l) => l.startsWith("    if:"))).toHaveLength(1);
+    expect(parse(push).jobs.refresh.if).toContain(
+      "!contains(github.event.head_commit.message, '[skip demoman]')",
+    );
   });
 
-  it("starts the app for push, and not for a deployment", () => {
-    expect(push).toContain("Start your app");
-    expect(deploy).not.toContain("Start your app");
+  it("has no start step in any trigger", () => {
+    for (const y of [push, deploy, releaseY, dailyY]) {
+      expect(y).not.toMatch(/Start your app/);
+      expect(y).not.toContain("wait-on");
+    }
   });
 
   it("triggers on deployment_status and refreshes the deployed URL", () => {
@@ -426,7 +507,7 @@ describe("ciWorkflow", () => {
   });
 
   it("interpolates no expression into any run line, in either shape", () => {
-    for (const y of [push, deploy]) {
+    for (const y of [push, deploy, withApp]) {
       const runs = lines(y).filter((l) => l.trim().startsWith("run:"));
       expect(
         runs.length,
@@ -472,7 +553,7 @@ describe("the loop guard", () => {
   /** The steps of the job, each as its own block of lines. */
   const steps = (y: string) =>
     y
-      .slice(y.indexOf("    steps:\n") + 11)
+      .slice(y.indexOf("    steps:\n") + 11, y.indexOf("\n  check:\n"))
       .split(/\n(?= {6}- )/)
       .filter((b) => b.startsWith("      - "));
 
@@ -549,8 +630,15 @@ describe("the loop guard", () => {
 describe("the workflow's shape", () => {
   it("serialises runs", () => {
     expect(push).toContain(
-      "concurrency:\n  group: demoman-refresh\n  cancel-in-progress: false",
+      "    concurrency:\n      group: demoman-refresh\n      cancel-in-progress: false",
     );
+    for (const y of every) {
+      expect(parse(y).jobs.refresh.concurrency).toEqual({
+        group: "demoman-refresh",
+        "cancel-in-progress": false,
+      });
+      expect(parse(y).concurrency).toBeUndefined();
+    }
   });
   it("watches the branch it is given, main by default", () => {
     expect(push).toContain("branches: [main]");
@@ -561,11 +649,6 @@ describe("the workflow's shape", () => {
       branch: "master",
     });
     expect(m).toContain("branches: [master]");
-  });
-  it("names _ORIGIN beside each secret", () => {
-    expect(push).toContain("# DEMOMAN_SECRET_SELLER: ");
-    expect(push).toContain("# DEMOMAN_SECRET_SELLER_ORIGIN: ");
-    expect(push).toContain("{ secret: NAME }");
   });
   it("refuses the main route on a deployment", () => {
     expect(() =>
@@ -603,14 +686,13 @@ describe("release and daily triggers", () => {
     for (const y of [release, daily]) {
       expect(y).not.toContain("Skip Demoman's own commits");
       expect(y).not.toContain("steps.guard");
-      expect(lines(y).filter((l) => l.startsWith("    if:"))).toEqual([]);
+      // Only the pull_request exclusion conditions the refresh job.
+      expect(parse(y).jobs.refresh.if).toBe(
+        expr("github.event_name != 'pull_request'"),
+      );
     }
     // Premise: the push workflow still has it.
     expect(push).toContain("Skip Demoman's own commits");
-  });
-
-  it("asks both to start the app, as push does", () => {
-    for (const y of [release, daily]) expect(y).toContain("Start your app");
   });
 
   it("refuses the main route on a release, which checks out a tag", () => {
@@ -651,7 +733,7 @@ describe("the daily run stops early when nothing is new", () => {
       expect(check).toBeLessThan(at(y, "Install Chromium"));
       expect(check).toBeLessThan(at(y, "Refresh the repo's flows"));
       expect(y.indexOf("id: fresh")).toBeLessThan(
-        y.indexOf("# Start your app"),
+        y.indexOf("Refresh the repo's flows"),
       );
     }
     const a = daily(true);
@@ -693,8 +775,9 @@ describe("the daily run stops early when nothing is new", () => {
 
   it("skips every step after the check when it says so", () => {
     const y = daily(true);
-    const after = lines(y).slice(
-      lines(y).findIndex((l) => l.includes("id: fresh")) + 1,
+    const refreshJob = lines(y.slice(0, y.indexOf("\n  check:\n")));
+    const after = refreshJob.slice(
+      refreshJob.findIndex((l) => l.includes("id: fresh")) + 1,
     );
     const conds = after.filter((l) => l.trim().startsWith("if: ${{"));
     expect(conds.length).toBeGreaterThanOrEqual(5);
@@ -716,144 +799,1030 @@ describe("the daily run stops early when nothing is new", () => {
 });
 
 describe("ciSetup", () => {
-  const io = (
-    over: {
-      exists?: boolean;
-      root?: { root: string } | { none: string };
-      branch?: string | null;
-      ask?: unknown;
+  const SECRET = "sk_live_terminal-door-secret-42";
+  const checkApp: AppSpec = {
+    appVersion: 1,
+    install: ["npm ci"],
+    start: "npm start",
+    url: "http://127.0.0.1:3999/",
+    timeoutSeconds: 60,
+    env: {},
+    secrets: [],
+    services: {},
+  };
+  /** A repo with one kept flow and, unless `appJson` is false, app.json. */
+  function repoDir(o: { appJson?: boolean; envFile?: string } = {}): string {
+    const root = mkdtempSync(join(tmpdir(), "demoman-ci-door-"));
+    mkdirSync(join(root, ".demoman", "flows"), { recursive: true });
+    writeFileSync(
+      join(root, ".demoman", "flows", "checkout.json"),
+      JSON.stringify({
+        keptVersion: 2,
+        flow: randomUUID(),
+        deliver: "files",
+        name: "Checkout",
+        script: {
+          scriptVersion: 1,
+          name: "Checkout",
+          target: "http://127.0.0.1:3999/",
+          viewport: { width: 1280, height: 800 },
+          steps: [{ do: "waitForLoad" }],
+        },
+        scale: 1,
+        logo: null,
+        wallpaper: null,
+        outputs: [
+          { path: "o.mp4", fileType: "mp4", aspect: "16:9", quality: "share" },
+        ],
+        report: null,
+      }),
+    );
+    if (o.appJson !== false)
+      writeFileSync(join(root, ".demoman", "app.json"), serializeApp(checkApp));
+    if (o.envFile !== undefined) writeFileSync(join(root, ".env"), o.envFile);
+    return root;
+  }
+  const passedCheck: Verified = {
+    passed: true,
+    flow: "Checkout",
+    outcome: "unchanged",
+    recordSeconds: 8,
+    appSeconds: 3,
+    lines: [],
+  };
+  const passedRun: Watched = {
+    passed: {
+      runUrl: "https://github.com/o/r/actions/runs/9",
+      artifactUrl: "https://github.com/o/r/actions/runs/9#artifacts",
+      lines: [],
+    },
+  };
+  /** Every question answered by `answers`; one not given fails the test. */
+  function asker(answers: Partial<CiAsk>) {
+    const asked: Array<[string, unknown[]]> = [];
+    const ask = Object.fromEntries(
+      (
+        ["trigger", "route", "appHole", "secret", "envFile", "confirm"] as const
+      ).map((k) => [
+        k,
+        async (...a: unknown[]) => {
+          asked.push([k, a]);
+          const f = answers[k] as ((...x: unknown[]) => unknown) | undefined;
+          if (f === undefined) throw new Error(`asked ${k}`);
+          return f(...a);
+        },
+      ]),
+    ) as unknown as CiAsk;
+    return { ask, asked };
+  }
+  function door(
+    o: {
+      root?: string;
+      ask?: CiAsk | null;
+      facts?: Partial<GithubFacts>;
+      needed?: NeededSecret[];
+      detected?: Awaited<ReturnType<CiDeps["detectApp"]>>;
+      verify?: CiDeps["verifySetup"];
+      watched?: Watched;
+      /** Runs inside each readGithub. */
+      onRead?: () => void;
     } = {},
-  ) => {
+  ) {
+    const root = o.root ?? repoDir();
     const said: string[] = [];
-    const wrote: Array<[string, string]> = [];
-    const asked = { n: 0 };
-    return {
-      said,
-      wrote,
-      asked,
-      io: {
-        version: "0.2.0",
-        ask: (over.ask ?? null) as never,
-        root: async () => over.root ?? { root: "/repo" },
-        defaultBranch: async () =>
-          over.branch === undefined ? "main" : over.branch,
-        exists: () => over.exists ?? false,
-        write: (p: string, t: string) => void wrote.push([p, t]),
-        say: (l: string) => void said.push(l),
+    const calls: string[] = [];
+    const seen: {
+      verify?: Parameters<CiDeps["verifySetup"]>;
+      set?: Parameters<CiDeps["setSecrets"]>;
+      pr?: Parameters<CiDeps["openSetupPr"]>[0];
+    } = {};
+    const sig: { interrupt: (() => void) | null; restored: number } = {
+      interrupt: null,
+      restored: 0,
+    };
+    const deps: Omit<CiDeps, "log" | "signal"> = {
+      version: "0.9.0",
+      env: {},
+      git: async (args) =>
+        args[0] === "ls-tree"
+          ? { code: 0, stdout: "", stderr: "" }
+          : { code: 128, stdout: "", stderr: "fatal: no such path" },
+      readGithub: async () => {
+        calls.push("readGithub");
+        o.onRead?.();
+        return {
+          slug: "o/r",
+          defaultBranch: "trunk",
+          canPush: true,
+          isAdmin: true,
+          deployments: [],
+          hasReleases: false,
+          workflowOnDefault: false,
+          setupBranch: null,
+          remote: "origin",
+          ...o.facts,
+        };
+      },
+      detectApp: async () =>
+        o.detected ?? { none: "nothing to propose from: looked nowhere" },
+      neededSecrets: async () => ({ needed: o.needed ?? [] }),
+      localValues: async (_root, needed) => ({
+        values: new Map(),
+        missing: needed.map((n) => n.name),
+        tooShort: [],
+      }),
+      envFileValues,
+      existingSecrets: async () => [],
+      verifySetup: async (...a) => {
+        calls.push("verifySetup");
+        seen.verify = a;
+        return o.verify ? o.verify(...a) : passedCheck;
+      },
+      setSecrets: async (...a) => {
+        calls.push("setSecrets");
+        seen.set = a;
+        return { set: [...a[1].keys()], kept: [], failed: [] };
+      },
+      allowActionPullRequests: async () => {
+        calls.push("allowActionPullRequests");
+        return { kind: "turnedOn" };
+      },
+      openSetupPr: async (a) => {
+        calls.push("openSetupPr");
+        seen.pr = a;
+        return {
+          opened: {
+            number: 7,
+            url: "https://github.com/o/r/pull/7",
+            branch: "demoman/setup",
+            sha: "s1",
+          },
+        };
+      },
+      watchSetupRun: async () => {
+        calls.push("watchSetupRun");
+        return o.watched ?? passedRun;
       },
     };
-  };
-  const flags = ["--ci", "--trigger", "push", "--route", "pr"];
+    const io: CiIo = {
+      ask: o.ask ?? null,
+      root: async () => ({ root }),
+      deps: () => deps,
+      exists: (p) => existsSync(join(root, p)),
+      onInterrupt: (h) => {
+        sig.interrupt = h;
+        return () => {
+          sig.interrupt = null;
+          sig.restored += 1;
+        };
+      },
+      say: (l) => void said.push(l),
+    };
+    return { io, said, calls, seen, sig, root };
+  }
+  const yes = ["--ci", "--yes"];
+  const outward = ["setSecrets", "allowActionPullRequests", "openSetupPr"];
 
-  it("writes the file and says the settings that make it work", async () => {
-    const m = io();
-    expect(await ciSetup(flags, m.io)).toBe(0);
-    expect(m.wrote[0]?.[0]).toBe(".github/workflows/demoman.yml");
-    expect(m.wrote[0]?.[1]).toBe(push);
-    const said = m.said.join("\n");
-    expect(said).toContain(
-      "Allow GitHub Actions to create and approve pull requests",
-    );
-    expect(said).toContain("Start your app");
-    expect(said).toContain("_ORIGIN");
-  });
-
-  it("takes release and daily by name, and an environment named like them by deployment:", async () => {
-    const r = io();
-    expect(
-      await ciSetup(["--ci", "--trigger", "release", "--route", "pr"], r.io),
-    ).toBe(0);
-    expect(r.wrote[0]?.[1]).toContain("  release:");
-    const d = io();
-    expect(
-      await ciSetup(["--ci", "--trigger", "daily", "--route", "main"], d.io),
-    ).toBe(0);
-    expect(d.wrote[0]?.[1]).toContain("  schedule:");
-    const e = io();
-    expect(
-      await ciSetup(
-        ["--ci", "--trigger", "deployment:release", "--route", "pr"],
-        e.io,
-      ),
-    ).toBe(0);
-    expect(e.wrote[0]?.[1]).toContain(
-      "github.event.deployment.environment == 'release'",
-    );
-    const m = io();
-    expect(
-      await ciSetup(["--ci", "--trigger", "release", "--route", "main"], m.io),
-    ).toBe(1);
-    expect(m.said.join("\n")).toContain("cannot go with a release trigger");
-    expect(m.wrote).toEqual([]);
-  });
-
-  it("names every trigger when there is no terminal to ask in", async () => {
-    const m = io();
-    expect(await ciSetup(["--ci"], m.io)).toBe(1);
-    expect(m.said.join("\n")).toContain(
-      "pass --trigger release|daily|push|<environment> and --route pr|main",
-    );
-  });
-
-  it("stops, writing nothing, without a terminal or with a file already there", async () => {
-    const a = io();
+  it("with no terminal and no --yes, reads and writes nothing and names exactly the flags missing", async () => {
+    // Red if ciSetup reads GitHub before refusing, or names a flag already given.
+    const a = door();
     expect(await ciSetup(["--ci"], a.io)).toBe(1);
-    expect(a.said.join("")).toContain("--trigger");
-    const b = io({ exists: true });
-    expect(await ciSetup(flags, b.io)).toBe(1);
-    expect(a.wrote.length + b.wrote.length).toBe(0);
+    expect(a.calls).toEqual([]);
+    expect(a.said.join("\n")).toMatch(/--yes/);
+    expect(a.said.join("\n")).toMatch(/--trigger/);
+    expect(a.said.join("\n")).toMatch(/--route/);
+    const b = door();
+    expect(await ciSetup(["--ci", "--route", "pr"], b.io)).toBe(1);
+    expect(b.said.join("\n")).toMatch(/--trigger/);
+    expect(b.said.join("\n")).not.toMatch(/--route/);
+    const c = door();
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], c.io),
+    ).toBe(1);
+    expect(c.said.join("\n")).toMatch(/--yes/);
+    expect(c.said.join("\n")).not.toMatch(/--trigger|--route/);
+    expect([...a.calls, ...b.calls, ...c.calls]).toEqual([]);
   });
 
-  it("stops outside a git repo", async () => {
-    const m = io({ root: { none: "not a git repository" } });
-    expect(await ciSetup(flags, m.io)).toBe(1);
-    expect(m.said.join("")).toContain("not a git repository");
-    expect(m.wrote).toEqual([]);
+  it("--yes takes the default trigger and a pull request, asking nothing, and says the plan", async () => {
+    // Red if --yes asks, or does not default trigger and route.
+    const { ask, asked } = asker({});
+    const m = door({ ask, facts: { hasReleases: true } });
+    expect(await ciSetup(yes, m.io)).toBe(0);
+    expect(asked).toEqual([]);
+    const body = m.seen.pr?.body ?? "";
+    expect(body).toContain(
+      "Records the repo flows when a release is published.",
+    );
+    expect(body).toContain("Delivers what changed as a pull request.");
+    expect(m.said).toContain(
+      "Records the repo flows when a release is published.",
+    );
+    expect(m.calls).toEqual([
+      "readGithub",
+      "verifySetup",
+      "setSecrets",
+      "allowActionPullRequests",
+      "openSetupPr",
+      "watchSetupRun",
+    ]);
   });
 
-  it("looks for an existing file before asking anything", async () => {
-    const m = io({
-      exists: true,
-      ask: {
-        trigger: async () => {
-          throw new Error("asked");
-        },
-        route: async () => "pr",
+  it("asks a missing secret with a password prompt and never says its value, the check's log included", async () => {
+    // Red if the check's log reaches say unredacted, or secret() is not asked.
+    const { ask, asked } = asker({
+      secret: async () => SECRET,
+      confirm: async () => true,
+    });
+    const m = door({
+      ask,
+      needed: [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
+      verify: async (_a, d) => {
+        d.log(`the app said STRIPE_KEY=${SECRET}`);
+        return passedCheck;
       },
     });
-    expect(await ciSetup(["--ci"], m.io)).toBe(1);
-    expect(m.said.join("")).toContain("already exists");
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+    ).toBe(0);
+    expect(asked.filter(([k]) => k === "secret")).toEqual([
+      ["secret", ["STRIPE_KEY", "app.json"]],
+    ]);
+    expect(m.seen.set?.[1].get("STRIPE_KEY")).toBe(SECRET);
+    const all = m.said.join("\n");
+    expect(all).not.toContain(SECRET);
+    expect(all).toContain("the app said STRIPE_KEY=<redacted>");
   });
 
-  it("refuses --route main with a deployment trigger, by flags and by prompt", async () => {
-    const a = io();
+  it("with --yes and no terminal, a missing secret stops naming it and .demoman/secrets.env", async () => {
+    const m = door({
+      needed: [
+        {
+          name: "DEMOMAN_SECRET_SELLER",
+          for: "account",
+          why: "account seller",
+        },
+      ],
+    });
+    expect(await ciSetup(yes, m.io)).toBe(1);
+    const all = m.said.join("\n");
+    expect(all).toContain("DEMOMAN_SECRET_SELLER");
+    expect(all).toContain(".demoman/secrets.env");
+    expect(m.calls.filter((c) => c !== "readGithub")).toEqual([]);
+  });
+
+  it("--env-file offers only the names the setup asks for, and imports the chosen", async () => {
+    // Red if the prompt lists every name in the file.
+    const root = repoDir();
+    const file = join(root, "prod.env");
+    writeFileSync(file, `STRIPE_KEY=${SECRET}\nUNRELATED=nope\n`);
+    const { ask, asked } = asker({
+      envFile: async (_p, names) => names,
+      confirm: async () => true,
+    });
+    const m = door({
+      root,
+      ask,
+      needed: [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
+    });
     expect(
       await ciSetup(
-        ["--ci", "--trigger", "Production", "--route", "main"],
-        a.io,
+        ["--ci", "--trigger", "daily", "--route", "pr", "--env-file", file],
+        m.io,
+      ),
+    ).toBe(0);
+    expect(asked.find(([k]) => k === "envFile")?.[1]).toEqual([
+      file,
+      ["STRIPE_KEY"],
+    ]);
+    expect(asked.some(([k]) => k === "secret")).toBe(false);
+    expect(m.seen.set?.[1].get("STRIPE_KEY")).toBe(SECRET);
+    expect(m.said.join("\n")).not.toContain(SECRET);
+  });
+
+  it("offers a .env at the root in a terminal", async () => {
+    const root = repoDir({ envFile: `STRIPE_KEY=${SECRET}\n` });
+    const { ask, asked } = asker({
+      envFile: async (_p, names) => names,
+      confirm: async () => true,
+    });
+    const m = door({
+      root,
+      ask,
+      needed: [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
+    });
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+    ).toBe(0);
+    expect(asked.find(([k]) => k === "envFile")?.[1]).toEqual([
+      join(root, ".env"),
+      ["STRIPE_KEY"],
+    ]);
+  });
+
+  it("runs the check before the one confirmation, shows the plan there, and a no writes nothing", async () => {
+    // Red if confirm is asked before the check, or a "no" still applies.
+    const order: string[] = [];
+    const { ask, asked } = asker({
+      confirm: async () => {
+        order.push("confirm");
+        return false;
+      },
+    });
+    const m = door({
+      ask,
+      verify: async () => {
+        order.push("check");
+        return passedCheck;
+      },
+    });
+    expect(
+      await ciSetup(["--ci", "--trigger", "push", "--route", "pr"], m.io),
+    ).toBe(1);
+    expect(order).toEqual(["check", "confirm"]);
+    const lines = asked.find(([k]) => k === "confirm")?.[1][0] as string[];
+    expect(lines).toContain(
+      'Opens the pull request "Set up Demoman" from demoman/setup into trunk with:',
+    );
+    expect(lines).toContain("  .github/workflows/demoman.yml");
+    expect(lines.some((l) => l.startsWith("Runner time: about"))).toBe(true);
+    expect(m.calls.filter((c) => outward.includes(c))).toEqual([]);
+    expect(m.said.join("\n")).toContain("nothing was written");
+  });
+
+  it("closes on the pull request, the run's verdict and the artifact link", async () => {
+    const m = door({ ask: asker({ confirm: async () => true }).ask });
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+    ).toBe(0);
+    const all = m.said.join("\n");
+    // Once, before the watch's verdict.
+    expect(
+      m.said.filter((l) => l.includes("https://github.com/o/r/pull/7")),
+    ).toEqual(["Opened the setup pull request: https://github.com/o/r/pull/7"]);
+    expect(m.said.findIndex((l) => l.includes("pull/7"))).toBeLessThan(
+      m.said.findIndex((l) => l.includes("passed")),
+    );
+    expect(all).toMatch(
+      /passed.*https:\/\/github\.com\/o\/r\/actions\/runs\/9/,
+    );
+    expect(all).toContain("https://github.com/o/r/actions/runs/9#artifacts");
+  });
+
+  it("closes a failed run on its step and tail, and an unread count as unknown with the note", async () => {
+    const m = door({
+      watched: {
+        failed: {
+          runUrl: "https://github.com/o/r/actions/runs/9",
+          step: "Refresh the repo flows",
+          tail: "Error: the app did not answer",
+          failedRuns: null,
+          gaveUp: false,
+          note: "How many setup runs have failed is unknown (the list could not be read).",
+        },
+      },
+    });
+    expect(await ciSetup(yes, m.io)).toBe(1);
+    const all = m.said.join("\n");
+    expect(all).toContain("Refresh the repo flows");
+    expect(all).toContain("Error: the app did not answer");
+    expect(all).toContain(
+      "How many setup runs have failed is unknown (the list could not be read).",
+    );
+    expect(all).not.toMatch(/null/);
+  });
+
+  it("says an unknown outcome as unknown, never failed", async () => {
+    // Red if unknown is worded as a failure.
+    const m = door({
+      watched: {
+        unknown: {
+          runUrl: "https://github.com/o/r/actions/runs/9",
+          why: "GitHub could not be read 5 times in a row.",
+        },
+      },
+    });
+    expect(await ciSetup(yes, m.io)).toBe(1);
+    const last = m.said.slice(-2).join("\n");
+    expect(last).toContain("unknown");
+    expect(last).toContain("GitHub could not be read 5 times in a row.");
+    expect(last).not.toMatch(/fail/i);
+  });
+
+  it("Ctrl-C during the check stops it, says the stop line, and restores Ctrl-C", async () => {
+    // Red if no signal reaches verifySetup, or the handler is left installed.
+    const m = door({
+      verify: async (_a, d) => {
+        expect(d.signal?.aborted).toBe(false);
+        m.sig.interrupt?.();
+        expect(d.signal?.aborted).toBe(true);
+        return {
+          passed: false,
+          step: "app",
+          reason: "checkStopped",
+          detail: "stopped; removed the checkout at /tmp/demoman-verify-x",
+          tail: "",
+        };
+      },
+    });
+    expect(await ciSetup(yes, m.io)).toBe(1);
+    expect(m.said.join("\n")).toContain(
+      "stopped; removed the checkout at /tmp/demoman-verify-x; nothing was written",
+    );
+    expect(m.sig.interrupt).toBeNull();
+    expect(m.sig.restored).toBe(1);
+    expect(m.calls.filter((c) => outward.includes(c))).toEqual([]);
+  });
+
+  it("asks each hole in the proposed app.json, then checks the filled one", async () => {
+    const { ask, asked } = asker({
+      appHole: async () => "http://127.0.0.1:3999/app",
+      confirm: async () => true,
+    });
+    const m = door({
+      root: repoDir({ appJson: false }),
+      ask,
+      detected: {
+        draft: { ...checkApp, url: null },
+        source: { kind: "packageJson", file: "package.json" },
+        holes: [{ field: "url", why: "no recorded origin to serve" }],
+      },
+    });
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+    ).toBe(0);
+    expect(asked.find(([k]) => k === "appHole")?.[1]).toEqual([
+      "url",
+      "no recorded origin to serve",
+    ]);
+    expect(m.seen.verify?.[0].target).toEqual({
+      app: { ...checkApp, url: "http://127.0.0.1:3999/app" },
+    });
+    expect(m.seen.pr?.files.map((f) => f.path)).toContain(".demoman/app.json");
+  });
+
+  it("with --yes, a hole stops naming it and app.json", async () => {
+    const m = door({
+      root: repoDir({ appJson: false }),
+      detected: {
+        draft: { ...checkApp, url: null },
+        source: { kind: "packageJson", file: "package.json" },
+        holes: [{ field: "url", why: "no recorded origin to serve" }],
+      },
+    });
+    expect(await ciSetup(yes, m.io)).toBe(1);
+    const all = m.said.join("\n");
+    expect(all).toContain("url (no recorded origin to serve)");
+    expect(all).toContain(".demoman/app.json");
+    expect(m.calls).toEqual(["readGithub"]);
+  });
+
+  it("takes an environment named like a trigger by deployment:, and refuses --route main with it", async () => {
+    const m = door({
+      facts: {
+        deployments: [
+          { environment: "release", url: "https://x.example", sha: "a" },
+        ],
+      },
+    });
+    expect(
+      await ciSetup(
+        ["--ci", "--yes", "--trigger", "deployment:release", "--route", "main"],
+        m.io,
       ),
     ).toBe(1);
-    const b = io({
-      ask: { trigger: async () => "Production", route: async () => "main" },
+    expect(m.said.join("\n")).toContain("not a branch");
+    expect(m.calls).toEqual(["readGithub"]);
+  });
+
+  it("stops outside a git repo, and on an unknown --route", async () => {
+    const a = door();
+    a.io.root = async () => ({ none: "not a git repository" });
+    expect(await ciSetup(yes, a.io)).toBe(1);
+    expect(a.said.join("")).toContain("not a git repository");
+    const b = door();
+    expect(await ciSetup([...yes, "--route", "sideways"], b.io)).toBe(1);
+    expect(b.said.join("")).toContain("--route is pr or main");
+    expect([...a.calls, ...b.calls]).toEqual([]);
+  });
+
+  it("Ctrl-C while GitHub is read cancels setup, asking nothing after", async () => {
+    // Red if the swallowed Ctrl-C lets the door go on to prompt for a secret.
+    const { ask, asked } = asker({
+      secret: async () => SECRET,
+      confirm: async () => true,
     });
-    expect(await ciSetup(["--ci"], b.io)).toBe(1);
-    for (const m of [a, b]) {
-      expect(m.said.join("")).toContain("not a branch");
-      expect(m.said.join("")).toContain("--route pr");
-      expect(m.wrote).toEqual([]);
+    const m = door({
+      ask,
+      needed: [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
+      onRead: () => m.sig.interrupt?.(),
+    });
+    expect(
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+    ).toBe(1);
+    expect(asked).toEqual([]);
+    expect(m.said).toContain("Setup cancelled; nothing was written.");
+    expect(m.sig.restored).toBe(1);
+    expect(m.calls).toEqual(["readGithub"]);
+  });
+
+  it("stops on a --replace-secret name the setup does not use, naming it", async () => {
+    // Red if a mistyped name is ignored and the old secret silently kept.
+    const m = door({
+      needed: [{ name: "STRIPE_KEY", for: "app", why: "app.json" }],
+    });
+    const root = m.root;
+    writeFileSync(join(root, "prod.env"), `STRIPE_KEY=${SECRET}\n`);
+    expect(
+      await ciSetup(
+        [
+          ...yes,
+          "--env-file",
+          join(root, "prod.env"),
+          "--replace-secret",
+          "STRPE_KEY",
+        ],
+        m.io,
+      ),
+    ).toBe(1);
+    const all = m.said.join("\n");
+    expect(all).toContain("STRPE_KEY");
+    expect(all).toContain("STRIPE_KEY");
+    expect(all).not.toContain(SECRET);
+    expect(m.calls.filter((c) => outward.includes(c))).toEqual([]);
+    // Review finding 5: refused before the check, not after it.
+    expect(m.calls).not.toContain("verifySetup");
+  });
+
+  it("with no terminal, leaves --route out when the trigger allows only a pull request", async () => {
+    for (const t of ["release", "Production"]) {
+      const m = door();
+      expect(await ciSetup(["--ci", "--trigger", t], m.io)).toBe(1);
+      expect(m.said.join("\n")).toMatch(/--yes/);
+      expect(m.said.join("\n")).not.toMatch(/--route/);
     }
   });
 
-  it("writes the default branch it read, and says it assumed main when it cannot read one", async () => {
-    const a = io({ branch: "master" });
-    expect(await ciSetup(flags, a.io)).toBe(0);
-    expect(a.wrote[0]?.[1]).toContain("branches: [master]");
-    expect(a.said.join("")).not.toContain("assum");
-    const b = io({ branch: null });
-    expect(await ciSetup(flags, b.io)).toBe(0);
-    expect(b.wrote[0]?.[1]).toContain("branches: [main]");
-    expect(b.said.join("\n")).toContain(
-      "Could not read origin's default branch",
+  it("with --route main, offers only the triggers main can take", async () => {
+    // Red if release or a deployment is offered and refused after the answer.
+    const { ask, asked } = asker({
+      trigger: async () => "daily",
+      confirm: async () => true,
+    });
+    const m = door({
+      ask,
+      facts: {
+        hasReleases: true,
+        deployments: [
+          { environment: "production", url: "https://x.example", sha: "a" },
+        ],
+      },
+    });
+    expect(await ciSetup(["--ci", "--route", "main"], m.io)).toBe(0);
+    const offers = asked.find(([k]) => k === "trigger")?.[1][0] as Array<{
+      trigger: unknown;
+      offered: boolean;
+    }>;
+    expect(offers.filter((o) => o.offered).map((o) => o.trigger)).toEqual([
+      "daily",
+      "push",
+    ]);
+  });
+
+  it("asks the trigger from the offers and the route with the real branch", async () => {
+    const { ask, asked } = asker({
+      trigger: async () => "push",
+      route: async () => "main",
+      confirm: async () => true,
+    });
+    const m = door({ ask });
+    expect(await ciSetup(["--ci"], m.io)).toBe(0);
+    const offers = asked.find(([k]) => k === "trigger")?.[1][0] as Array<{
+      label: string;
+    }>;
+    expect(offers.map((o) => o.label)).toContain("on each merge to trunk");
+    expect(asked.find(([k]) => k === "route")?.[1]).toEqual(["trunk"]);
+    expect(m.seen.pr?.body).toContain(
+      "Delivers what changed as a commit on trunk.",
     );
+  });
+});
+
+describe("the workflow starts nothing, passes named secrets, runs services, and checks itself", () => {
+  type Job = {
+    if?: string;
+    permissions?: Record<string, string>;
+    concurrency?: Record<string, unknown>;
+    services?: Record<string, Record<string, unknown>>;
+    steps: Array<{ name?: string; run?: string; env?: Record<string, string> }>;
+  };
+  const jobs = (y: string) => parse(y).jobs as { refresh: Job; check: Job };
+  const refreshStep = (j: Job, deliver: boolean) =>
+    j.steps.find(
+      (s) =>
+        s.name === "Refresh the repo's flows" &&
+        s.run?.includes(" --deliver") === deliver,
+    );
+
+  it("passes each account's secret and origin and each app secret, in both jobs", () => {
+    for (const y of every.filter((y) => y.includes("DEMOMAN_SECRET_SELLER"))) {
+      for (const [job, deliver] of [
+        [jobs(y).refresh, true],
+        [jobs(y).check, false],
+      ] as const) {
+        expect(refreshStep(job, deliver)?.env).toMatchObject({
+          DEMOMAN_SECRET_SELLER: expr("secrets.DEMOMAN_SECRET_SELLER"),
+          DEMOMAN_SECRET_SELLER_ORIGIN: expr(
+            "secrets.DEMOMAN_SECRET_SELLER_ORIGIN",
+          ),
+          STRIPE_KEY: expr("secrets.STRIPE_KEY"),
+        });
+      }
+    }
+    expect(withApp, "premise: the secrets are in this variant").toContain(
+      "DEMOMAN_SECRET_SELLER",
+    );
+  });
+
+  it("names no secret and keeps no commented secret lines when there are none", () => {
+    for (const y of [push, deploy, releaseY, dailyY]) {
+      expect(y).not.toContain("secrets.");
+      expect(y).not.toContain("# DEMOMAN_SECRET");
+      expect(y).not.toContain("Secrets on a fork's pull request");
+    }
+  });
+
+  it("refuses a secret name a workflow cannot carry", () => {
+    for (const bad of ["a b", "GITHUB_TOKEN", "X\n  Y: z"]) {
+      expect(() =>
+        ciWorkflow({
+          version: "0.2.0",
+          trigger: "push",
+          route: "pr",
+          secrets: { accounts: [], app: [bad] },
+        }),
+      ).toThrow(/secret name/);
+    }
+  });
+
+  it("renders the app's services into both jobs, and none without them", () => {
+    const j = jobs(withApp);
+    for (const job of [j.refresh, j.check]) {
+      expect(job.services).toEqual({
+        postgres: {
+          image: "postgres:16",
+          ports: ["5432:5432"],
+          env: { POSTGRES_PASSWORD: "dev" },
+          options: "--health-cmd pg_isready",
+        },
+      });
+    }
+    for (const y of [push, deploy, releaseY, dailyY]) {
+      expect(y).not.toContain("services:");
+    }
+    expect(() =>
+      ciWorkflow({
+        version: "0.2.0",
+        trigger: "push",
+        route: "pr",
+        app: {
+          ...app,
+          services: {
+            x: { image: "i", ports: [], env: {}, options: expr("secrets.A") },
+          },
+        },
+      }),
+    ).toThrow(/service/);
+  });
+
+  it("watches the pull request's own paths under every trigger", () => {
+    for (const y of every) {
+      expect(parse(y).on.pull_request).toEqual({
+        paths: [".github/workflows/demoman.yml", ".demoman/**"],
+      });
+    }
+  });
+
+  it("keeps the refresh job off pull requests under every trigger", () => {
+    for (const y of every) {
+      expect(jobs(y).refresh.if, y).toMatch(
+        /^\$\{\{ github\.event_name != 'pull_request'( && \(.+\))? \}\}$/,
+      );
+    }
+    expect(jobs(deploy).refresh.if).toContain(
+      "github.event.deployment.environment == 'Production'",
+    );
+  });
+
+  it("checks on the pull request alone, read-only, delivering nothing, in its own group", () => {
+    for (const y of every) {
+      const { check, refresh } = jobs(y);
+      expect(check.if).toBe(expr("github.event_name == 'pull_request'"));
+      expect(check.permissions).toEqual(
+        y.includes("deployment_status:")
+          ? { contents: "read", deployments: "read" }
+          : { contents: "read" },
+      );
+      expect(check.concurrency).toEqual({
+        group: `demoman-check-${expr("github.ref")}`,
+        "cancel-in-progress": true,
+      });
+      const mine = refreshStep(check, false);
+      expect(mine?.run).toMatch(
+        / refresh( --base-url "[^"]+")? --out-dir demoman-check$/,
+      );
+      expect(JSON.stringify(check)).not.toContain("--deliver");
+      expect(JSON.stringify(check)).not.toContain("contents: write");
+      expect(refresh.permissions?.contents).toBe("write");
+    }
+  });
+
+  it("says why a fork's pull request cannot run the check, and stops", () => {
+    const step = jobs(withApp).check.steps.find((s) =>
+      s.name?.startsWith("Secrets on a fork"),
+    ) as { if?: string; run?: string } | undefined;
+    expect(step?.if).toBe(
+      expr(
+        "github.event.pull_request.head.repo.full_name != github.repository",
+      ),
+    );
+    const r = spawnSync("bash", ["-c", step?.run ?? ""], { encoding: "utf8" });
+    expect(r.status).toBe(1);
+    expect(r.stdout.trim()).toBe(
+      "::error::Secrets are not given to pull requests from forks, so this check cannot sign in or start the app; a maintainer can run it from a branch in this repository.",
+    );
+    // It is the first step (review finding 7), so a fork's pull request
+    // fails in seconds, before checkout, Node, Chromium and fonts, and the
+    // sign-in never gets to fail.
+    const names = jobs(withApp).check.steps.map((s) => s.name ?? "");
+    expect(names.findIndex((n) => n.startsWith("Secrets on a fork"))).toBe(0);
+    expect(names.indexOf("Install Chromium")).toBeGreaterThan(0);
+  });
+
+  it("copies the commit flows' files under demoman-check/repo and uploads always", () => {
+    const { steps } = jobs(withApp).check;
+    const gather = steps.find((s) => s.name?.startsWith("Gather"));
+    const dir = mkdtempSync(join(tmpdir(), "check-"));
+    mkdirSync(join(dir, "demoman-check"));
+    mkdirSync(join(dir, ".demoman/flows"), { recursive: true });
+    writeFileSync(join(dir, ".demoman/flows/a b.mp4"), "v");
+    writeFileSync(join(dir, "other.txt"), "x");
+    writeFileSync(
+      join(dir, "demoman-check/demoman-refresh.json"),
+      JSON.stringify({
+        videos: [
+          { deliver: "commit", files: [{ path: ".demoman/flows/a b.mp4" }] },
+          { deliver: "files", files: [{ path: "other.txt" }] },
+        ],
+      }),
+    );
+    // BSD cp has no --parents; the runner is Linux, so ditto it with ditto-free rsync -R.
+    const gnu = spawnSync("cp", ["--parents", "--version"]);
+    if (gnu.status === 0) {
+      const r = spawnSync("bash", ["-e", "-c", gather?.run ?? ""], {
+        cwd: dir,
+        encoding: "utf8",
+      });
+      expect(r.status, r.stderr).toBe(0);
+      expect(
+        existsSync(join(dir, "demoman-check/repo/.demoman/flows/a b.mp4")),
+      ).toBe(true);
+      expect(existsSync(join(dir, "demoman-check/repo/other.txt"))).toBe(false);
+    }
+    expect(gather).toMatchObject({ if: "always()" });
+    const up = steps.at(-1) as Record<string, unknown>;
+    expect(up).toMatchObject({
+      if: "always()",
+      with: { name: "demoman-check", path: "demoman-check" },
+    });
+  });
+
+  it("fetches the last run's videos in the refresh job only, and writes no undefined", () => {
+    const withArtifact = triggers.flatMap((trigger) =>
+      [false, true].map((full) =>
+        ciWorkflow({
+          version: "0.2.0",
+          trigger,
+          route: "pr",
+          artifact: true,
+          ...(full ? { app, secrets } : {}),
+        }),
+      ),
+    );
+    for (const y of withArtifact) {
+      expect(y).not.toContain("undefined");
+      const { check, refresh } = jobs(y);
+      expect(check.steps.filter((s) => s.name?.startsWith("Fetch"))).toEqual(
+        [],
+      );
+      expect(refresh.steps.some((s) => s.name?.startsWith("Fetch"))).toBe(true);
+    }
+  });
+
+  it("checks out, installs and records the same way in both jobs", () => {
+    const { check, refresh } = jobs(dailyY);
+    expect(check.steps.map((s) => s.name).filter(Boolean)).toEqual(
+      expect.arrayContaining(["Install Chromium", "Install fonts"]),
+    );
+    expect(JSON.stringify(check)).not.toContain("steps.fresh");
+    expect(JSON.stringify(refresh)).toContain("steps.fresh");
+  });
+});
+
+// R30: the check runs on a pull request, where no deployment_status event
+// names a URL; it reads the environment's newest successful deployment.
+describe("the deployment trigger's check records the deployed app", () => {
+  type Step = {
+    name?: string;
+    id?: string;
+    run?: string;
+    env?: Record<string, string>;
+  };
+  type Job = {
+    permissions?: Record<string, string>;
+    services?: unknown;
+    steps: Step[];
+  };
+  const deployApp = ciWorkflow({
+    version: "0.2.0",
+    trigger: { deployment: "Production" },
+    route: "pr",
+    app,
+    secrets,
+  });
+  const jobs = (y: string) => parse(y).jobs as { refresh: Job; check: Job };
+
+  // Red: refreshSteps sets the check's deployment to null again.
+  it("passes --base-url from the found deployment, read through env", () => {
+    const { check } = jobs(deployApp);
+    const refresh = check.steps.find(
+      (s) => s.name === "Refresh the repo's flows",
+    );
+    expect(refresh?.run).toContain('--base-url "${DEMOMAN_BASE_URL:?');
+    expect(refresh?.run).toContain("refresh --base-url");
+    expect(refresh?.env?.DEMOMAN_BASE_URL).toBe(
+      expr("steps.deployed.outputs.url"),
+    );
+    const names = check.steps.map((s) => s.name ?? "");
+    expect(names.indexOf("Find the deployed app")).toBeGreaterThan(-1);
+    expect(names.indexOf("Find the deployed app")).toBeLessThan(
+      names.indexOf("Refresh the repo's flows"),
+    );
+    const find = check.steps.find((s) => s.name === "Find the deployed app");
+    expect(find?.id).toBe("deployed");
+    expect(find?.env).toEqual({
+      GH_TOKEN: expr("github.token"),
+      ENVIRONMENT: "Production",
+    });
+    expect(check.permissions).toEqual({
+      contents: "read",
+      deployments: "read",
+    });
+  });
+
+  // Red: drop the deployment test on the services block.
+  it("serves nothing under a deployment trigger, even with app.json's services", () => {
+    const { check, refresh } = jobs(deployApp);
+    expect(check.services).toBeUndefined();
+    expect(refresh.services).toBeUndefined();
+    expect(
+      jobs(withApp).check.services,
+      "premise: services render elsewhere",
+    ).toBeDefined();
+  });
+
+  const find = jobs(deployApp).check.steps.find(
+    (s) => s.name === "Find the deployed app",
+  );
+  /** The step's script with a fake gh: `ids` the deployments, `statuses` each one's. */
+  const shell = (
+    ids: string,
+    statuses: Record<string, unknown[]>,
+    fail = "",
+  ) => {
+    const cwd = mkdtempSync(join(tmpdir(), "dep-"));
+    const bin = join(cwd, "bin");
+    mkdirSync(bin);
+    for (const [id, list] of Object.entries(statuses))
+      writeFileSync(join(cwd, `${id}.json`), JSON.stringify(list));
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/sh
+echo "gh $*" >> "${cwd}/log"
+[ "$FAIL" = "$2" ] && exit 1
+case "$2" in
+  -X) printf '%s\\n' ${ids} ;;
+  *) id=$(printf '%s' "$2" | sed 's|.*/deployments/\\([0-9]*\\)/.*|\\1|'); jq -r "$4" "${cwd}/$id.json" ;;
+esac
+`,
+      { mode: 0o755 },
+    );
+    writeFileSync(join(cwd, "out"), "");
+    const r = spawnSync("bash", ["-e", "-c", find?.run ?? ""], {
+      cwd,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        GITHUB_REPOSITORY: "o/r",
+        GITHUB_OUTPUT: join(cwd, "out"),
+        ENVIRONMENT: "Production",
+        FAIL: fail,
+      },
+    });
+    return {
+      ...r,
+      out: readFileSync(join(cwd, "out"), "utf8"),
+      log: readFileSync(join(cwd, "log"), "utf8"),
+    };
+  };
+
+  it("takes the newest successful deployment's environment_url", () => {
+    const r = shell("9 8", {
+      9: [{ state: "failure", environment_url: "https://bad.example" }],
+      8: [
+        { state: "success", environment_url: "https://new.example" },
+        { state: "success", environment_url: "https://old.example" },
+      ],
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.out).toBe("url=https://new.example\n");
+    expect(r.log).toContain(
+      "gh api -X GET repos/o/r/deployments -f environment=Production -f per_page=30",
+    );
+  });
+
+  it("fails naming the environment when no successful deployment names a URL", () => {
+    const r = shell("9", {
+      9: [{ state: "success", target_url: "https://logs.example" }],
+    });
+    expect(r.status).toBe(1);
+    expect(r.out).toBe("");
+    expect(r.stdout).toContain(
+      "No successful deployment to Production names an environment_url",
+    );
+  });
+
+  it("says the list could not be read, never that there is no deployment", () => {
+    const r = shell("9", {}, "-X");
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain(
+      "The Production deployments could not be listed",
+    );
+  });
+});
+
+// Finding 2: ubuntu-24.04 has npm alone; pnpm and yarn need corepack, bun its action.
+describe("the app's package manager is there in both jobs", () => {
+  type Job = { steps: Array<{ name?: string; uses?: string; run?: string }> };
+  const jobs = (y: string) => parse(y).jobs as { refresh: Job; check: Job };
+  const corepack = (j: Job) =>
+    j.steps.filter((s) => s.run === "corepack enable");
+  const bun = (j: Job) =>
+    j.steps.filter((s) => s.uses === "oven-sh/setup-bun@v2");
+  const bunApp = ciWorkflow({
+    version: "0.2.0",
+    trigger: "daily",
+    route: "pr",
+    app: {
+      ...app,
+      install: ["bun install --frozen-lockfile"],
+      start: "bun run dev",
+    },
+  });
+
+  // Red: drop the corepack step.
+  it("enables corepack before the refresh wherever refresh starts the app", () => {
+    for (const j of [jobs(withApp).refresh, jobs(withApp).check]) {
+      expect(corepack(j)).toHaveLength(1);
+      const at = (f: (s: Job["steps"][number]) => boolean) =>
+        j.steps.findIndex(f);
+      expect(at((s) => s.run === "corepack enable")).toBeLessThan(
+        at((s) => s.name === "Refresh the repo's flows"),
+      );
+      expect(bun(j)).toEqual([]);
+    }
+  });
+
+  // Red: drop the setup-bun step.
+  it("sets up bun when app.json's commands use it", () => {
+    for (const j of [jobs(bunApp).refresh, jobs(bunApp).check]) {
+      expect(bun(j)).toHaveLength(1);
+      expect(corepack(j)).toHaveLength(1);
+    }
+  });
+
+  it("adds neither when no app is started", () => {
+    const deployApp = ciWorkflow({
+      version: "0.2.0",
+      trigger: { deployment: "Production" },
+      route: "pr",
+      app: { ...app, start: "bun run dev" },
+    });
+    for (const y of [push, deployApp])
+      for (const j of [jobs(y).refresh, jobs(y).check]) {
+        expect(corepack(j)).toEqual([]);
+        expect(bun(j)).toEqual([]);
+      }
   });
 });

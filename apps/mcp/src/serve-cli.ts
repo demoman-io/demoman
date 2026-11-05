@@ -13,10 +13,15 @@ import { demomanHome } from "./home.js";
 import { INSTRUCTIONS_CLI } from "./instructions.js";
 import { type ExecutorLike, localLink } from "./local-link.js";
 import { createSessionLinks } from "./session-links.js";
-import { registerTools, type StudioToolAnswer } from "./tools.js";
+import {
+  type RepoDoors,
+  registerTools,
+  type StudioToolAnswer,
+} from "./tools.js";
 import type { UpdateAnswer } from "./update-check.js";
 
 export { browserFlagRefusal, RETIRED_EXTENSION } from "./browser-flag.js";
+export type { RepoDoors };
 export { demomanHome };
 
 /**
@@ -64,6 +69,9 @@ export interface ServeCliOptions {
   /** The `studio` tool's door (launch D2): the bin supplies it, so this
    *  package does not depend on the studio. */
   studio?: (args: { takeId?: string }) => Promise<StudioToolAnswer>;
+  /** The `add` and `ci` tools' doors (Task 13): the bin supplies them, as
+   *  it does the studio, so they reach the CLI's own core. */
+  repo?: RepoDoors;
   log: (line: string) => void;
 }
 
@@ -102,6 +110,7 @@ export async function serveCli(o: ServeCliOptions): Promise<void> {
     version: o.version,
     updateCheck: o.updateCheck,
     ...(o.studio === undefined ? {} : { studio: o.studio }),
+    ...(o.repo === undefined ? {} : { repo: o.repo }),
     links: links.linksFor,
   });
   await server.connect(new StdioServerTransport());

@@ -1,0 +1,12 @@
+name: ci
+on: push
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm run serve &
+      - run: npx wait-on http://localhost:8080
+      - run: pnpm run test:e2e

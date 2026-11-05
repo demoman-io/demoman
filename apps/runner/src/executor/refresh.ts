@@ -28,6 +28,7 @@ import {
   type RunReport,
   refreshListOf,
   screensDirOf,
+  scriptDigest,
   serializeReceipt,
   serializeRefreshList,
   servedRunReport,
@@ -395,7 +396,7 @@ export async function refreshKept(
       try {
         for (const job of jobs) {
           const who = { name: job.kept.name, file: job.file, kept: job.kept };
-          deps.log(`refresh: filming "${job.kept.name}" at ${display}`);
+          deps.log(`refresh: running "${job.kept.name}" at ${display}`);
           try {
             const one = await filmOne(job, root, executor, home, deps);
             if ("failed" in one) failed(who, one.failed, job.notes);
@@ -866,6 +867,8 @@ async function deliverOne(
           screens,
           screensDir,
           screensSize: shots.size,
+          // The committed files now show this script, whichever take made them.
+          scriptDigest: scriptDigest(kept.script),
         }),
       );
     }

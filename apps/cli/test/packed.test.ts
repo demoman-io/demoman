@@ -337,9 +337,11 @@ describe("the packed install", () => {
         (await c.listTools()).tools.map((t) => t.name).sort();
       const tools = await names(a);
       expect(tools.length).toBeGreaterThan(5);
-      // The one tool the bin adds (launch D2): the dev demoman-mcp has no
-      // studio to open, so it lists none.
-      expect(tools).toEqual([...(await names(b)), "studio"].sort());
+      // The tools the bin adds: studio (launch D2), add and ci (Task 13).
+      // The dev demoman-mcp has no studio to open nor CLI core to reach.
+      expect(tools).toEqual(
+        [...(await names(b)), "studio", "add", "ci"].sort(),
+      );
       expect(a.getInstructions()).toBe(b.getInstructions());
       const recipe = text(await a.callTool({ name: "recipe", arguments: {} }));
       expect(recipe.length).toBeGreaterThan(1000);

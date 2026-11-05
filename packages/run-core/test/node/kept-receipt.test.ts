@@ -115,6 +115,20 @@ describe("the receipt", () => {
     expect(parseReceipt(text, "r.json")).toEqual({ ok: true, receipt: v2 });
   });
 
+  it("round-trips the script digest, and reads a receipt without one", () => {
+    const withDigest: KeptReceipt = { ...v2, scriptDigest: "9f3a" };
+    const text = serializeReceipt(withDigest);
+    expect(JSON.parse(text).scriptDigest).toBe("9f3a");
+    expect(parseReceipt(text, "r.json")).toEqual({
+      ok: true,
+      receipt: withDigest,
+    });
+    // Absent: written before it was recorded, still read, and not written back.
+    const without = parseReceipt(serializeReceipt(v2), "r.json");
+    expect(without.ok && "scriptDigest" in without.receipt).toBe(false);
+    expect(refusal(withChange({ scriptDigest: "" }))).toContain("scriptDigest");
+  });
+
   it("refuses a screen folder that is not beside the receipt", () => {
     // Premise: the same change with a folder beside the receipt is accepted.
     expect(

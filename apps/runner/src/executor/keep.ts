@@ -44,6 +44,7 @@ import {
   type RefilmInfo,
   type RunReport,
   screensDirOf,
+  scriptDigest,
   serializeKept,
   serializeReceipt,
   servedRunReport,
@@ -415,6 +416,7 @@ export async function keepVideo(
             filmedCode: filmedCodeOf(runReport),
             screens,
             recordedRevision: made.from.recordedRevision,
+            scriptDigest: scriptDigest(kept.script),
           };
     const written: string[] = [];
     try {

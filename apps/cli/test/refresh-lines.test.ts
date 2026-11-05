@@ -1,6 +1,6 @@
 import type { RefreshResult } from "@demoman/runner/package";
 import { describe, expect, it } from "vitest";
-import { refreshLines } from "../src/refresh-lines.js";
+import { appRefusal, refreshLines } from "../src/refresh-lines.js";
 
 type Video = RefreshResult["videos"][number];
 const video = (name: string, more: Partial<Video>): Video => ({
@@ -96,5 +96,36 @@ describe("refreshLines", () => {
       ],
       code: 0,
     });
+  });
+
+  // Red when refreshLines drops its second argument: a reused local app is
+  // then not said.
+  it("prints what starting the app said first", () => {
+    expect(
+      refreshLines({ videos: [video("a", {})] }, ["used the app at http://x"])
+        .lines[0],
+    ).toBe("used the app at http://x");
+    expect(refreshLines({ videos: [video("a", {})] }).lines).toHaveLength(1);
+  });
+
+  // Red when appRefusal exits 0 or drops the reason or the detail.
+  it("fails with the app refusal's reason and detail", () => {
+    expect(
+      appRefusal({ reason: "appNeverAnswered", detail: "no answer at :3000" }),
+    ).toEqual({ line: "appNeverAnswered: no answer at :3000", code: 1 });
+  });
+
+  // Red when appRefusal drops the tail: CI's log then says the install
+  // failed without the install's own words.
+  it("prints the failing command's output tail indented under the refusal", () => {
+    expect(
+      appRefusal({
+        reason: "appInstallFailed",
+        detail: "npm ci exited with code 1",
+        tail: "npm ERR! missing lockfile\n\nnpm ERR! see log\n",
+      }).line,
+    ).toBe(
+      "appInstallFailed: npm ci exited with code 1\n  npm ERR! missing lockfile\n  npm ERR! see log",
+    );
   });
 });

@@ -8,11 +8,7 @@ user; section 7 lists every reason.
 
 ## 1. Preflight
 
-1. Call `status`. It answers `executor` (`"cli"`), `version`,
-   `browserInstalled`, `browserRunning`, `runnerVersion`, `runPage` (the
-   latest run's report or its progress, or null), `sessions`, `accounts`,
-   `secretsFile`, `expiry` and `update`.
-   `sessions` is `[{site, savedAt, refreshedAt, signInUrl}]`; it and
+1. Call `status`; its description lists what it answers. `sessions` and
    `display` can be `{unreadable}`: tell the user why. `accounts` and
    `secretsFile` are the demo accounts below.
 2. The browser is signed in only where the user ran `npx demoman signin <url>`
@@ -183,10 +179,8 @@ targets, leaving the page open. Each entry is
 - Iframe and shadow-root elements are not listed.
 - A snapshot sees only the page as it loads: hidden content in the
   page is listed; content a click creates (a menu, dialog, results, a new row) is not. To list it, `probe` your script
-  cut off after the step that opens it, and copy targets from that answer. A probe acts on the app for real: "Add item" adds one per
-  probe and again in the run, so a unique target can turn ambiguous;
-  a delete deletes; in the Studio an edit saves into the video. Server data
-  carries into the run; browser storage does not (a signed-in site's does). Prefer demo data. `stopped`: a step did not play; fix it as a
+  cut off after the step that opens it, and copy targets from that answer. A probe acts on the app for real, as its description says: an "Add item"
+  in it can make a unique target ambiguous in the run; in the Studio an edit saves into the video. `stopped`: a step did not play; fix it as a
   run's stop with that reason says, and probe again.
 
 ### Recording a phone demo
@@ -246,7 +240,7 @@ run toward the three. Refused with `unfilledHoles` when the video kept no
 value: `derive`, fill, `run`. `invalidScript` (`field` `steps.<i>.do`): a
 verb was changed by hand: `derive`, check it, `run` the draft.
 
-A flow in the repo (.demoman/flows) is rewritten by each run: commit that file with the change. To add one, run `npx demoman add <flow> --to <path>` in the repo.
+A flow in the repo (.demoman/flows) is rewritten by each run: commit that file with the change. To add one: section 8.
 
 ## 4. Run and read
 
@@ -484,34 +478,34 @@ Studio exports go to `~/Downloads`.
 
 ## 7. Every reason
 
-`probe` can answer any reason `snapshot` can, and `run`'s `refusedBeforeRun` ones.
+`probe` can answer any reason `snapshot` can, and `run`'s `refusedBeforeRun` ones. Where: ¹ in `refusedBeforeRun`, `refusedBeforeExport` or `refusedBeforeAttach`; ² in `stopped.reason`, or `notAttached` for `attach`.
 
 | Reason | Where | What it means, and the move |
 | --- | --- | --- |
-| `browserMissing` | `snapshot`, `run` (`refusedBeforeRun`), `studio` | Demoman's browser or libraries are missing; `detail` gives the command. Ask the user to run it, then call again. |
+| `browserMissing` | `snapshot`, `run`¹, `studio` | Demoman's browser or libraries are missing; `detail` gives the command. Ask the user to run it, then call again. |
 | `unsupportedPlatform` | `snapshot`, `run`, `export` | This machine cannot record (arm64 Linux, or another OS); quote `detail`. |
-| `sessionUnreadable` | `snapshot`, `run` (`refusedBeforeRun`) | A saved session file or folder could not be read, or is readable by others; `detail` names the fix. Tell the user. |
-| `sessionNotLoaded` | `snapshot`, `run` (`refusedBeforeRun`) | The browser refused the saved sessions; `detail` says why. Tell the user to run `npx demoman signin` again there. |
-| `signInFailed` | `snapshot`, `run` (`refusedBeforeRun`) | Demoman signed in as the account and the page still showed a sign-in page, or a step could not run; `detail` says where. It tried once. Fix the account's steps or secret, or tell the user; do not rerun unchanged. |
-| `secretMissing` | `snapshot`, `run` (`refusedBeforeRun`) | A `{secret:NAME}` has no `DEMOMAN_SECRET_NAME` and no line in `.demoman/secrets.env`; `detail` names both. Through `project` the environment is unused. Write one (section 1), or ask the user. |
-| `secretTooShort` | `snapshot`, `run` (`refusedBeforeRun`) | The secret `NAME` is under 8 characters. Write a longer one. |
-| `secretUnbound` | `snapshot`, `run` (`refusedBeforeRun`) | `DEMOMAN_SECRET_NAME` has no `DEMOMAN_SECRET_NAME_ORIGIN` beside it, or one that is no origin; `detail` names the line and site. Nothing typed. Add it to `secrets.env` for an account you made; else tell the user. |
-| `secretOffOrigin` | `snapshot`, `run` (`refusedBeforeRun`) | A secret was about to be typed off its site: a sign-in step's page is not the site's origin, or the `_ORIGIN` names another site; `detail` names both. Nothing typed. Check the account's site and `goto`, then tell the user. |
-| `secretsFileNotIgnored` | `snapshot`, `run` (`refusedBeforeRun`) | Git does not ignore `.demoman/secrets.env`, so Demoman did not read it. Add it to `.gitignore` (`detail` says the line), or untrack it. |
-| `secretsFileInvalid` | `snapshot`, `run` (`refusedBeforeRun`) | A line of `.demoman/secrets.env` is not `DEMOMAN_SECRET_NAME=value`, a comment or blank; `detail` gives the line. Fix it. |
-| `accountsInvalid` | `snapshot`, `run` (`refusedBeforeRun`) | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names the field and the rule. Fix the file. |
-| `unknownAccount` | `snapshot`, `run` (`refusedBeforeRun`) | The script names an account the site lacks, or none and the site has no `default`; `detail` lists the accounts. Name one, or add it (section 1). |
-| `invalidProject` | `snapshot`, `run` (`refusedBeforeRun`), `attach` | `project` is not an absolute path to a folder. Pass one, or leave it out. |
-| `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach` (`refusedBeforeAttach`) | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing posted; do as `detail` says. |
-| `invalidAttach` | `attach` (`refusedBeforeAttach`) | The call is malformed; `detail` says how. Fix it. |
-| `uploadRefused` | `attach` (`notAttached`) | GitHub refused the video. Retry as the Pull requests text says. |
-| `partial` | `attach` (`notAttached`) | `gh` failed but the video is on the PR; do not post again. |
-| `unconfirmed` | `attach` (`notAttached`) | Unknown what landed. Do not post again; tell the user to look at the PR. |
-| `copyFailed` | `attach` (`notAttached`) | The video could not be copied; nothing posted. Hand the user the capped export's file. |
-| `windowDidNotOpen` | `snapshot`; `run` (`refusedBeforeRun`); `studio` | The window would not open; try once more. |
+| `sessionUnreadable` | `snapshot`, `run`¹ | A saved session file or folder could not be read, or is readable by others; `detail` names the fix. Tell the user. |
+| `sessionNotLoaded` | `snapshot`, `run`¹ | The browser refused the saved sessions; `detail` says why. Tell the user to run `npx demoman signin` again there. |
+| `signInFailed` | `snapshot`, `run`¹ | Signed in as the account, the page still showed a sign-in page, or a step could not run; `detail` says where. It tried once. Fix the account's steps or secret, or tell the user; do not rerun unchanged. |
+| `secretMissing` | `snapshot`, `run`¹, `ci` | No `DEMOMAN_SECRET_NAME` for a `{secret:NAME}` in the environment (unused through `project`) or `.demoman/secrets.env`; `detail` names both. Write one (section 1) or ask the user; `ci`: give the person `command`. |
+| `secretTooShort` | `snapshot`, `run`¹, `ci` | The secret `NAME` is under 8 characters. Write a longer one; `ci`: give the person `command`. |
+| `secretUnbound` | `snapshot`, `run`¹ | `DEMOMAN_SECRET_NAME` has no `DEMOMAN_SECRET_NAME_ORIGIN` beside it, or one that is no origin; `detail` names the line and site. Nothing typed. Add it to `secrets.env` for an account you made; else tell the user. |
+| `secretOffOrigin` | `snapshot`, `run`¹ | A secret was about to be typed off its site: a sign-in step's page is not the site's origin, or the `_ORIGIN` names another site; `detail` names both. Nothing typed. Check the account's site and `goto`, then tell the user. |
+| `secretsFileNotIgnored` | `snapshot`, `run`¹ | Git does not ignore `.demoman/secrets.env`, so Demoman did not read it. Add it to `.gitignore` (`detail` says the line), or untrack it. |
+| `secretsFileInvalid` | `snapshot`, `run`¹ | A line of `.demoman/secrets.env` is not `DEMOMAN_SECRET_NAME=value`, a comment or blank; `detail` gives the line. Fix it. |
+| `accountsInvalid` | `snapshot`, `run`¹ | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names the field and the rule. Fix the file. |
+| `unknownAccount` | `snapshot`, `run`¹ | The script names an account the site lacks, or none and the site has no `default`; `detail` lists the accounts. Name one, or add it (section 1). |
+| `invalidProject` | `snapshot`, `run`¹, `attach` | `project` is not an absolute path to a folder. Pass one, or leave it out. |
+| `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach`¹, `ci` | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing posted; do as `detail` says. |
+| `invalidAttach` | `attach`¹ | The call is malformed; `detail` says how. Fix it. |
+| `uploadRefused` | `attach`² | GitHub refused the video. Retry as the Pull requests text says. |
+| `partial` | `attach`² | `gh` failed but the video is on the PR; do not post again. |
+| `unconfirmed` | `attach`² | Unknown what landed. Do not post again; tell the user to look at the PR. |
+| `copyFailed` | `attach`² | The video could not be copied; nothing posted. Hand the user the capped export's file. |
+| `windowDidNotOpen` | `snapshot`; `run`¹; `studio` | The window would not open; try once more. |
 | `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
 | `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. Call `report(id)` on it; retry when it settles. |
-| `busy` | `export` (`refusedBeforeExport`) | A run, probe or snapshot is in progress. `report(id)` it first. |
+| `busy` | `export`¹ | A run, probe or snapshot is in progress. `report(id)` it first. |
 | `browserSilent` | `status`, `flows`, `derive`, `report` | The browser did not answer in about 50 s. Call `status` once; if again, tell the user. From `report` the run may still be going: call `report(id)` again. |
 | `libraryUnreadable` | `flows`, `studio` | Unreadable; report it. |
 | `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: the report has a `notStored` entry `{ "what": "video", "error": … }` and a null `provenance.videoId`. Nothing saved; quote the `error`. |
@@ -520,39 +514,47 @@ Studio exports go to `~/Downloads`.
 | `notAnObject` | `run` | The script is not a JSON object. |
 | `invalidScript` | `run` | The schema refused the script; `field` names where. |
 | `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-film of a video that did not keep a value. |
-| `flowRequired` | `run` (`refusedBeforeRun`) | No `flow` was given. Find one (section 4), or pass `{ new }`. |
-| `possibleDuplicate`, `nameTaken` | `run` (`refusedBeforeRun`) | A similar flow exists (`matches`) or the name is taken (`holder`). Section 4. |
-| `repoFlowNameTaken`, `duplicateFlow`, `repoFlowUnreadable` | `run` (`refusedBeforeRun`); the first two also `flows` with `file` | Repo flows: this library has another flow with that name (`detail` gives the `join-flow` command to tell the user); two files in `.demoman/flows` or the old folder before it name one flow (delete one); a file there will not read (`detail` names it; fix or remove it). |
-| `flowNotFound` | `run` (`refusedBeforeRun`) | No flow has that `id`; call `flows`. |
+| `flowRequired` | `run`¹ | No `flow` was given. Find one (section 4), or pass `{ new }`. |
+| `possibleDuplicate`, `nameTaken` | `run`¹ | A similar flow exists (`matches`) or the name is taken (`holder`). Section 4. |
+| `repoFlowNameTaken`, `duplicateFlow`, `repoFlowUnreadable` | `run`¹; the first two also `flows` with `file` | Repo flows: this library has another flow with that name (`detail` gives the `join-flow` command to tell the user); two files in `.demoman/flows` or the old folder before it name one flow (delete one); a file there will not read (`detail` names it; fix or remove it). |
+| `flowNotFound` | `run`¹ | No flow has that `id`; call `flows`. |
 | `wrongIdKind` | any | Wrong kind of id; see `detail`. |
-| `flowUnreadable`, `flowUnwritable` | `run` (`refusedBeforeRun`), `flows` | The flow records could not be read or written; quote `detail`. Nothing recorded. |
+| `flowUnreadable`, `flowUnwritable` | `run`¹, `flows` | The flow records could not be read or written; quote `detail`. Nothing recorded. |
 | `noTag`, `unknownFlow`, `fileNotFound` | `flows` | The file has no Demoman tag; its flow is not in this library; no file there. Use `query` instead. |
 | `invalidArgs` | any | `file` with `query`, not absolute; an old name (`video`, `takeId`): `detail` gives the new. |
-| `videoExpired` | `export` (`refusedBeforeExport`) | The video's frames expired: `run({ flow: { id } })`, then export. |
+| `videoExpired` | `export`¹ | The video's frames expired: `run({ flow: { id } })`, then export. |
 | `failed` | `status` (`expiry`) | Not a refusal: `expiry` is the last cleanup. Say nothing unless it is `{ failed }` or `{ unreadable }`: quote it. |
-| `nothingToRerecord` | `run` (`refusedBeforeRun`) | The video has no step left that acts; tell the user. |
-| `unknownKit` | `run` (`refusedBeforeRun`) | `look.kit` names no kit, or an unreadable one; `detail` lists the kits. Fix it from `snapshot`'s `kits`, or ask the user. |
-| `kitsUnreadable` | `run` (`refusedBeforeRun`) | The kits file would not read, so `look.kit` went unchecked. Quote `detail`; keep the name. |
-| `wallpaperUnreadable` | `run` (`refusedBeforeRun`) | The image would not open. Quote `detail`; fix or drop `look.branding`/`look.kit`. |
+| `nothingToRerecord` | `run`¹ | The video has no step left that acts; tell the user. |
+| `unknownKit` | `run`¹ | `look.kit` names no kit, or an unreadable one; `detail` lists the kits. Fix it from `snapshot`'s `kits`, or ask the user. |
+| `kitsUnreadable` | `run`¹ | The kits file would not read, so `look.kit` went unchecked. Quote `detail`; keep the name. |
+| `wallpaperUnreadable` | `run`¹ | The image would not open. Quote `detail`; fix or drop `look.branding`/`look.kit`. |
 | `invalidDevice` | `snapshot` | `device` is no phone or tablet Demoman has; `detail` lists them. |
 | `deviceFailed` | `snapshot`, `run` | The browser would not emulate the device; nothing was listed or recorded. Tell the user `detail`; do not run again. |
 | `nonHttpTarget` | `run`, `snapshot` | The target or url is not `http(s)`, or its host contains `*`. |
-| `invalidFileType` | `export` (`refusedBeforeExport`) | Not answered here: the schema takes only `mp4`, `gif`, `stills`. |
-| `invalidStillsOptions` | `export` (`refusedBeforeExport`) | `stills` was given for an MP4 or GIF, or breaks section 5's width or zoom; `detail` says which. Fix the call. |
-| `invalidQuality`, `invalidMaxMB` | `export` (`refusedBeforeExport`), `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
-| `noVideoId`, `noFrames` | `export` (`refusedBeforeExport`) | No video id; no frames to render. |
-| `videoNotFound`, `videoUnreadable` | `export` (`refusedBeforeExport`), `run` re-film (`refusedBeforeRun`), `studio` (`videoNotFound`: call `flows`) | No such video; it could not be read (or, for `run`, built into a script). |
-| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run` (`stopped.reason`) | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. |
-| `ambiguousAnchor` | `run` (`stopped.reason`) | Several elements matched; name the target more exactly. |
-| `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run` (`stopped.reason`) | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |
-| `pageWentElsewhere`, `unperformableStep` | `run` (`stopped.reason`) | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks the impossible. |
-| `dragEndOutOfView`, `dragNoDistance` | `run` (`stopped.reason`) | A drag's end was off screen (a drag cannot scroll), or on its start. Fix the script. |
-| `clickNotDelivered` | `run` (`stopped.reason`) | The browser put a click elsewhere than sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |
-| `signedOut` | `run` (`stopped.reason`) | The app sent this browser to its sign-in page. Nothing kept; not a script fault. Give the user the command in `stopped.detail`; run again only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it does. |
-| `windowClosed` | `run` (`stopped.reason`) | `--headed` only: the window closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
+| `invalidFileType` | `export`¹ | Not answered: the schema takes only `mp4`, `gif`, `stills`. |
+| `invalidStillsOptions` | `export`¹ | `stills` was given for an MP4 or GIF, or breaks section 5's width or zoom; `detail` says which. Fix the call. |
+| `invalidQuality`, `invalidMaxMB` | `export`¹, `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
+| `noVideoId`, `noFrames` | `export`¹ | No video id; no frames to render. |
+| `videoNotFound`, `videoUnreadable` | `export`¹, `run` re-film ¹, `studio` (`videoNotFound`: call `flows`) | No such video; it could not be read (or, for `run`, built into a script). |
+| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run`² | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. |
+| `ambiguousAnchor` | `run`² | Several elements matched; name the target more exactly. |
+| `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run`² | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |
+| `pageWentElsewhere`, `unperformableStep` | `run`² | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks the impossible. |
+| `dragEndOutOfView`, `dragNoDistance` | `run`² | A drag's end was off screen (a drag cannot scroll), or on its start. Fix the script. |
+| `clickNotDelivered` | `run`² | The browser put a click elsewhere than sent; `stopped.detail` says where. Not the script's fault: run again (it counts); tell the user if it repeats. |
+| `signedOut` | `run`² | The app sent this browser to its sign-in page. Nothing kept; not a script fault. Give the user the command in `stopped.detail`; run again only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it does. |
+| `windowClosed` | `run`² | `--headed` only: the window closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
 | `pageDidNotLoad` | `snapshot`, `probe` stop | The url did not load. Ask whether the app runs at that address; spend no run. |
 | `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman's script: tell the user. |
-| `pageFaulted` | `snapshot` | The page's code threw; quote `detail`. |
-| `snapshotThrew` | `snapshot` | A snapshot fault; quote `detail`. |
-| `probeThrew` | `probe` | A probe fault; quote `detail`. |
+| `pageFaulted`, `snapshotThrew`, `probeThrew` | `snapshot`, `probe` | The page's code threw, or a fault; quote `detail`. |
 | `portFailure` | `probe` | The browser gave way; not the script's fault. Probe once more; quote `detail` if it repeats. |
+| `notInRepo`, `outsideRepo`, `outputTaken`, `logoUnreadable`, `handSignIn`, `cannotRefilm`, `keepRefused`, `exportFailed`, `repoFlowUnwritable` | `add`, `ci` | `detail` says what was written and the fix. |
+| `appInvalid`, `appOriginMismatch`, `appUnknown`, `appHoles`, `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appPortTaken`, `appDockerMissing`, `checkoutFailed`, `noRepoFlow`, `refreshFailed`, `checkThrew`, `alreadySetUp`, `setupPrOpen`, `setupBranchExists`, `noRepoFlows`, `noRelease`, `noDeployment`, `routeRefused`, `githubUnreadable`, `noSetupBranch`, `secretsUnknown`, `secretsUnreadable`, `workflowRefused`, `filesUnreadable`, `setupUnreadable`, `secretRefused`, `actionsRefused`, `actionsUnknown`, `prFailed` | `ci` | `detail` says what was done and the fix. |
+
+## 8. Repo flows and CI
+
+`add({ flow, to })` puts a flow in the repo; commit what it wrote. `ci`
+sets up CI for them, acting only on `confirmed: true` after the person
+agreed to the plan's `lines`. Never ask for a secret: give the person
+`command`. After pushing a fix to `demoman/setup`, `ci({ watch: true })`;
+at `gaveUp`, hand back.

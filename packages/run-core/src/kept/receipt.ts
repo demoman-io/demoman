@@ -26,6 +26,9 @@ export type KeptReceipt = {
   /** The output target's size, which the screens' windows are measured in;
    *  null exactly when receiptVersion is 1. */
   screensSize: { width: number; height: number } | null;
+  /** `scriptDigest` of the script the committed files were delivered from;
+   *  absent from a receipt written before it was recorded. */
+  scriptDigest?: string;
 };
 
 /** The folder a receipt's screen images live in, beside it: `order.json`
@@ -189,6 +192,9 @@ export function parseReceipt(text: string, file: string): Parsed {
     screensSize = { width: size.width, height: size.height };
   } else if (raw.screensDir !== undefined || raw.screensSize !== undefined)
     return bad("screensDir needs receiptVersion 2");
+  const digest = raw.scriptDigest;
+  if (digest !== undefined && (typeof digest !== "string" || digest === ""))
+    return bad("scriptDigest must be a non-empty string");
   return {
     ok: true,
     receipt: {
@@ -201,6 +207,7 @@ export function parseReceipt(text: string, file: string): Parsed {
       recordedRevision,
       screensDir,
       screensSize,
+      ...(digest === undefined ? {} : { scriptDigest: digest }),
     },
   };
 }
@@ -218,6 +225,7 @@ export function serializeReceipt(r: KeptReceipt): string {
     filmedAt: r.filmedAt,
     filmedCode: r.filmedCode,
     recordedRevision: r.recordedRevision,
+    ...(r.scriptDigest === undefined ? {} : { scriptDigest: r.scriptDigest }),
     ...(r.screensDir === null || r.screensSize === null
       ? {}
       : { screensDir: r.screensDir, screensSize: r.screensSize }),

@@ -1,0 +1,7 @@
+{
+  "name": "pw-app",
+  "scripts": {
+    "dev": "vite",
+    "start": "vite preview"
+  }
+}

@@ -1,5 +1,9 @@
 import { BACKGROUND_PAINT_VERSION } from "@demoman/compositor";
-import type { SceneBranding, SceneDocument } from "@demoman/scene-schema";
+import type {
+  DemoScript,
+  SceneBranding,
+  SceneDocument,
+} from "@demoman/scene-schema";
 
 /**
  * A fingerprint of what a scene asks the video to be, so the Recent exports
@@ -64,6 +68,12 @@ export function lookDigest(
       logo: logo === null ? null : { ...mark, file: files.logo },
     }),
   ).toString(16);
+}
+
+/** A fingerprint of a repo flow's script, which its receipt records so a
+ *  delivery can be told from one of an edited script. Keys are sorted. */
+export function scriptDigest(script: DemoScript): string {
+  return cyrb53(canonical(script)).toString(16);
 }
 
 /** A fingerprint of a file's bytes, for `lookDigest`. */
