@@ -288,7 +288,8 @@ export function createCiJobs(o: {
       const set = written.get(root) ?? new Set<string>();
       for (const f of files) set.add(f);
       written.set(root, set);
-      // The plan was made before this add: never applied after it.
+      // A plan made before this add is out of date: a reopened sheet reads
+      // none, and so offers a fresh Check.
       held.delete(root);
       const ended = last.get(root);
       if (ended !== undefined && "planId" in ended.answer) last.delete(root);
