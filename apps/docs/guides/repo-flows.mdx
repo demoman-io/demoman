@@ -57,7 +57,8 @@ When a flow can't be added, the button is disabled and says why:
 **Remove from repo** asks first. It removes the flow's recipe from the repo and
 names the exports that stay.
 
-After an add, the sheet sets up CI when the repo has none. **Check** records
+After a **Commit** add, the sheet sets up CI when the repo has none. A
+**Files** add with nothing left to do closes with a toast. **Check** records
 the flow from a clean checkout and shows the plan: trigger, route and files.
 Secrets the plan needs are asked for in password fields. **Open pull request**
 applies the plan, and the sheet shows the run until it passes, fails or its
