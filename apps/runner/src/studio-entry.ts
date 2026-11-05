@@ -5,6 +5,11 @@
 // the studio never reaches pipeline.ts or the film:compare harness.
 export { PAGE_ENTRIES, usePrebuiltPages } from "./bundle-js.js";
 export {
+  type Addable,
+  checkAddable,
+  checkoutOf,
+} from "./executor/addable.js";
+export {
   type BrowserFailure,
   classifyLaunchError,
   createBrowserSession,
