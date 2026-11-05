@@ -1,3 +1,13 @@
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   CiAppliedWire,
   CiPlannedWire,
@@ -11,6 +21,9 @@ import type { StudioRequest } from "../../src/server.js";
 const flush = () => new Promise<void>((r) => setImmediate(r));
 const ROOT = "/work/app";
 const SECRET = "s3cret-value";
+const TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz0123";
+const RUN_URL =
+  "https://github.com/demoman-io/demoman/actions/runs/19234567890";
 
 const req = (o: { body?: string; root?: string } = {}): StudioRequest =>
   ({
@@ -133,8 +146,13 @@ describe("the CI routes", () => {
       plan: async (_root, _choices, values, progress) => {
         seen.push(new Map(values));
         progress(`starting the app with S=${SECRET}`);
-        progress("token ghp_abcdefghijklmnopqrstuvwxyz0123");
-        return planned({ lines: [`S is ${SECRET}`] });
+        progress(`token ${TOKEN}`);
+        return planned({
+          plan: {
+            check: { passed: true, lines: [`login with ${TOKEN}`] },
+          } as unknown as CiPlannedWire["plan"],
+          lines: [`S is ${SECRET}`],
+        });
       },
       apply: async (_root, planId, progress) => {
         progress(`watching, and the run printed ${SECRET}`);
@@ -144,11 +162,16 @@ describe("the CI routes", () => {
             failed: {
               runUrl: "https://run",
               step: "record",
-              tail: `echo ${SECRET}`,
+              tail: `echo ${SECRET} ${TOKEN}`,
               failedRuns: 1,
               gaveUp: false,
             },
           },
+          // As watchedLines does: the tail, copied.
+          lines: [
+            `The setup run failed on its "record" step: ${RUN_URL}`,
+            `  echo ${SECRET} ${TOKEN}`,
+          ],
         });
       },
     });
@@ -179,8 +202,23 @@ describe("the CI routes", () => {
       "watching, and the run printed •••",
     ]);
     expect(JSON.stringify(bodies[3])).toContain("echo •••");
+    // Red if `lines` (which copy a tail) skip the secret-shaped scrub.
+    const done = sent.flatMap((e) =>
+      e.type === "ci" && e.phase === "done" ? [e.answer] : [],
+    );
+    expect(done[0]).toMatchObject({
+      plan: { check: { lines: ["login with <redacted>"] } },
+    });
+    expect(done[1]).toMatchObject({
+      // Red if the scrub shreds GitHub's own run link.
+      lines: [
+        `The setup run failed on its "record" step: ${RUN_URL}`,
+        "  echo ••• <redacted>",
+      ],
+    });
     const everything = JSON.stringify({ sent, logs, bodies });
     expect(everything).not.toContain(SECRET);
+    expect(everything).not.toContain(TOKEN);
   });
 
   it("state is running while a job runs, and the finished answer after", async () => {
@@ -241,35 +279,77 @@ describe("the CI routes", () => {
     expect(drained).toBe(true);
   });
 
-  it("refuses a pull request whose files leave the repo", async () => {
-    let opened = 0;
-    const { h } = setup({
-      openPr: async () => {
-        opened += 1;
-        return { failed: "pr", detail: "" };
+  it("a throw after the job ends leaves the repo free", async () => {
+    const logs: string[] = [];
+    const jobs = createCiJobs({
+      ci: {
+        state: async () => ({ kind: "notSetUp" }),
+        plan: async () => planned(),
+        apply: async () => applied(),
+        openPr: async () => ({ failed: "pr", detail: "" }),
+      },
+      events: { send: () => {} },
+      log: (l) => logs.push(l),
+      tell: () => {
+        throw new Error("the notifier broke");
       },
     });
-    const pr = (files: string[]) =>
-      h.repoPr(
-        req({
-          body: JSON.stringify({
-            root: ROOT,
-            branch: "b",
-            title: "t",
-            body: "x",
-            files,
-          }),
-        }),
+    const go = () =>
+      jobs.handlers.repoCiApply(
+        req({ body: JSON.stringify({ root: ROOT, planId: "plan-1" }) }),
       );
-    // Premise: a path inside the repo goes through.
-    expect(await pr(["docs/demos/a.mp4"])).toMatchObject({ status: 200 });
-    // Red if a path with `..` or an absolute one reaches openPr.
-    for (const bad of [["../secrets.env"], ["/etc/passwd"], ["a/../../b"]]) {
-      expect(await pr(bad)).toMatchObject({
-        status: 400,
-        json: { reason: "ciBodyInvalid" },
+    expect(await go()).toMatchObject({ status: 202 });
+    await jobs.drained();
+    // Red if the root's job is let go only after `tell` returns.
+    expect(await go()).toMatchObject({ status: 202 });
+    expect(logs.join("\n")).toContain("its end threw: the notifier broke");
+  });
+
+  it("opens a pull request only of files an add wrote inside the repo", async () => {
+    const repo = await realpath(await mkdtemp(join(tmpdir(), "studio-ci-pr-")));
+    const outside = await mkdtemp(join(tmpdir(), "studio-ci-out-"));
+    try {
+      await mkdir(join(repo, "docs"));
+      await writeFile(join(repo, "docs", "a.mp4"), "mp4");
+      await writeFile(join(repo, ".env"), "S=1");
+      await writeFile(join(outside, "b.mp4"), "elsewhere");
+      await symlink(join(outside, "b.mp4"), join(repo, "docs", "b.mp4"));
+      const asked: string[][] = [];
+      const { h, jobs } = setup({
+        openPr: async (_root, a) => {
+          asked.push(a.files);
+          return { failed: "pr", detail: "" };
+        },
       });
+      jobs.added(repo, ["docs/a.mp4", "docs/b.mp4"]);
+      const pr = (files: string[]) =>
+        h.repoPr(
+          req({
+            body: JSON.stringify({
+              root: repo,
+              branch: "b",
+              title: "t",
+              body: "x",
+              files,
+            }),
+          }),
+        );
+      // Premise: a file the add wrote goes through.
+      expect(await pr(["docs/a.mp4"])).toMatchObject({ status: 200 });
+      // Red if repoPr takes a file no add wrote, or one whose link leads out.
+      for (const bad of [".env", "docs/b.mp4", "../x", "/etc/passwd"]) {
+        expect(await pr(["docs/a.mp4", bad])).toMatchObject({
+          status: 409,
+          json: {
+            reason: "prFileRefused",
+            detail: expect.stringContaining(bad),
+          },
+        });
+      }
+      expect(asked).toEqual([["docs/a.mp4"]]);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
-    expect(opened).toBe(1);
   });
 });

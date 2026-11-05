@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExportAnswer } from "@demoman/run-core";
@@ -14,6 +14,7 @@ import type { StudioEvent } from "@demoman/studio-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createEventHub } from "../../src/events.js";
 import { createExportQueue, type RunExport } from "../../src/queue.js";
+import { createCiJobs } from "../../src/repo-ci.js";
 import { buildHandlers } from "../../src/serve.js";
 import type { StudioRequest } from "../../src/server.js";
 import { seedTake } from "./seed.js";
@@ -49,6 +50,7 @@ describe("adding a flow to its repo, and removing it", () => {
   let keep: Keep;
   let removeFlow: Removal;
   let handlers: ReturnType<typeof buildHandlers>;
+  const prFiles: string[][] = [];
   let exportRuns: { finish: (a: ExportAnswer) => void }[];
   let queue: ReturnType<typeof createExportQueue>;
   const session = { name: "the one session" };
@@ -148,6 +150,19 @@ describe("adding a flow to its repo, and removing it", () => {
       keep: (...a) => keep(...a),
       removeFlow: (...a) => removeFlow(...a),
       window: { open: async () => ({ ok: true, path: "/" }) },
+      ci: createCiJobs({
+        ci: {
+          state: async () => ({ kind: "setUp" }),
+          plan: async () => ({ reason: "unused", detail: "" }),
+          apply: async () => ({ reason: "unused", detail: "" }),
+          openPr: async (_root, a) => {
+            prFiles.push(a.files);
+            return { failed: "pr", detail: "" };
+          },
+        },
+        events: hub,
+        log: () => {},
+      }),
     });
   });
   afterEach(async () => {
@@ -390,6 +405,34 @@ describe("adding a flow to its repo, and removing it", () => {
       json: { reason: "repoCheckoutMissing" },
     });
     expect(calls).toHaveLength(0);
+  });
+
+  it("a pull request takes the files the add wrote", async () => {
+    await mkdir(join(root, "docs", "demos"), { recursive: true });
+    await writeFile(join(root, "docs", "demos", "flow.mp4"), "mp4");
+    const pr = () =>
+      handlers.repoPr(
+        req(
+          {},
+          {
+            root,
+            branch: "b",
+            title: "t",
+            body: "x",
+            files: ["docs/demos/flow.mp4"],
+          },
+        ),
+      );
+    // Premise: before the add, the file is no add's.
+    expect(await pr()).toMatchObject({
+      status: 409,
+      json: { reason: "prFileRefused" },
+    });
+    await add(good);
+    await until(() => phases().includes("added"));
+    // Red if the add's `written` is not recorded for repoPr.
+    expect(await pr()).toMatchObject({ status: 200 });
+    expect(prFiles.at(-1)).toEqual(["docs/demos/flow.mp4"]);
   });
 
   // Red if a flow with no mark is told its checkout is missing.

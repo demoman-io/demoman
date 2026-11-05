@@ -3,8 +3,9 @@
 // imports apps/cli. Plan and apply run as jobs of this server's own, so an
 // apply's watch (up to about half an hour) outlives the window that asked.
 import { randomUUID } from "node:crypto";
-import { isAbsolute } from "node:path";
-import { scrubSecrets } from "@demoman/run-core";
+import { realpath } from "node:fs/promises";
+import { isAbsolute, join, sep } from "node:path";
+import { looksLikeSecret, scrubSecrets } from "@demoman/run-core";
 import type {
   CiAnswerWire,
   CiAppliedWire,
@@ -45,10 +46,13 @@ export interface StudioCi {
 export type CiRoute = "repoCiState" | "repoCiPlan" | "repoCiApply" | "repoPr";
 export interface CiJobs {
   handlers: Record<CiRoute, Handler>;
-  /** CI jobs running now. */
+  /** Applies running now: only they hold the process (a plan whose window
+   *  closed has no one to show it to). */
   running(): number;
-  /** Resolves once no CI job runs. */
+  /** Resolves once no apply runs. */
   drained(): Promise<void>;
+  /** An add's `written` files: the only ones `repoPr` takes for `root`. */
+  added(root: string, files: string[]): void;
 }
 
 const refuse = (
@@ -68,25 +72,32 @@ const hide = (text: string, values: Map<string, string>): string =>
     .sort((a, b) => b.length - a.length)
     .reduce((t, v) => t.replaceAll(v, "•••"), text);
 
-/** Every string in `answer` with the values hidden; a `detail` or `tail`
- *  also scrubbed of secret-shaped text (not every string: that would
- *  shred a commit sha or a run's URL). */
+/** GitHub's own run, artifact and pull request links: the base64 sweep
+ *  would shred them (`/demoman/actions/runs/1923…` is 32 such characters). */
+const GITHUB_LINK =
+  /(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:actions\/runs\/\d+(?:\/artifacts\/\d+)?|pull\/\d+)(?![\w/?#]))/;
+/** A line scrubbed of secret-shaped text, its GitHub links left whole. */
+const scrubLine = (l: string): string =>
+  l
+    .split(GITHUB_LINK)
+    .map((part, i) =>
+      i % 2 === 1 && !looksLikeSecret(part) ? part : scrubSecrets(part),
+    )
+    .join("");
+
+/** Every string in `answer` with the values hidden; a `detail`, a `tail`
+ *  and each of `lines` (which can copy a tail) also scrubbed of
+ *  secret-shaped text. Not every string: that would shred a commit sha. */
 const hideIn = <T>(answer: T, values: Map<string, string>): T =>
   JSON.parse(JSON.stringify(answer), (key, v: unknown) =>
-    typeof v !== "string"
-      ? v
-      : key === "detail" || key === "tail"
-        ? scrubSecrets(hide(v, values))
-        : hide(v, values),
+    typeof v === "string"
+      ? key === "detail" || key === "tail"
+        ? scrubLine(hide(v, values))
+        : hide(v, values)
+      : key === "lines" && Array.isArray(v)
+        ? v.map((l) => (typeof l === "string" ? scrubLine(l) : l))
+        : v,
   ) as T;
-
-/** A relative path inside the repo: no `..`, not absolute. */
-const insideRepo = (p: unknown): boolean =>
-  typeof p === "string" &&
-  p.trim() !== "" &&
-  !isAbsolute(p) &&
-  !/^[a-zA-Z]:|^[\\/]/.test(p) &&
-  !p.split(/[\\/]/).includes("..");
 
 /** The body as an object, or null. A parse error's message is not said:
  *  V8 quotes the body in it, and this body can hold a secret. */
@@ -113,8 +124,11 @@ export function createCiJobs(o: {
 }): CiJobs {
   const { ci, log } = o;
   /** The running job per repo root. */
-  const jobs = new Map<string, string>();
-  const pending = new Set<Promise<void>>();
+  const jobs = new Map<string, { jobId: string; step: "plan" | "apply" }>();
+  /** Applies still running, for `drained`. */
+  const applying = new Set<Promise<void>>();
+  /** Each root's files written by an add in this server's life. */
+  const written = new Map<string, Set<string>>();
   /** The last job per root that ended: a reopened sheet reads it. */
   const last = new Map<
     string,
@@ -144,8 +158,8 @@ export function createCiJobs(o: {
       return refuse(409, "ciBusy", `CI setup is already running for ${root}.`);
     }
     const jobId = randomUUID();
-    jobs.set(root, jobId);
-    const wall = (t: string) => scrubSecrets(hide(t, values));
+    jobs.set(root, { jobId, step });
+    const wall = (t: string) => scrubLine(hide(t, values));
     const progress = (line: string) => {
       const said = wall(line);
       log(`studio: ci ${jobId}: ${said}`);
@@ -159,12 +173,13 @@ export function createCiJobs(o: {
         }),
       )
       .then((raw) => {
+        // First: a throw below must not leave the repo busy.
+        jobs.delete(root);
         const answer = hideIn(raw, values);
         if (step === "plan" && "planId" in answer) {
           held.set(root, { planId: answer.planId, values });
         }
         last.set(root, { jobId, step, answer });
-        jobs.delete(root);
         log(
           `studio: ci ${jobId}: ${step} ended${"reason" in answer ? `: ${answer.reason}: ${answer.detail}` : ""}`,
         );
@@ -178,8 +193,11 @@ export function createCiJobs(o: {
         o.events.send(done);
         o.tell?.(done);
       })
-      .finally(() => pending.delete(job));
-    pending.add(job);
+      .catch((error: unknown) => {
+        log(`studio: ci ${jobId}: its end threw: ${wall(messageOf(error))}`);
+      })
+      .finally(() => applying.delete(job));
+    if (step === "apply") applying.add(job);
     return { status: 202, json: { jobId } };
   }
 
@@ -195,21 +213,27 @@ export function createCiJobs(o: {
       },
       running: () => 0,
       drained: async () => {},
+      added: () => {},
     };
   }
 
   return {
-    running: () => jobs.size,
+    running: () => applying.size,
     async drained() {
-      while (pending.size > 0) await Promise.all(pending);
+      while (applying.size > 0) await Promise.all(applying);
+    },
+    added(root, files) {
+      const set = written.get(root) ?? new Set<string>();
+      for (const f of files) set.add(f);
+      written.set(root, set);
     },
     handlers: {
       async repoCiState(req) {
         const root = req.query.get("root");
         if (!isRoot(root)) return badBody("root is not an absolute path");
-        const jobId = jobs.get(root);
-        if (jobId !== undefined) {
-          const running: CiState = { kind: "running", jobId };
+        const job = jobs.get(root);
+        if (job !== undefined) {
+          const running: CiState = { kind: "running", jobId: job.jobId };
           return { status: 200, json: running };
         }
         let live: CiState;
@@ -293,9 +317,26 @@ export function createCiJobs(o: {
         if (
           !Array.isArray(files) ||
           files.length === 0 ||
-          !files.every(insideRepo)
+          !files.every((f) => typeof f === "string")
         ) {
-          return badBody("files are not paths inside the repo");
+          return badBody("files is not a list of paths");
+        }
+        // R13: only what an add wrote here, and only where it resolves
+        // inside the repo (a symlink cannot lead out), before any is read.
+        const mine = written.get(root);
+        const top = await realpath(root).catch(() => null);
+        for (const f of files as string[]) {
+          const at =
+            mine?.has(f) === true && top !== null
+              ? await realpath(join(root, f)).catch(() => null)
+              : null;
+          if (at === null || top === null || !at.startsWith(top + sep)) {
+            return refuse(
+              409,
+              "prFileRefused",
+              `Nothing was opened: ${f} is not a file an add wrote in ${root}.`,
+            );
+          }
         }
         const pr = await ci.openPr(root, {
           branch,

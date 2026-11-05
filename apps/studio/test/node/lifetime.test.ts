@@ -416,15 +416,23 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
       body: {},
     });
     expect(opened.status, opened.text).toBe(200);
+    const stream = await events(s.state);
     const started = await call(s.state, "/api/repo/ci/apply", {
       method: "POST",
       body: { root: "/work/app", planId: "plan-1" },
     });
     expect(started.status, started.text).toBe(202);
+    const { jobId } = started.json() as { jobId: string };
     s.fireAllClosed();
-    // Time for a stop to run its course: without the wait it exits in this.
-    await new Promise((r) => setTimeout(r, 200));
-    // Red if settle() stops the Studio with the apply's watch still running.
+    // Red if settle() stops the Studio with the apply's watch still running:
+    // the server stops listening in this tick, so this read is refused, and
+    // the pages have been told it is stopping.
+    const state = await call(s.state, "/api/repo/ci?root=%2Fwork%2Fapp");
+    expect(state.json()).toEqual({ kind: "running", jobId });
+    expect(stream.text()).not.toContain("server:stopping");
+    expect(s.logs).toContain(
+      "studio: the window closed; finishing CI setup first",
+    );
     expect(s.exits).toEqual([]);
     finish({
       pr: { failed: "pr", detail: "" },
@@ -438,6 +446,45 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
     expect(s.notices).toEqual([
       ["Demoman", "Whether the setup run passed is unknown: gh went away"],
     ]);
+  });
+
+  it("an export queued during a CI apply is finished too, after the apply", async () => {
+    let finish: (a: Awaited<ReturnType<StudioCi["apply"]>>) => void = () => {};
+    const s = await serve({
+      repoCi: {
+        state: async () => ({ kind: "notSetUp" }),
+        plan: async () => ({ reason: "unused", detail: "" }),
+        apply: () =>
+          new Promise((r) => {
+            finish = r;
+          }),
+        openPr: async () => ({ failed: "pr", detail: "" }),
+      },
+    });
+    await call(s.state, "/api/window", { method: "POST", body: {} });
+    await call(s.state, "/api/repo/ci/apply", {
+      method: "POST",
+      body: { root: "/work/app", planId: "plan-1" },
+    });
+    s.fireAllClosed();
+    const { takeId } = await seedTake(home);
+    const read = await call(s.state, `/api/takes/${takeId}/scene`);
+    const { revision } = read.json() as { revision: string };
+    await call(s.state, `/api/takes/${takeId}/exports`, {
+      method: "POST",
+      body: { fileType: "mp4", revision },
+    });
+    await vi.waitFor(() => {
+      if (s.runs.length !== 1) throw new Error("the export never ran");
+    });
+    finish({ reason: "prFailed", detail: "gh refused" });
+    for (let i = 0; i < 5; i += 1) await flush();
+    // Red if settle() stops once the apply ends without checking the queue
+    // again: this ping is then refused.
+    const ping = await call(s.state, "/api/ping");
+    expect(ping.json()).toMatchObject({ queued: 1 });
+    s.runs[0]?.finish(savedAnswer(takeId));
+    expect(await s.exited).toBe(0);
   });
 
   it("a window asked for during that drain opens on the same process, which then outlives the drain", async () => {

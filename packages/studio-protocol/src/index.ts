@@ -165,6 +165,9 @@ export type StudioReason =
   | "ciBodyInvalid"
   /** A CI job for this repo is running; it ends before another starts. */
   | "ciBusy"
+  /** A pull request named a file no add wrote in that repo, or one that
+   *  resolves outside it. */
+  | "prFileRefused"
   /** The video records would not read or write (the runner's VideoError). */
   | "videoUnreadable"
   | "videoUnwritable"

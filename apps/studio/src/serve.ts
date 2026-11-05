@@ -156,6 +156,7 @@ export function buildHandlers(o: {
     throw error;
   };
 
+  const ci = o.ci ?? createCiJobs({ events: o.events, log: o.log });
   const inner: StudioHandlers = {
     ...createRoutes({
       home: o.home,
@@ -169,7 +170,7 @@ export function buildHandlers(o: {
       ...(o.reveal === undefined ? {} : { reveal: o.reveal }),
       upkeepOnStart: o.upkeepOnStart === true,
     }),
-    ...(o.ci ?? createCiJobs({ events: o.events, log: o.log })).handlers,
+    ...ci.handlers,
 
     async window(req) {
       const body = await bodyOf(req);
@@ -307,6 +308,7 @@ export function buildHandlers(o: {
               });
               return;
             }
+            ci.added(can.root, answer.written);
             o.events.send({
               ...at,
               phase: "added",
@@ -846,21 +848,23 @@ export async function runServe(o: ServeOptions): Promise<never> {
     exit(code);
   }
 
-  /** Stops once no window is open and the queue is empty; with a queue,
-   *  after it drains (and only if no window opened meanwhile). */
+  /** Stops once no window is open, the queue is empty and no CI apply
+   *  runs; until then it waits on each (and stops only if no window opened
+   *  meanwhile). Checked again after each wait: an export can be queued
+   *  during a long apply. */
   async function settle(): Promise<void> {
     if (stopping || windowOpen) return;
-    const left = queue.size();
-    if (left > 0) {
-      log(
-        `studio: the window closed; finishing ${left} export${left === 1 ? "" : "s"} first`,
-      );
-      await queue.drained();
-      if (stopping || windowOpen) return;
-    }
-    if (ci.running() > 0) {
-      log("studio: the window closed; finishing CI setup first");
-      await ci.drained();
+    while (queue.size() > 0 || ci.running() > 0) {
+      const left = queue.size();
+      if (left > 0) {
+        log(
+          `studio: the window closed; finishing ${left} export${left === 1 ? "" : "s"} first`,
+        );
+        await queue.drained();
+      } else {
+        log("studio: the window closed; finishing CI setup first");
+        await ci.drained();
+      }
       if (stopping || windowOpen) return;
     }
     await stop(0);
