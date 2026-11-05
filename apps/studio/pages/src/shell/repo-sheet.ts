@@ -1,4 +1,6 @@
 // apps/studio/pages/src/shell/repo-sheet.ts
+
+import type { AppSpec } from "@demoman/run-core";
 import {
   EXPORT_QUALITY_LABELS,
   EXPORT_QUALITY_VALUES,
@@ -49,9 +51,41 @@ export type CiStep =
   | { k: "prDone"; url: string }
   | { k: "form"; stop?: CiStopWire }
   | { k: "working"; lines: string[] }
-  | { k: "planned"; planned: CiPlannedWire; progress: string[] }
+  | { k: "planned"; planned: CiPlannedWire; progress: string[]; stale: boolean }
   | { k: "applied"; applied: CiAppliedWire; progress: string[] }
   | { k: "stopped"; stop: CiStopWire };
+
+/** The draft with the person's filled holes laid over it: only the fields
+ *  they gave, so a good `start` or `url` is never blanked. `env.NAME` goes
+ *  into `env`. */
+function appFrom(
+  draft: NonNullable<CiStopWire["proposal"]>["draft"],
+  holes: Record<string, string>,
+): AppSpec {
+  const app: Record<string, unknown> = { ...draft, env: { ...draft.env } };
+  const env = app.env as Record<string, string>;
+  for (const [field, value] of Object.entries(holes)) {
+    if (value.trim() === "") continue;
+    if (field.startsWith("env.")) env[field.slice(4)] = value;
+    else if (field === "timeoutSeconds") app[field] = Number(value);
+    else if (field === "install") {
+      app[field] = value
+        .split(/[\n,]/)
+        .map((v) => v.trim())
+        .filter(Boolean);
+    } else app[field] = value;
+  }
+  return app as unknown as AppSpec;
+}
+
+const holeLabel = (field: string): string =>
+  field === "start"
+    ? "Start command"
+    : field === "url"
+      ? "URL"
+      : field.startsWith("env.")
+        ? field.slice(4)
+        : field;
 
 export type SheetState =
   | { step: "form" }
@@ -197,7 +231,8 @@ export function repoSheetModel(a: RepoSheetArgs) {
     }
     const progress = ci?.k === "working" ? ci.lines : [];
     const answer = e.answer;
-    if ("planId" in answer) setCi({ k: "planned", planned: answer, progress });
+    if ("planId" in answer)
+      setCi({ k: "planned", planned: answer, progress, stale: false });
     else if ("pr" in answer) {
       prUrl = "opened" in answer.pr ? answer.pr.opened.url : null;
       setCi({ k: "applied", applied: answer, progress });
@@ -296,11 +331,7 @@ export function repoSheetModel(a: RepoSheetArgs) {
       if (door === null || state.step !== "last") return;
       if (ci?.k !== "form" && ci?.k !== "planned") return;
       if (proposal !== undefined) {
-        ciChoices.app = {
-          ...proposal.draft,
-          start: holes.start ?? "",
-          url: holes.url ?? "",
-        };
+        ciChoices.app = appFrom(proposal.draft, holes);
         ciChoices.appBy = "person";
       }
       setCi({ k: "working", lines: [] });
@@ -315,10 +346,22 @@ export function repoSheetModel(a: RepoSheetArgs) {
         setCi({ k: "stopped", stop: failedStop(error) });
       }
     },
+    /** Trigger or Route changed: the held plan no longer matches, so it
+     *  cannot be applied until a fresh Check (R16). */
+    markStale(): void {
+      const ci = current();
+      if (ci?.k === "planned") setCi({ ...ci, stale: true });
+    },
     /** Apply the plan the server holds (`planId`). */
     async apply(): Promise<void> {
       const ci = current();
-      if (door === null || state.step !== "last" || ci?.k !== "planned") return;
+      if (
+        door === null ||
+        state.step !== "last" ||
+        ci?.k !== "planned" ||
+        ci.stale
+      )
+        return;
       const { planId } = ci.planned;
       setCi({ k: "working", lines: [] });
       try {
@@ -440,6 +483,19 @@ function appliedNodes(r: CiAppliedWire): HTMLElement[] {
   }
   for (const f of r.secrets.failed) {
     out.push(text("p", `Secret ${f.name}: ${f.said}`));
+  }
+  if (
+    r.setting !== null &&
+    (r.setting.kind === "refused" || r.setting.kind === "unknown")
+  ) {
+    out.push(
+      text(
+        "p",
+        `Actions setting ${r.setting.kind === "refused" ? "refused" : "unknown"}: ${r.setting.detail}`,
+        "data-ci-setting",
+      ),
+      link(r.setting.url, "Actions settings"),
+    );
   }
   const w = r.watched;
   if ("passed" in w) {
@@ -566,6 +622,7 @@ export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
           });
           trigger.addEventListener("change", () => {
             model.ciChoices.trigger = offered[Number(trigger.value)]?.trigger;
+            model.markStale();
           });
           const route = document.createElement("select");
           route.setAttribute("data-ci-route", "");
@@ -584,6 +641,7 @@ export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
           }
           route.addEventListener("change", () => {
             model.ciChoices.route = route.value as "pr" | "main";
+            model.markStale();
           });
           nodes.push(field("Trigger", trigger), field("Route", route));
         }
@@ -592,12 +650,16 @@ export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
         for (const h of needed) {
           const input = document.createElement("input");
           input.value = model.holes[h.field] ?? "";
-          input.title = h.why;
           input.setAttribute("data-ci-hole", h.field);
           input.addEventListener("input", () => {
             model.holes[h.field] = input.value;
           });
-          nodes.push(field(h.field, input));
+          const wrap = field(holeLabel(h.field), input);
+          const why = document.createElement("small");
+          why.className = "repo-why";
+          why.textContent = h.why;
+          input.before(why);
+          nodes.push(wrap);
           focus ??= input;
         }
         const secrets: Array<[string, HTMLInputElement]> = [];
@@ -607,21 +669,27 @@ export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
           const input = document.createElement("input");
           input.type = "password";
           input.autocomplete = "off";
-          input.title = n.why;
           input.setAttribute("data-ci-secret", n.name);
           secrets.push([n.name, input]);
-          nodes.push(field(n.name, input));
+          const wrap = field(n.name, input);
+          const why = document.createElement("small");
+          why.className = "repo-why";
+          why.textContent = n.why;
+          input.before(why);
+          nodes.push(wrap);
           focus ??= input;
         }
         act("Check", "shieldCheck", "data-ci-check", () => {
           // Read once into the request, then cleared: nothing keeps a value.
           const values = Object.fromEntries(
-            secrets.map(([n, i]) => [n, i.value]),
+            secrets
+              .filter(([, i]) => i.value !== "")
+              .map(([n, i]) => [n, i.value]),
           );
           for (const [, i] of secrets) i.value = "";
           void model.check(values);
         });
-        if (planned !== null) {
+        if (planned !== null && ci.k === "planned" && !ci.stale) {
           act(
             "Open pull request",
             "gitBranchPlus",

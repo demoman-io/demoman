@@ -479,6 +479,31 @@ describe("a lost studio", () => {
   });
 });
 
+describe("a stopped server and a CI job", () => {
+  // Red if `gone` stops ending a CI listener with the studioGone stop, which leaves the sheet's status panel waiting forever.
+  it("stops a CI job being waited on when the server stops", async () => {
+    const platform = createPlatform();
+    await vi.waitFor(() => {
+      if (studio.openStreams() === 0) throw new Error("no stream yet");
+    });
+    const heard: unknown[] = [];
+    platform.repoCi.onCi("ci-1", (e) => heard.push(e));
+    studio.send({ type: "server:stopping" });
+    await vi.waitFor(() => {
+      if (heard.length === 0) throw new Error("not told yet");
+    });
+    expect(heard[0]).toMatchObject({
+      type: "ci",
+      phase: "done",
+      jobId: "ci-1",
+      answer: {
+        reason: "studioGone",
+        detail: "The Studio stopped — run npx demoman studio.",
+      },
+    });
+  });
+});
+
 describe("an expired session", () => {
   it("covers the page with the expired line on the guard's 403", async () => {
     const platform = createPlatform();

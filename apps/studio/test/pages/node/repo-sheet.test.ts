@@ -201,8 +201,8 @@ describe("repoSheetModel CI steps", () => {
     expect((await m.result).prOpened).toBe("https://gh/pr/4");
   });
 
-  // Red if an appHoles stop stops returning to the hole fields, or the next Check stops calling plan again.
-  it("returns to the holes on appHoles and plans again on Check", async () => {
+  // Red if the filled holes stop being merged over the draft: a good start blanked, a url hole lost, or an env.X hole dropped.
+  it("keeps the draft's start and merges the url and env holes on the next Check", async () => {
     const { d, m } = await lastStepOf({ kind: "notSetUp" });
     await m.check({});
     d.tellCi({
@@ -214,24 +214,55 @@ describe("repoSheetModel CI steps", () => {
           draft: {
             appVersion: 1,
             install: [],
-            start: null,
+            start: "pnpm dev",
             url: null,
             timeoutSeconds: 60,
+            env: { KEEP: "1" },
           },
           source: { kind: "agent" },
-          holes: [{ field: "start", why: "w" }],
+          holes: [
+            { field: "url", why: "no origin" },
+            { field: "env.API_HOST", why: "no value" },
+          ],
         },
       }),
     });
+    // Premise: the draft already has a good start, and it is not a hole.
+    expect(m.proposal?.draft.start).toBe("pnpm dev");
+    expect(m.proposal?.holes.map((h) => h.field)).not.toContain("start");
     expect(m.state).toMatchObject({
       ci: { k: "form", stop: { reason: "appHoles" } },
     });
-    m.holes.start = "pnpm dev";
+    m.holes.url = "http://localhost:3000";
+    m.holes["env.API_HOST"] = "localhost";
     await m.check({});
     expect(d.planBodies).toHaveLength(2);
     expect(d.planBodies[1]).toMatchObject({
-      choices: { app: { start: "pnpm dev" }, appBy: "person" },
+      choices: {
+        app: {
+          start: "pnpm dev",
+          url: "http://localhost:3000",
+          env: { KEEP: "1", API_HOST: "localhost" },
+        },
+        appBy: "person",
+      },
     });
+  });
+
+  // Red if changing the trigger or route stops marking the plan stale, or a stale plan can still be applied (R16).
+  it("cannot apply a plan after its trigger or route changed", async () => {
+    const { d, m } = await lastStepOf({ kind: "notSetUp" });
+    await m.check({});
+    d.tellCi({
+      phase: "done",
+      step: "plan",
+      answer: { planId: "p1", plan: {}, lines: [] },
+    });
+    expect(m.state).toMatchObject({ ci: { k: "planned", stale: false } });
+    m.markStale();
+    expect(m.state).toMatchObject({ ci: { k: "planned", stale: true } });
+    await m.apply();
+    expect(d.applyBodies).toEqual([]);
   });
 
   // Red if a stop other than appHoles/secretMissing stops ending on the stopped step.

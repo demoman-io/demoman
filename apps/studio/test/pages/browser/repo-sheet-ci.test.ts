@@ -239,6 +239,92 @@ for (const scheme of ["light", "dark"] as const) {
       await shot("plan", scheme);
     });
 
+    // Red if an empty password field is sent as "" instead of left out of the plan body (R15).
+    it("leaves an empty password field out of the plan body", async () => {
+      const s = stub({ kind: "notSetUp" });
+      const dialog = await openSheet(s.door);
+      (await el<HTMLElement>(dialog, "[data-ci-check]")).click();
+      await vi.waitFor(() => expect(s.plans).toHaveLength(1));
+      s.send({
+        phase: "done",
+        step: "plan",
+        answer: {
+          reason: "secretMissing",
+          detail: "Two secrets are missing.",
+          secrets: [
+            { name: "A_TOKEN", for: "app", why: "signs in" },
+            { name: "B_TOKEN", for: "account", why: "pushes" },
+          ],
+        },
+      });
+      const a = await el<HTMLInputElement>(
+        dialog,
+        '[data-ci-secret="A_TOKEN"]',
+      );
+      await el(dialog, '[data-ci-secret="B_TOKEN"]');
+      await userEvent.type(a, "aaa-value");
+      (await el<HTMLElement>(dialog, "[data-ci-check]")).click();
+      await vi.waitFor(() => expect(s.plans).toHaveLength(2));
+      expect(s.plans[1]?.secrets).toEqual({ A_TOKEN: "aaa-value" });
+    });
+
+    // Red if changing the trigger or route leaves Open pull request on a stale plan (R16).
+    it("hides Open pull request once the trigger changes", async () => {
+      const s = stub({ kind: "notSetUp" });
+      const dialog = await openSheet(s.door);
+      (await el<HTMLElement>(dialog, "[data-ci-check]")).click();
+      await vi.waitFor(() => expect(s.plans).toHaveLength(1));
+      s.send({ phase: "done", step: "plan", answer: planned });
+      await el(dialog, "[data-ci-apply]");
+      const trigger = await el<HTMLSelectElement>(dialog, "[data-ci-trigger]");
+      await userEvent.selectOptions(trigger, "1");
+      await vi.waitFor(() =>
+        expect(dialog.querySelector("[data-ci-apply]")).toBeNull(),
+      );
+      expect(dialog.querySelector("[data-ci-check]")).not.toBeNull();
+      await shot("plan-stale", scheme);
+    });
+
+    // Red if a refused or unknown Actions setting stops being said with its detail and link.
+    it.each(["refused", "unknown"] as const)(
+      "says the Actions setting was %s",
+      async (kind) => {
+        const s = stub({ kind: "notSetUp" });
+        const dialog = await openSheet(s.door);
+        (await el<HTMLElement>(dialog, "[data-ci-check]")).click();
+        await vi.waitFor(() => expect(s.plans).toHaveLength(1));
+        s.send({ phase: "done", step: "plan", answer: planned });
+        (await el<HTMLElement>(dialog, "[data-ci-apply]")).click();
+        await vi.waitFor(() =>
+          expect(dialog.querySelector("[data-ci-status]")).not.toBeNull(),
+        );
+        s.send({
+          phase: "done",
+          step: "apply",
+          answer: {
+            ...applied({
+              passed: {
+                runUrl: "https://github.com/o/r/actions/runs/1",
+                artifactUrl: "https://github.com/o/r/actions/runs/1#a",
+                lines: [],
+              },
+            }),
+            setting: {
+              kind,
+              detail: "Needs an admin.",
+              url: "https://github.com/o/r/settings/actions",
+            },
+          },
+        });
+        const said = await el(dialog, "[data-ci-setting]");
+        expect(said.textContent).toBe(
+          `Actions setting ${kind}: Needs an admin.`,
+        );
+        await el(dialog, 'a[href="https://github.com/o/r/settings/actions"]');
+        await shot(`setting-${kind}`, scheme);
+      },
+    );
+
     // Red if a finished run stops ending on the pull request's link and the run's verdict.
     it("ends the watch on the pull request link and the verdict", async () => {
       const s = stub({ kind: "notSetUp" });

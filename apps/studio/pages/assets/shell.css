@@ -1752,6 +1752,9 @@
   margin: 0;
   padding-left: 18px;
 }
+.repo-sheet .repo-why {
+  color: var(--ink-faint);
+}
 .repo-sheet a {
   color: var(--ink);
 }
