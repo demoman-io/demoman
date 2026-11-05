@@ -1655,6 +1655,9 @@
   margin: 8px 0 0;
   color: var(--ink-muted);
   line-height: 1.5;
+  /* A path in the question (Remove from repo names the exports) has no
+     break of its own. */
+  overflow-wrap: anywhere;
 }
 /* Cancel and the answer weigh the same: one style, one width. */
 .confirm-actions {
@@ -1771,6 +1774,16 @@
   justify-content: space-between;
   gap: 8px;
   overflow-wrap: anywhere;
+}
+/* Reveal keeps its word on one line however long the path beside it. */
+.repo-sheet .repo-written li .btn {
+  flex: none;
+  white-space: nowrap;
+}
+.repo-sheet .repo-written li .btn svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
 }
 
 /* The body's face, OUTSIDE `@layer shell` on purpose. Chrome injects a

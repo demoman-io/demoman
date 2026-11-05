@@ -20,6 +20,7 @@ import {
 import { createLibrary, createVideoStore } from "@demoman/runner/studio";
 import { NEUTRAL_BACKGROUND, WALLPAPERS } from "@demoman/scene-schema";
 import {
+  type CiPlannedWire,
   DEFAULT_LIBRARY_VIEW,
   type LibraryViewChoice,
   pathFor,
@@ -28,6 +29,7 @@ import {
 } from "@demoman/studio-protocol";
 import type { Page, Route } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { StudioCi } from "../../src/repo-ci.js";
 import {
   distance,
   limeOutsideItsPlaces,
@@ -4880,5 +4882,505 @@ describe("the Studio's screenshot set", () => {
       expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
     },
     LANE_MS,
+  );
+  // Add to repo (repo flows Part C, Task 8): a flow that can be added and one
+  // with a trim, on a card, a list row and the editor's Repo section; the
+  // sheet through a real add into a real checkout, its CI steps against a
+  // fake `repoCi` (the plan, then a watch held open); Remove's confirm. Dark
+  // only, as every shot here is (2026-10-19). Each shot is asserted on its
+  // paint beside it.
+  // Red if the disabled Add to repo loses its words, the sheet's buttons leave
+  // its box, or Remove's question lets a long path run past the dialog
+  // (`.confirm-body`'s overflow-wrap).
+  it.runIf(process.platform === "darwin")(
+    "shoots Add to repo on a card, a row and the editor, the add sheet through CI setup, and Remove's confirm, each asserted on its paint",
+    async () => {
+      const home = await mkdtemp(join(tmpdir(), "studio-shots-add-"));
+      homes.push(home);
+      const checkout = await mkdtemp(join(tmpdir(), "studio-shots-addrepo-"));
+      homes.push(checkout);
+      const KEY = "github.com/acme/web";
+      for (const args of [
+        ["init", "-q"],
+        ["remote", "add", "origin", "git@github.com:acme/web.git"],
+        [
+          "-c",
+          "user.name=t",
+          "-c",
+          "user.email=t@t",
+          "commit",
+          "-q",
+          "--allow-empty",
+          "-m",
+          "init",
+        ],
+      ])
+        execFileSync("git", args, { cwd: checkout, stdio: "pipe" });
+      await seedHome(home);
+      const library = createLibrary(home);
+      const store = createVideoStore(home, library);
+      const flow = async (name: string, take: string, root: string) => {
+        const made = await store.create({
+          name,
+          repo: { key: KEY },
+          startPage: "https://app.example.com/",
+        });
+        if (!made.ok) throw new Error(`the flow "${name}" could not be made`);
+        const read = await library.getSceneRead(take);
+        if (read === null) throw new Error(`${take} was not seeded`);
+        await store.join(take, {
+          videoId: made.video.id,
+          made: {
+            repo: { key: KEY, root, remote: null, branch: null, commit: null },
+            agent: { none: "seeded" },
+            by: { none: "seeded" },
+            door: "mcp",
+          },
+          recordedRevision: read.revision,
+        });
+        return made.video.id;
+      };
+      const okTake = (PLAIN[2] as PlainTake).id;
+      const OK_NAME = "Change a setting";
+      // One export it already has: Remove's question says it stays.
+      const exported = join(home, "out", `${OK_NAME}.mp4`);
+      await mkdir(join(home, "out"), { recursive: true });
+      await writeFile(exported, "an exported video");
+      await library.appendOutput(okTake, {
+        path: exported,
+        fileType: "mp4",
+        aspect: "16:9",
+        byteLength: 1,
+        renderedAt: new Date().toISOString(),
+        sceneDigest: "digest",
+        report: { outcome: "saved" } as never,
+      });
+      const TRIM_NAME = "Filter invoices";
+      // The pointer holds still: a take that is never still has no screens
+      // for a refresh to compare, and an add refuses it.
+      const frames = library.frameStore(okTake);
+      const bundle = await frames.getBundle(okTake);
+      if (bundle === null) throw new Error(`${okTake} has no bundle`);
+      const still = { sourceTimeMs: 0, x: 900, y: 600 };
+      await frames.putBundle(okTake, {
+        ...bundle,
+        cursorSamples: [still, { ...still, sourceTimeMs: 9000 }],
+      });
+      const okFlow = await flow(OK_NAME, (PLAIN[2] as PlainTake).id, checkout);
+      // A trim on the other flow's take: a new video cannot carry it.
+      const trimTake = (PLAIN[0] as PlainTake).id;
+      const trimScene = await library.getScene(trimTake);
+      if (trimScene === null) throw new Error(`${trimTake} was not seeded`);
+      await library.putScene({
+        ...trimScene,
+        edits: {
+          ...trimScene.edits,
+          trim: { tail: { actionId: "act-3", offsetMs: 0 } },
+        },
+      });
+      const trimFlow = await flow(TRIM_NAME, trimTake, checkout);
+
+      // The fake CI door: not set up; a plan; an apply whose watch is held
+      // open until the test lets it go.
+      let release: () => void = () => {};
+      const watching = new Promise<void>((r) => {
+        release = r;
+      });
+      const RUN = "https://github.com/acme/web/actions/runs/1";
+      const PR = "https://github.com/acme/web/pull/7";
+      const repoCi: StudioCi = {
+        state: async () => ({ kind: "notSetUp" }),
+        plan: async (_root, _choices, _values, progress) => {
+          progress("Reading the repo");
+          return {
+            planId: "plan-1",
+            plan: {
+              repo: {
+                slug: "acme/web",
+                defaultBranch: "main",
+                remote: "origin",
+              },
+              trigger: "push",
+              offers: [
+                {
+                  trigger: "push",
+                  label: "On each push to main",
+                  offered: true,
+                  why: "",
+                },
+                {
+                  trigger: "daily",
+                  label: "Every day",
+                  offered: true,
+                  why: "",
+                },
+              ],
+              route: "pr",
+              artifact: true,
+              app: null,
+              deployment: null,
+              check: {
+                passed: true,
+                flow: OK_NAME,
+                outcome: "recorded",
+                recordSeconds: 12,
+                appSeconds: 3,
+                lines: [],
+              },
+              secrets: [],
+              actionsSetting: "alreadyOn",
+              files: [".github/workflows/demoman.yml"],
+              scriptOnly: [],
+              branch: "demoman/setup",
+              title: "Set up Demoman CI",
+              pushCost: null,
+              offBase: null,
+            },
+            lines: [
+              "Trigger: on each push to main",
+              "Writes .github/workflows/demoman.yml",
+            ],
+          } as unknown as CiPlannedWire;
+        },
+        apply: async (_root, _planId, progress) => {
+          progress("Opened pull request #7");
+          progress("Watching the setup run");
+          await watching;
+          return {
+            pr: {
+              opened: { number: 7, url: PR, branch: "demoman/setup", sha: "a" },
+            },
+            secrets: { set: [], kept: [], failed: [] },
+            setting: null,
+            watched: {
+              passed: {
+                runUrl: RUN,
+                artifactUrl: `${RUN}#artifacts`,
+                lines: [],
+              },
+            },
+            lines: [],
+          };
+        },
+        openPr: async () => ({ failed: "pr", detail: "" }),
+      };
+
+      await mkdir(SHOTS, { recursive: true });
+      const studio = await startStudio(home, join(home, "out"), repoCi);
+      running = studio;
+      // The premises, as the studio answers them.
+      const takes = await api(studio, pathFor("takes"));
+      expect(takes.status, takes.text).toBe(200);
+      const answer = takes.json() as TakesAnswer;
+      expect(
+        answer.addable[okFlow],
+        "premise: the first flow can be added",
+      ).toMatchObject({ ok: true, root: checkout });
+      expect(
+        answer.addable[trimFlow],
+        "premise: the second flow has a trim",
+      ).toMatchObject({ ok: false, label: "has a trim" });
+      const opened = await api(studio, "/api/window", {
+        method: "POST",
+        body: {},
+      });
+      expect(opened.status, `${opened.text}\n${studio.logs.join("\n")}`).toBe(
+        200,
+      );
+      const context = studio.context();
+      const page = context.pages()[0] as Page;
+      const console_ = watchConsole(page);
+      const shots: string[] = [];
+      const shoot = async (name: string, at: string) => {
+        const shot = join(SHOTS, `${name}-dark.png`);
+        await page.screenshot({ path: shot });
+        shots.push(shot);
+        const p = await painted(page);
+        expect(p.theme, `${at}: the page's theme`).toBe("dark");
+        expect(
+          p.scrollWidth,
+          `${at}: no sideways scroll (${JSON.stringify(p)})`,
+        ).toBeLessThanOrEqual(p.innerWidth);
+      };
+      /** The open dialog as painted: on screen, no child past its sides, and
+       *  every button, scrolled to, inside its box. The dialog is
+       *  left scrolled back to its top, as a shot should see it. */
+      const dialogPaint = (at: string) =>
+        vi.waitFor(
+          async () => {
+            const p = await page.evaluate(() => {
+              const d = document.querySelector<HTMLElement>("dialog[open]");
+              if (d === null) return null;
+              const box = d.getBoundingClientRect();
+              const say = (el: Element) => {
+                const r = el.getBoundingClientRect();
+                return `${el.outerHTML.slice(0, 50)} @ ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.right)},${Math.round(r.bottom)} in ${Math.round(box.left)},${Math.round(box.top)} ${Math.round(box.right)},${Math.round(box.bottom)}`;
+              };
+              const kids = [...d.querySelectorAll("*:not(svg *)")].filter(
+                (el) => el.getBoundingClientRect().width > 0,
+              );
+              const aside = kids
+                .filter((el) => {
+                  const r = el.getBoundingClientRect();
+                  return r.left < box.left - 0.5 || r.right > box.right + 0.5;
+                })
+                .map(say);
+              const buttons = [...d.querySelectorAll("button")];
+              const outside = buttons
+                .filter((b) => {
+                  b.scrollIntoView({ block: "nearest" });
+                  const r = b.getBoundingClientRect();
+                  return (
+                    r.top < box.top - 0.5 ||
+                    r.bottom > box.bottom + 0.5 ||
+                    r.left < box.left - 0.5 ||
+                    r.right > box.right + 0.5
+                  );
+                })
+                .map(say);
+              d.scrollTop = 0;
+              return {
+                buttons: buttons.length,
+                aside,
+                outside,
+                overflowX: d.scrollWidth > d.clientWidth,
+                onScreen: box.top >= 0 && box.bottom <= innerHeight,
+              };
+            });
+            if (p === null) throw new Error(`${at}: no dialog open`);
+            expect(p.buttons, `${at}: buttons`).toBeGreaterThan(0);
+            expect(p.aside, `${at}: children past the dialog's sides`).toEqual(
+              [],
+            );
+            expect(p.outside, `${at}: buttons outside the dialog`).toEqual([]);
+            expect(p.overflowX, `${at}: the dialog overflows sideways`).toBe(
+              false,
+            );
+            expect(p.onScreen, `${at}: the dialog is on screen`).toBe(true);
+          },
+          { timeout: 5_000, interval: 100 },
+        );
+      /** A button as painted: its own text or label, on screen, hit at its
+       *  centre, opaque, its text not clipped. */
+      const buttonPaint = (selector: string) =>
+        page.evaluate((sel) => {
+          const el = document.querySelector<HTMLElement>(sel);
+          if (el === null) return null;
+          const r = el.getBoundingClientRect();
+          const hit = document.elementFromPoint(
+            r.left + r.width / 2,
+            r.top + r.height / 2,
+          );
+          let opacity = 1;
+          for (let n: Element | null = el; n !== null; n = n.parentElement) {
+            opacity *= Number(getComputedStyle(n).opacity);
+          }
+          return {
+            text: el.innerText.trim(),
+            label: el.getAttribute("aria-label"),
+            disabled: el.getAttribute("aria-disabled") === "true",
+            onScreen: r.width > 0 && r.top >= 0 && r.bottom <= innerHeight,
+            hit: hit !== null && el.contains(hit),
+            opacity: Math.round(opacity * 100) / 100,
+            clipped: el.scrollWidth > el.clientWidth,
+          };
+        }, selector);
+
+      await sizeWindow(context, page, 1280, 720);
+      // ---- cards
+      await storeLibraryView(studio, GRID_VIEW);
+      await page.goto(`${studio.origin}/`);
+      const card = (name: string) =>
+        `article.card[data-row] [data-action="repo-add"][aria-label$="${name}"]`;
+      const cantTrim = `article.card[data-row] [data-action="repo-add"][aria-label="Can't add: has a trim"]`;
+      await page.locator(cantTrim).waitFor({ timeout: PAINT_MS });
+      await settle(page, "cards");
+      let at = "cards";
+      const on = await buttonPaint(card(OK_NAME));
+      expect(on, `${at}: the enabled button`).toMatchObject({
+        label: `Add to repo: ${OK_NAME}`,
+        disabled: false,
+      });
+      const off = await buttonPaint(cantTrim);
+      expect(off, `${at}: the disabled button`).toMatchObject({
+        disabled: true,
+        label: "Can't add: has a trim",
+      });
+      // Card actions show on hover: each flow's card in turn.
+      for (const [name, button] of [
+        ["enabled", card(OK_NAME)],
+        ["disabled", cantTrim],
+      ] as const) {
+        const own = page.locator("article.card[data-row]").filter({
+          has: page.locator(button.replace("article.card[data-row] ", "")),
+        });
+        await own.scrollIntoViewIfNeeded();
+        await own.hover();
+        await settle(page, `${at} ${name}`);
+        const b = await buttonPaint(button);
+        expect(b, `${at}: the ${name} button is painted`).toMatchObject({
+          onScreen: true,
+          hit: true,
+          // The disabled one is drawn dimmer, not hidden.
+          opacity: name === "enabled" ? 1 : 0.5,
+        });
+        await shoot(`library-add-to-repo-cards-${name}`, `${at} ${name}`);
+      }
+      // ---- list
+      await storeLibraryView(studio, DEFAULT_LIBRARY_VIEW);
+      await page.goto(`${studio.origin}/`);
+      at = "list";
+      const rowOn = `[data-list] [data-action="repo-add"][aria-label="Add to repo: ${OK_NAME}"]`;
+      const rowOff = `[data-list] [data-action="repo-add"][aria-label="Can't add: has a trim"]`;
+      await page
+        .locator(rowOff)
+        .waitFor({ state: "attached", timeout: PAINT_MS });
+      await settle(page, at);
+      expect(await page.locator(rowOn).count(), `${at}: enabled`).toBe(1);
+      // Row actions show on hover: each flow's row in turn.
+      const rowOf = (button: string) =>
+        page.locator("[data-list] [role=row]").filter({
+          has: page.locator(button.replace("[data-list] ", "")),
+        });
+      for (const [name, button] of [
+        ["enabled", rowOn],
+        ["disabled", rowOff],
+      ] as const) {
+        await rowOf(button).hover();
+        await settle(page, `${at} ${name}`);
+        const b = await buttonPaint(button);
+        expect(b, `${at}: the ${name} button is painted`).toMatchObject({
+          onScreen: true,
+          hit: true,
+          disabled: name === "disabled",
+        });
+        await shoot(`library-add-to-repo-list-${name}`, `${at} ${name}`);
+      }
+      // ---- the editor's Repo section: the disabled button names its reason
+      at = "editor, a flow with a trim";
+      await page.goto(`${studio.origin}/editor.html?scene=${trimTake}`);
+      const section = '[data-repo-section] [data-action="repo-add"]';
+      await page.locator(section).waitFor({ timeout: PAINT_MS });
+      await settle(page, at);
+      const editorOff = await buttonPaint(section);
+      expect(editorOff, `${at}: the disabled button's words`).toMatchObject({
+        text: "Can't add: has a trim",
+        disabled: true,
+        onScreen: true,
+        hit: true,
+        clipped: false,
+      });
+      expect(editorOff?.opacity, `${at}: drawn`).toBeGreaterThan(0.3);
+      await shoot("editor-add-to-repo-disabled", at);
+      // ---- the sheet, from the enabled card, at two window sizes
+      await page.goto(`${studio.origin}/`);
+      await page.locator(rowOn).waitFor({ timeout: PAINT_MS });
+      await settle(page, "list again");
+      await rowOf(rowOn).hover();
+      await page.locator(rowOn).click();
+      await page.locator("dialog[open][data-repo-sheet]").waitFor();
+      for (const [w, h] of [
+        [1280, 720],
+        [1280, 800],
+      ] as const) {
+        await sizeWindow(context, page, w, h);
+        await settle(page, `sheet ${w}x${h}`);
+        await dialogPaint(`sheet ${w}x${h}`);
+        await shoot(`add-sheet-${w}x${h}`, `sheet ${w}x${h}`);
+      }
+      // ---- a real add, then the CI steps
+      await page.locator("[data-repo-add]").click();
+      await page
+        .locator("[data-repo-written]")
+        .waitFor({ timeout: PAINT_MS * 3 })
+        .catch(async (error: unknown) => {
+          throw new Error(
+            `the add did not finish: ${String(error)}; page: ${await pageEvidence(page)}; dialog: ${await page.locator("dialog").allInnerTexts()}; log: ${studio.logs.join(" | ")}`,
+          );
+        });
+      await page.locator("[data-ci-check]").waitFor();
+      await settle(page, "added");
+      expect(
+        await page.locator("[data-repo-written] li").count(),
+        "the add wrote files",
+      ).toBeGreaterThan(0);
+      // Each Reveal draws its word whole on one line, however long the path.
+      const reveals = await page
+        .locator("[data-repo-written] button")
+        .evaluateAll((bs) =>
+          bs.map((b) => {
+            const r = b.getBoundingClientRect();
+            return {
+              text: (b as HTMLElement).innerText.trim(),
+              glyph: b.querySelector("svg")?.getBoundingClientRect().width ?? 0,
+              w: r.width,
+              h: r.height,
+            };
+          }),
+        );
+      expect(reveals.length, "a Reveal for each written file").toBe(
+        await page.locator("[data-repo-written] li").count(),
+      );
+      for (const r of reveals) {
+        expect(r.text).toBe("Reveal");
+        expect(r.h, "Reveal is one line").toBeLessThan(40);
+        expect(r.w, "Reveal is wide enough for its word").toBeGreaterThan(70);
+        expect(r.glyph, "Reveal draws its glyph").toBeGreaterThanOrEqual(14);
+      }
+      await dialogPaint("the last step");
+      await shoot("add-sheet-last-step", "the last step");
+      await page.locator("[data-ci-check]").click();
+      await page.locator("[data-ci-apply]").waitFor();
+      await settle(page, "plan");
+      await dialogPaint("the plan");
+      await shoot("add-sheet-ci-plan", "the plan");
+      await page.locator("[data-ci-apply]").click();
+      await vi.waitFor(
+        async () => {
+          const lines = await page
+            .locator("[data-ci-status] p")
+            .allInnerTexts();
+          if (!lines.includes("Watching the setup run")) {
+            throw new Error(`status: ${JSON.stringify(lines)}`);
+          }
+        },
+        { timeout: PAINT_MS, interval: 100 },
+      );
+      await dialogPaint("the watch");
+      await shoot("add-sheet-ci-watch", "the watch");
+      release();
+      await page
+        .locator("[data-ci-verdict]", { hasText: "The run passed." })
+        .waitFor({ timeout: PAINT_MS });
+      await dialogPaint("the verdict");
+      expect(
+        await page.locator(`dialog a[href="${PR}"]`).count(),
+        "the pull request link",
+      ).toBe(1);
+      await shoot("add-sheet-ci-done", "the verdict");
+      await page.locator("[data-repo-done], [data-ci-not-now]").first().click();
+      // ---- Remove's confirm, on the flow just added
+      const removeBtn = '[data-list] [data-action="repo-remove"]';
+      await page.locator(removeBtn).waitFor({
+        state: "attached",
+        timeout: PAINT_MS,
+      });
+      await rowOf(removeBtn).hover();
+      await page.locator(removeBtn).click();
+      await page.locator("dialog[open][data-confirm]").waitFor();
+      await settle(page, "remove");
+      await dialogPaint("remove's confirm");
+      const said = await page.locator(".confirm-body").innerText();
+      expect(said, "names the recipe").toContain(".json");
+      expect(said, "names the exports that stay").toContain(exported);
+      await shoot("remove-from-repo-confirm", "remove's confirm");
+      await page.locator("[data-confirm-cancel]").click();
+      expect(shots).toHaveLength(12);
+      expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
+      release();
+      running = null;
+      expect(await studio.stop(), studio.logs.join("\n")).toBe(0);
+    },
+    LANE_MS * 2,
   );
 });

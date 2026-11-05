@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { STUDIO_HEADER } from "@demoman/studio-protocol";
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { vi } from "vitest";
+import type { StudioCi } from "../../src/repo-ci.js";
 import { runServe } from "../../src/serve.js";
 import { readStudioState, type StudioState } from "../../src/state-file.js";
 import { createStudioWindow } from "../../src/window.js";
@@ -31,6 +32,8 @@ export interface Studio {
 export async function startStudio(
   home: string,
   outDir: string,
+  /** A fake CI door, for the Add to repo sheet's CI steps. */
+  repoCi?: StudioCi,
 ): Promise<Studio> {
   const logs: string[] = [];
   // The pages' own version: a studio of any other answers every save with
@@ -57,6 +60,7 @@ export async function startStudio(
     version: stamp.version,
     headless: true,
     executablePath: chromium.executablePath(),
+    ...(repoCi === undefined ? {} : { repoCi }),
     log: (line) => logs.push(line),
     // window.ts as it ships; only the launch is wrapped, to hold the
     // context the app window lives in.

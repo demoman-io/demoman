@@ -37,6 +37,33 @@ refusal names which. Record it again without them.
 When your agent later runs a script into a flow in the repo, its recipe
 follows the script.
 
+## From the Studio
+
+**Add to repo** is on a flow's card and row and in the editor's Export panel.
+Its sheet asks for the path, the delivery and the quality, writes what
+`demoman add` writes, and ends on the files it wrote, each with Reveal.
+
+When a flow can't be added, the button is disabled and says why:
+`Can't add: <reason>`. Hover it for the detail.
+
+| Reason | What to do |
+| --- | --- |
+| `has a trim`, `has a cut`, `has a split`, `has a mask`, `has a placed zoom`, `has a hold`, `has a gap` | Remove the edit, or record the flow again |
+| `has typed text the video never read` | Record the flow again |
+| `signed in by hand` | Add a demo account to `.demoman/accounts.json` and record the flow again |
+| `can't be recorded again` | The detail names what is missing |
+| `its checkout is gone`, `not in a repo` | The detail names the folder. Record the flow again inside the repo |
+
+**Remove from repo** asks first. It removes the flow's recipe from the repo and
+names the exports that stay.
+
+After an add, the sheet sets up CI when the repo has none. **Check** records
+the flow from a clean checkout and shows the plan: trigger, route and files.
+Secrets the plan needs are asked for in password fields. **Open pull request**
+applies the plan, and the sheet shows the run until it passes, fails or its
+outcome is unknown. **Not now** leaves CI alone. When CI is already set up, the
+sheet offers **Open pull request** for the added files alone.
+
 ## Refresh
 
 ```bash
