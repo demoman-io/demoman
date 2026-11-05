@@ -996,8 +996,9 @@ export async function rewriteKept(
         refused: `${rel} could not be written (${messageOf(error)}), so it still describes the earlier video`,
       };
     }
-    for (const u of unreadable) deps.log(`kept: ${u}`);
-    if (made.scaleGuess !== null) deps.log(`kept: ${rel}: ${made.scaleGuess}`);
+    for (const u of unreadable) deps.log(`refresh: ${u}`);
+    if (made.scaleGuess !== null)
+      deps.log(`refresh: ${rel}: ${made.scaleGuess}`);
     return { rewritten: rel };
   }
   return unreadable.length > 0

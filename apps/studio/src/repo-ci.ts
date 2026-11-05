@@ -387,7 +387,7 @@ export function createCiJobs(o: {
         ) {
           return badBody("branch, title and body are not all strings");
         }
-        if (!/^demoman\/add-[\w.-]+$/.test(branch)) {
+        if (!/^demoman\/add-[\p{L}\p{N}.-]+$/u.test(branch)) {
           return refuse(
             409,
             "prBranchRefused",

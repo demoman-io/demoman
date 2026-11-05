@@ -484,7 +484,7 @@ describe("the CI routes", () => {
 
   it("refuses a pull request on a branch that is not demoman/add-<file>", async () => {
     const asked: string[] = [];
-    const { h } = setup({
+    const { h, jobs } = setup({
       openPr: async (_root, a) => {
         asked.push(a.branch);
         return { failed: "pr", detail: "" };
@@ -506,7 +506,28 @@ describe("the CI routes", () => {
         ),
       ).toMatchObject({ status: 409, json: { reason: "prBranchRefused" } });
     }
-    expect(asked).toEqual([]);
+    // Red if the branch pattern drops \p{L}
+    const repo = await realpath(await mkdtemp(join(tmpdir(), "studio-ci-br-")));
+    try {
+      await mkdir(join(repo, "docs"));
+      await writeFile(join(repo, "docs", "café-checkout.mp4"), "mp4");
+      jobs.added(repo, ["docs/café-checkout.mp4"]);
+      const accepted = await h.repoPr(
+        req({
+          body: JSON.stringify({
+            root: repo,
+            branch: "demoman/add-café-checkout",
+            title: "t",
+            body: "x",
+            files: ["docs/café-checkout.mp4"],
+          }),
+        }),
+      );
+      expect(accepted.json).not.toMatchObject({ reason: "prBranchRefused" });
+      expect(asked).toEqual(["demoman/add-café-checkout"]);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
   });
 
   it("refuses an apply of a plan it does not hold, and never asks the CLI", async () => {
