@@ -251,6 +251,56 @@ describe("openSetupPr", () => {
     expect(readFileSync(join(root, "a.txt"), "utf8")).toBe("a\n");
   });
 
+  const flow = {
+    branch: "demoman/add-checkout.yml",
+    title: 'Add the "checkout" flow',
+  };
+
+  // Red if openSetupPr ignores branch or title, or touches the person's checkout.
+  it("pushes a custom branch and title, leaving the person's checkout untouched", async () => {
+    const before = snapshot();
+    expect(before[2]).toContain("b changed"); // premise: something is staged
+    const r = await openSetupPr(
+      {
+        ...args([{ path: ".demoman/flows/checkout.yml", text: "x\n" }]),
+        ...flow,
+      },
+      { git, gh: gh() },
+    );
+    expect(r).toMatchObject({ opened: { branch: flow.branch } });
+    expect(snapshot()).toEqual(before);
+    expect(
+      sh(root, "log", "-1", "--format=%s", `origin/${flow.branch}`).trim(),
+    ).toBe(flow.title);
+    expect(sh(root, "branch", "-a", "--list", `*${SETUP_BRANCH}`)).toBe("");
+    expect(prs[0]).toEqual(
+      expect.arrayContaining(["--head", flow.branch, "--title", flow.title]),
+    );
+    expect(worktrees().match(/^worktree /gm)).toHaveLength(1);
+  });
+
+  // Red if the custom-branch collision keeps the setup wording or drops the branch name.
+  it("says a branch for this flow already exists, naming it", async () => {
+    const other = mkdtempSync(join(tmpdir(), "demoman-pr-other-"));
+    sh(other, "clone", origin, "c");
+    const c = join(other, "c");
+    sh(c, "checkout", "-b", flow.branch);
+    writeFileSync(join(c, "z.txt"), "z");
+    sh(c, "add", ".");
+    sh(c, "commit", "-m", "earlier");
+    sh(c, "push", "origin", flow.branch);
+    const r = await openSetupPr(
+      { ...args([{ path: "n.txt", text: "n" }]), ...flow },
+      { git, gh: gh() },
+    );
+    expect(r).toMatchObject({ failed: "push" });
+    const detail = "failed" in r ? r.detail : "";
+    expect(detail).toContain("a branch for this flow already exists");
+    expect(detail).toContain(flow.branch);
+    expect(detail).not.toContain("setup");
+    expect(prs).toEqual([]);
+  });
+
   it("says a failed fetch as a worktree failure, with no push and no PR", async () => {
     const r = await openSetupPr(
       { ...args([{ path: "n.txt", text: "n" }]), base: "nope" },

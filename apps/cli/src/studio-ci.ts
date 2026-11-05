@@ -127,8 +127,6 @@ export function createStudioCi(io: {
       const deps = io.deps(root, () => {});
       const facts = await deps.readGithub(root);
       if ("reason" in facts) return { failed: "pr", detail: facts.detail };
-      // shortcut: B's openSetupPr has no branch or title yet, so a.branch
-      // and a.title are not used; Task 6 adds them.
       return deps.openSetupPr({
         root,
         slug: facts.slug,
@@ -141,6 +139,8 @@ export function createStudioCi(io: {
           })),
         ),
         body: a.body,
+        branch: a.branch,
+        title: a.title,
       });
     },
   };
