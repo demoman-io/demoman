@@ -448,6 +448,47 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
     ]);
   });
 
+  it("a window closed during a CI check stops the check and waits for its cleanup", async () => {
+    let signal: AbortSignal | undefined;
+    let cleaned: () => void = () => {};
+    const s = await serve({
+      repoCi: {
+        state: async () => ({ kind: "notSetUp" }),
+        plan: (_root, _choices, _values, _progress, sig) => {
+          signal = sig;
+          // As verifySetup does: its checkout and app go, then it answers.
+          return new Promise((r) => {
+            cleaned = () => r({ reason: "checkStopped", detail: "stopped" });
+          });
+        },
+        apply: async () => ({ reason: "unused", detail: "" }),
+        openPr: async () => ({ failed: "pr", detail: "" }),
+      },
+    });
+    await call(s.state, "/api/window", { method: "POST", body: {} });
+    const started = await call(s.state, "/api/repo/ci/plan", {
+      method: "POST",
+      body: { root: "/work/app", choices: {}, secrets: {} },
+    });
+    expect(started.status, started.text).toBe(202);
+    await vi.waitFor(() => {
+      if (signal === undefined) throw new Error("the plan never ran");
+    });
+    // Premise: the check is not stopped while the window is open.
+    expect(signal?.aborted).toBe(false);
+    s.fireAllClosed();
+    // The rest of stop() is done: only the plan's end holds the exit.
+    await vi.waitFor(() => {
+      if (existsSync(studioStatePath(home))) throw new Error("not stopping");
+    });
+    for (let i = 0; i < 5; i += 1) await flush();
+    // Red if stop() leaves the plan running, or exits before it settles.
+    expect(signal?.aborted).toBe(true);
+    expect(s.exits).toEqual([]);
+    cleaned();
+    expect(await s.exited).toBe(0);
+  });
+
   it("an export queued during a CI apply is finished too, after the apply", async () => {
     let finish: (a: Awaited<ReturnType<StudioCi["apply"]>>) => void = () => {};
     const s = await serve({

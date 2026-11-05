@@ -24,12 +24,14 @@ export interface StudioCi {
   /** Never `running` or `finished`: those are this server's. */
   state(root: string): Promise<CiState>;
   /** `values` is the person's typed secrets; the CLI holds the live plan
-   *  and its values under `planId` (R8). */
+   *  and its values under `planId` (R8). `signal` stops the check when the
+   *  server stops. */
   plan(
     root: string,
     choices: CiChoicesWire,
     values: Map<string, string>,
     progress: (line: string) => void,
+    signal: AbortSignal,
   ): Promise<CiPlannedWire | CiStopWire>;
   /** Applies the plan held under `planId`, once. */
   apply(
@@ -51,7 +53,11 @@ export interface CiJobs {
   running(): number;
   /** Resolves once no apply runs. */
   drained(): Promise<void>;
-  /** An add's `written` files: the only ones `repoPr` takes for `root`. */
+  /** Stops each running plan's check (applies run on, R11) and resolves
+   *  once they have ended, their checkout and app removed. */
+  stopPlans(): Promise<void>;
+  /** An add's `written` files: the only ones `repoPr` takes for `root`.
+   *  Any plan held for `root` is out of date from here. */
   added(root: string, files: string[]): void;
 }
 
@@ -91,17 +97,18 @@ const scrubLine = (l: string): string =>
 
 /** Every string in `answer` with the values hidden; a `detail`, a `tail`
  *  and each of `lines` (which can copy a tail) also scrubbed of
- *  secret-shaped text. Not every string: that would shred a commit sha. */
+ *  secret-shaped text. Not every string: that would shred a commit sha.
+ *  Nor a plan's own `lines`: its file list is what the person approves. */
 const hideIn = <T>(answer: T, values: Map<string, string>): T =>
-  JSON.parse(JSON.stringify(answer), (key, v: unknown) =>
-    typeof v === "string"
+  JSON.parse(JSON.stringify(answer), function (this: object, key, v: unknown) {
+    return typeof v === "string"
       ? key === "detail" || key === "tail"
         ? scrubLine(hide(v, values))
         : hide(v, values)
-      : key === "lines" && Array.isArray(v)
+      : key === "lines" && Array.isArray(v) && !("planId" in this)
         ? v.map((l) => (typeof l === "string" ? scrubLine(l) : l))
-        : v,
-  ) as T;
+        : v;
+  }) as T;
 
 /** R13: the repo files a pull request may hold, before any is read: only
  *  what an add wrote here (a folder it wrote: the files in it), each one
@@ -164,6 +171,8 @@ export function createCiJobs(o: {
   const jobs = new Map<string, { jobId: string; step: "plan" | "apply" }>();
   /** Applies still running, for `drained`. */
   const applying = new Set<Promise<void>>();
+  /** Plans still running, each with what stops its check. */
+  const planning = new Map<Promise<void>, AbortController>();
   /** Each root's files written by an add in this server's life. */
   const written = new Map<string, Set<string>>();
   /** The last job per root that ended: a reopened sheet reads it. */
@@ -189,7 +198,10 @@ export function createCiJobs(o: {
     root: string,
     step: "plan" | "apply",
     values: Map<string, string>,
-    run: (progress: (line: string) => void) => Promise<CiAnswerWire>,
+    run: (
+      progress: (line: string) => void,
+      signal: AbortSignal,
+    ) => Promise<CiAnswerWire>,
   ): { status: number; json: unknown } {
     if (jobs.has(root)) {
       return refuse(409, "ciBusy", `CI setup is already running for ${root}.`);
@@ -202,9 +214,11 @@ export function createCiJobs(o: {
       log(`studio: ci ${jobId}: ${said}`);
       o.events.send({ type: "ci", jobId, phase: "progress", line: said });
     };
+    // Only a plan is stopped: an apply runs on (R11).
+    const stopper = new AbortController();
     // A run that throws before its first await is the job's stop too.
     const job = Promise.resolve()
-      .then(() => run(progress))
+      .then(() => run(progress, stopper.signal))
       .catch(
         (error: unknown): CiStopWire => ({
           reason: "internalError",
@@ -235,8 +249,12 @@ export function createCiJobs(o: {
       .catch((error: unknown) => {
         log(`studio: ci ${jobId}: its end threw: ${wall(messageOf(error))}`);
       })
-      .finally(() => applying.delete(job));
+      .finally(() => {
+        applying.delete(job);
+        planning.delete(job);
+      });
     if (step === "apply") applying.add(job);
+    else planning.set(job, stopper);
     return { status: 202, json: { jobId } };
   }
 
@@ -252,6 +270,7 @@ export function createCiJobs(o: {
       },
       running: () => 0,
       drained: async () => {},
+      stopPlans: async () => {},
       added: () => {},
     };
   }
@@ -261,10 +280,18 @@ export function createCiJobs(o: {
     async drained() {
       while (applying.size > 0) await Promise.all(applying);
     },
+    async stopPlans() {
+      for (const stopper of planning.values()) stopper.abort();
+      await Promise.all(planning.keys());
+    },
     added(root, files) {
       const set = written.get(root) ?? new Set<string>();
       for (const f of files) set.add(f);
       written.set(root, set);
+      // The plan was made before this add: never applied after it.
+      held.delete(root);
+      const ended = last.get(root);
+      if (ended !== undefined && "planId" in ended.answer) last.delete(root);
     },
     handlers: {
       async repoCiState(req) {
@@ -312,8 +339,8 @@ export function createCiJobs(o: {
         const values = new Map(
           Object.entries(secrets as Record<string, string>),
         );
-        const started = start(root, "plan", values, (progress) =>
-          ci.plan(root, choices as CiChoicesWire, values, progress),
+        const started = start(root, "plan", values, (progress, signal) =>
+          ci.plan(root, choices as CiChoicesWire, values, progress, signal),
         );
         // A new plan replaces the one held, as the CLI's own hold does.
         if (started.status === 202) held.delete(root);
@@ -352,6 +379,13 @@ export function createCiJobs(o: {
           typeof text !== "string"
         ) {
           return badBody("branch, title and body are not all strings");
+        }
+        if (!/^demoman\/add-[\w.-]+$/.test(branch)) {
+          return refuse(
+            409,
+            "prBranchRefused",
+            `Nothing was opened: ${branch} is not a demoman/add-<file> branch.`,
+          );
         }
         if (
           !Array.isArray(files) ||

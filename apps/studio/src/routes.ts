@@ -372,7 +372,22 @@ export function createRoutes(o: {
             filmedCode: await filmedCodeOf(version.takeId),
           };
         }
-        addable[v.id] = await checkAddable({ video: v }, deps);
+        if (v.kept === undefined) {
+          addable[v.id] = await checkAddable({ video: v }, deps);
+        } else if (
+          // Remove from repo reads the marked checkout, as repoRemove does.
+          !(await stat(v.kept.root).then(
+            (s) => s.isDirectory(),
+            () => false,
+          ))
+        ) {
+          addable[v.id] = {
+            ok: false,
+            reason: "noCheckout",
+            label: "its checkout is gone",
+            detail: `${v.kept.root} is gone.`,
+          };
+        }
         listed.push({ ...summary, steps });
       } catch (error) {
         say({

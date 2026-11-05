@@ -381,7 +381,7 @@ describe("the CI routes", () => {
           req({
             body: JSON.stringify({
               root: repo,
-              branch: "b",
+              branch: "demoman/add-a",
               title: "t",
               body: "x",
               files,
@@ -420,5 +420,76 @@ describe("the CI routes", () => {
       await rm(repo, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
     }
+  });
+
+  it("an add forgets the plan held for its repo", async () => {
+    const { h, jobs } = setup();
+    await h.repoCiPlan(
+      req({ body: JSON.stringify({ root: ROOT, choices: {}, secrets: {} }) }),
+    );
+    await flush();
+    // Premise: a reopened sheet would read the plan.
+    expect(body(await h.repoCiState(req({ root: ROOT })))).toMatchObject({
+      kind: "finished",
+      answer: { planId: "plan-1" },
+    });
+    jobs.added(ROOT, ["docs/a.mp4"]);
+    // Red if added() leaves the last plan answer for a reopened sheet.
+    expect(body(await h.repoCiState(req({ root: ROOT })))).toEqual({
+      kind: "notSetUp",
+    });
+  });
+
+  it("a plan's own lines keep a long path; its check lines are still swept", async () => {
+    const path = `.github/${"a".repeat(40)}/demoman.yml`;
+    const { h, sent } = setup({
+      plan: async () =>
+        planned({
+          plan: {
+            check: { passed: true, lines: [`at ${"b".repeat(40)}`] },
+          } as unknown as CiPlannedWire["plan"],
+          lines: [`Writes ${path}`],
+        }),
+    });
+    await h.repoCiPlan(
+      req({ body: JSON.stringify({ root: ROOT, choices: {}, secrets: {} }) }),
+    );
+    await flush();
+    // Premise: the sweep alone would redact the 40-character segment.
+    expect(scrubSecrets(path)).not.toBe(path);
+    // Red if hideIn sweeps a plan's own `lines`, or stops sweeping check.lines.
+    expect(sent.at(-1)).toMatchObject({
+      answer: {
+        lines: [`Writes ${path}`],
+        plan: { check: { lines: ["at <redacted>"] } },
+      },
+    });
+  });
+
+  it("refuses a pull request on a branch that is not demoman/add-<file>", async () => {
+    const asked: string[] = [];
+    const { h } = setup({
+      openPr: async (_root, a) => {
+        asked.push(a.branch);
+        return { failed: "pr", detail: "" };
+      },
+    });
+    // Red if repoPr hands openPr any branch the page names.
+    for (const branch of ["main", "demoman/setup", "demoman/add-x;rm", ""]) {
+      expect(
+        await h.repoPr(
+          req({
+            body: JSON.stringify({
+              root: ROOT,
+              branch,
+              title: "t",
+              body: "x",
+              files: ["docs/a.mp4"],
+            }),
+          }),
+        ),
+      ).toMatchObject({ status: 409, json: { reason: "prBranchRefused" } });
+    }
+    expect(asked).toEqual([]);
   });
 });

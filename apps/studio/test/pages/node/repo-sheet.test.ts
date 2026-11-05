@@ -298,4 +298,87 @@ describe("repoSheetModel CI steps", () => {
     });
     expect(m.state).toMatchObject({ ci: { k: "stopped" } });
   });
+
+  // Red if a plan answered by a job that was not this sheet's (replayed by state) can be applied without a fresh Check.
+  it.each([
+    [{ kind: "running", jobId: "ci-1" }],
+    [
+      {
+        kind: "finished",
+        jobId: "ci-1",
+        step: "plan",
+        answer: { planId: "p0", plan: {}, lines: [] },
+      },
+    ],
+  ] as Array<[CiState]>)("a replayed plan from %j is stale", async (state) => {
+    const { d, m } = await lastStepOf(state);
+    if (state.kind === "running")
+      d.tellCi({
+        phase: "done",
+        step: "plan",
+        answer: { planId: "p0", plan: {}, lines: [] },
+      });
+    expect(m.state).toMatchObject({ ci: { k: "planned", stale: true } });
+    await m.apply();
+    expect(d.applyBodies).toEqual([]);
+    await m.check({});
+    expect(d.planBodies).toHaveLength(1);
+  });
+
+  // Red if a stopped step (live or replayed) cannot lead back to Check.
+  it("Check after an actionsRefused stop sends a new plan", async () => {
+    const live = await lastStepOf({ kind: "notSetUp" });
+    await live.m.check({});
+    live.d.tellCi({
+      phase: "done",
+      step: "plan",
+      answer: stopOf({ reason: "actionsRefused" }),
+    });
+    expect(live.m.state).toMatchObject({ ci: { k: "stopped" } });
+    await live.m.check({});
+    expect(live.d.planBodies).toHaveLength(2);
+
+    const replayed = await lastStepOf({
+      kind: "finished",
+      jobId: "ci-9",
+      step: "plan",
+      answer: stopOf({ reason: "actionsRefused" }),
+    });
+    expect(replayed.m.state).toMatchObject({ ci: { k: "stopped" } });
+    await replayed.m.check({});
+    expect(replayed.d.planBodies).toHaveLength(1);
+  });
+
+  // Red if the sheet's panels show the timings or the refresh's renames.
+  it("leaves timing and rename lines out of its panels", async () => {
+    const d = ciDoor({ kind: "notSetUp" });
+    const m = repoSheetModel(d.args);
+    await m.submit();
+    d.tell({ phase: "adding", line: "add: exporting docs/a.mp4" });
+    d.tell({ phase: "adding", line: "timing run 3.2s" });
+    d.tell({ phase: "adding", line: "refresh: renamed a.tmp over a.mp4" });
+    expect(m.state).toEqual({
+      step: "running",
+      line: "add: exporting docs/a.mp4",
+    });
+    d.tell(addedAt);
+    await new Promise((r) => setTimeout(r, 0));
+    await m.check({});
+    for (const line of ["timing export 4s", "Checking", "timing refresh 9s"])
+      d.tellCi({ phase: "progress", line });
+    expect(m.state).toMatchObject({
+      ci: { k: "working", lines: ["Checking"] },
+    });
+  });
+
+  // Red if the queued line stops matching the export panel's (no "Queued (0)").
+  it("says Queued… or how many are ahead", async () => {
+    const d = door();
+    const m = repoSheetModel(d.args);
+    await m.submit();
+    d.tell({ phase: "queued", position: 0 });
+    expect(m.state).toEqual({ step: "running", line: "Queued…" });
+    d.tell({ phase: "queued", position: 2 });
+    expect(m.state).toEqual({ step: "running", line: "Queued (2 ahead)" });
+  });
 });

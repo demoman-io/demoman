@@ -292,6 +292,39 @@ for (const scheme of ["light", "dark"] as const) {
       });
     });
 
+    // Red if Remove on an In repo flow whose checkout is gone is not disabled with its reason before any click.
+    it("disables Remove from repo when the checkout is gone", async () => {
+      const gone: Addable = {
+        ok: false,
+        reason: "noCheckout",
+        label: "its checkout is gone",
+        detail: "/r is gone.",
+      };
+      const kept = { file: "c.json", root: "/r", deliver: "commit", key: "k" };
+      await mountLibrary([
+        { id: "in", name: "Checkout", video: { kept } },
+        { id: "off", name: "Signup", video: { kept }, addable: gone },
+      ]);
+      const live = await button("repo-remove", "in");
+      const off = await button("repo-remove", "off");
+      // Premise: the other In repo flow's Remove is live.
+      expect(live.getAttribute("aria-disabled")).toBeNull();
+      expect(off.getAttribute("aria-disabled")).toBe("true");
+      expect(off.getAttribute("aria-label")).toBe(
+        "Can't remove: its checkout is gone",
+      );
+      expect(off.title).toBe("/r is gone.");
+      let asked = 0;
+      memory.videos.repo.remove = async () => {
+        asked += 1;
+        return { removed: [], exportsLeft: [], notes: [] };
+      };
+      off.click();
+      await new Promise((r) => setTimeout(r, 100));
+      expect(dialog()).toBeNull();
+      expect(asked).toBe(0);
+    });
+
     // Red if the last step's buttons clip instead of scrolling in a short window with many notes.
     it("keeps a long last step's Done inside the dialog by scrolling", async () => {
       await page.viewport(1100, 600);

@@ -117,8 +117,12 @@ describe("the Studio's CI door", () => {
         };
       },
     });
-    const answer = await ci.plan(ROOT, {}, new Map([["S", TYPED]]), (l) =>
-      lines.push(l),
+    const answer = await ci.plan(
+      ROOT,
+      {},
+      new Map([["S", TYPED]]),
+      (l) => lines.push(l),
+      new AbortController().signal,
     );
     // Red if the adapter changes or drops a typed value before B sees it.
     expect(planned[0]?.values).toEqual(new Map([["S", TYPED]]));
@@ -144,5 +148,26 @@ describe("the Studio's CI door", () => {
     expect(await ci.apply(ROOT, answer.planId, () => {})).toMatchObject({
       reason: "planNotFound",
     });
+  });
+
+  it("hands the plan's stop signal to B's check, and none to apply", async () => {
+    const signals: (AbortSignal | undefined)[] = [];
+    const ci = createStudioCi({
+      deps: depsAnswering(facts(false)),
+      planCiSetup: async (_root, _choices, deps) => {
+        signals.push(deps.signal);
+        return livePlan();
+      },
+      applyCiSetup: async (_p, deps) => {
+        signals.push(deps.signal);
+        return { reason: "prFailed", detail: "" };
+      },
+    });
+    const stopper = new AbortController();
+    const answer = await ci.plan(ROOT, {}, new Map(), () => {}, stopper.signal);
+    if (!("planId" in answer)) throw new Error(JSON.stringify(answer));
+    await ci.apply(ROOT, answer.planId, () => {});
+    // Red if depsOf drops the plan's signal, or passes one to apply (R11).
+    expect(signals).toEqual([stopper.signal, undefined]);
   });
 });

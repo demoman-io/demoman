@@ -101,6 +101,11 @@ export type SheetState =
 
 const base = (file: string): string => file.split("/").pop() ?? file;
 
+/** A line for the sheet's panels: the timings and the refresh's renames are
+ *  the terminal's and studio.log's alone. */
+const shown = (line: string): boolean =>
+  !line.startsWith("timing ") && !line.startsWith("refresh: renamed ");
+
 /** Remove from repo's question: the recipe that goes, the exports that stay. */
 export function removeQuestion(
   video: VideoSummary,
@@ -169,10 +174,13 @@ export function repoSheetModel(a: RepoSheetArgs) {
   function on(e: RepoEvent): void {
     switch (e.phase) {
       case "queued":
-        set({ step: "running", line: `Queued (${e.position})` });
+        set({
+          step: "running",
+          line: e.position === 0 ? "Queued…" : `Queued (${e.position} ahead)`,
+        });
         return;
       case "adding":
-        set({ step: "running", line: e.line });
+        if (shown(e.line)) set({ step: "running", line: e.line });
         return;
       case "added":
         if (fields.deliver === "files" && e.notes.length === 0) {
@@ -214,7 +222,8 @@ export function repoSheetModel(a: RepoSheetArgs) {
         );
       }
     }
-    // Both come back to the fields they name; anything else is the end.
+    // Both come back to the fields they name; anything else is said, with
+    // Check to try again.
     setCi(
       s.reason === "appHoles" || s.reason === "secretMissing"
         ? { k: "form", stop: s }
@@ -222,17 +231,19 @@ export function repoSheetModel(a: RepoSheetArgs) {
     );
   }
 
-  function onCi(e: CiEvent): void {
+  /** `replayed`: the job was not this sheet's, so a plan it answers is from
+   *  before this add and needs a fresh Check (R16). */
+  function onCi(e: CiEvent, replayed = false): void {
     const ci = current();
     if (e.phase === "progress") {
-      if (ci?.k === "working")
+      if (ci?.k === "working" && shown(e.line))
         setCi({ k: "working", lines: [...ci.lines, e.line] });
       return;
     }
     const progress = ci?.k === "working" ? ci.lines : [];
     const answer = e.answer;
     if ("planId" in answer)
-      setCi({ k: "planned", planned: answer, progress, stale: false });
+      setCi({ k: "planned", planned: answer, progress, stale: replayed });
     else if ("pr" in answer) {
       prUrl = "opened" in answer.pr ? answer.pr.opened.url : null;
       setCi({ k: "applied", applied: answer, progress });
@@ -240,12 +251,12 @@ export function repoSheetModel(a: RepoSheetArgs) {
   }
 
   /** Listens to one job; a terminal event replayed inside `onCi` ends it. */
-  function listen(door: RepoCiDoor, jobId: string): void {
+  function listen(door: RepoCiDoor, jobId: string, replayed = false): void {
     stopCi?.();
     let ended = false;
     const off = door.onCi(jobId, (e) => {
       if (e.phase === "done") ended = true;
-      onCi(e);
+      onCi(e, replayed);
     });
     stopCi = off;
     if (ended || settled) off();
@@ -273,17 +284,20 @@ export function repoSheetModel(a: RepoSheetArgs) {
         return;
       case "running":
         setCi({ k: "working", lines: [] });
-        listen(door, ci.jobId);
+        listen(door, ci.jobId, true);
         return;
       case "finished":
         setCi({ k: "working", lines: [] });
-        onCi({
-          type: "ci",
-          jobId: ci.jobId,
-          phase: "done",
-          step: ci.step,
-          answer: ci.answer,
-        });
+        onCi(
+          {
+            type: "ci",
+            jobId: ci.jobId,
+            phase: "done",
+            step: ci.step,
+            answer: ci.answer,
+          },
+          true,
+        );
     }
   }
 
@@ -329,7 +343,8 @@ export function repoSheetModel(a: RepoSheetArgs) {
     async check(secrets: Record<string, string>): Promise<void> {
       const ci = current();
       if (door === null || state.step !== "last") return;
-      if (ci?.k !== "form" && ci?.k !== "planned") return;
+      if (ci?.k !== "form" && ci?.k !== "planned" && ci?.k !== "stopped")
+        return;
       if (proposal !== undefined) {
         ciChoices.app = appFrom(proposal.draft, holes);
         ciChoices.appBy = "person";
@@ -588,6 +603,12 @@ export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
       case "stopped":
         nodes.push(text("p", ci.stop.detail, "data-ci-stop"));
         if (ci.stop.tail !== undefined) nodes.push(text("pre", ci.stop.tail));
+        act(
+          "Check",
+          "shieldCheck",
+          "data-ci-check",
+          () => void model.check({}),
+        );
         break;
       case "applied":
         nodes.push(statusPanel(ci.progress), ...appliedNodes(ci.applied));
@@ -668,7 +689,7 @@ export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
           : []) {
           const input = document.createElement("input");
           input.type = "password";
-          input.autocomplete = "off";
+          input.autocomplete = "new-password";
           input.setAttribute("data-ci-secret", n.name);
           secrets.push([n.name, input]);
           const wrap = field(n.name, input);

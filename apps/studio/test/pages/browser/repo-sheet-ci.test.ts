@@ -176,6 +176,22 @@ for (const scheme of ["light", "dark"] as const) {
       mountShell(scheme, css);
     });
 
+    // Red if a stop that names no fields draws no Check, so the sheet has no way back.
+    it("offers Check after a stop that names no fields", async () => {
+      const s = stub({ kind: "notSetUp" });
+      const dialog = await openSheet(s.door);
+      (await el<HTMLElement>(dialog, "[data-ci-check]")).click();
+      await vi.waitFor(() => expect(s.plans).toHaveLength(1));
+      s.send({
+        phase: "done",
+        step: "plan",
+        answer: { reason: "actionsRefused", detail: "GitHub refused it." },
+      });
+      await el(dialog, "[data-ci-stop]");
+      (await el<HTMLElement>(dialog, "[data-ci-check]")).click();
+      await vi.waitFor(() => expect(s.plans).toHaveLength(2));
+    });
+
     // Red if the plan request stops being sent, or a typed secret stays in an input, in storage or in history after it is sent (Review Focus 3).
     it("clears the password inputs once sent and keeps no value anywhere", async () => {
       const s = stub({ kind: "notSetUp" });
@@ -196,7 +212,8 @@ for (const scheme of ["light", "dark"] as const) {
         '[data-ci-secret="API_TOKEN"]',
       );
       expect(input.type).toBe("password");
-      expect(input.autocomplete).toBe("off");
+      // Red if the password field lets the browser offer a saved password.
+      expect(input.autocomplete).toBe("new-password");
       expect(document.activeElement).toBe(input);
       await shot("form", scheme);
       await userEvent.type(input, SECRET);

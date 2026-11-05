@@ -1386,6 +1386,26 @@ describe("which flows can be added", () => {
     );
   });
 
+  it("an In repo flow skips the add check, and says when its checkout is gone", async () => {
+    const here = await flow("Here", "add-here", trimmed);
+    const gone = await flow("Gone", "add-gone");
+    const store = createVideoStore(home, createLibrary(home));
+    await store.setKept(here, { root: repo, file: "here.json" });
+    await store.setKept(gone, { root: join(repo, "gone"), file: "gone.json" });
+    const body = (await h
+      .call(pathFor("takes"))
+      .then((r) => r.json())) as TakesAnswer;
+    // Red if an In repo flow still runs checkAddable (its trim would say so).
+    expect(here in body.addable).toBe(false);
+    // Red if a gone checkout is not said, for Remove from repo.
+    expect(body.addable[gone]).toEqual({
+      ok: false,
+      reason: "noCheckout",
+      label: "its checkout is gone",
+      detail: `${join(repo, "gone")} is gone.`,
+    });
+  });
+
   // Red if the listing adds an addable entry for a record that will not read.
   it("a video that will not read has no addable entry", async () => {
     const plain = await flow("Plain", "add-plain");

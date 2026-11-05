@@ -46,14 +46,20 @@ export function createStudioCi(io: {
     { root: string; plan: CiPlan; values: SecretValues }
   >();
   /** B's deps with every line, the watch's too, redacted over `values`:
-   *  the same live map, which planning grows. */
+   *  the same live map, which planning grows. `signal` stops a plan's
+   *  check; an apply takes none (R11). */
   const depsOf = (
     root: string,
     values: SecretValues,
     progress: (line: string) => void,
+    signal?: AbortSignal,
   ): CiDeps => {
     const say = (l: string) => progress(redact(l, values));
-    return { ...io.deps(root, say), log: say };
+    return {
+      ...io.deps(root, say),
+      log: say,
+      ...(signal === undefined ? {} : { signal }),
+    };
   };
 
   return {
@@ -66,7 +72,7 @@ export function createStudioCi(io: {
         : { kind: "noGh", detail: facts.detail };
     },
 
-    async plan(root, c, given, progress) {
+    async plan(root, c, given, progress, signal) {
       // A new plan for the repo replaces the one held.
       for (const [id, h] of held) if (h.root === root) held.delete(id);
       // In and out: planCiSetup adds each value it reads.
@@ -83,7 +89,7 @@ export function createStudioCi(io: {
       const p = await plan(
         root,
         choices,
-        depsOf(root, values, progress),
+        depsOf(root, values, progress, signal),
         values,
       );
       if ("reason" in p) return stopWire(p, values);

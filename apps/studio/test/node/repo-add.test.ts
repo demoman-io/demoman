@@ -361,6 +361,18 @@ describe("adding a flow to its repo, and removing it", () => {
     await until(() => calls.length === 2);
   });
 
+  // Red if repoAdd awaits between its busy check and its claim: two presses in one tick both pass.
+  it("two presses in the same tick add once", async () => {
+    await holdQueue();
+    const both = await Promise.all([add(good), add(good)]);
+    expect(both.map((r) => (r as { status: number }).status).sort()).toEqual([
+      202, 409,
+    ]);
+    exportRuns[0]?.finish({ outcome: "failed" } as unknown as ExportAnswer);
+    await until(() => phases().includes("added"));
+    expect(calls).toHaveLength(1);
+  });
+
   // Red if repoRemove ignores an add in flight.
   it("a remove while an add is queued is repoBusy and removes nothing", async () => {
     let removals = 0;
@@ -416,7 +428,7 @@ describe("adding a flow to its repo, and removing it", () => {
           {},
           {
             root,
-            branch: "b",
+            branch: "demoman/add-flow",
             title: "t",
             body: "x",
             files: ["docs/demos/flow.mp4"],

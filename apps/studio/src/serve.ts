@@ -438,8 +438,7 @@ export function buildHandlers(o: {
   // Flows being added, by id: one add at a time per flow, and no remove
   // under it (the add would write the recipe back).
   const adding = new Set<string>();
-  const heldBy = async (id: string): Promise<StudioResponse | null> => {
-    if (!adding.has(id)) return null;
+  const busy = async (id: string): Promise<StudioResponse> => {
     const name = (await videos.get(id))?.name ?? id;
     return refuse(
       409,
@@ -451,10 +450,9 @@ export function buildHandlers(o: {
     ...inner,
     async repoAdd(req) {
       const id = req.params.id as string;
-      const held = await heldBy(id);
-      if (held !== null) return held;
-      // Claimed before any await, so a double press cannot pass twice; the
-      // job's end, or any refusal, lets it go.
+      if (adding.has(id)) return busy(id);
+      // Claimed in the tick it was checked, so a double press cannot pass
+      // twice; the job's end, or any refusal, lets it go.
       adding.add(id);
       try {
         const response = await inner.repoAdd(req);
@@ -467,8 +465,8 @@ export function buildHandlers(o: {
       }
     },
     async repoRemove(req) {
-      const held = await heldBy(req.params.id as string);
-      return held ?? inner.repoRemove(req);
+      const id = req.params.id as string;
+      return adding.has(id) ? busy(id) : inner.repoRemove(req);
     },
   };
 }
@@ -812,6 +810,9 @@ export async function runServe(o: ServeOptions): Promise<never> {
   async function stop(code: number): Promise<void> {
     if (stopping) return;
     stopping = true;
+    // A plan's check has nobody left to show it to: stopped, and its
+    // checkout, app and services removed before the exit.
+    const plans = ci.stopPlans();
     clearTimeout(noWindow);
     if (graceTimer !== null) clearTimeout(graceTimer);
     signals.off("SIGTERM", onTerm);
@@ -844,6 +845,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
     } catch (error) {
       log(`studio: studio.json could not be removed (${messageOf(error)})`);
     }
+    await plans;
     await Promise.all(notices);
     exit(code);
   }
