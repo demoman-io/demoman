@@ -127,6 +127,7 @@ vi.mock("#platform", async (importOriginal) => {
       plan: async () => ({ jobId: "none" }),
       apply: async () => ({ jobId: "none" }),
       openPr: async () => ({ failed: "pr", detail: "" }),
+      onCi: () => () => {},
     },
     bundles: {
       active: async () => ({

@@ -236,6 +236,7 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       plan: async () => ({ jobId: "none" }),
       apply: async () => ({ jobId: "none" }),
       openPr: async () => ({ failed: "pr", detail: "" }),
+      onCi: () => () => {},
     },
     bundles: {
       active: member("bundles", "active", async (sceneId: string) => ({

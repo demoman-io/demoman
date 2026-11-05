@@ -26,6 +26,8 @@ import type { BundleSource, StoredOutput } from "../editor/ports";
 
 /** One event of an add to a repo. */
 export type RepoEvent = Extract<StudioEvent, { type: "repo" }>;
+/** One event of a CI plan or apply. */
+export type CiEvent = Extract<StudioEvent, { type: "ci" }>;
 
 /**
  * Everything outside the page that the pages reach: the studio's stores,
@@ -64,6 +66,9 @@ export interface Platform {
     plan(body: CiPlanBody): Promise<CiStarted>;
     apply(body: CiApplyBody): Promise<CiStarted>;
     openPr(body: RepoPrBody): Promise<SetupPrWire>;
+    /** The `ci` events of one plan or apply, from its first (replayed if
+     *  it came before this call). Returns a stop. */
+    onCi(jobId: string, fn: (e: CiEvent) => void): () => void;
   };
   outputs: { list(takeId: string): Promise<OutputRow[]> };
   logos: {

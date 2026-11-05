@@ -495,7 +495,7 @@ async function addToRepo(id: string): Promise<void> {
       video: { id, name: flow.video.name },
       addable: can,
       repo: platform.videos.repo,
-      ci: null,
+      ci: platform.repoCi,
       reveal: (path) => platform.files.reveal({ kind: "path", path }),
     });
     if (done.failed !== undefined) {

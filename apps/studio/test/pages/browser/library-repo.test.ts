@@ -296,6 +296,8 @@ for (const scheme of ["light", "dark"] as const) {
     it("keeps a long last step's Done inside the dialog by scrolling", async () => {
       await page.viewport(1100, 600);
       await mountLibrary([{ id: "yes", name: "Checkout", addable: OK }]);
+      // A last step with no CI choice, so Done is the way out.
+      memory.repoCi.state = async () => ({ kind: "noGh", detail: "No gh." });
       memory.videos.repo.add = async () => ({ jobId: "j1" });
       memory.videos.repo.onRepo = (job, fn) => {
         fn({

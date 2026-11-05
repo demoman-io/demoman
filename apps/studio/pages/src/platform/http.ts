@@ -58,6 +58,7 @@ import type { ReplayStatus } from "../core/replay/status";
 import type { SaveView } from "../editor/export-run";
 import { GONE_LINES, type GoneKind, goneText, showGone } from "./gone";
 import type {
+  CiEvent,
   ExportEvent,
   FolderListing,
   OutputRow,
@@ -251,6 +252,8 @@ export function createPlatform(
   let goneKind: GoneKind | null = null;
   const repoListeners = new Map<string, (e: RepoEvent) => void>();
   const repoHeld = new Map<string, RepoEvent[]>();
+  const ciListeners = new Map<string, (e: CiEvent) => void>();
+  const ciHeld = new Map<string, CiEvent[]>();
   const gone = (kind: GoneKind): void => {
     if (leaving) return;
     goneKind ??= kind;
@@ -265,6 +268,16 @@ export function createPlatform(
         phase: "failed",
         reason: "studioGone",
         detail: goneText(kind),
+      });
+    }
+    // Likewise a plan or apply: its end, as a stop in the house sentence.
+    for (const [jobId, listener] of [...ciListeners]) {
+      listener({
+        type: "ci",
+        jobId,
+        phase: "done",
+        step: "plan",
+        answer: { reason: "studioGone", detail: goneText(kind) },
       });
     }
   };
@@ -485,6 +498,21 @@ export function createPlatform(
         ]);
         if (repoHeld.size > 20)
           repoHeld.delete(repoHeld.keys().next().value as string);
+        return;
+      }
+      case "ci": {
+        const listener = ciListeners.get(event.jobId);
+        if (listener !== undefined) {
+          try {
+            listener(event);
+          } catch (error) {
+            console.error("demoman studio: a ci listener failed", error);
+          }
+          return;
+        }
+        ciHeld.set(event.jobId, [...(ciHeld.get(event.jobId) ?? []), event]);
+        if (ciHeld.size > 20)
+          ciHeld.delete(ciHeld.keys().next().value as string);
         return;
       }
       case "watchFailed":
@@ -821,6 +849,12 @@ export function createPlatform(
       },
       async openPr(json) {
         return answer<SetupPrWire>(await request("repoPr", { json }));
+      },
+      onCi(jobId, fn) {
+        for (const e of ciHeld.get(jobId) ?? []) fn(e);
+        ciHeld.delete(jobId);
+        ciListeners.set(jobId, fn);
+        return () => ciListeners.delete(jobId);
       },
     },
     folder: {
