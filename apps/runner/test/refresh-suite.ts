@@ -644,7 +644,7 @@ export const firstFilm = () => {
       expect(lines.some((l) => l.includes("was not removed"))).toBe(false);
       // The premise: refresh made a home and an output folder in the
       // system's temp for each of the two scales it filmed.
-      expect(lines.some((l) => l.startsWith("refresh: filming"))).toBe(true);
+      expect(lines.some((l) => l.startsWith("refresh: running"))).toBe(true);
       expect(madeDirs, JSON.stringify(madeDirs)).toHaveLength(4);
       for (const dir of madeDirs)
         expect(dir).toMatch(
@@ -1306,7 +1306,7 @@ export const replaceChain = () => {
         );
         expect(await readdir(outside)).toEqual([]);
         // Refused before filming: no browser was asked for.
-        expect(lines.filter((l) => l.startsWith("refresh: filming"))).toEqual(
+        expect(lines.filter((l) => l.startsWith("refresh: running"))).toEqual(
           [],
         );
       } finally {

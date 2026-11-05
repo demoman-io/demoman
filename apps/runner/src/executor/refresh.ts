@@ -396,7 +396,7 @@ export async function refreshKept(
       try {
         for (const job of jobs) {
           const who = { name: job.kept.name, file: job.file, kept: job.kept };
-          deps.log(`refresh: filming "${job.kept.name}" at ${display}`);
+          deps.log(`refresh: running "${job.kept.name}" at ${display}`);
           try {
             const one = await filmOne(job, root, executor, home, deps);
             if ("failed" in one) failed(who, one.failed, job.notes);
