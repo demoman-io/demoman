@@ -153,7 +153,7 @@ export function buildHandlers(o: {
     throw error;
   };
 
-  return {
+  const inner: StudioHandlers = {
     ...createRoutes({
       home: o.home,
       library,
@@ -258,66 +258,68 @@ export function buildHandlers(o: {
         return refuse(
           409,
           can.reason === "noCheckout" ? "repoCheckoutMissing" : "notAddable",
-          `${can.label}. ${can.detail}`,
+          [can.label, can.detail].filter((x) => x !== "").join(". "),
         );
       }
       const jobId = randomUUID();
       const at = { type: "repo", videoId: id, jobId } as const;
-      o.events.send({ ...at, phase: "queued", position: o.queue.size() });
       void o.queue
-        .serial(async () => {
-          const answer = await keep(
-            {
-              video: id,
-              repoRoot: can.root,
-              deliver: add.deliver,
-              to: [{ path: add.path, fileType: "mp4", quality: add.quality }],
-            },
-            {
-              home: o.home,
-              library,
-              videos,
-              git: execGit,
-              log: (line) => {
-                o.log(`studio: add ${jobId}: ${line}`);
-                o.events.send({ ...at, phase: "adding", line });
+        .serial(
+          async () => {
+            const answer = await keep(
+              {
+                video: id,
+                repoRoot: can.root,
+                deliver: add.deliver,
+                to: [{ path: add.path, fileType: "mp4", quality: add.quality }],
               },
-              export: {
+              {
+                home: o.home,
                 library,
                 videos,
-                session: o.session,
-                door: "studio",
-                home: o.home,
-                wallpapersDir: o.wallpapersDir,
-                outDir: o.outDir,
-                log: o.log,
+                git: execGit,
+                log: (line) => {
+                  o.log(`studio: add ${jobId}: ${line}`);
+                  o.events.send({ ...at, phase: "adding", line });
+                },
+                export: {
+                  library,
+                  videos,
+                  session: o.session,
+                  door: "studio",
+                  home: o.home,
+                  wallpapersDir: o.wallpapersDir,
+                  outDir: o.outDir,
+                  log: o.log,
+                },
               },
-            },
-          );
-          if (!answer.ok) {
+            );
+            if (!answer.ok) {
+              o.events.send({
+                ...at,
+                phase: "failed",
+                reason: answer.reason,
+                detail: answer.detail,
+              });
+              return;
+            }
             o.events.send({
               ...at,
-              phase: "failed",
-              reason: answer.reason,
-              detail: answer.detail,
+              phase: "added",
+              file: answer.file,
+              written: answer.written,
+              // So a consumer reading only the phase still meets them.
+              notes: [
+                answer.markNote,
+                answer.platformNote,
+                answer.scaleGuess,
+                answer.screensNote,
+              ].filter((n): n is string => n !== undefined),
+              root: can.root,
             });
-            return;
-          }
-          o.events.send({
-            ...at,
-            phase: "added",
-            file: answer.file,
-            written: answer.written,
-            // So a consumer reading only the phase still meets them.
-            notes: [
-              answer.markNote,
-              answer.platformNote,
-              answer.scaleGuess,
-              answer.screensNote,
-            ].filter((n): n is string => n !== undefined),
-            root: can.root,
-          });
-        })
+          },
+          (position) => o.events.send({ ...at, phase: "queued", position }),
+        )
         .catch((error: unknown) => {
           o.log(`studio: add ${jobId} threw: ${messageOf(error)}`);
           o.events.send({
@@ -326,7 +328,8 @@ export function buildHandlers(o: {
             reason: "internalError",
             detail: `The add stopped with an error: ${messageOf(error)}.`,
           });
-        });
+        })
+        .finally(() => adding.delete(id));
       const started: RepoAddStarted = { jobId };
       return json(202, started);
     },
@@ -346,7 +349,7 @@ export function buildHandlers(o: {
       ) {
         return refuse(
           409,
-          "repoCheckoutMissing",
+          root === undefined ? "notInRepo" : "repoCheckoutMissing",
           root === undefined
             ? "The flow is not in a repo."
             : `${root} is gone.`,
@@ -423,6 +426,43 @@ export function buildHandlers(o: {
       }
       const answer: ExportStartAnswer = started;
       return json(200, answer);
+    },
+  };
+
+  // Flows being added, by id: one add at a time per flow, and no remove
+  // under it (the add would write the recipe back).
+  const adding = new Set<string>();
+  const heldBy = async (id: string): Promise<StudioResponse | null> => {
+    if (!adding.has(id)) return null;
+    const name = (await videos.get(id))?.name ?? id;
+    return refuse(
+      409,
+      "repoBusy",
+      `"${name}" is already being added to the repo.`,
+    );
+  };
+  return {
+    ...inner,
+    async repoAdd(req) {
+      const id = req.params.id as string;
+      const held = await heldBy(id);
+      if (held !== null) return held;
+      // Claimed before any await, so a double press cannot pass twice; the
+      // job's end, or any refusal, lets it go.
+      adding.add(id);
+      try {
+        const response = await inner.repoAdd(req);
+        if (!("status" in response) || response.status !== 202)
+          adding.delete(id);
+        return response;
+      } catch (error) {
+        adding.delete(id);
+        throw error;
+      }
+    },
+    async repoRemove(req) {
+      const held = await heldBy(req.params.id as string);
+      return held ?? inner.repoRemove(req);
     },
   };
 }

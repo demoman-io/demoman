@@ -151,6 +151,9 @@ export type StudioReason =
   | "notAddable"
   /** A remove of a flow whose recipe is not in the repo (the runner's). */
   | "notInRepo"
+  /** The flow is being added to its repo; it cannot be added or removed
+   *  until that ends. */
+  | "repoBusy"
   /** The video records would not read or write (the runner's VideoError). */
   | "videoUnreadable"
   | "videoUnwritable"

@@ -350,4 +350,24 @@ describe("serial", () => {
     expect(calls).toHaveLength(2);
     expect(turn).toBe("done");
   });
+
+  // Red if serial runs fn outside a promise: a sync throw jams the queue.
+  it("a synchronous throw rejects its caller and the queue goes on", async () => {
+    const { library } = await fakeLibrary(["a"]);
+    const { run, calls } = heldRun();
+    const queue = createExportQueue({
+      library,
+      events: { send: () => {} },
+      run,
+      log: () => {},
+    });
+    await expect(
+      queue.serial(() => {
+        throw new Error("sync");
+      }),
+    ).rejects.toThrow("sync");
+    await queue.start("a", { fileType: "mp4", revision: "rev-a" });
+    await flush();
+    expect(calls).toHaveLength(1);
+  });
 });

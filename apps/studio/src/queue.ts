@@ -33,7 +33,11 @@ export interface ExportQueue {
   drained(): Promise<void>;
   /** Runs `fn` in its turn, FIFO with exports: it waits for a running or
    *  queued export, and one queued after it waits for it. */
-  serial<T>(fn: () => Promise<T>): Promise<T>;
+  serial<T>(
+    fn: () => Promise<T>,
+    /** Told the position the turn took, as an export's `queued` says it. */
+    onQueued?: (position: number) => void,
+  ): Promise<T>;
 }
 
 export type RunExport = (
@@ -257,9 +261,14 @@ export function createExportQueue(o: {
       });
     },
     size,
-    serial(fn) {
+    serial(fn, onQueued) {
       return new Promise((resolve, reject) => {
-        waiting.push({ turn: () => fn().then(resolve, reject) });
+        onQueued?.(waiting.length + (running === null ? 0 : 1));
+        // Through a promise, so a synchronous throw rejects the caller
+        // and does not leave the queue's running slot held.
+        waiting.push({
+          turn: () => Promise.resolve().then(fn).then(resolve, reject),
+        });
         pump();
       });
     },

@@ -69,6 +69,33 @@ describe("adding a flow to its repo, and removing it", () => {
   const phases = () =>
     sent.flatMap((e) => (e.type === "repo" ? [e.phase] : []));
 
+  /** A flow recorded in `repo`, from a take of its own. */
+  async function makeFlow(name: string, takeId: string): Promise<string> {
+    const library = createLibrary(home);
+    const { scene } = await seedTake(home, { id: takeId });
+    await library.putScene({ ...scene, edits: { ...scene.edits, masks: [] } });
+    const read = await readRepo(repo);
+    if (!read.ok) throw new Error(read.none);
+    const store = createVideoStore(home, library);
+    const made = await store.create({
+      name,
+      repo: { key: read.repo.key },
+      startPage: scene.meta.capture.originUrl,
+    });
+    if (!made.ok) throw new Error(JSON.stringify(made));
+    await store.join(takeId, {
+      videoId: made.video.id,
+      made: {
+        repo: read.repo,
+        agent: { none: "test" },
+        by: { none: "test" },
+        door: "mcp",
+      },
+      recordedRevision: (await library.getSceneRead(takeId))?.revision ?? null,
+    });
+    return made.video.id;
+  }
+
   beforeEach(async () => {
     sent.length = 0;
     calls.length = 0;
@@ -80,29 +107,7 @@ describe("adding a flow to its repo, and removing it", () => {
     );
     root = await realpath(repo);
     const library = createLibrary(home);
-    const { scene } = await seedTake(home, { id: "add-take" });
-    await library.putScene({ ...scene, edits: { ...scene.edits, masks: [] } });
-    const read = await readRepo(repo);
-    if (!read.ok) throw new Error(read.none);
-    const store = createVideoStore(home, library);
-    const made = await store.create({
-      name: "Flow",
-      repo: { key: read.repo.key },
-      startPage: scene.meta.capture.originUrl,
-    });
-    if (!made.ok) throw new Error(JSON.stringify(made));
-    flowId = made.video.id;
-    await store.join("add-take", {
-      videoId: flowId,
-      made: {
-        repo: read.repo,
-        agent: { none: "test" },
-        by: { none: "test" },
-        door: "mcp",
-      },
-      recordedRevision:
-        (await library.getSceneRead("add-take"))?.revision ?? null,
-    });
+    flowId = await makeFlow("Flow", "add-take");
     const events = createEventHub({ log: () => {} });
     const hub = {
       ...events,
@@ -266,8 +271,9 @@ describe("adding a flow to its repo, and removing it", () => {
       live -= 1;
       return keptOk();
     };
+    const other = await makeFlow("Other", "add-take-2");
     await add(good);
-    await add(good);
+    await add(good, other);
     const positions = sent.flatMap((e) =>
       e.type === "repo" && e.phase === "queued" ? [e.position] : [],
     );
@@ -310,6 +316,87 @@ describe("adding a flow to its repo, and removing it", () => {
     expect(await handlers.repoRemove(req({ id: flowId }))).toMatchObject({
       status: 409,
       json: { reason: "notInRepo", detail: "not in this repo" },
+    });
+  });
+
+  /** An export running, so an add queues behind it. */
+  async function holdQueue() {
+    const rev = (await createLibrary(home).getSceneRead("add-take"))
+      ?.revision as string;
+    await queue.start("add-take", { fileType: "mp4", revision: rev });
+    await until(() => exportRuns.length === 1);
+  }
+
+  // Red if repoAdd lets a second add of a flow in while the first is in flight.
+  it("a second add of a queued flow is repoBusy and renders once", async () => {
+    await holdQueue();
+    expect(await add(good)).toMatchObject({ status: 202 });
+    expect(await add(good)).toMatchObject({
+      status: 409,
+      json: {
+        reason: "repoBusy",
+        detail: '"Flow" is already being added to the repo.',
+      },
+    });
+    exportRuns[0]?.finish({ outcome: "failed" } as unknown as ExportAnswer);
+    await until(() => phases().includes("added"));
+    expect(calls).toHaveLength(1);
+    // The flow is free again once its job ended.
+    expect(await add(good)).toMatchObject({ status: 202 });
+    await until(() => calls.length === 2);
+  });
+
+  // Red if repoRemove ignores an add in flight.
+  it("a remove while an add is queued is repoBusy and removes nothing", async () => {
+    let removals = 0;
+    removeFlow = async () => {
+      removals += 1;
+      return {
+        ok: true,
+        name: "Flow",
+        removed: [],
+        exportsLeft: [],
+      } as RemoveAnswer;
+    };
+    await holdQueue();
+    await add(good);
+    expect(await handlers.repoRemove(req({ id: flowId }))).toMatchObject({
+      status: 409,
+      json: { reason: "repoBusy" },
+    });
+    expect(removals).toBe(0);
+  });
+
+  // Red if a throw from the add leaves the flow marked in flight.
+  it("a throwing add frees the flow", async () => {
+    keep = async () => {
+      throw new Error("boom");
+    };
+    await add(good);
+    await until(() => phases().includes("failed"));
+    expect(sent.at(-1)).toMatchObject({ reason: "internalError" });
+    keep = async (...a) => {
+      calls.push(a);
+      return keptOk();
+    };
+    expect(await add(good)).toMatchObject({ status: 202 });
+  });
+
+  // Red if the click does not notice a checkout that went after the listing.
+  it("a checkout removed since the listing is repoCheckoutMissing", async () => {
+    await rm(repo, { recursive: true, force: true });
+    expect(await add(good)).toMatchObject({
+      status: 409,
+      json: { reason: "repoCheckoutMissing" },
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  // Red if a flow with no mark is told its checkout is missing.
+  it("removing a flow that is not in a repo is notInRepo", async () => {
+    expect(await handlers.repoRemove(req({ id: flowId }))).toMatchObject({
+      status: 409,
+      json: { reason: "notInRepo" },
     });
   });
 });
