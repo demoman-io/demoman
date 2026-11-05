@@ -1335,7 +1335,17 @@ function repoSection(
     row.append(el("span", "control-aside", "In repo"));
     const remove = button("Remove from repo", "gitBranchMinus");
     remove.setAttribute("data-action", "repo-remove");
-    remove.addEventListener("click", () => handlers.onRemoveFromRepo?.());
+    const gone = repo.addable;
+    // The listing says so for an In repo flow only when its checkout is gone.
+    if (gone?.ok === false && gone.reason === "noCheckout") {
+      remove.setAttribute("aria-disabled", "true");
+      remove.replaceChildren(
+        icon("gitBranchMinus"),
+        `Can't remove: ${gone.label}`,
+      );
+      remove.title = gone.detail;
+    } else
+      remove.addEventListener("click", () => handlers.onRemoveFromRepo?.());
     row.append(remove);
   } else if (repo.addable !== undefined) {
     const add = button("Add to repo", "gitBranchPlus");
