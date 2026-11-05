@@ -6,7 +6,6 @@
 // wire type here, so this typecheck fails if B and the wire drift apart.
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import type {
   CiAppliedWire,
   CiPlanWire,
@@ -145,9 +144,9 @@ export function createStudioCi(io: {
         remote: facts.remote,
         base: facts.defaultBranch,
         files: await Promise.all(
-          a.files.map(async (path) => ({
+          a.files.map(async ({ path, real }) => ({
             path,
-            text: new Uint8Array(await readFile(join(root, path))),
+            text: new Uint8Array(await readFile(real)),
           })),
         ),
         body: a.body,

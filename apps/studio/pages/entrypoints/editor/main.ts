@@ -156,6 +156,7 @@ import { EXPORT_QUALITY_LABELS } from "../../src/settings/view";
 import { VIDEO_DELETED, withNote } from "../../src/shell/carried-note";
 import { askToConfirm, DELETE_DEMO } from "../../src/shell/confirm-dialog";
 import {
+  messageOf,
   openRepoSheet,
   removedLine,
   removeQuestion,
@@ -3340,8 +3341,6 @@ platform.folder?.onChange(() => void refreshRepo().catch(reportError));
 void refreshRepo().catch(reportError);
 
 const unperiod = (text: string): string => text.replace(/\.$/, "");
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 async function addToRepo(): Promise<void> {
   const flow = repoFlow;

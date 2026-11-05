@@ -1503,12 +1503,7 @@ function repoActionButton(
       title: "Remove from repo",
     });
     remove.append(icon("gitBranchMinus"));
-    const gone = repo.addable(id);
-    if (gone?.ok === false && gone.reason === "noCheckout") {
-      remove.setAttribute("aria-disabled", "true");
-      remove.setAttribute("aria-label", `Can't remove: ${gone.label}`);
-      remove.title = gone.detail;
-    } else remove.addEventListener("click", () => repo.remove(id));
+    remove.addEventListener("click", () => repo.remove(id));
     return remove;
   }
   const can = repo.addable(id);

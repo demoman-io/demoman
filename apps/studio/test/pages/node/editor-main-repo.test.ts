@@ -24,8 +24,6 @@ vi.mock("@demoman/compositor", async (importOriginal) => {
 
 const seen = vi.hoisted(() => ({
   kept: false,
-  /** The listing says the flow's checkout is gone. */
-  gone: false,
   removes: 0,
   video: (): VideoSummary =>
     ({
@@ -86,14 +84,7 @@ vi.mock("#platform", async (importOriginal) => {
           },
         },
         addable: {
-          v1: seen.gone
-            ? {
-                ok: false,
-                reason: "noCheckout",
-                label: "its checkout is gone",
-                detail: "/r is gone.",
-              }
-            : { ok: true, root: "/r", defaultPath: "docs/demos/c.mp4" },
+          v1: { ok: true, root: "/r", defaultPath: "docs/demos/c.mp4" },
         },
         unwatched: null,
       }),
@@ -208,7 +199,6 @@ describe("editor main: the Repo section", () => {
   beforeEach(() => {
     vi.resetModules();
     seen.kept = false;
-    seen.gone = false;
     seen.removes = 0;
     history.pushState({}, "", "/?scene=t1");
     editorDom();
@@ -256,21 +246,5 @@ describe("editor main: the Repo section", () => {
         'Removed "Checkout" from the repo. Its exports stay',
       );
     });
-  }, 20_000);
-
-  // Red if the panel's Remove stays live, or loses its reason, when the listing says the checkout is gone.
-  it("disables Remove from repo when the checkout is gone", async () => {
-    seen.kept = true;
-    seen.gone = true;
-    await import("../../../pages/entrypoints/editor/main");
-    await press("repo-remove");
-    const remove = document.querySelector<HTMLButtonElement>(
-      '[data-repo-section] [data-action="repo-remove"]',
-    );
-    expect(remove?.getAttribute("aria-disabled")).toBe("true");
-    expect(remove?.textContent).toBe("Can't remove: its checkout is gone");
-    expect(remove?.title).toBe("/r is gone.");
-    await new Promise((r) => setTimeout(r, 50));
-    expect(seen.removes).toBe(0);
   }, 20_000);
 });

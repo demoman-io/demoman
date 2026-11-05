@@ -127,7 +127,7 @@ export function removeQuestion(
 export const removedLine = (name: string): string =>
   `Removed "${name}" from the repo. Its exports stay.`;
 
-const messageOf = (e: unknown): string =>
+export const messageOf = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
 
 /**
@@ -171,7 +171,14 @@ export function repoSheetModel(a: RepoSheetArgs) {
     for (const fn of listeners) fn();
   };
 
+  /** The add's job ended: its listener goes, so a later `gone()` cannot
+   *  turn an add that happened into a failure. */
+  let addEnded = false;
   function on(e: RepoEvent): void {
+    if (e.phase === "added" || e.phase === "failed") {
+      addEnded = true;
+      stop?.();
+    }
     switch (e.phase) {
       case "queued":
         set({
@@ -254,8 +261,13 @@ export function repoSheetModel(a: RepoSheetArgs) {
   function listen(door: RepoCiDoor, jobId: string, replayed = false): void {
     stopCi?.();
     let ended = false;
-    const off = door.onCi(jobId, (e) => {
-      if (e.phase === "done") ended = true;
+    let off: (() => void) | undefined;
+    off = door.onCi(jobId, (e) => {
+      // Ended: unheard from now on, as for an add.
+      if (e.phase === "done") {
+        ended = true;
+        off?.();
+      }
       onCi(e, replayed);
     });
     stopCi = off;
@@ -332,8 +344,8 @@ export function repoSheetModel(a: RepoSheetArgs) {
       try {
         const { jobId } = await a.repo.add(a.video.id, { ...fields });
         stop = a.repo.onRepo(jobId, on);
-        // A terminal event replayed inside `onRepo` finished already.
-        if (settled) stop();
+        // A terminal event replayed inside `onRepo` ended it already.
+        if (settled || addEnded) stop();
       } catch (error) {
         finish({ added: null, prOpened: null, failed: messageOf(error) });
       }

@@ -1225,3 +1225,39 @@ describe("the take folder and the kit feed", () => {
     );
   });
 });
+
+describe("a CI job no window has claimed", () => {
+  // Red if the page holds every line of an unclaimed job: a 30-minute apply in another window grows it without end.
+  it("holds its last 50 events, its end among them", async () => {
+    const platform = createPlatform();
+    await vi.waitFor(() => {
+      if (studio.openStreams() === 0) throw new Error("no stream yet");
+    });
+    for (let i = 0; i < 200; i += 1)
+      studio.send({
+        type: "ci",
+        jobId: "ci-9",
+        phase: "progress",
+        line: `${i}`,
+      });
+    studio.send({
+      type: "ci",
+      jobId: "ci-9",
+      phase: "done",
+      step: "apply",
+      answer: { reason: "x", detail: "d" },
+    });
+    const probe: unknown[] = [];
+    // Premise: the last event has arrived (a later job's events come after).
+    studio.send({ type: "ci", jobId: "ci-10", phase: "progress", line: "p" });
+    await vi.waitFor(() => {
+      platform.repoCi.onCi("ci-10", (e) => probe.push(e))();
+      if (probe.length === 0) throw new Error("not yet");
+    });
+    const heard: Array<{ phase: string; line?: string }> = [];
+    platform.repoCi.onCi("ci-9", (e) => heard.push(e as never));
+    expect(heard).toHaveLength(50);
+    expect(heard[0]?.line).toBe("151");
+    expect(heard.at(-1)?.phase).toBe("done");
+  });
+});

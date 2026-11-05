@@ -254,6 +254,18 @@ export function createPlatform(
   const repoHeld = new Map<string, RepoEvent[]>();
   const ciListeners = new Map<string, (e: CiEvent) => void>();
   const ciHeld = new Map<string, CiEvent[]>();
+  /** Holds an unclaimed job's event: the last 50 of at most 20 jobs (a
+   *  long apply's lines would grow it without end). The end comes last. */
+  const hold = <E extends { jobId: string }>(
+    held: Map<string, E[]>,
+    event: E,
+  ): void => {
+    const list = held.get(event.jobId) ?? [];
+    list.push(event);
+    if (list.length > 50) list.shift();
+    held.set(event.jobId, list);
+    if (held.size > 20) held.delete(held.keys().next().value as string);
+  };
   const gone = (kind: GoneKind): void => {
     if (leaving) return;
     goneKind ??= kind;
@@ -492,12 +504,7 @@ export function createPlatform(
           return;
         }
         // Held for onRepo; capped, as another window's jobs are never claimed.
-        repoHeld.set(event.jobId, [
-          ...(repoHeld.get(event.jobId) ?? []),
-          event,
-        ]);
-        if (repoHeld.size > 20)
-          repoHeld.delete(repoHeld.keys().next().value as string);
+        hold(repoHeld, event);
         return;
       }
       case "ci": {
@@ -510,9 +517,7 @@ export function createPlatform(
           }
           return;
         }
-        ciHeld.set(event.jobId, [...(ciHeld.get(event.jobId) ?? []), event]);
-        if (ciHeld.size > 20)
-          ciHeld.delete(ciHeld.keys().next().value as string);
+        hold(ciHeld, event);
         return;
       }
       case "watchFailed":

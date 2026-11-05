@@ -13,6 +13,7 @@ import {
   parseApp,
   serializeApp,
 } from "@demoman/run-core";
+import { PLAN_KEPT_MS } from "@demoman/studio";
 import { SETUP_BRANCH } from "./ci-pr.js";
 import type { SecretValues } from "./ci-secrets.js";
 import {
@@ -48,8 +49,11 @@ type Answer = Record<string, unknown>;
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const CONFIRM =
   "show the person these lines; only on their yes, call ci again with the same choices and confirmed: true. The pull request carries the files as checked here: an edit made after this plan is not in it; plan again to include it";
-/** A shown plan's check goes stale: past this, confirmed plans again. */
-export const PLAN_KEPT_MS = 30 * 60_000;
+
+/** A shown plan's check goes stale: past this, confirmed plans again. The
+ *  Studio's apply keeps the same limit. */
+export { PLAN_KEPT_MS };
+
 /** What `watch: true` cannot go with: it plans and applies nothing. */
 const NOT_WITH_WATCH = [
   "trigger",

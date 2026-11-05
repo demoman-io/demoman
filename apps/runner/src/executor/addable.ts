@@ -16,7 +16,7 @@ export type Addable =
       detail: string;
     };
 
-const isDir = (path: string) =>
+export const isDir = (path: string): Promise<boolean> =>
   stat(path).then(
     (s) => s.isDirectory(),
     () => false,

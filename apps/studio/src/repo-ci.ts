@@ -18,6 +18,7 @@ import type {
   StudioEvent,
   StudioReason,
 } from "@demoman/studio-protocol";
+import { messageOf } from "./files.js";
 import type { Handler } from "./server.js";
 
 export interface StudioCi {
@@ -41,7 +42,14 @@ export interface StudioCi {
   ): Promise<CiAppliedWire | CiStopWire>;
   openPr(
     root: string,
-    a: { branch: string; title: string; body: string; files: string[] },
+    a: {
+      branch: string;
+      title: string;
+      body: string;
+      /** `path` in the repo; `real` is what was checked to be inside it,
+       *  and is what is read, so a link swapped in later is not followed. */
+      files: Array<{ path: string; real: string }>;
+    },
   ): Promise<SetupPrWire>;
   /** Drops the plan held for `root`: an add made it out of date. */
   forget(root: string): void;
@@ -71,7 +79,6 @@ const refuse = (
   const body: Refusal = { reason, detail };
   return { status, json: body };
 };
-const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Each typed value as `•••`. */
 const hide = (text: string, values: Map<string, string>): string =>
@@ -120,26 +127,28 @@ async function prFiles(
   root: string,
   files: string[],
   mine: Set<string> | undefined,
-): Promise<{ files: string[] } | { refused: string }> {
+): Promise<
+  { files: Array<{ path: string; real: string }> } | { refused: string }
+> {
   const top = await realpath(root).catch(() => null);
   const inside = async (rel: string): Promise<string | null> => {
     if (top === null) return null;
     const at = await realpath(join(root, rel)).catch(() => null);
     return at?.startsWith(top + sep) === true ? at : null;
   };
-  const out: string[] = [];
+  const out: Array<{ path: string; real: string }> = [];
   for (const f of files) {
     const at = mine?.has(f) === true ? await inside(f) : null;
     if (at === null) return { refused: f };
     if (!(await stat(at)).isDirectory()) {
-      out.push(f);
+      out.push({ path: f, real: at });
       continue;
     }
     for (const name of await readdir(at, { recursive: true })) {
       const rel = join(f, name);
       const real = await inside(rel);
       if (real === null) return { refused: rel };
-      if ((await stat(real)).isFile()) out.push(rel);
+      if ((await stat(real)).isFile()) out.push({ path: rel, real });
     }
   }
   return { files: out };
@@ -160,6 +169,10 @@ async function objectOf(
   }
 }
 
+/** How long a plan shown stays appliable: its check goes stale, as the ci
+ *  tool's does. */
+export const PLAN_KEPT_MS = 30 * 60_000;
+
 export function createCiJobs(o: {
   /** Absent: every CI route answers `routeNotFound`. */
   ci?: StudioCi;
@@ -167,8 +180,11 @@ export function createCiJobs(o: {
   log: (line: string) => void;
   /** Each `done` event as well, for `tellIfUnseen`. */
   tell?: (e: StudioEvent) => void;
+  /** Tests: the clock plans age by. */
+  now?: () => number;
 }): CiJobs {
   const { ci, log } = o;
+  const now = o.now ?? Date.now;
   /** The running job per repo root. */
   const jobs = new Map<string, { jobId: string; step: "plan" | "apply" }>();
   /** Applies still running, for `drained`. */
@@ -186,8 +202,10 @@ export function createCiJobs(o: {
    *  replaced: the apply's lines are hidden over them too. */
   const held = new Map<
     string,
-    { planId: string; values: Map<string, string> }
+    { planId: string; values: Map<string, string>; at: number }
   >();
+  /** Adds per root: a plan that ends after one started its check too early. */
+  const adds = new Map<string, number>();
 
   const badBody = (why: string) =>
     refuse(400, "ciBodyInvalid", `Nothing was done: ${why}.`);
@@ -210,6 +228,7 @@ export function createCiJobs(o: {
     }
     const jobId = randomUUID();
     jobs.set(root, { jobId, step });
+    const addsAtStart = adds.get(root) ?? 0;
     const wall = (t: string) => scrubLine(hide(t, values));
     const progress = (line: string) => {
       const said = wall(line);
@@ -230,9 +249,19 @@ export function createCiJobs(o: {
       .then((raw) => {
         // First: a throw below must not leave the repo busy.
         jobs.delete(root);
-        const answer = hideIn(raw, values);
+        let answer = hideIn(raw, values);
         if (step === "plan" && "planId" in answer) {
-          held.set(root, { planId: answer.planId, values });
+          if ((adds.get(root) ?? 0) === addsAtStart) {
+            held.set(root, { planId: answer.planId, values, at: now() });
+          } else {
+            // A flow was added while this plan checked: it leaves that flow out.
+            ci?.forget(root);
+            answer = {
+              reason: "planNotFound",
+              detail:
+                "A flow was added while this plan was checked. Check again.",
+            };
+          }
         }
         last.set(root, { jobId, step, answer });
         log(
@@ -294,6 +323,7 @@ export function createCiJobs(o: {
       // hold: it cannot be applied, and a reopened sheet offers Check.
       held.delete(root);
       ci.forget(root);
+      adds.set(root, (adds.get(root) ?? 0) + 1);
       const ended = last.get(root);
       if (ended !== undefined && "planId" in ended.answer) last.delete(root);
     },
@@ -360,6 +390,15 @@ export function createCiJobs(o: {
           return badBody("planId is not a string");
         }
         const plan = held.get(root);
+        if (plan !== undefined && now() - plan.at > PLAN_KEPT_MS) {
+          held.delete(root);
+          ci.forget(root);
+          return refuse(
+            409,
+            "planNotFound",
+            `Nothing was applied: the plan is more than ${PLAN_KEPT_MS / 60_000} minutes old. Check again.`,
+          );
+        }
         if (plan?.planId !== planId) {
           return refuse(
             409,

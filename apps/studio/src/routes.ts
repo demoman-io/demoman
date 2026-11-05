@@ -372,21 +372,15 @@ export function createRoutes(o: {
             filmedCode: await filmedCodeOf(version.takeId),
           };
         }
-        if (v.kept === undefined) {
-          addable[v.id] = await checkAddable({ video: v }, deps);
-        } else if (
-          // Remove from repo reads the marked checkout, as repoRemove does.
-          !(await stat(v.kept.root).then(
-            (s) => s.isDirectory(),
-            () => false,
-          ))
-        ) {
-          addable[v.id] = {
-            ok: false,
-            reason: "noCheckout",
-            label: "its checkout is gone",
-            detail: `${v.kept.root} is gone.`,
-          };
+        // The row shows Add when keptOf says the flow is not in the repo
+        // (its mark may be stale): the same answer decides here. A failed
+        // check leaves the flow listed, with no button.
+        if (summary.kept === null) {
+          try {
+            addable[v.id] = await checkAddable({ video: v }, deps);
+          } catch (error) {
+            log(`studio: flow ${v.id}'s add check: ${messageOf(error)}`);
+          }
         }
         listed.push({ ...summary, steps });
       } catch (error) {

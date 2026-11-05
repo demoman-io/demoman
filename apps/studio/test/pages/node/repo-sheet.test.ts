@@ -9,6 +9,7 @@ import {
 /** A door whose add answers `job-1` and lets the test send its events. */
 function door() {
   let send: (e: RepoEvent) => void = () => {};
+  const offs = { repo: 0, ci: 0 };
   const bodies: unknown[] = [];
   const repo: RepoSheetArgs["repo"] = {
     addable: async () => ({ ok: false, reason: "x", label: "x", detail: "x" }),
@@ -19,7 +20,9 @@ function door() {
     remove: async () => ({ removed: [], exportsLeft: [], notes: [] }),
     onRepo: (_job, fn) => {
       send = fn;
-      return () => {};
+      return () => {
+        offs.repo += 1;
+      };
     },
   };
   const args: RepoSheetArgs = {
@@ -30,7 +33,7 @@ function door() {
   };
   const tell = (e: Record<string, unknown>) =>
     send({ type: "repo", videoId: "v1", jobId: "job-1", ...e } as RepoEvent);
-  return { args, bodies, tell };
+  return { args, bodies, tell, offs };
 }
 
 const added = { phase: "added", file: "f.json", root: "/r" };
@@ -144,7 +147,9 @@ function ciDoor(state: CiState) {
     },
     onCi: (_job, fn) => {
       send = fn;
-      return () => {};
+      return () => {
+        d.offs.ci += 1;
+      };
     },
   };
   const d = door();
@@ -199,6 +204,19 @@ describe("repoSheetModel CI steps", () => {
     ]);
     m.close();
     expect((await m.result).prOpened).toBe("https://gh/pr/4");
+  });
+
+  // Red if the add's or the plan's listener stays after its final event: a later gone() would overwrite what happened.
+  it("stops listening once the add and the plan end", async () => {
+    const { d, m } = await lastStepOf({ kind: "notSetUp" });
+    // Premise: the add ended on the last step, not by finishing the sheet.
+    expect(m.state.step).toBe("last");
+    expect(d.offs.repo).toBe(1);
+    await m.check({});
+    expect(d.offs.ci).toBe(0);
+    d.tellCi({ phase: "done", step: "plan", answer: stopOf({}) });
+    expect(d.offs.ci).toBe(1);
+    m.close();
   });
 
   // Red if the filled holes stop being merged over the draft: a good start blanked, a url hole lost, or an env.X hole dropped.

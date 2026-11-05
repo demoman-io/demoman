@@ -8,6 +8,7 @@ export {
   type Addable,
   checkAddable,
   checkoutOf,
+  isDir,
 } from "./executor/addable.js";
 export {
   type BrowserFailure,

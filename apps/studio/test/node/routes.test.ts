@@ -14,6 +14,7 @@ import {
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FLOWS_DIR, type KeptVideo, serializeKept } from "@demoman/run-core";
 import {
   createLibrary,
   createVideoStore,
@@ -1386,24 +1387,58 @@ describe("which flows can be added", () => {
     );
   });
 
-  it("an In repo flow skips the add check, and says when its checkout is gone", async () => {
+  // Red if the listing decides from the record's mark instead of keptOf's answer (the row's).
+  it("an In repo flow skips the add check; a stale mark is checked", async () => {
     const here = await flow("Here", "add-here", trimmed);
-    const gone = await flow("Gone", "add-gone");
+    const moved = await flow("Moved", "add-moved");
+    const lost = await flow("Lost", "add-lost");
+    await mkdir(join(repo, FLOWS_DIR), { recursive: true });
+    await writeFile(
+      join(repo, FLOWS_DIR, "here.json"),
+      serializeKept({
+        keptVersion: 2,
+        flow: here,
+        deliver: "commit",
+        name: "Here",
+        script: {
+          scriptVersion: 1,
+          name: "Here",
+          target: "https://app.example.com/",
+          viewport: { width: 1280, height: 800 },
+          steps: [{ do: "waitForLoad" }],
+        } as KeptVideo["script"],
+        scale: 1,
+        logo: null,
+        wallpaper: null,
+        outputs: [
+          {
+            path: "docs/o.mp4",
+            fileType: "mp4",
+            aspect: "16:9",
+            quality: "share",
+          },
+        ],
+        report: null,
+      }),
+    );
     const store = createVideoStore(home, createLibrary(home));
-    await store.setKept(here, { root: repo, file: "here.json" });
-    await store.setKept(gone, { root: join(repo, "gone"), file: "gone.json" });
+    await store.setKept(here, { root: repo, file: `${FLOWS_DIR}/here.json` });
+    // Added from a worktree since deleted: its recorded checkout remains.
+    await store.setKept(moved, { root: join(repo, "gone"), file: "m.json" });
+    // Its recipe was deleted from a checkout that remains.
+    await store.setKept(lost, { root: repo, file: `${FLOWS_DIR}/lost.json` });
     const body = (await h
       .call(pathFor("takes"))
       .then((r) => r.json())) as TakesAnswer;
+    const kept = (id: string) => body.videos.find((v) => v.id === id)?.kept;
+    // Premise: the row shows In repo for `here` only.
+    expect(kept(here)).toMatchObject({ root: repo });
+    expect(kept(moved)).toBeNull();
+    expect(kept(lost)).toBeNull();
     // Red if an In repo flow still runs checkAddable (its trim would say so).
     expect(here in body.addable).toBe(false);
-    // Red if a gone checkout is not said, for Remove from repo.
-    expect(body.addable[gone]).toEqual({
-      ok: false,
-      reason: "noCheckout",
-      label: "its checkout is gone",
-      detail: `${join(repo, "gone")} is gone.`,
-    });
+    expect(body.addable[moved]).toMatchObject({ ok: true, root: rootOf });
+    expect(body.addable[lost]).toMatchObject({ ok: true, root: repo });
   });
 
   // Red if the listing adds an addable entry for a record that will not read.

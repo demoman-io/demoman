@@ -16,7 +16,11 @@ import type {
   StudioEvent,
 } from "@demoman/studio-protocol";
 import { describe, expect, it } from "vitest";
-import { createCiJobs, type StudioCi } from "../../src/repo-ci.js";
+import {
+  createCiJobs,
+  PLAN_KEPT_MS,
+  type StudioCi,
+} from "../../src/repo-ci.js";
 import type { StudioRequest } from "../../src/server.js";
 
 const flush = () => new Promise<void>((r) => setImmediate(r));
@@ -68,7 +72,7 @@ const applied = (o: Partial<CiAppliedWire> = {}): CiAppliedWire => ({
   ...o,
 });
 
-function setup(ci: Partial<StudioCi> = {}) {
+function setup(ci: Partial<StudioCi> = {}, now?: () => number) {
   const sent: StudioEvent[] = [];
   const told: StudioEvent[] = [];
   const logs: string[] = [];
@@ -84,6 +88,7 @@ function setup(ci: Partial<StudioCi> = {}) {
     events: { send: (e) => sent.push(e) },
     log: (l) => logs.push(l),
     tell: (e) => told.push(e),
+    ...(now === undefined ? {} : { now }),
   });
   const h = jobs.handlers;
   return { jobs, h, sent, told, logs };
@@ -385,9 +390,11 @@ describe("the CI routes", () => {
       await writeFile(join(outside, "b.mp4"), "elsewhere");
       await symlink(join(outside, "b.mp4"), join(repo, "docs", "b.mp4"));
       const asked: string[][] = [];
+      const read: string[][] = [];
       const { h, jobs } = setup({
         openPr: async (_root, a) => {
-          asked.push(a.files);
+          asked.push(a.files.map((f) => f.path));
+          read.push(a.files.map((f) => f.real));
           return { failed: "pr", detail: "" };
         },
       });
@@ -417,6 +424,8 @@ describe("the CI routes", () => {
         });
       }
       expect(asked).toEqual([["docs/a.mp4"]]);
+      // Red if openPr is not handed the resolved path to read.
+      expect(read.at(-1)).toEqual([join(repo, "docs", "a.mp4")]);
 
       // A folder the add wrote (a receipt's screens) is the files in it.
       await mkdir(join(repo, "docs", "screens", "step-1"), { recursive: true });
@@ -569,5 +578,58 @@ describe("the CI routes", () => {
         req({ body: JSON.stringify({ root: ROOT, planId: "plan-1" }) }),
       ),
     ).toMatchObject({ status: 409, json: { reason: "planNotFound" } });
+  });
+
+  it("a plan that ends after an add is not held, and says to check again", async () => {
+    const gate = held<void>();
+    const forgot: string[] = [];
+    const { h, jobs, sent } = setup({
+      plan: async () => {
+        await gate.promise;
+        return planned();
+      },
+      forget: (root) => forgot.push(root),
+    });
+    await h.repoCiPlan(
+      req({ body: JSON.stringify({ root: ROOT, choices: {}, secrets: {} }) }),
+    );
+    jobs.added(ROOT, ["docs/b.mp4"]);
+    gate.settle();
+    await flush();
+    // Red if a plan checked before the add is held: its apply would leave the new flow out.
+    const done = sent.find((e) => e.type === "ci" && e.phase === "done");
+    expect(done).toMatchObject({ answer: { reason: "planNotFound" } });
+    expect(forgot).toEqual([ROOT, ROOT]);
+    expect(
+      await h.repoCiApply(
+        req({ body: JSON.stringify({ root: ROOT, planId: "plan-1" }) }),
+      ),
+    ).toMatchObject({ status: 409, json: { reason: "planNotFound" } });
+  });
+
+  it("refuses a plan older than the ci tool's limit, and drops it", async () => {
+    let t = 0;
+    const asked: string[] = [];
+    const forgot: string[] = [];
+    const { h } = setup(
+      {
+        apply: async (_root, planId) => {
+          asked.push(planId);
+          return applied();
+        },
+        forget: (root) => forgot.push(root),
+      },
+      () => t,
+    );
+    await planOnce(h);
+    t = PLAN_KEPT_MS + 1;
+    // Red if repoCiApply applies a plan whose check is past PLAN_KEPT_MS.
+    expect(
+      await h.repoCiApply(
+        req({ body: JSON.stringify({ root: ROOT, planId: "plan-1" }) }),
+      ),
+    ).toMatchObject({ status: 409, json: { reason: "planNotFound" } });
+    expect(asked).toEqual([]);
+    expect(forgot).toEqual([ROOT]);
   });
 });

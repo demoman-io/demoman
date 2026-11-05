@@ -30,7 +30,12 @@ export {
   type RunExport,
   SCENE_NOT_SAVED,
 } from "./queue.js";
-export { type CiJobs, createCiJobs, type StudioCi } from "./repo-ci.js";
+export {
+  type CiJobs,
+  createCiJobs,
+  PLAN_KEPT_MS,
+  type StudioCi,
+} from "./repo-ci.js";
 export {
   CHANGED_ELSEWHERE,
   createRoutes,

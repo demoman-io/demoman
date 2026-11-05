@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
 import {
   EXPORT_QUALITY_VALUES,
@@ -17,6 +17,7 @@ import {
   execGit,
   exportTake,
   fullChromiumPath,
+  isDir,
   keepVideo,
   type Library,
   LibraryError,
@@ -346,13 +347,7 @@ export function buildHandlers(o: {
       if (video === null) return noVideo(id);
       // removeFlow finds the recipe by the flow's id in the marked checkout.
       const root = video.kept?.root;
-      if (
-        root === undefined ||
-        !(await stat(root).then(
-          () => true,
-          () => false,
-        ))
-      ) {
+      if (root === undefined || !(await isDir(root))) {
         return refuse(
           409,
           root === undefined ? "notInRepo" : "repoCheckoutMissing",

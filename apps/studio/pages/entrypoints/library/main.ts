@@ -60,6 +60,7 @@ import {
 } from "../../src/shell/confirm-dialog";
 import { createRefresher } from "../../src/shell/refresher";
 import {
+  messageOf,
   openRepoSheet,
   removedLine,
   removeQuestion,
@@ -475,8 +476,6 @@ let addables: Record<string, Addable> = {};
 const addingNow = new Set<string>();
 
 const unperiod = (text: string): string => text.replace(/\.$/, "");
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 /** Add to repo: the sheet, then the row says how it went. A plain success
  *  is the sheet's own toast; a failure is the row's status line. */
