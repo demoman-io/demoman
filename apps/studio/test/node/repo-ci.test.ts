@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scrubSecrets } from "@demoman/run-core";
 import type {
   CiAppliedWire,
   CiPlannedWire,
@@ -279,6 +280,59 @@ describe("the CI routes", () => {
     expect(drained).toBe(true);
   });
 
+  it("a GitHub link stays whole only when each of its parts is clean", async () => {
+    const whole = [
+      "https://github.com/demoman-io/demoman/actions/runs/41977952746",
+      "https://github.com/demoman-io/demoman/pull/32",
+    ];
+    const shredded = [
+      `https://github.com/acme/${"ab12".repeat(16)}/pull/1`,
+      `https://github.com/${"Ab12".repeat(8)}/web/pull/1`,
+      `https://github.com/acme/web/actions/runs/${"7".repeat(35)}`,
+    ];
+    const { h, sent } = setup({
+      plan: async () => ({
+        reason: "x",
+        detail: [...whole, ...shredded].join(" "),
+      }),
+    });
+    await h.repoCiPlan(
+      req({ body: JSON.stringify({ root: ROOT, choices: {}, secrets: {} }) }),
+    );
+    await flush();
+    const done = sent.find((e) => e.type === "ci" && e.phase === "done");
+    const detail =
+      done?.type === "ci" && done.phase === "done" && "detail" in done.answer
+        ? done.answer.detail
+        : "";
+    // Premise: plain scrubSecrets shreds each of the three.
+    for (const link of shredded) expect(scrubSecrets(link)).not.toBe(link);
+    for (const link of whole) expect(detail).toContain(link);
+    // Red if a link is let through on its shape, or on looksLikeSecret alone.
+    for (const link of shredded) expect(detail).not.toContain(link);
+    expect(detail.match(/<redacted>/g)).toHaveLength(3);
+  });
+
+  it("a plan that throws before its first await stops as a job, not a busy repo", async () => {
+    const { h, sent } = setup({
+      plan: () => {
+        throw new Error("boom");
+      },
+    });
+    const go = () =>
+      h.repoCiPlan(
+        req({ body: JSON.stringify({ root: ROOT, choices: {}, secrets: {} }) }),
+      );
+    // Red if a synchronous throw escapes start() with the root still held.
+    expect(await go()).toMatchObject({ status: 202 });
+    await flush();
+    expect(sent.at(-1)).toMatchObject({
+      phase: "done",
+      answer: { reason: "internalError" },
+    });
+    expect(await go()).toMatchObject({ status: 202 });
+  });
+
   it("a throw after the job ends leaves the repo free", async () => {
     const logs: string[] = [];
     const jobs = createCiJobs({
@@ -347,6 +401,21 @@ describe("the CI routes", () => {
         });
       }
       expect(asked).toEqual([["docs/a.mp4"]]);
+
+      // A folder the add wrote (a receipt's screens) is the files in it.
+      await mkdir(join(repo, "docs", "screens", "step-1"), { recursive: true });
+      await writeFile(join(repo, "docs", "screens", "one.png"), "png");
+      await writeFile(
+        join(repo, "docs", "screens", "step-1", "two.png"),
+        "png",
+      );
+      jobs.added(repo, ["docs/screens"]);
+      // Red if a written folder reaches openPr as a path to read.
+      expect(await pr(["docs/screens"])).toMatchObject({ status: 200 });
+      expect(asked.at(-1)?.sort()).toEqual([
+        "docs/screens/one.png",
+        "docs/screens/step-1/two.png",
+      ]);
     } finally {
       await rm(repo, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });

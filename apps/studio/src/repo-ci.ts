@@ -3,9 +3,9 @@
 // imports apps/cli. Plan and apply run as jobs of this server's own, so an
 // apply's watch (up to about half an hour) outlives the window that asked.
 import { randomUUID } from "node:crypto";
-import { realpath } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, sep } from "node:path";
-import { looksLikeSecret, scrubSecrets } from "@demoman/run-core";
+import { scrubSecrets } from "@demoman/run-core";
 import type {
   CiAnswerWire,
   CiAppliedWire,
@@ -72,16 +72,20 @@ const hide = (text: string, values: Map<string, string>): string =>
     .sort((a, b) => b.length - a.length)
     .reduce((t, v) => t.replaceAll(v, "•••"), text);
 
-/** GitHub's own run, artifact and pull request links: the base64 sweep
- *  would shred them (`/demoman/actions/runs/1923…` is 32 such characters). */
+/** GitHub's own run, artifact and pull request links, in GitHub's
+ *  bounds: the base64 sweep would shred them (`/demoman/actions/runs/1923…`
+ *  is 32 such characters). */
 const GITHUB_LINK =
-  /(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:actions\/runs\/\d+(?:\/artifacts\/\d+)?|pull\/\d+)(?![\w/?#]))/;
-/** A line scrubbed of secret-shaped text, its GitHub links left whole. */
+  /((?<![\w.-])https:\/\/github\.com\/[A-Za-z0-9-]{1,39}\/[\w.-]{1,100}\/(?:actions\/runs\/\d{1,20}(?:\/artifacts\/\d{1,20})?|pull\/\d{1,20})(?![\w/?#]))/;
+/** A line scrubbed of secret-shaped text. A GitHub link stays whole only
+ *  when each of its parts passes the scrub on its own. */
 const scrubLine = (l: string): string =>
   l
     .split(GITHUB_LINK)
     .map((part, i) =>
-      i % 2 === 1 && !looksLikeSecret(part) ? part : scrubSecrets(part),
+      i % 2 === 1 && part.split("/").every((p) => scrubSecrets(p) === p)
+        ? part
+        : scrubSecrets(part),
     )
     .join("");
 
@@ -98,6 +102,39 @@ const hideIn = <T>(answer: T, values: Map<string, string>): T =>
         ? v.map((l) => (typeof l === "string" ? scrubLine(l) : l))
         : v,
   ) as T;
+
+/** R13: the repo files a pull request may hold, before any is read: only
+ *  what an add wrote here (a folder it wrote: the files in it), each one
+ *  resolving inside the repo, so a symlink cannot lead out. Else the first
+ *  that does not. */
+async function prFiles(
+  root: string,
+  files: string[],
+  mine: Set<string> | undefined,
+): Promise<{ files: string[] } | { refused: string }> {
+  const top = await realpath(root).catch(() => null);
+  const inside = async (rel: string): Promise<string | null> => {
+    if (top === null) return null;
+    const at = await realpath(join(root, rel)).catch(() => null);
+    return at?.startsWith(top + sep) === true ? at : null;
+  };
+  const out: string[] = [];
+  for (const f of files) {
+    const at = mine?.has(f) === true ? await inside(f) : null;
+    if (at === null) return { refused: f };
+    if (!(await stat(at)).isDirectory()) {
+      out.push(f);
+      continue;
+    }
+    for (const name of await readdir(at, { recursive: true })) {
+      const rel = join(f, name);
+      const real = await inside(rel);
+      if (real === null) return { refused: rel };
+      if ((await stat(real)).isFile()) out.push(rel);
+    }
+  }
+  return { files: out };
+}
 
 /** The body as an object, or null. A parse error's message is not said:
  *  V8 quotes the body in it, and this body can hold a secret. */
@@ -165,7 +202,9 @@ export function createCiJobs(o: {
       log(`studio: ci ${jobId}: ${said}`);
       o.events.send({ type: "ci", jobId, phase: "progress", line: said });
     };
-    const job = run(progress)
+    // A run that throws before its first await is the job's stop too.
+    const job = Promise.resolve()
+      .then(() => run(progress))
       .catch(
         (error: unknown): CiStopWire => ({
           reason: "internalError",
@@ -321,28 +360,23 @@ export function createCiJobs(o: {
         ) {
           return badBody("files is not a list of paths");
         }
-        // R13: only what an add wrote here, and only where it resolves
-        // inside the repo (a symlink cannot lead out), before any is read.
-        const mine = written.get(root);
-        const top = await realpath(root).catch(() => null);
-        for (const f of files as string[]) {
-          const at =
-            mine?.has(f) === true && top !== null
-              ? await realpath(join(root, f)).catch(() => null)
-              : null;
-          if (at === null || top === null || !at.startsWith(top + sep)) {
-            return refuse(
-              409,
-              "prFileRefused",
-              `Nothing was opened: ${f} is not a file an add wrote in ${root}.`,
-            );
-          }
+        const picked = await prFiles(
+          root,
+          files as string[],
+          written.get(root),
+        );
+        if ("refused" in picked) {
+          return refuse(
+            409,
+            "prFileRefused",
+            `Nothing was opened: ${picked.refused} is not a file an add wrote in ${root}.`,
+          );
         }
         const pr = await ci.openPr(root, {
           branch,
           title,
           body: text,
-          files: files as string[],
+          files: picked.files,
         });
         return { status: 200, json: hideIn(pr, new Map()) };
       },
