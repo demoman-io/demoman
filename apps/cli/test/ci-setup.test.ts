@@ -22,6 +22,7 @@ import {
   defaultTrigger,
   planCiSetup,
   planLines,
+  prBody,
   redact,
   triggerOffers,
 } from "../src/ci-setup.js";
@@ -1128,6 +1129,22 @@ describe("applyCiSetup", () => {
     f.calls.length = 0;
     return { f, p, values };
   }
+
+  // Red when the PR description is the plan's plain terminal lines (DEM-58).
+  it("writes the setup PR's description as Markdown, naming secrets, never their values", async () => {
+    const { f, p, values } = await ready();
+    await applyCiSetup(p, f.deps, values);
+    const body = f.seen.pr?.body ?? "";
+    expect(body).toBe(prBody(p));
+    expect(body.startsWith("Merging this sets up Demoman")).toBe(true);
+    expect(body).toContain("### What it does\n- Records the repo flows");
+    expect(body).toContain("### Checked\n");
+    expect(body).toContain("### Secrets\n- `DEMOMAN_SECRET_A`: set on GitHub");
+    expect(body).toContain("### Files\n```\n.github/workflows/demoman.yml\n");
+    expect(body).toContain(`${RECEIPT_DIR}/checkout.screens/ (1 image`);
+    expect(body).not.toContain(".webp");
+    expect(body).not.toContain(VALUE);
+  });
 
   // Review finding 6. Red when the default branch is read off origin, or
   // the pull request is pushed there, while the repo is another remote.

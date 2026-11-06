@@ -866,7 +866,8 @@ function shownFiles(files: string[]): string[] {
 const BY_HAND =
   "Run it any time from the repository's Actions tab (Demoman → Run workflow).";
 
-export function planLines(p: CiPlan): string[] {
+/** The plan's sentences, shared by the terminal plan and the PR body. */
+function planSaid(p: CiPlan) {
   const offer = p.offers.find(
     (o) => JSON.stringify(o.trigger) === JSON.stringify(p.trigger),
   );
@@ -875,25 +876,46 @@ export function planLines(p: CiPlan): string[] {
   const source =
     src === undefined ? null : "file" in src ? src.file : `the ${src.kind}`;
   const c = p.check;
+  return {
+    label,
+    trigger: `Records the repo flows ${label}.`,
+    byHand: runsByHand(p.trigger) ? [BY_HAND] : [],
+    delivery:
+      p.route === "pr"
+        ? "Delivers what changed as a pull request."
+        : `Delivers what changed as a commit on ${p.repo.defaultBranch}.`,
+    app:
+      p.deployment !== null
+        ? `Starts no app: records the newest successful ${p.deployment.environment} deployment (now ${p.deployment.url}).`
+        : p.app === null
+          ? "Starts no app: records the deployed one."
+          : `Starts the app with ${p.app.spec.start} at ${p.app.spec.url} (from ${source}).`,
+    check:
+      "passed" in c
+        ? `Checked from a clean checkout: ${c.flow} recorded in ${c.recordSeconds} s${c.appSeconds > 0 ? ` (the app started in ${c.appSeconds} s)` : ""}.`
+        : `Not checked locally: ${c.skipped}.`,
+    offBase:
+      p.offBase === null
+        ? []
+        : [
+            `The check ran on HEAD (${p.offBase.head.slice(0, 7)}); the pull request is built on ${p.repo.defaultBranch} (${p.offBase.base.slice(0, 7)}), so its first run checks it there.`,
+          ],
+    scriptOnly: p.scriptOnly.map(
+      (s) =>
+        `${s.flow}: the script alone (${s.why}); the first run delivers it as new.`,
+    ),
+  };
+}
+
+export function planLines(p: CiPlan): string[] {
+  const said = planSaid(p);
   return [
-    `Records the repo flows ${label}.`,
-    ...(runsByHand(p.trigger) ? [BY_HAND] : []),
-    p.route === "pr"
-      ? "Delivers what changed as a pull request."
-      : `Delivers what changed as a commit on ${p.repo.defaultBranch}.`,
-    p.deployment !== null
-      ? `Starts no app: records the newest successful ${p.deployment.environment} deployment (now ${p.deployment.url}).`
-      : p.app === null
-        ? "Starts no app: records the deployed one."
-        : `Starts the app with ${p.app.spec.start} at ${p.app.spec.url} (from ${source}).`,
-    "passed" in c
-      ? `Checked from a clean checkout: ${c.flow} recorded in ${c.recordSeconds} s${c.appSeconds > 0 ? ` (the app started in ${c.appSeconds} s)` : ""}.`
-      : `Not checked locally: ${c.skipped}.`,
-    ...(p.offBase === null
-      ? []
-      : [
-          `The check ran on HEAD (${p.offBase.head.slice(0, 7)}); the pull request is built on ${p.repo.defaultBranch} (${p.offBase.base.slice(0, 7)}), so its first run checks it there.`,
-        ]),
+    said.trigger,
+    ...said.byHand,
+    said.delivery,
+    said.app,
+    said.check,
+    ...said.offBase,
     ...(p.pushCost === null ? [] : [`Runner time: ${p.pushCost}.`]),
     ...p.secrets.map(
       (s) =>
@@ -906,11 +928,50 @@ export function planLines(p: CiPlan): string[] {
         : "Needs no Actions setting changed.",
     `Opens the pull request "${p.title}" from ${p.branch} into ${p.repo.defaultBranch} with:`,
     ...shownFiles(p.files).map((f) => `  ${f}`),
-    ...p.scriptOnly.map(
-      (s) =>
-        `${s.flow}: the script alone (${s.why}); the first run delivers it as new.`,
-    ),
+    ...said.scriptOnly,
   ];
+}
+
+/** The setup pull request's description, as Markdown (DEM-58). Names each
+ *  secret, never its value. */
+export function prBody(p: CiPlan): string {
+  const said = planSaid(p);
+  const delivers =
+    p.route === "pr"
+      ? "opens a pull request"
+      : `commits to ${p.repo.defaultBranch}`;
+  const secretWord = {
+    set: "set on GitHub",
+    replace: "replaced on GitHub",
+    keep: "unchanged on GitHub",
+    missing: "missing",
+  } as const;
+  return [
+    `Merging this sets up Demoman: it records the repo's flows ${said.label} and ${delivers} when a video changes.`,
+    "",
+    "### What it does",
+    ...[said.trigger, ...said.byHand, said.delivery, said.app].map(
+      (l) => `- ${l}`,
+    ),
+    "",
+    "### Checked",
+    said.check,
+    ...said.offBase.map((l) => `\n${l}`),
+    "",
+    "### Secrets",
+    ...(p.secrets.length === 0
+      ? ["None."]
+      : p.secrets.map((s) => `- \`${s.name}\`: ${secretWord[s.status]}`)),
+    "",
+    "### Files",
+    "```",
+    ...shownFiles(p.files),
+    "```",
+    ...(said.scriptOnly.length === 0
+      ? []
+      : ["", ...said.scriptOnly.map((l) => `- ${l}`)]),
+    "",
+  ].join("\n");
 }
 
 export async function applyCiSetup(
@@ -987,7 +1048,7 @@ export async function applyCiSetup(
     remote: plan.repo.remote,
     base: defaultBranch,
     files: contents,
-    body: ["Demoman's CI setup:", "", ...planLines(plan)].join("\n"),
+    body: prBody(plan),
   });
   if ("failed" in pr)
     return stop("prFailed", `${pr.detail}. Secrets ${done}${settingSaid}`);
