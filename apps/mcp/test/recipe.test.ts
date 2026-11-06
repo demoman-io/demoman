@@ -159,6 +159,13 @@ describe("the recipe's examples and snapshot reading", () => {
     );
   });
 
+  // Red when the agent is not told where an app's reset script goes (DEM-57).
+  it("names a reset script's place: reset in .demoman/app.json", () => {
+    expect(recipe).toMatch(
+      /reset\s+script goes in `\.demoman\/app\.json` as `reset`/,
+    );
+  });
+
   // Red if the recipe stops saying how to poll: plan 1's text said only
   // "until the outcome is not 'running'", and an export never says running.
   it("says to poll a run until it is not running and an export until it is not exporting", () => {

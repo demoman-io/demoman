@@ -56,8 +56,9 @@ its site. Then, in order:
 1. **Reuse first.** Pick the account whose `about` fits the demo. Name it in the script's `account`, or omit it for the `default`.
 2. **The app's repo is open and runs against a local development database:**
    create a demo account and the data the demo needs, with a seed script
-   committed in the app and safe to run twice (`priv/repo/demo_seeds.exs`,
-   `db/seeds/demo.rb`). Generate a random password of 20 or more characters.
+   committed in the app and safe to run twice (`db/seeds/demo.rb`); a reset
+   script goes in `.demoman/app.json` as `reset`.
+   Generate a random password of 20+ characters.
    Write `DEMOMAN_SECRET_<NAME>=…` and
    `DEMOMAN_SECRET_<NAME>_ORIGIN=<the site's origin>` to
    `.demoman/secrets.env`, and `.gitignore` it if missing. Add the

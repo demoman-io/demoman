@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { APP_FILE, type AppSpec, parseApp } from "@demoman/run-core";
 import {
   type AppStartDeps,
+  type AppStarted,
   type AppStartRefusal,
   startApp,
 } from "./app-start.js";
@@ -88,7 +89,9 @@ export async function withApp<T>(
     ci: boolean;
     log: (l: string) => void;
   },
-  run: () => Promise<T>,
+  /** Gets the started app's reset, to run before each flow (DEM-57); a
+   *  no-op when no app is started here. */
+  run: (reset: AppStarted["reset"]) => Promise<T>,
   deps: Partial<AppStartDeps> & { startApp?: typeof startApp } = {},
 ): Promise<
   | { ok: true; value: T; lines: string[] }
@@ -97,7 +100,12 @@ export async function withApp<T>(
       refusal: AppStartRefusal | { reason: string; detail: string };
     }
 > {
-  if (plan.kind === "none") return { ok: true, value: await run(), lines: [] };
+  if (plan.kind === "none")
+    return {
+      ok: true,
+      value: await run(async () => ({ ok: true })),
+      lines: [],
+    };
   if (plan.kind === "refused")
     return {
       ok: false,
@@ -137,7 +145,7 @@ export async function withApp<T>(
   }
   const lines = [started.said];
   try {
-    return { ok: true, value: await run(), lines };
+    return { ok: true, value: await run(started.reset), lines };
   } finally {
     const left = await started.stop();
     if (left.length > 0) lines.push(`could not stop ${left.join(", ")}`);

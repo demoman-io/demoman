@@ -1281,6 +1281,45 @@ export const replaceChain = () => {
   );
 
   it(
+    "runs the app's reset before each flow, and a failed reset fails only its flow (DEM-57)",
+    async () => {
+      html = ORIGINAL;
+      const events: string[] = [];
+      let resets = 0;
+      inject = (v) => {
+        events.push("run");
+        return v;
+      };
+      let r: RefreshResult;
+      try {
+        r = await refreshKept(
+          { repoRoot: repo, library: "throwaway", only: [A, B] },
+          {
+            ...deps(),
+            beforeFlow: async () => {
+              events.push("reset");
+              resets += 1;
+              return resets === 1
+                ? { ok: false, detail: "`pnpm reset` exited with code 1" }
+                : { ok: true };
+            },
+          },
+        );
+      } finally {
+        inject = null;
+      }
+      // Red when no reset runs, or a failed one stops the other flows.
+      expect(events).toEqual(["reset", "reset", "run"]);
+      const failed = r.videos.filter((v) => v.outcome === "failed");
+      expect(failed.map((v) => v.detail)).toEqual([
+        "reset failed: `pnpm reset` exited with code 1",
+      ]);
+      expect(r.videos.filter((v) => v.outcome !== "failed")).toHaveLength(1);
+    },
+    ONE_MS,
+  );
+
+  it(
     "fails a video whose output links out of the repo, writing nothing there",
     async () => {
       const outside = await mkdtemp(join(tmpdir(), "demoman-refresh-out-"));

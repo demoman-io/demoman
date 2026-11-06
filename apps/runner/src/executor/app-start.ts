@@ -31,6 +31,8 @@ export type AppStarted = {
   seconds: number;
   /** What it could not stop, by name; [] when all stopped. */
   stop(): Promise<string[]>;
+  /** Runs app.json's `reset`, if any, before a flow (DEM-57). */
+  reset(): Promise<{ ok: true } | { ok: false; detail: string }>;
 };
 export interface AppStartDeps {
   spawn: typeof import("node:child_process").spawn;
@@ -161,6 +163,22 @@ export async function startApp(
     }
   };
 
+  // The app's own reset, before each flow: one flow's changes never show in
+  // the next (DEM-57). Run like an install command; nothing without one.
+  const reset: AppStarted["reset"] = async () => {
+    if (app.reset === undefined) return { ok: true };
+    o.log(`resetting: \`${app.reset}\``);
+    const r = launch(d.spawn, app.reset, o.root, env, false);
+    const { code, signal } = await r.exited;
+    if (code === 0) return { ok: true };
+    await Promise.race([r.drained, delay(DRAIN_MS)]);
+    const tail = tailOf(r.output());
+    return {
+      ok: false,
+      detail: `\`${app.reset}\` ${code === null ? `was stopped by ${signal}` : `exited with code ${code}`}; fix the reset command in ${APP_FILE}${tail === "" ? "" : `:\n${tail}`}`,
+    };
+  };
+
   // "own" refuses anything there, ready or not: a dev server answering 500,
   // or slowly, must never be recorded as the app this call starts.
   if (o.mode === "own" && (await listening(app.url))) {
@@ -180,6 +198,7 @@ export async function startApp(
       said: `used the app already answering at ${app.url}`,
       seconds: Math.round((d.now() - t0) / 100) / 10,
       stop: async () => [],
+      reset,
     };
   }
 
@@ -330,6 +349,7 @@ export async function startApp(
     said: `started the app with \`${app.start}\` from ${APP_FILE}`,
     seconds: Math.round((d.now() - t0) / 100) / 10,
     stop,
+    reset,
   };
 }
 

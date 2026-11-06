@@ -719,7 +719,7 @@ async function refresh(args: string[]): Promise<void> {
         ci: process.env.CI === "true",
         log,
       },
-      () =>
+      (reset) =>
         refreshKept(
           {
             repoRoot: repo.repo.root,
@@ -729,7 +729,7 @@ async function refresh(args: string[]): Promise<void> {
             ...(previous === undefined ? {} : { previous }),
             library: process.env.CI === "true" ? "throwaway" : "local",
           },
-          keptRefreshDeps(session, process.env, log),
+          { ...keptRefreshDeps(session, process.env, log), beforeFlow: reset },
         ),
     );
     if (!around.ok) {

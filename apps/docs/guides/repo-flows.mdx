@@ -198,6 +198,7 @@ It never reads `.env`.
 | `appVersion` | `1` |
 | `install` | Commands run before start, in order |
 | `start` | The command that starts the app |
+| `reset` | Optional. A command run before each flow, so one flow's changes never show in the next (for example `pnpm reset`) |
 | `url` | Where the app answers. Ready is a 2xx, 3xx, or 400 to 403 |
 | `timeoutSeconds` | How long to wait for `url`; default 120 |
 | `env` | Environment for the app. Committed, so it refuses a value that looks like a secret; default none |

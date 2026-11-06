@@ -122,6 +122,27 @@ describe("withApp", () => {
     said: "started the app",
     seconds: 1,
     stop,
+    reset: async () => ({ ok: true }),
+  });
+
+  // Red when the run cannot reach the app's reset (DEM-57).
+  it("hands the run the started app's reset, and a no-op with no app", async () => {
+    const reset = vi.fn(async () => ({ ok: true as const }));
+    const startApp = vi.fn(async () => ({ ...started(), reset }));
+    const r = await withApp(
+      { kind: "start", app: app() },
+      o(true),
+      async (doReset) => doReset(),
+      { startApp },
+    );
+    expect(r).toMatchObject({ ok: true, value: { ok: true } });
+    expect(reset).toHaveBeenCalledTimes(1);
+    const none = await withApp(
+      { kind: "none", said: "" } as never,
+      o(true),
+      async (doReset) => doReset(),
+    );
+    expect(none).toMatchObject({ ok: true, value: { ok: true } });
   });
 
   it("stops the app when run throws", async () => {

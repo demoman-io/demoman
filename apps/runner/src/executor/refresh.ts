@@ -113,6 +113,9 @@ export interface RefreshDeps {
   }): LocalExecutor;
   /** The browser that decodes outputs to compare them. */
   session: Pick<BrowserSession, "openWorkPage">;
+  /** Before each recording (a retry too): the app's reset from app.json,
+   *  so one flow's changes never show in the next (DEM-57). */
+  beforeFlow?: () => Promise<{ ok: true } | { ok: false; detail: string }>;
   /** The picture comparisons, of a decoded film (a version 1 receipt's)
    *  and of screen images; the real ones unless a test stands in. */
   samePicture?: typeof samePicture;
@@ -569,7 +572,14 @@ async function filmOne(
 ): Promise<Filmed | { failed: string }> {
   const { kept, script, previous, from, receiptFile } = job;
   const times = stageTimes();
-  const run = async () => {
+  const run = async (): Promise<Record<string, unknown>> => {
+    const reset = (await deps.beforeFlow?.()) ?? { ok: true };
+    if (!reset.ok)
+      return {
+        outcome: "refusedBeforeRun",
+        reason: "reset failed",
+        detail: reset.detail,
+      };
     const out = await executor.request("run", {
       script,
       // The kept flow by its id: the throwaway library adopts it, so what
