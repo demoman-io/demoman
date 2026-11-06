@@ -3,13 +3,17 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
-<Update label="Unreleased" description="Set up CI from one plan">
+<Update label="0.9.0" description="Set up CI from one plan, or from the Studio">
   - `npx demoman setup --ci` checks the refresh from a clean checkout, shows one plan, and on one confirmation sets the secrets, turns on the Actions setting, opens a "Set up Demoman" pull request and watches its first run. `--yes`, `--env-file` and `--replace-secret` take the answers without a prompt.
   - `.demoman/app.json` records how the app starts: install, start, url, timeout, env, secrets and services. `refresh` starts the app from it, and uses one already answering when run locally.
   - The workflow checks itself on pull requests that change it or `.demoman/`, and says so when a fork's pull request has no secrets.
   - Your agent's `add` and `ci` tools do the same; `ci` acts only once you have agreed to its plan.
   - The Studio's Add to repo adds a flow from its card, row or Export panel, says why one can't be added, and sets up CI from the same sheet. Remove from repo takes a flow out and leaves its exports.
   - If your own workflow starts the app before `demoman refresh` (a "Start your app" step), delete that step: refresh starts it from `app.json` now, and both would use the same port.
+  - The refresh runs after a deployment, when a release is published, or once a day; setup picks the first the repo has a record of. Each merge (`--trigger push`) is still offered, never the default.
+  - `demoman refresh --check` records nothing and exits 3 when nothing but refresh's own files changed since the last refresh. A daily run with nothing new stops before Chromium and the app.
+  - A refresh compares the recorded screens first and exports only a flow whose picture changed: an unchanged refresh on a GitHub runner took about 11 seconds, down from about 90. Add writes the screens beside the receipt.
+  - Exports draw the wallpaper of an unzoomed frame from a copy made once, a few percent faster.
 </Update>
 
 <Update label="0.8.2" description="Video as code, flows in the repo, and a library you can search">
