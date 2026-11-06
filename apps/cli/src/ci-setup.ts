@@ -330,6 +330,8 @@ async function draftLeft(
 }
 
 const ACCOUNTS_FILE = ".demoman/accounts.json";
+const ignoresSecrets = (gitignore: string) =>
+  gitignore.split("\n").some((l) => l.trim() === ".demoman/secrets.env");
 
 async function shown(git: GitRunner, root: string, ref: string, path: string) {
   const r = await git(["show", `${ref}:${path}`], root);
@@ -696,6 +698,24 @@ async function makePlan(
     for (const ref of ["HEAD", base]) {
       if ((await shown(deps.git, root, ref, ACCOUNTS_FILE)) !== accounts) {
         files.push(ACCOUNTS_FILE);
+        break;
+      }
+    }
+  }
+  // The secrets.env ignore line travels with the setup, or a teammate's
+  // clone would not ignore the file (DEM-62).
+  // shortcut: the whole working-tree .gitignore goes, other uncommitted
+  // lines too; the plan line names the file. Upgrade to a one-line patch
+  // on HEAD's file if that surprises someone.
+  const ignores = await readFile(join(root, ".gitignore"), "utf8").catch(
+    () => null,
+  );
+  if (ignores !== null && ignoresSecrets(ignores)) {
+    for (const ref of ["HEAD", base]) {
+      if (
+        !ignoresSecrets((await shown(deps.git, root, ref, ".gitignore")) ?? "")
+      ) {
+        files.push(".gitignore");
         break;
       }
     }

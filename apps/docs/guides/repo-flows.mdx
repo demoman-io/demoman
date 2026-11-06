@@ -160,7 +160,8 @@ The plan lists:
   the check was skipped.
 - the route: `pr` (the default) or `main`.
 - the files: `.github/workflows/demoman.yml`, `.demoman/app.json` and
-  `.demoman/accounts.json` unless committed as is, and each repo flow not yet
+  `.demoman/accounts.json` unless committed as is, `.gitignore` when only your
+  working tree ignores `.demoman/secrets.env`, and each repo flow not yet
   on the default branch. A flow
   goes in with its receipt and exports only when the local video matches the
   script being committed; otherwise the script goes in alone, the plan says

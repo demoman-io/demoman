@@ -996,6 +996,28 @@ describe("planCiSetup's plan", () => {
     );
   });
 
+  // Red when the secrets.env ignore line stays behind in the person's
+  // checkout, so a teammate's clone does not ignore the file (DEM-62).
+  it("carries .gitignore when only the working tree ignores .demoman/secrets.env", async () => {
+    const root = await repo();
+    const ignored =
+      "node_modules\n\n# Demoman: demo account passwords\n.demoman/secrets.env\n";
+    await writeFile(join(root, ".gitignore"), ignored);
+    expect((await okPlan(root, fakes())).files).toContain(".gitignore");
+    // HEAD and the base already ignore it: nothing to carry.
+    const committed = fakes({
+      head: {
+        "HEAD:.gitignore": ignored,
+        "origin/trunk:.gitignore": ignored,
+      },
+    });
+    expect((await okPlan(root, committed)).files).not.toContain(".gitignore");
+    // No .gitignore at all: nothing proposed.
+    expect((await okPlan(await repo(), fakes())).files).not.toContain(
+      ".gitignore",
+    );
+  });
+
   // R5: a delivery that does not match the committed script goes in as the script alone.
   // R24: match, edited and absent.
   it.each([
