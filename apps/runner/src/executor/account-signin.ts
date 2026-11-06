@@ -283,6 +283,18 @@ const originAndPath = (raw: string): string => {
   return `${u.origin}${u.pathname}`;
 };
 
+/** The page an address names, without query or hash: a client-side sign-in
+ *  moves to another path, while a form may rewrite its query on click and
+ *  still submit (login-late-replace). */
+const addressOf = (u: string): string => {
+  try {
+    const url = new URL(u);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return u;
+  }
+};
+
 export async function signInAccount(
   chosen: { file: AccountsFile; site: AccountsSite; account: Account },
   deps: AccountSignInDeps,
@@ -536,7 +548,28 @@ export async function signInAccount(
         // cancel a form still about to submit; wait for the navigation the
         // last step set going, bounded, and say so when none comes.
         const navUntil = Math.min(deadline, Date.now() + STEP_WAIT_MS);
-        while (nav.documents === 0 && Date.now() < navUntil) await wait(50);
+        // A client-side sign-in loads no document (DEM-60): it is done when
+        // its form's password field is gone or the address moved on. A form
+        // still on screen while its post is in flight is waited for.
+        const addressBefore = addressOf(page.url());
+        let signedInPlace = false;
+        let lastLook = 0;
+        while (nav.documents === 0 && Date.now() < navUntil) {
+          if (Date.now() - lastLook >= 250) {
+            lastLook = Date.now();
+            const gone = await page
+              .evaluate(() => {
+                const f = document.querySelector('input[type="password"]');
+                return f === null || (f as HTMLElement).offsetParent === null;
+              })
+              .catch(() => false);
+            if (gone || addressOf(page.url()) !== addressBefore) {
+              signedInPlace = true;
+              break;
+            }
+          }
+          await wait(50);
+        }
         // Then for that navigation to land: a document loaded, or the
         // request failed. Until then the page is the OLD one, and "network
         // idle" — long true of it — answers at once, so checkUrl's goto
@@ -557,7 +590,7 @@ export async function signInAccount(
             ),
           );
         }
-        if (nav.documents === 0) {
+        if (nav.documents === 0 && !signedInPlace) {
           deps.log(
             deps.sweep.scrub(
               `signing in as ${name}: no page navigation followed the last click, type or goto within ${STEP_WAIT_MS / 1000} s; checking ${account.checkUrl} now`,

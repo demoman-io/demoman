@@ -225,6 +225,21 @@ export async function serveLoginApp(
           ),
         );
         return;
+      // A client-side sign-in (DEM-60): the button posts with fetch, then the
+      // form goes and the address is pushed, with no document load. `hold`
+      // keeps the form, password field and all, that long after the post.
+      case "/login-spa": {
+        const hold = Number(url.searchParams.get("hold") ?? "0");
+        html(
+          page(
+            "Sign in",
+            `${form("/login", '<button type="button" id="go">Sign in</button>')}` +
+              `<script>document.getElementById('go').addEventListener('click',()=>{const f=document.getElementById('signin');fetch('/login',{method:'POST',body:new URLSearchParams(new FormData(f)),redirect:'manual'}).then(()=>setTimeout(()=>{f.remove();history.pushState(null,'','/app');document.body.insertAdjacentHTML('beforeend','<p>Welcome</p>')},${hold}))})</script>`,
+            "#ff00ff",
+          ),
+        );
+        return;
+      }
       case "/hang":
         // Never answers; released when the app closes.
         held.add(res);
