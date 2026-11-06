@@ -417,6 +417,28 @@ describe("allowActionPullRequests", () => {
     expect(d).toContain("controlled by the organization");
     expect(d).toContain("organisation");
   });
+  // Review of #35, finding 8. Red when an enterprise lock (a user's repo
+  // can have one) is sent to an organisation page that does not exist.
+  it("an enterprise lock names the enterprise's policy, not an organisation page", async () => {
+    const r = await allowActionPullRequests(
+      fake({
+        [path]: ok({
+          default_workflow_permissions: "read",
+          can_approve_pull_request_reviews: false,
+        }),
+        [`${path} -X PUT --input -`]: http(
+          409,
+          "This setting is blocked by enterprise policy",
+        ),
+      }),
+      S,
+    );
+    expect(r.kind).toBe("refused");
+    const d = (r as { detail: string; url: string }).detail;
+    expect(d).toContain("An enterprise owner must allow");
+    expect(d).not.toContain("/organizations/");
+    expect((r as { url: string }).url).not.toContain("/organizations/");
+  });
   // Final review, re-graded Important. Red when a single sign-on refusal is
   // read as an organisation lock: the fix is authorising the token.
   it("a SAML single sign-on refusal says to authorise the token, not to ask an owner", async () => {

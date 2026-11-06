@@ -1022,7 +1022,7 @@ export async function applyCiSetup(
     if (setting.kind === "refused" || setting.kind === "unknown")
       return stop(
         setting.kind === "refused" ? "actionsRefused" : "actionsUnknown",
-        `${setting.detail} (${setting.url}). Secrets: nothing was set; the pull request was not opened`,
+        `${setting.detail}. Secrets: nothing was set; the pull request was not opened`,
       );
   }
   const settingSaid =

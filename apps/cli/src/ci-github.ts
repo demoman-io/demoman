@@ -291,9 +291,18 @@ export async function allowActionPullRequests(
         url,
       };
     }
+    // An enterprise policy (a user's repo can be under one) is changed in
+    // the enterprise's own settings: no organisation page to send to.
+    if (/enterprise/i.test(msg)) {
+      return {
+        kind: "refused",
+        detail: `GitHub refused ${what}: ${msg}; it reads as locked by an enterprise policy. An enterprise owner must allow "Allow GitHub Actions to create and approve pull requests" in the enterprise's Actions policies`,
+        url,
+      };
+    }
     // The repo's checkbox is greyed out while the organisation forbids it:
     // the fix is the organisation's setting, by an owner (DEM-54).
-    if (/organi[sz]ation|enterprise/i.test(msg)) {
+    if (/organi[sz]ation/i.test(msg)) {
       const org = `https://github.com/organizations/${slug.split("/")[0]}/settings/actions`;
       return {
         kind: "refused",

@@ -1266,15 +1266,20 @@ describe("applyCiSetup", () => {
         f.calls.push("allowActionPullRequests");
         return {
           kind,
-          detail: "GitHub said no",
+          detail:
+            "GitHub said no. Allow it at https://github.com/o/r/settings/actions",
           url: "https://github.com/o/r/settings/actions",
         };
       };
       const r = await applyCiSetup(p, f.deps, values);
       expect(isStop(r) && r.reason).toBe(reason);
-      expect(isStop(r) && r.detail).toContain(
-        "https://github.com/o/r/settings/actions",
-      );
+      // The setting's detail names its URL; apply does not add it twice
+      // (review of #35, finding 8).
+      expect(
+        (isStop(r) ? r.detail : "").split(
+          "https://github.com/o/r/settings/actions",
+        ).length - 1,
+      ).toBe(1);
       // Red when secrets are set before a setting that stops the setup (DEM-54).
       expect(f.calls).not.toContain("setSecrets");
       expect(isStop(r) && r.detail).toContain("nothing was set");
