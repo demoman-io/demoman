@@ -328,6 +328,8 @@ async function draftLeft(
   return `; the check used a drafted ${APP_FILE}${from}, now written to the working tree uncommitted`;
 }
 
+const ACCOUNTS_FILE = ".demoman/accounts.json";
+
 async function shown(git: GitRunner, root: string, ref: string, path: string) {
   const r = await git(["show", `${ref}:${path}`], root);
   return r.code === 0 ? r.stdout : null;
@@ -680,6 +682,19 @@ async function makePlan(
     for (const ref of ["HEAD", base]) {
       if ((await shown(deps.git, root, ref, APP_FILE)) !== app.text) {
         files.push(APP_FILE);
+        break;
+      }
+    }
+  }
+  // The flows' demo accounts sign in from this file in CI as here: proposed
+  // like app.json, unless committed as is (DEM-53). Passwords stay secrets.
+  const accounts = await readFile(join(root, ACCOUNTS_FILE), "utf8").catch(
+    () => null,
+  );
+  if (accounts !== null) {
+    for (const ref of ["HEAD", base]) {
+      if ((await shown(deps.git, root, ref, ACCOUNTS_FILE)) !== accounts) {
+        files.push(ACCOUNTS_FILE);
         break;
       }
     }

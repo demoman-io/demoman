@@ -159,8 +159,9 @@ The plan lists:
   Push shows its measured cost per merge, or "not measured" with why when
   the check was skipped.
 - the route: `pr` (the default) or `main`.
-- the files: `.github/workflows/demoman.yml`, `.demoman/app.json` unless
-  committed as is, and each repo flow not yet on the default branch. A flow
+- the files: `.github/workflows/demoman.yml`, `.demoman/app.json` and
+  `.demoman/accounts.json` unless committed as is, and each repo flow not yet
+  on the default branch. A flow
   goes in with its receipt and exports only when the local video matches the
   script being committed; otherwise the script goes in alone, the plan says
   so, and the first run delivers it as new.
