@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -12,6 +12,7 @@ import {
   type AppStarted,
   type AppStartRefusal,
   startApp,
+  whoListens,
 } from "../src/executor/app-start.js";
 
 const SERVER = fileURLToPath(
@@ -270,6 +271,11 @@ describe("startApp", () => {
       });
       expect(isRefusal(r) && r.reason).toBe("appPortTaken");
       expect((r as AppStartRefusal).detail).toContain(url);
+      // Red when the refusal leaves the person to find what holds the port (DEM-62).
+      if (hasLsof)
+        expect((r as AppStartRefusal).detail).toContain(
+          `(held by node (pid ${process.pid}))`,
+        );
       expect(spawnSpy.calls).toEqual([]);
     });
 
@@ -541,5 +547,24 @@ describe("startApp", () => {
         ["rm", "-f", pgName],
       ]);
     });
+  });
+});
+
+const hasLsof = spawnSync("lsof", ["-v"]).error === undefined;
+
+describe("whoListens", () => {
+  it.skipIf(!hasLsof)("names the process listening on the port", async () => {
+    const server = createServer().listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    const { port } = server.address() as AddressInfo;
+    try {
+      expect(await whoListens(port)).toBe(`node (pid ${process.pid})`);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("answers null for a port nothing listens on", async () => {
+    expect(await whoListens(1)).toBeNull();
   });
 });
