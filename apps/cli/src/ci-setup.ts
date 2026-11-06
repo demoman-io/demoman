@@ -330,6 +330,8 @@ async function draftLeft(
 }
 
 const ACCOUNTS_FILE = ".demoman/accounts.json";
+const SECRETS_IGNORE =
+  "# Demoman: demo account passwords\n.demoman/secrets.env\n";
 const ignoresSecrets = (gitignore: string) =>
   gitignore.split("\n").some((l) => l.trim() === ".demoman/secrets.env");
 
@@ -703,21 +705,22 @@ async function makePlan(
     }
   }
   // The secrets.env ignore line travels with the setup, or a teammate's
-  // clone would not ignore the file (DEM-62).
-  // shortcut: the whole working-tree .gitignore goes, other uncommitted
-  // lines too; the plan line names the file. Upgrade to a one-line patch
-  // on HEAD's file if that surprises someone.
+  // clone would not ignore the file (DEM-62). The PR is built on the base,
+  // so the base decides and the carried file is the base's plus the line:
+  // never the working tree's, which could drop the base's newer lines or
+  // carry personal ones (final review).
+  let gitignore: string | null = null;
   const ignores = await readFile(join(root, ".gitignore"), "utf8").catch(
     () => null,
   );
   if (ignores !== null && ignoresSecrets(ignores)) {
-    for (const ref of ["HEAD", base]) {
-      if (
-        !ignoresSecrets((await shown(deps.git, root, ref, ".gitignore")) ?? "")
-      ) {
-        files.push(".gitignore");
-        break;
-      }
+    const onBase = (await shown(deps.git, root, base, ".gitignore")) ?? "";
+    if (!ignoresSecrets(onBase)) {
+      // A blank line before Demoman's lines, after the base's last line.
+      const lead =
+        onBase === "" ? "" : `${onBase}${onBase.endsWith("\n") ? "" : "\n"}\n`;
+      gitignore = `${lead}${SECRETS_IGNORE}`;
+      files.push(".gitignore");
     }
   }
   const scriptOnly: CiPlan["scriptOnly"] = [];
@@ -728,7 +731,7 @@ async function makePlan(
     if (got.scriptOnly !== null)
       scriptOnly.push({ flow: kept.name, why: got.scriptOnly });
   }
-  const texts = await fileTexts(root, files, workflow, app);
+  const texts = await fileTexts(root, files, workflow, app, gitignore);
   if ("failed" in texts) return stop("filesUnreadable", texts.failed);
 
   // The check (Decision 1, R3): said before it runs, and stoppable.
@@ -820,10 +823,13 @@ async function fileTexts(
   paths: string[],
   workflow: string,
   app: CiPlan["app"],
+  gitignore: string | null,
 ): Promise<{ files: SetupFiles } | { failed: string }> {
   const files: SetupFiles = [];
   for (const path of paths) {
     if (path === CI_WORKFLOW_PATH) files.push({ path, text: workflow });
+    else if (path === ".gitignore" && gitignore !== null)
+      files.push({ path, text: gitignore });
     else if (path === APP_FILE && app !== null)
       files.push({ path, text: app.text });
     else {

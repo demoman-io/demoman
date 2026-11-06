@@ -1019,6 +1019,30 @@ describe("planCiSetup's plan", () => {
     );
   });
 
+  // Final review, Important 1. Red when the PR's .gitignore is the working
+  // tree's whole file: built on the base, it would drop the base's newer
+  // lines and carry personal ones.
+  it("the carried .gitignore is the base's file plus the secrets line, decided on the base", async () => {
+    const root = await repo();
+    await writeFile(
+      join(root, ".gitignore"),
+      "my-local-notes/\n.demoman/secrets.env\n",
+    );
+    const onBase = fakes({
+      head: { "origin/trunk:.gitignore": "node_modules\n.cache\n" },
+    });
+    const p = await okPlan(root, onBase);
+    const carried = p.contents?.find((f) => f.path === ".gitignore");
+    expect(String(carried?.text)).toBe(
+      "node_modules\n.cache\n\n# Demoman: demo account passwords\n.demoman/secrets.env\n",
+    );
+    // The base already ignores it, though HEAD does not: nothing to carry.
+    const based = fakes({
+      head: { "origin/trunk:.gitignore": "dist\n.demoman/secrets.env\n" },
+    });
+    expect((await okPlan(root, based)).files).not.toContain(".gitignore");
+  });
+
   // R5: a delivery that does not match the committed script goes in as the script alone.
   // R24: match, edited and absent.
   it.each([
