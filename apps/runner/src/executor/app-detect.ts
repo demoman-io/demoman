@@ -357,8 +357,13 @@ async function workspaceDirs(
 ): Promise<string[] | null> {
   let globs: string[] | null = null;
   const ws = await readOr(join(root, "pnpm-workspace.yaml"));
-  if (ws !== null)
-    globs = (parseYaml(ws) as { packages?: string[] } | null)?.packages ?? [];
+  // A workspace file listing no packages holds settings only (newer pnpm
+  // writes allowBuilds there): one package, not a monorepo (DEM-48).
+  const listed =
+    ws === null
+      ? undefined
+      : (parseYaml(ws) as { packages?: unknown } | null)?.packages;
+  if (Array.isArray(listed) && listed.length > 0) globs = listed as string[];
   else if (Array.isArray(root_.workspaces))
     globs = root_.workspaces as string[];
   else if (

@@ -192,6 +192,23 @@ describe("detectApp", () => {
     expect(got.holes.map((h) => h.field)).not.toContain("env.SECRET_TOKEN");
   });
 
+  // Red when a pnpm-workspace.yaml holding only settings (allowBuilds, as
+  // newer pnpm writes) reads as a monorepo with no packages (DEM-48).
+  it("package.json: a pnpm-workspace.yaml with settings only is one package", async () => {
+    const got = await detectApp(fix("pnpm-settings"), ORIGIN);
+    if ("none" in got) throw new Error(got.none);
+    expect(got.source).toEqual({ kind: "packageJson", file: "package.json" });
+    expect(got.draft).toMatchObject({ start: "pnpm run start", url: ORIGIN });
+  });
+
+  it("package.json: packages: [] is one package too", async () => {
+    const dir = await copyOf("pnpm-settings");
+    await writeFile(join(dir, "pnpm-workspace.yaml"), "packages: []\n");
+    const got = await detectApp(dir, ORIGIN);
+    if ("none" in got) throw new Error(got.none);
+    expect(got.source).toEqual({ kind: "packageJson", file: "package.json" });
+  });
+
   it("monorepo: the one package whose script names the recorded port", async () => {
     const got = await detectApp(fix("monorepo-one"), ORIGIN);
     if ("none" in got) throw new Error(got.none);
