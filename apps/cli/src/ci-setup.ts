@@ -946,6 +946,23 @@ export async function applyCiSetup(
     );
 
   const { slug, defaultBranch } = plan.repo;
+  // The Actions setting first: an organisation that forbids it stops the
+  // setup before any secret is set (DEM-54).
+  let setting: ActionsSetting | null = null;
+  if (plan.route === "pr") {
+    setting = await deps.allowActionPullRequests(slug);
+    // R21: unknown is never read as turned on.
+    if (setting.kind === "refused" || setting.kind === "unknown")
+      return stop(
+        setting.kind === "refused" ? "actionsRefused" : "actionsUnknown",
+        `${setting.detail} (${setting.url}). Secrets: nothing was set; the pull request was not opened`,
+      );
+  }
+  const settingSaid =
+    setting === null
+      ? ""
+      : `; the Actions setting is ${setting.kind === "alreadyOn" ? "already on" : "turned on"}`;
+
   const toSet: SecretValues = new Map();
   for (const s of plan.secrets) {
     const v = values.get(s.name);
@@ -961,19 +978,8 @@ export async function applyCiSetup(
   if (secrets.failed.length > 0)
     return stop(
       "secretRefused",
-      `GitHub refused ${secrets.failed.map((f) => `${f.name} (${f.said})`).join("; ")}; ${done}. Nothing else was done; fix it, then run setup again`,
+      `GitHub refused ${secrets.failed.map((f) => `${f.name} (${f.said})`).join("; ")}; ${done}${settingSaid}. Nothing else was done; fix it, then run setup again`,
     );
-
-  let setting: ActionsSetting | null = null;
-  if (plan.route === "pr") {
-    setting = await deps.allowActionPullRequests(slug);
-    // R21: unknown is never read as turned on.
-    if (setting.kind === "refused" || setting.kind === "unknown")
-      return stop(
-        setting.kind === "refused" ? "actionsRefused" : "actionsUnknown",
-        `${setting.detail} (${setting.url}). Secrets ${done}; the pull request was not opened`,
-      );
-  }
 
   const pr = await deps.openSetupPr({
     root: plan.root,
@@ -984,10 +990,7 @@ export async function applyCiSetup(
     body: ["Demoman's CI setup:", "", ...planLines(plan)].join("\n"),
   });
   if ("failed" in pr)
-    return stop(
-      "prFailed",
-      `${pr.detail}. Secrets ${done}${setting === null ? "" : `; the Actions setting is ${setting.kind === "alreadyOn" ? "already on" : "turned on"}`}`,
-    );
+    return stop("prFailed", `${pr.detail}. Secrets ${done}${settingSaid}`);
 
   // Said before the watch, which can take half an hour.
   deps.log(`Opened the setup pull request: ${pr.opened.url}`);

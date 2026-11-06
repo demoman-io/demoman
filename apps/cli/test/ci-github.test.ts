@@ -407,13 +407,39 @@ describe("allowActionPullRequests", () => {
       }),
       S,
     );
+    // An organisation lock is changed in the organisation's settings, where
+    // the repo's checkbox is greyed out (DEM-54).
     expect(r).toMatchObject({
       kind: "refused",
-      url: `https://github.com/${S}/settings/actions`,
+      url: "https://github.com/organizations/o/settings/actions",
     });
     const d = (r as { detail: string }).detail;
     expect(d).toContain("controlled by the organization");
     expect(d).toContain("organisation");
+  });
+  // Red when gh's "(Conflict)" form, with no status number, reads as unknown (DEM-54).
+  it("refuses gh's (Conflict) form as an organisation lock", async () => {
+    const r = await allowActionPullRequests(
+      fake({
+        [path]: ok({
+          default_workflow_permissions: "read",
+          can_approve_pull_request_reviews: false,
+        }),
+        [`${path} -X PUT --input -`]: {
+          code: 1,
+          stderr:
+            "gh: The organization does not allow GitHub Actions to create or approve pull requests (Conflict)",
+        },
+      }),
+      S,
+    );
+    expect(r).toMatchObject({
+      kind: "refused",
+      url: "https://github.com/organizations/o/settings/actions",
+    });
+    expect((r as { detail: string }).detail).toContain(
+      "An organisation owner must allow",
+    );
   });
   const gets = {
     default_workflow_permissions: "read",

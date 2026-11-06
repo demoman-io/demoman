@@ -1003,7 +1003,7 @@ describe("ciSetup", () => {
     return { io, said, calls, seen, sig, root };
   }
   const yes = ["--ci", "--yes"];
-  const outward = ["setSecrets", "allowActionPullRequests", "openSetupPr"];
+  const outward = ["allowActionPullRequests", "setSecrets", "openSetupPr"];
 
   it("with no terminal and no --yes, reads and writes nothing and names exactly the flags missing", async () => {
     // Red if ciSetup reads GitHub before refusing, or names a flag already given.
@@ -1043,8 +1043,8 @@ describe("ciSetup", () => {
     expect(m.calls).toEqual([
       "readGithub",
       "verifySetup",
-      "setSecrets",
       "allowActionPullRequests",
+      "setSecrets",
       "openSetupPr",
       "watchSetupRun",
     ]);

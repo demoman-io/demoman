@@ -271,22 +271,30 @@ export async function allowActionPullRequests(
 ): Promise<ActionsSetting> {
   const url = `https://github.com/${slug}/settings/actions`;
   const path = `repos/${slug}/actions/permissions/workflow`;
-  // Only an HTTP 403/409 is GitHub saying no; anything else leaves the outcome unknown.
+  // Only a 403/409 is GitHub saying no, as "(HTTP 409)" or gh's
+  // "(Conflict)"/"(Forbidden)"; anything else leaves the outcome unknown.
   const fail = (what: string, stderr: string): ActionsSetting => {
     const msg = stderr.trim().split("\n")[0] || "no message";
-    if (!/HTTP (403|409)/.test(stderr)) {
+    if (!/HTTP (403|409)|\((Forbidden|Conflict)\)/.test(stderr)) {
       return {
         kind: "unknown",
         detail: `could not ${what} (${msg}); nothing was assumed. Check it at ${url}, or run setup again`,
         url,
       };
     }
-    const why = /organi[sz]ation|enterprise/i.test(msg)
-      ? "it reads as locked by the organisation"
-      : "it reads as missing admin on the repo";
+    // The repo's checkbox is greyed out while the organisation forbids it:
+    // the fix is the organisation's setting, by an owner (DEM-54).
+    if (/organi[sz]ation|enterprise/i.test(msg)) {
+      const org = `https://github.com/organizations/${slug.split("/")[0]}/settings/actions`;
+      return {
+        kind: "refused",
+        detail: `GitHub refused ${what}: ${msg}; it reads as locked by the organisation. An organisation owner must allow "Allow GitHub Actions to create and approve pull requests" at ${org}`,
+        url: org,
+      };
+    }
     return {
       kind: "refused",
-      detail: `GitHub refused ${what}: ${msg}; ${why}. Allow it at ${url}`,
+      detail: `GitHub refused ${what}: ${msg}; it reads as missing admin on the repo. Allow it at ${url}`,
       url,
     };
   };

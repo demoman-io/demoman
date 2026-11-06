@@ -1173,8 +1173,8 @@ describe("applyCiSetup", () => {
     const { f, p, values } = await ready();
     const r = await applyCiSetup(p, f.deps, values);
     expect(f.calls.filter((c) => !c.startsWith("git"))).toEqual([
-      "setSecrets",
       "allowActionPullRequests",
+      "setSecrets",
       "openSetupPr",
       "watchSetupRun",
     ]);
@@ -1188,7 +1188,7 @@ describe("applyCiSetup", () => {
     expect(f.seen.pr?.body).not.toContain(VALUE);
   });
 
-  it("a secret refusal: no setting call, no PR, names what was set and refused", async () => {
+  it("a secret refusal: no PR, names what was set and refused, and the setting turned on first", async () => {
     const { f, p, values } = await ready();
     f.deps.setSecrets = async () => {
       f.calls.push("setSecrets");
@@ -1203,7 +1203,11 @@ describe("applyCiSetup", () => {
     expect(isStop(r) && r.detail).toContain("DEMOMAN_SECRET_A");
     // Red if the detail says "kept:" again (a banned word).
     expect(isStop(r) && r.detail).toContain("set: none; left: none");
-    expect(f.calls).not.toContain("allowActionPullRequests");
+    // The Actions setting is checked before any secret (DEM-54), and said.
+    expect(f.calls.indexOf("allowActionPullRequests")).toBeLessThan(
+      f.calls.indexOf("setSecrets"),
+    );
+    expect(isStop(r) && r.detail).toContain("the Actions setting is turned on");
     expect(f.calls).not.toContain("openSetupPr");
     expect(JSON.stringify(r)).not.toContain(VALUE);
   });
@@ -1228,6 +1232,9 @@ describe("applyCiSetup", () => {
       expect(isStop(r) && r.detail).toContain(
         "https://github.com/o/r/settings/actions",
       );
+      // Red when secrets are set before a setting that stops the setup (DEM-54).
+      expect(f.calls).not.toContain("setSecrets");
+      expect(isStop(r) && r.detail).toContain("nothing was set");
       expect(f.calls).not.toContain("openSetupPr");
     },
   );

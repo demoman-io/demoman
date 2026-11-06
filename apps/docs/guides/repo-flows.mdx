@@ -249,7 +249,7 @@ the confirmation. Reasons it names:
 | `refreshFailed` | The check's refresh failed on a flow |
 | `checkStopped` | Ctrl-C ended the check; its worktree is removed and nothing was written |
 | `secretRefused` | GitHub refused a secret; the answer names which were set and kept, and no pull request is opened |
-| `actionsRefused`, `actionsUnknown` | The Actions setting was refused or could not be read; no pull request is opened |
+| `actionsRefused`, `actionsUnknown` | The Actions setting was refused or could not be read; no secret is set and no pull request is opened. When your organisation forbids it, an organisation owner allows it under the organisation's Settings → Actions → General |
 | `prFailed` | The pull request could not be opened; secrets already set stay |
 
 The watch ends passed, failed, cancelled, or unknown. Unknown means GitHub could
@@ -270,7 +270,9 @@ it never asks for a secret, and gives you the command to run instead.
 ### The pull request route
 
 Turn on **Allow GitHub Actions to create and approve pull requests** under
-Settings → Actions → General. While it is off, refresh pushes the branch,
+Settings → Actions → General. In an organisation that forbids it, the repo's
+checkbox is greyed out: an organisation owner allows it in the organisation's
+own Settings → Actions → General first. While it is off, refresh pushes the branch,
 opens no pull request, says so, and exits 1.
 
 Refresh force-pushes `demoman/refresh` and opens one pull request titled
