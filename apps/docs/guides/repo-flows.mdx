@@ -143,8 +143,8 @@ npx demoman setup --ci
 Setup shows one plan and asks once. It checks the setup from a clean
 checkout first, so the plan carries the result; nothing is written to your
 checkout, branch or default branch, except a drafted `.demoman/app.json` when
-the app step fails. Then, on your confirmation, it sets the
-secrets, turns on the Actions setting, opens a pull request titled "Set up
+the app step fails. Then, on your confirmation, it turns on the Actions
+setting, sets the secrets, opens a pull request titled "Set up
 Demoman" from `demoman/setup`, and watches its first run.
 
 The plan lists:
@@ -160,8 +160,9 @@ The plan lists:
   the check was skipped.
 - the route: `pr` (the default) or `main`.
 - the files: `.github/workflows/demoman.yml`, `.demoman/app.json` and
-  `.demoman/accounts.json` unless committed as is, `.gitignore` when only your
-  working tree ignores `.demoman/secrets.env`, and each repo flow not yet
+  `.demoman/accounts.json` unless committed as is, the default branch's
+  `.gitignore` with a `.demoman/secrets.env` line added when it lacks one, and
+  each repo flow not yet
   on the default branch. A flow
   goes in with its receipt and exports only when the local video matches the
   script being committed; otherwise the script goes in alone, the plan says
@@ -248,7 +249,7 @@ the confirmation. Reasons it names:
 | `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appDockerMissing` | The check could not install or start the app or its services; the output's last lines come with it. When the check used a drafted `.demoman/app.json`, setup writes it to your working tree, uncommitted, so you can fix the command and run setup again |
 | `refreshFailed` | The check's refresh failed on a flow |
 | `checkStopped` | Ctrl-C ended the check; its worktree is removed and nothing was written |
-| `secretRefused` | GitHub refused a secret; the answer names which were set and kept, and no pull request is opened |
+| `secretRefused` | GitHub refused a secret; the answer names which were set and left, and whether the Actions setting is on; no pull request is opened |
 | `actionsRefused`, `actionsUnknown` | The Actions setting was refused or could not be read; no secret is set and no pull request is opened. When your organisation forbids it, an organisation owner allows it under the organisation's Settings → Actions → General |
 | `prFailed` | The pull request could not be opened; secrets already set stay |
 
