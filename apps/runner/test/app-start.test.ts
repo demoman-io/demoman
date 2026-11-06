@@ -273,8 +273,10 @@ describe("startApp", () => {
       expect((r as AppStartRefusal).detail).toContain(url);
       // Red when the refusal leaves the person to find what holds the port (DEM-62).
       if (hasLsof)
-        expect((r as AppStartRefusal).detail).toContain(
-          `(held by node (pid ${process.pid}))`,
+        // lsof's command is the process title: "node", or "node (vitest 1)"
+        // on Linux, where vitest renames its workers.
+        expect((r as AppStartRefusal).detail).toMatch(
+          new RegExp(`\\(held by node.* \\(pid ${process.pid}\\)\\)`),
         );
       expect(spawnSpy.calls).toEqual([]);
     });
@@ -558,7 +560,9 @@ describe("whoListens", () => {
     await new Promise((r) => server.once("listening", r));
     const { port } = server.address() as AddressInfo;
     try {
-      expect(await whoListens(port)).toBe(`node (pid ${process.pid})`);
+      expect(await whoListens(port)).toMatch(
+        new RegExp(`^node.* \\(pid ${process.pid}\\)$`),
+      );
     } finally {
       server.close();
     }
