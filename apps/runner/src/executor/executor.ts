@@ -686,7 +686,14 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             { holder: { id: kept.flow, name: kept.name } },
           );
         }
-        const rawTarget = (raw as { target?: unknown } | null)?.target;
+        // Read before the script is checked: a script that throws on any
+        // read must still reach the run's own catch, which answers threw.
+        let rawTarget: unknown;
+        try {
+          rawTarget = (raw as { target?: unknown } | null)?.target;
+        } catch {
+          rawTarget = undefined;
+        }
         const matches = await matchesFor(
           videos,
           library,
