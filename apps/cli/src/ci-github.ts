@@ -282,6 +282,15 @@ export async function allowActionPullRequests(
         url,
       };
     }
+    // Single sign-on also says "organization", but the token is what lacks
+    // access: authorise it, no owner needed.
+    if (/SAML|single sign-on|\bSSO\b/i.test(msg)) {
+      return {
+        kind: "refused",
+        detail: `GitHub refused ${what}: ${msg}; the organisation uses single sign-on and gh's token is not authorised for it. Run \`gh auth refresh\` and authorise the organisation, then run setup again`,
+        url,
+      };
+    }
     // The repo's checkbox is greyed out while the organisation forbids it:
     // the fix is the organisation's setting, by an owner (DEM-54).
     if (/organi[sz]ation|enterprise/i.test(msg)) {

@@ -417,6 +417,27 @@ describe("allowActionPullRequests", () => {
     expect(d).toContain("controlled by the organization");
     expect(d).toContain("organisation");
   });
+  // Final review, re-graded Important. Red when a single sign-on refusal is
+  // read as an organisation lock: the fix is authorising the token.
+  it("a SAML single sign-on refusal says to authorise the token, not to ask an owner", async () => {
+    const r = await allowActionPullRequests(
+      fake({
+        [path]: ok({
+          default_workflow_permissions: "read",
+          can_approve_pull_request_reviews: false,
+        }),
+        [`${path} -X PUT --input -`]: http(
+          403,
+          "Resource protected by organization SAML enforcement. You must grant your OAuth token access to this organization.",
+        ),
+      }),
+      S,
+    );
+    expect(r.kind).toBe("refused");
+    const d = (r as { detail: string }).detail;
+    expect(d).toContain("gh auth refresh");
+    expect(d).not.toContain("organisation owner");
+  });
   // Red when gh's "(Conflict)" form, with no status number, reads as unknown (DEM-54).
   it("refuses gh's (Conflict) form as an organisation lock", async () => {
     const r = await allowActionPullRequests(
