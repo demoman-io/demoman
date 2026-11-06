@@ -543,7 +543,9 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
       });
       const r = await plan(await repo(), f, { app: undefined });
       expect(isStop(r) && r.reason).toBe("appInvalid");
-      expect(isStop(r) && r.detail).toContain(`(${field})`);
+      // The field once, where parseApp names it (review of #35, finding 10).
+      expect(isStop(r) && r.detail).toContain(`: ${field}: `);
+      expect(isStop(r) && r.detail).not.toContain(`(${field})`);
       expect(isStop(r) && r.detail).toContain("playwright.config.ts");
       expect(f.calls.filter((c) => !c.startsWith("git"))).toEqual([
         "readGithub",

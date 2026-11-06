@@ -541,7 +541,7 @@ async function makePlan(
       if (!parsed.ok)
         return stop(
           "appInvalid",
-          `${parsed.detail} (${parsed.field}); write ${APP_FILE} with it fixed, then run setup again`,
+          `${parsed.detail}; write ${APP_FILE} with it fixed, then run setup again`,
         );
       app = {
         spec: parsed.app,
