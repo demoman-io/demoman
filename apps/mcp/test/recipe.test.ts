@@ -145,6 +145,14 @@ describe("the recipe's examples and snapshot reading", () => {
 
   // Red if the recipe stops saying how to poll: plan 1's text said only
   // "until the outcome is not 'running'", and an export never says running.
+  // Red when an agent's hand-written accounts.json breaks the repo's own
+  // lint and turns the setup PR red (DEM-64).
+  it("tells the agent to format hand-written .demoman files with the repo's formatter", () => {
+    expect(recipe).toMatch(
+      /`accounts\.json`, formatted as the repo's formatter writes it\s+\(its CI lints it\)/,
+    );
+  });
+
   it("says to poll a run until it is not running and an export until it is not exporting", () => {
     expect(recipe).toMatch(/`running`/);
     expect(recipe).toMatch(/`exporting`/);

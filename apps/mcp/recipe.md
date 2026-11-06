@@ -53,8 +53,7 @@ as `secretsFileNotIgnored` or `secretsFileInvalid` will be). Never a value.
 A page behind a login answers `signedOut` and `status` shows no account for
 its site. Then, in order:
 
-1. **Reuse first.** Read each account's `about` and pick the one that fits
-   the demo. Name it in the script's `account`, or omit it for the `default`.
+1. **Reuse first.** Pick the account whose `about` fits the demo. Name it in the script's `account`, or omit it for the `default`.
 2. **The app's repo is open and runs against a local development database:**
    create a demo account and the data the demo needs, with a seed script
    committed in the app and safe to run twice (`priv/repo/demo_seeds.exs`,
@@ -62,16 +61,17 @@ its site. Then, in order:
    Write `DEMOMAN_SECRET_<NAME>=…` and
    `DEMOMAN_SECRET_<NAME>_ORIGIN=<the site's origin>` to
    `.demoman/secrets.env`, and `.gitignore` it if missing. Add the
-   account to `accounts.json`, tell the user in a line, `snapshot` again.
+   account to `accounts.json`, formatted as the repo's formatter writes it
+   (its CI lints it), tell the user in a line, `snapshot` again.
 3. **Two-factor or a magic link in the way:** add a dev-only "sign in as"
-   route, reachable only in development, and make the account's `signIn` one
+   route, and make the account's `signIn` one
    `goto` to it. Phoenix:
    `if Mix.env() == :dev, do: get "/dev/sign-in-as/:email", DevController, :sign_in`; Rails: the same under `Rails.env.development?`.
    It starts a session only.
 4. **The database is not clearly local** (a remote `DATABASE_URL`, staging,
    production): create nothing. Ask the user, or give them
-   `npx demoman signin <url>`, which signs in by hand in a window: it is the
-   way for a real account, single sign-on and two-factor.
+   `npx demoman signin <url>`, which signs in by hand in a window: the way
+   for a real account, single sign-on and two-factor.
 
 The file, with one account:
 

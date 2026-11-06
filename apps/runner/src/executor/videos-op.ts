@@ -206,9 +206,13 @@ export async function matchesFor(
 ): Promise<VideoSummary[]> {
   const out: VideoSummary[] = [];
   const mine = await store.resolve(repo);
+  // In a known repo only its own flows can be duplicates: a flow of unknown
+  // repo was recorded somewhere else, often on another app (DEM-51).
+  const same = (r: VideoRepo) =>
+    "key" in mine ? "key" in r && r.key === mine.key : sharesRepo(r, mine);
   for (const v of await store.list()) {
     if ("unreadable" in v) continue;
-    if (sharesRepo(v.repo, mine) && similarNames(v.name, name)) {
+    if (same(v.repo) && similarNames(v.name, name)) {
       out.push(await summarise(store, library, v));
     }
   }

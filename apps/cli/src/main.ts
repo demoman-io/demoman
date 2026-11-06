@@ -233,7 +233,7 @@ async function mcp(args: string[]): Promise<void> {
       log,
     }),
     studio: async (a) => {
-      const { key, why } = await callerProject(process.cwd());
+      const { key, why } = await callerProject(() => process.cwd());
       if (why !== undefined) log(`the Studio opens without a project: ${why}`);
       return openStudio({
         home: demomanHome(),
@@ -279,7 +279,7 @@ async function studio(args: string[]): Promise<void> {
     process.exit(0);
   }
   if (parsed.kind === "open") {
-    const { key, why } = await callerProject(process.cwd());
+    const { key, why } = await callerProject(() => process.cwd());
     const answer = await openStudio({
       home,
       ...(key === undefined ? {} : { project: key }),
