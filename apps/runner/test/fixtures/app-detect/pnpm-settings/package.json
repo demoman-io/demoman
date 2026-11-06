@@ -1,4 +1,7 @@
 {
   "name": "settings-only",
-  "scripts": { "dev": "vite", "start": "node server.js" }
+  "scripts": {
+    "dev": "vite",
+    "start": "node server.js"
+  }
 }
