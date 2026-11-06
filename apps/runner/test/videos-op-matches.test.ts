@@ -41,7 +41,35 @@ describe("matchesFor", () => {
       startPage: "http://localhost:4401/",
     });
     if (!same.ok) throw new Error(JSON.stringify(same));
-    const got = await matchesFor(store, library, "Create an invoice", mine);
+    const got = await matchesFor(
+      store,
+      library,
+      "Create an invoice",
+      mine,
+      "http://localhost:4401/",
+    );
     expect(got.map((m) => m.id)).toEqual([same.video.id]);
+  });
+
+  // Review of #35, finding 6. Red when a flow recorded in this repo before
+  // repos were tracked (unknown repo) stops counting: on the same site it
+  // is still a possible duplicate.
+  it("in a known repo, a flow of unknown repo on the same site still matches", async () => {
+    const library = createLibrary(home);
+    const store = createVideoStore(home, library);
+    const old = await store.create({
+      name: "Create a new invoice",
+      repo: { unknown: true },
+      startPage: "http://localhost:4401/invoices",
+    });
+    if (!old.ok) throw new Error(JSON.stringify(old));
+    const got = await matchesFor(
+      store,
+      library,
+      "Create an invoice",
+      { key: "github.com/acme/nylon" },
+      "http://localhost:4401/",
+    );
+    expect(got.map((m) => m.id)).toEqual([old.video.id]);
   });
 });

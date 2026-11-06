@@ -198,21 +198,37 @@ export async function describeVideo(
 /** Videos in `repo` (or of unknown repo) whose name is similar to `name`
  *  (spec §4). An unreadable record has no name to compare, so it cannot
  *  match; `videos` lists it as unreadable. */
+const originOf = (u: string): string | null => {
+  try {
+    return new URL(u).origin;
+  } catch {
+    return null;
+  }
+};
+
 export async function matchesFor(
   store: VideoStore,
   library: Library,
   name: string,
   repo: VideoRepo,
+  /** The new flow's start page: an unknown-repo flow counts only on its site. */
+  startPage: string,
 ): Promise<VideoSummary[]> {
   const out: VideoSummary[] = [];
   const mine = await store.resolve(repo);
-  // In a known repo only its own flows can be duplicates: a flow of unknown
-  // repo was recorded somewhere else, often on another app (DEM-51).
-  const same = (r: VideoRepo) =>
-    "key" in mine ? "key" in r && r.key === mine.key : sharesRepo(r, mine);
+  // In a known repo, a flow of unknown repo counts only on the same site: it
+  // may be this repo's from before repos were tracked, or another app's
+  // (DEM-51, review of #35).
+  const site = originOf(startPage);
+  const same = (v: VideoRecord) =>
+    "key" in mine
+      ? "key" in v.repo
+        ? v.repo.key === mine.key
+        : "unknown" in v.repo && site !== null && originOf(v.startPage) === site
+      : sharesRepo(v.repo, mine);
   for (const v of await store.list()) {
     if ("unreadable" in v) continue;
-    if (same(v.repo) && similarNames(v.name, name)) {
+    if (same(v) && similarNames(v.name, name)) {
       out.push(await summarise(store, library, v));
     }
   }

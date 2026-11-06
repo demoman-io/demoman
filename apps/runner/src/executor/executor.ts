@@ -686,7 +686,14 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             { holder: { id: kept.flow, name: kept.name } },
           );
         }
-        const matches = await matchesFor(videos, library, asked.new, videoRepo);
+        const rawTarget = (raw as { target?: unknown } | null)?.target;
+        const matches = await matchesFor(
+          videos,
+          library,
+          asked.new,
+          videoRepo,
+          startPage(typeof rawTarget === "string" ? rawTarget : undefined),
+        );
         const holder = matches.find((m) => sameName(m.name, asked.new));
         if (holder !== undefined) {
           return refusal(
