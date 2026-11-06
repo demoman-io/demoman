@@ -143,6 +143,12 @@ describe("the recipe's examples and snapshot reading", () => {
     ).toBe(true);
   });
 
+  // Red when the dev-only sign-in route loses its explicit safety rule
+  // (review of #35, finding 9).
+  it("requires the sign-in-as route to be reachable only in development", () => {
+    expect(recipe).toMatch(/dev-only "sign in as"\s+route, reachable only in development/);
+  });
+
   // Red when an agent's hand-written accounts.json breaks the repo's own
   // lint and turns the setup PR red (DEM-64).
   it("tells the agent to format hand-written .demoman files with the repo's formatter", () => {

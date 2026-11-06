@@ -64,7 +64,7 @@ its site. Then, in order:
    account to `accounts.json`, formatted as the repo's formatter writes it
    (its CI lints it), tell the user in a line, `snapshot` again.
 3. **Two-factor or a magic link in the way:** add a dev-only "sign in as"
-   route, and make the account's `signIn` one
+   route, reachable only in development, and make the account's `signIn` one
    `goto` to it. Phoenix:
    `if Mix.env() == :dev, do: get "/dev/sign-in-as/:email", DevController, :sign_in`; Rails: the same under `Rails.env.development?`.
    It starts a session only.
@@ -176,7 +176,6 @@ targets, leaving the page open. Each entry is
   again after the page changes. `value`: a field's text, never a password's.
   `unresolvable`: no target reaches it. `notExamined` above 0: pass `contains`
   (name, text, stableId, kind, value) to narrow. `containsNote`: no match.
-- Iframe and shadow-root elements are not listed.
 - A snapshot sees only the page as it loads: hidden content in the
   page is listed; content a click creates (a menu, dialog, results, a new row) is not. To list it, `probe` your script
   cut off after the step that opens it, and copy targets from that answer. A probe acts on the app for real, as its description says: an "Add item"
