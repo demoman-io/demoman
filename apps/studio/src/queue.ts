@@ -31,6 +31,13 @@ export interface ExportQueue {
   size(): number;
   /** Resolves once `size()` is 0 (at once when it already is). */
   drained(): Promise<void>;
+  /** Runs `fn` in its turn, FIFO with exports: it waits for a running or
+   *  queued export, and one queued after it waits for it. */
+  serial<T>(
+    fn: () => Promise<T>,
+    /** Told the position the turn took, as an export's `queued` says it. */
+    onQueued?: (position: number) => void,
+  ): Promise<T>;
 }
 
 export type RunExport = (
@@ -56,6 +63,11 @@ interface Job {
   fileType: FileType;
   quality?: ExportQuality;
   jobId: string;
+}
+
+/** A turn on the queue that is not an export (`serial`). */
+interface Turn {
+  turn: () => Promise<void>;
 }
 
 /** `failed`'s reason: the refusal's own, else the outcome that ended it. */
@@ -84,8 +96,8 @@ export function createExportQueue(o: {
   log: (line: string) => void;
 }): ExportQueue {
   const { library, events, log } = o;
-  const waiting: Job[] = [];
-  let running: Job | null = null;
+  const waiting: (Job | Turn)[] = [];
+  let running: Job | Turn | null = null;
   let admitting = 0;
   // Admissions run one after another, so positions follow the order the
   // requests arrived in, not the order their scene reads finished.
@@ -177,6 +189,14 @@ export function createExportQueue(o: {
       return;
     }
     running = next;
+    if ("turn" in next) {
+      // A turn settles its own caller's promise and never rejects.
+      void next.turn().finally(() => {
+        running = null;
+        pump();
+      });
+      return;
+    }
     void runOne(next)
       .catch((error: unknown) => {
         // runOne catches everything it awaits; this is the event hub itself
@@ -241,6 +261,17 @@ export function createExportQueue(o: {
       });
     },
     size,
+    serial(fn, onQueued) {
+      return new Promise((resolve, reject) => {
+        onQueued?.(waiting.length + (running === null ? 0 : 1));
+        // Through a promise, so a synchronous throw rejects the caller
+        // and does not leave the queue's running slot held.
+        waiting.push({
+          turn: () => Promise.resolve().then(fn).then(resolve, reject),
+        });
+        pump();
+      });
+    },
     drained() {
       if (size() === 0) return Promise.resolve();
       return new Promise((resolve) => drainWaiters.push(resolve));

@@ -785,3 +785,40 @@ describe("a date heading's box", () => {
     expect(acts.selectGroup).toHaveBeenCalledExactlyOnceWith(["A"]);
   });
 });
+
+describe("the row menu's Add to repo", () => {
+  // Red if rowMenu stops carrying a disabled Add's aria-disabled and label, or lets its press add.
+  it("mirrors a disabled Add as an aria-disabled item that does nothing", () => {
+    const add = vi.fn();
+    const acts = {
+      ...actions(),
+      repo: {
+        addable: () =>
+          ({
+            ok: false,
+            reason: "hasTrim",
+            label: "has a trim",
+            detail: "This flow has a trim.",
+          }) as const,
+        adding: () => false,
+        add,
+        remove: vi.fn(),
+      },
+    };
+    const { grid } = draw(LIST, model, acts as never);
+    const row = rowOf(grid, "f:B");
+    // Premise: the row's own button is the disabled one.
+    const own = row.querySelector<HTMLElement>('[data-action="repo-add"]');
+    expect(own?.getAttribute("aria-disabled")).toBe("true");
+    const item = [
+      ...row.querySelectorAll<HTMLButtonElement>(".row-menu > button"),
+    ].find((b) => b.textContent?.includes("Can't add: has a trim"));
+    expect(item?.getAttribute("aria-disabled")).toBe("true");
+    // jsdom has no popover API; the press hides the menu first.
+    (
+      item?.parentElement as HTMLElement & { hidePopover: () => void }
+    ).hidePopover = () => {};
+    item?.click();
+    expect(add).not.toHaveBeenCalled();
+  });
+});

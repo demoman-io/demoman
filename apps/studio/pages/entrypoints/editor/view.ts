@@ -13,7 +13,7 @@ import {
   type SceneCursor,
   type SceneMotion,
 } from "@demoman/scene-schema";
-import type { ExportQualityChoice } from "@demoman/studio-protocol";
+import type { Addable, ExportQualityChoice } from "@demoman/studio-protocol";
 import {
   type BrandingControlsHandlers,
   type BrandingControlsProps,
@@ -971,6 +971,23 @@ export interface ExportState {
    *  since 2026-10-19 that way is held by Take info's Re-film row, so the
    *  panel is for exporting (the author). */
   runsRoute: RunsRoute;
+  /** This take's flow and its repo, when the Studio can say; null draws no
+   *  Repo section. */
+  repo?: RepoState | null;
+}
+
+/** The Export panel's Repo section (settled decision 7). */
+export interface RepoState {
+  /** The recipe file when the flow is In repo; null when it is not. */
+  inRepo: { file: string } | null;
+  /** Whether it can be added; undefined when the Studio gave no answer. */
+  addable: Addable | undefined;
+  /** An add of the flow is under way. */
+  adding: boolean;
+  /** A sentence the last add or remove left, or null. */
+  status: string | null;
+  /** A sentence that is not a failure (a remove's notes), or null. */
+  note?: string | null;
 }
 
 /**
@@ -1126,6 +1143,8 @@ export function renderExport(
     onQuality(next: ExportQualityChoice): void;
     onSaveAgain(refs: string[]): void;
     onReveal(target: RevealTarget): void;
+    onAddToRepo?(): void;
+    onRemoveFromRepo?(): void;
   },
 ): void {
   const box = el("div");
@@ -1247,6 +1266,8 @@ export function renderExport(
     box.append(bar);
   }
 
+  const repoRow = repoSection(state.repo, handlers);
+  if (repoRow !== null) box.append(repoRow);
   if (state.save !== null) box.append(saveOutcomeRow(state.save, handlers));
   // A file of the press that failed, once the press is over. Why is said in
   // the failure band above the editor (`renderFailure`'s `renderError`),
@@ -1292,6 +1313,59 @@ export function renderExport(
   }
 
   root.replaceChildren(box);
+}
+
+/** The Repo section: Add to repo (disabled with its reason when the flow
+ *  cannot be added) or In repo with Remove from repo. */
+function repoSection(
+  repo: RepoState | null | undefined,
+  handlers: { onAddToRepo?(): void; onRemoveFromRepo?(): void },
+): HTMLElement | null {
+  if (repo == null) return null;
+  const row = el("div", "control-row");
+  row.setAttribute("data-repo-section", "");
+  row.append(el("span", "control-label", "Repo"));
+  const button = (word: string, glyph: "gitBranchPlus" | "gitBranchMinus") => {
+    const b = el("button", "btn btn-quiet");
+    b.type = "button";
+    b.append(icon(glyph), word);
+    return b;
+  };
+  if (repo.inRepo !== null) {
+    row.append(el("span", "control-aside", "In repo"));
+    const remove = button("Remove from repo", "gitBranchMinus");
+    remove.setAttribute("data-action", "repo-remove");
+    remove.addEventListener("click", () => handlers.onRemoveFromRepo?.());
+    row.append(remove);
+  } else if (repo.addable !== undefined) {
+    const add = button("Add to repo", "gitBranchPlus");
+    add.setAttribute("data-action", "repo-add");
+    if (repo.adding) {
+      add.setAttribute("aria-disabled", "true");
+      add.title = "Adding to repo…";
+    } else if (repo.addable.ok) {
+      add.addEventListener("click", () => handlers.onAddToRepo?.());
+    } else {
+      add.setAttribute("aria-disabled", "true");
+      add.replaceChildren(
+        icon("gitBranchPlus"),
+        `Can't add: ${repo.addable.label}`,
+      );
+      add.title = repo.addable.detail;
+    }
+    row.append(add);
+  } else return null;
+  if (repo.note != null) {
+    const line = el("p", "notice", repo.note);
+    line.setAttribute("data-note", "");
+    row.append(line);
+  }
+  if (repo.status !== null) {
+    const line = el("p", "notice notice-error", repo.status);
+    line.setAttribute("data-status", "");
+    row.append(line);
+  }
+  return row;
 }
 
 /** How many exports Take info lists before "Show all". */

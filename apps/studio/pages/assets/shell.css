@@ -768,6 +768,11 @@
   .btn:disabled {
     opacity: 0.5;
   }
+  /* Disabled but still focusable, so its reason can be read. */
+  .btn[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
   .btn-primary {
     background: var(--primary);
     color: var(--primary-ink);
@@ -1650,6 +1655,9 @@
   margin: 8px 0 0;
   color: var(--ink-muted);
   line-height: 1.5;
+  /* A path in the question (Remove from repo names the exports) has no
+     break of its own. */
+  overflow-wrap: anywhere;
 }
 /* Cancel and the answer weigh the same: one style, one width. */
 .confirm-actions {
@@ -1685,6 +1693,97 @@
 .confirm-dialog .btn:focus {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* The add sheet (src/shell/repo-sheet.ts) is the confirmation's dialog with
+   a form in it: left-aligned fields under the centred heading. */
+.repo-sheet {
+  max-width: 520px;
+}
+.repo-sheet form {
+  gap: 12px;
+  text-align: left;
+}
+.repo-sheet .confirm-title {
+  text-align: center;
+}
+.repo-sheet label {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.repo-sheet :is(input, select) {
+  box-sizing: border-box;
+  width: 100%;
+}
+.repo-sheet .confirm-actions {
+  margin-top: 12px;
+}
+.repo-sheet .repo-line {
+  margin: 0;
+  color: var(--ink-muted);
+}
+.repo-sheet .repo-status {
+  display: grid;
+  gap: 2px;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: var(--radius-card);
+  background: var(--control);
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.repo-sheet .repo-status:empty {
+  display: none;
+}
+.repo-sheet p,
+.repo-sheet pre {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.repo-sheet pre {
+  max-height: 160px;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.repo-sheet .repo-lines {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding-left: 18px;
+}
+.repo-sheet .repo-why {
+  color: var(--ink-faint);
+}
+.repo-sheet a {
+  color: var(--ink);
+}
+.repo-sheet .repo-written {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.repo-sheet .repo-written li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+/* Reveal keeps its word on one line however long the path beside it. */
+.repo-sheet .repo-written li .btn {
+  flex: none;
+  white-space: nowrap;
+}
+.repo-sheet .repo-written li .btn svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
 }
 
 /* The body's face, OUTSIDE `@layer shell` on purpose. Chrome injects a

@@ -11,8 +11,11 @@ import type { LogoLoad } from "@demoman/run-core/render";
 import { fitWallpaperImage } from "@demoman/run-core/wallpaper";
 import type { SceneDocument } from "@demoman/scene-schema";
 import {
+  type Addable,
   type AssetAnswer,
   type BundleAnswer,
+  type CiStarted,
+  type CiState,
   type DeleteAnswer,
   type ExportQualityAnswer,
   type ExportStartAnswer,
@@ -27,10 +30,13 @@ import {
   type PingAnswer,
   type PullRequestsAnswer,
   pathFor,
+  type RepoAddStarted,
+  type RepoRemoveAnswer,
   ROUTES,
   type RouteId,
   type SceneAnswer,
   type ScenePutAnswer,
+  type SetupPrWire,
   STUDIO_HEADER,
   type StudioEvent,
   type TakesAnswer,
@@ -50,13 +56,15 @@ import {
 } from "../core/brand-kit";
 import type { ReplayStatus } from "../core/replay/status";
 import type { SaveView } from "../editor/export-run";
-import { GONE_LINES, type GoneKind, showGone } from "./gone";
+import { GONE_LINES, type GoneKind, goneText, showGone } from "./gone";
 import type {
+  CiEvent,
   ExportEvent,
   FolderListing,
   OutputRow,
   Platform,
   RemoveReply,
+  RepoEvent,
 } from "./types";
 
 export type {
@@ -242,10 +250,48 @@ export function createPlatform(
    *  by that is the page leaving, not the studio stopping. */
   let leaving = false;
   let goneKind: GoneKind | null = null;
+  const repoListeners = new Map<string, (e: RepoEvent) => void>();
+  const repoHeld = new Map<string, RepoEvent[]>();
+  const ciListeners = new Map<string, (e: CiEvent) => void>();
+  const ciHeld = new Map<string, CiEvent[]>();
+  /** Holds an unclaimed job's event: the last 50 of at most 20 jobs (a
+   *  long apply's lines would grow it without end). The end comes last. */
+  const hold = <E extends { jobId: string }>(
+    held: Map<string, E[]>,
+    event: E,
+  ): void => {
+    const list = held.get(event.jobId) ?? [];
+    list.push(event);
+    if (list.length > 50) list.shift();
+    held.set(event.jobId, list);
+    if (held.size > 20) held.delete(held.keys().next().value as string);
+  };
   const gone = (kind: GoneKind): void => {
     if (leaving) return;
     goneKind ??= kind;
     showGone(kind);
+    // An add the sheet is waiting on will never hear its end: say so, in the
+    // house sentence, as that add's own failure.
+    for (const [jobId, listener] of [...repoListeners]) {
+      listener({
+        type: "repo",
+        videoId: "",
+        jobId,
+        phase: "failed",
+        reason: "studioGone",
+        detail: goneText(kind),
+      });
+    }
+    // Likewise a plan or apply: its end, as a stop in the house sentence.
+    for (const [jobId, listener] of [...ciListeners]) {
+      listener({
+        type: "ci",
+        jobId,
+        phase: "done",
+        step: "plan",
+        answer: { reason: "studioGone", detail: goneText(kind) },
+      });
+    }
   };
 
   /**
@@ -447,6 +493,33 @@ export function createPlatform(
       case "takes":
         each(takesListeners, undefined, "takes");
         return;
+      case "repo": {
+        const listener = repoListeners.get(event.jobId);
+        if (listener !== undefined) {
+          try {
+            listener(event);
+          } catch (error) {
+            console.error("demoman studio: a repo listener failed", error);
+          }
+          return;
+        }
+        // Held for onRepo; capped, as another window's jobs are never claimed.
+        hold(repoHeld, event);
+        return;
+      }
+      case "ci": {
+        const listener = ciListeners.get(event.jobId);
+        if (listener !== undefined) {
+          try {
+            listener(event);
+          } catch (error) {
+            console.error("demoman studio: a ci listener failed", error);
+          }
+          return;
+        }
+        hold(ciHeld, event);
+        return;
+      }
       case "watchFailed":
         // Only a trigger to read again: the GET answer carries the reason
         // (`unwatched`), so a page that opens after this still hears it.
@@ -692,6 +765,7 @@ export function createPlatform(
       sizes: got.sizes,
       unreadable: got.unreadable,
       unwatched: got.unwatched,
+      addable: got.addable,
     };
   }
 
@@ -740,6 +814,53 @@ export function createPlatform(
         );
       },
       remove: (id) => removeBy(request("videoDelete", { params: { id } })),
+      repo: {
+        async addable(id) {
+          return answer<Addable>(
+            await request("repoAddable", { params: { id } }),
+          );
+        },
+        async add(id, body) {
+          return answer<RepoAddStarted>(
+            await request("repoAdd", { params: { id }, json: body }),
+          );
+        },
+        async remove(id) {
+          return answer<RepoRemoveAnswer>(
+            await request("repoRemove", { params: { id } }),
+          );
+        },
+        onRepo(jobId, fn) {
+          // Events that came before this call (the stream can beat the
+          // POST's answer) are replayed first.
+          for (const e of repoHeld.get(jobId) ?? []) fn(e);
+          repoHeld.delete(jobId);
+          repoListeners.set(jobId, fn);
+          return () => repoListeners.delete(jobId);
+        },
+      },
+    },
+    repoCi: {
+      async state(root) {
+        return answer<CiState>(
+          await request("repoCiState", { query: { root } }),
+        );
+      },
+      async plan(json) {
+        return answer<CiStarted>(await request("repoCiPlan", { json }));
+      },
+      async apply(json) {
+        return answer<CiStarted>(await request("repoCiApply", { json }));
+      },
+      async openPr(json) {
+        return answer<SetupPrWire>(await request("repoPr", { json }));
+      },
+      onCi(jobId, fn) {
+        for (const e of ciHeld.get(jobId) ?? []) fn(e);
+        ciHeld.delete(jobId);
+        ciListeners.set(jobId, fn);
+        return () => ciListeners.delete(jobId);
+      },
     },
     folder: {
       read: readFolder,

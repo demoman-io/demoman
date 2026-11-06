@@ -259,9 +259,13 @@ describe("keep, a clean take", () => {
       expect(kept.scale).toBe(1);
       // Report before you forgive: a guessed 1 is said on the answer, not
       // left to look like a recorded one.
+      // Red if the note names the take id again, not the flow.
       expect(out.scaleGuess).toContain(
-        `1x is a guess: video ${cleanTakeId} does not say the scale it was recorded at and has no motion frames to read one from`,
+        `1x is a guess: "Add a task" does not say the scale it was recorded at and has no motion frames to read one from`,
       );
+      // Red if a line the Studio's sheet shows says "keep" again.
+      expect(lines).toContain("add: exporting docs/hero.mp4");
+      expect(lines.filter((l) => /\bkeep\b/i.test(l))).toEqual([]);
       expect(receipt.video).toBe(cleanTakeId);
       expect(kept.flow).toBe(receipt.flow);
       expect(kept.report).toBe("docs/hero-report.json");

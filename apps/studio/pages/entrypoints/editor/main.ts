@@ -29,7 +29,11 @@ import {
   type SceneMotion,
   stepsInsideRemoved,
 } from "@demoman/scene-schema";
-import type { ExportQualityChoice } from "@demoman/studio-protocol";
+import type {
+  Addable,
+  ExportQualityChoice,
+  VideoSummary,
+} from "@demoman/studio-protocol";
 import { createPlatform } from "#platform";
 import {
   decodeLogo,
@@ -152,11 +156,18 @@ import { EXPORT_QUALITY_LABELS } from "../../src/settings/view";
 import { VIDEO_DELETED, withNote } from "../../src/shell/carried-note";
 import { askToConfirm, DELETE_DEMO } from "../../src/shell/confirm-dialog";
 import {
+  messageOf,
+  openRepoSheet,
+  removedLine,
+  removeQuestion,
+} from "../../src/shell/repo-sheet";
+import {
   isAuthoredScene,
   type RunsRoute,
   rerunAdvice,
   rerunLineOf,
 } from "../../src/shell/runs-link";
+import { showToast } from "../../src/shell/toast";
 import { installTooltips } from "../../src/shell/tooltip";
 import { renderInspector } from "./inspector";
 import {
@@ -174,6 +185,7 @@ import {
 } from "./timeline-view";
 import {
   patchExportProgress,
+  type RepoState,
   renderBranding,
   renderBundleBanner,
   renderCursor,
@@ -2798,6 +2810,7 @@ function render(snapshot: SessionSnapshot): void {
         run: exportFlow.run,
         save: exportFlow.save,
         revealError,
+        repo: repoState(),
         readiness: readinessOf(snapshot),
         runsRoute: runsRouteOf(snapshot),
         currentDigest: currentDigest(snapshot.scene),
@@ -2817,6 +2830,8 @@ function render(snapshot: SessionSnapshot): void {
         // this page already lists.
         onSaveAgain: (refs) => saveRefs(refs).catch(reportError),
         onReveal: revealFile,
+        onAddToRepo: () => void addToRepo().catch(reportError),
+        onRemoveFromRepo: () => void removeFromRepo().catch(reportError),
       },
     );
   }
@@ -3276,6 +3291,107 @@ function showExportProgress(): void {
       ),
     );
   }
+}
+
+// ---- Repo: the Export panel's Add to repo / Remove from repo (decision 7)
+
+/** This take's flow, as the Studio's listing has it; null before the first
+ *  read or for a take in no flow. */
+let repoFlow: {
+  video: VideoSummary;
+  addable: Addable | undefined;
+} | null = null;
+let repoStatus: string | null = null;
+/** What a remove said that is not a failure. */
+let repoNote: string | null = null;
+let repoAdding = false;
+
+function repoState(): RepoState | null {
+  const flow = repoFlow;
+  if (flow === null) return null;
+  const kept = flow.video.kept;
+  if (kept != null && "unknown" in kept) return null;
+  return {
+    inRepo: kept == null ? null : { file: kept.file },
+    addable: flow.addable,
+    adding: repoAdding,
+    status: repoStatus,
+    note: repoNote,
+  };
+}
+
+async function refreshRepo(): Promise<void> {
+  if (platform.folder === undefined) return;
+  const listing = await platform.folder.read();
+  const id = listing.videoOf[sceneId]?.videoId;
+  const video = listing.videos.find((v) => v.id === id);
+  const next =
+    id === undefined || video === undefined
+      ? null
+      : { video, addable: listing.addable?.[id] };
+  // What was said about the flow's last change is stale once it changes.
+  if (JSON.stringify(next) !== JSON.stringify(repoFlow)) {
+    repoStatus = null;
+    repoNote = null;
+  }
+  repoFlow = next;
+  if (loaded) render(session.snapshot());
+}
+platform.folder?.onChange(() => void refreshRepo().catch(reportError));
+void refreshRepo().catch(reportError);
+
+const unperiod = (text: string): string => text.replace(/\.$/, "");
+
+async function addToRepo(): Promise<void> {
+  const flow = repoFlow;
+  if (repoAdding || flow === null || flow.addable?.ok !== true) return;
+  repoAdding = true;
+  repoStatus = null;
+  repoNote = null;
+  let said: string | null = null;
+  render(session.snapshot());
+  try {
+    const done = await openRepoSheet({
+      video: { id: flow.video.id, name: flow.video.name },
+      addable: flow.addable,
+      repo: platform.videos.repo,
+      ci: platform.repoCi,
+      reveal: (path) => platform.files.reveal({ kind: "path", path }),
+    });
+    if (done.failed !== undefined) {
+      said = `Couldn't add: ${unperiod(done.failed)}.`;
+    }
+  } catch (error) {
+    console.error("demoman editor: opening the add sheet —", error);
+    said = `Couldn't add: ${unperiod(messageOf(error))}.`;
+  } finally {
+    repoAdding = false;
+  }
+  await refreshRepo();
+  repoStatus = said;
+  render(session.snapshot());
+}
+
+async function removeFromRepo(): Promise<void> {
+  const kept = repoFlow?.video.kept;
+  if (repoFlow === null || kept == null || "unknown" in kept) return;
+  const { video } = repoFlow;
+  repoStatus = null;
+  repoNote = null;
+  let said: string | null = null;
+  let note: string | null = null;
+  if (!(await askToConfirm(removeQuestion(video, kept.file)))) return;
+  try {
+    const done = await platform.videos.repo.remove(video.id);
+    if (done.notes.length === 0) showToast(removedLine(video.name));
+    else note = [removedLine(video.name), ...done.notes].join(" ");
+  } catch (error) {
+    said = `Couldn't remove: ${unperiod(messageOf(error))}.`;
+  }
+  await refreshRepo();
+  repoStatus = said;
+  repoNote = note;
+  render(session.snapshot());
 }
 
 /** This page's export, as the platform reports it (`applyExportEvent`). */

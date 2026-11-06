@@ -10,6 +10,7 @@ import { STUDIO_HEADER } from "@demoman/studio-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pagePathFor } from "../../src/paths.js";
 import type { RunExport } from "../../src/queue.js";
+import type { StudioCi } from "../../src/repo-ci.js";
 import { runServe } from "../../src/serve.js";
 import {
   readStudioState,
@@ -65,6 +66,26 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
+/** A plan the CI stubs answer: the server then holds `plan-1`. */
+const planned = {
+  planId: "plan-1",
+  plan: {},
+  lines: [],
+} as unknown as Awaited<ReturnType<StudioCi["plan"]>>;
+
+/** Plans for /work/app and waits until the server holds the plan. */
+async function planHeld(s: Serve): Promise<void> {
+  const started = await call(s.state, "/api/repo/ci/plan", {
+    method: "POST",
+    body: { root: "/work/app", choices: {}, secrets: {} },
+  });
+  expect(started.status, started.text).toBe(202);
+  await vi.waitFor(async () => {
+    const state = await call(s.state, "/api/repo/ci?root=%2Fwork%2Fapp");
+    expect(state.json()).toMatchObject({ kind: "finished" });
+  });
+}
+
 async function serve(
   o: {
     pagesDir?: string;
@@ -76,6 +97,7 @@ async function serve(
     notifyFails?: string;
     /** The notification settles only once this does. */
     notifyHeld?: Promise<void>;
+    repoCi?: StudioCi;
   } = {},
 ): Promise<Serve> {
   const logs: string[] = [];
@@ -135,6 +157,7 @@ async function serve(
       await o.notifyHeld;
       if (o.notifyFails !== undefined) throw new Error(o.notifyFails);
     },
+    ...(o.repoCi === undefined ? {} : { repoCi: o.repoCi }),
   });
 
   let state: StudioState | null = null;
@@ -393,6 +416,141 @@ describe("the Studio's lifetime (Review Focus 3)", () => {
     expect(s.logs.join("\n")).toContain(
       `its notification did not show (osascript is not there): Saved ${takeId}.mp4`,
     );
+  });
+
+  it("a CI apply outlives the window, and its verdict is notified (Review Focus 4)", async () => {
+    let finish: (a: Awaited<ReturnType<StudioCi["apply"]>>) => void = () => {};
+    const s = await serve({
+      repoCi: {
+        state: async () => ({ kind: "notSetUp" }),
+        plan: async () => planned,
+        apply: () =>
+          new Promise((r) => {
+            finish = r;
+          }),
+        openPr: async () => ({ failed: "pr", detail: "" }),
+        forget: () => {},
+      },
+    });
+    const opened = await call(s.state, "/api/window", {
+      method: "POST",
+      body: {},
+    });
+    expect(opened.status, opened.text).toBe(200);
+    const stream = await events(s.state);
+    await planHeld(s);
+    const started = await call(s.state, "/api/repo/ci/apply", {
+      method: "POST",
+      body: { root: "/work/app", planId: "plan-1" },
+    });
+    expect(started.status, started.text).toBe(202);
+    const { jobId } = started.json() as { jobId: string };
+    s.fireAllClosed();
+    // Red if settle() stops the Studio with the apply's watch still running:
+    // the server stops listening in this tick, so this read is refused, and
+    // the pages have been told it is stopping.
+    const state = await call(s.state, "/api/repo/ci?root=%2Fwork%2Fapp");
+    expect(state.json()).toEqual({ kind: "running", jobId });
+    expect(stream.text()).not.toContain("server:stopping");
+    expect(s.logs).toContain(
+      "studio: the window closed; finishing CI setup first",
+    );
+    expect(s.exits).toEqual([]);
+    finish({
+      pr: { failed: "pr", detail: "" },
+      secrets: { set: [], kept: [], failed: [] },
+      setting: null,
+      watched: { unknown: { runUrl: null, why: "gh went away" } },
+      lines: ["Whether the setup run passed is unknown: gh went away"],
+    });
+    expect(await s.exited).toBe(0);
+    // Red if a ci done event is left out of endedSentence.
+    expect(s.notices).toEqual([
+      ["Demoman", "Whether the setup run passed is unknown: gh went away"],
+    ]);
+  });
+
+  it("a window closed during a CI check stops the check and waits for its cleanup", async () => {
+    let signal: AbortSignal | undefined;
+    let cleaned: () => void = () => {};
+    const s = await serve({
+      repoCi: {
+        state: async () => ({ kind: "notSetUp" }),
+        plan: (_root, _choices, _values, _progress, sig) => {
+          signal = sig;
+          // As verifySetup does: its checkout and app go, then it answers.
+          return new Promise((r) => {
+            cleaned = () => r({ reason: "checkStopped", detail: "stopped" });
+          });
+        },
+        apply: async () => ({ reason: "unused", detail: "" }),
+        openPr: async () => ({ failed: "pr", detail: "" }),
+        forget: () => {},
+      },
+    });
+    await call(s.state, "/api/window", { method: "POST", body: {} });
+    const started = await call(s.state, "/api/repo/ci/plan", {
+      method: "POST",
+      body: { root: "/work/app", choices: {}, secrets: {} },
+    });
+    expect(started.status, started.text).toBe(202);
+    await vi.waitFor(() => {
+      if (signal === undefined) throw new Error("the plan never ran");
+    });
+    // Premise: the check is not stopped while the window is open.
+    expect(signal?.aborted).toBe(false);
+    s.fireAllClosed();
+    // The rest of stop() is done: only the plan's end holds the exit.
+    await vi.waitFor(() => {
+      if (existsSync(studioStatePath(home))) throw new Error("not stopping");
+    });
+    for (let i = 0; i < 5; i += 1) await flush();
+    // Red if stop() leaves the plan running, or exits before it settles.
+    expect(signal?.aborted).toBe(true);
+    expect(s.exits).toEqual([]);
+    cleaned();
+    expect(await s.exited).toBe(0);
+  });
+
+  it("an export queued during a CI apply is finished too, after the apply", async () => {
+    let finish: (a: Awaited<ReturnType<StudioCi["apply"]>>) => void = () => {};
+    const s = await serve({
+      repoCi: {
+        state: async () => ({ kind: "notSetUp" }),
+        plan: async () => planned,
+        apply: () =>
+          new Promise((r) => {
+            finish = r;
+          }),
+        openPr: async () => ({ failed: "pr", detail: "" }),
+        forget: () => {},
+      },
+    });
+    await call(s.state, "/api/window", { method: "POST", body: {} });
+    await planHeld(s);
+    await call(s.state, "/api/repo/ci/apply", {
+      method: "POST",
+      body: { root: "/work/app", planId: "plan-1" },
+    });
+    s.fireAllClosed();
+    const { takeId } = await seedTake(home);
+    const read = await call(s.state, `/api/takes/${takeId}/scene`);
+    const { revision } = read.json() as { revision: string };
+    await call(s.state, `/api/takes/${takeId}/exports`, {
+      method: "POST",
+      body: { fileType: "mp4", revision },
+    });
+    await vi.waitFor(() => {
+      if (s.runs.length !== 1) throw new Error("the export never ran");
+    });
+    finish({ reason: "prFailed", detail: "gh refused" });
+    for (let i = 0; i < 5; i += 1) await flush();
+    // Red if settle() stops once the apply ends without checking the queue
+    // again: this ping is then refused.
+    const ping = await call(s.state, "/api/ping");
+    expect(ping.json()).toMatchObject({ queued: 1 });
+    s.runs[0]?.finish(savedAnswer(takeId));
+    expect(await s.exited).toBe(0);
   });
 
   it("a window asked for during that drain opens on the same process, which then outlives the drain", async () => {

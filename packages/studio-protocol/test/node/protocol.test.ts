@@ -29,14 +29,16 @@ describe("matchRoute", () => {
   it("covers the whole table (premise of the round trip)", () => {
     // 24 since 2026-10-24: videoRename and videoDelete joined for the video
     // library; 26 since 2026-10-28, with wallpaperPut and wallpaper; 28
-    // since 2026-10-31, with libraryViewGet and libraryViewPut.
-    expect(ids.length).toBe(28);
+    // since 2026-10-31, with libraryViewGet and libraryViewPut; 35 since
+    // 2026-11-05, with Part C's seven repo routes.
+    expect(ids.length).toBe(35);
     expect(ids).toEqual(
       expect.arrayContaining(["libraryViewGet", "libraryViewPut"]),
     );
     // 10 since 2026-10-24: the two video routes carry :id, so 8 became 10.
-    // The library view's two carry none.
-    expect(ids.filter((i) => ROUTES[i].path.includes(":")).length).toBe(10);
+    // The library view's two carry none. 13 since 2026-11-05: the repo
+    // add and remove routes carry :id, so 10 became 13.
+    expect(ids.filter((i) => ROUTES[i].path.includes(":")).length).toBe(13);
   });
   it.each(ids)("round-trips %s", (id) => {
     const wanted = (ROUTES[id].path.match(/:\w+/g) ?? []).map((p) =>

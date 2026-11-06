@@ -2,9 +2,20 @@
 import type { LogoLoad } from "@demoman/run-core/render";
 import type { SceneAspect, SceneDocument } from "@demoman/scene-schema";
 import type {
+  Addable,
+  CiApplyBody,
+  CiPlanBody,
+  CiStarted,
+  CiState,
   ExportQualityChoice,
   LibraryViewChoice,
   PullRequestsChoice,
+  RepoAddBody,
+  RepoAddStarted,
+  RepoPrBody,
+  RepoRemoveAnswer,
+  SetupPrWire,
+  StudioEvent,
   TakesAnswer,
 } from "@demoman/studio-protocol";
 import type { BrandKitStore } from "../adapters/brand-kit-store";
@@ -12,6 +23,11 @@ import type { DeleteResult } from "../core/storage/types";
 import type { SaveView } from "../editor/export-run";
 import type { FileType } from "../editor/jobs";
 import type { BundleSource, StoredOutput } from "../editor/ports";
+
+/** One event of an add to a repo. */
+export type RepoEvent = Extract<StudioEvent, { type: "repo" }>;
+/** One event of a CI plan or apply. */
+export type CiEvent = Extract<StudioEvent, { type: "ci" }>;
 
 /**
  * Everything outside the page that the pages reach: the studio's stores,
@@ -43,6 +59,17 @@ export interface Platform {
     remove(id: string): Promise<RemoveReply>;
   };
   bundles: BundleSource;
+  /** CI setup for a repo. Each rejects with the studio's sentence when
+   *  refused; plan and apply's outcome comes as `ci` events. */
+  repoCi: {
+    state(root: string): Promise<CiState>;
+    plan(body: CiPlanBody): Promise<CiStarted>;
+    apply(body: CiApplyBody): Promise<CiStarted>;
+    openPr(body: RepoPrBody): Promise<SetupPrWire>;
+    /** The `ci` events of one plan or apply, from its first (replayed if
+     *  it came before this call). Returns a stop. */
+    onCi(jobId: string, fn: (e: CiEvent) => void): () => void;
+  };
   outputs: { list(takeId: string): Promise<OutputRow[]> };
   logos: {
     put(file: File): Promise<{ ref: string }>;
@@ -157,6 +184,18 @@ export interface Platform {
   videos: {
     /** Rejects with the studio's sentence when the rename was refused. */
     rename(id: string, name: string): Promise<void>;
+    /** Adding a flow to its repo and removing it. Each rejects with the
+     *  studio's sentence when refused. */
+    repo: {
+      /** Whether the flow can be added, read now. */
+      addable(id: string): Promise<Addable>;
+      /** Starts the add; its outcome comes as `repo` events. */
+      add(id: string, body: RepoAddBody): Promise<RepoAddStarted>;
+      remove(id: string): Promise<RepoRemoveAnswer>;
+      /** The events of one add, from its first (replayed if it came before
+       *  this call). Returns a stop. */
+      onRepo(jobId: string, fn: (e: RepoEvent) => void): () => void;
+    };
     /** Every version and the record. Rejects only when the request itself
      *  could not be made; a refusal resolves `{ ok: false }`. */
     remove(id: string): Promise<RemoveReply>;
@@ -176,6 +215,9 @@ export interface FolderListing {
   sizes: Record<string, number>;
   unreadable: TakesAnswer["unreadable"];
   unwatched: string | null;
+  /** Whether each flow can be added to its repo (absent where the platform
+   *  has no repos). */
+  addable?: TakesAnswer["addable"];
 }
 
 /** The studio's take folder. */

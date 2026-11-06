@@ -52,14 +52,14 @@ import {
 } from "@demoman/run-core";
 import { DemoScriptSchema } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
-import { chooseAccount, findAccounts } from "./accounts.js";
+import { type AccountsFound, chooseAccount, findAccounts } from "./accounts.js";
 import { type ExportDeps, exportTake } from "./export.js";
 import { readKeptFlows, repoFlowFiles } from "./kept-flows.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
 import { refilmFromVideo } from "./refilm.js";
 import { type GitRunner, readRepo } from "./repo.js";
-import { createSessionStore, siteOf } from "./sessions.js";
+import { createSessionStore, type SessionFile, siteOf } from "./sessions.js";
 import { sameName } from "./video-match.js";
 import { sharesRepo, type VideoRecord, type VideoStore } from "./videos.js";
 import { readWallpaper } from "./wallpaper-read.js";
@@ -254,7 +254,7 @@ export async function keepVideo(
     const other = parseKept(await readFile(join(root, rel), "utf8"), rel);
     if (!other.ok) {
       deps.log(
-        `${other.detail} — so its outputs were not checked against this keep's`,
+        `${other.detail} — so its outputs were not checked against this add's`,
       );
       continue;
     }
@@ -320,7 +320,7 @@ export async function keepVideo(
     const rendered: Uint8Array[] = [];
     const judged = judgedOutput(base.outputs);
     for (const o of deliver === "files" ? [] : base.outputs) {
-      deps.log(`keep: exporting ${o.path}`);
+      deps.log(`add: exporting ${o.path}`);
       const answer = await exportTake(
         {
           takeId: built.takeId,
@@ -357,7 +357,7 @@ export async function keepVideo(
       null;
     if (deliver === "commit") {
       const o = base.outputs[judged] as KeptOutput;
-      deps.log(`keep: rendering the screens of ${o.path}`);
+      deps.log(`add: rendering the screens of ${o.path}`);
       const shot = await exportTake(
         {
           takeId: built.takeId,
@@ -441,7 +441,7 @@ export async function keepVideo(
           written.push(report);
         } else {
           deps.log(
-            `keep: ${report} is written by the next refresh — video ${built.takeId}'s run report ${"missing" in runReport ? "is missing" : `could not be read (${runReport.unreadable})`}`,
+            `add: ${report} is written by the next refresh — the run report of "${video.name}" ${"missing" in runReport ? "is missing" : `could not be read (${runReport.unreadable})`}`,
           );
         }
       }
@@ -514,7 +514,7 @@ export async function keepVideo(
     };
   } finally {
     await rm(temp, { recursive: true, force: true }).catch((error: unknown) =>
-      deps.log(`keep: ${temp} was not removed (${messageOf(error)})`),
+      deps.log(`add: ${temp} was not removed (${messageOf(error)})`),
     );
   }
 }
@@ -534,6 +534,114 @@ type Built =
       scaleGuess: string | null;
     }
   | { ok: false; reason: KeepRefusal; detail: string };
+
+export type Vetted =
+  | {
+      ok: true;
+      built: Extract<Awaited<ReturnType<typeof refilmFromVideo>>, { ok: true }>;
+      read: NonNullable<Awaited<ReturnType<Library["getSceneRead"]>>>;
+    }
+  | { ok: false; reason: KeepRefusal; label: string; detail: string };
+
+/**
+ * Whether `video` can be added to the checkout at `root`: the one place
+ * these checks are made, for `buildKept` and for `checkAddable`. In order:
+ * re-film, edits left behind, scene present, account, hand sign-in.
+ * `accounts` and `sessions` are caches a listing passes so each is read once.
+ */
+export async function vetForAdd(
+  video: VideoRecord,
+  root: string,
+  deps: Pick<KeepDeps, "home" | "library" | "videos">,
+  cache: {
+    accounts?: Map<string, AccountsFound>;
+    sessions?: SessionFile[];
+  } = {},
+): Promise<Vetted> {
+  const refuse = (
+    reason: KeepRefusal,
+    label: string,
+    detail: string,
+  ): Vetted => ({ ok: false, reason, label, detail });
+  const built = await refilmFromVideo(deps.videos, deps.library, video);
+  if (!built.ok) {
+    const { reason, detail } = built.refusal;
+    return reason === "unfilledHoles"
+      ? refuse("unfilledHoles", "has typed text the video never read", detail)
+      : refuse(
+          "cannotRefilm",
+          "can't be recorded again",
+          `${detail} (${reason})`,
+        );
+  }
+  const left = leftBehind(built.refilm);
+  if (left.length > 0) {
+    const kind = built.refilm.notCarried[0]?.kind;
+    return refuse(
+      "notCarried",
+      kind === undefined
+        ? "has edits a new video does not carry"
+        : (NOT_CARRIED_LABEL[kind] ?? `has a ${kind}`),
+      `video ${built.takeId} of "${video.name}" has edits a new video does not carry, so a refresh would drop them: ${left.join(", ")} — remove them in the Studio, or record the flow again, then add it`,
+    );
+  }
+  const read = await deps.library.getSceneRead(built.takeId);
+  if (read === null) {
+    return refuse(
+      "cannotRefilm",
+      "can't be recorded again",
+      `video ${built.takeId} of "${video.name}" has no scene.json any more`,
+    );
+  }
+
+  // A site signed in to by hand cannot be signed in to by a refresh in CI.
+  const target = String(built.script.target);
+  const named =
+    typeof built.script.account === "string" ? built.script.account : undefined;
+  let found = cache.accounts?.get(root);
+  if (found === undefined) {
+    found = await findAccounts(root);
+    cache.accounts?.set(root, found);
+  }
+  const choice = chooseAccount(found, target, named);
+  if (choice.kind === "refused")
+    return refuse("cannotRefilm", "can't be recorded again", choice.detail);
+  if (choice.kind === "manual") {
+    const site = siteOf(target);
+    const store = createSessionStore(deps.home);
+    let saved = cache.sessions;
+    if (saved === undefined) {
+      try {
+        saved = (await store.read()).files;
+      } catch (error) {
+        return refuse(
+          "cannotRefilm",
+          "can't be recorded again",
+          `whether ${target} is signed in to by hand cannot be told: ${messageOf(error)}`,
+        );
+      }
+      cache.sessions = saved;
+    }
+    if (saved.some((f) => f.account === undefined && f.site === site)) {
+      return refuse(
+        "handSignIn",
+        "signed in by hand",
+        `"${video.name}" records ${target}, which this machine signs in to with a session saved by hand (demoman signin, ${store.pathOf(site ?? "")}); a refresh in CI cannot sign in that way — add a demo account for ${new URL(target).origin} to .demoman/accounts.json, record the flow again as it, then add it`,
+      );
+    }
+  }
+  return { ok: true, built, read };
+}
+
+const NOT_CARRIED_LABEL: Record<string, string> = {
+  trim: "has a trim",
+  removed: "has a cut",
+  split: "has a split",
+  mask: "has a mask",
+  zoom: "has a placed zoom",
+  hold: "has a hold",
+  gap: "has a gap",
+};
 
 /**
  * The kept file for `a.video`'s current version, built the way a re-film
@@ -559,28 +667,9 @@ async function buildKept(
     detail,
   });
   // The script a re-film would run, and everything it leaves behind.
-  const built = await refilmFromVideo(deps.videos, deps.library, a.video);
-  if (!built.ok) {
-    const { reason, detail } = built.refusal;
-    return refuse(
-      reason === "unfilledHoles" ? "unfilledHoles" : "cannotRefilm",
-      reason === "unfilledHoles" ? detail : `${detail} (${reason})`,
-    );
-  }
-  const left = leftBehind(built.refilm);
-  if (left.length > 0) {
-    return refuse(
-      "notCarried",
-      `video ${built.takeId} of "${video.name}" has edits a new video does not carry, so a refresh would drop them: ${left.join(", ")} — remove them in the Studio, or record the flow again, then add it`,
-    );
-  }
-  const read = await deps.library.getSceneRead(built.takeId);
-  if (read === null) {
-    return refuse(
-      "cannotRefilm",
-      `video ${built.takeId} of "${video.name}" has no scene.json any more`,
-    );
-  }
+  const vetted = await vetForAdd(a.video, root, deps);
+  if (!vetted.ok) return refuse(vetted.reason, vetted.detail);
+  const { built, read } = vetted;
   const { scene } = read;
   const bundle = await deps.library
     .frameStore(built.takeId)
@@ -591,34 +680,8 @@ async function buildKept(
     filmedScale(bundle, scene.meta.capture.viewport.width);
   const scaleGuess =
     scale === null
-      ? `1x is a guess: video ${built.takeId} does not say the scale it was recorded at and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the recipe file to it, or the first refresh replaces a video that did not change`
+      ? `1x is a guess: "${video.name}" does not say the scale it was recorded at and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the recipe file to it, or the first refresh replaces a video that did not change`
       : null;
-
-  // A site signed in to by hand cannot be signed in to by a refresh in CI.
-  const target = String(built.script.target);
-  const named =
-    typeof built.script.account === "string" ? built.script.account : undefined;
-  const choice = chooseAccount(await findAccounts(root), target, named);
-  if (choice.kind === "refused") return refuse("cannotRefilm", choice.detail);
-  if (choice.kind === "manual") {
-    const site = siteOf(target);
-    const store = createSessionStore(deps.home);
-    let saved: Awaited<ReturnType<typeof store.read>>["files"];
-    try {
-      saved = (await store.read()).files;
-    } catch (error) {
-      return refuse(
-        "cannotRefilm",
-        `whether ${target} is signed in to by hand cannot be told: ${messageOf(error)}`,
-      );
-    }
-    if (saved.some((f) => f.account === undefined && f.site === site)) {
-      return refuse(
-        "handSignIn",
-        `"${video.name}" records ${target}, which this machine signs in to with a session saved by hand (demoman signin, ${store.pathOf(site ?? "")}); a refresh in CI cannot sign in that way — add a demo account for ${new URL(target).origin} to .demoman/accounts.json, record the flow again as it, then add it`,
-      );
-    }
-  }
 
   // A file the script names, by its repo path: copied in under `folder`
   // when it lives outside the repo, unless the same bytes are there.
@@ -873,11 +936,11 @@ export async function rewriteKept(
         });
         if (!marked.ok)
           deps.log(
-            `kept: ${rel}: the library could not mark flow ${videoId} as kept (${marked.reason})`,
+            `refresh: ${rel}: the library could not mark flow ${videoId} as in the repo (${marked.reason})`,
           );
       } catch (error) {
         deps.log(
-          `kept: ${rel}: the library could not mark flow ${videoId} as kept (${messageOf(error)})`,
+          `refresh: ${rel}: the library could not mark flow ${videoId} as in the repo (${messageOf(error)})`,
         );
       }
     }
@@ -933,8 +996,9 @@ export async function rewriteKept(
         refused: `${rel} could not be written (${messageOf(error)}), so it still describes the earlier video`,
       };
     }
-    for (const u of unreadable) deps.log(`kept: ${u}`);
-    if (made.scaleGuess !== null) deps.log(`kept: ${rel}: ${made.scaleGuess}`);
+    for (const u of unreadable) deps.log(`refresh: ${u}`);
+    if (made.scaleGuess !== null)
+      deps.log(`refresh: ${rel}: ${made.scaleGuess}`);
     return { rewritten: rel };
   }
   return unreadable.length > 0

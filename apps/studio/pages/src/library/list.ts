@@ -182,6 +182,14 @@ function rowMenu(
       b.title.split(" — ")[0] ?? b.title,
     );
     item.disabled = b.disabled;
+    // A button that is disabled but focusable says its reason by label.
+    if (b.getAttribute("aria-disabled") === "true") {
+      item.setAttribute("aria-disabled", "true");
+      item.replaceChildren(
+        ...[...b.childNodes].map((n) => n.cloneNode(true)),
+        b.getAttribute("aria-label") ?? b.title,
+      );
+    }
     item.addEventListener("click", () => {
       menu.hidePopover();
       b.click();

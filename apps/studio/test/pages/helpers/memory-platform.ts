@@ -196,6 +196,17 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       }),
     },
     videos: {
+      repo: {
+        addable: async () => ({
+          ok: false,
+          reason: "noCheckout",
+          label: "not in a repo",
+          detail: "",
+        }),
+        onRepo: () => () => {},
+        add: async () => ({ jobId: "none" }),
+        remove: async () => ({ removed: [], exportsLeft: [], notes: [] }),
+      },
       rename: member("videos", "rename", async (id: string, name: string) => {
         const video = videos.find((v) => v.id === id);
         if (video === undefined) throw new Error(`There is no flow "${id}".`);
@@ -219,6 +230,13 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
       thumb: member("folder", "thumb", async (ref: string) => {
         throw new Error(`no thumbnail for "${ref}" in the memory platform`);
       }),
+    },
+    repoCi: {
+      state: async () => ({ kind: "notSetUp" }),
+      plan: async () => ({ jobId: "none" }),
+      apply: async () => ({ jobId: "none" }),
+      openPr: async () => ({ failed: "pr", detail: "" }),
+      onCi: () => () => {},
     },
     bundles: {
       active: member("bundles", "active", async (sceneId: string) => ({

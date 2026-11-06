@@ -84,6 +84,7 @@ import {
   writeTextFile,
 } from "./setup-deps.js";
 import { parseStudioArgs } from "./studio-args.js";
+import { createStudioCi } from "./studio-ci.js";
 import { callerProject } from "./studio-project.js";
 import { VERSION } from "./version.js";
 
@@ -312,6 +313,7 @@ async function studio(args: string[]): Promise<void> {
     version: VERSION,
     executablePath: fullChromiumPath(),
     log,
+    repoCi: createStudioCi({ deps: ciDeps }),
   });
 }
 
@@ -600,7 +602,8 @@ function keptRefreshDeps(
 }
 
 /** Everything setup's plan reads and does, `gh` bound to the root; the
- *  watch's lines go to `progress`. Both doors (`setup --ci`, the `ci` tool). */
+ *  watch's lines go to `progress`. Every door (`setup --ci`, the `ci` tool,
+ *  the Studio). */
 function ciDeps(
   root: string,
   progress: (line: string) => void,

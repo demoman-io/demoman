@@ -79,7 +79,25 @@ vi.mock("#platform", async (importOriginal) => {
     },
     videos: {
       rename: async () => {},
+      repo: {
+        addable: async () => ({
+          ok: false,
+          reason: "noCheckout",
+          label: "not in a repo",
+          detail: "",
+        }),
+        onRepo: () => () => {},
+        add: async () => ({ jobId: "none" }),
+        remove: async () => ({ removed: [], exportsLeft: [], notes: [] }),
+      },
       remove: async () => ({ ok: true }),
+    },
+    repoCi: {
+      state: async () => ({ kind: "notSetUp" }),
+      plan: async () => ({ jobId: "none" }),
+      apply: async () => ({ jobId: "none" }),
+      openPr: async () => ({ failed: "pr", detail: "" }),
+      onCi: () => () => {},
     },
     bundles: {
       active: async () => ({ bundle: bundle(), replay: null, capture: null }),

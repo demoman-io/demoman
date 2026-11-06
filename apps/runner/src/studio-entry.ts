@@ -5,6 +5,12 @@
 // the studio never reaches pipeline.ts or the film:compare harness.
 export { PAGE_ENTRIES, usePrebuiltPages } from "./bundle-js.js";
 export {
+  type Addable,
+  checkAddable,
+  checkoutOf,
+  isDir,
+} from "./executor/addable.js";
+export {
   type BrowserFailure,
   classifyLaunchError,
   createBrowserSession,
@@ -16,7 +22,13 @@ export {
   type Exporting,
   exportTake,
 } from "./executor/export.js";
-export { renameKept } from "./executor/keep.js";
+export {
+  type KeepAnswer,
+  keepVideo,
+  type RemoveAnswer,
+  removeRepoFlow,
+  renameKept,
+} from "./executor/keep.js";
 export { keyKeptMarks } from "./executor/kept-keys.js";
 export { judgeKitsText, readKits } from "./executor/kits.js";
 export {
@@ -30,7 +42,7 @@ export {
 export { readLogo } from "./executor/logo-ref.js";
 export { ensureVideos } from "./executor/migrate-videos.js";
 export { couldNotCheck, postToolUseAnswer } from "./executor/pr-hook.js";
-export { hasCommit, readRepo } from "./executor/repo.js";
+export { execGit, hasCommit, readRepo } from "./executor/repo.js";
 export { followCheckouts } from "./executor/repo-aliases.js";
 export {
   readUserSettings,

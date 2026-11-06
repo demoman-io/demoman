@@ -1,5 +1,6 @@
 // apps/studio/pages/src/library/view.ts
 import type {
+  Addable,
   LibraryLayout,
   LibraryViewChoice,
 } from "@demoman/studio-protocol";
@@ -121,6 +122,16 @@ export interface LibraryActions {
   measure?(sceneId: string, cell: HTMLElement): void;
   /** A rail item: show that place. */
   goPlace?(p: Place): void;
+  /** Adding flows to their repos and taking them out. Absent: no buttons. */
+  repo?: {
+    /** Whether the flow can be added, from the listing; undefined when the
+     *  listing has no answer for it. */
+    addable(videoId: string): Addable | undefined;
+    /** An add of this flow is under way: its button says so. */
+    adding(videoId: string): boolean;
+    add(videoId: string): void;
+    remove(videoId: string): void;
+  };
   /** In repo, Not in repo or All. */
   goTab?(t: Tab): void;
   /** The search box's text, at each keystroke. Absent: no box. */
@@ -1451,6 +1462,9 @@ export function cardButtons(
   edit.addEventListener("click", () => actions.edit(r.sceneId));
   if (r.expired !== true) buttons.append(edit);
 
+  const repoButton = repoActionButton(r, actions, group);
+  if (repoButton !== null) buttons.append(repoButton);
+
   const remove = el("button", {
     type: "button",
     "data-action": "delete",
@@ -1466,6 +1480,54 @@ export function cardButtons(
   );
   buttons.append(remove);
   return { buttons, rerunLine };
+}
+
+/** Add to repo on a flow that is not In repo (disabled, with its reason,
+ *  when it cannot be added) and Remove from repo on one that is. */
+function repoActionButton(
+  r: LibraryRow,
+  actions: LibraryActions,
+  group: VideoGroup | null,
+): HTMLElement | null {
+  const repo = actions.repo;
+  if (repo === undefined || group === null) return null;
+  const id = group.video.id;
+  const kept = group.video.kept;
+  if (kept != null) {
+    if ("unknown" in kept) return null;
+    const remove = el("button", {
+      type: "button",
+      "data-action": "repo-remove",
+      class: "btn btn-quiet btn-icon",
+      "aria-label": `Remove from repo: ${r.label}`,
+      title: "Remove from repo",
+    });
+    remove.append(icon("gitBranchMinus"));
+    remove.addEventListener("click", () => repo.remove(id));
+    return remove;
+  }
+  const can = repo.addable(id);
+  if (can === undefined) return null;
+  const add = el("button", {
+    type: "button",
+    "data-action": "repo-add",
+    class: "btn btn-quiet btn-icon",
+  });
+  add.append(icon("gitBranchPlus"));
+  if (repo.adding(id)) {
+    add.setAttribute("aria-disabled", "true");
+    add.setAttribute("aria-label", `Adding to repo: ${r.label}`);
+    add.title = "Adding to repo…";
+  } else if (can.ok) {
+    add.setAttribute("aria-label", `Add to repo: ${r.label}`);
+    add.title = "Add to repo";
+    add.addEventListener("click", () => repo.add(id));
+  } else {
+    add.setAttribute("aria-disabled", "true");
+    add.setAttribute("aria-label", `Can't add: ${can.label}`);
+    add.title = can.detail;
+  }
+  return add;
 }
 
 /**

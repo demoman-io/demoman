@@ -15,6 +15,7 @@ import shell from "../../../pages/entrypoints/editor/index.html?raw";
 import { renderInspector } from "../../../pages/entrypoints/editor/inspector";
 import { renderRail } from "../../../pages/entrypoints/editor/rail";
 import {
+  type RepoState,
   renderExport,
   renderHeaderIcons,
   renderStageBar,
@@ -87,6 +88,8 @@ interface Shot {
   carrier: string;
   /** The Export button's label in this state, when the shot is about it. */
   label?: string;
+  /** The Repo section's state (decision 7); absent draws none. */
+  repo?: RepoState;
 }
 
 const SHOTS: Shot[] = [
@@ -211,6 +214,54 @@ const SHOTS: Shot[] = [
     },
     carrier: '[data-file-failed="gif"] button',
   },
+  // The Repo section under the export buttons (repo flows part C, task 4).
+  {
+    name: "repo-add",
+    aspect: "16:9",
+    fileTypes: ["mp4"],
+    run: { phase: "idle" },
+    save: null,
+    carrier: '[data-repo-section] [data-action="repo-add"]',
+    repo: {
+      inRepo: null,
+      addable: { ok: true, root: "/r", defaultPath: "c.mp4" },
+      adding: false,
+      status: null,
+    },
+  },
+  {
+    name: "repo-cannot",
+    aspect: "16:9",
+    fileTypes: ["mp4"],
+    run: { phase: "idle" },
+    save: null,
+    carrier: '[data-repo-section] [data-action="repo-add"]',
+    repo: {
+      inRepo: null,
+      addable: {
+        ok: false,
+        reason: "hasTrim",
+        label: "has a trim",
+        detail: "This flow has a trim.",
+      },
+      adding: false,
+      status: "Couldn't add: the repo is full.",
+    },
+  },
+  {
+    name: "repo-in",
+    aspect: "16:9",
+    fileTypes: ["mp4"],
+    run: { phase: "idle" },
+    save: null,
+    carrier: '[data-repo-section] [data-action="repo-remove"]',
+    repo: {
+      inRepo: { file: "checkout.json" },
+      addable: undefined,
+      adding: false,
+      status: null,
+    },
+  },
   {
     name: "none-ticked",
     aspect: "16:9",
@@ -334,6 +385,7 @@ async function mount(scheme: "light" | "dark", shot: Shot): Promise<void> {
       sections,
       beatAt: () => null,
       hasReclaimedMotion: false,
+      repo: shot.repo ?? null,
     },
     handlers(),
   );

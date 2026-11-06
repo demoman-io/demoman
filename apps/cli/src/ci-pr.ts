@@ -26,10 +26,15 @@ export async function openSetupPr(
     base: string;
     files: Array<{ path: string; text: string | Uint8Array }>;
     body: string;
+    /** Defaults to SETUP_BRANCH / SETUP_TITLE. */
+    branch?: string;
+    title?: string;
   },
   deps: { git: GitRunner; gh: Gh },
 ): Promise<SetupPr> {
   const { git, gh } = deps;
+  const branch = a.branch ?? SETUP_BRANCH;
+  const title = a.title ?? SETUP_TITLE;
   const tmp = await mkdtemp(join(tmpdir(), "demoman-setup-"));
   let added = false;
   const stage = async (
@@ -78,10 +83,10 @@ export async function openSetupPr(
       (await stage("add", ["add", "--", ...a.files.map((f) => f.path)])) ??
       // The person's hooks expect their own checkout (node_modules and all):
       // in this bare worktree they fail on files they never wrote.
-      (await stage("commit", ["commit", "--no-verify", "-m", SETUP_TITLE]));
+      (await stage("commit", ["commit", "--no-verify", "-m", title]));
     if (built) return { failed: "worktree", detail: built };
 
-    const refspec = `HEAD:refs/heads/${SETUP_BRANCH}`;
+    const refspec = `HEAD:refs/heads/${branch}`;
     const pushed = await git(["push", "--no-verify", a.remote, refspec], tmp);
     if (pushed.code !== 0) {
       const words = pushed.stderr.trim();
@@ -91,7 +96,9 @@ export async function openSetupPr(
       return {
         failed: "push",
         detail: exists
-          ? `a setup branch already exists on ${a.remote} (${SETUP_BRANCH}); merge or close its pull request, or delete the branch, then run setup again. git said: ${words}`
+          ? branch === SETUP_BRANCH
+            ? `a setup branch already exists on ${a.remote} (${SETUP_BRANCH}); merge or close its pull request, or delete the branch, then run setup again. git said: ${words}`
+            : `a branch for this flow already exists on ${a.remote} (${branch}); merge or close its pull request, or delete the branch, then add the flow again. git said: ${words}`
           : `\`git push ${a.remote} ${refspec}\` exited with code ${pushed.code}: ${words}`,
       };
     }
@@ -105,9 +112,9 @@ export async function openSetupPr(
       "--base",
       a.base,
       "--head",
-      SETUP_BRANCH,
+      branch,
       "--title",
-      SETUP_TITLE,
+      title,
       "--body",
       a.body,
     ]);
@@ -116,10 +123,10 @@ export async function openSetupPr(
     if (pr.code !== 0 || !Number.isInteger(number))
       return {
         failed: "pr",
-        branchUrl: `https://github.com/${a.slug}/tree/${SETUP_BRANCH}`,
-        detail: `the branch ${SETUP_BRANCH} is pushed but the pull request was not opened (${pr.stderr.trim() || pr.stdout.trim() || `gh exited with code ${pr.code}`}); open it with: gh pr create --repo ${a.slug} --base ${a.base} --head ${SETUP_BRANCH} --title "${SETUP_TITLE}"`,
+        branchUrl: `https://github.com/${a.slug}/tree/${branch}`,
+        detail: `the branch ${branch} is pushed but the pull request was not opened (${pr.stderr.trim() || pr.stdout.trim() || `gh exited with code ${pr.code}`}); open it with: gh pr create --repo ${a.slug} --base ${a.base} --head ${branch} --title "${title}"`,
       };
-    return { opened: { number, url, branch: SETUP_BRANCH, sha } };
+    return { opened: { number, url, branch, sha } };
   } finally {
     if (added) await git(["worktree", "remove", "--force", tmp], a.root);
     await rm(tmp, { recursive: true, force: true });

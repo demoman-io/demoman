@@ -1,25 +1,35 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import { mkdir } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import {
   EXPORT_QUALITY_VALUES,
   type FileType,
   isExportQuality,
 } from "@demoman/run-core";
 import {
+  checkAddable,
   createBrowserSession,
   createLibrary,
   createVideoStore,
+  type ExportDeps,
+  execGit,
   exportTake,
   fullChromiumPath,
+  isDir,
+  keepVideo,
   type Library,
   LibraryError,
   ownHome,
+  removeRepoFlow,
 } from "@demoman/runner/studio";
 import type {
   ExportStartAnswer,
   Refusal,
+  RepoAddBody,
+  RepoAddStarted,
+  RepoRemoveAnswer,
   StudioEvent,
   StudioReason,
   WindowAnswer,
@@ -33,6 +43,7 @@ import {
   type QueueRefusal,
   type RunExport,
 } from "./queue.js";
+import { type CiJobs, createCiJobs, type StudioCi } from "./repo-ci.js";
 import { createRoutes } from "./routes.js";
 import { createRunExport } from "./run-export.js";
 import {
@@ -99,12 +110,21 @@ export function buildHandlers(o: {
   log: (line: string) => void;
   version: string;
   queue: ExportQueue;
+  /** What an add renders with: the studio's own headless browser. */
+  session: ExportDeps["session"];
+  wallpapersDir: string;
+  outDir: string;
+  /** Tests: stand-ins for the runner's add and remove. */
+  keep?: typeof keepVideo;
+  removeFlow?: typeof removeRepoFlow;
   window: Pick<StudioWindow, "open">;
   /** Told after each window that opened, so the lifetime knows. */
   onWindowOpened?: () => void;
   reveal?: (path: string) => Promise<void>;
   /** `createRoutes`' own: join and expire now, as the server starts. */
   upkeepOnStart?: boolean;
+  /** The CI routes; absent, they answer `routeNotFound`. */
+  ci?: CiJobs;
 }): StudioHandlers {
   const { library } = o;
   const noTake = (id: string): StudioResponse =>
@@ -119,6 +139,10 @@ export function buildHandlers(o: {
     library.isTakeId(id) && (await library.getSceneRead(id)) !== null;
 
   const videos = createVideoStore(o.home, library, { log: o.log });
+  const keep = o.keep ?? keepVideo;
+  const removeFlow = o.removeFlow ?? removeRepoFlow;
+  const noVideo = (id: string): StudioResponse =>
+    refuse(404, "videoNotFound", `There is no flow "${id}".`);
   /** `key` through the library's aliases; a table that will not read is
    *  logged by the store, and the key goes as asked. */
   const projectKey = async (key: string): Promise<string> => {
@@ -133,7 +157,8 @@ export function buildHandlers(o: {
     throw error;
   };
 
-  return {
+  const ci = o.ci ?? createCiJobs({ events: o.events, log: o.log });
+  const inner: StudioHandlers = {
     ...createRoutes({
       home: o.home,
       library,
@@ -146,6 +171,7 @@ export function buildHandlers(o: {
       ...(o.reveal === undefined ? {} : { reveal: o.reveal }),
       upkeepOnStart: o.upkeepOnStart === true,
     }),
+    ...ci.handlers,
 
     async window(req) {
       const body = await bodyOf(req);
@@ -193,6 +219,156 @@ export function buildHandlers(o: {
       if (!("ok" in opened)) return json(500, opened);
       o.onWindowOpened?.();
       const answer: WindowAnswer = { path: opened.path };
+      return json(200, answer);
+    },
+
+    async repoAdd(req) {
+      const id = req.params.id as string;
+      const video = await videos.get(id);
+      if (video === null) return noVideo(id);
+      const body = await bodyOf(req);
+      const { path, deliver, quality } = (
+        body.ok ? (body.value ?? {}) : {}
+      ) as Partial<Record<keyof RepoAddBody, unknown>>;
+      const invalid = !body.ok
+        ? body.error
+        : typeof path !== "string" ||
+            path.trim() === "" ||
+            isAbsolute(path) ||
+            path.startsWith("/") ||
+            path.startsWith("\\") ||
+            /^[a-zA-Z]:/.test(path)
+          ? "the path is empty or absolute"
+          : deliver !== "commit" && deliver !== "files"
+            ? `${JSON.stringify(deliver)} is not commit or files`
+            : !isExportQuality(quality)
+              ? `${JSON.stringify(quality)} is not ${EXPORT_QUALITY_VALUES.join(", ")}`
+              : null;
+      if (invalid !== null) {
+        return refuse(400, "repoBodyInvalid", `Nothing was added: ${invalid}.`);
+      }
+      const add = { path, deliver, quality } as RepoAddBody;
+      // A fresh cache per request, as repoAddable: never a shared deps object.
+      const can = await checkAddable(
+        { video },
+        {
+          videos,
+          library,
+          home: o.home,
+          git: execGit,
+          accounts: new Map(),
+          repos: new Map(),
+        },
+      );
+      if (!can.ok) {
+        return refuse(
+          409,
+          can.reason === "noCheckout" ? "repoCheckoutMissing" : "notAddable",
+          [can.label, can.detail].filter((x) => x !== "").join(". "),
+        );
+      }
+      const jobId = randomUUID();
+      const at = { type: "repo", videoId: id, jobId } as const;
+      void o.queue
+        .serial(
+          async () => {
+            const answer = await keep(
+              {
+                video: id,
+                repoRoot: can.root,
+                deliver: add.deliver,
+                to: [{ path: add.path, fileType: "mp4", quality: add.quality }],
+              },
+              {
+                home: o.home,
+                library,
+                videos,
+                git: execGit,
+                log: (line) => {
+                  o.log(`studio: add ${jobId}: ${line}`);
+                  o.events.send({ ...at, phase: "adding", line });
+                },
+                export: {
+                  library,
+                  videos,
+                  session: o.session,
+                  door: "studio",
+                  home: o.home,
+                  wallpapersDir: o.wallpapersDir,
+                  outDir: o.outDir,
+                  log: o.log,
+                },
+              },
+            );
+            if (!answer.ok) {
+              o.events.send({
+                ...at,
+                phase: "failed",
+                reason: answer.reason,
+                detail: answer.detail,
+              });
+              return;
+            }
+            ci.added(can.root, answer.written);
+            o.events.send({
+              ...at,
+              phase: "added",
+              file: answer.file,
+              written: answer.written,
+              // So a consumer reading only the phase still meets them.
+              notes: [
+                answer.markNote,
+                answer.platformNote,
+                answer.scaleGuess,
+                answer.screensNote,
+              ].filter((n): n is string => n !== undefined),
+              root: can.root,
+            });
+          },
+          (position) => o.events.send({ ...at, phase: "queued", position }),
+        )
+        .catch((error: unknown) => {
+          o.log(`studio: add ${jobId} threw: ${messageOf(error)}`);
+          o.events.send({
+            ...at,
+            phase: "failed",
+            reason: "internalError",
+            detail: `The add stopped with an error: ${messageOf(error)}.`,
+          });
+        })
+        .finally(() => adding.delete(id));
+      const started: RepoAddStarted = { jobId };
+      return json(202, started);
+    },
+
+    async repoRemove(req) {
+      const id = req.params.id as string;
+      const video = await videos.get(id);
+      if (video === null) return noVideo(id);
+      // removeFlow finds the recipe by the flow's id in the marked checkout.
+      const root = video.kept?.root;
+      if (root === undefined || !(await isDir(root))) {
+        return refuse(
+          409,
+          root === undefined ? "notInRepo" : "repoCheckoutMissing",
+          root === undefined
+            ? "The flow is not in a repo."
+            : `${root} is gone.`,
+        );
+      }
+      const done = await removeFlow({ root, flow: id }, { videos });
+      if (!done.ok) {
+        return refuse(
+          done.reason === "repoFlowUnwritable" ? 500 : 409,
+          done.reason === "duplicateFlow" ? "nameTaken" : done.reason,
+          done.detail,
+        );
+      }
+      const answer: RepoRemoveAnswer = {
+        removed: done.removed,
+        exportsLeft: done.exportsLeft,
+        notes: done.markNote === undefined ? [] : [done.markNote],
+      };
       return json(200, answer);
     },
 
@@ -253,6 +429,41 @@ export function buildHandlers(o: {
       return json(200, answer);
     },
   };
+
+  // Flows being added, by id: one add at a time per flow, and no remove
+  // under it (the add would write the recipe back).
+  const adding = new Set<string>();
+  const busy = async (id: string): Promise<StudioResponse> => {
+    const name = (await videos.get(id))?.name ?? id;
+    return refuse(
+      409,
+      "repoBusy",
+      `"${name}" is already being added to the repo.`,
+    );
+  };
+  return {
+    ...inner,
+    async repoAdd(req) {
+      const id = req.params.id as string;
+      if (adding.has(id)) return busy(id);
+      // Claimed in the tick it was checked, so a double press cannot pass
+      // twice; the job's end, or any refusal, lets it go.
+      adding.add(id);
+      try {
+        const response = await inner.repoAdd(req);
+        if (!("status" in response) || response.status !== 202)
+          adding.delete(id);
+        return response;
+      } catch (error) {
+        adding.delete(id);
+        throw error;
+      }
+    },
+    async repoRemove(req) {
+      const id = req.params.id as string;
+      return adding.has(id) ? busy(id) : inner.repoRemove(req);
+    },
+  };
 }
 
 export interface ServeOptions {
@@ -282,6 +493,9 @@ export interface ServeOptions {
   run?: RunExport;
   /** Tests: a stand-in; `notifyOnMac` otherwise. */
   notify?: (title: string, body: string) => Promise<void>;
+  /** CI setup, from the CLI's own orchestrator; absent, the CI routes
+   *  answer `routeNotFound`. */
+  repoCi?: StudioCi;
 }
 
 /** A macOS notification through `osascript`; the text travels as argv, so
@@ -314,9 +528,15 @@ export function notifyOnMac(title: string, body: string): Promise<void> {
   });
 }
 
-/** What a notification says for an export that ended; null for any other
- *  event. */
+/** What a notification says for an export or a CI apply that ended; null
+ *  for any other event. */
 function endedSentence(e: StudioEvent): string | null {
+  if (e.type === "ci") {
+    if (e.phase !== "done" || e.step !== "apply") return null;
+    const a = e.answer;
+    if ("reason" in a) return `CI setup stopped: ${a.detail}`;
+    return "lines" in a ? (a.lines[0] ?? null) : null;
+  }
   if (e.type !== "export") return null;
   if (e.phase === "failed") return e.detail;
   if (e.phase !== "saved") return null;
@@ -441,12 +661,20 @@ export async function runServe(o: ServeOptions): Promise<never> {
     const notice = notify("Demoman", sentence)
       .catch((error: unknown) => {
         log(
-          `studio: an export ended with no window open, and its notification did not show (${messageOf(error)}): ${sentence}`,
+          `studio: ${e.type === "ci" ? "CI setup" : "an export"} ended with no window open, and its notification did not show (${messageOf(error)}): ${sentence}`,
         );
       })
       .finally(() => notices.delete(notice));
     notices.add(notice);
   };
+  // An apply watches its run for up to about half an hour: a job of this
+  // server's, never stopped by a window closing (R11).
+  const ci = createCiJobs({
+    ...(o.repoCi === undefined ? {} : { ci: o.repoCi }),
+    events,
+    log,
+    tell: tellIfUnseen,
+  });
   const queue = createExportQueue({
     library,
     events: {
@@ -474,7 +702,11 @@ export async function runServe(o: ServeOptions): Promise<never> {
     log,
     version: o.version,
     queue,
+    session: renderer,
+    wallpapersDir: join(o.pagesDir, "wallpapers"),
+    outDir: o.outDir,
     upkeepOnStart: true,
+    ci,
     window: {
       open: async (t) => {
         opening += 1;
@@ -573,6 +805,9 @@ export async function runServe(o: ServeOptions): Promise<never> {
   async function stop(code: number): Promise<void> {
     if (stopping) return;
     stopping = true;
+    // A plan's check has nobody left to show it to: stopped, and its
+    // checkout, app and services removed before the exit.
+    const plans = ci.stopPlans();
     clearTimeout(noWindow);
     if (graceTimer !== null) clearTimeout(graceTimer);
     signals.off("SIGTERM", onTerm);
@@ -605,20 +840,28 @@ export async function runServe(o: ServeOptions): Promise<never> {
     } catch (error) {
       log(`studio: studio.json could not be removed (${messageOf(error)})`);
     }
+    await plans;
     await Promise.all(notices);
     exit(code);
   }
 
-  /** Stops once no window is open and the queue is empty; with a queue,
-   *  after it drains (and only if no window opened meanwhile). */
+  /** Stops once no window is open, the queue is empty and no CI apply
+   *  runs; until then it waits on each (and stops only if no window opened
+   *  meanwhile). Checked again after each wait: an export can be queued
+   *  during a long apply. */
   async function settle(): Promise<void> {
     if (stopping || windowOpen) return;
-    const left = queue.size();
-    if (left > 0) {
-      log(
-        `studio: the window closed; finishing ${left} export${left === 1 ? "" : "s"} first`,
-      );
-      await queue.drained();
+    while (queue.size() > 0 || ci.running() > 0) {
+      const left = queue.size();
+      if (left > 0) {
+        log(
+          `studio: the window closed; finishing ${left} export${left === 1 ? "" : "s"} first`,
+        );
+        await queue.drained();
+      } else {
+        log("studio: the window closed; finishing CI setup first");
+        await ci.drained();
+      }
       if (stopping || windowOpen) return;
     }
     await stop(0);

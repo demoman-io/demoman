@@ -7,9 +7,11 @@ import {
   parseFilmedCode,
 } from "@demoman/run-core";
 import {
+  checkAddable,
   createVideoStore,
   describeVideo,
   ensureVideos,
+  execGit,
   expireOld,
   expiryStatus,
   followCheckouts,
@@ -29,6 +31,7 @@ import {
 } from "@demoman/runner/studio";
 import { migrateToCurrent, type SceneDocument } from "@demoman/scene-schema";
 import {
+  type Addable,
   type BundleAnswer,
   type DeleteAnswer,
   type ExportQualityAnswer,
@@ -52,6 +55,7 @@ import { saveLogo, saveWallpaper } from "./assets.js";
 import type { EventHub } from "./events.js";
 import { createChains, isMissing, messageOf, readIfPresent } from "./files.js";
 import { createKitsFile } from "./kits.js";
+import type { CiRoute } from "./repo-ci.js";
 import type { Handler, StudioHandlers, StudioResponse } from "./server.js";
 import { readLibraryView, writeSetting } from "./settings.js";
 import { folderBytes } from "./sizes.js";
@@ -143,7 +147,10 @@ export function createRoutes(o: {
   followEveryMs?: number;
   /** The follow throttle's clock; injected by tests. */
   now?: () => number;
-}): Omit<StudioHandlers, "window" | "exportStart"> {
+}): Omit<
+  StudioHandlers,
+  "window" | "exportStart" | "repoAdd" | "repoRemove" | CiRoute
+> {
   const { library, home, log } = o;
   const reveal = o.reveal ?? revealInFinder;
   const sceneWrites = createChains();
@@ -320,9 +327,20 @@ export function createRoutes(o: {
    *  will not read is a row saying so, never a missing card. */
   async function videoListing(
     unreadable: UnreadableTake[],
-  ): Promise<Pick<TakesAnswer, "videos" | "videoOf">> {
+  ): Promise<Pick<TakesAnswer, "videos" | "videoOf" | "addable">> {
     const listed: VideoListing[] = [];
     const videoOf: TakesAnswer["videoOf"] = {};
+    const addable: Record<string, Addable> = {};
+    // One cache for this listing, so flows in one checkout read its
+    // accounts.json once; never kept across requests.
+    const deps: Parameters<typeof checkAddable>[1] = {
+      videos,
+      library,
+      home,
+      git: execGit,
+      accounts: new Map(),
+      repos: new Map(),
+    };
     const say = (row: UnreadableTake): void => {
       unreadable.push(row);
       log(`studio: ${row.folder}: ${row.reason}`);
@@ -336,7 +354,7 @@ export function createRoutes(o: {
         reason: messageOf(error),
         kind: "upkeep",
       });
-      return { videos: listed, videoOf };
+      return { videos: listed, videoOf, addable };
     }
     for (const v of records) {
       if ("unreadable" in v) {
@@ -354,6 +372,16 @@ export function createRoutes(o: {
             filmedCode: await filmedCodeOf(version.takeId),
           };
         }
+        // The row shows Add when keptOf says the flow is not in the repo
+        // (its mark may be stale): the same answer decides here. A failed
+        // check leaves the flow listed, with no button.
+        if (summary.kept === null) {
+          try {
+            addable[v.id] = await checkAddable({ video: v }, deps);
+          } catch (error) {
+            log(`studio: flow ${v.id}'s add check: ${messageOf(error)}`);
+          }
+        }
         listed.push({ ...summary, steps });
       } catch (error) {
         say({
@@ -363,7 +391,7 @@ export function createRoutes(o: {
         });
       }
     }
-    return { videos: listed, videoOf };
+    return { videos: listed, videoOf, addable };
   }
 
   const noTake = (id: string): StudioResponse =>
@@ -435,7 +463,10 @@ export function createRoutes(o: {
     return refuse(409, "takeBusy", `${TAKE_BUSY[first.door]}${more}`);
   };
 
-  const handlers: Omit<StudioHandlers, "window" | "exportStart"> = {
+  const handlers: Omit<
+    StudioHandlers,
+    "window" | "exportStart" | "repoAdd" | "repoRemove" | CiRoute
+  > = {
     async ping() {
       const answer: PingAnswer = {
         version: o.version,
@@ -684,6 +715,25 @@ export function createRoutes(o: {
         "nameTaken",
         `Another flow is already called "${done.holder.name}".`,
       );
+    },
+
+    async repoAddable(req) {
+      const id = req.params.id as string;
+      const video = await videos.get(id);
+      if (video === null) return noVideo(id);
+      // A fresh cache per request: a hand sign-in answer must not go stale.
+      const answer: Addable = await checkAddable(
+        { video },
+        {
+          videos,
+          library,
+          home,
+          git: execGit,
+          accounts: new Map(),
+          repos: new Map(),
+        },
+      );
+      return json(200, answer);
     },
 
     async videoDelete(req) {
@@ -1171,6 +1221,9 @@ export function createRoutes(o: {
 
   const wrapped = Object.fromEntries(
     Object.entries(handlers).map(([id, h]) => [id, guarded(h)]),
-  ) as Omit<StudioHandlers, "window" | "exportStart">;
+  ) as Omit<
+    StudioHandlers,
+    "window" | "exportStart" | "repoAdd" | "repoRemove"
+  >;
   return wrapped;
 }

@@ -2535,6 +2535,9 @@
       #take-info .chip-warn { color: var(--warn); }
       #take-info button.chip:hover { color: var(--ink); }
       #take-info .output-warnings { display: flex; flex-direction: column; gap: 4px; }
+      /* The Repo section's buttons keep their own width and a 16px glyph. */
+      #inspector [data-repo-section] .btn { justify-self: start; }
+      #inspector [data-repo-section] .btn svg { flex: none; width: 16px; height: 16px; }
     </style>
   </head>
   <body>

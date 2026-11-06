@@ -134,6 +134,12 @@ export async function startStudio(
     }),
     window: stubWindow,
     exportStart: stubExportStart,
+    repoAdd: stubExportStart,
+    repoRemove: stubExportStart,
+    repoCiState: stubExportStart,
+    repoCiPlan: stubExportStart,
+    repoCiApply: stubExportStart,
+    repoPr: stubExportStart,
   };
   const studio = await createStudioServer({
     handlers,
