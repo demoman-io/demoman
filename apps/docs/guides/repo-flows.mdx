@@ -172,8 +172,8 @@ The plan lists:
 | --- | --- |
 | `--trigger <environment>` | After each successful deployment to that environment; records the deployed app, and the self-check records its newest successful deployment |
 | `--trigger release` | When a release is published, at its tag |
-| `--trigger daily` | Once a day. A day with nothing new stops before Chromium and the app (`demoman refresh --check --since`) |
-| `--trigger push` | On each push to the default branch; records every repo flow each time |
+| `--trigger daily` | Once a day, or by hand from the Actions tab (Demoman → Run workflow) on the default branch. A day with nothing new stops before Chromium and the app (`demoman refresh --check --since`) |
+| `--trigger push` | On each push to the default branch, or by hand from the Actions tab; records every repo flow each time |
 | `--route pr\|main` | Open a pull request with the changed files, or commit them to the branch. Deployment and release cannot use `main` |
 | `--artifact` | Keep every `files` flow's video and receipt in the `demoman-videos` artifact, compared against the last run's |
 | `--yes` | Confirm the plan with its defaults. With no terminal and no `--yes`, nothing is written and the missing flags are named |

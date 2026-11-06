@@ -78,6 +78,12 @@ function secretNames(o: CiOptions): string[] {
   ];
 }
 
+/** Whether the workflow also runs by hand (`workflow_dispatch`, DEM-62): a
+ *  release or deployment trigger records that release or deployment, which
+ *  a manual run lacks. */
+export const runsByHand = (trigger: CiOptions["trigger"]): boolean =>
+  trigger === "push" || trigger === "daily";
+
 function shapeOf(o: CiOptions) {
   const deployment =
     typeof o.trigger === "string" ? null : o.trigger.deployment;
@@ -146,18 +152,25 @@ export function ciWorkflow(o: CiOptions): string {
     throw new Error(DEPLOYMENT_MAIN);
   }
   if (kind === "release" && o.route === "main") throw new Error(RELEASE_MAIN);
-  const on = {
-    push: `  push:\n    branches: [${branch}]`,
-    release: "  release:\n    types: [published]",
-    daily: '  schedule:\n    - cron: "17 6 * * *"',
-    deployment: "  deployment_status:",
-  }[kind];
+  const on = `${
+    {
+      push: `  push:\n    branches: [${branch}]`,
+      release: "  release:\n    types: [published]",
+      daily: '  schedule:\n    - cron: "17 6 * * *"',
+      deployment: "  deployment_status:",
+    }[kind]
+  }${runsByHand(o.trigger) ? "\n  workflow_dispatch:" : ""}`;
+  // A manual run picks its branch: refresh only the branch this watches,
+  // never record a feature branch and deliver it.
+  const byHand = `(github.event_name != 'workflow_dispatch' || github.ref_name == '${branch}')`;
   const guard =
     kind === "push"
-      ? "!contains(github.event.head_commit.message, '[skip demoman]') && github.actor != 'github-actions[bot]'"
+      ? `!contains(github.event.head_commit.message, '[skip demoman]') && github.actor != 'github-actions[bot]' && ${byHand}`
       : kind === "deployment"
         ? `github.event.deployment_status.state == 'success' && github.event.deployment.environment == '${deployment}'`
-        : null;
+        : kind === "daily"
+          ? byHand
+          : null;
   const refreshIf = expr(
     `github.event_name != 'pull_request'${guard === null ? "" : ` && (${guard})`}`,
   );

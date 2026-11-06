@@ -57,6 +57,7 @@ import {
   DEPLOYMENT_MAIN,
   ENVIRONMENT_NAME,
   RELEASE_MAIN,
+  runsByHand,
 } from "./ci-workflow.js";
 
 export type TriggerOffer = {
@@ -842,6 +843,9 @@ function shownFiles(files: string[]): string[] {
   return out;
 }
 
+const BY_HAND =
+  "Run it any time from the repository's Actions tab (Demoman → Run workflow).";
+
 export function planLines(p: CiPlan): string[] {
   const offer = p.offers.find(
     (o) => JSON.stringify(o.trigger) === JSON.stringify(p.trigger),
@@ -853,6 +857,7 @@ export function planLines(p: CiPlan): string[] {
   const c = p.check;
   return [
     `Records the repo flows ${label}.`,
+    ...(runsByHand(p.trigger) ? [BY_HAND] : []),
     p.route === "pr"
       ? "Delivers what changed as a pull request."
       : `Delivers what changed as a commit on ${p.repo.defaultBranch}.`,

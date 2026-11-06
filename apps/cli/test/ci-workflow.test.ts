@@ -456,6 +456,21 @@ describe("ciWorkflow", () => {
     );
   });
 
+  // Red when the refresh can only wait for its trigger (DEM-62): push and
+  // daily can be run by hand; release and deployment record a release or
+  // a deployment, which a manual run does not have.
+  it("push and daily can be run by hand; release and deployment cannot", () => {
+    for (const y of [push, dailyY])
+      expect(lines(y)).toContain("  workflow_dispatch:");
+    for (const y of [releaseY, deploy])
+      expect(lines(y)).not.toContain("  workflow_dispatch:");
+    // A manual run refreshes only the watched branch, never a feature branch.
+    for (const y of [push, dailyY])
+      expect(parse(y).jobs.refresh.if).toContain(
+        "(github.event_name != 'workflow_dispatch' || github.ref_name == 'main')",
+      );
+  });
+
   it("has no start step in any trigger", () => {
     for (const y of [push, deploy, releaseY, dailyY]) {
       expect(y).not.toMatch(/Start your app/);
@@ -675,9 +690,10 @@ describe("release and daily triggers", () => {
     expect(release).not.toContain("push:");
   });
 
-  it("records once a day on the branch it watches, and only on the schedule", () => {
-    expect(daily).toContain('on:\n  schedule:\n    - cron: "17 6 * * *"\n');
-    expect(daily).not.toContain("workflow_dispatch");
+  it("records once a day on the branch it watches, or when run by hand there", () => {
+    expect(daily).toContain(
+      'on:\n  schedule:\n    - cron: "17 6 * * *"\n  workflow_dispatch:\n',
+    );
     // The schedule runs on the default branch: the checkout names no ref.
     expect(lines(daily).filter((l) => l.trim().startsWith("ref:"))).toEqual([]);
   });
@@ -686,11 +702,17 @@ describe("release and daily triggers", () => {
     for (const y of [release, daily]) {
       expect(y).not.toContain("Skip Demoman's own commits");
       expect(y).not.toContain("steps.guard");
-      // Only the pull_request exclusion conditions the refresh job.
-      expect(parse(y).jobs.refresh.if).toBe(
-        expr("github.event_name != 'pull_request'"),
-      );
     }
+    // Only the pull_request exclusion conditions the release job; daily
+    // adds the manual run's branch check.
+    expect(parse(release).jobs.refresh.if).toBe(
+      expr("github.event_name != 'pull_request'"),
+    );
+    expect(parse(daily).jobs.refresh.if).toBe(
+      expr(
+        "github.event_name != 'pull_request' && ((github.event_name != 'workflow_dispatch' || github.ref_name == 'main'))",
+      ),
+    );
     // Premise: the push workflow still has it.
     expect(push).toContain("Skip Demoman's own commits");
   });

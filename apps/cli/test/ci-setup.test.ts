@@ -887,6 +887,16 @@ describe("planCiSetup's plan", () => {
     expect(f.seen.verify?.[0].files.map((x) => x.path)).toEqual(p.files);
   });
 
+  // Red when the plan does not say the refresh can be run by hand (DEM-62).
+  it("says a push or daily refresh can be run by hand, and a release one cannot", async () => {
+    const p = await okPlan(await repo(), fakes());
+    const byHand =
+      "Run it any time from the repository's Actions tab (Demoman → Run workflow).";
+    expect(planLines({ ...p, trigger: "daily" })).toContain(byHand);
+    expect(planLines({ ...p, trigger: "push" })).toContain(byHand);
+    expect(planLines({ ...p, trigger: "release" })).not.toContain(byHand);
+  });
+
   // Finding 12, red: every screen image is a plan line and a PR body line.
   it("lists the screens folder once, with its image count", async () => {
     const root = await repo();
