@@ -126,6 +126,7 @@ const startStub =
         stops++;
         return leftToStop;
       },
+      reset: async () => ({ ok: true }),
     }),
   ): typeof startApp =>
   async (a, o) => {
@@ -568,6 +569,7 @@ describe("verifySetup", () => {
               stops++;
               return [];
             },
+            reset: async () => ({ ok: true }),
           };
         }),
       }),
