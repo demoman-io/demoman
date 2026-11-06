@@ -958,6 +958,34 @@ describe("planCiSetup's plan", () => {
     expect(q.files).toContain(APP_FILE);
   });
 
+  // Red if the plan leaves out accounts.json: the check and CI then cannot sign in (DEM-53).
+  it("carries .demoman/accounts.json unless committed as is", async () => {
+    const text = '{"accountsVersion":1,"sites":{}}';
+    const root = await repo();
+    await writeFile(join(root, ".demoman", "accounts.json"), text);
+    const p = await okPlan(root, fakes());
+    expect(p.files).toContain(".demoman/accounts.json");
+    const f = fakes();
+    await okPlan(root, f);
+    // The check's clean checkout gets it too.
+    expect(f.seen.verify?.[0].files.map((x) => x.path)).toContain(
+      ".demoman/accounts.json",
+    );
+    const committed = fakes({
+      head: {
+        "HEAD:.demoman/accounts.json": text,
+        "origin/trunk:.demoman/accounts.json": text,
+      },
+    });
+    expect((await okPlan(root, committed)).files).not.toContain(
+      ".demoman/accounts.json",
+    );
+    // Premise: a repo with no accounts file proposes none.
+    expect((await okPlan(await repo(), fakes())).files).not.toContain(
+      ".demoman/accounts.json",
+    );
+  });
+
   // R5: a delivery that does not match the committed script goes in as the script alone.
   // R24: match, edited and absent.
   it.each([
