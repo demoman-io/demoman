@@ -78,6 +78,30 @@ describe(".demoman/app.json", () => {
     expect(invalid(withChange({ extra: 1 })).reason).toBe("appInvalid");
   });
 
+  // Red when a hand-written file without env, secrets or services is
+  // refused, and when a refusal's detail does not name its field (DEM-48).
+  it("env, secrets and services default to empty", () => {
+    const r = parseApp(
+      JSON.stringify({
+        appVersion: 1,
+        install: [],
+        start: "pnpm dev",
+        url: "http://localhost:4401",
+      }),
+      ".demoman/app.json",
+    );
+    expect(r).toMatchObject({
+      ok: true,
+      app: { env: {}, secrets: [], services: {}, timeoutSeconds: 120 },
+    });
+  });
+
+  it("a refusal's detail names its field", () => {
+    const r = invalid(withChange({ env: [] }));
+    expect(r.field).toBe("env");
+    expect(r.detail).toMatch(/^\.demoman\/app\.json: env: /);
+  });
+
   it("names the draft's holes", () => {
     const { start: _s, url: _u, ...rest } = FULL;
     expect(draftHoles({ ...rest, start: null, url: null })).toEqual([

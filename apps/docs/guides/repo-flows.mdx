@@ -198,9 +198,9 @@ It never reads `.env`.
 | `start` | The command that starts the app |
 | `url` | Where the app answers. Ready is a 2xx, 3xx, or 400 to 403 |
 | `timeoutSeconds` | How long to wait for `url`; default 120 |
-| `env` | Environment for the app. Committed, so it refuses a value that looks like a secret |
-| `secrets` | Names of secrets the app needs, set on GitHub. Never values |
-| `services` | Each service by name: `image`, `ports`, `env`, `options` |
+| `env` | Environment for the app. Committed, so it refuses a value that looks like a secret; default none |
+| `secrets` | Names of secrets the app needs, set on GitHub. Never values; default none |
+| `services` | Each service by name: `image`, `ports`, `env`, `options`; default none |
 
 `refresh` starts the app from this file. With `--base-url` it ignores the file
 and records the app at that address. It refuses with `appOriginMismatch`,
