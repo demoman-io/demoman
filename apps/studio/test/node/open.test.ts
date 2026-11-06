@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,6 +48,23 @@ const servings = async (): Promise<number> =>
   ).length;
 
 describe("openStudio", () => {
+  // Review of #35, finding 5. Red when the studio starts in the caller's
+  // folder, which can be one since deleted: it starts in the Demoman home.
+  it(
+    "starts the studio in the Demoman home, not the caller's folder",
+    async () => {
+      const a = await openStudio({
+        home,
+        version: "0.0.0-test",
+        serve: serveFake(),
+      });
+      expect(a).toMatchObject({ outcome: "opened" });
+      const log = await readFile(join(home, "studio.log"), "utf8");
+      expect(log).toContain(`fake serve: cwd ${await realpath(home)}`);
+    },
+    CASE_MS,
+  );
+
   it(
     "starts a studio when none runs, and the file names a live pid",
     async () => {

@@ -85,7 +85,7 @@ import {
 } from "./setup-deps.js";
 import { parseStudioArgs } from "./studio-args.js";
 import { createStudioCi } from "./studio-ci.js";
-import { callerProject } from "./studio-project.js";
+import { callerProject, workingFolder } from "./studio-project.js";
 import { VERSION } from "./version.js";
 
 const log = (line: string): void => {
@@ -478,7 +478,9 @@ async function keepInRepo(
  *  do, reached from the MCP server. Paths are the repo root's. */
 function repoDoors(): RepoDoors {
   const rootOf = async (project: string | undefined) => {
-    const r = await readRepo(project ?? process.cwd(), execGit);
+    const where = project === undefined ? workingFolder() : { dir: project };
+    if ("none" in where) return { none: where.none };
+    const r = await readRepo(where.dir, execGit);
     return r.ok ? { root: r.repo.root } : { none: r.none };
   };
   // Progress stops reaching the agent at stillRunning; the log keeps it.
