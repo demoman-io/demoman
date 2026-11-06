@@ -56,8 +56,9 @@ import {
   type RefreshDeps,
   type RefreshResult,
   type RefreshVideo,
+  type RunVerdict,
   refreshKept,
-  uncleanRun,
+  runVerdict,
 } from "../src/executor/refresh.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { listenOnLoopback } from "../src/loopback.js";
@@ -1246,13 +1247,14 @@ export const replaceChain = () => {
   );
 
   it(
-    "fails a run that carries a degradation, leaving its files",
+    "records a degraded run once more, then delivers it with a note (DEM-55)",
     async () => {
       html = ORIGINAL;
-      const before = await Promise.all([out.aMp4, out.aGif].map(bytes));
-      let clean: string | null | undefined;
+      let clean: RunVerdict | undefined;
+      let runs = 0;
       inject = (v) => {
-        clean = uncleanRun(v);
+        runs += 1;
+        clean = runVerdict(v);
         const report = v as unknown as RunReport;
         const degraded = {
           ...report,
@@ -1267,12 +1269,13 @@ export const replaceChain = () => {
         inject = null;
       }
       // The premise: the run itself was clean.
-      expect(clean).toBeNull();
-      expect(r.videos.map((v) => [v.name, v.outcome])).toEqual([[A, "failed"]]);
-      expect(byName(r, A).detail).toContain("motion frames were skipped");
-      const after = await Promise.all([out.aMp4, out.aGif].map(bytes));
-      for (const [i, b] of after.entries())
-        expect(b.equals(before[i] as Buffer)).toBe(true);
+      expect(clean).toEqual({ kind: "clean" });
+      // Red when a forgiven degradation fails the flow, or is not retried.
+      expect(runs).toBe(2);
+      expect(byName(r, A).outcome).not.toBe("failed");
+      expect(byName(r, A).notes.join(" ")).toContain(
+        "recorded with problems Demoman could not avoid on this machine: budgetBreach",
+      );
     },
     ONE_MS,
   );

@@ -144,32 +144,77 @@ type Job = {
   to: string;
 };
 
+export type RunVerdict =
+  | { kind: "clean" }
+  | { kind: "degraded"; problems: string[] }
+  | { kind: "failed"; detail: string };
+
 /**
- * Why a run answer is not clean enough to replace a committed video, or
- * null when it is: complete, never stopped, every step matched, nothing
- * degraded, everything stored. Read from the answer, never recomputed; the
- * reason given is the answer's own summary (its verdict line).
+ * Whether a run answer can replace a committed video. Clean: complete, never
+ * stopped, every step matched, everything stored, nothing degraded.
+ * Degraded: all of that, but the recording had a problem the walk forgives
+ * (a soft still, a scroll still moving, no motion at all); refresh records
+ * it once more (DEM-55). Failed: anything else, its detail the answer's own
+ * summary plus each degradation's note, so CI says why. Read from the
+ * answer, never recomputed.
  */
-export function uncleanRun(answer: Record<string, unknown>): string | null {
-  const r = answer as Omit<Partial<RunReport>, "outcome"> & {
+export function runVerdict(answer: Record<string, unknown>): RunVerdict {
+  const r = answer as Omit<Partial<RunReport>, "outcome" | "frames"> & {
     outcome?: unknown;
     summary?: unknown;
     reason?: unknown;
     detail?: unknown;
     error?: unknown;
+    frames?: { spans?: number; degradations?: unknown[] };
   };
-  if (r.outcome === "refusedBeforeRun") return `${r.reason}: ${r.detail}`;
-  if (r.outcome === "threw") return `the run threw: ${r.error}`;
-  const clean =
+  if (r.outcome === "refusedBeforeRun")
+    return { kind: "failed", detail: `${r.reason}: ${r.detail}` };
+  if (r.outcome === "threw")
+    return { kind: "failed", detail: `the run threw: ${r.error}` };
+  const problems = (r.frames?.degradations ?? []).map((d) =>
+    typeof d === "string"
+      ? d
+      : `${(d as { kind?: string }).kind}: ${(d as { note?: string }).note}`,
+  );
+  if (r.frames?.spans === 0)
+    problems.push("no motion was recorded: the video is its stills only");
+  const whole =
     r.outcome === "complete" &&
     r.stopped === undefined &&
     r.verdict?.kind === "matches" &&
-    r.frames?.degradations.length === 0 &&
+    r.frames !== undefined &&
     (r.notStored ?? []).length === 0;
-  if (clean) return null;
-  return typeof r.summary === "string"
-    ? r.summary
-    : `the run answered ${JSON.stringify(r.outcome)} with no summary`;
+  if (whole)
+    return problems.length === 0
+      ? { kind: "clean" }
+      : { kind: "degraded", problems };
+  const line =
+    typeof r.summary === "string"
+      ? r.summary
+      : `the run answered ${JSON.stringify(r.outcome)} with no summary`;
+  return {
+    kind: "failed",
+    detail: problems.length === 0 ? line : `${line} — ${problems.join("; ")}`,
+  };
+}
+
+/** Records a flow, and once more when the first recording is degraded: on a
+ *  busy runner a soft still or a starved screencast is usually a one-off
+ *  (DEM-55). Answers the run that stands and its verdict; a second degraded
+ *  run stands too, and the caller delivers it with a note. */
+export async function recordWithRetry(
+  run: () => Promise<Record<string, unknown>>,
+  name: string,
+  log: (line: string) => void,
+): Promise<{ answer: Record<string, unknown>; verdict: RunVerdict }> {
+  const first = await run();
+  const verdict = runVerdict(first);
+  if (verdict.kind !== "degraded") return { answer: first, verdict };
+  log(
+    `refresh: "${name}" recorded with ${verdict.problems.join("; ")}; recording it once more`,
+  );
+  const answer = await run();
+  return { answer, verdict: runVerdict(answer) };
 }
 
 /**
@@ -538,11 +583,14 @@ async function filmOne(
       ? (out.value as Record<string, unknown>)
       : { outcome: "refusedBeforeRun", reason: out.reason, detail: out.detail };
   };
-  const answer = await run();
+  const { answer, verdict } = await recordWithRetry(run, kept.name, deps.log);
   // The group's first run includes the browser launch.
   times.mark("record");
-  const unclean = uncleanRun(answer);
-  if (unclean !== null) return { failed: unclean };
+  if (verdict.kind === "failed") return { failed: verdict.detail };
+  if (verdict.kind === "degraded")
+    job.notes.push(
+      `recorded with problems Demoman could not avoid on this machine: ${verdict.problems.join("; ")}`,
+    );
   const report = answer as unknown as RunReport;
   const takeId = report.provenance.takeId;
   if (takeId === null) return { failed: "the run is clean but made no video" };
