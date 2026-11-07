@@ -168,7 +168,6 @@ const addedAt = {
   written: [".demoman/flows/checkout.json", "docs/demos/checkout.mp4"],
   notes: [],
 };
-const stopOf = (extra: object) => ({ reason: "x", detail: "d", ...extra });
 
 async function lastStepOf(state: CiState) {
   const d = ciDoor(state);
@@ -179,17 +178,15 @@ async function lastStepOf(state: CiState) {
   return { d, m };
 }
 
-describe("repoSheetModel CI steps", () => {
-  // Red if a CiState stops leading to its own step (notSetUp form, setUp pull request, note for noGh and unreadable, working for running).
+describe("repoSheetModel with CI", () => {
+  // Red if the last step stops reading the repo's CI through ciSteps.
   it.each([
     [{ kind: "notSetUp" }, "form"],
-    [{ kind: "setUp" }, "pr"],
-    [{ kind: "noGh", detail: "gh is not signed in." }, "note"],
-    [{ kind: "unreadable", detail: "Cannot read." }, "note"],
-    [{ kind: "running", jobId: "ci-1" }, "working"],
+    [{ kind: "setUp" }, "setUp"],
   ] as Array<[CiState, string]>)("%j leads to %s", async (state, k) => {
     const { m } = await lastStepOf(state);
-    expect(m.state).toMatchObject({ step: "last", ci: { k } });
+    expect(m.state).toMatchObject({ step: "last", pr: null });
+    expect(m.ci?.step.k).toBe(k);
   });
 
   // Red if the pull request stops using the add's file name, title and exactly its written files (Decision 5).
@@ -203,97 +200,28 @@ describe("repoSheetModel CI steps", () => {
         files: addedAt.written,
       }),
     ]);
+    expect(m.state).toMatchObject({ pr: { url: "https://gh/pr/4" } });
     m.close();
     expect((await m.result).prOpened).toBe("https://gh/pr/4");
   });
 
-  // Red if the add's or the plan's listener stays after its final event: a later gone() would overwrite what happened.
-  it("stops listening once the add and the plan end", async () => {
+  // Red if Open pull request is offered on a repo whose CI is not set up.
+  it("opens no pull request when CI is not set up", async () => {
+    const { d, m } = await lastStepOf({ kind: "notSetUp" });
+    await m.openPr();
+    expect(d.prBodies).toEqual([]);
+  });
+
+  // Red if the add's or the CI's listener stays after the sheet ends.
+  it("stops listening once the add ends and when the sheet closes", async () => {
     const { d, m } = await lastStepOf({ kind: "notSetUp" });
     // Premise: the add ended on the last step, not by finishing the sheet.
     expect(m.state.step).toBe("last");
     expect(d.offs.repo).toBe(1);
-    await m.check({});
+    await m.ci?.check({});
     expect(d.offs.ci).toBe(0);
-    d.tellCi({ phase: "done", step: "plan", answer: stopOf({}) });
-    expect(d.offs.ci).toBe(1);
     m.close();
-  });
-
-  // Red if the filled holes stop being merged over the draft: a good start blanked, a url hole lost, or an env.X hole dropped.
-  it("keeps the draft's start and merges the url and env holes on the next Check", async () => {
-    const { d, m } = await lastStepOf({ kind: "notSetUp" });
-    await m.check({});
-    d.tellCi({
-      phase: "done",
-      step: "plan",
-      answer: stopOf({
-        reason: "appHoles",
-        proposal: {
-          draft: {
-            appVersion: 1,
-            install: [],
-            start: "pnpm dev",
-            url: null,
-            timeoutSeconds: 60,
-            env: { KEEP: "1" },
-          },
-          source: { kind: "agent" },
-          holes: [
-            { field: "url", why: "no origin" },
-            { field: "env.API_HOST", why: "no value" },
-          ],
-        },
-      }),
-    });
-    // Premise: the draft already has a good start, and it is not a hole.
-    expect(m.proposal?.draft.start).toBe("pnpm dev");
-    expect(m.proposal?.holes.map((h) => h.field)).not.toContain("start");
-    expect(m.state).toMatchObject({
-      ci: { k: "form", stop: { reason: "appHoles" } },
-    });
-    m.holes.url = "http://localhost:3000";
-    m.holes["env.API_HOST"] = "localhost";
-    await m.check({});
-    expect(d.planBodies).toHaveLength(2);
-    expect(d.planBodies[1]).toMatchObject({
-      choices: {
-        app: {
-          start: "pnpm dev",
-          url: "http://localhost:3000",
-          env: { KEEP: "1", API_HOST: "localhost" },
-        },
-        appBy: "person",
-      },
-    });
-  });
-
-  // Red if changing the trigger or route stops marking the plan stale, or a stale plan can still be applied (R16).
-  it("cannot apply a plan after its trigger or route changed", async () => {
-    const { d, m } = await lastStepOf({ kind: "notSetUp" });
-    await m.check({});
-    d.tellCi({
-      phase: "done",
-      step: "plan",
-      answer: { planId: "p1", plan: {}, lines: [] },
-    });
-    expect(m.state).toMatchObject({ ci: { k: "planned", stale: false } });
-    m.markStale();
-    expect(m.state).toMatchObject({ ci: { k: "planned", stale: true } });
-    await m.apply();
-    expect(d.applyBodies).toEqual([]);
-  });
-
-  // Red if a stop other than appHoles/secretMissing stops ending on the stopped step.
-  it("ends on the stop for any other reason", async () => {
-    const { d, m } = await lastStepOf({ kind: "notSetUp" });
-    await m.check({});
-    d.tellCi({
-      phase: "done",
-      step: "plan",
-      answer: stopOf({ reason: "alreadySetUp" }),
-    });
-    expect(m.state).toMatchObject({ ci: { k: "stopped" } });
+    expect(d.offs.ci).toBe(1);
   });
 
   // Red if Not now stops resolving without a pull request and toasting that CI is not set up.
@@ -307,69 +235,8 @@ describe("repoSheetModel CI steps", () => {
     expect(m.toast).toBe('Added "Checkout" to the repo. CI is not set up.');
   });
 
-  // Red if a finished job's answer stops showing on reopening instead of offering setup again.
-  it("shows a finished job's result", async () => {
-    const { m } = await lastStepOf({
-      kind: "finished",
-      jobId: "ci-9",
-      step: "plan",
-      answer: stopOf({ reason: "alreadySetUp" }),
-    });
-    expect(m.state).toMatchObject({ ci: { k: "stopped" } });
-  });
-
-  // Red if a plan answered by a job that was not this sheet's (replayed by state) can be applied without a fresh Check.
-  it.each([
-    [{ kind: "running", jobId: "ci-1" }],
-    [
-      {
-        kind: "finished",
-        jobId: "ci-1",
-        step: "plan",
-        answer: { planId: "p0", plan: {}, lines: [] },
-      },
-    ],
-  ] as Array<[CiState]>)("a replayed plan from %j is stale", async (state) => {
-    const { d, m } = await lastStepOf(state);
-    if (state.kind === "running")
-      d.tellCi({
-        phase: "done",
-        step: "plan",
-        answer: { planId: "p0", plan: {}, lines: [] },
-      });
-    expect(m.state).toMatchObject({ ci: { k: "planned", stale: true } });
-    await m.apply();
-    expect(d.applyBodies).toEqual([]);
-    await m.check({});
-    expect(d.planBodies).toHaveLength(1);
-  });
-
-  // Red if a stopped step (live or replayed) cannot lead back to Check.
-  it("Check after an actionsRefused stop sends a new plan", async () => {
-    const live = await lastStepOf({ kind: "notSetUp" });
-    await live.m.check({});
-    live.d.tellCi({
-      phase: "done",
-      step: "plan",
-      answer: stopOf({ reason: "actionsRefused" }),
-    });
-    expect(live.m.state).toMatchObject({ ci: { k: "stopped" } });
-    await live.m.check({});
-    expect(live.d.planBodies).toHaveLength(2);
-
-    const replayed = await lastStepOf({
-      kind: "finished",
-      jobId: "ci-9",
-      step: "plan",
-      answer: stopOf({ reason: "actionsRefused" }),
-    });
-    expect(replayed.m.state).toMatchObject({ ci: { k: "stopped" } });
-    await replayed.m.check({});
-    expect(replayed.d.planBodies).toHaveLength(1);
-  });
-
-  // Red if the sheet's panels show the timings or the refresh's renames.
-  it("leaves timing and rename lines out of its panels", async () => {
+  // Red if the running line shows the timings or the refresh's renames.
+  it("leaves timing and rename lines out of its running line", async () => {
     const d = ciDoor({ kind: "notSetUp" });
     const m = repoSheetModel(d.args);
     await m.submit();
@@ -379,14 +246,6 @@ describe("repoSheetModel CI steps", () => {
     expect(m.state).toEqual({
       step: "running",
       line: "add: exporting docs/a.mp4",
-    });
-    d.tell(addedAt);
-    await new Promise((r) => setTimeout(r, 0));
-    await m.check({});
-    for (const line of ["timing export 4s", "Checking", "timing refresh 9s"])
-      d.tellCi({ phase: "progress", line });
-    expect(m.state).toMatchObject({
-      ci: { k: "working", lines: ["Checking"] },
     });
   });
 
