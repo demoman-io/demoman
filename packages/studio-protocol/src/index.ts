@@ -320,9 +320,10 @@ export interface VersionExport {
 export interface TakesAnswer {
   /** The videos the takes belong to. */
   videos: VideoSummary[];
-  /** Whether each video, by id, can be added to its repo. A video that
-   *  will not read has none: its row says why. An In repo flow has one
-   *  only when its checkout is gone (`noCheckout`), for Remove from repo. */
+  /** The add check's half that needs no git: an entry only for a flow
+   *  recorded with no repo ("not in a repo"). Any other flow not in the
+   *  repo has none, and the page asks `repoAddable` for the one it adds
+   *  (DEM-47: the whole check per flow cost seconds a listing). */
   addable: Record<string, Addable>;
   /** Each take that is a version of a video: which, its number, and
    *  whether its recording expired (its frames were removed). A take not

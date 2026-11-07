@@ -25,6 +25,9 @@ vi.mock("@demoman/compositor", async (importOriginal) => {
 const seen = vi.hoisted(() => ({
   kept: false,
   removes: 0,
+  /** What repoAddable answers; the listing answers nothing (DEM-47). */
+  addable: null as unknown,
+  asked: 0,
   video: (): VideoSummary =>
     ({
       id: "v1",
@@ -83,9 +86,7 @@ vi.mock("#platform", async (importOriginal) => {
             filmedCode: null,
           },
         },
-        addable: {
-          v1: { ok: true, root: "/r", defaultPath: "docs/demos/c.mp4" },
-        },
+        addable: {},
         unwatched: null,
       }),
       onChange: () => () => {},
@@ -103,11 +104,14 @@ vi.mock("#platform", async (importOriginal) => {
       rename: async () => {},
       repo: {
         folders: async () => ({ folders: [], more: false }),
-        addable: async () => ({
-          ok: true,
-          root: "/r",
-          defaultPath: "docs/demos/c.mp4",
-        }),
+        addable: async () => {
+          seen.asked += 1;
+          return (seen.addable ?? {
+            ok: true,
+            root: "/r",
+            defaultPath: "docs/demos/c.mp4",
+          }) as never;
+        },
         onRepo: () => () => {},
         add: async () => ({ jobId: "none" }),
         remove: async () => {
@@ -201,6 +205,8 @@ describe("editor main: the Repo section", () => {
     vi.resetModules();
     seen.kept = false;
     seen.removes = 0;
+    seen.addable = null;
+    seen.asked = 0;
     history.pushState({}, "", "/?scene=t1");
     editorDom();
     vi.stubGlobal(
@@ -235,6 +241,45 @@ describe("editor main: the Repo section", () => {
       ).toBe("Couldn't add: The repo is full.");
     });
     expect(document.querySelector("[data-toast]")).toBeNull();
+  }, 20_000);
+
+  // Red if the section reads the listing, which no longer checks (DEM-47): its button would vanish.
+  it("asks repoAddable for its one flow, and draws the refusal's words", async () => {
+    seen.addable = {
+      ok: false,
+      reason: "notCarried",
+      label: "has a trim",
+      detail: "the trim would be left behind",
+    };
+    await import("../../../pages/entrypoints/editor/main");
+    const off = await vi.waitFor(
+      () => {
+        const node = document.querySelector<HTMLButtonElement>(
+          '[data-repo-section] [data-action="repo-add"]',
+        );
+        if (node === null) throw new Error("no repo-add yet");
+        return node;
+      },
+      { timeout: 5_000 },
+    );
+    expect(off.textContent).toBe("Can't add: has a trim");
+    expect(off.getAttribute("aria-disabled")).toBe("true");
+    expect(seen.asked).toBeGreaterThan(0);
+  }, 20_000);
+
+  // Red if an In repo flow is checked for an add it cannot make.
+  it("does not ask an In repo flow whether it can be added", async () => {
+    seen.kept = true;
+    await import("../../../pages/entrypoints/editor/main");
+    await vi.waitFor(() => {
+      if (
+        document.querySelector(
+          '[data-repo-section] [data-action="repo-remove"]',
+        ) === null
+      )
+        throw new Error("no section yet");
+    });
+    expect(seen.asked).toBe(0);
   }, 20_000);
 
   // Red if a remove that works stops toasting its exact words.

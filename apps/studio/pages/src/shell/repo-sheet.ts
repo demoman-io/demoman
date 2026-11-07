@@ -45,6 +45,7 @@ export interface RepoSheetResult {
     notes: string[];
     root: string;
     file: string;
+    deliver: Deliver;
   } | null;
   prOpened: string | null;
   failed?: string;
@@ -209,6 +210,7 @@ export function repoSheetModel(a: RepoSheetArgs) {
               notes: e.notes,
               root: e.root,
               file: e.file,
+              deliver: fields.deliver,
             },
             prOpened: null,
           });
@@ -240,6 +242,7 @@ export function repoSheetModel(a: RepoSheetArgs) {
           notes: state.notes,
           root: state.root,
           file: state.file,
+          deliver: fields.deliver,
         }
       : null;
 

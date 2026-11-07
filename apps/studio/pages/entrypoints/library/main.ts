@@ -48,6 +48,7 @@ import {
   statusKey,
   unreadableKind,
 } from "../../src/library/view";
+import type { FolderListing } from "../../src/platform/types";
 import { takeNote, VIDEO_DELETED } from "../../src/shell/carried-note";
 import {
   askToConfirm,
@@ -62,6 +63,7 @@ import { createRefresher } from "../../src/shell/refresher";
 import {
   messageOf,
   openRepoSheet,
+  type RepoSheetResult,
   removedLine,
   removeQuestion,
 } from "../../src/shell/repo-sheet";
@@ -449,6 +451,15 @@ async function paintFresh({ keepNotice = false } = {}): Promise<void> {
   if (!keepNotice) clearNotice();
   // Both at once; the first paint still draws the view served.
   const [, studio] = await Promise.all([viewRead, platform.folder.read()]);
+  paintListing(studio);
+}
+
+/** The listing the page last painted: an add marks its flow In repo in it
+ *  at once (DEM-59), before the next read says so. */
+let lastListing: FolderListing | null = null;
+
+function paintListing(studio: FolderListing): void {
+  lastListing = studio;
   const listed = studio.scenes;
   scenesById = new Map(listed.map((scene) => [scene.meta.id, scene]));
   const model = buildLibraryModel({
@@ -482,13 +493,14 @@ const unperiod = (text: string): string => text.replace(/\.$/, "");
 async function addToRepo(id: string): Promise<void> {
   const can = addables[id];
   const flow = lastModel?.groups?.find((g) => g.video.id === id);
-  if (addingNow.has(id) || can === undefined || !can.ok || flow === undefined) {
-    return;
-  }
+  // No answer from the listing offers Add: the sheet checks (DEM-47).
+  if (addingNow.has(id) || can?.ok === false || flow === undefined) return;
   const key = statusKey("video", id);
   rowStatus.delete(key);
   addingNow.add(id);
-  await render().catch((error: unknown) => reportError("adding it", error));
+  // The row's button says so now; the sheet opens without a read (DEM-47).
+  repaint();
+  let added: RepoSheetResult["added"] = null;
   try {
     const done = await openRepoSheet({
       video: { id, name: flow.video.name },
@@ -496,6 +508,7 @@ async function addToRepo(id: string): Promise<void> {
       ci: platform.repoCi,
       reveal: (path) => platform.files.reveal({ kind: "path", path }),
     });
+    added = done.added;
     if (done.failed !== undefined) {
       rowStatus.set(key, `Couldn't add: ${unperiod(done.failed)}.`);
     }
@@ -505,7 +518,32 @@ async function addToRepo(id: string): Promise<void> {
   } finally {
     addingNow.delete(id);
   }
-  await render().catch((error: unknown) => reportError("adding it", error));
+  // In repo from the add's own answer (DEM-59); the read confirms it.
+  if (added !== null && lastListing !== null) {
+    const { root, file } = added;
+    paintListing({
+      ...lastListing,
+      videos: lastListing.videos.map((v) =>
+        v.id === id
+          ? {
+              ...v,
+              kept: {
+                root,
+                file,
+                deliver: added.deliver,
+                key: "key" in v.repo ? v.repo.key : null,
+              },
+            }
+          : v,
+      ),
+    });
+  } else repaint();
+  void render().catch((error: unknown) => reportError("adding it", error));
+}
+
+/** Paints the last listing again: a row's state changed, the folder did not. */
+function repaint(): void {
+  if (lastListing !== null) paintListing(lastListing);
 }
 
 /** Remove from repo: asks, names the recipe that goes and the exports that

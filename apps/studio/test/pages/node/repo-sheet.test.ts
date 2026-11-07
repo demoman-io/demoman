@@ -195,6 +195,7 @@ describe("repoSheetModel", () => {
       notes: [],
       root: "/r",
       file: "f.json",
+      deliver: "files",
     });
   });
 

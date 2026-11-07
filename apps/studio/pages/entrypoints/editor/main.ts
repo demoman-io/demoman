@@ -3320,6 +3320,23 @@ function repoState(): RepoState | null {
   };
 }
 
+/** Whether the flow can be added, asked for this one flow: the listing
+ *  answers only a flow with no repo (DEM-47). A check that fails says why
+ *  on the disabled button rather than taking it away. */
+async function addableOf(video: VideoSummary): Promise<Addable | undefined> {
+  if (video.kept !== null) return undefined;
+  try {
+    return await platform.videos.repo.addable(video.id);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "checkFailed",
+      label: "couldn't check",
+      detail: messageOf(error),
+    };
+  }
+}
+
 async function refreshRepo(): Promise<void> {
   if (platform.folder === undefined) return;
   const listing = await platform.folder.read();
@@ -3328,7 +3345,7 @@ async function refreshRepo(): Promise<void> {
   const next =
     id === undefined || video === undefined
       ? null
-      : { video, addable: listing.addable?.[id] };
+      : { video, addable: listing.addable?.[id] ?? (await addableOf(video)) };
   // What was said about the flow's last change is stale once it changes.
   if (JSON.stringify(next) !== JSON.stringify(repoFlow)) {
     repoStatus = null;

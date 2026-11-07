@@ -125,7 +125,7 @@ export interface LibraryActions {
   /** Adding flows to their repos and taking them out. Absent: no buttons. */
   repo?: {
     /** Whether the flow can be added, from the listing; undefined when the
-     *  listing has no answer for it. */
+     *  listing has no answer for it, which offers Add (the sheet checks). */
     addable(videoId: string): Addable | undefined;
     /** An add of this flow is under way: its button says so. */
     adding(videoId: string): boolean;
@@ -1506,8 +1506,9 @@ function repoActionButton(
     remove.addEventListener("click", () => repo.remove(id));
     return remove;
   }
+  // No answer from the listing: it checks only what needs no git (DEM-47),
+  // so the sheet checks this flow when it opens.
   const can = repo.addable(id);
-  if (can === undefined) return null;
   const add = el("button", {
     type: "button",
     "data-action": "repo-add",
@@ -1518,7 +1519,7 @@ function repoActionButton(
     add.setAttribute("aria-disabled", "true");
     add.setAttribute("aria-label", `Adding to repo: ${r.label}`);
     add.title = "Adding to repo…";
-  } else if (can.ok) {
+  } else if (can === undefined || can.ok) {
     add.setAttribute("aria-label", `Add to repo: ${r.label}`);
     add.title = "Add to repo";
     add.addEventListener("click", () => repo.add(id));
