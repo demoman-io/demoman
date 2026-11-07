@@ -26,8 +26,12 @@ export type GitRunner = (
 
 export const execGit: GitRunner = (args, cwd, env) =>
   new Promise((done, fail) => {
+    // execFile's 1 MB default refuses a big repo's `ls-tree -r -d` outright.
+    const maxBuffer = 256 * 1024 * 1024;
     const options =
-      env === undefined ? { cwd } : { cwd, env: { ...process.env, ...env } };
+      env === undefined
+        ? { cwd, maxBuffer }
+        : { cwd, maxBuffer, env: { ...process.env, ...env } };
     execFile("git", args, options, (err, stdout, stderr) => {
       if (!err) return done({ code: 0, stdout, stderr });
       // A numeric code is git answering; a string code (ENOENT) is git not running.

@@ -323,6 +323,7 @@ export function buildHandlers(o: {
               ),
               marked: answer.markNote === undefined,
               root: can.root,
+              key: answer.key,
             });
           },
           (position) => o.events.send({ ...at, phase: "queued", position }),

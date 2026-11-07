@@ -1171,14 +1171,27 @@ export function createRoutes(o: {
       // the one shown: never a raw one that leads elsewhere through a link.
       const wrote = o.written?.(resolvePath(path)) === true;
       const at = wrote ? resolvePath(path) : path;
-      const listed = wrote
-        ? (await stat(at).then(
-            () => true,
-            () => false,
-          ))
-          ? "listed"
-          : "gone"
-        : await listedOutput(path);
+      let listed: "listed" | "unlisted" | "gone";
+      if (wrote) {
+        // Only a missing file is "gone"; EACCES or EIO says what it is.
+        const missing = await stat(at).then(
+          () => null,
+          (error: unknown) => error,
+        );
+        if (
+          missing !== null &&
+          (missing as { code?: unknown }).code !== "ENOENT"
+        ) {
+          return refuse(
+            500,
+            "revealRefused",
+            `${path} could not be read (${messageOf(missing)}).`,
+          );
+        }
+        listed = missing === null ? "listed" : "gone";
+      } else {
+        listed = await listedOutput(path);
+      }
       if (listed === "unlisted") {
         return refuse(
           403,

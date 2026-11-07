@@ -101,6 +101,7 @@ async function open(o: {
         written: WRITTEN,
         notes,
         root: "/r",
+        key: null,
       }),
   };
 }
@@ -223,6 +224,33 @@ for (const scheme of ["light", "dark"] as const) {
       );
       const folder = await el<HTMLInputElement>(dialog, "[data-repo-folder]");
       expect(folder.disabled).toBe(false);
+    });
+
+    // Red if a failed folder read is kept, so the picker repeats it and never asks again.
+    it("a folder list that failed is read again on the next open", async () => {
+      let asked = 0;
+      const { dialog } = await open({
+        folders: async () => {
+          asked += 1;
+          if (asked === 1) throw new Error("index.lock exists");
+          return { folders: ["docs"], more: false };
+        },
+      });
+      const choose = await el<HTMLElement>(
+        dialog,
+        '[aria-label="Choose folder"]',
+      );
+      choose.click();
+      const list = await el<HTMLElement>(document, "[data-repo-folders]");
+      await vi.waitFor(() =>
+        expect(list.textContent).toContain("index.lock exists"),
+      );
+      list.hidePopover();
+      choose.click();
+      await vi.waitFor(() =>
+        expect(list.querySelectorAll("button")).toHaveLength(1),
+      );
+      expect(asked).toBe(2);
     });
 
     // Red if a written file loses its label, or Reveal stops naming the whole path (DEM-49, DEM-56).

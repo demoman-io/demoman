@@ -49,6 +49,8 @@ export interface RepoSheetResult {
     /** Whether the library marked the flow In repo; false when it could
      *  not (its note says so), and the row then waits for the read. */
     marked: boolean;
+    /** The repo key the mark records: the flow's project. */
+    key: string | null;
   } | null;
   prOpened: string | null;
   failed?: string;
@@ -70,6 +72,7 @@ export type SheetState =
       notes: string[];
       file: string;
       marked: boolean;
+      key: string | null;
       pr: PrStep | null;
     };
 
@@ -233,6 +236,7 @@ export function repoSheetModel(a: RepoSheetArgs) {
               file: e.file,
               deliver: fields.deliver,
               marked: e.marked,
+              key: e.key,
             },
             prOpened: null,
           });
@@ -245,6 +249,7 @@ export function repoSheetModel(a: RepoSheetArgs) {
             notes: e.notes,
             file: e.file,
             marked: e.marked,
+            key: e.key,
             pr: null,
           });
           void ci?.read();
@@ -267,6 +272,7 @@ export function repoSheetModel(a: RepoSheetArgs) {
           file: state.file,
           deliver: fields.deliver,
           marked: state.marked,
+          key: state.key,
         }
       : null;
 
@@ -446,11 +452,15 @@ export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
   dialog.append(form);
   /** Each Reveal's refusal, by path, said under its row (DEM-56). */
   const revealErrors = new Map<string, string>();
-  /** The repo's folders, read once when the list first opens. */
+  /** The repo's folders, read once when the list first opens; a failed
+   *  read is asked again on the next open. */
   let folders: Folders | null = null;
   const readFolders = (): Folders | null => {
     if (model.state.step !== "form") return null;
-    folders ??= a.repo.folders(model.state.root);
+    folders ??= a.repo.folders(model.state.root).catch((error: unknown) => {
+      folders = null;
+      throw error;
+    });
     return folders;
   };
   const draw = (): void =>

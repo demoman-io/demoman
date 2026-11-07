@@ -576,6 +576,9 @@ export type StudioEvent =
        *  not: a note says so, and a page must not paint In repo for it. */
       marked: boolean;
       root: string;
+      /** The repo key the mark records (the flow's project); null when the
+       *  checkout has none. */
+      key: string | null;
     }
   | {
       type: "repo";

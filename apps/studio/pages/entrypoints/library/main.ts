@@ -7,6 +7,7 @@ import {
   type CiState,
   DEFAULT_LIBRARY_VIEW,
   type LibraryViewChoice,
+  type VideoSummary,
 } from "@demoman/studio-protocol";
 import { createPlatform } from "#platform";
 import { editedLength } from "../../src/library/length";
@@ -460,7 +461,14 @@ async function paintFresh({ keepNotice = false } = {}): Promise<void> {
  *  at once (DEM-59), before the next read says so. */
 let lastListing: FolderListing | null = null;
 
-function paintListing(studio: FolderListing): void {
+/** Flows an add here marked In repo, as its answer said, until a read
+ *  shows the mark: a read that began before the mark landed would
+ *  otherwise paint the flow Not in repo again (DEM-59). */
+const markedHere = new Map<string, Kept>();
+type Kept = Extract<VideoSummary["kept"], { root: string }>;
+
+function paintListing(read: FolderListing): void {
+  const studio = withMarks(read);
   lastListing = studio;
   const listed = studio.scenes;
   scenesById = new Map(listed.map((scene) => [scene.meta.id, scene]));
@@ -480,6 +488,24 @@ function paintListing(studio: FolderListing): void {
   lastModel = model;
   addables = studio.addable ?? {};
   paint(model);
+}
+
+/** The listing with each add's own mark on it; a mark the read already
+ *  shows is dropped from `markedHere`. */
+function withMarks(read: FolderListing): FolderListing {
+  if (markedHere.size === 0) return read;
+  return {
+    ...read,
+    videos: read.videos.map((v) => {
+      const mark = markedHere.get(v.id);
+      if (mark === undefined) return v;
+      if (v.kept !== null) {
+        markedHere.delete(v.id);
+        return v;
+      }
+      return { ...v, kept: mark, addedTo: mark.key };
+    }),
+  };
 }
 
 /** Whether each flow can be added to its repo, as the last listing said. */
@@ -525,23 +551,9 @@ async function addToRepo(id: string): Promise<void> {
   // Only an add the library marked: a failed mark's note says it will not
   // show In repo, and the read says what is true.
   if (added?.marked === true && lastListing !== null) {
-    const { root, file } = added;
-    paintListing({
-      ...lastListing,
-      videos: lastListing.videos.map((v) =>
-        v.id === id
-          ? {
-              ...v,
-              kept: {
-                root,
-                file,
-                deliver: added.deliver,
-                key: "key" in v.repo ? v.repo.key : null,
-              },
-            }
-          : v,
-      ),
-    });
+    const { root, file, deliver, key } = added;
+    markedHere.set(id, { root, file, deliver, key });
+    paintListing(lastListing);
   } else repaint();
   void render().catch((error: unknown) => reportError("adding it", error));
 }

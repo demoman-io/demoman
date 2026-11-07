@@ -134,6 +134,7 @@ async function openSheet(ci: RepoCiDoor): Promise<HTMLDialogElement> {
             written: WRITTEN,
             notes: [],
             root: "/r",
+            key: null,
           }),
         );
         return () => {};

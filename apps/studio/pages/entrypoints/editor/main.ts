@@ -3320,32 +3320,23 @@ function repoState(): RepoState | null {
   };
 }
 
-/** Whether the flow can be added, asked for this one flow: the listing
- *  answers only a flow with no repo (DEM-47). A check that fails says why
- *  on the disabled button rather than taking it away. */
-async function addableOf(video: VideoSummary): Promise<Addable | undefined> {
-  if (video.kept !== null) return undefined;
-  try {
-    return await platform.videos.repo.addable(video.id);
-  } catch (error) {
-    return {
-      ok: false,
-      reason: "checkFailed",
-      label: "couldn't check",
-      detail: messageOf(error),
-    };
-  }
-}
+/** Listing reads asked so far: a read that a newer one overtook is
+ *  dropped, so an older answer cannot paint over a newer one. */
+let repoReads = 0;
 
 async function refreshRepo(): Promise<void> {
   if (platform.folder === undefined) return;
+  const n = ++repoReads;
   const listing = await platform.folder.read();
+  if (n !== repoReads) return;
   const id = listing.videoOf[sceneId]?.videoId;
   const video = listing.videos.find((v) => v.id === id);
+  // No answer from the listing offers Add: the sheet checks, as the
+  // library's does (DEM-47).
   const next =
     id === undefined || video === undefined
       ? null
-      : { video, addable: listing.addable?.[id] ?? (await addableOf(video)) };
+      : { video, addable: listing.addable?.[id] };
   // What was said about the flow's last change is stale once it changes.
   if (JSON.stringify(next) !== JSON.stringify(repoFlow)) {
     repoStatus = null;
@@ -3361,7 +3352,7 @@ const unperiod = (text: string): string => text.replace(/\.$/, "");
 
 async function addToRepo(): Promise<void> {
   const flow = repoFlow;
-  if (repoAdding || flow === null || flow.addable?.ok !== true) return;
+  if (repoAdding || flow === null || flow.addable?.ok === false) return;
   repoAdding = true;
   repoStatus = null;
   repoNote = null;

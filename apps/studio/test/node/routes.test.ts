@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmod,
@@ -1284,6 +1284,34 @@ describe("reveal", () => {
     expect(h.revealed).toEqual([]);
   });
 
+  // Red if a written file that cannot be read says "moved or deleted"
+  // (report before you forgive: only ENOENT is gone).
+  it("a written file stat cannot read is 500 with its error, not gone", async () => {
+    const dir = join(home, "repo", "locked");
+    const file = join(dir, "x.json");
+    await mkdir(dir, { recursive: true });
+    await writeFile(file, "{}");
+    await chmod(dir, 0o000);
+    try {
+      await expect(stat(file), "the fixture refuses a stat").rejects.toThrow(
+        /EACCES/,
+      );
+      await h.close();
+      h = await startStudio(home, { written: (p) => p === file });
+      const r = await h.call(pathFor("reveal"), {
+        method: "POST",
+        body: JSON.stringify({ path: file }),
+      });
+      expect(r.status, r.text).toBe(500);
+      const detail = (r.json() as { detail: string }).detail;
+      expect(detail).toContain("EACCES");
+      expect(detail).not.toContain("moved or deleted");
+      expect(h.revealed).toEqual([]);
+    } finally {
+      await chmod(dir, 0o755);
+    }
+  });
+
   it("open failing is 500 revealRefused with its words, not a 200", async () => {
     await h.close();
     h = await startStudio(home, { revealFails: "Finder said no" });
@@ -1366,6 +1394,47 @@ describe("repoFolders", () => {
     const r = await ask(repo);
     expect(r.status, r.text).toBe(200);
     expect(r.json()).toEqual({ folders: ["vidéos"], more: false });
+  });
+
+  // Red if git's output past execFile's 1 MB default fails the picker
+  // instead of listing the first 500.
+  it("folders of a repo whose listing passes 1 MB lists the first 500", async () => {
+    const run = (args: string[], input?: string) =>
+      execFileSync("git", args, {
+        cwd: repo,
+        input,
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      }).trim();
+    const empty = run(["mktree"], "");
+    const names = Array.from(
+      { length: 5000 },
+      (_, i) => `${String(i).padStart(5, "0")}${"d".repeat(240)}`,
+    );
+    const tree = run(
+      ["mktree"],
+      names.map((n) => `040000 tree ${empty}\t${n}\n`).join(""),
+    );
+    const commit = run([
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit-tree",
+      tree,
+      "-m",
+      "x",
+    ]);
+    run(["update-ref", "HEAD", commit]);
+    const listing = run(["ls-tree", "-r", "-d", "-z", "--name-only", "HEAD"]);
+    expect(listing.length, "the fixture passes 1 MB").toBeGreaterThan(
+      1024 * 1024,
+    );
+    const r = await ask(repo);
+    expect(r.status, r.text).toBe(200);
+    const body = r.json() as { folders: string[]; more: boolean };
+    expect(body.folders).toEqual(names.slice(0, 500));
+    expect(body.more).toBe(true);
   });
 
   // Red if a git failure answers an empty list, which reads as "no folders".

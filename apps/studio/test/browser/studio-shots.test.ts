@@ -5314,15 +5314,29 @@ describe("the Studio's screenshot set", () => {
         });
         await shoot(`library-add-to-repo-list-${name}`, `${at} ${name}`);
       }
-      // ---- the editor's Repo section: the disabled button names its reason
+      // ---- the editor's Repo section: an unchecked flow offers Add and the
+      // sheet checks, as the library's does (DEM-47)
       at = "editor, a flow with a trim";
       await page.goto(`${studio.origin}/editor.html?scene=${trimTake}`);
       const section = '[data-repo-section] [data-action="repo-add"]';
       await page.locator(section).waitFor({ timeout: PAINT_MS });
       await settle(page, at);
+      expect(await buttonPaint(section), `${at}: offered`).toMatchObject({
+        text: "Add to repo",
+        disabled: false,
+        onScreen: true,
+        hit: true,
+      });
+      // ---- a flow the listing answers: the disabled button names its reason
+      at = "editor, a flow in no repo";
+      await page.goto(`${studio.origin}/editor.html?scene=${looseTake}`);
+      await page
+        .locator(`${section}[aria-disabled="true"]`)
+        .waitFor({ timeout: PAINT_MS });
+      await settle(page, at);
       const editorOff = await buttonPaint(section);
       expect(editorOff, `${at}: the disabled button's words`).toMatchObject({
-        text: "Can't add: has a trim",
+        text: "Can't add: not in a repo",
         disabled: true,
         onScreen: true,
         hit: true,

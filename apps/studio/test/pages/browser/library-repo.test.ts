@@ -80,6 +80,30 @@ interface Flow {
 let memory: MemoryPlatform;
 let runs = 0;
 
+/** The listing a library over `flows` reads, none of them In repo. */
+const listingOf = (flows: Flow[]) => ({
+  scenes: flows.map((f) => scene(`s-${f.id}`, f.name)),
+  videos: flows.map((f) => video(f.id, f.name, f.video)),
+  videoOf: Object.fromEntries(
+    flows.map((f) => [
+      `s-${f.id}`,
+      {
+        videoId: f.id,
+        version: 1,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
+    ]),
+  ),
+  addable: Object.fromEntries(
+    flows.flatMap((f) => (f.listed ? [[f.id, f.listed]] : [])),
+  ),
+  sizes: {},
+  unreadable: [],
+  unwatched: null,
+});
+
 async function mountLibrary(
   flows: Flow[],
   /** Before the page loads: doors its first paint reads. */
@@ -89,28 +113,7 @@ async function mountLibrary(
   document.body.innerHTML = body;
   memory = createMemoryPlatform({ libraryView: CARDS });
   state.memory = memory;
-  memory.answer("folder.read", async () => ({
-    scenes: flows.map((f) => scene(`s-${f.id}`, f.name)),
-    videos: flows.map((f) => video(f.id, f.name, f.video)),
-    videoOf: Object.fromEntries(
-      flows.map((f) => [
-        `s-${f.id}`,
-        {
-          videoId: f.id,
-          version: 1,
-          expired: false,
-          exports: [],
-          filmedCode: null,
-        },
-      ]),
-    ),
-    addable: Object.fromEntries(
-      flows.flatMap((f) => (f.listed ? [[f.id, f.listed]] : [])),
-    ),
-    sizes: {},
-    unreadable: [],
-    unwatched: null,
-  }));
+  memory.answer("folder.read", async () => listingOf(flows));
   // A new query string is a new module: the lane keeps modules across tests.
   memory.videos.repo.addable = async (id) =>
     flows.find((f) => f.id === id)?.addable ?? OK;
@@ -234,6 +237,7 @@ for (const scheme of ["light", "dark"] as const) {
               written: ["docs/demos/c.mp4"],
               notes: [],
               root: "/r",
+              key: "github.com/o/r",
             } as RepoEvent),
           50,
         );
@@ -584,6 +588,56 @@ describe("a failed add, a refused one and Remove from repo", () => {
     expect(document.querySelector('[data-row="s-yes"] [data-kept]')).toBeNull();
   });
 
+  // Red if a read that began before the mark landed paints the flow Not in
+  // repo again after the add's own In repo (DEM-59).
+  it("a read from before the mark does not take In repo away", async () => {
+    const flows = [{ id: "yes", name: "Checkout" }];
+    await mountLibrary(flows);
+    memory.repoCi.state = async () => ({ kind: "noGh", detail: "No gh." });
+    memory.videos.repo.add = async () => ({ jobId: "j1" });
+    memory.videos.repo.onRepo = (job, fn) => {
+      setTimeout(
+        () =>
+          fn({
+            type: "repo",
+            videoId: "yes",
+            jobId: job,
+            phase: "added",
+            file: ".demoman/flows/c.json",
+            written: ["docs/demos/c.mp4"],
+            notes: [],
+            marked: true,
+            root: "/r",
+            key: "github.com/o/r",
+          } as RepoEvent),
+        20,
+      );
+      return () => {};
+    };
+    (await button("repo-add", "yes")).click();
+    await userEvent.click(await addButton());
+    // Every read from here answers as if the mark had not landed yet.
+    let stale = 0;
+    memory.answer("folder.read", async () => {
+      stale += 1;
+      return listingOf(flows);
+    });
+    const done = await vi.waitFor(() => {
+      const d = document.querySelector<HTMLElement>("[data-repo-done]");
+      if (d === null) throw new Error("no last step");
+      return d;
+    });
+    await userEvent.click(done);
+    await vi.waitFor(() =>
+      expect(stale, "a stale read landed").toBeGreaterThan(0),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(
+      document.querySelector('[data-row="s-yes"] [data-kept]'),
+      "In repo still shows",
+    ).not.toBeNull();
+  });
+
   // Red if In repo waits for the listing to come back after an add (DEM-59).
   it("In repo shows as soon as the sheet closes after an add", async () => {
     await mountLibrary([{ id: "yes", name: "Checkout" }]);
@@ -603,6 +657,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
             notes: [],
             marked: true,
             root: "/r",
+            key: "github.com/o/r",
           } as RepoEvent),
         20,
       );

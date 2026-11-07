@@ -28,6 +28,10 @@ const seen = vi.hoisted(() => ({
   /** What repoAddable answers; the listing answers nothing (DEM-47). */
   addable: null as unknown,
   asked: 0,
+  /** Holds the next listing read, which keeps what it read until let go. */
+  gate: null as Promise<void> | null,
+  readsDone: 0,
+  change: null as (() => void) | null,
   video: (): VideoSummary =>
     ({
       id: "v1",
@@ -69,27 +73,38 @@ vi.mock("#platform", async (importOriginal) => {
   const { proceduralBundle: bundle } = await import(
     "../../../../../packages/replay-engine/test/helpers/bundles"
   );
+  const listingOf = (video: VideoSummary) => ({
+    scenes: [],
+    sizes: {},
+    unreadable: [],
+    videos: [video],
+    videoOf: {
+      t1: {
+        videoId: "v1",
+        version: 1,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
+    },
+    addable: {},
+    unwatched: null,
+  });
   const platform: Platform = {
     // The studio's take folder; nothing here lists takes.
     folder: {
-      read: async () => ({
-        scenes: [],
-        sizes: {},
-        unreadable: [],
-        videos: [seen.video()],
-        videoOf: {
-          t1: {
-            videoId: "v1",
-            version: 1,
-            expired: false,
-            exports: [],
-            filmedCode: null,
-          },
-        },
-        addable: {},
-        unwatched: null,
-      }),
-      onChange: () => () => {},
+      read: async () => {
+        const video = seen.video();
+        const gate = seen.gate;
+        seen.gate = null;
+        if (gate !== null) await gate;
+        seen.readsDone += 1;
+        return listingOf(video);
+      },
+      onChange: (f: () => void) => {
+        seen.change = f;
+        return () => {};
+      },
       thumb: async () => {
         throw new Error("no thumbnails in this test");
       },
@@ -207,6 +222,9 @@ describe("editor main: the Repo section", () => {
     seen.removes = 0;
     seen.addable = null;
     seen.asked = 0;
+    seen.gate = null;
+    seen.readsDone = 0;
+    seen.change = null;
     history.pushState({}, "", "/?scene=t1");
     editorDom();
     vi.stubGlobal(
@@ -243,16 +261,11 @@ describe("editor main: the Repo section", () => {
     expect(document.querySelector("[data-toast]")).toBeNull();
   }, 20_000);
 
-  // Red if the section reads the listing, which no longer checks (DEM-47): its button would vanish.
-  it("asks repoAddable for its one flow, and draws the refusal's words", async () => {
-    seen.addable = {
-      ok: false,
-      reason: "notCarried",
-      label: "has a trim",
-      detail: "the trim would be left behind",
-    };
+  // Red if the panel checks the flow before offering Add: the sheet checks
+  // on open, as the library's does, so the check is not run twice (DEM-47).
+  it("offers Add on an unchecked flow without asking repoAddable", async () => {
     await import("../../../pages/entrypoints/editor/main");
-    const off = await vi.waitFor(
+    const add = await vi.waitFor(
       () => {
         const node = document.querySelector<HTMLButtonElement>(
           '[data-repo-section] [data-action="repo-add"]',
@@ -262,9 +275,45 @@ describe("editor main: the Repo section", () => {
       },
       { timeout: 5_000 },
     );
-    expect(off.textContent).toBe("Can't add: has a trim");
-    expect(off.getAttribute("aria-disabled")).toBe("true");
-    expect(seen.asked).toBeGreaterThan(0);
+    expect(add.getAttribute("aria-disabled")).toBeNull();
+    const opened = sheet.open.mock.calls.length;
+    add.click();
+    await vi.waitFor(() =>
+      expect(sheet.open.mock.calls.length).toBe(opened + 1),
+    );
+    expect(seen.asked).toBe(0);
+  }, 20_000);
+
+  // Red if an older listing read that lands last paints over a newer one.
+  it("a read a newer one overtook does not paint", async () => {
+    let release = () => {};
+    seen.gate = new Promise<void>((r) => {
+      release = r;
+    });
+    await import("../../../pages/entrypoints/editor/main");
+    await vi.waitFor(() => expect(seen.change).not.toBeNull());
+    expect(seen.gate, "the first read is held").toBeNull();
+    seen.kept = true;
+    seen.change?.();
+    await vi.waitFor(
+      () => {
+        if (
+          document.querySelector(
+            '[data-repo-section] [data-action="repo-remove"]',
+          ) === null
+        )
+          throw new Error("no In repo yet");
+      },
+      { timeout: 5_000 },
+    );
+    expect(seen.readsDone, "only the newer read has landed").toBe(1);
+    release();
+    await vi.waitFor(() => expect(seen.readsDone).toBe(2));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(
+      document.querySelector('[data-repo-section] [data-action="repo-remove"]'),
+      "the older read left In repo standing",
+    ).not.toBeNull();
   }, 20_000);
 
   // Red if an In repo flow is checked for an add it cannot make.

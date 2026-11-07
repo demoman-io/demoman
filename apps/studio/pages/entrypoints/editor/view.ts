@@ -980,7 +980,8 @@ export interface ExportState {
 export interface RepoState {
   /** The recipe file when the flow is In repo; null when it is not. */
   inRepo: { file: string } | null;
-  /** Whether it can be added; undefined when the Studio gave no answer. */
+  /** Whether it can be added; undefined when unchecked, which offers Add
+   *  and leaves the check to the sheet. */
   addable: Addable | undefined;
   /** An add of the flow is under way. */
   adding: boolean;
@@ -1337,13 +1338,14 @@ function repoSection(
     remove.setAttribute("data-action", "repo-remove");
     remove.addEventListener("click", () => handlers.onRemoveFromRepo?.());
     row.append(remove);
-  } else if (repo.addable !== undefined) {
+  } else {
     const add = button("Add to repo", "gitBranchPlus");
     add.setAttribute("data-action", "repo-add");
     if (repo.adding) {
       add.setAttribute("aria-disabled", "true");
       add.title = "Adding to repo…";
-    } else if (repo.addable.ok) {
+    } else if (repo.addable === undefined || repo.addable.ok) {
+      // Unchecked: the sheet checks on open (DEM-47).
       add.addEventListener("click", () => handlers.onAddToRepo?.());
     } else {
       add.setAttribute("aria-disabled", "true");
@@ -1354,7 +1356,7 @@ function repoSection(
       add.title = repo.addable.detail;
     }
     row.append(add);
-  } else return null;
+  }
   if (repo.note != null) {
     const line = el("p", "notice", repo.note);
     line.setAttribute("data-note", "");
