@@ -525,7 +525,7 @@ export function comparePictures(
   const place = s.step === null ? "on the final screen" : before(s.step, steps);
   return {
     same: false,
-    detail: `${pct(most.share)} of the picture changed ${most.look.name} ${place} at ${(s.msB / 1000).toFixed(2)}s, over the ${pct(most.look.allowed)} allowed, of ${where}`,
+    detail: `${pct(most.share)} of the picture changed ${most.look.name} ${place} at ${secs(s.msA)} in the committed video and ${secs(s.msB)} in the new one, over the ${pct(most.look.allowed)} allowed, of ${where}`,
   };
 }
 

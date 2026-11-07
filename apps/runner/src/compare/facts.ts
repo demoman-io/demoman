@@ -21,7 +21,15 @@ export interface Answer {
 export interface RunAnswer extends Answer {
   stopped?: {
     reason?: string;
-    at?: { index?: number; of?: number; label?: string };
+    at?: {
+      index?: number;
+      of?: number;
+      label?: string;
+      /** The script's own step, pauses counted (DEM-61); absent in old
+       *  reports, null when none can be named. */
+      scriptStep?: number | null;
+      scriptSteps?: number | null;
+    };
     sentence?: string;
     detail?: string;
   };

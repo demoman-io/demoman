@@ -126,8 +126,12 @@ describe("an address the app changes inside one document", () => {
       { do: "click", on: { stableId: "reply" } },
     ]);
     const said = JSON.stringify({ report, lines, requested });
-    // Premise: the second document was loaded.
+    // Premise: the second document was loaded, and the next step FOUND its
+    // target there: the stop is the new-document rule, not a failed look.
     expect(requested, said).toContain("/other");
+    const reply = report.steps?.at(-1);
+    expect(reply?.pageUrl, said).toMatch(/\/other$/);
+    expect(reply?.failureReason, said).toBeNull();
     expect(report.outcome, said).toBe("stopped");
     expect(report.stopped?.reason, said).toBe("pageWentElsewhere");
   }, 120_000);

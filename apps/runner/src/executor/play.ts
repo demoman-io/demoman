@@ -439,7 +439,9 @@ function originAndPath(raw: string): string {
 }
 
 /** Where a re-labelled run stopped, and why, in its own words: the step it
- *  was attempting (the last one it reached, by script position). */
+ *  was attempting (the last one it reached, by script position). The same
+ *  record the report's `stopped.at.scriptStep` reads: a re-labelled run
+ *  keeps no document (run.ts), so `buildStopped` falls back to it too. */
 function ownStop(result: AuthoredResult, why: string): string {
   const at = result.steps.at(-1);
   const where =

@@ -172,10 +172,11 @@ export interface RunReport {
       label: string;
       /** The script step the run stopped on (1-based, pauses counted), from
        *  the same record `label` names; null when no script step can be
-       *  named (a re-shoot, or no step attempted). DEM-61. */
-      scriptStep: number | null;
+       *  named (a re-shoot, or no step attempted). DEM-61. Absent in a
+       *  report.json written before DEM-61. */
+      scriptStep?: number | null;
       /** The script's step count; null when the run had no script. */
-      scriptSteps: number | null;
+      scriptSteps?: number | null;
     };
     sentence: string;
     /**
@@ -680,18 +681,21 @@ function buildStopped(
       // and `walk.total` themselves means `at` is always the run's own
       // count, never a fabricated one.
       //
-      // It is a count of SUCCESSFUL steps, which is why `verdictLine` prints
-      // it as "Stopped after step N of M" — see that function.
+      // It is a count of SUCCESSFUL steps, so where it is printed (only
+      // when no script step can be named) it reads "after step N of M" —
+      // see `stoppedWhere`.
       index: walk.completed,
       of: walk.total,
       scriptStep: failing === null ? null : failing.index + 1,
       scriptSteps: "steps" in script ? script.steps : null,
+      // The record `scriptStep` reads: so the label and the number name one
+      // step even when no video was assembled (DEM-61 review).
       label: step
         ? `${step.kind} ${step.label}`
-        : scene === null
-          ? "(no video was assembled, so no step can be named)"
-          : lastAttempted !== null
-            ? `script step ${lastAttempted.index + 1}: ${scriptStepLabel(lastAttempted.step)}`
+        : lastAttempted !== null
+          ? `script step ${lastAttempted.index + 1}: ${scriptStepLabel(lastAttempted.step)}`
+          : scene === null
+            ? "(no video was assembled, so no step can be named)"
             : // Reached only with a document AND no attempted step, which the
               // engine does not produce (a document exists only because a step
               // was performed). Kept rather than thrown: this is a report, and
@@ -953,11 +957,17 @@ export function prVerdict(report: RunReport): {
  * a run that attempted nothing has no step to name, and a report written
  * before DEM-61 has no script step.
  */
-function stoppedWhere(at: NonNullable<RunReport["stopped"]>["at"]): string {
-  // Loose: a report.json written before these fields has neither.
+export function stoppedWhere(at: {
+  index?: number;
+  of?: number;
+  scriptStep?: number | null;
+  scriptSteps?: number | null;
+}): string {
+  // Loose: a report.json written before DEM-61 has no script step, and the
+  // compare harness reads an answer whose fields are all optional.
   return at.scriptStep != null && at.scriptSteps != null
     ? `at script step ${at.scriptStep} of ${at.scriptSteps}`
-    : `after step ${at.index} of ${at.of}`;
+    : `after step ${at.index ?? "?"} of ${at.of ?? "?"}`;
 }
 
 function prClause(report: RunReport, clean: string): string {
@@ -1091,15 +1101,11 @@ function runOutcomeLine(report: RunReport): string {
   }
   if (report.outcome === "stopped") {
     const at = report.stopped?.at;
-    // "after", not "at". `at.index` is `walk.completed` — a count of steps
-    // that SUCCEEDED — so "Stopped at step 4 of 9" named step 4 while
-    // `at.label` named step 5, the one that failed, and the two disagreed in
-    // every stopped report. Printing `at.index + 1` instead would make the
-    // number agree with the label but would claim step 1 was attempted on
-    // every run that never opened a stage at all (`blankWalk`: completed 0),
-    // which is the fabrication this branch's whole design rule forbids. So the
-    // word is changed to match the number that is actually measured, and
-    // `at.label` says which step it stopped ON.
+    // "at script step N of M" where the record `at.label` names has a
+    // script step (DEM-61), so the number and the label name one step.
+    // Otherwise "after step N of M": `at.index` is `walk.completed`, a count
+    // of steps that SUCCEEDED, and printing `at.index + 1` as "at" would
+    // claim step 1 was attempted on a run that never opened a stage.
     const where = at ? ` ${stoppedWhere(at)}` : "";
     return `Stopped${where}: ${whyStopped(report)}`;
   }

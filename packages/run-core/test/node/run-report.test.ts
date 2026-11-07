@@ -418,6 +418,40 @@ describe("RunReport", () => {
     expect(verdictLine(old)).toMatch(/^Stopped after step 1 of 3: /);
   });
 
+  // Review (Minor 3): no video assembled, yet a step was attempted. The
+  // label names the step the number names, never "no step can be named".
+  it("with no video, the label names the script step the sentence does", () => {
+    const report = buildRunReport({
+      ...NOT_CHECKED,
+      run: {
+        ...baseRun(),
+        script: { name: "run report fixture", scriptVersion: 1, steps: 3 },
+      },
+      walk: {
+        reason: "unresolvedAnchor",
+        completed: 0,
+        total: 3,
+        bundle: null,
+        degradations: [],
+        storageRefused: false,
+        counters: { encodeShrunkSpans: 0 },
+      },
+      steps: [
+        authoredStep(1, {
+          actionId: null,
+          anchorId: null,
+          marker: null,
+          failureReason: "unresolved",
+        }),
+      ],
+      scene: null,
+      madeFrom: null,
+    });
+    expect(report.stopped?.at.scriptStep).toBe(1);
+    expect(report.stopped?.at.label).toMatch(/^script step 1: /);
+    expect(verdictLine(report)).toMatch(/^Stopped at script step 1 of 3: /);
+  });
+
   // DEM-61 (Helpdesk, 2026-11-06): "Stopped after step 2 of 4" counted the
   // actions that succeeded, while the label in the same answer said "script
   // step 4". One numbering: the script's own steps, pauses counted.

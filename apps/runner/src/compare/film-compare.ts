@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { stoppedWhere } from "@demoman/run-core";
 import { createLibrary } from "../executor/library.js";
 import { messageOf } from "../report.js";
 import {
@@ -145,7 +146,7 @@ async function filmOnce(args: {
     // said here, so a stopped run arrives already explaining itself.
     const at = report.stopped.at;
     say(
-      `${who}: stopped (${report.stopped.reason}) after ${at?.index ?? "?"} of ${at?.of ?? "?"} steps, at "${at?.label ?? "?"}" — ${report.stopped.detail ?? report.stopped.sentence ?? "no detail"}`,
+      `${who}: stopped (${report.stopped.reason}) ${stoppedWhere(at ?? {})}, at "${at?.label ?? "?"}" — ${report.stopped.detail ?? report.stopped.sentence ?? "no detail"}`,
     );
   }
   const takeId = report.provenance?.takeId ?? null;

@@ -1432,7 +1432,7 @@ describe("the line on an attached comment", () => {
           stopped: {
             reason: "anchorNotRendered",
             // As a report.json written before DEM-61 has it: no script step.
-            at: { index: 1, of: 3, label: "x" } as never,
+            at: { index: 1, of: 3, label: "x" },
             sentence: "s",
             detail: "the page showed `Sign in` to @octocat",
           },

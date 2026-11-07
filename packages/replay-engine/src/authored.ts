@@ -765,7 +765,13 @@ export function createAuthoredRun(
               answer.failureReason === "notInTree";
             // Waiting cannot help on a page the script is not on (an expired
             // session): the failure carries that page, and the caller names it.
+            // Not on a new address the app wrote inside this same document
+            // (a row's pushState, then a fetch): that target is waited for
+            // like any other (DEM-61).
+            const sameDocument =
+              answer.document != null && answer.document === hereDoc;
             const elsewhere =
+              !sameDocument &&
               answer.pageUrl !== null &&
               herePage !== null &&
               pageKeyOf(answer.pageUrl) !== herePage;
@@ -827,12 +833,21 @@ export function createAuthoredRun(
          * witness is the URL the failure itself carries. The resolver's own
          * verdict otherwise.
          */
-        const stopForFailedCapture = (): ReplayStopReason =>
-          record.pageUrl !== null &&
-          herePage !== null &&
-          pageKeyOf(record.pageUrl) !== herePage
-            ? "pageWentElsewhere"
-            : reasonForCaptureFailure(record.failureReason);
+        const stopForFailedCapture = (): ReplayStopReason => {
+          const moved =
+            record.pageUrl !== null &&
+            herePage !== null &&
+            pageKeyOf(record.pageUrl) !== herePage;
+          // A new address inside the same document is the step's own doing
+          // (DEM-61), so a failure there is the resolver's: a missing target
+          // after a row's pushState is a missing target. A client-side
+          // sign-in redirect is caught by the runner's sign-in check, which
+          // reads the page whatever the stop reason.
+          const sameDocument = answeredDoc !== null && answeredDoc === hereDoc;
+          return !moved || sameDocument
+            ? reasonForCaptureFailure(record.failureReason)
+            : "pageWentElsewhere";
+        };
 
         if (step.do === "waitFor") {
           // Captured wherever the element is actually present, which is a
@@ -921,6 +936,10 @@ export function createAuthoredRun(
         if (herePage === null) {
           herePage = page;
           hereDoc = answeredDoc;
+        } else if (page === herePage) {
+          // A reload that lands on the same address is a new document, and
+          // an address change inside it is the step's own too.
+          if (answeredDoc !== null) hereDoc = answeredDoc;
         } else if (
           page !== herePage &&
           answeredDoc !== null &&
@@ -928,9 +947,8 @@ export function createAuthoredRun(
         ) {
           // The app changed its address inside the same document (a search
           // writing `?q=`, a row opening its detail with `pushState`): the
-          // step's own doing, not another page (DEM-61). A target missing on
-          // a new address is still "went elsewhere" (stopForFailedCapture),
-          // which is what a sign-in redirect looks like.
+          // step's own doing, not another page (DEM-61). A client-side
+          // redirect to sign-in is the runner's sign-in check to name.
           herePage = page;
         } else if (page !== herePage) {
           // Measured, not inferred: two captures, two pages, and nothing in
@@ -952,6 +970,7 @@ export function createAuthoredRun(
           if (answer.anchor === null) {
             record.failureReason = answer.failureReason;
             record.pageUrl = answer.pageUrl;
+            answeredDoc = answer.document ?? null;
             stop = stopForFailedCapture();
             return;
           }

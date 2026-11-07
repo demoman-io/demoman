@@ -917,6 +917,53 @@ describe("the authored source and its assembler", () => {
     expect(driven.walk.completed).toBe(5);
   });
 
+  // Review (Important 1): a row opens its detail with pushState, then
+  // fetches it; the next target is not drawn on the first look. Same
+  // document: waited for, not "went elsewhere".
+  it("a target drawn after a same-document address change is waited for", async () => {
+    const detail = "https://app.test/views/open/tickets/1036";
+    const driven = await drive(fiveStepScript(), {
+      captures: [
+        {},
+        { failureReason: "unresolved" },
+        { failureReason: "unresolved" },
+      ],
+      urls: [PAGE, detail, detail, detail, detail, detail, detail],
+      documents: [7, 7, 7, 7, 7, 7, 7],
+    });
+    // Premise: the second step's first two looks found nothing.
+    expect(driven.captures.answers[1]?.anchor).toBeNull();
+    expect(driven.captures.answers[2]?.anchor).toBeNull();
+    expect(driven.run.stop()).toBeNull();
+    expect(driven.walk.completed).toBe(5);
+  });
+
+  // Review (Important 2): a tie on the new address in the same document is
+  // a tie, not a page change.
+  it("a tie on a same-document address change says it is a tie", async () => {
+    const detail = "https://app.test/views/open/tickets/1036";
+    const driven = await drive(fiveStepScript(), {
+      captures: [{}, { failureReason: "ambiguousTie" }],
+      urls: [PAGE, detail],
+      documents: [7, 7],
+    });
+    // Premise: the tie came back on the new address, in the same document.
+    expect(driven.captures.answers[1]?.pageUrl).toBe(detail);
+    expect(driven.run.stop()).toBe("ambiguousAnchor");
+    expect(driven.run.steps[1]?.failureReason).toBe("ambiguousTie");
+  });
+
+  // Review (Minor 1): a reload that lands on the same address is a new
+  // document; an address change inside THAT one is still the step's.
+  it("a same-address reload adopts the new document", async () => {
+    const detail = "https://app.test/views/open/tickets/1036";
+    const driven = await drive(fiveStepScript(), {
+      urls: [PAGE, PAGE, detail, detail, detail],
+      documents: [7, 8, 8, 8, 8],
+    });
+    expect(driven.run.stop()).toBeNull();
+  });
+
   // Review focus 2: a real page load is not the script's, even where the
   // next target is on both pages (a nav link).
   it("a new document with the target found still stops", async () => {
@@ -937,16 +984,19 @@ describe("the authored source and its assembler", () => {
     expect(driven.run.stop()).toBe("pageWentElsewhere");
   });
 
-  // Review focus 1: a client-side sign-in redirect stays in the document,
-  // and the next target is not on the sign-in page.
-  it("a same-document redirect where the target is missing still went elsewhere", async () => {
+  // A row's pushState, then a target the script names wrongly: the stop is
+  // the missing target, not "went elsewhere" (DEM-61 review). A client-side
+  // sign-in redirect is the runner's sign-in check to name, on any stop.
+  it("a target missing after a same-document address change is a missing target", async () => {
     const driven = await drive(fiveStepScript(), {
       captures: [{}, ...absent()],
       navigatesAwayAfterCall: 1,
       documents: Array.from({ length: 101 }, () => 7),
     });
+    // Premise: the target never came, on another address, same document.
     expect(driven.captures.answers[1]?.anchor).toBeNull();
-    expect(driven.run.stop()).toBe("pageWentElsewhere");
+    expect(driven.captures.answers[1]?.pageUrl).toBe(OTHER_PAGE);
+    expect(driven.run.stop()).toBe("unresolvedAnchor");
     expect(driven.run.steps[1]?.pageUrl).toBe(OTHER_PAGE);
   });
 

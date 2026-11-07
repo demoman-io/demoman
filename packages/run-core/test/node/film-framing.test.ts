@@ -829,6 +829,16 @@ describe("filmQuality: a quick run of clicks, the camera trailing", () => {
     expect(framing?.label).not.toBe("outOfFrame");
   });
 
+  // Red if a rect with no height is framed as a point: half of this
+  // hairline is in shot, so it is cut off, not out of frame.
+  it("a hairline partly in shot is cutOff", () => {
+    const { take, bundle } = oneClickAt(rect(-100, 300, 200, 0));
+    const framing = framingOf(take, bundle)?.framing;
+    // Premise: the visible area starts at x 0, inside the hairline.
+    expect(framing?.visible.x).toBe(0);
+    expect(framing?.label, JSON.stringify(framing)).toBe("cutOff");
+  });
+
   it("follows no pointer on a touch take", () => {
     const phone = {
       preset: "phone" as const,

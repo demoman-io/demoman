@@ -310,7 +310,7 @@ describe("comparePictures", () => {
     const out = comparePictures(diff([0, 0.002, 0]), shared, 4);
     expect(out).toMatchObject({ same: false });
     expect((out as { detail: string }).detail).toMatch(
-      /% of the picture changed sharply before action 2 at [\d.]+s, over the 0\.0008% allowed, of 3 of 4 screens/,
+      /% of the picture changed sharply before action 2 at [\d.]+s in the committed video and [\d.]+s in the new one, over the 0\.0008% allowed, of 3 of 4 screens/,
     );
   });
   // Red if the screen is named by its action: a `pause` makes none, so
@@ -328,7 +328,7 @@ describe("comparePictures", () => {
     ];
     const out = comparePictures(diff([0, 0.002]), paused, 4, steps);
     expect((out as { detail: string }).detail).toMatch(
-      /changed sharply before step 4 at 2\.10s/,
+      /changed sharply before step 4 at 2\.00s in the committed video and 2\.10s in the new one/,
     );
     // The script cannot have that action: named as what it is.
     const short = comparePictures(
@@ -338,6 +338,20 @@ describe("comparePictures", () => {
       steps.slice(0, 2),
     );
     expect((short as { detail: string }).detail).toMatch(/before action 3 at/);
+  });
+  // Review (Minor 4): the same two-clocks shape DEM-63 fixed one message up.
+  it("a changed picture names each video's own moment", () => {
+    const out = comparePictures(
+      diff([0, 0.01]),
+      [
+        { step: 0, msA: 1000, msB: 1000 },
+        { step: 1, msA: 4537.5, msB: 14620 },
+      ],
+      4,
+    );
+    expect((out as { detail: string }).detail).toContain(
+      "at 4.54s in the committed video and 14.62s in the new one",
+    );
   });
   it("names the final screen", () => {
     const out = comparePictures(diff([0, 0, 0.01]), shared, 4);
@@ -349,7 +363,7 @@ describe("comparePictures", () => {
     const faint = comparePictures(diff([0, [0, 0.0002], 0]), shared, 4);
     expect(faint).toMatchObject({ same: false });
     expect((faint as { detail: string }).detail).toMatch(
-      /^0\.0200% of the picture changed faintly before action 2 at 2\.10s, over the 0\.0170% allowed/,
+      /^0\.0200% of the picture changed faintly before action 2 at 2\.00s in the committed video and 2\.10s in the new one, over the 0\.0170% allowed/,
     );
     // Faintly 0.0100%: over sharply's 0.0008%, under its own 0.0170%.
     expect(comparePictures(diff([0, [0, 0.0001], 0]), shared, 4)).toMatchObject(

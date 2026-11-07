@@ -17,19 +17,21 @@
     <ul>
       <li><button type="button" id="ticket">Ticket 1036</button></li>
     </ul>
-    <section id="detail" hidden>
-      <h2>Ticket 1036</h2>
-      <button type="button" id="reply">Reply</button>
-    </section>
+    <section id="detail"></section>
     <p><a id="away" href="/other">Elsewhere</a></p>
     <script>
       const search = document.getElementById("search");
       search.addEventListener("input", () => {
         history.replaceState(null, "", `?q=${encodeURIComponent(search.value)}`);
       });
+      // The detail arrives after the address changes, as a fetched one does:
+      // not in the page at all until then.
       document.getElementById("ticket").addEventListener("click", () => {
         history.pushState(null, "", "/tickets/1036");
-        document.getElementById("detail").hidden = false;
+        setTimeout(() => {
+          document.getElementById("detail").innerHTML =
+            '<h2>Ticket 1036</h2><button type="button" id="reply">Reply</button>';
+        }, 600);
       });
     </script>
   </body>

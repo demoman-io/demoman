@@ -21,12 +21,6 @@ export interface IntentResolution {
 /** What `captureForIntent` came back with. See its own docblock, and
  *  `askPageToCapture`'s `CaptureFailure` for the wider, caller-side type
  *  this nests inside. */
-/** This document's identity (see `CaptureForIntentResult.document`). */
-const documentOf = (): number | null =>
-  typeof performance === "object" && Number.isFinite(performance.timeOrigin)
-    ? performance.timeOrigin
-    : null;
-
 export interface CaptureForIntentResult {
   anchor: SceneAnchor | null;
   failureReason: FailureReasonName | "unresolved" | null;
@@ -59,6 +53,12 @@ export interface CaptureForIntentResult {
    */
   credentialField?: boolean | null;
 }
+
+/** This document's identity (see `CaptureForIntentResult.document`). */
+const documentOf = (): number | null =>
+  typeof performance === "object" && Number.isFinite(performance.timeOrigin)
+    ? performance.timeOrigin
+    : null;
 
 /**
  * The `replayCapture` round trip's actual work, factored out of the message
