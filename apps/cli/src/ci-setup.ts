@@ -59,6 +59,11 @@ import {
   RELEASE_MAIN,
   runsByHand,
 } from "./ci-workflow.js";
+import {
+  ignoresSecrets,
+  SECRETS_IGNORE,
+  withLines,
+} from "./gitignore-secrets.js";
 
 export type TriggerOffer = {
   trigger: CiOptions["trigger"];
@@ -202,7 +207,13 @@ export type CiPlan = {
    *  them; a copied plan has none, and apply refuses it. */
   readonly contents?: SetupFiles;
 };
-type SetupFiles = Array<{ path: string; text: string | Uint8Array }>;
+type SetupFiles = Array<{
+  path: string;
+  text: string | Uint8Array;
+  /** Lines the PR adds to the base's own file as it is then, unless the
+   *  base already ignores what they ignore; `text` is the plan's copy. */
+  appendToBase?: string;
+}>;
 
 export type CiStop = {
   reason: string;
@@ -330,10 +341,6 @@ async function draftLeft(
 }
 
 const ACCOUNTS_FILE = ".demoman/accounts.json";
-const SECRETS_IGNORE =
-  "# Demoman: demo account passwords\n.demoman/secrets.env\n";
-const ignoresSecrets = (gitignore: string) =>
-  gitignore.split("\n").some((l) => l.trim() === ".demoman/secrets.env");
 
 async function shown(git: GitRunner, root: string, ref: string, path: string) {
   const r = await git(["show", `${ref}:${path}`], root);
@@ -706,20 +713,27 @@ async function makePlan(
   }
   // The secrets.env ignore line travels with the setup, or a teammate's
   // clone would not ignore the file (DEM-62). The PR is built on the base,
-  // so the base decides and the carried file is the base's plus the line:
-  // never the working tree's, which could drop the base's newer lines or
-  // carry personal ones (final review).
+  // so the base decides, by git's reading of its patterns, and the PR adds
+  // the line to the base's file as fetched when the PR is built, never the
+  // working tree's or this plan's copy (reviews of #35). A base that cannot
+  // be read is never taken for one with no .gitignore.
   let gitignore: string | null = null;
   const ignores = await readFile(join(root, ".gitignore"), "utf8").catch(
     () => null,
   );
-  if (ignores !== null && ignoresSecrets(ignores)) {
-    const onBase = (await shown(deps.git, root, base, ".gitignore")) ?? "";
-    if (!ignoresSecrets(onBase)) {
-      // A blank line before Demoman's lines, after the base's last line.
-      const lead =
-        onBase === "" ? "" : `${onBase}${onBase.endsWith("\n") ? "" : "\n"}\n`;
-      gitignore = `${lead}${SECRETS_IGNORE}`;
+  if (ignores !== null && (await ignoresSecrets(ignores))) {
+    const read = await deps.git(["show", `${base}:.gitignore`], root);
+    const missing =
+      read.code !== 0 &&
+      /does not exist|exists on disk, but not in/.test(read.stderr);
+    if (read.code !== 0 && !missing)
+      return stop(
+        "filesUnreadable",
+        `.gitignore on ${base} could not be read (${read.stderr.trim() || `git show exited with code ${read.code}`}), so nothing was assumed; fetch ${base}, then run setup again`,
+      );
+    const onBase = read.code === 0 ? read.stdout : "";
+    if (!(await ignoresSecrets(onBase))) {
+      gitignore = withLines(onBase, SECRETS_IGNORE);
       files.push(".gitignore");
     }
   }
@@ -829,7 +843,9 @@ async function fileTexts(
   for (const path of paths) {
     if (path === CI_WORKFLOW_PATH) files.push({ path, text: workflow });
     else if (path === ".gitignore" && gitignore !== null)
-      files.push({ path, text: gitignore });
+      // The check uses this text; the PR re-adds the line to the base as
+      // fetched then (appendToBase).
+      files.push({ path, text: gitignore, appendToBase: SECRETS_IGNORE });
     else if (path === APP_FILE && app !== null)
       files.push({ path, text: app.text });
     else {

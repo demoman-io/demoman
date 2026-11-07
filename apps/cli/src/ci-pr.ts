@@ -1,11 +1,12 @@
 // The setup pull request, built in a detached temporary worktree and pushed
 // to the branch on the repo's remote, so the person's checkout, branches, index and
 // default branch are never touched.
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import type { GitRunner } from "@demoman/runner/package";
 import type { Gh } from "./gh-run.js";
+import { ignoresSecrets, withLines } from "./gitignore-secrets.js";
 
 export const SETUP_BRANCH = "demoman/setup";
 export const SETUP_TITLE = "Set up Demoman";
@@ -24,7 +25,13 @@ export async function openSetupPr(
     /** The git remote that is `slug` (GithubFacts.remote). */
     remote: string;
     base: string;
-    files: Array<{ path: string; text: string | Uint8Array }>;
+    /** `appendToBase`: lines added to the base's own file as fetched here,
+     *  unless it already ignores what they ignore; `text` is not used. */
+    files: Array<{
+      path: string;
+      text: string | Uint8Array;
+      appendToBase?: string;
+    }>;
     body: string;
     /** Defaults to SETUP_BRANCH / SETUP_TITLE. */
     branch?: string;
@@ -71,6 +78,19 @@ export async function openSetupPr(
             detail: `the file path ${f.path} points outside the repo, so nothing was written; give a path inside the repo and run setup again`,
           };
         await mkdir(dirname(p), { recursive: true });
+        if (f.appendToBase !== undefined) {
+          // The base as just fetched, not the plan's copy, which could be
+          // older (review of #35, finding 1).
+          const onBase = await readFile(p, "utf8").catch(
+            (e: NodeJS.ErrnoException) => {
+              if (e.code === "ENOENT") return "";
+              throw e;
+            },
+          );
+          if (!(await ignoresSecrets(onBase)))
+            await writeFile(p, withLines(onBase, f.appendToBase));
+          continue;
+        }
         await writeFile(p, f.text);
       }
     } catch (e) {

@@ -174,6 +174,8 @@ function fakes(
     existing?: string[];
     verified?: Verified;
     head?: Record<string, string>;
+    /** `git show <ref:path>` failing other than "not there": its stderr. */
+    showFails?: Record<string, string>;
     onDefault?: string[];
     detected?: Awaited<ReturnType<CiDeps["detectApp"]>>;
     /** `git rev-parse <ref>`'s answers; absent refs fail. */
@@ -201,6 +203,8 @@ function fakes(
         : { code: 0, stdout: `${sha}\n`, stderr: "" };
     }
     if (args[0] === "show") {
+      const fails = o.showFails?.[args[1] as string];
+      if (fails !== undefined) return { code: 128, stdout: "", stderr: fails };
       const text = shown[args[1] as string];
       return text === undefined
         ? { code: 128, stdout: "", stderr: "fatal: path does not exist" }
@@ -1042,6 +1046,35 @@ describe("planCiSetup's plan", () => {
     const based = fakes({
       head: { "origin/trunk:.gitignore": "dist\n.demoman/secrets.env\n" },
     });
+    expect((await okPlan(root, based)).files).not.toContain(".gitignore");
+  });
+
+  // Review of #35, finding 2. Red when a failed read of the base's
+  // .gitignore reads as "no .gitignore": the PR would replace the whole file.
+  it("stops, carrying nothing, when the base's .gitignore cannot be read", async () => {
+    const root = await repo();
+    await writeFile(join(root, ".gitignore"), ".demoman/secrets.env\n");
+    const r = await plan(
+      root,
+      fakes({
+        showFails: {
+          "origin/trunk:.gitignore":
+            "fatal: invalid object name 'origin/trunk'.",
+        },
+      }),
+    );
+    expect(isStop(r) && r.reason).toBe("filesUnreadable");
+    expect(isStop(r) && r.detail).toContain(".gitignore");
+    expect(isStop(r) && r.detail).toContain("invalid object name");
+  });
+
+  // Review of #35, finding 7. Red when only the exact line counts.
+  it("carries .gitignore when the working tree ignores the secrets file by any pattern", async () => {
+    const root = await repo();
+    await writeFile(join(root, ".gitignore"), "/.demoman/secrets.env\n");
+    expect((await okPlan(root, fakes())).files).toContain(".gitignore");
+    // The base ignoring it by another pattern: nothing to carry.
+    const based = fakes({ head: { "origin/trunk:.gitignore": ".demoman/\n" } });
     expect((await okPlan(root, based)).files).not.toContain(".gitignore");
   });
 
