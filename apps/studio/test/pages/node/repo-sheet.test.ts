@@ -12,6 +12,7 @@ function door() {
   const offs = { repo: 0, ci: 0 };
   const bodies: unknown[] = [];
   const repo: RepoSheetArgs["repo"] = {
+    folders: async () => ({ folders: [], more: false }),
     addable: async () => ({ ok: false, reason: "x", label: "x", detail: "x" }),
     add: async (_id, body) => {
       bodies.push(body);

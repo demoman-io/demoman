@@ -7,9 +7,9 @@ export { PAGE_ENTRIES, usePrebuiltPages } from "./bundle-js.js";
 export {
   type Addable,
   checkAddable,
-  notInRepo,
   checkoutOf,
   isDir,
+  notInRepo,
 } from "./executor/addable.js";
 export {
   type BrowserFailure,

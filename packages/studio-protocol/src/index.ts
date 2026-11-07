@@ -35,6 +35,9 @@ export const ROUTES = {
   repoCiPlan: { method: "POST", path: "/api/repo/ci/plan" },
   repoCiApply: { method: "POST", path: "/api/repo/ci/apply" },
   repoPr: { method: "POST", path: "/api/repo/pr" },
+  /** `?root=`: the repo's folders, for the add sheet's picker
+   *  (`RepoFoldersAnswer`). */
+  repoFolders: { method: "GET", path: "/api/repo/folders" },
   bundle: { method: "GET", path: "/api/takes/:id/bundle" },
   frame: { method: "GET", path: "/api/takes/:id/frames/:ref" },
   thumb: { method: "GET", path: "/api/takes/:id/thumbs/:ref" },
@@ -153,6 +156,9 @@ export type StudioReason =
   /** An add's body: a path that is empty or absolute, an unknown delivery
    *  or quality. */
   | "repoBodyInvalid"
+  /** git would not list the repo's folders (no commits yet, not a repo);
+   *  `detail` is git's first line. */
+  | "repoFoldersUnreadable"
   /** The flow could not be added when the button was pressed; `detail` is
    *  the check's label and sentence. */
   | "notAddable"
@@ -286,6 +292,13 @@ export interface RepoAddStarted {
   jobId: string;
 }
 /** `repoRemove`'s 200. */
+/** `repoFolders`' answer: the repo's committed folders, none under a dot
+ *  folder, sorted; `more` when the list was cut. */
+export interface RepoFoldersAnswer {
+  folders: string[];
+  more: boolean;
+}
+
 export interface RepoRemoveAnswer {
   removed: string[];
   exportsLeft: string[];

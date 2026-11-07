@@ -78,6 +78,8 @@ export async function startStudio(
   home: string,
   o: {
     revealFails?: string;
+    /** What an add wrote, which reveal also shows (serve.ts's CI jobs). */
+    written?: (path: string) => boolean;
     make?: MakeThumb;
     watch?: WatchFn;
     settleMs?: number;
@@ -129,6 +131,7 @@ export async function startStudio(
         if (o.revealFails !== undefined) throw new Error(o.revealFails);
         revealed.push(path);
       },
+      ...(o.written === undefined ? {} : { written: o.written }),
       followEveryMs: o.followEveryMs ?? 0,
       ...(o.now === undefined ? {} : { now: o.now }),
     }),

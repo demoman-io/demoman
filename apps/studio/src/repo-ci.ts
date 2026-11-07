@@ -4,7 +4,7 @@
 // apply's watch (up to about half an hour) outlives the window that asked.
 import { randomUUID } from "node:crypto";
 import { readdir, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, sep } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { scrubSecrets } from "@demoman/run-core";
 import type {
   CiAnswerWire,
@@ -69,6 +69,9 @@ export interface CiJobs {
   /** An add's `written` files: the only ones `repoPr` takes for `root`.
    *  Any plan held for `root` is out of date from here. */
   added(root: string, files: string[]): void;
+  /** Whether an add wrote this absolute path while this server ran: what
+   *  reveal shows beside the exports (DEM-56). */
+  wrote(path: string): boolean;
 }
 
 const refuse = (
@@ -289,6 +292,19 @@ export function createCiJobs(o: {
     return { status: 202, json: { jobId } };
   }
 
+  /** Records an add's files, with or without CI: reveal reads them too. */
+  const record = (root: string, files: string[]): void => {
+    const set = written.get(root) ?? new Set<string>();
+    for (const f of files) set.add(f);
+    written.set(root, set);
+  };
+  const wrote = (path: string): boolean => {
+    for (const [root, files] of written) {
+      for (const f of files) if (resolve(root, f) === path) return true;
+    }
+    return false;
+  };
+
   const absent: Handler = async () =>
     refuse(404, "routeNotFound", "This Studio was started without CI setup.");
   if (ci === undefined) {
@@ -302,7 +318,8 @@ export function createCiJobs(o: {
       running: () => 0,
       drained: async () => {},
       stopPlans: async () => {},
-      added: () => {},
+      added: record,
+      wrote,
     };
   }
 
@@ -315,10 +332,9 @@ export function createCiJobs(o: {
       for (const stopper of planning.values()) stopper.abort();
       await Promise.all(planning.keys());
     },
+    wrote,
     added(root, files) {
-      const set = written.get(root) ?? new Set<string>();
-      for (const f of files) set.add(f);
-      written.set(root, set);
+      record(root, files);
       // A plan made before this add is out of date, here and in the CLI's
       // hold: it cannot be applied, and a reopened sheet offers Check.
       held.delete(root);

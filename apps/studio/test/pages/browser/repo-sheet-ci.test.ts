@@ -115,6 +115,7 @@ async function openSheet(ci: RepoCiDoor): Promise<HTMLDialogElement> {
     video: { id: "v1", name: "Checkout" },
     addable: { ok: true, root: "/r", defaultPath: "docs/demos/checkout.mp4" },
     repo: {
+      folders: async () => ({ folders: [], more: false }),
       addable: async () => ({
         ok: false,
         reason: "x",

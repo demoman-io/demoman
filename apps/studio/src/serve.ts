@@ -169,6 +169,7 @@ export function buildHandlers(o: {
       feeds: o.feeds,
       thumbs: createThumbs({ library }),
       ...(o.reveal === undefined ? {} : { reveal: o.reveal }),
+      written: (path) => ci.wrote(path),
       upkeepOnStart: o.upkeepOnStart === true,
     }),
     ...ci.handlers,

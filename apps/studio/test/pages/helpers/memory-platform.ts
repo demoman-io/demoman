@@ -197,6 +197,7 @@ export function createMemoryPlatform(seed: MemorySeed = {}): MemoryPlatform {
     },
     videos: {
       repo: {
+        folders: async () => ({ folders: [], more: false }),
         addable: async () => ({
           ok: false,
           reason: "noCheckout",

@@ -1234,6 +1234,39 @@ describe("reveal", () => {
     expect(h.revealed).toEqual([]);
   });
 
+  // Red if reveal stops asking what an add wrote (DEM-56: every Reveal on
+  // the add sheet was refused).
+  it("reveal shows a file the add wrote", async () => {
+    const file = join(home, "repo", ".demoman", "flows", "x.json");
+    await mkdir(join(home, "repo", ".demoman", "flows"), { recursive: true });
+    await writeFile(file, "{}");
+    await h.close();
+    h = await startStudio(home, { written: (p) => p === file });
+    const r = await h.call(pathFor("reveal"), {
+      method: "POST",
+      body: JSON.stringify({ path: file }),
+    });
+    expect(r.status, r.text).toBe(200);
+    expect(h.revealed).toEqual([file]);
+  });
+
+  // Red if the written check lets any path through.
+  it("reveal still refuses a repo file no add wrote", async () => {
+    const wrote = join(home, "repo", "a.json");
+    const other = join(home, "repo", "other.json");
+    await mkdir(join(home, "repo"), { recursive: true });
+    await writeFile(other, "{}");
+    await h.close();
+    h = await startStudio(home, { written: (p) => p === wrote });
+    const r = await h.call(pathFor("reveal"), {
+      method: "POST",
+      body: JSON.stringify({ path: other }),
+    });
+    expect(r.status).toBe(403);
+    expect((r.json() as { reason: string }).reason).toBe("revealRefused");
+    expect(h.revealed).toEqual([]);
+  });
+
   it("open failing is 500 revealRefused with its words, not a 200", async () => {
     await h.close();
     h = await startStudio(home, { revealFails: "Finder said no" });
@@ -1248,6 +1281,68 @@ describe("reveal", () => {
     const body = r.json() as { reason: string; detail: string };
     expect(body.reason).toBe("revealRefused");
     expect(body.detail).toContain("Finder said no");
+  });
+});
+
+describe("repoFolders", () => {
+  const git = (cwd: string, ...args: string[]) =>
+    new Promise<void>((resolve, reject) =>
+      spawn("git", args, { cwd }).on("exit", (code) =>
+        code === 0
+          ? resolve()
+          : reject(new Error(`git ${args.join(" ")}: ${code}`)),
+      ),
+    );
+  let repo: string;
+  beforeEach(async () => {
+    repo = await mkdtemp(join(tmpdir(), "studio-folders-"));
+    await git(repo, "init", "-q");
+  });
+  afterEach(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+  const ask = (root: string) =>
+    h.call(`${pathFor("repoFolders")}?root=${encodeURIComponent(root)}`);
+
+  // Red if the route lists dot folders, unsorted, or not at all (DEM-50's picker).
+  it("folders lists the repo's folders without dot folders", async () => {
+    for (const f of ["docs/demos/a", ".github/x", "src/b"]) {
+      await mkdir(join(repo, f, ".."), { recursive: true });
+      await writeFile(join(repo, f), "x");
+    }
+    await git(repo, "add", "-A");
+    await git(
+      repo,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "-m",
+      "x",
+    );
+    const r = await ask(repo);
+    expect(r.status, r.text).toBe(200);
+    expect(r.json()).toEqual({
+      folders: ["docs", "docs/demos", "src"],
+      more: false,
+    });
+  });
+
+  // Red if a git failure answers an empty list, which reads as "no folders".
+  it("folders of a repo with no commits is 409 repoFoldersUnreadable", async () => {
+    const r = await ask(repo);
+    expect(r.status).toBe(409);
+    const body = r.json() as { reason: string; detail: string };
+    expect(body.reason).toBe("repoFoldersUnreadable");
+    expect(body.detail.length).toBeGreaterThan(0);
+  });
+
+  it("folders of a relative root is 400 repoBodyInvalid", async () => {
+    const r = await ask("relative/dir");
+    expect(r.status).toBe(400);
+    expect((r.json() as { reason: string }).reason).toBe("repoBodyInvalid");
   });
 });
 
@@ -1462,7 +1557,8 @@ describe("which flows can be added", () => {
   // Red if the listing reads a checkout's files for its flows again.
   it("the listing reads no accounts.json for flows in a checkout", async () => {
     const ids: string[] = [];
-    for (const n of ["a", "b", "c"]) ids.push(await flow(`Flow ${n}`, `add-${n}`));
+    for (const n of ["a", "b", "c"])
+      ids.push(await flow(`Flow ${n}`, `add-${n}`));
     await mkdir(join(repo, ".demoman"));
     await writeFile(join(repo, ".demoman", "accounts.json"), "{}");
     const fsp = (await import("node:fs/promises")).default;
@@ -1485,8 +1581,7 @@ describe("which flows can be added", () => {
       listed = reads.filter((p) => p.endsWith("accounts.json")).length;
       // Premise: the patch sees the check's read when it is asked.
       await h.call(pathFor("repoAddable", { id: ids[0] as string }));
-      asked =
-        reads.filter((p) => p.endsWith("accounts.json")).length - listed;
+      asked = reads.filter((p) => p.endsWith("accounts.json")).length - listed;
     } finally {
       fsp.readFile = real;
       syncBuiltinESMExports();

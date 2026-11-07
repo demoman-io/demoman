@@ -12,6 +12,7 @@ import type {
   PullRequestsChoice,
   RepoAddBody,
   RepoAddStarted,
+  RepoFoldersAnswer,
   RepoPrBody,
   RepoRemoveAnswer,
   SetupPrWire,
@@ -189,6 +190,9 @@ export interface Platform {
     repo: {
       /** Whether the flow can be added, read now. */
       addable(id: string): Promise<Addable>;
+      /** The repo's folders, for the add sheet's picker. Rejects with the
+       *  studio's sentence when git would not list them. */
+      folders(root: string): Promise<RepoFoldersAnswer>;
       /** Starts the add; its outcome comes as `repo` events. */
       add(id: string, body: RepoAddBody): Promise<RepoAddStarted>;
       remove(id: string): Promise<RepoRemoveAnswer>;

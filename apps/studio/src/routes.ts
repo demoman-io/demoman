@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, resolve as resolvePath } from "node:path";
 import {
   DEFAULT_EXPORT_QUALITY,
   type FilmedCode,
@@ -8,7 +8,6 @@ import {
 } from "@demoman/run-core";
 import {
   checkAddable,
-  notInRepo,
   createVideoStore,
   describeVideo,
   ensureVideos,
@@ -21,6 +20,7 @@ import {
   keyKeptMarks,
   type Library,
   LibraryError,
+  notInRepo,
   pidAlive,
   readLeases,
   readLogo,
@@ -45,6 +45,7 @@ import {
   type PullRequestsAnswer,
   type PullRequestsChoice,
   type Refusal,
+  type RepoFoldersAnswer,
   type SceneAnswer,
   type ScenePutAnswer,
   type StudioReason,
@@ -106,6 +107,9 @@ const refuse = (
   return { status, json: body };
 };
 
+/** The most folders `repoFolders` answers. */
+const FOLDERS_MAX = 500;
+
 /** `open -R`, which shows the file selected in a Finder window. */
 export function revealInFinder(path: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -139,6 +143,9 @@ export function createRoutes(o: {
   thumbs: ReturnType<typeof createThumbs>;
   /** Injected by tests; `open -R` otherwise. */
   reveal?: (path: string) => Promise<void>;
+  /** Whether an add wrote `path` while this server ran (the CI jobs'
+   *  record, which `repoPr` also trusts): reveal shows those too. */
+  written?: (path: string) => boolean;
   /** Join loose takes to videos and expire old recordings now, as well as
    *  on each listing: the studio's server starting (spec §5). Off in the
    *  route tests, whose homes are removed under a pass still writing. */
@@ -1160,7 +1167,14 @@ export function createRoutes(o: {
           "The reveal request named no path.",
         );
       }
-      const listed = await listedOutput(path);
+      const listed = o.written?.(resolvePath(path))
+        ? (await stat(path).then(
+            () => true,
+            () => false,
+          ))
+          ? "listed"
+          : "gone"
+        : await listedOutput(path);
       if (listed === "unlisted") {
         return refuse(
           403,
@@ -1181,6 +1195,44 @@ export function createRoutes(o: {
         );
       }
       return json(200, {});
+    },
+
+    async repoFolders(req) {
+      const root = req.query.get("root");
+      if (root === null || !isAbsolute(root)) {
+        return refuse(
+          400,
+          "repoBodyInvalid",
+          "No folders were listed: root is not an absolute path.",
+        );
+      }
+      const listed = await execGit(
+        ["ls-tree", "-r", "-d", "--name-only", "HEAD"],
+        root,
+      ).catch((error: unknown) => ({
+        code: -1,
+        stdout: "",
+        stderr: messageOf(error),
+      }));
+      if (listed.code !== 0) {
+        const why =
+          listed.stderr.trim().split("\n")[0] || `git exited ${listed.code}`;
+        return refuse(
+          409,
+          "repoFoldersUnreadable",
+          `The repo's folders could not be listed: ${why}.`,
+        );
+      }
+      const all = listed.stdout
+        .split("\n")
+        .filter((f) => f !== "" && !f.split("/").some((p) => p.startsWith(".")))
+        .sort();
+      // shortcut: 500 folders, a type-ahead route when a repo needs more.
+      const answer: RepoFoldersAnswer = {
+        folders: all.slice(0, FOLDERS_MAX),
+        more: all.length > FOLDERS_MAX,
+      };
+      return json(200, answer);
     },
 
     events: (req) => o.events.handler(req),
