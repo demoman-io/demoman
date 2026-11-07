@@ -25,9 +25,15 @@ describe("matchesFor", () => {
     });
     if (!other.ok) throw new Error(JSON.stringify(other));
     const mine = { key: "github.com/acme/nylon" };
-    expect(await matchesFor(store, library, "Create an invoice", mine)).toEqual(
-      [],
-    );
+    expect(
+      await matchesFor(
+        store,
+        library,
+        "Create an invoice",
+        mine,
+        "http://localhost:4401/",
+      ),
+    ).toEqual([]);
   });
 
   // Premise: within the repo, a similar name still matches.
