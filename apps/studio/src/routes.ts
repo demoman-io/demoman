@@ -1167,8 +1167,12 @@ export function createRoutes(o: {
           "The reveal request named no path.",
         );
       }
-      const listed = o.written?.(resolvePath(path))
-        ? (await stat(path).then(
+      // What an add wrote is checked as its resolved path, so that path is
+      // the one shown: never a raw one that leads elsewhere through a link.
+      const wrote = o.written?.(resolvePath(path)) === true;
+      const at = wrote ? resolvePath(path) : path;
+      const listed = wrote
+        ? (await stat(at).then(
             () => true,
             () => false,
           ))
@@ -1186,7 +1190,7 @@ export function createRoutes(o: {
         return refuse(404, "revealRefused", `${path} was moved or deleted.`);
       }
       try {
-        await reveal(path);
+        await reveal(at);
       } catch (error) {
         return refuse(
           500,
@@ -1206,8 +1210,10 @@ export function createRoutes(o: {
           "No folders were listed: root is not an absolute path.",
         );
       }
+      // -z: names as they are, not quoted the way core.quotePath quotes a
+      // non-ASCII one.
       const listed = await execGit(
-        ["ls-tree", "-r", "-d", "--name-only", "HEAD"],
+        ["ls-tree", "-r", "-d", "-z", "--name-only", "HEAD"],
         root,
       ).catch((error: unknown) => ({
         code: -1,
@@ -1224,7 +1230,7 @@ export function createRoutes(o: {
         );
       }
       const all = listed.stdout
-        .split("\n")
+        .split("\0")
         .filter((f) => f !== "" && !f.split("/").some((p) => p.startsWith(".")))
         .sort();
       // shortcut: 500 folders, a type-ahead route when a repo needs more.

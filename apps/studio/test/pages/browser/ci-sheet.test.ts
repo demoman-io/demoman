@@ -63,6 +63,24 @@ for (const scheme of ["light", "dark"] as const) {
       expect(await result).toEqual({ prOpened: null });
     });
 
+    // Red if a close the sheet did not ask for (the browser's second Escape)
+    // leaves its result hanging, and the page's CI state never read again.
+    it("a forced close while a job runs still settles", async () => {
+      const result = openCiSheet({
+        root: "/r",
+        name: "acme/web",
+        ci: door({ kind: "running", jobId: "j" }),
+      });
+      const dialog = await el<HTMLDialogElement>("dialog[open][data-ci-sheet]");
+      await el("dialog[open] [data-ci-status]");
+      // Premise: a job runs, so Done is held.
+      expect(
+        (dialog.querySelector("[data-ci-done]") as HTMLButtonElement).disabled,
+      ).toBe(true);
+      dialog.close();
+      expect(await result).toEqual({ prOpened: null });
+    });
+
     // Red if a set-up repo is offered setup again, or not told it is set up.
     it("a set-up repo says so with Done only", async () => {
       openCiSheet({

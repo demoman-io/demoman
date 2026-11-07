@@ -77,6 +77,15 @@ export function openCiSheet(a: {
     pressedOnBackdrop = false;
   });
 
+  // A close the sheet did not ask for (the browser's own, on a second
+  // Escape) still settles it, so the page reads the repo's state again.
+  dialog.addEventListener("close", () => {
+    if (ended) return;
+    ended = true;
+    steps.stop();
+    settle({ prOpened: steps.prUrl });
+  });
+
   void result.then(() => {
     if (dialog.open) dialog.close();
     dialog.remove();

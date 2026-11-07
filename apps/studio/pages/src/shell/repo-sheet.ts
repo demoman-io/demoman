@@ -46,6 +46,9 @@ export interface RepoSheetResult {
     root: string;
     file: string;
     deliver: Deliver;
+    /** Whether the library marked the flow In repo; false when it could
+     *  not (its note says so), and the row then waits for the read. */
+    marked: boolean;
   } | null;
   prOpened: string | null;
   failed?: string;
@@ -66,6 +69,7 @@ export type SheetState =
       written: string[];
       notes: string[];
       file: string;
+      marked: boolean;
       pr: PrStep | null;
     };
 
@@ -76,11 +80,28 @@ export interface SheetFields {
   quality: ExportQuality;
 }
 
+/** The file name as it is written: no slash around it, no `.mp4`. */
+const nameOf = (f: SheetFields): string =>
+  f.name
+    .trim()
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/\.mp4$/i, "")
+    .trim();
+
+/** Whether the name makes a file: something left once `.mp4` and the
+ *  slashes around it go, and no slash inside it. Add follows this. */
+export const nameOk = (f: SheetFields): boolean => {
+  const name = nameOf(f);
+  return name !== "" && !name.includes("/");
+};
+
 /** The path the add writes the video to: `folder/name.mp4`, each slash and
- *  `.mp4` said once however they were typed. */
+ *  `.mp4` said once however they were typed. Files writes a file name only
+ *  (the add refuses a folder there), so it has none. */
 export function pathOf(f: SheetFields): string {
-  const folder = f.folder.trim().replace(/^\/+|\/+$/g, "");
-  const name = f.name.trim().replace(/\.mp4$/i, "");
+  const folder =
+    f.deliver === "files" ? "" : f.folder.trim().replace(/^\/+|\/+$/g, "");
+  const name = nameOf(f);
   return folder === "" ? `${name}.mp4` : `${folder}/${name}.mp4`;
 }
 
@@ -211,6 +232,7 @@ export function repoSheetModel(a: RepoSheetArgs) {
               root: e.root,
               file: e.file,
               deliver: fields.deliver,
+              marked: e.marked,
             },
             prOpened: null,
           });
@@ -222,6 +244,7 @@ export function repoSheetModel(a: RepoSheetArgs) {
             written: e.written,
             notes: e.notes,
             file: e.file,
+            marked: e.marked,
             pr: null,
           });
           void ci?.read();
@@ -243,6 +266,7 @@ export function repoSheetModel(a: RepoSheetArgs) {
           root: state.root,
           file: state.file,
           deliver: fields.deliver,
+          marked: state.marked,
         }
       : null;
 
@@ -268,7 +292,7 @@ export function repoSheetModel(a: RepoSheetArgs) {
       listeners.add(fn);
     },
     async submit(): Promise<void> {
-      if (state.step !== "form" || fields.name.trim() === "") return;
+      if (state.step !== "form" || !nameOk(fields)) return;
       const body = {
         path: pathOf(fields),
         deliver: fields.deliver,
@@ -512,7 +536,7 @@ function drawSheet(
     parts.push(...formParts(model, readFolders, redraw));
     const add = button("Add", "gitBranchPlus", "btn btn-primary");
     add.setAttribute("data-repo-add", "");
-    add.disabled = model.fields.name.trim() === "";
+    add.disabled = !nameOk(model.fields);
     add.addEventListener("click", () => void model.submit());
     actions.append(cancel(), add);
     parts.push(actions);
@@ -655,7 +679,7 @@ function formParts(
     const add = name
       .closest("form")
       ?.querySelector<HTMLButtonElement>("[data-repo-add]");
-    if (add) add.disabled = f.name.trim() === "";
+    if (add) add.disabled = !nameOk(f);
   });
   const ext = el("span", "repo-ext", ".mp4");
   ext.setAttribute("data-repo-ext", "");
@@ -688,7 +712,8 @@ function formParts(
     },
   );
   return [
-    fieldOf("Folder", folderRow),
+    // Files writes a file name only: there is no folder to choose.
+    ...(f.deliver === "files" ? [] : [fieldOf("Folder", folderRow)]),
     fieldOf("File name", nameRow),
     fieldOf("Video", deliver, line),
     fieldOf("Quality", quality),

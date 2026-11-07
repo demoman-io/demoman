@@ -1250,6 +1250,23 @@ describe("reveal", () => {
     expect(h.revealed).toEqual([file]);
   });
 
+  // Red if reveal checks one path and opens another (a `..` through a link).
+  it("reveal opens the path it checked", async () => {
+    const file = join(home, "repo", ".demoman", "flows", "x.json");
+    await mkdir(join(home, "repo", ".demoman", "flows"), { recursive: true });
+    await writeFile(file, "{}");
+    await h.close();
+    h = await startStudio(home, { written: (p) => p === file });
+    const r = await h.call(pathFor("reveal"), {
+      method: "POST",
+      body: JSON.stringify({
+        path: `${home}/repo/x/../.demoman/flows/x.json`,
+      }),
+    });
+    expect(r.status, r.text).toBe(200);
+    expect(h.revealed).toEqual([file]);
+  });
+
   // Red if the written check lets any path through.
   it("reveal still refuses a repo file no add wrote", async () => {
     const wrote = join(home, "repo", "a.json");
@@ -1328,6 +1345,27 @@ describe("repoFolders", () => {
       folders: ["docs", "docs/demos", "src"],
       more: false,
     });
+  });
+
+  // Red if git's quoting of a non-ASCII name reaches the picker.
+  it("folders lists a non-ASCII folder by its own name", async () => {
+    await mkdir(join(repo, "vidéos"), { recursive: true });
+    await writeFile(join(repo, "vidéos", "a"), "x");
+    await git(repo, "add", "-A");
+    await git(
+      repo,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "-m",
+      "x",
+    );
+    const r = await ask(repo);
+    expect(r.status, r.text).toBe(200);
+    expect(r.json()).toEqual({ folders: ["vidéos"], more: false });
   });
 
   // Red if a git failure answers an empty list, which reads as "no folders".

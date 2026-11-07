@@ -129,6 +129,7 @@ async function openSheet(ci: RepoCiDoor): Promise<HTMLDialogElement> {
             videoId: "v1",
             jobId: "a",
             phase: "added",
+            marked: true,
             file: "checkout.json",
             written: WRITTEN,
             notes: [],

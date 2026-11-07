@@ -522,7 +522,9 @@ async function addToRepo(id: string): Promise<void> {
   }
   // In repo from the add's own answer (DEM-59); the read confirms it.
   if (added !== null) ciStates.delete(added.root);
-  if (added !== null && lastListing !== null) {
+  // Only an add the library marked: a failed mark's note says it will not
+  // show In repo, and the read says what is true.
+  if (added?.marked === true && lastListing !== null) {
     const { root, file } = added;
     paintListing({
       ...lastListing,

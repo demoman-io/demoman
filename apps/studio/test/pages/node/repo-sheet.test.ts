@@ -2,6 +2,7 @@ import type { Addable, CiState } from "@demoman/studio-protocol";
 import { describe, expect, it } from "vitest";
 import type { CiEvent, RepoEvent } from "../../../pages/src/platform/types";
 import {
+  nameOk,
   pathOf,
   type RepoSheetArgs,
   repoSheetModel,
@@ -47,7 +48,7 @@ function door(
   return { args, bodies, tell, offs };
 }
 
-const added = { phase: "added", file: "f.json", root: "/r" };
+const added = { phase: "added", marked: true, file: "f.json", root: "/r" };
 
 /** The sheet once its check answered. */
 async function opened(d: ReturnType<typeof door>) {
@@ -125,6 +126,55 @@ describe("repoSheetModel", () => {
     ]);
   });
 
+  // Red if Files sends a folder, which the add refuses ("files outputs are
+  // file names, not paths").
+  it("Files sends the file name alone", async () => {
+    expect(
+      pathOf({
+        folder: "docs/demos",
+        name: "x",
+        deliver: "files",
+        quality: "share",
+      }),
+    ).toBe("x.mp4");
+    const d = door();
+    const m = await opened(d);
+    m.fields.deliver = "files";
+    await m.submit();
+    expect(d.bodies).toEqual([
+      { path: "checkout.mp4", deliver: "files", quality: "share" },
+    ]);
+  });
+
+  // Red if a name of only ".mp4" or one holding a slash gets through.
+  it.each([".mp4", " .MP4 ", "a/b", "/"])(
+    "Add does nothing with the name %j",
+    async (name) => {
+      const d = door();
+      const m = await opened(d);
+      m.fields.name = name;
+      expect(nameOk(m.fields), "the guard the form disables Add on").toBe(
+        false,
+      );
+      await m.submit();
+      expect(d.bodies).toEqual([]);
+    },
+  );
+
+  // Red if a slash around the name doubles in the path.
+  it.each([
+    ["x/", "docs/demos/x.mp4"],
+    ["/x", "docs/demos/x.mp4"],
+  ])("the name %j is sent as %j", async (name, sent) => {
+    const d = door();
+    const m = await opened(d);
+    m.fields.name = name;
+    await m.submit();
+    expect(d.bodies).toEqual([
+      { path: sent, deliver: "commit", quality: "share" },
+    ]);
+  });
+
   // Red if Add sends a path with no file name.
   it("Add does nothing with an empty name", async () => {
     const d = door();
@@ -185,8 +235,9 @@ describe("repoSheetModel", () => {
     const m = await opened(d);
     m.fields.deliver = "files";
     await m.submit();
+    // Files writes a file name, not a path: the add refuses a folder.
     expect(d.bodies).toEqual([
-      { path: "docs/demos/checkout.mp4", deliver: "files", quality: "share" },
+      { path: "checkout.mp4", deliver: "files", quality: "share" },
     ]);
     d.tell({ ...added, written: ["a.mp4"], notes: [] });
     expect(m.autoClosed).toBe(true);
@@ -196,6 +247,7 @@ describe("repoSheetModel", () => {
       root: "/r",
       file: "f.json",
       deliver: "files",
+      marked: true,
     });
   });
 
@@ -266,6 +318,7 @@ function ciDoor(state: CiState) {
 
 const addedAt = {
   phase: "added",
+  marked: true,
   file: "checkout.json",
   root: "/r",
   written: [".demoman/flows/checkout.json", "docs/demos/checkout.mp4"],

@@ -278,7 +278,16 @@ describe("adding a flow to its repo, and removing it", () => {
     expect(sent.at(-1)).toMatchObject({
       phase: "added",
       notes: ["the mark was not set", "1x is a guess"],
+      // The row reads this, not the words, to paint In repo at once.
+      marked: false,
     });
+  });
+
+  // Red if an add the library marked is not said to be marked.
+  it("an add the library marked says so", async () => {
+    await add(good);
+    await until(() => phases().includes("added"));
+    expect(sent.at(-1)).toMatchObject({ phase: "added", marked: true });
   });
 
   // Red if an add's files are not revealable (DEM-56).

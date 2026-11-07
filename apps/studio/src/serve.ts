@@ -321,6 +321,7 @@ export function buildHandlers(o: {
               notes: [answer.markNote, answer.scaleGuess].filter(
                 (n): n is string => n !== undefined,
               ),
+              marked: answer.markNote === undefined,
               root: can.root,
             });
           },

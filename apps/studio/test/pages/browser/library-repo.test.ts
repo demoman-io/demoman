@@ -229,6 +229,7 @@ for (const scheme of ["light", "dark"] as const) {
             fn({
               ...at,
               phase: "added",
+              marked: true,
               file: "c.json",
               written: ["docs/demos/c.mp4"],
               notes: [],
@@ -264,7 +265,7 @@ for (const scheme of ["light", "dark"] as const) {
         );
       });
       expect(sent).toEqual([
-        { path: "docs/demos/c.mp4", deliver: "files", quality: "share" },
+        { path: "c.mp4", deliver: "files", quality: "share" },
       ]);
       expect(dialog()).toBeNull();
     });
@@ -336,6 +337,7 @@ for (const scheme of ["light", "dark"] as const) {
           videoId: "yes",
           jobId: job,
           phase: "added",
+          marked: true,
           file: "c.json",
           written: ["docs/demos/c.mp4", "docs/demos/c.json"],
           notes: Array.from(
@@ -544,6 +546,44 @@ describe("a failed add, a refused one and Remove from repo", () => {
     });
   });
 
+  // Red if a mark the library refused is painted as In repo (report before
+  // you forgive: the add's own note says it will not show).
+  it("an add whose mark failed does not show In repo", async () => {
+    await mountLibrary([{ id: "yes", name: "Checkout" }]);
+    memory.repoCi.state = async () => ({ kind: "noGh", detail: "No gh." });
+    memory.videos.repo.add = async () => ({ jobId: "j1" });
+    memory.videos.repo.onRepo = (job, fn) => {
+      setTimeout(
+        () =>
+          fn({
+            type: "repo",
+            videoId: "yes",
+            jobId: job,
+            phase: "added",
+            file: ".demoman/flows/c.json",
+            written: ["docs/demos/c.mp4"],
+            notes: ["the library could not mark it"],
+            marked: false,
+            root: "/r",
+          } as RepoEvent),
+        20,
+      );
+      return () => {};
+    };
+    (await button("repo-add", "yes")).click();
+    await userEvent.click(await addButton());
+    memory.answer("folder.read", () => new Promise(() => {}));
+    const done = await vi.waitFor(() => {
+      const d = document.querySelector<HTMLElement>("[data-repo-done]");
+      if (d === null) throw new Error("no last step");
+      return d;
+    });
+    await userEvent.click(done);
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.querySelector('[data-row="s-yes"] [data-kept]')).toBeNull();
+  });
+
   // Red if In repo waits for the listing to come back after an add (DEM-59).
   it("In repo shows as soon as the sheet closes after an add", async () => {
     await mountLibrary([{ id: "yes", name: "Checkout" }]);
@@ -561,6 +601,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
             file: ".demoman/flows/c.json",
             written: ["docs/demos/c.mp4"],
             notes: [],
+            marked: true,
             root: "/r",
           } as RepoEvent),
         20,
@@ -638,9 +679,15 @@ describe("Set up CI beside a project's heading", () => {
 
   // Red if a repo already set up is offered setup again.
   it("a set-up repo offers no button", async () => {
-    const asked = await mountAt(KEY, async () => ({ kind: "setUp" }));
-    await vi.waitFor(() => expect(asked).toContain("/r"));
-    await new Promise((r) => setTimeout(r, 50));
+    let answered = false;
+    const asked = await mountAt(KEY, async () => {
+      answered = true;
+      return { kind: "setUp" };
+    });
+    await vi.waitFor(() => expect(answered).toBe(true));
+    // The read's answer is painted on the task after it: no clock involved.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(asked).toContain("/r");
     expect(ciButton()).toBeNull();
   });
 

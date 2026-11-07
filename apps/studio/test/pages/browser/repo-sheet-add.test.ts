@@ -96,6 +96,7 @@ async function open(o: {
         videoId: "v1",
         jobId: "a",
         phase: "added",
+        marked: true,
         file: ".demoman/flows/filter-invoice.json",
         written: WRITTEN,
         notes,
@@ -181,6 +182,8 @@ for (const scheme of ["light", "dark"] as const) {
           .querySelector('[data-repo-deliver="files"]')
           ?.getAttribute("aria-checked"),
       ).toBe("true");
+      // Files writes a file name only: no Folder to fill.
+      expect(dialog.querySelector("[data-repo-folder]")).toBeNull();
     });
 
     // Red if the folder button stops listing the repo's folders, or a pick does not fill Folder (DEM-50).

@@ -291,7 +291,6 @@ export interface RepoAddBody {
 export interface RepoAddStarted {
   jobId: string;
 }
-/** `repoRemove`'s 200. */
 /** `repoFolders`' answer: the repo's committed folders, none under a dot
  *  folder, sorted; `more` when the list was cut. */
 export interface RepoFoldersAnswer {
@@ -299,6 +298,7 @@ export interface RepoFoldersAnswer {
   more: boolean;
 }
 
+/** `repoRemove`'s 200. */
 export interface RepoRemoveAnswer {
   removed: string[];
   exportsLeft: string[];
@@ -572,6 +572,9 @@ export type StudioEvent =
       file: string;
       written: string[];
       notes: string[];
+      /** Whether the library marked the flow In repo. False when it could
+       *  not: a note says so, and a page must not paint In repo for it. */
+      marked: boolean;
       root: string;
     }
   | {
