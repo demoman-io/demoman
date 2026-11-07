@@ -166,7 +166,17 @@ export interface RunReport {
    */
   stopped?: {
     reason: ReplayStopReason;
-    at: { index: number; of: number; label: string };
+    at: {
+      index: number;
+      of: number;
+      label: string;
+      /** The script step the run stopped on (1-based, pauses counted), from
+       *  the same record `label` names; null when no script step can be
+       *  named (a re-shoot, or no step attempted). DEM-61. */
+      scriptStep: number | null;
+      /** The script's step count; null when the run had no script. */
+      scriptSteps: number | null;
+    };
     sentence: string;
     /**
      * What the host actually saw, in its own vocabulary and carrying the
@@ -613,6 +623,7 @@ function buildStopped(
   scene: SceneDocument | null,
   steps: readonly AuthoredStep[],
   detail: string | undefined,
+  script: ScriptRef,
 ): RunReport["stopped"] {
   if (walk.reason === null) return undefined;
   // A `ReplayStatus`-shaped view of the walk, built only to hand to
@@ -648,6 +659,17 @@ function buildStopped(
    * `script.steps` index counted the way an author counts.
    */
   const lastAttempted = steps.at(-1) ?? null;
+  // The script step, from the record the label names: the document's
+  // failing action's own record where the label is the document's, else the
+  // last attempted. One numbering with the label (DEM-61).
+  const failing =
+    step === null || scene === null
+      ? lastAttempted
+      : (steps.find(
+          (s) =>
+            s.actionId !== null &&
+            s.actionId === scene.actions[walk.completed]?.id,
+        ) ?? null);
   return {
     reason: walk.reason,
     at: {
@@ -662,6 +684,8 @@ function buildStopped(
       // it as "Stopped after step N of M" — see that function.
       index: walk.completed,
       of: walk.total,
+      scriptStep: failing === null ? null : failing.index + 1,
+      scriptSteps: "steps" in script ? script.steps : null,
       label: step
         ? `${step.kind} ${step.label}`
         : scene === null
@@ -824,7 +848,13 @@ export function buildRunReport(args: BuildArgs): RunReport {
   return {
     run: args.run,
     outcome,
-    stopped: buildStopped(args.walk, args.scene, args.steps, args.detail),
+    stopped: buildStopped(
+      args.walk,
+      args.scene,
+      args.steps,
+      args.detail,
+      args.run.script,
+    ),
     refused: undefined,
     notStored: args.notStored,
     steps,
@@ -916,6 +946,20 @@ export function prVerdict(report: RunReport): {
   return { clause, details: clause === clean ? null : verdictLine(report) };
 }
 
+/**
+ * Where a run stopped, in one numbering with its label (DEM-61): the
+ * script's own step, pauses counted, when one can be named. Otherwise the
+ * count the run measured, "after" it, as before: a re-shoot has no script,
+ * a run that attempted nothing has no step to name, and a report written
+ * before DEM-61 has no script step.
+ */
+function stoppedWhere(at: NonNullable<RunReport["stopped"]>["at"]): string {
+  // Loose: a report.json written before these fields has neither.
+  return at.scriptStep != null && at.scriptSteps != null
+    ? `at script step ${at.scriptStep} of ${at.scriptSteps}`
+    : `after step ${at.index} of ${at.of}`;
+}
+
 function prClause(report: RunReport, clean: string): string {
   const unstored = report.notStored ?? [];
   // A session that was not saved back is not part of the take's record, as
@@ -928,7 +972,7 @@ function prClause(report: RunReport, clean: string): string {
     return `refused: ${report.refused?.reason ?? "unknown"}`;
   if (report.outcome === "stopped") {
     const at = report.stopped?.at;
-    return at ? `stopped after step ${at.index} of ${at.of}` : "stopped";
+    return at ? `stopped ${stoppedWhere(at)}` : "stopped";
   }
   if (report.stopped !== undefined) return "finished, but did not end cleanly";
   if (report.verdict.kind !== "matches") {
@@ -1056,7 +1100,7 @@ function runOutcomeLine(report: RunReport): string {
     // which is the fabrication this branch's whole design rule forbids. So the
     // word is changed to match the number that is actually measured, and
     // `at.label` says which step it stopped ON.
-    const where = at ? ` after step ${at.index} of ${at.of}` : "";
+    const where = at ? ` ${stoppedWhere(at)}` : "";
     return `Stopped${where}: ${whyStopped(report)}`;
   }
   // Complete AND a reason, which is reachable and load-bearing — `statusOf`'s
