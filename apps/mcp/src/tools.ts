@@ -441,6 +441,10 @@ export function registerTools(
     studio?: (args: { takeId?: string }) => Promise<StudioToolAnswer>;
     /** The `add` and `ci` tools (Task 13). Given only by the CLI bin. */
     repo?: RepoDoors;
+    /** The `link` tool: given only by the CLI bin, and only when this
+     *  machine holds a Demoman sign-in, so a signed-out agent never sees a
+     *  tool for the hosted service. */
+    link?: boolean;
     /** The links a saved export ends on (`session-links.ts`). Given only
      *  by the CLI path; absent, an export answers without them. */
     links?: LinksFor;
@@ -469,7 +473,7 @@ export function registerTools(
   const calls = new Map<
     string,
     {
-      op: "run" | "export" | "snapshot" | "probe" | "attach" | RepoOp;
+      op: "run" | "export" | "snapshot" | "probe" | "attach" | "link" | RepoOp;
       call: Promise<Outcome>;
       watched: Watched;
     }
@@ -574,7 +578,7 @@ export function registerTools(
           : fromOutcome(served(op, o));
 
   const longCall = async (
-    op: "run" | "export" | "snapshot" | "probe" | "attach" | RepoOp,
+    op: "run" | "export" | "snapshot" | "probe" | "attach" | "link" | RepoOp,
     args: Record<string, unknown>,
     extra: Extra,
     /** A call this process runs itself, rather than one sent to the page. */
@@ -898,6 +902,37 @@ export function registerTools(
       );
     },
   );
+
+  if (options.link === true) {
+    server.registerTool(
+      "link",
+      {
+        annotations: TOOL_ANNOTATIONS.link,
+        description:
+          'Make a link to a video on Demoman: a page that plays it for anyone with the link, and a file address a site or docs page can embed. Exports the video at the Settings quality first, then uploads it. Optional title (the export\'s name by default) and expiresAt (ISO 8601; absent, the link does not expire). Answers linked with link.pageUrl and link.fileUrl, or a reason; past about 50 s {outcome: "stillRunning", id}, then call report.',
+        inputSchema: {
+          videoId: z.string().min(1).optional(),
+          takeId: z.unknown().optional(),
+          title: z.string().min(1).max(200).optional(),
+          expiresAt: z.string().min(1).nullable().optional(),
+        },
+      },
+      async (args, extra) => {
+        const wrong = videoArgs(args);
+        if (wrong !== null) return wrong;
+        const { title, expiresAt } = args;
+        return longCall(
+          "link",
+          {
+            takeId: args.videoId as string,
+            ...(title === undefined ? {} : { title }),
+            ...(expiresAt === undefined ? {} : { expiresAt }),
+          },
+          extra as unknown as Extra,
+        );
+      },
+    );
+  }
 
   const repo = options.repo;
   if (repo !== undefined) {

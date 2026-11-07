@@ -510,7 +510,7 @@ Studio exports go to `~/Downloads`.
 | `libraryUnreadable` | `flows`, `studio` | Unreadable; report it. |
 | `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: the report has a `notStored` entry `{ "what": "video", "error": … }` and a null `provenance.videoId`. Nothing saved; quote the `error`. |
 | `unknownRun` | `report` | This demoman-mcp never issued that id (ids do not survive a server restart). |
-| `noReport` | `report` | No report for that id: this server keeps only its latest; `detail` says which. Do not run again. |
+| `noReport` | `report` | No report: this server keeps only its latest; `detail` says which. Do not run again. |
 | `notAnObject` | `run` | The script is not a JSON object. |
 | `invalidScript` | `run` | The schema refused the script; `field` names where. |
 | `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-film of a video that did not keep a value. |
@@ -531,9 +531,9 @@ Studio exports go to `~/Downloads`.
 | `invalidDevice` | `snapshot` | `device` is no phone or tablet Demoman has; `detail` lists them. |
 | `deviceFailed` | `snapshot`, `run` | The browser would not emulate the device; nothing was listed or recorded. Tell the user `detail`; do not run again. |
 | `nonHttpTarget` | `run`, `snapshot` | The target or url is not `http(s)`, or its host contains `*`. |
-| `invalidFileType` | `export`¹ | Not answered: the schema takes only `mp4`, `gif`, `stills`. |
+| `invalidFileType` | `export`¹ | Not answered: the schema refuses it first. |
 | `invalidStillsOptions` | `export`¹ | `stills` was given for an MP4 or GIF, or breaks section 5's width or zoom; `detail` says which. Fix the call. |
-| `invalidQuality`, `invalidMaxMB` | `export`¹, `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
+| `invalidQuality`, `invalidMaxMB` | `export`¹, `attach` | Only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
 | `noVideoId`, `noFrames` | `export`¹ | No video id; no frames to render. |
 | `videoNotFound`, `videoUnreadable` | `export`¹, `run` re-film ¹, `studio` (`videoNotFound`: call `flows`) | No such video; it could not be read (or, for `run`, built into a script). |
 | `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run`² | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. |
@@ -548,7 +548,7 @@ Studio exports go to `~/Downloads`.
 | `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman's script: tell the user. |
 | `pageFaulted`, `snapshotThrew`, `probeThrew` | `snapshot`, `probe` | The page's code threw, or a fault; quote `detail`. |
 | `portFailure` | `probe` | The browser gave way; not the script's fault. Probe once more; quote `detail` if it repeats. |
-| `notInRepo`, `outsideRepo`, `outputTaken`, `logoUnreadable`, `handSignIn`, `cannotRefilm`, `keepRefused`, `exportFailed`, `repoFlowUnwritable` | `add`, `ci` | `detail` says what was written and the fix. |
+| `notInRepo`, `outsideRepo`, `outputTaken`, `logoUnreadable`, `handSignIn`, `cannotRefilm`, `keepRefused`, `exportFailed`, `repoFlowUnwritable`; `freeLimit`, `invalidLink`, `posterInvalid` | `add`, `ci`; `link` | `detail` says what was done and the fix. |
 | `appInvalid`, `appOriginMismatch`, `appUnknown`, `appHoles`, `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appPortTaken`, `appDockerMissing`, `checkoutFailed`, `noRepoFlow`, `refreshFailed`, `checkThrew`, `alreadySetUp`, `setupPrOpen`, `setupBranchExists`, `noRepoFlows`, `noRelease`, `noDeployment`, `routeRefused`, `githubUnreadable`, `noSetupBranch`, `secretsUnknown`, `secretsUnreadable`, `workflowRefused`, `filesUnreadable`, `setupUnreadable`, `secretRefused`, `actionsRefused`, `actionsUnknown`, `prFailed` | `ci` | `detail` says what was done and the fix. |
 
 ## 8. Repo flows and CI

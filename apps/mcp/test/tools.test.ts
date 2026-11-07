@@ -49,6 +49,7 @@ async function connect(
   studio?: (args: { takeId?: string }) => Promise<StudioToolAnswer>,
   links?: LinksFor,
   repo?: RepoDoors,
+  linkTool?: boolean,
 ) {
   const calls: Array<{ op: string; args: Record<string, unknown> }> = [];
   const link: Link = {
@@ -73,6 +74,7 @@ async function connect(
     ...(studio === undefined ? {} : { studio }),
     ...(links === undefined ? {} : { links }),
     ...(repo === undefined ? {} : { repo }),
+    ...(linkTool === undefined ? {} : { link: linkTool }),
     capMs,
     newId: () => `id-${++n}`,
   });
@@ -173,6 +175,57 @@ describe("the links on a saved export", () => {
 });
 
 describe("demoman-mcp's tools", () => {
+  it("lists link only for a machine signed in to Demoman, and passes it the video, title and expiry", async () => {
+    const signedOut = await connect(
+      {},
+      200,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+    );
+    expect(
+      (await signedOut.client.listTools()).tools.map((t) => t.name),
+    ).not.toContain("link");
+    const { client, calls } = await connect(
+      {
+        link: async () => ({
+          ok: true,
+          value: { outcome: "linked", summary: "Linked." },
+        }),
+      },
+      200,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+    expect((await client.listTools()).tools.map((t) => t.name)).toContain(
+      "link",
+    );
+    const res = await client.callTool({
+      name: "link",
+      arguments: {
+        videoId: "v1",
+        title: "Checkout",
+        expiresAt: "2099-01-01T00:00:00Z",
+      },
+    });
+    expect(res.isError).toBeFalsy();
+    expect(calls.at(-1)).toMatchObject({
+      op: "link",
+      args: {
+        takeId: "v1",
+        title: "Checkout",
+        expiresAt: "2099-01-01T00:00:00Z",
+      },
+    });
+  });
+
   it("lists exactly the tools plans 1 and 2 build", async () => {
     const { client } = await connect({});
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
@@ -1741,6 +1794,7 @@ describe("demoman-mcp's tools", () => {
       async () => ({ outcome: "opened" }),
       undefined,
       { add: async () => ({}), ci: async () => ({}) },
+      true,
     );
     const tools = (await client.listTools()).tools;
     const table = TOOL_ANNOTATIONS as Record<string, Record<string, unknown>>;
@@ -1773,6 +1827,13 @@ describe("demoman-mcp's tools", () => {
     expect(table.ci).toEqual({
       readOnlyHint: false,
       destructiveHint: true,
+      openWorldHint: true,
+    });
+    // It publishes a link anyone holding it can open, and a link can be
+    // deleted: open world, not destructive.
+    expect(table.link).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
       openWorldHint: true,
     });
     // It posts under the user's GitHub account, to a PR anyone can read.

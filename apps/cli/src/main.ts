@@ -36,6 +36,7 @@ import {
   keepVideo,
   PAGE_ENTRIES,
   type RefreshResult,
+  readCredential,
   readRepo,
   refreshKept,
   removeRepoFlow,
@@ -207,6 +208,8 @@ async function mcp(args: string[]): Promise<void> {
   if (skill !== null) log(skill);
   await serveCli({
     createLocalExecutor,
+    // The link tool only for a machine signed in to Demoman.
+    link: readCredential(demomanHome()).ok,
     recipe,
     version: VERSION,
     headless: mode.headless,
@@ -831,6 +834,77 @@ async function joinFlow(args: string[]): Promise<void> {
   process.exit(1);
 }
 
+/** `demoman link <videoId> [--title t] [--expires <ISO date>]`: a pinned
+ *  link to a video on Demoman's hosted service. */
+async function linkCommand(args: string[]): Promise<void> {
+  let parsed: ReturnType<
+    typeof parseArgs<{
+      allowPositionals: true;
+      options: { title: { type: "string" }; expires: { type: "string" } };
+    }>
+  >;
+  try {
+    parsed = parseArgs({
+      args,
+      allowPositionals: true,
+      options: { title: { type: "string" }, expires: { type: "string" } },
+    });
+  } catch (error) {
+    process.stderr.write(`demoman: link: ${(error as Error).message}\n`);
+    process.exit(2);
+  }
+  const [takeId] = parsed.positionals;
+  if (takeId === undefined || parsed.positionals.length !== 1) {
+    process.stderr.write(
+      "demoman: link needs one videoId: demoman link <videoId> [--title <title>] [--expires <ISO date>]\n",
+    );
+    process.exit(2);
+  }
+  const executor = createLocalExecutor({
+    home: demomanHome(),
+    headless: true,
+    wallpapersDir: WALLPAPERS_DIR,
+    executablePath: fullChromiumPath(),
+    installCommand: INSTALL_COMMAND,
+    log,
+  });
+  try {
+    const out = await executor.request(
+      "link",
+      {
+        takeId,
+        ...(parsed.values.title === undefined
+          ? {}
+          : { title: parsed.values.title }),
+        ...(parsed.values.expires === undefined
+          ? {}
+          : { expiresAt: parsed.values.expires }),
+      },
+      (p) => {
+        const s = (p as { summary?: unknown }).summary;
+        if (typeof s === "string") process.stderr.write(`${s}\n`);
+      },
+    );
+    const a = (out.ok ? out.value : out) as {
+      outcome?: string;
+      summary?: string;
+      detail?: string;
+      link?: { pageUrl: string; fileUrl: string };
+    };
+    if (a.outcome === "linked" && a.link !== undefined) {
+      process.stdout.write(`${a.link.pageUrl}\n${a.link.fileUrl}\n`);
+      process.exitCode = 0;
+    } else {
+      process.stderr.write(
+        `demoman: link: ${a.summary ?? a.detail ?? JSON.stringify(a)}\n`,
+      );
+      process.exitCode = 1;
+    }
+  } finally {
+    await executor.close();
+  }
+}
+
 const [command, ...rest] = process.argv.slice(2);
 switch (command) {
   case "mcp":
@@ -1013,6 +1087,10 @@ switch (command) {
   }
   // Not in USAGE until the hosted service launches with its docs (plan 4 of
   // docs/superpowers/plans/2026-11-07-hosted-links-1-pinned.md).
+  case "link":
+    // Not in USAGE until the hosted service launches with its docs.
+    await linkCommand(rest);
+    break;
   case "login":
   case "logout": {
     const say = (l: string) => void process.stdout.write(`${l}\n`);

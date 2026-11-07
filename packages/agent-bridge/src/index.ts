@@ -19,6 +19,7 @@ export const OPS = [
   "derive",
   "export",
   "attach",
+  "link",
 ] as const;
 export type Op = (typeof OPS)[number];
 

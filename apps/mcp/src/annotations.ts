@@ -19,6 +19,7 @@ export type ToolName =
   | "run"
   | "export"
   | "attach"
+  | "link"
   | "studio"
   | "add"
   | "ci";
@@ -51,6 +52,9 @@ export const TOOL_ANNOTATIONS: {
   /** Posts a video to a pull request under the user's GitHub account,
    *  which cannot be taken back from here. */
   attach: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  /** Uploads a video to Demoman's service and makes a link anyone holding it
+   *  can open; the link can be deleted, so nothing is destroyed. */
+  link: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   /** Opens the studio's window. */
   studio: { readOnlyHint: false, destructiveHint: false },
   /** Writes the flow's file and its exports into the repo, replacing a

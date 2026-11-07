@@ -50,6 +50,7 @@ import {
 import { readKits } from "./kits.js";
 import { DEFAULT_SIGNIN_COMMAND } from "./landing.js";
 import { createLibrary, ownHome } from "./library.js";
+import { linkTake } from "./link.js";
 import { ensureVideos, startPage } from "./migrate-videos.js";
 import { installExecutorEntry } from "./page-ops.js";
 import { probeEntry, probeOp } from "./probe.js";
@@ -112,7 +113,7 @@ const BUSY =
   "a run, snapshot, export or attach is already in progress in this demoman-mcp — call report(id) on it, and try again when it settles";
 
 export interface Job {
-  op: "run" | "export" | "attach";
+  op: "run" | "export" | "attach" | "link";
   latest: unknown;
   final: Outcome | null;
 }
@@ -448,7 +449,8 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       await installExecutorEntry(context);
     },
   });
-  let slot: "run" | "snapshot" | "probe" | "export" | "attach" | null = null;
+  let slot: "run" | "snapshot" | "probe" | "export" | "attach" | "link" | null =
+    null;
   let holePaths: string[] = [];
   const jobs = createJobTable();
   let lastRun: Job | null = null;
@@ -471,7 +473,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
   });
   /** Claims the slot for an export-shaped call, answering the export's own
    *  busy refusal when it is held (the hub's line reads that shape). */
-  function exportSlot(op: "export" | "attach"): Outcome | null {
+  function exportSlot(op: "export" | "attach" | "link"): Outcome | null {
     if (slot === null) {
       slot = op;
       return null;
@@ -1481,6 +1483,51 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             } catch (error) {
               log(`the attach threw — ${messageOf(error)}`);
               job.final = { ok: true, value: attachThrew(messageOf(error)) };
+              return job.final;
+            } finally {
+              slot = null;
+            }
+          }
+          case "link": {
+            // The export's slot: a link renders, then uploads what it rendered.
+            const busy = exportSlot("link");
+            if (busy !== null) return busy;
+            const callId = typeof args.callId === "string" ? args.callId : null;
+            const job: Job = {
+              op: "link",
+              latest: {
+                outcome: "linking",
+                phase: "checking",
+                done: 0,
+                total: 0,
+                summary: "Linking — checking your Demoman sign-in.",
+              },
+              final: null,
+            };
+            if (callId !== null) jobs.set(callId, job);
+            try {
+              const answer = await linkTake(
+                args,
+                { export: exportDeps(), home },
+                (progress) => {
+                  job.latest = progress;
+                  onProgress?.(progress);
+                },
+              );
+              job.final = { ok: true, value: answer };
+              return job.final;
+            } catch (error) {
+              log(`the link threw — ${messageOf(error)}`);
+              const detail = `the link failed unexpectedly (${messageOf(error)})`;
+              job.final = {
+                ok: true,
+                value: {
+                  outcome: "refusedBeforeLink",
+                  reason: "unavailable",
+                  detail,
+                  summary: `Not linked: ${detail}.`,
+                },
+              };
               return job.final;
             } finally {
               slot = null;

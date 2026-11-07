@@ -71,6 +71,9 @@ export interface ServeCliOptions {
   studio?: (args: { takeId?: string }) => Promise<StudioToolAnswer>;
   /** The `add` and `ci` tools' doors (Task 13): the bin supplies them, as
    *  it does the studio, so they reach the CLI's own core. */
+  /** Lists the `link` tool: the bin passes whether this machine holds a
+   *  Demoman sign-in. */
+  link?: boolean;
   repo?: RepoDoors;
   log: (line: string) => void;
 }
@@ -111,6 +114,7 @@ export async function serveCli(o: ServeCliOptions): Promise<void> {
     updateCheck: o.updateCheck,
     ...(o.studio === undefined ? {} : { studio: o.studio }),
     ...(o.repo === undefined ? {} : { repo: o.repo }),
+    ...(o.link === undefined ? {} : { link: o.link }),
     links: links.linksFor,
   });
   await server.connect(new StdioServerTransport());
