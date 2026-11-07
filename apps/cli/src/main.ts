@@ -860,6 +860,12 @@ async function linkCommand(args: string[]): Promise<void> {
     );
     process.exit(2);
   }
+  // The export renders on the package's prebuilt pages, as every other
+  // command that exports does.
+  requirePageBundles(
+    join(fileURLToPath(new URL(".", import.meta.url)), "page"),
+    (line) => log(line),
+  );
   const executor = createLocalExecutor({
     home: demomanHome(),
     headless: true,
