@@ -3,6 +3,19 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
+<Update label="0.9.1" description="CI setup that works the first time, and refreshes you can trust">
+  - Setup finds the app in a single-package repo whose `pnpm-workspace.yaml` holds only settings, as newer pnpm writes it.
+  - `.demoman/app.json` may leave out `env`, `secrets` and `services`; a refused file names the field.
+  - An optional `reset` in `.demoman/app.json` (for example `pnpm reset`) runs before each flow, so one flow's changes never show in the next. The setup check runs it too, and one that outlasts `timeoutSeconds` is stopped and said.
+  - A refresh records a flow once more when the video is right but rough: a soft still, a scroll still moving, or motion dropped on a busy runner. If it happens again, the video is delivered with a note that names it. A drag or click that may have done nothing still fails, and a failure says why.
+  - A demo account that signs in without loading a page goes straight on, instead of waiting 10 seconds.
+  - The refresh workflow can be run by hand from the Actions tab (push and daily triggers), and a manual run always records. A workflow set up before 0.9.1 gets this when you add `workflow_dispatch:` under its `on:`.
+  - The setup pull request's description lists what it does, the check, the secrets by name and the files. It also adds the `.demoman/secrets.env` line to the default branch's `.gitignore` when that is missing.
+  - Setup turns on the Actions setting before it sets any secret, and an organisation, enterprise or single sign-on refusal says who can change it and where.
+  - When the app's port is taken, the check names the process holding it.
+  - Your agent's `studio`, `add` and `ci` tools work when the folder they were started in has been deleted, and a new flow is no longer flagged as a duplicate of one recorded on another app.
+</Update>
+
 <Update label="0.9.0" description="Set up CI from one plan, or from the Studio">
   - `npx demoman setup --ci` checks the refresh from a clean checkout, shows one plan, and on one confirmation sets the secrets, turns on the Actions setting, opens a "Set up Demoman" pull request and watches its first run. `--yes`, `--env-file` and `--replace-secret` take the answers without a prompt.
   - `.demoman/app.json` records how the app starts: install, start, url, timeout, env, secrets and services. `refresh` starts the app from it, and uses one already answering when run locally.
