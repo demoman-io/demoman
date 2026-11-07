@@ -1,6 +1,7 @@
 // apps/studio/pages/src/shell/ci-sheet.ts
 
 import { button, ciSteps, ciStepsView, type RepoCiDoor } from "./ci-steps";
+import { showSheet } from "./sheet-dialog";
 
 /**
  * CI setup on its own (DEM-52): the add sheet's CI section in a dialog of
@@ -63,38 +64,17 @@ export function openCiSheet(a: {
   draw();
   void steps.read();
 
-  // Escape and the backdrop close, except while a check or apply runs.
-  dialog.addEventListener("cancel", (event) => {
-    event.preventDefault();
-    close();
-  });
-  let pressedOnBackdrop = false;
-  dialog.addEventListener("pointerdown", (event) => {
-    pressedOnBackdrop = event.target === dialog;
-  });
-  dialog.addEventListener("click", (event) => {
-    if (pressedOnBackdrop && event.target === dialog) close();
-    pressedOnBackdrop = false;
-  });
-
-  // A close the sheet did not ask for (the browser's own, on a second
-  // Escape) still settles it, so the page reads the repo's state again.
-  dialog.addEventListener("close", () => {
+  // A close the browser makes anyway (a second Escape) still settles, so
+  // the page reads the repo's state again.
+  const closed = (): void => {
     if (ended) return;
     ended = true;
     steps.stop();
     settle({ prOpened: steps.prUrl });
-  });
-
-  void result.then(() => {
-    if (dialog.open) dialog.close();
-    dialog.remove();
-  });
-  document.body.append(dialog);
+  };
   try {
-    dialog.showModal();
+    showSheet(dialog, { ask: close, closed, ended: result });
   } catch (error) {
-    dialog.remove();
     return Promise.reject(error);
   }
   return result;

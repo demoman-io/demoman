@@ -386,7 +386,12 @@ describe("repoSheetModel with CI", () => {
     expect(d.offs.repo).toBe(1);
     await m.ci?.check({});
     expect(d.offs.ci).toBe(0);
+    // A check runs: the sheet's own close waits for it, as CI setup's does.
+    expect(m.ci?.busy, "premise: the check is running").toBe(true);
     m.close();
+    expect(d.offs.ci).toBe(0);
+    // The browser closed the dialog anyway: the sheet settles and stops.
+    m.close(true);
     expect(d.offs.ci).toBe(1);
   });
 

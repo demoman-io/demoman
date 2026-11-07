@@ -178,6 +178,26 @@ for (const scheme of ["light", "dark"] as const) {
       mountShell(scheme, css);
     });
 
+    // Red if the add sheet closes under a running CI job, as CI setup's own
+    // sheet does not, or a close the browser forces leaves it unsettled.
+    it("holds Escape and Done while a CI job runs; a forced close settles", async () => {
+      const s = stub({ kind: "running", jobId: "j" } as CiState);
+      const dialog = await openSheet(s.door);
+      await el(dialog, "[data-ci-status]");
+      const done = dialog.querySelector<HTMLButtonElement>("[data-repo-done]");
+      expect(done?.disabled, "Done is held").toBe(true);
+      dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+      let settled = false;
+      void result.then(() => {
+        settled = true;
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(dialog.open, "Escape left it open").toBe(true);
+      expect(settled).toBe(false);
+      dialog.close();
+      expect((await result).added?.file).toBe("checkout.json");
+    });
+
     // Red if a stop that names no fields draws no Check, so the sheet has no way back.
     it("offers Check after a stop that names no fields", async () => {
       const s = stub({ kind: "notSetUp" });

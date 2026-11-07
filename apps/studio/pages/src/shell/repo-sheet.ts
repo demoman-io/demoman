@@ -11,6 +11,7 @@ import {
 import type { VideoSummary } from "@demoman/studio-protocol";
 import type { Platform, RepoEvent } from "../platform/types";
 import {
+  anchor,
   button,
   type CiSteps,
   ciSteps,
@@ -21,6 +22,7 @@ import {
 } from "./ci-steps";
 import type { ConfirmQuestion } from "./confirm-dialog";
 import { icon } from "./icons";
+import { showSheet } from "./sheet-dialog";
 import { showToast } from "./toast";
 
 export { messageOf, type RepoCiDoor };
@@ -347,9 +349,11 @@ export function repoSheetModel(a: RepoSheetArgs) {
       toast = `Added "${a.video.name}" to the repo. CI is not set up.`;
       finish({ added: addedOf(), prOpened: null });
     },
-    /** Cancel and Done. Not while the add runs. */
-    close(): void {
-      if (state.step === "running" || settled) return;
+    /** Cancel and Done. Not while the add or a CI job runs, unless
+     *  `force`: the browser closed the dialog anyway (a second Escape). */
+    close(force = false): void {
+      if (settled) return;
+      if (!force && (state.step === "running" || ci?.busy === true)) return;
       finish({
         added: addedOf(),
         prOpened: prUrl ?? ci?.prUrl ?? null,
@@ -426,16 +430,6 @@ function heading(
   return h;
 }
 
-/** An https link, or the address as plain words. */
-function linkTo(url: string, words: string): HTMLElement {
-  if (!/^https:\/\//.test(url)) return el("span", undefined, url);
-  const link = el("a", undefined, words);
-  link.href = url;
-  link.target = "_blank";
-  link.rel = "noreferrer";
-  return link;
-}
-
 const prNumber = (url: string): string => {
   const n = /\/pull\/(\d+)\/?$/.exec(url)?.[1];
   return n === undefined ? "Pull request" : `Pull request #${n}`;
@@ -468,32 +462,20 @@ export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
   draw();
   model.onChange(draw);
 
-  // Escape and the backdrop cancel, except while it runs.
-  dialog.addEventListener("cancel", (event) => {
-    if (model.state.step === "running") event.preventDefault();
-  });
-  let pressedOnBackdrop = false;
-  dialog.addEventListener("pointerdown", (event) => {
-    pressedOnBackdrop = event.target === dialog;
-  });
-  dialog.addEventListener("click", (event) => {
-    if (pressedOnBackdrop && event.target === dialog) model.close();
-    pressedOnBackdrop = false;
-  });
-  dialog.addEventListener("close", () => model.close());
-
-  void model.result.then(() => {
-    if (dialog.open) dialog.close();
-    dialog.remove();
-    if (model.toast !== null) showToast(model.toast);
-  });
-  document.body.append(dialog);
+  // Escape and the backdrop ask; the model refuses while the add or a CI
+  // job runs.
   try {
-    dialog.showModal();
+    showSheet(dialog, {
+      ask: () => model.close(),
+      closed: () => model.close(true),
+      ended: model.result,
+    });
   } catch (error) {
-    dialog.remove();
     return Promise.reject(error);
   }
+  void model.result.then(() => {
+    if (model.toast !== null) showToast(model.toast);
+  });
   return model.result;
 }
 
@@ -520,6 +502,7 @@ function drawSheet(
       ? button("Done", null, "btn btn-primary")
       : button("Done", "check");
     b.setAttribute("data-repo-done", "");
+    b.disabled = model.ci?.busy === true;
     b.addEventListener("click", () => model.close());
     return b;
   };
@@ -570,7 +553,11 @@ function drawSheet(
       fold.append(summary, files, ...notes);
       const pr = el("section", "repo-section");
       pr.append(
-        heading(true, "Pull request opened", linkTo(opened, prNumber(opened))),
+        heading(
+          true,
+          "Pull request opened",
+          anchor(opened, prNumber(opened)) ?? el("span", undefined, opened),
+        ),
       );
       parts.push(fold, el("div", "repo-rule"), pr);
       actions.append(done(true));
@@ -616,8 +603,23 @@ function drawSheet(
     }
     parts.push(actions);
   }
+  // A redraw replaces the control that was pressed: focus its successor, so
+  // a keyboard user is not dropped to the body after every toggle.
+  const had = document.activeElement;
+  const again =
+    had instanceof HTMLElement && form.contains(had) ? selectorOf(had) : "";
   form.replaceChildren(...parts);
   if (focus !== undefined) queueMicrotask(() => focus?.focus());
+  else if (again !== "") form.querySelector<HTMLElement>(again)?.focus();
+}
+
+/** The element's tag and its `data-*` and `aria-label` attributes, as a
+ *  selector; "" when it has none of them to be found by. */
+function selectorOf(n: HTMLElement): string {
+  const attrs = [...n.attributes]
+    .filter((a) => a.name.startsWith("data-") || a.name === "aria-label")
+    .map((a) => `[${a.name}="${CSS.escape(a.value)}"]`);
+  return attrs.length === 0 ? "" : n.tagName.toLowerCase() + attrs.join("");
 }
 
 /** Folder (with the repo's folders a click away), File name with its fixed

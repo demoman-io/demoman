@@ -2649,7 +2649,24 @@ describe("the Studio's screenshot set", () => {
         return { px: p, off: off(p) };
       };
       const checkGrid = async (at: string) => {
-        const g = await grid(at);
+        // Read again until every tile paints: each editor render (the repo
+        // listing's answer among them) rebuilds the grid with new images, so
+        // one sample can land between a rebuild and its paint. One that
+        // never paints is said by the assertion below.
+        let g = await grid(at);
+        const blank = () => g.spread.some((t) => !t.onTop || t.spread <= 6);
+        try {
+          await vi.waitFor(
+            async () => {
+              if (!blank()) return;
+              g = await grid(at);
+              if (blank()) throw new Error(`${at}: tiles not painted yet`);
+            },
+            { timeout: PAINT_MS, interval: 200 },
+          );
+        } catch {
+          // Said by the assertion below, with what the page showed.
+        }
         const evidence = JSON.stringify({ g, thumbs: [...thumbs] });
         expect(
           g.tiles.map((t) => t.id),

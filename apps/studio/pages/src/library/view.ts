@@ -265,6 +265,26 @@ function fillBar(
 /** Each page's watch on its selection bar's height (`applySelection`). */
 const barHeights = new WeakMap<HTMLElement, ResizeObserver>();
 
+/** The header's Set up CI slot: its button, or nothing. A CI state that
+ *  arrives later paints this alone, not the whole list. */
+export function paintCiSlot(
+  slot: HTMLElement,
+  openCi: (() => void) | null,
+): void {
+  if (openCi === null) {
+    slot.replaceChildren();
+    return;
+  }
+  const b = el("button", {
+    type: "button",
+    class: "btn btn-quiet",
+    "data-ci-setup": "",
+  });
+  b.append(icon("shieldCheck"), "Set up CI");
+  b.addEventListener("click", openCi);
+  slot.replaceChildren(b);
+}
+
 export function applySelection(
   root: HTMLElement,
   actions: LibraryActions,
@@ -931,17 +951,7 @@ function createHeader(withStorage: boolean): Header {
         at !== undefined && typeof at === "object"
           ? (next.ciSetup?.(at) ?? null)
           : null;
-      if (openCi === null) ciSlot.replaceChildren();
-      else {
-        const b = el("button", {
-          type: "button",
-          class: "btn btn-quiet",
-          "data-ci-setup": "",
-        });
-        b.append(icon("shieldCheck"), "Set up CI");
-        b.addEventListener("click", openCi);
-        ciSlot.replaceChildren(b);
-      }
+      paintCiSlot(ciSlot, openCi);
       // No rail, no places to switch between: the plain title alone.
       switchName.replaceChildren(
         ...(place === undefined ? [] : placeTitle(place)),

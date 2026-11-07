@@ -45,6 +45,7 @@ import {
 import {
   applySelection,
   type LibraryActions,
+  paintCiSlot,
   type RowKind,
   renderLibrary,
   statusKey,
@@ -591,7 +592,7 @@ function ciSetupFor(p: Place): (() => void) | null {
         (error: unknown) =>
           ciStates.set(root, { kind: "unreadable", detail: messageOf(error) }),
       )
-      .finally(repaint);
+      .finally(paintCi);
     return null;
   }
   if (st === "reading" || st.kind === "setUp") return null;
@@ -609,7 +610,15 @@ async function openCi(root: string, project: string): Promise<void> {
     reportError("opening CI setup", error);
   }
   ciStates.delete(root);
-  repaint();
+  paintCi();
+}
+
+/** The header's Set up CI slot alone, from the CI states as they are now. */
+function paintCi(): void {
+  const slot = root.querySelector<HTMLElement>("[data-ci-slot]");
+  if (slot !== null && place !== null && typeof place === "object") {
+    paintCiSlot(slot, ciSetupFor(place));
+  }
 }
 
 /** Paints the last listing again: a row's state changed, the folder did not. */

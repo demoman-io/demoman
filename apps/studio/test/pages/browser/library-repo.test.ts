@@ -732,6 +732,29 @@ describe("Set up CI beside a project's heading", () => {
     expect(sheet.textContent).toContain("acme/web");
   });
 
+  // Red if a CI state arriving repaints the whole list for one button.
+  it("a CI state that arrives paints the button and leaves the rows", async () => {
+    let answer = (_s: CiState) => {};
+    await mountAt(
+      KEY,
+      () =>
+        new Promise<CiState>((r) => {
+          answer = r;
+        }),
+    );
+    const row = await vi.waitFor(() => {
+      const found = document.querySelector('[data-row="s-in"]');
+      if (found === null) throw new Error("no row");
+      return found;
+    });
+    expect(ciButton(), "premise: no button while the state reads").toBeNull();
+    answer({ kind: "notSetUp" });
+    await vi.waitFor(() => {
+      if (ciButton() === null) throw new Error("no Set up CI");
+    });
+    expect(row.isConnected, "the row drawn before is the row shown").toBe(true);
+  });
+
   // Red if a repo already set up is offered setup again.
   it("a set-up repo offers no button", async () => {
     let answered = false;

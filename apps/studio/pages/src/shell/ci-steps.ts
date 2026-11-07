@@ -275,15 +275,26 @@ export const text = (tag: "p" | "pre", content: string, attr?: string) => {
   return el;
 };
 
-/** A link only to an https address; anything else is plain text. */
-export const link = (url: string, label: string): HTMLElement => {
-  if (!/^https:\/\//.test(url)) return text("p", `${label}: ${url}`);
-  const p = document.createElement("p");
+/** An anchor to an https address, opened in a new tab; null for any
+ *  other address, which the caller says as plain words. */
+export const anchor = (
+  url: string,
+  label: string,
+): HTMLAnchorElement | null => {
+  if (!/^https:\/\//.test(url)) return null;
   const a = document.createElement("a");
   a.href = url;
   a.target = "_blank";
   a.rel = "noreferrer";
   a.textContent = label;
+  return a;
+};
+
+/** A link only to an https address; anything else is plain text. */
+export const link = (url: string, label: string): HTMLElement => {
+  const a = anchor(url, label);
+  if (a === null) return text("p", `${label}: ${url}`);
+  const p = document.createElement("p");
   p.append(a);
   return p;
 };

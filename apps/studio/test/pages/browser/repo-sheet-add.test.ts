@@ -1,5 +1,5 @@
 import type { CiState, RepoFoldersAnswer } from "@demoman/studio-protocol";
-import { page } from "@vitest/browser/context";
+import { page, userEvent } from "@vitest/browser/context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import libraryHtml from "../../../pages/entrypoints/library/index.html?raw";
 import type { CiEvent, RepoEvent } from "../../../pages/src/platform/types";
@@ -185,6 +185,28 @@ for (const scheme of ["light", "dark"] as const) {
       ).toBe("true");
       // Files writes a file name only: no Folder to fill.
       expect(dialog.querySelector("[data-repo-folder]")).toBeNull();
+    });
+
+    // Red if a toggle's redraw drops keyboard focus to the body.
+    it("a toggle pressed from the keyboard keeps focus on the new toggle", async () => {
+      const { dialog } = await open({});
+      const files = await el<HTMLElement>(
+        dialog,
+        '[data-repo-deliver="files"]',
+      );
+      files.focus();
+      expect(document.activeElement, "premise: Files has focus").toBe(files);
+      await userEvent.keyboard(" ");
+      await vi.waitFor(() =>
+        expect(
+          dialog
+            .querySelector('[data-repo-deliver="files"]')
+            ?.getAttribute("aria-checked"),
+        ).toBe("true"),
+      );
+      const now = dialog.querySelector('[data-repo-deliver="files"]');
+      expect(now, "premise: the redraw replaced the button").not.toBe(files);
+      expect(document.activeElement).toBe(now);
     });
 
     // Red if the folder button stops listing the repo's folders, or a pick does not fill Folder (DEM-50).
