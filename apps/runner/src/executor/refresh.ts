@@ -234,7 +234,7 @@ export async function recordWithRetry(
   const verdict = runVerdict(first);
   if (verdict.kind !== "degraded") return { answer: first, verdict };
   log(
-    `refresh: "${name}" recorded with ${verdict.problems.join("; ")}; recording it once more`,
+    `refresh: "${name}" recorded with ${verdict.problems.join("; ")}; trying it once more`,
   );
   const answer = await run();
   const second = runVerdict(answer);

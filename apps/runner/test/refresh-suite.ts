@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
+  cp,
   mkdir,
   mkdtemp,
   readdir,
@@ -253,6 +254,29 @@ const out = {
   aMp4: "docs/order.mp4",
   aGif: "docs/order.gif",
   bMp4: "docs/reports.mp4",
+};
+
+/** Runs `fn`, then puts the repo's flows and outputs back as they were: a
+ *  test that delivers must not change what the later tests in its lane
+ *  read (CI, PR #36). */
+const leavingRepo = async <T>(fn: () => Promise<T>): Promise<T> => {
+  const saved = await mkdtemp(join(tmpdir(), "demoman-refresh-saved-"));
+  const dirs = ["docs", ".demoman"];
+  for (const d of dirs)
+    await cp(join(repo, d), join(saved, d), { recursive: true }).catch(
+      () => undefined,
+    );
+  try {
+    return await fn();
+  } finally {
+    for (const d of dirs) {
+      await rm(join(repo, d), { recursive: true, force: true });
+      await cp(join(saved, d), join(repo, d), { recursive: true }).catch(
+        () => undefined,
+      );
+    }
+    await rm(saved, { recursive: true, force: true });
+  }
 };
 
 function kept(
@@ -1264,7 +1288,7 @@ export const replaceChain = () => {
       };
       let r: RefreshResult;
       try {
-        r = await refresh([A]);
+        r = await leavingRepo(() => refresh([A]));
       } finally {
         inject = null;
       }
@@ -1292,18 +1316,20 @@ export const replaceChain = () => {
       };
       let r: RefreshResult;
       try {
-        r = await refreshKept(
-          { repoRoot: repo, library: "throwaway", only: [A, B] },
-          {
-            ...deps(),
-            beforeFlow: async () => {
-              events.push("reset");
-              resets += 1;
-              return resets === 1
-                ? { ok: false, detail: "`pnpm reset` exited with code 1" }
-                : { ok: true };
+        r = await leavingRepo(() =>
+          refreshKept(
+            { repoRoot: repo, library: "throwaway", only: [A, B] },
+            {
+              ...deps(),
+              beforeFlow: async () => {
+                events.push("reset");
+                resets += 1;
+                return resets === 1
+                  ? { ok: false, detail: "`pnpm reset` exited with code 1" }
+                  : { ok: true };
+              },
             },
-          },
+          ),
         );
       } finally {
         inject = null;
