@@ -1888,6 +1888,21 @@ describe("the add and ci tools", () => {
     );
   });
 
+  // Final review, Important 2. Red when the ci tool still tells agents the
+  // secrets are set before the Actions setting is turned on.
+  it("describes apply in its order: the Actions setting, then the secrets", async () => {
+    const withIt = await withRepo({
+      add: async () => ({}),
+      ci: async () => ({}),
+    });
+    const ci = (await withIt.client.listTools()).tools.find(
+      (t) => t.name === "ci",
+    );
+    expect(ci?.description).toContain(
+      "turns on the Actions setting for pull requests, sets the repo's GitHub secrets,",
+    );
+  });
+
   // Red if the tool sets confirmed (or drops a choice) on its way to the
   // door: Decision 4 rests on the agent's own confirmed.
   it("passes ci's arguments on as given, and answers the plan", async () => {

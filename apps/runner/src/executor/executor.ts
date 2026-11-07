@@ -686,7 +686,21 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             { holder: { id: kept.flow, name: kept.name } },
           );
         }
-        const matches = await matchesFor(videos, library, asked.new, videoRepo);
+        // Read before the script is checked: a script that throws on any
+        // read must still reach the run's own catch, which answers threw.
+        let rawTarget: unknown;
+        try {
+          rawTarget = (raw as { target?: unknown } | null)?.target;
+        } catch {
+          rawTarget = undefined;
+        }
+        const matches = await matchesFor(
+          videos,
+          library,
+          asked.new,
+          videoRepo,
+          startPage(typeof rawTarget === "string" ? rawTarget : undefined),
+        );
         const holder = matches.find((m) => sameName(m.name, asked.new));
         if (holder !== undefined) {
           return refusal(

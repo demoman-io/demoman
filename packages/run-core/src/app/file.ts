@@ -60,16 +60,19 @@ const AppSchema = z
       .min(1)
       .refine((u) => /^https?:\/\/\S+$/.test(u), "must be an http(s) URL"),
     timeoutSeconds: z.number().int().positive().default(120),
-    env: Env,
-    secrets: z.array(
-      z
-        .string()
-        .refine(
-          (n) => SECRET_NAME.test(n) && !n.startsWith("GITHUB_"),
-          SECRET_NAME_RULE,
-        ),
-    ),
-    services: z.record(z.string(), Service),
+    // Defaulted like timeoutSeconds: a hand-written file may leave them out (DEM-48).
+    env: Env.default({}),
+    secrets: z
+      .array(
+        z
+          .string()
+          .refine(
+            (n) => SECRET_NAME.test(n) && !n.startsWith("GITHUB_"),
+            SECRET_NAME_RULE,
+          ),
+      )
+      .default([]),
+    services: z.record(z.string(), Service).default({}),
   })
   .strict();
 
@@ -107,7 +110,11 @@ export function parseApp(
   const issue = parsed.error.issues[0];
   if (!issue) return bad("", "does not match the app file shape");
   const path = issue.code === "unrecognized_keys" ? issue.keys : issue.path;
-  return bad(path.join("."), issue.message);
+  const field = path.join(".");
+  return bad(
+    field,
+    field === "" ? issue.message : `${field}: ${issue.message}`,
+  );
 }
 
 export function serializeApp(app: AppSpec): string {

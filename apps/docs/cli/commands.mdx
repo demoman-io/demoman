@@ -31,7 +31,7 @@ npx demoman setup --ci [--trigger release|daily|push|<environment>] [--route pr|
 ```
 
 Checks CI's refresh of the repo's flows from a clean checkout, shows one plan,
-and on one confirmation sets the secrets, turns on the Actions setting, opens
+and on one confirmation turns on the Actions setting, sets the secrets, opens
 the "Set up Demoman" pull request and watches its first run. It writes
 `.github/workflows/demoman.yml` and `.demoman/app.json`, the record of how the
 app starts that `refresh` uses. A trigger or route not given is asked.

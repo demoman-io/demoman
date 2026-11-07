@@ -12,6 +12,7 @@ import { execGit, type GitRunner } from "@demoman/runner/package";
 import { beforeEach, describe, expect, it } from "vitest";
 import { openSetupPr, SETUP_BRANCH, SETUP_TITLE } from "../src/ci-pr.js";
 import type { Gh } from "../src/gh-run.js";
+import { SECRETS_IGNORE } from "../src/gitignore-secrets.js";
 
 // Real git, isolated from the developer's global config (identity, hooks, signing).
 const iso = {
@@ -43,7 +44,13 @@ const gh =
       ? { code, stdout: "https://github.com/o/r/pull/7\n", stderr: "" }
       : { code, stdout: "", stderr: "GraphQL: not allowed" };
   };
-const args = (files: Array<{ path: string; text: string | Uint8Array }>) => ({
+const args = (
+  files: Array<{
+    path: string;
+    text: string | Uint8Array;
+    appendToBase?: string;
+  }>,
+) => ({
   root,
   slug: "o/r",
   remote: "origin",
@@ -140,6 +147,50 @@ describe("openSetupPr", () => {
 
   // Review finding 6. Red when the branch is built from or pushed to origin
   // (the person's fork) while the pull request is opened on gh's repo.
+  // Review of #35, finding 1. Red when the carried .gitignore is the text
+  // read when the plan was made: the default branch can have moved since.
+  it("builds a carried .gitignore from the freshly fetched base, adding the secrets line", async () => {
+    const other = mkdtempSync(join(tmpdir(), "demoman-pr-other-"));
+    sh(other, "clone", "-q", origin, ".");
+    writeFileSync(join(other, ".gitignore"), "node_modules\ncoverage/\n");
+    sh(other, "add", ".gitignore");
+    sh(other, "commit", "-m", "ignore coverage");
+    sh(other, "push", "origin", "main");
+    const r = await openSetupPr(
+      args([
+        {
+          path: ".gitignore",
+          text: "stale from the plan\n",
+          appendToBase: SECRETS_IGNORE,
+        },
+      ]),
+      { git, gh: gh() },
+    );
+    expect(r).toMatchObject({ opened: { branch: SETUP_BRANCH } });
+    expect(sh(root, "show", `origin/${SETUP_BRANCH}:.gitignore`)).toBe(
+      `node_modules\ncoverage/\n\n${SECRETS_IGNORE}`,
+    );
+  });
+
+  it("leaves the base's .gitignore as it is when it already ignores the secrets file", async () => {
+    const other = mkdtempSync(join(tmpdir(), "demoman-pr-other-"));
+    sh(other, "clone", "-q", origin, ".");
+    writeFileSync(join(other, ".gitignore"), ".demoman/\n");
+    sh(other, "add", ".gitignore");
+    sh(other, "commit", "-m", "ignore demoman");
+    sh(other, "push", "origin", "main");
+    await openSetupPr(
+      args([
+        { path: "x.txt", text: "x\n" },
+        { path: ".gitignore", text: "stale\n", appendToBase: SECRETS_IGNORE },
+      ]),
+      { git, gh: gh() },
+    );
+    expect(sh(root, "show", `origin/${SETUP_BRANCH}:.gitignore`)).toBe(
+      ".demoman/\n",
+    );
+  });
+
   it("in a fork's clone, builds from and pushes to the remote that is the repo", async () => {
     const dir = join(root, "..");
     const upstream = join(dir, "upstream.git");

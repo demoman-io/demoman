@@ -407,13 +407,82 @@ describe("allowActionPullRequests", () => {
       }),
       S,
     );
+    // An organisation lock is changed in the organisation's settings, where
+    // the repo's checkbox is greyed out (DEM-54).
     expect(r).toMatchObject({
       kind: "refused",
-      url: `https://github.com/${S}/settings/actions`,
+      url: "https://github.com/organizations/o/settings/actions",
     });
     const d = (r as { detail: string }).detail;
     expect(d).toContain("controlled by the organization");
     expect(d).toContain("organisation");
+  });
+  // Review of #35, finding 8. Red when an enterprise lock (a user's repo
+  // can have one) is sent to an organisation page that does not exist.
+  it("an enterprise lock names the enterprise's policy, not an organisation page", async () => {
+    const r = await allowActionPullRequests(
+      fake({
+        [path]: ok({
+          default_workflow_permissions: "read",
+          can_approve_pull_request_reviews: false,
+        }),
+        [`${path} -X PUT --input -`]: http(
+          409,
+          "This setting is blocked by enterprise policy",
+        ),
+      }),
+      S,
+    );
+    expect(r.kind).toBe("refused");
+    const d = (r as { detail: string; url: string }).detail;
+    expect(d).toContain("An enterprise owner must allow");
+    expect(d).not.toContain("/organizations/");
+    expect((r as { url: string }).url).not.toContain("/organizations/");
+  });
+  // Final review, re-graded Important. Red when a single sign-on refusal is
+  // read as an organisation lock: the fix is authorising the token.
+  it("a SAML single sign-on refusal says to authorise the token, not to ask an owner", async () => {
+    const r = await allowActionPullRequests(
+      fake({
+        [path]: ok({
+          default_workflow_permissions: "read",
+          can_approve_pull_request_reviews: false,
+        }),
+        [`${path} -X PUT --input -`]: http(
+          403,
+          "Resource protected by organization SAML enforcement. You must grant your OAuth token access to this organization.",
+        ),
+      }),
+      S,
+    );
+    expect(r.kind).toBe("refused");
+    const d = (r as { detail: string }).detail;
+    expect(d).toContain("gh auth refresh");
+    expect(d).not.toContain("organisation owner");
+  });
+  // Red when gh's "(Conflict)" form, with no status number, reads as unknown (DEM-54).
+  it("refuses gh's (Conflict) form as an organisation lock", async () => {
+    const r = await allowActionPullRequests(
+      fake({
+        [path]: ok({
+          default_workflow_permissions: "read",
+          can_approve_pull_request_reviews: false,
+        }),
+        [`${path} -X PUT --input -`]: {
+          code: 1,
+          stderr:
+            "gh: The organization does not allow GitHub Actions to create or approve pull requests (Conflict)",
+        },
+      }),
+      S,
+    );
+    expect(r).toMatchObject({
+      kind: "refused",
+      url: "https://github.com/organizations/o/settings/actions",
+    });
+    expect((r as { detail: string }).detail).toContain(
+      "An organisation owner must allow",
+    );
   });
   const gets = {
     default_workflow_permissions: "read",

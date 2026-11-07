@@ -185,8 +185,8 @@ function tool(
   return { call, calls, said, seen, root };
 }
 const outward = [
-  "setSecrets",
   "allowActionPullRequests",
+  "setSecrets",
   "openSetupPr",
   "watchSetupRun",
 ];
@@ -222,7 +222,7 @@ describe("the ci tool", () => {
       run: { passed: { runUrl: "https://github.com/o/r/actions/runs/9" } },
     });
     // One check: the plan shown, not a second one.
-    expect(t.calls).toEqual(["verifySetup", "setSecrets", ...outward.slice(1)]);
+    expect(t.calls).toEqual(["verifySetup", ...outward]);
     // The link as progress, before the watch; not repeated in the answer.
     const opened = t.said.indexOf(
       "Opened the setup pull request: https://github.com/o/r/pull/7",

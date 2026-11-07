@@ -9,6 +9,8 @@ const { runServe } = await import(new URL("serve.js", dist).href);
 const { pagePathFor } = await import(new URL("paths.js", dist).href);
 
 const home = process.argv[2];
+// open.test.ts reads where the studio was started (review of #35).
+process.stderr.write(`fake serve: cwd ${process.cwd()}\n`);
 const version = process.argv[3] ?? "0.0.0-test";
 const pagesDir = join(home, "stub-pages");
 mkdirSync(pagesDir, { recursive: true });

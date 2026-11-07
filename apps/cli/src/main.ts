@@ -85,7 +85,7 @@ import {
 } from "./setup-deps.js";
 import { parseStudioArgs } from "./studio-args.js";
 import { createStudioCi } from "./studio-ci.js";
-import { callerProject } from "./studio-project.js";
+import { callerProject, workingFolder } from "./studio-project.js";
 import { VERSION } from "./version.js";
 
 const log = (line: string): void => {
@@ -233,7 +233,7 @@ async function mcp(args: string[]): Promise<void> {
       log,
     }),
     studio: async (a) => {
-      const { key, why } = await callerProject(process.cwd());
+      const { key, why } = await callerProject(() => process.cwd());
       if (why !== undefined) log(`the Studio opens without a project: ${why}`);
       return openStudio({
         home: demomanHome(),
@@ -279,7 +279,7 @@ async function studio(args: string[]): Promise<void> {
     process.exit(0);
   }
   if (parsed.kind === "open") {
-    const { key, why } = await callerProject(process.cwd());
+    const { key, why } = await callerProject(() => process.cwd());
     const answer = await openStudio({
       home,
       ...(key === undefined ? {} : { project: key }),
@@ -478,7 +478,9 @@ async function keepInRepo(
  *  do, reached from the MCP server. Paths are the repo root's. */
 function repoDoors(): RepoDoors {
   const rootOf = async (project: string | undefined) => {
-    const r = await readRepo(project ?? process.cwd(), execGit);
+    const where = project === undefined ? workingFolder() : { dir: project };
+    if ("none" in where) return { none: where.none };
+    const r = await readRepo(where.dir, execGit);
     return r.ok ? { root: r.repo.root } : { none: r.none };
   };
   // Progress stops reaching the agent at stillRunning; the log keeps it.

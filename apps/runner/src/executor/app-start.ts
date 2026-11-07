@@ -102,6 +102,24 @@ function shellWords(s: string): string[] {
   return words;
 }
 
+/** What listens on a local TCP port, as "<command> (pid <pid>)", from
+ *  `lsof`; null when lsof is missing, fails or sees nothing. Never throws. */
+export function whoListens(port: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(
+      "lsof",
+      ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-Fpc"],
+      { timeout: 3000 },
+      (error, stdout) => {
+        if (error) return resolve(null);
+        const pid = /^p(\d+)$/m.exec(stdout)?.[1];
+        const command = /^c(.+)$/m.exec(stdout)?.[1];
+        resolve(pid && command ? `${command} (pid ${pid})` : null);
+      },
+    );
+  });
+}
+
 export async function startApp(
   app: AppSpec,
   o: {
@@ -146,9 +164,13 @@ export async function startApp(
   // "own" refuses anything there, ready or not: a dev server answering 500,
   // or slowly, must never be recorded as the app this call starts.
   if (o.mode === "own" && (await listening(app.url))) {
+    const u = new URL(app.url);
+    const who = await whoListens(
+      Number(u.port || (u.protocol === "https:" ? 443 : 80)),
+    );
     return {
       reason: "appPortTaken",
-      detail: `something already listens at ${app.url} before the app was started; stop it (the check needs that port for the app it starts from ${APP_FILE}), then run again`,
+      detail: `something already listens at ${app.url}${who === null ? "" : ` (held by ${who})`} before the app was started; stop it (the check needs that port for the app it starts from ${APP_FILE}), then run again`,
       tail: "",
     };
   }

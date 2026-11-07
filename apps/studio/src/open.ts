@@ -188,6 +188,9 @@ async function startStudio(o: {
   let pid: number | undefined;
   try {
     const child = spawn(o.serve.command, o.serve.args, {
+      // The Demoman home, never the caller's folder, which can be one since
+      // deleted (review of #35): the studio needs no working folder of its own.
+      cwd: o.home,
       detached: true,
       stdio: ["ignore", "ignore", fd],
     });

@@ -195,9 +195,9 @@ describe("followCheckouts", () => {
     });
     expect(dup).toMatchObject({ ok: false, reason: "nameTaken" });
     expect(
-      (await matchesFor(store, lib, "Checkout", { key: "github.com/a/r" })).map(
-        (m) => m.id,
-      ),
+      (
+        await matchesFor(store, lib, "Checkout", { key: "github.com/a/r" }, "/")
+      ).map((m) => m.id),
     ).toEqual([f]);
     // And the second clone, still reading the old key, adds no alias back.
     expect(await follow(now)).toEqual({

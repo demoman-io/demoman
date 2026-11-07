@@ -22,6 +22,7 @@ import {
   defaultTrigger,
   planCiSetup,
   planLines,
+  prBody,
   redact,
   triggerOffers,
 } from "../src/ci-setup.js";
@@ -173,6 +174,8 @@ function fakes(
     existing?: string[];
     verified?: Verified;
     head?: Record<string, string>;
+    /** `git show <ref:path>` failing other than "not there": its stderr. */
+    showFails?: Record<string, string>;
     onDefault?: string[];
     detected?: Awaited<ReturnType<CiDeps["detectApp"]>>;
     /** `git rev-parse <ref>`'s answers; absent refs fail. */
@@ -200,6 +203,8 @@ function fakes(
         : { code: 0, stdout: `${sha}\n`, stderr: "" };
     }
     if (args[0] === "show") {
+      const fails = o.showFails?.[args[1] as string];
+      if (fails !== undefined) return { code: 128, stdout: "", stderr: fails };
       const text = shown[args[1] as string];
       return text === undefined
         ? { code: 128, stdout: "", stderr: "fatal: path does not exist" }
@@ -542,7 +547,9 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
       });
       const r = await plan(await repo(), f, { app: undefined });
       expect(isStop(r) && r.reason).toBe("appInvalid");
-      expect(isStop(r) && r.detail).toContain(`(${field})`);
+      // The field once, where parseApp names it (review of #35, finding 10).
+      expect(isStop(r) && r.detail).toContain(`: ${field}: `);
+      expect(isStop(r) && r.detail).not.toContain(`(${field})`);
       expect(isStop(r) && r.detail).toContain("playwright.config.ts");
       expect(f.calls.filter((c) => !c.startsWith("git"))).toEqual([
         "readGithub",
@@ -887,6 +894,16 @@ describe("planCiSetup's plan", () => {
     expect(f.seen.verify?.[0].files.map((x) => x.path)).toEqual(p.files);
   });
 
+  // Red when the plan does not say the refresh can be run by hand (DEM-62).
+  it("says a push or daily refresh can be run by hand, and a release one cannot", async () => {
+    const p = await okPlan(await repo(), fakes());
+    const byHand =
+      "Run it any time from the repository's Actions tab (Demoman → Run workflow).";
+    expect(planLines({ ...p, trigger: "daily" })).toContain(byHand);
+    expect(planLines({ ...p, trigger: "push" })).toContain(byHand);
+    expect(planLines({ ...p, trigger: "release" })).not.toContain(byHand);
+  });
+
   // Finding 12, red: every screen image is a plan line and a PR body line.
   it("lists the screens folder once, with its image count", async () => {
     const root = await repo();
@@ -984,6 +1001,81 @@ describe("planCiSetup's plan", () => {
     expect((await okPlan(await repo(), fakes())).files).not.toContain(
       ".demoman/accounts.json",
     );
+  });
+
+  // Red when the secrets.env ignore line stays behind in the person's
+  // checkout, so a teammate's clone does not ignore the file (DEM-62).
+  it("carries .gitignore when only the working tree ignores .demoman/secrets.env", async () => {
+    const root = await repo();
+    const ignored =
+      "node_modules\n\n# Demoman: demo account passwords\n.demoman/secrets.env\n";
+    await writeFile(join(root, ".gitignore"), ignored);
+    expect((await okPlan(root, fakes())).files).toContain(".gitignore");
+    // HEAD and the base already ignore it: nothing to carry.
+    const committed = fakes({
+      head: {
+        "HEAD:.gitignore": ignored,
+        "origin/trunk:.gitignore": ignored,
+      },
+    });
+    expect((await okPlan(root, committed)).files).not.toContain(".gitignore");
+    // No .gitignore at all: nothing proposed.
+    expect((await okPlan(await repo(), fakes())).files).not.toContain(
+      ".gitignore",
+    );
+  });
+
+  // Final review, Important 1. Red when the PR's .gitignore is the working
+  // tree's whole file: built on the base, it would drop the base's newer
+  // lines and carry personal ones.
+  it("the carried .gitignore is the base's file plus the secrets line, decided on the base", async () => {
+    const root = await repo();
+    await writeFile(
+      join(root, ".gitignore"),
+      "my-local-notes/\n.demoman/secrets.env\n",
+    );
+    const onBase = fakes({
+      head: { "origin/trunk:.gitignore": "node_modules\n.cache\n" },
+    });
+    const p = await okPlan(root, onBase);
+    const carried = p.contents?.find((f) => f.path === ".gitignore");
+    expect(String(carried?.text)).toBe(
+      "node_modules\n.cache\n\n# Demoman: demo account passwords\n.demoman/secrets.env\n",
+    );
+    // The base already ignores it, though HEAD does not: nothing to carry.
+    const based = fakes({
+      head: { "origin/trunk:.gitignore": "dist\n.demoman/secrets.env\n" },
+    });
+    expect((await okPlan(root, based)).files).not.toContain(".gitignore");
+  });
+
+  // Review of #35, finding 2. Red when a failed read of the base's
+  // .gitignore reads as "no .gitignore": the PR would replace the whole file.
+  it("stops, carrying nothing, when the base's .gitignore cannot be read", async () => {
+    const root = await repo();
+    await writeFile(join(root, ".gitignore"), ".demoman/secrets.env\n");
+    const r = await plan(
+      root,
+      fakes({
+        showFails: {
+          "origin/trunk:.gitignore":
+            "fatal: invalid object name 'origin/trunk'.",
+        },
+      }),
+    );
+    expect(isStop(r) && r.reason).toBe("filesUnreadable");
+    expect(isStop(r) && r.detail).toContain(".gitignore");
+    expect(isStop(r) && r.detail).toContain("invalid object name");
+  });
+
+  // Review of #35, finding 7. Red when only the exact line counts.
+  it("carries .gitignore when the working tree ignores the secrets file by any pattern", async () => {
+    const root = await repo();
+    await writeFile(join(root, ".gitignore"), "/.demoman/secrets.env\n");
+    expect((await okPlan(root, fakes())).files).toContain(".gitignore");
+    // The base ignoring it by another pattern: nothing to carry.
+    const based = fakes({ head: { "origin/trunk:.gitignore": ".demoman/\n" } });
+    expect((await okPlan(root, based)).files).not.toContain(".gitignore");
   });
 
   // R5: a delivery that does not match the committed script goes in as the script alone.
@@ -1097,6 +1189,22 @@ describe("applyCiSetup", () => {
     return { f, p, values };
   }
 
+  // Red when the PR description is the plan's plain terminal lines (DEM-58).
+  it("writes the setup PR's description as Markdown, naming secrets, never their values", async () => {
+    const { f, p, values } = await ready();
+    await applyCiSetup(p, f.deps, values);
+    const body = f.seen.pr?.body ?? "";
+    expect(body).toBe(prBody(p));
+    expect(body.startsWith("Merging this sets up Demoman")).toBe(true);
+    expect(body).toContain("### What it does\n- Records the repo flows");
+    expect(body).toContain("### Checked\n");
+    expect(body).toContain("### Secrets\n- `DEMOMAN_SECRET_A`: set on GitHub");
+    expect(body).toContain("### Files\n```\n.github/workflows/demoman.yml\n");
+    expect(body).toContain(`${RECEIPT_DIR}/checkout.screens/ (1 image`);
+    expect(body).not.toContain(".webp");
+    expect(body).not.toContain(VALUE);
+  });
+
   // Review finding 6. Red when the default branch is read off origin, or
   // the pull request is pushed there, while the repo is another remote.
   it("reads the default branch on, and opens the pull request through, the repo's remote", async () => {
@@ -1141,8 +1249,8 @@ describe("applyCiSetup", () => {
     const { f, p, values } = await ready();
     const r = await applyCiSetup(p, f.deps, values);
     expect(f.calls.filter((c) => !c.startsWith("git"))).toEqual([
-      "setSecrets",
       "allowActionPullRequests",
+      "setSecrets",
       "openSetupPr",
       "watchSetupRun",
     ]);
@@ -1156,7 +1264,7 @@ describe("applyCiSetup", () => {
     expect(f.seen.pr?.body).not.toContain(VALUE);
   });
 
-  it("a secret refusal: no setting call, no PR, names what was set and refused", async () => {
+  it("a secret refusal: no PR, names what was set and refused, and the setting turned on first", async () => {
     const { f, p, values } = await ready();
     f.deps.setSecrets = async () => {
       f.calls.push("setSecrets");
@@ -1171,7 +1279,11 @@ describe("applyCiSetup", () => {
     expect(isStop(r) && r.detail).toContain("DEMOMAN_SECRET_A");
     // Red if the detail says "kept:" again (a banned word).
     expect(isStop(r) && r.detail).toContain("set: none; left: none");
-    expect(f.calls).not.toContain("allowActionPullRequests");
+    // The Actions setting is checked before any secret (DEM-54), and said.
+    expect(f.calls.indexOf("allowActionPullRequests")).toBeLessThan(
+      f.calls.indexOf("setSecrets"),
+    );
+    expect(isStop(r) && r.detail).toContain("the Actions setting is turned on");
     expect(f.calls).not.toContain("openSetupPr");
     expect(JSON.stringify(r)).not.toContain(VALUE);
   });
@@ -1187,15 +1299,23 @@ describe("applyCiSetup", () => {
         f.calls.push("allowActionPullRequests");
         return {
           kind,
-          detail: "GitHub said no",
+          detail:
+            "GitHub said no. Allow it at https://github.com/o/r/settings/actions",
           url: "https://github.com/o/r/settings/actions",
         };
       };
       const r = await applyCiSetup(p, f.deps, values);
       expect(isStop(r) && r.reason).toBe(reason);
-      expect(isStop(r) && r.detail).toContain(
-        "https://github.com/o/r/settings/actions",
-      );
+      // The setting's detail names its URL; apply does not add it twice
+      // (review of #35, finding 8).
+      expect(
+        (isStop(r) ? r.detail : "").split(
+          "https://github.com/o/r/settings/actions",
+        ).length - 1,
+      ).toBe(1);
+      // Red when secrets are set before a setting that stops the setup (DEM-54).
+      expect(f.calls).not.toContain("setSecrets");
+      expect(isStop(r) && r.detail).toContain("nothing was set");
       expect(f.calls).not.toContain("openSetupPr");
     },
   );

@@ -312,12 +312,23 @@ exit 0
     expect(r.status, r.stderr).toBe(0);
     // Red: drop the select — the fork's run 900 is the newest.
     expect(r.from, r.log).toBe("500");
+    // Every event in one listing, so a manual run's artifact counts too
+    // (review of #35, finding 3); the jq select keeps this trigger's own.
     expect(r.log).toContain(
-      "gh api repos/o/r/actions/workflows/demoman.yml/runs?event=push&status=completed&per_page=50&branch=main",
+      "gh api repos/o/r/actions/workflows/demoman.yml/runs?status=completed&per_page=100&branch=main",
     );
     expect(r.log).toContain(
       "gh run download 500 --repo o/r --name demoman-videos --dir demoman-out",
     );
+  });
+
+  // Review of #35, finding 3. Red when a manual run's artifact is never
+  // the one the next run compares against.
+  it("a manual run's artifact is the last run's when it is the newest", () => {
+    const runs = [run(950, 10, { event: "workflow_dispatch" }), run(500, 4)];
+    const r = shell(art, runs, { 950: "ok", 500: "ok" });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.from, r.log).toBe("950");
   });
 
   it("a deployment trigger takes this workflow's own newest deployment run with an artifact, on any branch", () => {
@@ -354,7 +365,7 @@ exit 0
     // Premise: the preview run was asked about, and refused for its environment.
     expect(r.log).toContain(`sha=${PREVIEW} -f environment=Production`);
     expect(r.log).toContain(
-      "gh api repos/o/r/actions/workflows/demoman.yml/runs?event=deployment_status&status=completed&per_page=50 ",
+      "gh api repos/o/r/actions/workflows/demoman.yml/runs?status=completed&per_page=100 ",
     );
   });
 
@@ -453,6 +464,42 @@ describe("ciWorkflow", () => {
     expect(push).toContain("github.actor != 'github-actions[bot]'");
     expect(parse(push).jobs.refresh.if).toContain(
       "!contains(github.event.head_commit.message, '[skip demoman]')",
+    );
+  });
+
+  // Red when the refresh can only wait for its trigger (DEM-62): push and
+  // daily can be run by hand; release and deployment record a release or
+  // a deployment, which a manual run does not have.
+  it("push and daily can be run by hand; release and deployment cannot", () => {
+    for (const y of [push, dailyY])
+      expect(lines(y)).toContain("  workflow_dispatch:");
+    for (const y of [releaseY, deploy])
+      expect(lines(y)).not.toContain("  workflow_dispatch:");
+    // A manual run refreshes only the watched branch, never a feature branch.
+    for (const y of [push, dailyY])
+      expect(parse(y).jobs.refresh.if).toContain(
+        "(github.event_name != 'workflow_dispatch' || github.ref_name == 'main')",
+      );
+  });
+
+  // Review of #35, finding 4. Red when a manual run can skip itself: the
+  // push guard or daily's "nothing new" check answer for automatic runs.
+  it("a manual run always refreshes: no guard or freshness check skips it", () => {
+    const manual = expr("github.event_name != 'workflow_dispatch'");
+    expect(push).toMatch(
+      new RegExp(
+        `name: Skip Demoman's own commits\\n {8}id: guard\\n {8}if: ${manual.replace(/[$()|{}.]/g, "\\$&")}`,
+      ),
+    );
+    expect(dailyY).toMatch(
+      new RegExp(
+        `name: Anything new since the last refresh\\?\\n {8}id: fresh\\n {8}if: ${manual.replace(/[$()|{}.]/g, "\\$&")}`,
+      ),
+    );
+    // A successful manual run is a point to measure "new" from, as a
+    // scheduled one is.
+    expect(dailyY).toContain(
+      '(.event == "schedule" or .event == "workflow_dispatch")',
     );
   });
 
@@ -675,9 +722,10 @@ describe("release and daily triggers", () => {
     expect(release).not.toContain("push:");
   });
 
-  it("records once a day on the branch it watches, and only on the schedule", () => {
-    expect(daily).toContain('on:\n  schedule:\n    - cron: "17 6 * * *"\n');
-    expect(daily).not.toContain("workflow_dispatch");
+  it("records once a day on the branch it watches, or when run by hand there", () => {
+    expect(daily).toContain(
+      'on:\n  schedule:\n    - cron: "17 6 * * *"\n  workflow_dispatch:\n',
+    );
     // The schedule runs on the default branch: the checkout names no ref.
     expect(lines(daily).filter((l) => l.trim().startsWith("ref:"))).toEqual([]);
   });
@@ -686,11 +734,17 @@ describe("release and daily triggers", () => {
     for (const y of [release, daily]) {
       expect(y).not.toContain("Skip Demoman's own commits");
       expect(y).not.toContain("steps.guard");
-      // Only the pull_request exclusion conditions the refresh job.
-      expect(parse(y).jobs.refresh.if).toBe(
-        expr("github.event_name != 'pull_request'"),
-      );
     }
+    // Only the pull_request exclusion conditions the release job; daily
+    // adds the manual run's branch check.
+    expect(parse(release).jobs.refresh.if).toBe(
+      expr("github.event_name != 'pull_request'"),
+    );
+    expect(parse(daily).jobs.refresh.if).toBe(
+      expr(
+        "github.event_name != 'pull_request' && ((github.event_name != 'workflow_dispatch' || github.ref_name == 'main'))",
+      ),
+    );
     // Premise: the push workflow still has it.
     expect(push).toContain("Skip Demoman's own commits");
   });
@@ -760,9 +814,12 @@ describe("the daily run stops early when nothing is new", () => {
   it("anchors on this workflow's own last successful scheduled run, an ancestor of HEAD", () => {
     const y = daily(false);
     expect(y).toContain("actions: read");
-    expect(y).toContain("runs?event=schedule&status=success&per_page=20");
+    expect(y).toContain("runs?status=success&per_page=100");
     expect(y).toContain(
-      'select(((.path // "") | startswith($ENV.WF)) and .head_repository.id == .repository.id)',
+      '(.event == "schedule" or .event == "workflow_dispatch")',
+    );
+    expect(y).toContain(
+      'select(((.path // "") | startswith($ENV.WF)) and (.event == "schedule" or .event == "workflow_dispatch") and .head_repository.id == .repository.id)',
     );
     expect(y).toContain('git merge-base --is-ancestor "$s" HEAD');
     expect(y).toContain('since="--since $s"');
@@ -776,8 +833,10 @@ describe("the daily run stops early when nothing is new", () => {
   it("skips every step after the check when it says so", () => {
     const y = daily(true);
     const refreshJob = lines(y.slice(0, y.indexOf("\n  check:\n")));
+    // From the line after the check's own condition (a manual run skips the
+    // check itself, so it never skips what follows).
     const after = refreshJob.slice(
-      refreshJob.findIndex((l) => l.includes("id: fresh")) + 1,
+      refreshJob.findIndex((l) => l.includes("id: fresh")) + 2,
     );
     const conds = after.filter((l) => l.trim().startsWith("if: ${{"));
     expect(conds.length).toBeGreaterThanOrEqual(5);
@@ -981,7 +1040,7 @@ describe("ciSetup", () => {
     return { io, said, calls, seen, sig, root };
   }
   const yes = ["--ci", "--yes"];
-  const outward = ["setSecrets", "allowActionPullRequests", "openSetupPr"];
+  const outward = ["allowActionPullRequests", "setSecrets", "openSetupPr"];
 
   it("with no terminal and no --yes, reads and writes nothing and names exactly the flags missing", async () => {
     // Red if ciSetup reads GitHub before refusing, or names a flag already given.
@@ -1021,8 +1080,8 @@ describe("ciSetup", () => {
     expect(m.calls).toEqual([
       "readGithub",
       "verifySetup",
-      "setSecrets",
       "allowActionPullRequests",
+      "setSecrets",
       "openSetupPr",
       "watchSetupRun",
     ]);

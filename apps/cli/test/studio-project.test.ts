@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execGit, type GitRunner, readRepo } from "@demoman/runner/package";
 import { afterAll, describe, expect, it } from "vitest";
-import { callerProject } from "../src/studio-project";
+import { callerProject, workingFolder } from "../src/studio-project";
 
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), "demoman-proj-")));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -52,5 +52,30 @@ describe("callerProject", () => {
     expect(await callerProject(scratch, git)).toEqual({
       why: "git could not find the repository: boom",
     });
+  });
+
+  // Red when a server whose folder was deleted throws uv_cwd instead of
+  // opening the Studio without a project (DEM-51).
+  it("a working folder that no longer exists opens without a project, saying why", async () => {
+    const gone = () => {
+      throw new Error("ENOENT: no such file or directory, uv_cwd");
+    };
+    const got = await callerProject(gone);
+    expect(got.key).toBeUndefined();
+    expect(got.why).toContain("no longer exists");
+  });
+});
+
+// Review of #35, finding 5. Red when the add and ci tools still throw uv_cwd
+// from a server whose folder was deleted.
+describe("workingFolder", () => {
+  it("is the folder when it can be read", () => {
+    expect(workingFolder(() => "/repo")).toEqual({ dir: "/repo" });
+  });
+  it("says the folder no longer exists instead of throwing", () => {
+    const got = workingFolder(() => {
+      throw new Error("ENOENT: no such file or directory, uv_cwd");
+    });
+    expect("none" in got && got.none).toContain("no longer exists");
   });
 });
