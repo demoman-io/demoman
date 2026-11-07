@@ -21,6 +21,12 @@ export interface IntentResolution {
 /** What `captureForIntent` came back with. See its own docblock, and
  *  `askPageToCapture`'s `CaptureFailure` for the wider, caller-side type
  *  this nests inside. */
+/** This document's identity (see `CaptureForIntentResult.document`). */
+const documentOf = (): number | null =>
+  typeof performance === "object" && Number.isFinite(performance.timeOrigin)
+    ? performance.timeOrigin
+    : null;
+
 export interface CaptureForIntentResult {
   anchor: SceneAnchor | null;
   failureReason: FailureReasonName | "unresolved" | null;
@@ -38,6 +44,13 @@ export interface CaptureForIntentResult {
    * for the second fact.
    */
   pageUrl: string | null;
+  /**
+   * Which document this capture ran in: `performance.timeOrigin`, the same
+   * through `pushState`/`replaceState` and new on every page load. Lets the
+   * run tell an address the app changed inside one document (part of the
+   * step) from a load of another one (DEM-61). Null when unknown.
+   */
+  document?: number | null;
   /**
    * Whether the element found is a credential field, by the rule the caller
    * passed (`options.credential`). Absent when no rule was passed (the
@@ -118,6 +131,7 @@ export async function captureForIntent(
       failureReason: null,
       intentResolution,
       pageUrl: null,
+      document: documentOf(),
       ...(credentialField === undefined ? {} : { credentialField }),
     };
   }
@@ -138,6 +152,7 @@ export async function captureForIntent(
     // frame knows which document just failed to resolve the intent. Scrubbed
     // like every other URL that leaves the page.
     pageUrl: scrubUrl(window.location.href),
+    document: documentOf(),
     // No element to ask: when the caller checks credentials, that is "could
     // not tell", which a typed step hides (launch C spec 3.5).
     ...(options.credential === undefined ? {} : { credentialField: null }),

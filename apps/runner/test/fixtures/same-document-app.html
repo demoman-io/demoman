@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tickets</title>
+    <style>
+      body { font: 16px system-ui, sans-serif; margin: 40px; }
+      input, button { font: inherit; margin: 8px 0; padding: 6px 10px; }
+      #detail[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <!-- DEM-61: a search that keeps its text in the address, and a list
+         whose rows open their detail with pushState, all in one document;
+         and a link that loads another document for real. -->
+    <label>Search <input id="search" type="search" /></label>
+    <ul>
+      <li><button type="button" id="ticket">Ticket 1036</button></li>
+    </ul>
+    <section id="detail" hidden>
+      <h2>Ticket 1036</h2>
+      <button type="button" id="reply">Reply</button>
+    </section>
+    <p><a id="away" href="/other">Elsewhere</a></p>
+    <script>
+      const search = document.getElementById("search");
+      search.addEventListener("input", () => {
+        history.replaceState(null, "", `?q=${encodeURIComponent(search.value)}`);
+      });
+      document.getElementById("ticket").addEventListener("click", () => {
+        history.pushState(null, "", "/tickets/1036");
+        document.getElementById("detail").hidden = false;
+      });
+    </script>
+  </body>
+</html>

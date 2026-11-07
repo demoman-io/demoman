@@ -120,6 +120,10 @@ function fakeCaptures(opts: {
   captures?: ScriptedCapture[];
   /** From this call on (0-based), the page reports a different URL. */
   navigatesAwayAfterCall?: number;
+  /** Per call (0-based), the page's address, over `navigatesAwayAfterCall`. */
+  urls?: string[];
+  /** Per call, the document the capture ran in (DEM-61); absent: not said. */
+  documents?: (number | null)[];
 }): FakeCaptures {
   const calls: AnchorIntent[] = [];
   const answers: IntentCapture[] = [];
@@ -137,10 +141,15 @@ function fakeCaptures(opts: {
       // exist on the new page, so the FAILURE is the only thing that can carry
       // the URL.
       const url =
-        opts.navigatesAwayAfterCall !== undefined &&
+        opts.urls?.[n] ??
+        (opts.navigatesAwayAfterCall !== undefined &&
         n >= opts.navigatesAwayAfterCall
           ? OTHER_PAGE
-          : PAGE;
+          : PAGE);
+      const doc =
+        opts.documents === undefined
+          ? {}
+          : { document: opts.documents[n] ?? null };
       const answer = ((): IntentCapture => {
         if (scripted.failureReason === "pageSilent") {
           // No reply at all, so nothing to carry a page in — exactly what
@@ -164,6 +173,7 @@ function fakeCaptures(opts: {
             failureReason: "pageFaulted",
             intentResolution: null,
             pageUrl: url,
+            ...doc,
           };
         }
         if (scripted.failureReason !== undefined) {
@@ -182,6 +192,7 @@ function fakeCaptures(opts: {
                   : scripted.failureReason,
             },
             pageUrl: url,
+            ...doc,
             ...(scripted.credentialField === undefined
               ? {}
               : { credentialField: scripted.credentialField }),
@@ -217,6 +228,7 @@ function fakeCaptures(opts: {
           failureReason: null,
           intentResolution: { strategy, candidates, failureReason: null },
           pageUrl: null,
+          ...doc,
           ...(scripted.credentialField === undefined
             ? {}
             : { credentialField: scripted.credentialField }),
@@ -390,6 +402,8 @@ async function drive(
   opts: {
     captures?: ScriptedCapture[];
     navigatesAwayAfterCall?: number;
+    urls?: string[];
+    documents?: (number | null)[];
     failWaitAt?: number;
     waitSaw?: "absent" | "notVisible";
     failAfterResolvedAt?: number;
@@ -874,6 +888,66 @@ describe("the authored source and its assembler", () => {
     const { document } = assemble(authored, driven);
     expect(document?.anchors).toHaveLength(1);
     expect(document?.actions).toHaveLength(1);
+  });
+
+  // DEM-61 (Helpdesk, 2026-11-06): the search box writes `?q=` to the
+  // address with no page load, and the next step stopped as "went
+  // elsewhere". An address the app changes inside one document is the step's.
+  it("a query change in the same document is part of the step", async () => {
+    const driven = await drive(fiveStepScript(), {
+      urls: [PAGE, `${PAGE}?q=grinder`, `${PAGE}?q=grinder`],
+      documents: [7, 7, 7, 7, 7],
+    });
+    // Premise: two captures on two addresses, both found their element.
+    expect(driven.captures.answers[1]?.anchor?.resolution.url).toBe(
+      `${PAGE}?q=grinder`,
+    );
+    expect(driven.run.stop()).toBeNull();
+    expect(driven.walk.completed).toBe(5);
+  });
+
+  it("a pushState to a new path in the same document is part of the step", async () => {
+    const detail = "https://app.test/views/open/tickets/1036";
+    const driven = await drive(fiveStepScript(), {
+      urls: [PAGE, detail, detail, detail, detail],
+      documents: [7, 7, 7, 7, 7],
+    });
+    expect(driven.captures.answers[1]?.anchor?.resolution.url).toBe(detail);
+    expect(driven.run.stop()).toBeNull();
+    expect(driven.walk.completed).toBe(5);
+  });
+
+  // Review focus 2: a real page load is not the script's, even where the
+  // next target is on both pages (a nav link).
+  it("a new document with the target found still stops", async () => {
+    const driven = await drive(fiveStepScript(), {
+      navigatesAwayAfterCall: 1,
+      documents: [7, 8, 8, 8, 8],
+    });
+    expect(driven.captures.answers[1]?.anchor).not.toBeNull();
+    expect(driven.run.stop()).toBe("pageWentElsewhere");
+  });
+
+  // Review focus 3: a capture that met a navigation cannot say its document.
+  it("an unknown document is never the same document", async () => {
+    const driven = await drive(fiveStepScript(), {
+      navigatesAwayAfterCall: 1,
+      documents: [7, null, null, null, null],
+    });
+    expect(driven.run.stop()).toBe("pageWentElsewhere");
+  });
+
+  // Review focus 1: a client-side sign-in redirect stays in the document,
+  // and the next target is not on the sign-in page.
+  it("a same-document redirect where the target is missing still went elsewhere", async () => {
+    const driven = await drive(fiveStepScript(), {
+      captures: [{}, ...absent()],
+      navigatesAwayAfterCall: 1,
+      documents: Array.from({ length: 101 }, () => 7),
+    });
+    expect(driven.captures.answers[1]?.anchor).toBeNull();
+    expect(driven.run.stop()).toBe("pageWentElsewhere");
+    expect(driven.run.steps[1]?.pageUrl).toBe(OTHER_PAGE);
   });
 
   const signInThenWait = (): DemoScript =>
