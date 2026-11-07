@@ -259,6 +259,7 @@ describe("the executor's link op", () => {
     const executor = createLocalExecutor({
       home,
       wallpapersDir: home,
+      headless: true,
       log: () => {},
     });
     try {
