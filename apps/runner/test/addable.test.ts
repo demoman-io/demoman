@@ -5,11 +5,7 @@ import { notCarriedOf } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../packages/compositor/test/fixtures/scene.js";
-import {
-  checkAddable,
-  notInRepo,
-  videoSlug,
-} from "../src/executor/addable.js";
+import { checkAddable, notInRepo, videoSlug } from "../src/executor/addable.js";
 import {
   type BrowserSession,
   createBrowserSession,
