@@ -4,6 +4,7 @@ import type { FrameBundle } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
 import {
   type Addable,
+  type CiState,
   DEFAULT_LIBRARY_VIEW,
   type LibraryViewChoice,
 } from "@demoman/studio-protocol";
@@ -50,6 +51,7 @@ import {
 } from "../../src/library/view";
 import type { FolderListing } from "../../src/platform/types";
 import { takeNote, VIDEO_DELETED } from "../../src/shell/carried-note";
+import { openCiSheet } from "../../src/shell/ci-sheet";
 import {
   askToConfirm,
   type ConfirmQuestion,
@@ -519,6 +521,7 @@ async function addToRepo(id: string): Promise<void> {
     addingNow.delete(id);
   }
   // In repo from the add's own answer (DEM-59); the read confirms it.
+  if (added !== null) ciStates.delete(added.root);
   if (added !== null && lastListing !== null) {
     const { root, file } = added;
     paintListing({
@@ -539,6 +542,60 @@ async function addToRepo(id: string): Promise<void> {
     });
   } else repaint();
   void render().catch((error: unknown) => reportError("adding it", error));
+}
+
+/** Each checkout's CI state, read once per page load, read again after a
+ *  CI sheet closes or an add lands. "reading" while the read is out. */
+const ciStates = new Map<string, CiState | "reading">();
+
+/** The checkout a project's flows are in the repo of: the first In repo
+ *  flow's. Null when none of its flows is. */
+function rootOf(project: string): string | null {
+  for (const v of lastListing?.videos ?? []) {
+    const kept = v.kept;
+    if (kept === null || "unknown" in kept) continue;
+    const key = kept.key ?? ("key" in v.repo ? v.repo.key : null);
+    if (key === project) return kept.root;
+  }
+  return null;
+}
+
+/** Set up CI beside a project's heading (DEM-52): offered for a project
+ *  with a flow in the repo whose CI is anything but set up. A state that
+ *  will not read still offers it, and the sheet says why. */
+function ciSetupFor(p: Place): (() => void) | null {
+  if (typeof p !== "object") return null;
+  const root = rootOf(p.project);
+  if (root === null) return null;
+  const st = ciStates.get(root);
+  if (st === undefined) {
+    ciStates.set(root, "reading");
+    platform.repoCi
+      .state(root)
+      .then(
+        (got) => ciStates.set(root, got),
+        (error: unknown) =>
+          ciStates.set(root, { kind: "unreadable", detail: messageOf(error) }),
+      )
+      .finally(repaint);
+    return null;
+  }
+  if (st === "reading" || st.kind === "setUp") return null;
+  return () => void openCi(root, p.project);
+}
+
+async function openCi(root: string, project: string): Promise<void> {
+  try {
+    await openCiSheet({
+      root,
+      name: project.split("/").slice(1).join("/") || project,
+      ci: platform.repoCi,
+    });
+  } catch (error) {
+    reportError("opening CI setup", error);
+  }
+  ciStates.delete(root);
+  repaint();
 }
 
 /** Paints the last listing again: a row's state changed, the folder did not. */
@@ -1000,6 +1057,7 @@ const actions: LibraryActions = {
     add: (id) => void addToRepo(id),
     remove: (id) => void removeFromRepo(id),
   },
+  ciSetup: (p) => ciSetupFor(p),
   remove: (sceneId: string, kind: RowKind): void => {
     // The run in flight owns the deletes; a second dialog over it would
     // race its list.

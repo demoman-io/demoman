@@ -1864,6 +1864,12 @@
 .repo-sheet .confirm-title {
   text-align: center;
 }
+.repo-sheet .repo-sheet-sub {
+  margin-top: -8px;
+  color: var(--ink-muted);
+  font-size: 13px;
+  text-align: center;
+}
 .repo-sheet label {
   display: grid;
   gap: 4px;

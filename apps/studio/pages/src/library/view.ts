@@ -134,6 +134,10 @@ export interface LibraryActions {
   };
   /** In repo, Not in repo or All. */
   goTab?(t: Tab): void;
+  /** Set up CI for a project, beside its heading (DEM-52): what opens it,
+   *  or null when the place offers none (no flow of it in the repo, its
+   *  CI set up, or its state not read yet). */
+  ciSetup?(p: Place): (() => void) | null;
   /** The search box's text, at each keystroke. Absent: no box. */
   search?(query: string): void;
 }
@@ -871,7 +875,9 @@ function createHeader(withStorage: boolean): Header {
   side.append(title, rail, menu);
   tabsRow.append(tabs, searchField, toggle);
   content.append(tabsRow, notices);
-  box.append(side, content);
+  // Set up CI, at the end of the title band (studio.css places it).
+  const ciSlot = el("div", { class: "ci-setup", "data-ci-slot": "" });
+  box.append(side, content, ciSlot);
   // The page's top bar carries a slot for it, left of the theme switch
   // (library/index.html). A document without one — a test that mounts the
   // list alone — keeps it at the foot of the left column, where it still
@@ -920,6 +926,22 @@ function createHeader(withStorage: boolean): Header {
       if (input.value !== query) input.value = query;
       tabsRow.hidden = toggle.hidden && tabs.hidden && searchField.hidden;
       titleText.replaceChildren(...placeTitle(place));
+      const at = place?.place;
+      const openCi =
+        at !== undefined && typeof at === "object"
+          ? (next.ciSetup?.(at) ?? null)
+          : null;
+      if (openCi === null) ciSlot.replaceChildren();
+      else {
+        const b = el("button", {
+          type: "button",
+          class: "btn btn-quiet",
+          "data-ci-setup": "",
+        });
+        b.append(icon("shieldCheck"), "Set up CI");
+        b.addEventListener("click", openCi);
+        ciSlot.replaceChildren(b);
+      }
       // No rail, no places to switch between: the plain title alone.
       switchName.replaceChildren(
         ...(place === undefined ? [] : placeTitle(place)),

@@ -1,5 +1,5 @@
 import type { SceneDocument } from "@demoman/scene-schema";
-import type { Addable, VideoSummary } from "@demoman/studio-protocol";
+import type { Addable, CiState, VideoSummary } from "@demoman/studio-protocol";
 import { page, userEvent } from "@vitest/browser/context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import libraryHtml from "../../../pages/entrypoints/library/index.html?raw";
@@ -80,7 +80,11 @@ interface Flow {
 let memory: MemoryPlatform;
 let runs = 0;
 
-async function mountLibrary(flows: Flow[]): Promise<void> {
+async function mountLibrary(
+  flows: Flow[],
+  /** Before the page loads: doors its first paint reads. */
+  setup?: (m: MemoryPlatform) => void,
+): Promise<void> {
   vi.resetModules();
   document.body.innerHTML = body;
   memory = createMemoryPlatform({ libraryView: CARDS });
@@ -110,6 +114,7 @@ async function mountLibrary(flows: Flow[]): Promise<void> {
   // A new query string is a new module: the lane keeps modules across tests.
   memory.videos.repo.addable = async (id) =>
     flows.find((f) => f.id === id)?.addable ?? OK;
+  setup?.(memory);
   runs += 1;
   await import(
     /* @vite-ignore */ `../../../pages/entrypoints/library/main.ts?run=${runs}`
@@ -579,5 +584,81 @@ describe("a failed add, a refused one and Remove from repo", () => {
         document.querySelector('[data-row="s-yes"] [data-kept]'),
       ).not.toBeNull();
     });
+  });
+});
+
+describe("Set up CI beside a project's heading", () => {
+  beforeEach(() => mountShell("dark", css));
+  afterEach(() => history.replaceState(null, "", "/"));
+  const KEY = "github.com/acme/web";
+  const inRepo = {
+    id: "in",
+    name: "Checkout",
+    video: {
+      repo: { key: KEY },
+      kept: {
+        file: ".demoman/flows/c.json",
+        root: "/r",
+        deliver: "commit",
+        key: KEY,
+      },
+    },
+  };
+  async function mountAt(place: string, state: () => Promise<CiState>) {
+    history.replaceState(null, "", `/?project=${encodeURIComponent(place)}`);
+    const asked: string[] = [];
+    await mountLibrary([inRepo], (m) => {
+      m.repoCi.state = async (root) => {
+        asked.push(root);
+        return state();
+      };
+    });
+    return asked;
+  }
+  const ciButton = () => document.querySelector<HTMLElement>("[data-ci-setup]");
+
+  // Red if a project with a flow in the repo and no CI offers no way in (DEM-52).
+  it("a project with a flow in the repo and no CI offers Set up CI", async () => {
+    const asked = await mountAt(KEY, async () => ({ kind: "notSetUp" }));
+    const b = await vi.waitFor(() => {
+      const found = ciButton();
+      if (found === null) throw new Error("no Set up CI");
+      return found;
+    });
+    expect(b.textContent).toBe("Set up CI");
+    expect(asked).toContain("/r");
+    b.click();
+    const sheet = await vi.waitFor(() => {
+      const d = document.querySelector("dialog[open][data-ci-sheet]");
+      if (d === null) throw new Error("no CI sheet");
+      return d;
+    });
+    expect(sheet.textContent).toContain("acme/web");
+  });
+
+  // Red if a repo already set up is offered setup again.
+  it("a set-up repo offers no button", async () => {
+    const asked = await mountAt(KEY, async () => ({ kind: "setUp" }));
+    await vi.waitFor(() => expect(asked).toContain("/r"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ciButton()).toBeNull();
+  });
+
+  // Red if a failed state read hides the way in (it would read as set up).
+  it("a CI state that cannot be read still offers Set up CI", async () => {
+    await mountAt(KEY, async () => {
+      throw new Error("gh died");
+    });
+    await vi.waitFor(() => {
+      if (ciButton() === null) throw new Error("no Set up CI");
+    });
+  });
+
+  // Red if a place that is not one project offers CI setup.
+  it("All flows offers no button", async () => {
+    const asked = await mountAt("all", async () => ({ kind: "notSetUp" }));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(asked).toEqual([]);
+    expect(ciButton()).toBeNull();
   });
 });
