@@ -5,7 +5,7 @@ import { notCarriedOf } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../packages/compositor/test/fixtures/scene.js";
-import { checkAddable } from "../src/executor/addable.js";
+import { checkAddable, notInRepo, videoSlug } from "../src/executor/addable.js";
 import {
   type BrowserSession,
   createBrowserSession,
@@ -152,7 +152,7 @@ describe("checkAddable", () => {
       expect(await addable(record)).toEqual({
         ok: true,
         root: repo,
-        defaultPath: "docs/demos/create-invoice.mp4",
+        defaultPath: "docs/demos/create-an-invoice.mp4",
       });
       expect((await keepSays("Create an invoice")).ok).toBe(true);
     },
@@ -255,6 +255,29 @@ describe("checkAddable", () => {
       label: "its checkout is gone",
     });
     if (!out.ok) expect(out.detail).toContain(gone);
+  });
+
+  // Red if the default name goes back through normaliseName (DEM-50: "filter-invoice").
+  it("videoSlug keeps the words as written", () => {
+    expect(videoSlug("Filter invoices")).toBe("filter-invoices");
+    expect(videoSlug("Create an invoice")).toBe("create-an-invoice");
+    expect(videoSlug("Search — results!")).toBe("search-results");
+    expect(videoSlug("!!!")).toBe("video");
+  });
+
+  // Red if notInRepo answers for a flow that has a repo key, or stops answering for one without.
+  it("notInRepo answers for a keyless flow only", async () => {
+    const { record } = await video("Keyless", { none: "not a git checkout" });
+    expect(notInRepo(record)).toMatchObject({
+      ok: false,
+      reason: "noCheckout",
+      label: "not in a repo",
+      detail:
+        '"Keyless" has no checkout to add to: it was recorded outside a git repo',
+    });
+    expect(
+      notInRepo({ ...record, repo: { key: "github.com/a/b" } }),
+    ).toBeNull();
   });
 
   // Red if a video with no repo is answered as a missing checkout.

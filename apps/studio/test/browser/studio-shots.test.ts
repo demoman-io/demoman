@@ -2649,7 +2649,24 @@ describe("the Studio's screenshot set", () => {
         return { px: p, off: off(p) };
       };
       const checkGrid = async (at: string) => {
-        const g = await grid(at);
+        // Read again until every tile paints: each editor render (the repo
+        // listing's answer among them) rebuilds the grid with new images, so
+        // one sample can land between a rebuild and its paint. One that
+        // never paints is said by the assertion below.
+        let g = await grid(at);
+        const blank = () => g.spread.some((t) => !t.onTop || t.spread <= 6);
+        try {
+          await vi.waitFor(
+            async () => {
+              if (!blank()) return;
+              g = await grid(at);
+              if (blank()) throw new Error(`${at}: tiles not painted yet`);
+            },
+            { timeout: PAINT_MS, interval: 200 },
+          );
+        } catch {
+          // Said by the assertion below, with what the page showed.
+        }
         const evidence = JSON.stringify({ g, thumbs: [...thumbs] });
         expect(
           g.tiles.map((t) => t.id),
@@ -4883,26 +4900,32 @@ describe("the Studio's screenshot set", () => {
     },
     LANE_MS,
   );
-  // Add to repo (repo flows Part C, Task 8): a flow that can be added and one
-  // with a trim, on a card, a list row and the editor's Repo section; the
-  // sheet through a real add into a real checkout, its CI steps against a
-  // fake `repoCi` (the plan, then a watch held open); Remove's confirm. Dark
-  // only, as every shot here is (2026-10-19). Each shot is asserted on its
-  // paint beside it.
+  // Add to repo (repo flows Part C, Task 8; trial fixes D): a flow that can
+  // be added and one with no repo, on a card and a list row; a trimmed flow
+  // refused in the editor and in the sheet; the sheet's form and folder
+  // list, a real add into a real checkout, its CI steps against a fake
+  // `repoCi` (the plan, then a watch held open); Set up CI beside the
+  // project's heading and its sheet; Remove's confirm; a later add's own
+  // pull request and the finished sheet. Dark only, as every shot here is
+  // (2026-10-19). Each shot is asserted on its paint beside it.
   // Red if the disabled Add to repo loses its words, the sheet's buttons leave
   // its box, or Remove's question lets a long path run past the dialog
   // (`.confirm-body`'s overflow-wrap).
   it.runIf(process.platform === "darwin")(
-    "shoots Add to repo on a card, a row and the editor, the add sheet through CI setup, and Remove's confirm, each asserted on its paint",
+    "shoots Add to repo on a card, a row and the editor, the add sheet through CI setup, Set up CI, Remove's confirm and a later add's pull request, each asserted on its paint",
     async () => {
       const home = await mkdtemp(join(tmpdir(), "studio-shots-add-"));
       homes.push(home);
       const checkout = await mkdtemp(join(tmpdir(), "studio-shots-addrepo-"));
       homes.push(checkout);
       const KEY = "github.com/acme/web";
+      // A folder for the sheet's folder list to offer.
+      await mkdir(join(checkout, "docs", "demos"), { recursive: true });
+      await writeFile(join(checkout, "docs", "demos", ".gitkeep"), "");
       for (const args of [
         ["init", "-q"],
         ["remote", "add", "origin", "git@github.com:acme/web.git"],
+        ["add", "-A"],
         [
           "-c",
           "user.name=t",
@@ -4979,6 +5002,29 @@ describe("the Studio's screenshot set", () => {
         },
       });
       const trimFlow = await flow(TRIM_NAME, trimTake, checkout);
+      // Recorded with no repo: the one answer the listing still gives
+      // (DEM-47), a disabled Add with its reason.
+      const LOOSE_NAME = "Sign up";
+      const looseTake = (PLAIN[1] as PlainTake).id;
+      const loose = await store.create({
+        name: LOOSE_NAME,
+        repo: { none: "seeded" },
+        startPage: "https://app.example.com/",
+      });
+      if (!loose.ok) throw new Error("the loose flow could not be made");
+      const looseRead = await library.getSceneRead(looseTake);
+      if (looseRead === null) throw new Error(`${looseTake} was not seeded`);
+      await store.join(looseTake, {
+        videoId: loose.video.id,
+        made: {
+          repo: { none: "seeded" },
+          agent: { none: "seeded" },
+          by: { none: "seeded" },
+          door: "mcp",
+        },
+        recordedRevision: looseRead.revision,
+      });
+      const looseFlow = loose.video.id;
 
       // The fake CI door: not set up; a plan; an apply whose watch is held
       // open until the test lets it go.
@@ -4988,8 +5034,11 @@ describe("the Studio's screenshot set", () => {
       });
       const RUN = "https://github.com/acme/web/actions/runs/1";
       const PR = "https://github.com/acme/web/pull/7";
+      /** The repo's live CI state: set up once the setup run passed. */
+      let ciKind: "notSetUp" | "setUp" = "notSetUp";
+      const LATER_PR = "https://github.com/acme/web/pull/8";
       const repoCi: StudioCi = {
-        state: async () => ({ kind: "notSetUp" }),
+        state: async () => ({ kind: ciKind }),
         plan: async (_root, _choices, _values, progress) => {
           progress("Reading the repo");
           return {
@@ -5063,7 +5112,9 @@ describe("the Studio's screenshot set", () => {
           };
         },
         forget: () => {},
-        openPr: async () => ({ failed: "pr", detail: "" }),
+        openPr: async (_root, a) => ({
+          opened: { number: 8, url: LATER_PR, branch: a.branch, sha: "b" },
+        }),
       };
 
       await mkdir(SHOTS, { recursive: true });
@@ -5073,13 +5124,22 @@ describe("the Studio's screenshot set", () => {
       const takes = await api(studio, pathFor("takes"));
       expect(takes.status, takes.text).toBe(200);
       const answer = takes.json() as TakesAnswer;
+      // The listing checks nothing it needs git for (DEM-47): only the flow
+      // with no repo has an answer; the sheet asks for the others.
+      expect(okFlow in answer.addable, "premise: no listing answer").toBe(
+        false,
+      );
+      expect(trimFlow in answer.addable, "premise: no listing answer").toBe(
+        false,
+      );
+      expect(answer.addable[looseFlow]).toMatchObject({
+        ok: false,
+        label: "not in a repo",
+      });
+      const asked = await api(studio, pathFor("repoAddable", { id: trimFlow }));
       expect(
-        answer.addable[okFlow],
-        "premise: the first flow can be added",
-      ).toMatchObject({ ok: true, root: checkout });
-      expect(
-        answer.addable[trimFlow],
-        "premise: the second flow has a trim",
+        asked.json(),
+        "premise: the check, asked, says the second flow has a trim",
       ).toMatchObject({ ok: false, label: "has a trim" });
       const opened = await api(studio, "/api/window", {
         method: "POST",
@@ -5126,7 +5186,11 @@ describe("the Studio's screenshot set", () => {
                   return r.left < box.left - 0.5 || r.right > box.right + 0.5;
                 })
                 .map(say);
-              const buttons = [...d.querySelectorAll("button")];
+              // Only the buttons a person can see: a closed fold's (the
+              // finished sheet's Added) are laid out but not shown.
+              const buttons = [...d.querySelectorAll("button")].filter((b) =>
+                b.checkVisibility(),
+              );
               const outside = buttons
                 .filter((b) => {
                   b.scrollIntoView({ block: "nearest" });
@@ -5193,8 +5257,10 @@ describe("the Studio's screenshot set", () => {
       await page.goto(`${studio.origin}/`);
       const card = (name: string) =>
         `article.card[data-row] [data-action="repo-add"][aria-label$="${name}"]`;
-      const cantTrim = `article.card[data-row] [data-action="repo-add"][aria-label="Can't add: has a trim"]`;
-      await page.locator(cantTrim).waitFor({ timeout: PAINT_MS });
+      // The "Sign up" flow's own card: the seeded loose take has no repo too.
+      const looseCard = `article.card[data-row="${looseTake}"]`;
+      const cantLoose = `${looseCard} [data-action="repo-add"]`;
+      await page.locator(cantLoose).waitFor({ timeout: PAINT_MS });
       await settle(page, "cards");
       let at = "cards";
       const on = await buttonPaint(card(OK_NAME));
@@ -5202,19 +5268,24 @@ describe("the Studio's screenshot set", () => {
         label: `Add to repo: ${OK_NAME}`,
         disabled: false,
       });
-      const off = await buttonPaint(cantTrim);
+      const off = await buttonPaint(cantLoose);
       expect(off, `${at}: the disabled button`).toMatchObject({
         disabled: true,
-        label: "Can't add: has a trim",
+        label: "Can't add: not in a repo",
       });
       // Card actions show on hover: each flow's card in turn.
       for (const [name, button] of [
         ["enabled", card(OK_NAME)],
-        ["disabled", cantTrim],
+        ["disabled", cantLoose],
       ] as const) {
-        const own = page.locator("article.card[data-row]").filter({
-          has: page.locator(button.replace("article.card[data-row] ", "")),
-        });
+        const own =
+          name === "disabled"
+            ? page.locator(looseCard)
+            : page.locator("article.card[data-row]").filter({
+                has: page.locator(
+                  button.replace("article.card[data-row] ", ""),
+                ),
+              });
         await own.scrollIntoViewIfNeeded();
         await own.hover();
         await settle(page, `${at} ${name}`);
@@ -5232,7 +5303,8 @@ describe("the Studio's screenshot set", () => {
       await page.goto(`${studio.origin}/`);
       at = "list";
       const rowOn = `[data-list] [data-action="repo-add"][aria-label="Add to repo: ${OK_NAME}"]`;
-      const rowOff = `[data-list] [data-action="repo-add"][aria-label="Can't add: has a trim"]`;
+      const rowTrim = `[data-list] [data-action="repo-add"][aria-label="Add to repo: ${TRIM_NAME}"]`;
+      const rowOff = `[data-list] [role=row][data-flow="${looseFlow}"] [data-action="repo-add"]`;
       await page
         .locator(rowOff)
         .waitFor({ state: "attached", timeout: PAINT_MS });
@@ -5240,9 +5312,11 @@ describe("the Studio's screenshot set", () => {
       expect(await page.locator(rowOn).count(), `${at}: enabled`).toBe(1);
       // Row actions show on hover: each flow's row in turn.
       const rowOf = (button: string) =>
-        page.locator("[data-list] [role=row]").filter({
-          has: page.locator(button.replace("[data-list] ", "")),
-        });
+        button === rowOff
+          ? page.locator(`[data-list] [role=row][data-flow="${looseFlow}"]`)
+          : page.locator("[data-list] [role=row]").filter({
+              has: page.locator(button.replace("[data-list] ", "")),
+            });
       for (const [name, button] of [
         ["enabled", rowOn],
         ["disabled", rowOff],
@@ -5257,15 +5331,29 @@ describe("the Studio's screenshot set", () => {
         });
         await shoot(`library-add-to-repo-list-${name}`, `${at} ${name}`);
       }
-      // ---- the editor's Repo section: the disabled button names its reason
+      // ---- the editor's Repo section: an unchecked flow offers Add and the
+      // sheet checks, as the library's does (DEM-47)
       at = "editor, a flow with a trim";
       await page.goto(`${studio.origin}/editor.html?scene=${trimTake}`);
       const section = '[data-repo-section] [data-action="repo-add"]';
       await page.locator(section).waitFor({ timeout: PAINT_MS });
       await settle(page, at);
+      expect(await buttonPaint(section), `${at}: offered`).toMatchObject({
+        text: "Add to repo",
+        disabled: false,
+        onScreen: true,
+        hit: true,
+      });
+      // ---- a flow the listing answers: the disabled button names its reason
+      at = "editor, a flow in no repo";
+      await page.goto(`${studio.origin}/editor.html?scene=${looseTake}`);
+      await page
+        .locator(`${section}[aria-disabled="true"]`)
+        .waitFor({ timeout: PAINT_MS });
+      await settle(page, at);
       const editorOff = await buttonPaint(section);
       expect(editorOff, `${at}: the disabled button's words`).toMatchObject({
-        text: "Can't add: has a trim",
+        text: "Can't add: not in a repo",
         disabled: true,
         onScreen: true,
         hit: true,
@@ -5273,13 +5361,39 @@ describe("the Studio's screenshot set", () => {
       });
       expect(editorOff?.opacity, `${at}: drawn`).toBeGreaterThan(0.3);
       await shoot("editor-add-to-repo-disabled", at);
-      // ---- the sheet, from the enabled card, at two window sizes
+      // ---- the sheet's check refuses the trimmed flow, in the sheet
+      at = "the sheet, refused";
       await page.goto(`${studio.origin}/`);
-      await page.locator(rowOn).waitFor({ timeout: PAINT_MS });
-      await settle(page, "list again");
+      await page.locator(rowTrim).waitFor({ timeout: PAINT_MS });
+      await rowOf(rowTrim).hover();
+      await page.locator(rowTrim).click();
+      await page
+        .locator("dialog[open] [data-repo-refused]", { hasText: "has a trim" })
+        .waitFor({ timeout: PAINT_MS });
+      await settle(page, at);
+      await dialogPaint(at);
+      await shoot("add-sheet-refused", at);
+      await page.locator("dialog[open] [data-repo-cancel]").click();
+      await page
+        .locator("[data-list] [role=row] [data-status]", {
+          hasText: "Couldn't add: has a trim",
+        })
+        .waitFor({ timeout: PAINT_MS });
+      // ---- the sheet, from the enabled row, at two window sizes
       await rowOf(rowOn).hover();
       await page.locator(rowOn).click();
       await page.locator("dialog[open][data-repo-sheet]").waitFor();
+      await page.locator("dialog[open] [data-repo-add]").waitFor({
+        timeout: PAINT_MS,
+      });
+      expect(
+        await page.locator("[data-repo-folder]").inputValue(),
+        "the folder",
+      ).toBe("docs/demos");
+      expect(
+        await page.locator("[data-repo-name]").inputValue(),
+        "the file name keeps the flow's words (DEM-50)",
+      ).toBe("change-a-setting");
       for (const [w, h] of [
         [1280, 720],
         [1280, 800],
@@ -5289,6 +5403,18 @@ describe("the Studio's screenshot set", () => {
         await dialogPaint(`sheet ${w}x${h}`);
         await shoot(`add-sheet-${w}x${h}`, `sheet ${w}x${h}`);
       }
+      // ---- the repo's folders, a click away
+      at = "the folder list";
+      await page.locator('[aria-label="Choose folder"]').click();
+      const listed = page.locator("[data-repo-folders] button");
+      await listed.first().waitFor({ timeout: PAINT_MS });
+      expect(await listed.allInnerTexts(), `${at}: the repo's folders`).toEqual(
+        ["docs", "docs/demos"],
+      );
+      const listBox = await page.locator("[data-repo-folders]").boundingBox();
+      expect(listBox?.height ?? 0, `${at}: painted`).toBeGreaterThan(40);
+      await shoot("add-sheet-picker", at);
+      await page.keyboard.press("Escape");
       // ---- a real add, then the CI steps
       await page.locator("[data-repo-add]").click();
       await page
@@ -5301,33 +5427,23 @@ describe("the Studio's screenshot set", () => {
         });
       await page.locator("[data-ci-check]").waitFor();
       await settle(page, "added");
+      // Each written file says what it is, with its Reveal (DEM-49, DEM-56).
+      const labels = await page
+        .locator("[data-repo-written] dt")
+        .allInnerTexts();
+      expect(labels.length, "the add wrote files").toBeGreaterThan(0);
+      for (const l of labels)
+        expect(["Video", "Recipe", "Receipt", "Screens"]).toContain(l);
       expect(
-        await page.locator("[data-repo-written] li").count(),
-        "the add wrote files",
-      ).toBeGreaterThan(0);
-      // Each Reveal draws its word whole on one line, however long the path.
-      const reveals = await page
-        .locator("[data-repo-written] button")
-        .evaluateAll((bs) =>
-          bs.map((b) => {
-            const r = b.getBoundingClientRect();
-            return {
-              text: (b as HTMLElement).innerText.trim(),
-              glyph: b.querySelector("svg")?.getBoundingClientRect().width ?? 0,
-              w: r.width,
-              h: r.height,
-            };
-          }),
-        );
-      expect(reveals.length, "a Reveal for each written file").toBe(
-        await page.locator("[data-repo-written] li").count(),
-      );
-      for (const r of reveals) {
-        expect(r.text).toBe("Reveal");
-        expect(r.h, "Reveal is one line").toBeLessThan(40);
-        expect(r.w, "Reveal is wide enough for its word").toBeGreaterThan(70);
-        expect(r.glyph, "Reveal draws its glyph").toBeGreaterThanOrEqual(14);
-      }
+        await page
+          .locator("[data-repo-written] [aria-label^='Reveal ']")
+          .count(),
+        "a Reveal for each written file",
+      ).toBe(labels.length);
+      // DEM-49: the terminal's notes are not the sheet's.
+      const sheetText = (await page.locator("dialog[open]").innerText()) ?? "";
+      expect(sheetText).not.toContain("added on macOS");
+      expect(sheetText).not.toMatch(/screens are still/);
       await dialogPaint("the last step");
       await shoot("add-sheet-last-step", "the last step");
       await page.locator("[data-ci-check]").click();
@@ -5360,7 +5476,63 @@ describe("the Studio's screenshot set", () => {
       ).toBe(1);
       await shoot("add-sheet-ci-done", "the verdict");
       await page.locator("[data-repo-done], [data-ci-not-now]").first().click();
+      // ---- Set up CI beside the project's heading (DEM-52)
+      at = "Set up CI";
+      await page.goto(`${studio.origin}/?project=${encodeURIComponent(KEY)}`);
+      const setUp = page.locator("[data-ci-setup]");
+      await setUp.waitFor({ timeout: PAINT_MS });
+      await settle(page, at);
+      const band = await page.evaluate(() => {
+        const b = document.querySelector<HTMLElement>("[data-ci-setup]");
+        const t = document.querySelector<HTMLElement>("[data-place-title]");
+        const lib = document.querySelector<HTMLElement>("[data-library]");
+        if (b === null || t === null || lib === null) return null;
+        const r = b.getBoundingClientRect();
+        const title = t.getBoundingClientRect();
+        const box = lib.getBoundingClientRect();
+        const head = Number.parseFloat(
+          getComputedStyle(lib).getPropertyValue("--head-h"),
+        );
+        const hit = document.elementFromPoint(
+          r.left + r.width / 2,
+          r.top + r.height / 2,
+        );
+        return {
+          text: b.innerText.trim(),
+          inBand: r.top >= box.top && r.bottom <= box.top + head,
+          onTitleLine: r.top < title.bottom && r.bottom > title.top,
+          rightOfTitle: r.left > title.right,
+          inside: r.right <= box.right,
+          hit: hit !== null && b.contains(hit),
+          oneLine: r.height < 40,
+          glyph: Math.round(
+            b.querySelector("svg")?.getBoundingClientRect().width ?? 0,
+          ),
+        };
+      });
+      expect(band, `${at}: painted in the title band`).toEqual({
+        text: "Set up CI",
+        inBand: true,
+        onTitleLine: true,
+        rightOfTitle: true,
+        inside: true,
+        hit: true,
+        oneLine: true,
+        glyph: 16,
+      });
+      await shoot("library-ci-setup", at);
+      await setUp.click();
+      await page.locator("dialog[open][data-ci-sheet]").waitFor();
+      await page
+        .locator("dialog[open] [data-ci-verdict]", {
+          hasText: "The run passed.",
+        })
+        .waitFor({ timeout: PAINT_MS });
+      await dialogPaint("the CI sheet");
+      await shoot("ci-sheet", "the CI sheet");
+      await page.locator("dialog[open] [data-ci-done]").click();
       // ---- Remove's confirm, on the flow just added
+      await page.goto(`${studio.origin}/`);
       const removeBtn = '[data-list] [data-action="repo-remove"]';
       await page.locator(removeBtn).waitFor({
         state: "attached",
@@ -5375,8 +5547,45 @@ describe("the Studio's screenshot set", () => {
       expect(said, "names the recipe").toContain(".json");
       expect(said, "names the exports that stay").toContain(exported);
       await shoot("remove-from-repo-confirm", "remove's confirm");
-      await page.locator("[data-confirm-cancel]").click();
-      expect(shots).toHaveLength(12);
+      await page.locator("[data-confirm-go]").click();
+      // ---- added again, to a repo whose CI is set up: its own pull request
+      ciKind = "setUp";
+      at = "a later add";
+      await page
+        .locator(rowOn)
+        .waitFor({ state: "attached", timeout: PAINT_MS });
+      await rowOf(rowOn).hover();
+      await page.locator(rowOn).click();
+      await page.locator("dialog[open] [data-repo-add]").click({
+        timeout: PAINT_MS,
+      });
+      await page
+        .locator("dialog[open] [data-repo-pr]")
+        .waitFor({ timeout: PAINT_MS * 3 });
+      await settle(page, at);
+      await dialogPaint(at);
+      await shoot("add-sheet-pr", at);
+      await page.locator("dialog[open] [data-repo-pr]").click();
+      await page
+        .locator(`dialog[open] a[href="${LATER_PR}"]`, {
+          hasText: "Pull request #8",
+        })
+        .waitFor({ timeout: PAINT_MS });
+      expect(
+        await page
+          .locator("dialog[open] .confirm-actions button")
+          .allInnerTexts(),
+        `${at}: Done alone once the pull request is open (DEM-59)`,
+      ).toEqual(["Done"]);
+      await dialogPaint("finished");
+      await shoot("add-sheet-finished", "finished");
+      await page.locator("dialog[open] [data-repo-done]").click();
+      // In repo at once, from the add's answer (DEM-59).
+      await page
+        .locator("[data-list] [role=row] [data-kept]")
+        .first()
+        .waitFor({ timeout: 2_000 });
+      expect(shots).toHaveLength(18);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       release();
       running = null;

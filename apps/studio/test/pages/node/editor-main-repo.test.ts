@@ -25,6 +25,13 @@ vi.mock("@demoman/compositor", async (importOriginal) => {
 const seen = vi.hoisted(() => ({
   kept: false,
   removes: 0,
+  /** What repoAddable answers; the listing answers nothing (DEM-47). */
+  addable: null as unknown,
+  asked: 0,
+  /** Holds the next listing read, which keeps what it read until let go. */
+  gate: null as Promise<void> | null,
+  readsDone: 0,
+  change: null as (() => void) | null,
   video: (): VideoSummary =>
     ({
       id: "v1",
@@ -66,29 +73,38 @@ vi.mock("#platform", async (importOriginal) => {
   const { proceduralBundle: bundle } = await import(
     "../../../../../packages/replay-engine/test/helpers/bundles"
   );
+  const listingOf = (video: VideoSummary) => ({
+    scenes: [],
+    sizes: {},
+    unreadable: [],
+    videos: [video],
+    videoOf: {
+      t1: {
+        videoId: "v1",
+        version: 1,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
+    },
+    addable: {},
+    unwatched: null,
+  });
   const platform: Platform = {
     // The studio's take folder; nothing here lists takes.
     folder: {
-      read: async () => ({
-        scenes: [],
-        sizes: {},
-        unreadable: [],
-        videos: [seen.video()],
-        videoOf: {
-          t1: {
-            videoId: "v1",
-            version: 1,
-            expired: false,
-            exports: [],
-            filmedCode: null,
-          },
-        },
-        addable: {
-          v1: { ok: true, root: "/r", defaultPath: "docs/demos/c.mp4" },
-        },
-        unwatched: null,
-      }),
-      onChange: () => () => {},
+      read: async () => {
+        const video = seen.video();
+        const gate = seen.gate;
+        seen.gate = null;
+        if (gate !== null) await gate;
+        seen.readsDone += 1;
+        return listingOf(video);
+      },
+      onChange: (f: () => void) => {
+        seen.change = f;
+        return () => {};
+      },
       thumb: async () => {
         throw new Error("no thumbnails in this test");
       },
@@ -102,11 +118,15 @@ vi.mock("#platform", async (importOriginal) => {
     videos: {
       rename: async () => {},
       repo: {
-        addable: async () => ({
-          ok: true,
-          root: "/r",
-          defaultPath: "docs/demos/c.mp4",
-        }),
+        folders: async () => ({ folders: [], more: false }),
+        addable: async () => {
+          seen.asked += 1;
+          return (seen.addable ?? {
+            ok: true,
+            root: "/r",
+            defaultPath: "docs/demos/c.mp4",
+          }) as never;
+        },
         onRepo: () => () => {},
         add: async () => ({ jobId: "none" }),
         remove: async () => {
@@ -200,6 +220,11 @@ describe("editor main: the Repo section", () => {
     vi.resetModules();
     seen.kept = false;
     seen.removes = 0;
+    seen.addable = null;
+    seen.asked = 0;
+    seen.gate = null;
+    seen.readsDone = 0;
+    seen.change = null;
     history.pushState({}, "", "/?scene=t1");
     editorDom();
     vi.stubGlobal(
@@ -234,6 +259,76 @@ describe("editor main: the Repo section", () => {
       ).toBe("Couldn't add: The repo is full.");
     });
     expect(document.querySelector("[data-toast]")).toBeNull();
+  }, 20_000);
+
+  // Red if the panel checks the flow before offering Add: the sheet checks
+  // on open, as the library's does, so the check is not run twice (DEM-47).
+  it("offers Add on an unchecked flow without asking repoAddable", async () => {
+    await import("../../../pages/entrypoints/editor/main");
+    const add = await vi.waitFor(
+      () => {
+        const node = document.querySelector<HTMLButtonElement>(
+          '[data-repo-section] [data-action="repo-add"]',
+        );
+        if (node === null) throw new Error("no repo-add yet");
+        return node;
+      },
+      { timeout: 5_000 },
+    );
+    expect(add.getAttribute("aria-disabled")).toBeNull();
+    const opened = sheet.open.mock.calls.length;
+    add.click();
+    await vi.waitFor(() =>
+      expect(sheet.open.mock.calls.length).toBe(opened + 1),
+    );
+    expect(seen.asked).toBe(0);
+  }, 20_000);
+
+  // Red if an older listing read that lands last paints over a newer one.
+  it("a read a newer one overtook does not paint", async () => {
+    let release = () => {};
+    seen.gate = new Promise<void>((r) => {
+      release = r;
+    });
+    await import("../../../pages/entrypoints/editor/main");
+    await vi.waitFor(() => expect(seen.change).not.toBeNull());
+    expect(seen.gate, "the first read is held").toBeNull();
+    seen.kept = true;
+    seen.change?.();
+    await vi.waitFor(
+      () => {
+        if (
+          document.querySelector(
+            '[data-repo-section] [data-action="repo-remove"]',
+          ) === null
+        )
+          throw new Error("no In repo yet");
+      },
+      { timeout: 5_000 },
+    );
+    expect(seen.readsDone, "only the newer read has landed").toBe(1);
+    release();
+    await vi.waitFor(() => expect(seen.readsDone).toBe(2));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(
+      document.querySelector('[data-repo-section] [data-action="repo-remove"]'),
+      "the older read left In repo standing",
+    ).not.toBeNull();
+  }, 20_000);
+
+  // Red if an In repo flow is checked for an add it cannot make.
+  it("does not ask an In repo flow whether it can be added", async () => {
+    seen.kept = true;
+    await import("../../../pages/entrypoints/editor/main");
+    await vi.waitFor(() => {
+      if (
+        document.querySelector(
+          '[data-repo-section] [data-action="repo-remove"]',
+        ) === null
+      )
+        throw new Error("no section yet");
+    });
+    expect(seen.asked).toBe(0);
   }, 20_000);
 
   // Red if a remove that works stops toasting its exact words.

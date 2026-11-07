@@ -109,6 +109,9 @@ export type KeepAnswer =
       /** The old `.demoman/videos/` file this keep moved here, or null. */
       moved: string | null;
       kept: KeptVideo;
+      /** The repo key the library's mark records; null when the checkout
+       *  has none. A page's own In repo paint uses it as the flow's project. */
+      key: string | null;
       /** What `deliver: "commit"` wrote beside the recipe; null for `files`. */
       receipt: KeptReceipt | null;
       /** "k of n screens are still": what a refresh compares at. Said for
@@ -497,6 +500,7 @@ export async function keepVideo(
       file: fileRel,
       moved: moveFrom,
       kept,
+      key: repo.ok ? repo.repo.key : null,
       receipt,
       ...(receipt === null
         ? {}

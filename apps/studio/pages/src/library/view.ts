@@ -125,7 +125,7 @@ export interface LibraryActions {
   /** Adding flows to their repos and taking them out. Absent: no buttons. */
   repo?: {
     /** Whether the flow can be added, from the listing; undefined when the
-     *  listing has no answer for it. */
+     *  listing has no answer for it, which offers Add (the sheet checks). */
     addable(videoId: string): Addable | undefined;
     /** An add of this flow is under way: its button says so. */
     adding(videoId: string): boolean;
@@ -134,6 +134,10 @@ export interface LibraryActions {
   };
   /** In repo, Not in repo or All. */
   goTab?(t: Tab): void;
+  /** Set up CI for a project, beside its heading (DEM-52): what opens it,
+   *  or null when the place offers none (no flow of it in the repo, its
+   *  CI set up, or its state not read yet). */
+  ciSetup?(p: Place): (() => void) | null;
   /** The search box's text, at each keystroke. Absent: no box. */
   search?(query: string): void;
 }
@@ -260,6 +264,26 @@ function fillBar(
  */
 /** Each page's watch on its selection bar's height (`applySelection`). */
 const barHeights = new WeakMap<HTMLElement, ResizeObserver>();
+
+/** The header's Set up CI slot: its button, or nothing. A CI state that
+ *  arrives later paints this alone, not the whole list. */
+export function paintCiSlot(
+  slot: HTMLElement,
+  openCi: (() => void) | null,
+): void {
+  if (openCi === null) {
+    slot.replaceChildren();
+    return;
+  }
+  const b = el("button", {
+    type: "button",
+    class: "btn btn-quiet",
+    "data-ci-setup": "",
+  });
+  b.append(icon("shieldCheck"), "Set up CI");
+  b.addEventListener("click", openCi);
+  slot.replaceChildren(b);
+}
 
 export function applySelection(
   root: HTMLElement,
@@ -871,7 +895,9 @@ function createHeader(withStorage: boolean): Header {
   side.append(title, rail, menu);
   tabsRow.append(tabs, searchField, toggle);
   content.append(tabsRow, notices);
-  box.append(side, content);
+  // Set up CI, at the end of the title band (studio.css places it).
+  const ciSlot = el("div", { class: "ci-setup", "data-ci-slot": "" });
+  box.append(side, content, ciSlot);
   // The page's top bar carries a slot for it, left of the theme switch
   // (library/index.html). A document without one — a test that mounts the
   // list alone — keeps it at the foot of the left column, where it still
@@ -920,6 +946,12 @@ function createHeader(withStorage: boolean): Header {
       if (input.value !== query) input.value = query;
       tabsRow.hidden = toggle.hidden && tabs.hidden && searchField.hidden;
       titleText.replaceChildren(...placeTitle(place));
+      const at = place?.place;
+      const openCi =
+        at !== undefined && typeof at === "object"
+          ? (next.ciSetup?.(at) ?? null)
+          : null;
+      paintCiSlot(ciSlot, openCi);
       // No rail, no places to switch between: the plain title alone.
       switchName.replaceChildren(
         ...(place === undefined ? [] : placeTitle(place)),
@@ -1506,8 +1538,9 @@ function repoActionButton(
     remove.addEventListener("click", () => repo.remove(id));
     return remove;
   }
+  // No answer from the listing: it checks only what needs no git (DEM-47),
+  // so the sheet checks this flow when it opens.
   const can = repo.addable(id);
-  if (can === undefined) return null;
   const add = el("button", {
     type: "button",
     "data-action": "repo-add",
@@ -1518,7 +1551,7 @@ function repoActionButton(
     add.setAttribute("aria-disabled", "true");
     add.setAttribute("aria-label", `Adding to repo: ${r.label}`);
     add.title = "Adding to repo…";
-  } else if (can.ok) {
+  } else if (can === undefined || can.ok) {
     add.setAttribute("aria-label", `Add to repo: ${r.label}`);
     add.title = "Add to repo";
     add.addEventListener("click", () => repo.add(id));

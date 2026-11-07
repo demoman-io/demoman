@@ -53,6 +53,7 @@ describe("adding a flow to its repo, and removing it", () => {
   let removeFlow: Removal;
   let handlers: ReturnType<typeof buildHandlers>;
   const prFiles: string[][] = [];
+  const revealed: string[] = [];
   let exportRuns: { finish: (a: ExportAnswer) => void }[];
   let queue: ReturnType<typeof createExportQueue>;
   const session = { name: "the one session" };
@@ -102,6 +103,7 @@ describe("adding a flow to its repo, and removing it", () => {
 
   beforeEach(async () => {
     sent.length = 0;
+    revealed.length = 0;
     calls.length = 0;
     exportRuns = [];
     home = await mkdtemp(join(tmpdir(), "studio-repo-add-"));
@@ -152,6 +154,9 @@ describe("adding a flow to its repo, and removing it", () => {
       keep: (...a) => keep(...a),
       removeFlow: (...a) => removeFlow(...a),
       window: { open: async () => ({ ok: true, path: "/" }) },
+      reveal: async (p) => {
+        revealed.push(p);
+      },
       ci: createCiJobs({
         ci: {
           state: async () => ({ kind: "setUp" }),
@@ -258,16 +263,51 @@ describe("adding a flow to its repo, and removing it", () => {
     });
   });
 
-  // Red if added drops the notes (markNote and the others).
-  it("notes ride on the added event", async () => {
+  // Red if added drops the mark or the scale guess, or says the platform or
+  // screens notes again (DEM-49: the author's ruling, they are the CLI's).
+  it("the Studio says the mark and the scale guess, not the platform or screens notes", async () => {
     keep = async () =>
-      keptOk({ markNote: "the mark was not set", platformNote: "off Linux" });
+      keptOk({
+        markNote: "the mark was not set",
+        platformNote: "off Linux",
+        scaleGuess: "1x is a guess",
+        screensNote: "2 of 3 screens are still",
+      });
     await add(good);
     await until(() => phases().includes("added"));
     expect(sent.at(-1)).toMatchObject({
       phase: "added",
-      notes: ["the mark was not set", "off Linux"],
+      notes: ["the mark was not set", "1x is a guess"],
+      // The row reads this, not the words, to paint In repo at once.
+      marked: false,
     });
+  });
+
+  // Red if an add the library marked is not said to be marked.
+  it("an add the library marked says so", async () => {
+    await add(good);
+    await until(() => phases().includes("added"));
+    expect(sent.at(-1)).toMatchObject({ phase: "added", marked: true });
+  });
+
+  // Red if an add's files are not revealable (DEM-56).
+  it("an add's written files become revealable", async () => {
+    const video = join(root, "docs", "demos", "flow.mp4");
+    await mkdir(join(root, "docs", "demos"), { recursive: true });
+    await writeFile(video, "x");
+    const reveal = async () =>
+      (await handlers.reveal({
+        params: {},
+        query: new URLSearchParams(),
+        body: async () => Buffer.from(JSON.stringify({ path: video })),
+      } as unknown as StudioRequest)) as { status: number; json: unknown };
+    // Premise: before the add it is not an export any video lists.
+    expect((await reveal()).status).toBe(403);
+    await add(good);
+    await until(() => phases().includes("added"));
+    const r = await reveal();
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect(revealed).toEqual([video]);
   });
 
   // Red if an add runs outside queue.serial: it would start under the export.

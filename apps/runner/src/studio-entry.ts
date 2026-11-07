@@ -9,6 +9,7 @@ export {
   checkAddable,
   checkoutOf,
   isDir,
+  notInRepo,
 } from "./executor/addable.js";
 export {
   type BrowserFailure,

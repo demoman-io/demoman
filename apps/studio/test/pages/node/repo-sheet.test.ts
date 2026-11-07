@@ -1,18 +1,31 @@
-import type { CiState } from "@demoman/studio-protocol";
+import type { Addable, CiState } from "@demoman/studio-protocol";
 import { describe, expect, it } from "vitest";
 import type { CiEvent, RepoEvent } from "../../../pages/src/platform/types";
 import {
+  nameOk,
+  pathOf,
   type RepoSheetArgs,
   repoSheetModel,
+  writtenLabel,
 } from "../../../pages/src/shell/repo-sheet";
 
 /** A door whose add answers `job-1` and lets the test send its events. */
-function door() {
+function door(
+  can: Addable | Error = {
+    ok: true,
+    root: "/r",
+    defaultPath: "docs/demos/checkout.mp4",
+  },
+) {
   let send: (e: RepoEvent) => void = () => {};
   const offs = { repo: 0, ci: 0 };
   const bodies: unknown[] = [];
   const repo: RepoSheetArgs["repo"] = {
-    addable: async () => ({ ok: false, reason: "x", label: "x", detail: "x" }),
+    folders: async () => ({ folders: [], more: false }),
+    addable: async () => {
+      if (can instanceof Error) throw can;
+      return can;
+    },
     add: async (_id, body) => {
       bodies.push(body);
       return { jobId: "job-1" };
@@ -27,7 +40,6 @@ function door() {
   };
   const args: RepoSheetArgs = {
     video: { id: "v1", name: "Checkout" },
-    addable: { ok: true, root: "/r", defaultPath: "docs/demos/checkout.mp4" },
     repo,
     ci: null,
   };
@@ -36,24 +48,160 @@ function door() {
   return { args, bodies, tell, offs };
 }
 
-const added = { phase: "added", file: "f.json", root: "/r" };
+const added = { phase: "added", marked: true, file: "f.json", root: "/r" };
+
+/** The sheet once its check answered. */
+async function opened(d: ReturnType<typeof door>) {
+  const m = repoSheetModel(d.args);
+  await m.ready;
+  return m;
+}
 
 describe("repoSheetModel", () => {
-  // Red if the model stops reading its defaults from `addable` (path) or from `add`'s defaults (commit, share).
-  it("starts on the form with the default path, commit and share", () => {
-    const m = repoSheetModel(door().args);
-    expect(m.state.step).toBe("form");
+  // Red if the sheet waits for the check before it exists, or stops splitting the default path (DEM-47, DEM-50).
+  it("opens on checking, then the form with folder and name from the default path", async () => {
+    const m = repoSheetModel(
+      door({
+        ok: true,
+        root: "/r",
+        defaultPath: "docs/demos/filter-invoices.mp4",
+      }).args,
+    );
+    expect(m.state.step).toBe("checking");
+    await m.ready;
+    expect(m.state).toEqual({ step: "form", root: "/r" });
     expect(m.fields).toEqual({
-      path: "docs/demos/checkout.mp4",
+      folder: "docs/demos",
+      name: "filter-invoices",
       deliver: "commit",
       quality: "share",
     });
   });
 
+  // Red if a refusal from the check is not said, or closing loses why (DEM-47 moved the check here).
+  it("a refused check is said, and closing resolves failed with it", async () => {
+    const m = await opened(
+      door({
+        ok: false,
+        reason: "notCarried",
+        label: "has a trim",
+        detail: "the trim would be left behind",
+      }),
+    );
+    expect(m.state).toEqual({
+      step: "refused",
+      said: "has a trim. the trim would be left behind",
+    });
+    m.close();
+    expect(await m.result).toEqual({
+      added: null,
+      prOpened: null,
+      failed: "has a trim. the trim would be left behind",
+    });
+  });
+
+  // Red if a check that could not be asked reads as anything but a refusal.
+  it("a check that throws is refused with its words", async () => {
+    const m = await opened(door(new Error("The studio stopped.")));
+    expect(m.state).toEqual({ step: "refused", said: "The studio stopped." });
+  });
+
+  // Red if the path is built with a doubled slash, a doubled .mp4, or a lost folder.
+  it.each([
+    ["docs/demos", "x", "docs/demos/x.mp4"],
+    ["/docs/demos/", "x.mp4", "docs/demos/x.mp4"],
+    ["", "x", "x.mp4"],
+    [" docs ", " x ", "docs/x.mp4"],
+  ])("path of %j and %j is %j", async (folder, name, sent) => {
+    expect(pathOf({ folder, name, deliver: "commit", quality: "share" })).toBe(
+      sent,
+    );
+    const d = door();
+    const m = await opened(d);
+    m.fields.folder = folder;
+    m.fields.name = name;
+    await m.submit();
+    expect(d.bodies).toEqual([
+      { path: sent, deliver: "commit", quality: "share" },
+    ]);
+  });
+
+  // Red if Files sends a folder, which the add refuses ("files outputs are
+  // file names, not paths").
+  it("Files sends the file name alone", async () => {
+    expect(
+      pathOf({
+        folder: "docs/demos",
+        name: "x",
+        deliver: "files",
+        quality: "share",
+      }),
+    ).toBe("x.mp4");
+    const d = door();
+    const m = await opened(d);
+    m.fields.deliver = "files";
+    await m.submit();
+    expect(d.bodies).toEqual([
+      { path: "checkout.mp4", deliver: "files", quality: "share" },
+    ]);
+  });
+
+  // Red if a name of only ".mp4" or one holding a slash gets through.
+  it.each([".mp4", " .MP4 ", "a/b", "/"])(
+    "Add does nothing with the name %j",
+    async (name) => {
+      const d = door();
+      const m = await opened(d);
+      m.fields.name = name;
+      expect(nameOk(m.fields), "the guard the form disables Add on").toBe(
+        false,
+      );
+      await m.submit();
+      expect(d.bodies).toEqual([]);
+    },
+  );
+
+  // Red if a slash around the name doubles in the path.
+  it.each([
+    ["x/", "docs/demos/x.mp4"],
+    ["/x", "docs/demos/x.mp4"],
+  ])("the name %j is sent as %j", async (name, sent) => {
+    const d = door();
+    const m = await opened(d);
+    m.fields.name = name;
+    await m.submit();
+    expect(d.bodies).toEqual([
+      { path: sent, deliver: "commit", quality: "share" },
+    ]);
+  });
+
+  // Red if Add sends a path with no file name.
+  it("Add does nothing with an empty name", async () => {
+    const d = door();
+    const m = await opened(d);
+    m.fields.name = "  ";
+    await m.submit();
+    expect(m.state.step).toBe("form");
+    expect(d.bodies).toEqual([]);
+  });
+
+  // Red if a written file is labelled by anything but where it lives (DEM-49).
+  it("writtenLabel names each file the add writes", () => {
+    expect(writtenLabel("docs/demos/filter-invoices.mp4")).toBe("Video");
+    expect(writtenLabel(".demoman/flows/filter-invoice.json")).toBe("Recipe");
+    expect(writtenLabel(".demoman/videos/filter-invoice.json")).toBe("Recipe");
+    expect(writtenLabel(".demoman/receipts/filter-invoice.json")).toBe(
+      "Receipt",
+    );
+    expect(writtenLabel(".demoman/receipts/filter-invoice.screens")).toBe(
+      "Screens",
+    );
+  });
+
   // Red if a `failed` event stops resolving the sheet with `added: null` and the detail.
   it("resolves added: null with the detail when the add fails", async () => {
     const d = door();
-    const m = repoSheetModel(d.args);
+    const m = await opened(d);
     await m.submit();
     expect(m.state.step).toBe("running");
     d.tell({ phase: "failed", reason: "x", detail: "No room." });
@@ -67,7 +215,7 @@ describe("repoSheetModel", () => {
   // Red if an added event with notes stops keeping the sheet on its last step.
   it("stays on the last step when the add came with notes", async () => {
     const d = door();
-    const m = repoSheetModel(d.args);
+    const m = await opened(d);
     m.fields.deliver = "files";
     await m.submit();
     d.tell({ ...added, written: ["a.mp4"], notes: ["Check the scale."] });
@@ -84,21 +232,29 @@ describe("repoSheetModel", () => {
   // Red if delivery `files` with no notes stops closing without the last step (decision 3).
   it("closes by itself on files delivery with no notes", async () => {
     const d = door();
-    const m = repoSheetModel(d.args);
+    const m = await opened(d);
     m.fields.deliver = "files";
     await m.submit();
+    // Files writes a file name, not a path: the add refuses a folder.
     expect(d.bodies).toEqual([
-      { path: "docs/demos/checkout.mp4", deliver: "files", quality: "share" },
+      { path: "checkout.mp4", deliver: "files", quality: "share" },
     ]);
     d.tell({ ...added, written: ["a.mp4"], notes: [] });
     expect(m.autoClosed).toBe(true);
-    expect((await m.result).added).toEqual({ written: ["a.mp4"], notes: [] });
+    expect((await m.result).added).toEqual({
+      written: ["a.mp4"],
+      notes: [],
+      root: "/r",
+      file: "f.json",
+      deliver: "files",
+      marked: true,
+    });
   });
 
   // Red if commit delivery stops keeping the sheet open on the files to commit.
   it("stays on the last step for commit delivery even with no notes", async () => {
     const d = door();
-    const m = repoSheetModel(d.args);
+    const m = await opened(d);
     await m.submit();
     d.tell({ ...added, written: ["a.mp4"], notes: [] });
     expect(m.state.step).toBe("last");
@@ -110,7 +266,7 @@ describe("repoSheetModel", () => {
     d.args.repo.add = async () => {
       throw new Error("Already being added.");
     };
-    const m = repoSheetModel(d.args);
+    const m = await opened(d);
     await m.submit();
     expect((await m.result).failed).toBe("Already being added.");
   });
@@ -162,33 +318,31 @@ function ciDoor(state: CiState) {
 
 const addedAt = {
   phase: "added",
+  marked: true,
   file: "checkout.json",
   root: "/r",
   written: [".demoman/flows/checkout.json", "docs/demos/checkout.mp4"],
   notes: [],
 };
-const stopOf = (extra: object) => ({ reason: "x", detail: "d", ...extra });
 
 async function lastStepOf(state: CiState) {
   const d = ciDoor(state);
-  const m = repoSheetModel(d.args);
+  const m = await opened(d);
   await m.submit();
   d.tell(addedAt);
   await new Promise((r) => setTimeout(r, 0));
   return { d, m };
 }
 
-describe("repoSheetModel CI steps", () => {
-  // Red if a CiState stops leading to its own step (notSetUp form, setUp pull request, note for noGh and unreadable, working for running).
+describe("repoSheetModel with CI", () => {
+  // Red if the last step stops reading the repo's CI through ciSteps.
   it.each([
     [{ kind: "notSetUp" }, "form"],
-    [{ kind: "setUp" }, "pr"],
-    [{ kind: "noGh", detail: "gh is not signed in." }, "note"],
-    [{ kind: "unreadable", detail: "Cannot read." }, "note"],
-    [{ kind: "running", jobId: "ci-1" }, "working"],
+    [{ kind: "setUp" }, "setUp"],
   ] as Array<[CiState, string]>)("%j leads to %s", async (state, k) => {
     const { m } = await lastStepOf(state);
-    expect(m.state).toMatchObject({ step: "last", ci: { k } });
+    expect(m.state).toMatchObject({ step: "last", pr: null });
+    expect(m.ci?.step.k).toBe(k);
   });
 
   // Red if the pull request stops using the add's file name, title and exactly its written files (Decision 5).
@@ -202,97 +356,43 @@ describe("repoSheetModel CI steps", () => {
         files: addedAt.written,
       }),
     ]);
+    expect(m.state).toMatchObject({ pr: { url: "https://gh/pr/4" } });
     m.close();
     expect((await m.result).prOpened).toBe("https://gh/pr/4");
   });
 
-  // Red if the add's or the plan's listener stays after its final event: a later gone() would overwrite what happened.
-  it("stops listening once the add and the plan end", async () => {
+  // Red if the result stops carrying where the flow was added, which the row marks In repo from (DEM-59).
+  it("added carries root and file for the row", async () => {
+    const { m } = await lastStepOf({ kind: "setUp" });
+    m.close();
+    expect((await m.result).added).toMatchObject({
+      root: "/r",
+      file: "checkout.json",
+    });
+  });
+
+  // Red if Open pull request is offered on a repo whose CI is not set up.
+  it("opens no pull request when CI is not set up", async () => {
+    const { d, m } = await lastStepOf({ kind: "notSetUp" });
+    await m.openPr();
+    expect(d.prBodies).toEqual([]);
+  });
+
+  // Red if the add's or the CI's listener stays after the sheet ends.
+  it("stops listening once the add ends and when the sheet closes", async () => {
     const { d, m } = await lastStepOf({ kind: "notSetUp" });
     // Premise: the add ended on the last step, not by finishing the sheet.
     expect(m.state.step).toBe("last");
     expect(d.offs.repo).toBe(1);
-    await m.check({});
+    await m.ci?.check({});
     expect(d.offs.ci).toBe(0);
-    d.tellCi({ phase: "done", step: "plan", answer: stopOf({}) });
-    expect(d.offs.ci).toBe(1);
+    // A check runs: the sheet's own close waits for it, as CI setup's does.
+    expect(m.ci?.busy, "premise: the check is running").toBe(true);
     m.close();
-  });
-
-  // Red if the filled holes stop being merged over the draft: a good start blanked, a url hole lost, or an env.X hole dropped.
-  it("keeps the draft's start and merges the url and env holes on the next Check", async () => {
-    const { d, m } = await lastStepOf({ kind: "notSetUp" });
-    await m.check({});
-    d.tellCi({
-      phase: "done",
-      step: "plan",
-      answer: stopOf({
-        reason: "appHoles",
-        proposal: {
-          draft: {
-            appVersion: 1,
-            install: [],
-            start: "pnpm dev",
-            url: null,
-            timeoutSeconds: 60,
-            env: { KEEP: "1" },
-          },
-          source: { kind: "agent" },
-          holes: [
-            { field: "url", why: "no origin" },
-            { field: "env.API_HOST", why: "no value" },
-          ],
-        },
-      }),
-    });
-    // Premise: the draft already has a good start, and it is not a hole.
-    expect(m.proposal?.draft.start).toBe("pnpm dev");
-    expect(m.proposal?.holes.map((h) => h.field)).not.toContain("start");
-    expect(m.state).toMatchObject({
-      ci: { k: "form", stop: { reason: "appHoles" } },
-    });
-    m.holes.url = "http://localhost:3000";
-    m.holes["env.API_HOST"] = "localhost";
-    await m.check({});
-    expect(d.planBodies).toHaveLength(2);
-    expect(d.planBodies[1]).toMatchObject({
-      choices: {
-        app: {
-          start: "pnpm dev",
-          url: "http://localhost:3000",
-          env: { KEEP: "1", API_HOST: "localhost" },
-        },
-        appBy: "person",
-      },
-    });
-  });
-
-  // Red if changing the trigger or route stops marking the plan stale, or a stale plan can still be applied (R16).
-  it("cannot apply a plan after its trigger or route changed", async () => {
-    const { d, m } = await lastStepOf({ kind: "notSetUp" });
-    await m.check({});
-    d.tellCi({
-      phase: "done",
-      step: "plan",
-      answer: { planId: "p1", plan: {}, lines: [] },
-    });
-    expect(m.state).toMatchObject({ ci: { k: "planned", stale: false } });
-    m.markStale();
-    expect(m.state).toMatchObject({ ci: { k: "planned", stale: true } });
-    await m.apply();
-    expect(d.applyBodies).toEqual([]);
-  });
-
-  // Red if a stop other than appHoles/secretMissing stops ending on the stopped step.
-  it("ends on the stop for any other reason", async () => {
-    const { d, m } = await lastStepOf({ kind: "notSetUp" });
-    await m.check({});
-    d.tellCi({
-      phase: "done",
-      step: "plan",
-      answer: stopOf({ reason: "alreadySetUp" }),
-    });
-    expect(m.state).toMatchObject({ ci: { k: "stopped" } });
+    expect(d.offs.ci).toBe(0);
+    // The browser closed the dialog anyway: the sheet settles and stops.
+    m.close(true);
+    expect(d.offs.ci).toBe(1);
   });
 
   // Red if Not now stops resolving without a pull request and toasting that CI is not set up.
@@ -306,71 +406,10 @@ describe("repoSheetModel CI steps", () => {
     expect(m.toast).toBe('Added "Checkout" to the repo. CI is not set up.');
   });
 
-  // Red if a finished job's answer stops showing on reopening instead of offering setup again.
-  it("shows a finished job's result", async () => {
-    const { m } = await lastStepOf({
-      kind: "finished",
-      jobId: "ci-9",
-      step: "plan",
-      answer: stopOf({ reason: "alreadySetUp" }),
-    });
-    expect(m.state).toMatchObject({ ci: { k: "stopped" } });
-  });
-
-  // Red if a plan answered by a job that was not this sheet's (replayed by state) can be applied without a fresh Check.
-  it.each([
-    [{ kind: "running", jobId: "ci-1" }],
-    [
-      {
-        kind: "finished",
-        jobId: "ci-1",
-        step: "plan",
-        answer: { planId: "p0", plan: {}, lines: [] },
-      },
-    ],
-  ] as Array<[CiState]>)("a replayed plan from %j is stale", async (state) => {
-    const { d, m } = await lastStepOf(state);
-    if (state.kind === "running")
-      d.tellCi({
-        phase: "done",
-        step: "plan",
-        answer: { planId: "p0", plan: {}, lines: [] },
-      });
-    expect(m.state).toMatchObject({ ci: { k: "planned", stale: true } });
-    await m.apply();
-    expect(d.applyBodies).toEqual([]);
-    await m.check({});
-    expect(d.planBodies).toHaveLength(1);
-  });
-
-  // Red if a stopped step (live or replayed) cannot lead back to Check.
-  it("Check after an actionsRefused stop sends a new plan", async () => {
-    const live = await lastStepOf({ kind: "notSetUp" });
-    await live.m.check({});
-    live.d.tellCi({
-      phase: "done",
-      step: "plan",
-      answer: stopOf({ reason: "actionsRefused" }),
-    });
-    expect(live.m.state).toMatchObject({ ci: { k: "stopped" } });
-    await live.m.check({});
-    expect(live.d.planBodies).toHaveLength(2);
-
-    const replayed = await lastStepOf({
-      kind: "finished",
-      jobId: "ci-9",
-      step: "plan",
-      answer: stopOf({ reason: "actionsRefused" }),
-    });
-    expect(replayed.m.state).toMatchObject({ ci: { k: "stopped" } });
-    await replayed.m.check({});
-    expect(replayed.d.planBodies).toHaveLength(1);
-  });
-
-  // Red if the sheet's panels show the timings or the refresh's renames.
-  it("leaves timing and rename lines out of its panels", async () => {
+  // Red if the running line shows the timings or the refresh's renames.
+  it("leaves timing and rename lines out of its running line", async () => {
     const d = ciDoor({ kind: "notSetUp" });
-    const m = repoSheetModel(d.args);
+    const m = await opened(d);
     await m.submit();
     d.tell({ phase: "adding", line: "add: exporting docs/a.mp4" });
     d.tell({ phase: "adding", line: "timing run 3.2s" });
@@ -379,20 +418,12 @@ describe("repoSheetModel CI steps", () => {
       step: "running",
       line: "add: exporting docs/a.mp4",
     });
-    d.tell(addedAt);
-    await new Promise((r) => setTimeout(r, 0));
-    await m.check({});
-    for (const line of ["timing export 4s", "Checking", "timing refresh 9s"])
-      d.tellCi({ phase: "progress", line });
-    expect(m.state).toMatchObject({
-      ci: { k: "working", lines: ["Checking"] },
-    });
   });
 
   // Red if the queued line stops matching the export panel's (no "Queued (0)").
   it("says Queued… or how many are ahead", async () => {
     const d = door();
-    const m = repoSheetModel(d.args);
+    const m = await opened(d);
     await m.submit();
     d.tell({ phase: "queued", position: 0 });
     expect(m.state).toEqual({ step: "running", line: "Queued…" });

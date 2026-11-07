@@ -475,6 +475,7 @@
     .pull-requests,
     .export-quality,
     .inspector,
+    .repo-sheet,
     #stage-bar,
     #stage-tools
   )
@@ -494,6 +495,7 @@
     .pull-requests,
     .export-quality,
     .inspector,
+    .repo-sheet,
     #stage-bar,
     #stage-tools
   )
@@ -514,6 +516,7 @@
     .pull-requests,
     .export-quality,
     .inspector,
+    .repo-sheet,
     #stage-bar,
     #stage-tools
   )
@@ -528,6 +531,7 @@
     .pull-requests,
     .export-quality,
     .inspector,
+    .repo-sheet,
     #stage-bar,
     #stage-tools
   )
@@ -1438,4 +1442,22 @@ input:is([type="text"], [type="search"], [type="number"], :not([type])):not(
 }
 [data-studio] .toast > svg {
   color: var(--ok);
+}
+
+/* Set up CI (DEM-52): at the end of the title band, on the title's line. */
+[data-studio] .library > .ci-setup {
+  position: absolute;
+  top: 29px;
+  right: 32px;
+}
+[data-studio] .library > .ci-setup .btn {
+  white-space: nowrap;
+}
+[data-studio] .library > .ci-setup .btn svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+[data-studio] .library > .ci-setup:empty {
+  display: none;
 }

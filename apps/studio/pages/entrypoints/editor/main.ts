@@ -3320,11 +3320,19 @@ function repoState(): RepoState | null {
   };
 }
 
+/** Listing reads asked so far: a read that a newer one overtook is
+ *  dropped, so an older answer cannot paint over a newer one. */
+let repoReads = 0;
+
 async function refreshRepo(): Promise<void> {
   if (platform.folder === undefined) return;
+  const n = ++repoReads;
   const listing = await platform.folder.read();
+  if (n !== repoReads) return;
   const id = listing.videoOf[sceneId]?.videoId;
   const video = listing.videos.find((v) => v.id === id);
+  // No answer from the listing offers Add: the sheet checks, as the
+  // library's does (DEM-47).
   const next =
     id === undefined || video === undefined
       ? null
@@ -3344,7 +3352,7 @@ const unperiod = (text: string): string => text.replace(/\.$/, "");
 
 async function addToRepo(): Promise<void> {
   const flow = repoFlow;
-  if (repoAdding || flow === null || flow.addable?.ok !== true) return;
+  if (repoAdding || flow === null || flow.addable?.ok === false) return;
   repoAdding = true;
   repoStatus = null;
   repoNote = null;
@@ -3353,7 +3361,6 @@ async function addToRepo(): Promise<void> {
   try {
     const done = await openRepoSheet({
       video: { id: flow.video.id, name: flow.video.name },
-      addable: flow.addable,
       repo: platform.videos.repo,
       ci: platform.repoCi,
       reveal: (path) => platform.files.reveal({ kind: "path", path }),

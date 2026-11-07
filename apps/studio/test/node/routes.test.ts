@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmod,
@@ -1234,6 +1234,84 @@ describe("reveal", () => {
     expect(h.revealed).toEqual([]);
   });
 
+  // Red if reveal stops asking what an add wrote (DEM-56: every Reveal on
+  // the add sheet was refused).
+  it("reveal shows a file the add wrote", async () => {
+    const file = join(home, "repo", ".demoman", "flows", "x.json");
+    await mkdir(join(home, "repo", ".demoman", "flows"), { recursive: true });
+    await writeFile(file, "{}");
+    await h.close();
+    h = await startStudio(home, { written: (p) => p === file });
+    const r = await h.call(pathFor("reveal"), {
+      method: "POST",
+      body: JSON.stringify({ path: file }),
+    });
+    expect(r.status, r.text).toBe(200);
+    expect(h.revealed).toEqual([file]);
+  });
+
+  // Red if reveal checks one path and opens another (a `..` through a link).
+  it("reveal opens the path it checked", async () => {
+    const file = join(home, "repo", ".demoman", "flows", "x.json");
+    await mkdir(join(home, "repo", ".demoman", "flows"), { recursive: true });
+    await writeFile(file, "{}");
+    await h.close();
+    h = await startStudio(home, { written: (p) => p === file });
+    const r = await h.call(pathFor("reveal"), {
+      method: "POST",
+      body: JSON.stringify({
+        path: `${home}/repo/x/../.demoman/flows/x.json`,
+      }),
+    });
+    expect(r.status, r.text).toBe(200);
+    expect(h.revealed).toEqual([file]);
+  });
+
+  // Red if the written check lets any path through.
+  it("reveal still refuses a repo file no add wrote", async () => {
+    const wrote = join(home, "repo", "a.json");
+    const other = join(home, "repo", "other.json");
+    await mkdir(join(home, "repo"), { recursive: true });
+    await writeFile(other, "{}");
+    await h.close();
+    h = await startStudio(home, { written: (p) => p === wrote });
+    const r = await h.call(pathFor("reveal"), {
+      method: "POST",
+      body: JSON.stringify({ path: other }),
+    });
+    expect(r.status).toBe(403);
+    expect((r.json() as { reason: string }).reason).toBe("revealRefused");
+    expect(h.revealed).toEqual([]);
+  });
+
+  // Red if a written file that cannot be read says "moved or deleted"
+  // (report before you forgive: only ENOENT is gone).
+  it("a written file stat cannot read is 500 with its error, not gone", async () => {
+    const dir = join(home, "repo", "locked");
+    const file = join(dir, "x.json");
+    await mkdir(dir, { recursive: true });
+    await writeFile(file, "{}");
+    await chmod(dir, 0o000);
+    try {
+      await expect(stat(file), "the fixture refuses a stat").rejects.toThrow(
+        /EACCES/,
+      );
+      await h.close();
+      h = await startStudio(home, { written: (p) => p === file });
+      const r = await h.call(pathFor("reveal"), {
+        method: "POST",
+        body: JSON.stringify({ path: file }),
+      });
+      expect(r.status, r.text).toBe(500);
+      const detail = (r.json() as { detail: string }).detail;
+      expect(detail).toContain("EACCES");
+      expect(detail).not.toContain("moved or deleted");
+      expect(h.revealed).toEqual([]);
+    } finally {
+      await chmod(dir, 0o755);
+    }
+  });
+
   it("open failing is 500 revealRefused with its words, not a 200", async () => {
     await h.close();
     h = await startStudio(home, { revealFails: "Finder said no" });
@@ -1248,6 +1326,130 @@ describe("reveal", () => {
     const body = r.json() as { reason: string; detail: string };
     expect(body.reason).toBe("revealRefused");
     expect(body.detail).toContain("Finder said no");
+  });
+});
+
+describe("repoFolders", () => {
+  const git = (cwd: string, ...args: string[]) =>
+    new Promise<void>((resolve, reject) =>
+      spawn("git", args, { cwd }).on("exit", (code) =>
+        code === 0
+          ? resolve()
+          : reject(new Error(`git ${args.join(" ")}: ${code}`)),
+      ),
+    );
+  let repo: string;
+  beforeEach(async () => {
+    repo = await mkdtemp(join(tmpdir(), "studio-folders-"));
+    await git(repo, "init", "-q");
+  });
+  afterEach(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+  const ask = (root: string) =>
+    h.call(`${pathFor("repoFolders")}?root=${encodeURIComponent(root)}`);
+
+  // Red if the route lists dot folders, unsorted, or not at all (DEM-50's picker).
+  it("folders lists the repo's folders without dot folders", async () => {
+    for (const f of ["docs/demos/a", ".github/x", "src/b"]) {
+      await mkdir(join(repo, f, ".."), { recursive: true });
+      await writeFile(join(repo, f), "x");
+    }
+    await git(repo, "add", "-A");
+    await git(
+      repo,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "-m",
+      "x",
+    );
+    const r = await ask(repo);
+    expect(r.status, r.text).toBe(200);
+    expect(r.json()).toEqual({
+      folders: ["docs", "docs/demos", "src"],
+      more: false,
+    });
+  });
+
+  // Red if git's quoting of a non-ASCII name reaches the picker.
+  it("folders lists a non-ASCII folder by its own name", async () => {
+    await mkdir(join(repo, "vidéos"), { recursive: true });
+    await writeFile(join(repo, "vidéos", "a"), "x");
+    await git(repo, "add", "-A");
+    await git(
+      repo,
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit",
+      "-q",
+      "-m",
+      "x",
+    );
+    const r = await ask(repo);
+    expect(r.status, r.text).toBe(200);
+    expect(r.json()).toEqual({ folders: ["vidéos"], more: false });
+  });
+
+  // Red if git's output past execFile's 1 MB default fails the picker
+  // instead of listing the first 500.
+  it("folders of a repo whose listing passes 1 MB lists the first 500", async () => {
+    const run = (args: string[], input?: string) =>
+      execFileSync("git", args, {
+        cwd: repo,
+        input,
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      }).trim();
+    const empty = run(["mktree"], "");
+    const names = Array.from(
+      { length: 5000 },
+      (_, i) => `${String(i).padStart(5, "0")}${"d".repeat(240)}`,
+    );
+    const tree = run(
+      ["mktree"],
+      names.map((n) => `040000 tree ${empty}\t${n}\n`).join(""),
+    );
+    const commit = run([
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@t",
+      "commit-tree",
+      tree,
+      "-m",
+      "x",
+    ]);
+    run(["update-ref", "HEAD", commit]);
+    const listing = run(["ls-tree", "-r", "-d", "-z", "--name-only", "HEAD"]);
+    expect(listing.length, "the fixture passes 1 MB").toBeGreaterThan(
+      1024 * 1024,
+    );
+    const r = await ask(repo);
+    expect(r.status, r.text).toBe(200);
+    const body = r.json() as { folders: string[]; more: boolean };
+    expect(body.folders).toEqual(names.slice(0, 500));
+    expect(body.more).toBe(true);
+  });
+
+  // Red if a git failure answers an empty list, which reads as "no folders".
+  it("folders of a repo with no commits is 409 repoFoldersUnreadable", async () => {
+    const r = await ask(repo);
+    expect(r.status).toBe(409);
+    const body = r.json() as { reason: string; detail: string };
+    expect(body.reason).toBe("repoFoldersUnreadable");
+    expect(body.detail.length).toBeGreaterThan(0);
+  });
+
+  it("folders of a relative root is 400 repoBodyInvalid", async () => {
+    const r = await ask("relative/dir");
+    expect(r.status).toBe(400);
+    expect((r.json() as { reason: string }).reason).toBe("repoBodyInvalid");
   });
 });
 
@@ -1307,6 +1509,7 @@ describe("which flows can be added", () => {
     name: string,
     id: string,
     edit: (d: SceneDocument) => SceneDocument = (d) => d,
+    keyless = false,
   ): Promise<string> {
     const { scene } = await seedTake(home, { id });
     const library = createLibrary(home);
@@ -1319,14 +1522,14 @@ describe("which flows can be added", () => {
     const store = createVideoStore(home, library);
     const made = await store.create({
       name,
-      repo: { key: read.repo.key },
+      repo: keyless ? { none: "test" } : { key: read.repo.key },
       startPage: scene.meta.capture.originUrl,
     });
     if (!made.ok) throw new Error(JSON.stringify(made));
     await store.join(id, {
       videoId: made.video.id,
       made: {
-        repo: read.repo,
+        repo: keyless ? { none: "test" } : read.repo,
         agent: { none: "test" },
         by: { none: "test" },
         door: "mcp",
@@ -1340,24 +1543,27 @@ describe("which flows can be added", () => {
     edits: { ...d.edits, trim: { tail: { actionId: "act-3", offsetMs: 0 } } },
   });
 
-  // Red if takes() stops filling addable, or fills it with ok for every flow.
-  it("the listing says, per flow, whether it can be added", async () => {
+  // Red if the listing runs the add check again (DEM-47: 3.6–5.6 s on a real
+  // library), or stops answering a flow with no repo.
+  it("the listing answers only what needs no git: a keyless flow", async () => {
     const plain = await flow("Plain", "add-plain");
     const cut = await flow("Cut", "add-cut", trimmed);
+    const loose = await flow("Loose", "add-loose", (d) => d, true);
     const body = (await h
       .call(pathFor("takes"))
       .then((r) => r.json())) as TakesAnswer;
-    // The suite's own loose take is a third video, joined by the listing.
-    expect(Object.keys(body.addable)).toEqual(
-      expect.arrayContaining([cut, plain]),
-    );
-    expect(body.videos.length).toBe(Object.keys(body.addable).length);
-    expect(body.addable[plain]).toMatchObject({ ok: true, root: rootOf });
-    expect(body.addable[cut]).toMatchObject({
+    expect(body.addable[loose]).toMatchObject({
       ok: false,
-      reason: "notCarried",
-      label: "has a trim",
+      reason: "noCheckout",
+      label: "not in a repo",
     });
+    expect(plain in body.addable).toBe(false);
+    expect(cut in body.addable).toBe(false);
+    // Premise: the check, asked for the one flow, still has a trim to refuse.
+    const one = (await h
+      .call(pathFor("repoAddable", { id: cut }))
+      .then((r) => r.json())) as Addable;
+    expect(one).toMatchObject({ ok: false, label: "has a trim" });
   });
 
   // Red if repoAddable answers from the listing's cache or ignores the saved scene.
@@ -1388,7 +1594,7 @@ describe("which flows can be added", () => {
   });
 
   // Red if the listing decides from the record's mark instead of keptOf's answer (the row's).
-  it("an In repo flow skips the add check; a stale mark is checked", async () => {
+  it("a flow in a checkout has no entry, In repo or with a stale mark", async () => {
     const here = await flow("Here", "add-here", trimmed);
     const moved = await flow("Moved", "add-moved");
     const lost = await flow("Lost", "add-lost");
@@ -1435,28 +1641,31 @@ describe("which flows can be added", () => {
     expect(kept(here)).toMatchObject({ root: repo });
     expect(kept(moved)).toBeNull();
     expect(kept(lost)).toBeNull();
-    // Red if an In repo flow still runs checkAddable (its trim would say so).
+    // No flow in a checkout gets an entry, in the repo or not: the sheet
+    // checks the one it opens for.
     expect(here in body.addable).toBe(false);
-    expect(body.addable[moved]).toMatchObject({ ok: true, root: rootOf });
-    expect(body.addable[lost]).toMatchObject({ ok: true, root: repo });
+    expect(moved in body.addable).toBe(false);
+    expect(lost in body.addable).toBe(false);
   });
 
   // Red if the listing adds an addable entry for a record that will not read.
   it("a video that will not read has no addable entry", async () => {
-    const plain = await flow("Plain", "add-plain");
-    const broken = await flow("Broken", "add-broken");
+    const plain = await flow("Plain", "add-plain", (d) => d, true);
+    const broken = await flow("Broken", "add-broken", (d) => d, true);
     await writeFile(join(home, "videos", `${broken}.json`), "{ not json");
     const body = (await h
       .call(pathFor("takes"))
       .then((r) => r.json())) as TakesAnswer;
     expect(body.unreadable.some((u) => u.folder === broken)).toBe(true);
-    expect(body.addable[plain]?.ok).toBe(true);
+    expect(body.addable[plain]?.ok).toBe(false);
     expect(broken in body.addable).toBe(false);
   });
 
-  // Red if the listing builds a cache per flow: accounts.json is read per flow.
-  it("three flows in one checkout read its accounts.json once", async () => {
-    for (const n of ["a", "b", "c"]) await flow(`Flow ${n}`, `add-${n}`);
+  // Red if the listing reads a checkout's files for its flows again.
+  it("the listing reads no accounts.json for flows in a checkout", async () => {
+    const ids: string[] = [];
+    for (const n of ["a", "b", "c"])
+      ids.push(await flow(`Flow ${n}`, `add-${n}`));
     await mkdir(join(repo, ".demoman"));
     await writeFile(join(repo, ".demoman", "accounts.json"), "{}");
     const fsp = (await import("node:fs/promises")).default;
@@ -1469,15 +1678,22 @@ describe("which flows can be added", () => {
       return (real as (...a: unknown[]) => unknown)(path, ...rest);
     }) as typeof real;
     syncBuiltinESMExports();
+    let listed: number;
+    let asked: number;
     try {
       const body = (await h
         .call(pathFor("takes"))
         .then((r) => r.json())) as TakesAnswer;
-      expect(Object.keys(body.addable).length).toBeGreaterThanOrEqual(3);
+      expect(body.videos.length).toBeGreaterThanOrEqual(3);
+      listed = reads.filter((p) => p.endsWith("accounts.json")).length;
+      // Premise: the patch sees the check's read when it is asked.
+      await h.call(pathFor("repoAddable", { id: ids[0] as string }));
+      asked = reads.filter((p) => p.endsWith("accounts.json")).length - listed;
     } finally {
       fsp.readFile = real;
       syncBuiltinESMExports();
     }
-    expect(reads.filter((p) => p.endsWith("accounts.json")).length).toBe(1);
+    expect(listed).toBe(0);
+    expect(asked).toBe(1);
   });
 });

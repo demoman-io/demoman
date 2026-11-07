@@ -110,6 +110,7 @@ vi.mock("#platform", async (importOriginal) => {
     videos: {
       rename: async () => {},
       repo: {
+        folders: async () => ({ folders: [], more: false }),
         addable: async () => ({
           ok: false,
           reason: "noCheckout",

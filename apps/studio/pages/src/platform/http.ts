@@ -31,6 +31,7 @@ import {
   type PullRequestsAnswer,
   pathFor,
   type RepoAddStarted,
+  type RepoFoldersAnswer,
   type RepoRemoveAnswer,
   ROUTES,
   type RouteId,
@@ -818,6 +819,11 @@ export function createPlatform(
         async addable(id) {
           return answer<Addable>(
             await request("repoAddable", { params: { id } }),
+          );
+        },
+        async folders(root) {
+          return answer<RepoFoldersAnswer>(
+            await request("repoFolders", { query: { root } }),
           );
         },
         async add(id, body) {

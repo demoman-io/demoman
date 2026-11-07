@@ -1,5 +1,4 @@
 import { stat } from "node:fs/promises";
-import { keptFileName } from "@demoman/run-core";
 import type { AccountsFound } from "./accounts.js";
 import { type KeepRefusal, vetForAdd } from "./keep.js";
 import type { Library } from "./library.js";
@@ -45,6 +44,29 @@ export async function checkoutOf(
   return { root: repo.root };
 }
 
+/** The one answer that needs no git: a flow recorded with no repo. The
+ *  Studio's listing asks only this; `checkAddable` asks it first. */
+export function notInRepo(
+  video: VideoRecord,
+): Extract<Addable, { ok: false }> | null {
+  if ("key" in video.repo) return null;
+  return {
+    ok: false,
+    reason: "noCheckout",
+    label: "not in a repo",
+    detail: `"${video.name}" has no checkout to add to: it was recorded outside a git repo`,
+  };
+}
+
+/** A video file's name from the flow's, its words as written: "Filter
+ *  invoices" is filter-invoices. The recipe's name (`keptFileName`) still
+ *  drops stop words and a trailing s, so flows already in repos keep theirs. */
+export const videoSlug = (name: string): string =>
+  name
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "") || "video";
+
 /** Whether `video` can be added to its repo; the Studio's button and
  *  `demoman add` both ask here. */
 export async function checkAddable(
@@ -61,6 +83,8 @@ export async function checkAddable(
   },
 ): Promise<Addable> {
   const { video } = a;
+  const none = notInRepo(video);
+  if (none !== null) return none;
   const where = await checkoutOf(video, deps.videos, (dir) => {
     let read = deps.repos?.get(dir);
     if (read === undefined) {
@@ -86,6 +110,6 @@ export async function checkAddable(
   return {
     ok: true,
     root: where.root,
-    defaultPath: `docs/demos/${keptFileName(video.name).replace(/\.json$/, ".mp4")}`,
+    defaultPath: `docs/demos/${videoSlug(video.name)}.mp4`,
   };
 }

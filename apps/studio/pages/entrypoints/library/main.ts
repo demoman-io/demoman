@@ -4,8 +4,10 @@ import type { FrameBundle } from "@demoman/compositor";
 import type { SceneDocument } from "@demoman/scene-schema";
 import {
   type Addable,
+  type CiState,
   DEFAULT_LIBRARY_VIEW,
   type LibraryViewChoice,
+  type VideoSummary,
 } from "@demoman/studio-protocol";
 import { createPlatform } from "#platform";
 import { editedLength } from "../../src/library/length";
@@ -43,12 +45,15 @@ import {
 import {
   applySelection,
   type LibraryActions,
+  paintCiSlot,
   type RowKind,
   renderLibrary,
   statusKey,
   unreadableKind,
 } from "../../src/library/view";
+import type { FolderListing } from "../../src/platform/types";
 import { takeNote, VIDEO_DELETED } from "../../src/shell/carried-note";
+import { openCiSheet } from "../../src/shell/ci-sheet";
 import {
   askToConfirm,
   type ConfirmQuestion,
@@ -62,6 +67,7 @@ import { createRefresher } from "../../src/shell/refresher";
 import {
   messageOf,
   openRepoSheet,
+  type RepoSheetResult,
   removedLine,
   removeQuestion,
 } from "../../src/shell/repo-sheet";
@@ -449,6 +455,22 @@ async function paintFresh({ keepNotice = false } = {}): Promise<void> {
   if (!keepNotice) clearNotice();
   // Both at once; the first paint still draws the view served.
   const [, studio] = await Promise.all([viewRead, platform.folder.read()]);
+  paintListing(studio);
+}
+
+/** The listing the page last painted: an add marks its flow In repo in it
+ *  at once (DEM-59), before the next read says so. */
+let lastListing: FolderListing | null = null;
+
+/** Flows an add here marked In repo, as its answer said, until a read
+ *  shows the mark: a read that began before the mark landed would
+ *  otherwise paint the flow Not in repo again (DEM-59). */
+const markedHere = new Map<string, Kept>();
+type Kept = Extract<VideoSummary["kept"], { root: string }>;
+
+function paintListing(read: FolderListing): void {
+  const studio = withMarks(read);
+  lastListing = studio;
   const listed = studio.scenes;
   scenesById = new Map(listed.map((scene) => [scene.meta.id, scene]));
   const model = buildLibraryModel({
@@ -469,6 +491,24 @@ async function paintFresh({ keepNotice = false } = {}): Promise<void> {
   paint(model);
 }
 
+/** The listing with each add's own mark on it; a mark the read already
+ *  shows is dropped from `markedHere`. */
+function withMarks(read: FolderListing): FolderListing {
+  if (markedHere.size === 0) return read;
+  return {
+    ...read,
+    videos: read.videos.map((v) => {
+      const mark = markedHere.get(v.id);
+      if (mark === undefined) return v;
+      if (v.kept !== null) {
+        markedHere.delete(v.id);
+        return v;
+      }
+      return { ...v, kept: mark, addedTo: mark.key };
+    }),
+  };
+}
+
 /** Whether each flow can be added to its repo, as the last listing said. */
 let addables: Record<string, Addable> = {};
 /** The flows whose add is under way in this window: their button says so
@@ -482,21 +522,22 @@ const unperiod = (text: string): string => text.replace(/\.$/, "");
 async function addToRepo(id: string): Promise<void> {
   const can = addables[id];
   const flow = lastModel?.groups?.find((g) => g.video.id === id);
-  if (addingNow.has(id) || can === undefined || !can.ok || flow === undefined) {
-    return;
-  }
+  // No answer from the listing offers Add: the sheet checks (DEM-47).
+  if (addingNow.has(id) || can?.ok === false || flow === undefined) return;
   const key = statusKey("video", id);
   rowStatus.delete(key);
   addingNow.add(id);
-  await render().catch((error: unknown) => reportError("adding it", error));
+  // The row's button says so now; the sheet opens without a read (DEM-47).
+  repaint();
+  let added: RepoSheetResult["added"] = null;
   try {
     const done = await openRepoSheet({
       video: { id, name: flow.video.name },
-      addable: can,
       repo: platform.videos.repo,
       ci: platform.repoCi,
       reveal: (path) => platform.files.reveal({ kind: "path", path }),
     });
+    added = done.added;
     if (done.failed !== undefined) {
       rowStatus.set(key, `Couldn't add: ${unperiod(done.failed)}.`);
     }
@@ -506,7 +547,83 @@ async function addToRepo(id: string): Promise<void> {
   } finally {
     addingNow.delete(id);
   }
-  await render().catch((error: unknown) => reportError("adding it", error));
+  // In repo from the add's own answer (DEM-59); the read confirms it.
+  if (added !== null) ciStates.delete(added.root);
+  // Only an add the library marked: a failed mark's note says it will not
+  // show In repo, and the read says what is true.
+  if (added?.marked === true && lastListing !== null) {
+    const { root, file, deliver, key } = added;
+    markedHere.set(id, { root, file, deliver, key });
+    paintListing(lastListing);
+  } else repaint();
+  void render().catch((error: unknown) => reportError("adding it", error));
+}
+
+/** Each checkout's CI state, read once per page load, read again after a
+ *  CI sheet closes or an add lands. "reading" while the read is out. */
+const ciStates = new Map<string, CiState | "reading">();
+
+/** The checkout a project's flows are in the repo of: the first In repo
+ *  flow's. Null when none of its flows is. */
+function rootOf(project: string): string | null {
+  for (const v of lastListing?.videos ?? []) {
+    const kept = v.kept;
+    if (kept === null || "unknown" in kept) continue;
+    const key = kept.key ?? ("key" in v.repo ? v.repo.key : null);
+    if (key === project) return kept.root;
+  }
+  return null;
+}
+
+/** Set up CI beside a project's heading (DEM-52): offered for a project
+ *  with a flow in the repo whose CI is anything but set up. A state that
+ *  will not read still offers it, and the sheet says why. */
+function ciSetupFor(p: Place): (() => void) | null {
+  if (typeof p !== "object") return null;
+  const root = rootOf(p.project);
+  if (root === null) return null;
+  const st = ciStates.get(root);
+  if (st === undefined) {
+    ciStates.set(root, "reading");
+    platform.repoCi
+      .state(root)
+      .then(
+        (got) => ciStates.set(root, got),
+        (error: unknown) =>
+          ciStates.set(root, { kind: "unreadable", detail: messageOf(error) }),
+      )
+      .finally(paintCi);
+    return null;
+  }
+  if (st === "reading" || st.kind === "setUp") return null;
+  return () => void openCi(root, p.project);
+}
+
+async function openCi(root: string, project: string): Promise<void> {
+  try {
+    await openCiSheet({
+      root,
+      name: project.split("/").slice(1).join("/") || project,
+      ci: platform.repoCi,
+    });
+  } catch (error) {
+    reportError("opening CI setup", error);
+  }
+  ciStates.delete(root);
+  paintCi();
+}
+
+/** The header's Set up CI slot alone, from the CI states as they are now. */
+function paintCi(): void {
+  const slot = root.querySelector<HTMLElement>("[data-ci-slot]");
+  if (slot !== null && place !== null && typeof place === "object") {
+    paintCiSlot(slot, ciSetupFor(place));
+  }
+}
+
+/** Paints the last listing again: a row's state changed, the folder did not. */
+function repaint(): void {
+  if (lastListing !== null) paintListing(lastListing);
 }
 
 /** Remove from repo: asks, names the recipe that goes and the exports that
@@ -963,6 +1080,7 @@ const actions: LibraryActions = {
     add: (id) => void addToRepo(id),
     remove: (id) => void removeFromRepo(id),
   },
+  ciSetup: (p) => ciSetupFor(p),
   remove: (sceneId: string, kind: RowKind): void => {
     // The run in flight owns the deletes; a second dialog over it would
     // race its list.

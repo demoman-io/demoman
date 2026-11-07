@@ -1,5 +1,5 @@
 import type { SceneDocument } from "@demoman/scene-schema";
-import type { Addable, VideoSummary } from "@demoman/studio-protocol";
+import type { Addable, CiState, VideoSummary } from "@demoman/studio-protocol";
 import { page, userEvent } from "@vitest/browser/context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import libraryHtml from "../../../pages/entrypoints/library/index.html?raw";
@@ -52,6 +52,14 @@ const video = (id: string, name: string, extra: object = {}): VideoSummary =>
   }) as unknown as VideoSummary;
 
 const OK: Addable = { ok: true, root: "/r", defaultPath: "docs/demos/c.mp4" };
+/** The listing's one answer (DEM-47): a flow recorded with no repo. */
+const LOOSE: Addable = {
+  ok: false,
+  reason: "noCheckout",
+  label: "not in a repo",
+  detail:
+    '"Signup" has no checkout to add to: it was recorded outside a git repo',
+};
 const NO: Addable = {
   ok: false,
   reason: "hasTrim",
@@ -62,41 +70,54 @@ const NO: Addable = {
 interface Flow {
   id: string;
   name: string;
+  /** What the sheet's check answers; OK unless given. */
   addable?: Addable;
+  /** What the listing says (only a flow with no repo, since DEM-47). */
+  listed?: Addable;
   video?: object;
 }
 
 let memory: MemoryPlatform;
 let runs = 0;
 
-async function mountLibrary(flows: Flow[]): Promise<void> {
+/** The listing a library over `flows` reads, none of them In repo. */
+const listingOf = (flows: Flow[]) => ({
+  scenes: flows.map((f) => scene(`s-${f.id}`, f.name)),
+  videos: flows.map((f) => video(f.id, f.name, f.video)),
+  videoOf: Object.fromEntries(
+    flows.map((f) => [
+      `s-${f.id}`,
+      {
+        videoId: f.id,
+        version: 1,
+        expired: false,
+        exports: [],
+        filmedCode: null,
+      },
+    ]),
+  ),
+  addable: Object.fromEntries(
+    flows.flatMap((f) => (f.listed ? [[f.id, f.listed]] : [])),
+  ),
+  sizes: {},
+  unreadable: [],
+  unwatched: null,
+});
+
+async function mountLibrary(
+  flows: Flow[],
+  /** Before the page loads: doors its first paint reads. */
+  setup?: (m: MemoryPlatform) => void,
+): Promise<void> {
   vi.resetModules();
   document.body.innerHTML = body;
   memory = createMemoryPlatform({ libraryView: CARDS });
   state.memory = memory;
-  memory.answer("folder.read", async () => ({
-    scenes: flows.map((f) => scene(`s-${f.id}`, f.name)),
-    videos: flows.map((f) => video(f.id, f.name, f.video)),
-    videoOf: Object.fromEntries(
-      flows.map((f) => [
-        `s-${f.id}`,
-        {
-          videoId: f.id,
-          version: 1,
-          expired: false,
-          exports: [],
-          filmedCode: null,
-        },
-      ]),
-    ),
-    addable: Object.fromEntries(
-      flows.flatMap((f) => (f.addable ? [[f.id, f.addable]] : [])),
-    ),
-    sizes: {},
-    unreadable: [],
-    unwatched: null,
-  }));
+  memory.answer("folder.read", async () => listingOf(flows));
   // A new query string is a new module: the lane keeps modules across tests.
+  memory.videos.repo.addable = async (id) =>
+    flows.find((f) => f.id === id)?.addable ?? OK;
+  setup?.(memory);
   runs += 1;
   await import(
     /* @vite-ignore */ `../../../pages/entrypoints/library/main.ts?run=${runs}`
@@ -114,6 +135,16 @@ const button = (action: string, flow: string): Promise<HTMLButtonElement> =>
 
 const dialog = (): HTMLDialogElement | null =>
   document.querySelector("dialog[open]");
+
+/** The sheet's Add, once its check answered with the form. */
+const addButton = (): Promise<HTMLElement> =>
+  vi.waitFor(() => {
+    const found = document.querySelector<HTMLElement>(
+      "dialog[open] [data-repo-add]",
+    );
+    if (found === null) throw new Error("no form");
+    return found;
+  });
 
 /** How much the element's screenshot differs from its own corner pixel: its
  *  painted ink, so a dimmed glyph reads lower than a full one. */
@@ -158,16 +189,16 @@ for (const scheme of ["light", "dark"] as const) {
     // Red if the disabled button loses aria-disabled, its label or its tooltip, or opens the sheet.
     it("shows a flow that cannot be added as a disabled button with its reason", async () => {
       await mountLibrary([
-        { id: "yes", name: "Checkout", addable: OK },
-        { id: "no", name: "Signup", addable: NO },
+        { id: "yes", name: "Checkout" },
+        { id: "no", name: "Signup", listed: LOOSE },
       ]);
       const off = await button("repo-add", "no");
       const on = await button("repo-add", "yes");
       expect(on.getAttribute("aria-disabled")).toBeNull();
       expect(on.getAttribute("aria-label")).toBe("Add to repo: Checkout");
       expect(off.getAttribute("aria-disabled")).toBe("true");
-      expect(off.getAttribute("aria-label")).toBe("Can't add: has a trim");
-      expect(off.title).toBe(NO.ok ? "" : NO.detail);
+      expect(off.getAttribute("aria-label")).toBe("Can't add: not in a repo");
+      expect(off.title).toBe(LOOSE.ok ? "" : LOOSE.detail);
       off.click();
       await new Promise((r) => setTimeout(r, 100));
       expect(dialog()).toBeNull();
@@ -187,7 +218,7 @@ for (const scheme of ["light", "dark"] as const) {
 
     // Red if the full add stops ending on the toast's words.
     it("adds a flow through the sheet and ends on the toast", async () => {
-      await mountLibrary([{ id: "yes", name: "Checkout", addable: OK }]);
+      await mountLibrary([{ id: "yes", name: "Checkout" }]);
       const sent: unknown[] = [];
       memory.videos.repo.add = async (_id, b) => {
         sent.push(b);
@@ -201,10 +232,12 @@ for (const scheme of ["light", "dark"] as const) {
             fn({
               ...at,
               phase: "added",
+              marked: true,
               file: "c.json",
               written: ["docs/demos/c.mp4"],
               notes: [],
               root: "/r",
+              key: "github.com/o/r",
             } as RepoEvent),
           50,
         );
@@ -216,24 +249,27 @@ for (const scheme of ["light", "dark"] as const) {
         if (d === null) throw new Error("no sheet");
         return d;
       });
+      const folder = await vi.waitFor(() => {
+        const f = sheet.querySelector<HTMLInputElement>("[data-repo-folder]");
+        if (f === null) throw new Error("no form");
+        return f;
+      });
+      expect(folder.value).toBe("docs/demos");
       expect(
-        sheet.querySelector<HTMLInputElement>("[data-repo-path]")?.value,
-      ).toBe("docs/demos/c.mp4");
+        sheet.querySelector<HTMLInputElement>("[data-repo-name]")?.value,
+      ).toBe("c");
       await page.screenshot({ path: `${SHOTS}/sheet-${scheme}.png` });
-      const deliver = sheet.querySelector<HTMLSelectElement>(
-        "[data-repo-deliver]",
-      ) as HTMLSelectElement;
-      await userEvent.selectOptions(deliver, "files");
       await userEvent.click(
-        sheet.querySelector("[data-repo-add]") as HTMLElement,
+        sheet.querySelector('[data-repo-deliver="files"]') as HTMLElement,
       );
+      await userEvent.click(await addButton());
       await vi.waitFor(() => {
         expect(document.querySelector("[data-toast-text]")?.textContent).toBe(
           'Added "Checkout" to the repo',
         );
       });
       expect(sent).toEqual([
-        { path: "docs/demos/c.mp4", deliver: "files", quality: "share" },
+        { path: "c.mp4", deliver: "files", quality: "share" },
       ]);
       expect(dialog()).toBeNull();
     });
@@ -295,7 +331,7 @@ for (const scheme of ["light", "dark"] as const) {
     // Red if the last step's buttons clip instead of scrolling in a short window with many notes.
     it("keeps a long last step's Done inside the dialog by scrolling", async () => {
       await page.viewport(1100, 600);
-      await mountLibrary([{ id: "yes", name: "Checkout", addable: OK }]);
+      await mountLibrary([{ id: "yes", name: "Checkout" }]);
       // A last step with no CI choice, so Done is the way out.
       memory.repoCi.state = async () => ({ kind: "noGh", detail: "No gh." });
       memory.videos.repo.add = async () => ({ jobId: "j1" });
@@ -305,6 +341,7 @@ for (const scheme of ["light", "dark"] as const) {
           videoId: "yes",
           jobId: job,
           phase: "added",
+          marked: true,
           file: "c.json",
           written: ["docs/demos/c.mp4", "docs/demos/c.json"],
           notes: Array.from(
@@ -320,9 +357,7 @@ for (const scheme of ["light", "dark"] as const) {
       await vi.waitFor(() => {
         if (dialog() === null) throw new Error("no sheet");
       });
-      await userEvent.click(
-        document.querySelector("[data-repo-add]") as HTMLElement,
-      );
+      await userEvent.click(await addButton());
       const done = await vi.waitFor(() => {
         const d = document.querySelector<HTMLElement>("[data-repo-done]");
         if (d === null) throw new Error("no last step");
@@ -353,7 +388,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
 
   // Red if a failed add toasts, or stops saying its sentence on the row's status line.
   it("puts a failed add on the row's status line and shows no toast", async () => {
-    await mountLibrary([{ id: "yes", name: "Checkout", addable: OK }]);
+    await mountLibrary([{ id: "yes", name: "Checkout" }]);
     memory.videos.repo.add = async () => ({ jobId: "j1" });
     memory.videos.repo.onRepo = (job, fn) => {
       setTimeout(
@@ -374,9 +409,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
     await vi.waitFor(() => {
       if (dialog() === null) throw new Error("no sheet");
     });
-    await userEvent.click(
-      document.querySelector("[data-repo-add]") as HTMLElement,
-    );
+    await userEvent.click(await addButton());
     await vi.waitFor(() => {
       expect(
         document.querySelector('[data-row="s-yes"] [data-status]')?.textContent,
@@ -388,7 +421,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
 
   // Red if a refusal after the click stops landing on the row's status line.
   it("says a refused add on the row's status line", async () => {
-    await mountLibrary([{ id: "yes", name: "Checkout", addable: OK }]);
+    await mountLibrary([{ id: "yes", name: "Checkout" }]);
     memory.videos.repo.add = async () => {
       throw new Error("That flow is being added.");
     };
@@ -396,9 +429,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
     await vi.waitFor(() => {
       if (dialog() === null) throw new Error("no sheet");
     });
-    await userEvent.click(
-      document.querySelector("[data-repo-add]") as HTMLElement,
-    );
+    await userEvent.click(await addButton());
     await vi.waitFor(() => {
       expect(
         document.querySelector('[data-row="s-yes"] [data-status]')?.textContent,
@@ -410,7 +441,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
 
   // Red if a running add stops disabling its button, or a second press adds again.
   it("guards a running add: disabled button, one add, Escape inert", async () => {
-    await mountLibrary([{ id: "yes", name: "Checkout", addable: OK }]);
+    await mountLibrary([{ id: "yes", name: "Checkout" }]);
     const adds: unknown[] = [];
     memory.videos.repo.add = async (_id, b) => {
       adds.push(b);
@@ -426,9 +457,7 @@ describe("a failed add, a refused one and Remove from repo", () => {
     await vi.waitFor(() => {
       if (dialog() === null) throw new Error("no sheet");
     });
-    await userEvent.click(
-      document.querySelector("[data-repo-add]") as HTMLElement,
-    );
+    await userEvent.click(await addButton());
     await vi.waitFor(() => {
       if (document.querySelector("[data-repo-line]") === null) {
         throw new Error("not running");
@@ -460,5 +489,301 @@ describe("a failed add, a refused one and Remove from repo", () => {
     });
     expect(dialog()).toBeNull();
     expect(document.querySelector("[data-toast]")).toBeNull();
+  });
+
+  // Red if the row hides Add from a flow the listing no longer checks (DEM-47).
+  it("a flow the listing did not check offers Add", async () => {
+    await mountLibrary([{ id: "yes", name: "Checkout" }]);
+    const on = await button("repo-add", "yes");
+    expect(on.getAttribute("aria-disabled")).toBeNull();
+    expect(on.getAttribute("aria-label")).toBe("Add to repo: Checkout");
+  });
+
+  // Red if Add waits for the library to be read again before its sheet opens (DEM-47: 4–6 s).
+  it("the sheet opens before the listing is read again", async () => {
+    await mountLibrary([{ id: "yes", name: "Checkout" }]);
+    const reads = { n: 0 };
+    memory.answer("folder.read", () => {
+      reads.n += 1;
+      return new Promise(() => {});
+    });
+    (await button("repo-add", "yes")).click();
+    await vi.waitFor(() => {
+      if (dialog() === null) throw new Error("no sheet");
+    });
+    // Premise: had the press read the library first, it would still wait.
+    expect(reads.n).toBe(0);
+  });
+
+  // Red if a second press while the sheet checks opens a second sheet.
+  it("a second press while the sheet checks opens nothing", async () => {
+    await mountLibrary([{ id: "yes", name: "Checkout" }]);
+    memory.videos.repo.addable = () => new Promise(() => {});
+    (await button("repo-add", "yes")).click();
+    await vi.waitFor(() => {
+      if (dialog() === null) throw new Error("no sheet");
+    });
+    (await button("repo-add", "yes")).click();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(document.querySelectorAll("dialog[open]")).toHaveLength(1);
+  });
+
+  // Red if a check that refuses is not said on the row once the sheet closes.
+  it("a refused check is said in the sheet and on the row", async () => {
+    await mountLibrary([{ id: "yes", name: "Checkout", addable: NO }]);
+    (await button("repo-add", "yes")).click();
+    const said = await vi.waitFor(() => {
+      const p = document.querySelector("dialog[open] [data-repo-refused]");
+      if (p === null) throw new Error("no refusal");
+      return p;
+    });
+    expect(said.textContent).toContain("has a trim");
+    await userEvent.click(
+      document.querySelector("dialog[open] [data-repo-cancel]") as HTMLElement,
+    );
+    await vi.waitFor(() => {
+      expect(
+        document.querySelector('[data-row="s-yes"] [data-status]')?.textContent,
+      ).toBe(
+        "Couldn't add: has a trim. This flow has a trim, which a repo flow cannot carry.",
+      );
+    });
+  });
+
+  // Red if a mark the library refused is painted as In repo (report before
+  // you forgive: the add's own note says it will not show).
+  it("an add whose mark failed does not show In repo", async () => {
+    await mountLibrary([{ id: "yes", name: "Checkout" }]);
+    memory.repoCi.state = async () => ({ kind: "noGh", detail: "No gh." });
+    memory.videos.repo.add = async () => ({ jobId: "j1" });
+    memory.videos.repo.onRepo = (job, fn) => {
+      setTimeout(
+        () =>
+          fn({
+            type: "repo",
+            videoId: "yes",
+            jobId: job,
+            phase: "added",
+            file: ".demoman/flows/c.json",
+            written: ["docs/demos/c.mp4"],
+            notes: ["the library could not mark it"],
+            marked: false,
+            root: "/r",
+          } as RepoEvent),
+        20,
+      );
+      return () => {};
+    };
+    (await button("repo-add", "yes")).click();
+    await userEvent.click(await addButton());
+    memory.answer("folder.read", () => new Promise(() => {}));
+    const done = await vi.waitFor(() => {
+      const d = document.querySelector<HTMLElement>("[data-repo-done]");
+      if (d === null) throw new Error("no last step");
+      return d;
+    });
+    await userEvent.click(done);
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.querySelector('[data-row="s-yes"] [data-kept]')).toBeNull();
+  });
+
+  // Red if a read that began before the mark landed paints the flow Not in
+  // repo again after the add's own In repo (DEM-59).
+  it("a read from before the mark does not take In repo away", async () => {
+    const flows = [{ id: "yes", name: "Checkout" }];
+    await mountLibrary(flows);
+    memory.repoCi.state = async () => ({ kind: "noGh", detail: "No gh." });
+    memory.videos.repo.add = async () => ({ jobId: "j1" });
+    memory.videos.repo.onRepo = (job, fn) => {
+      setTimeout(
+        () =>
+          fn({
+            type: "repo",
+            videoId: "yes",
+            jobId: job,
+            phase: "added",
+            file: ".demoman/flows/c.json",
+            written: ["docs/demos/c.mp4"],
+            notes: [],
+            marked: true,
+            root: "/r",
+            key: "github.com/o/r",
+          } as RepoEvent),
+        20,
+      );
+      return () => {};
+    };
+    (await button("repo-add", "yes")).click();
+    await userEvent.click(await addButton());
+    // Every read from here answers as if the mark had not landed yet.
+    let stale = 0;
+    memory.answer("folder.read", async () => {
+      stale += 1;
+      return listingOf(flows);
+    });
+    const done = await vi.waitFor(() => {
+      const d = document.querySelector<HTMLElement>("[data-repo-done]");
+      if (d === null) throw new Error("no last step");
+      return d;
+    });
+    await userEvent.click(done);
+    await vi.waitFor(() =>
+      expect(stale, "a stale read landed").toBeGreaterThan(0),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(
+      document.querySelector('[data-row="s-yes"] [data-kept]'),
+      "In repo still shows",
+    ).not.toBeNull();
+  });
+
+  // Red if In repo waits for the listing to come back after an add (DEM-59).
+  it("In repo shows as soon as the sheet closes after an add", async () => {
+    await mountLibrary([{ id: "yes", name: "Checkout" }]);
+    // A last step with no CI choice, so Done is the way out.
+    memory.repoCi.state = async () => ({ kind: "noGh", detail: "No gh." });
+    memory.videos.repo.add = async () => ({ jobId: "j1" });
+    memory.videos.repo.onRepo = (job, fn) => {
+      setTimeout(
+        () =>
+          fn({
+            type: "repo",
+            videoId: "yes",
+            jobId: job,
+            phase: "added",
+            file: ".demoman/flows/c.json",
+            written: ["docs/demos/c.mp4"],
+            notes: [],
+            marked: true,
+            root: "/r",
+            key: "github.com/o/r",
+          } as RepoEvent),
+        20,
+      );
+      return () => {};
+    };
+    // Premise: before the add, the row is not In repo.
+    expect(document.querySelector('[data-row="s-yes"] [data-kept]')).toBeNull();
+    (await button("repo-add", "yes")).click();
+    await userEvent.click(await addButton());
+    // From here the listing never answers again.
+    memory.answer("folder.read", () => new Promise(() => {}));
+    const done = await vi.waitFor(() => {
+      const d = document.querySelector<HTMLElement>("[data-repo-done]");
+      if (d === null) throw new Error("no last step");
+      return d;
+    });
+    await userEvent.click(done);
+    await vi.waitFor(() => {
+      expect(
+        document.querySelector('[data-row="s-yes"] [data-kept]'),
+      ).not.toBeNull();
+    });
+  });
+});
+
+describe("Set up CI beside a project's heading", () => {
+  beforeEach(() => mountShell("dark", css));
+  afterEach(() => history.replaceState(null, "", "/"));
+  const KEY = "github.com/acme/web";
+  const inRepo = {
+    id: "in",
+    name: "Checkout",
+    video: {
+      repo: { key: KEY },
+      kept: {
+        file: ".demoman/flows/c.json",
+        root: "/r",
+        deliver: "commit",
+        key: KEY,
+      },
+    },
+  };
+  async function mountAt(place: string, state: () => Promise<CiState>) {
+    history.replaceState(null, "", `/?project=${encodeURIComponent(place)}`);
+    const asked: string[] = [];
+    await mountLibrary([inRepo], (m) => {
+      m.repoCi.state = async (root) => {
+        asked.push(root);
+        return state();
+      };
+    });
+    return asked;
+  }
+  const ciButton = () => document.querySelector<HTMLElement>("[data-ci-setup]");
+
+  // Red if a project with a flow in the repo and no CI offers no way in (DEM-52).
+  it("a project with a flow in the repo and no CI offers Set up CI", async () => {
+    const asked = await mountAt(KEY, async () => ({ kind: "notSetUp" }));
+    const b = await vi.waitFor(() => {
+      const found = ciButton();
+      if (found === null) throw new Error("no Set up CI");
+      return found;
+    });
+    expect(b.textContent).toBe("Set up CI");
+    expect(asked).toContain("/r");
+    b.click();
+    const sheet = await vi.waitFor(() => {
+      const d = document.querySelector("dialog[open][data-ci-sheet]");
+      if (d === null) throw new Error("no CI sheet");
+      return d;
+    });
+    expect(sheet.textContent).toContain("acme/web");
+  });
+
+  // Red if a CI state arriving repaints the whole list for one button.
+  it("a CI state that arrives paints the button and leaves the rows", async () => {
+    let answer = (_s: CiState) => {};
+    await mountAt(
+      KEY,
+      () =>
+        new Promise<CiState>((r) => {
+          answer = r;
+        }),
+    );
+    const row = await vi.waitFor(() => {
+      const found = document.querySelector('[data-row="s-in"]');
+      if (found === null) throw new Error("no row");
+      return found;
+    });
+    expect(ciButton(), "premise: no button while the state reads").toBeNull();
+    answer({ kind: "notSetUp" });
+    await vi.waitFor(() => {
+      if (ciButton() === null) throw new Error("no Set up CI");
+    });
+    expect(row.isConnected, "the row drawn before is the row shown").toBe(true);
+  });
+
+  // Red if a repo already set up is offered setup again.
+  it("a set-up repo offers no button", async () => {
+    let answered = false;
+    const asked = await mountAt(KEY, async () => {
+      answered = true;
+      return { kind: "setUp" };
+    });
+    await vi.waitFor(() => expect(answered).toBe(true));
+    // The read's answer is painted on the task after it: no clock involved.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(asked).toContain("/r");
+    expect(ciButton()).toBeNull();
+  });
+
+  // Red if a failed state read hides the way in (it would read as set up).
+  it("a CI state that cannot be read still offers Set up CI", async () => {
+    await mountAt(KEY, async () => {
+      throw new Error("gh died");
+    });
+    await vi.waitFor(() => {
+      if (ciButton() === null) throw new Error("no Set up CI");
+    });
+  });
+
+  // Red if a place that is not one project offers CI setup.
+  it("All flows offers no button", async () => {
+    const asked = await mountAt("all", async () => ({ kind: "notSetUp" }));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(asked).toEqual([]);
+    expect(ciButton()).toBeNull();
   });
 });

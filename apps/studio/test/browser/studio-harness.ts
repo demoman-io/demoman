@@ -29,6 +29,15 @@ export interface Studio {
   stop(): Promise<number>;
 }
 
+/** A CI door for lanes that set nothing up: every repo is set up. */
+const SET_UP_CI: StudioCi = {
+  state: async () => ({ kind: "setUp" }),
+  plan: async () => ({ reason: "unused", detail: "not in this lane" }),
+  apply: async () => ({ reason: "unused", detail: "not in this lane" }),
+  openPr: async () => ({ failed: "pr", detail: "not in this lane" }),
+  forget: () => {},
+};
+
 export async function startStudio(
   home: string,
   outDir: string,
@@ -60,7 +69,10 @@ export async function startStudio(
     version: stamp.version,
     headless: true,
     executablePath: chromium.executablePath(),
-    ...(repoCi === undefined ? {} : { repoCi }),
+    // The shipped Studio always has a CI door (apps/cli/src/main.ts); a
+    // lane with nothing to set up gets one whose repos are all set up, so
+    // the library's Set up CI reads an answer rather than a 404.
+    repoCi: repoCi ?? SET_UP_CI,
     log: (line) => logs.push(line),
     // window.ts as it ships; only the launch is wrapped, to hold the
     // context the app window lives in.

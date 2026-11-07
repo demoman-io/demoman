@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, resolve as resolvePath } from "node:path";
 import {
   DEFAULT_EXPORT_QUALITY,
   type FilmedCode,
@@ -20,6 +20,7 @@ import {
   keyKeptMarks,
   type Library,
   LibraryError,
+  notInRepo,
   pidAlive,
   readLeases,
   readLogo,
@@ -44,6 +45,7 @@ import {
   type PullRequestsAnswer,
   type PullRequestsChoice,
   type Refusal,
+  type RepoFoldersAnswer,
   type SceneAnswer,
   type ScenePutAnswer,
   type StudioReason,
@@ -105,6 +107,9 @@ const refuse = (
   return { status, json: body };
 };
 
+/** The most folders `repoFolders` answers. */
+const FOLDERS_MAX = 500;
+
 /** `open -R`, which shows the file selected in a Finder window. */
 export function revealInFinder(path: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -138,6 +143,9 @@ export function createRoutes(o: {
   thumbs: ReturnType<typeof createThumbs>;
   /** Injected by tests; `open -R` otherwise. */
   reveal?: (path: string) => Promise<void>;
+  /** Whether an add wrote `path` while this server ran (the CI jobs'
+   *  record, which `repoPr` also trusts): reveal shows those too. */
+  written?: (path: string) => boolean;
   /** Join loose takes to videos and expire old recordings now, as well as
    *  on each listing: the studio's server starting (spec §5). Off in the
    *  route tests, whose homes are removed under a pass still writing. */
@@ -331,16 +339,6 @@ export function createRoutes(o: {
     const listed: VideoListing[] = [];
     const videoOf: TakesAnswer["videoOf"] = {};
     const addable: Record<string, Addable> = {};
-    // One cache for this listing, so flows in one checkout read its
-    // accounts.json once; never kept across requests.
-    const deps: Parameters<typeof checkAddable>[1] = {
-      videos,
-      library,
-      home,
-      git: execGit,
-      accounts: new Map(),
-      repos: new Map(),
-    };
     const say = (row: UnreadableTake): void => {
       unreadable.push(row);
       log(`studio: ${row.folder}: ${row.reason}`);
@@ -372,15 +370,12 @@ export function createRoutes(o: {
             filmedCode: await filmedCodeOf(version.takeId),
           };
         }
-        // The row shows Add when keptOf says the flow is not in the repo
-        // (its mark may be stale): the same answer decides here. A failed
-        // check leaves the flow listed, with no button.
+        // Only the answer that needs no git (DEM-47: the whole check per
+        // flow cost 3.6–5.6 s a listing). The sheet checks the flow it
+        // opens for, through repoAddable.
         if (summary.kept === null) {
-          try {
-            addable[v.id] = await checkAddable({ video: v }, deps);
-          } catch (error) {
-            log(`studio: flow ${v.id}'s add check: ${messageOf(error)}`);
-          }
+          const none = notInRepo(v);
+          if (none !== null) addable[v.id] = none;
         }
         listed.push({ ...summary, steps });
       } catch (error) {
@@ -1172,7 +1167,31 @@ export function createRoutes(o: {
           "The reveal request named no path.",
         );
       }
-      const listed = await listedOutput(path);
+      // What an add wrote is checked as its resolved path, so that path is
+      // the one shown: never a raw one that leads elsewhere through a link.
+      const wrote = o.written?.(resolvePath(path)) === true;
+      const at = wrote ? resolvePath(path) : path;
+      let listed: "listed" | "unlisted" | "gone";
+      if (wrote) {
+        // Only a missing file is "gone"; EACCES or EIO says what it is.
+        const missing = await stat(at).then(
+          () => null,
+          (error: unknown) => error,
+        );
+        if (
+          missing !== null &&
+          (missing as { code?: unknown }).code !== "ENOENT"
+        ) {
+          return refuse(
+            500,
+            "revealRefused",
+            `${path} could not be read (${messageOf(missing)}).`,
+          );
+        }
+        listed = missing === null ? "listed" : "gone";
+      } else {
+        listed = await listedOutput(path);
+      }
       if (listed === "unlisted") {
         return refuse(
           403,
@@ -1184,7 +1203,7 @@ export function createRoutes(o: {
         return refuse(404, "revealRefused", `${path} was moved or deleted.`);
       }
       try {
-        await reveal(path);
+        await reveal(at);
       } catch (error) {
         return refuse(
           500,
@@ -1193,6 +1212,46 @@ export function createRoutes(o: {
         );
       }
       return json(200, {});
+    },
+
+    async repoFolders(req) {
+      const root = req.query.get("root");
+      if (root === null || !isAbsolute(root)) {
+        return refuse(
+          400,
+          "repoBodyInvalid",
+          "No folders were listed: root is not an absolute path.",
+        );
+      }
+      // -z: names as they are, not quoted the way core.quotePath quotes a
+      // non-ASCII one.
+      const listed = await execGit(
+        ["ls-tree", "-r", "-d", "-z", "--name-only", "HEAD"],
+        root,
+      ).catch((error: unknown) => ({
+        code: -1,
+        stdout: "",
+        stderr: messageOf(error),
+      }));
+      if (listed.code !== 0) {
+        const why =
+          listed.stderr.trim().split("\n")[0] || `git exited ${listed.code}`;
+        return refuse(
+          409,
+          "repoFoldersUnreadable",
+          `The repo's folders could not be listed: ${why}.`,
+        );
+      }
+      const all = listed.stdout
+        .split("\0")
+        .filter((f) => f !== "" && !f.split("/").some((p) => p.startsWith(".")))
+        .sort();
+      // shortcut: 500 folders, a type-ahead route when a repo needs more.
+      const answer: RepoFoldersAnswer = {
+        folders: all.slice(0, FOLDERS_MAX),
+        more: all.length > FOLDERS_MAX,
+      };
+      return json(200, answer);
     },
 
     events: (req) => o.events.handler(req),

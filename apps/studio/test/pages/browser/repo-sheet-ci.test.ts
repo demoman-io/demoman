@@ -113,13 +113,12 @@ let result: Promise<RepoSheetResult>;
 async function openSheet(ci: RepoCiDoor): Promise<HTMLDialogElement> {
   result = openRepoSheet({
     video: { id: "v1", name: "Checkout" },
-    addable: { ok: true, root: "/r", defaultPath: "docs/demos/checkout.mp4" },
     repo: {
+      folders: async () => ({ folders: [], more: false }),
       addable: async () => ({
-        ok: false,
-        reason: "x",
-        label: "x",
-        detail: "x",
+        ok: true,
+        root: "/r",
+        defaultPath: "docs/demos/checkout.mp4",
       }),
       add: async () => ({ jobId: "a" }),
       remove: async () => ({ removed: [], exportsLeft: [], notes: [] }),
@@ -130,10 +129,12 @@ async function openSheet(ci: RepoCiDoor): Promise<HTMLDialogElement> {
             videoId: "v1",
             jobId: "a",
             phase: "added",
+            marked: true,
             file: "checkout.json",
             written: WRITTEN,
             notes: [],
             root: "/r",
+            key: null,
           }),
         );
         return () => {};
@@ -146,19 +147,20 @@ async function openSheet(ci: RepoCiDoor): Promise<HTMLDialogElement> {
     if (d === null) throw new Error("no sheet");
     return d;
   });
-  (dialog.querySelector("[data-repo-add]") as HTMLElement).click();
+  (await el<HTMLElement>(dialog, "[data-repo-add]")).click();
   await vi.waitFor(() => {
     if (dialog.querySelector("[data-repo-written]") === null)
       throw new Error("not added yet");
   });
   return dialog;
 }
-const el = <T extends Element>(d: ParentNode, sel: string): Promise<T> =>
-  vi.waitFor(() => {
+function el<T extends Element>(d: ParentNode, sel: string): Promise<T> {
+  return vi.waitFor(() => {
     const found = d.querySelector<T>(sel);
     if (found === null) throw new Error(`no ${sel}`);
     return found;
   });
+}
 const shot = (name: string, scheme: string) =>
   page.screenshot({ path: `${SHOTS}/${name}-${scheme}.png` });
 
@@ -174,6 +176,26 @@ for (const scheme of ["light", "dark"] as const) {
     beforeEach(async () => {
       await page.viewport(1100, 700);
       mountShell(scheme, css);
+    });
+
+    // Red if the add sheet closes under a running CI job, as CI setup's own
+    // sheet does not, or a close the browser forces leaves it unsettled.
+    it("holds Escape and Done while a CI job runs; a forced close settles", async () => {
+      const s = stub({ kind: "running", jobId: "j" } as CiState);
+      const dialog = await openSheet(s.door);
+      await el(dialog, "[data-ci-status]");
+      const done = dialog.querySelector<HTMLButtonElement>("[data-repo-done]");
+      expect(done?.disabled, "Done is held").toBe(true);
+      dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+      let settled = false;
+      void result.then(() => {
+        settled = true;
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(dialog.open, "Escape left it open").toBe(true);
+      expect(settled).toBe(false);
+      dialog.close();
+      expect((await result).added?.file).toBe("checkout.json");
     });
 
     // Red if a stop that names no fields draws no Check, so the sheet has no way back.

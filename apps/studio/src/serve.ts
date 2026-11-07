@@ -169,6 +169,7 @@ export function buildHandlers(o: {
       feeds: o.feeds,
       thumbs: createThumbs({ library }),
       ...(o.reveal === undefined ? {} : { reveal: o.reveal }),
+      written: (path) => ci.wrote(path),
       upkeepOnStart: o.upkeepOnStart === true,
     }),
     ...ci.handlers,
@@ -315,14 +316,14 @@ export function buildHandlers(o: {
               phase: "added",
               file: answer.file,
               written: answer.written,
-              // So a consumer reading only the phase still meets them.
-              notes: [
-                answer.markNote,
-                answer.platformNote,
-                answer.scaleGuess,
-                answer.screensNote,
-              ].filter((n): n is string => n !== undefined),
+              // Only what a person acts on: the platform and screens notes
+              // are the terminal's (DEM-49, the author's ruling).
+              notes: [answer.markNote, answer.scaleGuess].filter(
+                (n): n is string => n !== undefined,
+              ),
+              marked: answer.markNote === undefined,
               root: can.root,
+              key: answer.key,
             });
           },
           (position) => o.events.send({ ...at, phase: "queued", position }),
