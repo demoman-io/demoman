@@ -240,6 +240,18 @@ export async function serveLoginApp(
         );
         return;
       }
+      // A form that hides its password field on click, posts, and only then
+      // navigates with a document load (review of the DEM-60 change).
+      case "/login-hide-then-go":
+        html(
+          page(
+            "Sign in",
+            `${form("/login", '<button type="button" id="go">Sign in</button>')}` +
+              `<script>document.getElementById('go').addEventListener('click',()=>{const f=document.getElementById('signin');const body=new URLSearchParams(new FormData(f));document.getElementById('user_password').style.display='none';setTimeout(()=>fetch('/login',{method:'POST',body,redirect:'manual'}).then(()=>location.assign('/app')),1000)})</script>`,
+            "#ff00ff",
+          ),
+        );
+        return;
       case "/hang":
         // Never answers; released when the app closes.
         held.add(res);

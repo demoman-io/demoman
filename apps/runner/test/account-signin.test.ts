@@ -278,6 +278,15 @@ describe("signInAccount", () => {
     expect(logs.join("\n")).not.toContain("no page navigation followed");
   }, 30_000);
 
+  // Review, finding 1. Red when a hidden password field alone ends the wait:
+  // the form's own navigation comes a second later and checkUrl's visit would
+  // cancel its post.
+  it("a form that hides its field and navigates later is waited for", async () => {
+    const { deps: d } = deps();
+    const r = await signInAccount(chosen(steps("/login-hide-then-go")), d);
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+  }, 30_000);
+
   // Premise for the above: a form still on screen while its post is in
   // flight is waited for, not left early.
   it("a client-side sign-in that keeps its form a while is still signed in", async () => {

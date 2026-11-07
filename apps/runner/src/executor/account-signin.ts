@@ -278,20 +278,14 @@ function secretIn(
   return n === null ? null : `${n} in its browser storage`;
 }
 
+/** The page an address names, without query or hash; the address itself
+ *  when it does not parse. */
 const originAndPath = (raw: string): string => {
-  const u = new URL(raw);
-  return `${u.origin}${u.pathname}`;
-};
-
-/** The page an address names, without query or hash: a client-side sign-in
- *  moves to another path, while a form may rewrite its query on click and
- *  still submit (login-late-replace). */
-const addressOf = (u: string): string => {
   try {
-    const url = new URL(u);
-    return `${url.origin}${url.pathname}`;
+    const u = new URL(raw);
+    return `${u.origin}${u.pathname}`;
   } catch {
-    return u;
+    return raw;
   }
 };
 
@@ -549,21 +543,24 @@ export async function signInAccount(
         // last step set going, bounded, and say so when none comes.
         const navUntil = Math.min(deadline, Date.now() + STEP_WAIT_MS);
         // A client-side sign-in loads no document (DEM-60): it is done when
-        // its form's password field is gone or the address moved on. A form
-        // still on screen while its post is in flight is waited for.
-        const addressBefore = addressOf(page.url());
+        // the page has moved to another path AND no password field shows
+        // (read as checkUrl's check reads it, every field, CSP-safe). Either
+        // alone is not enough: a form can hide its field and navigate a
+        // second later, or rewrite its query and still submit (review).
+        const pathBefore = originAndPath(page.url());
         let signedInPlace = false;
         let lastLook = 0;
         while (nav.documents === 0 && Date.now() < navUntil) {
           if (Date.now() - lastLook >= 250) {
             lastLook = Date.now();
-            const gone = await page
-              .evaluate(() => {
-                const f = document.querySelector('input[type="password"]');
-                return f === null || (f as HTMLElement).offsetParent === null;
-              })
-              .catch(() => false);
-            if (gone || addressOf(page.url()) !== addressBefore) {
+            const facts = await readLandingFacts(page, page.url()).catch(
+              () => null,
+            );
+            if (
+              facts !== null &&
+              !facts.passwordFieldVisible &&
+              originAndPath(facts.landedUrl) !== pathBefore
+            ) {
               signedInPlace = true;
               break;
             }
