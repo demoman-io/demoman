@@ -212,7 +212,7 @@ describe("sameScreens", () => {
       );
       expect(out).toMatchObject({ same: false });
       expect((out as { detail: string }).detail).toMatch(
-        /% of the picture changed \w+ before action 2 at 1\.00s, over the 0\.0\d+% allowed, of 3 of 3 screens$/,
+        /% of the picture changed \w+ before action 2 at [\d.]+s in the committed video and 1\.00s in the new one, over the 0\.0\d+% allowed, of 3 of 3 screens$/,
       );
     },
     CASE_MS,

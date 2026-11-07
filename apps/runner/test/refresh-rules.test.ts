@@ -310,7 +310,7 @@ describe("comparePictures", () => {
     const out = comparePictures(diff([0, 0.002, 0]), shared, 4);
     expect(out).toMatchObject({ same: false });
     expect((out as { detail: string }).detail).toMatch(
-      /% of the picture changed sharply before action 2 at [\d.]+s, over the 0\.0008% allowed, of 3 of 4 screens/,
+      /% of the picture changed sharply before action 2 at [\d.]+s in the committed video and [\d.]+s in the new one, over the 0\.0008% allowed, of 3 of 4 screens/,
     );
   });
   // Red if the screen is named by its action: a `pause` makes none, so
@@ -328,7 +328,7 @@ describe("comparePictures", () => {
     ];
     const out = comparePictures(diff([0, 0.002]), paused, 4, steps);
     expect((out as { detail: string }).detail).toMatch(
-      /changed sharply before step 4 at 2\.10s/,
+      /changed sharply before step 4 at 2\.00s in the committed video and 2\.10s in the new one/,
     );
     // The script cannot have that action: named as what it is.
     const short = comparePictures(
@@ -338,6 +338,20 @@ describe("comparePictures", () => {
       steps.slice(0, 2),
     );
     expect((short as { detail: string }).detail).toMatch(/before action 3 at/);
+  });
+  // Review (Minor 4): the same two-clocks shape DEM-63 fixed one message up.
+  it("a changed picture names each video's own moment", () => {
+    const out = comparePictures(
+      diff([0, 0.01]),
+      [
+        { step: 0, msA: 1000, msB: 1000 },
+        { step: 1, msA: 4537.5, msB: 14620 },
+      ],
+      4,
+    );
+    expect((out as { detail: string }).detail).toContain(
+      "at 4.54s in the committed video and 14.62s in the new one",
+    );
   });
   it("names the final screen", () => {
     const out = comparePictures(diff([0, 0, 0.01]), shared, 4);
@@ -349,7 +363,7 @@ describe("comparePictures", () => {
     const faint = comparePictures(diff([0, [0, 0.0002], 0]), shared, 4);
     expect(faint).toMatchObject({ same: false });
     expect((faint as { detail: string }).detail).toMatch(
-      /^0\.0200% of the picture changed faintly before action 2 at 2\.10s, over the 0\.0170% allowed/,
+      /^0\.0200% of the picture changed faintly before action 2 at 2\.00s in the committed video and 2\.10s in the new one, over the 0\.0170% allowed/,
     );
     // Faintly 0.0100%: over sharply's 0.0008%, under its own 0.0170%.
     expect(comparePictures(diff([0, [0, 0.0001], 0]), shared, 4)).toMatchObject(
@@ -450,8 +464,30 @@ describe("comparePictures with windows", () => {
     expect(out).toEqual({
       same: false,
       detail:
-        "the window moved on the final screen at 5.00s, from 230,130 1460x820 to 233,130 1460x820",
+        "the window moved on the final screen: the committed video has it at 230,130 1460x820 at 5.00s, the new one at 233,130 1460x820 at 5.00s",
     });
+  });
+  // DEM-63: the two videos reach a screen at different times. The message
+  // printed the new one's time beside the committed one's window, which sent
+  // an investigation to the wrong moment of the committed video.
+  it("a moved window names each video's own moment", () => {
+    const zoomed = {
+      x: -1547.42,
+      y: 500.58,
+      width: 3606.84,
+      height: 2336.04,
+      radius: 43.2,
+    };
+    const out = comparePictures(
+      diff,
+      [{ step: 3, msA: 4537.5, msB: 14620, windowA: zoomed, windowB: w }],
+      2,
+    );
+    if (!("same" in out)) throw new Error(JSON.stringify(out));
+    expect(out.detail).toContain(
+      "the committed video has it at -1547,501 3607x2336 at 4.54s",
+    );
+    expect(out.detail).toContain("the new one at 230,130 1460x820 at 14.62s");
   });
   // 1 px at the 1280 drawn width is 1.5 px of a 1920 film.
   it("a window within a pixel of where it was is the same window", () => {

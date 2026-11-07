@@ -1219,7 +1219,8 @@ export const replaceChain = () => {
       const r = await refresh();
       const b = byName(r, B);
       expect(b.outcome, JSON.stringify(r)).toBe("failed");
-      expect(b.detail).toContain("Stopped after step");
+      // The script's own step, as its label says (DEM-61).
+      expect(b.detail).toMatch(/^Stopped at script step \d+ of \d+: /);
       expect(b.outputs).toEqual([]);
       expect(b.line).toBeNull();
       expect((await bytes(out.bMp4)).equals(before)).toBe(true);

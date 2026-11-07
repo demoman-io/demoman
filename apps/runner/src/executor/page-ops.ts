@@ -146,6 +146,8 @@ export function pageCapture(
           failureReason: "notInTree",
           intentResolution: null,
           pageUrl: page.url(),
+          // A capture that met a navigation cannot say its document.
+          document: null,
           credentialField: null,
         };
       }
@@ -161,6 +163,7 @@ export function pageCapture(
         failureReason: "pageFaulted",
         intentResolution: null,
         pageUrl: page.url(),
+        document: null,
         // This port checks credentials; a capture that never reached the
         // page could not, and a typed step is hidden for it (launch C).
         credentialField: null,

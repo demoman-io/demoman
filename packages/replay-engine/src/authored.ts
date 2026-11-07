@@ -135,6 +135,10 @@ export interface IntentCapture {
    *  Absent: this port does not check (the extension). Null: it could not
    *  tell. A `type` into anything but `false` or absent is stored redacted. */
   credentialField?: boolean | null;
+  /** Which document the capture ran in (`performance.timeOrigin`): the same
+   *  through `pushState`, new on a page load. Null or absent: unknown, which
+   *  is never the same document (DEM-61). */
+  document?: number | null;
 }
 
 /**
@@ -601,6 +605,9 @@ export function createAuthoredRun(
    *  from the first capture and re-adopted at every wait — the two verbs with
    *  which a script says "this page is about to become something else". */
   let herePage: string | null = null;
+  /** The document `herePage` was read in; null when unknown. An address the
+   *  app changes inside this document is the step's own (DEM-61). */
+  let hereDoc: number | null = null;
 
   const commit = (
     action: SceneAction,
@@ -696,6 +703,7 @@ export function createAuthoredRun(
           // The document this lands on is a page nothing has measured yet, so
           // the next capture adopts whatever it reports.
           herePage = null;
+          hereDoc = null;
           yield {
             action,
             target: null,
@@ -757,7 +765,13 @@ export function createAuthoredRun(
               answer.failureReason === "notInTree";
             // Waiting cannot help on a page the script is not on (an expired
             // session): the failure carries that page, and the caller names it.
+            // Not on a new address the app wrote inside this same document
+            // (a row's pushState, then a fetch): that target is waited for
+            // like any other (DEM-61).
+            const sameDocument =
+              answer.document != null && answer.document === hereDoc;
             const elsewhere =
+              !sameDocument &&
               answer.pageUrl !== null &&
               herePage !== null &&
               pageKeyOf(answer.pageUrl) !== herePage;
@@ -774,10 +788,13 @@ export function createAuthoredRun(
         };
 
         let credential: boolean | null | undefined;
+        /** The document the latest capture of this step ran in. */
+        let answeredDoc: number | null = null;
         const capture = async (wait = false): Promise<SceneAnchor | null> => {
           const answer = wait
             ? await captureWaiting(intent)
             : await deps.captureResolved(intent);
+          answeredDoc = answer.document ?? null;
           credential = answer.credentialField;
           // Here, not at the action: a capture that fails, or a step that
           // stops after it (another page), still leaves the record knowing
@@ -816,12 +833,21 @@ export function createAuthoredRun(
          * witness is the URL the failure itself carries. The resolver's own
          * verdict otherwise.
          */
-        const stopForFailedCapture = (): ReplayStopReason =>
-          record.pageUrl !== null &&
-          herePage !== null &&
-          pageKeyOf(record.pageUrl) !== herePage
-            ? "pageWentElsewhere"
-            : reasonForCaptureFailure(record.failureReason);
+        const stopForFailedCapture = (): ReplayStopReason => {
+          const moved =
+            record.pageUrl !== null &&
+            herePage !== null &&
+            pageKeyOf(record.pageUrl) !== herePage;
+          // A new address inside the same document is the step's own doing
+          // (DEM-61), so a failure there is the resolver's: a missing target
+          // after a row's pushState is a missing target. A client-side
+          // sign-in redirect is caught by the runner's sign-in check, which
+          // reads the page whatever the stop reason.
+          const sameDocument = answeredDoc !== null && answeredDoc === hereDoc;
+          return !moved || sameDocument
+            ? reasonForCaptureFailure(record.failureReason)
+            : "pageWentElsewhere";
+        };
 
         if (step.do === "waitFor") {
           // Captured wherever the element is actually present, which is a
@@ -890,6 +916,7 @@ export function createAuthoredRun(
           herePage = foundBeforeTheWait
             ? null
             : pageKeyOf(anchor.resolution.url);
+          hereDoc = foundBeforeTheWait ? null : answeredDoc;
           commit(action, anchor, record, anchor.fingerprint.boundingRect);
           continue;
         }
@@ -906,8 +933,24 @@ export function createAuthoredRun(
         }
 
         const page = pageKeyOf(anchor.resolution.url);
-        if (herePage === null) herePage = page;
-        else if (page !== herePage) {
+        if (herePage === null) {
+          herePage = page;
+          hereDoc = answeredDoc;
+        } else if (page === herePage) {
+          // A reload that lands on the same address is a new document, and
+          // an address change inside it is the step's own too.
+          if (answeredDoc !== null) hereDoc = answeredDoc;
+        } else if (
+          page !== herePage &&
+          answeredDoc !== null &&
+          answeredDoc === hereDoc
+        ) {
+          // The app changed its address inside the same document (a search
+          // writing `?q=`, a row opening its detail with `pushState`): the
+          // step's own doing, not another page (DEM-61). A client-side
+          // redirect to sign-in is the runner's sign-in check to name.
+          herePage = page;
+        } else if (page !== herePage) {
           // Measured, not inferred: two captures, two pages, and nothing in
           // the script between them asked for the move. Performing the rest of
           // a script against a document it was not written for is how a run
@@ -927,6 +970,7 @@ export function createAuthoredRun(
           if (answer.anchor === null) {
             record.failureReason = answer.failureReason;
             record.pageUrl = answer.pageUrl;
+            answeredDoc = answer.document ?? null;
             stop = stopForFailedCapture();
             return;
           }

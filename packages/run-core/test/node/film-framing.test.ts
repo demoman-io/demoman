@@ -738,6 +738,107 @@ describe("filmQuality: a quick run of clicks, the camera trailing", () => {
     ).toBeGreaterThan(100);
   });
 
+  /** A drag held inside a click's zoom while the camera follows the hand
+   *  (as above), ending `by` from the start's point. */
+  function dragUnderFollow(by: { x: number; y: number }, held = true) {
+    const take = takeOf(["click", "drag"]);
+    const dragAt = 1600;
+    take.actions = take.actions.map((a, i) =>
+      i === 1
+        ? { ...a, kind: "drag" as const, toAnchorId: null, to: { by } }
+        : a,
+    ) as SceneDocument["actions"];
+    const start = { x: 350, y: 320 };
+    const end = { x: start.x + by.x, y: start.y + by.y };
+    const bundle = framesOf({
+      markers: [
+        { actionId: "act-1", sourceTimeMs: 1000 },
+        { actionId: "act-2", sourceTimeMs: dragAt },
+      ],
+      anchorRects: [
+        { actionId: "act-1", anchorId: "a1", rect: rect(250, 210) },
+        { actionId: "act-2", anchorId: "a2", rect: rect(300, 300) },
+      ],
+      ...(held
+        ? {
+            heldPresses: [
+              { actionId: "act-2", pressMs: dragAt, releaseMs: dragAt + 700 },
+            ],
+          }
+        : {}),
+      cursorSamples: [
+        { sourceTimeMs: 0, x: start.x, y: start.y },
+        { sourceTimeMs: dragAt, x: start.x, y: start.y },
+        { sourceTimeMs: dragAt + 700, x: end.x, y: end.y },
+        { sourceTimeMs: 9000, x: end.x, y: end.y },
+      ],
+    });
+    const zoomed = {
+      ...take,
+      motion: MOTION_DEFAULTS,
+      camera: [
+        {
+          id: "cam-1",
+          kind: "zoom",
+          anchorId: "a1",
+          marker: { actionId: "act-1", offsetMs: -350 },
+          end: { actionId: "act-2", offsetMs: 3000 },
+          scale: 2,
+        },
+      ],
+    } as SceneDocument;
+    const film = filmQuality(zoomed, bundle);
+    if ("unavailable" in film) throw new Error(film.unavailable);
+    return { film, end, zoomed, bundle };
+  }
+
+  // DEM-65 (Sublime, 2026-11-06): a drag's end was framed against the shot
+  // at its press, so a drop the camera followed to read outOfFrame.
+  it("a drag's end is framed where the camera was at its release", () => {
+    const { film, end } = dragUnderFollow({ x: 500, y: 300 });
+    const f = film.steps[1]?.framing;
+    if (!f?.end) throw new Error(`no end framing: ${JSON.stringify(f)}`);
+    const inBox = (r: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }) =>
+      end.x >= r.x &&
+      end.x <= r.x + r.width &&
+      end.y >= r.y &&
+      end.y <= r.y + r.height;
+    // Premise: at the press the end is out of the shot.
+    expect(inBox(f.visible), JSON.stringify(f.visible)).toBe(false);
+    expect(f.end.label, JSON.stringify(f)).toBe("inside");
+  });
+
+  // Red if a drag with no recorded release loses its end's framing.
+  it("a drag with no recorded release frames its end at its start", () => {
+    const { film } = dragUnderFollow({ x: 500, y: 300 }, false);
+    const f = film.steps[1]?.framing;
+    expect(f?.end?.label, JSON.stringify(f)).toBe("outOfFrame");
+  });
+
+  // A point has no area: on the visible area's edge it is still in shot.
+  it("a point on the visible area's edge is not outOfFrame", () => {
+    const { take, bundle } = oneClickAt(rect(0, 300, 0, 0));
+    const framing = framingOf(take, bundle)?.framing;
+    // Premise: the visible area starts at x 0, where the point is.
+    expect(framing?.visible.x).toBe(0);
+    expect(framing?.label).not.toBe("outOfFrame");
+  });
+
+  // Red if a rect with no height is framed as a point: half of this
+  // hairline is in shot, so it is cut off, not out of frame.
+  it("a hairline partly in shot is cutOff", () => {
+    const { take, bundle } = oneClickAt(rect(-100, 300, 200, 0));
+    const framing = framingOf(take, bundle)?.framing;
+    // Premise: the visible area starts at x 0, inside the hairline.
+    expect(framing?.visible.x).toBe(0);
+    expect(framing?.label, JSON.stringify(framing)).toBe("cutOff");
+  });
+
   it("follows no pointer on a touch take", () => {
     const phone = {
       preset: "phone" as const,

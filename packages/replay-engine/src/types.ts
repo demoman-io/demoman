@@ -307,6 +307,12 @@ export type ReplayStopReason =
    * only after the wait, and when it was already present beforehand it says
    * nothing about where the page ended up, so that case defers to the next
    * capture. Either way this fires only where nothing asked for the move.
+   *
+   * An address the app changes inside the same document (a query, a hash,
+   * `pushState`) is not a move: the capture's `document` says so, and the
+   * run goes on (DEM-61); a target missing there stops with the resolver's
+   * own reason, and a client-side sign-in redirect is the runner's sign-in
+   * check to name.
    */
   | "pageWentElsewhere"
   /**

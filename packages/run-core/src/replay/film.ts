@@ -43,8 +43,11 @@ export interface FilmStep {
   framing: {
     label: Framing;
     rect: Rect;
+    /** What the shot showed at the step's press. */
     visible: Rect;
-    /** A drag's end, framed on its own; `label` is the worse of the two. */
+    /** A drag's end, framed on its own against the shot at its release
+     *  (DEM-65), or at its press when none was recorded; `label` is the
+     *  worse of the two. */
     end?: { label: Framing; rect: Rect };
   } | null;
   gapMs: number | null;
@@ -179,11 +182,15 @@ function framingOf(target: Rect, visible: Rect, shot: Rect): Framing {
   const top = target.y - visible.y;
   const right = visible.x + visible.width - (target.x + target.width);
   const bottom = visible.y + visible.height - (target.y + target.height);
+  // Per axis: one with no extent (a point's, a hairline's) has nothing to
+  // overlap with, so on the visible area's edge it is still in shot.
+  const meets = (at: number, size: number, from: number, span: number) =>
+    size === 0
+      ? at >= from && at <= from + span
+      : at < from + span && at + size > from;
   const overlaps =
-    target.x < visible.x + visible.width &&
-    target.x + target.width > visible.x &&
-    target.y < visible.y + visible.height &&
-    target.y + target.height > visible.y;
+    meets(target.x, target.width, visible.x, visible.width) &&
+    meets(target.y, target.height, visible.y, visible.height);
   if (!overlaps) return "outOfFrame";
   if (left < 0 || top < 0 || right < 0 || bottom < 0) return "cutOff";
   return Math.min(
@@ -310,6 +317,10 @@ export function filmQuality(
       m.roomMs === undefined ? [] : [[m.actionId, m.roomMs] as const],
     ),
   );
+  /** Where each held press let go, source time. */
+  const releaseAt = new Map(
+    (bundle.heldPresses ?? []).map((h) => [h.actionId, h.releaseMs]),
+  );
   // The resolved plan's: a removed piece that removed none of these frames
   // takes no step out of the film (review 2026-10-22).
   const cut = new Set(resolved.plan.removedSteps);
@@ -373,10 +384,27 @@ export function filmQuality(
     const endRect =
       points === null ? endAt.get(action.id) : pointRect(points.end);
     const label = framingOf(startRect, visible, shot);
+    // A drag lets go later than it presses, and the camera may have followed
+    // the hand there (DEM-65): its end is framed where the shot was at the
+    // release, when the take recorded one; else at the press, as before.
+    const releaseMs = releaseAt.get(action.id);
+    const atRelease =
+      action.kind === "drag" && releaseMs !== undefined
+        ? visibleRegion(
+            resolved,
+            out(releaseMs),
+            bundle.viewport,
+            scene.branding,
+            frame,
+          )
+        : { visible, shot };
     const end =
       endRect === undefined
         ? undefined
-        : { label: framingOf(endRect, visible, shot), rect: endRect };
+        : {
+            label: framingOf(endRect, atRelease.visible, atRelease.shot),
+            rect: endRect,
+          };
     return {
       ...blank,
       outputMs,
@@ -421,16 +449,16 @@ export function filmQuality(
   // (over the card it left there) is the next step's, and arrives or strays
   // on its own account (review of 2026-10-21).
   const dragEnds = steps.flatMap((s) => {
-    const held = bundle.heldPresses?.find((h) => h.actionId === s.actionId);
+    const releaseMs = releaseAt.get(s.actionId);
     return s.kind === "drag" &&
       s.outputMs !== null &&
       s.framing?.end !== undefined &&
-      held !== undefined
+      releaseMs !== undefined
       ? [
           {
             actionId: s.actionId,
             outputMs: s.outputMs,
-            releasedMs: out(held.releaseMs),
+            releasedMs: out(releaseMs),
             end: s.framing.end.rect,
           },
         ]

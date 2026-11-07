@@ -396,6 +396,103 @@ describe("RunReport", () => {
     // And the line agrees with the count rather than claiming step 1 was
     // attempted, which is what `at.index + 1` would have printed here.
     expect(verdictLine(report)).toMatch(/stopped after step 0 of 3/i);
+    // No step was attempted, so no script step is named (review focus 4).
+    expect(report.stopped?.at.scriptStep).toBeNull();
+  });
+
+  // A report.json written before DEM-61 has no script step: it reads as it
+  // did, never "script step undefined".
+  it("a report from before the script-step numbering reads as it did", () => {
+    const report = buildRunReport({
+      ...complete(),
+      walk: { ...completeWalk(3), reason: "anchorNotRendered", completed: 1 },
+    });
+    const old = {
+      ...report,
+      stopped: {
+        ...(report.stopped as NonNullable<typeof report.stopped>),
+        at: { index: 1, of: 3, label: "x" },
+      },
+    } as unknown as typeof report;
+    expect(prVerdict(old).clause).toBe("stopped after step 1 of 3");
+    expect(verdictLine(old)).toMatch(/^Stopped after step 1 of 3: /);
+  });
+
+  // Review (Minor 3): no video assembled, yet a step was attempted. The
+  // label names the step the number names, never "no step can be named".
+  it("with no video, the label names the script step the sentence does", () => {
+    const report = buildRunReport({
+      ...NOT_CHECKED,
+      run: {
+        ...baseRun(),
+        script: { name: "run report fixture", scriptVersion: 1, steps: 3 },
+      },
+      walk: {
+        reason: "unresolvedAnchor",
+        completed: 0,
+        total: 3,
+        bundle: null,
+        degradations: [],
+        storageRefused: false,
+        counters: { encodeShrunkSpans: 0 },
+      },
+      steps: [
+        authoredStep(1, {
+          actionId: null,
+          anchorId: null,
+          marker: null,
+          failureReason: "unresolved",
+        }),
+      ],
+      scene: null,
+      madeFrom: null,
+    });
+    expect(report.stopped?.at.scriptStep).toBe(1);
+    expect(report.stopped?.at.label).toMatch(/^script step 1: /);
+    expect(verdictLine(report)).toMatch(/^Stopped at script step 1 of 3: /);
+  });
+
+  // DEM-61 (Helpdesk, 2026-11-06): "Stopped after step 2 of 4" counted the
+  // actions that succeeded, while the label in the same answer said "script
+  // step 4". One numbering: the script's own steps, pauses counted.
+  it("a stop names the script step it stopped on, counting pauses", () => {
+    const report = buildRunReport({
+      ...NOT_CHECKED,
+      run: {
+        ...baseRun(),
+        script: { name: "run report fixture", scriptVersion: 1, steps: 6 },
+      },
+      walk: {
+        reason: "unresolvedAnchor",
+        completed: 2,
+        total: 5,
+        bundle: null,
+        degradations: [],
+        storageRefused: false,
+        counters: { encodeShrunkSpans: 0 },
+      },
+      // Script steps 1 and 3 performed (step 2 is a pause, with no record),
+      // and step 4 resolved nothing.
+      steps: [
+        authoredStep(1),
+        authoredStep(3, { actionId: "a2" }),
+        authoredStep(4, {
+          actionId: null,
+          anchorId: null,
+          marker: null,
+          failureReason: "unresolved",
+        }),
+      ],
+      scene: sceneOf(2),
+      madeFrom: null,
+    });
+    // Premise: two actions succeeded, so the old line said "after step 2".
+    expect(report.stopped?.at.index).toBe(2);
+    expect(report.stopped?.at.label).toMatch(/^script step 4: /);
+    expect(report.stopped?.at.scriptStep).toBe(4);
+    expect(report.stopped?.at.scriptSteps).toBe(6);
+    expect(verdictLine(report)).toMatch(/^Stopped at script step 4 of 6: /);
+    expect(prVerdict(report).clause).toBe("stopped at script step 4 of 6");
   });
 
   it("is diverged-with-a-reason, never matched, with no provenance record", () => {
@@ -791,6 +888,8 @@ describe("RunReport", () => {
     expect(stopped.stopped?.at).toEqual({
       index: 0,
       of: 3,
+      scriptStep: null,
+      scriptSteps: 9,
       label: "(no video was assembled, so no step can be named)",
     });
   });
@@ -1076,7 +1175,8 @@ describe("prVerdict", () => {
         ...complete(),
         walk: { ...completeWalk(3), reason: "anchorNotRendered", completed: 1 },
       }),
-      "stopped after step 1 of 3",
+      // The record of the action it stopped on is script step 2 (DEM-61).
+      "stopped at script step 2 of 9",
     ],
     [
       "complete with a stop reason",

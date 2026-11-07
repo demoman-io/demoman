@@ -176,7 +176,7 @@ describe("samePicture", () => {
       );
       expect(out.same, out.detail).toBe(false);
       expect(out.detail).toMatch(
-        /% of the picture changed \w+ (before action \d+|on the final screen) at [\d.]+s, over the 0\.0\d+% allowed, of \d+ of \d+ screens$/,
+        /% of the picture changed \w+ (before action \d+|on the final screen) at [\d.]+s in the committed video and [\d.]+s in the new one, over the 0\.0\d+% allowed, of \d+ of \d+ screens$/,
       );
       // With the windows and no looks, the logo outside them is not seen.
       const masked = await compared(
