@@ -4,21 +4,23 @@ import {
   EXPORT_QUALITY_LABELS,
   EXPORT_QUALITY_VALUES,
   type ExportQuality,
+  FLOWS_DIR,
+  LEGACY_FLOWS_DIR,
+  RECEIPT_DIR,
 } from "@demoman/run-core";
-import type { Addable, VideoSummary } from "@demoman/studio-protocol";
+import type { VideoSummary } from "@demoman/studio-protocol";
 import type { Platform, RepoEvent } from "../platform/types";
 import {
   button,
   type CiSteps,
   ciSteps,
   ciStepsView,
-  field,
-  link,
   messageOf,
   type RepoCiDoor,
   shown,
 } from "./ci-steps";
 import type { ConfirmQuestion } from "./confirm-dialog";
+import { icon } from "./icons";
 import { showToast } from "./toast";
 
 export { messageOf, type RepoCiDoor };
@@ -28,7 +30,6 @@ type Deliver = "commit" | "files";
 
 export interface RepoSheetArgs {
   video: { id: string; name: string };
-  addable: Extract<Addable, { ok: true }>;
   repo: RepoDoor;
   /** Null where the platform has no CI door: the last step then has no CI. */
   ci: RepoCiDoor | null;
@@ -36,10 +37,15 @@ export interface RepoSheetArgs {
   reveal?: (path: string) => Promise<void>;
 }
 
-/** `added`: what was written, null when nothing was. `failed`: why an add
- *  stopped, for the flow's row to say. */
+/** `added`: what was written and where, null when nothing was. `failed`:
+ *  why the sheet could not add, for the flow's row to say. */
 export interface RepoSheetResult {
-  added: { written: string[]; notes: string[] } | null;
+  added: {
+    written: string[];
+    notes: string[];
+    root: string;
+    file: string;
+  } | null;
   prOpened: string | null;
   failed?: string;
 }
@@ -49,7 +55,9 @@ export interface RepoSheetResult {
 export type PrStep = { busy: boolean; error?: string } | { url: string };
 
 export type SheetState =
-  | { step: "form" }
+  | { step: "checking" }
+  | { step: "refused"; said: string }
+  | { step: "form"; root: string }
   | { step: "running"; line: string }
   | {
       step: "last";
@@ -59,6 +67,35 @@ export type SheetState =
       file: string;
       pr: PrStep | null;
     };
+
+export interface SheetFields {
+  folder: string;
+  name: string;
+  deliver: Deliver;
+  quality: ExportQuality;
+}
+
+/** The path the add writes the video to: `folder/name.mp4`, each slash and
+ *  `.mp4` said once however they were typed. */
+export function pathOf(f: SheetFields): string {
+  const folder = f.folder.trim().replace(/^\/+|\/+$/g, "");
+  const name = f.name.trim().replace(/\.mp4$/i, "");
+  return folder === "" ? `${name}.mp4` : `${folder}/${name}.mp4`;
+}
+
+/** What each file an add wrote is, from where it lives. */
+export function writtenLabel(
+  path: string,
+): "Video" | "Recipe" | "Receipt" | "Screens" {
+  if (
+    path.startsWith(`${FLOWS_DIR}/`) ||
+    path.startsWith(`${LEGACY_FLOWS_DIR}/`)
+  )
+    return "Recipe";
+  if (path.startsWith(`${RECEIPT_DIR}/`))
+    return path.endsWith(".json") ? "Receipt" : "Screens";
+  return "Video";
+}
 
 const base = (file: string): string => file.split("/").pop() ?? file;
 
@@ -85,17 +122,19 @@ export const removedLine = (name: string): string =>
 
 /**
  * The sheet's behaviour without its dialog, so it can be driven without a
- * browser: the fields, the step, and the one result. A plain `files` add
- * with nothing to say ends by itself (`autoClosed`); anything else stays on
- * the last step until `close`.
+ * browser. It opens checking whether the flow can be added (DEM-47: the
+ * listing no longer does), then the form. A plain `files` add with nothing
+ * to say ends by itself (`autoClosed`); anything else stays on the last
+ * step until `close`.
  */
 export function repoSheetModel(a: RepoSheetArgs) {
-  const fields: { path: string; deliver: Deliver; quality: ExportQuality } = {
-    path: a.addable.defaultPath,
+  const fields: SheetFields = {
+    folder: "",
+    name: "",
     deliver: "commit",
     quality: "share",
   };
-  let state: SheetState = { step: "form" };
+  let state: SheetState = { step: "checking" };
   let autoClosed = false;
   let stop: (() => void) | undefined;
   let ci: CiSteps | null = null;
@@ -122,6 +161,26 @@ export function repoSheetModel(a: RepoSheetArgs) {
     changed();
   };
 
+  const ready = (async (): Promise<void> => {
+    try {
+      const can = await a.repo.addable(a.video.id);
+      if (settled) return;
+      if (!can.ok) {
+        set({
+          step: "refused",
+          said: [can.label, can.detail].filter((x) => x !== "").join(". "),
+        });
+        return;
+      }
+      const at = can.defaultPath.lastIndexOf("/");
+      fields.folder = at < 0 ? "" : can.defaultPath.slice(0, at);
+      fields.name = can.defaultPath.slice(at + 1).replace(/\.mp4$/i, "");
+      set({ step: "form", root: can.root });
+    } catch (error) {
+      if (!settled) set({ step: "refused", said: messageOf(error) });
+    }
+  })();
+
   /** The add's job ended: its listener goes, so a later `gone()` cannot
    *  turn an add that happened into a failure. */
   let addEnded = false;
@@ -145,7 +204,12 @@ export function repoSheetModel(a: RepoSheetArgs) {
           autoClosed = true;
           toast = `Added "${a.video.name}" to the repo.`;
           finish({
-            added: { written: e.written, notes: e.notes },
+            added: {
+              written: e.written,
+              notes: e.notes,
+              root: e.root,
+              file: e.file,
+            },
             prOpened: null,
           });
         } else {
@@ -169,10 +233,21 @@ export function repoSheetModel(a: RepoSheetArgs) {
   const setPr = (pr: PrStep): void => {
     if (state.step === "last") set({ ...state, pr });
   };
+  const addedOf = (): RepoSheetResult["added"] =>
+    state.step === "last"
+      ? {
+          written: state.written,
+          notes: state.notes,
+          root: state.root,
+          file: state.file,
+        }
+      : null;
 
   return {
     fields,
     result,
+    /** Settles once the sheet's check answered (the form or the refusal). */
+    ready,
     get toast() {
       return toast;
     },
@@ -190,10 +265,15 @@ export function repoSheetModel(a: RepoSheetArgs) {
       listeners.add(fn);
     },
     async submit(): Promise<void> {
-      if (state.step !== "form") return;
+      if (state.step !== "form" || fields.name.trim() === "") return;
+      const body = {
+        path: pathOf(fields),
+        deliver: fields.deliver,
+        quality: fields.quality,
+      };
       set({ step: "running", line: "Adding…" });
       try {
-        const { jobId } = await a.repo.add(a.video.id, { ...fields });
+        const { jobId } = await a.repo.add(a.video.id, body);
         stop = a.repo.onRepo(jobId, on);
         // A terminal event replayed inside `onRepo` ended it already.
         if (settled || addEnded) stop();
@@ -232,24 +312,101 @@ export function repoSheetModel(a: RepoSheetArgs) {
     notNow(): void {
       if (state.step !== "last") return;
       toast = `Added "${a.video.name}" to the repo. CI is not set up.`;
-      finish({
-        added: { written: state.written, notes: state.notes },
-        prOpened: null,
-      });
+      finish({ added: addedOf(), prOpened: null });
     },
-    /** Cancel on the form, Done on the last step. Not while it runs. */
+    /** Cancel and Done. Not while the add runs. */
     close(): void {
-      if (state.step === "running") return;
+      if (state.step === "running" || settled) return;
       finish({
-        added:
-          state.step === "last"
-            ? { written: state.written, notes: state.notes }
-            : null,
+        added: addedOf(),
         prOpened: prUrl ?? ci?.prUrl ?? null,
+        ...(state.step === "refused" ? { failed: state.said } : {}),
       });
     },
   };
 }
+
+type Model = ReturnType<typeof repoSheetModel>;
+type Folders = Promise<{ folders: string[]; more: boolean }>;
+
+const SAID: Record<Deliver, string> = {
+  commit:
+    "The video goes in the repo. A refresh commits a new one when the picture changes.",
+  files:
+    "The video stays out of git. A refresh writes it to a folder for you to upload.",
+};
+
+const el = <K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  cls?: string,
+  words?: string,
+): HTMLElementTagNameMap[K] => {
+  const n = document.createElement(tag);
+  if (cls !== undefined) n.className = cls;
+  if (words !== undefined) n.textContent = words;
+  return n;
+};
+
+/** A field: its label word over its controls (a `div`, so a click on the
+ *  word does not press a toggle's first button). */
+const fieldOf = (word: string, ...controls: HTMLElement[]): HTMLElement => {
+  const box = el("div", "repo-field");
+  box.append(el("span", "repo-field-label", word), ...controls);
+  return box;
+};
+
+/** A one-of-many toggle, the Export panel's `.segmented`. */
+function toggle<T extends string>(
+  name: string,
+  attr: string,
+  values: ReadonlyArray<readonly [T, string]>,
+  on: T,
+  pick: (v: T) => void,
+): HTMLElement {
+  const group = el("div", "segmented");
+  group.setAttribute("role", "radiogroup");
+  group.setAttribute("aria-label", name);
+  for (const [value, word] of values) {
+    const b = el("button", "segment", word);
+    b.type = "button";
+    b.setAttribute("role", "radio");
+    b.setAttribute(attr, value);
+    b.setAttribute("aria-checked", String(value === on));
+    b.addEventListener("click", () => pick(value));
+    group.append(b);
+  }
+  return group;
+}
+
+/** A section's heading: an optional check, its words, and what sits at its
+ *  end (a count, a branch, a link). */
+function heading(
+  done: boolean,
+  words: string,
+  end?: HTMLElement | string,
+): HTMLElement {
+  const h = el("h3", "repo-section-head");
+  if (done) h.append(icon("circleCheck"));
+  h.append(el("span", undefined, words));
+  if (end !== undefined)
+    h.append(typeof end === "string" ? el("small", undefined, end) : end);
+  return h;
+}
+
+/** An https link, or the address as plain words. */
+function linkTo(url: string, words: string): HTMLElement {
+  if (!/^https:\/\//.test(url)) return el("span", undefined, url);
+  const link = el("a", undefined, words);
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noreferrer";
+  return link;
+}
+
+const prNumber = (url: string): string => {
+  const n = /\/pull\/(\d+)\/?$/.exec(url)?.[1];
+  return n === undefined ? "Pull request" : `Pull request #${n}`;
+};
 
 /** The add sheet: a modal `<dialog>` built as `askToConfirm`'s is. */
 export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
@@ -260,134 +417,17 @@ export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
   const form = document.createElement("form");
   form.addEventListener("submit", (event) => event.preventDefault());
   dialog.append(form);
-
-  /** The add's own pull request, when the repo's CI is set up. */
-  const prView = (
-    pr: PrStep | null,
-  ): { nodes: HTMLElement[]; actions: HTMLElement[]; focus?: HTMLElement } => {
-    if (pr !== null && "url" in pr) {
-      return { nodes: [link(pr.url, "Pull request")], actions: [] };
-    }
-    const nodes: HTMLElement[] = [];
-    if (pr?.error !== undefined) {
-      const p = document.createElement("p");
-      p.textContent = pr.error;
-      p.setAttribute("data-ci-error", "");
-      nodes.push(p);
-    }
-    const open = button("Open pull request", "gitBranchPlus");
-    open.setAttribute("data-repo-pr", "");
-    open.disabled = pr?.busy === true;
-    open.addEventListener("click", () => void model.openPr());
-    return { nodes, actions: [open] };
+  /** Each Reveal's refusal, by path, said under its row (DEM-56). */
+  const revealErrors = new Map<string, string>();
+  /** The repo's folders, read once when the list first opens. */
+  let folders: Folders | null = null;
+  const readFolders = (): Folders | null => {
+    if (model.state.step !== "form") return null;
+    folders ??= a.repo.folders(model.state.root);
+    return folders;
   };
-
-  const draw = (): void => {
-    const s = model.state;
-    const title = document.createElement("h2");
-    title.className = "confirm-title";
-    title.textContent = "Add to repo";
-    const parts: HTMLElement[] = [title];
-    const actions = document.createElement("div");
-    actions.className = "confirm-actions";
-
-    if (s.step === "form") {
-      const path = document.createElement("input");
-      path.value = model.fields.path;
-      path.setAttribute("data-repo-path", "");
-      path.addEventListener("input", () => {
-        model.fields.path = path.value;
-      });
-      const deliver = document.createElement("select");
-      deliver.setAttribute("data-repo-deliver", "");
-      for (const [value, word] of [
-        ["commit", "Commit"],
-        ["files", "Files"],
-      ] as const) {
-        deliver.append(new Option(word, value, false, value === "commit"));
-      }
-      deliver.addEventListener("change", () => {
-        model.fields.deliver = deliver.value as Deliver;
-      });
-      const quality = document.createElement("select");
-      quality.setAttribute("data-repo-quality", "");
-      for (const q of EXPORT_QUALITY_VALUES) {
-        quality.append(
-          new Option(EXPORT_QUALITY_LABELS[q], q, false, q === "share"),
-        );
-      }
-      quality.addEventListener("change", () => {
-        model.fields.quality = quality.value as ExportQuality;
-      });
-      const cancel = button("Cancel", "close");
-      cancel.setAttribute("data-repo-cancel", "");
-      cancel.addEventListener("click", () => model.close());
-      const add = button("Add", "gitBranchPlus");
-      add.setAttribute("data-repo-add", "");
-      add.addEventListener("click", () => void model.submit());
-      actions.append(cancel, add);
-      parts.push(
-        field("Path", path),
-        field("Delivery", deliver),
-        field("Quality", quality),
-        actions,
-      );
-    } else if (s.step === "running") {
-      const line = document.createElement("p");
-      line.className = "repo-line";
-      line.setAttribute("role", "status");
-      line.setAttribute("data-repo-line", "");
-      line.textContent = s.line;
-      parts.push(line);
-    } else {
-      const list = document.createElement("ul");
-      list.className = "repo-written";
-      list.setAttribute("data-repo-written", "");
-      for (const file of s.written) {
-        const item = document.createElement("li");
-        const name = document.createElement("span");
-        name.textContent = file;
-        item.append(name);
-        if (a.reveal !== undefined) {
-          const reveal = button("Reveal", "file");
-          reveal.addEventListener("click", () => {
-            a.reveal?.(`${s.root}/${file}`).catch((error: unknown) =>
-              console.error("demoman: reveal failed —", error),
-            );
-          });
-          item.append(reveal);
-        }
-        list.append(item);
-      }
-      parts.push(list);
-      for (const note of s.notes) {
-        const p = document.createElement("p");
-        p.className = "notice notice-warn";
-        p.setAttribute("data-repo-note", "");
-        p.textContent = note;
-        parts.push(p);
-      }
-      const ci = model.ci;
-      const view =
-        ci === null
-          ? null
-          : ci.step.k === "setUp"
-            ? prView(s.pr)
-            : ciStepsView(ci, { notNow: () => model.notNow() });
-      if (view !== null) parts.push(...view.nodes);
-      const done = button("Done", "check");
-      done.setAttribute("data-repo-done", "");
-      done.addEventListener("click", () => model.close());
-      // Not now already closes: two ways out would be one too many.
-      const closes = view?.actions.some((b) =>
-        b.hasAttribute("data-ci-not-now"),
-      );
-      actions.append(...(view?.actions ?? []), ...(closes ? [] : [done]));
-      parts.push(actions);
-      queueMicrotask(() => view?.focus?.focus());
-    }
-    form.replaceChildren(...parts);
-  };
+  const draw = (): void =>
+    drawSheet(model, a, form, revealErrors, draw, readFolders);
   draw();
   model.onChange(draw);
 
@@ -418,4 +458,281 @@ export function openRepoSheet(a: RepoSheetArgs): Promise<RepoSheetResult> {
     return Promise.reject(error);
   }
   return model.result;
+}
+
+function drawSheet(
+  model: Model,
+  a: RepoSheetArgs,
+  form: HTMLFormElement,
+  revealErrors: Map<string, string>,
+  redraw: () => void,
+  readFolders: () => Folders | null,
+): void {
+  const s = model.state;
+  const parts: HTMLElement[] = [el("h2", "confirm-title", "Add to repo")];
+  const actions = el("div", "confirm-actions");
+  let focus: HTMLElement | undefined;
+  const cancel = (): HTMLButtonElement => {
+    const b = button("Cancel", "close");
+    b.setAttribute("data-repo-cancel", "");
+    b.addEventListener("click", () => model.close());
+    return b;
+  };
+  const done = (primary: boolean): HTMLButtonElement => {
+    const b = primary
+      ? button("Done", null, "btn btn-primary")
+      : button("Done", "check");
+    b.setAttribute("data-repo-done", "");
+    b.addEventListener("click", () => model.close());
+    return b;
+  };
+
+  if (s.step === "checking" || s.step === "running") {
+    const line = el(
+      "p",
+      "repo-line",
+      s.step === "checking" ? "Checking…" : s.line,
+    );
+    line.setAttribute("role", "status");
+    line.setAttribute("data-repo-line", "");
+    parts.push(line);
+    if (s.step === "checking") {
+      actions.append(cancel());
+      parts.push(actions);
+    }
+  } else if (s.step === "refused") {
+    const said = el("p", "notice notice-error", s.said);
+    said.setAttribute("data-repo-refused", "");
+    actions.append(cancel());
+    parts.push(said, actions);
+  } else if (s.step === "form") {
+    parts.push(...formParts(model, readFolders, redraw));
+    const add = button("Add", "gitBranchPlus", "btn btn-primary");
+    add.setAttribute("data-repo-add", "");
+    add.disabled = model.fields.name.trim() === "";
+    add.addEventListener("click", () => void model.submit());
+    actions.append(cancel(), add);
+    parts.push(actions);
+  } else {
+    const opened = s.pr !== null && "url" in s.pr ? s.pr.url : null;
+    const files = filesList(s, a, revealErrors, redraw);
+    const notes = s.notes.map((note) => {
+      const p = el("p", "notice notice-warn", note);
+      p.setAttribute("data-repo-note", "");
+      return p;
+    });
+    const count = `${s.written.length} file${s.written.length === 1 ? "" : "s"}`;
+    if (opened !== null) {
+      // Finished (DEM-59): both parts fold to a checked line; Done alone.
+      const fold = el("details", "repo-section");
+      fold.setAttribute("data-repo-added", "");
+      const summary = el("summary");
+      const head = heading(true, "Added", count);
+      head.append(icon("chevronDown"));
+      summary.append(head);
+      fold.append(summary, files, ...notes);
+      const pr = el("section", "repo-section");
+      pr.append(
+        heading(true, "Pull request opened", linkTo(opened, prNumber(opened))),
+      );
+      parts.push(fold, el("div", "repo-rule"), pr);
+      actions.append(done(true));
+    } else {
+      const added = el("section", "repo-section");
+      added.setAttribute("data-repo-added", "");
+      added.append(heading(true, "Added", count), files, ...notes);
+      parts.push(added);
+      const ci = model.ci;
+      if (ci === null) {
+        actions.append(done(false));
+      } else if (ci.step.k === "setUp") {
+        const pr = el("section", "repo-section");
+        const name = base(s.file).replace(/\.json$/, "");
+        pr.append(heading(false, "Pull request", `branch demoman/add-${name}`));
+        if (s.pr !== null && "busy" in s.pr && s.pr.error !== undefined) {
+          const err = el("p", "notice notice-error", s.pr.error);
+          err.setAttribute("data-ci-error", "");
+          pr.append(err);
+        }
+        parts.push(el("div", "repo-rule"), pr);
+        const open = button(
+          "Open pull request",
+          "gitBranchPlus",
+          "btn btn-primary",
+        );
+        open.setAttribute("data-repo-pr", "");
+        open.disabled = s.pr !== null && "busy" in s.pr && s.pr.busy;
+        open.addEventListener("click", () => void model.openPr());
+        actions.append(done(false), open);
+      } else {
+        const view = ciStepsView(ci, { notNow: () => model.notNow() });
+        const sec = el("section", "repo-section");
+        sec.append(heading(false, "CI"), ...view.nodes);
+        parts.push(el("div", "repo-rule"), sec);
+        // Not now already closes: two ways out would be one too many.
+        const closes = view.actions.some((b) =>
+          b.hasAttribute("data-ci-not-now"),
+        );
+        actions.append(...view.actions, ...(closes ? [] : [done(false)]));
+        focus = view.focus;
+      }
+    }
+    parts.push(actions);
+  }
+  form.replaceChildren(...parts);
+  if (focus !== undefined) queueMicrotask(() => focus?.focus());
+}
+
+/** Folder (with the repo's folders a click away), File name with its fixed
+ *  `.mp4`, the Video toggle and its line, Quality (DEM-50). */
+function formParts(
+  model: Model,
+  readFolders: () => Folders | null,
+  redraw: () => void,
+): HTMLElement[] {
+  const f = model.fields;
+  const folder = el("input");
+  folder.value = f.folder;
+  folder.setAttribute("data-repo-folder", "");
+  folder.setAttribute("aria-label", "Folder");
+  folder.addEventListener("input", () => {
+    f.folder = folder.value;
+  });
+  const choose = button("", "folder", "btn btn-quiet btn-icon");
+  choose.setAttribute("aria-label", "Choose folder");
+  choose.title = "Choose folder";
+  const list = el("div", "repo-folders");
+  list.setAttribute("popover", "");
+  list.setAttribute("data-repo-folders", "");
+  const said = (words: string): HTMLElement =>
+    el("p", "repo-folders-said", words);
+  choose.addEventListener("click", () => {
+    const r = folder.getBoundingClientRect();
+    list.style.left = `${r.left}px`;
+    list.style.top = `${r.bottom + 6}px`;
+    list.style.width = `${r.width}px`;
+    list.replaceChildren(said("Reading folders…"));
+    list.showPopover();
+    readFolders()?.then(
+      (got) => {
+        const items = got.folders.map((name) => {
+          const b = el("button");
+          b.type = "button";
+          b.append(icon("folder"), name);
+          if (name === f.folder) b.setAttribute("aria-current", "true");
+          b.addEventListener("click", () => {
+            f.folder = name;
+            folder.value = name;
+            list.hidePopover();
+          });
+          return b;
+        });
+        list.replaceChildren(
+          ...(items.length === 0 ? [said("No folders yet. Type one.")] : items),
+          ...(got.more ? [said("The first 500 folders.")] : []),
+        );
+      },
+      (error: unknown) => {
+        const p = said(messageOf(error));
+        p.setAttribute("data-repo-folders-error", "");
+        list.replaceChildren(p);
+      },
+    );
+  });
+  const folderRow = el("div", "repo-folder");
+  folderRow.append(folder, choose, list);
+
+  const name = el("input");
+  name.value = f.name;
+  name.setAttribute("data-repo-name", "");
+  name.setAttribute("aria-label", "File name");
+  // Add follows the name as it is typed: an empty name adds nothing.
+  name.addEventListener("input", () => {
+    f.name = name.value;
+    const add = name
+      .closest("form")
+      ?.querySelector<HTMLButtonElement>("[data-repo-add]");
+    if (add) add.disabled = f.name.trim() === "";
+  });
+  const ext = el("span", "repo-ext", ".mp4");
+  ext.setAttribute("data-repo-ext", "");
+  const nameRow = el("div", "repo-name");
+  nameRow.append(name, ext);
+
+  const line = el("p", "repo-said", SAID[f.deliver]);
+  line.setAttribute("data-repo-said", "");
+  const deliver = toggle(
+    "Video",
+    "data-repo-deliver",
+    [
+      ["commit", "Commit"],
+      ["files", "Files"],
+    ] as const,
+    f.deliver,
+    (v) => {
+      f.deliver = v;
+      redraw();
+    },
+  );
+  const quality = toggle(
+    "Quality",
+    "data-repo-quality",
+    EXPORT_QUALITY_VALUES.map((q) => [q, EXPORT_QUALITY_LABELS[q]] as const),
+    f.quality,
+    (v) => {
+      f.quality = v;
+      redraw();
+    },
+  );
+  return [
+    fieldOf("Folder", folderRow),
+    fieldOf("File name", nameRow),
+    fieldOf("Video", deliver, line),
+    fieldOf("Quality", quality),
+  ];
+}
+
+/** Each written file: what it is, its path, its Reveal, and a refused
+ *  Reveal's words under it (DEM-49, DEM-56). */
+function filesList(
+  s: Extract<SheetState, { step: "last" }>,
+  a: RepoSheetArgs,
+  revealErrors: Map<string, string>,
+  redraw: () => void,
+): HTMLElement {
+  const list = el("dl", "repo-files");
+  list.setAttribute("data-repo-written", "");
+  for (const file of s.written) {
+    const label = writtenLabel(file);
+    const path = `${s.root}/${file}`;
+    const dd = el("dd", undefined, file);
+    dd.title = file;
+    list.append(el("dt", undefined, label), dd);
+    const reveal = a.reveal;
+    if (reveal === undefined) {
+      list.append(el("span"));
+    } else {
+      const b = button("", "folder", "btn btn-quiet btn-icon");
+      b.setAttribute("aria-label", `Reveal ${label}`);
+      b.title = "Reveal";
+      b.addEventListener("click", () => {
+        revealErrors.delete(path);
+        reveal(path).then(
+          () => redraw(),
+          (error: unknown) => {
+            revealErrors.set(path, messageOf(error));
+            redraw();
+          },
+        );
+      });
+      list.append(b);
+    }
+    const err = revealErrors.get(path);
+    if (err !== undefined) {
+      const p = el("p", "notice notice-error", err);
+      p.setAttribute("data-reveal-error", "");
+      list.append(p);
+    }
+  }
+  return list;
 }

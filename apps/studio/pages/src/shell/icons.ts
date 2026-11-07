@@ -53,6 +53,14 @@ const GLYPHS = {
     "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
     "M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
   ],
+  /** The add sheet's folder button and its list of the repo's folders,
+   *  and Reveal on each file an add wrote. Lucide `folder` (v1.52.0). */
+  folder: [
+    "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
+  ],
+  /** A step of the add sheet that is done. Lucide `circle-check-big`
+   *  (v1.52.0). */
+  circleCheck: ["M21.801 10A10 10 0 1 1 17 3.335", "m9 11 3 3L22 4"],
   /** Add to repo and Remove from repo. Lucide `git-branch-plus` and
    *  `git-branch-minus` (v1.69.0), their circles written as paths. */
   gitBranchPlus: [

@@ -3353,7 +3353,6 @@ async function addToRepo(): Promise<void> {
   try {
     const done = await openRepoSheet({
       video: { id: flow.video.id, name: flow.video.name },
-      addable: flow.addable,
       repo: platform.videos.repo,
       ci: platform.repoCi,
       reveal: (path) => platform.files.reveal({ kind: "path", path }),

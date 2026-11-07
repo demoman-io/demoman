@@ -113,14 +113,12 @@ let result: Promise<RepoSheetResult>;
 async function openSheet(ci: RepoCiDoor): Promise<HTMLDialogElement> {
   result = openRepoSheet({
     video: { id: "v1", name: "Checkout" },
-    addable: { ok: true, root: "/r", defaultPath: "docs/demos/checkout.mp4" },
     repo: {
       folders: async () => ({ folders: [], more: false }),
       addable: async () => ({
-        ok: false,
-        reason: "x",
-        label: "x",
-        detail: "x",
+        ok: true,
+        root: "/r",
+        defaultPath: "docs/demos/checkout.mp4",
       }),
       add: async () => ({ jobId: "a" }),
       remove: async () => ({ removed: [], exportsLeft: [], notes: [] }),
@@ -147,19 +145,20 @@ async function openSheet(ci: RepoCiDoor): Promise<HTMLDialogElement> {
     if (d === null) throw new Error("no sheet");
     return d;
   });
-  (dialog.querySelector("[data-repo-add]") as HTMLElement).click();
+  (await el<HTMLElement>(dialog, "[data-repo-add]")).click();
   await vi.waitFor(() => {
     if (dialog.querySelector("[data-repo-written]") === null)
       throw new Error("not added yet");
   });
   return dialog;
 }
-const el = <T extends Element>(d: ParentNode, sel: string): Promise<T> =>
-  vi.waitFor(() => {
+function el<T extends Element>(d: ParentNode, sel: string): Promise<T> {
+  return vi.waitFor(() => {
     const found = d.querySelector<T>(sel);
     if (found === null) throw new Error(`no ${sel}`);
     return found;
   });
+}
 const shot = (name: string, scheme: string) =>
   page.screenshot({ path: `${SHOTS}/${name}-${scheme}.png` });
 

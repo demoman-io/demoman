@@ -1082,11 +1082,13 @@
      (`#stage-tools`), which the author uses, and the full-screen row on the
      picture (`#stage-bar`), which the editor re-tones as a scrim. Settings'
      agent video size (`.run-size`) is one too, and the studio's Pull requests
-     (`.pull-requests`) and Export quality (`.export-quality`). */
+     (`.pull-requests`) and Export quality (`.export-quality`), and the add
+     sheet's Video and Quality (`.repo-sheet`). */
   .branding-controls .segmented,
   .run-size .segmented,
   .pull-requests .segmented,
   .export-quality .segmented,
+  .repo-sheet .segmented,
   .inspector .segmented,
   #stage-bar .segmented,
   #stage-tools .segmented {
@@ -1100,6 +1102,7 @@
   .run-size .segment,
   .pull-requests .segment,
   .export-quality .segment,
+  .repo-sheet .segment,
   .inspector .segment,
   #stage-bar .segment,
   #stage-tools .segment {
@@ -1114,6 +1117,7 @@
   .run-size .segment + .segment,
   .pull-requests .segment + .segment,
   .export-quality .segment + .segment,
+  .repo-sheet .segment + .segment,
   .inspector .segment + .segment,
   #stage-bar .segment + .segment,
   #stage-tools .segment + .segment {
@@ -1123,6 +1127,7 @@
   .run-size .segment[aria-checked="true"],
   .pull-requests .segment[aria-checked="true"],
   .export-quality .segment[aria-checked="true"],
+  .repo-sheet .segment[aria-checked="true"],
   .inspector .segment[aria-checked="true"],
   #stage-bar .segment[aria-checked="true"],
   #stage-tools .segment[aria-checked="true"] {
@@ -1693,6 +1698,158 @@
 .confirm-dialog .btn:focus {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* The add sheet's own parts (2026-11-06, the picked mockups A and D): a
+   field is its small label over its control; Folder carries its folder
+   button, File name its fixed `.mp4`; Video and Quality are toggles. */
+.repo-sheet .repo-field {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+.repo-sheet .repo-field-label {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.repo-sheet :is(.repo-folder, .repo-name) {
+  justify-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.repo-sheet :is(.repo-folder, .repo-name) input {
+  flex: 1;
+  min-width: 0;
+}
+.repo-sheet .repo-ext {
+  color: var(--ink-muted);
+}
+.repo-sheet .repo-said {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+/* The repo's folders, under Folder: the top layer, so the dialog's
+   scrollbox does not clip it. */
+.repo-sheet .repo-folders {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  box-sizing: border-box;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow:
+    0 0 0 1px var(--ring),
+    0 12px 32px rgb(0 0 0 / 0.35);
+}
+.repo-sheet .repo-folders > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.repo-sheet
+  .repo-folders
+  > button:is(:hover, :focus-visible, [aria-current="true"]) {
+  background: var(--control);
+}
+.repo-sheet .repo-folders svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.repo-sheet .repo-folders-said {
+  padding: 6px 10px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+/* After Add: a section per part, each headed by a line that a check marks
+   done; the written files as label, path and Reveal. */
+.repo-sheet .repo-section {
+  display: grid;
+  gap: 10px;
+}
+.repo-sheet .repo-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.repo-sheet .repo-section-head svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.repo-sheet .repo-section-head > :is(small, a) {
+  margin-left: auto;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.repo-sheet .repo-section-head > a {
+  color: var(--ink);
+}
+.repo-sheet details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.repo-sheet details > summary::-webkit-details-marker {
+  display: none;
+}
+.repo-sheet details > summary small + svg {
+  margin-left: -4px;
+}
+.repo-sheet details[open] > summary svg:last-child {
+  transform: rotate(180deg);
+}
+.repo-sheet .repo-files {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 14px;
+  margin: 0;
+}
+.repo-sheet .repo-files dt {
+  font-size: 13px;
+}
+.repo-sheet .repo-files dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repo-sheet .repo-files .btn-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.repo-sheet .repo-files > .notice {
+  grid-column: 1 / -1;
+}
+.repo-sheet .repo-rule {
+  height: 1px;
+  background: var(--ring);
+}
+.repo-sheet .confirm-actions:has(> :only-child) {
+  grid-template-columns: 1fr;
 }
 
 /* The add sheet (src/shell/repo-sheet.ts) is the confirmation's dialog with
