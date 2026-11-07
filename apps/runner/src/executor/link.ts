@@ -74,15 +74,23 @@ export async function linkTake(
     );
   if (title !== undefined && typeof title !== "string")
     return refused("invalidLink", "title is text.");
-  if (
-    expiresAt !== undefined &&
-    expiresAt !== null &&
-    typeof expiresAt !== "string"
-  )
-    return refused(
-      "invalidLink",
-      "expiresAt is a date and time (ISO 8601), or null for a link that does not expire.",
-    );
+  if (expiresAt !== undefined && expiresAt !== null) {
+    // Checked here as the service will, so a bad date costs no render or upload.
+    const at =
+      typeof expiresAt === "string"
+        ? new Date(expiresAt)
+        : new Date(Number.NaN);
+    if (Number.isNaN(at.getTime()))
+      return refused(
+        "invalidLink",
+        `expiresAt ${JSON.stringify(expiresAt)} is not a date and time (ISO 8601, like 2026-12-01T09:00:00Z), or null for a link that does not expire.`,
+      );
+    if (at.getTime() <= Date.now())
+      return refused(
+        "invalidLink",
+        `expiresAt ${at.toISOString()} has already passed.`,
+      );
+  }
 
   // Signed out, nothing calls the service: the credential is read first.
   const cred = readCredential(deps.home);

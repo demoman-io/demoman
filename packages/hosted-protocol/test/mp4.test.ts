@@ -107,3 +107,39 @@ describe("findMoov", () => {
     expect(await findMoov(f.read, f.size)).toBeNull();
   });
 });
+
+describe("findMoov's limits", () => {
+  it("refuses a moov declared larger than MAX_MOOV_BYTES without reading it", async () => {
+    const ftyp = box("ftyp", enc.encode("isom"), be32(0));
+    const head = join(ftyp, be32(300_000_000), enc.encode("moov"));
+    const reads: number[] = [];
+    const read = async (offset: number, length: number) => {
+      reads.push(length);
+      return head.slice(
+        offset,
+        offset + Math.min(length, head.length - offset),
+      );
+    };
+    const out = await findMoov(read, ftyp.length + 300_000_000);
+    expect(out).toBeNull();
+    expect(
+      Math.max(...reads),
+      "nothing near 300 MB was read",
+    ).toBeLessThanOrEqual(65_536);
+  });
+
+  it("refuses a file of more top-level boxes than MAX_TOP_BOXES", async () => {
+    const free = box("free", new Uint8Array(0));
+    const many = join(
+      box("ftyp", enc.encode("isom"), be32(0)),
+      ...Array.from({ length: 70_000 }, () => free),
+    );
+    let reads = 0;
+    const read = async (offset: number, length: number) => {
+      reads++;
+      return many.slice(offset, offset + length);
+    };
+    expect(await findMoov(read, many.length)).toBeNull();
+    expect(reads, "stops early, not one read per box").toBeLessThanOrEqual(2);
+  });
+});

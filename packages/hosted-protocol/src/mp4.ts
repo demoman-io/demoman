@@ -123,12 +123,18 @@ export function moovFacts(moov: Uint8Array): {
 }
 
 const HEAD = 65_536;
+/** A 10-minute 60 fps video's moov is well under this; an upload declaring
+ *  more is refused rather than read into a Worker's memory. */
+export const MAX_MOOV_BYTES = 16_000_000;
+/** An MP4 Demoman exports has a handful of top-level boxes. */
+export const MAX_TOP_BOXES = 64;
 
 /**
  * The `moov` box of a file read through `read(offset, length)`, walking the
  * top-level boxes: one read of the file's start, one header read per box
  * past it, and one read of `moov` when it was not already in hand. Null when
- * the file has no `moov`, or a box header does not fit the file.
+ * the file has no `moov`, a box header does not fit the file, the `moov` is
+ * over `MAX_MOOV_BYTES`, or it is not among the first `MAX_TOP_BOXES` boxes.
  */
 export async function findMoov(
   read: (offset: number, length: number) => Promise<Uint8Array>,
@@ -136,7 +142,8 @@ export async function findMoov(
 ): Promise<Uint8Array | null> {
   const head = await read(0, Math.min(size, HEAD));
   let at = 0;
-  while (at + 8 <= size) {
+  for (let boxes = 0; at + 8 <= size; boxes++) {
+    if (boxes >= MAX_TOP_BOXES) return null;
     const inHead = at + 16 <= head.length;
     const h = inHead ? head.subarray(at, at + 16) : await read(at, 16);
     if (h.length < 8) return null;
@@ -150,6 +157,7 @@ export async function findMoov(
     }
     if (boxSize < 8 || at + boxSize > size) return null;
     if (type === "moov") {
+      if (boxSize > MAX_MOOV_BYTES) return null;
       return at + boxSize <= head.length
         ? head.slice(at, at + boxSize)
         : await read(at, boxSize);

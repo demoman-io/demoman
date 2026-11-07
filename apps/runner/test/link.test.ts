@@ -273,3 +273,25 @@ describe("the executor's link op", () => {
     }
   });
 });
+
+describe("link's expiry, checked before anything is sent", () => {
+  it("an expiry that is not a date, or already past, refuses invalidLink with no request and no export", async () => {
+    for (const expiresAt of [
+      "tomorrow",
+      new Date(Date.now() - 60_000).toISOString(),
+    ]) {
+      const h = harness({});
+      const answer = await linkTake(
+        { takeId: "t1", expiresAt },
+        h.deps,
+        () => {},
+      );
+      expect(answer, expiresAt).toMatchObject({
+        outcome: "refusedBeforeLink",
+        reason: "invalidLink",
+      });
+      expect(h.seen.length, expiresAt).toBe(0);
+      expect(h.exportArgs.length, expiresAt).toBe(0);
+    }
+  });
+});

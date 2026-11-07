@@ -87,7 +87,7 @@ function served(op: string, o: Outcome): Outcome {
   if ((op === "run" || op === "probe") && "provenance" in value) {
     return { ok: true, value: servedRunReport(value as unknown as RunReport) };
   }
-  if (op === "export" || op === "attach") {
+  if (op === "export" || op === "attach" || op === "link") {
     return { ok: true, value: servedExportReport(value) };
   }
   if (op === "videos") return { ok: true, value: servedFlowsAnswer(value) };
@@ -909,7 +909,7 @@ export function registerTools(
       {
         annotations: TOOL_ANNOTATIONS.link,
         description:
-          'Make a link to a video on Demoman: a page that plays it for anyone with the link, and a file address a site or docs page can embed. Exports the video at the Settings quality first, then uploads it. Optional title (the export\'s name by default) and expiresAt (ISO 8601; absent, the link does not expire). Answers linked with link.pageUrl and link.fileUrl, or a reason; past about 50 s {outcome: "stillRunning", id}, then call report.',
+          'Make a link to a video on Demoman: a page that plays it for anyone with the link, and a file address a site or docs page can embed. Exports the video at the Settings quality first, then uploads it. Optional title (the export\'s name by default) and expiresAt (ISO 8601; absent, the link does not expire). Answers linked with link.pageUrl and link.fileUrl, or a reason; past about 50 s {outcome: "stillRunning", id}, then call report until the outcome is none of "linking", "stillRunning".',
         inputSchema: {
           videoId: z.string().min(1).optional(),
           takeId: z.unknown().optional(),
@@ -1039,7 +1039,7 @@ export function registerTools(
     {
       annotations: TOOL_ANNOTATIONS.report,
       description:
-        'The report of a run, export, attach, snapshot, probe, add or ci this server started, by the id stillRunning or queued gave. Waits up to about 40 s; if it has not finished, answers {outcome: "queued", …} while it waits in line, then its progress so far: {outcome: "running", …} for a run, {outcome: "exporting", …} for an export, {outcome: "attaching", …} for an attach, {outcome: "stillRunning", id} for a snapshot, probe, add or ci.',
+        'The report of a run, export, attach, snapshot, probe, add or ci this server started, by the id stillRunning or queued gave. Waits up to about 40 s; if it has not finished, answers {outcome: "queued", …} while it waits in line, then its progress so far: {outcome: "running", …} for a run, {outcome: "exporting", …} for an export, {outcome: "attaching", …} for an attach, {outcome: "linking", …} for a link, {outcome: "stillRunning", id} for a snapshot, probe, add or ci.',
       inputSchema: { id: z.string().min(1) },
     },
     async ({ id }, extra) => {

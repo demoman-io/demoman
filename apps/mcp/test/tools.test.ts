@@ -175,6 +175,43 @@ describe("the links on a saved export", () => {
 });
 
 describe("demoman-mcp's tools", () => {
+  it("serves a link's answer in the served words, and names linking as in progress", async () => {
+    const { client } = await connect(
+      {
+        link: async () => ({
+          ok: true,
+          value: {
+            outcome: "refusedBeforeExport",
+            reason: "takeNotFound",
+            detail: "no take t1",
+            takeId: "t1",
+          },
+        }),
+      },
+      200,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+    const res = await client.callTool({
+      name: "link",
+      arguments: { videoId: "t1" },
+    });
+    const text = JSON.stringify(res.content);
+    expect(text).toContain("videoNotFound");
+    expect(text).not.toContain("takeNotFound");
+    const tools = (await client.listTools()).tools;
+    expect(tools.find((t) => t.name === "report")?.description).toContain(
+      '{outcome: "linking", …} for a link',
+    );
+    expect(tools.find((t) => t.name === "link")?.description).toContain(
+      "linking",
+    );
+  });
+
   it("lists link only for a machine signed in to Demoman, and passes it the video, title and expiry", async () => {
     const signedOut = await connect(
       {},
