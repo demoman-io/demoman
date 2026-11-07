@@ -26,6 +26,7 @@
     "@demoman/compositor": "workspace:*",
     "@demoman/replay-engine": "workspace:*",
     "@demoman/resolver": "workspace:*",
+    "@demoman/hosted-protocol": "workspace:*",
     "@demoman/run-core": "workspace:*",
     "@demoman/scene-schema": "workspace:*",
     "esbuild": "^0.25.0",

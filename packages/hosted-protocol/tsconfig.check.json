@@ -1,0 +1,12 @@
+{
+  // Typecheck-only: `tsconfig.json` is the BUILD config and its `include` is
+  // `src` alone, so `test/` and `scripts/` were checked by nothing at all —
+  // not the build, not vitest, not CI. Kept separate rather than widening the
+  // build's include, which would emit test files into `dist`.
+  //
+  // `rootDir: "."` overrides the build's `src`, which otherwise rejects every
+  // file outside it with TS6059 before typechecking any of them.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "declaration": false, "rootDir": "." },
+  "include": ["src", "test"]
+}

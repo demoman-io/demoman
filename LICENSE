@@ -19,6 +19,8 @@ for the same text). Each directory carries its own copy of the full text:
 - `packages/agent-bridge` — the run outcome types the MCP server and the
   executor share
 - `packages/compositor`
+- `packages/hosted-protocol` — the hosted service's API, limits and the MP4
+  facts the CLI and the service both read
 - `packages/replay-engine`
 - `packages/resolver`
 - `packages/run-core`

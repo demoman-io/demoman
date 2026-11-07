@@ -4,23 +4,21 @@
  * comment extension; PNG: a `tEXt` chunk. `flow` is the kept flow's id and
  * `video` the take (the version: numbers are positions and move when a
  * version is deleted). `commit` and `dirty` are what the take filmed, from
- * its report; null when not known.
+ * its report; null when not known. Reading an MP4's tag is
+ * `@demoman/hosted-protocol`'s, which the hosted service shares.
  */
-export interface VideoTag {
-  flow: string;
-  video: string;
-  commit: string | null;
-  dirty: boolean | null;
-}
+import {
+  moovFacts,
+  parseVideoTag as parseTag,
+  type TagRead,
+  type VideoTag,
+} from "@demoman/hosted-protocol";
+
+export type { TagRead, VideoTag };
 
 export type Tagged =
   | { ok: true; bytes: Uint8Array }
   | { ok: false; error: string };
-
-export type TagRead =
-  | { found: VideoTag }
-  | { none: string }
-  | { unreadable: string };
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -48,31 +46,6 @@ const be32 = (n: number) => {
 const isPng = (b: Uint8Array) => b[0] === 0x89 && ascii(b, 1, 3) === "PNG";
 const isGif = (b: Uint8Array) => ascii(b, 0, 3) === "GIF";
 const isMp4 = (b: Uint8Array) => ascii(b, 4, 4) === "ftyp";
-
-const parseTag = (text: string): TagRead => {
-  try {
-    const v = JSON.parse(text) as Partial<VideoTag> & { take?: unknown };
-    if (typeof v.flow === "string" && typeof v.video === "string") {
-      return {
-        found: {
-          flow: v.flow,
-          video: v.video,
-          commit: typeof v.commit === "string" ? v.commit : null,
-          dirty: typeof v.dirty === "boolean" ? v.dirty : null,
-        },
-      };
-    }
-    // Exports made before shared ids: { video: <flow>, take }.
-    if (typeof v.video === "string" && typeof v.take === "string") {
-      return {
-        found: { flow: v.video, video: v.take, commit: null, dirty: null },
-      };
-    }
-    return { unreadable: `the tag is not a flow and a video: ${text}` };
-  } catch (error) {
-    return { unreadable: `the tag is not JSON (${(error as Error).message})` };
-  }
-};
 
 // ---- PNG ----
 
@@ -313,23 +286,7 @@ function readMp4(b: Uint8Array): TagRead {
     return { unreadable: "the MP4 is cut off in a top-level box" };
   const moov = top.find((x) => x.type === "moov");
   if (moov === undefined) return { unreadable: "the MP4 has no moov box" };
-  const kids = boxes(b, moov.start + 8, moov.start + moov.size);
-  if (kids === null)
-    return { unreadable: "the MP4's moov is cut off in a child box" };
-  const udtas = kids.filter((x) => x.type === "udta");
-  if (udtas.length === 0) return { none: "the MP4 carries no udta box" };
-  for (const udta of udtas) {
-    const inner = boxes(b, udta.start + 8, udta.start + udta.size);
-    if (inner === null)
-      return { unreadable: "the MP4's udta is cut off in a child box" };
-    const dmvi = inner.find((x) => x.type === "dmvi");
-    if (dmvi !== undefined) {
-      return parseTag(
-        dec.decode(b.subarray(dmvi.start + 8, dmvi.start + dmvi.size)),
-      );
-    }
-  }
-  return { none: "the MP4's udta holds no dmvi box" };
+  return moovFacts(b.subarray(moov.start, moov.start + moov.size)).tag;
 }
 
 export function tagBytes(
