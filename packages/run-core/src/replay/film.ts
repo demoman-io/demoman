@@ -179,11 +179,18 @@ function framingOf(target: Rect, visible: Rect, shot: Rect): Framing {
   const top = target.y - visible.y;
   const right = visible.x + visible.width - (target.x + target.width);
   const bottom = visible.y + visible.height - (target.y + target.height);
-  const overlaps =
-    target.x < visible.x + visible.width &&
-    target.x + target.width > visible.x &&
-    target.y < visible.y + visible.height &&
-    target.y + target.height > visible.y;
+  // A point (a drag's end, a click's spot) has no area to overlap with:
+  // on the visible area's edge it is still in shot.
+  const point = target.width === 0 || target.height === 0;
+  const overlaps = point
+    ? target.x >= visible.x &&
+      target.x + target.width <= visible.x + visible.width &&
+      target.y >= visible.y &&
+      target.y + target.height <= visible.y + visible.height
+    : target.x < visible.x + visible.width &&
+      target.x + target.width > visible.x &&
+      target.y < visible.y + visible.height &&
+      target.y + target.height > visible.y;
   if (!overlaps) return "outOfFrame";
   if (left < 0 || top < 0 || right < 0 || bottom < 0) return "cutOff";
   return Math.min(
@@ -373,10 +380,27 @@ export function filmQuality(
     const endRect =
       points === null ? endAt.get(action.id) : pointRect(points.end);
     const label = framingOf(startRect, visible, shot);
+    // A drag lets go later than it presses, and the camera may have followed
+    // the hand there (DEM-65): its end is framed where the shot was at the
+    // release, when the take recorded one; else at the press, as before.
+    const held = bundle.heldPresses?.find((h) => h.actionId === action.id);
+    const atRelease =
+      action.kind === "drag" && held !== undefined
+        ? visibleRegion(
+            resolved,
+            out(held.releaseMs),
+            bundle.viewport,
+            scene.branding,
+            frame,
+          )
+        : { visible, shot };
     const end =
       endRect === undefined
         ? undefined
-        : { label: framingOf(endRect, visible, shot), rect: endRect };
+        : {
+            label: framingOf(endRect, atRelease.visible, atRelease.shot),
+            rect: endRect,
+          };
     return {
       ...blank,
       outputMs,
