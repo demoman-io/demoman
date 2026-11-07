@@ -401,6 +401,9 @@ export async function sameScreens(
   );
 }
 
+/** A moment of a video, as its messages say it. */
+const secs = (ms: number): string => `${(ms / 1000).toFixed(2)}s`;
+
 /** The script step a screen's `step` (an index into the film's actions)
  *  comes from: `pause` makes no action (`authoredTotal`), every other step
  *  makes one. Null when the script has no such step. */
@@ -483,7 +486,10 @@ export function comparePictures(
       s.step === null ? "on the final screen" : before(s.step, steps);
     return {
       same: false,
-      detail: `the window moved ${place} at ${(s.msB / 1000).toFixed(2)}s, from ${rectText(wa)} to ${rectText(wb)}`,
+      // Each video's own moment beside its own window: the two reach a
+      // screen at different times, and one time for both sent DEM-63 to the
+      // wrong frame of the committed video.
+      detail: `the window moved ${place}: the committed video has it at ${rectText(wa)} at ${secs(s.msA)}, the new one at ${rectText(wb)} at ${secs(s.msB)}`,
     };
   }
   for (const [i, shares] of changed.entries()) {
