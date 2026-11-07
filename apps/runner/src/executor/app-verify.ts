@@ -40,6 +40,9 @@ export interface VerifyDeps {
   refresh(
     args: Parameters<typeof refreshKept>[0],
     env: NodeJS.ProcessEnv,
+    /** The started app's reset, run before each flow as refresh runs it
+     *  (DEM-57); absent when the check starts no app. */
+    beforeFlow?: AppStarted["reset"],
   ): Promise<RefreshResult>;
   /** Only for the check's own `docker info`; startApp has its own. */
   docker(args: string[]): Promise<{ code: number }>;
@@ -188,6 +191,7 @@ export async function verifySetup(
         ...("baseUrl" in target ? { baseUrl: target.baseUrl } : {}),
       },
       env,
+      app?.reset ?? undefined,
     );
     const result = await orStop(refreshing);
     if (result === STOPPED) {

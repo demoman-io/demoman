@@ -278,9 +278,15 @@ function secretIn(
   return n === null ? null : `${n} in its browser storage`;
 }
 
+/** The page an address names, without query or hash; the address itself
+ *  when it does not parse. */
 const originAndPath = (raw: string): string => {
-  const u = new URL(raw);
-  return `${u.origin}${u.pathname}`;
+  try {
+    const u = new URL(raw);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return raw;
+  }
 };
 
 export async function signInAccount(
@@ -536,7 +542,31 @@ export async function signInAccount(
         // cancel a form still about to submit; wait for the navigation the
         // last step set going, bounded, and say so when none comes.
         const navUntil = Math.min(deadline, Date.now() + STEP_WAIT_MS);
-        while (nav.documents === 0 && Date.now() < navUntil) await wait(50);
+        // A client-side sign-in loads no document (DEM-60): it is done when
+        // the page has moved to another path AND no password field shows
+        // (read as checkUrl's check reads it, every field, CSP-safe). Either
+        // alone is not enough: a form can hide its field and navigate a
+        // second later, or rewrite its query and still submit (review).
+        const pathBefore = originAndPath(page.url());
+        let signedInPlace = false;
+        let lastLook = 0;
+        while (nav.documents === 0 && Date.now() < navUntil) {
+          if (Date.now() - lastLook >= 250) {
+            lastLook = Date.now();
+            const facts = await readLandingFacts(page, page.url()).catch(
+              () => null,
+            );
+            if (
+              facts !== null &&
+              !facts.passwordFieldVisible &&
+              originAndPath(facts.landedUrl) !== pathBefore
+            ) {
+              signedInPlace = true;
+              break;
+            }
+          }
+          await wait(50);
+        }
         // Then for that navigation to land: a document loaded, or the
         // request failed. Until then the page is the OLD one, and "network
         // idle" — long true of it — answers at once, so checkUrl's goto
@@ -557,7 +587,7 @@ export async function signInAccount(
             ),
           );
         }
-        if (nav.documents === 0) {
+        if (nav.documents === 0 && !signedInPlace) {
           deps.log(
             deps.sweep.scrub(
               `signing in as ${name}: no page navigation followed the last click, type or goto within ${STEP_WAIT_MS / 1000} s; checking ${account.checkUrl} now`,

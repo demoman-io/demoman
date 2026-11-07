@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import {
+  DEGRADATION_WORDS,
   type ExportAnswer,
   type FilmedCode,
   FLOWS_DIR,
@@ -113,6 +114,9 @@ export interface RefreshDeps {
   }): LocalExecutor;
   /** The browser that decodes outputs to compare them. */
   session: Pick<BrowserSession, "openWorkPage">;
+  /** Before each recording (a retry too): the app's reset from app.json,
+   *  so one flow's changes never show in the next (DEM-57). */
+  beforeFlow?: () => Promise<{ ok: true } | { ok: false; detail: string }>;
   /** The picture comparisons, of a decoded film (a version 1 receipt's)
    *  and of screen images; the real ones unless a test stands in. */
   samePicture?: typeof samePicture;
@@ -144,32 +148,100 @@ type Job = {
   to: string;
 };
 
+export type RunVerdict =
+  | { kind: "clean" }
+  | { kind: "degraded"; problems: string[] }
+  | { kind: "failed"; detail: string };
+
+/** The degradations that leave a video correct, only less smooth or less
+ *  sharp: a soft still, a scroll still moving, motion frames dropped or kept
+ *  as stills under load. Any other (a drag or click that may have done
+ *  nothing, missing motion) can make the video wrong, so it fails (review
+ *  of the DEM-55 branch). */
+const FORGIVEN = new Set<string>([
+  "stillFailed",
+  "scrollUnsettled",
+  "budgetBreach",
+  "keyframeOnly",
+]);
+const STILLS_ONLY = "no motion was recorded: the video is its stills only";
+
 /**
- * Why a run answer is not clean enough to replace a committed video, or
- * null when it is: complete, never stopped, every step matched, nothing
- * degraded, everything stored. Read from the answer, never recomputed; the
- * reason given is the answer's own summary (its verdict line).
+ * Whether a run answer can replace a committed video. Clean: complete, never
+ * stopped, every step matched, everything stored, nothing degraded.
+ * Degraded: all of that, but every degradation is one that leaves the video
+ * correct (FORGIVEN), or acting steps recorded no motion; refresh records it
+ * once more (DEM-55). Failed: anything else, its detail the answer's own
+ * summary plus the degradations in the report's words, so CI says why.
+ * Read from the answer, never recomputed.
  */
-export function uncleanRun(answer: Record<string, unknown>): string | null {
-  const r = answer as Omit<Partial<RunReport>, "outcome"> & {
+export function runVerdict(answer: Record<string, unknown>): RunVerdict {
+  const r = answer as Omit<
+    Partial<RunReport>,
+    "outcome" | "frames" | "steps"
+  > & {
     outcome?: unknown;
     summary?: unknown;
     reason?: unknown;
     detail?: unknown;
     error?: unknown;
+    steps?: Array<{ intent?: { do?: string } }>;
+    frames?: { spans?: number; degradations?: string[] };
   };
-  if (r.outcome === "refusedBeforeRun") return `${r.reason}: ${r.detail}`;
-  if (r.outcome === "threw") return `the run threw: ${r.error}`;
-  const clean =
+  if (r.outcome === "refusedBeforeRun")
+    return { kind: "failed", detail: `${r.reason}: ${r.detail}` };
+  if (r.outcome === "threw")
+    return { kind: "failed", detail: `the run threw: ${r.error}` };
+  const kinds = [...new Set(r.frames?.degradations ?? [])];
+  const problems = kinds.map((k) => {
+    const words = (DEGRADATION_WORDS as Record<string, string>)[k];
+    return words === undefined ? k : `${words} (${k})`;
+  });
+  // As compare/numbers.ts: no spans matters only when a step acts.
+  const acting = (r.steps ?? []).filter((s) => s.intent?.do !== "pause");
+  const starved = r.frames?.spans === 0 && acting.length > 0;
+  if (starved) problems.push(STILLS_ONLY);
+  const whole =
     r.outcome === "complete" &&
     r.stopped === undefined &&
     r.verdict?.kind === "matches" &&
-    r.frames?.degradations.length === 0 &&
+    r.frames !== undefined &&
     (r.notStored ?? []).length === 0;
-  if (clean) return null;
-  return typeof r.summary === "string"
-    ? r.summary
-    : `the run answered ${JSON.stringify(r.outcome)} with no summary`;
+  if (whole && kinds.every((k) => FORGIVEN.has(k)))
+    return problems.length === 0
+      ? { kind: "clean" }
+      : { kind: "degraded", problems };
+  const line =
+    typeof r.summary === "string"
+      ? r.summary
+      : `the run answered ${JSON.stringify(r.outcome)} with no summary`;
+  return {
+    kind: "failed",
+    detail: problems.length === 0 ? line : `${line} — ${problems.join("; ")}`,
+  };
+}
+
+/** Records a flow, and once more when the first recording is degraded: on a
+ *  busy runner a soft still or a starved screencast is usually a one-off
+ *  (DEM-55). Answers the run that stands and its verdict; a second degraded
+ *  run stands too, and the caller delivers it with a note. */
+export async function recordWithRetry(
+  run: () => Promise<Record<string, unknown>>,
+  name: string,
+  log: (line: string) => void,
+): Promise<{ answer: Record<string, unknown>; verdict: RunVerdict }> {
+  const first = await run();
+  const verdict = runVerdict(first);
+  if (verdict.kind !== "degraded") return { answer: first, verdict };
+  log(
+    `refresh: "${name}" recorded with ${verdict.problems.join("; ")}; trying it once more`,
+  );
+  const answer = await run();
+  const second = runVerdict(answer);
+  // A retry that fails keeps the first run, which can still be delivered.
+  return second.kind === "failed"
+    ? { answer: first, verdict }
+    : { answer, verdict: second };
 }
 
 /**
@@ -524,7 +596,14 @@ async function filmOne(
 ): Promise<Filmed | { failed: string }> {
   const { kept, script, previous, from, receiptFile } = job;
   const times = stageTimes();
-  const run = async () => {
+  const run = async (): Promise<Record<string, unknown>> => {
+    const reset = (await deps.beforeFlow?.()) ?? { ok: true };
+    if (!reset.ok)
+      return {
+        outcome: "refusedBeforeRun",
+        reason: "reset failed",
+        detail: reset.detail,
+      };
     const out = await executor.request("run", {
       script,
       // The kept flow by its id: the throwaway library adopts it, so what
@@ -538,11 +617,14 @@ async function filmOne(
       ? (out.value as Record<string, unknown>)
       : { outcome: "refusedBeforeRun", reason: out.reason, detail: out.detail };
   };
-  const answer = await run();
+  const { answer, verdict } = await recordWithRetry(run, kept.name, deps.log);
   // The group's first run includes the browser launch.
   times.mark("record");
-  const unclean = uncleanRun(answer);
-  if (unclean !== null) return { failed: unclean };
+  if (verdict.kind === "failed") return { failed: verdict.detail };
+  if (verdict.kind === "degraded")
+    job.notes.push(
+      `recorded with problems Demoman could not avoid on this machine: ${verdict.problems.join("; ")}`,
+    );
   const report = answer as unknown as RunReport;
   const takeId = report.provenance.takeId;
   if (takeId === null) return { failed: "the run is clean but made no video" };

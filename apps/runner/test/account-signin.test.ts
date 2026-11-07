@@ -267,6 +267,34 @@ describe("signInAccount", () => {
     }
   }, 60_000); // 1.8 s here; 5x is 8.8 s
 
+  // Red when a client-side sign-in waits out 10 s for a page load that never
+  // comes (DEM-60).
+  it("a client-side sign-in moves on once the form is gone, without the 10 s wait", async () => {
+    const { deps: d, logs } = deps();
+    const t0 = Date.now();
+    const r = await signInAccount(chosen(steps("/login-spa")), d);
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(Date.now() - t0).toBeLessThan(6000);
+    expect(logs.join("\n")).not.toContain("no page navigation followed");
+  }, 30_000);
+
+  // Review, finding 1. Red when a hidden password field alone ends the wait:
+  // the form's own navigation comes a second later and checkUrl's visit would
+  // cancel its post.
+  it("a form that hides its field and navigates later is waited for", async () => {
+    const { deps: d } = deps();
+    const r = await signInAccount(chosen(steps("/login-hide-then-go")), d);
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+  }, 30_000);
+
+  // Premise for the above: a form still on screen while its post is in
+  // flight is waited for, not left early.
+  it("a client-side sign-in that keeps its form a while is still signed in", async () => {
+    const { deps: d } = deps();
+    const r = await signInAccount(chosen(steps("/login-spa?hold=1500")), d);
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+  }, 30_000);
+
   it("counts the submit's navigation when a wait follows it (review 2026-10-16)", async () => {
     const { deps: d, logs } = deps();
     const r = await signInAccount(

@@ -1,8 +1,9 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEGRADATION_WORDS } from "@demoman/run-core";
 import { describe, expect, it } from "vitest";
-import { uncleanRun } from "../src/executor/refresh.js";
+import { recordWithRetry, runVerdict } from "../src/executor/refresh.js";
 import {
   comparePictures,
   LOOKS,
@@ -20,14 +21,16 @@ const clean = {
   summary: "Complete: the video matches every step the script asked for.",
   outcome: "complete",
   verdict: { kind: "matches" },
-  frames: { degradations: [] },
+  frames: { spans: 2, degradations: [] },
 };
-const said = (more: Record<string, unknown>) =>
-  uncleanRun({ ...clean, summary: "the run's own line", ...more });
+const verdictOf = (more: Record<string, unknown>) =>
+  runVerdict({ ...clean, summary: "the run's own line", ...more });
+const STILL = `${DEGRADATION_WORDS.stillFailed} (stillFailed)`;
+const acting = [{ intent: { do: "click" } }];
 
-describe("uncleanRun", () => {
+describe("runVerdict", () => {
   it("passes a complete, matching, whole run", () => {
-    expect(uncleanRun(clean)).toBeNull();
+    expect(runVerdict(clean)).toEqual({ kind: "clean" });
   });
   it.each([
     ["stopped", { outcome: "stopped" }],
@@ -36,23 +39,129 @@ describe("uncleanRun", () => {
       { stopped: { reason: "portFailure" } },
     ],
     ["a step not shown", { verdict: { kind: "diverged", diverged: [{}] } }],
-    ["a degradation", { frames: { degradations: ["budgetBreach"] } }],
     ["no frames block", { frames: undefined }],
     ["a record not stored", { notStored: [{ what: "status", error: "x" }] }],
   ])("fails %s, with the run's own line", (_, more) => {
-    expect(said(more)).toBe("the run's own line");
+    expect(verdictOf(more)).toEqual({
+      kind: "failed",
+      detail: "the run's own line",
+    });
+  });
+  // Red when a forgiven degradation fails the flow (DEM-55): it is degraded,
+  // named in the report's own words, once however often it happened.
+  it("calls a matching run with a soft still degraded, naming it once", () => {
+    expect(
+      verdictOf({
+        frames: { spans: 2, degradations: ["stillFailed", "stillFailed"] },
+      }),
+    ).toEqual({ kind: "degraded", problems: [STILL] });
+  });
+  // Review of #36's branch, finding 2. Red when a video that may be wrong
+  // (a drag that changed nothing, missing motion) is forgiven.
+  it.each([
+    "notDragged",
+    "clickUnconfirmed",
+    "encodeRefused",
+    "surfaceMismatch",
+  ])("fails a run whose %s may leave the video wrong", (kind) => {
+    const got = verdictOf({ frames: { spans: 2, degradations: [kind] } });
+    expect(got.kind).toBe("failed");
+  });
+  it("calls a run that recorded no motion for its acting steps degraded", () => {
+    expect(
+      verdictOf({ steps: acting, frames: { spans: 0, degradations: [] } }),
+    ).toEqual({
+      kind: "degraded",
+      problems: ["no motion was recorded: the video is its stills only"],
+    });
+  });
+  // Review, finding 6. Red when a flow with nothing to move is flagged.
+  it("a run with no acting steps and no motion is clean", () => {
+    expect(
+      verdictOf({
+        steps: [{ intent: { do: "pause" } }],
+        frames: { spans: 0, degradations: [] },
+      }),
+    ).toEqual({ kind: "clean" });
+  });
+  it("a failure carries the degradations' words as its cause", () => {
+    expect(
+      verdictOf({
+        verdict: { kind: "diverged", diverged: [{}] },
+        frames: { spans: 2, degradations: ["stillFailed"] },
+      }),
+    ).toEqual({
+      kind: "failed",
+      detail: `the run's own line — ${STILL}`,
+    });
   });
   it("names a refusal and a throw, which carry no line", () => {
     expect(
-      uncleanRun({
+      runVerdict({
         outcome: "refusedBeforeRun",
         reason: "signedOut",
         detail: "d",
       }),
-    ).toBe("signedOut: d");
-    expect(uncleanRun({ outcome: "threw", error: "boom" })).toBe(
-      "the run threw: boom",
-    );
+    ).toEqual({ kind: "failed", detail: "signedOut: d" });
+    expect(runVerdict({ outcome: "threw", error: "boom" })).toEqual({
+      kind: "failed",
+      detail: "the run threw: boom",
+    });
+  });
+});
+
+describe("recordWithRetry", () => {
+  const degraded = {
+    ...clean,
+    frames: { spans: 2, degradations: ["stillFailed"] },
+  };
+  const diverged = {
+    ...clean,
+    verdict: { kind: "diverged", diverged: [{}] },
+    frames: { spans: 2, degradations: ["stillFailed"] },
+  };
+  const runs = (...answers: Record<string, unknown>[]) => {
+    let n = 0;
+    const run = async () => answers[Math.min(n++, answers.length - 1)] ?? {};
+    return { run, count: () => n };
+  };
+  const logs: string[] = [];
+  const log = (l: string) => logs.push(l);
+
+  it("records a clean run once", async () => {
+    const r = runs(clean);
+    const got = await recordWithRetry(r.run, "Flow", log);
+    expect(got.verdict).toEqual({ kind: "clean" });
+    expect(r.count()).toBe(1);
+  });
+  it("records a degraded run once more, and keeps the clean second", async () => {
+    const r = runs(degraded, clean);
+    const got = await recordWithRetry(r.run, "Flow", log);
+    expect(r.count()).toBe(2);
+    expect(got.answer).toBe(clean);
+    expect(got.verdict).toEqual({ kind: "clean" });
+    expect(logs.at(-1)).toContain(`"Flow" recorded with ${STILL}`);
+  });
+  it("delivers a second degraded run, naming its problems", async () => {
+    const r = runs(degraded, degraded);
+    const got = await recordWithRetry(r.run, "Flow", log);
+    expect(r.count()).toBe(2);
+    expect(got.verdict).toMatchObject({ kind: "degraded" });
+  });
+  // Review, finding 3. Red when a retry that fails throws away a first
+  // recording that could be delivered.
+  it("keeps the first, degraded run when the retry fails", async () => {
+    const r = runs(degraded, diverged);
+    const got = await recordWithRetry(r.run, "Flow", log);
+    expect(r.count()).toBe(2);
+    expect(got.answer).toBe(degraded);
+    expect(got.verdict).toMatchObject({ kind: "degraded" });
+  });
+  it("never retries a failed run", async () => {
+    const r = runs(diverged, clean);
+    const got = await recordWithRetry(r.run, "Flow", log);
+    expect(r.count()).toBe(1);
+    expect(got.verdict).toMatchObject({ kind: "failed" });
   });
 });
 

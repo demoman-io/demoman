@@ -126,6 +126,7 @@ const startStub =
         stops++;
         return leftToStop;
       },
+      reset: async () => ({ ok: true }),
     }),
   ): typeof startApp =>
   async (a, o) => {
@@ -266,6 +267,36 @@ describe("verifySetup", () => {
       }),
     );
     expect(refreshed[0]?.args.only).toEqual(["Long"]);
+  });
+
+  // Review, finding 4. Red when the check never runs app.json's reset, so a
+  // broken one passes setup and fails every flow in CI.
+  it("hands the refresh the started app's reset, as refresh itself does", async () => {
+    let resets = 0;
+    const startApp = startStub(async () => ({
+      reused: false,
+      said: "started",
+      seconds: 1,
+      stop: async () => [],
+      reset: async () => {
+        resets += 1;
+        return { ok: true };
+      },
+    }));
+    let handed: (() => Promise<unknown>) | undefined;
+    await verifySetup(
+      { root, files: files(), target: { app: app() }, secrets: {} },
+      deps({
+        startApp,
+        refresh: async (args, env, beforeFlow) => {
+          handed = beforeFlow;
+          return refreshStub()(args, env);
+        },
+      }),
+    );
+    expect(handed).toBeDefined();
+    await handed?.();
+    expect(resets).toBe(1);
   });
 
   // Red when process.env is passed whole, or secrets reach only one side.
@@ -568,6 +599,7 @@ describe("verifySetup", () => {
               stops++;
               return [];
             },
+            reset: async () => ({ ok: true }),
           };
         }),
       }),

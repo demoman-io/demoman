@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
+  cp,
   mkdir,
   mkdtemp,
   readdir,
@@ -56,8 +57,9 @@ import {
   type RefreshDeps,
   type RefreshResult,
   type RefreshVideo,
+  type RunVerdict,
   refreshKept,
-  uncleanRun,
+  runVerdict,
 } from "../src/executor/refresh.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { listenOnLoopback } from "../src/loopback.js";
@@ -252,6 +254,29 @@ const out = {
   aMp4: "docs/order.mp4",
   aGif: "docs/order.gif",
   bMp4: "docs/reports.mp4",
+};
+
+/** Runs `fn`, then puts the repo's flows and outputs back as they were: a
+ *  test that delivers must not change what the later tests in its lane
+ *  read (CI, PR #36). */
+const leavingRepo = async <T>(fn: () => Promise<T>): Promise<T> => {
+  const saved = await mkdtemp(join(tmpdir(), "demoman-refresh-saved-"));
+  const dirs = ["docs", ".demoman"];
+  for (const d of dirs)
+    await cp(join(repo, d), join(saved, d), { recursive: true }).catch(
+      () => undefined,
+    );
+  try {
+    return await fn();
+  } finally {
+    for (const d of dirs) {
+      await rm(join(repo, d), { recursive: true, force: true });
+      await cp(join(saved, d), join(repo, d), { recursive: true }).catch(
+        () => undefined,
+      );
+    }
+    await rm(saved, { recursive: true, force: true });
+  }
 };
 
 function kept(
@@ -1246,13 +1271,14 @@ export const replaceChain = () => {
   );
 
   it(
-    "fails a run that carries a degradation, leaving its files",
+    "records a degraded run once more, then delivers it with a note (DEM-55)",
     async () => {
       html = ORIGINAL;
-      const before = await Promise.all([out.aMp4, out.aGif].map(bytes));
-      let clean: string | null | undefined;
+      let clean: RunVerdict | undefined;
+      let runs = 0;
       inject = (v) => {
-        clean = uncleanRun(v);
+        runs += 1;
+        clean = runVerdict(v);
         const report = v as unknown as RunReport;
         const degraded = {
           ...report,
@@ -1262,17 +1288,59 @@ export const replaceChain = () => {
       };
       let r: RefreshResult;
       try {
-        r = await refresh([A]);
+        r = await leavingRepo(() => refresh([A]));
       } finally {
         inject = null;
       }
       // The premise: the run itself was clean.
-      expect(clean).toBeNull();
-      expect(r.videos.map((v) => [v.name, v.outcome])).toEqual([[A, "failed"]]);
-      expect(byName(r, A).detail).toContain("motion frames were skipped");
-      const after = await Promise.all([out.aMp4, out.aGif].map(bytes));
-      for (const [i, b] of after.entries())
-        expect(b.equals(before[i] as Buffer)).toBe(true);
+      expect(clean).toEqual({ kind: "clean" });
+      // Red when a forgiven degradation fails the flow, or is not retried.
+      expect(runs).toBe(2);
+      expect(byName(r, A).outcome).not.toBe("failed");
+      expect(byName(r, A).notes.join(" ")).toContain(
+        "recorded with problems Demoman could not avoid on this machine: motion frames were skipped to stay inside the frame budget (budgetBreach)",
+      );
+    },
+    ONE_MS,
+  );
+
+  it(
+    "runs the app's reset before each flow, and a failed reset fails only its flow (DEM-57)",
+    async () => {
+      html = ORIGINAL;
+      const events: string[] = [];
+      let resets = 0;
+      inject = (v) => {
+        events.push("run");
+        return v;
+      };
+      let r: RefreshResult;
+      try {
+        r = await leavingRepo(() =>
+          refreshKept(
+            { repoRoot: repo, library: "throwaway", only: [A, B] },
+            {
+              ...deps(),
+              beforeFlow: async () => {
+                events.push("reset");
+                resets += 1;
+                return resets === 1
+                  ? { ok: false, detail: "`pnpm reset` exited with code 1" }
+                  : { ok: true };
+              },
+            },
+          ),
+        );
+      } finally {
+        inject = null;
+      }
+      // Red when no reset runs, or a failed one stops the other flows.
+      expect(events).toEqual(["reset", "reset", "run"]);
+      const failed = r.videos.filter((v) => v.outcome === "failed");
+      expect(failed.map((v) => v.detail)).toEqual([
+        "reset failed: `pnpm reset` exited with code 1",
+      ]);
+      expect(r.videos.filter((v) => v.outcome !== "failed")).toHaveLength(1);
     },
     ONE_MS,
   );

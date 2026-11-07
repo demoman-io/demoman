@@ -949,7 +949,9 @@ function prClause(report: RunReport, clean: string): string {
  * uses. A `Record` over the compositor's own enum, so a kind added there and
  * not here fails to compile instead of reaching the line as nothing.
  */
-const NOT_KEPT: Record<Degradation["kind"], string> = {
+/** Each degradation kind in a sentence: the verdict line's words, which
+ *  refresh repeats when it delivers or fails a degraded run. */
+export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
   keyframeOnly:
     "a stretch of motion was kept as stills because memory ran high",
   budgetBreach: "motion frames were skipped to stay inside the frame budget",
@@ -1006,7 +1008,7 @@ function lookClause(report: RunReport): string {
  */
 function framesClause(report: RunReport): string {
   const kinds = [...new Set(report.frames.degradations)];
-  const said = kinds.map((kind) => `${NOT_KEPT[kind]} (${kind})`);
+  const said = kinds.map((kind) => `${DEGRADATION_WORDS[kind]} (${kind})`);
   if (report.frames.storageRefused) {
     said.push("the frame store refused frames during the run (storageRefused)");
   }

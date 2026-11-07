@@ -294,6 +294,63 @@ describe("startApp", () => {
     });
   });
 
+  // Red when a flow's changes show in the next: reset runs the app's own
+  // command before each flow (DEM-57).
+  describe("reset", () => {
+    it("runs the reset command, saying so, and answers ok", async () => {
+      const said: string[] = [];
+      const r = started(
+        await startApp(
+          app({ reset: "echo reset-ran" }),
+          opts({ mode: "reuse", log: (l: string) => said.push(l) }),
+          { spawn: spawnSpy.fn },
+        ),
+      );
+      const before = spawnSpy.calls.length;
+      expect(await r.reset()).toEqual({ ok: true });
+      expect(said).toContain("resetting: `echo reset-ran`");
+      expect(spawnSpy.calls.slice(before)).toEqual(["-c echo reset-ran"]);
+    });
+    it("answers why when the reset command fails", async () => {
+      const r = started(
+        await startApp(
+          app({ reset: "echo nope; exit 3" }),
+          opts({ mode: "reuse" }),
+          { spawn: spawnSpy.fn },
+        ),
+      );
+      const got = await r.reset();
+      expect(got.ok).toBe(false);
+      if (!got.ok) {
+        expect(got.detail).toContain("`echo nope; exit 3` exited with code 3");
+        expect(got.detail).toContain("nope");
+      }
+    });
+    // Review, finding 8. Red when a reset that never ends holds the job.
+    it("stops a reset that outlasts the app's timeout, and says so", async () => {
+      const r = started(
+        await startApp(
+          app({ reset: "sleep 30", timeoutSeconds: 1 }),
+          opts({ mode: "reuse" }),
+          { spawn: spawnSpy.fn },
+        ),
+      );
+      const t0 = Date.now();
+      const got = await r.reset();
+      expect(Date.now() - t0).toBeLessThan(5000);
+      expect(got.ok).toBe(false);
+      if (!got.ok) expect(got.detail).toContain("did not finish within 1 s");
+    }, 20_000);
+    it("without a reset command runs nothing", async () => {
+      const r = started(
+        await startApp(app(), opts({ mode: "reuse" }), { spawn: spawnSpy.fn }),
+      );
+      const before = spawnSpy.calls.length;
+      expect(await r.reset()).toEqual({ ok: true });
+      expect(spawnSpy.calls.slice(before)).toEqual([]);
+    });
+  });
+
   describe('mode "own" when something holds the port but is not ready', () => {
     const hold = async (handler: Parameters<typeof createServer>[1]) => {
       const s = createServer(handler);

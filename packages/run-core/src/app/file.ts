@@ -20,6 +20,9 @@ export interface AppSpec {
   appVersion: 1;
   install: string[];
   start: string;
+  /** Run before each flow, so one flow's changes never show in the next
+   *  (DEM-57). Named by the person or agent; never guessed. */
+  reset?: string;
   url: string;
   timeoutSeconds: number;
   env: Record<string, string>;
@@ -55,6 +58,7 @@ const AppSchema = z
     appVersion: z.literal(APP_VERSION),
     install: z.array(z.string().min(1)),
     start: z.string().min(1),
+    reset: z.string().min(1).optional(),
     url: z
       .string()
       .min(1)
@@ -122,13 +126,15 @@ export function serializeApp(app: AppSpec): string {
     appVersion,
     install,
     start,
+    reset,
     url,
     timeoutSeconds,
     env,
     secrets,
     services,
   } = app;
-  return `${JSON.stringify({ appVersion, install, start, url, timeoutSeconds, env, secrets, services }, null, 2)}\n`;
+  // reset only when set: a file written before it serializes as before.
+  return `${JSON.stringify({ appVersion, install, start, ...(reset === undefined ? {} : { reset }), url, timeoutSeconds, env, secrets, services }, null, 2)}\n`;
 }
 
 export function draftHoles(d: AppDraft): string[] {

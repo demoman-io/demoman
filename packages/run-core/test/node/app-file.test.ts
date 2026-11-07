@@ -102,6 +102,26 @@ describe(".demoman/app.json", () => {
     expect(r.detail).toMatch(/^\.demoman\/app\.json: env: /);
   });
 
+  // Red when app.json cannot name a reset command, or writes one it was not
+  // given (DEM-57).
+  it("round-trips an optional reset after start, and writes none when absent", () => {
+    const withReset = serializeApp({ ...FULL, reset: "pnpm reset" });
+    expect(Object.keys(JSON.parse(withReset))).toEqual([
+      "appVersion",
+      "install",
+      "start",
+      "reset",
+      "url",
+      "timeoutSeconds",
+      "env",
+      "secrets",
+      "services",
+    ]);
+    const r = parseApp(withReset, ".demoman/app.json");
+    expect(r).toMatchObject({ ok: true, app: { reset: "pnpm reset" } });
+    expect(serializeApp(FULL)).not.toContain("reset");
+  });
+
   it("names the draft's holes", () => {
     const { start: _s, url: _u, ...rest } = FULL;
     expect(draftHoles({ ...rest, start: null, url: null })).toEqual([
