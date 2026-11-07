@@ -8,6 +8,7 @@ import {
 } from "@demoman/run-core";
 import {
   checkAddable,
+  notInRepo,
   createVideoStore,
   describeVideo,
   ensureVideos,
@@ -331,16 +332,6 @@ export function createRoutes(o: {
     const listed: VideoListing[] = [];
     const videoOf: TakesAnswer["videoOf"] = {};
     const addable: Record<string, Addable> = {};
-    // One cache for this listing, so flows in one checkout read its
-    // accounts.json once; never kept across requests.
-    const deps: Parameters<typeof checkAddable>[1] = {
-      videos,
-      library,
-      home,
-      git: execGit,
-      accounts: new Map(),
-      repos: new Map(),
-    };
     const say = (row: UnreadableTake): void => {
       unreadable.push(row);
       log(`studio: ${row.folder}: ${row.reason}`);
@@ -372,15 +363,12 @@ export function createRoutes(o: {
             filmedCode: await filmedCodeOf(version.takeId),
           };
         }
-        // The row shows Add when keptOf says the flow is not in the repo
-        // (its mark may be stale): the same answer decides here. A failed
-        // check leaves the flow listed, with no button.
+        // Only the answer that needs no git (DEM-47: the whole check per
+        // flow cost 3.6–5.6 s a listing). The sheet checks the flow it
+        // opens for, through repoAddable.
         if (summary.kept === null) {
-          try {
-            addable[v.id] = await checkAddable({ video: v }, deps);
-          } catch (error) {
-            log(`studio: flow ${v.id}'s add check: ${messageOf(error)}`);
-          }
+          const none = notInRepo(v);
+          if (none !== null) addable[v.id] = none;
         }
         listed.push({ ...summary, steps });
       } catch (error) {

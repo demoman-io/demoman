@@ -258,15 +258,21 @@ describe("adding a flow to its repo, and removing it", () => {
     });
   });
 
-  // Red if added drops the notes (markNote and the others).
-  it("notes ride on the added event", async () => {
+  // Red if added drops the mark or the scale guess, or says the platform or
+  // screens notes again (DEM-49: the author's ruling, they are the CLI's).
+  it("the Studio says the mark and the scale guess, not the platform or screens notes", async () => {
     keep = async () =>
-      keptOk({ markNote: "the mark was not set", platformNote: "off Linux" });
+      keptOk({
+        markNote: "the mark was not set",
+        platformNote: "off Linux",
+        scaleGuess: "1x is a guess",
+        screensNote: "2 of 3 screens are still",
+      });
     await add(good);
     await until(() => phases().includes("added"));
     expect(sent.at(-1)).toMatchObject({
       phase: "added",
-      notes: ["the mark was not set", "off Linux"],
+      notes: ["the mark was not set", "1x is a guess"],
     });
   });
 

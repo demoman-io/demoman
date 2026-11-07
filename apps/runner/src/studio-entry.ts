@@ -7,6 +7,7 @@ export { PAGE_ENTRIES, usePrebuiltPages } from "./bundle-js.js";
 export {
   type Addable,
   checkAddable,
+  notInRepo,
   checkoutOf,
   isDir,
 } from "./executor/addable.js";

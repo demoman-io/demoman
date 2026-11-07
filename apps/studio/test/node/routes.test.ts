@@ -1307,6 +1307,7 @@ describe("which flows can be added", () => {
     name: string,
     id: string,
     edit: (d: SceneDocument) => SceneDocument = (d) => d,
+    keyless = false,
   ): Promise<string> {
     const { scene } = await seedTake(home, { id });
     const library = createLibrary(home);
@@ -1319,14 +1320,14 @@ describe("which flows can be added", () => {
     const store = createVideoStore(home, library);
     const made = await store.create({
       name,
-      repo: { key: read.repo.key },
+      repo: keyless ? { none: "test" } : { key: read.repo.key },
       startPage: scene.meta.capture.originUrl,
     });
     if (!made.ok) throw new Error(JSON.stringify(made));
     await store.join(id, {
       videoId: made.video.id,
       made: {
-        repo: read.repo,
+        repo: keyless ? { none: "test" } : read.repo,
         agent: { none: "test" },
         by: { none: "test" },
         door: "mcp",
@@ -1340,24 +1341,27 @@ describe("which flows can be added", () => {
     edits: { ...d.edits, trim: { tail: { actionId: "act-3", offsetMs: 0 } } },
   });
 
-  // Red if takes() stops filling addable, or fills it with ok for every flow.
-  it("the listing says, per flow, whether it can be added", async () => {
+  // Red if the listing runs the add check again (DEM-47: 3.6–5.6 s on a real
+  // library), or stops answering a flow with no repo.
+  it("the listing answers only what needs no git: a keyless flow", async () => {
     const plain = await flow("Plain", "add-plain");
     const cut = await flow("Cut", "add-cut", trimmed);
+    const loose = await flow("Loose", "add-loose", (d) => d, true);
     const body = (await h
       .call(pathFor("takes"))
       .then((r) => r.json())) as TakesAnswer;
-    // The suite's own loose take is a third video, joined by the listing.
-    expect(Object.keys(body.addable)).toEqual(
-      expect.arrayContaining([cut, plain]),
-    );
-    expect(body.videos.length).toBe(Object.keys(body.addable).length);
-    expect(body.addable[plain]).toMatchObject({ ok: true, root: rootOf });
-    expect(body.addable[cut]).toMatchObject({
+    expect(body.addable[loose]).toMatchObject({
       ok: false,
-      reason: "notCarried",
-      label: "has a trim",
+      reason: "noCheckout",
+      label: "not in a repo",
     });
+    expect(plain in body.addable).toBe(false);
+    expect(cut in body.addable).toBe(false);
+    // Premise: the check, asked for the one flow, still has a trim to refuse.
+    const one = (await h
+      .call(pathFor("repoAddable", { id: cut }))
+      .then((r) => r.json())) as Addable;
+    expect(one).toMatchObject({ ok: false, label: "has a trim" });
   });
 
   // Red if repoAddable answers from the listing's cache or ignores the saved scene.
@@ -1388,7 +1392,7 @@ describe("which flows can be added", () => {
   });
 
   // Red if the listing decides from the record's mark instead of keptOf's answer (the row's).
-  it("an In repo flow skips the add check; a stale mark is checked", async () => {
+  it("a flow in a checkout has no entry, In repo or with a stale mark", async () => {
     const here = await flow("Here", "add-here", trimmed);
     const moved = await flow("Moved", "add-moved");
     const lost = await flow("Lost", "add-lost");
@@ -1435,28 +1439,30 @@ describe("which flows can be added", () => {
     expect(kept(here)).toMatchObject({ root: repo });
     expect(kept(moved)).toBeNull();
     expect(kept(lost)).toBeNull();
-    // Red if an In repo flow still runs checkAddable (its trim would say so).
+    // No flow in a checkout gets an entry, in the repo or not: the sheet
+    // checks the one it opens for.
     expect(here in body.addable).toBe(false);
-    expect(body.addable[moved]).toMatchObject({ ok: true, root: rootOf });
-    expect(body.addable[lost]).toMatchObject({ ok: true, root: repo });
+    expect(moved in body.addable).toBe(false);
+    expect(lost in body.addable).toBe(false);
   });
 
   // Red if the listing adds an addable entry for a record that will not read.
   it("a video that will not read has no addable entry", async () => {
-    const plain = await flow("Plain", "add-plain");
-    const broken = await flow("Broken", "add-broken");
+    const plain = await flow("Plain", "add-plain", (d) => d, true);
+    const broken = await flow("Broken", "add-broken", (d) => d, true);
     await writeFile(join(home, "videos", `${broken}.json`), "{ not json");
     const body = (await h
       .call(pathFor("takes"))
       .then((r) => r.json())) as TakesAnswer;
     expect(body.unreadable.some((u) => u.folder === broken)).toBe(true);
-    expect(body.addable[plain]?.ok).toBe(true);
+    expect(body.addable[plain]?.ok).toBe(false);
     expect(broken in body.addable).toBe(false);
   });
 
-  // Red if the listing builds a cache per flow: accounts.json is read per flow.
-  it("three flows in one checkout read its accounts.json once", async () => {
-    for (const n of ["a", "b", "c"]) await flow(`Flow ${n}`, `add-${n}`);
+  // Red if the listing reads a checkout's files for its flows again.
+  it("the listing reads no accounts.json for flows in a checkout", async () => {
+    const ids: string[] = [];
+    for (const n of ["a", "b", "c"]) ids.push(await flow(`Flow ${n}`, `add-${n}`));
     await mkdir(join(repo, ".demoman"));
     await writeFile(join(repo, ".demoman", "accounts.json"), "{}");
     const fsp = (await import("node:fs/promises")).default;
@@ -1469,15 +1475,23 @@ describe("which flows can be added", () => {
       return (real as (...a: unknown[]) => unknown)(path, ...rest);
     }) as typeof real;
     syncBuiltinESMExports();
+    let listed: number;
+    let asked: number;
     try {
       const body = (await h
         .call(pathFor("takes"))
         .then((r) => r.json())) as TakesAnswer;
-      expect(Object.keys(body.addable).length).toBeGreaterThanOrEqual(3);
+      expect(body.videos.length).toBeGreaterThanOrEqual(3);
+      listed = reads.filter((p) => p.endsWith("accounts.json")).length;
+      // Premise: the patch sees the check's read when it is asked.
+      await h.call(pathFor("repoAddable", { id: ids[0] as string }));
+      asked =
+        reads.filter((p) => p.endsWith("accounts.json")).length - listed;
     } finally {
       fsp.readFile = real;
       syncBuiltinESMExports();
     }
-    expect(reads.filter((p) => p.endsWith("accounts.json")).length).toBe(1);
+    expect(listed).toBe(0);
+    expect(asked).toBe(1);
   });
 });
