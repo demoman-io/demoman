@@ -312,12 +312,23 @@ exit 0
     expect(r.status, r.stderr).toBe(0);
     // Red: drop the select — the fork's run 900 is the newest.
     expect(r.from, r.log).toBe("500");
+    // Every event in one listing, so a manual run's artifact counts too
+    // (review of #35, finding 3); the jq select keeps this trigger's own.
     expect(r.log).toContain(
-      "gh api repos/o/r/actions/workflows/demoman.yml/runs?event=push&status=completed&per_page=50&branch=main",
+      "gh api repos/o/r/actions/workflows/demoman.yml/runs?status=completed&per_page=100&branch=main",
     );
     expect(r.log).toContain(
       "gh run download 500 --repo o/r --name demoman-videos --dir demoman-out",
     );
+  });
+
+  // Review of #35, finding 3. Red when a manual run's artifact is never
+  // the one the next run compares against.
+  it("a manual run's artifact is the last run's when it is the newest", () => {
+    const runs = [run(950, 10, { event: "workflow_dispatch" }), run(500, 4)];
+    const r = shell(art, runs, { 950: "ok", 500: "ok" });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.from, r.log).toBe("950");
   });
 
   it("a deployment trigger takes this workflow's own newest deployment run with an artifact, on any branch", () => {
@@ -354,7 +365,7 @@ exit 0
     // Premise: the preview run was asked about, and refused for its environment.
     expect(r.log).toContain(`sha=${PREVIEW} -f environment=Production`);
     expect(r.log).toContain(
-      "gh api repos/o/r/actions/workflows/demoman.yml/runs?event=deployment_status&status=completed&per_page=50 ",
+      "gh api repos/o/r/actions/workflows/demoman.yml/runs?status=completed&per_page=100 ",
     );
   });
 
@@ -469,6 +480,27 @@ describe("ciWorkflow", () => {
       expect(parse(y).jobs.refresh.if).toContain(
         "(github.event_name != 'workflow_dispatch' || github.ref_name == 'main')",
       );
+  });
+
+  // Review of #35, finding 4. Red when a manual run can skip itself: the
+  // push guard or daily's "nothing new" check answer for automatic runs.
+  it("a manual run always refreshes: no guard or freshness check skips it", () => {
+    const manual = expr("github.event_name != 'workflow_dispatch'");
+    expect(push).toMatch(
+      new RegExp(
+        `name: Skip Demoman's own commits\\n {8}id: guard\\n {8}if: ${manual.replace(/[$()|{}.]/g, "\\$&")}`,
+      ),
+    );
+    expect(dailyY).toMatch(
+      new RegExp(
+        `name: Anything new since the last refresh\\?\\n {8}id: fresh\\n {8}if: ${manual.replace(/[$()|{}.]/g, "\\$&")}`,
+      ),
+    );
+    // A successful manual run is a point to measure "new" from, as a
+    // scheduled one is.
+    expect(dailyY).toContain(
+      '(.event == "schedule" or .event == "workflow_dispatch")',
+    );
   });
 
   it("has no start step in any trigger", () => {
@@ -782,9 +814,12 @@ describe("the daily run stops early when nothing is new", () => {
   it("anchors on this workflow's own last successful scheduled run, an ancestor of HEAD", () => {
     const y = daily(false);
     expect(y).toContain("actions: read");
-    expect(y).toContain("runs?event=schedule&status=success&per_page=20");
+    expect(y).toContain("runs?status=success&per_page=100");
     expect(y).toContain(
-      'select(((.path // "") | startswith($ENV.WF)) and .head_repository.id == .repository.id)',
+      '(.event == "schedule" or .event == "workflow_dispatch")',
+    );
+    expect(y).toContain(
+      'select(((.path // "") | startswith($ENV.WF)) and (.event == "schedule" or .event == "workflow_dispatch") and .head_repository.id == .repository.id)',
     );
     expect(y).toContain('git merge-base --is-ancestor "$s" HEAD');
     expect(y).toContain('since="--since $s"');
@@ -798,8 +833,10 @@ describe("the daily run stops early when nothing is new", () => {
   it("skips every step after the check when it says so", () => {
     const y = daily(true);
     const refreshJob = lines(y.slice(0, y.indexOf("\n  check:\n")));
+    // From the line after the check's own condition (a manual run skips the
+    // check itself, so it never skips what follows).
     const after = refreshJob.slice(
-      refreshJob.findIndex((l) => l.includes("id: fresh")) + 1,
+      refreshJob.findIndex((l) => l.includes("id: fresh")) + 2,
     );
     const conds = after.filter((l) => l.trim().startsWith("if: ${{"));
     expect(conds.length).toBeGreaterThanOrEqual(5);

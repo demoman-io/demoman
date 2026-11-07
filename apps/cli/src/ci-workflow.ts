@@ -299,11 +299,12 @@ ${DEPLOYED_SCRIPT.split("\n")
         run: |
           wf=\${GITHUB_WORKFLOW_REF%%@*}
           export WF=\${wf#"$GITHUB_REPOSITORY"/}
-          # Only this workflow's own runs on its own event (and branch), from this
-          # repository, newest first: never a fork's or another workflow's artifact.
+          # Only this workflow's own runs on its own event or run by hand (and
+          # branch), from this repository, newest first: never a fork's or
+          # another workflow's artifact.
           id=""
           said=""
-          if ! runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/\${WF##*/}/runs?event=$EVENT&status=completed&per_page=50\${BRANCH:+&branch=$BRANCH}" --jq '[.workflow_runs[] | select(((.path // "") | startswith($ENV.WF)) and .event == $ENV.EVENT and (($ENV.BRANCH // "") == "" or .head_branch == $ENV.BRANCH) and .head_repository.id == .repository.id)] | sort_by(.created_at) | reverse | .[] | "\\(.id) \\(.head_sha)"'); then
+          if ! runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/\${WF##*/}/runs?status=completed&per_page=100\${BRANCH:+&branch=$BRANCH}" --jq '[.workflow_runs[] | select(((.path // "") | startswith($ENV.WF)) and (.event == $ENV.EVENT or .event == "workflow_dispatch") and (($ENV.BRANCH // "") == "" or .head_branch == $ENV.BRANCH) and .head_repository.id == .repository.id)] | sort_by(.created_at) | reverse | .[] | "\\(.id) \\(.head_sha)"'); then
             said="::warning::This workflow's earlier runs could not be listed"
           else
             while read -r r sha <&3; do
@@ -341,17 +342,19 @@ ${DEPLOYED_SCRIPT.split("\n")
 `
       : "";
   // Exit 3 is refresh --check's "nothing new"; any other failure stops the job.
+  // A manual run always refreshes: "nothing new" answers the schedule.
   const freshStep = `      - name: Anything new since the last refresh?
         id: fresh
+        if: ${expr("github.event_name != 'workflow_dispatch'")}
         env:
           GH_TOKEN: ${expr("github.token")}
         run: |
           wf=\${GITHUB_WORKFLOW_REF%%@*}
           export WF=\${wf#"$GITHUB_REPOSITORY"/}
-          # The commit this workflow's last successful scheduled run refreshed
-          # at: it recorded or confirmed every flow there.
+          # The commit this workflow's last successful scheduled or manual run
+          # refreshed at: it recorded or confirmed every flow there.
           since=""
-          if s=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/\${WF##*/}/runs?event=schedule&status=success&per_page=20" --jq '[.workflow_runs[] | select(((.path // "") | startswith($ENV.WF)) and .head_repository.id == .repository.id)] | .[0].head_sha // ""'); then
+          if s=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/\${WF##*/}/runs?status=success&per_page=100" --jq '[.workflow_runs[] | select(((.path // "") | startswith($ENV.WF)) and (.event == "schedule" or .event == "workflow_dispatch") and .head_repository.id == .repository.id)] | .[0].head_sha // ""'); then
             if [ -n "$s" ] && git merge-base --is-ancestor "$s" HEAD 2>/dev/null; then
               since="--since $s"
             fi
@@ -401,7 +404,7 @@ ${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - us
 ${
   guarded
     ? `      - name: Skip Demoman's own commits
-        id: guard
+        id: guard${runsByHand(o.trigger) ? `\n        if: ${expr("github.event_name != 'workflow_dispatch'")}` : ""}
         env:
           SHA: ${sha}
         run: |
