@@ -30,8 +30,9 @@ describe("matchRoute", () => {
     // 24 since 2026-10-24: videoRename and videoDelete joined for the video
     // library; 26 since 2026-10-28, with wallpaperPut and wallpaper; 28
     // since 2026-10-31, with libraryViewGet and libraryViewPut; 35 since
-    // 2026-11-05, with Part C's seven repo routes.
-    expect(ids.length).toBe(35);
+    // 2026-11-05, with Part C's seven repo routes; 36 since 2026-11-06,
+    // with repoFolders.
+    expect(ids.length).toBe(36);
     expect(ids).toEqual(
       expect.arrayContaining(["libraryViewGet", "libraryViewPut"]),
     );
