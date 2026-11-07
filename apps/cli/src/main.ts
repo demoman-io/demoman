@@ -645,7 +645,7 @@ function ciDeps(
 /** The setup check's refresh (R14): its own browser, closed after; every
  *  line through the check's redacting `say`. */
 function checkRefresh(say: (line: string) => void): VerifyDeps["refresh"] {
-  return async (args, env) => {
+  return async (args, env, beforeFlow) => {
     const session = createBrowserSession({
       headless: true,
       executablePath: fullChromiumPath(),
@@ -653,7 +653,10 @@ function checkRefresh(say: (line: string) => void): VerifyDeps["refresh"] {
       log: say,
     });
     try {
-      return await refreshKept(args, keptRefreshDeps(session, env, say));
+      return await refreshKept(args, {
+        ...keptRefreshDeps(session, env, say),
+        ...(beforeFlow === undefined ? {} : { beforeFlow }),
+      });
     } finally {
       await session
         .close()
