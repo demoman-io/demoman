@@ -168,8 +168,21 @@ export async function startApp(
   const reset: AppStarted["reset"] = async () => {
     if (app.reset === undefined) return { ok: true };
     o.log(`resetting: \`${app.reset}\``);
-    const r = launch(d.spawn, app.reset, o.root, env, false);
-    const { code, signal } = await r.exited;
+    // Its own process group, so a reset that hangs (a lock the app holds, a
+    // prompt) is ended whole, within the app's own timeout (review).
+    const r = launch(d.spawn, app.reset, o.root, env, true);
+    const done = await Promise.race([
+      r.exited,
+      delay(app.timeoutSeconds * 1000).then(() => null),
+    ]);
+    if (done === null) {
+      await endGroup(r.child);
+      return {
+        ok: false,
+        detail: `\`${app.reset}\` did not finish within ${app.timeoutSeconds} s and was stopped; fix the reset command in ${APP_FILE}, or raise timeoutSeconds there`,
+      };
+    }
+    const { code, signal } = done;
     if (code === 0) return { ok: true };
     await Promise.race([r.drained, delay(DRAIN_MS)]);
     const tail = tailOf(r.output());

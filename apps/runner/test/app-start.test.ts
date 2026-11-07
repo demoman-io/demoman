@@ -326,6 +326,21 @@ describe("startApp", () => {
         expect(got.detail).toContain("nope");
       }
     });
+    // Review, finding 8. Red when a reset that never ends holds the job.
+    it("stops a reset that outlasts the app's timeout, and says so", async () => {
+      const r = started(
+        await startApp(
+          app({ reset: "sleep 30", timeoutSeconds: 1 }),
+          opts({ mode: "reuse" }),
+          { spawn: spawnSpy.fn },
+        ),
+      );
+      const t0 = Date.now();
+      const got = await r.reset();
+      expect(Date.now() - t0).toBeLessThan(5000);
+      expect(got.ok).toBe(false);
+      if (!got.ok) expect(got.detail).toContain("did not finish within 1 s");
+    }, 20_000);
     it("without a reset command runs nothing", async () => {
       const r = started(
         await startApp(app(), opts({ mode: "reuse" }), { spawn: spawnSpy.fn }),
