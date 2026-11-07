@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import {
+  DEGRADATION_WORDS,
   type ExportAnswer,
   type FilmedCode,
   FLOWS_DIR,
@@ -152,42 +153,61 @@ export type RunVerdict =
   | { kind: "degraded"; problems: string[] }
   | { kind: "failed"; detail: string };
 
+/** The degradations that leave a video correct, only less smooth or less
+ *  sharp: a soft still, a scroll still moving, motion frames dropped or kept
+ *  as stills under load. Any other (a drag or click that may have done
+ *  nothing, missing motion) can make the video wrong, so it fails (review
+ *  of the DEM-55 branch). */
+const FORGIVEN = new Set<string>([
+  "stillFailed",
+  "scrollUnsettled",
+  "budgetBreach",
+  "keyframeOnly",
+]);
+const STILLS_ONLY = "no motion was recorded: the video is its stills only";
+
 /**
  * Whether a run answer can replace a committed video. Clean: complete, never
  * stopped, every step matched, everything stored, nothing degraded.
- * Degraded: all of that, but the recording had a problem the walk forgives
- * (a soft still, a scroll still moving, no motion at all); refresh records
- * it once more (DEM-55). Failed: anything else, its detail the answer's own
- * summary plus each degradation's note, so CI says why. Read from the
- * answer, never recomputed.
+ * Degraded: all of that, but every degradation is one that leaves the video
+ * correct (FORGIVEN), or acting steps recorded no motion; refresh records it
+ * once more (DEM-55). Failed: anything else, its detail the answer's own
+ * summary plus the degradations in the report's words, so CI says why.
+ * Read from the answer, never recomputed.
  */
 export function runVerdict(answer: Record<string, unknown>): RunVerdict {
-  const r = answer as Omit<Partial<RunReport>, "outcome" | "frames"> & {
+  const r = answer as Omit<
+    Partial<RunReport>,
+    "outcome" | "frames" | "steps"
+  > & {
     outcome?: unknown;
     summary?: unknown;
     reason?: unknown;
     detail?: unknown;
     error?: unknown;
-    frames?: { spans?: number; degradations?: unknown[] };
+    steps?: Array<{ intent?: { do?: string } }>;
+    frames?: { spans?: number; degradations?: string[] };
   };
   if (r.outcome === "refusedBeforeRun")
     return { kind: "failed", detail: `${r.reason}: ${r.detail}` };
   if (r.outcome === "threw")
     return { kind: "failed", detail: `the run threw: ${r.error}` };
-  const problems = (r.frames?.degradations ?? []).map((d) =>
-    typeof d === "string"
-      ? d
-      : `${(d as { kind?: string }).kind}: ${(d as { note?: string }).note}`,
-  );
-  if (r.frames?.spans === 0)
-    problems.push("no motion was recorded: the video is its stills only");
+  const kinds = [...new Set(r.frames?.degradations ?? [])];
+  const problems = kinds.map((k) => {
+    const words = (DEGRADATION_WORDS as Record<string, string>)[k];
+    return words === undefined ? k : `${words} (${k})`;
+  });
+  // As compare/numbers.ts: no spans matters only when a step acts.
+  const acting = (r.steps ?? []).filter((s) => s.intent?.do !== "pause");
+  const starved = r.frames?.spans === 0 && acting.length > 0;
+  if (starved) problems.push(STILLS_ONLY);
   const whole =
     r.outcome === "complete" &&
     r.stopped === undefined &&
     r.verdict?.kind === "matches" &&
     r.frames !== undefined &&
     (r.notStored ?? []).length === 0;
-  if (whole)
+  if (whole && kinds.every((k) => FORGIVEN.has(k)))
     return problems.length === 0
       ? { kind: "clean" }
       : { kind: "degraded", problems };
@@ -217,7 +237,11 @@ export async function recordWithRetry(
     `refresh: "${name}" recorded with ${verdict.problems.join("; ")}; recording it once more`,
   );
   const answer = await run();
-  return { answer, verdict: runVerdict(answer) };
+  const second = runVerdict(answer);
+  // A retry that fails keeps the first run, which can still be delivered.
+  return second.kind === "failed"
+    ? { answer: first, verdict }
+    : { answer, verdict: second };
 }
 
 /**

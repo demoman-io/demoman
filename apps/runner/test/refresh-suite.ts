@@ -1274,7 +1274,7 @@ export const replaceChain = () => {
       expect(runs).toBe(2);
       expect(byName(r, A).outcome).not.toBe("failed");
       expect(byName(r, A).notes.join(" ")).toContain(
-        "recorded with problems Demoman could not avoid on this machine: budgetBreach",
+        "recorded with problems Demoman could not avoid on this machine: motion frames were skipped to stay inside the frame budget (budgetBreach)",
       );
     },
     ONE_MS,
