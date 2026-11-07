@@ -29,6 +29,7 @@ import {
   detectApp,
   execGit,
   fullChromiumPath,
+  hostedBase,
   joinFlow as joinFlowInto,
   type KeepAnswer,
   type KeepOutput,
@@ -70,6 +71,7 @@ import { ciSetup } from "./ci-workflow.js";
 import { deliver } from "./deliver.js";
 import { realGh } from "./gh-run.js";
 import { keepLines, removeLines } from "./keep-lines.js";
+import { runLogin, runLogout } from "./login.js";
 import { PACKAGE_NAME } from "./names.js";
 import { parseRefreshArgs } from "./refresh-args.js";
 import { refreshCheck } from "./refresh-check.js";
@@ -1007,6 +1009,15 @@ switch (command) {
       );
     }
     process.exit(0);
+    break;
+  }
+  // Not in USAGE until the hosted service launches with its docs (plan 4 of
+  // docs/superpowers/plans/2026-11-07-hosted-links-1-pinned.md).
+  case "login":
+  case "logout": {
+    const say = (l: string) => void process.stdout.write(`${l}\n`);
+    const d = { home: demomanHome(), base: hostedBase(), say };
+    process.exit(await (command === "login" ? runLogin(d) : runLogout(d)));
     break;
   }
   case "--version":

@@ -68,6 +68,21 @@ export {
   SecretError,
 } from "./executor/secrets-env.js";
 export type { ExecutorOptions, LocalExecutor } from "./executor/types.js";
+export {
+  type Answer,
+  type Fetch,
+  HostedClient,
+  pollLogin,
+  startLogin,
+} from "./hosted/client.js";
+export {
+  type Credential,
+  type CredentialRead,
+  deleteCredential,
+  hostedBase,
+  readCredential,
+  writeCredential,
+} from "./hosted/credential.js";
 export { chromiumDepsCommand, playwrightCliPath } from "./install-advice.js";
 export { type JoinAnswer, joinFlow } from "./join-flow.js";
 export { recorderPlatform, visibleWindowRefusal } from "./platform.js";
