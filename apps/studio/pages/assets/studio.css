@@ -1463,7 +1463,10 @@ input:is([type="text"], [type="search"], [type="number"], :not([type])):not(
     padding-right: 0;
   }
 }
+/* The title fills the row, as it filled the column before: the switcher
+   below 1024px sizes its ellipsis from it. */
 [data-studio] .title-row > h1 {
+  flex: 1 1 auto;
   min-width: 0;
 }
 [data-studio] .title-row > .ci-setup {
