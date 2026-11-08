@@ -1,6 +1,6 @@
 // What a headless Chrome's launch flags do to an export: one take, exported
 // once per flag set, in rounds.
-//   node apps/runner/compare/gpu-args.mjs --repo <root> --script <file> --sample <index.html> [--rounds 2] [--sets all|"<name>;<name>"] [--browsers full|shell|"full;shell"]
+//   node apps/runner/compare/gpu-args.mjs --repo <root> --script <file> --sample <index.html> [--rounds 2] [--sets all|"<name>;<name>"] [--browsers full|shell|"full;shell"] [--as linux-x64]
 // Records the script once with <root>'s built runner, then for each round and
 // each flag set (`SETS`) sets `HEADLESS_GPU_ARGS` to it, exports the same take
 // from a fresh browser on the full Chromium the CLI launches, and prints the
@@ -11,6 +11,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 const say = (line) => console.info(`[gpu-args] ${line}`);
@@ -26,8 +27,19 @@ const { values } = parseArgs({
     // shell, what a headless launch picks when it names no executable), or
     // both separated by ";".
     browsers: { type: "string", default: "full" },
+    // <platform>-<arch>, e.g. linux-x64: what the recorder gate
+    // (`recorderPlatform`) is asked about in place of this machine, for a
+    // probe on one the gate refuses, such as Windows (windows-probe.yml).
+    // The executor reads `host` for the gate only.
+    as: { type: "string" },
   },
 });
+const [asPlatform, asArch] = (values.as ?? "").split("-");
+const asHost = { platform: asPlatform, arch: asArch };
+if (values.as !== undefined && (!asPlatform || !asArch)) {
+  say(`--as is "${values.as}", not <platform>-<arch> such as linux-x64`);
+  process.exit(2);
+}
 if (!values.repo || !values.script || !values.sample) {
   say(
     "usage: gpu-args.mjs --repo <root> --script <file> --sample <index.html> [--rounds 2]",
@@ -35,7 +47,9 @@ if (!values.repo || !values.script || !values.sample) {
   process.exit(2);
 }
 const repo = resolve(values.repo);
-const dist = (p) => import(join(repo, "apps", "runner", "dist", p));
+// A file URL: Windows' `D:\…` is not one import() takes.
+const dist = (p) =>
+  import(pathToFileURL(join(repo, "apps", "runner", "dist", p)).href);
 const { createLocalExecutor } = await dist("executor/executor.js");
 const { createLibrary } = await dist("executor/library.js");
 const { fullChromiumPath } = await dist("executor/browser.js");
@@ -125,6 +139,7 @@ const executorFor = () =>
     ),
     headless: true,
     executablePath,
+    ...(values.as === undefined ? {} : { host: asHost }),
     outDir: join(home, "out"),
     log: (m) => {
       const line = typeof m === "string" ? m : JSON.stringify(m);

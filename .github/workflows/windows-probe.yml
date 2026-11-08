@@ -1,0 +1,79 @@
+name: Windows probe
+
+# Whether Demoman can record and export on Windows, before any Windows work:
+# Chromium there must encode H.264 (arm64 Linux's cannot, which is why
+# `recorderPlatform` refuses it), and the export's speed decides whether
+# Windows needs a `GPU_ARGS_BY_PLATFORM` entry as macOS did (70.5 s → 5.3 s).
+# Manual only, like gpu-args.yml, whose script this runs. `--as linux-x64` gets
+# past the recorder gate, which refuses Windows today; nothing else reads it.
+#
+# The answer lines: `[gpu-args] round N <set> render X s · <WebGL renderer>`
+# means the take recorded and exported to MP4 (H.264 is the only video codec
+# the MP4 sink asks for); `round N <set>: export <outcome> — …` or `failed: …`
+# carries the reason it did not. The last
+# step builds the whole workspace and says what breaks there next; it does not
+# fail the job.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runners:
+        description: JSON list of runner labels
+        default: '["windows-2022", "windows-2025", "windows-11-arm"]'
+      rounds:
+        description: Exports per flag set
+        default: "2"
+      sets:
+        description: Flag sets from gpu-args.mjs's SETS, separated by ";", or "all"
+        default: "none;enable-gpu"
+  # workflow_dispatch reaches only workflows already on main, so a perf/
+  # branch that touches the probe runs it on push.
+  push:
+    branches: ["perf/**"]
+    paths:
+      - ".github/workflows/windows-probe.yml"
+      - "apps/runner/compare/gpu-args.mjs"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.runners || '["windows-2022", "windows-2025", "windows-11-arm"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      # Neither the browser nor the build through the shared action: its
+      # Chromium cache path and `--with-deps` are Linux's, and a failure in
+      # the whole build must not cost the measurement (the last step runs it).
+      - uses: ./.github/actions/setup
+        with:
+          build: "false"
+      - run: pnpm --filter @demoman/compositor exec playwright install chromium
+      - name: Build the runner and the packages it reads
+        run: pnpm --filter "@demoman/runner..." build
+      - name: What the machine is
+        run: |
+          node -p '`node ${process.version} on ${process.platform} ${process.arch}`'
+          powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Format-Table Name, DriverVersion -AutoSize"
+      - name: Record one take, export it per flag set
+        env:
+          ROUNDS: ${{ inputs.rounds || '2' }}
+          SETS: ${{ inputs.sets || 'none;enable-gpu' }}
+        run: >
+          node apps/runner/compare/gpu-args.mjs --repo .
+          --script apps/runner/compare/fixture-clicks.json
+          --sample packages/compositor/scripts/fixture-app.html
+          --rounds "$ROUNDS"
+          --sets "$SETS"
+          --browsers full
+          --as linux-x64
+      - name: What breaks next — the whole workspace build
+        if: always()
+        continue-on-error: true
+        run: pnpm -r build
