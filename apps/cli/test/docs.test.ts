@@ -11,7 +11,31 @@ type DocsJson = {
   favicon: string;
   colors: { primary: string; light: string; dark: string };
   navigation: { groups?: { group: string; pages: NavNode[] }[] };
+  redirects?: { source: string; destination: string }[];
 };
+
+// The setup path (spec 2026-11-08-docs-rework): Introduction, then six steps.
+const GET_STARTED = [
+  "index",
+  "get-started/install",
+  "get-started/connect",
+  "get-started/first-video",
+  "get-started/sign-in",
+  "get-started/add-to-repo",
+  "get-started/ci",
+];
+// Old slug → the page that now holds its content. README links and
+// bookmarks still point at the old ones.
+const MOVED: Array<[string, string]> = [
+  ["quickstart", "get-started/install"],
+  ["agents", "get-started/connect"],
+  ["guides/authentication", "get-started/sign-in"],
+  ["guides/repo-flows", "get-started/add-to-repo"],
+  ["guides/keep-videos-current", "get-started/add-to-repo"],
+  ["cli/commands", "reference/cli"],
+];
+// Only these pages may show a DemoScript's syntax.
+const SCRIPT_PAGES = ["concepts/flows", "reference/demoscript"];
 
 const readDocs = (p: string): string => readFileSync(docs(p), "utf8");
 const docsJson = (): DocsJson => JSON.parse(readDocs("docs.json")) as DocsJson;
@@ -68,22 +92,29 @@ describe("apps/docs navigation", () => {
     expect(flatten(docsJson().navigation).length).toBeGreaterThan(0);
     expect(new Set(navPages())).toEqual(new Set(allPages()));
   });
-  it("has the six groups of the sidebar, in order, CLI before Studio", () => {
+  it("has the six groups of the sidebar, in order", () => {
     expect(groups(docsJson()).map((g) => g.group)).toEqual([
-      "Getting started",
+      "Get started",
+      "Concepts",
       "Guides",
-      "CLI",
-      "Studio",
+      "Reference",
       "Security & privacy",
       "Resources",
     ]);
   });
-  it("connects agents on one page, after the Quickstart", () => {
-    expect(groups(docsJson())[0]?.pages).toEqual([
-      "index",
-      "quickstart",
-      "agents",
-    ]);
+  it("walks a stranger from install to CI, in order", () => {
+    expect(groups(docsJson())[0]?.pages).toEqual(GET_STARTED);
+  });
+  it("redirects every moved page to the one that holds its content", () => {
+    const redirects = new Map(
+      (docsJson().redirects ?? []).map((r) => [r.source, r.destination]),
+    );
+    const nav = new Set(navPages());
+    for (const [from, to] of MOVED) {
+      expect(redirects.get(`/${from}`), from).toBe(`/${to}`);
+      expect(nav, to).toContain(to);
+      expect(allPages(), from).not.toContain(from);
+    }
   });
   it("titles each page with a short label: at most four words, no question", () => {
     for (const p of allPages()) {
@@ -182,7 +213,7 @@ describe("version pins", () => {
       .flatMap(pins);
     expect(blocks.length).toBeGreaterThan(0);
     expect(new Set(blocks)).toEqual(new Set(["demoman@latest"]));
-    const connect = readDocs("agents.mdx");
+    const connect = readDocs("get-started/connect.mdx");
     // Pi, Kimi Code, Hermes, DeepSeek dsh, Other
     expect(connect.match(/demoman@/g)?.length ?? 0).toBeGreaterThanOrEqual(5);
   });
@@ -195,7 +226,7 @@ describe("version pins", () => {
 
 describe("the paste-in blocks moved, not lost", () => {
   it("gives each agent setup does not reach a tab, and the skill once", () => {
-    const connect = readDocs("agents.mdx");
+    const connect = readDocs("get-started/connect.mdx");
     for (const a of ["Pi", "Kimi Code", "Hermes", "DeepSeek dsh", "Other"])
       expect(connect, a).toContain(`<Tab title="${a}">`);
     expect(connect).toContain(
@@ -207,7 +238,7 @@ describe("the paste-in blocks moved, not lost", () => {
     expect(connect).toContain("expected to work, not yet run");
   });
   it("gives each agent setup connects a row, and says the shared steps once", () => {
-    const connect = readDocs("agents.mdx");
+    const connect = readDocs("get-started/connect.mdx");
     for (const [agent, adds] of [
       ["Claude Code", "the Demoman plugin"],
       ["Codex", "the Demoman plugin"],
@@ -240,8 +271,12 @@ describe("the README's new shape", () => {
   });
   it("deep-links only to pages the docs navigation names", () => {
     // The npm README is frozen per version: a renamed slug 404s for good.
+    // The repo's and the packed package's READMEs carry the same links.
+    const all = ["../README.md", "../pkg/README.md", "../../../README.md"]
+      .map((f) => readFileSync(new URL(f, import.meta.url), "utf8"))
+      .join("\n");
     const links = [
-      ...readme().matchAll(/https:\/\/demoman\.io\/docs\/([^\s)#?"']+)/g),
+      ...all.matchAll(/https:\/\/demoman\.io\/docs\/([^\s)#?"']+)/g),
     ].map((m) => (m[1] as string).replace(/\/+$/, ""));
     expect(links.length).toBeGreaterThanOrEqual(3);
     const nav = new Set(navPages());
@@ -274,9 +309,9 @@ describe("commands", () => {
   it("every npx demoman command on the site is one USAGE lists", () => {
     const seen = siteCommands();
     expect(seen.length).toBeGreaterThanOrEqual(3);
-    // The Quickstart's own setup step, not only the agents pages'.
+    // The Install step's own setup command, not only the connect page's.
     expect(
-      seen.filter((s) => s.page === "quickstart").map((s) => s.command),
+      seen.filter((s) => s.page === "get-started/install").map((s) => s.command),
     ).toContain("setup");
     // The changelog is history: a release may name a command since renamed
     // (0.8.1's keep is now add), and keep still runs as an alias.
@@ -289,19 +324,22 @@ describe("commands", () => {
   });
 });
 
-describe("agentic only", () => {
-  it("no page shows script syntax", () => {
+describe("DemoScripts are shown, on their own pages", () => {
+  it("only the DemoScript pages show script syntax, and both do", () => {
+    const syntax = /scriptVersion|"steps"\s*:|look\.canvas|\{secret:/;
     expect(allPages().length).toBeGreaterThan(0);
+    // Premise: both pages exist, or the loop below never reaches them.
+    for (const p of SCRIPT_PAGES) expect(allPages(), p).toContain(p);
     for (const p of allPages())
-      expect(readDocs(`${p}.mdx`), p).not.toMatch(
-        /scriptVersion|"steps"\s*:|look\.canvas|\{secret:/,
-      );
+      if (SCRIPT_PAGES.includes(p))
+        expect(readDocs(`${p}.mdx`), p).toMatch(syntax);
+      else expect(readDocs(`${p}.mdx`), p).not.toMatch(syntax);
   });
 });
 
 describe("apps behind a login", () => {
   it("carries signin, demo accounts and the CI secret pair", () => {
-    const t = readDocs("guides/authentication.mdx");
+    const t = readDocs("get-started/sign-in.mdx");
     for (const s of [
       "npx demoman signin https://",
       "npx demoman signin --account",
@@ -316,16 +354,21 @@ describe("apps behind a login", () => {
   });
 });
 
-describe("the CLI's commands page", () => {
-  const page = () => readDocs("cli/commands.mdx");
-  it("has a heading for every command USAGE lists", () => {
-    const commands = [...usageCommands()];
+describe("the CLI reference", () => {
+  const page = () =>
+    allPages()
+      .filter((p) => p.startsWith("reference/"))
+      .map((p) => readDocs(`${p}.mdx`))
+      .join("\n");
+  it("has a page per command USAGE lists, titled with it, and --version on the index", () => {
+    const commands = [...usageCommands()].filter((c) => c !== "--version");
     expect(commands.length).toBeGreaterThanOrEqual(5);
-    // A flag heading is in code: Mintlify turns a bare "--" into a dash.
     for (const c of commands)
-      expect(page(), c).toMatch(
-        new RegExp(c.startsWith("-") ? `^## \`${c}\`$` : `^## ${c}$`, "m"),
+      expect(readDocs(`reference/${c}.mdx`), c).toMatch(
+        new RegExp(`^title: "${c}"$`, "m"),
       );
+    // A flag heading is in code: Mintlify turns a bare "--" into a dash.
+    expect(readDocs("reference/cli.mdx")).toMatch(/^## `--version`$/m);
   });
   // Every flag the CLI parses, read from its source. --serve is left out:
   // it is how the studio starts its own server, never typed by a person.
@@ -445,7 +488,7 @@ describe("the words for adding a flow", () => {
   it("no doc or served text says keep for adding a flow", () => {
     const all = texts();
     // Premise: the pages, the recipe and USAGE are all read.
-    expect(all.map((t) => t.where)).toContain("guides/repo-flows.mdx");
+    expect(all.map((t) => t.where)).toContain("get-started/add-to-repo.mdx");
     expect(all.find((t) => t.where === "USAGE")?.text).toContain("demoman add");
     expect(
       all.find((t) => t.where === "apps/mcp/recipe.md")?.text.length,

@@ -31,41 +31,65 @@
     "primary": {
       "type": "button",
       "label": "npx demoman setup",
-      "href": "/quickstart"
+      "href": "/get-started/install"
     }
   },
   "navigation": {
     "groups": [
       {
-        "group": "Getting started",
+        "group": "Get started",
         "pages": [
           "index",
-          "quickstart",
-          "agents"
+          "get-started/install",
+          "get-started/connect",
+          "get-started/first-video",
+          "get-started/sign-in",
+          "get-started/add-to-repo",
+          "get-started/ci"
+        ]
+      },
+      {
+        "group": "Concepts",
+        "pages": [
+          "concepts/flows",
+          "concepts/refresh",
+          "concepts/run-report"
         ]
       },
       {
         "group": "Guides",
         "pages": [
           "guides/prompts",
-          "guides/authentication",
           "guides/phone-and-tablet",
           "guides/export",
           "guides/pull-requests",
-          "guides/repo-flows"
-        ]
-      },
-      {
-        "group": "CLI",
-        "pages": [
-          "cli/commands"
-        ]
-      },
-      {
-        "group": "Studio",
-        "pages": [
           "studio/overview",
           "studio/editing"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          {
+            "group": "CLI",
+            "pages": [
+              "reference/cli",
+              "reference/setup",
+              "reference/signin",
+              "reference/studio",
+              "reference/add",
+              "reference/remove",
+              "reference/join-flow",
+              "reference/refresh",
+              "reference/mcp",
+              "reference/hook"
+            ]
+          },
+          "reference/demoscript",
+          "reference/app-json",
+          "reference/accounts-json",
+          "reference/refusals",
+          "reference/environment"
         ]
       },
       {
@@ -106,8 +130,28 @@
   },
   "redirects": [
     {
+      "source": "/quickstart",
+      "destination": "/get-started/install"
+    },
+    {
+      "source": "/agents",
+      "destination": "/get-started/connect"
+    },
+    {
+      "source": "/guides/authentication",
+      "destination": "/get-started/sign-in"
+    },
+    {
+      "source": "/guides/repo-flows",
+      "destination": "/get-started/add-to-repo"
+    },
+    {
       "source": "/guides/keep-videos-current",
-      "destination": "/guides/repo-flows"
+      "destination": "/get-started/add-to-repo"
+    },
+    {
+      "source": "/cli/commands",
+      "destination": "/reference/cli"
     }
   ]
 }
