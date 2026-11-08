@@ -316,7 +316,7 @@ export async function keepVideo(
     if (kept.flow === video.id && rel !== fileRel) {
       return refuse(
         "outputTaken",
-        `${rel} already holds this flow (${video.id}), so adding it as "${video.name}" would write a second recipe for it, ${fileRel} — move ${rel} to ${fileRel}${kept.deliver === "commit" ? ` and ${RECEIPT_DIR}/${name} to ${receiptRel}` : ""}, then add it again`,
+        `${rel} already holds this flow (${video.id}), so adding it as "${video.name}" would write a second DemoScript for it, ${fileRel} — move ${rel} to ${fileRel}${kept.deliver === "commit" ? ` and ${RECEIPT_DIR}/${name} to ${receiptRel}` : ""}, then add it again`,
       );
     }
     if (rel === fileRel || rel === legacyRel) {

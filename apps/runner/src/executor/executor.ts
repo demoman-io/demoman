@@ -628,7 +628,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           if (found !== null && "unreadable" in found) {
             return refusal(
               "videoNotFound",
-              `no flow has the id ${JSON.stringify(asked.id)}, and a recipe in this repo that would not read might be it — ${found.unreadable.join("; ")}`,
+              `no flow has the id ${JSON.stringify(asked.id)}, and a DemoScript in this repo that would not read might be it — ${found.unreadable.join("; ")}`,
               "video",
             );
           }
@@ -673,7 +673,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         if (keptHolder === undefined && unreadable.length > 0) {
           return refusal(
             "repoFlowUnreadable",
-            `a recipe in this repo would not read, so Demoman cannot tell whether it is "${asked.new}" — fix or remove it before starting a new flow here: ${unreadable.join("; ")}`,
+            `a DemoScript in this repo would not read, so Demoman cannot tell whether it is "${asked.new}" — fix or remove it before starting a new flow here: ${unreadable.join("; ")}`,
             "video",
           );
         }
@@ -1111,7 +1111,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
           if (!("none" in rewrote)) kept = rewrote;
         } catch (error) {
           kept = {
-            refused: `the recipe could not be rewritten (${messageOf(error)})`,
+            refused: `the DemoScript could not be rewritten (${messageOf(error)})`,
           };
         }
       }

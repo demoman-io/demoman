@@ -459,4 +459,13 @@ describe("the words for adding a flow", () => {
     );
     expect(hits).toEqual([]);
   });
+
+  it("USAGE calls the file in .demoman/flows/ a DemoScript", () => {
+    const usage = texts().find((t) => t.where === "USAGE")?.text ?? "";
+    expect(usage).toContain("its DemoScript in .demoman/flows/");
+    expect(usage).toMatch(
+      /remove a flow from the repo: its DemoScript and receipt go/,
+    );
+    expect(usage).not.toMatch(/\brecipe\b/);
+  });
 });
