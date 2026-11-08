@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { join } from "node:path";
 import {
@@ -30,6 +31,7 @@ const STALE_NOTE = "A stale Studio record was replaced.";
 const REPLACED_LATER_NOTE =
   "An older Studio is running an export; it stays open until that export ends and its window closes, and the next Studio call starts the new version.";
 const PING_TIMEOUT_MS = 2_000;
+const PING_TRIES = 3;
 const WINDOW_TIMEOUT_MS = 30_000;
 const LOG_TAIL_LINES = 10;
 
@@ -50,7 +52,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 type Call =
   | { ok: true; status: number; json: unknown }
-  | { ok: false; error: string };
+  | { ok: false; error: string; timedOut?: true };
 
 /** One request to the studio, carrying all three things its guard checks. */
 function call(
@@ -61,6 +63,7 @@ function call(
   timeoutMs: number,
 ): Promise<Call> {
   return new Promise((resolve) => {
+    let timedOut = false;
     const payload = body === undefined ? undefined : JSON.stringify(body);
     const req = request(
       {
@@ -103,9 +106,16 @@ function call(
       },
     );
     req.on("timeout", () => {
+      timedOut = true;
       req.destroy(new Error(`no answer within ${timeoutMs / 1000} s`));
     });
-    req.on("error", (e) => resolve({ ok: false, error: messageOf(e) }));
+    req.on("error", (e) =>
+      resolve({
+        ok: false,
+        error: messageOf(e),
+        ...(timedOut ? { timedOut: true as const } : {}),
+      }),
+    );
     if (payload !== undefined) req.write(payload);
     req.end();
   });
@@ -123,13 +133,37 @@ function isPing(v: unknown): v is PingAnswer {
 
 /** The studio the file names, when that pid is alive and the studio on the
  *  port answers with the token and as that pid; else null. */
-async function livePing(s: StudioState): Promise<PingAnswer | null> {
-  if (!pidAlive(s.pid)) return null;
-  const answer = await call(s, "GET", "/api/ping", undefined, PING_TIMEOUT_MS);
-  if (!answer.ok || answer.status !== 200 || !isPing(answer.json)) return null;
-  // A pid that was reused by something else answers on no studio's port;
-  // one that answers as another pid is not the studio the file names.
-  return answer.json.pid === s.pid ? answer.json : null;
+async function livePing(
+  s: StudioState,
+): Promise<{ ping: PingAnswer } | { why: string | null }> {
+  for (let tries = PING_TRIES; ; tries--) {
+    // why null: the pid is dead, which says itself.
+    if (!pidAlive(s.pid)) return { why: null };
+    const answer = await call(
+      s,
+      "GET",
+      "/api/ping",
+      undefined,
+      PING_TIMEOUT_MS,
+    );
+    if (!answer.ok) {
+      // Only a timeout is tried again: a studio that has only just started,
+      // on a busy machine, can miss one ping, and calling it dead starts a
+      // second beside it (DEM-66). A refusal would say the same again.
+      if (answer.timedOut === true && tries > 1) continue;
+      return { why: `its ping got ${answer.error}` };
+    }
+    if (answer.status !== 200 || !isPing(answer.json)) {
+      return {
+        why: `its ping was answered ${answer.status}, not as the Studio`,
+      };
+    }
+    // A pid that was reused by something else answers on no studio's port;
+    // one that answers as another pid is not the studio the file names.
+    return answer.json.pid === s.pid
+      ? { ping: answer.json }
+      : { why: `its port answered as pid ${answer.json.pid}` };
+  }
 }
 
 async function lastLines(path: string): Promise<string> {
@@ -247,36 +281,52 @@ async function acquireStartLock(
   const path = join(home, "studio.start.lock");
   const deadline = Date.now() + waitMs + 5_000;
   await mkdir(home, { recursive: true, mode: 0o700 });
-  for (;;) {
-    try {
-      await writeFile(path, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
-      return { release: () => rm(path, { force: true }) };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+  // Written whole, then linked into place: a lock created by `wx` is empty
+  // until its write lands, and a waiter that read it then saw no holder,
+  // broke it, and started a second studio (DEM-66, PR #43's CI).
+  const mine = `${path}.${process.pid}.${randomUUID()}`;
+  try {
+    await writeFile(mine, `${process.pid}\n`, { mode: 0o600 });
+  } catch (error) {
+    return {
+      reason: "studioDidNotStart",
+      detail: `The Studio's start lock ${path} could not be written: ${messageOf(error)}.`,
+    };
+  }
+  try {
+    for (;;) {
+      try {
+        await link(mine, path);
+        return { release: () => rm(path, { force: true }) };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+          return {
+            reason: "studioDidNotStart",
+            detail: `The Studio's start lock ${path} could not be taken: ${messageOf(error)}.`,
+          };
+        }
+      }
+      let holder = Number.NaN;
+      try {
+        holder = Number.parseInt(await readFile(path, "utf8"), 10);
+      } catch {
+        // released between the write and the read: try again
+        continue;
+      }
+      if (!Number.isInteger(holder) || !pidAlive(holder)) {
+        await rm(path, { force: true });
+        continue;
+      }
+      if (Date.now() > deadline) {
         return {
           reason: "studioDidNotStart",
-          detail: `The Studio's start lock ${path} could not be taken: ${messageOf(error)}.`,
+          detail: `Another demoman (pid ${holder}) has been starting the Studio for over ${Math.round(waitMs / 1000)} s; see ${join(home, "studio.log")}.`,
         };
       }
+      await sleep(40);
     }
-    let holder = Number.NaN;
-    try {
-      holder = Number.parseInt(await readFile(path, "utf8"), 10);
-    } catch {
-      // released between the write and the read: try again
-      continue;
-    }
-    if (!Number.isInteger(holder) || !pidAlive(holder)) {
-      await rm(path, { force: true });
-      continue;
-    }
-    if (Date.now() > deadline) {
-      return {
-        reason: "studioDidNotStart",
-        detail: `Another demoman (pid ${holder}) has been starting the Studio for over ${Math.round(waitMs / 1000)} s; see ${join(home, "studio.log")}.`,
-      };
-    }
-    await sleep(40);
+  } finally {
+    await rm(mine, { force: true });
   }
 }
 
@@ -329,9 +379,11 @@ export async function openStudio(o: {
       notes.push(`${STALE_NOTE} (${found.unreadable})`);
       return null;
     }
-    const ping = await livePing(found);
-    if (ping === null) {
-      notes.push(STALE_NOTE);
+    const live = await livePing(found);
+    if (!("ping" in live)) {
+      notes.push(
+        live.why === null ? STALE_NOTE : `${STALE_NOTE} (${live.why})`,
+      );
       try {
         await removeStudioState(o.home, found.pid);
       } catch (error) {
@@ -341,6 +393,7 @@ export async function openStudio(o: {
       }
       return null;
     }
+    const { ping } = live;
     if (ping.version === o.version) return found;
     if (ping.queued > 0) {
       notes.push(REPLACED_LATER_NOTE);
@@ -437,12 +490,12 @@ export async function stopStudio(o: { home: string }): Promise<{
     return { stopped: false, cutShort: 0, why: found.unreadable };
   }
   if (!pidAlive(found.pid)) return { stopped: false, cutShort: 0 };
-  const ping = await livePing(found);
-  if (ping === null) {
+  const live = await livePing(found);
+  if (!("ping" in live)) {
     return {
       stopped: false,
       cutShort: 0,
-      why: `pid ${found.pid} is alive but did not answer as the Studio, so it was left alone`,
+      why: `pid ${found.pid} is alive but did not answer as the Studio (${live.why ?? "it exited"}), so it was left alone`,
     };
   }
   const signal = (sig: "SIGTERM" | "SIGKILL"): void => {
@@ -460,5 +513,5 @@ export async function stopStudio(o: { home: string }): Promise<{
     signal("SIGKILL");
     await removeStudioState(o.home, found.pid);
   }
-  return { stopped: true, cutShort: ping.queued };
+  return { stopped: true, cutShort: live.ping.queued };
 }

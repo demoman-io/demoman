@@ -1446,6 +1446,16 @@ describe("repoFolders", () => {
     expect(body.detail.length).toBeGreaterThan(0);
   });
 
+  // Red if a gone checkout says "spawn git ENOENT" again (DEM-76).
+  it("folders of a checkout that is gone says the folder is gone", async () => {
+    const gone = join(repo, "gone");
+    const r = await ask(gone);
+    expect(r.status).toBe(409);
+    expect((r.json() as { detail: string }).detail).toBe(
+      `The repo's folders could not be listed: ${gone} is not there any more.`,
+    );
+  });
+
   it("folders of a relative root is 400 repoBodyInvalid", async () => {
     const r = await ask("relative/dir");
     expect(r.status).toBe(400);

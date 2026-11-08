@@ -15,6 +15,23 @@ import { seedTake } from "./seed.js";
 // lane here does). Locally a cold start is about 1 s; the 15 s wait is the
 // shipped default and CI is ~5x slower, so cases get 60 s.
 
+// A slow disk, on demand: a start lock's file exists, empty, for 200 ms
+// before its pid lands. Off, writeFile is the real one.
+const slowLock = vi.hoisted(() => ({ on: false, hits: 0 }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>();
+  const writeFile = (async (file, data, options) => {
+    if (slowLock.on && String(file).includes("studio.start.lock")) {
+      slowLock.hits++;
+      await fs.writeFile(file, "", options);
+      await new Promise((r) => setTimeout(r, 200));
+      return fs.writeFile(file, data, { ...(options as object), flag: "w" });
+    }
+    return fs.writeFile(file, data, options);
+  }) as typeof fs.writeFile;
+  return { ...fs, default: { ...fs, writeFile }, writeFile };
+});
+
 const FAKE = fileURLToPath(new URL("./fake-serve.mjs", import.meta.url));
 const DIE = fileURLToPath(new URL("./fake-die.mjs", import.meta.url));
 const CASE_MS = 60_000;
@@ -27,6 +44,8 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   vi.unstubAllEnvs();
+  slowLock.on = false;
+  slowLock.hits = 0;
   // Never leave a detached studio behind, whatever the case did.
   const s = await readStudioState(home);
   if (s !== null && !("unreadable" in s) && s.pid !== process.pid) {
@@ -345,11 +364,41 @@ describe("openStudio", () => {
         openStudio({ home, version: "0.0.0-test", serve: serveFake() }),
         openStudio({ home, version: "0.0.0-test", serve: serveFake() }),
       ]);
-      expect(a).toMatchObject({ outcome: "opened" });
-      expect(b).toMatchObject({ outcome: "opened" });
+      // CI's red run arrives explaining itself (DEM-66): each open's note,
+      // which says what a replaced studio's ping got, and both logs.
+      const log = (name: string) =>
+        readFile(join(home, name), "utf8").then(
+          (t) => t.split("\n").slice(0, 8).join(" | "),
+          () => "(none)",
+        );
+      const evidence = `a ${JSON.stringify(a)}; b ${JSON.stringify(b)}; studio.log.1: ${await log("studio.log.1")}; studio.log: ${await log("studio.log")}`;
+      expect(a, evidence).toMatchObject({ outcome: "opened" });
+      expect(b, evidence).toMatchObject({ outcome: "opened" });
       // Premise: both really ran together, so the lock was what separated them.
-      expect(existsSync(join(home, "studio.start.lock"))).toBe(false);
-      expect(existsSync(join(home, "studio.log.1"))).toBe(false);
+      expect(existsSync(join(home, "studio.start.lock")), evidence).toBe(false);
+      expect(existsSync(join(home, "studio.log.1")), evidence).toBe(false);
+      expect(await servings()).toBe(1);
+    },
+    CASE_MS,
+  );
+
+  // Red: take the lock with writeFile's `wx` again. The waiter reads the
+  // empty lock as no holder, breaks it, and starts a second studio — PR
+  // #43's CI failure, made certain here by a slow write.
+  it(
+    "a waiter that finds the start lock before its pid does not break it",
+    async () => {
+      slowLock.on = true;
+      const [a, b] = await Promise.all([
+        openStudio({ home, version: "0.0.0-test", serve: serveFake() }),
+        openStudio({ home, version: "0.0.0-test", serve: serveFake() }),
+      ]);
+      const evidence = `a ${JSON.stringify(a)}; b ${JSON.stringify(b)}`;
+      // Premise: the lock really was written slowly.
+      expect(slowLock.hits, evidence).toBeGreaterThan(0);
+      expect(a, evidence).toMatchObject({ outcome: "opened" });
+      expect(b, evidence).toMatchObject({ outcome: "opened" });
+      expect(existsSync(join(home, "studio.log.1")), evidence).toBe(false);
       expect(await servings()).toBe(1);
     },
     CASE_MS,
@@ -413,6 +462,58 @@ describe("openStudio", () => {
   );
 });
 
+describe("openStudio on a busy machine", () => {
+  // DEM-66: red if livePing calls a live studio dead on its first missed
+  // ping — the record is replaced (the stale note) and a second one starts.
+  it(
+    "keeps a live studio that misses one ping, starting no other",
+    async () => {
+      let pings = 0;
+      const slow: Server = createServer((q, res) => {
+        res.setHeader("Content-Type", "application/json");
+        if (q.url === "/api/ping" && ++pings === 1) return; // never answers
+        res.end(
+          q.url === "/api/ping"
+            ? JSON.stringify({
+                version: "0.0.0-test",
+                pid: process.pid,
+                queued: 0,
+              })
+            : JSON.stringify({ path: "/" }),
+        );
+      });
+      await new Promise<void>((r) => slow.listen(0, "127.0.0.1", r));
+      try {
+        await writeFile(
+          studioStatePath(home),
+          JSON.stringify({
+            pid: process.pid,
+            port: (slow.address() as { port: number }).port,
+            token: "x",
+            startedAt: new Date().toISOString(),
+            version: "0.0.0-test",
+          }),
+        );
+        const a = await openStudio({
+          home,
+          version: "0.0.0-test",
+          serve: serveFake(),
+        });
+        expect(a).toEqual({ outcome: "opened" });
+        // Premise: the first ping really went unanswered.
+        expect(pings).toBeGreaterThanOrEqual(2);
+        const now = await readStudioState(home);
+        if (now === null || "unreadable" in now) throw new Error("no state");
+        expect(now.pid).toBe(process.pid);
+      } finally {
+        slow.closeAllConnections();
+        slow.close();
+      }
+    },
+    CASE_MS,
+  );
+});
+
 describe("stopStudio", () => {
   it(
     "ends a running studio, and says nothing was running afterwards",
@@ -449,6 +550,8 @@ describe("stopStudio", () => {
     expect(r).toMatchObject({ stopped: false, cutShort: 0 });
     // Could not tell is not "nothing running": it says what it found.
     expect(r.why).toContain(`pid ${process.pid} is alive but did not answer`);
+    // And why: port 1 refuses the ping (DEM-66's review).
+    expect(r.why).toContain("ECONNREFUSED");
     expect(() => process.kill(process.pid, 0)).not.toThrow();
   });
 
