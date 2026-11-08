@@ -30,9 +30,9 @@ export const shortVersion = (v) => v.match(/-(rc\.\d+)$/)?.[1] ?? v;
 export const monthOf = (datetime) =>
   new Date(`${datetime}T00:00:00Z`).toLocaleString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 
-/** The site's newest changelog entry, as look.test.mjs reads it. */
+/** The site's newest changelog entry, as look.test.mjs reads it (the new page's <time> carries a class first). */
 export function newestSiteEntry(html) {
-  const m = html.match(/<article class="entry" data-version="([^"]+)"[^>]*>[\s\S]*?<time datetime="([^"]+)">/);
+  const m = html.match(/<article class="entry" data-version="([^"]+)"[^>]*>[\s\S]*?<time[^>]* datetime="([^"]+)">/);
   return m && { version: m[1], datetime: m[2] };
 }
 
@@ -58,12 +58,21 @@ export function bump(version, texts) {
     pkg: swap("pkg", texts.pkg, /"version": "[^"]+"/, `"version": "${version}"`),
     version: swap("version", texts.version, /VERSION = "[^"]+"/, `VERSION = "${version}"`),
     license: swap("license", texts.license, /demoman@[^/\s)]+\//g, `demoman@${version}/`),
-    site: swap(
-      "site",
-      swap("site", texts.site, /(<span class="pl">[^<]*<\/span><span class="ver">· )[^<]+/, `$1${shortVersion(version)}`),
-      /(<span data-release-month>)[^<]+/,
-      `$1${monthOf(entry.datetime)}`,
-    ),
+    site: /<span class="pl">/.test(texts.site)
+      ? // shortcut: the old page's pill and month; drop this branch once internal/'s main carries the clean-room page (film/launch).
+        swap(
+          "site",
+          swap("site", texts.site, /(<span class="pl">[^<]*<\/span><span class="ver">· )[^<]+/, `$1${shortVersion(version)}`),
+          /(<span data-release-month>)[^<]+/,
+          `$1${monthOf(entry.datetime)}`,
+        )
+      : // The hero's class line, and the Premise drawing, which ends on it (site/test/sync.test.mjs).
+        swap(
+          "site",
+          swap("site", texts.site, /(<div class="class-line[^"]*"><b>v)[^<]+/, `$1${version}`),
+          /(<text class="ver"[^>]*>v)[^<]+/g,
+          `$1${version}`,
+        ),
   };
 }
 
@@ -117,7 +126,7 @@ function main(version) {
   if (view.status !== 0 && !/E404/.test(view.stderr)) stop("npm", [`npm view failed: ${view.stderr.trim()}`]);
 
   if (!existsSync(new URL("internal/site/", ROOT)))
-    stop("internal/", ["internal/ is not cloned: the site, whose pill and changelog name the release, lives there"]);
+    stop("internal/", ["internal/ is not cloned: the site, whose version line and changelog name the release, lives there"]);
   const texts = Object.fromEntries(Object.entries(FILES).map(([k, p]) => [k, read(p)]));
   const missing = preflight(version, texts);
   if (missing.length > 0) stop("the changelogs (write them first)", missing);

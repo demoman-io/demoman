@@ -4,9 +4,10 @@ import { test } from "node:test";
 import { authorSteps, bump, monthOf, newestSiteEntry, preflight, shortVersion, strays } from "./release.mjs";
 
 // The real files, so a reworded version line fails here, not mid-release.
-// The site lives in internal/, which CI has no copy of: its pill and newest
-// entry are copied here as the page writes them, and bump still names the
-// real file if the page stops matching.
+// The site lives in internal/, which CI has no copy of: its version lines and
+// newest entry are copied here as each page writes them (the old page's pill
+// until internal/'s main carries the new one), and bump still names the real
+// file if the page stops matching.
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const current = JSON.parse(read("apps/cli/package.json")).version;
 const texts = {
@@ -17,6 +18,17 @@ const texts = {
   site: `<div class="pill"><span class="ld" aria-hidden="true"></span><span class="pl">Now in public beta</span><span class="ver">· ${current}</span><span class="ver">· <span data-release-month>Oct 2026</span></span></div>
 <article class="entry" data-version="${current}"><h3>A release</h3><p>What changed.</p><time datetime="2026-11-03">Nov 3, 2026</time></article>`,
 };
+// The clean-room page (internal film/launch): the hero's class line, the Premise
+// drawing's two versions, and an entry whose <time> carries a class.
+const newSite = `<div class="class-line label"><b>v${current}</b> — <span>macOS / Linux</span></div>
+<svg class="el" id="sync-code" viewBox="0 0 80 124"><text class="ver" x="40" y="18" text-anchor="middle">v${current}</text></svg>
+<svg class="el" id="sync-video" viewBox="0 0 90 124"><text class="ver" x="45" y="18" text-anchor="middle">v${current}</text></svg>
+<article class="entry" data-version="${current}">
+  <p class="v label">${current}</p>
+  <time class="label" datetime="2026-11-07">Nov 7, 2026</time>
+  <h3>A release</h3>
+  <p>What changed.</p>
+</article>`;
 
 test("bump sets the version in every file that carries it", () => {
   assert.equal((texts.license.match(/demoman@[^/\s)]+\//g) ?? []).length, 2, "premise: the License page links two files");
@@ -36,6 +48,23 @@ test("an rc shows as rc.N on the pill", () => {
   assert.equal(shortVersion("0.8.0-rc.2"), "rc.2");
   assert.equal(shortVersion("0.8.0"), "0.8.0");
   assert.match(bump("0.8.0-rc.2", texts).site, /<span class="ver">· rc\.2<\/span>/);
+});
+
+test("on the new page, bump sets the class line and both of the drawing's versions", () => {
+  const before = { ...texts, site: newSite };
+  assert.equal((newSite.match(new RegExp(`v${current.replace(/\./g, "\\.")}<`, "g")) ?? []).length, 3, "premise: the fixture names the version three times");
+  const next = bump("9.9.9", before);
+  assert.match(next.site, /<div class="class-line label"><b>v9\.9\.9<\/b>/);
+  assert.equal((next.site.match(/<text class="ver"[^>]*>v9\.9\.9<\/text>/g) ?? []).length, 2, next.site);
+  assert.doesNotMatch(next.site, new RegExp(`v${current.replace(/\./g, "\\.")}<`), "a version line was left behind");
+  assert.deepEqual(bump("9.9.9", { ...before, ...next }), next, "a second bump changes nothing");
+  assert.throws(() => bump("9.9.9", { ...texts, site: newSite.replace(/<div class="class-line[\s\S]*?<\/div>/, "") }), /internal\/site\/public\/index\.html/);
+});
+
+test("preflight reads the new page's newest entry", () => {
+  assert.deepEqual(newestSiteEntry(newSite), { version: current, datetime: "2026-11-07" });
+  assert.deepEqual(preflight(current, { ...texts, site: newSite }), [], "the tree's own release passes");
+  assert.match(preflight("9.9.9", { ...texts, site: newSite })[1], /newest changelog entry is data-version="[^"]+", not "9\.9\.9"/);
 });
 
 test("bump names the file whose version line is gone", () => {
