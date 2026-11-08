@@ -197,13 +197,16 @@ describe("withApp", () => {
     expect(plain).toMatchObject({ ok: true, lines: [] });
   });
 
-  it("stops the app when run throws", async () => {
-    const stop = vi.fn(async () => [] as string[]);
+  // Red: push the line into `lines` only. A run that threw returns none, so
+  // a dev server left running was never said.
+  it("stops the app when run throws, and says what it could not stop", async () => {
+    const stop = vi.fn(async () => ["server"]);
     const startApp = vi.fn(async () => started(stop));
+    const logged: string[] = [];
     await expect(
       withApp(
         { kind: "start", app: app() },
-        o(false),
+        { ...o(false), log: (l: string) => logged.push(l) },
         async () => {
           throw new Error("boom");
         },
@@ -211,6 +214,7 @@ describe("withApp", () => {
       ),
     ).rejects.toThrow("boom");
     expect(stop).toHaveBeenCalledTimes(1);
+    expect(logged).toContain("could not stop server");
   });
 
   it("says the app started and what it could not stop", async () => {

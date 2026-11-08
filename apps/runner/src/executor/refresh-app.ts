@@ -162,14 +162,18 @@ export async function withApp<T>(
     return { ok: false, refusal: started };
   }
   const lines = [started.said];
+  let returned = false;
   try {
-    return {
-      ok: true,
-      value: await run(started.reset, started.pinnedNow),
-      lines,
-    };
+    const value = await run(started.reset, started.pinnedNow);
+    returned = true;
+    return { ok: true, value, lines };
   } finally {
     const left = await started.stop();
-    if (left.length > 0) lines.push(`could not stop ${left.join(", ")}`);
+    if (left.length > 0) {
+      const line = `could not stop ${left.join(", ")}`;
+      // A run that threw returns no lines to carry it: said here instead.
+      if (returned) lines.push(line);
+      else o.log(line);
+    }
   }
 }
