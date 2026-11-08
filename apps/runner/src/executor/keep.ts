@@ -35,6 +35,7 @@ import {
   type KeptVideo,
   keptFileName,
   LEGACY_FLOWS_DIR,
+  normaliseName,
   notCarriedOf,
   parseFilmedCode,
   parseKept,
@@ -106,7 +107,9 @@ export type KeepAnswer =
   | {
       ok: true;
       file: string;
-      /** The old `.demoman/videos/` file this keep moved here, or null. */
+      /** The recipe this keep moved here, or null: one in the old
+       *  `.demoman/videos/`, or one under its pre-DEM-68 trimmed name (whose
+       *  receipt and screens were removed, rewritten under the new name). */
       moved: string | null;
       kept: KeptVideo;
       /** The repo key the library's mark records; null when the checkout
@@ -208,7 +211,12 @@ export async function keepVideo(
   const fileRel = `${FLOWS_DIR}/${keptFileName(video.name)}`;
   // The same file in the old folder: moved here when this keep writes.
   const legacyRel = `${LEGACY_FLOWS_DIR}/${basename(fileRel)}`;
+  // The name it had before DEM-68, in either folder: moved here too, and its
+  // receipt and screens with it, so the move lands in one commit.
+  const trimmedName = `${normaliseName(video.name).replace(/ /g, "-") || "video"}.json`;
   let moveFrom: string | null = null;
+  /** The old receipt and screens a move from the trimmed name removes. */
+  let leftovers: string[] = [];
   const inRepo = (path: string) => repoPath(root, rootReal, path, "keep");
   // The kept file itself: `.demoman` or its `videos` can be a link too.
   const own = await inRepo(fileRel);
@@ -264,10 +272,23 @@ export async function keepVideo(
     const { kept } = other;
     // Refused, not moved: keep writes only this keep's files, and moving
     // another recipe and its receipt is renameKept's, with its undo steps.
-    if (rel === legacyRel && kept.flow === video.id) {
+    if (
+      kept.flow === video.id &&
+      rel !== fileRel &&
+      (rel === legacyRel || name === trimmedName)
+    ) {
       const at = await inRepo(rel);
       if (typeof at !== "string") return refuse("outsideRepo", at.outside);
       moveFrom = rel;
+      if (name !== basename(fileRel)) {
+        const oldReceipt = `${RECEIPT_DIR}/${name}`;
+        leftovers = [oldReceipt, `${RECEIPT_DIR}/${screensDirOf(oldReceipt)}`];
+        for (const p of leftovers) {
+          const inside = await inRepo(p);
+          if (typeof inside !== "string")
+            return refuse("outsideRepo", inside.outside);
+        }
+      }
       continue;
     }
     if (kept.flow === video.id && rel !== fileRel) {
@@ -491,8 +512,18 @@ export async function keepVideo(
       } catch (error) {
         return refuse(
           "repoFlowUnwritable",
-          `wrote ${written.join(", ")}, but could not remove the old ${moveFrom} (${messageOf(error)}), so two files now name "${video.name}" — delete ${moveFrom}${markNote === undefined ? "" : `; ${markNote}`}`,
+          `wrote ${written.join(", ")}, but could not remove the old ${moveFrom} (${messageOf(error)}), so two files now name "${video.name}" — delete ${moveFrom}${leftovers.length === 0 ? "" : ` and ${leftovers.join(" and ")}`}${markNote === undefined ? "" : `; ${markNote}`}`,
         );
+      }
+      for (const [i, p] of leftovers.entries()) {
+        try {
+          await rm(join(root, p), { recursive: true, force: true });
+        } catch (error) {
+          return refuse(
+            "repoFlowUnwritable",
+            `wrote ${written.join(", ")} and removed ${[moveFrom, ...leftovers.slice(0, i)].join(", ")}, but could not remove the old ${p} (${messageOf(error)}) — delete ${leftovers.slice(i).join(" and ")}${markNote === undefined ? "" : `; ${markNote}`}`,
+          );
+        }
       }
     }
     return {

@@ -1,11 +1,11 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { notCarriedOf } from "@demoman/run-core";
+import { notCarriedOf, videoSlug } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readonlyScene } from "../../../packages/compositor/test/fixtures/scene.js";
-import { checkAddable, notInRepo, videoSlug } from "../src/executor/addable.js";
+import { checkAddable, notInRepo } from "../src/executor/addable.js";
 import {
   type BrowserSession,
   createBrowserSession,

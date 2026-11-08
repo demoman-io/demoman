@@ -2,7 +2,6 @@
 import { type DemoScript, DemoScriptSchema } from "@demoman/scene-schema";
 import { EXPORT_QUALITY_VALUES, type ExportQuality } from "../export/target.js";
 import { isFlowId } from "../served-words.js";
-import { normaliseName } from "../video-name.js";
 import { type KeptReceipt, parseScreens } from "./receipt.js";
 
 export const KEPT_VERSION = 2;
@@ -231,9 +230,18 @@ export function parseKept(text: string, file: string): Parsed {
   };
 }
 
-/** Two names the video library treats as equal give one file. */
+/** A file's name from the flow's, its words as written: "Filter invoices"
+ *  is filter-invoices. The video, the recipe and its receipt all use it. */
+export const videoSlug = (name: string): string =>
+  name
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "") || "video";
+
+/** The recipe's file name, and its receipt's. Until DEM-68 it dropped stop
+ *  words and a trailing s; an add moves a recipe still named that way. */
 export function keptFileName(name: string): string {
-  return `${normaliseName(name).replace(/ /g, "-") || "video"}.json`;
+  return `${videoSlug(name)}.json`;
 }
 
 export function serializeKept(k: KeptVideo): string {

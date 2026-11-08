@@ -21,6 +21,7 @@ import {
   type KeptVideo,
   keptFileName,
   messageOf,
+  normaliseName,
   parseFilmedCode,
   prVerdict,
   RECEIPT_DIR,
@@ -310,7 +311,9 @@ export async function refreshKept(
   const twice = new Map(
     duplicates.flatMap((d) => d.files.map((f) => [f, d] as const)),
   );
-  const asked = args.only?.map(keptFileName);
+  // Matched as the library matches names, not by file: "add the tasks"
+  // asks for "Add a task".
+  const asked = args.only?.map(normaliseName);
   const found = new Set<string>();
   // One executor per display: a browser launches at one scale.
   const groups = new Map<string, Job[]>();
@@ -321,11 +324,11 @@ export async function refreshKept(
     if ("unreadable" in entry) {
       failed({ name: n.replace(/\.json$/, ""), file }, entry.unreadable);
       // Its file is the one `only` would name: not also "no kept video".
-      found.add(n);
+      found.add(normaliseName(n.replace(/\.json$/, "")));
       continue;
     }
     const { kept, migrated } = entry;
-    const slug = keptFileName(kept.name);
+    const slug = normaliseName(kept.name);
     if (asked !== undefined && !asked.includes(slug)) continue;
     found.add(slug);
     const who = { name: kept.name, file, kept };
@@ -455,7 +458,7 @@ export async function refreshKept(
     ]);
   }
   for (const a of args.only ?? []) {
-    if (!found.has(keptFileName(a)))
+    if (!found.has(normaliseName(a)))
       failed(
         { name: a, file: `${FLOWS_DIR}/${keptFileName(a)}` },
         `the repo has no flow named "${a}"`,

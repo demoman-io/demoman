@@ -672,6 +672,59 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     KEEP_MS,
   );
 
+  // DEM-68. Red: drop `name === trimmedName` from keep.ts's move — the add
+  // refuses with "already holds this flow" and the old files stay.
+  it(
+    "an add moves a recipe under its pre-DEM-68 trimmed name, its receipt and screens with it",
+    async () => {
+      await freshVideo("scene-trim-1", "Filter the invoices");
+      const args = {
+        video: "Filter the invoices",
+        to: [gif("docs/trim.gif")],
+        repoRoot: repo,
+      };
+      const first = await keepVideo(args, deps());
+      if (!first.ok) throw new Error(JSON.stringify(first));
+      expect(first.file).toBe(".demoman/flows/filter-the-invoices.json");
+      // As an add before DEM-68 left it: every file under the trimmed name.
+      const r = ".demoman/receipts";
+      await rename(
+        join(repo, first.file),
+        join(repo, ".demoman/flows/filter-invoice.json"),
+      );
+      await rename(
+        join(repo, r, "filter-the-invoices.json"),
+        join(repo, r, "filter-invoice.json"),
+      );
+      await rename(
+        join(repo, r, "filter-the-invoices.screens"),
+        join(repo, r, "filter-invoice.screens"),
+      );
+      const old = join(repo, r, "filter-invoice.json");
+      const receipt = JSON.parse(await readFile(old, "utf8"));
+      await writeFile(
+        old,
+        JSON.stringify({ ...receipt, screensDir: "filter-invoice.screens" }),
+      );
+      // Premise: only the trimmed names are in the repo.
+      const before = await repoFiles();
+      expect(before).toContain(".demoman/flows/filter-invoice.json");
+      expect(before.some((f) => f.includes("filter-the-invoices"))).toBe(false);
+
+      const out = await keepVideo(args, deps());
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      expect(out.file).toBe(".demoman/flows/filter-the-invoices.json");
+      expect(out.moved).toBe(".demoman/flows/filter-invoice.json");
+      const after = await repoFiles();
+      expect(after.filter((f) => f.includes("filter-invoice"))).toEqual([]);
+      expect(after).toContain(`${r}/filter-the-invoices.json`);
+      expect(
+        after.some((f) => f.startsWith(`${r}/filter-the-invoices.screens/`)),
+      ).toBe(true);
+    },
+    KEEP_MS,
+  );
+
   it(
     "a run report with a malformed filmedCode writes a receipt that says the code is unknown",
     async () => {
