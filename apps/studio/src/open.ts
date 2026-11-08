@@ -392,7 +392,10 @@ export async function openStudio(o: {
         state = started.state;
       }
     } finally {
-      await lock.release();
+      // The open's own answer stands; a lock it could not release is noted.
+      await lock.release().catch((error: unknown) => {
+        notes.push(`The start lock was not released: ${messageOf(error)}.`);
+      });
     }
   }
   const win = await call(

@@ -25,9 +25,7 @@ import {
 } from "@demoman/scene-schema";
 import { createFileFrameStore, type RunnerStore } from "../frame-store.js";
 import { messageOf } from "../report.js";
-import { pidAlive, takePidLock } from "./pid-lock.js";
-
-export { pidAlive };
+import { LockNotMine, pidAlive, takePidLock } from "./pid-lock.js";
 
 export type LibraryReason = "libraryUnreadable" | "libraryUnwritable";
 
@@ -429,7 +427,7 @@ export function createLibrary(
         throw new LibraryError(
           "libraryUnwritable",
           "holder" in taken
-            ? `${lock} stayed held for ${LOCK_WAIT_MS} ms by process ${taken.holder}`
+            ? `${lock} stayed held for ${LOCK_WAIT_MS} ms by process ${taken.holder} — remove it if no other Demoman is running`
             : `could not take ${lock} (${messageOf(taken.error)})`,
         );
       }
@@ -444,11 +442,20 @@ export function createLibrary(
       try {
         await taken.release();
       } catch (error) {
+        const done = `${failure === undefined ? "the row was listed in" : "could not write"} ${file}`;
+        // Not ours any more: nothing of ours is left, and the lock there may
+        // be another's live one, so it is never offered for removal.
+        if (error instanceof LockNotMine) {
+          throw new LibraryError(
+            "libraryUnwritable",
+            `${done}, but ${messageOf(error)}`,
+          );
+        }
         // A lock left holding this live pid would make every later append
         // wait out its deadline and blame "another process". Say so here.
         throw new LibraryError(
           "libraryUnwritable",
-          `${failure === undefined ? "the row was listed in" : "could not write"} ${file}, but the lock ${lock} could not be removed (${messageOf(error)}) — remove it by hand or later exports of this video will wait on it`,
+          `${done}, but the lock ${lock} could not be removed (${messageOf(error)}) — remove it by hand or later exports of this video will wait on it`,
         );
       }
       if (failure !== undefined) throw failure;

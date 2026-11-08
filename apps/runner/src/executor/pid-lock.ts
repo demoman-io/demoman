@@ -20,14 +20,33 @@ export type PidLock =
 
 /** A breaker older than this was left by a process that died mid-break. */
 const BREAKER_STALE_MS = 10_000;
+/** A lock naming no pid is an older Demoman's (its sign-in lock was empty):
+ *  taken over at the age that one was, never while it may still be live. */
+const NO_PID_STALE_MS = 120_000;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const code = (e: unknown) => (e as NodeJS.ErrnoException).code;
+
+/** Release found the lock was not this one any more: gone, or another's. */
+export class LockNotMine extends Error {}
 
 async function textOf(path: string): Promise<string | null> {
   try {
     return await readFile(path, "utf8");
   } catch (error) {
     if (code(error) === "ENOENT") return null;
+    throw error;
+  }
+}
+
+/** Is the lock whose text is `held` left by a process that is gone? Its pid
+ *  is the first number in it: `<pid> <token>`, or an older `{"pid":N}`. */
+async function deadHolder(path: string, held: string): Promise<boolean> {
+  const pid = /\d+/.exec(held);
+  if (pid !== null) return !pidAlive(Number(pid[0]));
+  try {
+    return Date.now() - (await stat(path)).mtimeMs > NO_PID_STALE_MS;
+  } catch (error) {
+    if (code(error) === "ENOENT") return false; // released: the loop retries
     throw error;
   }
 }
@@ -61,19 +80,29 @@ export async function takePidLock(
       }
       const held = await textOf(path);
       if (held === null) continue; // released between the two calls
-      // No pid at all is a lock no running Demoman wrote: an older format.
-      const holder = Number.parseInt(held, 10);
-      if (!Number.isInteger(holder) || !pidAlive(holder)) {
-        await breakIfStill(path, held);
-        continue;
+      const dead = await deadHolder(path, held);
+      // A dead lock that another waiter is already breaking is waited on.
+      if (dead && (await breakIfStill(path, held))) continue;
+      if (Date.now() >= deadline) {
+        const pid = /\d+/.exec(held);
+        if (!dead && pid !== null) return { ok: false, holder: Number(pid[0]) };
+        return {
+          ok: false,
+          error: new Error(
+            dead
+              ? `${path} was left by a process that is gone, and ${path}.break stayed held while ${waitMs} ms ran out; remove both if no other Demoman is running`
+              : `${path} names no process and stayed for ${waitMs} ms; remove it if no other Demoman is running`,
+          ),
+        };
       }
-      if (Date.now() >= deadline) return { ok: false, holder };
       await sleep(retryMs);
     }
   } catch (error) {
     return { ok: false, error };
   } finally {
-    await rm(mine, { force: true });
+    // Forgiven, not hidden: a stray temp file sits beside the lock, named
+    // for it, and is not a held lock; failing here would leave one held.
+    await rm(mine, { force: true }).catch(() => undefined);
   }
 }
 
@@ -82,20 +111,21 @@ export async function takePidLock(
  * holder's. Two waiters can judge the same dead lock; without the re-read
  * the slower one removed the lock the faster one had just taken, and both
  * held it. The re-read and the remove happen under `<path>.break`, so no
- * other breaker acts between them. Exported for its test.
+ * other breaker acts between them. False when another waiter holds the
+ * breaker, so the caller waits as for a live lock. Exported for its test.
  */
 export async function breakIfStill(
   path: string,
   judged: string,
-): Promise<void> {
+): Promise<boolean> {
   const breaker = `${path}.break`;
   try {
     await (await open(breaker, "wx", 0o600)).close();
   } catch (error) {
     if (code(error) !== "EEXIST") throw error;
-    // Another waiter is breaking it. shortcut: a breaker left by a process
-    // killed inside these few lines is cleared once old; two waiters clearing
-    // it together can still both break, so only if a breaker is ever seen old.
+    // shortcut: a breaker left by a process killed inside these few lines is
+    // cleared once old; two waiters clearing it together can still both
+    // break, so only if a breaker is ever seen old.
     try {
       if (Date.now() - (await stat(breaker)).mtimeMs > BREAKER_STALE_MS) {
         await rm(breaker, { force: true });
@@ -103,14 +133,14 @@ export async function breakIfStill(
     } catch (e) {
       if (code(e) !== "ENOENT") throw e;
     }
-    await sleep(5);
-    return;
+    return false;
   }
   try {
     if ((await textOf(path)) === judged) await rm(path, { force: true });
   } finally {
     await rm(breaker, { force: true });
   }
+  return true;
 }
 
 /** Throws when the lock could not be read or removed, so a lock left behind
@@ -119,7 +149,7 @@ export async function breakIfStill(
 async function releaseIfMine(path: string, text: string): Promise<void> {
   const held = await textOf(path);
   if (held !== text) {
-    throw new Error(
+    throw new LockNotMine(
       `${path} was no longer this process's lock at release (${held === null ? "it was gone" : `it named ${held.trim()}`}), so another process may have held it at the same time; it was left alone`,
     );
   }

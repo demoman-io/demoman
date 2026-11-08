@@ -1,10 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { breakIfStill, takePidLock } from "../src/executor/pid-lock.js";
+import {
+  breakIfStill,
+  LockNotMine,
+  takePidLock,
+} from "../src/executor/pid-lock.js";
 
 // A slow disk, on demand: a file under the test's folder exists, empty, for
 // 100 ms before its text lands. Off, writeFile is the real one.
@@ -112,18 +116,49 @@ describe("takePidLock", () => {
     await held.release();
   });
 
-  it("takes over a lock with no pid in it (an older format)", async () => {
+  // Red: read a lock with no leading pid as dead. An older Demoman still
+  // running wrote {"pid":N} (outputs.json) or an empty file (sign-in), and
+  // its live lock was broken under it.
+  it("an older Demoman's live lock is waited for, and its empty one only once old", async () => {
+    await writeFile(lock, JSON.stringify({ pid: process.pid }));
+    expect(await takePidLock(lock, 60)).toEqual({
+      ok: false,
+      holder: process.pid,
+    });
     await writeFile(lock, "");
+    const young = await takePidLock(lock, 60);
+    expect(young.ok).toBe(false);
+    expect(String((young as { error?: unknown }).error)).toMatch(
+      /names no process/,
+    );
+    const old = new Date(Date.now() - 121_000);
+    await utimes(lock, old, old);
     const taken = await takePidLock(lock, 1000);
     expect(taken.ok).toBe(true);
     if (taken.ok) await taken.release();
+  });
+
+  // Red: retry a dead lock without the deadline while another breaker holds
+  // .break — the wait ran until the breaker was 10 s old, whatever waitMs.
+  it("a dead lock whose breaker is held still answers within waitMs", async () => {
+    await writeFile(lock, `${deadPid()} old-token\n`);
+    await writeFile(`${lock}.break`, "");
+    const started = Date.now();
+    const r = await takePidLock(lock, 150);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(r.ok).toBe(false);
+    expect(String((r as { error?: unknown }).error)).toMatch(
+      /\.break stayed held/,
+    );
   });
 
   it("says so when its lock was replaced before release", async () => {
     const taken = await takePidLock(lock, 1000);
     if (!taken.ok) throw new Error(JSON.stringify(taken));
     await writeFile(lock, "1 someone-else\n");
-    await expect(taken.release()).rejects.toThrow(
+    const said = await taken.release().catch((e: unknown) => e);
+    expect(said).toBeInstanceOf(LockNotMine);
+    expect(String(said)).toMatch(
       /no longer this process's lock .*it named 1 someone-else/,
     );
     // Left alone: it is not ours to remove.

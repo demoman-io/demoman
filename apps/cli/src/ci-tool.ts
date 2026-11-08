@@ -119,7 +119,8 @@ export function createCiTool(io: {
           };
         app = parsed.app;
         // Never over one already there: it may hold the person's own
-        // uncommitted edits. The plan reads app, not the file.
+        // uncommitted edits, and a plan from app would then commit a file
+        // that is not the one in their working tree.
         const text = serializeApp(app);
         await mkdir(join(root, ".demoman"), { recursive: true });
         try {
@@ -127,10 +128,12 @@ export function createCiTool(io: {
           appFile = `wrote ${APP_FILE} in the working tree from app, uncommitted`;
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-          appFile =
-            (await readFile(join(root, APP_FILE), "utf8")) === text
-              ? `${APP_FILE} in the working tree already holds app`
-              : `left ${APP_FILE} in the working tree as it was: it differs from app and is never overwritten. The plan's check used app; make the file match it before the person runs setup`;
+          if ((await readFile(join(root, APP_FILE), "utf8")) !== text)
+            return {
+              reason: "appInvalid",
+              detail: `${APP_FILE} is already in the working tree and differs from app, and is never overwritten; nothing was written. Call ci without app to plan from that file, or show the person the difference and edit the file with their yes`,
+            };
+          appFile = `${APP_FILE} in the working tree already holds app`;
         }
       }
       const said = (x: Answer): Answer =>

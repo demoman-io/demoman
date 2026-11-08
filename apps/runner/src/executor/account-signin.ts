@@ -353,7 +353,7 @@ export async function signInAccount(
     return fail(
       "signInFailed",
       "holder" in taken
-        ? `another sign-in as ${name} (process ${taken.holder}) has held ${lock} for over ${LOCK_WAIT_MS / 1000} s`
+        ? `another sign-in as ${name} (process ${taken.holder}) has held ${lock} for over ${LOCK_WAIT_MS / 1000} s — remove it if no other Demoman is running`
         : `signing in as ${name} on ${origin}: ${lock} could not be taken (${messageOf(taken.error)})`,
     );
   }

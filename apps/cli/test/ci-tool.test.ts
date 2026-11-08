@@ -340,23 +340,30 @@ describe("the ci tool", () => {
     expect(existsSync(join(bad, ".demoman", "app.json"))).toBe(false);
   });
 
-  // Red: write app.json without `wx`. The person's uncommitted edits to it
-  // were lost, even when the plan then stopped.
-  it("never overwrites an app.json already in the working tree, and says so", async () => {
+  // Red: write app.json without `wx`, or plan from app beside a file that
+  // differs. The person's uncommitted edits were lost, or the pull request
+  // committed an app.json that was not the one in their working tree.
+  it("never overwrites an app.json already in the working tree, and plans nothing beside one that differs", async () => {
     const root = repoDir();
     const path = join(root, ".demoman", "app.json");
-    const mine = `${serializeApp({ ...APP, start: "make serve" })}`;
+    const mine = serializeApp({ ...APP, start: "make serve" });
     writeFileSync(path, mine);
-    const a = await tool({ root }).call({
+    const t = tool({ root });
+    const a = await t.call({
       trigger: "daily",
       app: { ...APP, start: "pnpm dev" },
     });
     expect(readFileSync(path, "utf8")).toBe(mine);
-    expect(String(a.appFile)).toMatch(
-      /left \.demoman\/app\.json .*never overwritten/,
-    );
-    // Premise: the plan still ran on the agent's app, not the file.
-    expect(a.plan).toMatchObject({ app: { source: { kind: "agent" } } });
+    expect(a.reason).toBe("appInvalid");
+    expect(String(a.detail)).toMatch(/differs from app.*never overwritten/);
+    expect(t.calls).toEqual([]);
+    // The same app as the file is planned, and nothing is rewritten.
+    const same = await tool({ root }).call({
+      trigger: "daily",
+      app: { ...APP, start: "make serve" },
+    });
+    expect(same.outcome).toBe("plan");
+    expect(String(same.appFile)).toMatch(/already holds app/);
   });
 
   // Red if a missing value is asked of the agent, or the answer drops the
