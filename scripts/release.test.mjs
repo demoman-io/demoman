@@ -1,26 +1,22 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { authorSteps, bump, monthOf, newestSiteEntry, preflight, shortVersion, strays } from "./release.mjs";
+import { authorSteps, bump, newestSiteEntry, preflight, strays } from "./release.mjs";
 
 // The real files, so a reworded version line fails here, not mid-release.
 // The site lives in internal/, which CI has no copy of: its version lines and
-// newest entry are copied here as each page writes them (the old page's pill
-// until internal/'s main carries the new one), and bump still names the real
-// file if the page stops matching.
+// newest entry are copied here as the page writes them (the hero's class line,
+// the Premise drawing's two versions, an entry whose <time> carries a class),
+// and bump still names the real file if the page stops matching.
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const current = JSON.parse(read("apps/cli/package.json")).version;
+const at = (v) => new RegExp(`v${v.replace(/\./g, "\\.")}<`, "g");
 const texts = {
   pkg: read("apps/cli/package.json"),
   version: read("apps/cli/src/version.ts"),
   license: read("apps/docs/resources/license.mdx"),
   changelog: read("apps/docs/resources/changelog.mdx"),
-  site: `<div class="pill"><span class="ld" aria-hidden="true"></span><span class="pl">Now in public beta</span><span class="ver">· ${current}</span><span class="ver">· <span data-release-month>Oct 2026</span></span></div>
-<article class="entry" data-version="${current}"><h3>A release</h3><p>What changed.</p><time datetime="2026-11-03">Nov 3, 2026</time></article>`,
-};
-// The clean-room page (internal film/launch): the hero's class line, the Premise
-// drawing's two versions, and an entry whose <time> carries a class.
-const newSite = `<div class="class-line label"><b>v${current}</b> — <span>macOS / Linux</span></div>
+  site: `<div class="class-line label"><b>v${current}</b> — <span>macOS / Linux</span></div>
 <svg class="el" id="sync-code" viewBox="0 0 80 124"><text class="ver" x="40" y="18" text-anchor="middle">v${current}</text></svg>
 <svg class="el" id="sync-video" viewBox="0 0 90 124"><text class="ver" x="45" y="18" text-anchor="middle">v${current}</text></svg>
 <article class="entry" data-version="${current}">
@@ -28,43 +24,36 @@ const newSite = `<div class="class-line label"><b>v${current}</b> — <span>macO
   <time class="label" datetime="2026-11-07">Nov 7, 2026</time>
   <h3>A release</h3>
   <p>What changed.</p>
-</article>`;
+</article>`,
+};
 
 test("bump sets the version in every file that carries it", () => {
   assert.equal((texts.license.match(/demoman@[^/\s)]+\//g) ?? []).length, 2, "premise: the License page links two files");
+  assert.equal((texts.site.match(at(current)) ?? []).length, 3, "premise: the site names the version three times");
   assert.ok(current !== "9.9.9", "premise: the tree is not already at the test's version");
   const next = bump("9.9.9", texts);
   assert.equal(JSON.parse(next.pkg).version, "9.9.9");
   assert.match(next.version, /VERSION = "9\.9\.9"/);
   assert.deepEqual(next.license.match(/demoman@[^/\s)]+\//g), ["demoman@9.9.9/", "demoman@9.9.9/"]);
-  assert.match(next.site, /<span class="pl">Now in public beta<\/span><span class="ver">· 9\.9\.9<\/span>/);
-  const month = monthOf(newestSiteEntry(texts.site).datetime);
-  assert.doesNotMatch(texts.site, new RegExp(`data-release-month>${month}<`), "premise: the fixture's written month is not its entry's, so the bump has to set it");
-  assert.match(next.site, new RegExp(`<span data-release-month>${month}</span>`));
+  assert.match(next.site, /<div class="class-line label"><b>v9\.9\.9<\/b>/);
+  assert.equal((next.site.match(/<text class="ver"[^>]*>v9\.9\.9<\/text>/g) ?? []).length, 2, next.site);
+  assert.doesNotMatch(next.site, at(current), "a version line was left behind");
   assert.deepEqual(bump("9.9.9", { ...texts, ...next }), next, "a second bump changes nothing");
 });
 
-test("an rc shows as rc.N on the pill", () => {
-  assert.equal(shortVersion("0.8.0-rc.2"), "rc.2");
-  assert.equal(shortVersion("0.8.0"), "0.8.0");
-  assert.match(bump("0.8.0-rc.2", texts).site, /<span class="ver">· rc\.2<\/span>/);
+test("an rc keeps its whole version on the class line", () => {
+  assert.match(bump("0.8.0-rc.2", texts).site, /<b>v0\.8\.0-rc\.2<\/b>/);
 });
 
-test("on the new page, bump sets the class line and both of the drawing's versions", () => {
-  const before = { ...texts, site: newSite };
-  assert.equal((newSite.match(new RegExp(`v${current.replace(/\./g, "\\.")}<`, "g")) ?? []).length, 3, "premise: the fixture names the version three times");
-  const next = bump("9.9.9", before);
-  assert.match(next.site, /<div class="class-line label"><b>v9\.9\.9<\/b>/);
-  assert.equal((next.site.match(/<text class="ver"[^>]*>v9\.9\.9<\/text>/g) ?? []).length, 2, next.site);
-  assert.doesNotMatch(next.site, new RegExp(`v${current.replace(/\./g, "\\.")}<`), "a version line was left behind");
-  assert.deepEqual(bump("9.9.9", { ...before, ...next }), next, "a second bump changes nothing");
-  assert.throws(() => bump("9.9.9", { ...texts, site: newSite.replace(/<div class="class-line[\s\S]*?<\/div>/, "") }), /internal\/site\/public\/index\.html/);
+// The old page's pill went with it (internal#4, 2026-11-08): a page that still
+// carries it is refused by name rather than half bumped.
+test("bump refuses a page without the class line, naming the file", () => {
+  const pill = `<div class="pill"><span class="pl">Now in public beta</span><span class="ver">· ${current}</span></div>`;
+  assert.throws(() => bump("9.9.9", { ...texts, site: pill }), /internal\/site\/public\/index\.html: no .*class-line/);
 });
 
-test("preflight reads the new page's newest entry", () => {
-  assert.deepEqual(newestSiteEntry(newSite), { version: current, datetime: "2026-11-07" });
-  assert.deepEqual(preflight(current, { ...texts, site: newSite }), [], "the tree's own release passes");
-  assert.match(preflight("9.9.9", { ...texts, site: newSite })[1], /newest changelog entry is data-version="[^"]+", not "9\.9\.9"/);
+test("preflight reads the page's newest entry", () => {
+  assert.deepEqual(newestSiteEntry(texts.site), { version: current, datetime: "2026-11-07" });
 });
 
 test("bump names the file whose version line is gone", () => {

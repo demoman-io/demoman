@@ -25,12 +25,7 @@ const FILES = {
 const SHIPPED = /^(dist\/|LICENSE$|THIRD_PARTY_NOTICES$|README\.md$|package\.json$)/;
 
 export const isVersion = (v) => /^\d+\.\d+\.\d+(-rc\.\d+)?$/.test(v ?? "");
-/** The pill's form: an rc shows as `rc.N`, a release as itself. */
-export const shortVersion = (v) => v.match(/-(rc\.\d+)$/)?.[1] ?? v;
-export const monthOf = (datetime) =>
-  new Date(`${datetime}T00:00:00Z`).toLocaleString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
-
-/** The site's newest changelog entry, as look.test.mjs reads it (the new page's <time> carries a class first). */
+/** The site's newest changelog entry, as look.test.mjs reads it (its <time> carries a class first). */
 export function newestSiteEntry(html) {
   const m = html.match(/<article class="entry" data-version="([^"]+)"[^>]*>[\s\S]*?<time[^>]* datetime="([^"]+)">/);
   return m && { version: m[1], datetime: m[2] };
@@ -49,7 +44,6 @@ export function preflight(version, texts) {
 
 /** Each file's text with `version` set; throws naming any file whose pattern is gone. */
 export function bump(version, texts) {
-  const entry = newestSiteEntry(texts.site);
   const swap = (name, text, pattern, to) => {
     if (!pattern.test(text)) throw new Error(`${FILES[name]}: no ${pattern} to set the version in`);
     return text.replace(pattern, to);
@@ -58,21 +52,13 @@ export function bump(version, texts) {
     pkg: swap("pkg", texts.pkg, /"version": "[^"]+"/, `"version": "${version}"`),
     version: swap("version", texts.version, /VERSION = "[^"]+"/, `VERSION = "${version}"`),
     license: swap("license", texts.license, /demoman@[^/\s)]+\//g, `demoman@${version}/`),
-    site: /<span class="pl">/.test(texts.site)
-      ? // shortcut: the old page's pill and month; drop this branch once internal/'s main carries the clean-room page (film/launch).
-        swap(
-          "site",
-          swap("site", texts.site, /(<span class="pl">[^<]*<\/span><span class="ver">· )[^<]+/, `$1${shortVersion(version)}`),
-          /(<span data-release-month>)[^<]+/,
-          `$1${monthOf(entry.datetime)}`,
-        )
-      : // The hero's class line, and the Premise drawing, which ends on it (site/test/sync.test.mjs).
-        swap(
-          "site",
-          swap("site", texts.site, /(<div class="class-line[^"]*"><b>v)[^<]+/, `$1${version}`),
-          /(<text class="ver"[^>]*>v)[^<]+/g,
-          `$1${version}`,
-        ),
+    // The hero's class line, and the Premise drawing, which ends on it (site/test/sync.test.mjs).
+    site: swap(
+      "site",
+      swap("site", texts.site, /(<div class="class-line[^"]*"><b>v)[^<]+/, `$1${version}`),
+      /(<text class="ver"[^>]*>v)[^<]+/g,
+      `$1${version}`,
+    ),
   };
 }
 
