@@ -1,12 +1,13 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { closeSync, openSync } from "node:fs";
-import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename } from "node:fs/promises";
 import { request } from "node:http";
 import { join } from "node:path";
 import {
   createLibrary,
   LibraryError,
+  pidAlive,
+  takePidLock,
   visibleWindowRefusal,
 } from "@demoman/runner/studio";
 import {
@@ -37,16 +38,6 @@ const LOG_TAIL_LINES = 10;
 
 const messageOf = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
-
-/** `process.kill(pid, 0)`: ESRCH is dead; EPERM is alive and not ours. */
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -272,62 +263,30 @@ async function startStudio(o: {
   };
 }
 
-/** An O_EXCL file in home holding the starter's pid. A holder that died is
+/** `home`'s start lock (runner's `takePidLock`): a holder that died is
  *  taken over; a live one is waited for, up to `waitMs` plus a margin. */
 async function acquireStartLock(
   home: string,
   waitMs: number,
 ): Promise<{ release: () => Promise<void> } | Refusal> {
   const path = join(home, "studio.start.lock");
-  const deadline = Date.now() + waitMs + 5_000;
-  await mkdir(home, { recursive: true, mode: 0o700 });
-  // Written whole, then linked into place: a lock created by `wx` is empty
-  // until its write lands, and a waiter that read it then saw no holder,
-  // broke it, and started a second studio (DEM-66, PR #43's CI).
-  const mine = `${path}.${process.pid}.${randomUUID()}`;
   try {
-    await writeFile(mine, `${process.pid}\n`, { mode: 0o600 });
+    await mkdir(home, { recursive: true, mode: 0o700 });
   } catch (error) {
     return {
       reason: "studioDidNotStart",
       detail: `The Studio's start lock ${path} could not be written: ${messageOf(error)}.`,
     };
   }
-  try {
-    for (;;) {
-      try {
-        await link(mine, path);
-        return { release: () => rm(path, { force: true }) };
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-          return {
-            reason: "studioDidNotStart",
-            detail: `The Studio's start lock ${path} could not be taken: ${messageOf(error)}.`,
-          };
-        }
-      }
-      let holder = Number.NaN;
-      try {
-        holder = Number.parseInt(await readFile(path, "utf8"), 10);
-      } catch {
-        // released between the write and the read: try again
-        continue;
-      }
-      if (!Number.isInteger(holder) || !pidAlive(holder)) {
-        await rm(path, { force: true });
-        continue;
-      }
-      if (Date.now() > deadline) {
-        return {
-          reason: "studioDidNotStart",
-          detail: `Another demoman (pid ${holder}) has been starting the Studio for over ${Math.round(waitMs / 1000)} s; see ${join(home, "studio.log")}.`,
-        };
-      }
-      await sleep(40);
-    }
-  } finally {
-    await rm(mine, { force: true });
-  }
+  const taken = await takePidLock(path, waitMs + 5_000, 40);
+  if (taken.ok) return taken;
+  return {
+    reason: "studioDidNotStart",
+    detail:
+      "holder" in taken
+        ? `Another demoman (pid ${taken.holder}) has been starting the Studio for over ${Math.round(waitMs / 1000)} s; see ${join(home, "studio.log")}.`
+        : `The Studio's start lock ${path} could not be taken: ${messageOf(taken.error)}.`,
+  };
 }
 
 /**

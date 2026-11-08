@@ -5,7 +5,7 @@
 // the run's own target resolution, proven at `checkUrl` with C's landing
 // check, then saved per origin and account. The filming window never sees
 // a password typed.
-import { mkdir, open, rm, stat } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { landedElsewhere } from "@demoman/run-core";
 import type { Page } from "playwright";
@@ -23,6 +23,7 @@ import { accountDefinition } from "./accounts.js";
 import { classifyLaunchError } from "./browser.js";
 import { landingVerdict, readLandingFacts, settle } from "./landing.js";
 import { installExecutorEntry } from "./page-ops.js";
+import { takePidLock } from "./pid-lock.js";
 import {
   readSecretsFile,
   resolveSecrets,
@@ -38,7 +39,8 @@ import {
 } from "./sessions.js";
 
 export const SIGN_IN_DEADLINE_MS = 60_000;
-export const LOCK_STALE_MS = 120_000;
+/** How long a sign-in waits for another holding the same account. */
+export const LOCK_WAIT_MS = 120_000;
 const POLL_MS = 200;
 const LOCK_POLL_MS = 250;
 /** How long one step waits for its element: a field that never appears
@@ -346,39 +348,14 @@ export async function signInAccount(
       `signing in as ${name} on ${origin}: ${dirname(lock)} could not be created (${messageOf(error)})`,
     );
   }
-  const waitedFrom = Date.now();
-  for (;;) {
-    try {
-      await (await open(lock, "wx")).close();
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        return fail(
-          "signInFailed",
-          `signing in as ${name} on ${origin}: ${lock} could not be taken (${messageOf(error)})`,
-        );
-      }
-    }
-    try {
-      if (Date.now() - (await stat(lock)).mtimeMs > LOCK_STALE_MS) {
-        await rm(lock, { force: true });
-        continue;
-      }
-    } catch (error) {
-      // The holder released it between our open and our stat: try again.
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-      return fail(
-        "signInFailed",
-        `signing in as ${name} on ${origin}: ${lock} could not be inspected (${messageOf(error)})`,
-      );
-    }
-    if (Date.now() - waitedFrom > LOCK_STALE_MS) {
-      return fail(
-        "signInFailed",
-        `another sign-in as ${name} has held ${lock} for over ${LOCK_STALE_MS / 1000} s — remove it if no other Demoman is running`,
-      );
-    }
-    await wait(LOCK_POLL_MS);
+  const taken = await takePidLock(lock, LOCK_WAIT_MS, LOCK_POLL_MS);
+  if (!taken.ok) {
+    return fail(
+      "signInFailed",
+      "holder" in taken
+        ? `another sign-in as ${name} (process ${taken.holder}) has held ${lock} for over ${LOCK_WAIT_MS / 1000} s`
+        : `signing in as ${name} on ${origin}: ${lock} could not be taken (${messageOf(taken.error)})`,
+    );
   }
   try {
     // 3. Reuse: a session another caller saved while this one waited.
@@ -701,6 +678,11 @@ export async function signInAccount(
       }
     }
   } finally {
-    await rm(lock, { force: true });
+    // The sign-in's own answer stands; a lock it could not release is said.
+    await taken
+      .release()
+      .catch((error: unknown) =>
+        deps.log(`could not release ${lock} (${messageOf(error)})`),
+      );
   }
 }

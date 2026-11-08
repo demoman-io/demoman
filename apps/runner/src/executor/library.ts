@@ -3,7 +3,6 @@ import type { Dirent } from "node:fs";
 import {
   chmod,
   mkdir,
-  open,
   readdir,
   readFile,
   rename,
@@ -26,6 +25,9 @@ import {
 } from "@demoman/scene-schema";
 import { createFileFrameStore, type RunnerStore } from "../frame-store.js";
 import { messageOf } from "../report.js";
+import { pidAlive, takePidLock } from "./pid-lock.js";
+
+export { pidAlive };
 
 export type LibraryReason = "libraryUnreadable" | "libraryUnwritable";
 
@@ -116,20 +118,7 @@ export interface Library {
 const sha256 = (text: string): string =>
   createHash("sha256").update(text).digest("hex");
 
-/** A pid that signals as nonexistent is dead; EPERM means alive and ours to
- *  leave alone. */
-export const pidAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
-  }
-};
-
-const LOCK_RETRY_MS = 25;
 const LOCK_WAIT_MS = 2000;
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 const isMissing = (error: unknown): boolean =>
   (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
@@ -435,46 +424,14 @@ export function createLibrary(
       guard(id, "libraryUnwritable");
       const file = join(takeDir(id), "outputs.json");
       const lock = `${file}.lock`;
-      const deadline = Date.now() + LOCK_WAIT_MS;
-      for (;;) {
-        try {
-          const handle = await open(lock, "wx", 0o600);
-          try {
-            await handle.writeFile(JSON.stringify({ pid: process.pid }));
-          } finally {
-            await handle.close();
-          }
-          break;
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-            throw new LibraryError(
-              "libraryUnwritable",
-              `could not take ${lock} (${messageOf(error)})`,
-            );
-          }
-        }
-        // Held. A holder that died leaves the lock behind: take it over.
-        let holderPid: number | null = null;
-        try {
-          const parsed = JSON.parse(await readFile(lock, "utf8")) as {
-            pid?: unknown;
-          };
-          if (typeof parsed.pid === "number") holderPid = parsed.pid;
-        } catch {
-          // Empty or half-written: the holder is between open and write, so
-          // treat it as live; the deadline below names it if it never ends.
-        }
-        if (holderPid !== null && !pidAlive(holderPid)) {
-          await rm(lock, { force: true });
-          continue;
-        }
-        if (Date.now() >= deadline) {
-          throw new LibraryError(
-            "libraryUnwritable",
-            `${lock} stayed held for ${LOCK_WAIT_MS} ms${holderPid === null ? "" : ` by process ${holderPid}`}`,
-          );
-        }
-        await sleep(LOCK_RETRY_MS);
+      const taken = await takePidLock(lock, LOCK_WAIT_MS);
+      if (!taken.ok) {
+        throw new LibraryError(
+          "libraryUnwritable",
+          "holder" in taken
+            ? `${lock} stayed held for ${LOCK_WAIT_MS} ms by process ${taken.holder}`
+            : `could not take ${lock} (${messageOf(taken.error)})`,
+        );
       }
       let failure: unknown;
       try {
@@ -485,7 +442,7 @@ export function createLibrary(
         failure = error;
       }
       try {
-        await rm(lock, { force: true });
+        await taken.release();
       } catch (error) {
         // A lock left holding this live pid would make every later append
         // wait out its deadline and blame "another process". Say so here.
