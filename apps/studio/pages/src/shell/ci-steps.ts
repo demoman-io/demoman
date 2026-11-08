@@ -9,7 +9,7 @@ import type {
   CiStopWire,
 } from "@demoman/studio-protocol";
 import type { CiEvent, Platform } from "../platform/types";
-import { icon } from "./icons";
+import { icon, spinner } from "./icons";
 
 export type RepoCiDoor = Platform["repoCi"];
 
@@ -308,6 +308,14 @@ const statusPanel = (lines: string[]): HTMLElement => {
   return panel;
 };
 
+/** A wait the sheet is in (DEM-80): its words beside a turning spinner. */
+const waiting = (words: string, attr: string): HTMLElement => {
+  const line = text("p", words, attr);
+  line.className = "repo-line";
+  line.prepend(spinner());
+  return line;
+};
+
 const lineList = (lines: string[], attr: string): HTMLElement => {
   const list = document.createElement("ul");
   list.className = "repo-lines";
@@ -405,7 +413,7 @@ export function ciStepsView(
   };
   switch (ci.k) {
     case "reading":
-      nodes.push(text("p", "Reading CI…", "data-ci-reading"));
+      nodes.push(waiting("Reading CI…", "data-ci-reading"));
       break;
     case "note":
       nodes.push(text("p", ci.text, "data-ci-note"));
@@ -413,7 +421,7 @@ export function ciStepsView(
     case "setUp":
       break;
     case "working":
-      nodes.push(statusPanel(ci.lines));
+      nodes.push(waiting("Working…", "data-ci-working"), statusPanel(ci.lines));
       break;
     case "stopped":
       nodes.push(text("p", ci.stop.detail, "data-ci-stop"));

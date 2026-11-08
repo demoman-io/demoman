@@ -21,7 +21,7 @@ import {
   shown,
 } from "./ci-steps";
 import type { ConfirmQuestion } from "./confirm-dialog";
-import { icon } from "./icons";
+import { icon, spinner } from "./icons";
 import { showSheet } from "./sheet-dialog";
 import { showToast } from "./toast";
 
@@ -515,6 +515,8 @@ function drawSheet(
     );
     line.setAttribute("role", "status");
     line.setAttribute("data-repo-line", "");
+    // DEM-80: a wait of several seconds that moves, so it reads as one.
+    line.prepend(spinner());
     parts.push(line);
     if (s.step === "checking") {
       actions.append(cancel());

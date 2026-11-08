@@ -352,6 +352,20 @@ for (const scheme of ["light", "dark"] as const) {
       });
       const dialog = await el<HTMLDialogElement>(document, "dialog[open]");
       expect(dialog.textContent).toContain("Checking…");
+      // DEM-80: the wait has a spinner beside its words, painted and turning.
+      // Red without repo-sheet.ts's `line.prepend(spinner())`.
+      const spin = dialog.querySelector<SVGElement>(
+        "[data-repo-line] .spinner",
+      );
+      expect(spin, "a spinner on the wait's line").not.toBeNull();
+      // Computed, not the rect: a turning square's rect grows with its angle.
+      const css = spin === null ? null : getComputedStyle(spin);
+      expect([css?.width, css?.height]).toEqual(["16px", "16px"]);
+      expect(spin?.checkVisibility({ opacityProperty: true })).toBe(true);
+      expect(
+        spin?.getAnimations().map((a) => a.playState),
+        "the spinner turns",
+      ).toEqual(["running"]);
       await shot("checking");
       (dialog.querySelector("[data-repo-cancel]") as HTMLElement).click();
       expect((await result).added).toBeNull();
