@@ -17,7 +17,7 @@ than this page can: read it first.
 | `sessionNotLoaded` | The browser refused the saved sessions. Run `npx demoman signin` again for that site |
 | `accountsInvalid` | `.demoman/accounts.json` breaks a rule; the detail names the field |
 | `unknownAccount` | The DemoScript names an account the site does not have, or none and the site has no `default` |
-| `secretMissing` | No value for a `{secret:NAME}`. Set `DEMOMAN_SECRET_NAME`, or add it to `.demoman/secrets.env` |
+| `secretMissing` | No value for a secret an account signs in with. Set `DEMOMAN_SECRET_<NAME>`, or add it to `.demoman/secrets.env` ([accounts.json](/reference/accounts-json#secrets)) |
 | `secretTooShort` | A secret is under 8 characters |
 | `secretUnbound` | A secret has no `_ORIGIN` beside it naming its site. Nothing was typed |
 | `secretOffOrigin` | A secret was about to be typed on another site than its own. Nothing was typed |
