@@ -30,6 +30,7 @@ const STALE_NOTE = "A stale Studio record was replaced.";
 const REPLACED_LATER_NOTE =
   "An older Studio is running an export; it stays open until that export ends and its window closes, and the next Studio call starts the new version.";
 const PING_TIMEOUT_MS = 2_000;
+const PING_TRIES = 3;
 const WINDOW_TIMEOUT_MS = 30_000;
 const LOG_TAIL_LINES = 10;
 
@@ -124,12 +125,25 @@ function isPing(v: unknown): v is PingAnswer {
 /** The studio the file names, when that pid is alive and the studio on the
  *  port answers with the token and as that pid; else null. */
 async function livePing(s: StudioState): Promise<PingAnswer | null> {
-  if (!pidAlive(s.pid)) return null;
-  const answer = await call(s, "GET", "/api/ping", undefined, PING_TIMEOUT_MS);
-  if (!answer.ok || answer.status !== 200 || !isPing(answer.json)) return null;
-  // A pid that was reused by something else answers on no studio's port;
-  // one that answers as another pid is not the studio the file names.
-  return answer.json.pid === s.pid ? answer.json : null;
+  // A live pid gets PING_TRIES: a studio that has only just started, on a
+  // busy machine, can miss one ping, and calling it dead starts a second
+  // studio beside it (DEM-66).
+  for (let tries = PING_TRIES; pidAlive(s.pid) && tries > 0; tries--) {
+    const answer = await call(
+      s,
+      "GET",
+      "/api/ping",
+      undefined,
+      PING_TIMEOUT_MS,
+    );
+    if (answer.ok && answer.status === 200 && isPing(answer.json)) {
+      // A pid that was reused by something else answers on no studio's port;
+      // one that answers as another pid is not the studio the file names.
+      return answer.json.pid === s.pid ? answer.json : null;
+    }
+    if (tries > 1) await sleep(200);
+  }
+  return null;
 }
 
 async function lastLines(path: string): Promise<string> {

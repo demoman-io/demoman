@@ -413,6 +413,58 @@ describe("openStudio", () => {
   );
 });
 
+describe("openStudio on a busy machine", () => {
+  // DEM-66: red if livePing calls a live studio dead on its first missed
+  // ping — the record is replaced (the stale note) and a second one starts.
+  it(
+    "keeps a live studio that misses one ping, starting no other",
+    async () => {
+      let pings = 0;
+      const slow: Server = createServer((q, res) => {
+        res.setHeader("Content-Type", "application/json");
+        if (q.url === "/api/ping" && ++pings === 1) return; // never answers
+        res.end(
+          q.url === "/api/ping"
+            ? JSON.stringify({
+                version: "0.0.0-test",
+                pid: process.pid,
+                queued: 0,
+              })
+            : JSON.stringify({ path: "/" }),
+        );
+      });
+      await new Promise<void>((r) => slow.listen(0, "127.0.0.1", r));
+      try {
+        await writeFile(
+          studioStatePath(home),
+          JSON.stringify({
+            pid: process.pid,
+            port: (slow.address() as { port: number }).port,
+            token: "x",
+            startedAt: new Date().toISOString(),
+            version: "0.0.0-test",
+          }),
+        );
+        const a = await openStudio({
+          home,
+          version: "0.0.0-test",
+          serve: serveFake(),
+        });
+        expect(a).toEqual({ outcome: "opened" });
+        // Premise: the first ping really went unanswered.
+        expect(pings).toBeGreaterThanOrEqual(2);
+        const now = await readStudioState(home);
+        if (now === null || "unreadable" in now) throw new Error("no state");
+        expect(now.pid).toBe(process.pid);
+      } finally {
+        slow.closeAllConnections();
+        slow.close();
+      }
+    },
+    CASE_MS,
+  );
+});
+
 describe("stopStudio", () => {
   it(
     "ends a running studio, and says nothing was running afterwards",
