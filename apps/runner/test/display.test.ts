@@ -95,11 +95,28 @@ DP-1 disconnected (normal left inverted right x axis y axis)
     ).toEqual({ width: 1280, height: 720, scale: 2 });
   });
 
-  it("rounds a fractional Xft.dpi scale to whole CSS px", async () => {
-    const x = answering(XRANDR, "Xft.dpi:\t144\n");
-    expect(
-      await readDisplay({ DISPLAY: ":0" }, { platform: "linux", run: x.run }),
-    ).toEqual({ width: 1707, height: 960, scale: 1.5 });
+  // Red if any Xft.dpi is a scale: Large Text on a 1x screen is 120.
+  it("takes no scale from an Xft.dpi that is not a whole multiple of 96", async () => {
+    const x = answering(XRANDR, "Xft.dpi:\t120\n");
+    const got = await readDisplay(
+      { DISPLAY: ":0" },
+      { platform: "linux", run: x.run },
+    );
+    expect(got).toMatchObject({ width: 2560, height: 1440, scale: 1 });
+    expect("scaleAssumed" in got && got.scaleAssumed).toContain(
+      "Xft.dpi is 120, not a whole multiple of 96",
+    );
+  });
+
+  it("names a GDK_SCALE it could not use, rather than calling it unset", async () => {
+    const x = answering(XRANDR, "");
+    const got = await readDisplay(
+      { DISPLAY: ":0", GDK_SCALE: "1.5" },
+      { platform: "linux", run: x.run },
+    );
+    expect("scaleAssumed" in got && got.scaleAssumed).toContain(
+      'GDK_SCALE is "1.5", not a whole number',
+    );
   });
 
   // DEM-70: a 1 nothing said is said, not passed off as read. Red: drop the

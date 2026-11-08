@@ -51,13 +51,19 @@ const runCommand: RunCommand = (cmd, args) =>
 const XRANDR_OUTPUT = /^\S+ connected (primary )?(\d+)x(\d+)\+\d+\+\d+/gm;
 
 /** The desktop's scale from X resources: GNOME and KDE set `Xft.dpi` (96 at
- *  1x) where they rarely set GDK_SCALE. A number, or why there is none. */
+ *  1x) where they rarely set GDK_SCALE. Only a whole multiple of 96 is a
+ *  scale: the same value carries font settings (GNOME's Large Text makes a
+ *  1x screen 120), so anything else is no scale. A number, or why not. */
 async function readXftScale(run: RunCommand): Promise<number | string> {
   try {
     const out = await run("xrdb", ["-query"]);
     if (out.code !== 0) return `xrdb exited ${out.code}`;
-    const dpi = Number(/^Xft\.dpi:\s*(\S+)/m.exec(out.stdout)?.[1]);
-    return dpi > 0 ? dpi / 96 : "xrdb lists no Xft.dpi";
+    const said = /^Xft\.dpi:\s*(\S+)/m.exec(out.stdout)?.[1];
+    if (said === undefined) return "xrdb lists no Xft.dpi";
+    const scale = Number(said) / 96;
+    return Number.isInteger(scale) && scale > 0
+      ? scale
+      : `Xft.dpi is ${said}, not a whole multiple of 96, so it may be a font setting`;
   } catch (error) {
     return `xrdb could not run (${error instanceof Error ? error.message : String(error)})`;
   }
@@ -86,16 +92,20 @@ async function readXrandr(
   const outputs = [...out.stdout.matchAll(XRANDR_OUTPUT)];
   const chosen = outputs.find((m) => m[1] !== undefined) ?? outputs[0];
   if (chosen === undefined) return cannot("it listed no connected screen");
-  const gdk = Number(env.GDK_SCALE);
+  const raw = env.GDK_SCALE;
+  const gdk = Number(raw);
   const xft = Number.isInteger(gdk) && gdk > 0 ? gdk : await readXftScale(run);
   const scale = typeof xft === "number" ? xft : 1;
+  const gdkSaid =
+    raw === undefined || raw === ""
+      ? "GDK_SCALE is unset"
+      : `GDK_SCALE is "${raw}", not a whole number`;
   return {
-    // Whole CSS px: a fractional scale (Xft.dpi 144 is 1.5) is a window size.
-    width: Math.round(Number(chosen[2]) / scale),
-    height: Math.round(Number(chosen[3]) / scale),
+    width: Number(chosen[2]) / scale,
+    height: Number(chosen[3]) / scale,
     scale,
     ...(typeof xft === "string" && {
-      scaleAssumed: `recorded at 1x: this desktop's scale could not be read (GDK_SCALE is unset and ${xft}) — on a HiDPI screen set DEMOMAN_DISPLAY to <width>x<height>@<scale> (such as 1280x800@2)`,
+      scaleAssumed: `1x is assumed: this desktop's scale could not be read (${gdkSaid}; ${xft}) — on a HiDPI screen set DEMOMAN_DISPLAY to <width>x<height>@<scale> (such as 1280x800@2)`,
     }),
   };
 }
