@@ -1295,9 +1295,12 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             const executable =
               options.executablePath ?? chromium.executablePath();
             const downloaded = existsSync(executable);
+            const check =
+              options.libraryCheck ??
+              (process.platform === "linux" ? linkedLibraries : null);
             const libraries =
-              downloaded && process.platform === "linux" && !session.running()
-                ? await linkedLibraries(executable)
+              downloaded && check !== null && !session.running()
+                ? await check(executable)
                 : null;
             return {
               ok: true,

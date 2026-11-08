@@ -66,6 +66,28 @@ describe("openStudio", () => {
     expect(await readStudioState(home)).toBeNull();
   });
 
+  // Red if the display check moves back above resolve(): a studio started
+  // on a display is still asked for its window from a shell without one.
+  it(
+    "still reuses a live studio from a shell with no display (DEM-69)",
+    async () => {
+      const first = await openStudio({
+        home,
+        version: "0.0.0-test",
+        serve: serveFake(),
+      });
+      expect(first).toMatchObject({ outcome: "opened" });
+      const second = await openStudio({
+        home,
+        version: "0.0.0-test",
+        serve: serveFake(),
+        host: { platform: "linux", env: {} },
+      });
+      expect(second).toMatchObject({ outcome: "opened" });
+    },
+    CASE_MS,
+  );
+
   // Review of #35, finding 5. Red when the studio starts in the caller's
   // folder, which can be one since deleted: it starts in the Demoman home.
   it(

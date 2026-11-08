@@ -295,12 +295,6 @@ export async function openStudio(o: {
   /** Tests: the platform and environment a window would open in. */
   host?: { platform: string; env: NodeJS.ProcessEnv };
 }): Promise<StudioAnswer> {
-  // Before a server starts: with no display, its window can never open
-  // (DEM-69), and the server would linger for nothing.
-  const host = o.host ?? process;
-  const noWindow = visibleWindowRefusal(host.platform, host.env);
-  if (noWindow !== null)
-    return { reason: "windowDidNotOpen", detail: noWindow };
   if (o.takeId !== undefined) {
     // Before anything starts: an unknown take must not open the library in
     // its place, nor spawn a process for nothing.
@@ -370,6 +364,13 @@ export async function openStudio(o: {
     try {
       state = await resolve();
       if (state === null) {
+        // Only before a server starts: with no display here its window can
+        // never open, and it would linger for nothing (DEM-69). A live
+        // studio started on a display is still asked.
+        const host = o.host ?? process;
+        const noWindow = visibleWindowRefusal(host.platform, host.env);
+        if (noWindow !== null)
+          return { reason: "windowDidNotOpen", detail: noWindow };
         const started = await startStudio({
           home: o.home,
           serve: o.serve,

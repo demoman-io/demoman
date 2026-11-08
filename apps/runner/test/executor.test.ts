@@ -168,6 +168,41 @@ describe("createLocalExecutor", () => {
     }
   });
 
+  // DEM-71: a Linux download whose libraries are missing cannot start, so it
+  // is not installed; an ldd that could not say leaves it installed, and
+  // says so. Red if status drops the check, its verdict or browserLibraries.
+  it("says a download with missing libraries is not installed", async () => {
+    const said = async (
+      answer: { missing: string[] } | { unchecked: string },
+    ) => {
+      const ex = createLocalExecutor({
+        wallpapersDir: WALLPAPERS_DIR,
+        home,
+        headless: true,
+        log: () => undefined,
+        libraryCheck: async () => answer,
+      });
+      try {
+        const r = await ex.request("status", {});
+        return r.ok ? r.value : r;
+      } finally {
+        await ex.close();
+      }
+    };
+    expect(await said({ missing: ["libnss3.so"] })).toMatchObject({
+      browserInstalled: false,
+      browserLibraries: { missing: ["libnss3.so"] },
+    });
+    expect(await said({ missing: [] })).toMatchObject({
+      browserInstalled: true,
+      browserLibraries: { missing: [] },
+    });
+    expect(await said({ unchecked: "ldd failed" })).toMatchObject({
+      browserInstalled: true,
+      browserLibraries: { unchecked: "ldd failed" },
+    });
+  });
+
   // Before the first film, not after it: a headless server that cannot read
   // the display films every take at 1x, and the first call an agent makes
   // is where it can tell the user how to fix that.

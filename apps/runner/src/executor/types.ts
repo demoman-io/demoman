@@ -23,6 +23,11 @@ export interface ExecutorOptions {
   standInDisplay?: boolean;
   /** Tests point this at a missing file to reach `browserMissing`. */
   executablePath?: string;
+  /** Tests: how status reads a downloaded browser's libraries. Absent,
+   *  `linkedLibraries` (ldd) on Linux and nothing elsewhere. */
+  libraryCheck?: (
+    executable: string,
+  ) => Promise<{ missing: string[] } | { unchecked: string }>;
   /** The one command that installs this build's Chromium, named by
    *  `browserMissing`. The published package passes `npx demoman@<v> setup`;
    *  absent, the runner's own advice. */

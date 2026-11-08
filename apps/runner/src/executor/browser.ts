@@ -67,7 +67,7 @@ export function launchFailure(said: string): {
 export async function linkedLibraries(
   executable: string,
   ldd: (exe: string) => Promise<string> = async (exe) =>
-    (await promisify(execFile)("ldd", [exe])).stdout,
+    (await promisify(execFile)("ldd", [exe], { timeout: 10_000 })).stdout,
 ): Promise<{ missing: string[] } | { unchecked: string }> {
   try {
     const said = await ldd(executable);
