@@ -32,6 +32,7 @@ export type HostedReason =
   | "freeLimit"
   | "invalidExpiry"
   | "loginExpired"
+  | "notInvited"
   | "unavailable";
 
 export type Refused = { ok: false; reason: HostedReason; detail: string };
