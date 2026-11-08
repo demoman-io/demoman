@@ -626,7 +626,17 @@ export async function vetForAdd(
       }
       cache.sessions = saved;
     }
-    if (saved.some((f) => f.account === undefined && f.site === site)) {
+    // Every loopback port shares the `localhost` file, so a sign-in made to
+    // another port is another local app's, not this flow's (DEM-46).
+    const otherApp = (f: SessionFile) =>
+      site === "localhost" &&
+      portOf(f.startUrl) !== null &&
+      portOf(f.startUrl) !== portOf(target);
+    if (
+      saved.some(
+        (f) => f.account === undefined && f.site === site && !otherApp(f),
+      )
+    ) {
       return refuse(
         "handSignIn",
         "signed in by hand",
@@ -635,6 +645,16 @@ export async function vetForAdd(
     }
   }
   return { ok: true, built, read };
+}
+
+/** A URL's port, the scheme's default when it names none; null unparseable. */
+function portOf(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    return u.port || (u.protocol === "https:" ? "443" : "80");
+  } catch {
+    return null;
+  }
 }
 
 const NOT_CARRIED_LABEL: Record<string, string> = {
