@@ -117,6 +117,10 @@ export interface RefreshDeps {
   /** Before each recording (a retry too): the app's reset from app.json,
    *  so one flow's changes never show in the next (DEM-57). */
   beforeFlow?: () => Promise<{ ok: true } | { ok: false; detail: string }>;
+  /** The instant the started app was given as DEMOMAN_NOW (DEM-79): every
+   *  run's page starts its clock there, and each receipt written says so.
+   *  Absent when the repo pins none or no app was started here. */
+  pinnedNow?: string;
   /** The picture comparisons, of a decoded film (a version 1 receipt's)
    *  and of screen images; the real ones unless a test stands in. */
   samePicture?: typeof samePicture;
@@ -124,6 +128,11 @@ export interface RefreshDeps {
   env: NodeJS.ProcessEnv;
   log: (line: string) => void;
 }
+
+/** Said beside a video replaced without a pin whose last screen showed
+ *  dates (DEM-79): a likely cause, never the certain one. */
+export const DATES_NOTE = (samples: string[]): string =>
+  `this video shows dates such as ${samples.map((s) => `\`${s}\``).join(", ")}; if they follow today, set \`now\` in .demoman/app.json and read DEMOMAN_NOW in the app: https://demoman.io/docs/guides/repo-flows#pinned-dates`;
 
 /** The display a device script films on; its own size comes from the
  *  device, so only the scale here matters. */
@@ -574,6 +583,9 @@ type Filmed = {
   said: string[];
   /** The take's report.json, served; or why it is not had. */
   stored: { value: unknown } | { not: string };
+  /** The stored report's dates on its last screen (not served); [] when
+   *  none or the report is not had. */
+  datesOnScreen: string[];
   /** Wall-clock per stage, said once the video is delivered. */
   times: StageTimes;
 };
@@ -612,6 +624,7 @@ async function filmOne(
       project: root,
       // The committed kept file is refresh's input, never its output.
       leaveKept: true,
+      ...(deps.pinnedNow === undefined ? {} : { pinnedNow: deps.pinnedNow }),
     });
     return out.ok
       ? (out.value as Record<string, unknown>)
@@ -636,6 +649,8 @@ async function filmOne(
           not: `video ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
         };
   if ("not" in stored) deps.log(`refresh: "${kept.name}": ${stored.not}`);
+  const datesOnScreen =
+    "value" in read ? ((read.value as RunReport).datesOnScreen ?? []) : [];
 
   /** One output's export, or with `screensOnly` its screens alone. */
   const exportOf = async <S extends boolean>(o: KeptOutput, screensOnly: S) => {
@@ -703,6 +718,7 @@ async function filmOne(
     toWrite,
     said,
     stored,
+    datesOnScreen,
     times,
   });
   // A receipt with no screen is one every later refresh refuses, and a
@@ -839,6 +855,7 @@ async function deliverOne(
     toWrite,
     said,
     stored,
+    datesOnScreen,
     times,
   }: Filmed,
   deps: RefreshDeps,
@@ -944,6 +961,9 @@ async function deliverOne(
                 // The take is in a library thrown away after: no library
                 // holds a revision of it to be ahead of.
                 recordedRevision: null,
+                ...(deps.pinnedNow === undefined
+                  ? {}
+                  : { pinnedNow: deps.pinnedNow }),
               }),
           receiptVersion: 2,
           screens,
@@ -971,6 +991,15 @@ async function deliverOne(
           filmedCode.dirty ? null : filmedCode.tree,
         );
   const { line } = prLine(kept.name, prVerdict(report), code);
+  if (
+    same === false &&
+    deps.pinnedNow === undefined &&
+    datesOnScreen.length > 0
+  ) {
+    const note = DATES_NOTE(datesOnScreen);
+    notes.push(note);
+    deps.log(`refresh: "${kept.name}": ${note}`);
+  }
   return answer(
     same === null ? "uncompared" : same ? "added" : "changed",
     written,

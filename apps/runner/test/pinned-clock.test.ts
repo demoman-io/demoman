@@ -50,7 +50,7 @@ document.getElementById("search").addEventListener("input", () => {
   timer = setTimeout(settle, 200);
 });
 </script>`;
-const SECOND = `<!doctype html><title>Second</title><p id="done">Second</p>
+const SECOND = `<!doctype html><title>Second</title><p id="done">Due Dec 4, 2026</p>
 <script>fetch("/report?label=second&t=" + Date.now());</script>`;
 
 const session = createBrowserSession({
@@ -169,6 +169,24 @@ describe("a run with pinnedNow", () => {
     const said = JSON.stringify({ outcome: report.outcome, reported, lines });
     expect(at("fired"), said).toBeTypeOf("number");
     expect((at("fired") as number) - pin, said).toBeLessThan(60_000);
+  }, 120_000);
+});
+
+// Red when refresh has no evidence of dates on screen, or evidence where
+// there were none (DEM-79).
+describe("the dates a run's last screen shows", () => {
+  it("are in the report when the last page shows one", async () => {
+    const report = await run([{ do: "click", on: { stableId: "next" } }]);
+    const said = JSON.stringify({ outcome: report.outcome, lines });
+    // Premise: the run ended on the page that shows the date.
+    expect(report.outcome, said).toBe("complete");
+    expect(report.datesOnScreen, said).toEqual(["Dec 4, 2026"]);
+  }, 120_000);
+
+  it("are absent when it shows none", async () => {
+    const report = await run([{ do: "pause", ms: 300 }]);
+    expect(report.outcome).toBe("complete");
+    expect("datesOnScreen" in report).toBe(false);
   }, 120_000);
 });
 

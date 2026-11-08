@@ -545,11 +545,11 @@ Studio exports go to `~/Downloads`.
 | `signedOut` | `run`² | The app sent this browser to its sign-in page. Nothing kept; not a script fault. Give the user the command in `stopped.detail`; run again only after they ran it. As an account there is no command: the detail says whether Demoman signed in again; repeat only if it does. |
 | `windowClosed` | `run`² | `--headed` only: the window closed mid-run; the script is fine. Ask the user to leave it open; run once more. In an export it answers `renderFailed`; export again. |
 | `pageDidNotLoad` | `snapshot`, `probe` stop | The url did not load. Ask whether the app runs at that address; spend no run. |
-| `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman's script: tell the user. |
-| `pageFaulted`, `snapshotThrew`, `probeThrew` | `snapshot`, `probe` | The page's code threw, or a fault; quote `detail`. |
-| `portFailure` | `probe` | The browser gave way; not the script's fault. Probe once more; quote `detail` if it repeats. |
-| `notInRepo`, `outsideRepo`, `outputTaken`, `logoUnreadable`, `handSignIn`, `cannotRefilm`, `keepRefused`, `exportFailed`, `repoFlowUnwritable` | `add`, `ci` | `detail` says what was written and the fix. |
-| `appInvalid`, `appOriginMismatch`, `appUnknown`, `appHoles`, `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appPortTaken`, `appDockerMissing`, `checkoutFailed`, `noRepoFlow`, `refreshFailed`, `checkThrew`, `alreadySetUp`, `setupPrOpen`, `setupBranchExists`, `noRepoFlows`, `noRelease`, `noDeployment`, `routeRefused`, `githubUnreadable`, `noSetupBranch`, `secretsUnknown`, `secretsUnreadable`, `workflowRefused`, `filesUnreadable`, `setupUnreadable`, `secretRefused`, `actionsRefused`, `actionsUnknown`, `prFailed` | `ci` | `detail` says what was done and the fix. |
+| `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman: tell the user. |
+| `pageFaulted`, `snapshotThrew`, `probeThrew` | `snapshot`, `probe` | The page threw, or a fault; quote `detail`. |
+| `portFailure` | `probe` | The browser gave way, not the script. Probe once more; quote `detail` if it repeats. |
+| `notInRepo`, `outsideRepo`, `outputTaken`, `logoUnreadable`, `handSignIn`, `cannotRefilm`, `keepRefused`, `exportFailed`, `repoFlowUnwritable` | `add`, `ci` | `detail`: what was written, the fix. |
+| `appInvalid`, `appOriginMismatch`, `appUnknown`, `appHoles`, `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appPortTaken`, `appDockerMissing`, `appNowInFuture`, `appNowNotPinned`, `checkoutFailed`, `noRepoFlow`, `refreshFailed`, `checkThrew`, `alreadySetUp`, `setupPrOpen`, `setupBranchExists`, `noRepoFlows`, `noRelease`, `noDeployment`, `routeRefused`, `githubUnreadable`, `noSetupBranch`, `secretsUnknown`, `secretsUnreadable`, `workflowRefused`, `filesUnreadable`, `setupUnreadable`, `secretRefused`, `actionsRefused`, `actionsUnknown`, `prFailed` | `ci` | `detail`: what was done, the fix. |
 
 ## 8. Repo flows and CI
 

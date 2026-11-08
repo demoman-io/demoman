@@ -645,7 +645,7 @@ function ciDeps(
 /** The setup check's refresh (R14): its own browser, closed after; every
  *  line through the check's redacting `say`. */
 function checkRefresh(say: (line: string) => void): VerifyDeps["refresh"] {
-  return async (args, env, beforeFlow) => {
+  return async (args, env, beforeFlow, pinnedNow) => {
     const session = createBrowserSession({
       headless: true,
       executablePath: fullChromiumPath(),
@@ -656,6 +656,7 @@ function checkRefresh(say: (line: string) => void): VerifyDeps["refresh"] {
       return await refreshKept(args, {
         ...keptRefreshDeps(session, env, say),
         ...(beforeFlow === undefined ? {} : { beforeFlow }),
+        ...(pinnedNow === undefined ? {} : { pinnedNow }),
       });
     } finally {
       await session
@@ -722,7 +723,7 @@ async function refresh(args: string[]): Promise<void> {
         ci: process.env.CI === "true",
         log,
       },
-      (reset) =>
+      (reset, pinnedNow) =>
         refreshKept(
           {
             repoRoot: repo.repo.root,
@@ -732,7 +733,11 @@ async function refresh(args: string[]): Promise<void> {
             ...(previous === undefined ? {} : { previous }),
             library: process.env.CI === "true" ? "throwaway" : "local",
           },
-          { ...keptRefreshDeps(session, process.env, log), beforeFlow: reset },
+          {
+            ...keptRefreshDeps(session, process.env, log),
+            beforeFlow: reset,
+            ...(pinnedNow === null ? {} : { pinnedNow }),
+          },
         ),
     );
     if (!around.ok) {

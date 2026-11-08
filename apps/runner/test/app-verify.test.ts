@@ -301,6 +301,31 @@ describe("verifySetup", () => {
     expect(resets).toBe(1);
   });
 
+  // Red when setup's check records at the real date while CI records pinned:
+  // the check would pass a flow CI then reads as changed (DEM-79).
+  it("hands the refresh the started app's pinnedNow", async () => {
+    const startApp = startStub(async () => ({
+      reused: false,
+      said: "started",
+      seconds: 1,
+      stop: async () => [],
+      reset: async () => ({ ok: true }),
+      pinnedNow: "2026-11-06T09:00:00Z",
+    }));
+    let handed: string | undefined | null = null;
+    await verifySetup(
+      { root, files: files(), target: { app: app() }, secrets: {} },
+      deps({
+        startApp,
+        refresh: async (args, env, _beforeFlow, pinnedNow) => {
+          handed = pinnedNow;
+          return refreshStub()(args, env);
+        },
+      }),
+    );
+    expect(handed).toBe("2026-11-06T09:00:00Z");
+  });
+
   // Red when process.env is passed whole, or secrets reach only one side.
   it("hands secrets to the app and the refresh through env alone, and no other DEMOMAN_SECRET_", async () => {
     process.env.DEMOMAN_SECRET_UNLISTED = "leak";

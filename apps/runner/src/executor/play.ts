@@ -32,6 +32,7 @@ import {
 import { createHeadlessPageAgent } from "../page-agent.js";
 import { watchNavigation } from "../replay.js";
 import type { Stage } from "./browser.js";
+import { datesIn } from "./dates-on-screen.js";
 import {
   fileForLanding,
   fileIsForLanding,
@@ -196,6 +197,9 @@ export interface Played {
   lostHeadlessPage: boolean;
   landingNote: RunReport["landing"];
   arrival: Arrival;
+  /** Date-looking text on the last screen, [] when none or unreadable
+   *  (DEM-79): refresh's evidence for its note on dates. */
+  datesOnScreen: string[];
 }
 
 /** The walk on a prepared stage, and the checks straight after it. Throws
@@ -377,8 +381,23 @@ export async function playOnStage(
       }
     }
   }
+  // Read once, straight after the walk, while the last screen is up. A page
+  // that cannot be read loses only refresh's note on dates, and says so.
+  let datesOnScreen: string[] = [];
+  if (!page.isClosed()) {
+    try {
+      datesOnScreen = datesIn(
+        await page.evaluate(() => document.body?.innerText ?? ""),
+      );
+    } catch (error) {
+      log(
+        `the run's last screen could not be read for dates (${messageOf(error)})`,
+      );
+    }
+  }
   options.mark?.("checks");
   return {
+    datesOnScreen,
     result,
     navigationError,
     failedNote,

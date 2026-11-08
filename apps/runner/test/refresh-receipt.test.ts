@@ -28,7 +28,11 @@ import {
 } from "@demoman/run-core";
 import { screenImageName } from "@demoman/run-core/render";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type RefreshDeps, refreshKept } from "../src/executor/refresh.js";
+import {
+  DATES_NOTE,
+  type RefreshDeps,
+  refreshKept,
+} from "../src/executor/refresh.js";
 import type { Version, VideoStore } from "../src/executor/videos.js";
 
 const FLOW = "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90";
@@ -110,6 +114,10 @@ let freshSize: { width: number; height: number };
 let duringRun: (() => Promise<void>) | null;
 /** Whether the fake run filmed uncommitted changes. */
 let dirty: boolean;
+/** What the fake run's stored report says its last screen showed. */
+let storedDates: string[] | null;
+/** Every line refresh logged. */
+let logged: string[];
 
 beforeEach(async () => {
   repo = await mkdtemp(join(tmpdir(), "demoman-receipt-"));
@@ -141,6 +149,8 @@ beforeEach(async () => {
   freshSize = SIZE;
   duringRun = null;
   dirty = false;
+  storedDates = null;
+  logged = [];
 });
 afterEach(() => rm(repo, { recursive: true, force: true }));
 
@@ -155,12 +165,21 @@ const writeV2 = async (k = recipe(), r: KeptReceipt | null = receipt()) => {
 const deps = (): RefreshDeps => ({
   videos: {} as VideoStore,
   library: {} as RefreshDeps["library"],
-  executor: ({ outDir }) =>
+  executor: ({ outDir, home }) =>
     ({
       request: async (op: string, args: Record<string, unknown>) => {
         if (op === "run") {
           runs.push(args);
           await duringRun?.();
+          // The report the run stores, as the executor's run writes it.
+          await mkdir(join(home, "takes", "t-new"), { recursive: true });
+          await writeFile(
+            join(home, "takes", "t-new", "report.json"),
+            JSON.stringify({
+              provenance: { takeId: "t-new" },
+              ...(storedDates === null ? {} : { datesOnScreen: storedDates }),
+            }),
+          );
           return {
             ok: true,
             value: {
@@ -233,7 +252,7 @@ const deps = (): RefreshDeps => ({
     return { same, detail: same ? "the same" : "50% of the picture changed" };
   },
   env: {},
-  log: () => undefined,
+  log: (line) => void logged.push(line),
 });
 
 const refresh = async (d = deps()) =>
@@ -998,5 +1017,80 @@ describe("the files route", () => {
     expect(by(FILE)?.outcome, JSON.stringify(videos)).toBe("uncompared");
     // Premise: only the commit flow was filmed.
     expect(runs.map((a) => a.video)).toEqual([{ id: FLOW }]);
+  });
+});
+
+// Red when a pinned refresh records at the real date, or the note on dates
+// fires without evidence or where a pin already holds them (DEM-79).
+describe("pinned dates", () => {
+  const PINNED = "2026-11-06T09:00:00Z";
+  const pinned = (): RefreshDeps => ({ ...deps(), pinnedNow: PINNED });
+
+  it("a pinned refresh passes pinnedNow to its run", async () => {
+    await writeWithScreens();
+    await one(pinned());
+    expect(runs.map((r) => r.pinnedNow)).toEqual([PINNED]);
+  });
+
+  it("an unpinned refresh passes none", async () => {
+    await writeWithScreens();
+    await one();
+    expect(runs.map((r) => "pinnedNow" in r)).toEqual([false]);
+  });
+
+  it("writes pinnedNow into the receipt it delivers", async () => {
+    await writeWithScreens();
+    same = false;
+    const v = await one(pinned());
+    expect(v.outcome, JSON.stringify(v)).toBe("changed");
+    expect((await receiptOf()).pinnedNow).toBe(PINNED);
+  });
+
+  it("an unpinned refresh writes no pinnedNow", async () => {
+    await writeWithScreens();
+    same = false;
+    await one();
+    expect("pinnedNow" in (await receiptOf())).toBe(false);
+  });
+
+  it("a replaced video that showed dates gets DATES_NOTE when unpinned", async () => {
+    await writeWithScreens();
+    same = false;
+    storedDates = ["Dec 4, 2026"];
+    const v = await one();
+    const said = JSON.stringify({ v, logged });
+    expect(v.outcome, said).toBe("changed");
+    expect(v.notes, said).toContain(DATES_NOTE(["Dec 4, 2026"]));
+    expect(
+      logged.some((l) => l.includes(NAME) && l.includes("Dec 4, 2026")),
+      said,
+    ).toBe(true);
+  });
+
+  it("no note when the page showed no dates", async () => {
+    await writeWithScreens();
+    same = false;
+    const v = await one();
+    expect(v.outcome).toBe("changed");
+    expect(v.notes.join(" ")).not.toContain("DEMOMAN_NOW");
+  });
+
+  it("no note when pinned", async () => {
+    await writeWithScreens();
+    same = false;
+    storedDates = ["Dec 4, 2026"];
+    const v = await one(pinned());
+    expect(v.outcome).toBe("changed");
+    expect(v.notes.join(" ")).not.toContain("DEMOMAN_NOW");
+  });
+
+  it("no note when the picture is the same, even with an output written", async () => {
+    // The same picture with an output not yet committed: delivered as added,
+    // so it reaches the end of delivery where the note is decided.
+    await writeWithScreens(recipe([MP4, GIF]));
+    storedDates = ["Dec 4, 2026"];
+    const v = await one();
+    expect(v.outcome, JSON.stringify(v)).toBe("added");
+    expect(v.notes.join(" ")).not.toContain("DEMOMAN_NOW");
   });
 });

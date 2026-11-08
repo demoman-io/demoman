@@ -483,7 +483,7 @@ export async function runScript(
     });
     throw error;
   }
-  const { result, signedOutAfter, landingNote } = filmed;
+  const { result, signedOutAfter, landingNote, datesOnScreen } = filmed;
   // Read before anything else touches the page: where the steps left it.
   const endPage = await pageEndPage(page);
 
@@ -676,6 +676,7 @@ export async function runScript(
     still,
     endPage,
     ...(landingNote === undefined ? {} : { landing: landingNote }),
+    ...(datesOnScreen.length === 0 ? {} : { datesOnScreen }),
     ...(deps.refilm === undefined ? {} : { rerecord: deps.refilm }),
     ...(videoVersion === undefined ? {} : { videoVersion }),
     ...(deps.filmedCode === undefined ? {} : { filmedCode: deps.filmedCode }),

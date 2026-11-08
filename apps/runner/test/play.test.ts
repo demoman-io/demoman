@@ -19,6 +19,7 @@ function played(
     lostHeadlessPage: false,
     landingNote: undefined,
     arrival: null,
+    datesOnScreen: [],
     ...over,
   };
 }
