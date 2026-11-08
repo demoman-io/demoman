@@ -8,6 +8,8 @@
  * `@demoman/hosted-protocol`'s, which the hosted service shares.
  */
 import {
+  ascii,
+  mp4Boxes as boxes,
   moovFacts,
   parseVideoTag as parseTag,
   type TagRead,
@@ -24,8 +26,6 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 const KEY = "demoman";
 
-const ascii = (b: Uint8Array, at: number, n: number) =>
-  String.fromCharCode(...b.subarray(at, at + n));
 const u32 = (b: Uint8Array, at: number) =>
   new DataView(b.buffer, b.byteOffset, b.byteLength).getUint32(at);
 const join = (...parts: Uint8Array[]) => {
@@ -170,26 +170,6 @@ function readGif(b: Uint8Array): TagRead {
 }
 
 // ---- MP4 ----
-
-interface Box {
-  type: string;
-  start: number;
-  size: number;
-}
-
-/** Boxes laid end to end in [from, to); a box that does not fit is `null`. */
-function boxes(b: Uint8Array, from: number, to: number): Box[] | null {
-  const out: Box[] = [];
-  let at = from;
-  while (at < to) {
-    if (at + 8 > to) return null;
-    const size = u32(b, at);
-    if (size < 8 || at + size > to) return null; // also refuses 0 and 1 (64-bit): mediabunny writes neither
-    out.push({ type: ascii(b, at + 4, 4), start: at, size });
-    at += size;
-  }
-  return out;
-}
 
 const MP4_CONTAINERS = new Set(["moov", "trak", "mdia", "minf", "stbl"]);
 

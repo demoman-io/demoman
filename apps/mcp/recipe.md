@@ -504,12 +504,12 @@ Studio exports go to `~/Downloads`.
 | `copyFailed` | `attach`² | The video could not be copied; nothing posted. Hand the user the capped export's file. |
 | `windowDidNotOpen` | `snapshot`; `run`¹; `studio` | The window would not open; try once more. |
 | `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
-| `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. Call `report(id)` on it; retry when it settles. |
-| `busy` | `export`¹ | A run, probe or snapshot is in progress. `report(id)` it first. |
+| `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | Something is in progress: `report(id)` it; retry when it settles. |
+| `busy` | `export`¹ | Something is in progress; `report(id)` it first. |
 | `browserSilent` | `status`, `flows`, `derive`, `report` | The browser did not answer in about 50 s. Call `status` once; if again, tell the user. From `report` the run may still be going: call `report(id)` again. |
 | `libraryUnreadable` | `flows`, `studio` | Unreadable; report it. |
 | `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: the report has a `notStored` entry `{ "what": "video", "error": … }` and a null `provenance.videoId`. Nothing saved; quote the `error`. |
-| `unknownRun` | `report` | This demoman-mcp never issued that id (ids do not survive a server restart). |
+| `unknownRun` | `report` | Not an id this server issued (ids do not survive a restart). |
 | `noReport` | `report` | No report: this server keeps only its latest; `detail` says which. Do not run again. |
 | `notAnObject` | `run` | The script is not a JSON object. |
 | `invalidScript` | `run` | The schema refused the script; `field` names where. |
@@ -548,7 +548,7 @@ Studio exports go to `~/Downloads`.
 | `pageSilent` | `snapshot` | The page never answered. Call once more; if again, the page blocked Demoman's script: tell the user. |
 | `pageFaulted`, `snapshotThrew`, `probeThrew` | `snapshot`, `probe` | The page's code threw, or a fault; quote `detail`. |
 | `portFailure` | `probe` | The browser gave way; not the script's fault. Probe once more; quote `detail` if it repeats. |
-| `notInRepo`, `outsideRepo`, `outputTaken`, `logoUnreadable`, `handSignIn`, `cannotRefilm`, `keepRefused`, `exportFailed`, `repoFlowUnwritable`; `freeLimit`, `invalidLink`, `posterInvalid` | `add`, `ci`; `link` | `detail` says what was done and the fix. |
+| `notInRepo`, `outsideRepo`, `outputTaken`, `logoUnreadable`, `handSignIn`, `cannotRefilm`, `keepRefused`, `exportFailed`, `repoFlowUnwritable`; `freeLimit`, `invalidLink`, `posterInvalid`, `notDemoman`, `notMp4`, `notUploaded`, `tooLarge`, `tooLong` | `add`, `ci`; `link` | `detail` says what was done and the fix. |
 | `appInvalid`, `appOriginMismatch`, `appUnknown`, `appHoles`, `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appPortTaken`, `appDockerMissing`, `checkoutFailed`, `noRepoFlow`, `refreshFailed`, `checkThrew`, `alreadySetUp`, `setupPrOpen`, `setupBranchExists`, `noRepoFlows`, `noRelease`, `noDeployment`, `routeRefused`, `githubUnreadable`, `noSetupBranch`, `secretsUnknown`, `secretsUnreadable`, `workflowRefused`, `filesUnreadable`, `setupUnreadable`, `secretRefused`, `actionsRefused`, `actionsUnknown`, `prFailed` | `ci` | `detail` says what was done and the fix. |
 
 ## 8. Repo flows and CI

@@ -18,6 +18,21 @@ export type LoginDeps = {
   say: (line: string) => void;
   open?: (url: string) => void;
   sleep?: (ms: number) => Promise<void>;
+  /** Tests only: the clock the sign-in's expiry is read against. */
+  now?: () => number;
+};
+
+/** Refusals that may pass on the next poll: a blip, or polling too fast. */
+const TRANSIENT = new Set(["unavailable", "rateLimited"]);
+const TRANSIENT_TRIES = 5;
+
+const isWebAddress = (url: string): boolean => {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
 };
 
 /** Opens a URL with the platform's opener; a machine with none (a server,
@@ -54,15 +69,31 @@ export async function runLogin(d: LoginDeps): Promise<number> {
   const s = started.value;
   d.say(`Open ${s.verifyUrl}`);
   d.say(`and approve the code ${s.userCode} to sign in this computer.`);
-  (d.open ?? openInBrowser)(s.verifyUrl);
+  // Only a web address goes to the system's opener; anything else is shown.
+  if (isWebAddress(s.verifyUrl)) (d.open ?? openInBrowser)(s.verifyUrl);
+  else d.say("(not opened in a browser: that is not a web address)");
   const sleep =
     d.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const now = d.now ?? Date.now;
+  const expires = Date.parse(s.expiresAt);
+  let stumbles = 0;
   for (;;) {
+    if (!Number.isNaN(expires) && now() >= expires) {
+      d.say(
+        "demoman: login: the code was not approved before it expired; run `demoman login` again.",
+      );
+      return 1;
+    }
     const polled = await pollLogin(d.base, s.code, d.fetchImpl);
     if (!polled.ok) {
+      if (TRANSIENT.has(polled.reason) && ++stumbles < TRANSIENT_TRIES) {
+        await sleep(s.intervalMs * 2 ** stumbles);
+        continue;
+      }
       d.say(`demoman: login: ${polled.detail}`);
       return 1;
     }
+    stumbles = 0;
     if ("token" in polled.value) {
       const v = polled.value;
       writeCredential(d.home, {

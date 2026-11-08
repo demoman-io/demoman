@@ -17,7 +17,8 @@ export type TagRead =
   | { unreadable: string };
 
 const dec = new TextDecoder();
-const ascii = (b: Uint8Array, at: number, n: number) =>
+/** `n` bytes at `at` as ASCII: a box's four-letter type, a file's magic. */
+export const ascii = (b: Uint8Array, at: number, n: number): string =>
   String.fromCharCode(...b.subarray(at, at + n));
 const view = (b: Uint8Array) =>
   new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -48,15 +49,21 @@ export function parseVideoTag(text: string): TagRead {
   }
 }
 
-interface Box {
+export interface Mp4Box {
   type: string;
   start: number;
   size: number;
 }
 
-/** Boxes laid end to end in [from, to); a box that does not fit is `null`. */
-function boxes(b: Uint8Array, from: number, to: number): Box[] | null {
-  const out: Box[] = [];
+/** Boxes laid end to end in [from, to); a box that does not fit is `null`.
+ *  Refuses sizes 0 and 1 (to-end and 64-bit), which Demoman's muxer never
+ *  writes inside a file it tags. */
+export function mp4Boxes(
+  b: Uint8Array,
+  from: number,
+  to: number,
+): Mp4Box[] | null {
+  const out: Mp4Box[] = [];
   let at = from;
   while (at < to) {
     if (at + 8 > to) return null;
@@ -68,7 +75,7 @@ function boxes(b: Uint8Array, from: number, to: number): Box[] | null {
   return out;
 }
 
-function durationOf(b: Uint8Array, mvhd: Box): number | null {
+function durationOf(b: Uint8Array, mvhd: Mp4Box): number | null {
   const v = view(b);
   const at = mvhd.start + 8;
   if (mvhd.size < 8 + 4) return null;
@@ -89,7 +96,7 @@ export function moovFacts(moov: Uint8Array): {
   durationS: number | null;
   tag: TagRead;
 } {
-  const kids = boxes(moov, 8, moov.length);
+  const kids = mp4Boxes(moov, 8, moov.length);
   if (kids === null) {
     return {
       durationS: null,
@@ -102,7 +109,7 @@ export function moovFacts(moov: Uint8Array): {
   if (udtas.length === 0)
     return { durationS, tag: { none: "the MP4 carries no udta box" } };
   for (const udta of udtas) {
-    const inner = boxes(moov, udta.start + 8, udta.start + udta.size);
+    const inner = mp4Boxes(moov, udta.start + 8, udta.start + udta.size);
     if (inner === null) {
       return {
         durationS,

@@ -135,3 +135,51 @@ describe("demoman logout", () => {
     expect(h.said.join("\n")).toMatch(/could not be revoked/);
   });
 });
+
+describe("demoman login, when the service stumbles", () => {
+  it("a poll that fails once and then succeeds still signs in", async () => {
+    const h = harness([
+      () => json(200, START),
+      () => json(503, { ok: false, reason: "unavailable", detail: "a blip" }),
+      () =>
+        json(429, { ok: false, reason: "rateLimited", detail: "slow down" }),
+      () =>
+        json(200, {
+          token: "tok",
+          login: "octo",
+          workspace: { id: "w1", name: "octo" },
+        }),
+    ]);
+    expect(await runLogin(h.deps)).toBe(0);
+    expect(h.said.at(-1)).toBe("signed in as octo (workspace octo)");
+  });
+
+  it("a sign-in still pending past its expiresAt exits 1 saying it expired", async () => {
+    const h = harness([
+      () => json(200, { ...START, expiresAt: "2026-01-01T00:00:00Z" }),
+      ...Array.from({ length: 5 }, () => () => json(200, { pending: true })),
+    ]);
+    const code = await runLogin({
+      ...h.deps,
+      now: () => Date.parse("2026-01-01T00:00:01Z"),
+    });
+    expect(code).toBe(1);
+    expect(h.said.join("\n")).toMatch(/not approved/);
+    expect("none" in readCredential(h.home)).toBe(true);
+  });
+
+  it("an address that is not http(s) is printed but not opened", async () => {
+    const h = harness([
+      () => json(200, { ...START, verifyUrl: "file:///etc/passwd" }),
+      () =>
+        json(200, {
+          token: "tok",
+          login: "octo",
+          workspace: { id: "w1", name: "octo" },
+        }),
+    ]);
+    await runLogin(h.deps);
+    expect(h.opened).toEqual([]);
+    expect(h.said.join("\n")).toContain("file:///etc/passwd");
+  });
+});

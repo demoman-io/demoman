@@ -54,7 +54,6 @@ export type Me = {
   links: { active: number; limit: number | null };
 };
 
-export type UploadCreateRequest = { size: number; posterSize: number };
 export type UploadCreated = { id: string; partSize: number; parts: number };
 
 export type UploadCompleted = {
@@ -83,5 +82,3 @@ export type Link = {
   createdAt: string;
   expiresAt: string | null;
 };
-
-export type LinkChangeRequest = { expiresAt: string | null };

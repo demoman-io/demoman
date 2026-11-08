@@ -71,10 +71,10 @@ export interface ServeCliOptions {
   studio?: (args: { takeId?: string }) => Promise<StudioToolAnswer>;
   /** The `add` and `ci` tools' doors (Task 13): the bin supplies them, as
    *  it does the studio, so they reach the CLI's own core. */
+  repo?: RepoDoors;
   /** Lists the `link` tool: the bin passes whether this machine holds a
    *  Demoman sign-in. */
   link?: boolean;
-  repo?: RepoDoors;
   log: (line: string) => void;
 }
 

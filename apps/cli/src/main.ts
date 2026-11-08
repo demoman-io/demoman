@@ -72,6 +72,7 @@ import { ciSetup } from "./ci-workflow.js";
 import { deliver } from "./deliver.js";
 import { realGh } from "./gh-run.js";
 import { keepLines, removeLines } from "./keep-lines.js";
+import { linkProgress } from "./link-progress.js";
 import { runLogin, runLogout } from "./login.js";
 import { PACKAGE_NAME } from "./names.js";
 import { parseRefreshArgs } from "./refresh-args.js";
@@ -886,10 +887,7 @@ async function linkCommand(args: string[]): Promise<void> {
           ? {}
           : { expiresAt: parsed.values.expires }),
       },
-      (p) => {
-        const s = (p as { summary?: unknown }).summary;
-        if (typeof s === "string") process.stderr.write(`${s}\n`);
-      },
+      linkProgress((l) => void process.stderr.write(`${l}\n`)),
     );
     const a = (out.ok ? out.value : out) as {
       outcome?: string;
@@ -1091,10 +1089,10 @@ switch (command) {
     process.exit(0);
     break;
   }
-  // Not in USAGE until the hosted service launches with its docs (plan 4 of
+  // link, login and logout are not in USAGE until the hosted service
+  // launches with its docs (plan 4 of
   // docs/superpowers/plans/2026-11-07-hosted-links-1-pinned.md).
   case "link":
-    // Not in USAGE until the hosted service launches with its docs.
     await linkCommand(rest);
     break;
   case "login":
