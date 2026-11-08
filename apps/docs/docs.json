@@ -3,17 +3,18 @@
   "theme": "mint",
   "name": "Demoman",
   "colors": {
-    "primary": "#5f7a00",
-    "light": "#cdeb45",
-    "dark": "#4d6600"
+    "primary": "#0a0a0a",
+    "light": "#fafafa",
+    "dark": "#0a0a0a"
   },
   "background": {
     "color": {
+      "light": "#ffffff",
       "dark": "#0a0a0a"
     }
   },
   "fonts": {
-    "family": "Geist"
+    "family": "Manrope"
   },
   "logo": {
     "light": "/logo/light.svg",

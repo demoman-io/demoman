@@ -3,7 +3,10 @@ title: "Your first video"
 description: "Ask your agent for a demo video, read what the run reports, and find the file."
 ---
 
-{/* SetupPath */}
+import { SetupPath } from "/snippets/setup-path.jsx";
+import { Terminal } from "/snippets/terminal.jsx";
+
+<SetupPath step={3} />
 
 ## Ask for it
 
@@ -13,7 +16,18 @@ Start your app, then, in its repo, ask your agent:
 make a demo of the feature we just built
 ```
 
-{/* Terminal: an agent's snapshot, run and export */}
+<Terminal
+  title="~/nylon"
+  lines={[
+    "> record a demo of creating an invoice",
+    "⏺ demoman.snapshot localhost:4175/sample/",
+    "  ⎿ targets new-invoice, customer, email, amount, create, …",
+    "⏺ demoman.run “a new invoice” 10 steps",
+    "  ⎿ complete · matches · 5 inside · 0 cut off · 0 detours",
+    "⏺ demoman.export scene-1793830898436",
+    "  ⎿ saved ~/Downloads/Nylon — New Invoice (Desktop).mp4",
+  ]}
+/>
 
 The agent reads the page Demoman sees, writes the steps as a DemoScript and
 runs it in Demoman's own browser, out of your way. It never opens a window on

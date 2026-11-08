@@ -173,11 +173,57 @@ describe("brand copies", () => {
 });
 
 describe("palette", () => {
-  it("light-mode accent clears AA on white, dark-mode accent on the site's #0a0a0a", () => {
+  // The site's tokens (internal/site/public/style.css), and dark ones derived
+  // from them, in apps/docs/style.css.
+  const tokens = (mode: "light" | "dark") => {
+    const css = readDocs("style.css");
+    const block =
+      mode === "light"
+        ? /:root\s*\{([^}]*)\}/.exec(css)?.[1]
+        : /:root\.dark\s*\{([^}]*)\}/.exec(css)?.[1];
+    return Object.fromEntries(
+      [...(block ?? "").matchAll(/--dm-([a-z0-9-]+):\s*(#[0-9a-f]{6})/gi)].map(
+        (m) => [m[1], (m[2] as string).toLowerCase()],
+      ),
+    ) as Record<string, string>;
+  };
+  it("is the site's monochrome: black on white, white on #0a0a0a", () => {
     const c = docsJson().colors;
+    expect(c.primary.toLowerCase()).toBe("#0a0a0a");
     expect(contrast(c.primary, "#ffffff")).toBeGreaterThanOrEqual(4.5);
     expect(contrast(c.light, "#0a0a0a")).toBeGreaterThanOrEqual(4.5);
-    expect(c.light.toLowerCase()).toBe("#cdeb45");
+    expect(tokens("light").bg).toBe("#ffffff");
+    expect(tokens("light").ink).toBe("#0a0a0a");
+    expect(tokens("dark").bg).toBe("#0a0a0a");
+  });
+  it("every text token clears AA on its background, in both modes", () => {
+    for (const mode of ["light", "dark"] as const) {
+      const t = tokens(mode);
+      // Premise: the block was read.
+      expect(Object.keys(t).length, mode).toBeGreaterThanOrEqual(5);
+      for (const k of ["ink", "ink-2", "ink-3"])
+        expect(
+          contrast(t[k] as string, t.bg as string),
+          `${mode} ${k}`,
+        ).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
+describe("the setup strip", () => {
+  it("each Get started step draws the strip at its own position", () => {
+    GET_STARTED.slice(1).forEach((page, i) => {
+      const t = readDocs(`${page}.mdx`);
+      expect(t, page).toContain(
+        'import { SetupPath } from "/snippets/setup-path.jsx";',
+      );
+      expect(t, page).toContain(`<SetupPath step={${i + 1}} />`);
+    });
+  });
+  it("the strip names the six steps in order and links each", () => {
+    const jsx = readDocs("snippets/setup-path.jsx");
+    const hrefs = [...jsx.matchAll(/href: "\/([^"]+)"/g)].map((m) => m[1]);
+    expect(hrefs).toEqual(GET_STARTED.slice(1));
   });
 });
 
@@ -315,7 +361,9 @@ describe("commands", () => {
     expect(seen.length).toBeGreaterThanOrEqual(3);
     // The Install step's own setup command, not only the connect page's.
     expect(
-      seen.filter((s) => s.page === "get-started/install").map((s) => s.command),
+      seen
+        .filter((s) => s.page === "get-started/install")
+        .map((s) => s.command),
     ).toContain("setup");
     // The changelog is history: a release may name a command since renamed
     // (0.8.1's keep is now add), and keep still runs as an alias.
@@ -461,12 +509,30 @@ describe("help", () => {
   });
   it("the changelog keeps every release and stays a summary", () => {
     const log = readDocs("resources/changelog.mdx");
-    const labels = [...log.matchAll(/<Update label="([^"]+)"/g)].map((m) => m[1]);
+    const labels = [...log.matchAll(/<Update label="([^"]+)"/g)].map(
+      (m) => m[1],
+    );
     // Every release it listed on 2026-11-08, newest first; the site reads them.
     for (const v of [
-      "0.9.2", "0.9.1", "0.9.0", "0.8.2", "0.8.1", "0.8.0", "0.7.3", "0.7.2",
-      "0.7.1", "0.7.0", "0.2.0-rc.9", "0.2.0-rc.8", "0.2.0-rc.7", "0.2.0-rc.6",
-      "0.2.0-rc.5", "0.2.0-rc.4", "0.2.0-rc.3", "0.2.0-rc.2", "0.2.0-rc.1",
+      "0.9.2",
+      "0.9.1",
+      "0.9.0",
+      "0.8.2",
+      "0.8.1",
+      "0.8.0",
+      "0.7.3",
+      "0.7.2",
+      "0.7.1",
+      "0.7.0",
+      "0.2.0-rc.9",
+      "0.2.0-rc.8",
+      "0.2.0-rc.7",
+      "0.2.0-rc.6",
+      "0.2.0-rc.5",
+      "0.2.0-rc.4",
+      "0.2.0-rc.3",
+      "0.2.0-rc.2",
+      "0.2.0-rc.1",
     ])
       expect(labels, v).toContain(v);
     expect(log.split(/\s+/).length).toBeLessThanOrEqual(1200);
@@ -550,7 +616,8 @@ describe("the setup path", () => {
       ],
     };
     for (const [page, strings] of Object.entries(need))
-      for (const s of strings) expect(readDocs(`${page}.mdx`), `${page}: ${s}`).toContain(s);
+      for (const s of strings)
+        expect(readDocs(`${page}.mdx`), `${page}: ${s}`).toContain(s);
   });
   it("each step ends on a card to the next, the last to Refresh", () => {
     const next = [...steps.slice(1), "concepts/refresh"];
@@ -572,11 +639,15 @@ describe("the setup path", () => {
 describe("links into the docs from the product", () => {
   it("every demoman.io/docs link in a message the product prints lands on a page", () => {
     const root = new URL("../../../", import.meta.url);
-    const files = ["apps/cli/src", "apps/mcp/src", "apps/runner/src", "apps/studio/src"].flatMap(
-      (d) =>
-        (readdirSync(new URL(d, root), { recursive: true }) as string[])
-          .filter((f) => f.endsWith(".ts"))
-          .map((f) => `${d}/${f}`),
+    const files = [
+      "apps/cli/src",
+      "apps/mcp/src",
+      "apps/runner/src",
+      "apps/studio/src",
+    ].flatMap((d) =>
+      (readdirSync(new URL(d, root), { recursive: true }) as string[])
+        .filter((f) => f.endsWith(".ts"))
+        .map((f) => `${d}/${f}`),
     );
     const links = files.flatMap((f) =>
       [
@@ -586,7 +657,9 @@ describe("links into the docs from the product", () => {
       ].map((m) => `${f}: ${m[1]}`),
     );
     // Premise: refresh's pinned-dates hint is one of them.
-    expect(links.some((l) => l.startsWith("apps/runner/src/executor/refresh.ts"))).toBe(true);
+    expect(
+      links.some((l) => l.startsWith("apps/runner/src/executor/refresh.ts")),
+    ).toBe(true);
     const nav = new Set(navPages());
     for (const l of links) expect(nav, l).toContain(l.split(": ")[1]);
   });
@@ -598,12 +671,20 @@ describe("concepts and guides", () => {
     const block = /```json\n([\s\S]*?)```/.exec(page)?.[1];
     expect(block, "a json block").toBeDefined();
     expect(block?.split("\n").length).toBeLessThanOrEqual(30);
-    const file = JSON.parse(block ?? "") as { keptVersion: number; script: unknown };
+    const file = JSON.parse(block ?? "") as {
+      keptVersion: number;
+      script: unknown;
+    };
     expect(file.keptVersion).toBe(2);
     // apps/cli does not depend on the package; read its build (pnpm -r build).
     const { DemoScriptSchema } = (await import(
-      new URL("../../../packages/scene-schema/dist/index.js", import.meta.url).href
-    )) as { DemoScriptSchema: { safeParse: (v: unknown) => { success: boolean; error?: unknown } } };
+      new URL("../../../packages/scene-schema/dist/index.js", import.meta.url)
+        .href
+    )) as {
+      DemoScriptSchema: {
+        safeParse: (v: unknown) => { success: boolean; error?: unknown };
+      };
+    };
     const parsed = DemoScriptSchema.safeParse(file.script);
     expect(parsed.success, JSON.stringify(parsed.error)).toBe(true);
     expect(page).toContain("your agent writes");
@@ -629,44 +710,78 @@ describe("links inside the docs", () => {
   it("every root-relative link names a page in the navigation", () => {
     const nav = new Set(navPages());
     const links = allPages().flatMap((p) =>
-      [...readDocs(`${p}.mdx`).matchAll(/(?:\]\(|href=")\/([a-z0-9/-]*)[#")]/g)].map(
-        (m) => ({ p, slug: (m[1] as string) === "" ? "index" : (m[1] as string) }),
-      ),
+      [
+        ...readDocs(`${p}.mdx`).matchAll(
+          /(?:\]\(|href=")\/([a-z0-9/-]*)[#")]/g,
+        ),
+      ].map((m) => ({
+        p,
+        slug: (m[1] as string) === "" ? "index" : (m[1] as string),
+      })),
     );
     // Premise: the pages link to each other at all.
     expect(links.length).toBeGreaterThan(30);
-    for (const { p, slug } of links) expect(nav, `${p} → /${slug}`).toContain(slug);
+    for (const { p, slug } of links)
+      expect(nav, `${p} → /${slug}`).toContain(slug);
   });
 });
 
 describe("the reference pages", () => {
   it("lists only refusal reasons the product can send", () => {
     const root = new URL("../../../", import.meta.url);
-    const source = ["apps/runner/src", "apps/cli/src", "apps/mcp/src", "packages"]
+    const source = [
+      "apps/runner/src",
+      "apps/cli/src",
+      "apps/mcp/src",
+      "packages",
+    ]
       .flatMap((d) =>
         (readdirSync(new URL(d, root), { recursive: true }) as string[])
-          .filter((f) => f.endsWith(".ts") && !f.includes("node_modules") && !f.includes("dist/"))
+          .filter(
+            (f) =>
+              f.endsWith(".ts") &&
+              !f.includes("node_modules") &&
+              !f.includes("dist/"),
+          )
           .map((f) => readFileSync(new URL(`${d}/${f}`, root), "utf8")),
       )
       .join("\n");
     const codes = new Set(
-      [...readDocs("reference/refusals.mdx").matchAll(/`([a-z]+[A-Z][A-Za-z]+)`/g)].map(
-        (m) => m[1] as string,
-      ),
+      [
+        ...readDocs("reference/refusals.mdx").matchAll(
+          /`([a-z]+[A-Z][A-Za-z]+)`/g,
+        ),
+      ].map((m) => m[1] as string),
     );
     // Premise: the page lists the reasons, not a handful.
     expect(codes.size).toBeGreaterThanOrEqual(15);
-    for (const c of codes) expect(source, c).toMatch(new RegExp(`["'\`]${c}["'\`]`));
+    for (const c of codes)
+      expect(source, c).toMatch(new RegExp(`["'\`]${c}["'\`]`));
   });
   it("app.json has a row per field and the pinned dates section", () => {
     const page = readDocs("reference/app-json.mdx");
-    for (const f of ["appVersion", "install", "start", "reset", "now", "url", "timeoutSeconds", "env", "secrets", "services"])
+    for (const f of [
+      "appVersion",
+      "install",
+      "start",
+      "reset",
+      "now",
+      "url",
+      "timeoutSeconds",
+      "env",
+      "secrets",
+      "services",
+    ])
       expect(page, f).toMatch(new RegExp(`^\\| \`${f}\` \\|`, "m"));
     expect(page).toMatch(/^## Pinned dates$/m);
   });
   it("environment names every variable the package reads", () => {
     const page = readDocs("reference/environment.mdx");
-    for (const v of ["DEMOMAN_HOME", "DEMOMAN_NO_UPDATE_CHECK", "DEMOMAN_SECRET_"])
+    for (const v of [
+      "DEMOMAN_HOME",
+      "DEMOMAN_NO_UPDATE_CHECK",
+      "DEMOMAN_SECRET_",
+    ])
       expect(page, v).toContain(v);
   });
 });

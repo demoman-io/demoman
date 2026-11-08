@@ -269,7 +269,9 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
     .object({
       do: z.literal("type"),
       into: ScriptTargetSchema.describe("The field to type into"),
-      text: z.string().describe("What to type: a demo value, never a real secret"),
+      text: z
+        .string()
+        .describe("What to type: a demo value, never a real secret"),
       recorded: RecordedSchema,
     })
     .strict()
@@ -513,7 +515,9 @@ const DemoScriptShape = z.object({
   steps: z
     .array(ScriptStepSchema)
     .min(1)
-    .describe("What the run does, in order. At least one step acts on the page"),
+    .describe(
+      "What the run does, in order. At least one step acts on the page",
+    ),
   /** Cut the film's start and end (`ScriptTrimSchema`). Absent: the whole take. */
   trim: ScriptTrimSchema.optional().describe(
     "Cut the video's start and end: `{ start: { ms, step? }, end: { ms, step?, after? } }`. Absent: the whole video",

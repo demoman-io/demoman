@@ -3,7 +3,9 @@ title: "Add to your repo"
 description: "Save a flow's DemoScript in the repo, so every clone and every CI run can record it again."
 ---
 
-{/* SetupPath */}
+import { SetupPath } from "/snippets/setup-path.jsx";
+
+<SetupPath step={5} />
 
 A video goes stale when the app changes. Adding its flow to the repo saves the
 flow as a DemoScript, which CI records again in the next step.
