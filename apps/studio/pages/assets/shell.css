@@ -1892,23 +1892,11 @@
   align-items: center;
   gap: 8px;
 }
-/* A wait in progress (DEM-80). Slower, not stopped, under reduced motion:
-   a spinner that holds still reads as the stall it is there to rule out. */
+/* A wait in progress (DEM-80); `spinner()` turns it. */
 .spinner {
   flex: none;
   width: 16px;
   height: 16px;
-  animation: spinner-turn 0.9s linear infinite;
-}
-@keyframes spinner-turn {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation-duration: 2.4s;
-  }
 }
 .repo-sheet .repo-status {
   display: grid;

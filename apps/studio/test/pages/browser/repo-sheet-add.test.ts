@@ -3,6 +3,7 @@ import { page, userEvent } from "@vitest/browser/context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import libraryHtml from "../../../pages/entrypoints/library/index.html?raw";
 import type { CiEvent, RepoEvent } from "../../../pages/src/platform/types";
+import { spinner } from "../../../pages/src/shell/icons";
 import {
   openRepoSheet,
   type RepoCiDoor,
@@ -366,6 +367,15 @@ for (const scheme of ["light", "dark"] as const) {
         spin?.getAnimations().map((a) => a.playState),
         "the spinner turns",
       ).toEqual(["running"]);
+      // A rebuilt spinner carries on where the last one was: both turn on
+      // the document's clock. Red without `turn.startTime = 0`.
+      const later = spinner();
+      document.body.append(later);
+      const at = (svg: SVGElement | null) =>
+        Number(svg?.getAnimations()[0]?.currentTime);
+      expect(at(later)).toBeGreaterThan(0);
+      expect(Math.abs(at(later) - at(spin))).toBeLessThan(50);
+      later.remove();
       await shot("checking");
       (dialog.querySelector("[data-repo-cancel]") as HTMLElement).click();
       expect((await result).added).toBeNull();

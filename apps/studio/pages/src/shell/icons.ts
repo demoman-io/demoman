@@ -446,9 +446,25 @@ export function icon(name: GlyphName): SVGSVGElement {
   return svg;
 }
 
-/** A wait in progress, turning beside the words that say what it is. */
+/** A wait in progress, turning beside the words that say what it is.
+ *  Turned on the document's clock (`startTime` 0), not from when it was
+ *  made: a sheet rebuilds it on every progress line, and one that started
+ *  over each time would sit near its first angle and look stalled. Slower,
+ *  not stopped, under reduced motion: a still spinner reads as the stall
+ *  it is there to rule out. */
 export function spinner(): SVGSVGElement {
   const svg = icon("loaderCircle");
   svg.classList.add("spinner");
+  const reduced =
+    globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ===
+    true;
+  // shortcut: a DOM without the Web Animations API (the node lanes) draws it still.
+  if (typeof svg.animate === "function") {
+    const turn = svg.animate(
+      [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+      { duration: reduced ? 2400 : 900, iterations: Number.POSITIVE_INFINITY },
+    );
+    turn.startTime = 0;
+  }
   return svg;
 }
