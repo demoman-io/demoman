@@ -155,9 +155,11 @@ export async function startApp(
       detail: `now in ${APP_FILE} (${app.now}) is later than this machine's clock (${new Date(t0).toISOString()}); set now to an instant that has passed`,
       tail: "",
     };
+  // DEMOMAN_NOW is app.json's now, or nothing: one left in the shell or put
+  // in env would pin the server while the browser ran on the real clock.
+  const { DEMOMAN_NOW: _stray, ...inherited } = { ...o.env, ...app.env };
   const env: NodeJS.ProcessEnv = {
-    ...o.env,
-    ...app.env,
+    ...inherited,
     ...(app.now === undefined ? {} : { DEMOMAN_NOW: app.now }),
   };
   const secretValues = app.secrets

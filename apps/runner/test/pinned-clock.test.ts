@@ -39,6 +39,10 @@ const report = (label, t) => fetch("/report?label=" + label + "&t=" + t);
 report("first", Date.now());
 report("constructed", new Date().getTime());
 setTimeout(() => report("later", Date.now()), 300);
+// A subclass of Date, as date-fns v4's TZDate is: its own methods must survive.
+class Zoned extends Date { zone() { return "UTC"; } }
+try { const z = new Zoned(); report("subclass", z.zone() === "UTC" ? z.getTime() : -1); }
+catch { report("subclass", -2); }
 let last = 0, timer = null;
 const settle = () => {
   if (Date.now() - last >= 200) report("fired", Date.now());
@@ -144,6 +148,23 @@ describe("a run with pinnedNow", () => {
     expect(report.outcome, said).toBe("complete");
   }, 120_000);
 
+  // Final review, Important 1: a subclass of Date lost its prototype.
+  it("keeps a subclass of Date working", async () => {
+    const report = await run([{ do: "pause", ms: 300 }], PINNED);
+    const said = JSON.stringify({ outcome: report.outcome, reported, lines });
+    const sub = at("subclass");
+    expect(sub, said).toBeTypeOf("number");
+    expect(sub as number, said).toBeGreaterThanOrEqual(pin);
+    expect((sub as number) - pin, said).toBeLessThan(30_000);
+  }, 120_000);
+
+  // Final review, Important 3: the run records the pin it installed, which
+  // refresh's receipt is written from.
+  it("records pinnedNow in its report", async () => {
+    const report = await run([{ do: "pause", ms: 300 }], PINNED);
+    expect(report.pinnedNow).toBe(PINNED);
+  }, 120_000);
+
   it("keeps the flow's clock across a navigation", async () => {
     const report = await run(
       [{ do: "click", on: { stableId: "next" } }],
@@ -198,5 +219,6 @@ describe("a run without pinnedNow", () => {
     expect(at("first"), said).toBeTypeOf("number");
     expect(at("first") as number, said).toBeGreaterThanOrEqual(before - 2000);
     expect(at("first") as number, said).toBeLessThanOrEqual(Date.now());
+    expect("pinnedNow" in report, said).toBe(false);
   }, 120_000);
 });

@@ -1781,7 +1781,7 @@ export const pinnedDates = () => {
   );
 
   it(
-    "pinned, a day apart, reads unchanged",
+    "pinned, recorded twice, reads unchanged and its receipt records the pin the run confirmed",
     async () => {
       const name = "Dated pinned";
       try {

@@ -667,7 +667,9 @@ describe("now", () => {
           start: `${writes("start.txt")}; exec ${START}`,
           reset: writes("reset.txt"),
         }),
-        opts({ env: { ...opts().env, DEMOMAN_NOW: undefined } }),
+        // Final review, minor 4: one left in the shell must not pin the
+        // server while the browser runs on the real clock.
+        opts({ env: { ...opts().env, DEMOMAN_NOW: "2020-01-01T00:00:00Z" } }),
         { spawn: spawnSpy.fn },
       ),
     );

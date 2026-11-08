@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { datesIn } from "../src/executor/dates-on-screen.js";
+import { datesIn, readDatesOnScreen } from "../src/executor/dates-on-screen.js";
 
 // Red when refresh cannot tell a page that shows dates from one that does
 // not: the note it drives must fire only on evidence (DEM-79).
@@ -37,5 +37,44 @@ describe("datesIn", () => {
         "Dec 4, 2026 · Dec 4, 2026 · 2026-01-02 · yesterday · 3 days ago · Nov 9",
       ),
     ).toEqual(["Dec 4, 2026", "2026-01-02", "yesterday"]);
+  });
+});
+
+// Final review, Important 2: a page stuck in its own script must not hang
+// the run; the read gives up within its deadline and says so.
+describe("readDatesOnScreen", () => {
+  const page = (evaluate: () => Promise<string>, closed = false) => ({
+    isClosed: () => closed,
+    evaluate: evaluate as never,
+  });
+
+  it("reads the dates on the page", async () => {
+    const said: string[] = [];
+    const got = await readDatesOnScreen(
+      page(async () => "Due Dec 4, 2026"),
+      (l) => void said.push(l),
+    );
+    expect(got).toEqual(["Dec 4, 2026"]);
+    expect(said).toEqual([]);
+  });
+
+  it("gives up on a page that never answers, and says so", async () => {
+    const said: string[] = [];
+    const got = await readDatesOnScreen(
+      page(() => new Promise<string>(() => {})),
+      (l) => void said.push(l),
+      50,
+    );
+    expect(got).toEqual([]);
+    expect(said.join(" ")).toContain("could not be read for dates");
+    expect(said.join(" ")).toContain("no answer");
+  }, 5_000);
+
+  it("reads nothing from a closed page", async () => {
+    const got = await readDatesOnScreen(
+      page(async () => "Due Dec 4, 2026", true),
+      () => {},
+    );
+    expect(got).toEqual([]);
   });
 });

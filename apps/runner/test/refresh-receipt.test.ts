@@ -116,6 +116,8 @@ let duringRun: (() => Promise<void>) | null;
 let dirty: boolean;
 /** What the fake run's stored report says its last screen showed. */
 let storedDates: string[] | null;
+/** Whether the fake run leaves out the pin it was asked for. */
+let dropPin: boolean;
 /** Every line refresh logged. */
 let logged: string[];
 
@@ -150,6 +152,7 @@ beforeEach(async () => {
   duringRun = null;
   dirty = false;
   storedDates = null;
+  dropPin = false;
   logged = [];
 });
 afterEach(() => rm(repo, { recursive: true, force: true }));
@@ -178,6 +181,10 @@ const deps = (): RefreshDeps => ({
             JSON.stringify({
               provenance: { takeId: "t-new" },
               ...(storedDates === null ? {} : { datesOnScreen: storedDates }),
+              // As runScript records the pin it installed.
+              ...(typeof args.pinnedNow === "string" && !dropPin
+                ? { pinnedNow: args.pinnedNow }
+                : {}),
             }),
           );
           return {
@@ -1044,6 +1051,20 @@ describe("pinned dates", () => {
     const v = await one(pinned());
     expect(v.outcome, JSON.stringify(v)).toBe("changed");
     expect((await receiptOf()).pinnedNow).toBe(PINNED);
+  });
+
+  // Final review, Important 3: the receipt says what the run confirmed.
+  it("a pinned refresh whose run did not confirm the pin fails, naming it", async () => {
+    await writeWithScreens();
+    same = false;
+    dropPin = true;
+    const before = await receiptOf();
+    const v = await one(pinned());
+    const said = JSON.stringify(v);
+    expect(v.outcome, said).toBe("failed");
+    expect(v.detail, said).toContain(PINNED);
+    expect(v.detail, said).toContain("clock");
+    expect(await receiptOf(), said).toEqual(before);
   });
 
   it("an unpinned refresh writes no pinnedNow", async () => {

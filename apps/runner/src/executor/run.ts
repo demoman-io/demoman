@@ -677,6 +677,9 @@ export async function runScript(
     endPage,
     ...(landingNote === undefined ? {} : { landing: landingNote }),
     ...(datesOnScreen.length === 0 ? {} : { datesOnScreen }),
+    // prepareStage stops the run when the pin cannot be installed, so a run
+    // that got this far has it.
+    ...(deps.pinnedNow === undefined ? {} : { pinnedNow: deps.pinnedNow }),
     ...(deps.refilm === undefined ? {} : { rerecord: deps.refilm }),
     ...(videoVersion === undefined ? {} : { videoVersion }),
     ...(deps.filmedCode === undefined ? {} : { filmedCode: deps.filmedCode }),

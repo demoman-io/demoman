@@ -649,8 +649,14 @@ async function filmOne(
           not: `video ${takeId}'s run report ${"missing" in read ? "is missing" : `could not be read (${read.unreadable})`}`,
         };
   if ("not" in stored) deps.log(`refresh: "${kept.name}": ${stored.not}`);
-  const datesOnScreen =
-    "value" in read ? ((read.value as RunReport).datesOnScreen ?? []) : [];
+  const raw = "value" in read ? (read.value as RunReport) : null;
+  const datesOnScreen = raw?.datesOnScreen ?? [];
+  // A receipt says only what the run confirmed: a pin the run's report does
+  // not record would put a real-date video under a pinned receipt.
+  if (deps.pinnedNow !== undefined && raw?.pinnedNow !== deps.pinnedNow)
+    return {
+      failed: `the run did not confirm its page's clock was pinned to ${deps.pinnedNow}${"not" in stored ? ` (${stored.not})` : ""}; nothing was replaced`,
+    };
 
   /** One output's export, or with `screensOnly` its screens alone. */
   const exportOf = async <S extends boolean>(o: KeptOutput, screensOnly: S) => {

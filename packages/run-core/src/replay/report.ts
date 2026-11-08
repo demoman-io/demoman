@@ -259,6 +259,10 @@ export interface RunReport {
    *  showed none or could not be read. Refresh's evidence for saying a
    *  replaced video's dates may be why (DEM-79); never served to agents. */
   datesOnScreen?: string[];
+  /** The instant the run's page clock was pinned to, when it was (DEM-79).
+   *  Refresh writes a receipt's pinnedNow from this record, never from what
+   *  it asked for. */
+  pinnedNow?: string;
   /** What the run filmed (docs/superpowers/specs/2026-10-25-pr-reminder-
    *  and-verdict-design.md). Absent on a report written before it existed. */
   filmedCode?: FilmedCode;

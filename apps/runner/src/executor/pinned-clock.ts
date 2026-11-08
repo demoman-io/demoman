@@ -28,7 +28,8 @@ export function pinnedClockSource(offsetMs: number): string {
   function PinnedDate(...args) {
     // Date() called without new answers a string of the current time.
     if (!new.target) return new Real(now()).toString();
-    return args.length === 0 ? new Real(now()) : new Real(...args);
+    // new.target: a subclass of Date (date-fns' TZDate) keeps its prototype.
+    return Reflect.construct(Real, args.length === 0 ? [now()] : args, new.target);
   }
   PinnedDate.prototype = Real.prototype;
   PinnedDate.now = now;

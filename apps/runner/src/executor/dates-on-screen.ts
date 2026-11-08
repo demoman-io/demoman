@@ -4,6 +4,9 @@
 // refresh needs before it says a replaced video's dates may be why. Small on
 // purpose: a miss costs only the note, and a false hit would put the note on
 // a video whose dates are not the cause.
+import { messageOf } from "@demoman/run-core";
+import type { Page } from "playwright";
+import { withinDeadline } from "../page-deadline.js";
 
 // Whole names or their abbreviations only: "Market 4" is not a date.
 const MONTH =
@@ -31,4 +34,31 @@ export function datesIn(text: string): string[] {
     if (found.length === 3) break;
   }
   return found;
+}
+
+/**
+ * The dates on the page's last screen, read once and within the page
+ * deadline: a page stuck in its own script must not hang the run. A page
+ * that cannot be read loses only refresh's note on dates, and says so.
+ */
+export async function readDatesOnScreen(
+  page: Pick<Page, "isClosed" | "evaluate">,
+  log: (line: string) => void,
+  ms?: number,
+): Promise<string[]> {
+  if (page.isClosed()) return [];
+  try {
+    return datesIn(
+      await withinDeadline(
+        page.evaluate(() => document.body?.innerText ?? ""),
+        "reading the last screen for dates",
+        ms,
+      ),
+    );
+  } catch (error) {
+    log(
+      `the run's last screen could not be read for dates (${messageOf(error)})`,
+    );
+    return [];
+  }
 }
