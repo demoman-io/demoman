@@ -3,6 +3,17 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
+<Update label="0.9.2" description="An easier Add to repo, and runs that follow a single-page app">
+  - Add to repo opens its sheet at once and checks the flow there. The sheet has separate Folder and File name fields, with a picker for the repo's folders, and Commit or Files and Quality toggles.
+  - After an add, the sheet lists each file it wrote, Reveal shows them, and the flow reads In repo right away. The sheet closes after Open pull request.
+  - The default file name keeps the flow's name as you wrote it.
+  - Set up CI sits beside a project's heading in the Studio, so you can set up CI without adding a flow.
+  - A run carries on when a single-page app changes its own address, such as a search that writes `?q=` or a row that opens with `pushState`. A real page load still stops the run.
+  - A run that stops says "Stopped at script step N of M", counting steps the way the script does. A target missing after the address changed says it was not found, not that the page went elsewhere.
+  - A drag's end is judged where the camera was when it let go, so a drop the camera followed is no longer reported out of frame. A point on the frame's edge counts as in shot.
+  - When refresh says the window moved, it gives each video's own time, so you look at the right frame in each.
+</Update>
+
 <Update label="0.9.1" description="CI setup that works the first time, and refreshes you can trust">
   - Setup finds the app in a single-package repo whose `pnpm-workspace.yaml` holds only settings, as newer pnpm writes it.
   - `.demoman/app.json` may leave out `env`, `secrets` and `services`; a refused file names the field.
