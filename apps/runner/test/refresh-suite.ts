@@ -124,6 +124,24 @@ const SPINNER = ORIGINAL.replace(
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>`,
 ).replace("</main>", '<div id="spin"></div></main>');
+/** The page an app that shows dates relative to its "now" serves (DEM-79):
+ *  a due date the server renders, and an age the page works out from a
+ *  server timestamp against its own clock. `serverNow` is what the app
+ *  takes as now: the real clock, or DEMOMAN_NOW when pinned. */
+const DAY_MS = 86_400_000;
+const datedPage = (serverNow: number, heading = HEADING) => {
+  const due = new Date(serverNow + 28 * DAY_MS).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  return ORIGINAL.replace(
+    HEADING,
+    `${heading}<p id="due">Due ${due}</p><p id="age" data-t="${serverNow - 5 * 60_000}"></p>
+<script>{ const p = document.getElementById("age"); p.textContent = "Created " + Math.round((Date.now() - Number(p.dataset.t)) / 60000) + " minutes ago"; }</script>`,
+  );
+};
 /** A colour's grey level (Rec. 601), 0-255. */
 const luma = (hex: string) => {
   const [r, g, b] = [1, 3, 5].map((i) =>
@@ -424,10 +442,10 @@ const deps = (): RefreshDeps => ({
   log: (l) => void lines.push(l),
 });
 
-const refresh = (only?: string[]): Promise<RefreshResult> =>
+const refresh = (only?: string[], pinnedNow?: string): Promise<RefreshResult> =>
   refreshKept(
     { repoRoot: repo, library: "throwaway", ...(only ? { only } : {}) },
-    deps(),
+    { ...deps(), ...(pinnedNow === undefined ? {} : { pinnedNow }) },
   );
 /** The `k of n screens` of a detail line. */
 const screensOf = (detail: string): [number, number] => {
@@ -1709,4 +1727,106 @@ export const clickGuard = () => {
           `${g.name}: a ${gap} ms gap is within 500 ms of ${LINE_MS}`,
         ).toBe(true);
   });
+};
+
+/** An app that shows dates relative to now, recorded a day apart (DEM-79):
+ *  unpinned it reads changed and says why; pinned it reads unchanged, and a
+ *  real change beside the dates still reads changed. */
+export const pinnedDates = () => {
+  const PINNED = "2026-11-06T09:00:00Z";
+  const video = (name: string) =>
+    kept(
+      name,
+      ["Place order"],
+      1,
+      [
+        {
+          path: `docs/${name.toLowerCase().replaceAll(" ", "-")}.mp4`,
+          fileType: "mp4",
+          aspect: "16:9",
+          quality: "share",
+        },
+      ],
+      0,
+      3500,
+    );
+  const said = (v: unknown) => JSON.stringify(v);
+
+  it(
+    "unpinned, a day apart, reads changed and says the dates may be why",
+    async () => {
+      const name = "Dated unpinned";
+      // Premise: the two days really render different pages.
+      const today = Date.now();
+      expect(datedPage(today - DAY_MS)).not.toBe(datedPage(today));
+      expect(datedPage(today)).toContain('<p id="due">Due ');
+      try {
+        await withKept(video(name), async () => {
+          html = datedPage(today - DAY_MS);
+          const first = byName(await refresh([name]), name);
+          expect(first.outcome, said(first)).not.toBe("failed");
+          html = datedPage(today);
+          const second = byName(await refresh([name]), name);
+          expect(second.outcome, said(second)).toBe("changed");
+          expect(
+            second.notes.some((n) => n.includes("DEMOMAN_NOW")),
+            said(second),
+          ).toBe(true);
+        });
+      } finally {
+        html = ORIGINAL;
+      }
+    },
+    BOTH_MS,
+  );
+
+  it(
+    "pinned, a day apart, reads unchanged",
+    async () => {
+      const name = "Dated pinned";
+      try {
+        await withKept(video(name), async () => {
+          html = datedPage(Date.parse(PINNED));
+          const first = byName(await refresh([name], PINNED), name);
+          expect(first.outcome, said(first)).not.toBe("failed");
+          // The receipt says which instant the committed video shows.
+          const { receipt } = await readKeptV2(
+            repo,
+            `${KEPT_DIR}/${keptFileName(name)}`,
+          );
+          expect(receipt.pinnedNow, said(receipt)).toBe(PINNED);
+          const second = byName(await refresh([name], PINNED), name);
+          expect(second.outcome, said(second)).toBe("unchanged");
+        });
+      } finally {
+        html = ORIGINAL;
+      }
+    },
+    BOTH_MS,
+  );
+
+  it(
+    "pinned, a real change beside the dates reads changed",
+    async () => {
+      const name = "Dated pinned change";
+      try {
+        await withKept(video(name), async () => {
+          html = datedPage(Date.parse(PINNED));
+          const first = byName(await refresh([name], PINNED), name);
+          expect(first.outcome, said(first)).not.toBe("failed");
+          html = datedPage(Date.parse(PINNED), "<h1>Bills</h1>");
+          // Premise: only the heading differs.
+          expect(html).not.toBe(datedPage(Date.parse(PINNED)));
+          const second = byName(await refresh([name], PINNED), name);
+          expect(second.outcome, said(second)).toBe("changed");
+          expect(second.notes.join(" "), said(second)).not.toContain(
+            "DEMOMAN_NOW",
+          );
+        });
+      } finally {
+        html = ORIGINAL;
+      }
+    },
+    BOTH_MS,
+  );
 };
