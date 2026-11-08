@@ -1228,10 +1228,17 @@ export function createRoutes(o: {
       const listed = await execGit(
         ["ls-tree", "-r", "-d", "-z", "--name-only", "HEAD"],
         root,
-      ).catch((error: unknown) => ({
+      ).catch(async (error: unknown) => ({
         code: -1,
         stdout: "",
-        stderr: messageOf(error),
+        // A gone checkout fails as "spawn git ENOENT", which reads as if git
+        // were missing (DEM-76): say which one is.
+        stderr: (await stat(root).then(
+          () => true,
+          () => false,
+        ))
+          ? messageOf(error)
+          : `${root} is not there any more`,
       }));
       if (listed.code !== 0) {
         const why =
