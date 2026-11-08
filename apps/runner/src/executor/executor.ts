@@ -34,7 +34,7 @@ import {
   findAccounts,
 } from "./accounts.js";
 import { attachProjectRefused, attachTake, attachThrew } from "./attach.js";
-import { createBrowserSession } from "./browser.js";
+import { createBrowserSession, linkedLibraries } from "./browser.js";
 import { deriveOp } from "./derive.js";
 import { expireOld, expiryStatus } from "./expiry.js";
 import { type ExportDeps, exportTake } from "./export.js";
@@ -1289,6 +1289,16 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
               "kind" in where
                 ? { unreadable: where.detail, file: null }
                 : await resolvePullRequests(where.from, home);
+            // Read without launching: tells "not started yet" from "not
+            // installed", which browserRunning: false cannot. On Linux a
+            // download whose libraries are missing cannot start either.
+            const executable =
+              options.executablePath ?? chromium.executablePath();
+            const downloaded = existsSync(executable);
+            const libraries =
+              downloaded && process.platform === "linux" && !session.running()
+                ? await linkedLibraries(executable)
+                : null;
             return {
               ok: true,
               value: {
@@ -1296,11 +1306,14 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
                 runnerVersion: RUNNER_VERSION,
                 allowAgentRuns: true,
                 browserRunning: session.running(),
-                // Read without launching: tells "not started yet" from "not
-                // installed", which browserRunning: false cannot.
-                browserInstalled: existsSync(
-                  options.executablePath ?? chromium.executablePath(),
-                ),
+                browserInstalled:
+                  downloaded &&
+                  !(
+                    libraries !== null &&
+                    "missing" in libraries &&
+                    libraries.missing.length > 0
+                  ),
+                ...(libraries === null ? {} : { browserLibraries: libraries }),
                 exportsTo: outDir,
                 sessions: await sessionsForStatus(),
                 accounts: await accountsForStatus(),

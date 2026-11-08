@@ -1,4 +1,6 @@
 // apps/runner/src/executor/browser.ts
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   type CdpSession,
   type Clock,
@@ -55,6 +57,28 @@ export function launchFailure(said: string): {
     missingLibraries: false,
     line: lines[0] ?? "it failed and said nothing",
   };
+}
+
+/**
+ * Status's word on a downloaded browser's Linux libraries, read with `ldd`
+ * rather than a launch (DEM-71): the ones the dynamic linker cannot find, or
+ * why `ldd` could not say. Never "none missing" for an `ldd` that failed.
+ */
+export async function linkedLibraries(
+  executable: string,
+  ldd: (exe: string) => Promise<string> = async (exe) =>
+    (await promisify(execFile)("ldd", [exe])).stdout,
+): Promise<{ missing: string[] } | { unchecked: string }> {
+  try {
+    const said = await ldd(executable);
+    return {
+      missing: [...said.matchAll(/^\s*(\S+) => not found/gm)].map(
+        (m) => m[1] ?? m[0],
+      ),
+    };
+  } catch (error) {
+    return { unchecked: `ldd ${executable} failed: ${messageOf(error)}` };
+  }
 }
 
 /**
