@@ -43,6 +43,9 @@ export interface VerifyDeps {
     /** The started app's reset, run before each flow as refresh runs it
      *  (DEM-57); absent when the check starts no app. */
     beforeFlow?: AppStarted["reset"],
+    /** The instant the started app was given (DEM-79), so the check records
+     *  as CI's refresh does; absent when none. */
+    pinnedNow?: string,
   ): Promise<RefreshResult>;
   /** Only for the check's own `docker info`; startApp has its own. */
   docker(args: string[]): Promise<{ code: number }>;
@@ -192,6 +195,7 @@ export async function verifySetup(
       },
       env,
       app?.reset ?? undefined,
+      app?.pinnedNow ?? undefined,
     );
     const result = await orStop(refreshing);
     if (result === STOPPED) {

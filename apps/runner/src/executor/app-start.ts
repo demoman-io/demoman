@@ -18,6 +18,9 @@ export type AppStartRefusal = {
     | "appNeverAnswered"
     | "appServiceFailed"
     | "appPortTaken"
+    | "appNowInFuture"
+    | "appNowTooOld"
+    | "appNowNotPinned"
     | "appDockerMissing";
   /** What failed and the next action. */
   detail: string;
@@ -33,6 +36,9 @@ export type AppStarted = {
   stop(): Promise<string[]>;
   /** Runs app.json's `reset`, if any, before a flow (DEM-57). */
   reset(): Promise<{ ok: true } | { ok: false; detail: string }>;
+  /** app.json's `now` when the app was started here with it as
+   *  DEMOMAN_NOW; null when unset (DEM-79). A reused app is never pinned. */
+  pinnedNow: string | null;
 };
 export interface AppStartDeps {
   spawn: typeof import("node:child_process").spawn;
@@ -44,6 +50,11 @@ export interface AppStartDeps {
   sleep(ms: number): Promise<void>;
 }
 
+/** How far behind the real clock `now` may be. The page's clock is pinned
+ *  but the browser's cookie jar is not: a cookie the page sets for N days is
+ *  already expired once `now` is N days old, and reads as a sign-in fault
+ *  (code review #1, the author's choice 2026-11-07). */
+export const MAX_NOW_AGE_DAYS = 7;
 const POLL_MS = 250;
 const PROBE_MS = 2_000;
 const KILL_WAIT_MS = 5_000;
@@ -142,7 +153,35 @@ export async function startApp(
     ...deps,
   };
   const t0 = d.now();
-  const env = { ...o.env, ...app.env };
+  // Refused before anything runs: a future instant can make the app treat a
+  // fresh sign-in as expired, which would read as a sign-in fault (DEM-79).
+  if (app.now !== undefined && Date.parse(app.now) > t0)
+    return {
+      reason: "appNowInFuture",
+      detail: `now in ${APP_FILE} (${app.now}) is later than this machine's clock (${new Date(t0).toISOString()}); set now to an instant that has passed`,
+      tail: "",
+    };
+  if (app.now !== undefined) {
+    const days = Math.floor((t0 - Date.parse(app.now)) / 86_400_000);
+    if (days > MAX_NOW_AGE_DAYS)
+      return {
+        reason: "appNowTooOld",
+        detail: `now in ${APP_FILE} (${app.now}) is ${days} days old, more than ${MAX_NOW_AGE_DAYS} days: a page clock that far behind can drop the app's cookies and reject its sign-in; set now to a recent instant (every video that shows a date is recorded again once)`,
+        tail: "",
+      };
+  }
+  // DEMOMAN_NOW is app.json's now, or nothing: one left in the shell would
+  // pin the server while the browser ran on the real clock. (parseApp
+  // refuses one in env.)
+  if (o.env.DEMOMAN_NOW !== undefined)
+    o.log(
+      `DEMOMAN_NOW from the environment was not passed to the app: Demoman sets it from now in ${APP_FILE}`,
+    );
+  const { DEMOMAN_NOW: _stray, ...inherited } = { ...o.env, ...app.env };
+  const env: NodeJS.ProcessEnv = {
+    ...inherited,
+    ...(app.now === undefined ? {} : { DEMOMAN_NOW: app.now }),
+  };
   const secretValues = app.secrets
     .map((n) => env[n])
     .filter((v): v is string => !!v);
@@ -206,12 +245,21 @@ export async function startApp(
     };
   }
   if (o.mode === "reuse" && (await ready())) {
+    // Recording it anyway would put real-date videos back over pinned ones,
+    // and the next CI refresh would flip them again (DEM-79).
+    if (app.now !== undefined)
+      return {
+        reason: "appNowNotPinned",
+        detail: `the app was already running at ${app.url} before Demoman started it, so the now in ${APP_FILE} (${app.now}) cannot be pinned; stop it and run again, or let CI refresh`,
+        tail: "",
+      };
     return {
       reused: true,
       said: `used the app already answering at ${app.url}`,
       seconds: Math.round((d.now() - t0) / 100) / 10,
       stop: async () => [],
       reset,
+      pinnedNow: null,
     };
   }
 
@@ -363,6 +411,7 @@ export async function startApp(
     seconds: Math.round((d.now() - t0) / 100) / 10,
     stop,
     reset,
+    pinnedNow: app.now ?? null,
   };
 }
 

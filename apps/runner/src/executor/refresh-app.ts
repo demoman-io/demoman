@@ -4,7 +4,7 @@
 // provides them. Only the clean-checkout check starts them through Docker.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { APP_FILE, type AppSpec, parseApp } from "@demoman/run-core";
+import { APP_FILE, type AppSpec, messageOf, parseApp } from "@demoman/run-core";
 import {
   type AppStartDeps,
   type AppStarted,
@@ -14,7 +14,12 @@ import {
 import { readKeptFlows } from "./kept-flows.js";
 
 export type AppPlan =
-  | { kind: "none"; said: string }
+  | {
+      kind: "none";
+      said: string;
+      /** Said once when app.json pins `now` and this refresh cannot (DEM-79). */
+      note?: string;
+    }
   | { kind: "start"; app: AppSpec }
   | {
       kind: "refused";
@@ -26,15 +31,13 @@ export async function appPlanFor(
   root: string,
   o: { baseUrl?: string },
 ): Promise<AppPlan> {
-  if (o.baseUrl !== undefined)
-    return {
-      kind: "none",
-      said: `--base-url given; ${APP_FILE} not used`,
-    };
   let text: string;
   try {
     text = await readFile(join(root, APP_FILE), "utf8");
   } catch (error) {
+    // With --base-url the file is not used, readable or not.
+    if (o.baseUrl !== undefined)
+      return { kind: "none", said: `--base-url given; ${APP_FILE} not used` };
     if ((error as NodeJS.ErrnoException).code === "ENOENT")
       return {
         kind: "none",
@@ -43,10 +46,24 @@ export async function appPlanFor(
     return {
       kind: "refused",
       reason: "appInvalid",
-      detail: `${APP_FILE} could not be read (${error instanceof Error ? error.message : String(error)})`,
+      detail: `${APP_FILE} could not be read (${messageOf(error)})`,
     };
   }
   const parsed = parseApp(text, APP_FILE);
+  if (o.baseUrl !== undefined) {
+    const said = `--base-url given; ${APP_FILE} not used`;
+    // Read only to say a pin it asks for cannot happen: Demoman does not
+    // start an app at --base-url, so it cannot hand it the instant (DEM-79).
+    // An invalid file is ignored, as --base-url always has.
+    const now = parsed.ok ? parsed.app.now : undefined;
+    return now === undefined
+      ? { kind: "none", said }
+      : {
+          kind: "none",
+          said,
+          note: `${APP_FILE} pins now to ${now}, but --base-url records an app Demoman did not start, so the date is not pinned`,
+        };
+  }
   if (!parsed.ok)
     return { kind: "refused", reason: "appInvalid", detail: parsed.detail };
   const mismatch = appOriginMismatch(
@@ -89,9 +106,10 @@ export async function withApp<T>(
     ci: boolean;
     log: (l: string) => void;
   },
-  /** Gets the started app's reset, to run before each flow (DEM-57); a
-   *  no-op when no app is started here. */
-  run: (reset: AppStarted["reset"]) => Promise<T>,
+  /** Gets the started app's reset, to run before each flow (DEM-57), a
+   *  no-op when no app is started here; and the instant it was started at
+   *  (DEM-79), null when none or none started here. */
+  run: (reset: AppStarted["reset"], pinnedNow: string | null) => Promise<T>,
   deps: Partial<AppStartDeps> & { startApp?: typeof startApp } = {},
 ): Promise<
   | { ok: true; value: T; lines: string[] }
@@ -103,8 +121,8 @@ export async function withApp<T>(
   if (plan.kind === "none")
     return {
       ok: true,
-      value: await run(async () => ({ ok: true })),
-      lines: [],
+      value: await run(async () => ({ ok: true }), null),
+      lines: plan.note === undefined ? [] : [plan.note],
     };
   if (plan.kind === "refused")
     return {
@@ -145,7 +163,11 @@ export async function withApp<T>(
   }
   const lines = [started.said];
   try {
-    return { ok: true, value: await run(started.reset), lines };
+    return {
+      ok: true,
+      value: await run(started.reset, started.pinnedNow),
+      lines,
+    };
   } finally {
     const left = await started.stop();
     if (left.length > 0) lines.push(`could not stop ${left.join(", ")}`);

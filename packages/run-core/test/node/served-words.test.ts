@@ -112,6 +112,15 @@ describe("the words served to agents (spec 2026-10-30 flows-and-bulk-delete §2)
     expect(input.provenance.takeId).toBe("scene-1-a");
   });
 
+  // Red when refresh's own evidence reaches an agent's answer (DEM-79).
+  it("the served report leaves out datesOnScreen", () => {
+    const input = stored({ datesOnScreen: ["Dec 4, 2026"] });
+    // Premise: the stored report carries it.
+    expect(keysOf(input).has("datesOnScreen")).toBe(true);
+    expect(keysOf(servedRunReport(input)).has("datesOnScreen")).toBe(false);
+    expect(input.datesOnScreen).toEqual(["Dec 4, 2026"]);
+  });
+
   it("serves an old report without videoVersion", () => {
     const out = servedRunReport(
       stored({

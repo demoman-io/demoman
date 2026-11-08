@@ -52,7 +52,9 @@ const NOT_STORED: Record<string, string> = { take: "video", video: "flow" };
 /** A run report — stored in `report.json` in the old words — as an agent
  *  and a kept repo file read it (spec §2.1). */
 export function servedRunReport(r: RunReport): Json {
-  let out: Json = { ...(r as unknown as Json) };
+  // Refresh's own evidence (DEM-79), not part of an agent's answer.
+  const { datesOnScreen: _dates, ...rest } = r;
+  let out: Json = { ...(rest as unknown as Json) };
   if (isObj(out.provenance)) {
     out.provenance = renamed(out.provenance, "takeId", "videoId");
   }

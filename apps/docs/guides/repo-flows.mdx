@@ -199,6 +199,7 @@ It never reads `.env`.
 | `install` | Commands run before start, in order |
 | `start` | The command that starts the app |
 | `reset` | Optional. A command run before each flow, so one flow's changes never show in the next (for example `pnpm reset`) |
+| `now` | Optional. The instant the app is recorded at, with a zone (for example `2026-11-06T09:00:00Z`). See [Pinned dates](#pinned-dates) |
 | `url` | Where the app answers. Ready is a 2xx, 3xx, or 400 to 403 |
 | `timeoutSeconds` | How long to wait for `url`; default 120 |
 | `env` | Environment for the app. Committed, so it refuses a value that looks like a secret; default none |
@@ -217,6 +218,48 @@ when the commands use it.
 If a workflow of yours already starts the app before `demoman refresh` (a
 "Start your app" step, or `wait-on`), delete that step: refresh now starts
 the app from this file, and both would use the same port.
+
+### Pinned dates
+
+An app that shows dates relative to today (due dates, "3 days ago", the
+current cycle) looks different every day, so every refresh would replace its
+videos. Set `now` in `.demoman/app.json` and the app is recorded at that
+instant every time:
+
+- Demoman gives the app's install, start and reset commands `DEMOMAN_NOW`.
+- The page's clock starts at `now` and runs from there.
+
+The app reads `DEMOMAN_NOW` wherever it seeds data or decides what "now" is,
+and falls back to the real clock when it is not set:
+
+```ts
+const now = process.env.DEMOMAN_NOW ? new Date(process.env.DEMOMAN_NOW) : new Date();
+```
+
+Read it once per reset, so the seed and the pages agree.
+
+- `now` must have passed, and be at most 7 days old. A later instant is
+  refused as `appNowInFuture`, an older one as `appNowTooOld`. The browser
+  keeps its own clock for cookies, so a page clock far behind it can drop
+  the cookies the app sets and fail its sign-in. Move `now` forward when it
+  is refused; every video that shows a date is recorded again once.
+- Even a few days behind, a sign-in library that rejects a token issued
+  "in the future" can fail under a pinned clock. If a pinned refresh cannot
+  sign in, this is the first thing to check.
+- The pin reaches the page's own `Date`. It does not reach web workers,
+  iframes from another origin, or `Intl.DateTimeFormat().format()` called
+  without a date: a date shown through those still follows today.
+- It applies only when Demoman starts the app. A local refresh with the app
+  already running is refused, as `appNowNotPinned`: stop the app, or let CI
+  refresh.
+- With `--base-url`, or a workflow that records a deployment, the date is not
+  pinned, and refresh says so once.
+- A video recorded against your own dev server shows the real date. The first
+  refresh after setting `now` records it again at the pinned instant, once.
+- Changing `now` records every video that shows a date again.
+
+Without `now`, a refresh that replaces a video whose last screen shows dates
+says so beside that video.
 
 ### The self-check
 
@@ -247,6 +290,7 @@ the confirmation. Reasons it names:
 | `filesUnreadable` | A file to commit could not be read; nothing was done |
 | `checkoutFailed` | The clean checkout could not be made (no commit, git failing, or a file path outside the repo) |
 | `appPortTaken` | Something already answers at `url`; the check will not record it as the app |
+| `appNowInFuture`, `appNowTooOld`, `appNowNotPinned` | `now` in `app.json` is later than the machine's clock or more than 7 days old, or the app was already running so its date cannot be pinned. See [Pinned dates](#pinned-dates) |
 | `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appDockerMissing` | The check could not install or start the app or its services; the output's last lines come with it. When the check used a drafted `.demoman/app.json`, setup writes it to your working tree, uncommitted, so you can fix the command and run setup again |
 | `refreshFailed` | The check's refresh failed on a flow |
 | `checkStopped` | Ctrl-C ended the check; its worktree is removed and nothing was written |

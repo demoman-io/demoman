@@ -94,6 +94,12 @@ function blankWalk(total: number, reason: ReplayStopReason): WalkResultLike {
 export interface RunDeps {
   /** From the door: the version the script stated before it was raised. */
   versionRaisedFrom?: number;
+  /** The instant the page's clock starts at, when refresh started the app
+   *  with it (DEM-79); never an MCP argument. */
+  pinnedNow?: string;
+  /** Read the last screen for dates (DEM-79): refresh's run only, the one
+   *  reader; never an MCP argument. */
+  readDates?: boolean;
   session: BrowserSession;
   library: Library;
   kits: BrandKitsRead;
@@ -480,7 +486,7 @@ export async function runScript(
     });
     throw error;
   }
-  const { result, signedOutAfter, landingNote } = filmed;
+  const { result, signedOutAfter, landingNote, datesOnScreen } = filmed;
   // Read before anything else touches the page: where the steps left it.
   const endPage = await pageEndPage(page);
 
@@ -673,6 +679,10 @@ export async function runScript(
     still,
     endPage,
     ...(landingNote === undefined ? {} : { landing: landingNote }),
+    ...(datesOnScreen.length === 0 ? {} : { datesOnScreen }),
+    // prepareStage stops the run when the pin cannot be installed, so a run
+    // that got this far has it.
+    ...(deps.pinnedNow === undefined ? {} : { pinnedNow: deps.pinnedNow }),
     ...(deps.refilm === undefined ? {} : { rerecord: deps.refilm }),
     ...(videoVersion === undefined ? {} : { videoVersion }),
     ...(deps.filmedCode === undefined ? {} : { filmedCode: deps.filmedCode }),

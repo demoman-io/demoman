@@ -32,6 +32,7 @@ import {
 import { createHeadlessPageAgent } from "../page-agent.js";
 import { watchNavigation } from "../replay.js";
 import type { Stage } from "./browser.js";
+import { readDatesOnScreen } from "./dates-on-screen.js";
 import {
   fileForLanding,
   fileIsForLanding,
@@ -41,6 +42,7 @@ import {
   readLandingFacts,
 } from "./landing.js";
 import { measureViewport, pageCapture } from "./page-ops.js";
+import { pinnedClockSource, pinnedOffsetMs } from "./pinned-clock.js";
 import type { RunDeps } from "./run.js";
 import { type SessionFile, samePage } from "./sessions.js";
 
@@ -59,6 +61,8 @@ export type PlayDeps = Pick<
   | "loadSessions"
   | "signinCommand"
   | "account"
+  | "pinnedNow"
+  | "readDates"
 >;
 
 export type Prepared =
@@ -88,6 +92,24 @@ export async function prepareStage(
   }
   const launched = staged.stage;
   const { page } = launched;
+
+  // Before the first navigation, on this flow's own target: every document
+  // of the flow reads the repo's pinned instant (DEM-79). A pin that cannot
+  // be installed stops the run: a video at the real date would be compared
+  // with pinned ones and read as changed.
+  if (deps.pinnedNow !== undefined) {
+    try {
+      await launched.cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: pinnedClockSource(pinnedOffsetMs(deps.pinnedNow)),
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "portFailure",
+        detail: `the page's clock could not be pinned to ${deps.pinnedNow} (${messageOf(error)})`,
+      };
+    }
+  }
 
   // The executor loaded the saved sessions into the context `ensure()` gave
   // it; the stage can be a later one if the browser relaunched in between
@@ -176,6 +198,9 @@ export interface Played {
   lostHeadlessPage: boolean;
   landingNote: RunReport["landing"];
   arrival: Arrival;
+  /** Date-looking text on the last screen, [] when none or unreadable
+   *  (DEM-79): refresh's evidence for its note on dates. */
+  datesOnScreen: string[];
 }
 
 /** The walk on a prepared stage, and the checks straight after it. Throws
@@ -357,8 +382,16 @@ export async function playOnStage(
       }
     }
   }
+  // Read once, straight after the walk, while the last screen is up; only
+  // for refresh, the one reader, and only after a walk that finished: a
+  // stopped run must not wait on the page again (code review #2).
+  const datesOnScreen =
+    deps.readDates === true && result.reason === null
+      ? await readDatesOnScreen(page, log)
+      : [];
   options.mark?.("checks");
   return {
+    datesOnScreen,
     result,
     navigationError,
     failedNote,

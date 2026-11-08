@@ -255,6 +255,15 @@ export interface RunReport {
    *  stopped on. Absent: it landed where it was asked, and any page checked
    *  after a stop was read. */
   landing?: { startedElsewhere: string } | { unchecked: string };
+  /** Up to 3 date-looking strings on the run's last screen; absent when it
+   *  showed none or could not be read. Refresh's evidence for saying a
+   *  replaced video's dates may be why (DEM-79); never served to agents. */
+  datesOnScreen?: string[];
+  /** The instant the run's page clock was pinned to (DEM-79). Set when the
+   *  run was given one: prepareStage stops a run whose pin cannot be
+   *  installed, so a report that has it was pinned. Refresh confirms the pin
+   *  reached its run from this, and writes the receipt's pinnedNow from it. */
+  pinnedNow?: string;
   /** What the run filmed (docs/superpowers/specs/2026-10-25-pr-reminder-
    *  and-verdict-design.md). Absent on a report written before it existed. */
   filmedCode?: FilmedCode;

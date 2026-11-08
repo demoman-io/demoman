@@ -127,6 +127,7 @@ const startStub =
         return leftToStop;
       },
       reset: async () => ({ ok: true }),
+      pinnedNow: null,
     }),
   ): typeof startApp =>
   async (a, o) => {
@@ -282,6 +283,7 @@ describe("verifySetup", () => {
         resets += 1;
         return { ok: true };
       },
+      pinnedNow: null,
     }));
     let handed: (() => Promise<unknown>) | undefined;
     await verifySetup(
@@ -297,6 +299,31 @@ describe("verifySetup", () => {
     expect(handed).toBeDefined();
     await handed?.();
     expect(resets).toBe(1);
+  });
+
+  // Red when setup's check records at the real date while CI records pinned:
+  // the check would pass a flow CI then reads as changed (DEM-79).
+  it("hands the refresh the started app's pinnedNow", async () => {
+    const startApp = startStub(async () => ({
+      reused: false,
+      said: "started",
+      seconds: 1,
+      stop: async () => [],
+      reset: async () => ({ ok: true }),
+      pinnedNow: "2026-11-06T09:00:00Z",
+    }));
+    let handed: string | undefined | null = null;
+    await verifySetup(
+      { root, files: files(), target: { app: app() }, secrets: {} },
+      deps({
+        startApp,
+        refresh: async (args, env, _beforeFlow, pinnedNow) => {
+          handed = pinnedNow;
+          return refreshStub()(args, env);
+        },
+      }),
+    );
+    expect(handed).toBe("2026-11-06T09:00:00Z");
   });
 
   // Red when process.env is passed whole, or secrets reach only one side.
@@ -600,6 +627,7 @@ describe("verifySetup", () => {
               return [];
             },
             reset: async () => ({ ok: true }),
+            pinnedNow: null,
           };
         }),
       }),

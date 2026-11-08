@@ -993,6 +993,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             ...(checked.versionRaisedFrom === undefined
               ? {}
               : { versionRaisedFrom: checked.versionRaisedFrom }),
+            // Refresh's own run only (DEM-79): not an MCP argument.
+            ...(typeof args.pinnedNow === "string"
+              ? { pinnedNow: args.pinnedNow }
+              : {}),
+            ...(args.readDates === true ? { readDates: true } : {}),
             session,
             library,
             kits,

@@ -129,6 +129,27 @@ describe("the receipt", () => {
     expect(refusal(withChange({ scriptDigest: "" }))).toContain("scriptDigest");
   });
 
+  // Red when a receipt cannot say which instant its video was pinned to (DEM-79).
+  it("round-trips pinnedNow", () => {
+    const pinned: KeptReceipt = { ...v2, pinnedNow: "2026-11-06T09:00:00Z" };
+    const text = serializeReceipt(pinned);
+    expect(JSON.parse(text).pinnedNow).toBe("2026-11-06T09:00:00Z");
+    expect(parseReceipt(text, "r.json")).toEqual({ ok: true, receipt: pinned });
+  });
+
+  it("a receipt without pinnedNow parses and writes as before", () => {
+    const text = serializeReceipt(v2);
+    expect(text).not.toContain("pinnedNow");
+    const r = parseReceipt(text, "r.json");
+    expect(r.ok && "pinnedNow" in r.receipt).toBe(false);
+  });
+
+  it("refuses a pinnedNow that is not an instant, naming it", () => {
+    for (const pinnedNow of ["", "2026-11-06", "soon", 5]) {
+      expect(refusal(withChange({ pinnedNow }))).toContain("pinnedNow");
+    }
+  });
+
   it("refuses a screen folder that is not beside the receipt", () => {
     // Premise: the same change with a folder beside the receipt is accepted.
     expect(

@@ -123,7 +123,7 @@ jobs:
 
   # vitest's --shard splits the lane's files across these jobs, each file in
   # exactly one of them, by path rather than by how long it takes. So the
-  # refresh lane's four parts run on machines of their own below: as one file
+  # refresh lane's parts run on machines of their own below: as one file
   # it was 3012 s of its shard's 3014 s (run 41224304573, 2026-10-31).
   # Standard runners cost nothing on this public repo; more of them is free.
   runner:
@@ -145,7 +145,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [unchanged, restyle, replace, own]
+        part: [unchanged, restyle, replace, own, dates]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
