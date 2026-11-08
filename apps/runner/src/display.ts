@@ -50,8 +50,22 @@ const runCommand: RunCommand = (cmd, args) =>
  *  the first listed. A connected output with no mode is switched off. */
 const XRANDR_OUTPUT = /^\S+ connected (primary )?(\d+)x(\d+)\+\d+\+\d+/gm;
 
-/** The screen xrandr lists, in CSS px at GDK_SCALE (1 unless a positive
- *  integer), as macOS's points are; or why it could not be read. */
+/** The desktop's scale from X resources: GNOME and KDE set `Xft.dpi` (96 at
+ *  1x) where they rarely set GDK_SCALE. A number, or why there is none. */
+async function readXftScale(run: RunCommand): Promise<number | string> {
+  try {
+    const out = await run("xrdb", ["-query"]);
+    if (out.code !== 0) return `xrdb exited ${out.code}`;
+    const dpi = Number(/^Xft\.dpi:\s*(\S+)/m.exec(out.stdout)?.[1]);
+    return dpi > 0 ? dpi / 96 : "xrdb lists no Xft.dpi";
+  } catch (error) {
+    return `xrdb could not run (${error instanceof Error ? error.message : String(error)})`;
+  }
+}
+
+/** The screen xrandr lists, in CSS px as macOS's points are, at GDK_SCALE
+ *  (a positive integer), else Xft.dpi's, else 1 and says so; or why the
+ *  screen could not be read. */
 async function readXrandr(
   env: NodeJS.ProcessEnv,
   run: RunCommand,
@@ -73,11 +87,16 @@ async function readXrandr(
   const chosen = outputs.find((m) => m[1] !== undefined) ?? outputs[0];
   if (chosen === undefined) return cannot("it listed no connected screen");
   const gdk = Number(env.GDK_SCALE);
-  const scale = Number.isInteger(gdk) && gdk > 0 ? gdk : 1;
+  const xft = Number.isInteger(gdk) && gdk > 0 ? gdk : await readXftScale(run);
+  const scale = typeof xft === "number" ? xft : 1;
   return {
-    width: Number(chosen[2]) / scale,
-    height: Number(chosen[3]) / scale,
+    // Whole CSS px: a fractional scale (Xft.dpi 144 is 1.5) is a window size.
+    width: Math.round(Number(chosen[2]) / scale),
+    height: Math.round(Number(chosen[3]) / scale),
     scale,
+    ...(typeof xft === "string" && {
+      scaleAssumed: `recorded at 1x: this desktop's scale could not be read (GDK_SCALE is unset and ${xft}) — on a HiDPI screen set DEMOMAN_DISPLAY to <width>x<height>@<scale> (such as 1280x800@2)`,
+    }),
   };
 }
 

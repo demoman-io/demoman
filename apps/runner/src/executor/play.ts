@@ -140,9 +140,9 @@ export async function prepareStage(
     screen: await deps.session.screen(page),
   });
   // A size the script or its device chose is still filmed at 1x when
-  // headless could not read the display, so the reason rides on it too: the
-  // size is right and the scale is not.
-  const scaleLost = deps.session.screenUnknown();
+  // headless could not read the display, or assumed its scale (DEM-70), so
+  // the reason rides on it too: the size is right and the scale may not be.
+  const scaleLost = deps.session.screenUnknown() ?? deps.session.scaleAssumed();
   // Only a screen that could not be read leaves the window's own size, and
   // then it is measured, never defaulted: this lands in
   // `meta.capture.viewport`, which is what the compositor composes every

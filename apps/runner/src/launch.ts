@@ -123,6 +123,9 @@ export interface Display {
   width: number;
   height: number;
   scale: number;
+  /** Why `scale` is 1 by assumption, not read (DEM-70): Linux desktops that
+   *  say their scale nowhere Demoman looks. Said on the run report. */
+  scaleAssumed?: string;
 }
 
 /** The flags that put a headless Chrome on `display`: `--screen-info` takes

@@ -400,6 +400,39 @@ function fakeLaunched(options: { closeRejects?: boolean } = {}): Fake {
 }
 
 describe("createBrowserSession bookkeeping (fake launcher)", () => {
+  // DEM-70: play reads this onto the run's size, so the report says it.
+  it("says why a display's scale was assumed, and clears it once one is read", async () => {
+    const said = "recorded at 1x: this desktop's scale could not be read";
+    const reads = [
+      { width: 2560, height: 1440, scale: 1, scaleAssumed: said },
+      { width: 1280, height: 720, scale: 2 },
+    ];
+    const lines: string[] = [];
+    const session = createBrowserSession({
+      headless: true,
+      log: (l: string) => lines.push(l),
+      launchFn: async () => {
+        const fake = fakeLaunched();
+        setTimeout(() => fake.page.emit("close"), 0);
+        return fake.launched;
+      },
+      readDisplay: async () =>
+        reads.shift() ?? { width: 1, height: 1, scale: 1 },
+    });
+    expect((await session.ensure()).ok).toBe(true);
+    expect(session.scaleAssumed()).toBe(said);
+    expect(session.screenUnknown()).toBeNull();
+    expect(lines).toContain(said);
+    await vi.waitFor(() => {
+      expect(session.closedSinceEnsure()).toBe(true);
+    });
+    expect((await session.ensure()).ok).toBe(true);
+    // Premise: both reads were taken, so the second launch read the 2x one.
+    expect(reads).toEqual([]);
+    expect(session.scaleAssumed()).toBeNull();
+    await session.close();
+  });
+
   it("launches headless on the display it reads, and says when it cannot read one", async () => {
     const display = { width: 1710, height: 1107, scale: 2 };
     const launchedWith: Parameters<typeof launch>[0][] = [];
