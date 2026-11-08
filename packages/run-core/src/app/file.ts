@@ -9,6 +9,21 @@ const APP_VERSION = 1;
 const SECRET_NAME_RULE =
   "a secret name is A-Z, 0-9 and _, not starting with a digit or GITHUB_";
 const SECRET_NAME = /^[A-Z_][A-Z0-9_]*$/;
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+/** An ISO 8601 instant with a zone, that names a real moment
+ *  (`2026-11-06T09:00:00Z`; not a bare date, nor a time without a zone). */
+export const isInstant = (s: string): boolean => {
+  if (!INSTANT.test(s)) return false;
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  const day = new Date(Date.UTC(y as number, (m as number) - 1, d as number));
+  // Date.parse rolls 2026-02-30 over to March: the calendar date must survive.
+  return (
+    !Number.isNaN(Date.parse(s)) &&
+    day.getUTCMonth() === (m as number) - 1 &&
+    day.getUTCDate() === d
+  );
+};
 
 export interface AppService {
   image: string;
@@ -23,6 +38,9 @@ export interface AppSpec {
   /** Run before each flow, so one flow's changes never show in the next
    *  (DEM-57). Named by the person or agent; never guessed. */
   reset?: string;
+  /** The instant the app is recorded at when Demoman starts it, handed to
+   *  it as DEMOMAN_NOW (DEM-79). Set by the person; never written by Demoman. */
+  now?: string;
   url: string;
   timeoutSeconds: number;
   env: Record<string, string>;
@@ -59,6 +77,13 @@ const AppSchema = z
     install: z.array(z.string().min(1)),
     start: z.string().min(1),
     reset: z.string().min(1).optional(),
+    now: z
+      .string()
+      .refine(
+        isInstant,
+        "must be an ISO 8601 instant with a zone, e.g. 2026-11-06T09:00:00Z",
+      )
+      .optional(),
     url: z
       .string()
       .min(1)
@@ -127,14 +152,15 @@ export function serializeApp(app: AppSpec): string {
     install,
     start,
     reset,
+    now,
     url,
     timeoutSeconds,
     env,
     secrets,
     services,
   } = app;
-  // reset only when set: a file written before it serializes as before.
-  return `${JSON.stringify({ appVersion, install, start, ...(reset === undefined ? {} : { reset }), url, timeoutSeconds, env, secrets, services }, null, 2)}\n`;
+  // reset and now only when set: a file written before them serializes as before.
+  return `${JSON.stringify({ appVersion, install, start, ...(reset === undefined ? {} : { reset }), ...(now === undefined ? {} : { now }), url, timeoutSeconds, env, secrets, services }, null, 2)}\n`;
 }
 
 export function draftHoles(d: AppDraft): string[] {

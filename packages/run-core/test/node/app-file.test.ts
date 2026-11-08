@@ -122,6 +122,51 @@ describe(".demoman/app.json", () => {
     expect(serializeApp(FULL)).not.toContain("reset");
   });
 
+  // Red when app.json cannot pin now, or writes one it was not given (DEM-79).
+  it("parses now and serializes it after reset", () => {
+    const now = "2026-11-06T09:00:00Z";
+    const keys = (a: AppSpec) => Object.keys(JSON.parse(serializeApp(a)));
+    expect(keys({ ...FULL, reset: "pnpm reset", now })).toEqual([
+      "appVersion",
+      "install",
+      "start",
+      "reset",
+      "now",
+      "url",
+      "timeoutSeconds",
+      "env",
+      "secrets",
+      "services",
+    ]);
+    expect(keys({ ...FULL, now }).slice(2, 4)).toEqual(["start", "now"]);
+    const r = parseApp(serializeApp({ ...FULL, now }), ".demoman/app.json");
+    expect(r).toMatchObject({ ok: true, app: { now } });
+  });
+
+  it("a file without now serializes as before", () => {
+    expect(serializeApp(FULL)).not.toContain('"now"');
+    expect(Object.keys(JSON.parse(serializeApp(FULL)))).toEqual(
+      Object.keys(FULL),
+    );
+  });
+
+  it("refuses a now without a zone, naming the field", () => {
+    const r = invalid(withChange({ now: "2026-11-06T09:00:00" }));
+    expect(r.field).toBe("now");
+    expect(r.detail).toContain("now");
+    expect(r.detail).toContain("zone");
+  });
+
+  it("refuses a now that is not a date", () => {
+    for (const now of ["tomorrow", "2026-13-40T00:00:00Z", ""]) {
+      expect(invalid(withChange({ now })).field, now).toBe("now");
+    }
+    // Premise: an offset zone is accepted.
+    expect(
+      parseApp(withChange({ now: "2026-11-06T09:00:00+02:00" }), "a").ok,
+    ).toBe(true);
+  });
+
   it("names the draft's holes", () => {
     const { start: _s, url: _u, ...rest } = FULL;
     expect(draftHoles({ ...rest, start: null, url: null })).toEqual([

@@ -1,6 +1,7 @@
 // The receipt: what a kept flow's committed files show, written beside the
 // recipe (.demoman/videos/) under .demoman/receipts/.
 import { type FilmedCode, parseFilmedCode } from "../replay/report.js";
+import { isInstant } from "../app/file.js";
 import { isFlowId } from "../served-words.js";
 import type { KeptMoment, KeptScreens } from "./file.js";
 
@@ -29,6 +30,9 @@ export type KeptReceipt = {
   /** `scriptDigest` of the script the committed files were delivered from;
    *  absent from a receipt written before it was recorded. */
   scriptDigest?: string;
+  /** The instant the video was recorded at, when the repo pinned one
+   *  (`now` in app.json, DEM-79); absent when it was not pinned. */
+  pinnedNow?: string;
 };
 
 /** The folder a receipt's screen images live in, beside it: `order.json`
@@ -195,6 +199,9 @@ export function parseReceipt(text: string, file: string): Parsed {
   const digest = raw.scriptDigest;
   if (digest !== undefined && (typeof digest !== "string" || digest === ""))
     return bad("scriptDigest must be a non-empty string");
+  const pinned = raw.pinnedNow;
+  if (pinned !== undefined && (typeof pinned !== "string" || !isInstant(pinned)))
+    return bad("pinnedNow must be an ISO 8601 instant with a zone");
   return {
     ok: true,
     receipt: {
@@ -208,6 +215,7 @@ export function parseReceipt(text: string, file: string): Parsed {
       screensDir,
       screensSize,
       ...(digest === undefined ? {} : { scriptDigest: digest }),
+      ...(pinned === undefined ? {} : { pinnedNow: pinned }),
     },
   };
 }
@@ -226,6 +234,7 @@ export function serializeReceipt(r: KeptReceipt): string {
     filmedCode: r.filmedCode,
     recordedRevision: r.recordedRevision,
     ...(r.scriptDigest === undefined ? {} : { scriptDigest: r.scriptDigest }),
+    ...(r.pinnedNow === undefined ? {} : { pinnedNow: r.pinnedNow }),
     ...(r.screensDir === null || r.screensSize === null
       ? {}
       : { screensDir: r.screensDir, screensSize: r.screensSize }),
