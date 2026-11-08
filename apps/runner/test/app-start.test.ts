@@ -638,6 +638,8 @@ describe("now", () => {
     readFile(join(root, name), "utf8").catch(() => "(none)");
   const writes = (name: string) =>
     `printf %s "\${DEMOMAN_NOW-unset}" > ${name}`;
+  /** An hour after NOW: these cases must not depend on today's date. */
+  const soon = () => Date.parse(NOW) + 3_600_000;
 
   it("hands DEMOMAN_NOW to install, start and reset", async () => {
     const r = started(
@@ -649,7 +651,7 @@ describe("now", () => {
           reset: writes("reset.txt"),
         }),
         opts(),
-        { spawn: spawnSpy.fn },
+        { spawn: spawnSpy.fn, now: soon },
       ),
     );
     expect(await r.reset()).toEqual({ ok: true });
@@ -691,6 +693,49 @@ describe("now", () => {
     expect(spawnSpy.calls).toEqual([]);
   });
 
+  // Chosen after code review #1: a page clock far behind the browser's own
+  // drops cookies the page sets and can reject the server's tokens.
+  it("refuses appNowTooOld when now is more than 7 days old", async () => {
+    const r = await startApp(
+      app({ now: NOW, install: [writes("install.txt")] }),
+      opts(),
+      { spawn: spawnSpy.fn, now: () => Date.parse(NOW) + 8 * 86_400_000 },
+    );
+    expect(isRefusal(r) && r.reason).toBe("appNowTooOld");
+    const { detail } = r as AppStartRefusal;
+    expect(detail).toContain("8 days");
+    expect(detail).toContain("7 days");
+    expect(detail).toContain(".demoman/app.json");
+    expect(spawnSpy.calls).toEqual([]);
+  });
+
+  it("accepts a now 6 days old", async () => {
+    const r = started(
+      await startApp(app({ now: NOW }), opts(), {
+        spawn: spawnSpy.fn,
+        now: () => Date.parse(NOW) + 6 * 86_400_000,
+      }),
+    );
+    expect(r.pinnedNow).toBe(NOW);
+  });
+
+  // Code review #8: a DEMOMAN_NOW in the shell is dropped, and said.
+  it("says when it drops a DEMOMAN_NOW from the shell", async () => {
+    const said: string[] = [];
+    started(
+      await startApp(
+        app(),
+        opts({
+          env: { ...opts().env, DEMOMAN_NOW: "2020-01-01T00:00:00Z" },
+          log: (l: string) => said.push(l),
+        }),
+        { spawn: spawnSpy.fn },
+      ),
+    );
+    expect(said.join(" ")).toContain("DEMOMAN_NOW");
+    expect(said.join(" ")).toContain("now");
+  });
+
   describe("when the app already answers", () => {
     beforeEach(async () => {
       const s = createServer((_q, res) => res.end("ok"));
@@ -704,7 +749,7 @@ describe("now", () => {
       const r = await startApp(
         app({ now: NOW, reset: writes("reset.txt") }),
         opts({ mode: "reuse" }),
-        { spawn: spawnSpy.fn },
+        { spawn: spawnSpy.fn, now: soon },
       );
       expect(isRefusal(r) && r.reason).toBe("appNowNotPinned");
       const { detail } = r as AppStartRefusal;

@@ -238,7 +238,17 @@ const now = process.env.DEMOMAN_NOW ? new Date(process.env.DEMOMAN_NOW) : new Da
 
 Read it once per reset, so the seed and the pages agree.
 
-- `now` must have passed. A later instant is refused, as `appNowInFuture`.
+- `now` must have passed, and be at most 7 days old. A later instant is
+  refused as `appNowInFuture`, an older one as `appNowTooOld`. The browser
+  keeps its own clock for cookies, so a page clock far behind it can drop
+  the cookies the app sets and fail its sign-in. Move `now` forward when it
+  is refused; every video that shows a date is recorded again once.
+- Even a few days behind, a sign-in library that rejects a token issued
+  "in the future" can fail under a pinned clock. If a pinned refresh cannot
+  sign in, this is the first thing to check.
+- The pin reaches the page's own `Date`. It does not reach web workers,
+  iframes from another origin, or `Intl.DateTimeFormat().format()` called
+  without a date: a date shown through those still follows today.
 - It applies only when Demoman starts the app. A local refresh with the app
   already running is refused, as `appNowNotPinned`: stop the app, or let CI
   refresh.
@@ -280,7 +290,7 @@ the confirmation. Reasons it names:
 | `filesUnreadable` | A file to commit could not be read; nothing was done |
 | `checkoutFailed` | The clean checkout could not be made (no commit, git failing, or a file path outside the repo) |
 | `appPortTaken` | Something already answers at `url`; the check will not record it as the app |
-| `appNowInFuture`, `appNowNotPinned` | `now` in `app.json` is later than the machine's clock, or the app was already running so its date cannot be pinned. See [Pinned dates](#pinned-dates) |
+| `appNowInFuture`, `appNowTooOld`, `appNowNotPinned` | `now` in `app.json` is later than the machine's clock or more than 7 days old, or the app was already running so its date cannot be pinned. See [Pinned dates](#pinned-dates) |
 | `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appDockerMissing` | The check could not install or start the app or its services; the output's last lines come with it. When the check used a drafted `.demoman/app.json`, setup writes it to your working tree, uncommitted, so you can fix the command and run setup again |
 | `refreshFailed` | The check's refresh failed on a flow |
 | `checkStopped` | Ctrl-C ended the check; its worktree is removed and nothing was written |

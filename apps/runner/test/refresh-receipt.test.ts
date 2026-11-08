@@ -118,6 +118,8 @@ let dirty: boolean;
 let storedDates: string[] | null;
 /** Whether the fake run leaves out the pin it was asked for. */
 let dropPin: boolean;
+/** Whether the fake run leaves no report.json behind. */
+let noStoredReport: boolean;
 /** Every line refresh logged. */
 let logged: string[];
 
@@ -153,6 +155,7 @@ beforeEach(async () => {
   dirty = false;
   storedDates = null;
   dropPin = false;
+  noStoredReport = false;
   logged = [];
 });
 afterEach(() => rm(repo, { recursive: true, force: true }));
@@ -175,18 +178,16 @@ const deps = (): RefreshDeps => ({
           runs.push(args);
           await duringRun?.();
           // The report the run stores, as the executor's run writes it.
-          await mkdir(join(home, "takes", "t-new"), { recursive: true });
-          await writeFile(
-            join(home, "takes", "t-new", "report.json"),
-            JSON.stringify({
-              provenance: { takeId: "t-new" },
-              ...(storedDates === null ? {} : { datesOnScreen: storedDates }),
-              // As runScript records the pin it installed.
-              ...(typeof args.pinnedNow === "string" && !dropPin
-                ? { pinnedNow: args.pinnedNow }
-                : {}),
-            }),
-          );
+          if (!noStoredReport) {
+            await mkdir(join(home, "takes", "t-new"), { recursive: true });
+            await writeFile(
+              join(home, "takes", "t-new", "report.json"),
+              JSON.stringify({
+                provenance: { takeId: "t-new" },
+                ...(storedDates === null ? {} : { datesOnScreen: storedDates }),
+              }),
+            );
+          }
           return {
             ok: true,
             value: {
@@ -201,6 +202,10 @@ const deps = (): RefreshDeps => ({
                 tree: "b".repeat(40),
                 dirty,
               },
+              // As runScript records the pin it installed; served as is.
+              ...(typeof args.pinnedNow === "string" && !dropPin
+                ? { pinnedNow: args.pinnedNow }
+                : {}),
             },
           };
         }
@@ -1037,6 +1042,8 @@ describe("pinned dates", () => {
     await writeWithScreens();
     await one(pinned());
     expect(runs.map((r) => r.pinnedNow)).toEqual([PINNED]);
+    // Code review #2: refresh, the one reader, asks for the dates.
+    expect(runs.map((r) => r.readDates)).toEqual([true]);
   });
 
   it("an unpinned refresh passes none", async () => {
@@ -1067,6 +1074,17 @@ describe("pinned dates", () => {
     expect(await receiptOf(), said).toEqual(before);
   });
 
+  // Code review #5: an unreadable report.json lost only the kept report
+  // before, and must not fail a video the run confirmed pinned.
+  it("a pinned refresh whose report.json is unreadable still delivers, pinned", async () => {
+    await writeWithScreens();
+    same = false;
+    noStoredReport = true;
+    const v = await one(pinned());
+    expect(v.outcome, JSON.stringify(v)).toBe("changed");
+    expect((await receiptOf()).pinnedNow).toBe(PINNED);
+  });
+
   it("an unpinned refresh writes no pinnedNow", async () => {
     await writeWithScreens();
     same = false;
@@ -1094,6 +1112,20 @@ describe("pinned dates", () => {
     const v = await one();
     expect(v.outcome).toBe("changed");
     expect(v.notes.join(" ")).not.toContain("DEMOMAN_NOW");
+  });
+
+  // Code review #6: app.json already sets now; --base-url could not use it,
+  // and the run's own line says so. Advice to set it would be wrong.
+  it("no note when app.json's now was not used", async () => {
+    await writeWithScreens();
+    same = false;
+    storedDates = ["Dec 4, 2026"];
+    const v = await one({ ...deps(), nowUnused: true });
+    expect(v.outcome).toBe("changed");
+    expect(v.notes.join(" ")).not.toContain("DEMOMAN_NOW");
+    // Premise: the same refresh without the flag gets the note.
+    const again = await one();
+    expect(again.notes.join(" ")).toContain("DEMOMAN_NOW");
   });
 
   it("no note when pinned", async () => {

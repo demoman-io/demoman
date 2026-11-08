@@ -55,6 +55,16 @@ export type AppDraft = Omit<AppSpec, "start" | "url"> & {
 
 const Env = z.record(z.string(), z.string()).superRefine((env, ctx) => {
   for (const [name, value] of Object.entries(env)) {
+    // Demoman sets it from `now`, and pins the page's clock with it: one
+    // set here would pin the app alone (DEM-79).
+    if (name === "DEMOMAN_NOW") {
+      ctx.addIssue({
+        code: "custom",
+        path: [name],
+        message: `${name} is set by Demoman from "now"; set "now" in this file instead`,
+      });
+      continue;
+    }
     if (looksLikeSecret(value)) {
       ctx.addIssue({
         code: "custom",

@@ -100,7 +100,7 @@ beforeEach(() => {
   reported = [];
 });
 
-const run = (steps: unknown[], pinnedNow?: string) =>
+const run = (steps: unknown[], pinnedNow?: string, readDates = false) =>
   runScript(
     {
       scriptVersion: 6,
@@ -120,6 +120,7 @@ const run = (steps: unknown[], pinnedNow?: string) =>
       loadSessions: async () => ({ ok: true as const, files: [] }),
       sessionsContext: {} as BrowserContext,
       ...(pinnedNow === undefined ? {} : { pinnedNow }),
+      ...(readDates ? { readDates } : {}),
     },
     () => undefined,
   );
@@ -197,15 +198,43 @@ describe("a run with pinnedNow", () => {
 // there were none (DEM-79).
 describe("the dates a run's last screen shows", () => {
   it("are in the report when the last page shows one", async () => {
-    const report = await run([{ do: "click", on: { stableId: "next" } }]);
+    const report = await run(
+      [{ do: "click", on: { stableId: "next" } }],
+      undefined,
+      true,
+    );
     const said = JSON.stringify({ outcome: report.outcome, lines });
     // Premise: the run ended on the page that shows the date.
     expect(report.outcome, said).toBe("complete");
     expect(report.datesOnScreen, said).toEqual(["Dec 4, 2026"]);
   }, 120_000);
 
+  // Code review #2: every run and probe paid for a read only refresh uses.
+  it("are not read unless the run is asked to", async () => {
+    const report = await run([{ do: "click", on: { stableId: "next" } }]);
+    const said = JSON.stringify({ outcome: report.outcome, lines });
+    // Premise: the run ended on the page that shows the date.
+    expect(report.outcome, said).toBe("complete");
+    expect("datesOnScreen" in report, said).toBe(false);
+  }, 120_000);
+
+  // Code review #2: a run that stopped must not wait on the page again.
+  it("are not read after a run that stopped", async () => {
+    const report = await run(
+      [
+        { do: "click", on: { stableId: "next" } },
+        { do: "click", on: { stableId: "missing" } },
+      ],
+      undefined,
+      true,
+    );
+    const said = JSON.stringify({ outcome: report.outcome, lines });
+    expect(report.outcome, said).not.toBe("complete");
+    expect("datesOnScreen" in report, said).toBe(false);
+  }, 120_000);
+
   it("are absent when it shows none", async () => {
-    const report = await run([{ do: "pause", ms: 300 }]);
+    const report = await run([{ do: "pause", ms: 300 }], undefined, true);
     expect(report.outcome).toBe("complete");
     expect("datesOnScreen" in report).toBe(false);
   }, 120_000);

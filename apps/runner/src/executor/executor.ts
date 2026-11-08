@@ -997,6 +997,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             ...(typeof args.pinnedNow === "string"
               ? { pinnedNow: args.pinnedNow }
               : {}),
+            ...(args.readDates === true ? { readDates: true } : {}),
             session,
             library,
             kits,

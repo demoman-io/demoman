@@ -19,6 +19,7 @@ export type AppStartRefusal = {
     | "appServiceFailed"
     | "appPortTaken"
     | "appNowInFuture"
+    | "appNowTooOld"
     | "appNowNotPinned"
     | "appDockerMissing";
   /** What failed and the next action. */
@@ -49,6 +50,11 @@ export interface AppStartDeps {
   sleep(ms: number): Promise<void>;
 }
 
+/** How far behind the real clock `now` may be. The page's clock is pinned
+ *  but the browser's cookie jar is not: a cookie the page sets for N days is
+ *  already expired once `now` is N days old, and reads as a sign-in fault
+ *  (code review #1, the author's choice 2026-11-07). */
+export const MAX_NOW_AGE_DAYS = 7;
 const POLL_MS = 250;
 const PROBE_MS = 2_000;
 const KILL_WAIT_MS = 5_000;
@@ -155,8 +161,22 @@ export async function startApp(
       detail: `now in ${APP_FILE} (${app.now}) is later than this machine's clock (${new Date(t0).toISOString()}); set now to an instant that has passed`,
       tail: "",
     };
-  // DEMOMAN_NOW is app.json's now, or nothing: one left in the shell or put
-  // in env would pin the server while the browser ran on the real clock.
+  if (app.now !== undefined) {
+    const days = Math.floor((t0 - Date.parse(app.now)) / 86_400_000);
+    if (days > MAX_NOW_AGE_DAYS)
+      return {
+        reason: "appNowTooOld",
+        detail: `now in ${APP_FILE} (${app.now}) is ${days} days old, more than ${MAX_NOW_AGE_DAYS} days: a page clock that far behind can drop the app's cookies and reject its sign-in; set now to a recent instant (every video that shows a date is recorded again once)`,
+        tail: "",
+      };
+  }
+  // DEMOMAN_NOW is app.json's now, or nothing: one left in the shell would
+  // pin the server while the browser ran on the real clock. (parseApp
+  // refuses one in env.)
+  if (o.env.DEMOMAN_NOW !== undefined)
+    o.log(
+      `DEMOMAN_NOW from the environment was not passed to the app: Demoman sets it from now in ${APP_FILE}`,
+    );
   const { DEMOMAN_NOW: _stray, ...inherited } = { ...o.env, ...app.env };
   const env: NodeJS.ProcessEnv = {
     ...inherited,

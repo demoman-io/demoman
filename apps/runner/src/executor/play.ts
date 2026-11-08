@@ -62,6 +62,7 @@ export type PlayDeps = Pick<
   | "signinCommand"
   | "account"
   | "pinnedNow"
+  | "readDates"
 >;
 
 export type Prepared =
@@ -105,7 +106,7 @@ export async function prepareStage(
       return {
         ok: false,
         reason: "portFailure",
-        detail: `the page's clock could not be pinned to ${deps.pinnedNow} (${error instanceof Error ? error.message : String(error)})`,
+        detail: `the page's clock could not be pinned to ${deps.pinnedNow} (${messageOf(error)})`,
       };
     }
   }
@@ -381,8 +382,13 @@ export async function playOnStage(
       }
     }
   }
-  // Read once, straight after the walk, while the last screen is up.
-  const datesOnScreen = await readDatesOnScreen(page, log);
+  // Read once, straight after the walk, while the last screen is up; only
+  // for refresh, the one reader, and only after a walk that finished: a
+  // stopped run must not wait on the page again (code review #2).
+  const datesOnScreen =
+    deps.readDates === true && result.reason === null
+      ? await readDatesOnScreen(page, log)
+      : [];
   options.mark?.("checks");
   return {
     datesOnScreen,

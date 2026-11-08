@@ -737,6 +737,10 @@ async function refresh(args: string[]): Promise<void> {
             ...keptRefreshDeps(session, process.env, log),
             beforeFlow: reset,
             ...(pinnedNow === null ? {} : { pinnedNow }),
+            // app.json pins now and --base-url could not use it: said once.
+            ...(plan.kind === "none" && plan.note !== undefined
+              ? { nowUnused: true }
+              : {}),
           },
         ),
     );

@@ -167,6 +167,15 @@ describe(".demoman/app.json", () => {
     ).toBe(true);
   });
 
+  // Code review #8: one put in env was dropped without a word.
+  it("refuses DEMOMAN_NOW in env, pointing at now", () => {
+    const r = invalid(
+      withChange({ env: { DEMOMAN_NOW: "2026-11-06T09:00:00Z" } }),
+    );
+    expect(r.field).toBe("env.DEMOMAN_NOW");
+    expect(r.detail).toContain("now");
+  });
+
   it("names the draft's holes", () => {
     const { start: _s, url: _u, ...rest } = FULL;
     expect(draftHoles({ ...rest, start: null, url: null })).toEqual([

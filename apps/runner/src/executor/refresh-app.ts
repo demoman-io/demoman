@@ -4,7 +4,7 @@
 // provides them. Only the clean-checkout check starts them through Docker.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { APP_FILE, type AppSpec, parseApp } from "@demoman/run-core";
+import { APP_FILE, type AppSpec, messageOf, parseApp } from "@demoman/run-core";
 import {
   type AppStartDeps,
   type AppStarted,
@@ -31,26 +31,13 @@ export async function appPlanFor(
   root: string,
   o: { baseUrl?: string },
 ): Promise<AppPlan> {
-  if (o.baseUrl !== undefined) {
-    const said = `--base-url given; ${APP_FILE} not used`;
-    // Read only to say a pin it asks for cannot happen: Demoman does not
-    // start an app at --base-url, so it cannot hand it the instant (DEM-79).
-    // An unreadable or invalid file is ignored, as --base-url always has.
-    const text = await readFile(join(root, APP_FILE), "utf8").catch(() => null);
-    const parsed = text === null ? null : parseApp(text, APP_FILE);
-    const now = parsed?.ok ? parsed.app.now : undefined;
-    return now === undefined
-      ? { kind: "none", said }
-      : {
-          kind: "none",
-          said,
-          note: `${APP_FILE} pins now to ${now}, but --base-url records an app Demoman did not start, so the date is not pinned`,
-        };
-  }
   let text: string;
   try {
     text = await readFile(join(root, APP_FILE), "utf8");
   } catch (error) {
+    // With --base-url the file is not used, readable or not.
+    if (o.baseUrl !== undefined)
+      return { kind: "none", said: `--base-url given; ${APP_FILE} not used` };
     if ((error as NodeJS.ErrnoException).code === "ENOENT")
       return {
         kind: "none",
@@ -59,10 +46,24 @@ export async function appPlanFor(
     return {
       kind: "refused",
       reason: "appInvalid",
-      detail: `${APP_FILE} could not be read (${error instanceof Error ? error.message : String(error)})`,
+      detail: `${APP_FILE} could not be read (${messageOf(error)})`,
     };
   }
   const parsed = parseApp(text, APP_FILE);
+  if (o.baseUrl !== undefined) {
+    const said = `--base-url given; ${APP_FILE} not used`;
+    // Read only to say a pin it asks for cannot happen: Demoman does not
+    // start an app at --base-url, so it cannot hand it the instant (DEM-79).
+    // An invalid file is ignored, as --base-url always has.
+    const now = parsed.ok ? parsed.app.now : undefined;
+    return now === undefined
+      ? { kind: "none", said }
+      : {
+          kind: "none",
+          said,
+          note: `${APP_FILE} pins now to ${now}, but --base-url records an app Demoman did not start, so the date is not pinned`,
+        };
+  }
   if (!parsed.ok)
     return { kind: "refused", reason: "appInvalid", detail: parsed.detail };
   const mismatch = appOriginMismatch(

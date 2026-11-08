@@ -97,6 +97,9 @@ export interface RunDeps {
   /** The instant the page's clock starts at, when refresh started the app
    *  with it (DEM-79); never an MCP argument. */
   pinnedNow?: string;
+  /** Read the last screen for dates (DEM-79): refresh's run only, the one
+   *  reader; never an MCP argument. */
+  readDates?: boolean;
   session: BrowserSession;
   library: Library;
   kits: BrandKitsRead;
