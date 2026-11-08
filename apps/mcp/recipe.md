@@ -502,7 +502,7 @@ Studio exports go to `~/Downloads`.
 | `partial` | `attach`² | `gh` failed but the video is on the PR; do not post again. |
 | `unconfirmed` | `attach`² | Unknown what landed. Do not post again; tell the user to look at the PR. |
 | `copyFailed` | `attach`² | The video could not be copied; nothing posted. Hand the user the capped export's file. |
-| `windowDidNotOpen` | `snapshot`; `run`¹; `studio` | The window would not open; try once more. |
+| `windowDidNotOpen` | `snapshot`; `run`¹; `studio` | Retry once, unless detail says no display. |
 | `studioDidNotStart` | `studio` | The Studio did not start; `detail` quotes the end of `~/.demoman/studio.log`. Tell the user, quoting it. |
 | `alreadyRunning` | `snapshot`, `probe`, `run`, `derive` | A run, probe, snapshot or export is in progress. Call `report(id)` on it; retry when it settles. |
 | `busy` | `export`¹ | A run, probe or snapshot is in progress. `report(id)` it first. |

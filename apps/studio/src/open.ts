@@ -3,7 +3,11 @@ import { closeSync, openSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { join } from "node:path";
-import { createLibrary, LibraryError } from "@demoman/runner/studio";
+import {
+  createLibrary,
+  LibraryError,
+  visibleWindowRefusal,
+} from "@demoman/runner/studio";
 import {
   type PingAnswer,
   type Refusal,
@@ -288,7 +292,15 @@ export async function openStudio(o: {
   version: string;
   serve: { command: string; args: string[] };
   waitMs?: number;
+  /** Tests: the platform and environment a window would open in. */
+  host?: { platform: string; env: NodeJS.ProcessEnv };
 }): Promise<StudioAnswer> {
+  // Before a server starts: with no display, its window can never open
+  // (DEM-69), and the server would linger for nothing.
+  const host = o.host ?? process;
+  const noWindow = visibleWindowRefusal(host.platform, host.env);
+  if (noWindow !== null)
+    return { reason: "windowDidNotOpen", detail: noWindow };
   if (o.takeId !== undefined) {
     // Before anything starts: an unknown take must not open the library in
     // its place, nor spawn a process for nothing.
