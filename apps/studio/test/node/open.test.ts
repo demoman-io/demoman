@@ -501,6 +501,8 @@ describe("stopStudio", () => {
     expect(r).toMatchObject({ stopped: false, cutShort: 0 });
     // Could not tell is not "nothing running": it says what it found.
     expect(r.why).toContain(`pid ${process.pid} is alive but did not answer`);
+    // And why: port 1 refuses the ping (DEM-66's review).
+    expect(r.why).toContain("ECONNREFUSED");
     expect(() => process.kill(process.pid, 0)).not.toThrow();
   });
 

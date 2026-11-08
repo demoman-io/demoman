@@ -51,7 +51,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 type Call =
   | { ok: true; status: number; json: unknown }
-  | { ok: false; error: string };
+  | { ok: false; error: string; timedOut?: true };
 
 /** One request to the studio, carrying all three things its guard checks. */
 function call(
@@ -62,6 +62,7 @@ function call(
   timeoutMs: number,
 ): Promise<Call> {
   return new Promise((resolve) => {
+    let timedOut = false;
     const payload = body === undefined ? undefined : JSON.stringify(body);
     const req = request(
       {
@@ -104,9 +105,16 @@ function call(
       },
     );
     req.on("timeout", () => {
+      timedOut = true;
       req.destroy(new Error(`no answer within ${timeoutMs / 1000} s`));
     });
-    req.on("error", (e) => resolve({ ok: false, error: messageOf(e) }));
+    req.on("error", (e) =>
+      resolve({
+        ok: false,
+        error: messageOf(e),
+        ...(timedOut ? { timedOut: true as const } : {}),
+      }),
+    );
     if (payload !== undefined) req.write(payload);
     req.end();
   });
@@ -124,11 +132,12 @@ function isPing(v: unknown): v is PingAnswer {
 
 /** The studio the file names, when that pid is alive and the studio on the
  *  port answers with the token and as that pid; else null. */
-async function livePing(s: StudioState): Promise<PingAnswer | null> {
-  // A live pid gets PING_TRIES: a studio that has only just started, on a
-  // busy machine, can miss one ping, and calling it dead starts a second
-  // studio beside it (DEM-66).
-  for (let tries = PING_TRIES; pidAlive(s.pid) && tries > 0; tries--) {
+async function livePing(
+  s: StudioState,
+): Promise<{ ping: PingAnswer } | { why: string | null }> {
+  for (let tries = PING_TRIES; ; tries--) {
+    // why null: the pid is dead, which says itself.
+    if (!pidAlive(s.pid)) return { why: null };
     const answer = await call(
       s,
       "GET",
@@ -136,14 +145,24 @@ async function livePing(s: StudioState): Promise<PingAnswer | null> {
       undefined,
       PING_TIMEOUT_MS,
     );
-    if (answer.ok && answer.status === 200 && isPing(answer.json)) {
-      // A pid that was reused by something else answers on no studio's port;
-      // one that answers as another pid is not the studio the file names.
-      return answer.json.pid === s.pid ? answer.json : null;
+    if (!answer.ok) {
+      // Only a timeout is tried again: a studio that has only just started,
+      // on a busy machine, can miss one ping, and calling it dead starts a
+      // second beside it (DEM-66). A refusal would say the same again.
+      if (answer.timedOut === true && tries > 1) continue;
+      return { why: `its ping got ${answer.error}` };
     }
-    if (tries > 1) await sleep(200);
+    if (answer.status !== 200 || !isPing(answer.json)) {
+      return {
+        why: `its ping was answered ${answer.status}, not as the Studio`,
+      };
+    }
+    // A pid that was reused by something else answers on no studio's port;
+    // one that answers as another pid is not the studio the file names.
+    return answer.json.pid === s.pid
+      ? { ping: answer.json }
+      : { why: `its port answered as pid ${answer.json.pid}` };
   }
-  return null;
 }
 
 async function lastLines(path: string): Promise<string> {
@@ -343,9 +362,11 @@ export async function openStudio(o: {
       notes.push(`${STALE_NOTE} (${found.unreadable})`);
       return null;
     }
-    const ping = await livePing(found);
-    if (ping === null) {
-      notes.push(STALE_NOTE);
+    const live = await livePing(found);
+    if (!("ping" in live)) {
+      notes.push(
+        live.why === null ? STALE_NOTE : `${STALE_NOTE} (${live.why})`,
+      );
       try {
         await removeStudioState(o.home, found.pid);
       } catch (error) {
@@ -355,6 +376,7 @@ export async function openStudio(o: {
       }
       return null;
     }
+    const { ping } = live;
     if (ping.version === o.version) return found;
     if (ping.queued > 0) {
       notes.push(REPLACED_LATER_NOTE);
@@ -451,12 +473,12 @@ export async function stopStudio(o: { home: string }): Promise<{
     return { stopped: false, cutShort: 0, why: found.unreadable };
   }
   if (!pidAlive(found.pid)) return { stopped: false, cutShort: 0 };
-  const ping = await livePing(found);
-  if (ping === null) {
+  const live = await livePing(found);
+  if (!("ping" in live)) {
     return {
       stopped: false,
       cutShort: 0,
-      why: `pid ${found.pid} is alive but did not answer as the Studio, so it was left alone`,
+      why: `pid ${found.pid} is alive but did not answer as the Studio (${live.why ?? "it exited"}), so it was left alone`,
     };
   }
   const signal = (sig: "SIGTERM" | "SIGKILL"): void => {
@@ -474,5 +496,5 @@ export async function stopStudio(o: { home: string }): Promise<{
     signal("SIGKILL");
     await removeStudioState(o.home, found.pid);
   }
-  return { stopped: true, cutShort: ping.queued };
+  return { stopped: true, cutShort: live.ping.queued };
 }

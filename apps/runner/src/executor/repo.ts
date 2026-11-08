@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { copyFile, mkdtemp, realpath, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { FilmedCode } from "@demoman/run-core";
@@ -38,7 +38,18 @@ export const execGit: GitRunner = (args, cwd, env) =>
       if (typeof err.code === "number") {
         return done({ code: err.code, stdout, stderr });
       }
-      fail(err);
+      // A gone cwd also fails as "spawn git ENOENT", which reads as if git
+      // were missing (DEM-76): say which one is.
+      if (err.code !== "ENOENT") return fail(err);
+      stat(cwd).then(
+        () => fail(err),
+        (e: NodeJS.ErrnoException) =>
+          fail(
+            e.code === "ENOENT"
+              ? new Error(`${cwd} is not there any more`)
+              : err,
+          ),
+      );
     });
   });
 
