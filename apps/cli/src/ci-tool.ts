@@ -5,7 +5,7 @@
 // (Decision 4). A secret's value is never asked of the agent: values come
 // from this machine's environment and secrets.env, and every line, answer
 // and stop is redacted over them.
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   APP_FILE,
@@ -118,9 +118,20 @@ export function createCiTool(io: {
             detail: `${parsed.detail}; fix app, then call ci again. Nothing was written`,
           };
         app = parsed.app;
+        // Never over one already there: it may hold the person's own
+        // uncommitted edits. The plan reads app, not the file.
+        const text = serializeApp(app);
         await mkdir(join(root, ".demoman"), { recursive: true });
-        await writeFile(join(root, APP_FILE), serializeApp(app));
-        appFile = `wrote ${APP_FILE} in the working tree from app, uncommitted`;
+        try {
+          await writeFile(join(root, APP_FILE), text, { flag: "wx" });
+          appFile = `wrote ${APP_FILE} in the working tree from app, uncommitted`;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+          appFile =
+            (await readFile(join(root, APP_FILE), "utf8")) === text
+              ? `${APP_FILE} in the working tree already holds app`
+              : `left ${APP_FILE} in the working tree as it was: it differs from app and is never overwritten. The plan's check used app; make the file match it before the person runs setup`;
+        }
       }
       const said = (x: Answer): Answer =>
         appFile === undefined ? x : { ...x, appFile };
@@ -199,7 +210,8 @@ async function watch(
   const facts = await deps.readGithub(root);
   if ("reason" in facts) return { reason: facts.reason, detail: facts.detail };
   const head = await deps.git(
-    ["ls-remote", "--heads", facts.remote, SETUP_BRANCH],
+    // In full, as readGithub: a short name matches alice/demoman/setup too.
+    ["ls-remote", "--heads", facts.remote, `refs/heads/${SETUP_BRANCH}`],
     root,
   );
   if (head.code !== 0)

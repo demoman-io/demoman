@@ -117,11 +117,16 @@ function tool(
         args[0] === "ls-tree"
           ? { code: 0, stdout: "", stderr: "" }
           : args[0] === "ls-remote"
-            ? (o.lsRemote ?? {
-                code: 0,
-                stdout: "abc123\trefs/heads/demoman/setup\n",
-                stderr: "",
-              })
+            ? (o.lsRemote ??
+              // Only the full ref: the short name also matches
+              // alice/demoman/setup, so a watch asking by it reads nothing.
+              (args[3] === "refs/heads/demoman/setup"
+                ? {
+                    code: 0,
+                    stdout: "abc123\trefs/heads/demoman/setup\n",
+                    stderr: "",
+                  }
+                : { code: 0, stdout: "", stderr: "" }))
             : { code: 128, stdout: "", stderr: "fatal: no such path" },
       readGithub: async () => facts,
       detectApp: async () => ({ none: "nothing to propose from" }),
@@ -333,6 +338,25 @@ describe("the ci tool", () => {
     const b = await tool({ root: bad }).call({ app: { start: 3 } });
     expect(b.reason).toBe("appInvalid");
     expect(existsSync(join(bad, ".demoman", "app.json"))).toBe(false);
+  });
+
+  // Red: write app.json without `wx`. The person's uncommitted edits to it
+  // were lost, even when the plan then stopped.
+  it("never overwrites an app.json already in the working tree, and says so", async () => {
+    const root = repoDir();
+    const path = join(root, ".demoman", "app.json");
+    const mine = `${serializeApp({ ...APP, start: "make serve" })}`;
+    writeFileSync(path, mine);
+    const a = await tool({ root }).call({
+      trigger: "daily",
+      app: { ...APP, start: "pnpm dev" },
+    });
+    expect(readFileSync(path, "utf8")).toBe(mine);
+    expect(String(a.appFile)).toMatch(
+      /left \.demoman\/app\.json .*never overwritten/,
+    );
+    // Premise: the plan still ran on the agent's app, not the file.
+    expect(a.plan).toMatchObject({ app: { source: { kind: "agent" } } });
   });
 
   // Red if a missing value is asked of the agent, or the answer drops the
