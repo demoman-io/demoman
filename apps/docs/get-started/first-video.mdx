@@ -1,0 +1,46 @@
+---
+title: "Your first video"
+description: "Ask your agent for a demo, read what the run reports, and find the file."
+---
+
+{/* SetupPath */}
+
+## Ask for it
+
+Start your app, then, in its repo, ask your agent:
+
+```text
+make a demo of the feature we just built
+```
+
+{/* Terminal: an agent's snapshot, run and export */}
+
+The agent reads the page Demoman sees, writes the steps as a DemoScript and
+runs it in Demoman's own browser, out of your way. It never opens a window on
+your screen. [Prompts](/guides/prompts) has more to ask for: a format, a cut,
+a phone, a look.
+
+## Read the report
+
+Every run answers with a report your agent reads before it exports:
+
+- **Whether each step happened.** A step that stopped says where and why.
+- **What was in frame.** Each step is `inside`, `atEdge`, `cutOff` or
+  `outOfFrame`, and the cursor's path notes any `detour`.
+- **The last frame**, as an image, so the agent can check the end state.
+
+When a step misses, the agent fixes the script and runs it again, at most
+three runs. [The run report](/concepts/run-report) says what each finding
+means.
+
+## Find the file
+
+The agent exports the video to `~/Downloads` and ends with its path and three
+links: open it in the Studio, open the file, copy it. To edit it, see
+[Studio](/studio/overview).
+
+The flow is now in your library: `npx demoman studio` lists it.
+
+<Card title="Next · 04" href="/get-started/sign-in">
+  Sign in
+</Card>

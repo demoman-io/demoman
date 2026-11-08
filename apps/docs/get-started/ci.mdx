@@ -1,0 +1,66 @@
+---
+title: "Keep videos current"
+description: "One command sets up GitHub Actions to record the repo's flows again and deliver what changed."
+---
+
+{/* SetupPath */}
+
+With flows in the repo, CI records them again on a trigger you choose and
+delivers only the videos whose picture changed.
+
+## Before you start
+
+- The repo is on github.com, and `gh` is installed and signed in.
+- At least one flow is added ([Add to your repo](/get-started/add-to-repo)).
+- Apps behind a login use demo accounts ([Sign in](/get-started/sign-in)).
+
+## Set it up
+
+```bash
+npx demoman setup --ci
+```
+
+{/* Terminal: setup --ci's plan and its watch of the first run */}
+
+Setup records your flows once from a clean checkout, then shows one plan and
+asks once. Nothing is written to your checkout or to GitHub before you
+confirm. The plan names:
+
+| Part | Choices |
+| --- | --- |
+| Trigger (`--trigger`) | After a successful deployment, when a release is published, `daily`, or `push` (each merge) |
+| Route (`--route`) | `pr`: open a pull request with the changed videos (the default). `main`: commit them to the branch |
+| Files | `.github/workflows/demoman.yml`, `.demoman/app.json`, and any flow not yet on the default branch |
+| Secrets | Each demo account's secret, by name only |
+
+On your confirmation it sets the secrets, opens a pull request titled "Set up
+Demoman", and watches its first run until it passes or fails.
+
+## How CI starts your app
+
+`.demoman/app.json` is the committed record of how the app installs and
+starts, and where it answers. Setup drafts it from your repo (a Playwright
+`webServer`, a CI workflow, `package.json`) and asks for anything it cannot
+find. Every field, and pinning the date for an app that shows today's date,
+is on [app.json](/reference/app-json).
+
+## After setup
+
+On each trigger, the workflow runs `demoman refresh`. With the `pr` route it
+opens or updates one pull request, "Refresh demo videos", listing each
+changed video. Merge it to publish them. When nothing changed, nothing is
+committed. [Refresh](/concepts/refresh) explains how a change is judged.
+
+<Note>
+  The `pr` route needs **Allow GitHub Actions to create and approve pull
+  requests** under Settings → Actions → General. Setup turns it on for you;
+  in an organisation that forbids it, an owner allows it there first.
+</Note>
+
+If setup stops, it says why and what to do; every reason is on
+[Refusals](/reference/refusals#setup---ci). All flags are on
+[setup](/reference/setup).
+
+<Card title="Next · Concepts" href="/concepts/refresh">
+  How a refresh decides what changed
+</Card>

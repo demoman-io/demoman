@@ -1,0 +1,58 @@
+---
+title: "Add to your repo"
+description: "Save a flow's DemoScript in the repo, so every clone and every CI run can record it again."
+---
+
+{/* SetupPath */}
+
+A video goes stale when the app changes. Adding its flow to the repo saves the
+flow as a DemoScript, which CI records again in the next step.
+
+## Add it
+
+In the repo, with a flow your agent recorded:
+
+```bash
+npx demoman add "Add a task" --to docs/add-task.mp4
+```
+
+{/* Terminal: add's output */}
+
+It writes three files. Commit all three:
+
+| File | What it is |
+| --- | --- |
+| `.demoman/flows/add-task.json` | The flow's DemoScript: every step a new video needs. See [Flows and DemoScripts](/concepts/flows) |
+| `.demoman/receipts/add-task.json` | What the export shows, for a refresh to compare against |
+| `docs/add-task.mp4` | The export, at the path you named |
+
+`--gif <path>` adds a GIF, and `--to` may repeat. To keep videos out of git
+and upload them yourself, see `--deliver files` on [add](/reference/add).
+
+The flow's id is in the DemoScript, so every machine that clones the repo
+shares it. When your agent later records into a flow in the repo, its
+DemoScript follows the new script.
+
+## From the Studio
+
+**Add to repo** is on a flow's card and row in the Studio, and in the
+editor's Export panel. Its sheet asks for the path, the delivery and the
+quality, writes the same three files, and ends on each with Reveal. After a
+**Commit** add in a repo with no CI yet, it offers the next step's setup.
+
+## When add refuses
+
+Add writes nothing for a flow a new video cannot reproduce, and names why:
+
+- **Studio edits** a new video does not carry: a trim, a cut, a split, a
+  mask, a hold, a gap or a placed zoom. Remove the edit, or record the flow
+  again.
+- **Your own sign-in.** A flow recorded after `signin` needs a demo account
+  first ([Sign in](/get-started/sign-in)).
+- **Typed text the video never read.** Record the flow again.
+
+Every reason, with what to do, is on [Refusals](/reference/refusals#add).
+
+<Card title="Next · 06" href="/get-started/ci">
+  Keep videos current
+</Card>

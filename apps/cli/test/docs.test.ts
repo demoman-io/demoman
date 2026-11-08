@@ -512,3 +512,66 @@ describe("the words for adding a flow", () => {
     expect(usage).not.toMatch(/\brecipe\b/);
   });
 });
+
+describe("the setup path", () => {
+  const steps = GET_STARTED.slice(1);
+  it("each step carries what a stranger needs at that step", () => {
+    const need: Record<string, string[]> = {
+      "get-started/install": ["npx demoman setup", "Node 20", "sudo"],
+      "get-started/sign-in": ["cannot be added to the repo"],
+      "get-started/add-to-repo": [
+        "npx demoman add",
+        ".demoman/flows/",
+        ".demoman/receipts/",
+        "DemoScript",
+        "Commit all three",
+      ],
+      "get-started/ci": [
+        "npx demoman setup --ci",
+        ".demoman/app.json",
+        "--trigger",
+        "--route",
+      ],
+    };
+    for (const [page, strings] of Object.entries(need))
+      for (const s of strings) expect(readDocs(`${page}.mdx`), `${page}: ${s}`).toContain(s);
+  });
+  it("each step ends on a card to the next, the last to Refresh", () => {
+    const next = [...steps.slice(1), "concepts/refresh"];
+    steps.forEach((page, i) => {
+      const cards = [
+        ...readDocs(`${page}.mdx`).matchAll(/<Card[^>]*href="\/([^"]+)"/g),
+      ];
+      expect(cards.at(-1)?.[1], page).toBe(next[i]);
+    });
+  });
+  it("the Introduction leads with the premise and shows no example video", () => {
+    const intro = readDocs("index.mdx");
+    expect(intro).toContain("build artifact");
+    expect(intro).toContain("DemoScript");
+    expect(intro).not.toContain("<video");
+  });
+});
+
+describe("links into the docs from the product", () => {
+  it("every demoman.io/docs link in a message the product prints lands on a page", () => {
+    const root = new URL("../../../", import.meta.url);
+    const files = ["apps/cli/src", "apps/mcp/src", "apps/runner/src", "apps/studio/src"].flatMap(
+      (d) =>
+        (readdirSync(new URL(d, root), { recursive: true }) as string[])
+          .filter((f) => f.endsWith(".ts"))
+          .map((f) => `${d}/${f}`),
+    );
+    const links = files.flatMap((f) =>
+      [
+        ...readFileSync(new URL(f, root), "utf8").matchAll(
+          /demoman\.io\/docs\/([a-z0-9/-]+)/g,
+        ),
+      ].map((m) => `${f}: ${m[1]}`),
+    );
+    // Premise: refresh's pinned-dates hint is one of them.
+    expect(links.some((l) => l.startsWith("apps/runner/src/executor/refresh.ts"))).toBe(true);
+    const nav = new Set(navPages());
+    for (const l of links) expect(nav, l).toContain(l.split(": ")[1]);
+  });
+});
