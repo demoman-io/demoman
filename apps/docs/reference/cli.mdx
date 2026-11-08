@@ -1,0 +1,28 @@
+---
+title: "CLI"
+description: "Every demoman command, in one table."
+---
+
+Run any command with `npx demoman`.
+
+| Command | What it does |
+| --- | --- |
+| [setup](/reference/setup) | Install the browser and connect your agents; with `--ci`, set up GitHub Actions |
+| [signin](/reference/signin) | Sign in to an app once by hand, or check a demo account |
+| [studio](/reference/studio) | Open the Studio, to look over, edit and export flows |
+| [add](/reference/add) | Add a flow to the repo: its DemoScript, receipt and exports |
+| [remove](/reference/remove) | Remove a flow from the repo |
+| [join-flow](/reference/join-flow) | Move one flow's videos into another |
+| [refresh](/reference/refresh) | Record the repo's flows again and replace what changed |
+| [mcp](/reference/mcp) | Serve Demoman's tools to an agent |
+| [hook](/reference/hook) | Answer Claude Code's hook after a pull request opens |
+
+Environment variables are on [Environment](/reference/environment).
+
+## `--version`
+
+```bash
+npx demoman --version
+```
+
+Prints the installed version.

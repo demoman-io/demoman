@@ -1,0 +1,16 @@
+---
+title: "remove"
+description: "Remove a flow from the repo."
+---
+
+```bash
+npx demoman remove <flow>
+```
+
+Removes a flow from the repo, named by id or exact name: its DemoScript in
+`.demoman/flows/` and its receipt are deleted, and its exports stay where they
+are, named in what it prints. Commit the change.
+
+It exits 1, removing nothing, for a flow the repo does not have or one that
+two DemoScripts name, and says which file is left if its receipt cannot be
+removed. The Studio's **Remove from repo** does the same.

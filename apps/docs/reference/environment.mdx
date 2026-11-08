@@ -1,0 +1,18 @@
+---
+title: "Environment"
+description: "The environment variables Demoman reads."
+---
+
+| Variable | |
+| --- | --- |
+| `DEMOMAN_HOME` | Where Demoman keeps its videos, sessions and settings; `~/.demoman` by default |
+| `DEMOMAN_NO_UPDATE_CHECK=1` | Turns off the once-a-day check for a newer version |
+| `DEMOMAN_SECRET_<NAME>` | A demo account's secret ([accounts.json](/reference/accounts-json#secrets)) |
+| `DEMOMAN_SECRET_<NAME>_ORIGIN` | The one site that secret may be typed on |
+| `DEMOMAN_NOW` | Set by Demoman, not you: the pinned instant, given to the app's commands ([app.json](/reference/app-json#pinned-dates)) |
+
+<Note>
+  An agent may pass Demoman only part of its environment, as Codex does, so
+  a variable exported in your shell may never reach it. Set it where your
+  agent starts Demoman, or keep secrets in `.demoman/secrets.env`.
+</Note>

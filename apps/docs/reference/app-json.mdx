@@ -1,0 +1,85 @@
+---
+title: "app.json"
+description: "The committed record of how CI installs, starts and resets your app."
+---
+
+`.demoman/app.json` tells a refresh how to start the app. `setup --ci`
+proposes it from the repo, naming where each answer came from, and asks about
+any it cannot find. The detector reads, in order, the first that answers: the
+Playwright config's `webServer`, a CI workflow, `copilot-setup-steps.yml`,
+`package.json`. It never reads `.env`.
+
+```json
+{
+  "appVersion": 1,
+  "install": ["pnpm install --frozen-lockfile"],
+  "start": "pnpm dev",
+  "reset": "pnpm db:reset",
+  "url": "http://localhost:3000",
+  "secrets": ["SELLER_PASSWORD"]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `appVersion` | `1` |
+| `install` | Commands run before start, in order |
+| `start` | The command that starts the app |
+| `reset` | Optional. A command run before each flow, so one flow's changes never show in the next |
+| `now` | Optional. The instant the app is recorded at, with a zone (for example `2026-11-06T09:00:00Z`). See [Pinned dates](#pinned-dates) |
+| `url` | Where the app answers. Ready is a 2xx, 3xx, or 400 to 403 |
+| `timeoutSeconds` | How long to wait for `url`; default 120 |
+| `env` | Environment for the app. Committed, so it refuses a value that looks like a secret; default none |
+| `secrets` | Names of secrets the app needs, set on GitHub. Never values; default none |
+| `services` | Each service by name: `image`, `ports`, `env`, `options`; default none |
+
+## How refresh uses it
+
+`refresh` starts the app from this file. With `--base-url` it ignores the file
+and records the app at that address. It refuses with `appOriginMismatch`,
+naming the flows, when a flow records at a different origin than `url`.
+
+Off CI it uses an app already answering at `url`, and otherwise runs `start`.
+It never starts services: when the app does not answer and the file declares
+services, the refusal names each with its port, to start them yourself. In CI
+it always starts its own, and the workflow gives the job the services,
+corepack (pnpm, yarn) and bun when the commands use them.
+
+If a workflow of yours already starts the app before `demoman refresh` (a
+"Start your app" step, or `wait-on`), delete that step: both would use the
+same port.
+
+## Pinned dates
+
+An app that shows dates relative to today (due dates, "3 days ago", the
+current cycle) looks different every day, so every refresh would replace its
+videos. Set `now` and the app is recorded at that instant every time:
+
+- Demoman gives the app's install, start and reset commands `DEMOMAN_NOW`.
+- The page's clock starts at `now` and runs from there.
+
+The app reads `DEMOMAN_NOW` wherever it seeds data or decides what "now" is,
+and falls back to the real clock when it is not set:
+
+```ts
+const now = process.env.DEMOMAN_NOW ? new Date(process.env.DEMOMAN_NOW) : new Date();
+```
+
+Read it once per reset, so the seed and the pages agree.
+
+- `now` must have passed, and be at most 7 days old. A later instant is
+  refused as `appNowInFuture`, an older one as `appNowTooOld`: the browser
+  keeps its own clock for cookies, and a page clock far behind it can drop the
+  cookies the app sets. Move `now` forward when it is refused; every video
+  that shows a date is recorded again once.
+- A sign-in library that rejects a token issued "in the future" can fail
+  under a pinned clock. If a pinned refresh cannot sign in, check this first.
+- The pin reaches the page's own `Date`. It does not reach web workers,
+  iframes from another origin, or `Intl.DateTimeFormat().format()` called
+  without a date.
+- It applies only when Demoman starts the app. A local refresh with the app
+  already running is refused as `appNowNotPinned`: stop the app, or let CI
+  refresh.
+- With `--base-url`, or a workflow that records a deployment, the date is not
+  pinned, and refresh says so once.
+- Changing `now` records every video that shows a date again.

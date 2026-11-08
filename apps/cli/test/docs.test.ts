@@ -35,7 +35,11 @@ const MOVED: Array<[string, string]> = [
   ["cli/commands", "reference/cli"],
 ];
 // Only these pages may show a DemoScript's syntax.
-const SCRIPT_PAGES = ["concepts/flows", "reference/demoscript"];
+const SCRIPT_PAGES = [
+  "concepts/flows",
+  "reference/demoscript",
+  "reference/accounts-json",
+];
 
 const readDocs = (p: string): string => readFileSync(docs(p), "utf8");
 const docsJson = (): DocsJson => JSON.parse(readDocs("docs.json")) as DocsJson;
@@ -620,5 +624,37 @@ describe("links inside the docs", () => {
     // Premise: the pages link to each other at all.
     expect(links.length).toBeGreaterThan(30);
     for (const { p, slug } of links) expect(nav, `${p} → /${slug}`).toContain(slug);
+  });
+});
+
+describe("the reference pages", () => {
+  it("lists only refusal reasons the product can send", () => {
+    const root = new URL("../../../", import.meta.url);
+    const source = ["apps/runner/src", "apps/cli/src", "apps/mcp/src", "packages"]
+      .flatMap((d) =>
+        (readdirSync(new URL(d, root), { recursive: true }) as string[])
+          .filter((f) => f.endsWith(".ts") && !f.includes("node_modules") && !f.includes("dist/"))
+          .map((f) => readFileSync(new URL(`${d}/${f}`, root), "utf8")),
+      )
+      .join("\n");
+    const codes = new Set(
+      [...readDocs("reference/refusals.mdx").matchAll(/`([a-z]+[A-Z][A-Za-z]+)`/g)].map(
+        (m) => m[1] as string,
+      ),
+    );
+    // Premise: the page lists the reasons, not a handful.
+    expect(codes.size).toBeGreaterThanOrEqual(15);
+    for (const c of codes) expect(source, c).toMatch(new RegExp(`["'\`]${c}["'\`]`));
+  });
+  it("app.json has a row per field and the pinned dates section", () => {
+    const page = readDocs("reference/app-json.mdx");
+    for (const f of ["appVersion", "install", "start", "reset", "now", "url", "timeoutSeconds", "env", "secrets", "services"])
+      expect(page, f).toMatch(new RegExp(`^\\| \`${f}\` \\|`, "m"));
+    expect(page).toMatch(/^## Pinned dates$/m);
+  });
+  it("environment names every variable the package reads", () => {
+    const page = readDocs("reference/environment.mdx");
+    for (const v of ["DEMOMAN_HOME", "DEMOMAN_NO_UPDATE_CHECK", "DEMOMAN_SECRET_"])
+      expect(page, v).toContain(v);
   });
 });

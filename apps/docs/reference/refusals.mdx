@@ -1,0 +1,84 @@
+---
+title: "Refusals"
+description: "Every reason Demoman stops that needs you, and what to do about it."
+---
+
+When Demoman stops, it names a reason and a detail. Your agent handles most
+reasons itself; these are the ones that need you. The detail always says more
+than this page can: read it first.
+
+## Sign in
+
+| Reason | What to do |
+| --- | --- |
+| `signedOut` | The app sent Demoman to its sign-in page. Run the `npx demoman signin` command the detail gives, or add a demo account |
+| `signInFailed` | A demo account's steps ran but the page still asked to sign in. Fix the account's `signIn` or its secret |
+| `sessionUnreadable` | A saved session could not be read, or is readable by other users. The detail names the fix |
+| `sessionNotLoaded` | The browser refused the saved sessions. Run `npx demoman signin` again for that site |
+| `accountsInvalid` | `.demoman/accounts.json` breaks a rule; the detail names the field |
+| `unknownAccount` | The DemoScript names an account the site does not have, or none and the site has no `default` |
+| `secretMissing` | No value for a `{secret:NAME}`. Set `DEMOMAN_SECRET_NAME`, or add it to `.demoman/secrets.env` |
+| `secretTooShort` | A secret is under 8 characters |
+| `secretUnbound` | A secret has no `_ORIGIN` beside it naming its site. Nothing was typed |
+| `secretOffOrigin` | A secret was about to be typed on another site than its own. Nothing was typed |
+| `secretsFileNotIgnored` | Git does not ignore `.demoman/secrets.env`, so Demoman did not read it. Add it to `.gitignore` |
+| `secretsFileInvalid` | A line of `.demoman/secrets.env` is not `DEMOMAN_SECRET_NAME=value`, a comment or blank |
+
+## Recording
+
+| Reason | What to do |
+| --- | --- |
+| `browserMissing` | Demoman's browser or its system libraries are missing. Run the command the detail gives |
+| `unsupportedPlatform` | This machine cannot record: it needs macOS or x86_64 Linux |
+| `windowDidNotOpen` | The browser window did not open. Retried once; the detail says whether there is no display |
+| `windowClosed` | With `--headed`, the window was closed mid-run. Leave it open |
+| `studioDidNotStart` | The Studio did not start; the detail quotes its log |
+| `videoExpired` | The video's frames have expired. Record the flow again, then export |
+
+## Adding a flow
+
+| Reason | What to do |
+| --- | --- |
+| `cannotRefilm` | The current video has Studio edits a new video does not carry, or typed text the video never read. Remove the edit, or record the flow again |
+| `handSignIn` | The flow was recorded after `signin`. Record it again with a demo account |
+| `notInRepo`, `outsideRepo` | Run `add` inside the repo, with paths inside it |
+| `outputTaken` | Another flow already writes to that path |
+| `logoUnreadable` | The brand kit's logo could not be read |
+| `repoFlowNameTaken` | Your library has a different flow with the repo flow's name. Run the `join-flow` command the detail gives |
+| `duplicateFlow` | Two DemoScripts in `.demoman/flows/` name one flow. Delete one |
+| `repoFlowUnreadable` | A DemoScript in `.demoman/flows/` will not read; the detail names it |
+
+## Setting up CI
+
+`setup --ci` writes nothing outward until you confirm.
+
+| Reason | What to do |
+| --- | --- |
+| `ghMissing`, `ghSignedOut`, `notGitHub`, `githubUnreadable` | Install `gh` and run `gh auth login`; the repo must be on github.com |
+| `alreadySetUp` | The workflow is already on the default branch |
+| `setupPrOpen`, `setupBranchExists` | A setup pull request is open, or `demoman/setup` exists without one. Merge or close it |
+| `noRepoFlows`, `flowUnreadable` | No flow in the repo to refresh, or a DemoScript will not read |
+| `noRelease`, `noDeployment` | The trigger you chose has nothing on record. Pick another |
+| `routeRefused` | Deployment and release triggers cannot use the `main` route |
+| `workflowRefused` | The workflow cannot be written from these names; the detail says which to rename |
+| `appUnknown`, `appHoles`, `appInvalid` | No app found, a field still unknown, or `.demoman/app.json` is invalid |
+| `appOriginMismatch` | A flow records at another origin than `app.json`'s `url` |
+| `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appDockerMissing` | The check could not install or start the app or a service; the output's last lines come with it, and the drafted `app.json` is left in your working tree to fix |
+| `appPortTaken` | Something already answers at `url`. Stop it |
+| `appNowInFuture`, `appNowTooOld`, `appNowNotPinned` | `now` in `app.json` is ahead of the clock, more than 7 days old, or the app was already running. See [Pinned dates](/reference/app-json#pinned-dates) |
+| `secretsUnknown` | A DemoScript will not read, or no account can be chosen for its site |
+| `secretMissing`, `secretTooShort`, `secretsUnreadable`, `envFileUnreadable` | A secret has no value or is under 8 characters, or GitHub's secrets or your env file could not be read |
+| `checkoutFailed`, `setupUnreadable`, `filesUnreadable` | A git or file step failed while planning. Nothing was written |
+| `refreshFailed` | The check's refresh failed on a flow |
+| `checkStopped` | You pressed Ctrl-C. Nothing was written |
+| `secretRefused` | GitHub refused a secret. No pull request was opened |
+| `actionsRefused`, `actionsUnknown` | The Actions setting was refused or unreadable. In an organisation that forbids it, an owner allows it under Settings → Actions → General |
+| `prFailed` | The pull request could not be opened; secrets already set stay |
+
+## Pull requests
+
+| Reason | What to do |
+| --- | --- |
+| `ghMissing`, `ghOutdated`, `ghSignedOut` | Install or update `gh`, and sign in |
+| `prNotFound`, `prUnreadable` | The pull request does not exist, or GitHub did not answer |
+| `uploadRefused` | GitHub refused the video |

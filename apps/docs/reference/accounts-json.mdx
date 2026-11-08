@@ -1,0 +1,61 @@
+---
+title: "accounts.json"
+description: "Demo accounts Demoman signs in with, and where their secrets come from."
+---
+
+`.demoman/accounts.json` holds the demo accounts Demoman signs in with. Your
+agent writes it when it creates a demo account ([Sign in](/get-started/sign-in)).
+Commit it.
+
+```json
+{
+  "accountsVersion": 1,
+  "sites": {
+    "http://localhost:4000": {
+      "default": "seller",
+      "accounts": {
+        "seller": {
+          "about": "A seller with 6 custom requests and no orders needing action",
+          "checkUrl": "/admin/dashboard",
+          "signIn": [
+            { "do": "goto", "url": "/users/log-in" },
+            { "do": "type", "into": { "role": "textbox", "name": "Email" }, "text": "seller@demo.test" },
+            { "do": "type", "into": { "stableId": "user_password" }, "text": "{secret:SELLER_PASSWORD}" },
+            { "do": "click", "on": { "role": "button", "name": "Log in" } }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `accountsVersion` | `1` |
+| `sites` | Keyed by origin |
+| `default` | The account a run uses when its DemoScript names none |
+| `accounts` | Keyed by name: lower-case letters, digits, `-` and `_`, at most 64 |
+| `about` | Who the account is and what data it has, so an agent picks the right one |
+| `checkUrl` | A path behind the login. Signed out it lands on the sign-in page; signed in it shows no password field |
+| `signIn` | The steps that sign in, as a DemoScript's steps, starting with `goto` |
+
+## Secrets
+
+`{secret:NAME}` in a step's `text` stands for a value Demoman reads from
+`DEMOMAN_SECRET_NAME` in the environment, else from `.demoman/secrets.env`
+(only when git ignores that file). A value is at least 8 characters, and is
+typed only with `DEMOMAN_SECRET_NAME_ORIGIN` beside it, naming the account's
+site.
+
+```bash
+# .demoman/secrets.env (git-ignored)
+DEMOMAN_SECRET_SELLER_PASSWORD=…
+DEMOMAN_SECRET_SELLER_PASSWORD_ORIGIN=http://localhost:4000
+```
+
+In CI, set both as secrets; `setup --ci` does it for GitHub Actions.
+
+Demoman signs in by itself when the account has no saved session, and once
+more when a run lands on a sign-in page. When an account cannot sign in, see
+[Refusals](/reference/refusals#sign-in).

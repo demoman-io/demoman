@@ -1,0 +1,28 @@
+---
+title: "refresh"
+description: "Record the repo's flows again and replace the exports whose picture changed."
+---
+
+```bash
+npx demoman refresh [<flow>…] [--base-url <origin>] [--deliver pr|main] [--out-dir <folder>] [--previous <folder>]
+```
+
+Records every flow in `.demoman/flows/` again, or only those named, with no
+agent. Each export whose picture changed is replaced; one that looks the same
+is left as it is, so an unchanged app makes no commit. A video whose run was
+not clean (a step stopped or did not match, a frame was lost, the logo could
+not be drawn) keeps its committed files and prints why, and the command exits
+1. It records into a library it then deletes, so a refresh adds nothing to
+your own. How it judges a change, and what each line means, is on
+[Refresh](/concepts/refresh).
+
+It starts the app from [`.demoman/app.json`](/reference/app-json): off CI it
+uses an app already answering at `url`, otherwise it runs `start`.
+
+| Flag | |
+| --- | --- |
+| `--base-url <origin>` | Record the app at this origin instead of the one each video was recorded at, such as a preview deployment. Ignores `app.json` |
+| `--deliver pr\|main` | After refreshing, commit only the files that changed: `main` pushes one `Refresh demo videos` commit to the checked-out branch; `pr` force-pushes it to `demoman/refresh` and opens or updates one pull request. Exits 1 if delivery fails |
+| `--out-dir <folder>` | Write the flows added with `--deliver files` into this folder, with their receipts and `demoman-refresh.json`, which lists what each flow made. Nothing is committed. A `files` flow fails without it, and the others still refresh |
+| `--previous <folder>` | A copy of everything earlier `--out-dir` runs delivered, kept whole (such as your bucket synced back down), to compare `files` flows against. It may be the `--out-dir` itself |
+| `--check` | Record nothing; print each flow's state and exit 3 when every flow is current, else 0. A flow with no receipt, recorded from uncommitted changes, or that git cannot compare counts as changed. Takes only `--previous` and `--since <sha>`, the commit the last successful refresh ran at. The daily workflow uses it |
