@@ -277,12 +277,34 @@ export async function keepVideo(
       rel !== fileRel &&
       (rel === legacyRel || name === trimmedName)
     ) {
+      // One move per add: a second would be left behind as a second recipe.
+      if (moveFrom !== null) {
+        return refuse(
+          "outputTaken",
+          `${moveFrom} and ${rel} both hold this flow (${video.id}) — delete one of them, then add it again`,
+        );
+      }
       const at = await inRepo(rel);
       if (typeof at !== "string") return refuse("outsideRepo", at.outside);
       moveFrom = rel;
       if (name !== basename(fileRel)) {
         const oldReceipt = `${RECEIPT_DIR}/${name}`;
-        leftovers = [oldReceipt, `${RECEIPT_DIR}/${screensDirOf(oldReceipt)}`];
+        const receiptAt = await inRepo(oldReceipt);
+        if (typeof receiptAt !== "string")
+          return refuse("outsideRepo", receiptAt.outside);
+        // Its screens are where the receipt says, as refresh reads them;
+        // by its name only when the receipt cannot be read.
+        const had = await readReceiptFile(join(root, oldReceipt), oldReceipt);
+        const screens =
+          "receipt" in had
+            ? had.receipt.screensDir
+            : "missing" in had
+              ? null
+              : screensDirOf(oldReceipt);
+        leftovers = [
+          oldReceipt,
+          ...(screens === null ? [] : [`${RECEIPT_DIR}/${screens}`]),
+        ];
         for (const p of leftovers) {
           const inside = await inRepo(p);
           if (typeof inside !== "string")
@@ -302,6 +324,14 @@ export async function keepVideo(
       return refuse(
         "outputTaken",
         `${rel} already holds the flow "${kept.name}" (${kept.flow}), whose name makes the same file — rename one of the two flows`,
+      );
+    }
+    // Names the library treats as one shared a file until DEM-68; they
+    // still may not share a repo, or refresh's `only` takes both.
+    if (kept.flow !== video.id && sameName(kept.name, video.name)) {
+      return refuse(
+        "outputTaken",
+        `${rel} holds the flow "${kept.name}" (${kept.flow}), whose name reads the same as "${video.name}" — rename one of the two flows`,
       );
     }
     const theirs = [...kept.outputs.map((o) => o.path), kept.report];

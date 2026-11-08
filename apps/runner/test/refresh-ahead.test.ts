@@ -257,6 +257,22 @@ describe("a flow in .demoman/flows/", () => {
     ).toEqual([moved]);
     expect(videos[0]?.detail ?? "").not.toContain("the repo has no flow named");
   });
+
+  // Red: match `only` by keptFileName again — "place the orders" names
+  // place-the-orders.json, which no flow is in (DEM-68).
+  it("is found by a name the library reads as the same, as the library matches", async () => {
+    const { videos } = await refreshKept(
+      { repoRoot: repo, library: "local", only: ["place the orders"] },
+      deps(),
+    );
+    // Premise: the words differ from the flow's, and so do their files.
+    expect(keptFileName("place the orders")).not.toBe(keptFileName(NAME));
+    expect(
+      videos.map((v) => v.file),
+      JSON.stringify(videos),
+    ).toEqual([FILE]);
+    expect(videos[0]?.detail ?? "").not.toContain("the repo has no flow named");
+  });
 });
 
 describe("one file name in both folders, as two flows", () => {

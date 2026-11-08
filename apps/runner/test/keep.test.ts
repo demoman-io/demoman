@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   chmod,
   copyFile,
@@ -696,15 +697,17 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
         join(repo, r, "filter-the-invoices.json"),
         join(repo, r, "filter-invoice.json"),
       );
+      // Its screens where the receipt says, not where its name would put
+      // them. Red if keep.ts works the folder out from the receipt's name.
       await rename(
         join(repo, r, "filter-the-invoices.screens"),
-        join(repo, r, "filter-invoice.screens"),
+        join(repo, r, "moved-by-hand.screens"),
       );
       const old = join(repo, r, "filter-invoice.json");
       const receipt = JSON.parse(await readFile(old, "utf8"));
       await writeFile(
         old,
-        JSON.stringify({ ...receipt, screensDir: "filter-invoice.screens" }),
+        JSON.stringify({ ...receipt, screensDir: "moved-by-hand.screens" }),
       );
       // Premise: only the trimmed names are in the repo.
       const before = await repoFiles();
@@ -717,6 +720,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       expect(out.moved).toBe(".demoman/flows/filter-invoice.json");
       const after = await repoFiles();
       expect(after.filter((f) => f.includes("filter-invoice"))).toEqual([]);
+      expect(after.filter((f) => f.includes("moved-by-hand"))).toEqual([]);
       expect(after).toContain(`${r}/filter-the-invoices.json`);
       expect(
         after.some((f) => f.startsWith(`${r}/filter-the-invoices.screens/`)),
@@ -724,6 +728,65 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     },
     KEEP_MS,
   );
+
+  // Red: drop keep.ts's `moveFrom !== null` refusal — the add moves one
+  // and leaves the other as a second recipe.
+  it("two old files of one flow refuse the add, naming both, and move neither", async () => {
+    await freshVideo("scene-trim-2", "Sort the orders");
+    const args = {
+      video: "Sort the orders",
+      to: [gif("trim2.gif")],
+      deliver: "files" as const,
+      repoRoot: repo,
+    };
+    const first = await keepVideo(args, deps());
+    if (!first.ok) throw new Error(JSON.stringify(first));
+    const trimmed = ".demoman/flows/sort-order.json";
+    const legacy = ".demoman/videos/sort-the-orders.json";
+    await mkdir(join(repo, ".demoman/videos"), { recursive: true });
+    await copyFile(join(repo, first.file), join(repo, legacy));
+    await rename(join(repo, first.file), join(repo, trimmed));
+    const before = await repoFiles();
+    const out = await keepVideo(args, deps());
+    expect(out).toMatchObject({ ok: false, reason: "outputTaken" });
+    const detail = (out as { detail: string }).detail;
+    expect(detail).toContain(trimmed);
+    expect(detail).toContain(legacy);
+    expect(await repoFiles()).toEqual(before);
+    await rm(join(repo, trimmed));
+    await rm(join(repo, legacy));
+  });
+
+  // Red: drop keep.ts's sameName refusal — "Ship order" is added beside a
+  // teammate's "Ship the orders", and refresh's `only` would take both.
+  it("a flow whose name reads the same as another flow's recipe refuses the add", async () => {
+    await freshVideo("scene-same-1", "Ship order");
+    const args = {
+      video: "Ship order",
+      to: [gif("ship.gif")],
+      deliver: "files" as const,
+      repoRoot: repo,
+    };
+    const first = await keepVideo(args, deps());
+    if (!first.ok) throw new Error(JSON.stringify(first));
+    // A teammate's flow, from their library: another id, the same words.
+    const theirs = ".demoman/flows/ship-the-orders.json";
+    const recipe = JSON.parse(await readFile(join(repo, first.file), "utf8"));
+    await writeFile(
+      join(repo, theirs),
+      JSON.stringify({
+        ...recipe,
+        flow: randomUUID(),
+        name: "Ship the orders",
+        outputs: [{ ...recipe.outputs[0], path: "theirs.gif" }],
+      }),
+    );
+    await rm(join(repo, first.file));
+    const out = await keepVideo(args, deps());
+    expect(out).toMatchObject({ ok: false, reason: "outputTaken" });
+    expect((out as { detail: string }).detail).toContain(`"Ship the orders"`);
+    await rm(join(repo, theirs));
+  });
 
   it(
     "a run report with a malformed filmedCode writes a receipt that says the code is unknown",
