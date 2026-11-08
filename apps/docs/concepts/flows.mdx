@@ -1,0 +1,70 @@
+---
+title: "Flows and DemoScripts"
+description: "A flow is what you record, a video is one recording of it, and a DemoScript is the file that records it again."
+---
+
+| Term | What it is |
+| --- | --- |
+| **Flow** | What you record: "add a customer", "send a reminder". It has a name and an id |
+| **Video** | One recording of a flow. A flow keeps every video; its current one is what exports and the repo use |
+| **Export** | A file made from a video: an MP4, a GIF or stills |
+| **DemoScript** | The steps that record the flow, as JSON. In the repo, one file per flow in `.demoman/flows/` |
+
+Your library holds every flow and video you recorded on this machine
+(`~/.demoman`, or `DEMOMAN_HOME`). `npx demoman studio` shows it.
+
+## What a DemoScript looks like
+
+A DemoScript is something your agent writes, not you. You will read one in a
+pull request, so this is what its parts mean. A shortened file from
+`.demoman/flows/add-customer.json`:
+
+```json
+{
+  "keptVersion": 2,
+  "flow": "3d6099d7-7988-4fb0-b9ef-63ccf0daf415",
+  "name": "add-customer",
+  "script": {
+    "scriptVersion": 8,
+    "name": "add-customer",
+    "target": "http://localhost:4176/#customers",
+    "viewport": { "width": 1440, "height": 900 },
+    "steps": [
+      { "do": "waitForLoad" },
+      { "do": "click", "on": { "stableId": "add-customer" } },
+      { "do": "type", "into": { "stableId": "cust-name" }, "text": "Calder Supply Co." },
+      { "do": "click", "on": { "stableId": "cust-save" } },
+      { "do": "waitFor", "on": { "stableId": "toast-title" }, "until": "visible" },
+      { "do": "pause", "ms": 1600 }
+    ]
+  },
+  "scale": 2,
+  "logo": null,
+  "deliver": "commit",
+  "outputs": [{ "path": "videos/add-customer.mp4", "fileType": "mp4", "aspect": "16:9", "quality": "share" }],
+  "report": null
+}
+```
+
+- **`flow` and `name`** say which flow this is. The id is shared by every
+  clone of the repo.
+- **`script`** is what a run plays: the page to open (`target`), the window
+  size, and the `steps`. Each step does one thing (`click`, `type`, `drag`,
+  `press`, `hover`, a wait or a `pause`) on a target the agent copied from the
+  page, such as a `stableId`.
+- **`outputs`** are the exports a refresh writes, and **`deliver`** says
+  whether they are committed (`commit`) or left for you to upload (`files`).
+
+A step can also carry a zoom, the script a trim and a look (brand kit,
+background, cursor). Every field is on [DemoScript](/reference/demoscript).
+
+## How a flow changes
+
+- **Your agent records it again.** Asking for the same demo adds a new video
+  to the flow. In a repo, the DemoScript follows the new script.
+- **CI records it again.** A refresh replays the DemoScript as it is and
+  replaces the exports when the picture changed. It never rewrites the
+  DemoScript. See [Refresh](/concepts/refresh).
+- **You edit it in the Studio.** Edits change the video, not the DemoScript.
+  Some edits cannot be recorded again, so add refuses them
+  ([Add to your repo](/get-started/add-to-repo#when-add-refuses)).

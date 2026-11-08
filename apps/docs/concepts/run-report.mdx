@@ -1,0 +1,49 @@
+---
+title: "The run report"
+description: "What every run tells your agent, and which findings are the script's to fix."
+---
+
+Every run answers with a report. Your agent reads it before it exports, fixes
+what is the script's to fix, and runs again, at most three times. You see its
+summary when the agent hands the video back.
+
+## Did each step happen
+
+The report's outcome is one of:
+
+| Outcome | Meaning |
+| --- | --- |
+| `complete` | Every step ran. The verdict says whether the video shows each step as the script asked (`matches`) or lists those it does not (`diverged`) |
+| `stopped` | A step could not run. The report names the step and why |
+| `refused` | Demoman would not run the script, and says what you can change |
+| `refusedBeforeRun` | The script or its arguments were refused before anything opened. The reason names the field |
+
+When the app sends Demoman to a sign-in page, the run ends as `signedOut`:
+see [Sign in](/get-started/sign-in).
+
+## What was in frame
+
+For each step the report says how the target sat in the frame:
+
+| Label | Meaning | Whose |
+| --- | --- | --- |
+| `inside` | In frame | |
+| `atEdge` | At the frame's edge | The script, if a run remains |
+| `cutOff`, `outOfFrame` | Partly or wholly out of frame | The script: scroll to it first |
+| `detour`, stray arrival | The cursor took an odd path | Demoman |
+| `longStill` | The video holds still longer than asked | Demoman |
+
+A finding that is Demoman's costs no run: your agent leaves it, and you can
+change it in the Studio.
+
+## The last frame
+
+The report carries the video's last frame as an image. The verdict says the
+actions happened; the frame shows what the video ends on, so the agent can
+check it against what you asked for.
+
+## The video
+
+Problems with the video itself, not the script, are named too: frames of the
+wrong size, a drag that changed nothing, a click that could not be confirmed.
+Your agent tells you about them rather than running again.

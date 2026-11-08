@@ -575,3 +575,50 @@ describe("links into the docs from the product", () => {
     for (const l of links) expect(nav, l).toContain(l.split(": ")[1]);
   });
 });
+
+describe("concepts and guides", () => {
+  it("Flows and DemoScripts shows a real DemoScript the schema accepts", async () => {
+    const page = readDocs("concepts/flows.mdx");
+    const block = /```json\n([\s\S]*?)```/.exec(page)?.[1];
+    expect(block, "a json block").toBeDefined();
+    expect(block?.split("\n").length).toBeLessThanOrEqual(30);
+    const file = JSON.parse(block ?? "") as { keptVersion: number; script: unknown };
+    expect(file.keptVersion).toBe(2);
+    // apps/cli does not depend on the package; read its build (pnpm -r build).
+    const { DemoScriptSchema } = (await import(
+      new URL("../../../packages/scene-schema/dist/index.js", import.meta.url).href
+    )) as { DemoScriptSchema: { safeParse: (v: unknown) => { success: boolean; error?: unknown } } };
+    const parsed = DemoScriptSchema.safeParse(file.script);
+    expect(parsed.success, JSON.stringify(parsed.error)).toBe(true);
+    expect(page).toContain("your agent writes");
+  });
+  it("Refresh names how it delivers and what it compares", () => {
+    const page = readDocs("concepts/refresh.mdx");
+    for (const s of ["--deliver", ".demoman/receipts/", "picture changed"])
+      expect(page, s).toContain(s);
+  });
+  it("no guide carries reference weight: each is at most 900 words", () => {
+    const guides = navPages().filter(
+      (p) => p.startsWith("guides/") || p.startsWith("studio/"),
+    );
+    expect(guides.length).toBeGreaterThanOrEqual(6);
+    for (const p of guides) {
+      const words = readDocs(`${p}.mdx`).split(/\s+/).length;
+      expect(words, p).toBeLessThanOrEqual(900);
+    }
+  });
+});
+
+describe("links inside the docs", () => {
+  it("every root-relative link names a page in the navigation", () => {
+    const nav = new Set(navPages());
+    const links = allPages().flatMap((p) =>
+      [...readDocs(`${p}.mdx`).matchAll(/(?:\]\(|href=")\/([a-z0-9/-]*)[#")]/g)].map(
+        (m) => ({ p, slug: (m[1] as string) === "" ? "index" : (m[1] as string) }),
+      ),
+    );
+    // Premise: the pages link to each other at all.
+    expect(links.length).toBeGreaterThan(30);
+    for (const { p, slug } of links) expect(nav, `${p} → /${slug}`).toContain(slug);
+  });
+});

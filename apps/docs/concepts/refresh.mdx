@@ -1,0 +1,89 @@
+---
+title: "Refresh"
+description: "How Demoman records the repo's flows again and decides which videos changed."
+---
+
+```bash
+npx demoman refresh
+```
+
+A refresh records every flow in the repo again from its DemoScript, with no
+agent, and replaces a flow's exports only when the picture changed. CI runs it
+on the trigger you chose in [Keep videos current](/get-started/ci); you can
+run it locally too.
+
+{/* Terminal: refresh's lines */}
+
+## What each line means
+
+| Line | Meaning |
+| --- | --- |
+| `<name>: changed: <what changed>` | The picture changed: how much, and when in the video. The files are replaced |
+| `<name>: added: <which file>` | It looks the same, and an output that was not there yet is written |
+| `<name>: uncompared: nothing to compare against; delivered as new` | No earlier video to compare with. The files are written |
+| `<name>: unchanged: <how much changed>` | It looks the same. The files are left as they are |
+| `<name>: failed: <why>` | The run was not clean. The committed files stay, and the command exits 1 |
+
+## How a change is judged
+
+Each export has a receipt in `.demoman/receipts/`: what the video showed on
+the screen before each step, and on its last screen. A refresh reads the new
+video at the same points and compares. If the picture changed, every file of
+the flow is replaced along with its receipt. The DemoScript is never
+rewritten, and videos are not compared byte for byte, so an unchanged app
+makes no commit.
+
+A compared screen catches a change as small as one digit of body text, or a
+colour change alone. Five things are not caught, or caught when they should
+not be:
+
+- A change seen only in motion or mid-scroll, or something that appears and
+  goes within one step.
+- A change too small to tell from the video's compression: a single
+  character in very light text, a slight shade change on a thin border.
+- An animation always in view (a spinner, a clock, a carousel) can read as
+  changed on some refreshes.
+- A slower app can tip the camera between panning and pulling back, which
+  reads as changed.
+- A flow added on macOS is replaced once by the first refresh on Linux,
+  whose fonts differ. After that, refresh in CI only.
+
+An app that shows today's date changes every day. Pin its clock with `now`
+([app.json](/reference/app-json#pinned-dates)).
+
+## Where changed videos go
+
+`--deliver` picks how a refresh delivers in CI:
+
+- **`pr`**: force-pushes `demoman/refresh` and opens or updates one pull
+  request, "Refresh demo videos", listing each changed video and any flow
+  that failed. Open its files under "Files changed" to watch them.
+- **`main`**: one "Refresh demo videos" commit on the branch, pushed with no
+  review.
+
+When no video changed, nothing is committed, and an open refresh pull request
+whose videos are now out of date is closed with a comment.
+
+The bot's commits and the refresh pull request's merge are marked, so they
+never start another refresh.
+
+## Keeping videos out of git
+
+A flow added with `--deliver files` keeps only its DemoScript in the repo.
+Refresh then writes the videos, receipts and a `demoman-refresh.json` listing
+into `--out-dir`, and you upload the folder with your own step:
+
+```bash
+npx demoman refresh --out-dir demoman-out --previous demoman-out
+```
+
+`--previous` is a copy of everything earlier refreshes delivered, such as your
+bucket synced back down, so the new run has something to compare with.
+Without it every video reads `uncompared`. See [refresh](/reference/refresh).
+
+## The self-check
+
+The workflow also runs on pull requests that change `demoman.yml` or
+`.demoman/**`, as a `check` job that records every flow and commits nothing.
+It is the setup pull request's first run. A pull request from a fork gets no
+secrets, so its check fails and says why.
