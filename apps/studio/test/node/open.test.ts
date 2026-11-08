@@ -5,7 +5,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openStudio, stopStudio } from "../../src/open.js";
 import { readStudioState, studioStatePath } from "../../src/state-file.js";
 import { seedTake } from "./seed.js";
@@ -22,8 +22,11 @@ const CASE_MS = 60_000;
 let home: string;
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "studio-open-"));
+  // CI's Linux runner has no display, which openStudio refuses (DEM-69).
+  vi.stubEnv("DISPLAY", ":0");
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   // Never leave a detached studio behind, whatever the case did.
   const s = await readStudioState(home);
   if (s !== null && !("unreadable" in s) && s.pid !== process.pid) {
@@ -48,6 +51,43 @@ const servings = async (): Promise<number> =>
   ).length;
 
 describe("openStudio", () => {
+  // Red if openStudio stops asking visibleWindowRefusal before it spawns.
+  it("refuses at once with no display, starting nothing (DEM-69)", async () => {
+    const a = await openStudio({
+      home,
+      version: "0.0.0-test",
+      serve: serveFake(),
+      host: { platform: "linux", env: {} },
+    });
+    expect(a).toMatchObject({
+      reason: "windowDidNotOpen",
+      detail: expect.stringContaining("no display"),
+    });
+    expect(await readStudioState(home)).toBeNull();
+  });
+
+  // Red if the display check moves back above resolve(): a studio started
+  // on a display is still asked for its window from a shell without one.
+  it(
+    "still reuses a live studio from a shell with no display (DEM-69)",
+    async () => {
+      const first = await openStudio({
+        home,
+        version: "0.0.0-test",
+        serve: serveFake(),
+      });
+      expect(first).toMatchObject({ outcome: "opened" });
+      const second = await openStudio({
+        home,
+        version: "0.0.0-test",
+        serve: serveFake(),
+        host: { platform: "linux", env: {} },
+      });
+      expect(second).toMatchObject({ outcome: "opened" });
+    },
+    CASE_MS,
+  );
+
   // Review of #35, finding 5. Red when the studio starts in the caller's
   // folder, which can be one since deleted: it starts in the Demoman home.
   it(

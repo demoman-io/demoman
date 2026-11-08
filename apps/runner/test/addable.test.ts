@@ -243,6 +243,37 @@ describe("checkAddable", () => {
     });
   });
 
+  // Red if keep.ts's otherApp check goes: every loopback port shares the
+  // `localhost` file, so another local app's sign-in blocked this one.
+  it("a localhost sign-in to another port is another app's (DEM-46)", async () => {
+    const handAt = (startUrl: string) =>
+      createSessionStore(home).save({
+        sessionVersion: 1,
+        site: "localhost",
+        savedAt: new Date().toISOString(),
+        refreshedAt: null,
+        startUrl,
+        signInUrl: null,
+        state: { cookies: [], origins: [] },
+      });
+    const { record, scene } = await video("Counter", repoRef, (d) => ({
+      ...d,
+      meta: {
+        ...d.meta,
+        capture: { ...d.meta.capture, originUrl: "http://localhost:3000/" },
+      },
+    }));
+    expect(notCarriedOf(scene)).toEqual([]);
+    await handAt("http://localhost:4000/login");
+    expect(await addable(record)).toMatchObject({ ok: true });
+    // The same port is this app's own sign-in, and still refused.
+    await handAt("http://127.0.0.1:3000/login");
+    expect(await addable(record)).toMatchObject({
+      ok: false,
+      reason: "handSignIn",
+    });
+  });
+
   // Red if checkoutOf stops testing that the folder exists.
   it("a removed checkout is noCheckout, naming the path", async () => {
     const { record } = await video("Orphaned", goneRef);

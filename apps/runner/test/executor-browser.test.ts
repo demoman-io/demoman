@@ -10,6 +10,7 @@ import {
   classifyLaunchError,
   createBrowserSession,
   launchFailure,
+  linkedLibraries,
 } from "../src/executor/browser.js";
 import { chromiumDepsCommand } from "../src/install-advice.js";
 import type { Launched, launch } from "../src/launch.js";
@@ -935,5 +936,27 @@ describe("openWorkPage", () => {
     expect(out).toMatchObject({ ok: false, reason: "windowDidNotOpen" });
     expect(out.ok ? "" : out.detail).toMatch(/gone before it could be encoded/);
     expect(launches()).toBe(1);
+  });
+});
+
+// DEM-71: status reads a Linux download's libraries without launching it.
+describe("linkedLibraries", () => {
+  it("names the libraries ldd cannot find, and says when ldd failed", async () => {
+    const said = [
+      "\tlinux-vdso.so.1 (0x00007ffc)",
+      "\tlibnss3.so => not found",
+      "\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f)",
+      "\tlibasound.so.2 => not found",
+    ].join("\n");
+    expect(await linkedLibraries("/chrome", async () => said)).toEqual({
+      missing: ["libnss3.so", "libasound.so.2"],
+    });
+    // Premise of the line above: a found library is not counted.
+    expect(said).toContain("libc.so.6 =>");
+    expect(
+      await linkedLibraries("/chrome", async () => {
+        throw new Error("spawn ldd ENOENT");
+      }),
+    ).toEqual({ unchecked: "ldd /chrome failed: spawn ldd ENOENT" });
   });
 });
