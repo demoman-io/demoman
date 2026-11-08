@@ -147,21 +147,28 @@ describe("no Mintlify starter left", () => {
 });
 
 describe("brand copies", () => {
-  // The logos are the wordmark, as demoman.io's header sets it:
-  // brand/wordmark.svg's outlines, filled with each theme's ink.
+  // The logos are demoman.io's header lockup: brand/logomark.svg's figure,
+  // cropped as the site's header crops it, beside brand/wordmark.svg's
+  // outlines, each filled with the theme's ink.
   it.each([
     ["logo/light.svg", "#0a0a0a"],
     ["logo/dark.svg", "#f4f4f5"],
-  ])("%s is the wordmark, filled %s", (copy, fill) => {
+  ])("%s is the figure beside the wordmark, filled %s", (copy, fill) => {
     const wordmark = readFileSync(brand("wordmark.svg"), "utf8");
     const d = wordmark.match(/<path fill="currentColor" d="([^"]+)"/)?.[1];
-    // The premise: the outlines were found, all seven letters' worth.
+    const figure = readFileSync(brand("logomark.svg"), "utf8").match(
+      /<g fill="currentColor">([\s\S]*)<\/g>\s*<\/svg>/,
+    )?.[1];
+    // The premise: the outlines were found, all seven letters' worth, and
+    // the figure's head and three blocks.
     expect(d?.match(/Z/g)?.length ?? 0).toBeGreaterThanOrEqual(7);
+    expect(figure?.match(/<rect /g)?.length).toBe(3);
     const logo = readDocs(copy);
     expect(logo).toContain(`<path fill="${fill}" d="${d}"/>`);
-    expect(logo.match(/viewBox="[^"]+"/)?.[0]).toBe(
-      wordmark.match(/viewBox="[^"]+"/)?.[0],
-    );
+    expect(logo).toContain(`<g fill="${fill}">${figure}</g>`);
+    // The site header's crop of the figure, and the wordmark's own box.
+    expect(logo).toContain('viewBox="258 120 96 302"');
+    expect(logo).toContain(wordmark.match(/viewBox="[^"]+"/)?.[0]);
   });
   it("docs.json points at those copies", () => {
     expect(docsJson().logo).toMatchObject({
