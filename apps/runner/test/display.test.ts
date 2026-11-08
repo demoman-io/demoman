@@ -64,15 +64,86 @@ DP-1 disconnected (normal left inverted right x axis y axis)
       },
     };
   };
-  const answering = (stdout: string) =>
-    xrandr(async () => ({ code: 0, stdout }));
+  /** xrandr answers `stdout`; xrdb answers `xrdb` (96 dpi, 1x, unless
+   *  given), so a case about the size is not also one about the scale. */
+  const answering = (stdout: string, xrdb = "Xft.dpi:\t96\n") => {
+    const x = xrandr(async () => ({ code: 0, stdout }));
+    return {
+      calls: x.calls,
+      run: async (cmd: string, args: string[]) => {
+        if (cmd !== "xrdb") return x.run(cmd, args);
+        x.calls.push("xrdb -query");
+        return { code: 0, stdout: xrdb };
+      },
+    };
+  };
 
   it("reads the primary output's size from xrandr", async () => {
     const x = answering(XRANDR);
     expect(
       await readDisplay({ DISPLAY: ":0" }, { platform: "linux", run: x.run }),
     ).toEqual({ width: 2560, height: 1440, scale: 1 });
-    expect(x.calls).toEqual(["xrandr --current"]);
+    expect(x.calls).toEqual(["xrandr --current", "xrdb -query"]);
+  });
+
+  // DEM-70: GNOME and KDE scale through Xft.dpi, not GDK_SCALE. Red: drop
+  // readXftScale and this reads 2560x1440 at 1x.
+  it("takes Xft.dpi as the scale when GDK_SCALE is unset", async () => {
+    const x = answering(XRANDR, "Xft.antialias:\t1\nXft.dpi:\t192\n");
+    expect(
+      await readDisplay({ DISPLAY: ":0" }, { platform: "linux", run: x.run }),
+    ).toEqual({ width: 1280, height: 720, scale: 2 });
+  });
+
+  // Red if any Xft.dpi is a scale: Large Text on a 1x screen is 120.
+  it("takes no scale from an Xft.dpi that is not a whole multiple of 96", async () => {
+    const x = answering(XRANDR, "Xft.dpi:\t120\n");
+    const got = await readDisplay(
+      { DISPLAY: ":0" },
+      { platform: "linux", run: x.run },
+    );
+    expect(got).toMatchObject({ width: 2560, height: 1440, scale: 1 });
+    expect("scaleAssumed" in got && got.scaleAssumed).toContain(
+      "Xft.dpi is 120, not a whole multiple of 96",
+    );
+  });
+
+  it("names a GDK_SCALE it could not use, rather than calling it unset", async () => {
+    const x = answering(XRANDR, "");
+    const got = await readDisplay(
+      { DISPLAY: ":0", GDK_SCALE: "1.5" },
+      { platform: "linux", run: x.run },
+    );
+    expect("scaleAssumed" in got && got.scaleAssumed).toContain(
+      'GDK_SCALE is "1.5", not a whole number',
+    );
+  });
+
+  // DEM-70: a 1 nothing said is said, not passed off as read. Red: drop the
+  // scaleAssumed spread and the read looks like a plain 1x screen.
+  it("says the scale was assumed when neither GDK_SCALE nor Xft.dpi says it", async () => {
+    for (const [why, x] of [
+      ["xrdb lists no Xft.dpi", answering(XRANDR, "Xft.antialias:\t1\n")],
+      [
+        "xrdb could not run (spawn xrdb ENOENT)",
+        {
+          run: (cmd: string, args: string[]) =>
+            cmd === "xrdb"
+              ? Promise.reject(new Error("spawn xrdb ENOENT"))
+              : answering(XRANDR).run(cmd, args),
+        },
+      ],
+    ] as const) {
+      const got = await readDisplay(
+        { DISPLAY: ":0" },
+        { platform: "linux", run: x.run },
+      );
+      expect(got).toMatchObject({ width: 2560, height: 1440, scale: 1 });
+      expect("scaleAssumed" in got && got.scaleAssumed).toContain(why);
+      expect("scaleAssumed" in got && got.scaleAssumed).toContain(
+        "DEMOMAN_DISPLAY",
+      );
+    }
   });
 
   // The Display is in CSS px, as macOS's points are: GDK_SCALE=2 on a
@@ -85,6 +156,15 @@ DP-1 disconnected (normal left inverted right x axis y axis)
         { platform: "linux", run: x.run },
       ),
     ).toEqual({ width: 1280, height: 720, scale: 2 });
+  });
+
+  it("asks no xrdb when GDK_SCALE says the scale", async () => {
+    const x = answering(XRANDR, "Xft.dpi:\t144\n");
+    await readDisplay(
+      { DISPLAY: ":0", GDK_SCALE: "2" },
+      { platform: "linux", run: x.run },
+    );
+    expect(x.calls).toEqual(["xrandr --current"]);
   });
 
   it("takes the first connected output when none is primary", async () => {

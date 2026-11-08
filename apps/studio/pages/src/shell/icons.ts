@@ -373,6 +373,9 @@ const GLYPHS = {
     "M15 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z",
     "M4 14h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1z",
   ],
+  /** A wait in progress (DEM-80), turned by `.spinner`. Lucide
+   *  `loader-circle`. */
+  loaderCircle: ["M21 12a9 9 0 1 1-6.219-8.56"],
   /** A list row's menu on a touchscreen (2026-11-03). Lucide `ellipsis`,
    *  its three circles written as paths. */
   ellipsis: [
@@ -439,6 +442,29 @@ export function icon(name: GlyphName): SVGSVGElement {
     const path = document.createElementNS(SVG, "path");
     path.setAttribute("d", d);
     svg.append(path);
+  }
+  return svg;
+}
+
+/** A wait in progress, turning beside the words that say what it is.
+ *  Turned on the document's clock (`startTime` 0), not from when it was
+ *  made: a sheet rebuilds it on every progress line, and one that started
+ *  over each time would sit near its first angle and look stalled. Slower,
+ *  not stopped, under reduced motion: a still spinner reads as the stall
+ *  it is there to rule out. */
+export function spinner(): SVGSVGElement {
+  const svg = icon("loaderCircle");
+  svg.classList.add("spinner");
+  const reduced =
+    globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ===
+    true;
+  // shortcut: a DOM without the Web Animations API (the node lanes) draws it still.
+  if (typeof svg.animate === "function") {
+    const turn = svg.animate(
+      [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+      { duration: reduced ? 2400 : 900, iterations: Number.POSITIVE_INFINITY },
+    );
+    turn.startTime = 0;
   }
   return svg;
 }

@@ -217,6 +217,9 @@ export interface BrowserSession {
    * real, or before any launch.
    */
   screenUnknown(): string | null;
+  /** Why the live headless browser's display scale is 1 by assumption, not
+   *  read (`Display.scaleAssumed`); null when it was read, or not headless. */
+  scaleAssumed(): string | null;
   /**
    * The scale the live browser films motion at, as its launch decided it
    * (`meta.capture.displayScale`): headless, the display it stands in for,
@@ -310,6 +313,7 @@ export function createBrowserSession(options: {
     { ok: true; launched: Launched } | BrowserFailure
   > | null = null;
   let screenUnknown: string | null = null;
+  let scaleAssumed: string | null = null;
   let filmScale: number | null = null;
 
   /** The display this launch stands in for, or why there is none. Never
@@ -360,9 +364,13 @@ export function createBrowserSession(options: {
         const why = displayUnreadSentence(read, "recorded");
         if (why !== screenUnknown) options.log(why);
         screenUnknown = why;
+        scaleAssumed = null;
       } else {
         display = read;
         screenUnknown = null;
+        const assumed = read.scaleAssumed ?? null;
+        if (assumed !== null && assumed !== scaleAssumed) options.log(assumed);
+        scaleAssumed = assumed;
       }
     }
     try {
@@ -742,6 +750,7 @@ export function createBrowserSession(options: {
     version: () =>
       live?.browser.isConnected() ? live.browser.version() : null,
     screenUnknown: () => screenUnknown,
+    scaleAssumed: () => scaleAssumed,
     filmScale: () => filmScale,
     async close() {
       closed = true;

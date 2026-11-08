@@ -5464,6 +5464,30 @@ describe("the Studio's screenshot set", () => {
         { timeout: PAINT_MS, interval: 100 },
       );
       await dialogPaint("the watch");
+      // DEM-80: the held watch is a wait, and says so with a turning
+      // spinner. Red without ci-steps.ts's `waiting` on "working".
+      expect(
+        await page.evaluate(() => {
+          const line = document.querySelector("dialog[open] [data-ci-working]");
+          const spin = line?.querySelector<SVGElement>(".spinner");
+          if (!line || !spin) return null;
+          // Computed, not the rect: a turning square's rect grows with its
+          // angle (21px at 45 degrees).
+          const css = getComputedStyle(spin);
+          return {
+            words: line.textContent,
+            size: [css.width, css.height],
+            shown: spin.checkVisibility({ opacityProperty: true }),
+            turning: spin.getAnimations().map((a) => a.playState),
+          };
+        }),
+        "the watch: a spinner beside Working…",
+      ).toEqual({
+        words: "Working…",
+        size: ["16px", "16px"],
+        shown: true,
+        turning: ["running"],
+      });
       await shoot("add-sheet-ci-watch", "the watch");
       release();
       await page
@@ -5521,6 +5545,53 @@ describe("the Studio's screenshot set", () => {
         glyph: 16,
       });
       await shoot("library-ci-setup", at);
+      // DEM-77: a long project name gives way to the button — wide, and at
+      // 900x800, where the rail folds into the title's switcher. Red at 900
+      // with the button laid over the band (`position: absolute`).
+      const LONG =
+        "a-project-name-long-enough-to-run-the-whole-width-of-the-title-band-and-on-past-it";
+      for (const width of [1280, 900]) {
+        await sizeWindow(context, page, width, 800);
+        const fit = await page.evaluate((long) => {
+          const names = [
+            ...document.querySelectorAll<HTMLElement>(
+              ".library-side h1 [data-place-name]",
+            ),
+          ];
+          for (const n of names) n.textContent = long;
+          const name = names.find((n) => n.checkVisibility());
+          const b = document.querySelector<HTMLElement>("[data-ci-setup]");
+          if (name === undefined || b === null) return null;
+          const r = b.getBoundingClientRect();
+          const t = name.getBoundingClientRect();
+          const hit = document.elementFromPoint(
+            r.left + r.width / 2,
+            r.top + r.height / 2,
+          );
+          return {
+            // Premise: the name is long enough to be cut short.
+            cut: name.scrollWidth > name.clientWidth,
+            clear: t.right <= r.left,
+            onTitleLine: r.top < t.bottom && r.bottom > t.top,
+            hit: hit !== null && b.contains(hit),
+            inside: r.right <= document.documentElement.clientWidth,
+            oneLine: r.height < 40,
+          };
+        }, LONG);
+        expect(fit, `${at} at ${width}px: a long title gives way`).toEqual({
+          cut: true,
+          clear: true,
+          onTitleLine: true,
+          hit: true,
+          inside: true,
+          oneLine: true,
+        });
+        await shoot(`library-ci-setup-long-${width}`, at);
+      }
+      await sizeWindow(context, page, 1280, 800);
+      await page.reload();
+      await setUp.waitFor({ timeout: PAINT_MS });
+      await settle(page, at);
       await setUp.click();
       await page.locator("dialog[open][data-ci-sheet]").waitFor();
       await page
@@ -5585,7 +5656,7 @@ describe("the Studio's screenshot set", () => {
         .locator("[data-list] [role=row] [data-kept]")
         .first()
         .waitFor({ timeout: 2_000 });
-      expect(shots).toHaveLength(18);
+      expect(shots).toHaveLength(20);
       expect(console_.faults(), console_.lines.join("\n")).toEqual([]);
       release();
       running = null;

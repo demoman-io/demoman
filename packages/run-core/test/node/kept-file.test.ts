@@ -224,10 +224,12 @@ describe("the kept file", () => {
     );
   });
 
-  it("gives one file to names the library treats as equal", () => {
-    expect(keptFileName("Add a task!")).toBe("add-task.json");
-    expect(keptFileName("add the tasks")).toBe("add-task.json");
-    expect(keptFileName("add a task")).toBe("add-task.json");
+  // DEM-68: the flow's words as written, as the video's name is.
+  it("names the file from the flow's words as written", () => {
+    expect(keptFileName("Add a task!")).toBe("add-a-task.json");
+    expect(keptFileName("Filter invoices")).toBe("filter-invoices.json");
+    expect(keptFileName("Search — results!")).toBe("search-results.json");
+    expect(keptFileName("!!!")).toBe("video.json");
   });
 
   it("refuses a file without screens, naming the video and demoman add", () => {

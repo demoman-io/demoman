@@ -892,12 +892,15 @@ function createHeader(withStorage: boolean): Header {
     foot,
   );
   storage.append(trigger, panel);
-  side.append(title, rail, menu);
+  // Set up CI shares the title's line, and a long title gives way to it
+  // (DEM-77): a flex row, not a button laid over the band.
+  const ciSlot = el("div", { class: "ci-setup", "data-ci-slot": "" });
+  const titleRow = el("div", { class: "title-row" });
+  titleRow.append(title, ciSlot);
+  side.append(titleRow, rail, menu);
   tabsRow.append(tabs, searchField, toggle);
   content.append(tabsRow, notices);
-  // Set up CI, at the end of the title band (studio.css places it).
-  const ciSlot = el("div", { class: "ci-setup", "data-ci-slot": "" });
-  box.append(side, content, ciSlot);
+  box.append(side, content);
   // The page's top bar carries a slot for it, left of the theme switch
   // (library/index.html). A document without one — a test that mounts the
   // list alone — keeps it at the foot of the left column, where it still

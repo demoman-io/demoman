@@ -50,8 +50,28 @@ const runCommand: RunCommand = (cmd, args) =>
  *  the first listed. A connected output with no mode is switched off. */
 const XRANDR_OUTPUT = /^\S+ connected (primary )?(\d+)x(\d+)\+\d+\+\d+/gm;
 
-/** The screen xrandr lists, in CSS px at GDK_SCALE (1 unless a positive
- *  integer), as macOS's points are; or why it could not be read. */
+/** The desktop's scale from X resources: GNOME and KDE set `Xft.dpi` (96 at
+ *  1x) where they rarely set GDK_SCALE. Only a whole multiple of 96 is a
+ *  scale: the same value carries font settings (GNOME's Large Text makes a
+ *  1x screen 120), so anything else is no scale. A number, or why not. */
+async function readXftScale(run: RunCommand): Promise<number | string> {
+  try {
+    const out = await run("xrdb", ["-query"]);
+    if (out.code !== 0) return `xrdb exited ${out.code}`;
+    const said = /^Xft\.dpi:\s*(\S+)/m.exec(out.stdout)?.[1];
+    if (said === undefined) return "xrdb lists no Xft.dpi";
+    const scale = Number(said) / 96;
+    return Number.isInteger(scale) && scale > 0
+      ? scale
+      : `Xft.dpi is ${said}, not a whole multiple of 96, so it may be a font setting`;
+  } catch (error) {
+    return `xrdb could not run (${error instanceof Error ? error.message : String(error)})`;
+  }
+}
+
+/** The screen xrandr lists, in CSS px as macOS's points are, at GDK_SCALE
+ *  (a positive integer), else Xft.dpi's, else 1 and says so; or why the
+ *  screen could not be read. */
 async function readXrandr(
   env: NodeJS.ProcessEnv,
   run: RunCommand,
@@ -72,12 +92,21 @@ async function readXrandr(
   const outputs = [...out.stdout.matchAll(XRANDR_OUTPUT)];
   const chosen = outputs.find((m) => m[1] !== undefined) ?? outputs[0];
   if (chosen === undefined) return cannot("it listed no connected screen");
-  const gdk = Number(env.GDK_SCALE);
-  const scale = Number.isInteger(gdk) && gdk > 0 ? gdk : 1;
+  const raw = env.GDK_SCALE;
+  const gdk = Number(raw);
+  const xft = Number.isInteger(gdk) && gdk > 0 ? gdk : await readXftScale(run);
+  const scale = typeof xft === "number" ? xft : 1;
+  const gdkSaid =
+    raw === undefined || raw === ""
+      ? "GDK_SCALE is unset"
+      : `GDK_SCALE is "${raw}", not a whole number`;
   return {
     width: Number(chosen[2]) / scale,
     height: Number(chosen[3]) / scale,
     scale,
+    ...(typeof xft === "string" && {
+      scaleAssumed: `1x is assumed: this desktop's scale could not be read (${gdkSaid}; ${xft}) — on a HiDPI screen set DEMOMAN_DISPLAY to <width>x<height>@<scale> (such as 1280x800@2)`,
+    }),
   };
 }
 

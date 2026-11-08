@@ -1444,20 +1444,43 @@ input:is([type="text"], [type="search"], [type="number"], :not([type])):not(
   color: var(--ok);
 }
 
-/* Set up CI (DEM-52): at the end of the title band, on the title's line. */
-[data-studio] .library > .ci-setup {
-  position: absolute;
-  top: 29px;
-  right: 32px;
+/* Set up CI (DEM-52): at the end of the title band, on the title's line,
+   32px in from the band's right edge. One row with the title, so a long
+   title shrinks to its ellipsis rather than running under it (DEM-77). */
+[data-studio] .library {
+  container-type: inline-size;
 }
-[data-studio] .library > .ci-setup .btn {
+[data-studio] .title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding-right: 16px;
+}
+@media (min-width: 1024px) {
+  /* The title runs on past the side column into the band. */
+  [data-studio] .title-row {
+    width: calc(100cqw - 48px);
+    padding-right: 0;
+  }
+}
+/* The title fills the row, as it filled the column before: the switcher
+   below 1024px sizes its ellipsis from it. */
+[data-studio] .title-row > h1 {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+[data-studio] .title-row > .ci-setup {
+  flex: none;
+  margin: -3px 0 0 auto;
+}
+[data-studio] .title-row > .ci-setup .btn {
   white-space: nowrap;
 }
-[data-studio] .library > .ci-setup .btn svg {
+[data-studio] .title-row > .ci-setup .btn svg {
   flex: none;
   width: 16px;
   height: 16px;
 }
-[data-studio] .library > .ci-setup:empty {
+[data-studio] .title-row > .ci-setup:empty {
   display: none;
 }
