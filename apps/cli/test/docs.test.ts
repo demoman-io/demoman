@@ -459,6 +459,18 @@ describe("help", () => {
     // The label, not a substring: 0.2.0 is inside "0.2.0-rc.7".
     expect(readDocs("resources/changelog.mdx")).toContain(`label="${VERSION}"`);
   });
+  it("the changelog keeps every release and stays a summary", () => {
+    const log = readDocs("resources/changelog.mdx");
+    const labels = [...log.matchAll(/<Update label="([^"]+)"/g)].map((m) => m[1]);
+    // Every release it listed on 2026-11-08, newest first; the site reads them.
+    for (const v of [
+      "0.9.2", "0.9.1", "0.9.0", "0.8.2", "0.8.1", "0.8.0", "0.7.3", "0.7.2",
+      "0.7.1", "0.7.0", "0.2.0-rc.9", "0.2.0-rc.8", "0.2.0-rc.7", "0.2.0-rc.6",
+      "0.2.0-rc.5", "0.2.0-rc.4", "0.2.0-rc.3", "0.2.0-rc.2", "0.2.0-rc.1",
+    ])
+      expect(labels, v).toContain(v);
+    expect(log.split(/\s+/).length).toBeLessThanOrEqual(1200);
+  });
   it("privacy links out to demoman.io/privacy", () => {
     expect(readDocs("security/privacy.mdx")).toContain(
       "https://demoman.io/privacy",

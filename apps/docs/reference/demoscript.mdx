@@ -12,7 +12,7 @@ below is the same format your agent passes to the `run` tool.
 
 | Field | Description |
 | --- | --- |
-| `keptVersion` | The file format's version, `2` |
+| `keptVersion` | The file format, `2` |
 | `flow` | The flow's id, shared by every clone of the repo |
 | `name` | The flow's name, and the file's |
 | `script` | What a run plays: the [script fields](#script-fields) below |
@@ -41,14 +41,14 @@ snapshot of the page and never makes one up.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `scriptVersion` | `1` \| `2` \| `3` \| `4` \| `5` \| `6` \| `7` \| `8` | no | The format version. Demoman sets it; leave it out |
+| `scriptVersion` | `1` \| `2` \| `3` \| `4` \| `5` \| `6` \| `7` \| `8` | no | The format's number. Demoman sets it; leave it out |
 | `name` | string | yes | The video's name |
 | `target` | string | yes | The page the run opens first, http or https |
 | `viewport` | object | no | The window size in CSS px, `{ width, height }`. Absent: Demoman's own window |
 | `device` | `"phone"` \| `"tablet"` | no | A phone or tablet to record as, instead of a viewport. See Phone and tablet |
 | `account` | string | no | A demo account from `.demoman/accounts.json` to sign in as. Absent: the site's default, else your own saved sign-in |
 | `steps` | [step](#steps) list | yes | What the run does, in order. At least one step acts on the page |
-| `trim` | object | no | Cut the video's start and end: `{ start: { ms, step? }, end: { ms, step?, after? } }`. Absent: the whole recording |
+| `trim` | object | no | Cut the video's start and end: `{ start: { ms, step? }, end: { ms, step?, after? } }`. Absent: the whole video |
 | `recordedFrom` | string | no | The video a derived script came from. Demoman writes it |
 | `look` | object | no | The frame's look: `kit` (a brand kit by name) or `branding`, plus `cursor`, `canvas` and `motion`. Absent: your default brand kit |
 

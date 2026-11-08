@@ -6,7 +6,7 @@ description: "A flow is what you record, a video is one recording of it, and a D
 | Term | What it is |
 | --- | --- |
 | **Flow** | What you record: "add a customer", "send a reminder". It has a name and an id |
-| **Video** | One recording of a flow. A flow keeps every video; its current one is what exports and the repo use |
+| **Video** | What one run of the flow recorded. A flow keeps every video; its current one is what exports and the repo use |
 | **Export** | A file made from a video: an MP4, a GIF or stills |
 | **DemoScript** | The steps that record the flow, as JSON. In the repo, one file per flow in `.demoman/flows/` |
 
@@ -60,7 +60,7 @@ background, cursor). Every field is on [DemoScript](/reference/demoscript).
 
 ## How a flow changes
 
-- **Your agent records it again.** Asking for the same demo adds a new video
+- **Your agent records it again.** Asking for the same demo video again adds a new video
   to the flow. In a repo, the DemoScript follows the new script.
 - **CI records it again.** A refresh replays the DemoScript as it is and
   replaces the exports when the picture changed. It never rewrites the

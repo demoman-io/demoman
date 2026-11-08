@@ -480,7 +480,7 @@ const laterVersion = (a: ScriptVersion, b: ScriptVersion): ScriptVersion =>
 const DemoScriptShape = z.object({
   /** Optional: Demoman sets it (see `minimumScriptVersion`); a lower one is raised. */
   scriptVersion: ScriptVersionSchema.optional().describe(
-    "The format version. Demoman sets it; leave it out",
+    "The format's number. Demoman sets it; leave it out",
   ),
   name: z.string().min(1).describe("The video's name"),
   target: z.url().describe("The page the run opens first, http or https"),
@@ -516,7 +516,7 @@ const DemoScriptShape = z.object({
     .describe("What the run does, in order. At least one step acts on the page"),
   /** Cut the film's start and end (`ScriptTrimSchema`). Absent: the whole take. */
   trim: ScriptTrimSchema.optional().describe(
-    "Cut the video's start and end: `{ start: { ms, step? }, end: { ms, step?, after? } }`. Absent: the whole recording",
+    "Cut the video's start and end: `{ start: { ms, step? }, end: { ms, step?, after? } }`. Absent: the whole video",
   ),
   /**
    * The take that steps' `recorded` ids refer to (`scriptFromTake` writes it).
