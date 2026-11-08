@@ -345,11 +345,19 @@ describe("openStudio", () => {
         openStudio({ home, version: "0.0.0-test", serve: serveFake() }),
         openStudio({ home, version: "0.0.0-test", serve: serveFake() }),
       ]);
-      expect(a).toMatchObject({ outcome: "opened" });
-      expect(b).toMatchObject({ outcome: "opened" });
+      // CI's red run arrives explaining itself (DEM-66): each open's note,
+      // which says what a replaced studio's ping got, and both logs.
+      const log = (name: string) =>
+        readFile(join(home, name), "utf8").then(
+          (t) => t.split("\n").slice(0, 8).join(" | "),
+          () => "(none)",
+        );
+      const evidence = `a ${JSON.stringify(a)}; b ${JSON.stringify(b)}; studio.log.1: ${await log("studio.log.1")}; studio.log: ${await log("studio.log")}`;
+      expect(a, evidence).toMatchObject({ outcome: "opened" });
+      expect(b, evidence).toMatchObject({ outcome: "opened" });
       // Premise: both really ran together, so the lock was what separated them.
-      expect(existsSync(join(home, "studio.start.lock"))).toBe(false);
-      expect(existsSync(join(home, "studio.log.1"))).toBe(false);
+      expect(existsSync(join(home, "studio.start.lock")), evidence).toBe(false);
+      expect(existsSync(join(home, "studio.log.1")), evidence).toBe(false);
       expect(await servings()).toBe(1);
     },
     CASE_MS,
