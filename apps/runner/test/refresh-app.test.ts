@@ -189,7 +189,11 @@ describe("withApp", () => {
       value: null,
       lines: ["now was not used"],
     });
-    const plain = await withApp({ kind: "none", said: "s" }, o(true), async () => 1);
+    const plain = await withApp(
+      { kind: "none", said: "s" },
+      o(true),
+      async () => 1,
+    );
     expect(plain).toMatchObject({ ok: true, lines: [] });
   });
 

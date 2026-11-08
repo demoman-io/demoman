@@ -41,6 +41,7 @@ import {
   readLandingFacts,
 } from "./landing.js";
 import { measureViewport, pageCapture } from "./page-ops.js";
+import { pinnedClockSource, pinnedOffsetMs } from "./pinned-clock.js";
 import type { RunDeps } from "./run.js";
 import { type SessionFile, samePage } from "./sessions.js";
 
@@ -59,6 +60,7 @@ export type PlayDeps = Pick<
   | "loadSessions"
   | "signinCommand"
   | "account"
+  | "pinnedNow"
 >;
 
 export type Prepared =
@@ -88,6 +90,24 @@ export async function prepareStage(
   }
   const launched = staged.stage;
   const { page } = launched;
+
+  // Before the first navigation, on this flow's own target: every document
+  // of the flow reads the repo's pinned instant (DEM-79). A pin that cannot
+  // be installed stops the run: a video at the real date would be compared
+  // with pinned ones and read as changed.
+  if (deps.pinnedNow !== undefined) {
+    try {
+      await launched.cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: pinnedClockSource(pinnedOffsetMs(deps.pinnedNow)),
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "portFailure",
+        detail: `the page's clock could not be pinned to ${deps.pinnedNow} (${error instanceof Error ? error.message : String(error)})`,
+      };
+    }
+  }
 
   // The executor loaded the saved sessions into the context `ensure()` gave
   // it; the stage can be a later one if the browser relaunched in between

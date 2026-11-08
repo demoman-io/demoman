@@ -9,7 +9,8 @@ const APP_VERSION = 1;
 const SECRET_NAME_RULE =
   "a secret name is A-Z, 0-9 and _, not starting with a digit or GITHUB_";
 const SECRET_NAME = /^[A-Z_][A-Z0-9_]*$/;
-const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+const INSTANT =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
 /** An ISO 8601 instant with a zone, that names a real moment
  *  (`2026-11-06T09:00:00Z`; not a bare date, nor a time without a zone). */

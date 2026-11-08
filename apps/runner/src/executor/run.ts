@@ -94,6 +94,9 @@ function blankWalk(total: number, reason: ReplayStopReason): WalkResultLike {
 export interface RunDeps {
   /** From the door: the version the script stated before it was raised. */
   versionRaisedFrom?: number;
+  /** The instant the page's clock starts at, when refresh started the app
+   *  with it (DEM-79); never an MCP argument. */
+  pinnedNow?: string;
   session: BrowserSession;
   library: Library;
   kits: BrandKitsRead;
