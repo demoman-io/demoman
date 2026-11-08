@@ -18,6 +18,8 @@ export type AppStartRefusal = {
     | "appNeverAnswered"
     | "appServiceFailed"
     | "appPortTaken"
+    | "appNowInFuture"
+    | "appNowNotPinned"
     | "appDockerMissing";
   /** What failed and the next action. */
   detail: string;
@@ -33,6 +35,9 @@ export type AppStarted = {
   stop(): Promise<string[]>;
   /** Runs app.json's `reset`, if any, before a flow (DEM-57). */
   reset(): Promise<{ ok: true } | { ok: false; detail: string }>;
+  /** app.json's `now` when the app was started here with it as
+   *  DEMOMAN_NOW; null when unset (DEM-79). A reused app is never pinned. */
+  pinnedNow: string | null;
 };
 export interface AppStartDeps {
   spawn: typeof import("node:child_process").spawn;
@@ -142,7 +147,19 @@ export async function startApp(
     ...deps,
   };
   const t0 = d.now();
-  const env = { ...o.env, ...app.env };
+  // Refused before anything runs: a future instant can make the app treat a
+  // fresh sign-in as expired, which would read as a sign-in fault (DEM-79).
+  if (app.now !== undefined && Date.parse(app.now) > t0)
+    return {
+      reason: "appNowInFuture",
+      detail: `now in ${APP_FILE} (${app.now}) is later than this machine's clock (${new Date(t0).toISOString()}); set now to an instant that has passed`,
+      tail: "",
+    };
+  const env: NodeJS.ProcessEnv = {
+    ...o.env,
+    ...app.env,
+    ...(app.now === undefined ? {} : { DEMOMAN_NOW: app.now }),
+  };
   const secretValues = app.secrets
     .map((n) => env[n])
     .filter((v): v is string => !!v);
@@ -206,12 +223,21 @@ export async function startApp(
     };
   }
   if (o.mode === "reuse" && (await ready())) {
+    // Recording it anyway would put real-date videos back over pinned ones,
+    // and the next CI refresh would flip them again (DEM-79).
+    if (app.now !== undefined)
+      return {
+        reason: "appNowNotPinned",
+        detail: `the app was already running at ${app.url} before Demoman started it, so the now in ${APP_FILE} (${app.now}) cannot be pinned; stop it and run again, or let CI refresh`,
+        tail: "",
+      };
     return {
       reused: true,
       said: `used the app already answering at ${app.url}`,
       seconds: Math.round((d.now() - t0) / 100) / 10,
       stop: async () => [],
       reset,
+      pinnedNow: null,
     };
   }
 
@@ -363,6 +389,7 @@ export async function startApp(
     seconds: Math.round((d.now() - t0) / 100) / 10,
     stop,
     reset,
+    pinnedNow: app.now ?? null,
   };
 }
 

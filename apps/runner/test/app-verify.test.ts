@@ -127,6 +127,7 @@ const startStub =
         return leftToStop;
       },
       reset: async () => ({ ok: true }),
+      pinnedNow: null,
     }),
   ): typeof startApp =>
   async (a, o) => {
@@ -282,6 +283,7 @@ describe("verifySetup", () => {
         resets += 1;
         return { ok: true };
       },
+      pinnedNow: null,
     }));
     let handed: (() => Promise<unknown>) | undefined;
     await verifySetup(
@@ -600,6 +602,7 @@ describe("verifySetup", () => {
               return [];
             },
             reset: async () => ({ ok: true }),
+            pinnedNow: null,
           };
         }),
       }),

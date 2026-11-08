@@ -14,7 +14,12 @@ import {
 import { readKeptFlows } from "./kept-flows.js";
 
 export type AppPlan =
-  | { kind: "none"; said: string }
+  | {
+      kind: "none";
+      said: string;
+      /** Said once when app.json pins `now` and this refresh cannot (DEM-79). */
+      note?: string;
+    }
   | { kind: "start"; app: AppSpec }
   | {
       kind: "refused";
@@ -26,11 +31,22 @@ export async function appPlanFor(
   root: string,
   o: { baseUrl?: string },
 ): Promise<AppPlan> {
-  if (o.baseUrl !== undefined)
-    return {
-      kind: "none",
-      said: `--base-url given; ${APP_FILE} not used`,
-    };
+  if (o.baseUrl !== undefined) {
+    const said = `--base-url given; ${APP_FILE} not used`;
+    // Read only to say a pin it asks for cannot happen: Demoman does not
+    // start an app at --base-url, so it cannot hand it the instant (DEM-79).
+    // An unreadable or invalid file is ignored, as --base-url always has.
+    const text = await readFile(join(root, APP_FILE), "utf8").catch(() => null);
+    const parsed = text === null ? null : parseApp(text, APP_FILE);
+    const now = parsed?.ok ? parsed.app.now : undefined;
+    return now === undefined
+      ? { kind: "none", said }
+      : {
+          kind: "none",
+          said,
+          note: `${APP_FILE} pins now to ${now}, but --base-url records an app Demoman did not start, so the date is not pinned`,
+        };
+  }
   let text: string;
   try {
     text = await readFile(join(root, APP_FILE), "utf8");
@@ -89,9 +105,10 @@ export async function withApp<T>(
     ci: boolean;
     log: (l: string) => void;
   },
-  /** Gets the started app's reset, to run before each flow (DEM-57); a
-   *  no-op when no app is started here. */
-  run: (reset: AppStarted["reset"]) => Promise<T>,
+  /** Gets the started app's reset, to run before each flow (DEM-57), a
+   *  no-op when no app is started here; and the instant it was started at
+   *  (DEM-79), null when none or none started here. */
+  run: (reset: AppStarted["reset"], pinnedNow: string | null) => Promise<T>,
   deps: Partial<AppStartDeps> & { startApp?: typeof startApp } = {},
 ): Promise<
   | { ok: true; value: T; lines: string[] }
@@ -103,8 +120,8 @@ export async function withApp<T>(
   if (plan.kind === "none")
     return {
       ok: true,
-      value: await run(async () => ({ ok: true })),
-      lines: [],
+      value: await run(async () => ({ ok: true }), null),
+      lines: plan.note === undefined ? [] : [plan.note],
     };
   if (plan.kind === "refused")
     return {
@@ -145,7 +162,11 @@ export async function withApp<T>(
   }
   const lines = [started.said];
   try {
-    return { ok: true, value: await run(started.reset), lines };
+    return {
+      ok: true,
+      value: await run(started.reset, started.pinnedNow),
+      lines,
+    };
   } finally {
     const left = await started.stop();
     if (left.length > 0) lines.push(`could not stop ${left.join(", ")}`);

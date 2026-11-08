@@ -98,8 +98,28 @@ describe("appPlanFor", () => {
     expect(plan).toMatchObject({ kind: "refused", reason: "appInvalid" });
   });
 
-  it("with --base-url is none and never reads the file", async () => {
+  it("with --base-url and no now, is none with no note", async () => {
     await writeApp(app());
+    const plan = await appPlanFor(root, { baseUrl: "http://x.test" });
+    expect(plan).toEqual({
+      kind: "none",
+      said: `--base-url given; ${APP_FILE} not used`,
+    });
+  });
+
+  // Red when a pin the repo asked for silently does not happen (DEM-79).
+  it("with --base-url and now set, is none and notes now was not used", async () => {
+    await writeApp(app({ now: "2026-11-06T09:00:00Z" }));
+    const plan = await appPlanFor(root, { baseUrl: "http://x.test" });
+    expect(plan.kind).toBe("none");
+    const note = plan.kind === "none" ? plan.note : undefined;
+    expect(note).toContain("2026-11-06T09:00:00Z");
+    expect(note).toContain("--base-url");
+  });
+
+  it("with --base-url and an invalid app.json, is none and never refuses", async () => {
+    await mkdir(join(root, ".demoman"), { recursive: true });
+    await writeFile(join(root, APP_FILE), "{");
     const plan = await appPlanFor(root, { baseUrl: "http://x.test" });
     expect(plan).toEqual({
       kind: "none",
@@ -123,6 +143,7 @@ describe("withApp", () => {
     seconds: 1,
     stop,
     reset: async () => ({ ok: true }),
+    pinnedNow: null,
   });
 
   // Red when the run cannot reach the app's reset (DEM-57).
@@ -143,6 +164,33 @@ describe("withApp", () => {
       async (doReset) => doReset(),
     );
     expect(none).toMatchObject({ ok: true, value: { ok: true } });
+  });
+
+  // Red when the run cannot learn the instant the started app was given (DEM-79).
+  it("withApp hands the started app's pinnedNow to run, and a none plan's note to lines", async () => {
+    const startApp = vi.fn(async () => ({
+      ...started(),
+      pinnedNow: "2026-11-06T09:00:00Z",
+    }));
+    const r = await withApp(
+      { kind: "start", app: app() },
+      o(true),
+      async (_reset, pinnedNow) => pinnedNow,
+      { startApp },
+    );
+    expect(r).toMatchObject({ ok: true, value: "2026-11-06T09:00:00Z" });
+    const none = await withApp(
+      { kind: "none", said: "s", note: "now was not used" },
+      o(true),
+      async (_reset, pinnedNow) => pinnedNow,
+    );
+    expect(none).toMatchObject({
+      ok: true,
+      value: null,
+      lines: ["now was not used"],
+    });
+    const plain = await withApp({ kind: "none", said: "s" }, o(true), async () => 1);
+    expect(plain).toMatchObject({ ok: true, lines: [] });
   });
 
   it("stops the app when run throws", async () => {
