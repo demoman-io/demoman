@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateSaves,
   exportButtonLabel,
-  formatBytes,
 } from "../../../pages/src/editor/export-run";
 import { exportLabel } from "../../../pages/src/editor/formats";
 
@@ -93,14 +92,6 @@ describe("exportButtonLabel", () => {
     // Premise: every combination produced a label to inspect.
     expect(labels).toHaveLength(3 * 2 * 4);
     expect(labels.filter((l) => /rebuild|previewed/i.test(l))).toEqual([]);
-  });
-});
-
-describe("formatBytes", () => {
-  it("reads like a file size", () => {
-    expect(formatBytes(900)).toBe("1 KB");
-    expect(formatBytes(512 * 1024)).toBe("512 KB");
-    expect(formatBytes(12.4 * 1024 * 1024)).toBe("12.4 MB");
   });
 });
 

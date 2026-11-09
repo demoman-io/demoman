@@ -33,6 +33,8 @@ import {
   CHANGED_ELSEWHERE,
   createRoutes,
   FRAME_CACHE,
+  revealFile,
+  runTool,
   TAKE_BUSY,
 } from "../../src/routes.js";
 import { folderBytes } from "../../src/sizes.js";
@@ -1326,6 +1328,78 @@ describe("reveal", () => {
     const body = r.json() as { reason: string; detail: string };
     expect(body.reason).toBe("revealRefused");
     expect(body.detail).toContain("Finder said no");
+  });
+});
+
+describe("revealFile", () => {
+  const recording = () => {
+    const ran: Array<[string, string[]]> = [];
+    const run = async (cmd: string, args: string[]) => {
+      ran.push([cmd, args]);
+    };
+    return { ran, run };
+  };
+
+  it("selects the file in Finder on macOS", async () => {
+    const { ran, run } = recording();
+    await revealFile("/v/out.mp4", "darwin", run);
+    expect(ran).toEqual([["open", ["-R", "/v/out.mp4"]]]);
+  });
+
+  it("opens the folder that holds it with xdg-open on Linux", async () => {
+    const { ran, run } = recording();
+    await revealFile("/v/out.mp4", "linux", run);
+    expect(ran).toEqual([["xdg-open", ["/v"]]]);
+  });
+
+  it("the real tool: a quick failure rejects with its stderr", async () => {
+    await expect(
+      runTool(process.execPath, [
+        "-e",
+        "process.stderr.write('no method available'); process.exit(3)",
+      ]),
+    ).rejects.toThrow("no method available");
+  });
+
+  it("the real tool: one still running (a file manager in the foreground) does not hold the request", async () => {
+    const started = Date.now();
+    // Red: wait for the exit (execFile) — this takes the full 3 s.
+    await runTool(process.execPath, ["-e", "setTimeout(() => {}, 3000)"], 200);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("Windows is refused in words, and nothing is run", async () => {
+    const { ran, run } = recording();
+    await expect(revealFile("C:\\v\\out.mp4", "win32", run)).rejects.toThrow(
+      "not supported on Windows",
+    );
+    expect(ran).toEqual([]);
+  });
+
+  it("the real tool: one that fails after it settled is said, its stderr still read", async () => {
+    const late = new Promise<Error>((resolve) => {
+      void runTool(
+        process.execPath,
+        [
+          "-e",
+          "setTimeout(() => { process.stderr.write('no handler for inode/directory'); process.exitCode = 4 }, 600)",
+        ],
+        100,
+        resolve,
+      );
+    });
+    // Red: destroy the pipe at settle (the child's write then fails, and
+    // these words are lost), or drop `onLate`.
+    expect((await late).message).toBe("no handler for inode/directory");
+  });
+
+  it("a tool that fails rejects with its words", async () => {
+    const run = async () => {
+      throw new Error("xdg-open: no method available");
+    };
+    await expect(revealFile("/v/out.mp4", "linux", run)).rejects.toThrow(
+      "xdg-open: no method available",
+    );
   });
 });
 

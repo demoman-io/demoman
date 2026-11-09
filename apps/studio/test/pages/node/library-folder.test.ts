@@ -1,6 +1,8 @@
 // apps/studio/test/pages/node/library-folder.test.ts
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PREVIEW_WIDTH_PX } from "../../../pages/src/library/preview";
+import { StudioError } from "../../../pages/src/platform/http";
 import type {
   FolderListing,
   Platform,
@@ -23,7 +25,9 @@ import { CARDS } from "../helpers/memory-platform";
  * Production changes that redden it, made and watched go red (see the task
  * report): call `render()` per event instead of `refreshSoon`; stop
  * `renderLibrary` restoring the typed name; drop the `unwatched` notice;
- * make the empty card ignore `unreadable`; route `image` past `folder.thumb`.
+ * make the empty card ignore `unreadable`; route `image` past `folder.thumb`;
+ * drop the page's own decode after a refused thumb (DEM-86: on Linux the
+ * Studio has no `sips`, and every card would stay blank).
  */
 
 const STUDIO_HINT =
@@ -67,6 +71,7 @@ async function fakePlatform(
   answer: (call: number) => Promise<FolderListing> | FolderListing,
   thumb: (ref: string) => Promise<ImageBitmap> = () =>
     new Promise<never>(() => {}),
+  load: (ref: string) => Promise<unknown> = () => new Promise<never>(() => {}),
 ): Promise<Fake> {
   const { proceduralBundle } = await import(
     "../../../../../packages/replay-engine/test/helpers/bundles"
@@ -96,7 +101,7 @@ async function fakePlatform(
         replay: null,
         capture: null,
       }),
-      load: () => new Promise<never>(() => {}),
+      load,
     },
     folder: {
       read: async () => {
@@ -128,6 +133,11 @@ async function fakePlatform(
   world.platform = fake.platform;
   return fake;
 }
+
+/** A refusal as `platform/http.ts`'s request throws it. */
+/** What `#platform`'s http client throws for a refused route. */
+const refusal = (reason: string, detail: string, status: number): Error =>
+  new StudioError(reason, detail, status);
 
 function listing(
   scenes: SceneDocument[],
@@ -173,6 +183,7 @@ describe("the library page on a platform with a take folder", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     window.history.replaceState({}, "", "/");
   });
 
@@ -431,12 +442,103 @@ describe("the library page on a platform with a take folder", () => {
     ).not.toBeNull();
   });
 
-  it("a thumb that fails shows the preview-failed state with the Studio's words", async () => {
-    const detail = "Couldn't make a preview of kf:x:0: sips: Error 13.";
+  it("a Studio with no sips (501) is asked once; every preview is decoded on the page, once", async () => {
+    const detail =
+      "Couldn't make a preview of k-0: previews are made with sips, which only macOS has.";
+    // jsdom has no ImageBitmap; the page checks the decode is one.
+    class FakeBitmap {
+      width = 1280;
+      height = 800;
+      closed = false;
+      close(): void {
+        this.closed = true;
+      }
+    }
+    vi.stubGlobal("ImageBitmap", FakeBitmap);
+    const resized: number[] = [];
+    vi.stubGlobal(
+      "createImageBitmap",
+      async (src: FakeBitmap, opts?: { resizeWidth?: number }) => {
+        const b = new FakeBitmap();
+        b.width = opts?.resizeWidth ?? src.width;
+        b.height = Math.round((src.height * b.width) / src.width);
+        if (opts?.resizeWidth !== undefined) resized.push(opts.resizeWidth);
+        return b;
+      },
+    );
+    const loads: string[] = [];
+    const fulls: FakeBitmap[] = [];
     const fake = await fakePlatform(
       async () => listing([await scene("a", "Checkout")]),
       async () => {
-        throw new Error(detail);
+        throw refusal("thumbFailed", detail, 501);
+      },
+      async (ref) => {
+        loads.push(ref);
+        const image = new FakeBitmap();
+        fulls.push(image);
+        return { ref, image };
+      },
+    );
+    await openPage();
+    const drawn = () => {
+      const c = document.querySelector<HTMLCanvasElement>(
+        '[data-row="a"] [data-preview-canvas]',
+      );
+      const note =
+        document.querySelector('[data-row="a"] [data-preview-note]')
+          ?.textContent ?? "";
+      if (c === null || c.width !== PREVIEW_WIDTH_PX) {
+        throw new Error(
+          `canvas width ${c?.width}, note: ${JSON.stringify(note)}, thumbs asked: ${fake.thumbs.join(",")}, loads: ${loads.join(",")}`,
+        );
+      }
+      return c;
+    };
+    const first = await vi.waitFor(drawn, { timeout: 5_000 });
+    expect(first.width).toBe(PREVIEW_WIDTH_PX);
+    // The premise: the Studio was asked first, and refused.
+    expect(fake.thumbs.length).toBeGreaterThan(0);
+    expect(loads).toEqual(expect.arrayContaining([fake.thumbs[0]]));
+    // Kept small: each full keyframe is made preview-wide, then closed.
+    expect(resized.length).toBeGreaterThan(0);
+    expect(resized.every((w) => w === PREVIEW_WIDTH_PX)).toBe(true);
+    expect(fulls.every((b) => b.closed)).toBe(true);
+    // Forgiven, not silent: the Studio's reason reaches the console.
+    expect(
+      vi
+        .mocked(console.info)
+        .mock.calls.some((c) => c.join(" ").includes(detail)),
+    ).toBe(true);
+    // A second pass draws again, asking neither the Studio nor the store.
+    const asked = fake.thumbs.length;
+    const loaded = loads.length;
+    const reads = fake.reads;
+    for (const fn of fake.changeListeners) fn();
+    await vi.waitFor(
+      () => {
+        if (fake.reads <= reads) throw new Error(`no re-read: ${fake.reads}`);
+        if (drawn() === first) throw new Error("the card was not redrawn");
+      },
+      { timeout: 5_000 },
+    );
+    // Red: drop `studioMakesNoPreviews` — the second pass asks again.
+    expect(fake.thumbs.length).toBe(asked);
+    // Red: drop `decodedPreviews` — every card fetches its keyframe again.
+    expect(loads.length).toBe(loaded);
+  });
+
+  it("a take the Studio no longer has is said as the Studio says it, and not decoded", async () => {
+    const detail = 'There is no video "a" in /home/takes.';
+    const loads: string[] = [];
+    const fake = await fakePlatform(
+      async () => listing([await scene("a", "Checkout")]),
+      async () => {
+        throw refusal("takeNotFound", detail, 404);
+      },
+      async (ref) => {
+        loads.push(ref);
+        throw new Error("decoded a take the Studio said is gone");
       },
     );
     await openPage();
@@ -454,7 +556,55 @@ describe("the library page on a platform with a take folder", () => {
       },
       { timeout: 5_000 },
     );
+    // Red: fall back on every refusal — the store is asked, and the note
+    // grows a second reason.
     expect(note).toBe(`Preview unavailable — ${detail}`);
     expect(fake.thumbs.length).toBeGreaterThan(0);
+    expect(loads).toEqual([]);
+  });
+
+  it("a thumb that fails and will not decode either says both", async () => {
+    const detail = "Couldn't make a preview of kf:x:0: sips: Error 13.";
+    let decodes = 0;
+    const fake = await fakePlatform(
+      async () => listing([await scene("a", "Checkout")]),
+      async () => {
+        throw refusal("thumbFailed", detail, 500);
+      },
+      async () => {
+        decodes += 1;
+        throw new Error("The Studio did not answer GET /frame");
+      },
+    );
+    await openPage();
+    const note = await vi.waitFor(
+      () => {
+        const text =
+          document.querySelector('[data-row="a"] [data-preview-note]')
+            ?.textContent ?? "";
+        if (!text.startsWith("Preview unavailable — ")) {
+          throw new Error(
+            `note: ${JSON.stringify(text)}, thumbs asked: ${fake.thumbs.join(",")}`,
+          );
+        }
+        return text;
+      },
+      { timeout: 5_000 },
+    );
+    expect(note).toBe(
+      "Preview unavailable — Couldn't make a preview of kf:x:0: sips: Error 13; decoding it on this page failed too: The Studio did not answer GET /frame",
+    );
+    expect(fake.thumbs.length).toBeGreaterThan(0);
+    // A failed decode is not kept: the next pass tries the store again.
+    // Red: keep the rejected promise in `decodedPreviews`.
+    const before = decodes;
+    expect(before).toBeGreaterThan(0);
+    for (const fn of fake.changeListeners) fn();
+    await vi.waitFor(
+      () => {
+        if (decodes <= before) throw new Error(`decodes: ${decodes}`);
+      },
+      { timeout: 5_000 },
+    );
   });
 });

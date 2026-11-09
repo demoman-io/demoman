@@ -40,7 +40,7 @@ export {
   CHANGED_ELSEWHERE,
   createRoutes,
   FRAME_CACHE,
-  revealInFinder,
+  revealFile,
   TAKE_BUSY,
 } from "./routes.js";
 export { buildHandlers, runServe, type ServeOptions } from "./serve.js";

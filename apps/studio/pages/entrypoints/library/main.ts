@@ -9,12 +9,15 @@ import {
   type LibraryViewChoice,
   type VideoSummary,
 } from "@demoman/studio-protocol";
-import { createPlatform } from "#platform";
+import { createPlatform, StudioError } from "#platform";
 import { editedLength } from "../../src/library/length";
 import { createLengthCache, paintLength } from "../../src/library/length-cache";
 import type { ListSort } from "../../src/library/list-model";
 import type { PreviewMounter, PreviewPorts } from "../../src/library/preview";
-import { createPreviewMounter } from "../../src/library/preview";
+import {
+  createPreviewMounter,
+  PREVIEW_WIDTH_PX,
+} from "../../src/library/preview";
 import {
   narrow,
   type Place,
@@ -238,25 +241,87 @@ const previewPorts: PreviewPorts<FrameBundle> = {
   },
   // The studio makes the card's frame small itself (`folder.thumb`); it
   // refuses a take this page has not asked `bundles.active` for, and the
-  // mounter's `bundle` port above always does first. Elsewhere the page
-  // decodes the keyframe from the store, as it always has.
+  // mounter's `bundle` port above always does first. When it cannot (no
+  // `sips` off macOS, DEM-86) or elsewhere, the page decodes the keyframe.
   image: async (ref) => {
-    if (platform.folder !== undefined) return platform.folder.thumb(ref);
-    const frame = await bundles.load(ref);
-    // `load` serves raw container bytes for a `span:` ref and a decoded
-    // image for a `kf:` one. A preview only ever samples keyframes, so
-    // either branch below means the sampler handed over a ref of the wrong
-    // kind — which the box must say, not draw as a blank.
-    if (frame instanceof Uint8Array) {
-      throw new Error(`${ref} loaded as motion bytes, not a keyframe`);
+    const folder = platform.folder;
+    if (folder === undefined || studioMakesNoPreviews) {
+      return decodedPreview(ref);
     }
-    if (!(frame.image instanceof ImageBitmap)) {
-      throw new Error(`${ref} decoded to something other than an ImageBitmap`);
+    try {
+      return await folder.thumb(ref);
+    } catch (thumbError) {
+      // Only a preview the Studio could not make: a take that is gone or a
+      // Studio that stopped is said as it is, not asked of the store too.
+      if (
+        !(thumbError instanceof StudioError) ||
+        thumbError.reason !== "thumbFailed"
+      ) {
+        throw thumbError;
+      }
+      // 501: this Studio makes none at all, so it is not asked again.
+      const none = thumbError.status === 501;
+      if (none) studioMakesNoPreviews = true;
+      console.info(
+        `demoman library: the Studio made no preview of ${ref} (${thumbError.message}); decoding ${none ? "every preview" : "it"} here`,
+      );
+      try {
+        return await decodedPreview(ref);
+      } catch (decodeError) {
+        throw new Error(
+          `${unperiod(thumbError.message)}; decoding it on this page failed too: ${messageOf(decodeError)}`,
+        );
+      }
     }
-    return frame.image;
   },
   whenVisible,
 };
+
+/** Set by the Studio's first 501 `thumbFailed` (no `sips` off macOS):
+ *  every later preview is decoded here without asking it. */
+let studioMakesNoPreviews = false;
+
+/** Previews this page decoded, kept at preview width by ref: a re-render
+ *  (every takes event) draws them again without fetching and decoding a
+ *  full-size keyframe per card. A failed one is not kept. */
+const decodedPreviews = new Map<string, Promise<ImageBitmap>>();
+
+/** A copy of the kept preview, since the mounter closes what it is given. */
+async function decodedPreview(ref: string): Promise<ImageBitmap> {
+  let small = decodedPreviews.get(ref);
+  if (small === undefined) {
+    const made = decodeKeyframe(ref).then(async (full) => {
+      try {
+        return await createImageBitmap(full, { resizeWidth: PREVIEW_WIDTH_PX });
+      } finally {
+        full.close();
+      }
+    });
+    made.catch(() => {
+      if (decodedPreviews.get(ref) === made) decodedPreviews.delete(ref);
+    });
+    decodedPreviews.set(ref, made);
+    small = made;
+  }
+  const kept = await small;
+  return createImageBitmap(kept);
+}
+
+/** A keyframe decoded from the store, full size. */
+async function decodeKeyframe(ref: string): Promise<ImageBitmap> {
+  const frame = await bundles.load(ref);
+  // `load` serves raw container bytes for a `span:` ref and a decoded
+  // image for a `kf:` one. A preview only ever samples keyframes, so
+  // either branch below means the sampler handed over a ref of the wrong
+  // kind — which the box must say, not draw as a blank.
+  if (frame instanceof Uint8Array) {
+    throw new Error(`${ref} loaded as motion bytes, not a keyframe`);
+  }
+  if (!(frame.image instanceof ImageBitmap)) {
+    throw new Error(`${ref} decoded to something other than an ImageBitmap`);
+  }
+  return frame.image;
+}
 
 /**
  * The mounter for the CURRENT pass. `renderLibrary` replaces every row on

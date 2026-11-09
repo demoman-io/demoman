@@ -1,6 +1,6 @@
-import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { writeAtomic } from "./files.js";
 
 export interface StudioState {
   pid: number;
@@ -14,21 +14,9 @@ export function studioStatePath(home: string): string {
   return join(home, "studio.json");
 }
 
-/** Mode 0600 (it holds the token), written beside the file then renamed in. */
-export async function writeStudioState(
-  home: string,
-  s: StudioState,
-): Promise<void> {
-  await mkdir(home, { recursive: true, mode: 0o700 });
-  const path = studioStatePath(home);
-  const tmp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-  try {
-    await writeFile(tmp, `${JSON.stringify(s)}\n`, { mode: 0o600 });
-    await rename(tmp, path);
-  } catch (e) {
-    await rm(tmp, { force: true }).catch(() => undefined);
-    throw e;
-  }
+/** Mode 0600 (it holds the token; `writeAtomic` writes every file so). */
+export function writeStudioState(home: string, s: StudioState): Promise<void> {
+  return writeAtomic(studioStatePath(home), `${JSON.stringify(s)}\n`);
 }
 
 function isState(v: unknown): v is StudioState {

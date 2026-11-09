@@ -25,7 +25,6 @@ import {
   type ExportReadiness,
   type ExportRun,
   exportButtonLabel,
-  formatBytes,
   type SaveView,
 } from "../../src/editor/export-run";
 import {
@@ -51,11 +50,12 @@ import {
   comboSpoken,
   describeShortcut,
   isKeySymbol,
+  isMacPlatform,
   keyLabel,
   SHORTCUT_LEGEND,
 } from "../../src/editor/shortcuts";
 import { formatLength } from "../../src/library/length";
-import { whenLabel } from "../../src/library/state";
+import { formatBytes, whenLabel } from "../../src/library/state";
 import type { OutputRow, RevealTarget } from "../../src/platform/types";
 import { EXPORT_QUALITY_LABELS } from "../../src/settings/view";
 import { setCodeText, withoutTicks } from "../../src/shell/code-spans";
@@ -1701,7 +1701,7 @@ function drawFileRow(
     ]),
   );
   if (file.exists) {
-    const show = el("button", "btn btn-quiet", "Show in Finder");
+    const show = el("button", "btn btn-quiet", showFileLabel());
     show.type = "button";
     show.setAttribute("data-reveal", file.key);
     show.addEventListener("click", () =>
@@ -1770,7 +1770,7 @@ function saveOutcomeRow(
       const show = el(
         "button",
         "btn btn-quiet",
-        target.kind === "path" ? "Show in Finder" : "Show in folder",
+        target.kind === "path" ? showFileLabel() : "Show in folder",
       );
       show.type = "button";
       show.setAttribute("data-show-in-folder", "");
@@ -2565,4 +2565,12 @@ export function renderShortcuts(
   root.replaceChildren(search, body);
   // Ready to type into when it opens, as Linear's is.
   if (state.focus) search.focus();
+}
+
+/** The Studio runs on this machine, so this is the server's own split
+ *  (`revealFile`): Finder on a Mac, the file's folder anywhere else. */
+function showFileLabel(): string {
+  return isMacPlatform(navigator.userAgent)
+    ? "Show in Finder"
+    : "Show in folder";
 }

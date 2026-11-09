@@ -104,13 +104,6 @@ export function exportButtonLabel(
   }
 }
 
-export function formatBytes(n: number): string {
-  const mb = n / (1024 * 1024);
-  return mb >= 1
-    ? `${Math.round(mb * 10) / 10} MB`
-    : `${Math.max(1, Math.round(n / 1024))} KB`;
-}
-
 export function aggregateSaves(
   results: {
     ref: string;

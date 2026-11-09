@@ -231,7 +231,7 @@ export function serializeReceipt(r: KeptReceipt): string {
     );
   const ordered = {
     // Version 2 only when it names a folder, so no receipt names one nobody wrote.
-    receiptVersion: r.screensDir === null ? 1 : 2,
+    receiptVersion: r.screensDir === null ? 1 : RECEIPT_VERSION,
     flow: r.flow,
     video: r.video,
     filmedAt: r.filmedAt,

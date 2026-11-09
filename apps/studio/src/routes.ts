@@ -1,6 +1,6 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
-import { isAbsolute, join, resolve as resolvePath } from "node:path";
+import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import {
   DEFAULT_EXPORT_QUALITY,
   type FilmedCode,
@@ -55,7 +55,13 @@ import {
 } from "@demoman/studio-protocol";
 import { saveLogo, saveWallpaper } from "./assets.js";
 import type { EventHub } from "./events.js";
-import { createChains, isMissing, messageOf, readIfPresent } from "./files.js";
+import {
+  createChains,
+  messageOf,
+  noTakeRefusal,
+  readIfPresent,
+  takeExists,
+} from "./files.js";
 import { createKitsFile } from "./kits.js";
 import type { CiRoute } from "./repo-ci.js";
 import type { Handler, StudioHandlers, StudioResponse } from "./server.js";
@@ -110,17 +116,79 @@ const refuse = (
 /** The most folders `repoFolders` answers. */
 const FOLDERS_MAX = 500;
 
-/** `open -R`, which shows the file selected in a Finder window. */
-export function revealInFinder(path: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile("open", ["-R", path], (error, _stdout, stderr) => {
-      if (error) {
-        reject(new Error(stderr.trim() || error.message));
-        return;
-      }
+/** Runs a tool; rejects with its own words. */
+export type RunTool = (cmd: string, args: string[]) => Promise<void>;
+
+/** How long a reveal tool may run before it counts as showing the file.
+ *  `open -R` and a desktop's `xdg-open` return at once; xdg-open's generic
+ *  fallback runs the file manager in the foreground, and waiting for its
+ *  exit would hold the request until that window closed. */
+export const REVEAL_SETTLE_MS = 2_000;
+
+/** Runs a tool. Rejects with its own words if it fails (or exits non-zero)
+ *  within `settleMs`; one still running then is left to run, and if it
+ *  fails later `onLate` says so, since the request has been answered. */
+export const runTool = (
+  cmd: string,
+  args: string[],
+  settleMs = REVEAL_SETTLE_MS,
+  onLate: (error: Error) => void = () => {},
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      detached: true,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let settled = false;
+    let stderr = "";
+    // Read for as long as the tool runs: a pipe nobody reads fills and
+    // blocks it, and one destroyed kills it on its next write (SIGPIPE).
+    child.stderr?.on("data", (chunk) => {
+      stderr = (stderr + String(chunk)).slice(-4_000);
+    });
+    const timer = setTimeout(() => {
+      settled = true;
+      // Unref'd, not closed: still read, but holds no process open.
+      (child.stderr as { unref?: () => void } | null)?.unref?.();
+      child.unref();
       resolve();
+    }, settleMs);
+    const fail = (error: Error) => {
+      clearTimeout(timer);
+      if (settled) onLate(error);
+      else reject(error);
+    };
+    child.on("error", fail);
+    // `close`, not `exit`: it comes after stderr is drained, so the
+    // tool's own words are all here.
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        clearTimeout(timer);
+        resolve();
+      } else {
+        fail(
+          new Error(stderr.trim() || `${cmd} exited with ${code ?? signal}`),
+        );
+      }
     });
   });
+
+/** Shows `path` in the file manager: selected in Finder (`open -R`) on
+ *  macOS; elsewhere `xdg-open` has no "select", so it opens the folder. */
+export function revealFile(
+  path: string,
+  platform: NodeJS.Platform = process.platform,
+  run: RunTool = runTool,
+): Promise<void> {
+  if (platform === "darwin") return run("open", ["-R", path]);
+  // shortcut: Windows has no xdg-open and is not supported yet; refused
+  // in words rather than as spawn ENOENT. Native Windows is DEM-85.
+  if (platform === "win32") {
+    return Promise.reject(
+      new Error("showing a file in its folder is not supported on Windows yet"),
+    );
+  }
+  return run("xdg-open", [dirname(path)]);
 }
 
 /**
@@ -160,7 +228,16 @@ export function createRoutes(o: {
   "window" | "exportStart" | "repoAdd" | "repoRemove" | CiRoute
 > {
   const { library, home, log } = o;
-  const reveal = o.reveal ?? revealInFinder;
+  const reveal =
+    o.reveal ??
+    ((path: string) =>
+      revealFile(path, process.platform, (cmd, args) =>
+        runTool(cmd, args, REVEAL_SETTLE_MS, (error) =>
+          log(
+            `studio: ${cmd} failed after showing ${path}: ${messageOf(error)}`,
+          ),
+        ),
+      ));
   const sceneWrites = createChains();
   const kits = createKitsFile(home);
   const videos = createVideoStore(home, library, { log });
@@ -397,27 +474,7 @@ export function createRoutes(o: {
   }
 
   const noTake = (id: string): StudioResponse =>
-    refuse(
-      404,
-      "takeNotFound",
-      `There is no video "${id}" in ${library.root}.`,
-    );
-
-  /** Whether `id` names a take on disk; false for an id that could not. */
-  async function takeExists(id: string): Promise<boolean> {
-    if (!library.isTakeId(id)) return false;
-    const path = join(library.takeDir(id), "scene.json");
-    try {
-      await stat(path);
-      return true;
-    } catch (error) {
-      if (isMissing(error)) return false;
-      throw new LibraryError(
-        "libraryUnreadable",
-        `could not read ${path} (${messageOf(error)})`,
-      );
-    }
-  }
+    json(404, noTakeRefusal(library, id));
 
   async function bodyJson(
     req: Parameters<Handler>[0],
@@ -811,7 +868,7 @@ export function createRoutes(o: {
       const id = req.params.id as string;
       // An unknown take is not a take without frames: answered as itself,
       // never as `bundle: null` ("no frames yet").
-      if (!(await takeExists(id))) return noTake(id);
+      if (!(await takeExists(library, id))) return noTake(id);
       let bundle: BundleAnswer["bundle"];
       try {
         bundle = await library.frameStore(id).getBundle(id);
@@ -885,7 +942,7 @@ export function createRoutes(o: {
 
     async outputs(req) {
       const id = req.params.id as string;
-      if (!(await takeExists(id))) return noTake(id);
+      if (!(await takeExists(library, id))) return noTake(id);
       const answer: OutputsAnswer = { outputs: await library.outputs(id) };
       return json(200, answer);
     },
@@ -1215,7 +1272,7 @@ export function createRoutes(o: {
         return refuse(
           500,
           "revealRefused",
-          `${path} could not be shown in Finder (${messageOf(error)}).`,
+          `${path} could not be shown in its folder (${messageOf(error)}).`,
         );
       }
       return json(200, {});

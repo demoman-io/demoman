@@ -1,10 +1,17 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type Library, LibraryError } from "@demoman/runner/studio";
 import type { Refusal } from "@demoman/studio-protocol";
-import { createChains, isMissing, messageOf, readIfPresent } from "./files.js";
+import {
+  createChains,
+  isMissing,
+  messageOf,
+  noTakeRefusal,
+  readIfPresent,
+  takeExists,
+} from "./files.js";
 
 /** The long side of a preview, in pixels (spec §7.1). */
 export const THUMB_MAX_SIDE = 640;
@@ -63,9 +70,14 @@ export function createThumbs(o: {
   concurrency?: number;
   /** Injected by tests; THUMB_DEADLINE_MS otherwise. */
   deadlineMs?: number;
+  /** Injected by tests; `process.platform` otherwise. */
+  platform?: NodeJS.Platform;
 }): { get(id: string, ref: string): Promise<ThumbAnswer> } {
   const { library } = o;
-  const make = o.make ?? sipsThumb;
+  // `sips` is macOS's own; elsewhere the page decodes the keyframe itself.
+  const make =
+    o.make ??
+    ((o.platform ?? process.platform) === "darwin" ? sipsThumb : null);
   const limit = o.concurrency ?? THUMB_CONCURRENCY;
   const deadlineMs = o.deadlineMs ?? THUMB_DEADLINE_MS;
   const perPath = createChains();
@@ -94,9 +106,13 @@ export function createThumbs(o: {
    *  `out` after the request has cleaned up, so `out` is removed again once
    *  it settles — otherwise it sits in `thumbs/` for good, counted in the
    *  take's size. */
-  async function makeInTime(src: string, out: string): Promise<void> {
+  async function makeInTime(
+    tool: MakeThumb,
+    src: string,
+    out: string,
+  ): Promise<void> {
     const abort = new AbortController();
-    const made = make(src, out, abort.signal);
+    const made = tool(src, out, abort.signal);
     let timer: NodeJS.Timeout | undefined;
     const late = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
@@ -124,31 +140,23 @@ export function createThumbs(o: {
     detail: string,
   ): ThumbAnswer => ({ ok: false, status, refusal: { reason, detail } });
 
-  async function takeExists(id: string): Promise<boolean> {
-    if (!library.isTakeId(id)) return false;
-    const path = join(library.takeDir(id), "scene.json");
-    try {
-      await stat(path);
-      return true;
-    } catch (error) {
-      if (isMissing(error)) return false;
-      throw new LibraryError(
-        "libraryUnreadable",
-        `could not read ${path} (${messageOf(error)})`,
-      );
-    }
-  }
-
-  const noTake = (id: string): ThumbAnswer =>
-    refused(
-      404,
-      "takeNotFound",
-      `There is no video "${id}" in ${library.root}.`,
-    );
+  const noTake = (id: string): ThumbAnswer => ({
+    ok: false,
+    status: 404,
+    refusal: noTakeRefusal(library, id),
+  });
 
   return {
     async get(id, ref) {
-      if (!(await takeExists(id))) return noTake(id);
+      if (!(await takeExists(library, id))) return noTake(id);
+      // Before reading the bundle: no sips, no preview of any frame in it.
+      if (make === null) {
+        return refused(
+          501,
+          "thumbFailed",
+          `Couldn't make a preview of ${ref}: previews are made with sips, which only macOS has.`,
+        );
+      }
       const store = library.frameStore(id);
       let bundle: Awaited<ReturnType<typeof store.getBundle>>;
       try {
@@ -190,7 +198,7 @@ export function createThumbs(o: {
           try {
             await writeFile(src, await store.load(ref), { mode: 0o600 });
             try {
-              await makeInTime(src, out);
+              await makeInTime(make, src, out);
             } catch (error) {
               return refused(
                 500,
@@ -203,7 +211,8 @@ export function createThumbs(o: {
           } catch (error) {
             // Deleted between the mkdir and here: the folder is gone, and so
             // is the take, which is what the page should hear.
-            if (isMissing(error) && !(await takeExists(id))) return noTake(id);
+            if (isMissing(error) && !(await takeExists(library, id)))
+              return noTake(id);
             throw error;
           } finally {
             // Both, whatever happened: a rename or read that failed after a
