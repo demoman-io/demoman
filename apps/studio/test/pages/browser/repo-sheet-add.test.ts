@@ -282,14 +282,16 @@ for (const scheme of ["light", "dark"] as const) {
       const labels = [
         ...s.dialog.querySelectorAll("[data-repo-written] dt"),
       ].map((n) => n.textContent);
-      expect(labels).toEqual(["Video", "Recipe", "Receipt", "Screens"]);
+      expect(labels).toEqual(["Video", "DemoScript", "Receipt", "Screens"]);
       expect(
         s.dialog.querySelector("[data-repo-added]")?.textContent,
       ).toContain("4 files");
       inside(s.dialog);
       await shot("added");
       (
-        s.dialog.querySelector('[aria-label="Reveal Recipe"]') as HTMLElement
+        s.dialog.querySelector(
+          '[aria-label="Reveal DemoScript"]',
+        ) as HTMLElement
       ).click();
       await vi.waitFor(() =>
         expect(s.reveals).toEqual(["/r/.demoman/flows/filter-invoice.json"]),
@@ -306,14 +308,16 @@ for (const scheme of ["light", "dark"] as const) {
         },
       });
       (
-        s.dialog.querySelector('[aria-label="Reveal Recipe"]') as HTMLElement
+        s.dialog.querySelector(
+          '[aria-label="Reveal DemoScript"]',
+        ) as HTMLElement
       ).click();
       const said = await el<HTMLElement>(s.dialog, "[data-reveal-error]");
       expect(said.textContent).toContain("is not an export any video lists");
       expect(
         said.previousElementSibling?.getAttribute("aria-label"),
-        "under the Recipe row",
-      ).toBe("Reveal Recipe");
+        "under the DemoScript row",
+      ).toBe("Reveal DemoScript");
     });
 
     // Red if the sheet draws a note twice or drops the one it is given (DEM-49).

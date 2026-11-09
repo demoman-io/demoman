@@ -1,0 +1,158 @@
+---
+title: "DemoScript"
+description: "Every field of a DemoScript file in .demoman/flows/, and every step type."
+---
+
+A DemoScript is a flow's file in `.demoman/flows/<name>.json`. `demoman add`
+writes it and your agent changes it; you read it in pull requests.
+[Flows and DemoScripts](/concepts/flows) shows a whole one. The script part
+below is the same format your agent passes to the `run` tool.
+
+## File fields
+
+| Field | Description |
+| --- | --- |
+| `keptVersion` | The file format, `2` |
+| `flow` | The flow's id, shared by every clone of the repo |
+| `name` | The flow's name, and the file's |
+| `script` | What a run plays: the [script fields](#script-fields) below |
+| `scale` | The device pixel ratio the video was recorded at |
+| `logo` | A logo's path in the repo (`.demoman/flows/logos/`), or `null` |
+| `wallpaper` | An uploaded background image's path in the repo, or `null` for a built-in one or a colour |
+| `deliver` | `commit` (exports are committed) or `files` (exports go to refresh's `--out-dir`) |
+| `outputs` | The exports a refresh writes: each `{ path, fileType, aspect, quality }`. A path is in the repo for `commit`, a plain file name for `files` |
+| `report` | Where to write the run report, or `null` |
+
+## Targets
+
+A step names its element in one of four ways. Your agent copies them from a
+snapshot of the page and never makes one up.
+
+| Target | Matches |
+| --- | --- |
+| `{ "stableId": "add-customer" }` | The element with that test id or stable id |
+| `{ "role": "button", "name": "Save" }` | An accessible role and name |
+| `{ "text": "Custom requests" }` | Visible text |
+| `{ "treePath": "…" }` | A position in the page. Only Demoman writes it, when a script is derived from a video |
+
+{/* generated:start */}
+
+## Script fields
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `scriptVersion` | `1` \| `2` \| `3` \| `4` \| `5` \| `6` \| `7` \| `8` | no | The format's number. Demoman sets it; leave it out |
+| `name` | string | yes | The video's name |
+| `target` | string | yes | The page the run opens first, http or https |
+| `viewport` | object | no | The window size in CSS px, `{ width, height }`. Absent: Demoman's own window |
+| `device` | `"phone"` \| `"tablet"` | no | A phone or tablet to record as, instead of a viewport. See Phone and tablet |
+| `account` | string | no | A demo account from `.demoman/accounts.json` to sign in as. Absent: the site's default, else your own saved sign-in |
+| `steps` | [step](#steps) list | yes | What the run does, in order. At least one step acts on the page |
+| `trim` | object | no | Cut the video's start and end: `{ start: { ms, step? }, end: { ms, step?, after? } }`. Absent: the whole video |
+| `recordedFrom` | string | no | The video a derived script came from. Demoman writes it |
+| `look` | object | no | The frame's look: `kit` (a brand kit by name) or `branding`, plus `cursor`, `canvas` and `motion`. Absent: your default brand kit |
+
+## Steps
+
+Each step is an object whose `do` names what it does.
+
+### `click`
+
+Click an element.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `on` | [target](#targets) | yes | The element to click |
+| `at` | object | no | Where in the element to click, as fractions of its width and height; its centre if absent |
+| `zoom` | `false` or object | no | The camera's zoom at this click: `false` for none, or `{ scale }` over 1 and at most 2.5. Absent leaves it to the camera |
+| `recorded` | string | no | Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is |
+
+### `type`
+
+Type text into a field.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `into` | [target](#targets) | yes | The field to type into |
+| `text` | string | yes | What to type: a demo value, never a real secret |
+| `recorded` | string | no | Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is |
+
+### `hover`
+
+Rest the pointer on an element.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `on` | [target](#targets) | yes | The element to rest the pointer on |
+| `recorded` | string | no | Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is |
+
+### `scrollTo`
+
+Scroll an element into view.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `on` | [target](#targets) | yes | The element to scroll into view |
+| `recorded` | string | no | Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is |
+| `landing` | object | no | Where the element's top edge stops, in CSS px from the top of the window. Absent centres it |
+
+### `waitFor`
+
+Wait for an element to show or go.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `on` | [target](#targets) | yes | The element to wait for |
+| `until` | `"visible"` \| `"hidden"` | yes | Wait until it shows, or until it goes |
+| `recorded` | string | no | Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is |
+
+### `drag`
+
+Press, move and let go.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `from` | object | yes | Where the drag presses: `{ on, at? }`, an element and a spot in it |
+| `to` | object | yes | Where it lets go: `{ on, at? }` as `from`, or `{ by: { x, y } }` in CSS px from the start |
+| `zoom` | `false` or object | no | The camera's zoom at this drag, as on `click` |
+| `recorded` | string | no | Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is |
+
+### `press`
+
+Press a key.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `key` | `"Enter"` \| `"Tab"` \| `"Escape"` \| `"Backspace"` \| `"Delete"` \| `"ArrowUp"` \| `"ArrowDown"` \| `"ArrowLeft"` \| `"ArrowRight"` \| `"Space"` | yes | The key to press |
+| `recorded` | string | no | Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is |
+
+### `waitForLoad`
+
+Wait for the page to finish loading.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `recorded` | string | no | Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is |
+
+### `pause`
+
+Hold still, so the viewer can read. Performs nothing.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `ms` | number | yes | How long, in milliseconds |
+
+## Rules
+
+Beyond each field's own type, a script is refused when it breaks one of these:
+
+- At least one step acts on the page: a script of pauses alone is refused.
+- Name a `device` or a `viewport`, not both.
+- On a `device`, no `hover` step: a phone has no hover.
+- A `drag` must end somewhere other than where it starts.
+- `{secret:NAME}` is refused in a script's `type` text: it works only in `.demoman/accounts.json`.
+- `trim.start.step` and `trim.end.step` name a step that exists and is not a `pause`, and the start is not after the end.
+- A `look.branding` wallpaper background names one of the built-in wallpapers.
+- `look` names a `kit` or gives a `branding`, not both.
+
+{/* generated:end */}

@@ -1,0 +1,46 @@
+---
+title: "Install"
+description: "Download Demoman's browser and connect your coding agents."
+---
+
+import { SetupPath } from "/snippets/setup-path.jsx";
+
+<SetupPath step={1} />
+
+## Requirements
+
+- macOS, or x86_64 Linux
+- Node 20 or later
+- Claude Code, Codex, Cursor or OpenCode. Another MCP agent takes two more
+  steps: see [Connect your agent](/get-started/connect).
+
+## Run setup
+
+In any folder:
+
+```bash
+npx demoman setup
+```
+
+Setup asks three things, then does the rest:
+
+| Question | Default |
+| --- | --- |
+| Which agents to connect | Every supported agent it finds |
+| Export quality: `share`, `high` or `full` | `high` (60 fps, 1440p) |
+| Whether pull requests get a demo: Off, Ask or Attach | Ask |
+
+It downloads Chromium (about 190 MB) and connects Demoman to each agent you
+chose, pre-approving its tools so they run without asking. `--yes` asks
+nothing and keeps your current settings. Every flag is on [setup](/reference/setup).
+
+On Linux, Chromium also needs system libraries. Setup names the one `sudo`
+command that installs them: run it, then run setup again.
+
+## Restart your agent
+
+Quit the agent and open it again, so it loads Demoman's tools.
+
+<Card title="Next · 02" href="/get-started/connect">
+  Connect your agent
+</Card>

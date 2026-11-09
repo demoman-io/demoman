@@ -136,7 +136,7 @@ export interface RefreshDeps {
 /** Said beside a video replaced without a pin whose last screen showed
  *  dates (DEM-79): a likely cause, never the certain one. */
 export const DATES_NOTE = (samples: string[]): string =>
-  `this video shows dates such as ${samples.map((s) => `\`${s}\``).join(", ")}; if they follow today, set \`now\` in .demoman/app.json and read DEMOMAN_NOW in the app: https://demoman.io/docs/guides/repo-flows#pinned-dates`;
+  `this video shows dates such as ${samples.map((s) => `\`${s}\``).join(", ")}; if they follow today, set \`now\` in .demoman/app.json and read DEMOMAN_NOW in the app: https://demoman.io/docs/reference/app-json#pinned-dates`;
 
 /** The display a device script films on; its own size comes from the
  *  device, so only the scale here matters. */

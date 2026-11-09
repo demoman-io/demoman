@@ -1,0 +1,35 @@
+---
+title: "add"
+description: "Add a flow to the repo: its DemoScript, its receipt and its exports."
+---
+
+```bash
+npx demoman add <flow> --to <path>[:<aspect>] [--gif <path>[:<aspect>]] [--report <path>] [--quality share|high|full] [--deliver commit|files]
+```
+
+Adds a flow to the repo, so a refresh records it again. Run it in the repo,
+naming one of its flows by id or exact name. It writes:
+
+- `.demoman/flows/<name>.json`, the flow's [DemoScript](/reference/demoscript)
+- each export, at its path
+- `.demoman/receipts/<name>.json`, what those exports show, and the
+  `<name>.screens/` folder of the screens it describes, which a refresh
+  compares against
+
+With `--deliver files`, only the DemoScript is written. Commit everything it
+wrote. A logo from outside the repo is copied to
+`.demoman/flows/logos/`. The walkthrough is
+[Add to your repo](/get-started/add-to-repo).
+
+| Flag | |
+| --- | --- |
+| `--to <path>[:<aspect>]` | An MP4 to write, repeatable; the aspect is `auto`, `16:9` or `9:16`, the video's own by default |
+| `--gif <path>[:<aspect>]` | A GIF to write, repeatable |
+| `--report <path>` | Where to write the run report |
+| `--quality <quality>` | The MP4s' quality: `share` (the default, small to commit), `high` or `full` |
+| `--deliver commit\|files` | `commit` (the default) commits the exports. `files` commits only the DemoScript (and a logo or wallpaper); each path is a plain file name, written under refresh's `--out-dir` |
+
+`keep`, the command's old name, still runs.
+
+It refuses, writing nothing, a flow a new video cannot reproduce: see
+[Refusals](/reference/refusals#adding-a-flow).

@@ -1,0 +1,70 @@
+---
+title: "Sign in"
+description: "Record an app behind a login, with a demo account or a session of your own."
+---
+
+import { SetupPath } from "/snippets/setup-path.jsx";
+
+<SetupPath step={4} />
+
+An app behind a login needs Demoman signed in before a run. There are two
+ways, and only the first can be kept in a repo and recorded again by CI.
+
+| | A demo account | Your own sign-in |
+| --- | --- | --- |
+| For | An app you run locally, on a development database | A real account, single sign-on, two-factor |
+| Who signs in | Demoman, from `.demoman/accounts.json` | You, once, with `npx demoman signin` |
+| In the repo and CI | Yes | No |
+
+## Demo accounts
+
+For an app you run locally, the agent creates a demo account and its data,
+writes the sign-in steps to `.demoman/accounts.json` (commit it) and the
+password to `.demoman/secrets.env` (git-ignored) with the one site it may
+be typed on. Demoman then signs in by itself, whenever a session is missing
+or has lapsed.
+
+<Warning>
+  Only demo accounts: the agent never asks for your own password.
+</Warning>
+
+<Note>
+  On your own machine, keep secrets in `.demoman/secrets.env`, not your
+  shell: an agent may pass Demoman only part of its environment, as
+  Codex does, so a variable exported in your shell may never reach it.
+</Note>
+
+The file's fields are on [accounts.json](/reference/accounts-json).
+
+## Your own sign-in
+
+For a real account, sign in once yourself:
+
+```bash
+npx demoman signin https://app.example.com
+```
+
+A window opens; sign in as you normally would. Demoman's browser keeps the
+session. It is a fresh profile, signed in only where you ran `signin`.
+
+A flow recorded this way cannot be added to the repo: CI has no way to sign
+in as you. Record it again with a demo account first.
+
+## In CI
+
+Set each `DEMOMAN_SECRET_<NAME>` from the provider's secrets, with
+`DEMOMAN_SECRET_<NAME>_ORIGIN` naming the one site it may be typed on.
+[Keep videos current](/get-started/ci) sets them for GitHub Actions. Check an
+account with:
+
+```bash
+DEMOMAN_SECRET_SELLER_PASSWORD_ORIGIN=https://staging.example.com \
+  npx demoman signin --account seller
+```
+
+`--account` takes the account's name from `.demoman/accounts.json`. Every
+flag is on [signin](/reference/signin).
+
+<Card title="Next · 05" href="/get-started/add-to-repo">
+  Add to your repo
+</Card>

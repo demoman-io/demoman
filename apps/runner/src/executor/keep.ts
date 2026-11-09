@@ -85,7 +85,7 @@ export type KeepRefusal =
   /** The request itself is refused (a `files` output given as a path, or
    *  a name two flows in this repo share). */
   | "keepRefused"
-  /** The recipe was written but the old file it replaces could not be
+  /** The DemoScript was written but the old file it replaces could not be
    *  removed: two files name the flow until it is deleted. */
   | "repoFlowUnwritable";
 
@@ -115,7 +115,7 @@ export type KeepAnswer =
       /** The repo key the library's mark records; null when the checkout
        *  has none. A page's own In repo paint uses it as the flow's project. */
       key: string | null;
-      /** What `deliver: "commit"` wrote beside the recipe; null for `files`. */
+      /** What `deliver: "commit"` wrote beside the DemoScript; null for `files`. */
       receipt: KeptReceipt | null;
       /** "k of n screens are still": what a refresh compares at. Said for
        *  `commit` only: `files` renders nothing here. */
@@ -316,7 +316,7 @@ export async function keepVideo(
     if (kept.flow === video.id && rel !== fileRel) {
       return refuse(
         "outputTaken",
-        `${rel} already holds this flow (${video.id}), so adding it as "${video.name}" would write a second recipe for it, ${fileRel} — move ${rel} to ${fileRel}${kept.deliver === "commit" ? ` and ${RECEIPT_DIR}/${name} to ${receiptRel}` : ""}, then add it again`,
+        `${rel} already holds this flow (${video.id}), so adding it as "${video.name}" would write a second DemoScript for it, ${fileRel} — move ${rel} to ${fileRel}${kept.deliver === "commit" ? ` and ${RECEIPT_DIR}/${name} to ${receiptRel}` : ""}, then add it again`,
       );
     }
     if (rel === fileRel || rel === legacyRel) {
@@ -765,7 +765,7 @@ async function buildKept(
     filmedScale(bundle, scene.meta.capture.viewport.width);
   const scaleGuess =
     scale === null
-      ? `1x is a guess: "${video.name}" does not say the scale it was recorded at and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the recipe file to it, or the first refresh replaces a video that did not change`
+      ? `1x is a guess: "${video.name}" does not say the scale it was recorded at and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the DemoScript to it, or the first refresh replaces a video that did not change`
       : null;
 
   // A file the script names, by its repo path: copied in under `folder`
@@ -1005,7 +1005,7 @@ export async function rewriteKept(
     }
     const video = await deps.videos.get(videoId);
     // A flow kept before the library marked kept flows: marked now, so a
-    // rename takes keep's path and the recipe's file follows its name.
+    // rename takes keep's path and the DemoScript's file follows its name.
     // Or one marked at a file since moved (a teammate's add): re-pointed.
     if (
       video !== null &&
@@ -1106,7 +1106,7 @@ export type RenameKeptAnswer =
     };
 
 /**
- * A kept flow's rename: the recipe under the new name's file with its new
+ * A kept flow's rename: the DemoScript under the new name's file with its new
  * `name`, the receipt beside it, the library's record and its pointer, and
  * last the old recipe removed. Every check runs before anything is written,
  * so a refusal leaves the old name everywhere. A step that fails undoes

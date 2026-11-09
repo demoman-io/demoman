@@ -85,3 +85,22 @@ test("npm comes before the plugin, with the right dist-tags", () => {
   // Every step runs from the repo root: none leaves the shell somewhere else.
   for (const s of authorSteps("0.8.0")) assert.doesNotMatch(s, /^\s+cd /m, s);
 });
+
+test("the docs' Studio stills are redrawn before main is pushed", () => {
+  const steps = authorSteps("0.8.0");
+  const stills = steps.findIndex((s) => s.includes("node scripts/docs-studio-stills.mjs"));
+  const push = steps.findIndex((s) => s.includes("git push origin main"));
+  assert.ok(stills >= 0, "no step redraws the stills");
+  assert.ok(stills < push, "the stills are redrawn after main is pushed");
+  assert.match(steps[stills], /studio-shots\.test\.ts/);
+});
+
+test("the stills step commits only the stills, and only after the lane passed", () => {
+  const step = authorSteps("0.8.0").find((s) => s.includes("docs-studio-stills"));
+  const [run, commit] = step.split(/Look at the stills/);
+  assert.ok(commit, "the step has no look before its commit");
+  // The lane, the copy and nothing else run as one chain: a failed lane stops it.
+  assert.match(run, /studio-shots\.test\.ts &&\s*\n\s*node scripts\/docs-studio-stills\.mjs\s*$/);
+  assert.doesNotMatch(run, /git (add|commit)/);
+  assert.match(commit, /git commit -m "[^"]+" -- apps\/docs\/media\/studio/);
+});

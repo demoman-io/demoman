@@ -190,7 +190,13 @@ export function targetStrategy(
  * had asked for something else. The best error an agent can get is this one,
  * at the door, naming the field.
  */
-const RecordedSchema = z.string().min(1).optional();
+const RecordedSchema = z
+  .string()
+  .min(1)
+  .optional()
+  .describe(
+    "Written by Demoman when the script was derived from a video; pairs the step with the action it came from. Leave it as it is",
+  );
 
 /** A spot inside a target's box, as fractions of its width and height. */
 export const DragSpotSchema = z
@@ -241,10 +247,14 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
   z
     .object({
       do: z.literal("click"),
-      on: ScriptTargetSchema,
+      on: ScriptTargetSchema.describe("The element to click"),
       /** Where in the target's box to click (its centre if absent). */
-      at: DragSpotSchema.optional(),
-      zoom: ZoomIntentSchema.optional(),
+      at: DragSpotSchema.optional().describe(
+        "Where in the element to click, as fractions of its width and height; its centre if absent",
+      ),
+      zoom: ZoomIntentSchema.optional().describe(
+        "The camera's zoom at this click: `false` for none, or `{ scale }` over 1 and at most 2.5. Absent leaves it to the camera",
+      ),
       /**
        * The recorded action this step was derived from (`scriptFromTake` writes
        * it). How the recording layer pairs a run's step with the author's —
@@ -253,26 +263,31 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
        */
       recorded: RecordedSchema,
     })
-    .strict(),
+    .strict()
+    .describe("Click an element"),
   z
     .object({
       do: z.literal("type"),
-      into: ScriptTargetSchema,
-      text: z.string(),
+      into: ScriptTargetSchema.describe("The field to type into"),
+      text: z
+        .string()
+        .describe("What to type: a demo value, never a real secret"),
       recorded: RecordedSchema,
     })
-    .strict(),
+    .strict()
+    .describe("Type text into a field"),
   z
     .object({
       do: z.literal("hover"),
-      on: ScriptTargetSchema,
+      on: ScriptTargetSchema.describe("The element to rest the pointer on"),
       recorded: RecordedSchema,
     })
-    .strict(),
+    .strict()
+    .describe("Rest the pointer on an element"),
   z
     .object({
       do: z.literal("scrollTo"),
-      on: ScriptTargetSchema,
+      on: ScriptTargetSchema.describe("The element to scroll into view"),
       recorded: RecordedSchema,
       /**
        * Where the scroll leaves its element: `top` is the viewport y, in CSS
@@ -289,35 +304,65 @@ export const ScriptStepSchema = z.discriminatedUnion("do", [
        * only an element asks for. A `top` that would leave the element off
        * screen centres too, and the run reports `scrollLandingOffscreen`.
        */
-      landing: z.object({ top: z.number().finite() }).strict().optional(),
+      landing: z
+        .object({ top: z.number().finite() })
+        .strict()
+        .optional()
+        .describe(
+          "Where the element's top edge stops, in CSS px from the top of the window. Absent centres it",
+        ),
     })
-    .strict(),
+    .strict()
+    .describe("Scroll an element into view"),
   z
     .object({
       do: z.literal("waitFor"),
-      on: ScriptTargetSchema,
-      until: z.enum(["visible", "hidden"]),
+      on: ScriptTargetSchema.describe("The element to wait for"),
+      until: z
+        .enum(["visible", "hidden"])
+        .describe("Wait until it shows, or until it goes"),
       recorded: RecordedSchema,
     })
-    .strict(),
+    .strict()
+    .describe("Wait for an element to show or go"),
   z
     .object({
       do: z.literal("drag"),
-      from: DragFromSchema,
-      to: DragToSchema,
-      zoom: ZoomIntentSchema.optional(),
+      from: DragFromSchema.describe(
+        "Where the drag presses: `{ on, at? }`, an element and a spot in it",
+      ),
+      to: DragToSchema.describe(
+        "Where it lets go: `{ on, at? }` as `from`, or `{ by: { x, y } }` in CSS px from the start",
+      ),
+      zoom: ZoomIntentSchema.optional().describe(
+        "The camera's zoom at this drag, as on `click`",
+      ),
       recorded: RecordedSchema,
     })
-    .strict(),
+    .strict()
+    .describe("Press, move and let go"),
   z
     .object({
       do: z.literal("press"),
-      key: z.enum(PRESS_KEYS),
+      key: z.enum(PRESS_KEYS).describe("The key to press"),
       recorded: RecordedSchema,
     })
-    .strict(),
-  z.object({ do: z.literal("waitForLoad"), recorded: RecordedSchema }).strict(),
-  z.object({ do: z.literal("pause"), ms: z.number().positive() }).strict(),
+    .strict()
+    .describe("Press a key"),
+  z
+    .object({
+      do: z.literal("waitForLoad"),
+      recorded: RecordedSchema,
+    })
+    .strict()
+    .describe("Wait for the page to finish loading"),
+  z
+    .object({
+      do: z.literal("pause"),
+      ms: z.number().positive().describe("How long, in milliseconds"),
+    })
+    .strict()
+    .describe("Hold still, so the viewer can read. Performs nothing"),
 ]);
 
 /**
@@ -436,19 +481,26 @@ const laterVersion = (a: ScriptVersion, b: ScriptVersion): ScriptVersion =>
 
 const DemoScriptShape = z.object({
   /** Optional: Demoman sets it (see `minimumScriptVersion`); a lower one is raised. */
-  scriptVersion: ScriptVersionSchema.optional(),
-  name: z.string().min(1),
-  target: z.url(),
+  scriptVersion: ScriptVersionSchema.optional().describe(
+    "The format's number. Demoman sets it; leave it out",
+  ),
+  name: z.string().min(1).describe("The video's name"),
+  target: z.url().describe("The page the run opens first, http or https"),
   /** Absent means the run's own window size, recorded into the document. */
   viewport: z
     .object({
       width: z.number().int().positive(),
       height: z.number().int().positive(),
     })
-    .optional(),
+    .optional()
+    .describe(
+      "The window size in CSS px, `{ width, height }`. Absent: Demoman's own window",
+    ),
   /** A phone or tablet to film as (spec 2026-10-10 §3). Absent: the desktop.
    *  A device is a viewport, so naming both is refused. */
-  device: DeviceIdSchema.optional(),
+  device: DeviceIdSchema.optional().describe(
+    "A phone or tablet to record as, instead of a viewport. See Phone and tablet",
+  ),
   /** One of the site's accounts in `.demoman/accounts.json` (launch C2).
    *  Absent: the site's `default`, else the saved manual session. */
   account: z
@@ -456,15 +508,29 @@ const DemoScriptShape = z.object({
     .regex(ACCOUNT_NAME, {
       message: `an account name is ${ACCOUNT_NAME_RULE}`,
     })
-    .optional(),
-  steps: z.array(ScriptStepSchema).min(1),
+    .optional()
+    .describe(
+      "A demo account from `.demoman/accounts.json` to sign in as. Absent: the site's default, else your own saved sign-in",
+    ),
+  steps: z
+    .array(ScriptStepSchema)
+    .min(1)
+    .describe(
+      "What the run does, in order. At least one step acts on the page",
+    ),
   /** Cut the film's start and end (`ScriptTrimSchema`). Absent: the whole take. */
-  trim: ScriptTrimSchema.optional(),
+  trim: ScriptTrimSchema.optional().describe(
+    "Cut the video's start and end: `{ start: { ms, step? }, end: { ms, step?, after? } }`. Absent: the whole video",
+  ),
   /**
    * The take that steps' `recorded` ids refer to (`scriptFromTake` writes it).
    * Absent on a script nobody derived from a recording.
    */
-  recordedFrom: z.string().min(1).optional(),
+  recordedFrom: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("The video a derived script came from. Demoman writes it"),
   /**
    * The frame's dress. Reuses the document's own schemas so there is one
    * vocabulary for branding, cursor and canvas rather than two. Absent means
@@ -498,7 +564,10 @@ const DemoScriptShape = z.object({
     .refine((look) => look.branding === undefined || look.kit === undefined, {
       message: "name a kit or give a branding, not both",
     })
-    .optional(),
+    .optional()
+    .describe(
+      "The frame's look: `kit` (a brand kit by name) or `branding`, plus `cursor`, `canvas` and `motion`. Absent: your default brand kit",
+    ),
 });
 
 /**

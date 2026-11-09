@@ -1,0 +1,13 @@
+---
+title: "hook"
+description: "Claude Code's PostToolUse hook, run by the Demoman plugin."
+---
+
+```bash
+demoman hook post-tool-use
+```
+
+The Claude Code plugin runs this after a tool call opens a pull request. It
+reads the call on stdin and, unless the repo's `pullRequests` setting is
+`off`, reminds the agent to attach a video ([Pull requests](/guides/pull-requests)).
+You never run it yourself.

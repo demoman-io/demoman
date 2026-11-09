@@ -113,7 +113,7 @@ export async function keptOf(
       unknown: `${found.duplicate.join(" and ")} in ${root} both name this flow`,
     };
   return {
-    unknown: `a recipe in ${root} will not read, so whether it holds this flow is unknown: ${found.unreadable.join("; ")}`,
+    unknown: `a DemoScript in ${root} will not read, so whether it holds this flow is unknown: ${found.unreadable.join("; ")}`,
   };
 }
 
@@ -352,7 +352,7 @@ export async function videosOp(
           );
         }
         if (found !== null && "unreadable" in found) {
-          notKept = `; a recipe in this repo that would not read might be it — ${found.unreadable.join("; ")}`;
+          notKept = `; a DemoScript in this repo that would not read might be it — ${found.unreadable.join("; ")}`;
         } else if (found !== null) {
           const adopted = await adoptKept(
             store,

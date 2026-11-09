@@ -5433,7 +5433,7 @@ describe("the Studio's screenshot set", () => {
         .allInnerTexts();
       expect(labels.length, "the add wrote files").toBeGreaterThan(0);
       for (const l of labels)
-        expect(["Video", "Recipe", "Receipt", "Screens"]).toContain(l);
+        expect(["Video", "DemoScript", "Receipt", "Screens"]).toContain(l);
       expect(
         await page
           .locator("[data-repo-written] [aria-label^='Reveal ']")
@@ -5615,7 +5615,7 @@ describe("the Studio's screenshot set", () => {
       await settle(page, "remove");
       await dialogPaint("remove's confirm");
       const said = await page.locator(".confirm-body").innerText();
-      expect(said, "names the recipe").toContain(".json");
+      expect(said, "names the DemoScript").toContain(".json");
       expect(said, "names the exports that stay").toContain(exported);
       await shoot("remove-from-repo-confirm", "remove's confirm");
       await page.locator("[data-confirm-go]").click();

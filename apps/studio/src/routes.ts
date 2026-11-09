@@ -662,7 +662,7 @@ export function createRoutes(o: {
           "The flow was not renamed: a flow needs a name.",
         );
       }
-      // A kept flow's name is its recipe's too: both are renamed, or
+      // A kept flow's name is its DemoScript's too: both are renamed, or
       // neither, and never the record alone (renameKept).
       const done = await onVideoChain(async () => {
         const rec = await videos.get(id);
@@ -676,7 +676,7 @@ export function createRoutes(o: {
           const cleared = await videos.setKept(id, null);
           if (cleared.ok)
             log(
-              `studio: flow ${id}'s recipe is no longer in ${rec.kept.root}; its mark was cleared`,
+              `studio: flow ${id}'s DemoScript is no longer in ${rec.kept.root}; its mark was cleared`,
             );
           return cleared;
         }

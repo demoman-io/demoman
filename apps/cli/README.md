@@ -31,8 +31,8 @@ server.
 
 Full documentation: https://demoman.io/docs
 
-- [Agents](https://demoman.io/docs/agents)
-- [Authentication](https://demoman.io/docs/guides/authentication)
+- [Agents](https://demoman.io/docs/get-started/connect)
+- [Authentication](https://demoman.io/docs/get-started/sign-in)
 - [Data](https://demoman.io/docs/security/data)
 
 ## License

@@ -1,0 +1,81 @@
+---
+title: "setup"
+description: "Install Demoman's browser and connect your agents, or set up CI with --ci."
+---
+
+```bash
+npx demoman setup [--yes] [--agents claude,codex,cursor,opencode] [--quality share|high|full] [--pull-requests off|ask|attach]
+npx demoman setup --browser-only
+```
+
+Downloads Chromium (about 190 MB) and connects Demoman to Claude Code, Codex,
+Cursor and OpenCode ([Connect your agent](/get-started/connect)). In a
+terminal it first asks which agents to connect, the export quality and the
+pull-request setting; run it again to change them. A flag answers its
+question, so it is not asked; without a terminal (a script, CI) nothing is
+asked.
+
+| Flag | |
+| --- | --- |
+| `--yes` | Asks nothing and keeps the current settings, as without a terminal; agents run setup this way |
+| `--browser-only` | Installs Chromium and connects no agent, asking nothing; for CI. On Linux it exits 1, naming the one `sudo` command, when Chromium's libraries are missing |
+| `--agents <list>` | The agents to connect, comma-separated: `claude`, `codex`, `cursor`, `opencode` |
+| `--quality <quality>` | Export quality: `share`, `high` or `full` |
+| `--pull-requests <value>` | Pull-request videos: `off`, `ask` or `attach` ([Pull requests](/guides/pull-requests)) |
+
+## setup --ci
+
+```bash
+npx demoman setup --ci [--trigger release|daily|push|<environment>] [--route pr|main] [--artifact]
+  [--yes] [--env-file <path>] [--replace-secret <NAME>]...
+```
+
+Checks CI's refresh of the repo's flows from a clean checkout, shows one plan,
+and on one confirmation turns on the Actions setting, sets the secrets, opens
+the "Set up Demoman" pull request from `demoman/setup` and watches its first
+run. A trigger or route not given is asked. The walkthrough is
+[Keep videos current](/get-started/ci).
+
+Nothing is written to your checkout, branch or default branch before the
+confirmation, except a drafted `.demoman/app.json` when the app step fails, so
+you can fix it and run setup again.
+
+| Flag | |
+| --- | --- |
+| `--trigger <environment>` | After each successful deployment to that environment; records the deployed app (`deployment:<name>` for an environment named `release`, `daily` or `push`) |
+| `--trigger release` | When a release is published, at its tag |
+| `--trigger daily` | Once a day, or by hand from the Actions tab (Demoman → Run workflow). A day with nothing new stops before Chromium and the app |
+| `--trigger push` | On each push to the default branch, or by hand; records every repo flow each time |
+| `--route pr\|main` | Open a pull request with the changed files (the default), or commit them to the branch. Deployment and release cannot use `main` |
+| `--artifact` | Keep every `files` flow's video and receipt in the `demoman-videos` artifact, compared against the last run's |
+| `--yes` | Confirm the plan with its defaults. With no terminal and no `--yes`, nothing is written and the missing flags are named |
+| `--env-file <path>` | Read secret values from this file |
+| `--replace-secret <NAME>` | Replace a secret GitHub already has; kept otherwise |
+
+The default trigger is a deployment if the repo has a successful one that
+names a URL (a production environment first, never a preview), else release
+if it publishes releases, else daily. Push is never the default; the plan
+shows its measured cost per merge.
+
+The plan's files: `.github/workflows/demoman.yml`, `.demoman/app.json`,
+`.demoman/accounts.json` unless committed as is, a `.demoman/secrets.env` line
+in `.gitignore` when it lacks one, and each repo flow not yet on the default
+branch. A secret's value goes to GitHub on stdin, never in a command line, a
+log or an answer.
+
+The watch ends passed, failed, cancelled or unknown. Unknown means GitHub
+could not be read, or the run was still going after 30 minutes. After three
+failed runs on `demoman/setup` it hands back.
+
+Your agent does the same with the MCP `ci` tool, which returns the plan first
+and acts only after you agree. It never asks for a secret: it gives you the
+command to run instead.
+
+When setup stops, see [Refusals](/reference/refusals#setting-up-ci).
+
+<Note>
+  A release published with `GITHUB_TOKEN` starts no workflow, so a release
+  trigger fires only for one published by a person or another token. GitHub
+  turns a scheduled workflow off after 60 days without activity on a public
+  repo; enable it again under Actions.
+</Note>

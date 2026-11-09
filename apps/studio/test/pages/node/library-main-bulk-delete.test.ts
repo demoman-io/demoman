@@ -255,7 +255,7 @@ describe("library main — bulk delete", () => {
       await vi.waitFor(() => {
         if (box(INVOICE) !== null) throw new Error("not deleted yet");
       });
-      const said = `"Create an invoice" is in the repo, but its recipe could not be read (${why}); only this machine's videos are deleted.`;
+      const said = `"Create an invoice" is in the repo, but its DemoScript could not be read (${why}); only this machine's videos are deleted.`;
       const asked = confirmDialog.ask.mock.calls[0]?.[0] as { body: string };
       expect(asked.body).toBe(
         `This permanently removes the flow and its 2 videos. It can’t be undone. ${said}`,

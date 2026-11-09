@@ -13,7 +13,7 @@ export const FLOWS_DIR = ".demoman/flows";
  *  FLOWS_DIR when the recipe is written next (repo-flows design, Part A). */
 export const LEGACY_FLOWS_DIR = ".demoman/videos";
 
-/** Where a flow's files go: into the repo at the recipe's paths, or into the
+/** Where a flow's files go: into the repo at the DemoScript's paths, or into the
  *  caller's out dir by bare file name. */
 export type KeptDeliver = "commit" | "files";
 
@@ -102,7 +102,7 @@ const repoRelative = (p: unknown): p is string =>
   !p.includes("\\") &&
   !p.split("/").includes("..");
 
-/** A bare file name: what a `files` recipe's outputs are. */
+/** A bare file name: what a `files` DemoScript's outputs are. */
 const bareName = (p: unknown): p is string =>
   repoRelative(p) && !p.includes("/");
 

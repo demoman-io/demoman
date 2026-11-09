@@ -1,0 +1,36 @@
+---
+title: "mcp"
+description: "Serve Demoman's tools to an agent on stdio."
+---
+
+```bash
+demoman mcp [--out-dir <folder>] [--headed]
+```
+
+Serves Demoman's tools on stdio. Your agent runs this; setup and the blocks on
+[Connect your agent](/get-started/connect) name it.
+
+| Flag | |
+| --- | --- |
+| `--out-dir <folder>` | Where exports are saved; `~/Downloads` by default |
+| `--headed` | Shows the browser while it records; it records out of sight by default |
+| `--headless` | The default, accepted so older setups still start |
+| `--browser` | Retired: `--browser extension` is refused; remove it from the server's registration |
+
+## The tools
+
+| Tool | What the agent uses it for |
+| --- | --- |
+| `recipe` | The procedure and the DemoScript format; the agent reads it first |
+| `status` | The browser, accounts, sessions and the pull-request setting |
+| `snapshot` | The page's targets, which a DemoScript copies |
+| `probe` | Play draft steps unrecorded, to see what a click or typing opens |
+| `run` | Record a DemoScript into a flow, answering the [run report](/concepts/run-report) |
+| `report` | The report of a run or export still going |
+| `export` | Save an MP4, GIF or stills |
+| `flows` | The repo's flows, or the flow an exported file came from |
+| `derive` | Draft a DemoScript from an earlier video |
+| `add` | Add a flow to the repo |
+| `ci` | Plan and set up CI |
+| `attach` | Attach a video to a pull request |
+| `studio` | Open the Studio on a video |

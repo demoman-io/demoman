@@ -4,172 +4,107 @@ description: "What changed in each release."
 ---
 
 <Update label="0.9.2" description="An easier Add to repo, and runs that follow a single-page app">
-  - Add to repo opens its sheet at once and checks the flow there. The sheet has separate Folder and File name fields, with a picker for the repo's folders, and Commit or Files and Quality toggles.
-  - After an add, the sheet lists each file it wrote, Reveal shows them, and the flow reads In repo right away. The sheet closes after Open pull request.
-  - The default file name keeps the flow's name as you wrote it.
-  - Set up CI sits beside a project's heading in the Studio, so you can set up CI without adding a flow.
-  - A run carries on when a single-page app changes its own address, such as a search that writes `?q=` or a row that opens with `pushState`. A real page load still stops the run.
-  - A run that stops says "Stopped at script step N of M", counting steps the way the script does. A target missing after the address changed says it was not found, not that the page went elsewhere.
-  - A drag's end is judged where the camera was when it let go, so a drop the camera followed is no longer reported out of frame. A point on the frame's edge counts as in shot.
-  - When refresh says the window moved, it gives each video's own time, so you look at the right frame in each.
+  - Add to repo opens its sheet at once, with Folder and File name fields, and lists each file it wrote.
+  - Set up CI sits beside a project's heading in the Studio, so CI can be set up without adding a flow.
+  - A run carries on when a single-page app changes its own address, such as a search that writes `?q=`.
+  - A stopped run says "Stopped at script step N of M", counting steps the way the script does.
 </Update>
 
 <Update label="0.9.1" description="CI setup that works the first time, and refreshes you can trust">
-  - Setup finds the app in a single-package repo whose `pnpm-workspace.yaml` holds only settings, as newer pnpm writes it.
+  - An optional `reset` in `.demoman/app.json` runs before each flow, so one flow's changes never show in the next.
   - `.demoman/app.json` may leave out `env`, `secrets` and `services`; a refused file names the field.
-  - An optional `reset` in `.demoman/app.json` (for example `pnpm reset`) runs before each flow, so one flow's changes never show in the next. The setup check runs it too, and one that outlasts `timeoutSeconds` is stopped and said.
-  - A refresh records a flow once more when the video is right but rough: a soft still, a scroll still moving, or motion dropped on a busy runner. If it happens again, the video is delivered with a note that names it. A drag or click that may have done nothing still fails, and a failure says why.
-  - A demo account that signs in without loading a page goes straight on, instead of waiting 10 seconds.
-  - The refresh workflow can be run by hand from the Actions tab (push and daily triggers), and a manual run always records. A workflow set up before 0.9.1 gets this when you add `workflow_dispatch:` under its `on:`.
-  - The setup pull request's description lists what it does, the check, the secrets by name and the files. It also adds the `.demoman/secrets.env` line to the default branch's `.gitignore` when that is missing.
-  - Setup turns on the Actions setting before it sets any secret, and an organisation, enterprise or single sign-on refusal says who can change it and where.
-  - When the app's port is taken, the check names the process holding it.
-  - Your agent's `studio`, `add` and `ci` tools work when the folder they were started in has been deleted, and a new flow is no longer flagged as a duplicate of one recorded on another app.
+  - A refresh records a rough video once more before delivering it with a note.
+  - The refresh workflow can be run by hand from the Actions tab. A workflow set up earlier gets this when you add `workflow_dispatch:` under its `on:`.
+  - Setup turns on the Actions setting before it sets any secret, and says who can change it when an organisation refuses.
 </Update>
 
 <Update label="0.9.0" description="Set up CI from one plan, or from the Studio">
-  - `npx demoman setup --ci` checks the refresh from a clean checkout, shows one plan, and on one confirmation sets the secrets, turns on the Actions setting, opens a "Set up Demoman" pull request and watches its first run. `--yes`, `--env-file` and `--replace-secret` take the answers without a prompt.
-  - `.demoman/app.json` records how the app starts: install, start, url, timeout, env, secrets and services. `refresh` starts the app from it, and uses one already answering when run locally.
-  - The workflow checks itself on pull requests that change it or `.demoman/`, and says so when a fork's pull request has no secrets.
-  - Your agent's `add` and `ci` tools do the same; `ci` acts only once you have agreed to its plan.
-  - The Studio's Add to repo adds a flow from its card, row or Export panel, says why one can't be added, and sets up CI from the same sheet. Remove from repo takes a flow out and leaves its exports.
-  - If your own workflow starts the app before `demoman refresh` (a "Start your app" step), delete that step: refresh starts it from `app.json` now, and both would use the same port.
-  - The refresh runs after a deployment, when a release is published, or once a day; setup picks the first the repo has a record of. Each merge (`--trigger push`) is still offered, never the default.
-  - `demoman refresh --check` records nothing and exits 3 when nothing but refresh's own files changed since the last refresh. A daily run with nothing new stops before Chromium and the app.
-  - A refresh compares the recorded screens first and exports only a flow whose picture changed: an unchanged refresh on a GitHub runner took about 11 seconds, down from about 90. Add writes the screens beside the receipt.
-  - Exports draw the wallpaper of an unzoomed frame from a copy made once, a few percent faster.
+  - `npx demoman setup --ci` checks the refresh from a clean checkout, shows one plan, and on one confirmation sets the secrets, opens a "Set up Demoman" pull request and watches its first run.
+  - `.demoman/app.json` records how the app starts; `refresh` starts the app from it. If your own workflow started the app before `demoman refresh`, delete that step.
+  - The refresh runs after a deployment, when a release is published, or once a day; each merge is offered, never the default.
+  - The Studio's Add to repo and Remove from repo add and remove flows from a card, row or Export panel.
+  - An unchanged refresh on a GitHub runner takes about 11 seconds, down from about 90.
 </Update>
 
 <Update label="0.8.2" description="Video as code, flows in the repo, and a library you can search">
-  - A script can say where the video starts and ends with `trim`, and turn a click's zoom off or set its scale with `zoom` on a click or drag. A re-record writes the Studio's trim and zoom edits back into the script, and the run report lists any edit it could not carry.
-  - The Studio's library is grouped by project and opens on the one you are working in. A search box (`/`) matches a flow's name, its pages and its steps, and your agent's `flows({ query })` matches the same way.
-  - The library has a List view, now the default, with sortable columns. Tick several flows or videos and delete them at once.
-  - The Studio works on a phone or a touchscreen.
-  - The Export panel ticks MP4, GIF and PNG stills together, and one Export makes them all.
-  - Your agent's tools speak of flows and videos: a flow is what is recorded, a video one recording of it.
-  - The recipe and the run report steer smaller models, such as Haiku, to a working script.
-  - A click on a canvas bigger than the screen, such as Excalidraw's, is no longer reported as cut off.
-  - When a repo is not on github.com, or GitHub is not answering, attach says how to hand the video over yourself instead of asking you to sign in to `gh`.
-  - `demoman keep` is now `demoman add`, and repo flows live in `.demoman/flows/`; `keep` and `.demoman/videos/` still work. `demoman remove <flow>` takes a flow out of the repo and leaves its exports.
-  - A flow in the repo is two files: its recipe in `.demoman/flows/<name>.json` and a receipt in `.demoman/receipts/<name>.json` that refresh writes. Refresh never rewrites the recipe.
-  - A repo flow's id is in its recipe, so every machine that clones the repo shares one flow. `npx demoman join-flow <from> <into>` moves a flow's videos into the repo flow that has its name.
-  - A run into a repo flow refuses with `repoFlowNameTaken` when your library holds a different flow with that name, `duplicateFlow` when two recipes name one flow, and `repoFlowUnreadable` when a recipe will not read.
-  - `refresh` prints `changed`, `added`, `uncompared`, `unchanged` or `failed` for each flow. `--out-dir` and `--previous` write the videos and a `demoman-refresh.json` list to a folder.
-  - `add --deliver files` commits no video: refresh writes it to `--out-dir` for your own upload. `setup --ci --artifact` uploads that folder as a workflow artifact.
-  - The Studio marks a flow in the repo In repo.
+  - A script can set where the video starts and ends with `trim`, and each click's zoom with `zoom`.
+  - `demoman keep` is now `demoman add`, and repo flows live in `.demoman/flows/` with a receipt in `.demoman/receipts/`. `demoman remove` and `demoman join-flow` are new.
+  - `refresh` prints `changed`, `added`, `uncompared`, `unchanged` or `failed` per flow. `add --deliver files` keeps videos out of git.
+  - The Studio's library is grouped by project, searchable with `/`, and has a sortable List view with bulk delete.
+  - The Export panel makes an MP4, GIF and stills in one go.
 </Update>
 
 <Update label="0.8.1" description="Wallpapers, and videos that stay current">
-  - Fourteen built-in wallpapers for the background, in the Studio's Background panel and on the Brand kit page, and as `{ "kind": "wallpaper", "id" }` in a script's look. The muted ones come first, and new takes and kits start on `muted-1`, a dark one. Upload your own image instead, and blur either with the slider.
-  - `npx demoman keep <video> --to <path>` writes the video's re-film file to `.demoman/videos/` and exports it into your repo. Commit both. It refuses, writing nothing, a video with Studio edits a re-film cannot carry.
-  - `npx demoman refresh` films every kept video again with no agent and replaces only the outputs whose picture changed, so an unchanged app makes no commit. `--base-url` films a preview deployment; `--deliver pr|main` commits what changed.
-  - `npx demoman setup --ci` writes a GitHub Actions workflow that runs the refresh after each merge to main or each deployment.
-  - Your agent can play a script's steps without filming them, to see what a click opens before it writes the rest.
-  - A video attached to a pull request is 2560 pixels on the long side and kept under 10 MB: Demoman lowers the frame rate first, then the size, then the sharpness, and says what it lowered.
-  - When an export finishes after you have closed the Studio's window, a notification says so.
-  - The Studio's Recordings page drops its filter row.
+  - Fourteen built-in wallpapers for the background, in the Studio and in a script's look.
+  - `npx demoman keep <video> --to <path>` saves a video's script in the repo and exports it there.
+  - `npx demoman refresh` records them again with no agent and replaces only outputs whose picture changed.
+  - A video attached to a pull request is kept under 10 MB.
 </Update>
 
 <Update label="0.8.0" description="Linux, and pull requests that say what was recorded">
-  - Demoman runs on x86_64 Linux. When Chromium's system libraries are missing, `npx demoman setup` names the one `sudo` command that installs them: run it, then setup again. A run that finds them missing names the same command.
-  - arm64 Linux is refused by name, with `unsupportedPlatform`, before anything runs.
-  - On a machine with no display, such as over SSH, `demoman signin`, the Studio and `--headed` say there is no display instead of failing to open a window. Background runs and exports work there.
-  - A video attached to a pull request carries one line above it saying what the run did, with the run's notes folded beneath. The line names the commit it recorded, or says the video was recorded from uncommitted changes or from a commit that is not the PR's head.
-  - In Claude Code, the plugin reminds your agent to attach a demo after it opens a pull request, unless the repo's pull-request setting is Off. The plugin runs this as `demoman hook post-tool-use`.
-  - Exports on macOS draw on the GPU, so they finish many times faster: one take went from 93 seconds to 6.
-  - Known limits on Linux: `status` reports the browser installed when Chromium is downloaded but its libraries are missing; the first run names the command ([#6](https://github.com/demoman-io/demoman/issues/6)). With no display, `demoman studio` waits 30 seconds before saying the window did not open ([#4](https://github.com/demoman-io/demoman/issues/4)). A HiDPI desktop scaled in GNOME's or KDE's settings rather than with `GDK_SCALE` records at 1x without saying so ([#5](https://github.com/demoman-io/demoman/issues/5)). Setup finds Cursor only through its `agent` CLI ([#7](https://github.com/demoman-io/demoman/issues/7)).
+  - Demoman runs on x86_64 Linux. Setup names the one `sudo` command that installs Chromium's libraries.
+  - A video attached to a pull request carries a line saying what the run did and which commit it recorded.
+  - In Claude Code, the plugin reminds your agent to attach a demo after it opens a pull request.
+  - Exports on macOS draw on the GPU: one went from 93 seconds to 6.
 </Update>
 
 <Update label="0.7.3" description="A library of videos">
-  - Every run belongs to a video: your agent names a new one, or adds a version to one you have. A run that names no video is refused, and so is a new name that matches or comes close to a video already in that repo, until the agent confirms it means a new one. Takes you already have are grouped into videos by name the first time the library is read.
-  - The Studio lists your videos, each with its versions, its exports and its repo, with rename and delete.
-  - An export takes its video's name, so a second version of "New invoice" still saves as `New invoice.mp4`. Exported MP4, GIF and PNG files carry their video's id, so your agent can trace a file in the repo back to the video and version it came from.
-  - Recordings older than 30 days lose their frames and thumbnails. Kept: each video's current version, versions edited in the Studio, the source of the newest export, and versions with no script. `status` reports the last cleanup.
-  - A secret in `.demoman/secrets.env` needs `DEMOMAN_SECRET_<NAME>_ORIGIN` beside it, as one in the environment already did, and is typed only into a field whose own frame is on that site. A `.demoman` folder that is a link is refused.
-  - Demoman's browser no longer opens a debugging port, the Studio's entry link no longer shows in its window's command line, and `~/.demoman` and your takes are readable by you alone.
-  - Every `npx` command Demoman writes or hands you runs from your home folder, so a repo's own `node_modules` or `.npmrc` cannot choose what runs as Demoman.
-  - A mask stays on the frames it was drawn over when you remove a piece before it, and a mask whose first step is removed still covers the frames left.
-  - The Studio's preview stays sharp while it plays, and a step taken while the page is moving no longer leaves a brief stall in the video.
-  - Opening the Studio twice in quick succession no longer reports that the window did not open.
+  - Every run belongs to a flow, and the Studio lists them with rename and delete.
+  - Exported files carry their video's id, so your agent can trace a file back to its flow.
+  - Videos older than 30 days lose their frames, except the ones you still need.
+  - A secret in `.demoman/secrets.env` needs `DEMOMAN_SECRET_<NAME>_ORIGIN` beside it.
 </Update>
 
 <Update label="0.7.2" description="Setup asks first, and connects OpenCode">
-  - `npx demoman setup` asks before it changes anything: which agents to connect, the export quality, and whether pull requests get a demo. Each question starts on what you have now, so run setup again to change them. Without a terminal it asks nothing, as before; `--yes`, `--agents`, `--quality` and `--pull-requests` answer for a script.
-  - Setup connects OpenCode too: it adds Demoman to `opencode.json` and copies the `record-demo` skill. An older hand-written Demoman entry there is replaced.
-  - MP4s export at High by default: 60 fps at 1440p, about 30 MB for 30 seconds. A video attached to a pull request keeps the smaller Sharing size. Change the default in setup or under Settings → Export quality in the Studio, and pick a quality for one export in the Studio's Export panel.
-  - Exporting from the Studio no longer opens a browser window.
-  - The Studio plays a take back at full sharpness; text no longer reads soft while it plays.
-  - An export's Reveal in Finder link opens the file directly, and the Open in Studio and Copy video tabs close themselves once they have worked.
+  - `npx demoman setup` asks which agents to connect, the export quality and the pull-request setting before it changes anything.
+  - Setup connects OpenCode.
+  - MP4s export at High by default: 60 fps at 1440p.
 </Update>
 
 <Update label="0.7.1" description="Pull requests default to Ask, splits, and drag">
-  - The pull-request setting now defaults to Ask: when a pull request changes something you can see, your agent offers to record it before attaching the video. Under Ask, a pull request without a video gets nothing added. Attach still adds a `No demo:` line saying why. Choose Off, Ask or Attach in the Studio, under Settings → Pull requests.
-  - The Studio edits by splitting. Press ⌘B or click the scissors to cut the clip into pieces, and delete a piece: the video closes up behind it. Drag a piece's inner edge to trim frames, or to bring back frames removed beside it. A dot marks each join; click it to see what was removed and restore it.
-  - Retext, text overlays and step deletion are gone from the Studio. A take's existing cuts open as removed pieces; its replaced text and overlays are dropped, and the Studio names what it dropped.
-  - Run reports say video and rerecord. The `film` and `refilm` keys are now `video` and `rerecord`, and the reasons `noRunFilm`, `notInRunFilm`, `notInRecordingFilm`, `notInFilm`, `nothingToRefilm` and `editedSinceFilmed` are now `noRunVideo`, `notInRunVideo`, `notInRecordingVideo`, `notInVideo`, `nothingToRerecord` and `editedSinceRecorded`. A script or tool that reads the old names needs the new ones.
-  - A script can drag: a card across a board, a shape on a canvas. The Studio shows drag steps.
-  - While zoomed in, the camera follows the pointer, and a run of clicks plays straight through instead of stopping at each one.
-  - Targets no longer use ids that change on every page load, so a copied target keeps working on the next run.
-  - A saved sign-in loads even when one of the site's databases cannot be restored, and a run on one localhost port no longer writes its storage into another port's sign-in.
+  - The pull-request setting defaults to Ask.
+  - The Studio edits by splitting: cut the video into pieces and delete one.
+  - A script can drag: a card across a board, a shape on a canvas.
 </Update>
 
 <Update label="0.7.0" description="Out of release candidates">
-  - The first release after the 0.2.0 release candidates. Everything below ships in it.
-  - Demoman records in the background by default, with no browser window opening. The video is the same as the one a visible window would record. Pass `--headed` to watch it.
-  - A saved export ends with links: Open in Studio, Reveal in Finder and Copy video. Its sentence keeps only what you can act on.
-  - `npx demoman setup` no longer prints a warning from Playwright while it downloads Chromium.
+  - Demoman records in the background by default; `--headed` shows the window.
+  - A saved export ends with links: Open in Studio, Reveal and Copy video.
   - The Chrome extension is retired. Demoman is the CLI and its Studio.
 </Update>
 
 <Update label="0.2.0-rc.9" description="The camera lets each step finish">
-  - The camera no longer sets off toward the next click while the step before it is still playing out: typing, a panel opening, a page loading or a scroll. Demoman waits a beat instead, so a video can run a little longer, never hurried.
-  - Motion plays at the moment it happened on the page. Before, the end of each stretch of motion played up to a quarter of a second late.
-  - A run's report says how much time Demoman added before a step, so a longer video is explained.
+  - The camera waits for typing, a panel or a page load to finish before it moves on.
 </Update>
 
 <Update label="0.2.0-rc.8" description="Demoman keeps itself up to date">
-  - Demoman now updates itself in Claude Code, Codex and Cursor, in the background. Run `npx demoman setup` once to turn it on.
-  - The Studio has a new look, with a shortcuts panel, step icons, and each take's details and export history in its header.
-  - Typing plays back one key at a time, at a human pace, after a visible click on the field.
-  - GIFs no longer leave faint ghosts of earlier frames behind moving content.
-  - In a checkout that is not on GitHub, your agent hands you the video to attach yourself.
+  - Demoman updates itself in Claude Code, Codex and Cursor, and typing plays back at a human pace.
 </Update>
 
 <Update label="0.2.0-rc.7" description="Videos sized for sharing, and pull requests">
-  - Exports default to a size that fits where videos get shared: 1920 pixels on the long side, or 720×1280 at 9:16, at 30 fps.
-  - Ask for the full-quality file, or a size limit; Demoman says what it lowered to meet it.
-  - Your agent can attach the video to a pull request, or leave a note saying why there is none. Choose Off, Ask or Attach in the Studio.
+  - Exports default to a size that fits where videos get shared, and your agent can attach a video to a pull request.
 </Update>
 
 <Update label="0.2.0-rc.6" description="Codex and Cursor">
-  - `npx demoman setup` connects Codex and Cursor as well as Claude Code, and pre-approves Demoman's tools in each.
-  - The README has paste-in blocks for OpenCode, Pi, Kimi Code, Hermes and DeepSeek.
+  - `npx demoman setup` connects Codex and Cursor as well as Claude Code.
 </Update>
 
 <Update label="0.2.0-rc.5" description="Your library and brand kits">
-  - The Studio lists every take, with rename and delete.
-  - Brand kits: a logo, colors and background that your agent can name when it records.
+  - The Studio lists every video, and brand kits set a logo, colors and background.
 </Update>
 
 <Update label="0.2.0-rc.4" description="The Studio">
-  - Your agent can open a take in the Studio. Trim, cut, mask, retext, set the cursor, background, padding and zoom.
-  - Export from the Studio, in 16:9 or 9:16.
+  - The Studio opens a video to trim, cut, mask and export it, in 16:9 or 9:16.
 </Update>
 
 <Update label="0.2.0-rc.3" description="Secrets belong to a site">
-  - Export a take as a GIF, sized to fit 10 MB, or as stills.
-  - A secret in the environment must name the site it may be typed on, as `DEMOMAN_SECRET_<NAME>_ORIGIN`. Demoman refuses to type it anywhere else.
+  - GIF and stills exports. A secret must name the one site it may be typed on.
 </Update>
 
 <Update label="0.2.0-rc.2" description="Apps behind a login">
-  - `npx demoman signin <url>` saves your sign-in for a site, so your agent can record behind it.
-  - Your agent can set up a demo account and sign in as it. Secrets are read from the environment or a git-ignored file, and swept out of the files Demoman writes, its reports and its logs.
-  - Edited takes can be recorded again.
-  - An expired sign-in is detected, and a demo account signs in again by itself.
+  - `npx demoman signin <url>` saves your sign-in, and your agent can set up a demo account.
 </Update>
 
 <Update label="0.2.0-rc.1" description="First public release">
-  - `npx demoman setup` installs Demoman for Claude Code.
-  - Your agent records a flow in a web app and hands you an MP4.
-  - demoman.io/sample is a sample app to try it on.
+  - `npx demoman setup` installs Demoman for Claude Code, and your agent records a flow and hands you an MP4.
 </Update>

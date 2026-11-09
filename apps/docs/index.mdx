@@ -1,13 +1,43 @@
 ---
 title: "Introduction"
-description: "Demoman is a screen recorder for your coding agent."
+description: "Demoman is a video recorder for coding agents and a CI pipeline that keeps every video current."
 ---
 
-Ask your coding agent for a demo of a flow, such as "make a demo of the new
-checkout", and Demoman drives the app in a browser of its own, out of your
-way, records it,
-and saves the video to `~/Downloads`.
+A product video is a static artifact of a dynamic system: the app changes, the
+video does not. Demoman treats each video as a build artifact instead.
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  Your first demo video in about five minutes.
-</Card>
+- **The recorder.** Ask your coding agent for a demo of a flow. The agent
+  drives Demoman through its MCP server, Demoman runs the flow in a headless
+  browser on your machine, and you get a video with the camera, cursor and
+  framing already done.
+- **The pipeline.** Each flow is saved as a DemoScript in `.demoman/flows/`.
+  Commit it, and CI records the flow again when the product changes,
+  replacing the video only when the picture changed.
+
+Demoman runs on macOS and x86_64 Linux, with Claude Code, Codex, Cursor,
+OpenCode or any MCP agent. It needs no account.
+
+## Get started
+
+Six steps get you from nothing to flows in your repo that CI keeps current.
+
+<CardGroup cols={2}>
+  <Card title="1. Install" href="/get-started/install">
+    One command downloads the browser and connects your agents.
+  </Card>
+  <Card title="2. Connect your agent" href="/get-started/connect">
+    What setup does per agent, and the two steps for any other.
+  </Card>
+  <Card title="3. Your first video" href="/get-started/first-video">
+    Ask for a demo and read what the run reports.
+  </Card>
+  <Card title="4. Sign in" href="/get-started/sign-in">
+    Demo accounts for an app behind a login.
+  </Card>
+  <Card title="5. Add to your repo" href="/get-started/add-to-repo">
+    Save the flow's DemoScript in the repo.
+  </Card>
+  <Card title="6. Keep videos current" href="/get-started/ci">
+    One command sets up the GitHub Actions refresh.
+  </Card>
+</CardGroup>

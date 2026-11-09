@@ -1,0 +1,25 @@
+---
+title: "signin"
+description: "Sign in to an app once by hand, or sign in as a demo account."
+---
+
+```bash
+npx demoman signin <url>
+```
+
+Opens a window to sign in to your app once, so agents can record behind the
+login. Demoman's browser keeps the session. A flow recorded this way cannot be
+added to the repo.
+
+```bash
+npx demoman signin --account <name> [--site <origin>] [--project <dir>]
+```
+
+Signs in as a demo account from `.demoman/accounts.json`, to check it or to
+sign in on CI. See [Sign in](/get-started/sign-in).
+
+| Flag | |
+| --- | --- |
+| `--account <name>` | The account in `.demoman/accounts.json` |
+| `--site <origin>` | Which site's account, when two sites have one by that name |
+| `--project <dir>` | The project whose `.demoman/` to read; the current folder by default |

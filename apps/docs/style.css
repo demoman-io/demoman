@@ -1,0 +1,196 @@
+/* Geist Mono from Google Fonts: an absolute URL, so it loads under the docs'
+   /docs base path as well as at mint dev's root (a root-relative url() did not). */
+@import url("https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap");
+
+/* Demoman docs: the site's tokens (internal/site/public/style.css), with
+   dark values derived from them (the site has no dark mode). Mintlify
+   includes every .css file here on every page. Tokens are prefixed --dm-
+   so they never meet Mintlify's own. */
+
+
+:root {
+  --dm-bg: #ffffff;
+  --dm-bg-1: #f4f4f4;
+  --dm-ink: #0a0a0a;
+  --dm-ink-2: #525252;
+  --dm-ink-3: #6b6b6b;
+  --dm-line: rgba(0, 0, 0, 0.12);
+  --dm-r: 3px;
+  --dm-mono: "Geist Mono", ui-monospace, monospace;
+  --dm-code-key: #b53682;
+  --dm-code-action: #0965d3;
+  --dm-code-string: #197934;
+  --dm-mac-close: #ff5f57;
+  --dm-mac-minimise: #febc2e;
+  --dm-mac-full-screen: #28c840;
+}
+
+:root.dark {
+  --dm-bg: #0a0a0a;
+  --dm-bg-1: #171717;
+  --dm-ink: #fafafa;
+  --dm-ink-2: #a3a3a3;
+  --dm-ink-3: #8a8a8a;
+  --dm-line: rgba(255, 255, 255, 0.12);
+  --dm-code-key: #f08ac6;
+  --dm-code-action: #7cb7ff;
+  --dm-code-string: #7fd492;
+}
+
+/* Code and labels in Geist Mono, as on the site. */
+code,
+pre,
+kbd {
+  font-family: var(--dm-mono);
+}
+
+/* One small corner radius, as on the site. */
+#content-area .rounded-xl,
+#content-area .rounded-2xl,
+#content-area .rounded-lg {
+  border-radius: var(--dm-r);
+}
+
+/* The navbar's setup button: colors.dark fills it in both modes, which is
+   the page's own black in dark mode, so dark mode inverts it. */
+#topbar-cta-button .rounded-xl {
+  border-radius: var(--dm-r);
+}
+:root.dark #topbar-cta-button .bg-primary-dark {
+  background-color: var(--dm-ink);
+}
+:root.dark #topbar-cta-button .text-white,
+:root.dark #topbar-cta-button svg {
+  color: var(--dm-bg);
+}
+
+/* The setup path: six steps, the current one filled. */
+.dm-path {
+  margin: 0 0 2rem;
+}
+.dm-path ol {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--dm-line);
+  border-radius: var(--dm-r);
+  overflow: hidden;
+}
+.dm-path li {
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--dm-line);
+}
+.dm-path li:first-child {
+  border-left: 0;
+}
+.dm-path a {
+  display: block;
+  height: 100%;
+  padding: 8px 10px;
+  color: var(--dm-ink-3);
+  font-size: 13px;
+  line-height: 1.35;
+  text-decoration: none;
+  border: 0;
+}
+.dm-path a:hover {
+  color: var(--dm-ink);
+  background: var(--dm-bg-1);
+}
+.dm-path-n {
+  display: block;
+  font-family: var(--dm-mono);
+  font-size: 11px;
+}
+.dm-path .dm-done a {
+  color: var(--dm-ink-2);
+}
+.dm-path .dm-current a,
+.dm-path .dm-current a:hover {
+  background: var(--dm-ink);
+  color: var(--dm-bg);
+}
+@media (max-width: 520px) {
+  .dm-path ol {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .dm-path li:nth-child(4) {
+    border-left: 0;
+  }
+  .dm-path li:nth-child(n + 4) {
+    border-top: 1px solid var(--dm-line);
+  }
+}
+
+/* A terminal, drawn like the site's hero pane. */
+.dm-term {
+  margin: 1.25rem 0;
+  border: 1px solid var(--dm-line);
+  border-radius: var(--dm-r);
+  background: var(--dm-bg);
+  color: var(--dm-ink-2);
+  font: 400 12.5px/20px var(--dm-mono);
+  overflow: hidden;
+}
+.dm-term-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--dm-line);
+  font-size: 11px;
+  color: var(--dm-ink-3);
+}
+.dm-lights {
+  display: flex;
+  gap: 8px;
+}
+.dm-lights i {
+  width: 12px;
+  height: 12px;
+  clip-path: circle(50%);
+}
+.dm-lights i:nth-child(1) {
+  background: var(--dm-mac-close);
+}
+.dm-lights i:nth-child(2) {
+  background: var(--dm-mac-minimise);
+}
+.dm-lights i:nth-child(3) {
+  background: var(--dm-mac-full-screen);
+}
+.dm-term-title {
+  grid-column: 2;
+}
+.dm-term-log {
+  margin: 0;
+  padding: 12px 14px 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dm-ln {
+  display: block;
+  padding-left: 4ch;
+  text-indent: -4ch;
+}
+.dm-you,
+.dm-chev {
+  color: var(--dm-ink);
+}
+.dm-tool {
+  color: var(--dm-code-key);
+}
+.dm-ok {
+  color: var(--dm-code-string);
+}
+.dm-dim {
+  color: var(--dm-ink-3);
+}

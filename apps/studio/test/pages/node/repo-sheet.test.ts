@@ -188,8 +188,12 @@ describe("repoSheetModel", () => {
   // Red if a written file is labelled by anything but where it lives (DEM-49).
   it("writtenLabel names each file the add writes", () => {
     expect(writtenLabel("docs/demos/filter-invoices.mp4")).toBe("Video");
-    expect(writtenLabel(".demoman/flows/filter-invoice.json")).toBe("Recipe");
-    expect(writtenLabel(".demoman/videos/filter-invoice.json")).toBe("Recipe");
+    expect(writtenLabel(".demoman/flows/filter-invoice.json")).toBe(
+      "DemoScript",
+    );
+    expect(writtenLabel(".demoman/videos/filter-invoice.json")).toBe(
+      "DemoScript",
+    );
     expect(writtenLabel(".demoman/receipts/filter-invoice.json")).toBe(
       "Receipt",
     );

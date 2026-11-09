@@ -28,7 +28,10 @@ function outboundUrl(slug) {
   const m = /^url:\s*["']?([^"'\n]+?)["']?\s*$/m.exec(front);
   return m ? m[1] : null;
 }
-const slugs = (docs.navigation?.groups ?? []).flatMap((g) => g.pages ?? []);
+// A group's pages may hold a nested group ({ group, pages }) as well as slugs.
+const slugsOf = (node) =>
+  typeof node === "string" ? [node] : (node?.pages ?? []).flatMap(slugsOf);
+const slugs = (docs.navigation?.groups ?? []).flatMap(slugsOf);
 if (slugs.length === 0) {
   console.log("FAIL docs.json lists no pages (navigation.groups[].pages)");
   console.log("docs:live: 0 pages, 0 links, 1 failures");
@@ -125,6 +128,18 @@ for (const slug of slugs) {
   }
   if (problems.length === 0) console.log(`ok ${slug}`);
   for (const p of problems) fail(p);
+}
+
+// Each redirect in docs.json, followed as a reader's browser would: old
+// READMEs and bookmarks link the old paths, and the Worker in front of the
+// docs passes 3xx through, so a Location that drops the base path 404s.
+for (const { source, destination } of docs.redirects ?? []) {
+  const want = `${docsPath}${destination}`;
+  const r = await get(`${base}${source}`, false);
+  if (r.error) fail(`redirect ${source} ${r.error}`);
+  else if (r.status !== 200 || new URL(r.finalUrl).pathname !== want)
+    fail(`redirect ${source} landed on ${r.finalUrl} (${r.status}), not ${want}`);
+  else console.log(`ok redirect ${source} -> ${want}`);
 }
 
 console.log(`docs:live: ${slugs.length} pages, ${links} links, ${failures} failures`);

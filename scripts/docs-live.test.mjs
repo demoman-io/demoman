@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -116,6 +116,48 @@ test("an attribute that only ends in href, like data-href, is not a link", async
     assert.match(stdout, /^ok stray$/m, stdout);
     assert.doesNotMatch(stdout, /base-ui-disable-scrollbar/, stdout);
     assert.match(stdout, /3 pages, 1 links, 0 failures$/m, stdout);
+    assert.equal(code, 0, stdout);
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("each docs.json redirect must land on its destination under the docs' base path", async () => {
+  // /docs/old keeps the base path; /docs/gone drops it, as a proxy can.
+  const { server, origin } = await site({ old: "/docs/index", gone: "/index" });
+  const dir = docsFolder(`${origin}/away/outbound`);
+  const docs = JSON.parse(readFileSync(join(dir, "docs.json"), "utf8"));
+  docs.navigation.groups[0].pages = ["index"];
+  docs.redirects = [
+    { source: "/old", destination: "/index" },
+    { source: "/gone", destination: "/index" },
+  ];
+  writeFileSync(join(dir, "docs.json"), JSON.stringify(docs));
+  try {
+    const { code, stdout } = await docsLive(`${origin}/docs`, dir);
+    // Premise: the page was read, so the site answered.
+    assert.match(stdout, /^ok index$/m, stdout);
+    assert.match(stdout, /^ok redirect \/old -> \/docs\/index$/m, stdout);
+    assert.match(stdout, new RegExp(`^FAIL redirect /gone landed on ${origin}/index \\(404\\), not /docs/index$`, "m"), stdout);
+    assert.equal(code, 1, stdout);
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("pages in a nested group are crawled like any other", async () => {
+  const { server, origin } = await site({});
+  const dir = docsFolder(`${origin}/away/outbound`);
+  const docs = JSON.parse(readFileSync(join(dir, "docs.json"), "utf8"));
+  docs.navigation.groups[0].pages = ["index", { group: "Inner", pages: ["stray"] }];
+  writeFileSync(join(dir, "docs.json"), JSON.stringify(docs));
+  try {
+    const { code, stdout } = await docsLive(`${origin}/docs`, dir);
+    assert.match(stdout, /^ok stray$/m, stdout);
+    assert.doesNotMatch(stdout, /object Object/, stdout);
+    assert.match(stdout, /2 pages, /, stdout);
     assert.equal(code, 0, stdout);
   } finally {
     server.close();

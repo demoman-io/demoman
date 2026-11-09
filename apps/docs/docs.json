@@ -3,17 +3,18 @@
   "theme": "mint",
   "name": "Demoman",
   "colors": {
-    "primary": "#5f7a00",
-    "light": "#cdeb45",
-    "dark": "#4d6600"
+    "primary": "#0a0a0a",
+    "light": "#fafafa",
+    "dark": "#0a0a0a"
   },
   "background": {
     "color": {
+      "light": "#ffffff",
       "dark": "#0a0a0a"
     }
   },
   "fonts": {
-    "family": "Geist"
+    "family": "Manrope"
   },
   "logo": {
     "light": "/logo/light.svg",
@@ -31,41 +32,65 @@
     "primary": {
       "type": "button",
       "label": "npx demoman setup",
-      "href": "/quickstart"
+      "href": "/get-started/install"
     }
   },
   "navigation": {
     "groups": [
       {
-        "group": "Getting started",
+        "group": "Get started",
         "pages": [
           "index",
-          "quickstart",
-          "agents"
+          "get-started/install",
+          "get-started/connect",
+          "get-started/first-video",
+          "get-started/sign-in",
+          "get-started/add-to-repo",
+          "get-started/ci"
+        ]
+      },
+      {
+        "group": "Concepts",
+        "pages": [
+          "concepts/flows",
+          "concepts/refresh",
+          "concepts/run-report"
         ]
       },
       {
         "group": "Guides",
         "pages": [
           "guides/prompts",
-          "guides/authentication",
           "guides/phone-and-tablet",
           "guides/export",
           "guides/pull-requests",
-          "guides/repo-flows"
-        ]
-      },
-      {
-        "group": "CLI",
-        "pages": [
-          "cli/commands"
-        ]
-      },
-      {
-        "group": "Studio",
-        "pages": [
           "studio/overview",
           "studio/editing"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          {
+            "group": "CLI",
+            "pages": [
+              "reference/cli",
+              "reference/setup",
+              "reference/signin",
+              "reference/studio",
+              "reference/add",
+              "reference/remove",
+              "reference/join-flow",
+              "reference/refresh",
+              "reference/mcp",
+              "reference/hook"
+            ]
+          },
+          "reference/demoscript",
+          "reference/app-json",
+          "reference/accounts-json",
+          "reference/refusals",
+          "reference/environment"
         ]
       },
       {
@@ -100,14 +125,34 @@
       "github": "https://github.com/demoman-io"
     }
   },
-  "description": "Demoman is a screen recorder for your coding agent. Describe what you want to show and your agent records it in a real browser, handing you back a finished product video with cursor smoothing, zooms and framing already done.",
+  "description": "Demoman is a video recorder for coding agents and a CI pipeline that keeps every video current.",
   "icons": {
     "library": "lucide"
   },
   "redirects": [
     {
+      "source": "/quickstart",
+      "destination": "/get-started/install"
+    },
+    {
+      "source": "/agents",
+      "destination": "/get-started/connect"
+    },
+    {
+      "source": "/guides/authentication",
+      "destination": "/get-started/sign-in"
+    },
+    {
+      "source": "/guides/repo-flows",
+      "destination": "/get-started/add-to-repo"
+    },
+    {
       "source": "/guides/keep-videos-current",
-      "destination": "/guides/repo-flows"
+      "destination": "/get-started/add-to-repo"
+    },
+    {
+      "source": "/cli/commands",
+      "destination": "/reference/cli"
     }
   ]
 }

@@ -1,0 +1,18 @@
+---
+title: "join-flow"
+description: "Move one flow's videos into another, and remove the first."
+---
+
+```bash
+npx demoman join-flow <from> <into>
+```
+
+Moves every video of this library's flow `<from>` into the flow `<into>` and
+removes `<from>`.
+
+You need it when a repo's flow has the same name as a different flow already
+in your library: a run into the repo's flow refuses with `repoFlowNameTaken`
+and prints this command with both ids.
+
+It exits 1 if either flow is missing, if the two are one flow, or if it stops
+partway (the message says how many videos moved and that `<from>` remains).

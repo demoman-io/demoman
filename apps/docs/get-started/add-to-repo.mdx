@@ -1,0 +1,64 @@
+---
+title: "Add to your repo"
+description: "Save a flow's DemoScript in the repo, so every clone and every CI run can record it again."
+---
+
+import { SetupPath } from "/snippets/setup-path.jsx";
+
+<SetupPath step={5} />
+
+A video goes stale when the app changes. Adding its flow to the repo saves the
+flow as a DemoScript, which CI records again in the next step.
+
+## Add it
+
+In the repo, with a flow your agent recorded:
+
+```bash
+npx demoman add "Add a task" --to docs/add-task.mp4
+```
+
+It writes the DemoScript, a receipt with its screens, and the export. Commit everything it wrote:
+
+| File | What it is |
+| --- | --- |
+| `.demoman/flows/add-task.json` | The flow's DemoScript: every step a new video needs. See [Flows and DemoScripts](/concepts/flows) |
+| `.demoman/receipts/add-task.json` | What the export shows, for a refresh to compare against |
+| `.demoman/receipts/add-task.screens/` | A folder of the screens the receipt describes, as pictures |
+| `docs/add-task.mp4` | The export, at the path you named |
+
+`--gif <path>` adds a GIF, and `--to` may repeat. To keep videos out of git
+and upload them yourself, see `--deliver files` on [add](/reference/add).
+
+The flow's id is in the DemoScript, so every machine that clones the repo
+shares it. When your agent later records into a flow in the repo, its
+DemoScript follows the new script.
+
+## From the Studio
+
+<Frame>
+  <img src="/media/studio/add-to-repo.png" alt="The Studio's Add to repo sheet: Folder, File name, Video (Commit or Files) and Quality" />
+</Frame>
+
+**Add to repo** is on a flow's card and row in the Studio, and in the
+editor's Export panel. Its sheet asks for the path, the delivery and the
+quality, writes the same files, and ends on each with Reveal. After a
+**Commit** add in a repo with no CI yet, it offers the next step's setup.
+
+## When add refuses
+
+Add writes nothing for a flow a new video cannot reproduce, and names why:
+
+- **Studio edits** a new video does not carry: a cut, a split, a mask, a
+  hold, a gap, a zoom you placed, or an end trim that can't be placed.
+  Remove the edit, or record the flow again. A trim and a click's zoom are
+  carried: they are written into the DemoScript.
+- **Your own sign-in.** A flow recorded after `signin` needs a demo account
+  first ([Sign in](/get-started/sign-in)).
+- **Typed text the video never read.** Record the flow again.
+
+The reasons that need you, with what to do, are on [Refusals](/reference/refusals#adding-a-flow).
+
+<Card title="Next · 06" href="/get-started/ci">
+  Keep videos current
+</Card>

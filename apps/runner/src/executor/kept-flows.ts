@@ -15,7 +15,7 @@ export type KeptEntry =
   | { file: string; kept: KeptVideo; migrated: KeptReceipt | null }
   | { file: string; unreadable: string };
 
-/** Every `.json` recipe in the checkout, repo-relative: `.demoman/flows/`
+/** Every `.json` DemoScript in the checkout, repo-relative: `.demoman/flows/`
  *  first, then the old `.demoman/videos/`, each sorted. A folder that is
  *  not there has none; any other read error throws. */
 export async function repoFlowFiles(root: string): Promise<string[]> {
