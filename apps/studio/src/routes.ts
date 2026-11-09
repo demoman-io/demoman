@@ -346,6 +346,13 @@ export function createRoutes(o: {
       // After keying marks, so a mark keyed just now is followed too.
       rows.push(...(await followed()));
       const expiry = await expireOld(videos, library, new Date());
+      // Not a row: the lock's holder is said by the migration's own row when
+      // it matters, and the next upkeep goes on from here.
+      if ("held" in expiry) {
+        log(
+          `studio: expiring old videos: put off after ${expiry.expired} videos: ${expiry.held}; the next upkeep goes on`,
+        );
+      }
       // A pass that ran within the hour is not run again, so a failure it
       // met is read back from the state file rather than said only once.
       const last = "skipped" in expiry ? await expiryStatus(library) : expiry;

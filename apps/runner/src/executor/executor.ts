@@ -606,6 +606,11 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       // Never refuses the run: a failure is logged here and said by status.
       const expiry = await expireOld(videos, library, new Date());
       if ("failed" in expiry) log(`expiry failed: ${expiry.failed}`);
+      if ("held" in expiry) {
+        log(
+          `expiry put off after ${expiry.expired} videos: ${expiry.held}; a later run expires the rest`,
+        );
+      }
       // This checkout's flows follow it first (ruling R14), so a `{ new }`
       // whose name an old flow here holds is refused as taken.
       if (repoRead.ok) {
