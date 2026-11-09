@@ -24,10 +24,14 @@ export type GitRunner = (
   env?: Record<string, string>,
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-/** The folder is the caller's choice: its config must not name a program
- *  git runs on its own account while it reads the index (audit run 1,
- *  DEM-90). Only fsmonitor: a clean filter (git-lfs) is the repo's own
- *  content transform, and the tree filmed has to be the one git would commit. */
+/** The filmed folder is the caller's choice: its config must not name a
+ *  program git runs on its own account while Demoman only reads it (audit
+ *  run 1, DEM-90). Demoman's git there reads and stages, never fetches or
+ *  commits, so of the programs a config can name only two run: fsmonitor,
+ *  off here, and a clean filter, left on on purpose — git-lfs is one, and
+ *  the tree filmed has to be the one git would commit. The CLI's fetch and
+ *  commit (core.sshCommand, hooks) act on the repo the person set up CI in,
+ *  as their own push would. */
 const GIT_GUARD = { key: "core.fsmonitor", value: "false" } as const;
 
 /** `env` with the guard added for every git started under it — gh's own

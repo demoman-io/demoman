@@ -33,7 +33,7 @@ import type {
   GithubFacts,
   readGithub,
 } from "./ci-github.js";
-import { DEPLOYMENTS_READ } from "./ci-github.js";
+import { BY_NAME_LIMIT } from "./ci-github.js";
 import {
   type openSetupPr,
   SETUP_BRANCH,
@@ -133,25 +133,8 @@ export function triggerOffers(f: GithubFacts): TriggerOffer[] {
                 `${d.environment} has a successful deployment on record`,
               );
         });
-  // Said, not dropped: an environment setup did not look for (DEM-89).
-  const unchecked = (f.unchecked ?? []).map((environment) =>
-    offer(
-      { deployment: environment },
-      false,
-      `${environment}'s deployments are older than the newest 30 and were not looked for; choose it with --trigger to check it`,
-    ),
-  );
-  if (f.olderUnread === true)
-    unchecked.push(
-      offer(
-        { deployment: "" },
-        false,
-        `deployments older than the newest ${DEPLOYMENTS_READ} were not read, so an environment only they name is not listed; choose it with --trigger to check it`,
-      ),
-    );
   return [
     ...deployments,
-    ...unchecked,
     offer(
       "release",
       f.hasReleases,
@@ -166,6 +149,26 @@ export function triggerOffers(f: GithubFacts): TriggerOffer[] {
     ),
     offer("push", true, "records on every merge, the most runner time"),
   ];
+}
+
+/** Environments setup did not look for, said beside the trigger question and
+ *  in the plan rather than dropped (DEM-89); null when it looked at them all. */
+export function triggerNote(f: GithubFacts): string | null {
+  const parts = [
+    ...(f.unchecked === undefined
+      ? []
+      : [
+          `${f.unchecked.join(", ")} (deployed only before the newest 30 deployments, over the ${BY_NAME_LIMIT} looked for by name)`,
+        ]),
+    ...(f.olderUnread === undefined
+      ? []
+      : [
+          `any environment deployed only before the newest ${f.olderUnread} deployments, which were not read`,
+        ]),
+  ];
+  return parts.length === 0
+    ? null
+    : `Not listed: ${parts.join("; ")}. To trigger on one, run setup with --trigger <environment>, which looks it up.`;
 }
 
 /** Decision 3: the first offered of deployment, release, daily; never push. */
@@ -217,6 +220,8 @@ export type CiPlan = {
   title: typeof SETUP_TITLE;
   /** Only when push is chosen. */
   pushCost: string | null;
+  /** triggerNote's sentence: environments setup did not look for. */
+  notLookedFor?: string;
   /** HEAD's and the default branch's commits, when they differ: the check
    *  ran on HEAD, the pull request is built on the default branch. */
   offBase: { head: string; base: string } | null;
@@ -256,7 +261,10 @@ export type CiDeps = {
   /** Stops the check (R3). */
   signal?: AbortSignal;
   /** `environment`: the deployment trigger asked for, if one was. */
-  readGithub(root: string, environment?: string): ReturnType<typeof readGithub>;
+  readGithub(
+    root: string,
+    o?: { environment?: string; older?: boolean },
+  ): ReturnType<typeof readGithub>;
   detectApp: typeof detectApp;
   neededSecrets: typeof neededSecrets;
   localValues: typeof localValues;
@@ -460,12 +468,12 @@ async function makePlan(
   deps: CiDeps,
   values: SecretValues,
 ): Promise<CiPlan | CiStop> {
-  const facts = await deps.readGithub(
-    root,
-    typeof choices.trigger === "object"
-      ? choices.trigger.deployment
-      : undefined,
-  );
+  const facts = await deps.readGithub(root, {
+    older: true,
+    ...(typeof choices.trigger === "object"
+      ? { environment: choices.trigger.deployment }
+      : {}),
+  });
   if ("reason" in facts) return stop(facts.reason, facts.detail);
   if (facts.workflowOnDefault)
     return stop(
@@ -484,6 +492,7 @@ async function makePlan(
         );
 
   const offers = triggerOffers(facts);
+  const note = triggerNote(facts);
   const trigger = choices.trigger ?? defaultTrigger(offers);
   const route = choices.route ?? "pr";
   const refused = routeRefusal(trigger, route);
@@ -502,7 +511,7 @@ async function makePlan(
       return stop(
         "noDeployment",
         d === undefined
-          ? `${facts.slug} has no successful deployment to ${trigger.deployment} among its newest 30, so there is nothing to record after; choose another trigger`
+          ? `${facts.slug} has no successful deployment among the newest 30 to ${trigger.deployment}, so there is nothing to record after; choose another trigger`
           : `${trigger.deployment}'s successful deployment names no environment URL, so there is no deployed app to record; choose another trigger`,
       );
     deployment = { environment: d.environment, url: d.url };
@@ -828,6 +837,7 @@ async function makePlan(
     title: SETUP_TITLE,
     pushCost,
     offBase,
+    ...(note === null ? {} : { notLookedFor: note }),
   };
   return Object.defineProperty(made, "contents", {
     value: texts.files,
@@ -957,6 +967,7 @@ export function planLines(p: CiPlan): string[] {
   const said = planSaid(p);
   return [
     said.trigger,
+    ...(p.notLookedFor === undefined ? [] : [p.notLookedFor]),
     ...said.byHand,
     said.delivery,
     said.app,

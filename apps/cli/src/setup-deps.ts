@@ -415,11 +415,11 @@ export function ciPrompts(): CiAsk {
   const filled = (v: string | undefined) =>
     (v ?? "").trim() === "" ? "Needs a value" : undefined;
   return {
-    trigger: async (offers) => {
+    trigger: async (offers, note) => {
       const shown = offers.filter((o) => o.offered);
       const first = defaultTrigger(offers);
       const at = await select({
-        message: "When should Demoman refresh the repo's flows?",
+        message: `When should Demoman refresh the repo's flows?${note === null ? "" : `\n${note}`}`,
         options: shown.map((o, i) => ({
           value: i,
           label: o.label,

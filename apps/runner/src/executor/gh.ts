@@ -2,6 +2,7 @@
 // named GhRefusal carrying the words to show the author; nothing here throws,
 // and a refusal never reads like success.
 import { execFile } from "node:child_process";
+import { guardedGitEnv } from "./repo.js";
 
 export type GhResult =
   | { code: number; stdout: string; stderr: string }
@@ -54,7 +55,8 @@ export const defaultGhRun: GhRun = (args, opts) =>
       [...args],
       {
         cwd: opts.cwd,
-        env: opts.env,
+        // gh starts git in the filmed project: the same guard as execGit's.
+        env: guardedGitEnv(opts.env),
         maxBuffer: MAX_BUFFER,
         // SIGKILL: a gh that ignores SIGTERM must not linger past its limit.
         ...(opts.timeoutMs === undefined

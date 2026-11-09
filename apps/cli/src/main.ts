@@ -614,7 +614,7 @@ function ciDeps(
     version: VERSION,
     env: process.env,
     git: execGit,
-    readGithub: (r, environment) => readGithub(gh, r, { environment }),
+    readGithub: (r, o) => readGithub(gh, r, o),
     detectApp,
     neededSecrets,
     localValues,

@@ -88,7 +88,7 @@ describe("setup --ci's questions", () => {
     const { triggerOffers } = await import("../src/ci-setup.js");
     const offers = triggerOffers(facts);
     script.push(2); // the third option shown
-    expect(await ciPrompts().trigger(offers)).toBe("push");
+    expect(await ciPrompts().trigger(offers, null)).toBe("push");
     const menu = shown[0] as {
       options: Array<{ value: number; label: string }>;
       initialValue: number;

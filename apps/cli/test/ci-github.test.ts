@@ -175,7 +175,6 @@ describe("readGithub", () => {
         [`api repos/${S}/deployments/7/statuses?per_page=30`]: ok([
           { state: "success", environment_url: "https://app.example" },
         ]),
-        [`api repos/${S}/deployments?per_page=30&page=2`]: ok([]),
       },
       calls,
     );
@@ -207,6 +206,7 @@ describe("readGithub", () => {
     const r = await readGithub(
       fake(busy([["Preview", "Production"]])),
       checkout(false),
+      { older: true },
     );
     expect(r).toMatchObject({
       deployments: expect.arrayContaining([
@@ -225,7 +225,9 @@ describe("readGithub", () => {
         [],
       );
     const calls: Array<{ args: string[] }> = [];
-    const r = await readGithub(fake(answers, calls), checkout(false));
+    const r = await readGithub(fake(answers, calls), checkout(false), {
+      older: true,
+    });
     // Premise: Production plus ten pr-* were asked by name, no more.
     expect(
       calls.filter((c) => c.args[1]?.includes("environment=")),
@@ -243,13 +245,54 @@ describe("readGithub", () => {
       full("Preview"),
       full("Preview"),
     ]);
-    const r = await readGithub(fake(answers, calls), checkout(false));
+    const r = await readGithub(fake(answers, calls), checkout(false), {
+      older: true,
+    });
     // Premise: pages 2 to 5 were each read once.
     expect(
       calls.filter((c) => /[?&]page=\d/.test(c.args[1] ?? "")),
     ).toHaveLength(4);
-    expect(r).toMatchObject({ olderUnread: true });
+    expect(r).toMatchObject({ olderUnread: 150 });
     expect(r).not.toHaveProperty("unchecked");
+  });
+  // Review finding 2. Red while every caller pays for the older pages: the
+  // Studio's state, Open PR and watch need only the repo, and a failure on
+  // page 4 failed them too. Not reading them is said, never assumed empty.
+  it("reads no older page unless asked, and says the older ones were not read", async () => {
+    const calls: Array<{ args: string[] }> = [];
+    const r = await readGithub(
+      fake(busy([["Preview", "Production"]]), calls),
+      checkout(false),
+    );
+    expect(
+      calls.some((c) => /[?&](page|environment)=/.test(c.args[1] ?? "")),
+    ).toBe(false);
+    expect(r).toMatchObject({ olderUnread: 30 });
+  });
+  // Review finding 9. Red while the chosen environment is asked for by name
+  // after a newest page that was not full, which held every deployment.
+  it("asks no second time when the newest page held every deployment", async () => {
+    const calls: Array<{ args: string[] }> = [];
+    const gh = fake(
+      {
+        [`api repos/${S}/deployments?per_page=30`]: ok([
+          { id: 7, environment: "Production", sha: "prod" },
+        ]),
+        [`api repos/${S}/deployments/7/statuses?per_page=30`]: ok([
+          { state: "success", environment_url: "https://app.example" },
+        ]),
+      },
+      calls,
+    );
+    const r = await readGithub(gh, checkout(false), {
+      environment: "staging",
+      older: true,
+    });
+    expect(r).toMatchObject({ deployments: [{ environment: "Production" }] });
+    expect(r).not.toHaveProperty("olderUnread");
+    expect(
+      calls.some((c) => /[?&](page|environment)=/.test(c.args[1] ?? "")),
+    ).toBe(false);
   });
   it("asks no second time when the chosen environment is on the first page", async () => {
     const calls: Array<{ args: string[] }> = [];
@@ -291,6 +334,19 @@ describe("readGithub", () => {
     const r = await readGithub(fake(), checkout(false), { git });
     expect(r).toMatchObject({ reason: "githubUnreadable" });
     expect((r as { detail: string }).detail).toContain("spawn git ENOENT");
+  });
+  // Review finding 6. Red while a git that fails with nothing on stderr is
+  // reported as "(no answer)", which reads as a network silence.
+  it("a git that fails in silence is githubUnreadable naming its exit code", async () => {
+    const git: GitRunner = (args, cwd, env) =>
+      args[0] === "ls-remote"
+        ? Promise.resolve({ code: 128, stdout: "", stderr: "" })
+        : execGit(args, cwd, env);
+    const r = await readGithub(fake(), checkout(false), { git });
+    expect(r).toMatchObject({ reason: "githubUnreadable" });
+    expect((r as { detail: string }).detail).toContain(
+      "git exited with code 128",
+    );
   });
   // Review finding 6. Red when the branch is read on origin (the fork) while
   // gh answers for upstream, or `gh pr list` runs without --repo.

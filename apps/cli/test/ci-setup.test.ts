@@ -24,6 +24,7 @@ import {
   planLines,
   prBody,
   redact,
+  triggerNote,
   triggerOffers,
 } from "../src/ci-setup.js";
 import { DEPLOYMENT_MAIN } from "../src/ci-workflow.js";
@@ -188,7 +189,7 @@ function fakes(
     verify?: Parameters<CiDeps["verifySetup"]>;
     pr?: Parameters<CiDeps["openSetupPr"]>[0];
     set?: Parameters<CiDeps["setSecrets"]>;
-    environment?: string;
+    github?: Parameters<CiDeps["readGithub"]>[1];
   } = {};
   const shown = { ...(o.head ?? {}) };
   const gitArgs: string[][] = [];
@@ -218,9 +219,9 @@ function fakes(
     env: {},
     git,
     log: (l) => logged.push(l),
-    readGithub: async (_root, environment) => {
+    readGithub: async (_root, asked) => {
       calls.push("readGithub");
-      seen.environment = environment;
+      seen.github = asked;
       return o.github ?? facts();
     },
     detectApp: async () => {
@@ -334,32 +335,28 @@ describe("triggerOffers and defaultTrigger", () => {
     expect(offers[3]?.label).toContain("trunk");
   });
 
-  // DEM-89. Red when an environment readGithub did not look for is dropped:
-  // the person is never told it exists.
-  it("lists an environment that was not looked for, not offered, saying why", () => {
-    const offers = triggerOffers(
-      facts({
-        deployments: [
-          { environment: "production", url: "https://x.example", sha: "a" },
-        ],
-        unchecked: ["staging"],
-      }),
-    );
-    const staging = offers.find(
-      (o) =>
-        typeof o.trigger === "object" && o.trigger.deployment === "staging",
-    );
-    expect(staging?.offered).toBe(false);
-    expect(staging?.why).toContain("--trigger");
-  });
-
-  // DEM-89. Red when older deployments went unread and nothing says so.
-  it("says, not offered, that deployments past the ones read were not looked at", () => {
-    const offers = triggerOffers(facts({ olderUnread: true }));
-    const unread = offers.find((o) => o.why.includes("were not read"));
-    expect(unread?.offered).toBe(false);
-    expect(unread?.why).toContain("newest 150");
-    expect(unread?.why).toContain("--trigger");
+  // DEM-89 and review findings 1 and 5. Red while the environments setup
+  // did not look for become offers no one is shown (both pickers list only
+  // offered triggers), or share the no-deployment offer's trigger.
+  it("says the environments it did not look for in a note, not as offers", () => {
+    const f = facts({
+      deployments: [
+        { environment: "production", url: "https://x.example", sha: "a" },
+      ],
+      unchecked: ["staging", "qa"],
+      olderUnread: 150,
+    });
+    expect(triggerOffers(f).map((o) => JSON.stringify(o.trigger))).toEqual([
+      '{"deployment":"production"}',
+      '"release"',
+      '"daily"',
+      '"push"',
+    ]);
+    const note = triggerNote(f) ?? "";
+    expect(note).toContain("staging, qa");
+    expect(note).toContain("newest 150 deployments, which were not read");
+    expect(note).toContain("--trigger <environment>");
+    expect(triggerNote(facts())).toBeNull();
   });
 
   it("offers no deployment without one on record and no release without one", () => {
@@ -515,7 +512,11 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     expect(f.calls).toEqual(["readGithub"]);
     // DEM-89. Red while GitHub is asked only for its newest deployments:
     // the chosen environment's own are past them on a busy repo.
-    expect(f.seen.environment).toBe("production");
+    expect(f.seen.github).toEqual({ older: true, environment: "production" });
+    // Review finding 7: production's own newest 30 were searched too.
+    expect(isStop(r) && r.detail).toContain(
+      "no successful deployment among the newest 30 to production",
+    );
   });
 
   it("a deployment trigger with route main: DEPLOYMENT_MAIN", async () => {
@@ -906,6 +907,25 @@ describe("planCiSetup's plan", () => {
       "Starts no app: records the newest successful production deployment (now https://x.example).",
     );
     expect(said.join("\n")).not.toContain("Starts the app");
+  });
+
+  // Review finding 1. Red while the environments setup did not look for
+  // reach no surface: the plan's lines are what the terminal and the Studio
+  // both show.
+  it("says in the plan which environments it did not look for", async () => {
+    const f = fakes({
+      github: facts({
+        deployments: [
+          { environment: "production", url: "https://x.example", sha: "a" },
+        ],
+        unchecked: ["staging"],
+      }),
+    });
+    const said = planLines(await okPlan(await repo(), f));
+    expect(said[1]).toContain("Not listed: staging");
+    expect(
+      planLines(await okPlan(await repo(), fakes())).join("\n"),
+    ).not.toContain("Not listed");
   });
 
   it("holds the workflow, app.json and the flow's delivery when none is on the default branch", async () => {

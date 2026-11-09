@@ -19,11 +19,11 @@ export type GithubFacts = {
   hasReleases: boolean;
   workflowOnDefault: boolean;
   /** Environments older deployments name that were not looked for, over the
-   *  by-name limit (DEM-89): offered as unchecked. */
+   *  by-name limit (DEM-89): said beside the trigger, with how to check one. */
   unchecked?: string[];
-  /** Deployments past the pages read were not looked at (DEM-89): an
-   *  environment only they name is not in `deployments` or `unchecked`. */
-  olderUnread?: true;
+  /** Deployments older than the newest this many were not read (DEM-89): an
+   *  environment only they name is in neither `deployments` nor `unchecked`. */
+  olderUnread?: number;
   setupBranch: { pr: { number: number; url: string } | null } | null;
   /** The git remote whose URL is `slug`: what setup fetches from and pushes
    *  to, so git and gh act on one repo. */
@@ -61,17 +61,25 @@ async function read(gh: Gh, args: string[]): Promise<Read> {
 }
 
 /** git through the CLI's one runner; a git that would not start (missing,
- *  or the folder gone) answers as a failure that says why, never a throw. */
+ *  or the folder gone) answers as a failure that says why, never a throw,
+ *  and one that failed in silence names its exit code. */
 const gitIn = (git: GitRunner, root: string, args: string[]) =>
-  git(args, root).catch((e: unknown) => ({
-    code: -1,
-    stdout: "",
-    stderr: e instanceof Error ? e.message : String(e),
-  }));
+  git(args, root).then(
+    (r) =>
+      r.code !== 0 && r.stderr.trim() === ""
+        ? { ...r, stderr: `git exited with code ${r.code}` }
+        : r,
+    (e: unknown) => ({
+      code: -1,
+      stdout: "",
+      stderr: e instanceof Error ? e.message : String(e),
+    }),
+  );
 
-/** Environments looked up by name past the newest deployments: two gh calls
- *  each, so a repo with a preview environment per pull request stays quick. */
-const BY_NAME_LIMIT = 10;
+/** Environments looked up by name past the newest deployments, at once: a
+ *  list call each, then a statuses call per deployment until a success, so a
+ *  repo with a preview environment per pull request stays bounded. */
+export const BY_NAME_LIMIT = 10;
 /** Pages of older deployments read for the environments they name, after
  *  the newest: GitHub's environments list is empty on a private repo whose
  *  plan has no environments (200, `[]`, checked 2026-11-08), so it cannot
@@ -88,6 +96,9 @@ export async function readGithub(
     /** The environment setup was asked to trigger on: looked for past the
      *  newest deployments when they hold none of it (DEM-89). */
     environment?: string;
+    /** Read older deployment pages for the environments they name: only
+     *  setup's trigger needs them (DEM-89). */
+    older?: boolean;
   } = {},
 ): Promise<GithubFacts | GhUnusable | Unreadable> {
   const git = o.git ?? execGit;
@@ -245,18 +256,23 @@ export async function readGithub(
     );
     return Array.isArray(own) ? walk(own.filter((d) => !seen.has(d.id))) : own;
   };
-  if (o.environment !== undefined && !done.has(o.environment)) {
+  // Each name walks only its own deployments, so they can be asked at once.
+  const byNames = async (names: string[]): Promise<Unreadable | null> =>
+    (await Promise.all(names.map(byName))).find((r) => r !== null) ?? null;
+  // A newest page that is not full held every deployment there is.
+  const full = newest.length >= 30;
+  if (full && o.environment !== undefined && !done.has(o.environment)) {
     const r = await byName(o.environment);
     if (r !== null) return r;
   }
   let unchecked: string[] = [];
-  let olderUnread = false;
-  if (newest.length >= 30) {
+  let olderUnread: number | undefined = full && !o.older ? 30 : undefined;
+  if (full && o.older === true) {
     // Newest first, so the environments deployed to most recently are the
     // ones looked for within the limit.
     const names: string[] = [];
-    let full = true;
-    for (let page = 2; full && page <= OLDER_PAGES + 1; page++) {
+    let more = true;
+    for (let page = 2; more && page <= OLDER_PAGES + 1; page++) {
       const older = await listOf(`per_page=30&page=${page}`);
       if (!Array.isArray(older)) return older;
       for (const d of older)
@@ -266,13 +282,11 @@ export async function readGithub(
           !names.includes(d.environment)
         )
           names.push(d.environment);
-      full = older.length >= 30;
+      more = older.length >= 30;
     }
-    olderUnread = full;
-    for (const name of names.slice(0, BY_NAME_LIMIT)) {
-      const r = await byName(name);
-      if (r !== null) return r;
-    }
+    if (more) olderUnread = DEPLOYMENTS_READ;
+    const r = await byNames(names.slice(0, BY_NAME_LIMIT));
+    if (r !== null) return r;
     unchecked = names.slice(BY_NAME_LIMIT);
   }
   // Newest deployment first.
@@ -326,7 +340,7 @@ export async function readGithub(
     isAdmin: repo.viewerPermission === "ADMIN",
     deployments,
     ...(unchecked.length > 0 ? { unchecked } : {}),
-    ...(olderUnread ? { olderUnread: true as const } : {}),
+    ...(olderUnread === undefined ? {} : { olderUnread }),
     hasReleases,
     workflowOnDefault: wf.ok,
     setupBranch,
