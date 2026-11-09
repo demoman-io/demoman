@@ -238,25 +238,44 @@ const previewPorts: PreviewPorts<FrameBundle> = {
   },
   // The studio makes the card's frame small itself (`folder.thumb`); it
   // refuses a take this page has not asked `bundles.active` for, and the
-  // mounter's `bundle` port above always does first. Elsewhere the page
-  // decodes the keyframe from the store, as it always has.
+  // mounter's `bundle` port above always does first. When it cannot (no
+  // `sips` off macOS, DEM-86) or elsewhere, the page decodes the keyframe.
   image: async (ref) => {
-    if (platform.folder !== undefined) return platform.folder.thumb(ref);
-    const frame = await bundles.load(ref);
-    // `load` serves raw container bytes for a `span:` ref and a decoded
-    // image for a `kf:` one. A preview only ever samples keyframes, so
-    // either branch below means the sampler handed over a ref of the wrong
-    // kind — which the box must say, not draw as a blank.
-    if (frame instanceof Uint8Array) {
-      throw new Error(`${ref} loaded as motion bytes, not a keyframe`);
+    const folder = platform.folder;
+    if (folder === undefined) return decodeKeyframe(ref);
+    try {
+      return await folder.thumb(ref);
+    } catch (thumbError) {
+      console.info(
+        `demoman library: the Studio made no preview of ${ref} (${messageOf(thumbError)}); decoding it here`,
+      );
+      try {
+        return await decodeKeyframe(ref);
+      } catch (decodeError) {
+        throw new Error(
+          `${unperiod(messageOf(thumbError))}; decoding it on this page failed too: ${messageOf(decodeError)}`,
+        );
+      }
     }
-    if (!(frame.image instanceof ImageBitmap)) {
-      throw new Error(`${ref} decoded to something other than an ImageBitmap`);
-    }
-    return frame.image;
   },
   whenVisible,
 };
+
+/** A keyframe decoded from the store, for a preview. */
+async function decodeKeyframe(ref: string): Promise<ImageBitmap> {
+  const frame = await bundles.load(ref);
+  // `load` serves raw container bytes for a `span:` ref and a decoded
+  // image for a `kf:` one. A preview only ever samples keyframes, so
+  // either branch below means the sampler handed over a ref of the wrong
+  // kind — which the box must say, not draw as a blank.
+  if (frame instanceof Uint8Array) {
+    throw new Error(`${ref} loaded as motion bytes, not a keyframe`);
+  }
+  if (!(frame.image instanceof ImageBitmap)) {
+    throw new Error(`${ref} decoded to something other than an ImageBitmap`);
+  }
+  return frame.image;
+}
 
 /**
  * The mounter for the CURRENT pass. `renderLibrary` replaces every row on

@@ -33,6 +33,7 @@ import {
   CHANGED_ELSEWHERE,
   createRoutes,
   FRAME_CACHE,
+  revealFile,
   TAKE_BUSY,
 } from "../../src/routes.js";
 import { folderBytes } from "../../src/sizes.js";
@@ -1326,6 +1327,37 @@ describe("reveal", () => {
     const body = r.json() as { reason: string; detail: string };
     expect(body.reason).toBe("revealRefused");
     expect(body.detail).toContain("Finder said no");
+  });
+});
+
+describe("revealFile", () => {
+  const recording = () => {
+    const ran: Array<[string, string[]]> = [];
+    const run = async (cmd: string, args: string[]) => {
+      ran.push([cmd, args]);
+    };
+    return { ran, run };
+  };
+
+  it("selects the file in Finder on macOS", async () => {
+    const { ran, run } = recording();
+    await revealFile("/v/out.mp4", "darwin", run);
+    expect(ran).toEqual([["open", ["-R", "/v/out.mp4"]]]);
+  });
+
+  it("opens the folder that holds it with xdg-open on Linux", async () => {
+    const { ran, run } = recording();
+    await revealFile("/v/out.mp4", "linux", run);
+    expect(ran).toEqual([["xdg-open", ["/v"]]]);
+  });
+
+  it("a tool that fails rejects with its words", async () => {
+    const run = async () => {
+      throw new Error("xdg-open: no method available");
+    };
+    await expect(revealFile("/v/out.mp4", "linux", run)).rejects.toThrow(
+      "xdg-open: no method available",
+    );
   });
 });
 

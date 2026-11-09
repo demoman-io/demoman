@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
-import { isAbsolute, join, resolve as resolvePath } from "node:path";
+import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import {
   DEFAULT_EXPORT_QUALITY,
   type FilmedCode,
@@ -55,7 +55,13 @@ import {
 } from "@demoman/studio-protocol";
 import { saveLogo, saveWallpaper } from "./assets.js";
 import type { EventHub } from "./events.js";
-import { createChains, isMissing, messageOf, readIfPresent } from "./files.js";
+import {
+  createChains,
+  messageOf,
+  noTakeRefusal,
+  readIfPresent,
+  takeExists,
+} from "./files.js";
 import { createKitsFile } from "./kits.js";
 import type { CiRoute } from "./repo-ci.js";
 import type { Handler, StudioHandlers, StudioResponse } from "./server.js";
@@ -110,10 +116,12 @@ const refuse = (
 /** The most folders `repoFolders` answers. */
 const FOLDERS_MAX = 500;
 
-/** `open -R`, which shows the file selected in a Finder window. */
-export function revealInFinder(path: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile("open", ["-R", path], (error, _stdout, stderr) => {
+/** Runs a tool; rejects with its own words. */
+export type RunTool = (cmd: string, args: string[]) => Promise<void>;
+
+const runTool: RunTool = (cmd, args) =>
+  new Promise((resolve, reject) => {
+    execFile(cmd, args, (error, _stdout, stderr) => {
       if (error) {
         reject(new Error(stderr.trim() || error.message));
         return;
@@ -121,6 +129,17 @@ export function revealInFinder(path: string): Promise<void> {
       resolve();
     });
   });
+
+/** Shows `path` in the file manager: selected in Finder (`open -R`) on
+ *  macOS; elsewhere `xdg-open` has no "select", so it opens the folder. */
+export function revealFile(
+  path: string,
+  platform: NodeJS.Platform = process.platform,
+  run: RunTool = runTool,
+): Promise<void> {
+  return platform === "darwin"
+    ? run("open", ["-R", path])
+    : run("xdg-open", [dirname(path)]);
 }
 
 /**
@@ -160,7 +179,7 @@ export function createRoutes(o: {
   "window" | "exportStart" | "repoAdd" | "repoRemove" | CiRoute
 > {
   const { library, home, log } = o;
-  const reveal = o.reveal ?? revealInFinder;
+  const reveal = o.reveal ?? ((path: string) => revealFile(path));
   const sceneWrites = createChains();
   const kits = createKitsFile(home);
   const videos = createVideoStore(home, library, { log });
@@ -390,27 +409,7 @@ export function createRoutes(o: {
   }
 
   const noTake = (id: string): StudioResponse =>
-    refuse(
-      404,
-      "takeNotFound",
-      `There is no video "${id}" in ${library.root}.`,
-    );
-
-  /** Whether `id` names a take on disk; false for an id that could not. */
-  async function takeExists(id: string): Promise<boolean> {
-    if (!library.isTakeId(id)) return false;
-    const path = join(library.takeDir(id), "scene.json");
-    try {
-      await stat(path);
-      return true;
-    } catch (error) {
-      if (isMissing(error)) return false;
-      throw new LibraryError(
-        "libraryUnreadable",
-        `could not read ${path} (${messageOf(error)})`,
-      );
-    }
-  }
+    json(404, noTakeRefusal(library, id));
 
   async function bodyJson(
     req: Parameters<Handler>[0],
@@ -804,7 +803,7 @@ export function createRoutes(o: {
       const id = req.params.id as string;
       // An unknown take is not a take without frames: answered as itself,
       // never as `bundle: null` ("no frames yet").
-      if (!(await takeExists(id))) return noTake(id);
+      if (!(await takeExists(library, id))) return noTake(id);
       let bundle: BundleAnswer["bundle"];
       try {
         bundle = await library.frameStore(id).getBundle(id);
@@ -878,7 +877,7 @@ export function createRoutes(o: {
 
     async outputs(req) {
       const id = req.params.id as string;
-      if (!(await takeExists(id))) return noTake(id);
+      if (!(await takeExists(library, id))) return noTake(id);
       const answer: OutputsAnswer = { outputs: await library.outputs(id) };
       return json(200, answer);
     },
@@ -1208,7 +1207,7 @@ export function createRoutes(o: {
         return refuse(
           500,
           "revealRefused",
-          `${path} could not be shown in Finder (${messageOf(error)}).`,
+          `${path} could not be shown in its folder (${messageOf(error)}).`,
         );
       }
       return json(200, {});

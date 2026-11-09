@@ -1,6 +1,7 @@
 // apps/studio/test/pages/node/library-folder.test.ts
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PREVIEW_WIDTH_PX } from "../../../pages/src/library/preview";
 import type {
   FolderListing,
   Platform,
@@ -23,7 +24,9 @@ import { CARDS } from "../helpers/memory-platform";
  * Production changes that redden it, made and watched go red (see the task
  * report): call `render()` per event instead of `refreshSoon`; stop
  * `renderLibrary` restoring the typed name; drop the `unwatched` notice;
- * make the empty card ignore `unreadable`; route `image` past `folder.thumb`.
+ * make the empty card ignore `unreadable`; route `image` past `folder.thumb`;
+ * drop the page's own decode after a refused thumb (DEM-86: on Linux the
+ * Studio has no `sips`, and every card would stay blank).
  */
 
 const STUDIO_HINT =
@@ -67,6 +70,7 @@ async function fakePlatform(
   answer: (call: number) => Promise<FolderListing> | FolderListing,
   thumb: (ref: string) => Promise<ImageBitmap> = () =>
     new Promise<never>(() => {}),
+  load: (ref: string) => Promise<unknown> = () => new Promise<never>(() => {}),
 ): Promise<Fake> {
   const { proceduralBundle } = await import(
     "../../../../../packages/replay-engine/test/helpers/bundles"
@@ -96,7 +100,7 @@ async function fakePlatform(
         replay: null,
         capture: null,
       }),
-      load: () => new Promise<never>(() => {}),
+      load,
     },
     folder: {
       read: async () => {
@@ -173,6 +177,7 @@ describe("the library page on a platform with a take folder", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     window.history.replaceState({}, "", "/");
   });
 
@@ -431,12 +436,65 @@ describe("the library page on a platform with a take folder", () => {
     ).not.toBeNull();
   });
 
-  it("a thumb that fails shows the preview-failed state with the Studio's words", async () => {
+  it("a thumb that fails is decoded on the page, and the Studio's words are logged", async () => {
+    const detail = "Previews are made with sips, which only macOS has.";
+    // jsdom has no ImageBitmap; the page checks the decode is one.
+    class FakeBitmap {
+      width = 1280;
+      height = 800;
+      close(): void {}
+    }
+    vi.stubGlobal("ImageBitmap", FakeBitmap);
+    const loads: string[] = [];
+    const fake = await fakePlatform(
+      async () => listing([await scene("a", "Checkout")]),
+      async () => {
+        throw new Error(detail);
+      },
+      async (ref) => {
+        loads.push(ref);
+        return { ref, image: new FakeBitmap() };
+      },
+    );
+    await openPage();
+    const canvas = await vi.waitFor(
+      () => {
+        const c = document.querySelector<HTMLCanvasElement>(
+          '[data-row="a"] [data-preview-canvas]',
+        );
+        const note =
+          document.querySelector('[data-row="a"] [data-preview-note]')
+            ?.textContent ?? "";
+        if (c === null || c.width !== PREVIEW_WIDTH_PX) {
+          throw new Error(
+            `canvas width ${c?.width}, note: ${JSON.stringify(note)}, thumbs asked: ${fake.thumbs.join(",")}, loads: ${loads.join(",")}`,
+          );
+        }
+        return c;
+      },
+      { timeout: 5_000 },
+    );
+    expect(canvas.width).toBe(PREVIEW_WIDTH_PX);
+    // The premise: the Studio was asked first, and refused.
+    expect(fake.thumbs.length).toBeGreaterThan(0);
+    expect(loads).toEqual(expect.arrayContaining([fake.thumbs[0]]));
+    // Forgiven, not silent: the Studio's reason reaches the console.
+    expect(
+      vi
+        .mocked(console.info)
+        .mock.calls.some((c) => c.join(" ").includes(detail)),
+    ).toBe(true);
+  });
+
+  it("a thumb that fails and will not decode either says both", async () => {
     const detail = "Couldn't make a preview of kf:x:0: sips: Error 13.";
     const fake = await fakePlatform(
       async () => listing([await scene("a", "Checkout")]),
       async () => {
         throw new Error(detail);
+      },
+      async () => {
+        throw new Error("The Studio did not answer GET /frame");
       },
     );
     await openPage();
@@ -454,7 +512,9 @@ describe("the library page on a platform with a take folder", () => {
       },
       { timeout: 5_000 },
     );
-    expect(note).toBe(`Preview unavailable — ${detail}`);
+    expect(note).toBe(
+      "Preview unavailable — Couldn't make a preview of kf:x:0: sips: Error 13; decoding it on this page failed too: The Studio did not answer GET /frame",
+    );
     expect(fake.thumbs.length).toBeGreaterThan(0);
   });
 });

@@ -173,6 +173,24 @@ describe("createThumbs", () => {
     expect(calls.length).toBe(2);
   });
 
+  it("off macOS there is no sips: refused at once, nothing written, so the page decodes its own", async () => {
+    const { takeId } = await seedTake(home);
+    // No make injected: the platform alone decides. On this Mac, unchanged
+    // code runs the real sips and answers ok, which is the red.
+    const thumbs = createThumbs({
+      library: createLibrary(home),
+      platform: "linux",
+    });
+    const r = await thumbs.get(takeId, `kf:${takeId}:0`);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.status).toBe(501);
+    expect(r.refusal.reason).toBe("thumbFailed");
+    expect(r.refusal.detail).toContain("macOS");
+    // Not a keyframe copied to disk per card per visit.
+    await expect(readdir(thumbsDir(takeId))).rejects.toThrow(/ENOENT/);
+  });
+
   it("ten cards at once run at most four makes", async () => {
     const { takeId, bundle } = await seedTake(home, { keyframes: 10 });
     expect(bundle.keyframes.length).toBe(10);

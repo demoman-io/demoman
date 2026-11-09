@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { type Library, LibraryError } from "@demoman/runner/studio";
+import type { Refusal } from "@demoman/studio-protocol";
 
 export const sha256 = (bytes: string | Buffer): string =>
   createHash("sha256").update(bytes).digest("hex");
@@ -20,6 +22,32 @@ export async function readIfPresent(path: string): Promise<Buffer | null> {
     throw error;
   }
 }
+
+/** Whether `id` names a take on disk (its `scene.json` is there); false for
+ *  an id that could not. A library that will not read throws. */
+export async function takeExists(
+  library: Library,
+  id: string,
+): Promise<boolean> {
+  if (!library.isTakeId(id)) return false;
+  const path = join(library.takeDir(id), "scene.json");
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw new LibraryError(
+      "libraryUnreadable",
+      `could not read ${path} (${messageOf(error)})`,
+    );
+  }
+}
+
+/** The one "no such take" refusal, a 404 wherever it is said. */
+export const noTakeRefusal = (library: Library, id: string): Refusal => ({
+  reason: "takeNotFound",
+  detail: `There is no video "${id}" in ${library.root}.`,
+});
 
 /**
  * Written beside, then renamed over: a process killed mid-write leaves the

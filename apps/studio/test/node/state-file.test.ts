@@ -1,4 +1,4 @@
-import { mkdtemp, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -25,6 +25,17 @@ describe("studio.json", () => {
     await writeStudioState(h, state);
     expect((await stat(studioStatePath(h))).mode & 0o777).toBe(0o600);
     expect(await readStudioState(h)).toEqual(state);
+  });
+
+  it("a write that fails names studio.json and leaves no temp file", async () => {
+    const h = await home();
+    // A non-empty folder where the file goes: the temp file is written, and
+    // the rename over it fails.
+    await mkdir(join(studioStatePath(h), "x"), { recursive: true });
+    await expect(writeStudioState(h, state)).rejects.toThrow(
+      `could not write ${studioStatePath(h)} (`,
+    );
+    expect(await readdir(h)).toEqual(["studio.json"]);
   });
 
   it("reads null when absent", async () => {
