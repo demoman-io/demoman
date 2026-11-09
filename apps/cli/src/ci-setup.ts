@@ -524,7 +524,7 @@ async function makePlan(
   if (unreadable.length > 0)
     return stop(
       "flowUnreadable",
-      `${unreadable.join("; ")}; fix or remove it, then run setup again`,
+      `${unreadable.join("; ")}; fix what it names, then run setup again`,
     );
   const flows = entries.flatMap((e) =>
     "kept" in e ? [{ file: e.file, kept: e.kept }] : [],

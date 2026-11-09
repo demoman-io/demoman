@@ -91,8 +91,9 @@ describe("the receipt", () => {
       "filmedCode",
     );
     expect(refusal(withChange({ receiptVersion: 3 }))).toContain(
-      "receiptVersion is 3; this Demoman reads 1 and 2",
+      "receiptVersion is 3; this Demoman reads 1 and 2 — it was written by a newer Demoman; update Demoman",
     );
+    expect(refusal(withChange({ receiptVersion: "2" }))).not.toContain("newer");
   });
 
   it("names the file when the JSON is invalid", () => {

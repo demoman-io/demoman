@@ -678,7 +678,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         if (keptHolder === undefined && unreadable.length > 0) {
           return refusal(
             "repoFlowUnreadable",
-            `a DemoScript in this repo would not read, so Demoman cannot tell whether it is "${asked.new}" — fix or remove it before starting a new flow here: ${unreadable.join("; ")}`,
+            `a DemoScript in this repo would not read, so Demoman cannot tell whether it is "${asked.new}" — fix what it names before starting a new flow here: ${unreadable.join("; ")}`,
             "video",
           );
         }

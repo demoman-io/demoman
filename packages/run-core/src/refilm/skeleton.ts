@@ -1,4 +1,5 @@
 import type { DemoScript, SceneDocument } from "@demoman/scene-schema";
+import { unreadVersion } from "../run-host.js";
 
 // What a CLI run keeps of its script beside the take (spec 2026-10-14
 // re-film §1): the order, the pauses, which action each step made, and the
@@ -148,7 +149,7 @@ export function parseSkeleton(
   const v1 = raw.skeletonVersion === 1;
   if (!v1 && raw.skeletonVersion !== SKELETON_VERSION) {
     return no(
-      `script.json has skeletonVersion ${JSON.stringify(raw.skeletonVersion)}; this Demoman reads 1 and ${SKELETON_VERSION}`,
+      `script.json: ${unreadVersion("skeletonVersion", raw.skeletonVersion, [1, SKELETON_VERSION])}`,
     );
   }
   if (typeof raw.name !== "string") return no("script.json has no name");

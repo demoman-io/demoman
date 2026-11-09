@@ -15,6 +15,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { unreadVersion } from "@demoman/run-core";
 import type { BrowserContext } from "playwright";
 import { getDomain } from "tldts";
 import { messageOf } from "../report.js";
@@ -157,6 +158,13 @@ export function createSessionStore(home: string): SessionStore {
       if (error instanceof SessionError) throw error;
       throw new SessionError(
         `${path} could not be read as a Demoman session (${messageOf(error)}) — remove it and run demoman signin again`,
+      );
+    }
+    const version = (parsed as { sessionVersion?: unknown } | null)
+      ?.sessionVersion;
+    if (typeof version === "number" && version > 1) {
+      throw new SessionError(
+        `${path}: ${unreadVersion("sessionVersion", version, [1])}`,
       );
     }
     if (!isSessionFile(parsed)) {

@@ -516,7 +516,7 @@ Studio exports go to `~/Downloads`.
 | `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-film of a video that did not keep a value. |
 | `flowRequired` | `run`¹ | No `flow` was given. Find one (section 4), or pass `{ new }`. |
 | `possibleDuplicate`, `nameTaken` | `run`¹ | A similar flow exists (`matches`) or the name is taken (`holder`). Section 4. |
-| `repoFlowNameTaken`, `duplicateFlow`, `repoFlowUnreadable` | `run`¹; the first two also `flows` with `file` | Repo flows: this library has another flow with that name (`detail` gives the `join-flow` command to tell the user); two files in `.demoman/flows` or the old folder before it name one flow (delete one); a file there will not read (`detail` names it; fix or remove it). |
+| `repoFlowNameTaken`, `duplicateFlow`, `repoFlowUnreadable` | `run`¹; the first two also `flows` with `file` | Repo flows: this library has another flow with that name (`detail` gives the `join-flow` command to tell the user); two files in `.demoman/flows` or the old folder before it name one flow (delete one); a file there will not read (`detail` names it and the fix). |
 | `flowNotFound` | `run`¹ | No flow has that `id`; call `flows`. |
 | `wrongIdKind` | any | Wrong kind of id; see `detail`. |
 | `flowUnreadable`, `flowUnwritable` | `run`¹, `flows` | The flow records could not be read or written; quote `detail`. Nothing recorded. |
