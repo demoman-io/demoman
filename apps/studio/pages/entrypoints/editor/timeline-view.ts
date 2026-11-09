@@ -81,6 +81,12 @@ export interface TimelineState {
   /** The removed piece whose card is open, or null. Owned by `main.ts`, the
    *  way `selection` is, so a redraw cannot close it. */
   openJoin?: string | null;
+  /** Draws the Mask lane with its + and add-on-click. Off in the editor
+   *  since 2026-11-09: the author hid masks for now and may bring them back.
+   *  Off, no mask can be added, and the lane is drawn only for a take that
+   *  already has a mask, so that mask (still in its video) can be seen,
+   *  selected and removed. */
+  maskLane?: boolean;
 }
 
 export interface TimelineHandlers {
@@ -1027,6 +1033,8 @@ function segmentTrack(
   model: LaneModel,
   state: TimelineState,
   handlers: TimelineHandlers,
+  /** Whether empty track adds a segment (and draws the hover ghost). */
+  adds = true,
 ): HTMLElement {
   const track = el("div", "track");
   track.setAttribute("data-track", kind);
@@ -1036,6 +1044,7 @@ function segmentTrack(
     const node = segmentNode(seg, kind, track, model, state, handlers);
     if (node) track.append(node);
   }
+  if (!adds) return track;
   // Empty space on either lane adds a segment centred under the pointer.
   // Children stop propagation, so a click that reaches here was on the
   // track.
@@ -1281,38 +1290,47 @@ export function renderTimeline(
   zoomRow.setAttribute("data-lane", "zoom");
   lanes.append(zoomRow);
 
-  // Always drawn, since 2026-09-14: empty track on it is where a mask is
-  // added by click, and a lane that appears only after the header button
-  // has been pressed has no empty track to click on.
+  // With `maskLane` on, always drawn, since 2026-09-14: empty track on it is
+  // where a mask is added by click, and a lane that appears only after the
+  // header button has been pressed has no empty track to click on. Off (the
+  // editor, since 2026-11-09) masks cannot be added: the lane is drawn only
+  // for a take that already has one, with no + and no add on its track, so
+  // a saved mask that is in the video can still be seen, picked and removed.
   //
   // `+ Mask` lives on the lane it adds to (spec 2026-10-06) — it used to sit
   // alone at the transport row's left as an unlabelled icon. It reads the
   // playhead at the click: `state.positionMs` is a getter in `main.ts`, and
   // this row is redrawn only by a full render, not by a playing clock.
-  const addMask = el(
-    "button",
-    "btn btn-quiet btn-icon lane-add",
-  ) as HTMLButtonElement;
-  addMask.type = "button";
-  addMask.setAttribute("data-add-mask", "");
-  addMask.setAttribute("aria-label", "Add a mask at the playhead");
-  addMask.title = "Add a mask at the playhead";
-  addMask.append(icon("plus"));
-  addMask.onclick = () => {
-    const track = box.querySelector<HTMLElement>('[data-track="clip"]');
-    const perPx = track ? msPerPx(track, state.viewport) : 0;
-    handlers.onGesture({
-      kind: "addMask",
-      atMs: state.positionMs,
-      snapMs: snapBand(state, perPx),
-    });
-  };
-  const maskRow = laneRow(
-    laneHead("Mask", "eyeOff", addMask),
-    segmentTrack("mask", model, state, handlers),
-  );
-  maskRow.setAttribute("data-lane", "mask");
-  lanes.append(maskRow);
+  const addsMasks = state.maskLane === true;
+  if (addsMasks || model.masks.length > 0) {
+    let addMask: HTMLButtonElement | undefined;
+    if (addsMasks) {
+      addMask = el(
+        "button",
+        "btn btn-quiet btn-icon lane-add",
+      ) as HTMLButtonElement;
+      addMask.type = "button";
+      addMask.setAttribute("data-add-mask", "");
+      addMask.setAttribute("aria-label", "Add a mask at the playhead");
+      addMask.title = "Add a mask at the playhead";
+      addMask.append(icon("plus"));
+      addMask.onclick = () => {
+        const track = box.querySelector<HTMLElement>('[data-track="clip"]');
+        const perPx = track ? msPerPx(track, state.viewport) : 0;
+        handlers.onGesture({
+          kind: "addMask",
+          atMs: state.positionMs,
+          snapMs: snapBand(state, perPx),
+        });
+      };
+    }
+    const maskRow = laneRow(
+      laneHead("Mask", "eyeOff", addMask),
+      segmentTrack("mask", model, state, handlers, addsMasks),
+    );
+    maskRow.setAttribute("data-lane", "mask");
+    lanes.append(maskRow);
+  }
 
   const playhead = el("div", "playhead");
   playhead.setAttribute("data-playhead", "");
@@ -1368,7 +1386,11 @@ export function renderTimeline(
     root.contains(active) &&
     active.matches('[data-lane="mask"] [data-add-mask]');
   root.replaceChildren(box);
-  if (addMaskHadFocus) addMask.focus();
+  if (addMaskHadFocus) {
+    box
+      .querySelector<HTMLElement>('[data-lane="mask"] [data-add-mask]')
+      ?.focus();
+  }
   const card = box.querySelector<HTMLElement>("[data-join-card]");
   if (card !== null) showJoinCard(card);
 }

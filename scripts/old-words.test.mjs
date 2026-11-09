@@ -96,7 +96,7 @@ const ALLOWED = [
   { text: "Phone and tablet", why: "a page's name" },
   { text: "`demoman refresh --deliver`, and takes", why: "the verb" },
   { text: "`takes/`", why: "the library's folder, kept (spec non-goals)" },
-  { text: "the export takes the source's shape", why: "the verb" },
+  { text: "export takes the source's shape", why: "the verb (Auto's reason line, capitalised since 2026-11-09)" },
   { text: "to take the focus", why: "the verb" },
   { text: "To take it out of the video", why: "the verb" },
   { text: "takes longer", why: "the verb" },

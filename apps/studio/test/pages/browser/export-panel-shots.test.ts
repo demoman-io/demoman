@@ -507,6 +507,21 @@ describe("the export panel, painted", () => {
               document.querySelector("[data-export-start]")?.textContent,
             ).toBe(shot.label);
           }
+          // "In repo" sits on the Repo heading's line, right of it, not on a
+          // row of its own (review 2026-11-09: a section heading took the
+          // whole row once it stopped being a `.control-label`).
+          if (shot.name === "repo-in") {
+            const head = document
+              .querySelector("[data-repo-section] > .section-label")
+              ?.getBoundingClientRect();
+            const aside = document
+              .querySelector("[data-repo-section] > .control-aside")
+              ?.getBoundingClientRect();
+            const said = JSON.stringify({ head, aside });
+            expect(head && aside, said).toBeTruthy();
+            expect(aside?.left, said).toBeGreaterThan(head?.right ?? 0);
+            expect(aside?.top ?? 0, said).toBeLessThan(head?.bottom ?? 0);
+          }
           // No shot draws a rebuild-failure row any more: it left with the
           // rebuild. Asserted so a row that came back would be seen here.
           expect(document.querySelector("[data-rebuild-failure]")).toBeNull();

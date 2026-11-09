@@ -36,14 +36,13 @@ describe("export copy", () => {
 
   // Each row's own file: GIF is smaller than the MP4, so one line for both
   // would describe a file nobody makes.
-  it("says each file row's length and size", () => {
+  // The length is the panel's Length, once, so a row repeating it is red.
+  it("says each file row's size", () => {
     const hd = { width: 1920, height: 1080 };
-    expect(fileFacts("mp4", 24_400, hd)).toBe("0:24 · 1920 × 1080");
-    expect(fileFacts("gif", 61_000, { width: 800, height: 450 })).toBe(
-      "1:01 · 800 × 450",
-    );
-    // A still has no length; it has one file per step.
-    expect(fileFacts("stills", 61_000, hd)).toBe("one per step · 1920 × 1080");
+    expect(fileFacts("mp4", hd)).toBe("1920 × 1080");
+    expect(fileFacts("gif", { width: 800, height: 450 })).toBe("800 × 450");
+    // Stills are one file per step.
+    expect(fileFacts("stills", hd)).toBe("one per step · 1920 × 1080");
   });
 
   it("names the deliverable the logo notes talk about", () => {
@@ -53,26 +52,28 @@ describe("export copy", () => {
     expect(deliverableTitle("stills", "16:9")).toBe("PNG stills");
   });
 
-  it("says where the aspect is set, and what 9:16 does", () => {
-    expect(aspectNote("16:9")).toBe("16:9, set under the preview");
-    expect(aspectNote("9:16")).toBe(
-      "9:16, set under the preview — the camera follows each step",
-    );
+  it("names the aspect, and says what 9:16 does", () => {
+    expect(aspectNote("16:9")).toEqual({ value: "16:9", reason: null });
+    expect(aspectNote("9:16")).toEqual({
+      value: "9:16",
+      reason: "The camera follows each step.",
+    });
   });
 
   it("names the Auto deliverables, and says what Auto does", () => {
     expect(deliverableTitle("mp4", "auto")).toBe("Video");
     expect(deliverableTitle("gif", "auto")).toBe("GIF");
     expect(deliverableTitle("stills", "auto")).toBe("PNG stills");
-    expect(aspectNote("auto")).toBe(
-      "Auto, set under the preview — the export takes the source's shape",
-    );
+    expect(aspectNote("auto")).toEqual({
+      value: "Auto",
+      reason: "The export takes the source's shape.",
+    });
   });
 
   // Red if the readout drops the spacing the spec's copy fixes. The
   // files' sizes are on their rows (`fileFacts`).
   it("reads out the recording's size", () => {
-    expect(sizeReadout({ width: 1512, height: 820 })).toBe("Source 1512 × 820");
+    expect(sizeReadout({ width: 1512, height: 820 })).toBe("1512 × 820");
   });
 });
 

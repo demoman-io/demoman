@@ -223,9 +223,27 @@ describe.each(PANELS)(
       const labels = [...root.querySelectorAll<HTMLElement>(LABEL)].filter(
         visible,
       );
-      // Premise: every panel but Export has control labels to measure, and
-      // Export has its Share row's.
-      expect(labels.length, "labels found").toBeGreaterThan(0);
+      // Premise: every panel but Export has control labels to measure.
+      // Export's names are its section headings since 2026-11-09 (Files,
+      // Repo), which take the small grey label type instead — red if one
+      // falls back to a control label's 14px.
+      if (which === "export") {
+        const heads = [
+          ...root.querySelectorAll<HTMLElement>(".section-label"),
+        ].filter(visible);
+        expect(
+          heads.map((h) => h.textContent),
+          "section headings found",
+        ).toContain("Files");
+        for (const h of heads) {
+          expect(getComputedStyle(h).fontSize, where(h)).toBe("12px");
+          expect(parse(getComputedStyle(h).color), where(h)).toEqual(
+            token("--ink-muted"),
+          );
+        }
+      } else {
+        expect(labels.length, "labels found").toBeGreaterThan(0);
+      }
       const size = getComputedStyle(document.documentElement)
         .getPropertyValue("--row-label")
         .trim();
@@ -268,17 +286,21 @@ describe.each(PANELS)(
         ...root.querySelectorAll<HTMLElement>(".control-row, .slider-row"),
       ].filter(visible);
       const off: string[] = [];
+      const measured: string[] = [];
       for (const row of rows) {
+        // A section's heading is its label too: Repo's `.section-label`,
+        // and the Files line (its heading with Quality beside it).
         const label = row.querySelector(
-          ":scope > .control-label, :scope > .slider-label",
+          ":scope > .control-label, :scope > .slider-label, :scope > .section-label, :scope > .files-head",
         );
         const control = [...row.children].find(
           (c) =>
             !c.matches(
-              ".control-label, .slider-label, .control-aside, .slider-value",
+              ".control-label, .slider-label, .section-label, .files-head, .control-aside, .slider-value",
             ) && visible(c),
         );
         if (!label || !control) continue;
+        measured.push(label.className);
         // A range input's 16px box paints its 4px track 6px in.
         const inset = (control as HTMLInputElement).type === "range" ? 6 : 0;
         const gap =
@@ -288,6 +310,8 @@ describe.each(PANELS)(
         if (Math.abs(gap - 12) > 0.5)
           off.push(`${where(label)} → ${where(control)}: ${gap.toFixed(1)}px`);
       }
+      // Premise: Export's Files line was one of the rows measured.
+      if (which === "export") expect(measured).toContain("files-head");
       expect(off, "label-to-control gaps").toEqual([]);
     });
 

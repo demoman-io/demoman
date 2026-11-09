@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Page } from "playwright";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  contrast,
   distance,
   hairlineAt,
   LIME,
@@ -667,6 +668,23 @@ describe("editor layout", () => {
         await lineStep(page, 4, dock.top + 0.5, "h"),
         said,
       ).toBeGreaterThanOrEqual(LINE_STEP);
+      // The Export panel's Files and Repo sections each open on a painted
+      // hairline (2026-11-09). Red if either rule goes, or the panel is not
+      // the one open (the premise: both sections are laid out).
+      const sections = await page.evaluate(() =>
+        [".inspector .files-row", ".inspector [data-repo-section]"].map((s) => {
+          const r = document.querySelector(s)?.getBoundingClientRect();
+          return r === undefined ? s : { left: r.left, top: r.top };
+        }),
+      );
+      for (const s of sections) {
+        expect(typeof s, `a section is not laid out: ${s}`).toBe("object");
+        const at = s as { left: number; top: number };
+        expect(
+          await lineStep(page, at.left + 40, at.top + 0.5, "h"),
+          `the hairline over the section at ${JSON.stringify(at)}`,
+        ).toBeGreaterThanOrEqual(LINE_STEP);
+      }
       for (const k of ["rail", "aside", "dock"] as const) {
         expect(p[k]?.radius, `${k}: ${said}`).toBe("0px");
         expect(p[k]?.shadow, `${k}: ${said}`).toBe("none");
@@ -858,27 +876,23 @@ const over = (
   base[2] * (1 - a) + b * a,
 ];
 
-/** Spec §5.4: "between 1 and 2", the author's pick. */
+/** "Lifted", the author's pick (2026-11-09): solid mid-tones, where spec
+ *  §5.4's were translucent. The Mask lane is hidden in the editor. */
 const LANES = {
   clip: {
-    fill: [130, 185, 70, 0.3],
+    fill: [85, 128, 28, 1],
     glyph: "rgb(156, 204, 92)",
   },
   zoom: {
-    fill: [150, 125, 235, 0.3],
+    fill: [95, 69, 181, 1],
     glyph: "rgb(181, 159, 255)",
-  },
-  mask: {
-    fill: [225, 110, 95, 0.3],
-    glyph: "rgb(251, 142, 124)",
   },
 } as const;
 
-/** Each lane under the pointer: the same hue, the fill stronger. */
+/** Each lane under the pointer: the same hue, a step lighter. */
 const HOVERED = {
-  clip: { fill: [130, 185, 70, 0.45] },
-  zoom: { fill: [150, 125, 235, 0.45] },
-  mask: { fill: [225, 110, 95, 0.45] },
+  clip: { fill: [96, 134, 40, 1] },
+  zoom: { fill: [106, 80, 196, 1] },
 } as const;
 
 describe("timeline", () => {
@@ -890,20 +904,14 @@ describe("timeline", () => {
     async () => {
       const { page, open } = await openStudio(1440, 900);
       await open("editor");
-      // The premise: a mask, added the way the author adds one (a click on
-      // the Mask lane), beside the take's own clip and zoom.
-      await page
-        .locator('.lane[data-lane="mask"] .track')
-        .click({ position: { x: 600, y: 15 } });
-      await vi.waitFor(
-        async () => {
-          const n = await page
-            .locator('.lane[data-lane="mask"] .seg:not([data-ghost])')
-            .count();
-          if (n === 0) throw new Error(`no mask: ${await pageEvidence(page)}`);
-        },
-        { timeout: 5_000, interval: 50 },
-      );
+      // Two lanes: the Mask lane is hidden in the editor (2026-11-09).
+      // Red if it comes back.
+      expect(
+        await page
+          .locator(".lane[data-lane]")
+          .evaluateAll((rows) => rows.map((r) => r.getAttribute("data-lane"))),
+        await pageEvidence(page),
+      ).toEqual(["clip", "zoom"]);
       await page.mouse.move(5, 5);
       await settled(page);
       const t = await page.evaluate(() => {
@@ -934,7 +942,6 @@ describe("timeline", () => {
         return {
           clip: lane("clip"),
           zoom: lane("zoom"),
-          mask: lane("mask"),
           playhead: box(document.querySelector(".playhead")),
           ruler: box(document.querySelector(".ruler")),
           dock: box(document.getElementById("dock")),
@@ -948,7 +955,7 @@ describe("timeline", () => {
         };
       });
       const said = JSON.stringify(t);
-      for (const k of ["clip", "zoom", "mask"] as const) {
+      for (const k of ["clip", "zoom"] as const) {
         expect(t[k].seg, `${k}: ${said}`).not.toBeNull();
       }
       expect(t.playhead, said).not.toBeNull();
@@ -956,7 +963,7 @@ describe("timeline", () => {
 
       // The ground under a segment: the dock, then the track's fill.
       const track = over([10, 10, 10], [255, 255, 255, 0.03]);
-      for (const k of ["clip", "zoom", "mask"] as const) {
+      for (const k of ["clip", "zoom"] as const) {
         const seg = t[k].seg as Box;
         const lane = LANES[k];
         const [fill, edge] = await pixelsAt(page, [
@@ -972,9 +979,8 @@ describe("timeline", () => {
           distance(fill as Rgb, want),
           `${k} fills ${JSON.stringify(fill)}, want ${JSON.stringify(want.map(Math.round))}`,
         ).toBeLessThanOrEqual(8);
-        // Flat: the top edge paints the fill over the track's own hairline
-        // (8% white, which shows through the translucent block), and no
-        // ring in the hue on top of that.
+        // Flat: the top edge paints the solid fill over the track's own
+        // hairline (8% white), and no ring in the hue on top of that.
         const edgeWant = over(
           over(track, [255, 255, 255, 0.08]),
           lane.fill as unknown as [number, number, number, number],
@@ -1075,9 +1081,57 @@ describe("timeline", () => {
       expect(t.clock, said).toMatch(/^"?Geist"?,/);
       expect(t.zoomFont, said).toMatch(/^"?Geist"?,/);
 
+      // The Clip block's step marks hold the 3:1 a non-text mark needs on
+      // the block, at rest and under the pointer (2026-11-09: the lifted
+      // fill took the wait tone to 2.6:1). Read from the lane's own tokens
+      // through a probe in the lane, so it holds whichever steps the take
+      // has. Red if a tone or a fill moves under 3:1.
+      const tones = await page.evaluate(() => {
+        const lane = document.querySelector('.lane[data-lane="clip"]');
+        if (lane === null) return null;
+        const read = (prop: string, value: string) => {
+          const probe = document.createElement("i");
+          probe.style.setProperty(prop, value);
+          lane.append(probe);
+          const got = getComputedStyle(probe).getPropertyValue(prop);
+          probe.remove();
+          return got;
+        };
+        const color = (v: string) => read("color", v);
+        return {
+          input: color("var(--tick-input)"),
+          pointer: color("var(--tick-pointer)"),
+          wait: color("var(--tick-wait)"),
+          rest: color("var(--clip-fill)"),
+          hover: color("var(--clip-fill-hover)"),
+        };
+      });
+      expect(tones, "the Clip lane is drawn").not.toBeNull();
+      const rgb = (css: string): Rgb => {
+        const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)/.exec(css);
+        // `color-mix` in srgb computes to `color(srgb r g b)`, 0–1.
+        const c = /color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)/.exec(css);
+        if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
+        if (c)
+          return [Number(c[1]) * 255, Number(c[2]) * 255, Number(c[3]) * 255];
+        throw new Error(`unreadable colour ${css}`);
+      };
+      for (const mark of ["input", "pointer", "wait"] as const) {
+        for (const under of ["rest", "hover"] as const) {
+          const ratio = contrast(
+            rgb(tones?.[mark] as string),
+            rgb(tones?.[under] as string),
+          );
+          expect(
+            ratio,
+            `the ${mark} mark on the ${under} fill: ${JSON.stringify(tones)}`,
+          ).toBeGreaterThanOrEqual(3);
+        }
+      }
+
       // Hover: the author asked for the lane's colour, brighter. Red: drop
       // the `.seg:hover` rule, or hover to another hue.
-      for (const k of ["clip", "zoom", "mask"] as const) {
+      for (const k of ["clip", "zoom"] as const) {
         const seg = t[k].seg as Box;
         const x = seg.left + (seg.right - seg.left) / 2;
         await page.mouse.move(x, (seg.top + seg.bottom) / 2);
@@ -1092,7 +1146,7 @@ describe("timeline", () => {
         );
         expect(under, `${k}: the pointer is over its block`).toBe(true);
         // The hover is instant; the wait is for the browser's style pass.
-        const target = `rgba(${HOVERED[k].fill.join(", ")})`;
+        const target = `rgb(${HOVERED[k].fill.slice(0, 3).join(", ")})`;
         await vi.waitFor(
           async () => {
             const bg = await page.evaluate(
@@ -1173,7 +1227,7 @@ describe("timeline", () => {
       // trim handle, which sit beside the block in the lane, not in it (the
       // author, 2026-10-19). Red: drop the `.track:has(...)` selector.
       const clipBlock = '.lane[data-lane="clip"] .seg[data-clip-block]';
-      const want = `rgba(${HOVERED.clip.fill.join(", ")})`;
+      const want = `rgb(${HOVERED.clip.fill.slice(0, 3).join(", ")})`;
       for (const over of [
         '.lane[data-lane="clip"] .tick',
         '.lane[data-lane="clip"] [data-trim="head"]',

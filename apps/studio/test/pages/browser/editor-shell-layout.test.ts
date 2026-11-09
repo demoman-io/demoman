@@ -344,6 +344,9 @@ function mount(
     refusal,
     hoverReport,
     snapping: true,
+    // Hidden in the editor since 2026-11-09, kept: these cases still cover
+    // it, and three lanes is the tallest dock the layout cases can meet.
+    maskLane: true,
   };
   renderTimeline(root, model, timelineState, {
     onSelect: vi.fn(),
@@ -4740,7 +4743,7 @@ describe("the lanes are tints in light, not slabs", () => {
         );
         expect(
           node(`[data-track="${lane}"]`).getBoundingClientRect().height,
-        ).toBeCloseTo(30, 0);
+        ).toBeCloseTo(40, 0);
       });
     }
 

@@ -34,7 +34,7 @@ const ENTRIES: ReadonlyArray<{
   { entry: "selection", label: "Selection", glyph: "mousePointerClick" },
 ];
 
-const SELECTION_DISABLED = "Select a step, zoom or mask on the timeline";
+const SELECTION_DISABLED = "Select a step or zoom on the timeline";
 
 /**
  * The rail: one icon button per panel except Export, between the stage and the panel.

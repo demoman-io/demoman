@@ -1161,19 +1161,68 @@ export function renderExport(
     box.append(notice);
   }
 
-  const summary = el("p", "export-summary", formatLength(state.durationMs));
-  summary.setAttribute("data-export-summary", "");
-  const note = el("p", "muted", aspectNote(state.aspect));
-  note.setAttribute("data-aspect-note", "");
-  box.append(summary, note);
-  const readout = el("p", "muted", sizeReadout(state.recording));
-  readout.setAttribute("data-size-readout", "");
-  box.append(readout);
+  // Length, Aspect and Source side by side, each under its label (the
+  // mockup the author picked, 2026-11-09), rather than three stacked lines.
+  const aspect = aspectNote(state.aspect);
+  const facts = el("div", "export-facts");
+  const fact = (label: string, value: string, attr: string): HTMLElement => {
+    const cell = el("div", "export-fact");
+    const shown = el("span", "export-fact-value", value);
+    shown.setAttribute(attr, "");
+    cell.append(el("span", "export-fact-label", label), shown);
+    facts.append(cell);
+    return cell;
+  };
+  fact("Length", formatLength(state.durationMs), "data-export-summary");
+  // Where the aspect is set: the tooltip under a pointer, and words a
+  // screen reader reads with the value, since a plain div takes no focus.
+  const aspectCell = fact("Aspect", aspect.value, "data-aspect-note");
+  aspectCell.title = "Set under the preview";
+  aspectCell.append(el("span", "visually-hidden", "Set under the preview"));
+  fact("Source", sizeReadout(state.recording), "data-size-readout");
+  box.append(facts);
+  if (aspect.reason !== null) {
+    const reason = el("p", "muted export-fact-reason", aspect.reason);
+    reason.setAttribute("data-aspect-reason", "");
+    box.append(reason);
+  }
 
   // A press of several says each file's progress on its row.
   const pressed = busy && state.files.length > 1 ? state.files : [];
-  const typeRow = el("div", "control-row");
-  typeRow.append(el("span", "control-label", "Files"));
+  const typeRow = el("div", "control-row files-row");
+  // Only an MP4 has a quality. It sits on the Files line, beside the label
+  // (2026-11-09; under the MP4 row before), so ticking MP4 moves no row:
+  // unticked, it stays put and is locked rather than leaving.
+  const filesHead = el("div", "files-head");
+  filesHead.append(el("span", "section-label", "Files"));
+  if (state.quality != null) {
+    const mp4Off = !state.fileTypes.includes("mp4");
+    const qualityRow = el("div", "file-quality");
+    qualityRow.append(el("span", "control-aside", "Quality"));
+    const qualities = el("div", "segmented");
+    qualities.setAttribute("role", "radiogroup");
+    // Locked without an MP4: the reason is in the group's name, so a screen
+    // reader says it, and in the row's tooltip for a pointer.
+    const why = "Quality applies to the MP4: tick MP4 to choose";
+    qualities.setAttribute("aria-label", mp4Off ? why : "Quality");
+    qualities.setAttribute("data-export-qualities", "");
+    if (mp4Off) qualityRow.title = why;
+    for (const quality of EXPORT_QUALITY_VALUES) {
+      const button = el("button", "segment", EXPORT_QUALITY_LABELS[quality]);
+      button.type = "button";
+      button.setAttribute("role", "radio");
+      button.setAttribute("data-export-quality", quality);
+      button.setAttribute("aria-checked", String(quality === state.quality));
+      // Locked while an export runs, as the files are, and while no MP4
+      // is ticked, since nothing would take it.
+      button.disabled = busy || mp4Off;
+      button.addEventListener("click", () => handlers.onQuality(quality));
+      qualities.append(button);
+    }
+    qualityRow.append(qualities);
+    filesHead.append(qualityRow);
+  }
+  typeRow.append(filesHead);
   const types = el("div", "file-types");
   types.setAttribute("role", "group");
   types.setAttribute("aria-label", "Files");
@@ -1195,39 +1244,11 @@ export function renderExport(
     const file = pressed.find((f) => f.fileType === value);
     const aside =
       file === undefined
-        ? el(
-            "span",
-            "file-facts",
-            fileFacts(value, state.durationMs, state.targets[value]),
-          )
+        ? el("span", "file-facts", fileFacts(value, state.targets[value]))
         : el("span", "file-status", fileStatus(file, state.run, state.files));
     if (file !== undefined) aside.setAttribute("data-file-status", value);
     row.append(tick, el("span", "file-name", FILE_TYPE_TITLES[value]), aside);
     types.append(row);
-
-    // Only an MP4 has a quality, so it sits under the MP4 row while that
-    // is ticked; a GIF and stills have one size each.
-    if (value === "mp4" && tick.checked && state.quality != null) {
-      const qualityRow = el("div", "file-quality");
-      qualityRow.append(el("span", "control-aside", "Quality"));
-      const qualities = el("div", "segmented");
-      qualities.setAttribute("role", "radiogroup");
-      qualities.setAttribute("aria-label", "Quality");
-      qualities.setAttribute("data-export-qualities", "");
-      for (const quality of EXPORT_QUALITY_VALUES) {
-        const button = el("button", "segment", EXPORT_QUALITY_LABELS[quality]);
-        button.type = "button";
-        button.setAttribute("role", "radio");
-        button.setAttribute("data-export-quality", quality);
-        button.setAttribute("aria-checked", String(quality === state.quality));
-        // Locked while an export runs, as the files are.
-        button.disabled = busy;
-        button.addEventListener("click", () => handlers.onQuality(quality));
-        qualities.append(button);
-      }
-      qualityRow.append(qualities);
-      types.append(qualityRow);
-    }
   }
   typeRow.append(types);
   box.append(typeRow);
@@ -1325,7 +1346,7 @@ function repoSection(
   if (repo == null) return null;
   const row = el("div", "control-row");
   row.setAttribute("data-repo-section", "");
-  row.append(el("span", "control-label", "Repo"));
+  row.append(el("span", "section-label", "Repo"));
   const button = (word: string, glyph: "gitBranchPlus" | "gitBranchMinus") => {
     const b = el("button", "btn btn-quiet");
     b.type = "button";

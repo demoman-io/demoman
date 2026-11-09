@@ -109,6 +109,8 @@ function mount(
     positionMs: 2_000,
     refusal: null,
     snapping: true,
+    // Hidden in the editor since 2026-11-09, kept: these cases still cover it.
+    maskLane: true,
   };
   renderTimeline(node("#timeline"), model, timelineState, handlers());
   // `Snap` and `Fit` moved to `#transport` (`renderTimelineTools`);

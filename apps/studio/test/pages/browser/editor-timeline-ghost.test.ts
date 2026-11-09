@@ -66,6 +66,8 @@ function mount(scene = readonlyScene()) {
       positionMs: 0,
       refusal: null,
       snapping: true,
+      // Hidden in the editor since 2026-11-09, kept: the mask case covers it.
+      maskLane: true,
     },
     {
       onSelect: vi.fn(),
