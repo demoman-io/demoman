@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { basename, dirname } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   CODEX_APPROVAL_TABLE,
@@ -103,6 +104,10 @@ function machine(
     },
     skill: { text: SKILL },
     exists: (p) => files.has(p),
+    names: (dir) =>
+      [...files.keys()]
+        .filter((p) => dirname(p) === dir)
+        .map((p) => basename(p)),
     readText: (p) => {
       const text = files.get(p);
       return text === undefined ? { missing: true } : { text };
@@ -1200,6 +1205,49 @@ describe("setup", () => {
       expect(await setup(m.d)).toBe(0);
       expect(m.out()).toContain("Cursor: not installed");
       expect(m.files.has(MCP)).toBe(false);
+    });
+
+    // DEM-72, red while cursorApps lists only macOS paths: on Linux the app
+    // is a .deb/.rpm under /usr/share/cursor, an unpacked /opt one, or an
+    // AppImage, and it reads the same ~/.cursor/mcp.json.
+    const onLinux = () =>
+      machine({
+        platform: "linux",
+        arch: "x64",
+        home: "/home/u",
+        answers: { "/home/u/.local/bin/agent --version": NOT_FOUND },
+      });
+    it.each([
+      "/usr/share/cursor",
+      "/opt/Cursor",
+      "/opt/cursor",
+      "/home/u/Applications/Cursor-1.7.52-x86_64.AppImage",
+      "/home/u/Applications/cursor.AppImage",
+    ])("finds the Linux app at %s and wires it", async (at) => {
+      const m = onLinux();
+      m.files.set(at, "");
+      expect(await setup(m.d)).toBe(0);
+      expect(
+        JSON.parse(m.files.get("/home/u/.cursor/mcp.json") ?? "").mcpServers
+          .demoman,
+      ).toEqual(cursorEntry("/opt/node/bin"));
+      expect(m.out()).toContain(
+        "Cursor: Demoman is connected and updates itself, but in the Cursor app",
+      );
+    });
+
+    // ~/.cursor is the folder setup itself writes, so it is no sign of the
+    // app; nor is another AppImage, or a Linux path on a Mac.
+    it("takes neither ~/.cursor, another AppImage, nor a Linux path on a Mac for the app", async () => {
+      const m = onLinux();
+      m.files.set("/home/u/.cursor/mcp.json", "{}");
+      m.files.set("/home/u/Applications/Obsidian-1.4.AppImage", "");
+      expect(await setup(m.d)).toBe(0);
+      expect(m.out()).toContain("Cursor: not installed");
+      const mac = machine();
+      mac.files.set("/usr/share/cursor", "");
+      expect(await setup(mac.d)).toBe(0);
+      expect(mac.out()).toContain("Cursor: not installed");
     });
 
     // Task 1: the app keeps its MCP allow-list in a SQLite database, which

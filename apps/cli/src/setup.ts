@@ -92,6 +92,8 @@ export interface SetupDeps {
    *  could not read it. */
   skill: { text: string } | { error: string };
   exists(path: string): boolean;
+  /** A folder's entries; none when it cannot be read. */
+  names(dir: string): string[];
   readText(
     path: string,
   ): { text: string } | { missing: true } | { error: string };
@@ -783,11 +785,21 @@ const codex: Wire = (d) => {
   );
   return result("partial");
 };
-/** Where the Cursor app may be installed. */
-const cursorApps = (d: SetupDeps): string[] => [
-  "/Applications/Cursor.app",
-  `${d.home}/Applications/Cursor.app`,
-];
+/** Where the Cursor app may be installed. On Linux (DEM-72): the .deb's
+ *  and .rpm's folder, an unpacked one under /opt, or an AppImage. Never
+ *  ~/.cursor: setup writes that folder itself. */
+const cursorApps = (d: SetupDeps): string[] =>
+  d.platform === "linux"
+    ? [
+        "/usr/share/cursor",
+        "/opt/Cursor",
+        "/opt/cursor",
+        ...d
+          .names(`${d.home}/Applications`)
+          .filter((n) => /^cursor.*\.appimage$/i.test(n))
+          .map((n) => `${d.home}/Applications/${n}`),
+      ]
+    : ["/Applications/Cursor.app", `${d.home}/Applications/Cursor.app`];
 /** The commands that may be Cursor's agent CLI. */
 const cursorClis = (d: SetupDeps): string[] => [
   "agent",
