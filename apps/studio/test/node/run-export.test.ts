@@ -4,6 +4,9 @@ import { join } from "node:path";
 import type { exportTake } from "@demoman/runner/studio";
 import { afterEach, describe, expect, it } from "vitest";
 import { createRunExport } from "../../src/run-export.js";
+import { sceneFixture } from "./seed.js";
+
+const pinned = { scene: await sceneFixture(), notes: [] };
 
 const homes: string[] = [];
 afterEach(async () => {
@@ -17,9 +20,14 @@ async function runWith(settings: string | null) {
   homes.push(home);
   if (settings !== null) await writeFile(join(home, "settings.json"), settings);
   const asked: Array<Record<string, unknown>> = [];
+  const depsSeen: Array<Record<string, unknown>> = [];
   const logs: string[] = [];
-  const fake = (async (args: Record<string, unknown>) => {
+  const fake = (async (
+    args: Record<string, unknown>,
+    deps: Record<string, unknown>,
+  ) => {
     asked.push(args);
+    depsSeen.push(deps);
     return { outcome: "saved" };
   }) as unknown as typeof exportTake;
   const run = createRunExport({
@@ -35,7 +43,7 @@ async function runWith(settings: string | null) {
       door: "studio",
     },
   });
-  return { run, asked, logs, home };
+  return { run, asked, depsSeen, logs, home };
 }
 
 // The Export quality setting itself is read by `exportTake` (the runner's
@@ -43,7 +51,7 @@ async function runWith(settings: string | null) {
 describe("the Studio's run passes the editor's quality", () => {
   it("passes the quality the editor picked for this export", async () => {
     const { run, asked } = await runWith('{"exportQuality":"full"}');
-    await run("t1", "mp4", "j1", () => {}, "share");
+    await run("t1", "mp4", "j1", () => {}, pinned, "share");
     expect(asked[0]).toMatchObject({
       takeId: "t1",
       fileType: "mp4",
@@ -53,10 +61,17 @@ describe("the Studio's run passes the editor's quality", () => {
 
   it("passes no quality when the editor sent none, so exportTake reads Settings", async () => {
     const { run, asked, logs } = await runWith('{"exportQuality":"full"}');
-    await run("t1", "mp4", "j1", () => {});
-    await run("t1", "gif", "j2", () => {});
+    await run("t1", "mp4", "j1", () => {}, pinned);
+    await run("t1", "gif", "j2", () => {}, pinned);
     expect(asked.map((a) => "quality" in a)).toEqual([false, false]);
     expect(asked.map((a) => a.fileType)).toEqual(["mp4", "gif"]);
     expect(logs).toEqual([]);
+  });
+
+  it("hands exportTake the scene the queue pinned, never through the agent's args", async () => {
+    const { run, asked, depsSeen } = await runWith(null);
+    await run("t1", "mp4", "j1", () => {}, pinned);
+    expect(depsSeen[0]?.pinned).toBe(pinned);
+    expect("pinned" in (asked[0] ?? {})).toBe(false);
   });
 });

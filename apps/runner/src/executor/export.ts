@@ -75,6 +75,10 @@ export interface ExportDeps {
   tagBytes?: typeof tagFileBytes;
   /** Tests only: `ExecutorOptions.mp4MaxTier`. */
   maxTier?: RenderTarget;
+  /** The scene to render in place of the one on disk: the studio's queue
+   *  read it when the export was queued, so an edit made while the job
+   *  waited does not reach it (DEM-100). */
+  pinned?: { scene: SceneDocument; notes: string[] };
 }
 
 const FILE_TYPES = ["mp4", "gif", "stills"] as const;
@@ -205,10 +209,12 @@ export async function exportTake(
     return refused("invalidMaxMB", maxBytes.refusal);
   }
   const store = library.frameStore(takeId);
-  let sceneRead: Awaited<ReturnType<Library["getSceneRead"]>>;
+  let sceneRead: NonNullable<ExportDeps["pinned"]> | null;
   let bundle: Awaited<ReturnType<typeof store.getBundle>>;
   try {
-    sceneRead = await library.getSceneRead(takeId);
+    const current = await library.getSceneRead(takeId);
+    // Still read when pinned: a take deleted since is said as itself.
+    sceneRead = current === null ? null : (deps.pinned ?? current);
     bundle = sceneRead === null ? null : await store.getBundle(takeId);
   } catch (error) {
     return refused(

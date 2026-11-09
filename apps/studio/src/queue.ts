@@ -40,11 +40,19 @@ export interface ExportQueue {
   ): Promise<T>;
 }
 
+/** The scene an export renders, as it was read when the job was queued. */
+export type PinnedScene = Pick<
+  NonNullable<Awaited<ReturnType<Library["getSceneRead"]>>>,
+  "scene" | "notes"
+>;
+
 export type RunExport = (
   takeId: string,
   fileType: FileType,
   jobId: string,
   onProgress: (p: Exporting) => void,
+  /** Rendered in place of `scene.json`, so a later edit cannot reach it. */
+  pinned: PinnedScene,
   /** The editor's pick for this export; absent, the Export quality setting. */
   quality?: ExportQuality,
 ) => Promise<ExportAnswer>;
@@ -63,6 +71,7 @@ interface Job {
   fileType: FileType;
   quality?: ExportQuality;
   jobId: string;
+  pinned: PinnedScene;
 }
 
 /** A turn on the queue that is not an export (`serial`). */
@@ -85,7 +94,9 @@ function failureOf(
 
 /**
  * The studio's exports: FIFO, one at a time in the studio's headless browser
- * (spec §6.3). `start` checks the take and its revision and queues; the
+ * (spec §6.3). `start` checks the take and its revision and queues the
+ * scene it read, which is what renders however the take is edited while it
+ * waits; the
  * lease and the `outputs.json` row are `run`'s (`exportTake`), so the agent
  * door and the studio take them the same way.
  */
@@ -149,6 +160,7 @@ export function createExportQueue(o: {
               : { phase: "rendering", done: p.done, total: p.total },
           );
         },
+        job.pinned,
         job.quality,
       );
     } catch (error) {
@@ -240,6 +252,8 @@ export function createExportQueue(o: {
       fileType: body.fileType,
       ...(body.quality === undefined ? {} : { quality: body.quality }),
       jobId: randomUUID(),
+      // The revision checked above is the scene rendered (DEM-100).
+      pinned: { scene: read.scene, notes: read.notes },
     };
     const position = waiting.length + (running === null ? 0 : 1);
     waiting.push(job);
