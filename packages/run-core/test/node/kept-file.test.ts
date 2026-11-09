@@ -200,6 +200,14 @@ describe("the kept file", () => {
     expect(refusal(withChange({ keptVersion: 3 }))).toContain("keptVersion");
   });
 
+  // DEM-105: a newer file is a reason to update, not a broken file.
+  it("tells a newer keptVersion to update Demoman, and only a newer one", () => {
+    expect(refusal(withChange({ keptVersion: 3 }))).toContain(
+      "keptVersion is 3; this Demoman reads 1 and 2 — it was written by a newer Demoman; update Demoman",
+    );
+    expect(refusal(withChange({ keptVersion: 0 }))).not.toContain("newer");
+  });
+
   it("names the file when the JSON is invalid", () => {
     expect(refusal("{nope")).toContain("x.json");
   });

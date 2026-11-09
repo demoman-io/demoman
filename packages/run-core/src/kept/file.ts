@@ -1,6 +1,7 @@
 // The kept-video file: everything a re-film needs, committed under .demoman/videos/.
 import { type DemoScript, DemoScriptSchema } from "@demoman/scene-schema";
 import { EXPORT_QUALITY_VALUES, type ExportQuality } from "../export/target.js";
+import { unreadVersion } from "../run-host.js";
 import { isFlowId } from "../served-words.js";
 import { type KeptReceipt, parseScreens } from "./receipt.js";
 
@@ -121,7 +122,7 @@ export function parseKept(text: string, file: string): Parsed {
   const v1 = raw.keptVersion === KEPT_V1;
   if (!v1 && raw.keptVersion !== KEPT_VERSION)
     return bad(
-      `keptVersion is ${JSON.stringify(raw.keptVersion)}; this Demoman reads ${KEPT_V1} and ${KEPT_VERSION}`,
+      unreadVersion("keptVersion", raw.keptVersion, [KEPT_V1, KEPT_VERSION]),
     );
   if (typeof raw.name !== "string" || raw.name === "")
     return bad("name must be a non-empty string");

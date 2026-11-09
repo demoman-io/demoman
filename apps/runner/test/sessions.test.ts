@@ -153,6 +153,27 @@ describe("the store", () => {
     await writeFile(path, "{not json", { mode: 0o600 });
     await expect(createSessionStore(home).read()).rejects.toThrow(path);
   });
+
+  // DEM-105: a newer Demoman's sign-in is good; removing it would lose it.
+  it("tells a newer session file to update Demoman, never to remove it", async () => {
+    const dir = join(home, "sessions");
+    await mkdir(dir, { mode: 0o700 });
+    const path = join(dir, "example.com.json");
+    await writeFile(
+      path,
+      JSON.stringify({ ...fileFor("example.com"), sessionVersion: 2 }),
+      { mode: 0o600 },
+    );
+    const error = await createSessionStore(home)
+      .read()
+      .then(
+        () => null,
+        (e: Error) => e.message,
+      );
+    expect(error).toBe(
+      `${path}: sessionVersion is 2; this Demoman reads 1 — it was written by a newer Demoman; update Demoman`,
+    );
+  });
 });
 
 describe("states", () => {

@@ -5,7 +5,14 @@
 // executor-accounts.test.ts on 2026-10-17; the shared setup is
 // accounts-harness.ts.
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -208,10 +215,10 @@ it("scrubs a value it never signed in with: a saved session, a fresh executor", 
 
 it("lists the accounts in status, never a value", async () => {
   await writeAccounts(seller());
-  await writeFile(
-    join(repo, ".demoman", "secrets.env"),
-    `DEMOMAN_SECRET_KL_SELLER=${PASSWORD}\n`,
-  );
+  const secrets = join(repo, ".demoman", "secrets.env");
+  await writeFile(secrets, `DEMOMAN_SECRET_KL_SELLER=${PASSWORD}\n`);
+  // DEM-104: an editor leaves it 0644; status reads it and says so.
+  await chmod(secrets, 0o644);
   const out = (await executor.request("status", {})) as {
     value: { accounts: unknown; secretsFile: unknown };
   };
@@ -226,8 +233,9 @@ it("lists the accounts in status, never a value", async () => {
     ],
   });
   expect(out.value.secretsFile).toEqual({
-    path: join(repo, ".demoman", "secrets.env"),
+    path: secrets,
     git: "ignored",
+    exposed: `${secrets} is readable by other users (mode 0644), and it holds passwords — run: chmod 600 ${secrets}`,
   });
   expect(JSON.stringify(out)).not.toContain(PASSWORD);
 });

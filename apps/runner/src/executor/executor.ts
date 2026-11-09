@@ -380,7 +380,13 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       const source = await readSecretsFile(found.file.dir);
       return source.status === "absent"
         ? { path: source.path, absent: true }
-        : { path: source.path, git: source.status };
+        : {
+            path: source.path,
+            git: source.status,
+            ...(source.exposed === undefined
+              ? {}
+              : { exposed: source.exposed }),
+          };
     } catch (error) {
       return {
         path: join(found.file.dir, "secrets.env"),
@@ -678,7 +684,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         if (keptHolder === undefined && unreadable.length > 0) {
           return refusal(
             "repoFlowUnreadable",
-            `a DemoScript in this repo would not read, so Demoman cannot tell whether it is "${asked.new}" — fix or remove it before starting a new flow here: ${unreadable.join("; ")}`,
+            `a DemoScript in this repo would not read, so Demoman cannot tell whether it is "${asked.new}" — fix what it names before starting a new flow here: ${unreadable.join("; ")}`,
             "video",
           );
         }

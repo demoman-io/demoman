@@ -2,6 +2,7 @@
 // Neither the workflow nor any door re-derives it. Secret VALUES never live
 // here: `secrets` names them, `env` is committed and must not look like one.
 import { z } from "zod";
+import { unreadVersion } from "../run-host.js";
 import { looksLikeSecret } from "../secrets.js";
 
 export const APP_FILE = ".demoman/app.json";
@@ -142,7 +143,7 @@ export function parseApp(
   if (typeof version === "number" && version > APP_VERSION) {
     return bad(
       "appVersion",
-      `appVersion ${version} was written by a newer Demoman than this one; update Demoman`,
+      unreadVersion("appVersion", version, [APP_VERSION]),
     );
   }
   const parsed = AppSchema.safeParse(raw);

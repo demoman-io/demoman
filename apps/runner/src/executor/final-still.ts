@@ -1,5 +1,5 @@
 // apps/runner/src/executor/final-still.ts
-import { writeFile } from "node:fs/promises";
+import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   composeForTarget,
@@ -102,7 +102,8 @@ export async function renderFinalStill(args: {
       return { unavailable: "the render produced no still" };
     }
     const path = join(library.takeDir(takeId), "final-still.png");
-    await writeFile(path, file.bytes);
+    await writeFile(path, file.bytes, { mode: 0o600 });
+    await chmod(path, 0o600); // mode applies only on create; an older still was 0644
     return { path };
   } catch (error) {
     return {

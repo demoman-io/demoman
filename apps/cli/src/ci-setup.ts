@@ -231,6 +231,8 @@ export type CiPlan = {
   pushCost: string | null;
   /** triggerNote's sentence: environments setup did not look for. */
   notLookedFor?: string;
+  /** secrets.env was read, and other users can read it: the chmod. */
+  secretsFileExposed?: string;
   /** HEAD's and the default branch's commits, when they differ: the check
    *  ran on HEAD, the pull request is built on the default branch. */
   offBase: { head: string; base: string } | null;
@@ -533,7 +535,7 @@ async function makePlan(
   if (unreadable.length > 0)
     return stop(
       "flowUnreadable",
-      `${unreadable.join("; ")}; fix or remove it, then run setup again`,
+      `${unreadable.join("; ")}; fix what it names, then run setup again`,
     );
   const flows = entries.flatMap((e) =>
     "kept" in e ? [{ file: e.file, kept: e.kept }] : [],
@@ -894,6 +896,9 @@ async function makePlan(
     pushCost,
     offBase,
     ...(note === null ? {} : { notLookedFor: note }),
+    ...(local.exposed === undefined
+      ? {}
+      : { secretsFileExposed: local.exposed }),
   };
   return Object.defineProperty(made, "contents", {
     value: texts.files,
@@ -1042,6 +1047,7 @@ export function planLines(p: CiPlan): string[] {
       (s) =>
         `Secret ${s.name}: ${{ set: "set on GitHub", replace: "replaced on GitHub", keep: "left as GitHub has it", missing: "missing" }[s.status]}.`,
     ),
+    ...(p.secretsFileExposed === undefined ? [] : [p.secretsFileExposed]),
     p.actionsSetting === "turnOn"
       ? `Turns on "Allow GitHub Actions to create and approve pull requests" for ${p.repo.slug}, if it is off.`
       : p.actionsSetting === "alreadyOn"

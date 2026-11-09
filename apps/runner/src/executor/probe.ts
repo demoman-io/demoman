@@ -329,8 +329,8 @@ async function viewportStill(
         scale: fit / view.dpr,
       },
     })) as { data: string };
-    await mkdir(dir, { recursive: true });
-    await writeFile(path, Buffer.from(shot.data, "base64"));
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await writeFile(path, Buffer.from(shot.data, "base64"), { mode: 0o600 });
     await keepNewestProbeStills(dir, log);
     return { path };
   } catch (error) {

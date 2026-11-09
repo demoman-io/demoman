@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { unreadVersion } from "@demoman/run-core";
 import {
   ACCOUNT_NAME,
   ACCOUNT_NAME_RULE,
@@ -165,10 +166,11 @@ export function parseAccounts(
   const version = (raw as { accountsVersion?: unknown } | null)
     ?.accountsVersion;
   if (typeof version === "number" && version > ACCOUNTS_VERSION) {
-    return no(
-      "accountsVersion",
-      `version ${version} was written by a newer Demoman; this one reads ${ACCOUNTS_VERSION} — update Demoman`,
-    );
+    // The sentence names the field itself; no() would name it twice.
+    return {
+      ...no("", unreadVersion("accountsVersion", version, [ACCOUNTS_VERSION])),
+      field: "accountsVersion",
+    };
   }
   const parsed = FileSchema.safeParse(raw);
   if (!parsed.success) {

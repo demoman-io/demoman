@@ -333,4 +333,14 @@ describe("parseSkeleton", () => {
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.error.length).toBeGreaterThan(10);
   });
+
+  // DEM-105: a newer file is a reason to update, not a broken file.
+  it("tells a newer skeletonVersion to update Demoman", () => {
+    const out = parseSkeleton({ skeletonVersion: 3, name: "x" });
+    expect(out.ok).toBe(false);
+    if (!out.ok)
+      expect(out.error).toBe(
+        "skeletonVersion is 3; this Demoman reads 1 and 2 — it was written by a newer Demoman; update Demoman",
+      );
+  });
 });

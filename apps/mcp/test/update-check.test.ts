@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -35,10 +35,11 @@ describe("createUpdateCheck", () => {
   it("asks the registry, says newer, and asks again only after a day", async () => {
     let asked = 0;
     let t = 1_000;
+    const h = await home();
     const check = createUpdateCheck({
       name: "demoman",
       current: "0.2.0",
-      home: await home(),
+      home: h,
       log: quiet,
       env: {},
       now: () => t,
@@ -52,6 +53,8 @@ describe("createUpdateCheck", () => {
       latest: "0.3.0",
       newer: true,
     });
+    // DEM-104: owner-only, like every other file in the home.
+    expect((await stat(join(h, "update-check.json"))).mode & 0o777).toBe(0o600);
     t += DAY - 1;
     await check();
     expect(asked).toBe(1);
@@ -168,6 +171,26 @@ describe("createUpdateCheck", () => {
   });
 
   // Review Focus 4.
+  // DEM-104 review: writeFile's mode applies only on create, so a temp file
+  // a crash left behind (with this pid, reused) would carry its 0644 over.
+  it("writes 0600 over a leftover temp file of another mode", async () => {
+    const h = await home();
+    const tmp = join(h, `update-check.json.${process.pid}.tmp`);
+    await writeFile(tmp, "{}", { mode: 0o644 });
+    expect((await stat(tmp)).mode & 0o777).toBe(0o644); // premise
+    const check = createUpdateCheck({
+      name: "demoman",
+      current: "0.2.0",
+      home: h,
+      log: quiet,
+      env: {},
+      now: () => 1_000,
+      fetchLatest: async () => "0.3.0",
+    });
+    await check();
+    expect((await stat(join(h, "update-check.json"))).mode & 0o777).toBe(0o600);
+  });
+
   it("creates a DEMOMAN_HOME that does not exist yet", async () => {
     const h = join(await home(), "not", "yet");
     const check = createUpdateCheck({

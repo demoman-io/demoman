@@ -3,6 +3,7 @@
 
 import { isInstant } from "../app/file.js";
 import { type FilmedCode, parseFilmedCode } from "../replay/report.js";
+import { unreadVersion } from "../run-host.js";
 import { isFlowId } from "../served-words.js";
 import type { KeptMoment, KeptScreens } from "./file.js";
 
@@ -152,9 +153,7 @@ export function parseReceipt(text: string, file: string): Parsed {
   }
   if (!isObj(raw)) return bad("is not a JSON object");
   if (raw.receiptVersion !== 1 && raw.receiptVersion !== 2)
-    return bad(
-      `receiptVersion is ${JSON.stringify(raw.receiptVersion)}; this Demoman reads 1 and 2`,
-    );
+    return bad(unreadVersion("receiptVersion", raw.receiptVersion, [1, 2]));
   const receiptVersion: 1 | 2 = raw.receiptVersion === 2 ? 2 : 1;
   if (typeof raw.flow !== "string" || !isFlowId(raw.flow))
     return bad("flow must be a flow id");

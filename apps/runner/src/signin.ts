@@ -19,6 +19,7 @@ import {
   createSessionStore,
   filesFor,
   mergeStates,
+  SESSION_VERSION,
   type SessionFile,
   samePage,
   siteOf,
@@ -96,10 +97,12 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
     }
   };
 
+  // Manual sessions only: an account's file for this site carries its own
+  // sign-in page, which is not this session's.
+  const existing = filesFor(saved, null).find((f) => f.site === site);
   const window = await start(deps.headless ?? false);
   if (window === null) return 1;
   let file: SessionFile;
-  let path: string;
   // The URL given was itself the sign-in form: it showed a password field
   // where it was asked for, with no redirect. Verified by that field going
   // away, since there is no other page to recognise (final review 3).
@@ -135,9 +138,6 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
         `the page could not be checked for a sign-in form (${messageOf(error)}); sign in in the window if you need to, then press Enter here (or close the window).`,
       );
     }
-    // Manual sessions only: an account's file for this site carries its own
-    // sign-in page, which is not this session's.
-    const existing = filesFor(saved, null).find((f) => f.site === site);
     let signInUrl: string | null;
     if (facts === null) {
       signInUrl = existing?.signInUrl ?? null;
@@ -179,7 +179,7 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
       return 1;
     }
     file = {
-      sessionVersion: 1,
+      sessionVersion: SESSION_VERSION,
       site,
       savedAt: (deps.now?.() ?? new Date()).toISOString(),
       refreshedAt: null,
@@ -187,28 +187,55 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
       signInUrl,
       state: sliceForSite(state, site),
     };
-    try {
-      path = await store.save(file);
-    } catch (error) {
-      say(messageOf(error));
-      return 1;
-    }
   } finally {
     await window.close();
   }
 
-  // Checked before success is said: a sign-in that saved a signed-out state
-  // must not read as one that worked.
-  const check = await start(true);
-  if (check === null) {
-    say(`saved ${path}, but a browser to check it would not start`);
+  // Checked before it is saved: a sign-in that did not work must not read as
+  // one that did, nor replace a session for this site that did (DEM-101).
+  // Any failed check keeps the earlier file, a check that could not run
+  // included; the answer names how to save this one anyway, for an earlier
+  // session that has expired.
+  const failure = await check(file, url, inPlace, start);
+  if (failure !== null && existing !== undefined) {
+    const earlier = store.pathOf(site);
+    say(
+      `not saved, so the earlier session in ${earlier} is kept: ${failure.why}. To save this sign-in anyway, remove ${earlier} and run demoman signin again`,
+    );
     return 1;
   }
+  // With nothing to keep, a signed-out file is still saved: its signInUrl
+  // lets a run say signed out rather than record the sign-in page.
+  let path: string;
   try {
-    await check.context.setStorageState(file.state as StateArg);
-    await check.page.goto(url, { waitUntil: "load" });
-    await settle(check.page);
-    const facts = await readLandingFacts(check.page, url);
+    path = await store.save(file);
+  } catch (error) {
+    say(messageOf(error));
+    return 1;
+  }
+  if (failure !== null) {
+    say(`saved ${path}, but ${failure.why}`);
+    return 1;
+  }
+  out(`Signed in to ${site}; saved ${path}`);
+  return 0;
+}
+
+/** Whether `file` is signed in, in a fresh headless browser: null when it is,
+ *  else why not, or why it could not be told. */
+async function check(
+  file: SessionFile,
+  url: string,
+  inPlace: boolean,
+  start: (headless: boolean) => Promise<Launched | null>,
+): Promise<{ why: string } | null> {
+  const browser = await start(true);
+  if (browser === null) return { why: "a browser to check it would not start" };
+  try {
+    await browser.context.setStorageState(file.state as StateArg);
+    await browser.page.goto(url, { waitUntil: "load" });
+    await settle(browser.page);
+    const facts = await readLandingFacts(browser.page, url);
     const onSignIn =
       file.signInUrl !== null && samePage(facts.landedUrl, file.signInUrl);
     const stillInPlace =
@@ -220,24 +247,21 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
       stillInPlace ||
       landingVerdict(facts, [file], "").kind === "signedOut"
     ) {
-      say(
-        `saved, but ${url} still lands on ${facts.landedUrl}: not signed in${
+      return {
+        why: `${url} still lands on ${facts.landedUrl}: not signed in${
           stillInPlace
             ? " — give signin a page behind the login (the app's home, say), not the sign-in page itself"
             : ""
         }`,
-      );
-      return 1;
+      };
     }
-    out(`Signed in to ${site}; saved ${path}`);
-    return 0;
+    return null;
   } catch (error) {
-    say(
-      `saved ${path}, but checking it failed (${messageOf(error)}), so it may not be signed in`,
-    );
-    return 1;
+    return {
+      why: `checking it failed (${messageOf(error)}), so it may not be signed in`,
+    };
   } finally {
-    await check.close();
+    await browser.close();
   }
 }
 
@@ -340,6 +364,7 @@ export async function signinAccount(
     say(result.detail);
     return 1;
   }
+  if (result.exposed !== undefined) say(result.exposed);
   out(`Signed in to ${site.origin} as ${name}; saved ${result.path}`);
   return 0;
 }

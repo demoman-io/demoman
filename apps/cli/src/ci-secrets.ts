@@ -74,6 +74,8 @@ export async function localValues(
   tooShort: string[];
   /** Why secrets.env was not read (value-free), when it was refused. */
   unread?: string;
+  /** Read, but other users can read it too (DEM-104): the chmod to run. */
+  exposed?: string;
 }> {
   const values: SecretValues = new Map();
   const absent = needed.filter((n) => !env[n.name]);
@@ -82,6 +84,7 @@ export async function localValues(
     if (v) values.set(n.name, v);
   }
   let unread: string | undefined;
+  let exposed: string | undefined;
   if (absent.length > 0) {
     let file: Awaited<ReturnType<typeof readSecretsFile>> | null = null;
     try {
@@ -90,6 +93,7 @@ export async function localValues(
       if (!(error instanceof SecretError)) throw error;
       unread = error.message;
     }
+    exposed = file?.exposed;
     for (const n of file === null ? [] : absent) {
       const v = n.name.startsWith(SECRET_PREFIX)
         ? file?.values.get(n.name.slice(SECRET_PREFIX.length))
@@ -115,6 +119,7 @@ export async function localValues(
       .map((n) => n.name),
     tooShort,
     ...(unread === undefined ? {} : { unread }),
+    ...(exposed === undefined ? {} : { exposed }),
   };
 }
 

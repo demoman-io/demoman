@@ -31,6 +31,7 @@ import {
   type SecretSweep,
 } from "./secrets-env.js";
 import {
+  SESSION_VERSION,
   SessionError,
   type SessionFile,
   type SessionStore,
@@ -76,6 +77,8 @@ export type AccountSignIn =
       steps: number;
       ms: number;
       reused: boolean;
+      /** secrets.env was read, and other users can read it: the chmod. */
+      exposed?: string;
     }
   | AccountSignInFailure;
 
@@ -312,8 +315,12 @@ export async function signInAccount(
   // missing or too-short secret, or a secrets file git would commit, is
   // named while nothing has been touched.
   const resolved = new Map<string, string>();
+  // Answered, not logged: `demoman signin --account` prints it, and a run
+  // leaves it to status.secretsFile rather than repeat it on every sign-in.
+  let exposed: string | undefined;
   try {
     const source = await readSecretsFile(chosen.file.dir);
+    exposed = source.exposed;
     for (const step of account.signIn) {
       if (step.do !== "type") continue;
       const r = resolveSecrets(step.text, deps.env, source, {
@@ -377,6 +384,7 @@ export async function signInAccount(
             steps: 0,
             ms: 0,
             reused: true,
+            ...(exposed === undefined ? {} : { exposed }),
           };
         }
       } catch (error) {
@@ -505,7 +513,7 @@ export async function signInAccount(
 
       // 6. Settle, then prove it at checkUrl.
       const candidate: SessionFile = {
-        sessionVersion: 1,
+        sessionVersion: SESSION_VERSION,
         site: site.site,
         savedAt: now().toISOString(),
         refreshedAt: null,
@@ -657,6 +665,7 @@ export async function signInAccount(
           steps: account.signIn.length,
           ms,
           reused: false,
+          ...(exposed === undefined ? {} : { exposed }),
         };
       } catch (error) {
         return fail(

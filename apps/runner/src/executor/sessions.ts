@@ -15,14 +15,16 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { unreadVersion } from "@demoman/run-core";
 import type { BrowserContext } from "playwright";
 import { getDomain } from "tldts";
 import { messageOf } from "../report.js";
+import { exposed, octal } from "./file-mode.js";
 
 export type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
 export interface SessionFile {
-  sessionVersion: 1;
+  sessionVersion: typeof SESSION_VERSION;
   site: string;
   /** When the author signed in (`signin`), ISO 8601. A write-back keeps it. */
   savedAt: string;
@@ -87,9 +89,7 @@ export function samePage(a: string, b: string): boolean {
   }
 }
 
-const exposed = (mode: number) =>
-  process.platform !== "win32" && (mode & 0o077) !== 0;
-const octal = (mode: number) => (mode & 0o777).toString(8).padStart(4, "0");
+export const SESSION_VERSION = 1;
 const fileName = (site: string) => `${site.replace(/[^a-z0-9.-]/gi, "_")}.json`;
 
 function isSessionFile(v: unknown): v is SessionFile {
@@ -97,7 +97,7 @@ function isSessionFile(v: unknown): v is SessionFile {
   const f = v as Record<string, unknown>;
   const state = f.state as Record<string, unknown> | undefined;
   return (
-    f.sessionVersion === 1 &&
+    f.sessionVersion === SESSION_VERSION &&
     typeof f.site === "string" &&
     typeof f.savedAt === "string" &&
     typeof f.startUrl === "string" &&
@@ -157,6 +157,13 @@ export function createSessionStore(home: string): SessionStore {
       if (error instanceof SessionError) throw error;
       throw new SessionError(
         `${path} could not be read as a Demoman session (${messageOf(error)}) — remove it and run demoman signin again`,
+      );
+    }
+    const version = (parsed as { sessionVersion?: unknown } | null)
+      ?.sessionVersion;
+    if (typeof version === "number" && version > SESSION_VERSION) {
+      throw new SessionError(
+        `${path}: ${unreadVersion("sessionVersion", version, [SESSION_VERSION])}`,
       );
     }
     if (!isSessionFile(parsed)) {

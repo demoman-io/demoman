@@ -71,7 +71,9 @@ describe(".demoman/app.json", () => {
   it("says a newer Demoman wrote a newer appVersion", () => {
     const r = invalid(withChange({ appVersion: 2 }));
     expect(r.field).toBe("appVersion");
-    expect(r.detail).toContain("newer Demoman");
+    expect(r.detail).toContain(
+      "appVersion is 2; this Demoman reads 1 — it was written by a newer Demoman; update Demoman",
+    );
   });
 
   it("refuses an unknown top-level key", () => {
