@@ -1454,7 +1454,7 @@ describe("renderShortcuts", () => {
       type(root, "editing");
       expect(shown(root)).toEqual([
         "Split at playhead",
-        "Delete the selected piece, zoom or mask",
+        "Delete the selected piece or zoom",
         "Undo",
         "Redo",
       ]);

@@ -1127,31 +1127,43 @@
 }
 /* ───────── The timeline: lanes, playhead, transport (spec §5.3, §5.4) ──── */
 
-/* The lanes keep their hues: "between 1 and 2" (the author), today's hues
-   on translucent fills. Flat: the ring in the hue each block wore was
-   removed on 2026-10-19 (the author); a block's only rings now say
-   something, a clamped zoom's warning and a selected block's ink. */
+/* The lanes keep their hues, on solid mid-tone fills since 2026-11-09 (the
+   author picked "Lifted": the translucent 0.3 fills read bland). Measured,
+   rest / hover: the Zoom label's ink 6.1 / 5.1:1; the Clip block carries
+   icons only, its ink 4.3 / 3.9:1, the pointer tint 3.4 / 3.1:1 and the
+   wait tone 3.3 / 3.0:1 (below), each at the 3:1 a non-text mark needs.
+   The base sheet's dark fills, and its tick comment's ratios, are the
+   editor's own; in the Studio these win. Flat: the ring in the
+   hue each block wore was removed on 2026-10-19 (the author); a block's
+   only rings now say something, a clamped zoom's warning and a selected
+   block's ink. */
 [data-studio][data-theme="dark"]:root {
-  --lane-clip: rgba(130, 185, 70, 0.3);
+  --lane-clip: #55801c;
   --lane-clip-ink: var(--ink);
   --lane-clip-glyph: #9ccc5c;
   --lane-clip-pointer: #c5e59a;
-  --lane-zoom: rgba(150, 125, 235, 0.3);
+  --lane-zoom: #5f45b5;
   --lane-zoom-ink: #f1edff;
   --lane-zoom-glyph: #b59fff;
   --lane-mask: rgba(225, 110, 95, 0.3);
   --lane-mask-ink: #ffe6e1;
   --lane-mask-glyph: #fb8e7c;
-  /* Under the pointer: the same hues, half again as strong, so a block
-     brightens without changing whose it is. */
-  --lane-clip-hover: rgba(130, 185, 70, 0.45);
-  --lane-zoom-hover: rgba(150, 125, 235, 0.45);
+  /* Under the pointer: the same hues a step lighter, so a block brightens
+     without changing whose it is. */
+  --lane-clip-hover: #608628;
+  --lane-zoom-hover: #6a50c4;
   --lane-mask-hover: rgba(225, 110, 95, 0.45);
   --track: var(--fill);
   --playhead: var(--ink);
 }
 [data-studio] .lane[data-lane="clip"] {
   --clip-fill-hover: var(--lane-clip-hover);
+  /* The wait step's tone: the ink 80% into the fill, where the base sheet
+     mixes 60%. On the lifted fill 60% measured 2.6:1, under a non-text
+     mark's 3:1; 80% is 3.3:1 at rest and 3.0:1 on the hover fill. It sits
+     level with the pointer tint now, not a step below; the wait's own
+     glyph tells the two apart. */
+  --tick-wait: color-mix(in srgb, var(--clip-ink) 80%, var(--clip-fill));
 }
 [data-studio] .lane[data-lane="zoom"] {
   --clip-fill-hover: var(--lane-zoom-hover);
@@ -1181,7 +1193,7 @@
    then). */
 [data-studio] .seg[data-kind="zoom"] {
   font-family: var(--sans);
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }

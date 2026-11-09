@@ -525,8 +525,6 @@ let lastModel: LaneModel | null = null;
  */
 let lastView: TimelineView | null = null;
 let lastDurationMs = 0;
-/** The author pressed "+ Mask" this session, so the Mask lane stays even
- *  before a mask exists — the button's result is somewhere to see. */
 /** The window of output time the timeline is showing. Null until the first
  *  draw fits one. */
 let viewport: Viewport | null = null;
@@ -2402,7 +2400,8 @@ function render(snapshot: SessionSnapshot): void {
     {
       viewport,
       selection,
-      // A getter: the Mask lane's + reads the playhead at its click, and
+      // A getter: the Mask lane's + (when the lane is drawn; hidden in the
+      // editor since 2026-11-09) reads the playhead at its click, and
       // this row is drawn only by a full render (see `renderTimelineTools`'
       // call below for the same reason). Read once at render it is the
       // same value it always was.

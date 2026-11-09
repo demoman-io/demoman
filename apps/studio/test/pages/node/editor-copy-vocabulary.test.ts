@@ -428,7 +428,8 @@ const FILES: ReadonlyArray<{
   {
     rel: "../../../pages/src/editor/formats.ts",
     minStrings: 10,
-    anchor: "one per step",
+    // "one per step" until 2026-11-09, when it moved into a template.
+    anchor: "Vertical PNG stills",
   },
   // Joined on 2026-09-24 (Task 10): the rebuild phase's button label and the
   // export's own rebuild-failure row (`rebuildFailureHeading`) are written

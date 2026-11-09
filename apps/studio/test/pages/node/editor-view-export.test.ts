@@ -122,9 +122,36 @@ describe("renderExport", () => {
     expect(root.querySelector("[data-export-summary]")?.textContent).toBe(
       "0:24",
     );
-    expect(root.querySelector("[data-aspect-note]")?.textContent).toBe(
-      "16:9, set under the preview",
+    // Length, Aspect and Source, each under its label, on one strip.
+    expect(
+      [...root.querySelectorAll(".export-fact")].map((f) => [
+        f.querySelector(".export-fact-label")?.textContent,
+        f.querySelector(".export-fact-value")?.textContent,
+      ]),
+    ).toEqual([
+      ["Length", "0:24"],
+      ["Aspect", "16:9"],
+      ["Source", "1512 × 820"],
+    ]);
+    expect(
+      root
+        .querySelector("[data-aspect-note]")
+        ?.closest<HTMLElement>(".export-fact")?.title,
+    ).toBe("Set under the preview");
+    // And in words a screen reader reads with the value, not only on hover.
+    expect(
+      root
+        .querySelector("[data-aspect-note]")
+        ?.closest(".export-fact")
+        ?.querySelector(".visually-hidden")?.textContent,
+    ).toBe("Set under the preview");
+    // 16:9 only crops, so there is no reason line; 9:16 has one.
+    expect(root.querySelector("[data-aspect-reason]")).toBeNull();
+    renderExport(root, { ...idle, aspect: "9:16" }, handlers);
+    expect(root.querySelector("[data-aspect-reason]")?.textContent).toBe(
+      "The camera follows each step.",
     );
+    renderExport(root, idle, handlers);
     expect(root.querySelector("[data-export-start]")?.textContent).toBe(
       "Export MP4",
     );
@@ -147,8 +174,8 @@ describe("renderExport", () => {
         b.closest("label")?.textContent,
       ]),
     ).toEqual([
-      ["mp4", "checkbox", true, "MP40:24 · 2560 × 1440"],
-      ["gif", "checkbox", true, "GIF0:24 · 800 × 450"],
+      ["mp4", "checkbox", true, "MP42560 × 1440"],
+      ["gif", "checkbox", true, "GIF800 × 450"],
       ["stills", "checkbox", false, "PNG stillsone per step · 1920 × 1080"],
     ]);
     expect(root.querySelector("[data-export-start]")?.textContent).toBe(
@@ -175,8 +202,9 @@ describe("renderExport", () => {
   });
 
   // Red if the row stops naming the three qualities, checks one that is not
-  // the state's, drops a click, shows on a GIF, or shows with no quality.
-  it("picks an MP4's quality from three segments, and only for an MP4", () => {
+  // the state's, drops a click, leaves the Files line, can be pressed with
+  // no MP4 ticked, or shows with no quality.
+  it("picks an MP4's quality from three segments on the Files line, and only for an MP4", () => {
     renderExport(
       root,
       { ...idle, quality: "high", fileTypes: ["mp4", "gif"] },
@@ -198,6 +226,14 @@ describe("renderExport", () => {
     ]);
     buttons[2]?.click();
     expect(handlers.onQuality).toHaveBeenCalledWith("full");
+    // On the Files line, beside its label, not among the file rows.
+    const head = root
+      .querySelector("[data-export-qualities]")
+      ?.closest(".files-head");
+    expect(head?.querySelector(".section-label")?.textContent).toBe("Files");
+    expect(
+      root.querySelector("[data-file-types] [data-export-qualities]"),
+    ).toBeNull();
 
     // Locked while an export runs, as the file type is.
     renderExport(
@@ -215,11 +251,26 @@ describe("renderExport", () => {
       ].every((b) => b.disabled),
     ).toBe(true);
 
-    for (const state of [
-      { ...idle, quality: "high" as const, fileTypes: ["gif" as const] },
-      { ...idle, quality: null },
-      idle,
-    ]) {
+    // No MP4 ticked: it stays where it is, so no row moves, but locked.
+    renderExport(
+      root,
+      { ...idle, quality: "high", fileTypes: ["gif"] },
+      handlers,
+    );
+    const locked = [
+      ...root.querySelectorAll<HTMLButtonElement>("[data-export-quality]"),
+    ];
+    expect(locked.map((b) => b.disabled)).toEqual([true, true, true]);
+    // The group's name says why, for a screen reader; ticked, it is plain.
+    expect(
+      root.querySelector("[data-export-qualities]")?.getAttribute("aria-label"),
+    ).toBe("Quality applies to the MP4: tick MP4 to choose");
+    renderExport(root, { ...idle, quality: "high" }, handlers);
+    expect(
+      root.querySelector("[data-export-qualities]")?.getAttribute("aria-label"),
+    ).toBe("Quality");
+
+    for (const state of [{ ...idle, quality: null }, idle]) {
       renderExport(root, state, handlers);
       expect(root.querySelector("[data-export-qualities]")).toBeNull();
       // Premise: the panel did draw, so the missing row is not a blank one.
@@ -1126,7 +1177,7 @@ describe("renderExport", () => {
       handlers,
     );
     expect(root.querySelector("[data-size-readout]")?.textContent).toBe(
-      "Source 1512 × 820",
+      "1512 × 820",
     );
     // Review 2026-10-06: the summary repeated the file's size as
     // "1920×1042". Red if the panel names it twice.

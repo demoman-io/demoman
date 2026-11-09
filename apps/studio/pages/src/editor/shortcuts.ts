@@ -411,7 +411,7 @@ export const SHORTCUT_LEGEND: readonly ShortcutEntry[] = [
   {
     group: "Editing",
     combos: [["Delete"]],
-    description: "Delete the selected piece, zoom or mask",
+    description: "Delete the selected piece or zoom",
     action: "deleteSelection",
   },
   {

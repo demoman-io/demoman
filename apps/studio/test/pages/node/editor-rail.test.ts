@@ -102,9 +102,7 @@ describe("renderRail", () => {
       '[data-rail="selection"]',
     );
     expect(selection?.disabled).toBe(true);
-    expect(selection?.title).toBe(
-      "Select a step, zoom or mask on the timeline",
-    );
+    expect(selection?.title).toBe("Select a step or zoom on the timeline");
     renderRail(
       root,
       { rail: "export", panelOpen: true, hasSelection: true },

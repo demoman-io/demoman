@@ -74,6 +74,9 @@ const stateFor = (
   positionMs: 0,
   refusal: null,
   snapping: true,
+  // The Mask lane is hidden in the editor (2026-11-09) but kept; these cases
+  // still cover it. "hides the Mask lane by default" covers the editor's.
+  maskLane: true,
   ...over,
 });
 const pct = (fraction: number) => `${(fraction * 100).toFixed(4)}%`;
@@ -130,6 +133,66 @@ describe("the clip bar", () => {
         row.getAttribute("data-lane"),
       ),
     ).toEqual(["clip", "zoom", "mask"]);
+  });
+
+  // The editor never sets `maskLane` (2026-11-09). Red if a take without a
+  // mask draws the lane, if a take with one hides it (its mask is in the
+  // video and could not be removed), or if either offers to add a mask: the
+  // +, a click on empty track, or the hover ghost that promises one.
+  it("hides the Mask lane by default, and draws it only for a saved mask, with no way to add one", () => {
+    const model = modelOf(hoverScene());
+    expect(model.masks).toEqual([]); // fixture guard
+    renderTimeline(
+      root,
+      model,
+      stateFor(model, { maskLane: undefined }),
+      handlers(),
+    );
+    expect(
+      [...root.querySelectorAll("[data-lane]")].map((row) =>
+        row.getAttribute("data-lane"),
+      ),
+    ).toEqual(["clip", "zoom"]);
+    expect(root.querySelector("[data-add-mask]")).toBeNull();
+
+    const masked = {
+      ...model,
+      masks: [
+        {
+          id: "mask-1",
+          startMs: 0,
+          endMs: model.durationMs / 2,
+          rect: { x: 10, y: 10, width: 100, height: 40 },
+          wholeTake: false,
+          timing: "rendered" as const,
+          startMarker: null,
+          endMarker: null,
+        },
+      ],
+    };
+    expect(masked.masks.length).toBe(1);
+    const h = handlers();
+    renderTimeline(root, masked, stateFor(masked, { maskLane: undefined }), h);
+    expect(
+      [...root.querySelectorAll("[data-lane]")].map((row) =>
+        row.getAttribute("data-lane"),
+      ),
+    ).toEqual(["clip", "zoom", "mask"]);
+    expect(root.querySelectorAll('[data-track="mask"] .seg').length).toBe(1);
+    expect(root.querySelector("[data-add-mask]")).toBeNull();
+    const track = root.querySelector<HTMLElement>('[data-track="mask"]');
+    track?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    track?.dispatchEvent(new MouseEvent("pointermove", { bubbles: true }));
+    expect(h.onGesture).not.toHaveBeenCalled();
+    expect(root.querySelector('[data-track="mask"] [data-ghost]')).toBeNull();
+    // Premise: with the lane on, the same click on the same track adds one.
+    renderTimeline(root, masked, stateFor(masked), h);
+    root
+      .querySelector('[data-track="mask"]')
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(h.onGesture).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "addMask" }),
+    );
   });
 
   it("stamps each beat with its verb, which picks its shape", () => {
@@ -508,6 +571,43 @@ describe("the mask lane", () => {
     expect(model.masks).toEqual([]); // fixture guard
     renderTimeline(root, model, stateFor(model), handlers());
     expect(root.querySelector('[data-lane="mask"]')).not.toBeNull();
+  });
+
+  // Keyboard focus survives the + it was on: `renderTimeline` rebuilds the
+  // lanes on every render, so without the restore the render a press
+  // causes drops the focus to `body`. Covered through main.ts until
+  // 2026-11-09, when the editor hid the lane; here with the lane on.
+  // Red if the restore goes, or takes the focus from anywhere else.
+  it("keeps the focus on the Mask lane's + across a render, and takes it from nowhere else", () => {
+    document.body.append(root);
+    try {
+      const model = modelOf();
+      const add = () =>
+        root.querySelector<HTMLButtonElement>(
+          '[data-lane="mask"] [data-add-mask]',
+        );
+      renderTimeline(root, model, stateFor(model), handlers());
+      const before = add();
+      expect(before, "no + on the Mask lane").not.toBeNull();
+      before?.focus();
+      expect(document.activeElement, "premise: the + has the focus").toBe(
+        before,
+      );
+      renderTimeline(root, model, stateFor(model), handlers());
+      expect(before?.isConnected, "premise: the render rebuilt the +").toBe(
+        false,
+      );
+      expect(document.activeElement).toBe(add());
+
+      const elsewhere = document.createElement("input");
+      document.body.append(elsewhere);
+      elsewhere.focus();
+      renderTimeline(root, model, stateFor(model), handlers());
+      expect(document.activeElement).toBe(elsewhere);
+      elsewhere.remove();
+    } finally {
+      root.remove();
+    }
   });
 
   it("emits addMask at the playhead from the Mask lane's header button", () => {

@@ -1038,10 +1038,13 @@
       /* The track headers' column: the widest header (a 26px disc, an 8px
          gap and "Clip"/"Zoom"/"Mask" at 12px) needs about 70px; the Mask
          header also carries the 22px + (8px more gap), which makes it about
-         94px, and this leaves that room (84px clipped "Mask" to 20px of
+         94px, and 96px leaves that room (84px clipped "Mask" to 20px of
          its 30). It was 108px for part of 2026-09-22, to fit a line of text
-         the Clip header no longer carries. */
-      .timeline { position: relative; --lane-label: 96px; --lane-gap: 10px; }
+         the Clip header no longer carries. With the Mask lane hidden
+         (2026-11-09) the column is 76px, the widest header and a little
+         air, and takes its 96px back only while a Mask lane is drawn. */
+      .timeline { position: relative; --lane-label: 76px; --lane-gap: 10px; }
+      .timeline:has(.lane[data-lane="mask"]) { --lane-label: 96px; }
       /* `ew-resize`, because the ruler is now a scrub surface and a bare
          arrow over it says "nothing here". */
       /* Flat since 2026-09-21: the tinted bed (`--ruler`, a 3-4% wash) and
@@ -1098,12 +1101,12 @@
          it, which read as a caption floating in an empty column. The header
          had a filled cell of its own for part of that day, dropped the same
          day: the disc gives the row its head without a second box beside
-         the track. `align-self: stretch` with the track's 30px as a floor,
+         the track. `align-self: stretch` with the track's 40px as a floor,
          so anything taller put in a header grows the row rather than
          overflowing it. */
       .lane-head {
         align-self: stretch;
-        min-height: 30px;
+        min-height: 40px;
         box-sizing: border-box;
         display: flex;
         flex-direction: column;
@@ -1133,7 +1136,7 @@
         background: var(--track);
         color: var(--glyph);
       }
-      .track { position: relative; height: 30px; background: var(--track); border-radius: 6px; overflow: hidden; }
+      .track { position: relative; height: 40px; background: var(--track); border-radius: 6px; overflow: hidden; }
       .degraded { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, transparent 0 4px, color-mix(in srgb, var(--warn) 45%, transparent) 4px 8px); }
       /* The trim handles, as caps on the Clip block's own ends. `.cut` — a
          pair of overlays shading what the trim removed — went with the bed
@@ -1257,7 +1260,8 @@
       .lane[data-lane="clip"] .tick svg { display: none; }
       /* A block on its lane: the lane's fill, its ink, and the name of the
          thing in semibold. `top`/`bottom: 0` rather than a 3px inset — the
-         track is the block's own height now (30px since 2026-10-07),
+         track is the block's own height now (40px since 2026-11-09, 30px
+         from 2026-10-07),
          so an inset would draw a bed frame around every segment. */
       .seg {
         position: absolute;
@@ -1404,7 +1408,7 @@
          Below the beats (`.tick`, z-index 4), the way an NLE draws markers
          over a clip's edge: stacked above them for part of 2026-09-22, which
          hid the beat an author most often trims to. A beat is at most 14px
-         of the handle's 30px, so the handle is still grabbed above and below
+         of the handle's 40px (30px before 2026-11-09), so it is still grabbed above and below
          it — `editor-shell-layout.test.ts` hit-tests both. */
       .handle, .cap {
         position: absolute;
@@ -1932,18 +1936,37 @@
          stays whole beside it (ruling R20). */
       .inspector .beat .btn-quiet, .inspector .notice .btn-quiet { flex: none; white-space: nowrap; }
       .inspector .beat .nowrap { white-space: nowrap; }
-      .inspector .export-summary { font-weight: 600; font-variant-numeric: tabular-nums; margin: 0; }
+      /* Length, Aspect and Source side by side, each value under its label
+         (2026-11-09; three stacked lines before). The reason a shape does
+         more than crop sits under them. */
+      .inspector .export-facts { display: grid; grid-template-columns: auto auto 1fr; gap: 0 24px; }
+      .inspector .export-fact { display: grid; gap: 2px; min-width: 0; }
+      .inspector .export-fact-value { font-family: var(--font-mono); font-size: var(--row-label); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .inspector .export-fact-reason { margin: 8px 0 0; }
+      /* Words for a screen reader, painted nowhere: Aspect's "Set under the
+         preview", which the eye gets from the value's tooltip. */
+      .inspector .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
       /* Files: one row per file type, its box, its name, and the file it
-         makes (mid-press, how far it has got). MP4's Quality sits under it. */
+         makes (mid-press, how far it has got). MP4's Quality sits on the
+         Files line, at its end. */
       .inspector .file-types { display: grid; }
-      .inspector .file-type { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer; }
+      .inspector .file-type { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 8px 0; cursor: pointer; }
       .inspector .file-type:has(input:disabled) { cursor: default; }
       .inspector .file-type input { margin: 0; }
       .inspector .file-name { white-space: nowrap; }
       .inspector .file-facts, .inspector .file-status { font-family: var(--font-mono); font-size: var(--row-label); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-muted); }
       .inspector .file-status { color: var(--ink); }
-      .inspector .file-quality { display: flex; align-items: center; gap: 8px; padding: 2px 0 6px 24px; }
-      .inspector .export-start { width: 100%; }
+      .inspector .files-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .inspector .file-quality { display: flex; align-items: center; gap: 8px; }
+      /* The panel's sections (2026-11-09, the author found it a wall of
+         text): Files and Repo each open on a hairline, as the editor and
+         the Brand kit page divide theirs, and their names take the facts
+         strip's small grey label type (`.section-label`, after
+         `.control-aside`'s rule, which it overrides for Quality), so a
+         section's name reads as its heading rather than as one more row. */
+      .inspector .files-row,
+      .inspector [data-repo-section] { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 18px; }
+      .inspector .export-start { width: 100%; margin-top: 8px; }
       .inspector .export-progress { width: 100%; accent-color: var(--primary); }
       .notice strong { display: block; margin-bottom: 4px; }
       /* One note per line. `renderTakeNotes` appends a <span> per notice
@@ -2285,7 +2308,7 @@
         margin: var(--row-gap) 0;
       }
       .slider-row { row-gap: calc(var(--row-gap) / 2); }
-      .control-row > :not(.control-label):not(.control-aside),
+      .control-row > :not(.control-label, .section-label, .control-aside),
       .slider-row > input[type="range"] {
         grid-column: 1 / -1;
         min-width: 0;
@@ -2298,6 +2321,16 @@
         color: var(--ink-muted);
         font-variant-numeric: tabular-nums;
       }
+      /* The Export panel's small grey labels, in one place: the facts
+         strip's (Length, Aspect, Source), the section names (see
+         `.files-row` above) and Quality's. A section name has its own class,
+         not `.control-label`: a heading over a section is not a control's
+         label, which stays 14px ink (inspector-rhythm.test.ts). It keeps
+         column 1 of its row, as a control label does, so an aside such as
+         "In repo" stays beside it. */
+      .inspector .export-fact-label,
+      .inspector .section-label,
+      .inspector .file-quality > .control-aside { font-size: 12px; color: var(--ink-muted); }
       .control-actions {
         display: flex;
         flex-wrap: wrap;

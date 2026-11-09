@@ -33,16 +33,15 @@ export function exportLabel(fileTypes: readonly FileType[]): string {
   return ["Export", names.join(" + ")].filter(Boolean).join(" ");
 }
 
-/** "0:24 · 1920 × 1080": one file row's facts, the file it makes. A still
- *  has no length, so it says what it is. */
+/** "1920 × 1080": one file row's facts, the size of the file it makes. The
+ *  length is the panel's Length, once, above the rows (2026-11-09: it was on
+ *  every row too). Stills say they are one per step. */
 export function fileFacts(
   fileType: FileType,
-  durationMs: number,
   target: { width: number; height: number },
 ): string {
-  const head =
-    fileType === "stills" ? "one per step" : formatLength(durationMs);
-  return `${head} · ${target.width} × ${target.height}`;
+  const size = `${target.width} × ${target.height}`;
+  return fileType === "stills" ? `one per step · ${size}` : size;
 }
 
 /** The deliverable's name inside a sentence — the logo notes' "No room for
@@ -63,25 +62,31 @@ export function deliverableTitle(
   }
 }
 
-export function aspectNote(aspect: SceneAspect): string {
+/** The Export panel's Aspect value, and what the shape does to the video
+ *  when it does more than crop (null for 16:9). Where it is set ("under
+ *  the preview") is the value's tooltip, in `renderExport`. */
+export function aspectNote(aspect: SceneAspect): {
+  value: string;
+  reason: string | null;
+} {
   switch (aspect) {
     case "auto":
-      return "Auto, set under the preview — the export takes the source's shape";
+      return { value: "Auto", reason: "The export takes the source's shape." };
     case "9:16":
-      return "9:16, set under the preview — the camera follows each step";
+      return { value: "9:16", reason: "The camera follows each step." };
     case "16:9":
-      return "16:9, set under the preview";
+      return { value: "16:9", reason: null };
   }
 }
 
-/** "Source 1512 × 820" — the captured page (spec 2026-10-06 §3). Each
- *  file's own size is on its row (`fileFacts`); beside those it is the
- *  reason any bars are there. */
+/** "1512 × 820", the Export panel's Source value — the captured page (spec
+ *  2026-10-06 §3). Each file's own size is on its row (`fileFacts`);
+ *  beside those it is the reason any bars are there. */
 export function sizeReadout(recording: {
   width: number;
   height: number;
 }): string {
-  return `Source ${recording.width} × ${recording.height}`;
+  return `${recording.width} × ${recording.height}`;
 }
 
 /** "0:10 · 1920 × 1080" — the header's line beside the take's name: how
