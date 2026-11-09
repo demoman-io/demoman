@@ -1,5 +1,6 @@
 import { lerpVec, type Rect, type Vec } from "../geometry.js";
 import { type CameraKey, frameCamera, sampleCamera } from "./camera.js";
+import { CURSOR_MOTION_EPSILON_PX } from "./timeline.js";
 
 /**
  * The follow spring's step, in output ms. The step is exact for a target
@@ -63,7 +64,8 @@ function departs(keys: CameraKey[], i: number): number {
  *   move has set off) when `cursorAt` is null (follow off, or no pointer
  *   is drawn), when it answers null, and while a drag's button is held:
  *   the drag's zoom is fitted to both its ends, and trailing the hand from
- *   the press would cut off the far one.
+ *   the press would cut off the far one. It stays the aim after the release
+ *   until the hand moves again, since a hand at rest on the drop is in frame.
  * - Each step is the exact solution for a target held over the step, so
  *   it neither drifts nor depends on the step's size.
  */
@@ -106,8 +108,31 @@ export function solveFollow(args: {
       }
       return departures[aimed]?.center ?? landing.center;
     };
-    const targetAt = (t: number): Vec =>
-      (cursorAt !== null && !held(t) ? cursorAt(t) : null) ?? aimAt(t);
+    // A hand resting where a drag let go is still in the drag's fitted
+    // frame: the aim holds until it moves on, or the camera lurches to the
+    // drop as the button lifts (the Sublime board, 2026-11-08).
+    let holding = false;
+    let rest: Vec | null = null;
+    const targetAt = (t: number): Vec => {
+      if (held(t)) {
+        holding = true;
+        return aimAt(t);
+      }
+      const hand = cursorAt?.(t) ?? null;
+      if (holding) {
+        holding = false;
+        rest = hand;
+      }
+      if (
+        hand !== null &&
+        rest !== null &&
+        Math.hypot(hand.x - rest.x, hand.y - rest.y) < CURSOR_MOTION_EPSILON_PX
+      ) {
+        return aimAt(t);
+      }
+      rest = null;
+      return hand ?? aimAt(t);
+    };
 
     let x = landing.center;
     let v = { x: 0, y: 0 };
