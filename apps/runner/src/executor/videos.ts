@@ -8,6 +8,7 @@ import {
   rm,
   rmdir,
   stat,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -160,7 +161,8 @@ export interface VideoStore {
   exclusive<T>(fn: (store: VideoStore) => Promise<T>): Promise<Exclusive<T>>;
 }
 
-const isMissing = (e: unknown) => (e as { code?: string }).code === "ENOENT";
+const codeOf = (e: unknown) => (e as { code?: string }).code;
+const isMissing = (e: unknown) => codeOf(e) === "ENOENT";
 
 /** A video record's id: run-core's `isFlowId`, the one definition the MCP
  *  checks agents' ids against too. */
@@ -196,8 +198,7 @@ const EXCLUSIVE_WAIT_MS = 500;
 /** An older Demoman's folder lock not refreshed for this long (it refreshed
  *  every 30 s) was left by one that died. */
 const LEGACY_STALE_MS = 2 * 60_000;
-
-const codeOf = (e: unknown) => (e as { code?: string }).code;
+const LEGACY_REFRESH_MS = 30_000;
 
 export interface VideoStoreOptions {
   /** Where the lock says what it could not do without failing the call
@@ -305,6 +306,19 @@ export function createVideoStore(
         );
       }
       if (codeOf(taken.error) !== "EISDIR") {
+        // A dead holder's lock whose breaker outlasted the short wait (a
+        // breaker left by a kill is cleared at 10 s, well inside a waiting
+        // call's LOCK_WAIT_MS): `exclusive` answers held, not an error.
+        const breaking = await stat(`${lockPath}.break`).then(
+          () => true,
+          () => false,
+        );
+        if (!wait && breaking) {
+          return {
+            ok: false,
+            held: `another process is clearing ${lockPath}, left by one that died`,
+          };
+        }
         throw unwritable("take", messageOf(taken.error));
       }
       let since: number;
@@ -315,14 +329,21 @@ export function createVideoStore(
         throw unwritable("read", messageOf(error));
       }
       if (Date.now() - since > LEGACY_STALE_MS) {
-        // Only while it is still a folder: rmdir refuses a file, so a pid
-        // lock another process took since is never removed here.
+        // Only while it is still a folder: readdir and rmdir refuse a file,
+        // so a pid lock another process took since is never removed here.
+        // shortcut: an older Demoman that takes the stale folder over between
+        // the stat and the removal loses its lock; only with both versions
+        // running just after one died holding it.
         try {
-          await rm(join(lockPath, "owner"), { force: true });
+          for (const entry of await readdir(lockPath)) {
+            await rm(join(lockPath, entry), { recursive: true, force: true });
+          }
           await rmdir(lockPath);
         } catch (error) {
           const c = codeOf(error);
-          if (c !== "ENOENT" && c !== "ENOTDIR" && c !== "ENOTEMPTY") {
+          // Gone, or a pid lock now: the next pass reads it. Anything else
+          // (ENOTEMPTY, EACCES) would repeat forever, so it is said.
+          if (c !== "ENOENT" && c !== "ENOTDIR") {
             throw unwritable("clear the stale folder", messageOf(error));
           }
         }
@@ -333,9 +354,21 @@ export function createVideoStore(
       if (Date.now() >= deadline) throw timedOut(held);
       await delay(100);
     }
+    // An older Demoman beside this one takes a lock untouched for 2 min as
+    // dead, so a long hold keeps the mtime fresh, as that Demoman did.
+    const refresh = setInterval(() => {
+      const now = new Date();
+      utimes(lockPath, now, now).catch((error: unknown) =>
+        say(
+          `could not refresh ${lockPath} (${messageOf(error)}); an older Demoman running beside this one may take it over`,
+        ),
+      );
+    }, LEGACY_REFRESH_MS);
+    refresh.unref();
     try {
       return { ok: true, value: await fn() };
     } finally {
+      clearInterval(refresh);
       await release().catch((error: unknown) =>
         say(
           error instanceof LockNotMine

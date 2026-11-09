@@ -115,9 +115,10 @@ export async function expireOld(
 ): Promise<
   | ExpiryResult
   | { skipped: "ranRecently"; lastRanAt: string }
-  /** Another call holds the videos lock: nothing was judged, nothing is
-   *  saved, and the next pass runs it. */
-  | { skipped: "lockHeld"; held: string }
+  /** Another call held the videos lock: the pass stopped at the first take
+   *  it could not mark, counting what it did before; nothing is saved, so
+   *  the next pass is not held back. */
+  | ({ skipped: "lockHeld"; held: string } & Tally)
 > {
   const ranAt = now.toISOString();
   try {
@@ -137,7 +138,7 @@ export async function expireOld(
   let result: ExpiryResult;
   try {
     const held = await expire(store, library, now, tally);
-    if (held !== null) return { skipped: "lockHeld", held };
+    if (held !== null) return { skipped: "lockHeld", held, ...tally };
     result = { ranAt, ...tally };
   } catch (error) {
     // What was marked before the failure is said too: those versions are gone.
@@ -167,50 +168,17 @@ export async function expireOld(
 
 type Tally = { expired: number; freedBytes: number; skippedLeased: number };
 
-/** Judged and marked under the videos lock, so a merge or a keep cannot land
- *  between the judging and the mark (DEM-88); the files go after, outside
- *  it, and every take marked is removed even when a later mark failed.
- *  Answers who holds the lock when another does, having done nothing. */
+/** Take by take, as before: judged, marked, then its files removed. Only the
+ *  mark holds the videos lock, so a merge cannot land between its read and
+ *  its write of video.json (DEM-88), and it never waits on the lock: while
+ *  another holds it, the pass stops there and answers who, and the next
+ *  pass goes on from what is not yet marked. */
 async function expire(
   store: VideoStore,
   library: Library,
   now: Date,
   tally: Tally,
 ): Promise<string | null> {
-  const marked: string[][] = [];
-  let failure: string | null = null;
-  try {
-    const r = await store.exclusive((locked) =>
-      mark(locked, library, now, tally, marked),
-    );
-    if (!r.ok) return r.held;
-  } catch (error) {
-    failure = messageOf(error);
-  }
-  for (const [takeId, ...paths] of marked) {
-    for (const path of paths) {
-      try {
-        await rm(path, { recursive: true, force: true });
-      } catch (error) {
-        throw new Error(
-          `could not remove ${path} (${messageOf(error)}); video ${takeId} is marked expired${failure === null ? "" : `; and ${failure}`}`,
-        );
-      }
-    }
-  }
-  if (failure !== null) throw new Error(failure);
-  return null;
-}
-
-/** Marks each take old enough to expire; `marked` gets its id and the
- *  paths to remove, as soon as it is marked. */
-async function mark(
-  store: VideoStore,
-  library: Library,
-  now: Date,
-  tally: Tally,
-  marked: string[][],
-): Promise<void> {
   const ranAt = now.toISOString();
   for (const video of await store.list()) {
     // An unreadable record is listed as such by the videos tool; its takes
@@ -242,10 +210,22 @@ async function mark(
       // Marked before anything goes: a removal that stops part-way leaves a
       // take that says it expired, never files gone with no record. A mark
       // that will not write throws here, and nothing of the take is removed.
-      await store.markExpired(v.takeId, ranAt, bytes);
+      const marked = await store.exclusive((locked) =>
+        locked.markExpired(v.takeId, ranAt, bytes),
+      );
+      if (!marked.ok) return marked.held;
       tally.expired++;
       tally.freedBytes += bytes;
-      marked.push([v.takeId, ...paths]);
+      for (const path of paths) {
+        try {
+          await rm(path, { recursive: true, force: true });
+        } catch (error) {
+          throw new Error(
+            `could not remove ${path} (${messageOf(error)}); video ${v.takeId} is marked expired`,
+          );
+        }
+      }
     }
   }
+  return null;
 }

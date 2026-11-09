@@ -288,6 +288,9 @@ describe("expireOld", () => {
     expect(result).toEqual({
       skipped: "lockHeld",
       held: `this process holds ${lock}`,
+      expired: 0,
+      freedBytes: 0,
+      skippedLeased: 0,
     });
     expect(await exists(join(a.dir, "frames", "k0.jpg"))).toBe(true);
     expect((await store.versions(video))[0]?.expired).toBeNull();

@@ -567,6 +567,9 @@ describe("the library's lock", () => {
     const lock = join(home, "videos", ".lock");
     await mkdir(lock, { recursive: true });
     await writeFile(join(lock, "owner"), '{"token":"t","pid":1}');
+    // Red (second review): clear only `owner` — a folder holding anything
+    // else never empties, and every call spun on it forever.
+    await writeFile(join(lock, ".DS_Store"), "");
     expect(await s.exclusive(async () => "mine")).toEqual({
       ok: false,
       held: `an older Demoman holds ${lock}`,
@@ -577,6 +580,23 @@ describe("the library's lock", () => {
     expect(made.ok).toBe(true);
     // Cleared, and this call's own lock released after.
     await expect(stat(lock)).rejects.toMatchObject({ code: "ENOENT" });
+  }, 10_000);
+
+  // Red (second review): a breaker outlasting exclusive's short wait (one a
+  // killed process left, cleared at 10 s) answered an error, not `held`.
+  it("exclusive on a dead lock whose breaker stays answers held", async () => {
+    const lock = join(home, "videos", ".lock");
+    await mkdir(join(home, "videos"), { recursive: true });
+    await writeFile(lock, `${deadPid()} old-token\n`);
+    await writeFile(`${lock}.break`, "");
+    expect(
+      await createVideoStore(home, createLibrary(home)).exclusive(
+        async () => "mine",
+      ),
+    ).toEqual({
+      ok: false,
+      held: `another process is clearing ${lock}, left by one that died`,
+    });
   });
 });
 
