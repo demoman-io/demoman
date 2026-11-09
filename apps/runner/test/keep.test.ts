@@ -264,6 +264,8 @@ describe("keep, a clean take", () => {
       expect(out.scaleGuess).toContain(
         `1x is a guess: "Add a task" does not say the scale it was recorded at and has no motion frames to read one from`,
       );
+      // Red if it names the file a recipe again (it is a DemoScript).
+      expect(out.scaleGuess).toContain('set "scale" in the DemoScript to it');
       // Red if a line the Studio's sheet shows says "keep" again.
       expect(lines).toContain("add: exporting docs/hero.mp4");
       expect(lines.filter((l) => /\bkeep\b/i.test(l))).toEqual([]);

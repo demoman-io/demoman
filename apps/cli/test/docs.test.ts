@@ -613,7 +613,8 @@ describe("the setup path", () => {
         ".demoman/flows/",
         ".demoman/receipts/",
         "DemoScript",
-        "Commit all three",
+        ".screens",
+        "Commit all four",
       ],
       "get-started/ci": [
         "npx demoman setup --ci",
@@ -790,5 +791,49 @@ describe("the reference pages", () => {
       "DEMOMAN_SECRET_",
     ])
       expect(page, v).toContain(v);
+  });
+});
+
+describe("Studio stills", () => {
+  // Copied from the studio shots lane by scripts/docs-studio-stills.mjs, so
+  // they are redrawn each time that lane runs (RELEASING.md says when).
+  const listed = (): string[] =>
+    [
+      ...readFileSync(
+        new URL("../../../scripts/docs-studio-stills.mjs", import.meta.url),
+        "utf8",
+      ).matchAll(/^\s+"([a-z-]+\.png)":/gm),
+    ].map((m) => m[1] as string);
+  it("every still a page shows is in the copy list and on disk, and every listed one is shown", () => {
+    const shown = new Set(
+      allPages().flatMap((p) =>
+        [
+          ...readDocs(`${p}.mdx`).matchAll(/\/media\/studio\/([a-z-]+\.png)/g),
+        ].map((m) => m[1] as string),
+      ),
+    );
+    // Premise: the pages show stills at all.
+    expect(shown.size).toBeGreaterThanOrEqual(5);
+    expect(new Set(listed())).toEqual(shown);
+    const onDisk = readdirSync(docs("media/studio"));
+    for (const f of shown) expect(onDisk, f).toContain(f);
+  });
+});
+
+describe("videos on the docs", () => {
+  it("every video a page shows is on disk, with the DemoScript that recorded it", () => {
+    const shown = allPages().flatMap((p) =>
+      [...readDocs(`${p}.mdx`).matchAll(/src="\/media\/([a-z-]+)\.mp4"/g)].map(
+        (m) => ({ p, name: m[1] as string }),
+      ),
+    );
+    // Premise: Phone and tablet shows its example.
+    expect(shown.map((s) => s.p)).toContain("guides/phone-and-tablet");
+    const media = readdirSync(docs("media"));
+    const scripts = readdirSync(docs("media/scripts"));
+    for (const { p, name } of shown) {
+      expect(media, `${p}: ${name}.mp4`).toContain(`${name}.mp4`);
+      expect(scripts, `${p}: ${name}.json`).toContain(`${name}.json`);
+    }
   });
 });

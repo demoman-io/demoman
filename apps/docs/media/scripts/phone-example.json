@@ -1,0 +1,10 @@
+{
+  "name": "Filter invoices on a phone",
+  "target": "https://demoman.io/sample/",
+  "device": "phone",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "type", "into": { "stableId": "filter" }, "text": "Tidewell" },
+    { "do": "pause", "ms": 1800 }
+  ]
+}

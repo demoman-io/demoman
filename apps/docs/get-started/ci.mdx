@@ -22,8 +22,6 @@ delivers only the videos whose picture changed.
 npx demoman setup --ci
 ```
 
-{/* Terminal: setup --ci's plan and its watch of the first run */}
-
 Setup records your flows once from a clean checkout, then shows one plan and
 asks once. Nothing is written to your checkout or to GitHub before you
 confirm. The plan names:
@@ -34,6 +32,12 @@ confirm. The plan names:
 | Route (`--route`) | `pr`: open a pull request with the changed videos (the default). `main`: commit them to the branch |
 | Files | `.github/workflows/demoman.yml`, `.demoman/app.json`, and any flow not yet on the default branch |
 | Secrets | Each demo account's secret, by name only |
+
+The Studio offers the same plan after an add, in its Add to repo sheet:
+
+<Frame>
+  <img src="/media/studio/add-to-repo-ci.png" alt="The Add to repo sheet after an add: the four files it wrote, then the CI plan with its trigger, route and Open pull request" />
+</Frame>
 
 On your confirmation it sets the secrets, opens a pull request titled "Set up
 Demoman", and watches its first run until it passes or fails.

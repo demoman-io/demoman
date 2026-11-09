@@ -26,8 +26,11 @@ and `scripts/docs-demoscript.test.mjs` are its tests. The design is
   `<SetupPath step={n} />` and ending on a `<Card>` to the next. Reference
   material lives in Reference, linked from the step that needs it.
 - **Media.** Terminal work is drawn with `<Terminal>` from real output,
-  never invented. Video shows how to use Demoman (the Studio), never what it
-  can make.
+  never invented. The Studio is shown in stills from the studio shots lane,
+  copied by `scripts/docs-studio-stills.mjs` and redrawn each release (a run
+  cannot open the Studio: its entry link is single-use). A video is an
+  example of output only where output is the subject, and its DemoScript
+  sits in `media/scripts/` under the same name so it can be recorded again.
 - **Pins.** Every MCP block on the site runs `demoman@latest`, so it
   updates itself; only the License page's links name a version, and that
   one equals `version` in `apps/cli/package.json` (`docs.test` holds both).

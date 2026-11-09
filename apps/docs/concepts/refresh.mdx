@@ -3,6 +3,8 @@ title: "Refresh"
 description: "How Demoman records the repo's flows again and decides which videos changed."
 ---
 
+import { Terminal } from "/snippets/terminal.jsx";
+
 ```bash
 npx demoman refresh
 ```
@@ -12,7 +14,14 @@ agent, and replaces a flow's exports only when the picture changed. CI runs it
 on the trigger you chose in [Keep videos current](/get-started/ci); you can
 run it locally too.
 
-{/* Terminal: refresh's lines */}
+<Terminal
+  title="~/nylon"
+  lines={[
+    "$ npx demoman refresh add-customer filter-invoices --base-url https://demoman.io",
+    "add-customer: unchanged: videos/add-customer.mp4: at most 0.0000% sharply and 0.0000% faintly of the picture changed, over 1 of 8 screens",
+    "filter-invoices: unchanged: videos/filter-invoices.mp4: at most 0.0000% sharply and 0.0000% faintly of the picture changed, over 1 of 3 screens",
+  ]}
+/>
 
 ## What each line means
 

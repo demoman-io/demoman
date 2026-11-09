@@ -113,12 +113,12 @@ export function pathOf(f: SheetFields): string {
 /** What each file an add wrote is, from where it lives. */
 export function writtenLabel(
   path: string,
-): "Video" | "Recipe" | "Receipt" | "Screens" {
+): "Video" | "DemoScript" | "Receipt" | "Screens" {
   if (
     path.startsWith(`${FLOWS_DIR}/`) ||
     path.startsWith(`${LEGACY_FLOWS_DIR}/`)
   )
-    return "Recipe";
+    return "DemoScript";
   if (path.startsWith(`${RECEIPT_DIR}/`))
     return path.endsWith(".json") ? "Receipt" : "Screens";
   return "Video";
@@ -126,7 +126,7 @@ export function writtenLabel(
 
 const base = (file: string): string => file.split("/").pop() ?? file;
 
-/** Remove from repo's question: the recipe that goes, the exports that stay. */
+/** Remove from repo's question: the DemoScript that goes, the exports that stay. */
 export function removeQuestion(
   video: VideoSummary,
   file: string,

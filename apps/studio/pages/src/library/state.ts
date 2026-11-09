@@ -93,7 +93,7 @@ export function commitLabel(code: LibraryRow["filmedCode"]): string | null {
 export function keptSentence(video: VideoSummary): string | null {
   if (video.kept === null) return null;
   if ("unknown" in video.kept) {
-    return `"${video.name}" is in the repo, but its recipe could not be read (${video.kept.unknown}); only this machine's videos are deleted.`;
+    return `"${video.name}" is in the repo, but its DemoScript could not be read (${video.kept.unknown}); only this machine's videos are deleted.`;
   }
   return `"${video.name}" stays in the repo (${video.kept.file}); only this machine's videos are deleted.`;
 }

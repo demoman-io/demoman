@@ -676,7 +676,7 @@ export function createRoutes(o: {
           const cleared = await videos.setKept(id, null);
           if (cleared.ok)
             log(
-              `studio: flow ${id}'s recipe is no longer in ${rec.kept.root}; its mark was cleared`,
+              `studio: flow ${id}'s DemoScript is no longer in ${rec.kept.root}; its mark was cleared`,
             );
           return cleared;
         }

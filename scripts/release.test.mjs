@@ -85,3 +85,12 @@ test("npm comes before the plugin, with the right dist-tags", () => {
   // Every step runs from the repo root: none leaves the shell somewhere else.
   for (const s of authorSteps("0.8.0")) assert.doesNotMatch(s, /^\s+cd /m, s);
 });
+
+test("the docs' Studio stills are redrawn before main is pushed", () => {
+  const steps = authorSteps("0.8.0");
+  const stills = steps.findIndex((s) => s.includes("node scripts/docs-studio-stills.mjs"));
+  const push = steps.findIndex((s) => s.includes("git push origin main"));
+  assert.ok(stills >= 0, "no step redraws the stills");
+  assert.ok(stills < push, "the stills are redrawn after main is pushed");
+  assert.match(steps[stills], /studio-shots\.test\.ts/);
+});

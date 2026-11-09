@@ -14,7 +14,7 @@ const { chromium } = require("playwright");
 
 const docsDir = new URL("../apps/docs/", import.meta.url).pathname;
 const outDir = `${docsDir}.shots`;
-const PAGES = ["index", "get-started/first-video", "get-started/add-to-repo", "reference/add", "studio/editing"];
+const PAGES = ["index", "get-started/first-video", "get-started/add-to-repo", "reference/add", "studio/editing", "guides/phone-and-tablet", "concepts/refresh"];
 const SIZES = [
   { name: "desktop", width: 1280, height: 800 },
   { name: "phone", width: 390, height: 844 },

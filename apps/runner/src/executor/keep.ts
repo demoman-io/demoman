@@ -765,7 +765,7 @@ async function buildKept(
     filmedScale(bundle, scene.meta.capture.viewport.width);
   const scaleGuess =
     scale === null
-      ? `1x is a guess: "${video.name}" does not say the scale it was recorded at and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the recipe file to it, or the first refresh replaces a video that did not change`
+      ? `1x is a guess: "${video.name}" does not say the scale it was recorded at and has no motion frames to read one from, so refresh records it at 1x — if it was recorded at another scale, set "scale" in the DemoScript to it, or the first refresh replaces a video that did not change`
       : null;
 
   // A file the script names, by its repo path: copied in under `folder`
