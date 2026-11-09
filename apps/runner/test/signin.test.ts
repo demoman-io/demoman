@@ -218,20 +218,23 @@ it("keeps the session file when it says not signed in", async () => {
   expect((await stat(path)).isFile(), lines.join("\n")).toBe(true);
 });
 
-// DEM-101: the check comes before the save, so a sign-in that did not work
-// never costs the site a session that did.
-it("leaves an earlier session byte-for-byte when the new one is not signed in", async () => {
-  const store = createSessionStore(home);
-  const earlier: SessionFile = {
-    sessionVersion: 1,
-    site: "localhost",
-    savedAt: "2026-11-01T00:00:00.000Z",
-    refreshedAt: null,
-    startUrl: `${app.url}/app`,
-    signInUrl: `${app.url}/login`,
-    state: { cookies: [], origins: [] },
-  };
-  const path = await store.save(earlier);
+/** A manual session for localhost, saved before the sign-in under test. Its
+ *  state is empty: these tests ask what happens to the file, not whether it
+ *  was signed in. */
+const earlierSession = (): SessionFile => ({
+  sessionVersion: 1,
+  site: "localhost",
+  savedAt: "2026-11-01T00:00:00.000Z",
+  refreshedAt: null,
+  startUrl: `${app.url}/app`,
+  signInUrl: `${app.url}/login`,
+  state: { cookies: [], origins: [] },
+});
+
+// DEM-101: the check comes before the save, so a signed-out verdict never
+// replaces the site's earlier session file.
+it("leaves an earlier session file byte-for-byte when the new one is not signed in", async () => {
+  const path = await createSessionStore(home).save(earlierSession());
   const before = await readFile(path, "utf8");
   const lines: string[] = [];
   const code = await signin(`${app.url}/app`, {
@@ -244,6 +247,34 @@ it("leaves an earlier session byte-for-byte when the new one is not signed in", 
   expect(await readFile(path, "utf8")).toBe(before);
   expect(lines.at(-1)).toBe(
     `demoman signin: not saved, so the earlier session in ${path} is kept: ${app.url}/app still lands on ${app.url}/login?return_to=%2Fapp: not signed in`,
+  );
+}, 120_000);
+
+// A check that could not run says nothing against the new sign-in, which may
+// be replacing an expired session: it is saved, and the answer says why
+// it was not checked (review of DEM-101).
+it("saves over an earlier session, saying so, when the check browser will not start", async () => {
+  const path = await createSessionStore(home).save(earlierSession());
+  const before = await readFile(path, "utf8");
+  const lines: string[] = [];
+  let launches = 0;
+  const code = await signin(`${app.url}/app`, {
+    home,
+    headless: true,
+    out: collect(lines),
+    enter: enterWhen(() => true),
+    launchFn: async (o) => {
+      launches += 1;
+      if (launches === 2) throw new Error("no browser for the check");
+      const { launch } = await import("../src/launch.js");
+      return launch(o);
+    },
+  });
+  expect(code, lines.join("\n")).toBe(1);
+  expect(launches, "the window, then the check that would not start").toBe(2);
+  expect(await readFile(path, "utf8")).not.toBe(before);
+  expect(lines.at(-1)).toBe(
+    `demoman signin: saved ${path}, but a browser to check it would not start`,
   );
 }, 120_000);
 

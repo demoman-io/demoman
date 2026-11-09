@@ -340,7 +340,7 @@ describe("parseSkeleton", () => {
     expect(out.ok).toBe(false);
     if (!out.ok)
       expect(out.error).toBe(
-        "script.json: skeletonVersion is 3; this Demoman reads 1 and 2 — it was written by a newer Demoman; update Demoman",
+        "skeletonVersion is 3; this Demoman reads 1 and 2 — it was written by a newer Demoman; update Demoman",
       );
   });
 });

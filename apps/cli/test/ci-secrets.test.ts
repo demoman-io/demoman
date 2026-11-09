@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AppSpec, FLOWS_DIR } from "@demoman/run-core";
@@ -188,6 +188,24 @@ describe("localValues", () => {
       ["DEMOMAN_SECRET_SELLER_ORIGIN", ORIGIN],
     ]);
     expect(r.missing).toEqual(["OTHER"]);
+  });
+
+  // DEM-104: read, and said, when other users can read it.
+  it("says when the secrets.env it read is open to other users", async () => {
+    const root = await repo({});
+    const path = join(root, ".demoman", "secrets.env");
+    await writeFile(path, "DEMOMAN_SECRET_SELLER=file-password\n");
+    const needed = [
+      { name: "DEMOMAN_SECRET_SELLER", for: "account" as const, why: "x" },
+    ];
+    await chmod(path, 0o644);
+    const r = await localValues(root, needed, {});
+    expect(r.values.get("DEMOMAN_SECRET_SELLER")).toBe("file-password");
+    expect(r.exposed).toBe(
+      `${path} is readable by other users (mode 0644), and it holds passwords — run: chmod 600 ${path}`,
+    );
+    await chmod(path, 0o600);
+    expect((await localValues(root, needed, {})).exposed).toBeUndefined();
   });
 
   it("refuses to read a secrets.env git does not ignore", async () => {

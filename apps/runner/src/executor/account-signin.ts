@@ -31,6 +31,7 @@ import {
   type SecretSweep,
 } from "./secrets-env.js";
 import {
+  SESSION_VERSION,
   SessionError,
   type SessionFile,
   type SessionStore,
@@ -507,7 +508,7 @@ export async function signInAccount(
 
       // 6. Settle, then prove it at checkUrl.
       const candidate: SessionFile = {
-        sessionVersion: 1,
+        sessionVersion: SESSION_VERSION,
         site: site.site,
         savedAt: now().toISOString(),
         refreshedAt: null,

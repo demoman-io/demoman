@@ -149,7 +149,11 @@ export function parseSkeleton(
   const v1 = raw.skeletonVersion === 1;
   if (!v1 && raw.skeletonVersion !== SKELETON_VERSION) {
     return no(
-      `script.json: ${unreadVersion("skeletonVersion", raw.skeletonVersion, [1, SKELETON_VERSION])}`,
+      // No file name: the reader (library.ts) prefixes the path.
+      unreadVersion("skeletonVersion", raw.skeletonVersion, [
+        1,
+        SKELETON_VERSION,
+      ]),
     );
   }
   if (typeof raw.name !== "string") return no("script.json has no name");

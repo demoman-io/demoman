@@ -669,6 +669,23 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     expect(p.secrets).toEqual([{ name: "PIN", status: "set" }]);
   });
 
+  // DEM-104: the warning reaches the plan's lines, which setup prints.
+  it("says in its lines when secrets.env is open to other users", async () => {
+    const f = fakes({
+      needed: [account("DEMOMAN_SECRET_SELLER")],
+      local: {
+        values: new Map([["DEMOMAN_SECRET_SELLER", "long-enough-pw"]]),
+        missing: [],
+        tooShort: [],
+        exposed: "secrets.env is readable by other users (mode 0644)",
+      },
+    });
+    const p = await okPlan(await repo(), f);
+    expect(planLines(p)).toContain(
+      "secrets.env is readable by other users (mode 0644)",
+    );
+  });
+
   it("an unread secrets.env is said with the missing names", async () => {
     const f = fakes({
       needed: [account("DEMOMAN_SECRET_SELLER")],

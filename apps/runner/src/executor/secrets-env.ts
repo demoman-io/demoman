@@ -15,6 +15,7 @@ import { lstat, open } from "node:fs/promises";
 import { join } from "node:path";
 import { messageOf } from "../report.js";
 import { execGit } from "./repo.js";
+import { octal, exposed as openToOthers } from "./sessions.js";
 
 export const SECRET_PREFIX = "DEMOMAN_SECRET_";
 /** `${SECRET_PREFIX}NAME${SECRET_ORIGIN_SUFFIX}` holds the site NAME's
@@ -145,10 +146,9 @@ export async function readSecretsFile(dir: string): Promise<SecretsSource> {
     const value = (m[2] ?? "").replace(/^(["'])(.*)\1$/, "$2");
     values.set(m[1] as string, value);
   }
-  const exposed =
-    process.platform !== "win32" && (mode & 0o077) !== 0
-      ? `${path} is readable by other users (mode ${(mode & 0o777).toString(8).padStart(4, "0")}), and it holds passwords — run: chmod 600 ${path}`
-      : undefined;
+  const exposed = openToOthers(mode)
+    ? `${path} is readable by other users (mode ${octal(mode)}), and it holds passwords — run: chmod 600 ${path}`
+    : undefined;
   return {
     path,
     status: git === "ignored" ? "ignored" : "notGit",

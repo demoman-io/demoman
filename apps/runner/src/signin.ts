@@ -19,6 +19,7 @@ import {
   createSessionStore,
   filesFor,
   mergeStates,
+  SESSION_VERSION,
   type SessionFile,
   samePage,
   siteOf,
@@ -178,7 +179,7 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
       return 1;
     }
     file = {
-      sessionVersion: 1,
+      sessionVersion: SESSION_VERSION,
       site,
       savedAt: (deps.now?.() ?? new Date()).toISOString(),
       refreshedAt: null,
@@ -192,10 +193,12 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
 
   // Checked before it is saved: a sign-in that did not work must not read as
   // one that did, nor replace a session for this site that did (DEM-101).
+  // Only a signed-out verdict keeps the earlier file: a check that could not
+  // run says nothing against the new one, which may replace an expired one.
   const failure = await check(file, url, inPlace, start);
-  if (failure !== null && existing !== undefined) {
+  if (failure?.signedOut === true && existing !== undefined) {
     say(
-      `not saved, so the earlier session in ${store.pathOf(site)} is kept: ${failure}`,
+      `not saved, so the earlier session in ${store.pathOf(site)} is kept: ${failure.why}`,
     );
     return 1;
   }
@@ -209,23 +212,24 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
     return 1;
   }
   if (failure !== null) {
-    say(`saved ${path}, but ${failure}`);
+    say(`saved ${path}, but ${failure.why}`);
     return 1;
   }
   out(`Signed in to ${site}; saved ${path}`);
   return 0;
 }
 
-/** Whether `file` is signed in, in a fresh headless browser: null when it is,
- *  else why not, or why it could not be told. */
+/** Whether `file` is signed in, in a fresh headless browser: null when it is;
+ *  else why not (`signedOut`), or why it could not be told. */
 async function check(
   file: SessionFile,
   url: string,
   inPlace: boolean,
   start: (headless: boolean) => Promise<Launched | null>,
-): Promise<string | null> {
+): Promise<{ why: string; signedOut: boolean } | null> {
   const browser = await start(true);
-  if (browser === null) return "a browser to check it would not start";
+  if (browser === null)
+    return { why: "a browser to check it would not start", signedOut: false };
   try {
     await browser.context.setStorageState(file.state as StateArg);
     await browser.page.goto(url, { waitUntil: "load" });
@@ -242,15 +246,21 @@ async function check(
       stillInPlace ||
       landingVerdict(facts, [file], "").kind === "signedOut"
     ) {
-      return `${url} still lands on ${facts.landedUrl}: not signed in${
-        stillInPlace
-          ? " — give signin a page behind the login (the app's home, say), not the sign-in page itself"
-          : ""
-      }`;
+      return {
+        why: `${url} still lands on ${facts.landedUrl}: not signed in${
+          stillInPlace
+            ? " — give signin a page behind the login (the app's home, say), not the sign-in page itself"
+            : ""
+        }`,
+        signedOut: true,
+      };
     }
     return null;
   } catch (error) {
-    return `checking it failed (${messageOf(error)}), so it may not be signed in`;
+    return {
+      why: `checking it failed (${messageOf(error)}), so it may not be signed in`,
+      signedOut: false,
+    };
   } finally {
     await browser.close();
   }
