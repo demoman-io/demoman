@@ -1023,7 +1023,7 @@ describe("the files route", () => {
     expect(by(otherFile)).toMatchObject({
       outcome: "failed",
       detail: expect.stringMatching(
-        /^deliver files needs --out-dir .*setup --ci --artifact/,
+        /^deliver files needs --out-dir .*delete \.github\/workflows\/demoman\.yml .*setup --ci` again, which turns the artifact on/,
       ),
     });
     expect(by(FILE)?.outcome, JSON.stringify(videos)).toBe("uncompared");

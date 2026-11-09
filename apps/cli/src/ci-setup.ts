@@ -6,8 +6,11 @@ import { join } from "node:path";
 import {
   APP_FILE,
   type AppSpec,
+  FLOWS_DIR,
   type KeptVideo,
+  LEGACY_FLOWS_DIR,
   parseApp,
+  parseKept,
   parseReceipt,
   RECEIPT_DIR,
   scriptDigest,
@@ -65,6 +68,7 @@ import {
   SECRETS_IGNORE,
   withLines,
 } from "./gitignore-secrets.js";
+import { listed } from "./setup.js";
 
 export type TriggerOffer = {
   trigger: CiOptions["trigger"];
@@ -202,9 +206,9 @@ export type CiPlan = {
   /** Whether refresh writes the files flows to demoman-out and uploads it.
    *  Decided here, once (DEM-99): the workflow reads it and never asks. */
   artifact: boolean;
-  /** The files flows that turned the artifact on when it was not asked
-   *  for; empty when it was asked for or is off. */
-  artifactFor: string[];
+  /** The flows CI will refresh that deliver files, which need the
+   *  artifact: the default branch's copy where it has one. */
+  filesFlows: string[];
   /** null only for a deployment trigger without app.json. */
   app: { spec: AppSpec; source: PlanAppSource; text: string } | null;
   /** A deployment trigger's environment and its URL now; CI records the
@@ -689,16 +693,48 @@ async function makePlan(
         : "keep",
   }));
 
+  // The files: the workflow, app.json unless committed as is, and each flow
+  // not yet on the default branch.
+  const base = `${facts.remote}/${facts.defaultBranch}`;
+  // Only the flow folders: the whole tree can exceed git's output buffer.
+  const tree = await deps.git(
+    ["ls-tree", "-r", "--name-only", base, "--", ".demoman"],
+    root,
+  );
+  // shortcut: an unreadable default branch reads as empty, so every flow is
+  // listed; files identical to the base add nothing to the commit.
+  const onDefault = new Set(tree.code === 0 ? tree.stdout.split("\n") : []);
+
   // DEM-99: refresh delivers a files flow only into --out-dir, which the
-  // workflow gives with the artifact alone; a files flow turns it on.
-  const artifactFor =
-    choices.artifact === true
-      ? []
-      : flows.filter((f) => f.kept.deliver === "files").map((f) => f.kept.name);
+  // workflow gives with the artifact alone. Decided here, from the flows CI
+  // will refresh: the base's copy of each flow it has (the pull request
+  // leaves those out, and one deleted here is still there), the working
+  // tree's of the rest.
+  const filesFlows = flows
+    .filter((f) => !onDefault.has(f.file) && f.kept.deliver === "files")
+    .map((f) => f.kept.name);
+  for (const file of onDefault) {
+    const inFlows = [FLOWS_DIR, LEGACY_FLOWS_DIR].some(
+      (d) =>
+        file.startsWith(`${d}/`) && !file.slice(d.length + 1).includes("/"),
+    );
+    if (!inFlows || !file.endsWith(".json")) continue;
+    const text = await shown(deps.git, root, base, file);
+    const parsed = text === null ? null : parseKept(text, `${base}:${file}`);
+    // shortcut: a base flow that cannot be read or parsed is not counted;
+    // CI's refresh fails it by name.
+    if (parsed?.ok && parsed.kept.deliver === "files")
+      filesFlows.push(parsed.kept.name);
+  }
+  if (choices.artifact === false && filesFlows.length > 0)
+    return stop(
+      "invalidArgs",
+      `the artifact was turned off, and ${listed(filesFlows)} deliver${filesFlows.length === 1 ? "s" : ""} files, which a CI refresh writes only into the artifact; nothing was written. Plan again without artifact: false`,
+    );
   const shape = {
     trigger,
     route,
-    artifact: choices.artifact === true || artifactFor.length > 0,
+    artifact: choices.artifact === true || filesFlows.length > 0,
     app,
     secrets,
     repo: {
@@ -714,17 +750,6 @@ async function makePlan(
     return stop("workflowRefused", messageOf(e));
   }
 
-  // The files: the workflow, app.json unless committed as is, and each flow
-  // not yet on the default branch.
-  const base = `${facts.remote}/${facts.defaultBranch}`;
-  // Only the flow folders: the whole tree can exceed git's output buffer.
-  const tree = await deps.git(
-    ["ls-tree", "-r", "--name-only", base, "--", ".demoman"],
-    root,
-  );
-  // shortcut: an unreadable default branch reads as empty, so every flow is
-  // listed; files identical to the base add nothing to the commit.
-  const onDefault = new Set(tree.code === 0 ? tree.stdout.split("\n") : []);
   // shortcut: a commit that cannot be read says nothing about the difference.
   const [head, tip] = await Promise.all(
     ["HEAD", base].map(async (ref) => {
@@ -838,7 +863,7 @@ async function makePlan(
   const made: CiPlan = {
     root,
     ...shape,
-    artifactFor,
+    filesFlows,
     deployment,
     offers,
     check: checked,
@@ -931,13 +956,6 @@ function shownFiles(files: string[]): string[] {
   return out;
 }
 
-const ARTIFACT_SAID =
-  "Uploads the files flows' videos as the demoman-videos artifact";
-const andList = (xs: string[]) =>
-  xs.length < 2
-    ? xs.join("")
-    : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`;
-
 const BY_HAND =
   "Run it any time from the repository's Actions tab (Demoman → Run workflow).";
 
@@ -962,9 +980,9 @@ function planSaid(p: CiPlan) {
     artifact: !p.artifact
       ? []
       : [
-          p.artifactFor.length === 0
-            ? `${ARTIFACT_SAID}.`
-            : `${ARTIFACT_SAID}: turned on because ${andList(p.artifactFor)} deliver${p.artifactFor.length === 1 ? "s" : ""} files, which a CI refresh writes only there.`,
+          p.filesFlows.length === 0
+            ? "Uploads the demoman-videos artifact, though no repo flow delivers files yet."
+            : `Uploads the files flows' videos as the demoman-videos artifact, which ${listed(p.filesFlows)} need${p.filesFlows.length === 1 ? "s" : ""}: a CI refresh writes files only there.`,
         ],
     app:
       p.deployment !== null

@@ -221,7 +221,13 @@ describe("the ci tool", () => {
     const a = await t.call({ trigger: "daily" });
     expect(a).toMatchObject({ outcome: "plan", plan: { artifact: true } });
     expect(a.lines).toContain(
-      "Uploads the files flows' videos as the demoman-videos artifact: turned on because Checkout delivers files, which a CI refresh writes only there.",
+      "Uploads the files flows' videos as the demoman-videos artifact, which Checkout needs: a CI refresh writes files only there.",
+    );
+    // An explicit no is refused, never overruled; red if ci drops false.
+    const no = await t.call({ trigger: "daily", artifact: false });
+    expect(no).toMatchObject({ reason: "invalidArgs" });
+    expect(String(no.detail)).toContain(
+      "the artifact was turned off, and Checkout delivers files",
     );
   });
 

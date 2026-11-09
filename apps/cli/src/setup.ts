@@ -92,8 +92,8 @@ export interface SetupDeps {
    *  could not read it. */
   skill: { text: string } | { error: string };
   exists(path: string): boolean;
-  /** A folder's entries; none when it cannot be read. */
-  names(dir: string): string[];
+  /** A folder's entries; none when it is not there. */
+  names(dir: string): { names: string[] } | { error: string };
   readText(
     path: string,
   ): { text: string } | { missing: true } | { error: string };
@@ -266,8 +266,7 @@ export const AGENT_FLAGS: ReadonlyArray<[string, AgentName]> = [
 
 /** "Claude Code, Codex, Cursor and OpenCode", from AGENT_FLAGS (DEM-94). */
 const agentList = (): string => {
-  const names = AGENT_FLAGS.map(([, name]) => name);
-  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+  return listed(AGENT_FLAGS.map(([, name]) => name));
 };
 
 /** Answers given on the command line: each one is a question not asked. */
@@ -785,21 +784,34 @@ const codex: Wire = (d) => {
   );
   return result("partial");
 };
-/** Where the Cursor app may be installed. On Linux (DEM-72): the .deb's
- *  and .rpm's folder, an unpacked one under /opt, or an AppImage. Never
- *  ~/.cursor: setup writes that folder itself. */
-const cursorApps = (d: SetupDeps): string[] =>
-  d.platform === "linux"
-    ? [
-        "/usr/share/cursor",
-        "/opt/Cursor",
-        "/opt/cursor",
-        ...d
-          .names(`${d.home}/Applications`)
-          .filter((n) => /^cursor.*\.appimage$/i.test(n))
-          .map((n) => `${d.home}/Applications/${n}`),
-      ]
-    : ["/Applications/Cursor.app", `${d.home}/Applications/Cursor.app`];
+/** Whether the Cursor app is installed, and each folder setup could not
+ *  look in. On Linux (DEM-72): the .deb's and .rpm's folder, one unpacked
+ *  under /opt, a Cursor AppImage in a usual folder, or a `cursor` command.
+ *  Never ~/.cursor: setup writes that folder itself. The Linux app reads
+ *  the same ~/.cursor/mcp.json. */
+function cursorApp(d: SetupDeps): { found: boolean; unread: string[] } {
+  const installed = { found: true, unread: [] as string[] };
+  if (d.platform !== "linux")
+    return {
+      found: [
+        "/Applications/Cursor.app",
+        `${d.home}/Applications/Cursor.app`,
+      ].some((p) => d.exists(p)),
+      unread: [],
+    };
+  if (
+    ["/usr/share/cursor", "/opt/Cursor", "/opt/cursor"].some((p) => d.exists(p))
+  )
+    return installed;
+  const unread: string[] = [];
+  for (const dir of ["Applications", "AppImages", ".local/bin"]) {
+    const got = d.names(`${d.home}/${dir}`);
+    if ("error" in got) unread.push(`~/${dir} (${got.error})`);
+    else if (got.names.some((n) => /^cursor.*\.appimage$/i.test(n)))
+      return installed;
+  }
+  return { found: !d.run("cursor", ["--version"]).notFound, unread };
+}
 /** The commands that may be Cursor's agent CLI. */
 const cursorClis = (d: SetupDeps): string[] => [
   "agent",
@@ -814,7 +826,7 @@ export function foundAgents(d: SetupDeps): AgentName[] {
   return [
     ...(there("claude") ? (["Claude Code"] as const) : []),
     ...(there("codex") ? (["Codex"] as const) : []),
-    ...(cursorApps(d).some((p) => d.exists(p)) || cursorClis(d).some(there)
+    ...(cursorApp(d).found || cursorClis(d).some(there)
       ? (["Cursor"] as const)
       : []),
     ...(there("opencode") ? (["OpenCode"] as const) : []),
@@ -834,7 +846,7 @@ const cursor: Wire = (d) => {
     state,
   });
   const again = `run \`npx ${PACKAGE_NAME}@${d.version} setup\` again`;
-  const app = cursorApps(d).some((p) => d.exists(p));
+  const { found: app, unread } = cursorApp(d);
   // `agent` is a generic name: only one that answers with Cursor's dated
   // version is Cursor's. The other two are usually Cursor's, so one that is
   // there but does not answer is said, not taken for absence; it fails
@@ -861,7 +873,9 @@ const cursor: Wire = (d) => {
     if (!app) return result("failed");
   }
   if (!app && cli === null) {
-    d.say("Cursor: not installed");
+    d.say(
+      `Cursor: not installed${unread.length === 0 ? "" : ` (setup could not look in ${unread.join("; ")})`}`,
+    );
     return result("absent");
   }
   if (!canWriteEntry(d, "Cursor", again)) return result("failed");
@@ -1100,7 +1114,7 @@ const opencode: Wire = (d) => {
 };
 
 /** "A", "A and B", "A, B and C". */
-const listed = (names: string[]): string =>
+export const listed = (names: string[]): string =>
   names.length < 2
     ? names.join("")
     : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;

@@ -347,7 +347,9 @@ export async function refreshKept(
     if (toFolder && args.outDir === undefined) {
       failed(
         who,
-        "deliver files needs --out-dir (the workflow that `npx demoman setup --ci --artifact` writes passes one)",
+        // DEM-99: setup turns the artifact on for the files flows it sees; one
+        // added later lands here, so this names the way out.
+        "deliver files needs --out-dir <folder>; Demoman's CI workflow passes one only with its artifact, so delete .github/workflows/demoman.yml on the default branch and run `npx demoman setup --ci` again, which turns the artifact on for a files flow",
       );
       continue;
     }

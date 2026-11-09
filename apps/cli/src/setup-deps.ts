@@ -372,12 +372,11 @@ export function realSetupDeps(
     skill: readSkill(distDir),
     exists: (path) => existsSync(path),
     names: (dir) => {
-      // shortcut: an unreadable folder reads as empty, as exists() reads a
-      // path it cannot stat as absent.
       try {
-        return readdirSync(dir);
-      } catch {
-        return [];
+        return { names: readdirSync(dir) };
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        return err.code === "ENOENT" ? { names: [] } : { error: err.message };
       }
     },
     readText: readTextFile,

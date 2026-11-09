@@ -57,6 +57,7 @@ function machine(
     "agent --version": NOT_FOUND,
     "/Users/u/.local/bin/agent --version": NOT_FOUND,
     "cursor-agent --version": NOT_FOUND,
+    "cursor --version": NOT_FOUND,
     "opencode --version": NOT_FOUND,
     ...over.answers,
   };
@@ -104,10 +105,11 @@ function machine(
     },
     skill: { text: SKILL },
     exists: (p) => files.has(p),
-    names: (dir) =>
-      [...files.keys()]
+    names: (dir) => ({
+      names: [...files.keys()]
         .filter((p) => dirname(p) === dir)
         .map((p) => basename(p)),
+    }),
     readText: (p) => {
       const text = files.get(p);
       return text === undefined ? { missing: true } : { text };
@@ -1223,6 +1225,8 @@ describe("setup", () => {
       "/opt/cursor",
       "/home/u/Applications/Cursor-1.7.52-x86_64.AppImage",
       "/home/u/Applications/cursor.AppImage",
+      "/home/u/AppImages/Cursor-1.7.52-x86_64.AppImage",
+      "/home/u/.local/bin/cursor.appimage",
     ])("finds the Linux app at %s and wires it", async (at) => {
       const m = onLinux();
       m.files.set(at, "");
@@ -1233,6 +1237,35 @@ describe("setup", () => {
       ).toEqual(cursorEntry("/opt/node/bin"));
       expect(m.out()).toContain(
         "Cursor: Demoman is connected and updates itself, but in the Cursor app",
+      );
+    });
+
+    it("finds the Linux app by its cursor command", async () => {
+      const m = machine({
+        platform: "linux",
+        arch: "x64",
+        home: "/home/u",
+        answers: {
+          "/home/u/.local/bin/agent --version": NOT_FOUND,
+          "cursor --version": OK("1.7.52\nabc123\nx64\n"),
+        },
+      });
+      expect(await setup(m.d)).toBe(0);
+      expect(m.files.has("/home/u/.cursor/mcp.json")).toBe(true);
+    });
+
+    // Report before you forgive: a folder setup could not look in is said
+    // beside "not installed", never read as empty.
+    it("says which folder it could not look in when it finds no app", async () => {
+      const m = onLinux();
+      const names = m.d.names;
+      m.d.names = (dir) =>
+        dir === "/home/u/AppImages"
+          ? { error: "EACCES: permission denied" }
+          : names(dir);
+      expect(await setup(m.d)).toBe(0);
+      expect(m.out()).toContain(
+        "Cursor: not installed (setup could not look in ~/AppImages (EACCES: permission denied))",
       );
     });
 

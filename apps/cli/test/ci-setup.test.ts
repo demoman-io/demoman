@@ -961,22 +961,62 @@ describe("planCiSetup's plan", () => {
     // The premise: the check saw the workflow the plan wrote.
     expect(workflow).toContain(" refresh --deliver pr");
     expect(p.artifact).toBe(true);
+    expect(p.filesFlows).toEqual(["Checkout"]);
     expect(workflow).toContain(
       "--deliver pr --out-dir demoman-out --previous demoman-out",
     );
     expect(planLines(p)).toContain(
-      "Uploads the files flows' videos as the demoman-videos artifact: turned on because Checkout delivers files, which a CI refresh writes only there.",
+      "Uploads the files flows' videos as the demoman-videos artifact, which Checkout needs: a CI refresh writes files only there.",
     );
-    // Asked for, it is said without a reason; a commit flow alone leaves it off.
-    const asked = await okPlan(await repo({ deliver: "files" }), fakes(), {
-      artifact: true,
-    });
+    // Asked for with no files flow, it says so; a commit flow alone leaves it off.
+    const asked = await okPlan(await repo(), fakes(), { artifact: true });
     expect(planLines(asked)).toContain(
-      "Uploads the files flows' videos as the demoman-videos artifact.",
+      "Uploads the demoman-videos artifact, though no repo flow delivers files yet.",
     );
     const commit = await okPlan(await repo(), fakes());
     expect(commit.artifact).toBe(false);
     expect(planLines(commit).join("\n")).not.toContain("artifact");
+  });
+
+  // Review of DEM-99: CI refreshes the base's copy of a flow the base has,
+  // which the pull request leaves out. Red when only the working tree counts.
+  it("decides the artifact from the base's copy of a flow already there", async () => {
+    const file = `${FLOWS_DIR}/checkout.json`;
+    const root = await repo();
+    const local = JSON.parse(await readFile(join(root, file), "utf8"));
+    const files = {
+      deliver: "files",
+      outputs: [{ ...local.outputs[0], path: "o.mp4" }],
+    };
+    const onBase = JSON.stringify({ ...local, ...files });
+    const f = fakes({
+      onDefault: [file, `${FLOWS_DIR}/gone.json`],
+      head: {
+        [`origin/trunk:${file}`]: onBase,
+        [`origin/trunk:${FLOWS_DIR}/gone.json`]: JSON.stringify({
+          ...local,
+          name: "Gone",
+          ...files,
+        }),
+      },
+    });
+    const p = await okPlan(root, f);
+    // The premise: the working tree's copy delivers by commit.
+    expect(local.deliver).toBe("commit");
+    expect(p.artifact).toBe(true);
+    expect(p.filesFlows).toEqual(["Checkout", "Gone"]);
+  });
+
+  it("refuses artifact: false when a flow delivers files, naming it, before the check", async () => {
+    const f = fakes();
+    const r = await plan(await repo({ deliver: "files" }), f, {
+      artifact: false,
+    });
+    expect(r).toMatchObject({ reason: "invalidArgs" });
+    expect((r as CiStop).detail).toContain(
+      "the artifact was turned off, and Checkout delivers files",
+    );
+    expect(f.seen.verify).toBeUndefined();
   });
 
   // Red when the plan does not say the refresh can be run by hand (DEM-62).
