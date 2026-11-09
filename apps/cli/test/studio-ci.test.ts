@@ -41,6 +41,7 @@ function livePlan(): CiPlan {
     ],
     route: "pr",
     artifact: false,
+    artifactFor: [],
     app: null,
     deployment: null,
     check: { skipped: "no app" },

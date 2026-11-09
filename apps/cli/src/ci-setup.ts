@@ -199,7 +199,12 @@ export type CiPlan = {
   trigger: CiOptions["trigger"];
   offers: TriggerOffer[];
   route: "pr" | "main";
+  /** Whether refresh writes the files flows to demoman-out and uploads it.
+   *  Decided here, once (DEM-99): the workflow reads it and never asks. */
   artifact: boolean;
+  /** The files flows that turned the artifact on when it was not asked
+   *  for; empty when it was asked for or is off. */
+  artifactFor: string[];
   /** null only for a deployment trigger without app.json. */
   app: { spec: AppSpec; source: PlanAppSource; text: string } | null;
   /** A deployment trigger's environment and its URL now; CI records the
@@ -684,10 +689,16 @@ async function makePlan(
         : "keep",
   }));
 
+  // DEM-99: refresh delivers a files flow only into --out-dir, which the
+  // workflow gives with the artifact alone; a files flow turns it on.
+  const artifactFor =
+    choices.artifact === true
+      ? []
+      : flows.filter((f) => f.kept.deliver === "files").map((f) => f.kept.name);
   const shape = {
     trigger,
     route,
-    artifact: choices.artifact === true,
+    artifact: choices.artifact === true || artifactFor.length > 0,
     app,
     secrets,
     repo: {
@@ -827,6 +838,7 @@ async function makePlan(
   const made: CiPlan = {
     root,
     ...shape,
+    artifactFor,
     deployment,
     offers,
     check: checked,
@@ -919,6 +931,13 @@ function shownFiles(files: string[]): string[] {
   return out;
 }
 
+const ARTIFACT_SAID =
+  "Uploads the files flows' videos as the demoman-videos artifact";
+const andList = (xs: string[]) =>
+  xs.length < 2
+    ? xs.join("")
+    : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`;
+
 const BY_HAND =
   "Run it any time from the repository's Actions tab (Demoman → Run workflow).";
 
@@ -940,6 +959,13 @@ function planSaid(p: CiPlan) {
       p.route === "pr"
         ? "Delivers what changed as a pull request."
         : `Delivers what changed as a commit on ${p.repo.defaultBranch}.`,
+    artifact: !p.artifact
+      ? []
+      : [
+          p.artifactFor.length === 0
+            ? `${ARTIFACT_SAID}.`
+            : `${ARTIFACT_SAID}: turned on because ${andList(p.artifactFor)} deliver${p.artifactFor.length === 1 ? "s" : ""} files, which a CI refresh writes only there.`,
+        ],
     app:
       p.deployment !== null
         ? `Starts no app: records the newest successful ${p.deployment.environment} deployment (now ${p.deployment.url}).`
@@ -970,6 +996,7 @@ export function planLines(p: CiPlan): string[] {
     ...(p.notLookedFor === undefined ? [] : [p.notLookedFor]),
     ...said.byHand,
     said.delivery,
+    ...said.artifact,
     said.app,
     said.check,
     ...said.offBase,
@@ -1007,9 +1034,13 @@ export function prBody(p: CiPlan): string {
     `Merging this sets up Demoman: it records the repo's flows ${said.label} and ${delivers} when a video changes.`,
     "",
     "### What it does",
-    ...[said.trigger, ...said.byHand, said.delivery, said.app].map(
-      (l) => `- ${l}`,
-    ),
+    ...[
+      said.trigger,
+      ...said.byHand,
+      said.delivery,
+      ...said.artifact,
+      said.app,
+    ].map((l) => `- ${l}`),
     "",
     "### Checked",
     said.check,

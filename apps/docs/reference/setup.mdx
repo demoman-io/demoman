@@ -47,7 +47,7 @@ you can fix it and run setup again.
 | `--trigger daily` | Once a day, or by hand from the Actions tab (Demoman → Run workflow). A day with nothing new stops before Chromium and the app |
 | `--trigger push` | On each push to the default branch, or by hand; records every repo flow each time |
 | `--route pr\|main` | Open a pull request with the changed files (the default), or commit them to the branch. Deployment and release cannot use `main` |
-| `--artifact` | Keep every `files` flow's video and receipt in the `demoman-videos` artifact, compared against the last run's |
+| `--artifact` | Keep every `files` flow's video and receipt in the `demoman-videos` artifact, compared against the last run's. On without the flag when a repo flow delivers `files`: CI writes those videos only there, and the plan says so |
 | `--yes` | Confirm the plan with its defaults. With no terminal and no `--yes`, nothing is written and the missing flags are named |
 | `--env-file <path>` | Read secret values from this file |
 | `--replace-secret <NAME>` | Replace a secret GitHub already has; kept otherwise |

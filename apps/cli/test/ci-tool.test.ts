@@ -214,6 +214,17 @@ describe("the ci tool", () => {
     expect(t.calls.filter((c) => outward.includes(c))).toEqual([]);
   });
 
+  // DEM-99, red when the plan leaves the artifact to the agent's choice: the
+  // fixture's flow delivers files, and a workflow without --out-dir fails it.
+  it("turns the artifact on for a files flow the agent did not ask it for, and says why", async () => {
+    const t = tool();
+    const a = await t.call({ trigger: "daily" });
+    expect(a).toMatchObject({ outcome: "plan", plan: { artifact: true } });
+    expect(a.lines).toContain(
+      "Uploads the files flows' videos as the demoman-videos artifact: turned on because Checkout delivers files, which a CI refresh writes only there.",
+    );
+  });
+
   // Red if confirmed plans again (the check runs twice, and the agent could
   // be shown one plan and applied another) or applies without the checked
   // bytes.

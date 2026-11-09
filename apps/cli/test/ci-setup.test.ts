@@ -74,6 +74,7 @@ async function repo(
     flows?: boolean;
     appJson?: string;
     digest?: "match" | "edited" | "absent";
+    deliver?: "commit" | "files";
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "demoman-ci-setup-"));
@@ -86,7 +87,7 @@ async function repo(
       JSON.stringify({
         keptVersion: 2,
         flow,
-        deliver: "commit",
+        deliver: o.deliver ?? "commit",
         name: "Checkout",
         script: SCRIPT,
         scale: 1,
@@ -94,7 +95,7 @@ async function repo(
         wallpaper: null,
         outputs: [
           {
-            path: "docs/o.mp4",
+            path: o.deliver === "files" ? "o.mp4" : "docs/o.mp4",
             fileType: "mp4",
             aspect: "16:9",
             quality: "share",
@@ -945,6 +946,37 @@ describe("planCiSetup's plan", () => {
     expect(p.title).toBe("Set up Demoman");
     // The check sees the same files.
     expect(f.seen.verify?.[0].files.map((x) => x.path)).toEqual(p.files);
+  });
+
+  // DEM-99, red when makePlan leaves `artifact` to the choice alone: a files
+  // flow's refresh fails without --out-dir, which only the artifact gives.
+  it("turns the artifact on for a files flow, says why, and the workflow carries --out-dir", async () => {
+    const f = fakes();
+    const p = await okPlan(await repo({ deliver: "files" }), f);
+    const workflow = String(
+      f.seen.verify?.[0].files.find(
+        (x) => x.path === ".github/workflows/demoman.yml",
+      )?.text,
+    );
+    // The premise: the check saw the workflow the plan wrote.
+    expect(workflow).toContain(" refresh --deliver pr");
+    expect(p.artifact).toBe(true);
+    expect(workflow).toContain(
+      "--deliver pr --out-dir demoman-out --previous demoman-out",
+    );
+    expect(planLines(p)).toContain(
+      "Uploads the files flows' videos as the demoman-videos artifact: turned on because Checkout delivers files, which a CI refresh writes only there.",
+    );
+    // Asked for, it is said without a reason; a commit flow alone leaves it off.
+    const asked = await okPlan(await repo({ deliver: "files" }), fakes(), {
+      artifact: true,
+    });
+    expect(planLines(asked)).toContain(
+      "Uploads the files flows' videos as the demoman-videos artifact.",
+    );
+    const commit = await okPlan(await repo(), fakes());
+    expect(commit.artifact).toBe(false);
+    expect(planLines(commit).join("\n")).not.toContain("artifact");
   });
 
   // Red when the plan does not say the refresh can be run by hand (DEM-62).
