@@ -115,7 +115,7 @@ it("says it is not signed in, and exits 1, when Enter comes before any sign-in",
   });
   expect(code).toBe(1);
   expect(lines.at(-1)).toBe(
-    `demoman signin: saved, but ${app.url}/app still lands on ${app.url}/login?return_to=%2Fapp: not signed in`,
+    `demoman signin: saved ${createSessionStore(home).pathOf("localhost")}, but ${app.url}/app still lands on ${app.url}/login?return_to=%2Fapp: not signed in`,
   );
 }, 120_000);
 
@@ -176,7 +176,7 @@ it("does not say signed in when the app sends the check to sign-in from script",
   });
   expect(code, lines.join("\n")).toBe(1);
   expect(lines.at(-1)).toBe(
-    `demoman signin: saved, but ${app.url}/late still lands on ${app.url}/login?return_to=%2Flate: not signed in`,
+    `demoman signin: saved ${createSessionStore(home).pathOf("localhost")}, but ${app.url}/late still lands on ${app.url}/login?return_to=%2Flate: not signed in`,
   );
 }, 120_000);
 
@@ -218,6 +218,35 @@ it("keeps the session file when it says not signed in", async () => {
   expect((await stat(path)).isFile(), lines.join("\n")).toBe(true);
 });
 
+// DEM-101: the check comes before the save, so a sign-in that did not work
+// never costs the site a session that did.
+it("leaves an earlier session byte-for-byte when the new one is not signed in", async () => {
+  const store = createSessionStore(home);
+  const earlier: SessionFile = {
+    sessionVersion: 1,
+    site: "localhost",
+    savedAt: "2026-11-01T00:00:00.000Z",
+    refreshedAt: null,
+    startUrl: `${app.url}/app`,
+    signInUrl: `${app.url}/login`,
+    state: { cookies: [], origins: [] },
+  };
+  const path = await store.save(earlier);
+  const before = await readFile(path, "utf8");
+  const lines: string[] = [];
+  const code = await signin(`${app.url}/app`, {
+    home,
+    headless: true,
+    out: collect(lines),
+    enter: enterWhen(() => true),
+  });
+  expect(code, lines.join("\n")).toBe(1);
+  expect(await readFile(path, "utf8")).toBe(before);
+  expect(lines.at(-1)).toBe(
+    `demoman signin: not saved, so the earlier session in ${path} is kept: ${app.url}/app still lands on ${app.url}/login?return_to=%2Fapp: not signed in`,
+  );
+}, 120_000);
+
 it("fails, naming the sign-in page itself, when given the sign-in page", async () => {
   const lines: string[] = [];
   const code = await signin(`${app.url}/login`, {
@@ -228,7 +257,7 @@ it("fails, naming the sign-in page itself, when given the sign-in page", async (
   });
   expect(code, lines.join("\n")).toBe(1);
   expect(lines.at(-1)).toBe(
-    `demoman signin: saved, but ${app.url}/login still lands on ${app.url}/login: not signed in — give signin a page behind the login (the app's home, say), not the sign-in page itself`,
+    `demoman signin: saved ${createSessionStore(home).pathOf("localhost")}, but ${app.url}/login still lands on ${app.url}/login: not signed in — give signin a page behind the login (the app's home, say), not the sign-in page itself`,
   );
 }, 120_000);
 
