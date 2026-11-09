@@ -407,7 +407,7 @@ describe("videosOp", () => {
     doc.meta.createdAt = "2026-10-01T00:00:00.000Z";
     await lib.putScene(doc);
     const lock = join(home, "videos", ".lock");
-    await mkdir(lock);
+    await writeFile(lock, `${process.pid} another-holder\n`);
     const got = value(await ask());
     expect(got.unreadable).toEqual([]);
     expect(got.deferred).toContain(lock);

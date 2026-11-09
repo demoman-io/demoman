@@ -718,7 +718,7 @@ describe("the takes listing's videos", () => {
     await seedTake(home, { id: "loose" });
     await seedTake(home, { id: "loose-2" });
     const lock = join(home, "videos", ".lock");
-    await mkdir(lock);
+    await writeFile(lock, `${process.pid} another-holder\n`);
     // Premise: both takes are loose, so a migration would want them.
     const store = createVideoStore(home, createLibrary(home));
     expect(await store.videoOf("loose")).toBeNull();

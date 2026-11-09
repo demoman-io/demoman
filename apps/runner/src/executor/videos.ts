@@ -7,16 +7,15 @@ import {
   rename,
   rm,
   stat,
-  utimes,
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import type { AgentName } from "@demoman/agent-bridge";
 import { isFlowId } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { messageOf } from "../report.js";
 import type { Library } from "./library.js";
+import { LockNotMine, takePidLock } from "./pid-lock.js";
 import type { RepoRef } from "./repo.js";
 import { type Aliases, resolveKey } from "./repo-aliases.js";
 import { normaliseName, sameName } from "./video-match.js";
@@ -184,20 +183,13 @@ const carriesEdits = (scene: SceneDocument): boolean =>
  *  later was saved by the studio (ruling 18). */
 export const EDIT_GAP_MS = 60_000;
 
-/** A lock older than this was left by a process that died holding it. */
-export const LOCK_STALE_MS = 2 * 60_000;
-
-/** While held, the lock's mtime is refreshed this often, well inside
- *  `LOCK_STALE_MS`, so a slow holder is never taken for a dead one. */
-export const LOCK_REFRESH_MS = 30_000;
+/** A waiting call gives up on a live holder after this, and names it. */
+export const LOCK_WAIT_MS = 2 * 60_000;
 
 export interface VideoStoreOptions {
   /** Where the lock says what it could not do without failing the call
-   *  (release it, refresh it). */
+   *  (release it). */
   log?: (line: string) => void;
-  /** Tests only: shorter than `LOCK_STALE_MS` / `LOCK_REFRESH_MS`. */
-  lockStaleMs?: number;
-  lockRefreshMs?: number;
 }
 
 /** Videos live in `<home>/videos/<id>.json`; a take's membership in `takes/<id>/video.json`. */
@@ -212,10 +204,7 @@ export function createVideoStore(
     join(library.takeDir(takeId), "video.json");
   const lockPath = join(dir, ".lock");
   const aliasPath = join(dir, ".aliases.json");
-  const ownerPath = join(lockPath, "owner");
   const say = options.log ?? ((line: string) => console.warn(line));
-  const staleMs = options.lockStaleMs ?? LOCK_STALE_MS;
-  const refreshMs = options.lockRefreshMs ?? LOCK_REFRESH_MS;
 
   // Same temp-then-rename as library.ts: a kill leaves the old file or the new one.
   async function write(path: string, value: unknown): Promise<void> {
@@ -253,117 +242,54 @@ export function createVideoStore(
   }
 
   /**
-   * Holds `<home>/videos/.lock` for `fn`: a folder, since `mkdir` makes it
-   * for one process only. `wait`: poll until it is free; else answer `held`
-   * at once. A lock not refreshed for `LOCK_STALE_MS` is taken over. Its
-   * `owner` file names the holder (a token, and the pid for people), and
-   * only the holder removes it.
+   * Holds `<home>/videos/.lock` for `fn` (runner's `takePidLock`): a holder
+   * that died is taken over; a live one is waited for when `wait`, up to
+   * `LOCK_WAIT_MS`, else answered as `held` at once. Release never throws,
+   * so `fn`'s answer stands, and says what it could not do.
    */
   async function locked<T>(
     fn: () => Promise<T>,
     wait: boolean,
   ): Promise<Exclusive<T>> {
-    const unwritable = (doing: string, error: unknown) =>
+    const unwritable = (doing: string, why: string) =>
       new VideoError(
         "videoUnwritable",
-        `could not ${doing} ${lockPath} (${messageOf(error)})`,
+        `could not ${doing} ${lockPath} (${why})`,
       );
     try {
       await mkdir(dir, { recursive: true, mode: 0o700 });
     } catch (error) {
-      throw unwritable("make the folder for", error);
+      throw unwritable("make the folder for", messageOf(error));
     }
-    for (;;) {
-      try {
-        await mkdir(lockPath, { mode: 0o700 });
-        break;
-      } catch (error) {
-        if ((error as { code?: string }).code !== "EEXIST")
-          throw unwritable("take", error);
+    const taken = await takePidLock(lockPath, wait ? LOCK_WAIT_MS : 0);
+    if (!taken.ok) {
+      if ("error" in taken) {
+        throw unwritable(
+          "take",
+          (taken.error as { code?: string }).code === "EISDIR"
+            ? "it is a folder, the lock an older Demoman takes; remove it if no older Demoman is running"
+            : messageOf(taken.error),
+        );
       }
-      let since: number;
-      try {
-        since = (await stat(lockPath)).mtimeMs;
-      } catch (error) {
-        if (isMissing(error)) continue; // released between the two calls
-        throw unwritable("read", error);
-      }
-      if (Date.now() - since > staleMs) {
-        // Renamed aside first: of two processes taking it over, one rename
-        // wins and the other finds it gone and tries again.
-        const aside = `${lockPath}.stale-${randomUUID()}`;
-        try {
-          await rename(lockPath, aside);
-          await rm(aside, { recursive: true, force: true });
-        } catch (error) {
-          if (!isMissing(error)) throw unwritable("take over", error);
-        }
-        continue;
-      }
-      if (!wait) {
-        return {
-          ok: false,
-          held: `another Demoman process holds ${lockPath} (last refreshed ${new Date(since).toISOString()})`,
-        };
-      }
-      await delay(100);
-    }
-    const token = randomUUID();
-    try {
-      await writeFile(ownerPath, JSON.stringify({ token, pid: process.pid }), {
-        mode: 0o600,
-      });
-    } catch (error) {
-      await rm(lockPath, { recursive: true, force: true }).catch((e) =>
-        say(
-          `${lockPath} could not be removed after its owner file failed to write (${messageOf(e)}); it is taken over once ${staleMs / 1000} s old`,
-        ),
+      const held = `another Demoman process (pid ${taken.holder}) holds ${lockPath}`;
+      if (!wait) return { ok: false, held };
+      throw new VideoError(
+        "videoUnwritable",
+        `${held}, and kept it for ${LOCK_WAIT_MS / 1000} s; remove it if no other Demoman is running`,
       );
-      throw unwritable("write the owner of", error);
     }
-    const refresh = setInterval(() => {
-      const now = new Date();
-      utimes(lockPath, now, now).catch((error: unknown) =>
-        say(
-          `could not refresh ${lockPath} (${messageOf(error)}); another process may take it over`,
-        ),
-      );
-    }, refreshMs);
-    refresh.unref();
     try {
       return { ok: true, value: await fn() };
     } finally {
-      clearInterval(refresh);
-      await release(token);
-    }
-  }
-
-  /** Removes the lock if it is still `token`'s; never throws, so `fn`'s
-   *  answer stands, and says what it could not do. */
-  async function release(token: string): Promise<void> {
-    let owner: { token?: unknown } | null;
-    try {
-      owner = JSON.parse(await readFile(ownerPath, "utf8"));
-    } catch (error) {
-      say(
-        `left ${lockPath} in place: its owner file will not read (${messageOf(error)}), so it may be another process's now`,
-      );
-      return;
-    }
-    if (owner?.token !== token) {
-      say(
-        `left ${lockPath} in place: another process took it over while this one held it`,
-      );
-      return;
-    }
-    // Checked, then removed: a takeover between the two needs this holder
-    // to stall `LOCK_STALE_MS` here, with the refresh just cleared.
-    try {
-      await rm(lockPath, { recursive: true, force: true });
-    } catch (error) {
-      say(
-        `could not release ${lockPath} (${messageOf(error)}); another process takes it over once it is ${staleMs / 1000} s old`,
-      );
+      await taken
+        .release()
+        .catch((error: unknown) =>
+          say(
+            error instanceof LockNotMine
+              ? messageOf(error)
+              : `could not release ${lockPath} (${messageOf(error)}); this process's later calls wait on it until it is removed`,
+          ),
+        );
     }
   }
 
@@ -751,6 +677,23 @@ export function createVideoStore(
     return { ok: true, moved };
   };
 
+  // Under the lock: a merge landing between the read and the write would
+  // otherwise be undone, the take sent back to the merged-away flow (DEM-88).
+  const markExpiredUnlocked: VideoStore["markExpired"] = async (
+    takeId,
+    at,
+    freedBytes,
+  ) => {
+    const member = await readJson<TakeVideo>(memberPath(takeId));
+    if (!member) {
+      throw new VideoError(
+        "videoUnreadable",
+        `${memberPath(takeId)} is missing, so the video cannot be marked expired`,
+      );
+    }
+    await writeMember(takeId, { ...member, expired: { at, freedBytes } });
+  };
+
   const store: VideoStore = {
     create: (a) => waitLocked(() => createUnlocked(a)),
     adopt: (a) => waitLocked(() => adoptUnlocked(a)),
@@ -780,19 +723,7 @@ export function createVideoStore(
       const all = await versions(videoId);
       return all.filter((v) => v.complete).at(-1) ?? null;
     },
-    async markExpired(takeId, at, freedBytes) {
-      const member = await readJson<TakeVideo>(memberPath(takeId));
-      if (!member) {
-        throw new VideoError(
-          "videoUnreadable",
-          `${memberPath(takeId)} is missing, so the video cannot be marked expired`,
-        );
-      }
-      await writeMember(takeId, {
-        ...member,
-        expired: { at, freedBytes },
-      });
-    },
+    markExpired: (...a) => waitLocked(() => markExpiredUnlocked(...a)),
     async remove(id) {
       if (!isVideoId(id)) {
         throw new VideoError(
@@ -815,6 +746,7 @@ export function createVideoStore(
             follow: followUnlocked,
             rename: renameUnlocked,
             join: joinUnlocked,
+            markExpired: markExpiredUnlocked,
           }),
         false,
       ),
