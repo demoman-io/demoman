@@ -314,6 +314,8 @@ export async function signInAccount(
   const resolved = new Map<string, string>();
   try {
     const source = await readSecretsFile(chosen.file.dir);
+    // `demoman signin --account` prints this log; a run's status says it too.
+    if (source.exposed !== undefined) deps.log(source.exposed);
     for (const step of account.signIn) {
       if (step.do !== "type") continue;
       const r = resolveSecrets(step.text, deps.env, source, {

@@ -1,5 +1,5 @@
 // apps/runner/test/final-still.test.ts
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FrameBundle } from "@demoman/compositor";
@@ -87,6 +87,8 @@ describe("renderFinalStill", () => {
     expect(still, JSON.stringify(still)).toHaveProperty("path");
     const path = (still as { path: string }).path;
     expect(path).toBe(join(library.takeDir(take.takeId), "final-still.png"));
+    // DEM-104: it shows a signed-in page, so only its owner reads it.
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
     const seen = await counts(await readFile(path));
 
     // The size: the MP4 export's own frame, no wider than STILL_MAX_WIDTH.

@@ -380,7 +380,13 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
       const source = await readSecretsFile(found.file.dir);
       return source.status === "absent"
         ? { path: source.path, absent: true }
-        : { path: source.path, git: source.status };
+        : {
+            path: source.path,
+            git: source.status,
+            ...(source.exposed === undefined
+              ? {}
+              : { exposed: source.exposed }),
+          };
     } catch (error) {
       return {
         path: join(found.file.dir, "secrets.env"),

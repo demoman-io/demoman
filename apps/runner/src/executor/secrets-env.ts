@@ -48,6 +48,10 @@ export interface SecretsSource {
    *  repository could say whether it would be committed. */
   status: "absent" | "ignored" | "notGit";
   values: Map<string, string>;
+  /** Read, but other users can read it too: the sentence that says so and
+   *  names the chmod. Warned, not refused (DEM-104): an editor leaves a new
+   *  file 0644, so refusing would break nearly every setup. */
+  exposed?: string;
 }
 
 /** git check-ignore: exit 0 ignored, 1 not ignored (a tracked file is never
@@ -86,6 +90,7 @@ export async function readSecretsFile(dir: string): Promise<SecretsSource> {
     );
   }
   let text: string;
+  let mode = 0;
   try {
     // Never through a link: outside git, nothing else says whose secrets
     // these are (audit run 1). Non-blocking, so a FIFO is refused, not waited on.
@@ -94,7 +99,9 @@ export async function readSecretsFile(dir: string): Promise<SecretsSource> {
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     );
     try {
-      if (!(await handle.stat()).isFile()) throw notRegular;
+      const info = await handle.stat();
+      if (!info.isFile()) throw notRegular;
+      mode = info.mode;
       text = await handle.readFile("utf8");
     } finally {
       await handle.close();
@@ -138,7 +145,16 @@ export async function readSecretsFile(dir: string): Promise<SecretsSource> {
     const value = (m[2] ?? "").replace(/^(["'])(.*)\1$/, "$2");
     values.set(m[1] as string, value);
   }
-  return { path, status: git === "ignored" ? "ignored" : "notGit", values };
+  const exposed =
+    process.platform !== "win32" && (mode & 0o077) !== 0
+      ? `${path} is readable by other users (mode ${(mode & 0o777).toString(8).padStart(4, "0")}), and it holds passwords — run: chmod 600 ${path}`
+      : undefined;
+  return {
+    path,
+    status: git === "ignored" ? "ignored" : "notGit",
+    values,
+    ...(exposed === undefined ? {} : { exposed }),
+  };
 }
 
 /** `raw` as the origin it names, or null unless it is exactly an origin

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -74,6 +74,24 @@ describe("signinAccount", () => {
       `Signed in to ${app.url} as seller; saved ${createSessionStore(home).pathOfAccount(app.url, "seller")}`,
     );
     expect(lines.join("\n")).not.toContain(PASSWORD);
+  }, 60_000);
+
+  // DEM-104: read, not refused, and said where the person reads it.
+  it("says when secrets.env is readable by other users, and still signs in", async () => {
+    const secrets = join(repo, ".demoman", "secrets.env");
+    await writeFile(secrets, "# no secrets here\n");
+    await chmod(secrets, 0o644);
+    const lines: string[] = [];
+    const code = await signinAccount("seller", {
+      home,
+      projectDir: repo,
+      env: boundTo({ DEMOMAN_SECRET_KL_SELLER: PASSWORD }, app.url),
+      out: (l) => lines.push(l),
+    });
+    expect(code, lines.join("\n")).toBe(0);
+    expect(lines).toContain(
+      `demoman signin: ${secrets} is readable by other users (mode 0644), and it holds passwords — run: chmod 600 ${secrets}`,
+    );
   }, 60_000);
 
   it("signs in fresh even with a saved session (it is a check)", async () => {

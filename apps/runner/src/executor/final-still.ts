@@ -102,7 +102,7 @@ export async function renderFinalStill(args: {
       return { unavailable: "the render produced no still" };
     }
     const path = join(library.takeDir(takeId), "final-still.png");
-    await writeFile(path, file.bytes);
+    await writeFile(path, file.bytes, { mode: 0o600 });
     return { path };
   } catch (error) {
     return {

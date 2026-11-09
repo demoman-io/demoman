@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
   access,
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -55,6 +56,22 @@ describe("readSecretsFile", () => {
     const s = await readSecretsFile(dir);
     expect(s.status).toBe("ignored");
     expect(s.values.get("KL_PASSWORD")).toBe("correct horse");
+  });
+
+  // DEM-104: warned, not refused: an editor leaves a new file 0644, and
+  // refusing would break nearly every setup.
+  it("reads a file other users can read, and says so with the chmod", async () => {
+    await writeFile(join(repo, ".gitignore"), ".demoman/secrets.env\n");
+    const path = join(dir, "secrets.env");
+    await writeFile(path, "DEMOMAN_SECRET_KL_PASSWORD=correct horse\n");
+    await chmod(path, 0o644);
+    const s = await readSecretsFile(dir);
+    expect(s.values.get("KL_PASSWORD")).toBe("correct horse");
+    expect(s.exposed).toBe(
+      `${path} is readable by other users (mode 0644), and it holds passwords — run: chmod 600 ${path}`,
+    );
+    await chmod(path, 0o600);
+    expect((await readSecretsFile(dir)).exposed).toBeUndefined();
   });
 
   it("refuses a file git does not ignore, naming the line to add", async () => {

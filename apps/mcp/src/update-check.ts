@@ -115,7 +115,7 @@ export function createUpdateCheck(o: {
     try {
       await mkdir(o.home, { recursive: true, mode: 0o700 });
       const tmp = `${file}.${process.pid}.tmp`;
-      await writeFile(tmp, JSON.stringify(c));
+      await writeFile(tmp, JSON.stringify(c), { mode: 0o600 });
       await rename(tmp, file);
     } catch (error) {
       o.log(
