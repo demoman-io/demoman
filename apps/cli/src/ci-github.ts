@@ -1,5 +1,5 @@
 // What the repo has on GitHub, and the one Actions setting setup turns on.
-import { execFile } from "node:child_process";
+import { execGit, type GitRunner } from "@demoman/runner/package";
 import type { Gh } from "./gh-run.js";
 
 export type GithubFacts = {
@@ -18,6 +18,12 @@ export type GithubFacts = {
   }>;
   hasReleases: boolean;
   workflowOnDefault: boolean;
+  /** Environments older deployments name that were not looked for, over the
+   *  by-name limit (DEM-89): said beside the trigger, with how to check one. */
+  unchecked?: string[];
+  /** Deployments older than the newest this many were not read (DEM-89): an
+   *  environment only they name is in neither `deployments` nor `unchecked`. */
+  olderUnread?: number;
   setupBranch: { pr: { number: number; url: string } | null } | null;
   /** The git remote whose URL is `slug`: what setup fetches from and pushes
    *  to, so git and gh act on one repo. */
@@ -54,25 +60,48 @@ async function read(gh: Gh, args: string[]): Promise<Read> {
   };
 }
 
-function gitIn(
-  root: string,
-  args: string[],
-): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((done) =>
-    execFile("git", args, { cwd: root }, (err, stdout, stderr) =>
-      done({
-        code: err ? (typeof err.code === "number" ? err.code : -1) : 0,
-        stdout,
-        stderr: err ? stderr || String(err) : "",
-      }),
-    ),
+/** git through the CLI's one runner; a git that would not start (missing,
+ *  or the folder gone) answers as a failure that says why, never a throw,
+ *  and one that failed in silence names its exit code. */
+const gitIn = (git: GitRunner, root: string, args: string[]) =>
+  git(args, root).then(
+    (r) =>
+      r.code !== 0 && r.stderr.trim() === ""
+        ? { ...r, stderr: `git exited with code ${r.code}` }
+        : r,
+    (e: unknown) => ({
+      code: -1,
+      stdout: "",
+      stderr: e instanceof Error ? e.message : String(e),
+    }),
   );
-}
+
+/** Environments looked up by name past the newest deployments, at once: a
+ *  list call each, then a statuses call per deployment until a success, so a
+ *  repo with a preview environment per pull request stays bounded. */
+export const BY_NAME_LIMIT = 10;
+/** Pages of older deployments read for the environments they name, after
+ *  the newest: GitHub's environments list is empty on a private repo whose
+ *  plan has no environments (200, `[]`, checked 2026-11-08), so it cannot
+ *  say which names to look for. */
+const OLDER_PAGES = 4;
+/** How many of the newest deployments setup reads, at most. */
+export const DEPLOYMENTS_READ = 30 * (1 + OLDER_PAGES);
 
 export async function readGithub(
   gh: Gh,
   root: string,
+  o: {
+    git?: GitRunner;
+    /** The environment setup was asked to trigger on: looked for past the
+     *  newest deployments when they hold none of it (DEM-89). */
+    environment?: string;
+    /** Read older deployment pages for the environments they name: only
+     *  setup's trigger needs them (DEM-89). */
+    older?: boolean;
+  } = {},
 ): Promise<GithubFacts | GhUnusable | Unreadable> {
+  const git = o.git ?? execGit;
   const v = await gh(["--version"]);
   if (v.code !== 0 && !(v.code === 127 || /ENOENT/.test(v.stderr))) {
     return unreadable("whether the GitHub CLI runs (gh --version)", v.stderr);
@@ -136,7 +165,7 @@ export async function readGithub(
 
   // gh may answer for a repo origin is not (a fork's clone, gh's default
   // set to upstream): git must push where gh opens the pull request.
-  const urls = await gitIn(root, [
+  const urls = await gitIn(git, root, [
     "config",
     "--get-regexp",
     "^remote\\..*\\.url$",
@@ -164,49 +193,101 @@ export async function readGithub(
       detail: `gh answers for ${slug}, and no git remote here is that repo (${remotes.map((r) => `${r.name} (${r.url.replace(/\/\/[^/@]*@/, "//")})`).join(", ") || "there are none"}); point gh at the repo to set up with \`gh repo set-default\`, or add a remote for ${slug}, then run setup again`,
     };
 
-  const dep = await read(gh, ["api", `repos/${slug}/deployments?per_page=30`]);
-  if (!dep.ok || !Array.isArray(dep.json)) {
-    return unreadable(
-      `repos/${slug}/deployments`,
-      dep.ok ? "the answer was not a list" : dep.why,
-    );
-  }
-  const found: Array<{ id: number; d: GithubFacts["deployments"][number] }> =
-    [];
-  // The API lists newest first: walk each environment's deployments until one is a success.
-  const done = new Set<string>();
-  for (const d of dep.json as Array<{
+  type Deployment = {
     id: number;
     environment: string;
     sha: string;
     production_environment?: boolean;
     transient_environment?: boolean;
-  }>) {
-    if (done.has(d.environment)) continue;
-    const st = await read(gh, [
-      "api",
-      `repos/${slug}/deployments/${d.id}/statuses?per_page=30`,
-    ]);
-    if (!st.ok || !Array.isArray(st.json))
-      return unreadable(
-        `repos/${slug}/deployments/${d.id}/statuses`,
-        st.ok ? "the answer was not a list" : st.why,
-      );
-    const win = (
-      st.json as Array<{ state: string; environment_url?: string }>
-    ).find((s) => s.state === "success");
-    if (!win) continue;
-    done.add(d.environment);
-    found.push({
-      id: d.id,
-      d: {
-        environment: d.environment,
-        url: win.environment_url || null,
-        sha: d.sha,
-        production: d.production_environment === true,
-        transient: d.transient_environment === true,
-      },
-    });
+  };
+  const listOf = async (query: string): Promise<Deployment[] | Unreadable> => {
+    const dep = await read(gh, ["api", `repos/${slug}/deployments?${query}`]);
+    return dep.ok && Array.isArray(dep.json)
+      ? (dep.json as Deployment[])
+      : unreadable(
+          `repos/${slug}/deployments`,
+          dep.ok ? "the answer was not a list" : dep.why,
+        );
+  };
+  const found: Array<{ id: number; d: GithubFacts["deployments"][number] }> =
+    [];
+  // The API lists newest first: walk each environment's deployments until one is a success.
+  const done = new Set<string>();
+  const walk = async (list: Deployment[]): Promise<Unreadable | null> => {
+    for (const d of list) {
+      if (done.has(d.environment)) continue;
+      const st = await read(gh, [
+        "api",
+        `repos/${slug}/deployments/${d.id}/statuses?per_page=30`,
+      ]);
+      if (!st.ok || !Array.isArray(st.json))
+        return unreadable(
+          `repos/${slug}/deployments/${d.id}/statuses`,
+          st.ok ? "the answer was not a list" : st.why,
+        );
+      const win = (
+        st.json as Array<{ state: string; environment_url?: string }>
+      ).find((s) => s.state === "success");
+      if (!win) continue;
+      done.add(d.environment);
+      found.push({
+        id: d.id,
+        d: {
+          environment: d.environment,
+          url: win.environment_url || null,
+          sha: d.sha,
+          production: d.production_environment === true,
+          transient: d.transient_environment === true,
+        },
+      });
+    }
+    return null;
+  };
+  const newest = await listOf("per_page=30");
+  if (!Array.isArray(newest)) return newest;
+  const walked = await walk(newest);
+  if (walked !== null) return walked;
+  // A full newest page can be all other environments': ask for each missing
+  // one by name, as the workflow's own check does — the chosen one first.
+  const seen = new Set(newest.map((d) => d.id));
+  const byName = async (name: string): Promise<Unreadable | null> => {
+    const own = await listOf(
+      `environment=${encodeURIComponent(name)}&per_page=30`,
+    );
+    return Array.isArray(own) ? walk(own.filter((d) => !seen.has(d.id))) : own;
+  };
+  // Each name walks only its own deployments, so they can be asked at once.
+  const byNames = async (names: string[]): Promise<Unreadable | null> =>
+    (await Promise.all(names.map(byName))).find((r) => r !== null) ?? null;
+  // A newest page that is not full held every deployment there is.
+  const full = newest.length >= 30;
+  if (full && o.environment !== undefined && !done.has(o.environment)) {
+    const r = await byName(o.environment);
+    if (r !== null) return r;
+  }
+  let unchecked: string[] = [];
+  let olderUnread: number | undefined = full && !o.older ? 30 : undefined;
+  if (full && o.older === true) {
+    // Newest first, so the environments deployed to most recently are the
+    // ones looked for within the limit.
+    const names: string[] = [];
+    let more = true;
+    for (let page = 2; more && page <= OLDER_PAGES + 1; page++) {
+      const older = await listOf(`per_page=30&page=${page}`);
+      if (!Array.isArray(older)) return older;
+      for (const d of older)
+        if (
+          !done.has(d.environment) &&
+          d.environment !== o.environment &&
+          !names.includes(d.environment)
+        )
+          names.push(d.environment);
+      more = older.length >= 30;
+    }
+    if (more) olderUnread = DEPLOYMENTS_READ;
+    const r = await byNames(names.slice(0, BY_NAME_LIMIT));
+    if (r !== null) return r;
+    unchecked = names.slice(BY_NAME_LIMIT);
   }
   // Newest deployment first.
   const deployments = found.sort((a, b) => b.id - a.id).map((f) => f.d);
@@ -223,7 +304,7 @@ export async function readGithub(
   if (!wf.ok && !wf.notFound)
     return unreadable(`${slug}'s .github/workflows/demoman.yml`, wf.why);
 
-  const heads = await gitIn(root, [
+  const heads = await gitIn(git, root, [
     "ls-remote",
     "--heads",
     remote,
@@ -258,6 +339,8 @@ export async function readGithub(
     canPush: ["ADMIN", "MAINTAIN", "WRITE"].includes(repo.viewerPermission),
     isAdmin: repo.viewerPermission === "ADMIN",
     deployments,
+    ...(unchecked.length > 0 ? { unchecked } : {}),
+    ...(olderUnread === undefined ? {} : { olderUnread }),
     hasReleases,
     workflowOnDefault: wf.ok,
     setupBranch,

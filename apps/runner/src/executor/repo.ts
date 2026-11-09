@@ -24,6 +24,29 @@ export type GitRunner = (
   env?: Record<string, string>,
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
+/** The filmed folder is the caller's choice: its config must not name a
+ *  program git runs on its own account while Demoman only reads it (audit
+ *  run 1, DEM-90). Demoman's git there reads and stages, never fetches or
+ *  commits, so of the programs a config can name only two run: fsmonitor,
+ *  off here, and a clean filter, left on on purpose — git-lfs is one, and
+ *  the tree filmed has to be the one git would commit. The CLI's fetch and
+ *  commit (core.sshCommand, hooks) act on the repo the person set up CI in,
+ *  as their own push would. */
+const GIT_GUARD = { key: "core.fsmonitor", value: "false" } as const;
+
+/** `env` with the guard added for every git started under it — gh's own
+ *  included, which no `-c` can reach. Appends to any GIT_CONFIG_COUNT
+ *  already there rather than replacing it. */
+export function guardedGitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const n = Number.parseInt(env.GIT_CONFIG_COUNT ?? "0", 10) || 0;
+  return {
+    ...env,
+    GIT_CONFIG_COUNT: String(n + 1),
+    [`GIT_CONFIG_KEY_${n}`]: GIT_GUARD.key,
+    [`GIT_CONFIG_VALUE_${n}`]: GIT_GUARD.value,
+  };
+}
+
 export const execGit: GitRunner = (args, cwd, env) =>
   new Promise((done, fail) => {
     // execFile's 1 MB default refuses a big repo's `ls-tree -r -d` outright.
@@ -32,7 +55,9 @@ export const execGit: GitRunner = (args, cwd, env) =>
       env === undefined
         ? { cwd, maxBuffer }
         : { cwd, maxBuffer, env: { ...process.env, ...env } };
-    execFile("git", args, options, (err, stdout, stderr) => {
+    // `-c` over the env form: it holds on a git older than 2.31 too.
+    const guarded = ["-c", `${GIT_GUARD.key}=${GIT_GUARD.value}`, ...args];
+    execFile("git", guarded, options, (err, stdout, stderr) => {
       if (!err) return done({ code: 0, stdout, stderr });
       // A numeric code is git answering; a string code (ENOENT) is git not running.
       if (typeof err.code === "number") {

@@ -1,7 +1,7 @@
 // apps/cli/src/setup.ts
 //
 // `npx demoman setup` (launch B, spec §2; launch E): the browser, then each
-// coding agent it finds — Claude Code, Codex, Cursor — wired with Demoman's
+// coding agent it finds (AGENT_FLAGS) wired with Demoman's
 // tools pre-approved, then a warm npx cache. Pure over SetupDeps, so every
 // failure path is tested; setup-deps.ts supplies the real commands. A failed
 // browser stops everything; a failed agent stops only itself, and makes the
@@ -255,12 +255,18 @@ export interface AgentResult {
 type Wire = (d: SetupDeps) => AgentResult;
 
 /** Each agent's word on the command line, in the order setup wires them. */
-const AGENT_FLAGS: ReadonlyArray<[string, AgentName]> = [
+export const AGENT_FLAGS: ReadonlyArray<[string, AgentName]> = [
   ["claude", "Claude Code"],
   ["codex", "Codex"],
   ["cursor", "Cursor"],
   ["opencode", "OpenCode"],
 ];
+
+/** "Claude Code, Codex, Cursor and OpenCode", from AGENT_FLAGS (DEM-94). */
+const agentList = (): string => {
+  const names = AGENT_FLAGS.map(([, name]) => name);
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+};
 
 /** Answers given on the command line: each one is a question not asked. */
 export interface SetupFlags {
@@ -1193,7 +1199,7 @@ async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
   }
   if (usable.length === 0 && failed.length === 0) {
     d.say(
-      `\nNo coding agent was found. Demoman works with Claude Code, Codex and Cursor: install one and run \`npx ${PACKAGE_NAME}@${d.version} setup\` again, or connect another MCP client with the block in the README (https://www.npmjs.com/package/${PACKAGE_NAME}).`,
+      `\nNo coding agent was found. Demoman works with ${agentList()}: install one and run \`npx ${PACKAGE_NAME}@${d.version} setup\` again, or connect another MCP client with the block in the README (https://www.npmjs.com/package/${PACKAGE_NAME}).`,
     );
     return 1;
   }

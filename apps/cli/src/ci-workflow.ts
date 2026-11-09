@@ -19,6 +19,7 @@ import {
   planLines,
   redact,
   type TriggerOffer,
+  triggerNote,
   triggerOffers,
 } from "./ci-setup.js";
 import type { Watched } from "./ci-watch.js";
@@ -465,7 +466,11 @@ export const DEPLOYMENT_MAIN =
 /** The terminal's questions; null (or false from confirm) is a cancel. */
 export type CiAsk = {
   /** Only the offered triggers, the default chosen first. */
-  trigger(offers: TriggerOffer[]): Promise<CiOptions["trigger"] | null>;
+  /** `note`: triggerNote's environments setup did not look for. */
+  trigger(
+    offers: TriggerOffer[],
+    note: string | null,
+  ): Promise<CiOptions["trigger"] | null>;
   route(branch: string): Promise<"pr" | "main" | null>;
   appHole(field: string, why: string): Promise<string | null>;
   /** Typed unseen. */
@@ -584,7 +589,7 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
     ask !== null &&
     (choices.trigger === undefined || choices.route === undefined)
   ) {
-    const facts = await deps.readGithub(root);
+    const facts = await deps.readGithub(root, { older: true });
     // A repo setup cannot go on with is said by the plan, before any question.
     if (
       !("reason" in facts) &&
@@ -595,6 +600,7 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
         const offers = triggerOffers(facts);
         const t = await ask.trigger(
           route === "main" ? offers.filter((o) => mainCan(o.trigger)) : offers,
+          triggerNote(facts),
         );
         if (t === null) return cancelled();
         choices.trigger = t;

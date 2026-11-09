@@ -1,4 +1,5 @@
 import type { GitRunner, RefreshResult } from "@demoman/runner/package";
+import type { Gh } from "./gh-run.js";
 
 export const COMMIT_SUBJECT = "Refresh demo videos";
 export const BRANCH = "demoman/refresh";
@@ -8,8 +9,7 @@ const BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com";
 const BOT = ["-c", `user.name=${BOT_NAME}`, "-c", `user.email=${BOT_EMAIL}`];
 const NOT_PERMITTED = /not permitted to create or approve pull requests/i;
 
-type GhResult = { code: number; stdout: string; stderr: string };
-type Gh = (args: string[]) => Promise<GhResult>;
+type GhResult = Awaited<ReturnType<Gh>>;
 
 export interface Delivered {
   delivered: "pr" | "main" | "nothing";

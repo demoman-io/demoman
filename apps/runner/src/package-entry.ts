@@ -58,7 +58,12 @@ export {
   withApp,
 } from "./executor/refresh-app.js";
 export { checkCurrent } from "./executor/refresh-check.js";
-export { execGit, type GitRunner, readRepo } from "./executor/repo.js";
+export {
+  execGit,
+  type GitRunner,
+  guardedGitEnv,
+  readRepo,
+} from "./executor/repo.js";
 export { samePicture } from "./executor/same-picture.js";
 export {
   readSecretsFile,

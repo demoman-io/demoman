@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CODEX_APPROVAL_TABLE,
@@ -5,6 +6,7 @@ import {
   opencodeEntry,
 } from "../src/configs.js";
 import {
+  AGENT_FLAGS,
   type Answers,
   parseSetupArgs,
   type Questions,
@@ -854,8 +856,15 @@ describe("setup", () => {
     });
     expect(await setup(m.d)).toBe(1);
     expect(m.lines.at(-1)).toContain(
-      "No coding agent was found. Demoman works with Claude Code, Codex and Cursor",
+      "No coding agent was found. Demoman works with Claude Code, Codex, Cursor and OpenCode:",
     );
+    // Premise: those four are every agent setup connects (DEM-94).
+    expect(AGENT_FLAGS.map(([, n]) => n)).toEqual([
+      "Claude Code",
+      "Codex",
+      "Cursor",
+      "OpenCode",
+    ]);
     expect(m.calls.some((c) => c.startsWith("npx"))).toBe(false);
     expect(m.out()).not.toContain("warm start");
   });
@@ -1812,5 +1821,18 @@ describe("setup --browser-only", () => {
 
   it("is a flag setup's arguments accept", () => {
     expect(parseSetupArgs(["--browser-only"])).toEqual({ browserOnly: true });
+  });
+});
+
+describe("USAGE", () => {
+  // DEM-94. Red while USAGE's --agents leaves out an agent setup connects.
+  // Read as text: main.ts runs the CLI on import.
+  it("names every agent setup connects under --agents", () => {
+    const main = readFileSync(
+      new URL("../src/main.ts", import.meta.url),
+      "utf8",
+    );
+    const flags = AGENT_FLAGS.map(([flag]) => flag).join(",");
+    expect(main).toContain(`[--agents ${flags}]`);
   });
 });

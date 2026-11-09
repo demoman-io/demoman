@@ -15,6 +15,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   execGit,
   type GitRunner,
+  guardedGitEnv,
   normaliseRemote,
   readFilmedCode,
   readRepo,
@@ -127,6 +128,43 @@ describe("readRepo", () => {
     expect(read).toEqual({
       ok: false,
       none: expect.stringMatching(/git failed.*boom/),
+    });
+  });
+});
+
+describe("execGit and the repository's own config (DEM-90)", () => {
+  // Red: execGit without `-c core.fsmonitor=false` — the filmed folder's
+  // config names a program git runs as the user on `add -A`.
+  it("never runs a program the repository's config names", async () => {
+    const dir = makeRepo("fsmonitor");
+    const marker = join(dir, "fsmonitor-ran");
+    const hook = join(dir, "hook.sh");
+    writeFileSync(hook, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+    git(dir, "config", "core.fsmonitor", hook);
+    writeFileSync(join(dir, ".gitignore"), "hook.sh\nfsmonitor-ran\n");
+    // Premise: git does run it while reading the index here.
+    git(dir, "status", "--short");
+    expect(existsSync(marker)).toBe(true);
+    rmSync(marker);
+    const filmed = await readFilmedCode(dir);
+    expect(filmed).toMatchObject({ dirty: true });
+    expect(existsSync(marker)).toBe(false);
+  });
+});
+
+describe("guardedGitEnv", () => {
+  // Red when it replaces a GIT_CONFIG_COUNT the caller set: their entry is lost.
+  it("adds the guard after config already in the environment", () => {
+    const env = guardedGitEnv({
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "safe.directory",
+      GIT_CONFIG_VALUE_0: "*",
+    });
+    expect(env).toMatchObject({
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "safe.directory",
+      GIT_CONFIG_KEY_1: "core.fsmonitor",
+      GIT_CONFIG_VALUE_1: "false",
     });
   });
 });

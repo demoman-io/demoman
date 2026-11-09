@@ -1448,6 +1448,20 @@ describe("ciSetup", () => {
     ]);
   });
 
+  // Review finding 1. Red while the trigger question is asked with no word
+  // of the environments setup did not look for.
+  it("asks the trigger with the environments it did not look for", async () => {
+    const { ask, asked } = asker({
+      trigger: async () => "daily",
+      route: async () => "pr",
+      confirm: async () => true,
+    });
+    const m = door({ ask, facts: { unchecked: ["staging"] } });
+    expect(await ciSetup(["--ci"], m.io)).toBe(0);
+    const note = asked.find(([k]) => k === "trigger")?.[1][1];
+    expect(note).toContain("Not listed: staging");
+  });
+
   it("asks the trigger from the offers and the route with the real branch", async () => {
     const { ask, asked } = asker({
       trigger: async () => "push",

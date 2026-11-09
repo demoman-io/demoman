@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execGit, type GitRunner } from "@demoman/runner/package";
 import { describe, expect, it } from "vitest";
 import { allowActionPullRequests, readGithub } from "../src/ci-github.js";
 import type { Gh } from "../src/gh-run.js";
@@ -111,7 +112,242 @@ function forkClone(withUpstream: boolean): string {
   return work;
 }
 
+/** A busy repo: a full newest page of Preview, then `pages` of older
+ *  deployments (each array one page), and Production's success found only
+ *  by name. GitHub's environments list is never asked: on a private repo
+ *  whose plan has no environments it answers `[]` (checked 2026-11-08). */
+function busy(pages: string[][]): Record<string, Answer> {
+  const previews = Array.from({ length: 30 }, (_, i) => ({
+    id: 1000 - i,
+    environment: "Preview",
+    sha: `p${i}`,
+  }));
+  const older = Object.fromEntries(
+    pages.map((names, i) => [
+      `api repos/${S}/deployments?per_page=30&page=${i + 2}`,
+      ok(
+        names.map((environment, j) => ({
+          id: 900 - i * 30 - j,
+          environment,
+          sha: `o${i}-${j}`,
+        })),
+      ),
+    ]),
+  );
+  return {
+    [`api repos/${S}/deployments?per_page=30`]: ok(previews),
+    [`api repos/${S}/deployments/1000/statuses?per_page=30`]: ok([
+      { state: "success", environment_url: "https://p.example" },
+    ]),
+    ...older,
+    [`api repos/${S}/deployments?environment=Production&per_page=30`]: ok([
+      { id: 7, environment: "Production", sha: "prod" },
+    ]),
+    [`api repos/${S}/deployments/7/statuses?per_page=30`]: ok([
+      { state: "success", environment_url: "https://app.example" },
+    ]),
+  };
+}
+
 describe("readGithub", () => {
+  // DEM-89. Red while only the newest 30 deployments are read: Production's
+  // success sits behind 30 Preview ones, and setup said there was none.
+  it("finds the chosen environment's deployment past a full page of others", async () => {
+    const previews = Array.from({ length: 30 }, (_, i) => ({
+      id: 100 - i,
+      environment: "Preview",
+      sha: `p${i}`,
+    }));
+    const statuses = Object.fromEntries(
+      previews.map((d) => [
+        `api repos/${S}/deployments/${d.id}/statuses?per_page=30`,
+        ok([{ state: "success", environment_url: `https://p${d.id}.example` }]),
+      ]),
+    );
+    const calls: Array<{ args: string[] }> = [];
+    const gh = fake(
+      {
+        [`api repos/${S}/deployments?per_page=30`]: ok(previews),
+        ...statuses,
+        [`api repos/${S}/deployments?environment=Production&per_page=30`]: ok([
+          { id: 7, environment: "Production", sha: "prod" },
+        ]),
+        [`api repos/${S}/deployments/7/statuses?per_page=30`]: ok([
+          { state: "success", environment_url: "https://app.example" },
+        ]),
+      },
+      calls,
+    );
+    // Premise: the first page is full, and none of it is Production.
+    expect(previews).toHaveLength(30);
+    const r = await readGithub(gh, checkout(false), {
+      environment: "Production",
+    });
+    expect(r).toMatchObject({
+      deployments: expect.arrayContaining([
+        {
+          environment: "Production",
+          url: "https://app.example",
+          sha: "prod",
+          production: false,
+          transient: false,
+        },
+      ]),
+    });
+    // Only Preview's newest status was read before the second ask.
+    expect(
+      calls.filter((c) => c.args[1]?.endsWith("/statuses?per_page=30")),
+    ).toHaveLength(2);
+  });
+  // DEM-89. Red while only a named environment is looked for (interactive
+  // setup, --yes and the Studio name none), or while the names come from
+  // GitHub's environments list, which a private repo on Free answers empty.
+  it("looks up each environment older deployments name", async () => {
+    const r = await readGithub(
+      fake(busy([["Preview", "Production"]])),
+      checkout(false),
+      { older: true },
+    );
+    expect(r).toMatchObject({
+      deployments: expect.arrayContaining([
+        expect.objectContaining({ environment: "Production", sha: "prod" }),
+      ]),
+    });
+    expect(r).not.toHaveProperty("unchecked");
+    expect(r).not.toHaveProperty("olderUnread");
+  });
+  // DEM-89. Red when the environments past the limit are dropped unsaid.
+  it("names the environments over the by-name limit as unchecked", async () => {
+    const extra = Array.from({ length: 11 }, (_, i) => `pr-${i}`);
+    const answers = busy([["Production", ...extra]]);
+    for (const n of extra)
+      answers[`api repos/${S}/deployments?environment=${n}&per_page=30`] = ok(
+        [],
+      );
+    const calls: Array<{ args: string[] }> = [];
+    const r = await readGithub(fake(answers, calls), checkout(false), {
+      older: true,
+    });
+    // Premise: Production plus ten pr-* were asked by name, no more.
+    expect(
+      calls.filter((c) => c.args[1]?.includes("environment=")),
+    ).toHaveLength(10);
+    expect(r).toMatchObject({ unchecked: ["pr-9", "pr-10"] });
+  });
+  // DEM-89. Red when paging stops unsaid, or does not stop: page 6 is
+  // unscripted, so asking for it throws.
+  it("reads four older pages at most, and says when there were more", async () => {
+    const full = (name: string) => Array.from({ length: 30 }, () => name);
+    const calls: Array<{ args: string[] }> = [];
+    const answers = busy([
+      full("Preview"),
+      full("Preview"),
+      full("Preview"),
+      full("Preview"),
+    ]);
+    const r = await readGithub(fake(answers, calls), checkout(false), {
+      older: true,
+    });
+    // Premise: pages 2 to 5 were each read once.
+    expect(
+      calls.filter((c) => /[?&]page=\d/.test(c.args[1] ?? "")),
+    ).toHaveLength(4);
+    expect(r).toMatchObject({ olderUnread: 150 });
+    expect(r).not.toHaveProperty("unchecked");
+  });
+  // Review finding 2. Red while every caller pays for the older pages: the
+  // Studio's state, Open PR and watch need only the repo, and a failure on
+  // page 4 failed them too. Not reading them is said, never assumed empty.
+  it("reads no older page unless asked, and says the older ones were not read", async () => {
+    const calls: Array<{ args: string[] }> = [];
+    const r = await readGithub(
+      fake(busy([["Preview", "Production"]]), calls),
+      checkout(false),
+    );
+    expect(
+      calls.some((c) => /[?&](page|environment)=/.test(c.args[1] ?? "")),
+    ).toBe(false);
+    expect(r).toMatchObject({ olderUnread: 30 });
+  });
+  // Review finding 9. Red while the chosen environment is asked for by name
+  // after a newest page that was not full, which held every deployment.
+  it("asks no second time when the newest page held every deployment", async () => {
+    const calls: Array<{ args: string[] }> = [];
+    const gh = fake(
+      {
+        [`api repos/${S}/deployments?per_page=30`]: ok([
+          { id: 7, environment: "Production", sha: "prod" },
+        ]),
+        [`api repos/${S}/deployments/7/statuses?per_page=30`]: ok([
+          { state: "success", environment_url: "https://app.example" },
+        ]),
+      },
+      calls,
+    );
+    const r = await readGithub(gh, checkout(false), {
+      environment: "staging",
+      older: true,
+    });
+    expect(r).toMatchObject({ deployments: [{ environment: "Production" }] });
+    expect(r).not.toHaveProperty("olderUnread");
+    expect(
+      calls.some((c) => /[?&](page|environment)=/.test(c.args[1] ?? "")),
+    ).toBe(false);
+  });
+  it("asks no second time when the chosen environment is on the first page", async () => {
+    const calls: Array<{ args: string[] }> = [];
+    const gh = fake(
+      {
+        [`api repos/${S}/deployments?per_page=30`]: ok([
+          { id: 7, environment: "Production", sha: "prod" },
+        ]),
+        [`api repos/${S}/deployments/7/statuses?per_page=30`]: ok([
+          { state: "success", environment_url: "https://app.example" },
+        ]),
+      },
+      calls,
+    );
+    const r = await readGithub(gh, checkout(false), {
+      environment: "Production",
+    });
+    expect(r).toMatchObject({ deployments: [{ environment: "Production" }] });
+    expect(calls.some((c) => c.args[1]?.includes("environment="))).toBe(false);
+  });
+  // DEM-92. Red while readGithub spawns git on its own: the runner it is
+  // given (the one carrying the fsmonitor guard) is never asked.
+  it("asks git through the runner it is given", async () => {
+    const asked: string[][] = [];
+    const git: GitRunner = (args, cwd, env) => {
+      asked.push(args);
+      return execGit(args, cwd, env);
+    };
+    const r = await readGithub(fake(), checkout(true), { git });
+    expect(r).toMatchObject({ slug: S, remote: "origin" });
+    expect(asked.map((a) => a[0])).toEqual(["config", "ls-remote"]);
+  });
+  // DEM-92. Red when the runner's throw (git missing, the folder gone)
+  // escapes readGithub instead of answering why.
+  it("a git that will not start is githubUnreadable, saying why", async () => {
+    const git: GitRunner = async () => {
+      throw new Error("spawn git ENOENT");
+    };
+    const r = await readGithub(fake(), checkout(false), { git });
+    expect(r).toMatchObject({ reason: "githubUnreadable" });
+    expect((r as { detail: string }).detail).toContain("spawn git ENOENT");
+  });
+  // Review finding 6. Red while a git that fails with nothing on stderr is
+  // reported as "(no answer)", which reads as a network silence.
+  it("a git that fails in silence is githubUnreadable naming its exit code", async () => {
+    const git: GitRunner = (args, cwd, env) =>
+      args[0] === "ls-remote"
+        ? Promise.resolve({ code: 128, stdout: "", stderr: "" })
+        : execGit(args, cwd, env);
+    const r = await readGithub(fake(), checkout(false), { git });
+    expect(r).toMatchObject({ reason: "githubUnreadable" });
+    expect((r as { detail: string }).detail).toContain(
+      "git exited with code 128",
+    );
+  });
   // Review finding 6. Red when the branch is read on origin (the fork) while
   // gh answers for upstream, or `gh pr list` runs without --repo.
   it("in a fork's clone, reads the setup branch on the remote that is gh's repo, and asks gh about that repo", async () => {

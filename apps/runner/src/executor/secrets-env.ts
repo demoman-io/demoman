@@ -10,11 +10,11 @@
 // secrets the agent's own cannot read (a CI job). A secrets.env value names
 // its site the same way, on its own _ORIGIN line (audit run 1): accounts.json
 // is committed, and its author need not be whoever wrote the ignored file.
-import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { join } from "node:path";
 import { messageOf } from "../report.js";
+import { execGit } from "./repo.js";
 
 export const SECRET_PREFIX = "DEMOMAN_SECRET_";
 /** `${SECRET_PREFIX}NAME${SECRET_ORIGIN_SUFFIX}` holds the site NAME's
@@ -55,29 +55,20 @@ export interface SecretsSource {
  *  failure (exit 128 on dubious ownership or a corrupt repository, git
  *  missing) is returned as `failed` with git's own words, never read as "no
  *  repository" (final review I3). */
-function gitIgnores(
+async function gitIgnores(
   dir: string,
   file: string,
 ): Promise<"ignored" | "notIgnored" | "notGit" | { failed: string }> {
-  return new Promise((resolve) => {
-    execFile(
-      "git",
-      // The folder is the caller's choice: its config must not name a
-      // program git runs while it reads the index (audit run 1).
-      ["-c", "core.fsmonitor=false", "check-ignore", "-q", "--", file],
-      { cwd: dir },
-      (error, _stdout, stderr) => {
-        if (error === null) return resolve("ignored");
-        const code = (error as { code?: unknown }).code;
-        if (code === 1) return resolve("notIgnored");
-        const said = String(stderr ?? "").trim();
-        if (/not a git repository/i.test(said)) return resolve("notGit");
-        resolve({
-          failed: said === "" ? messageOf(error) : said,
-        });
-      },
-    );
-  });
+  // Through execGit, which carries the fsmonitor guard (DEM-90).
+  const r = await execGit(["check-ignore", "-q", "--", file], dir).catch(
+    (error: unknown) => ({ failed: messageOf(error) }),
+  );
+  if ("failed" in r) return r;
+  if (r.code === 0) return "ignored";
+  if (r.code === 1) return "notIgnored";
+  const said = r.stderr.trim();
+  if (/not a git repository/i.test(said)) return "notGit";
+  return { failed: said === "" ? `git exited with code ${r.code}` : said };
 }
 
 export async function readSecretsFile(dir: string): Promise<SecretsSource> {

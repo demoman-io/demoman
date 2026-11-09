@@ -7,7 +7,6 @@
 //
 // First, before anything that could print: console.log/info/debug to stderr.
 import "@demoman/mcp/stdout-guard";
-import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
@@ -114,7 +113,7 @@ function requirePageBundles(pages: string, say: (line: string) => void): void {
 const USAGE = `demoman ${VERSION}
 
   npx demoman setup          install the browser and connect your coding agents
-    [--yes] [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
+    [--yes] [--agents claude,codex,cursor,opencode] [--quality share|high|full] [--pull-requests off|ask|attach]
   npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
   npx demoman setup --ci [--trigger release|daily|push|<environment>] [--route pr|main] [--artifact]
     [--yes] [--env-file <path>] [--replace-secret <NAME>]…
@@ -615,7 +614,7 @@ function ciDeps(
     version: VERSION,
     env: process.env,
     git: execGit,
-    readGithub: (r) => readGithub(gh, r),
+    readGithub: (r, o) => readGithub(gh, r, o),
     detectApp,
     neededSecrets,
     localValues,
@@ -781,17 +780,7 @@ async function refresh(args: string[]): Promise<void> {
     },
     {
       git: execGit,
-      gh: (a) =>
-        new Promise((done) => {
-          execFile("gh", a, { cwd: repo.repo.root }, (err, stdout, stderr) =>
-            done({
-              code: err ? (typeof err.code === "number" ? err.code : 127) : 0,
-              stdout,
-              stderr:
-                err && typeof err.code !== "number" ? String(err) : stderr,
-            }),
-          );
-        }),
+      gh: realGh(repo.repo.root),
     },
   );
   process.stdout.write(
