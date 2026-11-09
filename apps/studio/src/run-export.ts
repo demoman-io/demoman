@@ -5,11 +5,11 @@ type Deps = Parameters<typeof ExportTake>[1];
 
 /**
  * The studio's `run`: `exportTake` of the scene the queue pinned, with the
- * editor's quality for this
- * export when it sent one. Without one `exportTake` reads the user's Export
- * quality from `<home>/settings.json` on each export, so a change on the
- * Settings page applies to the next one, and a file it cannot read exports
- * at the default and says why in the summary and the log: never silently.
+ * editor's quality for this export when it sent one. Without one
+ * `exportTake` reads the user's Export quality from `<home>/settings.json`
+ * on each export, so a change on the Settings page applies to the next one,
+ * and a file it cannot read exports at the default and says why in the
+ * summary and the log: never silently.
  *
  * Only an MP4 has a quality; the route refuses one on a GIF or stills.
  */

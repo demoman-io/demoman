@@ -78,8 +78,11 @@ export interface ExportDeps {
   /** The scene to render in place of the one on disk: the studio's queue
    *  read it when the export was queued, so an edit made while the job
    *  waited does not reach it (DEM-100). */
-  pinned?: { scene: SceneDocument; notes: string[] };
+  pinned?: PinnedScene;
 }
+
+/** A take's scene as `getSceneRead` gave it, held for a later export. */
+export type PinnedScene = { scene: SceneDocument; notes: string[] };
 
 const FILE_TYPES = ["mp4", "gif", "stills"] as const;
 
@@ -209,12 +212,12 @@ export async function exportTake(
     return refused("invalidMaxMB", maxBytes.refusal);
   }
   const store = library.frameStore(takeId);
-  let sceneRead: NonNullable<ExportDeps["pinned"]> | null;
+  let sceneRead: PinnedScene | null;
   let bundle: Awaited<ReturnType<typeof store.getBundle>>;
   try {
-    const current = await library.getSceneRead(takeId);
-    // Still read when pinned: a take deleted since is said as itself.
-    sceneRead = current === null ? null : (deps.pinned ?? current);
+    // Pinned, the caller has just checked the take is still there (the
+    // studio's `runOne`), and says a deleted one in its own words.
+    sceneRead = deps.pinned ?? (await library.getSceneRead(takeId));
     bundle = sceneRead === null ? null : await store.getBundle(takeId);
   } catch (error) {
     return refused(

@@ -4,6 +4,7 @@ import {
   type Exporting,
   type Library,
   LibraryError,
+  type PinnedScene,
 } from "@demoman/runner/studio";
 import type {
   ExportStartAnswer,
@@ -39,12 +40,6 @@ export interface ExportQueue {
     onQueued?: (position: number) => void,
   ): Promise<T>;
 }
-
-/** The scene an export renders, as it was read when the job was queued. */
-export type PinnedScene = Pick<
-  NonNullable<Awaited<ReturnType<Library["getSceneRead"]>>>,
-  "scene" | "notes"
->;
 
 export type RunExport = (
   takeId: string,
@@ -96,9 +91,8 @@ function failureOf(
  * The studio's exports: FIFO, one at a time in the studio's headless browser
  * (spec §6.3). `start` checks the take and its revision and queues the
  * scene it read, which is what renders however the take is edited while it
- * waits; the
- * lease and the `outputs.json` row are `run`'s (`exportTake`), so the agent
- * door and the studio take them the same way.
+ * waits; the lease and the `outputs.json` row are `run`'s (`exportTake`),
+ * so the agent door and the studio take them the same way.
  */
 export function createExportQueue(o: {
   library: Library;
