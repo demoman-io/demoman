@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { JOBS_KEPT } from "@demoman/agent-bridge";
 import { servedReason } from "@demoman/run-core";
 import { DemoScriptSchema, type ScriptStep } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
@@ -539,6 +540,11 @@ describe("the CLI's recipe", () => {
     expect(RECIPE).toContain("An unknown key is refused and named.");
     expect(RECIPE).toContain("An unknown key in `look` is refused and named.");
     expect(RECIPE).toContain("Studio exports go to `~/Downloads`.");
+  });
+
+  // DEM-106: the recipe's count is the one the server keeps.
+  it("says how many finished calls report can still answer", () => {
+    expect(RECIPE).toContain(`it keeps the last ${JOBS_KEPT} finished`);
   });
 
   it("keeps the CLI recipe within Codex's 10,000-token cut", () => {

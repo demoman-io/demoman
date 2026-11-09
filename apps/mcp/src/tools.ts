@@ -11,6 +11,7 @@ import {
   AGENT_ARG,
   AGENT_NAME_MAX,
   type AgentName,
+  JOBS_KEPT,
   type Outcome,
   RUN_TOOL_CAP_MS,
 } from "@demoman/agent-bridge";
@@ -24,7 +25,6 @@ import {
   servedRefusal,
   servedRunReport,
 } from "@demoman/run-core";
-import { JOBS_KEPT } from "@demoman/runner/package";
 import { DEVICE_IDS } from "@demoman/scene-schema";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -466,8 +466,9 @@ export function registerTools(
   const said = DESCRIPTIONS;
   /** Every run and export this server started, by the id it handed out, with
    *  which it was: the page keeps one report per kind, and `report` must read
-   *  the right one after a lost call. The last `JOBS_KEPT` finished ones,
-   *  as the executor keeps; one still going is never let go. */
+   *  the right one after a lost call. The last `JOBS_KEPT` finished ones in
+   *  the order they finished (DEM-106); one still going is never let go.
+   *  Unlike the executor's job table, calls still going do not count. */
   const calls = new Map<
     string,
     {
@@ -476,6 +477,7 @@ export function registerTools(
       watched: Watched;
     }
   >();
+  let finished = 0;
 
   const capped = async (
     p: Promise<Outcome>,
@@ -601,10 +603,14 @@ export function registerTools(
             onProgress,
           )
         : local(onProgress);
+    const entry = { op, call, watched };
     const settle = () => {
       watched.settled = true;
-      let finished = 0;
-      for (const e of calls.values()) if (e.watched.settled) finished++;
+      // Moved to the end, so the oldest to finish goes first and never this
+      // one: a long run polled past 50 later calls keeps its answer.
+      calls.delete(id);
+      calls.set(id, entry);
+      finished++;
       for (const [old, e] of calls) {
         if (finished <= JOBS_KEPT) break;
         if (e.watched.settled) {
@@ -614,7 +620,7 @@ export function registerTools(
       }
     };
     call.then(settle, settle);
-    calls.set(id, { op, call, watched });
+    calls.set(id, entry);
     const outcome = await capped(call);
     if (outcome === STILL_RUNNING) {
       progress.close();

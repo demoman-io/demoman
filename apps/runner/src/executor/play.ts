@@ -32,6 +32,7 @@ import {
 import { createHeadlessPageAgent } from "../page-agent.js";
 import { watchNavigation } from "../replay.js";
 import type { Stage } from "./browser.js";
+import { hasClosedShadowRoot } from "./closed-shadow.js";
 import { readDatesOnScreen } from "./dates-on-screen.js";
 import {
   fileForLanding,
@@ -201,6 +202,9 @@ export interface Played {
   /** Date-looking text on the last screen, [] when none or unreadable
    *  (DEM-79): refresh's evidence for its note on dates. */
   datesOnScreen: string[];
+  /** The page the run stopped on, when a target was not found there, has a
+   *  closed shadow root (DEM-102); false when unasked or unanswered. */
+  closedShadowRoot: boolean;
 }
 
 /** The walk on a prepared stage, and the checks straight after it. Throws
@@ -389,8 +393,15 @@ export async function playOnStage(
     deps.readDates === true && result.reason === null
       ? await readDatesOnScreen(page, log)
       : [];
+  // A target not found on a page with a closed shadow root may be inside
+  // it, which no run can reach (DEM-102): asked only then.
+  const closedShadowRoot =
+    notFound(result) && !page.isClosed()
+      ? (await hasClosedShadowRoot(page, log)) === true
+      : false;
   options.mark?.("checks");
   return {
+    closedShadowRoot,
     datesOnScreen,
     result,
     navigationError,
@@ -424,6 +435,17 @@ export function walkedReason(played: Played): ReplayStopReason | null {
  * runner's own — a target that did not load, which the reason alone would
  * call a step that could not be found.
  */
+/** DEM-102's known limitation, said only on a page that has one. */
+const CLOSED_SHADOW_ROOT =
+  "Also, this page has a closed shadow root, and a target inside one can't be reached during a run (a known limitation): target an element outside it";
+
+/** A step stopped because its target was not on the page: not found, or
+ *  waited for and never there. */
+const notFound = (result: AuthoredResult): boolean =>
+  result.reason === "unresolvedAnchor" ||
+  (result.reason === "waitTimeout" &&
+    result.steps.at(-1)?.waitSaw === "absent");
+
 export function stopDetail(target: string, played: Played): string | undefined {
   const {
     result,
@@ -431,6 +453,7 @@ export function stopDetail(target: string, played: Played): string | undefined {
     failedNote,
     signedOutAfter,
     lostHeadlessPage,
+    closedShadowRoot,
   } = played;
   const waitSaw =
     result.reason === "waitTimeout" ? result.steps.at(-1)?.waitSaw : undefined;
@@ -453,7 +476,9 @@ export function stopDetail(target: string, played: Played): string | undefined {
                   ? reasonSentence(waitSaw)
                   : navigationError !== null && result.outcome !== "complete"
                     ? `${target} did not load (${navigationError}) — check that the app is running at that address`
-                    : undefined;
+                    : closedShadowRoot && notFound(result) && result.reason
+                      ? `${reasonSentence(result.reason)}. ${CLOSED_SHADOW_ROOT}`
+                      : undefined;
   return signedOutAfter !== null && result.reason !== null
     ? `${signedOutAfter} The video was not kept: it would end on the sign-in page. ${ownStop(result, ownDetail ?? reasonSentence(result.reason))}`
     : walkedReason(played) === "signedOut" && failedNote !== undefined

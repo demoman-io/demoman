@@ -1010,6 +1010,28 @@ describe("RunReport", () => {
   });
 });
 
+// DEM-108. Red if verdictLine drops `videoVersion.otherRepo`: the run page,
+// the PR line and the agent's summary would not say the flow is another
+// repo's.
+describe("a flow joined from another repo, on the line", () => {
+  it("says so after the run's own clause, and says nothing when it is not", () => {
+    const clean = buildRunReport(complete());
+    const said =
+      "this flow belongs to github.com/a/b; this video was recorded from github.com/a/c";
+    const line = verdictLine({
+      ...clean,
+      videoVersion: { id: "f", name: "F", created: false, otherRepo: said },
+    });
+    expect(line).toBe(`${verdictLine(clean)} Note: ${said}.`);
+    expect(
+      verdictLine({
+        ...clean,
+        videoVersion: { id: "f", name: "F", created: false },
+      }),
+    ).toBe(verdictLine(clean));
+  });
+});
+
 describe("the look on the line", () => {
   it("names an unreadable kit after the run's own clause", () => {
     const report = buildRunReport({

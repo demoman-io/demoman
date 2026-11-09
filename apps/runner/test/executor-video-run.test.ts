@@ -325,11 +325,26 @@ describe("run records into a video", () => {
         expect((await memberOf(take)).made.repo).toMatchObject({
           key: "github.com/acme/site",
         });
+        // No repo at all says why, not just "no repo".
+        const plain = await mkdtemp(join(tmpdir(), "demoman-video-plain-"));
+        try {
+          const out2 = await executor.request("run", {
+            project: plain,
+            script: script("Create an invoice"),
+            video: { id: videoId },
+          });
+          if (!out2.ok) throw new Error(JSON.stringify(out2));
+          expect((out2.value as Answer).videoVersion?.otherRepo).toMatch(
+            /^this flow belongs to github\.com\/acme\/shop; this video was recorded from no repo \(not a git checkout: /,
+          );
+        } finally {
+          await rm(plain, { recursive: true, force: true });
+        }
       } finally {
         await rm(other, { recursive: true, force: true });
       }
     },
-    RUN_MS,
+    2 * RUN_MS,
   );
 
   it(

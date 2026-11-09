@@ -941,9 +941,9 @@ export function verdictLine(report: RunReport): string {
           unstored.every((w) => w.what === "session")
           ? "The run's video is in the library, but the site's session could not be saved back"
           : "The run's video is in the library, but part of its record is not";
-    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${lookClause(report)}`;
+    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
   }
-  return `${runVerdictLine(report)}${framesClause(report)}${lookClause(report)}`;
+  return `${runVerdictLine(report)}${framesClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
 }
 
 /**
@@ -1056,6 +1056,12 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
  *  is made and correct by its own lights, but it is not in the colours the
  *  author saved, and a grey video with no reason reads as "no kit". Empty
  *  when there is nothing to say, so every other line is unchanged. */
+/** DEM-108: the run joined a flow from a checkout of another repo. */
+function otherRepoClause(report: RunReport): string {
+  const said = report.videoVersion?.otherRepo;
+  return said === undefined ? "" : ` Note: ${said}.`;
+}
+
 function lookClause(report: RunReport): string {
   return [report.look?.brandKitError, report.look?.wallpaperError]
     .map((error) => (error == null ? "" : ` ${error}.`))

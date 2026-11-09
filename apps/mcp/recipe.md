@@ -163,7 +163,7 @@ targets, leaving the page open. Each entry is
   `npx demoman signin <the page to record>`; spend no run. Otherwise on
   `"unchecked"`, carry on only if `landedUrl` is not a sign-in page.
 - `settled: false` - the page was still loading; `settleNote` says what
-  was pending. Snapshot again before concluding something is absent.
+  was left. Snapshot again before concluding something is absent.
 - `rect` is in page coordinates; `inFirstViewport`: in view before any
   scroll. `rect: null`: no box yet (a closed FAQ answer), still a valid
   `waitFor … until: "visible"` target after the step that opens it.
@@ -249,7 +249,7 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    `possibleDuplicate` lists `matches`: use one's `id`, or repeat with
    `confirmedNew: true` for a different flow. `nameTaken` names the
    `holder`: use its `id` or another name. The report's `flow`
-   says what was made; `flow.otherRepo`: it joined another
+   says what was made; `flow.otherRepo`: joined another
    repo's flow; tell the user.
 1. `run(script, flow)`. It answers the run's report, or
    `{ "outcome": "stillRunning", "id": … }` after about 50 s; then call
@@ -535,7 +535,7 @@ Studio exports go to `~/Downloads`.
 | `invalidQuality`, `invalidMaxMB` | `export`¹, `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
 | `noVideoId`, `noFrames` | `export`¹ | No video id; no frames to render. |
 | `videoNotFound`, `videoUnreadable` | `export`¹, `run` re-film ¹, `studio` (`videoNotFound`: call `flows`) | No such video; it could not be read (or, for `run`, built into a script). |
-| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run`² | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. A target in a closed shadow root can't be reached: pick one outside it. |
+| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run`² | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. A `detail` naming a closed shadow root: its targets can't be reached; pick one outside. |
 | `ambiguousAnchor` | `run`² | Several elements matched; name the target more exactly. |
 | `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run`² | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |
 | `pageWentElsewhere`, `unperformableStep` | `run`² | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks the impossible. |

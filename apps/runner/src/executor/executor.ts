@@ -6,6 +6,7 @@ import {
   AGENT_ARG,
   agentOf,
   failure,
+  JOBS_KEPT,
   type Op,
   type Outcome,
 } from "@demoman/agent-bridge";
@@ -117,11 +118,6 @@ export interface Job {
   latest: unknown;
   final: Outcome | null;
 }
-
-/** How many runs and exports `report(id)` can still answer. Each keeps its
- *  whole final answer, a run's report included, for as long as it is kept
- *  (review 2026-10-13, #7). */
-export const JOBS_KEPT = 50;
 
 /**
  * The calls `report(id)` answers from: the latest `kept`, the oldest settled
@@ -668,7 +664,12 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         // repo serves another's app), so it joins, and the report says so.
         const here = await videos.resolve(videoRepo);
         if (!sharesRepo(into.repo, here)) {
-          const named = (r: VideoRepo) => ("key" in r ? r.key : "no repo");
+          const named = (r: VideoRepo) =>
+            "key" in r
+              ? r.key
+              : "none" in r
+                ? `no repo (${r.none})`
+                : "an unknown repo";
           otherRepo = `this flow belongs to ${named(into.repo)}; this video was recorded from ${named(here)}`;
         }
         if (!hasScript) {
@@ -1141,10 +1142,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         value: {
           // The run page's own line, so a person reading the agent's
           // terminal reads what the run page would have said.
-          summary:
-            report.videoVersion?.otherRepo === undefined
-              ? verdictLine(report)
-              : `${verdictLine(report)} Note: ${report.videoVersion.otherRepo}.`,
+          summary: verdictLine(report),
           ...report,
           ...(kept === undefined ? {} : { kept }),
           ...(chosen === null ? {} : { account: chosen.account.name }),
