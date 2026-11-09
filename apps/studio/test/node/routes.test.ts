@@ -34,6 +34,7 @@ import {
   createRoutes,
   FRAME_CACHE,
   revealFile,
+  runTool,
   TAKE_BUSY,
 } from "../../src/routes.js";
 import { folderBytes } from "../../src/sizes.js";
@@ -1349,6 +1350,22 @@ describe("revealFile", () => {
     const { ran, run } = recording();
     await revealFile("/v/out.mp4", "linux", run);
     expect(ran).toEqual([["xdg-open", ["/v"]]]);
+  });
+
+  it("the real tool: a quick failure rejects with its stderr", async () => {
+    await expect(
+      runTool(process.execPath, [
+        "-e",
+        "process.stderr.write('no method available'); process.exit(3)",
+      ]),
+    ).rejects.toThrow("no method available");
+  });
+
+  it("the real tool: one still running (a file manager in the foreground) does not hold the request", async () => {
+    const started = Date.now();
+    // Red: wait for the exit (execFile) — this takes the full 3 s.
+    await runTool(process.execPath, ["-e", "setTimeout(() => {}, 3000)"], 200);
+    expect(Date.now() - started).toBeLessThan(2_000);
   });
 
   it("a tool that fails rejects with its words", async () => {

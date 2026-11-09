@@ -35,12 +35,7 @@ import type {
   WindowAnswer,
 } from "@demoman/studio-protocol";
 import { createEventHub, type EventHub } from "./events.js";
-import {
-  messageOf,
-  noTakeRefusal,
-  readIfPresent,
-  takeExists,
-} from "./files.js";
+import { messageOf, noTakeRefusal, readIfPresent } from "./files.js";
 import { createPageServer } from "./pages.js";
 import {
   createExportQueue,
@@ -135,6 +130,11 @@ export function buildHandlers(o: {
   const noTake = (id: string): StudioResponse =>
     json(404, noTakeRefusal(library, id));
 
+  /** Whether `id` is a take that loads: parsed, not only stat'd as
+   *  `takeExists` does, so the window never opens on one that will not. */
+  const loads = async (id: string): Promise<boolean> =>
+    library.isTakeId(id) && (await library.getSceneRead(id)) !== null;
+
   const videos = createVideoStore(o.home, library, { log: o.log });
   const keep = o.keep ?? keepVideo;
   const removeFlow = o.removeFlow ?? removeRepoFlow;
@@ -201,7 +201,7 @@ export function buildHandlers(o: {
       if (takeId !== undefined) {
         // An unknown take is refused; the library is not opened instead.
         try {
-          if (!(await takeExists(library, takeId))) return noTake(takeId);
+          if (!(await loads(takeId))) return noTake(takeId);
         } catch (error) {
           return libraryRefusal(error);
         }

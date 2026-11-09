@@ -242,12 +242,20 @@ const previewPorts: PreviewPorts<FrameBundle> = {
   // `sips` off macOS, DEM-86) or elsewhere, the page decodes the keyframe.
   image: async (ref) => {
     const folder = platform.folder;
-    if (folder === undefined) return decodeKeyframe(ref);
+    if (folder === undefined || studioMakesNoPreviews) {
+      return decodeKeyframe(ref);
+    }
     try {
       return await folder.thumb(ref);
     } catch (thumbError) {
+      // Only a preview the Studio could not make: a take that is gone or a
+      // Studio that stopped is said as it is, not asked of the store too.
+      const shape = thumbError as { reason?: unknown; status?: unknown };
+      if (shape?.reason !== "thumbFailed") throw thumbError;
+      // 501: this Studio makes none at all, so it is not asked again.
+      if (shape.status === 501) studioMakesNoPreviews = true;
       console.info(
-        `demoman library: the Studio made no preview of ${ref} (${messageOf(thumbError)}); decoding it here`,
+        `demoman library: the Studio made no preview of ${ref} (${messageOf(thumbError)}); decoding ${shape.status === 501 ? "every preview" : "it"} here`,
       );
       try {
         return await decodeKeyframe(ref);
@@ -260,6 +268,10 @@ const previewPorts: PreviewPorts<FrameBundle> = {
   },
   whenVisible,
 };
+
+/** Set by the Studio's first 501 `thumbFailed` (no `sips` off macOS):
+ *  every later preview is decoded here without asking it. */
+let studioMakesNoPreviews = false;
 
 /** A keyframe decoded from the store, for a preview. */
 async function decodeKeyframe(ref: string): Promise<ImageBitmap> {

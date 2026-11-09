@@ -189,6 +189,9 @@ describe("createThumbs", () => {
     expect(r.refusal.detail).toContain("macOS");
     // Not a keyframe copied to disk per card per visit.
     await expect(readdir(thumbsDir(takeId))).rejects.toThrow(/ENOENT/);
+    // Nor any read: a take that is not there gets the same answer.
+    const gone = await thumbs.get("no-such-take", "kf:no-such-take:0");
+    expect(gone.ok ? 200 : gone.status).toBe(501);
   });
 
   it("ten cards at once run at most four makes", async () => {

@@ -1700,7 +1700,7 @@ function drawFileRow(
     ]),
   );
   if (file.exists) {
-    const show = el("button", "btn btn-quiet", "Show in Finder");
+    const show = el("button", "btn btn-quiet", showFileLabel());
     show.type = "button";
     show.setAttribute("data-reveal", file.key);
     show.addEventListener("click", () =>
@@ -1769,7 +1769,7 @@ function saveOutcomeRow(
       const show = el(
         "button",
         "btn btn-quiet",
-        target.kind === "path" ? "Show in Finder" : "Show in folder",
+        target.kind === "path" ? showFileLabel() : "Show in folder",
       );
       show.type = "button";
       show.setAttribute("data-show-in-folder", "");
@@ -2564,4 +2564,12 @@ export function renderShortcuts(
   root.replaceChildren(search, body);
   // Ready to type into when it opens, as Linear's is.
   if (state.focus) search.focus();
+}
+
+/** The Studio runs on this machine, so its platform is the page's: Finder
+ *  on macOS; elsewhere the server opens the file's folder (`revealFile`). */
+function showFileLabel(): string {
+  return /Linux|Win/.test(navigator.platform)
+    ? "Show in folder"
+    : "Show in Finder";
 }

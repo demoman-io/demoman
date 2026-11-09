@@ -148,6 +148,14 @@ export function createThumbs(o: {
 
   return {
     async get(id, ref) {
+      // First, before any read: nothing this could check changes the answer.
+      if (make === null) {
+        return refused(
+          501,
+          "thumbFailed",
+          `Couldn't make a preview of ${ref}: previews are made with sips, which only macOS has.`,
+        );
+      }
       if (!(await takeExists(library, id))) return noTake(id);
       const store = library.frameStore(id);
       let bundle: Awaited<ReturnType<typeof store.getBundle>>;
@@ -165,14 +173,6 @@ export function createThumbs(o: {
           404,
           "frameNotFound",
           `Video ${id} holds no frame "${ref}".`,
-        );
-      }
-      // Refused before a copy of the keyframe is written for nothing.
-      if (make === null) {
-        return refused(
-          501,
-          "thumbFailed",
-          `Couldn't make a preview of ${ref}: previews are made with sips, which only macOS has.`,
         );
       }
       const dir = join(library.takeDir(id), "thumbs");

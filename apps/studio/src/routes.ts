@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import {
@@ -119,14 +119,44 @@ const FOLDERS_MAX = 500;
 /** Runs a tool; rejects with its own words. */
 export type RunTool = (cmd: string, args: string[]) => Promise<void>;
 
-const runTool: RunTool = (cmd, args) =>
+/** How long a reveal tool may run before it counts as showing the file.
+ *  `open -R` and a desktop's `xdg-open` return at once; xdg-open's generic
+ *  fallback runs the file manager in the foreground, and waiting for its
+ *  exit would hold the request until that window closed. */
+export const REVEAL_SETTLE_MS = 2_000;
+
+/** Runs a tool. Rejects with its own words if it fails (or exits non-zero)
+ *  within `settleMs`; one still running then is left to run. */
+export const runTool = (
+  cmd: string,
+  args: string[],
+  settleMs = REVEAL_SETTLE_MS,
+): Promise<void> =>
   new Promise((resolve, reject) => {
-    execFile(cmd, args, (error, _stdout, stderr) => {
-      if (error) {
-        reject(new Error(stderr.trim() || error.message));
-        return;
-      }
+    const child = spawn(cmd, args, {
+      detached: true,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    const timer = setTimeout(() => {
+      child.stderr?.destroy();
+      child.unref();
       resolve();
+    }, settleMs);
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("exit", (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else
+        reject(
+          new Error(stderr.trim() || `${cmd} exited with ${code ?? signal}`),
+        );
     });
   });
 

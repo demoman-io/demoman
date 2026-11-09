@@ -133,6 +133,10 @@ async function fakePlatform(
   return fake;
 }
 
+/** A refusal as `platform/http.ts`'s request throws it. */
+const refusal = (reason: string, detail: string, status: number): Error =>
+  Object.assign(new Error(detail), { reason, status });
+
 function listing(
   scenes: SceneDocument[],
   more: Partial<FolderListing> = {},
@@ -436,8 +440,9 @@ describe("the library page on a platform with a take folder", () => {
     ).not.toBeNull();
   });
 
-  it("a thumb that fails is decoded on the page, and the Studio's words are logged", async () => {
-    const detail = "Previews are made with sips, which only macOS has.";
+  it("a Studio with no sips (501) is asked once; every preview is decoded on the page", async () => {
+    const detail =
+      "Couldn't make a preview of k-0: previews are made with sips, which only macOS has.";
     // jsdom has no ImageBitmap; the page checks the decode is one.
     class FakeBitmap {
       width = 1280;
@@ -449,7 +454,7 @@ describe("the library page on a platform with a take folder", () => {
     const fake = await fakePlatform(
       async () => listing([await scene("a", "Checkout")]),
       async () => {
-        throw new Error(detail);
+        throw refusal("thumbFailed", detail, 501);
       },
       async (ref) => {
         loads.push(ref);
@@ -484,6 +489,57 @@ describe("the library page on a platform with a take folder", () => {
         .mocked(console.info)
         .mock.calls.some((c) => c.join(" ").includes(detail)),
     ).toBe(true);
+    // Asked no more: a second pass decodes again without asking the Studio.
+    const asked = fake.thumbs.length;
+    const loaded = loads.length;
+    for (const fn of fake.changeListeners) fn();
+    await vi.waitFor(
+      () => {
+        if (loads.length <= loaded) {
+          throw new Error(
+            `no second decode: loads ${loads.join(",")}, reads ${fake.reads}`,
+          );
+        }
+      },
+      { timeout: 5_000 },
+    );
+    // Red: drop `studioMakesNoPreviews` — the second pass asks again.
+    expect(fake.thumbs.length).toBe(asked);
+  });
+
+  it("a take the Studio no longer has is said as the Studio says it, and not decoded", async () => {
+    const detail = 'There is no video "a" in /home/takes.';
+    const loads: string[] = [];
+    const fake = await fakePlatform(
+      async () => listing([await scene("a", "Checkout")]),
+      async () => {
+        throw refusal("takeNotFound", detail, 404);
+      },
+      async (ref) => {
+        loads.push(ref);
+        throw new Error("decoded a take the Studio said is gone");
+      },
+    );
+    await openPage();
+    const note = await vi.waitFor(
+      () => {
+        const text =
+          document.querySelector('[data-row="a"] [data-preview-note]')
+            ?.textContent ?? "";
+        if (!text.startsWith("Preview unavailable — ")) {
+          throw new Error(
+            `note: ${JSON.stringify(text)}, thumbs asked: ${fake.thumbs.join(",")}`,
+          );
+        }
+        return text;
+      },
+      { timeout: 5_000 },
+    );
+    // Red: fall back on every refusal — the store is asked, and the note
+    // grows a second reason.
+    expect(note).toBe(`Preview unavailable — ${detail}`);
+    expect(fake.thumbs.length).toBeGreaterThan(0);
+    expect(loads).toEqual([]);
   });
 
   it("a thumb that fails and will not decode either says both", async () => {
@@ -491,7 +547,7 @@ describe("the library page on a platform with a take folder", () => {
     const fake = await fakePlatform(
       async () => listing([await scene("a", "Checkout")]),
       async () => {
-        throw new Error(detail);
+        throw refusal("thumbFailed", detail, 500);
       },
       async () => {
         throw new Error("The Studio did not answer GET /frame");

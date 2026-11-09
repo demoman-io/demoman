@@ -19,6 +19,7 @@ import {
   type Handler,
   type StudioHandlers,
 } from "../../src/server.js";
+import { seedTake } from "./seed.js";
 
 // Spec §8: every route in studio-protocol's table has exactly one handler.
 // The table is serve.ts's `buildHandlers`, the one runServe serves (R5).
@@ -221,6 +222,26 @@ describe("the window route (openStudio's hop to the window)", () => {
       expect(opens).toEqual([{ project: "github.com/c/r" }]);
     } finally {
       await rm(aliases, { force: true });
+    }
+  });
+
+  it("refuses a take whose scene.json will not read, opening nothing", async () => {
+    opens.length = 0;
+    const { takeId } = await seedTake(home, { id: "broken-take" });
+    const path = join(home, "takes", takeId, "scene.json");
+    await writeFile(path, "{nope");
+    try {
+      const answer = (await post({ takeId })) as {
+        status: number;
+        json: { reason: string; detail: string };
+      };
+      // Red: check the take with a stat of scene.json (the shared
+      // takeExists) — the window opens on a take that will not load.
+      expect(answer.status, JSON.stringify(answer)).toBe(500);
+      expect(answer.json.reason).toBe("libraryUnreadable");
+      expect(opens).toEqual([]);
+    } finally {
+      await rm(join(home, "takes", takeId), { recursive: true, force: true });
     }
   });
 

@@ -180,6 +180,42 @@ describe("a file row from outputs.json", () => {
     });
   });
 
+  it("off macOS the same button says Show in folder (DEM-86: no Finder there)", () => {
+    // Premise: jsdom's own platform is not Linux, so the case above is the
+    // Finder side of this one.
+    expect(navigator.platform).not.toMatch(/Linux/);
+    const platform = vi
+      .spyOn(navigator, "platform", "get")
+      .mockReturnValue("Linux x86_64");
+    try {
+      drawHistory(root, { ...base, outputs: [file()] }, handlers);
+      expect(
+        root.querySelector<HTMLButtonElement>("[data-reveal]")?.textContent,
+      ).toBe("Show in folder");
+      renderExport(
+        root,
+        {
+          ...base,
+          save: {
+            kind: "saved",
+            names: ["demo.mp4"],
+            byteLength: 1,
+            reveal: { kind: "path", path: "/home/me/demo.mp4" },
+            summary: null,
+            outputRefs: [],
+          },
+        },
+        handlers,
+      );
+      // Red: label the path reveal "Show in Finder" whatever the platform.
+      expect(root.querySelector("[data-show-in-folder]")?.textContent).toBe(
+        "Show in folder",
+      );
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
   // The author, 2026-10-19: the row said the studio's whole sentence, path
   // and all, and "made before your last edit" on a line of its own. Red:
   // draw the sentence back, or the stale line.
