@@ -78,6 +78,7 @@ import {
   createVideoStore,
   isVideoId,
   type Made,
+  sharesRepo,
   VideoError,
   type VideoRecord,
   type VideoRepo,
@@ -599,6 +600,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     let raw: unknown = args.script;
     let refilm: RefilmInfo | undefined;
     let builtFrom: string | null = null;
+    let otherRepo: string | undefined;
     try {
       const migrated = await ensureVideos(videos, library);
       for (const s of migrated.skipped) {
@@ -661,6 +663,13 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             `no flow has the id ${JSON.stringify(asked.id)}`,
             "video",
           );
+        }
+        // DEM-108: joining from another repo's checkout can be meant (one
+        // repo serves another's app), so it joins, and the report says so.
+        const here = await videos.resolve(videoRepo);
+        if (!sharesRepo(into.repo, here)) {
+          const named = (r: VideoRepo) => ("key" in r ? r.key : "no repo");
+          otherRepo = `this flow belongs to ${named(into.repo)}; this video was recorded from ${named(here)}`;
         }
         if (!hasScript) {
           const target = into.id;
@@ -831,6 +840,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         name: video.name,
         ...(version === undefined ? {} : { version }),
         created,
+        ...(otherRepo === undefined ? {} : { otherRepo }),
       };
     };
     const paint = (value: unknown) => {
@@ -1131,7 +1141,10 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         value: {
           // The run page's own line, so a person reading the agent's
           // terminal reads what the run page would have said.
-          summary: verdictLine(report),
+          summary:
+            report.videoVersion?.otherRepo === undefined
+              ? verdictLine(report)
+              : `${verdictLine(report)} Note: ${report.videoVersion.otherRepo}.`,
           ...report,
           ...(kept === undefined ? {} : { kept }),
           ...(chosen === null ? {} : { account: chosen.account.name }),

@@ -240,6 +240,9 @@ export interface RunReport {
     name: string;
     version?: number;
     created: boolean;
+    /** Present when the run's checkout is not the flow's repo (DEM-108):
+     *  "this flow belongs to X; this video was recorded from Y". */
+    otherRepo?: string;
   };
   /** Present only when a kept file (.demoman/videos) in the run's repo
    *  keeps the video this run joined: the file rewritten to follow the new

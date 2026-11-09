@@ -734,6 +734,47 @@ describe("demoman-mcp's tools", () => {
     expect(textOf(result)).toMatchObject({ reason: "unknownRun" });
   });
 
+  // Red if the server keeps every call (DEM-106): id-2 would still answer.
+  // Red if it lets go of one still going: id-1 would answer unknownRun.
+  it("keeps the last 50 finished calls, lets the oldest go, and never one still going", async () => {
+    const { client } = await connect(
+      {
+        snapshot: (args) =>
+          args.callId === "id-1"
+            ? new Promise<Outcome>(() => {})
+            : Promise.resolve({
+                ok: true,
+                value: { url: args.callId, targets: [] },
+              }),
+      },
+      50,
+    );
+    const snap = (url: string) =>
+      client.callTool({ name: "snapshot", arguments: { url } });
+    expect(textOf(await snap("http://a/"))).toEqual({
+      outcome: "stillRunning",
+      id: "id-1",
+    });
+    // 51 finished calls, id-2 .. id-52: one more than is kept.
+    for (let i = 0; i < 51; i++) await snap("http://a/");
+    const report = (id: string) =>
+      client.callTool({ name: "report", arguments: { id } });
+    const gone = await report("id-2");
+    expect(gone.isError).toBe(true);
+    expect(textOf(gone)).toMatchObject({
+      reason: "unknownRun",
+      detail: expect.stringMatching(/id-2.*last 50 finished/),
+    });
+    expect(textOf(await report("id-3"))).toEqual({
+      url: "id-3",
+      targets: [],
+    });
+    expect(textOf(await report("id-1"))).toEqual({
+      outcome: "stillRunning",
+      id: "id-1",
+    });
+  });
+
   it("forwards progress as MCP progress notifications", async () => {
     const { client } = await connect({
       run: async (_args, progress) => {

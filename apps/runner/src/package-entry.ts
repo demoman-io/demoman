@@ -34,7 +34,7 @@ export {
   verifySetup,
 } from "./executor/app-verify.js";
 export { fullChromiumPath, launchFailure } from "./executor/browser.js";
-export { createLocalExecutor } from "./executor/executor.js";
+export { createLocalExecutor, JOBS_KEPT } from "./executor/executor.js";
 export {
   type KeepAnswer,
   type KeepDeps,

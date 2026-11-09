@@ -289,6 +289,49 @@ describe("run records into a video", () => {
     RUN_MS,
   );
 
+  // DEM-108. The same-repo side is the `toEqual` above: no otherRepo there.
+  // Red if the `{ id }` join stops comparing the flow's repo with the run's.
+  it(
+    "joins a flow from a checkout of another repo, and says so",
+    async () => {
+      const other = await mkdtemp(join(tmpdir(), "demoman-video-other-"));
+      try {
+        execFileSync("git", ["init", "-q"], { cwd: other });
+        execFileSync(
+          "git",
+          ["remote", "add", "origin", "git@github.com:acme/site.git"],
+          { cwd: other },
+        );
+        const out = await executor.request("run", {
+          project: other,
+          script: script("Create an invoice"),
+          video: { id: videoId },
+        });
+        if (!out.ok) throw new Error(JSON.stringify(out));
+        const value = out.value as Answer;
+        expect(value.outcome, JSON.stringify(value.stopped ?? value)).toBe(
+          "complete",
+        );
+        const said = `this flow belongs to ${REPO_KEY}; this video was recorded from github.com/acme/site`;
+        expect(value.videoVersion).toMatchObject({
+          id: videoId,
+          created: false,
+          otherRepo: said,
+        });
+        expect(value.summary).toContain(said);
+        // Premise: the take did record the other repo.
+        const take = value.provenance.takeId;
+        if (take === null) throw new Error(JSON.stringify(value));
+        expect((await memberOf(take)).made.repo).toMatchObject({
+          key: "github.com/acme/site",
+        });
+      } finally {
+        await rm(other, { recursive: true, force: true });
+      }
+    },
+    RUN_MS,
+  );
+
   it(
     "says a take whose new video could not be written is in no video, and starts none",
     async () => {

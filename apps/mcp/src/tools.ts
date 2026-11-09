@@ -24,6 +24,7 @@ import {
   servedRefusal,
   servedRunReport,
 } from "@demoman/run-core";
+import { JOBS_KEPT } from "@demoman/runner/package";
 import { DEVICE_IDS } from "@demoman/scene-schema";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -465,7 +466,8 @@ export function registerTools(
   const said = DESCRIPTIONS;
   /** Every run and export this server started, by the id it handed out, with
    *  which it was: the page keeps one report per kind, and `report` must read
-   *  the right one after a lost call. */
+   *  the right one after a lost call. The last `JOBS_KEPT` finished ones,
+   *  as the executor keeps; one still going is never let go. */
   const calls = new Map<
     string,
     {
@@ -601,6 +603,15 @@ export function registerTools(
         : local(onProgress);
     const settle = () => {
       watched.settled = true;
+      let finished = 0;
+      for (const e of calls.values()) if (e.watched.settled) finished++;
+      for (const [old, e] of calls) {
+        if (finished <= JOBS_KEPT) break;
+        if (e.watched.settled) {
+          calls.delete(old);
+          finished--;
+        }
+      }
     };
     call.then(settle, settle);
     calls.set(id, { op, call, watched });
@@ -1012,7 +1023,7 @@ export function registerTools(
       if (entry === undefined) {
         return refused(
           "unknownRun",
-          `no run, export, attach, snapshot, probe, add or ci with id ${id} was started by this demoman-mcp — ids do not survive a restart of the server`,
+          `no run, export, attach, snapshot, probe, add or ci with id ${id} is known to this demoman-mcp: it keeps the last ${JOBS_KEPT} finished calls, and ids do not survive a restart of the server`,
         );
       }
       // One deadline over both waits below (REPORT_CALL_SHARE).

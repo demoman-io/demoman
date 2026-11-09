@@ -34,6 +34,7 @@ than this page can: read it first.
 | `windowClosed` | With `--headed`, the window was closed mid-run. Leave it open |
 | `studioDidNotStart` | The Studio did not start; the detail quotes its log |
 | `videoExpired` | The video's frames have expired. Record the flow again, then export |
+| `unresolvedAnchor` | A step's target was not on the page. Your agent fixes most of these, but a target inside a closed shadow root can't be reached during a run (a known limitation): record a target outside it |
 
 ## Adding a flow
 

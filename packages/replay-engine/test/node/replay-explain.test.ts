@@ -40,6 +40,13 @@ describe("reasonSentence", () => {
 
   // The orchestrator used to print the bare identifier, so a real take
   // reported "Stopped: unresolvedAnchor" and the author had no way in.
+  // DEM-102, a known limitation: no run installs the shadow registry.
+  it("says a target inside a closed shadow root cannot be reached", () => {
+    expect(reasonSentence("unresolvedAnchor")).toContain(
+      "a target inside a closed shadow root can't be reached during a run",
+    );
+  });
+
   it("never returns the bare identifier for a mapped reason", () => {
     expect(reasonSentence("unresolvedAnchor")).not.toBe("unresolvedAnchor");
   });

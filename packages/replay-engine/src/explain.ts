@@ -26,9 +26,11 @@ export const REASON_TEXT: Record<ReplayStopReason, string> = {
   cancelledByAuthor:
     "you cancelled before it started, so this scene still has what the take itself recorded — re-shoot it in Runs to run it now",
   // Genuinely gone. The only one of these three that means the demo is
-  // actually broken.
+  // actually broken. The closed-shadow-root clause is DEM-102's known
+  // limitation (no run installs the shadow registry); it is said here for
+  // every miss because a closed root cannot be seen from the page.
   unresolvedAnchor:
-    "an element this demo depends on was not on the page — check the step's target names something the page really shows, or what the step before it does",
+    "an element this demo depends on was not on the page — check the step's target names something the page really shows, or what the step before it does; a target inside a closed shadow root can't be reached during a run, so target an element outside it",
   // NOT "could not find it". Several WERE found, and replay stopped rather
   // than guess, because guessing is how a replay clicks the wrong row of a
   // table. The author's problem is upstream: the element is not identified

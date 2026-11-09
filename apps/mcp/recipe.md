@@ -41,8 +41,7 @@ user; section 7 lists every reason.
   `sessionsUnreadable`, when present: the saved sessions could not be read; tell the user.
 
 `status.sessions` lists an account's saved session with an `account` (and
-`origin`) beside `site`; an entry without one is the site's manual session from
-`npx demoman signin <url>`.
+`origin`) beside `site`; one without is a manual `npx demoman signin` session.
 
 `status.secretsFile` is `null` (no usable accounts file), `{path, absent:
 true}` (no secrets file: only `DEMOMAN_SECRET_*` can supply values),
@@ -148,11 +147,11 @@ targets, leaving the page open. Each entry is
   translate a name from another tool's accessibility tree: Demoman's roles
   are not Chrome's.
 - `landedElsewhere: true` - the app redirected, often to its sign-in page;
-  `landedUrl` says where. If it is a sign-in page, this browser is not
-  signed in there: see `session` below and spend no run. If it is not a sign-in page (a
+  `landedUrl` says where. If it is a sign-in page,
+  see `session` below and spend no run. If it is not a sign-in page (a
   trailing slash, `https`, a locale prefix), use `landedUrl` as the
   script's `target`; this snapshot stands.
-  `landedElsewhere: null` means the page's address could not be read: not an
+  `landedElsewhere: null`: the address could not be read; not an
   all-clear.
 - `session` - `"saved"`: a session is saved for this site; `"none"`: none
   is (normal for a public page); `"signedOut"`: the page is a sign-in page,
@@ -163,8 +162,8 @@ targets, leaving the page open. Each entry is
   `"none"` or `"unchecked"` means the same. Tell the user to run
   `npx demoman signin <the page to record>`; spend no run. Otherwise on
   `"unchecked"`, carry on only if `landedUrl` is not a sign-in page.
-- `settled: false` - the page was still loading; `settleNote` says what was
-  outstanding. Snapshot again before concluding something is absent.
+- `settled: false` - the page was still loading; `settleNote` says what
+  was pending. Snapshot again before concluding something is absent.
 - `rect` is in page coordinates; `inFirstViewport`: in view before any
   scroll. `rect: null`: no box yet (a closed FAQ answer), still a valid
   `waitFor … until: "visible"` target after the step that opens it.
@@ -179,15 +178,14 @@ targets, leaving the page open. Each entry is
   (name, text, stableId, kind, value) to narrow. `containsNote`: no match.
 - A snapshot sees only the page as it loads: hidden content in the
   page is listed; content a click creates (a menu, dialog, results, a new row) is not. To list it, `probe` your script
-  cut off after the step that opens it, and copy targets from that answer. A probe acts on the app for real, as its description says: an "Add item"
+  cut off after the step that opens it, and copy targets from that answer. A probe acts on the app for real: an "Add item"
   in it can make a unique target ambiguous in the run; in the Studio an edit saves into the video. `stopped`: a step did not play; fix it as a
   run's stop with that reason says, and probe again.
 
 ### Recording a phone demo
 
 1. Call `snapshot` with `device` (`"phone"` or `"tablet"`), and
-   copy targets from that answer only: a phone shows a different page, and a
-   desktop target is often not on it.
+   copy targets from that answer only, never a desktop one.
 2. `run` a script that names the same `device`.
 3. Leave `look.canvas` at `auto`, which comes out portrait, or name `9:16`.
 4. No `hover` steps: tap instead.
@@ -251,7 +249,8 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
    `possibleDuplicate` lists `matches`: use one's `id`, or repeat with
    `confirmedNew: true` for a different flow. `nameTaken` names the
    `holder`: use its `id` or another name. The report's `flow`
-   says what was made.
+   says what was made; `flow.otherRepo`: it joined another
+   repo's flow; tell the user.
 1. `run(script, flow)`. It answers the run's report, or
    `{ "outcome": "stillRunning", "id": … }` after about 50 s; then call
    `report(id)` until the outcome is neither `running` nor `stillRunning`.
@@ -493,7 +492,7 @@ Studio exports go to `~/Downloads`.
 | `secretOffOrigin` | `snapshot`, `run`¹ | A secret was about to be typed off its site: a sign-in step's page is not the site's origin, or the `_ORIGIN` names another site; `detail` names both. Nothing typed. Check the account's site and `goto`, then tell the user. |
 | `secretsFileNotIgnored` | `snapshot`, `run`¹ | Git does not ignore `.demoman/secrets.env`, so Demoman did not read it. Add it to `.gitignore` (`detail` says the line), or untrack it. |
 | `secretsFileInvalid` | `snapshot`, `run`¹ | A line of `.demoman/secrets.env` is not `DEMOMAN_SECRET_NAME=value`, a comment or blank; `detail` gives the line. Fix it. |
-| `accountsInvalid` | `snapshot`, `run`¹ | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names the field and the rule. Fix the file. |
+| `accountsInvalid` | `snapshot`, `run`¹ | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names it. Fix the file. |
 | `unknownAccount` | `snapshot`, `run`¹ | The script names an account the site lacks, or none and the site has no `default`; `detail` lists the accounts. Name one, or add it (section 1). |
 | `invalidProject` | `snapshot`, `run`¹, `attach` | `project` is not an absolute path to a folder. Pass one, or leave it out. |
 | `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach`¹, `ci` | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing posted; do as `detail` says. |
@@ -509,7 +508,7 @@ Studio exports go to `~/Downloads`.
 | `browserSilent` | `status`, `flows`, `derive`, `report` | The browser did not answer in about 50 s. Call `status` once; if again, tell the user. From `report` the run may still be going: call `report(id)` again. |
 | `libraryUnreadable` | `flows`, `studio` | Unreadable; report it. |
 | `libraryUnwritable` | `run` (in `notStored`) | Not a `reason`: the report has a `notStored` entry `{ "what": "video", "error": … }` and a null `provenance.videoId`. Nothing saved; quote the `error`. |
-| `unknownRun` | `report` | This demoman-mcp never issued that id (ids do not survive a server restart). |
+| `unknownRun` | `report` | This demoman-mcp never issued that id, or let it go (it keeps the last 50 finished; ids do not survive a restart). |
 | `noReport` | `report` | No report for that id: this server keeps only its latest; `detail` says which. Do not run again. |
 | `notAnObject` | `run` | The script is not a JSON object. |
 | `invalidScript` | `run` | The schema refused the script; `field` names where. |
@@ -536,7 +535,7 @@ Studio exports go to `~/Downloads`.
 | `invalidQuality`, `invalidMaxMB` | `export`¹, `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
 | `noVideoId`, `noFrames` | `export`¹ | No video id; no frames to render. |
 | `videoNotFound`, `videoUnreadable` | `export`¹, `run` re-film ¹, `studio` (`videoNotFound`: call `flows`) | No such video; it could not be read (or, for `run`, built into a script). |
-| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run`² | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. |
+| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run`² | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. A target in a closed shadow root can't be reached: pick one outside it. |
 | `ambiguousAnchor` | `run`² | Several elements matched; name the target more exactly. |
 | `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run`² | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |
 | `pageWentElsewhere`, `unperformableStep` | `run`² | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks the impossible. |
