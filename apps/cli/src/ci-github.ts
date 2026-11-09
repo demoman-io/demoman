@@ -223,7 +223,13 @@ export async function readGithub(
   if (!wf.ok && !wf.notFound)
     return unreadable(`${slug}'s .github/workflows/demoman.yml`, wf.why);
 
-  const heads = await gitIn(root, ["ls-remote", "--heads", remote, BRANCH]);
+  const heads = await gitIn(root, [
+    "ls-remote",
+    "--heads",
+    remote,
+    // In full: a short name matches the end of a ref, so alice/demoman/setup.
+    `refs/heads/${BRANCH}`,
+  ]);
   if (heads.code !== 0)
     return unreadable(`${BRANCH} on ${remote} (git ls-remote)`, heads.stderr);
   let setupBranch: GithubFacts["setupBranch"] = null;

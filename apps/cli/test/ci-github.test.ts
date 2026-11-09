@@ -217,6 +217,19 @@ describe("readGithub", () => {
     expect(r).toMatchObject({ reason: "githubUnreadable" });
   });
 
+  // Red: ls-remote with the short name "demoman/setup", which matches the
+  // end of a ref, so a teammate's alice/demoman/setup read as the branch.
+  it("another branch ending in demoman/setup is not the setup branch", async () => {
+    const work = checkout(false);
+    run(work, "push", "-q", "origin", "HEAD:refs/heads/alice/demoman/setup");
+    // Premise: the short pattern really does match that branch.
+    expect(
+      String(run(work, "ls-remote", "--heads", "origin", "demoman/setup")),
+    ).toContain("refs/heads/alice/demoman/setup");
+    const r = await readGithub(fake(), work);
+    expect(r).toMatchObject({ setupBranch: null });
+  });
+
   it("reads the repo, its permissions, and a missing workflow and setup branch", async () => {
     const r = await readGithub(fake(), checkout(false));
     expect(r).toEqual({

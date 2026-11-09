@@ -117,11 +117,16 @@ function tool(
         args[0] === "ls-tree"
           ? { code: 0, stdout: "", stderr: "" }
           : args[0] === "ls-remote"
-            ? (o.lsRemote ?? {
-                code: 0,
-                stdout: "abc123\trefs/heads/demoman/setup\n",
-                stderr: "",
-              })
+            ? (o.lsRemote ??
+              // Only the full ref: the short name also matches
+              // alice/demoman/setup, so a watch asking by it reads nothing.
+              (args[3] === "refs/heads/demoman/setup"
+                ? {
+                    code: 0,
+                    stdout: "abc123\trefs/heads/demoman/setup\n",
+                    stderr: "",
+                  }
+                : { code: 0, stdout: "", stderr: "" }))
             : { code: 128, stdout: "", stderr: "fatal: no such path" },
       readGithub: async () => facts,
       detectApp: async () => ({ none: "nothing to propose from" }),
@@ -333,6 +338,32 @@ describe("the ci tool", () => {
     const b = await tool({ root: bad }).call({ app: { start: 3 } });
     expect(b.reason).toBe("appInvalid");
     expect(existsSync(join(bad, ".demoman", "app.json"))).toBe(false);
+  });
+
+  // Red: write app.json without `wx`, or plan from app beside a file that
+  // differs. The person's uncommitted edits were lost, or the pull request
+  // committed an app.json that was not the one in their working tree.
+  it("never overwrites an app.json already in the working tree, and plans nothing beside one that differs", async () => {
+    const root = repoDir();
+    const path = join(root, ".demoman", "app.json");
+    const mine = serializeApp({ ...APP, start: "make serve" });
+    writeFileSync(path, mine);
+    const t = tool({ root });
+    const a = await t.call({
+      trigger: "daily",
+      app: { ...APP, start: "pnpm dev" },
+    });
+    expect(readFileSync(path, "utf8")).toBe(mine);
+    expect(a.reason).toBe("appInvalid");
+    expect(String(a.detail)).toMatch(/differs from app.*never overwritten/);
+    expect(t.calls).toEqual([]);
+    // The same app as the file is planned, and nothing is rewritten.
+    const same = await tool({ root }).call({
+      trigger: "daily",
+      app: { ...APP, start: "make serve" },
+    });
+    expect(same.outcome).toBe("plan");
+    expect(String(same.appFile)).toMatch(/already holds app/);
   });
 
   // Red if a missing value is asked of the agent, or the answer drops the

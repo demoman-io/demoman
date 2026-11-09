@@ -15,23 +15,6 @@ import { seedTake } from "./seed.js";
 // lane here does). Locally a cold start is about 1 s; the 15 s wait is the
 // shipped default and CI is ~5x slower, so cases get 60 s.
 
-// A slow disk, on demand: a start lock's file exists, empty, for 200 ms
-// before its pid lands. Off, writeFile is the real one.
-const slowLock = vi.hoisted(() => ({ on: false, hits: 0 }));
-vi.mock("node:fs/promises", async (importOriginal) => {
-  const fs = await importOriginal<typeof import("node:fs/promises")>();
-  const writeFile = (async (file, data, options) => {
-    if (slowLock.on && String(file).includes("studio.start.lock")) {
-      slowLock.hits++;
-      await fs.writeFile(file, "", options);
-      await new Promise((r) => setTimeout(r, 200));
-      return fs.writeFile(file, data, { ...(options as object), flag: "w" });
-    }
-    return fs.writeFile(file, data, options);
-  }) as typeof fs.writeFile;
-  return { ...fs, default: { ...fs, writeFile }, writeFile };
-});
-
 const FAKE = fileURLToPath(new URL("./fake-serve.mjs", import.meta.url));
 const DIE = fileURLToPath(new URL("./fake-die.mjs", import.meta.url));
 const CASE_MS = 60_000;
@@ -44,8 +27,6 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   vi.unstubAllEnvs();
-  slowLock.on = false;
-  slowLock.hits = 0;
   // Never leave a detached studio behind, whatever the case did.
   const s = await readStudioState(home);
   if (s !== null && !("unreadable" in s) && s.pid !== process.pid) {
@@ -382,27 +363,9 @@ describe("openStudio", () => {
     CASE_MS,
   );
 
-  // Red: take the lock with writeFile's `wx` again. The waiter reads the
-  // empty lock as no holder, breaks it, and starts a second studio — PR
-  // #43's CI failure, made certain here by a slow write.
-  it(
-    "a waiter that finds the start lock before its pid does not break it",
-    async () => {
-      slowLock.on = true;
-      const [a, b] = await Promise.all([
-        openStudio({ home, version: "0.0.0-test", serve: serveFake() }),
-        openStudio({ home, version: "0.0.0-test", serve: serveFake() }),
-      ]);
-      const evidence = `a ${JSON.stringify(a)}; b ${JSON.stringify(b)}`;
-      // Premise: the lock really was written slowly.
-      expect(slowLock.hits, evidence).toBeGreaterThan(0);
-      expect(a, evidence).toMatchObject({ outcome: "opened" });
-      expect(b, evidence).toMatchObject({ outcome: "opened" });
-      expect(existsSync(join(home, "studio.log.1")), evidence).toBe(false);
-      expect(await servings()).toBe(1);
-    },
-    CASE_MS,
-  );
+  // A waiter that finds the start lock before its pid lands (DEM-66) is
+  // runner's pid-lock.test.ts: the lock is runner's takePidLock now, out of
+  // reach of a mock here.
 
   it("refuses a malformed take id as takeNotFound, in a sentence", async () => {
     const a = await openStudio({

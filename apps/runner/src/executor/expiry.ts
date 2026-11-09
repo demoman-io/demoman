@@ -10,7 +10,8 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { messageOf } from "../report.js";
-import { type Library, pidAlive, readLeases } from "./library.js";
+import { type Library, readLeases } from "./library.js";
+import { pidAlive } from "./pid-lock.js";
 import type { Version, VideoStore } from "./videos.js";
 
 export const EXPIRE_AFTER_MS = 30 * 86_400_000;
