@@ -1729,6 +1729,10 @@
   color: var(--ink-muted);
   font-size: 12px;
 }
+/* A checkout's path has no spaces to break at. */
+.repo-sheet .repo-root {
+  overflow-wrap: anywhere;
+}
 /* The repo's folders, under Folder: the top layer, so the dialog's
    scrollbox does not clip it. */
 .repo-sheet .repo-folders {

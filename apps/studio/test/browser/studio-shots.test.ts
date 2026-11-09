@@ -5394,6 +5394,10 @@ describe("the Studio's screenshot set", () => {
         await page.locator("[data-repo-name]").inputValue(),
         "the file name keeps the flow's words (DEM-50)",
       ).toBe("change-a-setting");
+      expect(
+        await page.locator("[data-repo-root]").innerText(),
+        "the sheet names the checkout it commits to",
+      ).toBe(`Adds to ${checkout}`);
       for (const [w, h] of [
         [1280, 720],
         [1280, 800],

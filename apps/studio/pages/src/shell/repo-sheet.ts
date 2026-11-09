@@ -528,7 +528,11 @@ function drawSheet(
     actions.append(cancel());
     parts.push(said, actions);
   } else if (s.step === "form") {
-    parts.push(...formParts(model, readFolders, redraw));
+    // Named every time: the checkout can be an older one than the newest
+    // recording's (checkoutOf), and the add commits there.
+    const root = el("p", "repo-said repo-root", `Adds to ${s.root}`);
+    root.setAttribute("data-repo-root", "");
+    parts.push(root, ...formParts(model, readFolders, redraw));
     const add = button("Add", "gitBranchPlus", "btn btn-primary");
     add.setAttribute("data-repo-add", "");
     add.disabled = !nameOk(model.fields);
