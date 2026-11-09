@@ -1,9 +1,11 @@
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   EXPORT_QUALITY_VALUES,
   isExportQuality,
   isPullRequestsValue,
 } from "@demoman/run-core";
+import { takePidLock } from "@demoman/runner/studio";
 import {
   DEFAULT_LIBRARY_VIEW,
   isLibraryViewChoice,
@@ -34,8 +36,8 @@ export const settingsPath = (home: string): string =>
  * (anything but absent) refuses the write as `studioUnwritable`, naming the
  * file and why, and writes nothing. A file that reads but is not a JSON
  * object is replaced, and `replaced` says so: its other keys are gone. A
- * write that fails is `studioUnwritable` too. Other keys of a good file are
- * kept.
+ * write that fails is `studioUnwritable` too, and so is a lock another
+ * process held past `LOCK_WAIT_MS`. Other keys of a good file are kept.
  */
 export function writeSetting(
   home: string,
@@ -50,6 +52,9 @@ export function writeSetting(
 }
 
 const settingsWrites = createChains();
+
+/** A save gives up on another process's held lock after this, and says so. */
+const LOCK_WAIT_MS = 2000;
 
 async function writeSettingNow(
   home: string,
@@ -81,6 +86,47 @@ async function writeSettingNow(
       : key === "libraryView"
         ? "The Library view setting"
         : "The Pull requests setting";
+  // Across processes too (DEM-87): setup saving pullRequests beside a Studio
+  // saving libraryView each kept the file it read, dropping the other's key.
+  const lock = `${path}.lock`;
+  try {
+    await mkdir(home, { recursive: true, mode: 0o700 });
+  } catch (error) {
+    return {
+      reason: "studioUnwritable",
+      detail: `${what} was not saved: ${home} could not be made (${messageOf(error)}).`,
+    };
+  }
+  const taken = await takePidLock(lock, LOCK_WAIT_MS);
+  if (!taken.ok) {
+    return {
+      reason: "studioUnwritable",
+      detail: `${what} was not saved: ${
+        "holder" in taken
+          ? `${lock} stayed held for ${LOCK_WAIT_MS / 1000} s by process ${taken.holder}; remove it if no other Demoman is running`
+          : `${lock} could not be taken (${messageOf(taken.error)})`
+      }, so nothing was written.`,
+    };
+  }
+  const answer = await saveHeld(path, what, key, value);
+  try {
+    await taken.release();
+  } catch (error) {
+    return {
+      reason: "studioUnwritable",
+      detail: `${what} ${"reason" in answer ? "was not saved" : "was saved"}, but ${messageOf(error)}; while ${lock} stays, later saves wait on it and fail.`,
+    };
+  }
+  return answer;
+}
+
+/** The read-modify-write, run holding `<path>.lock`. */
+async function saveHeld(
+  path: string,
+  what: string,
+  key: SettingKey,
+  value: unknown,
+): Promise<{ replaced?: string } | Refusal> {
   let kept: Record<string, unknown> = {};
   let replaced: string | undefined;
   let bytes: Buffer | null;
