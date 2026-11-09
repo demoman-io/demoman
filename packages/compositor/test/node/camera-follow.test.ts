@@ -165,6 +165,45 @@ describe("solveFollow and sampleTrack", () => {
     expect(dist(sampleTrack(t, 3390).center, B)).toBeLessThan(3);
   });
 
+  // The Sublime board's card drop (2026-11-08): the drag's zoom frames both
+  // ends, so the hand resting where it let go is already in frame. Chasing
+  // it from the release lurched the camera at the drop.
+  it("keeps a drag's aim after the release until the hand moves on", () => {
+    const drop = { x: 520, y: 420 };
+    const keys = [
+      cameraKey({
+        outputTimeMs: 0,
+        center: { x: 640, y: 400 },
+        scale: 1,
+        transitionMs: 0,
+      }),
+      cameraKey({ outputTimeMs: 1000, center: A, scale: 2 }),
+      cameraKey({ outputTimeMs: 7000, center: A, scale: 1 }),
+    ];
+    // Pressed on A at 1500, dropped at 2200, let go at 2500, still until
+    // 4000, then away.
+    const hand = pointerThrough([
+      [0, A],
+      [1500, A],
+      [2200, drop],
+      [4000, drop],
+      [4400, { x: 900, y: 600 }],
+    ]);
+    const t = track({
+      keys,
+      cursorAt: hand,
+      holds: [{ startMs: 1500, endMs: 2500 }],
+    });
+    // Premise: the hand rests at the drop, well away from the aim, from
+    // before the release until 4000.
+    expect(dist(hand(2500), A)).toBeGreaterThan(200);
+    expect(hand(3900)).toEqual(hand(2500));
+    expect(dist(sampleTrack(t, 2490).center, A)).toBeLessThan(3);
+    expect(dist(sampleTrack(t, 3900).center, A)).toBeLessThan(3);
+    // Once the hand moves on, the camera follows it again.
+    expect(dist(sampleTrack(t, 4600).center, A)).toBeGreaterThan(100);
+  });
+
   it("leaves the spring for the pull-out without a jump", () => {
     const t = track();
     let previous = sampleTrack(t, 5200);
