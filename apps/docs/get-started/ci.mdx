@@ -13,10 +13,10 @@ delivers only the videos whose picture changed.
 ## Before you start
 
 - The repo is on github.com, and `gh` is installed and signed in.
-- At least one flow is added ([Add to your repo](/get-started/add-to-repo)).
+- <span id="add-a-flow" className="scroll-mt-28" /><span id="keep-a-flow" className="scroll-mt-28" />At least one flow is added ([Add to your repo](/get-started/add-to-repo)).
 - Apps behind a login use demo accounts ([Sign in](/get-started/sign-in)).
 
-## Set it up
+## <span id="run-it-in-ci" className="scroll-mt-28" /><span id="run-it-on-every-merge" className="scroll-mt-28" />Set it up
 
 ```bash
 npx demoman setup --ci
@@ -29,11 +29,11 @@ confirm. The plan names:
 | Part | Choices |
 | --- | --- |
 | Trigger (`--trigger`) | After a successful deployment, when a release is published, `daily`, or `push` (each merge) |
-| Route (`--route`) | `pr`: open a pull request with the changed videos (the default). `main`: commit them to the branch |
+| <span id="the-pull-request-route" className="scroll-mt-28" /><span id="the-main-route" className="scroll-mt-28" />Route (`--route`) | `pr`: open a pull request with the changed videos (the default). `main`: commit them to the branch |
 | Files | `.github/workflows/demoman.yml`, `.demoman/app.json`, and any flow not yet on the default branch |
 | Secrets | Each demo account's secret, by name only |
 
-The Studio offers the same plan after an add, in its Add to repo sheet:
+<span id="from-the-studio" className="scroll-mt-28" />The Studio offers the same plan after an add, in its Add to repo sheet:
 
 <Frame>
   <img src="/media/studio/add-to-repo-ci.png" alt="The Add to repo sheet after an add: the four files it wrote, then the CI plan with its trigger, route and Open pull request" />
@@ -44,7 +44,7 @@ Demoman", and watches its first run until it passes or fails.
 
 ## How CI starts your app
 
-`.demoman/app.json` is the committed record of how the app installs and
+<span id="demomanappjson" className="scroll-mt-28" /><span id="pinned-dates" className="scroll-mt-28" />`.demoman/app.json` is the committed record of how the app installs and
 starts, and where it answers. Setup drafts it from your repo (a Playwright
 `webServer`, a CI workflow, `package.json`) and asks for anything it cannot
 find. Every field, and pinning the date for an app that shows today's date,
@@ -52,7 +52,7 @@ is on [app.json](/reference/app-json).
 
 ## After setup
 
-On each trigger, the workflow runs `demoman refresh`. With the `pr` route it
+<span id="refresh" className="scroll-mt-28" /><span id="commit-no-video" className="scroll-mt-28" /><span id="the-self-check" className="scroll-mt-28" /><span id="no-loop" className="scroll-mt-28" />On each trigger, the workflow runs `demoman refresh`. With the `pr` route it
 opens or updates one pull request, "Refresh demo videos", listing each
 changed video. Merge it to publish them. When nothing changed, nothing is
 committed. [Refresh](/concepts/refresh) explains how a change is judged.
@@ -63,7 +63,7 @@ committed. [Refresh](/concepts/refresh) explains how a change is judged.
   in an organisation that forbids it, an owner allows it there first.
 </Note>
 
-If setup stops, it says why and what to do; every reason is on
+<span id="stops" className="scroll-mt-28" />If setup stops, it says why and what to do; every reason is on
 [Refusals](/reference/refusals#setting-up-ci). All flags are on
 [setup](/reference/setup).
 

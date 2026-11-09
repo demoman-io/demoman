@@ -30,10 +30,54 @@ const MOVED: Array<[string, string]> = [
   ["quickstart", "get-started/install"],
   ["agents", "get-started/connect"],
   ["guides/authentication", "get-started/sign-in"],
-  ["guides/repo-flows", "get-started/add-to-repo"],
-  ["guides/keep-videos-current", "get-started/add-to-repo"],
+  ["guides/repo-flows", "get-started/ci"],
+  ["guides/keep-videos-current", "get-started/ci"],
   ["cli/commands", "reference/cli"],
 ];
+// A redirect cannot match an anchor (Mintlify), so each old section's anchor
+// is an id on the line of the destination page that leads to it (DEM-96).
+const OLD_ANCHORS: Record<string, string[]> = {
+  "guides/repo-flows": [
+    "add-a-flow",
+    "from-the-studio",
+    "refresh",
+    "commit-no-video",
+    "run-it-in-ci",
+    "demomanappjson",
+    "pinned-dates",
+    "the-self-check",
+    "stops",
+    "the-pull-request-route",
+    "the-main-route",
+    "no-loop",
+  ],
+  "guides/keep-videos-current": [
+    "keep-a-flow",
+    "refresh",
+    "commit-no-video",
+    "run-it-on-every-merge",
+    "the-pull-request-route",
+    "the-main-route",
+    "no-loop",
+  ],
+};
+/** Mintlify's heading anchor: lowercase, punctuation dropped, spaces to dashes. */
+const slugOf = (heading: string): string =>
+  heading
+    .toLowerCase()
+    .replace(/[^a-z0-9 -]/g, "")
+    .trim()
+    .replace(/ +/g, "-");
+/** Every anchor a page answers to: its headings and its explicit ids. */
+const anchorsOf = (page: string): Set<string> => {
+  const src = readDocs(`${page}.mdx`);
+  return new Set([
+    ...[...src.matchAll(/^#{2,4} (.+)$/gm)].map((m) =>
+      slugOf((m[1] as string).replace(/<[^>]*>/g, "")),
+    ),
+    ...[...src.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1] as string),
+  ]);
+};
 // Only these pages may show a DemoScript's syntax.
 const SCRIPT_PAGES = [
   "concepts/flows",
@@ -118,6 +162,18 @@ describe("apps/docs navigation", () => {
       expect(redirects.get(`/${from}`), from).toBe(`/${to}`);
       expect(nav, to).toContain(to);
       expect(allPages(), from).not.toContain(from);
+    }
+  });
+  it("lands each moved page's old section anchors on its destination", () => {
+    const moved = new Map(MOVED);
+    // Premise: both old pages' anchors are listed.
+    expect(Object.keys(OLD_ANCHORS)).toHaveLength(2);
+    for (const [from, anchors] of Object.entries(OLD_ANCHORS)) {
+      const to = moved.get(from);
+      expect(to, from).toBeDefined();
+      const found = anchorsOf(to as string);
+      for (const a of anchors)
+        expect(found, `/${from}#${a} on /${to}`).toContain(a);
     }
   });
   it("titles each page with a short label: at most four words, no question", () => {
@@ -737,6 +793,17 @@ describe("links inside the docs", () => {
     expect(links.length).toBeGreaterThan(30);
     for (const { p, slug } of links)
       expect(nav, `${p} → /${slug}`).toContain(slug);
+  });
+  it("every link to a #section names an anchor its page has", () => {
+    const links = allPages().flatMap((p) =>
+      [
+        ...readDocs(`${p}.mdx`).matchAll(/\]\(\/([a-z0-9/-]+)#([a-z0-9-]+)\)/g),
+      ].map((m) => ({ p, slug: m[1] as string, anchor: m[2] as string })),
+    );
+    // Premise: the pages link to sections at all.
+    expect(links.length).toBeGreaterThan(5);
+    for (const { p, slug, anchor } of links)
+      expect(anchorsOf(slug), `${p} → /${slug}#${anchor}`).toContain(anchor);
   });
 });
 

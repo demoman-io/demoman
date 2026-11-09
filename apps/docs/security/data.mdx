@@ -44,7 +44,7 @@ Everything lives under `~/.demoman`. `DEMOMAN_HOME` moves it. Videos you export 
 | `.demoman/secrets.env` | In your repo, written by your agent: the demo account's secret values, in plain text. Demoman refuses it unless git ignores it. It does not check the file's permissions. |
 | `.demoman/config.json` | In your repo, if you add one: the repo's pull-request video setting. Demoman only reads it. |
 
-Each video is what one run of a flow records. A run records its repo's commit in the video too.
+Each video is what one run of a flow records. A run also stores its repo's commit in the video.
 
 Old videos' footage is removed on its own. When a run starts and when the Studio opens, at most once an hour, Demoman removes the frames and preview images of each video over 30 days old. It keeps a flow's current video, any video you edited in the Studio, the video your newest export was made from, and any video that could not be recorded again. The video's steps, report and list of exports stay, and your exported files are never touched. A video whose footage was removed can be recorded again from its flow. `status` says what the last cleanup did.
 
