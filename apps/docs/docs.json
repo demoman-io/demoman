@@ -144,7 +144,7 @@
     },
     {
       "source": "/guides/repo-flows",
-      "destination": "/get-started/ci"
+      "destination": "/get-started/add-to-repo"
     },
     {
       "source": "/guides/keep-videos-current",
