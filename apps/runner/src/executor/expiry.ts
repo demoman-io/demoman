@@ -112,7 +112,13 @@ export async function expireOld(
   library: Library,
   now: Date,
   opts: { minIntervalMs?: number } = {},
-): Promise<ExpiryResult | { skipped: "ranRecently"; lastRanAt: string }> {
+): Promise<
+  | ExpiryResult
+  | { skipped: "ranRecently"; lastRanAt: string }
+  /** Another call holds the videos lock: nothing was judged, nothing is
+   *  saved, and the next pass runs it. */
+  | { skipped: "lockHeld"; held: string }
+> {
   const ranAt = now.toISOString();
   try {
     const last = await readState(library);
@@ -130,7 +136,8 @@ export async function expireOld(
   const tally = { expired: 0, freedBytes: 0, skippedLeased: 0 };
   let result: ExpiryResult;
   try {
-    await expire(store, library, now, tally);
+    const held = await expire(store, library, now, tally);
+    if (held !== null) return { skipped: "lockHeld", held };
     result = { ranAt, ...tally };
   } catch (error) {
     // What was marked before the failure is said too: those versions are gone.
@@ -162,20 +169,21 @@ type Tally = { expired: number; freedBytes: number; skippedLeased: number };
 
 /** Judged and marked under the videos lock, so a merge or a keep cannot land
  *  between the judging and the mark (DEM-88); the files go after, outside
- *  it, and every take marked is removed even when a later mark failed. */
+ *  it, and every take marked is removed even when a later mark failed.
+ *  Answers who holds the lock when another does, having done nothing. */
 async function expire(
   store: VideoStore,
   library: Library,
   now: Date,
   tally: Tally,
-): Promise<void> {
+): Promise<string | null> {
   const marked: string[][] = [];
   let failure: string | null = null;
   try {
     const r = await store.exclusive((locked) =>
       mark(locked, library, now, tally, marked),
     );
-    if (!r.ok) failure = `the pass was put off: ${r.held}`;
+    if (!r.ok) return r.held;
   } catch (error) {
     failure = messageOf(error);
   }
@@ -191,6 +199,7 @@ async function expire(
     }
   }
   if (failure !== null) throw new Error(failure);
+  return null;
 }
 
 /** Marks each take old enough to expire; `marked` gets its id and the

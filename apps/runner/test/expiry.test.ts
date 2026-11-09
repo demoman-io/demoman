@@ -286,17 +286,15 @@ describe("expireOld", () => {
     const result = await expireOld(store, lib, NOW);
     expect(Date.now() - started).toBeLessThan(5_000);
     expect(result).toEqual({
-      ranAt: NOW.toISOString(),
-      failed: expect.stringMatching(
-        /the pass was put off: this process holds .*\.lock/,
-      ),
+      skipped: "lockHeld",
+      held: `this process holds ${lock}`,
     });
     expect(await exists(join(a.dir, "frames", "k0.jpg"))).toBe(true);
     expect((await store.versions(video))[0]?.expired).toBeNull();
+    // Not saved as a run: the next pass is not held back by the hour.
+    expect(await expiryStatus(lib)).toEqual({ never: true });
     await rm(lock);
-    expect(
-      await expireOld(store, lib, NOW, { minIntervalMs: 0 }),
-    ).toMatchObject({ expired: 1 });
+    expect(await expireOld(store, lib, NOW)).toMatchObject({ expired: 1 });
   });
 
   it("works past a corrupt video.json, and never expires that take", async () => {

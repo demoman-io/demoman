@@ -37,8 +37,8 @@ const onRead = (path: string, after: () => Promise<void>) =>
 vi.mock("node:fs/promises", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs/promises")>();
   const watch =
-    <F extends (path: never, ...rest: never[]) => Promise<unknown>>(real: F) =>
-    async (...a: Parameters<F>) => {
+    <A extends unknown[], R>(real: (...a: A) => Promise<R>) =>
+    async (...a: A): Promise<R> => {
       const answer = await real(...a);
       const at = seen.watches.findIndex((w) => w.path === String(a[0]));
       if (at >= 0) await seen.watches.splice(at, 1)[0]?.after();
