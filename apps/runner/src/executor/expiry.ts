@@ -112,7 +112,14 @@ export async function expireOld(
   library: Library,
   now: Date,
   opts: { minIntervalMs?: number } = {},
-): Promise<ExpiryResult | { skipped: "ranRecently"; lastRanAt: string }> {
+): Promise<
+  | ExpiryResult
+  | { skipped: "ranRecently"; lastRanAt: string }
+  /** Another call held the videos lock: the pass stopped at the first take
+   *  it could not mark, counting what it did before; nothing is saved, so
+   *  the next pass is not held back. */
+  | ({ skipped: "lockHeld"; held: string } & Tally)
+> {
   const ranAt = now.toISOString();
   try {
     const last = await readState(library);
@@ -130,7 +137,8 @@ export async function expireOld(
   const tally = { expired: 0, freedBytes: 0, skippedLeased: 0 };
   let result: ExpiryResult;
   try {
-    await expire(store, library, now, tally);
+    const held = await expire(store, library, now, tally);
+    if (held !== null) return { skipped: "lockHeld", held, ...tally };
     result = { ranAt, ...tally };
   } catch (error) {
     // What was marked before the failure is said too: those versions are gone.
@@ -158,12 +166,19 @@ export async function expireOld(
   return result;
 }
 
+type Tally = { expired: number; freedBytes: number; skippedLeased: number };
+
+/** Take by take, as before: judged, marked, then its files removed. Only the
+ *  mark holds the videos lock, so a merge cannot land between its read and
+ *  its write of video.json (DEM-88), and it never waits on the lock: while
+ *  another holds it, the pass stops there and answers who, and the next
+ *  pass goes on from what is not yet marked. */
 async function expire(
   store: VideoStore,
   library: Library,
   now: Date,
-  tally: { expired: number; freedBytes: number; skippedLeased: number },
-): Promise<void> {
+  tally: Tally,
+): Promise<string | null> {
   const ranAt = now.toISOString();
   for (const video of await store.list()) {
     // An unreadable record is listed as such by the videos tool; its takes
@@ -195,7 +210,10 @@ async function expire(
       // Marked before anything goes: a removal that stops part-way leaves a
       // take that says it expired, never files gone with no record. A mark
       // that will not write throws here, and nothing of the take is removed.
-      await store.markExpired(v.takeId, ranAt, bytes);
+      const marked = await store.exclusive((locked) =>
+        locked.markExpired(v.takeId, ranAt, bytes),
+      );
+      if (!marked.ok) return marked.held;
       tally.expired++;
       tally.freedBytes += bytes;
       for (const path of paths) {
@@ -209,4 +227,5 @@ async function expire(
       }
     }
   }
+  return null;
 }

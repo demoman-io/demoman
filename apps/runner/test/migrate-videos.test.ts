@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,11 +13,7 @@ import {
   hostOf,
   startPage,
 } from "../src/executor/migrate-videos.js";
-import {
-  createVideoStore,
-  LOCK_STALE_MS,
-  VideoError,
-} from "../src/executor/videos.js";
+import { createVideoStore, VideoError } from "../src/executor/videos.js";
 import names from "./fixtures/library-names.json";
 import { readOnlySceneJson } from "./fixtures/scene.js";
 
@@ -291,15 +288,17 @@ describe("ensureVideos re-joins, skips and keeps apart", () => {
     const store = createVideoStore(home, lib);
     await put(lib, "a", "Flow", "https://a.test/", OLD);
     const lock = join(home, "videos", ".lock");
-    await mkdir(lock, { recursive: true });
+    await mkdir(join(home, "videos"), { recursive: true });
+    await writeFile(lock, `${process.pid} another-holder\n`);
     const held = await ensureVideos(store, lib);
     expect(held).toMatchObject({ made: 0, fromTakes: 0, unreadable: 0 });
     expect(held.skipped).toEqual([]);
     expect(held.deferred).toContain(lock);
     expect(await store.videoOf("a")).toBeNull();
-    // A lock left by a process that died: older than LOCK_STALE_MS.
-    const old = new Date(Date.now() - LOCK_STALE_MS - 10_000);
-    await utimes(lock, old, old);
+    // A lock left by a process that died.
+    const dead = spawnSync("true").pid as number;
+    expect(() => process.kill(dead, 0)).toThrow();
+    await writeFile(lock, `${dead} dead-holder\n`);
     expect(await ensureVideos(store, lib)).toMatchObject({
       made: 1,
       fromTakes: 1,
@@ -313,7 +312,8 @@ describe("ensureVideos re-joins, skips and keeps apart", () => {
     const lib = createLibrary(home);
     const store = createVideoStore(home, lib);
     const lock = join(home, "videos", ".lock");
-    await mkdir(lock, { recursive: true });
+    await mkdir(join(home, "videos"), { recursive: true });
+    await writeFile(lock, `${process.pid} another-holder\n`);
     let done = false;
     const creating = store
       .create({ name: "Flow", repo: { none: "x" }, startPage: "" })
