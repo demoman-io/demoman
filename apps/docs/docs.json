@@ -148,7 +148,7 @@
     },
     {
       "source": "/guides/keep-videos-current",
-      "destination": "/get-started/add-to-repo"
+      "destination": "/get-started/ci"
     },
     {
       "source": "/cli/commands",

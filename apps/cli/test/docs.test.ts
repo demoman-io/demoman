@@ -31,9 +31,85 @@ const MOVED: Array<[string, string]> = [
   ["agents", "get-started/connect"],
   ["guides/authentication", "get-started/sign-in"],
   ["guides/repo-flows", "get-started/add-to-repo"],
-  ["guides/keep-videos-current", "get-started/add-to-repo"],
+  ["guides/keep-videos-current", "get-started/ci"],
   ["cli/commands", "reference/cli"],
 ];
+// Every section anchor of the two old guides, read from their last versions
+// (`git show 1fcda6ed:apps/docs/guides/repo-flows.mdx`,
+// `git show 6f3c60d1^:apps/docs/guides/keep-videos-current.mdx`). Bookmarks
+// and old links carry these; old-anchors.js sends each on (DEM-96).
+const OLD_ANCHORS: Record<string, string[]> = {
+  "guides/repo-flows": [
+    "add-a-flow",
+    "from-the-studio",
+    "refresh",
+    "commit-no-video",
+    "run-it-in-ci",
+    "demomanappjson",
+    "pinned-dates",
+    "the-self-check",
+    "stops",
+    "the-pull-request-route",
+    "the-main-route",
+    "no-loop",
+  ],
+  "guides/keep-videos-current": [
+    "keep-a-flow",
+    "refresh",
+    "commit-no-video",
+    "run-it-on-every-merge",
+    "the-pull-request-route",
+    "the-main-route",
+    "no-loop",
+  ],
+};
+/** Mintlify's heading anchor, as `mint dev` renders it (checked on every
+ *  page, 2026-11-09): link targets and markup dropped, smart punctuation
+ *  outside code (' to ’, -- to —, both kept), lowercase, ASCII punctuation
+ *  but `-` and `_` removed, each space a dash, end dashes trimmed.
+ *  shortcut: a repeated heading's suffix is not modelled; none repeats yet. */
+const slugOf = (heading: string): string =>
+  heading
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]*>/g, "")
+    .replace(/`([^`]*)`|[^`]+/g, (part, code) =>
+      code !== undefined
+        ? code
+        : part.replace(/'/g, "\u2019").replace(/--/g, "\u2014"),
+    )
+    .trim()
+    .toLowerCase()
+    .replace(/[!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~]/g, "")
+    .replace(/\s/g, "-")
+    .replace(/^-+|-+$/g, "");
+const anchorCache = new Map<string, Set<string>>();
+/** Every anchor a page answers to: its headings (outside code fences) and
+ *  its explicit ids. */
+const anchorsOf = (page: string): Set<string> => {
+  const cached = anchorCache.get(page);
+  if (cached) return cached;
+  const src = readDocs(`${page}.mdx`).replace(/^```[\s\S]*?^```/gm, "");
+  const found = new Set([
+    ...[...src.matchAll(/^#{2,4} (.+)$/gm)].map((m) => slugOf(m[1] as string)),
+    ...[...src.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1] as string),
+  ]);
+  anchorCache.set(page, found);
+  return found;
+};
+/** Where old-anchors.js sends a reader who arrives at `path` + `hash`: the
+ *  path it replaces the location with, or null when it leaves them be. */
+const oldAnchorLanding = (path: string, hash: string): string | null => {
+  let to: string | null = null;
+  const location = {
+    pathname: path,
+    hash,
+    replace: (u: string) => {
+      to = u;
+    },
+  };
+  new Function("location", readDocs("old-anchors.js"))(location);
+  return to;
+};
 // Only these pages may show a DemoScript's syntax.
 const SCRIPT_PAGES = [
   "concepts/flows",
@@ -119,6 +195,47 @@ describe("apps/docs navigation", () => {
       expect(nav, to).toContain(to);
       expect(allPages(), from).not.toContain(from);
     }
+  });
+  it("sends each old guide section on to the section that holds it now", () => {
+    const moved = new Map(MOVED);
+    const nav = new Set(navPages());
+    let sent = 0;
+    let kept = 0;
+    for (const [from, anchors] of Object.entries(OLD_ANCHORS)) {
+      const dest = moved.get(from) as string;
+      expect(dest, from).toBeDefined();
+      for (const a of anchors) {
+        const landing = oldAnchorLanding(`/docs/${dest}`, `#${a}`);
+        if (anchorsOf(dest).has(a)) {
+          // The destination has this section itself: nothing to send on.
+          expect(landing, `/${from}#${a}`).toBeNull();
+          kept += 1;
+          continue;
+        }
+        expect(
+          landing,
+          `/${from}#${a} stays at the top of /${dest}`,
+        ).not.toBeNull();
+        const [path, anchor] = (landing as string).split("#");
+        expect(path, `/${from}#${a}`).toMatch(/^\/docs\//);
+        const page = (path as string).slice("/docs/".length);
+        expect(nav, `/${from}#${a} → ${landing}`).toContain(page);
+        if (anchor)
+          expect(anchorsOf(page), `/${from}#${a} → ${landing}`).toContain(
+            anchor,
+          );
+        sent += 1;
+      }
+    }
+    // Premise: both branches ran, and the script fires only on old anchors.
+    expect(sent).toBeGreaterThan(10);
+    expect(kept).toBeGreaterThan(0);
+    expect(oldAnchorLanding("/docs/get-started/ci", "#set-it-up")).toBeNull();
+    expect(oldAnchorLanding("/docs/reference/cli", "#stops")).toBeNull();
+    // `mint dev` serves the docs with no base path.
+    expect(oldAnchorLanding("/get-started/add-to-repo", "#stops")).toBe(
+      "/reference/refusals#setting-up-ci",
+    );
   });
   it("titles each page with a short label: at most four words, no question", () => {
     for (const p of allPages()) {
@@ -737,6 +854,23 @@ describe("links inside the docs", () => {
     expect(links.length).toBeGreaterThan(30);
     for (const { p, slug } of links)
       expect(nav, `${p} → /${slug}`).toContain(slug);
+  });
+  it("every link to a #section names an anchor its page has", () => {
+    const links = allPages().flatMap((p) =>
+      [
+        ...readDocs(`${p}.mdx`).matchAll(
+          /(?:\]\(|href=")(\/[A-Za-z0-9/_-]*)?#([A-Za-z0-9_-]+)[")]/g,
+        ),
+      ].map((m) => ({
+        p,
+        slug: m[1] ? (m[1] === "/" ? "index" : m[1].slice(1)) : p,
+        anchor: m[2] as string,
+      })),
+    );
+    // Premise: the pages link to sections at all.
+    expect(links.length).toBeGreaterThan(5);
+    for (const { p, slug, anchor } of links)
+      expect(anchorsOf(slug), `${p} → /${slug}#${anchor}`).toContain(anchor);
   });
 });
 

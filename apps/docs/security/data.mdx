@@ -44,9 +44,9 @@ Everything lives under `~/.demoman`. `DEMOMAN_HOME` moves it. Videos you export 
 | `.demoman/secrets.env` | In your repo, written by your agent: the demo account's secret values, in plain text. Demoman refuses it unless git ignores it. It does not check the file's permissions. |
 | `.demoman/config.json` | In your repo, if you add one: the repo's pull-request video setting. Demoman only reads it. |
 
-Each video is one filming of a flow. A run records its repo's commit in the video too.
+Each video is what one run of a flow records. A run also stores its repo's commit in the video.
 
-Old videos' footage is removed on its own. When a run starts and when the Studio opens, at most once an hour, Demoman removes the frames and preview images of each video over 30 days old. It keeps a flow's current video, any video you edited in the Studio, the video your newest export was made from, and any video that could not be filmed again. The video's steps, report and list of exports stay, and your exported files are never touched. A video whose footage was removed can be filmed again from its flow. `status` says what the last cleanup did.
+Old videos' footage is removed on its own. When a run starts and when the Studio opens, at most once an hour, Demoman removes the frames and preview images of each video over 30 days old. It keeps a flow's current video, any video you edited in the Studio, the video your newest export was made from, and any video that could not be recorded again. The video's steps, report and list of exports stay, and your exported files are never touched. A video whose footage was removed can be recorded again from its flow. `status` says what the last cleanup did.
 
 Every MP4, GIF and PNG Demoman exports carries its flow's id and its video's id inside the file. Anyone you send the file to can read them; they name nothing else. Your agent uses them to find the flow a file came from.
 
@@ -71,7 +71,7 @@ Every tool answers with text. No image or video bytes travel over MCP.
 
 - **recipe**: how to record with Demoman, the same text for everyone.
 - **snapshot**: the page's address, where it landed, its title, the size it was laid out at, and the visible text and position of its interactive elements.
-- **run** and **report**: the run's report, with each step as the agent wrote it (credential text hidden), where each target was found, the size it filmed at, the video's id, and the flow it joined and its number there.
+- **run** and **report**: the run's report, with each step as the agent wrote it (credential text hidden), where each target was found, the size it recorded at, the video's id, and the flow it joined and its number there.
 - **flows**: each flow's id, name, repo, start page, videos, pages, steps, and where each video's exports went. Given an exported file, which flow and video it came from.
 - **derive**: a script rebuilt from a video, including the text it typed (credential fields blank).
 - **status**: Demoman's version, the export folder, saved sign-ins (sites and dates, never cookies), demo accounts (names and sites), the secrets file's path but never a value, the pull-request video setting, the last run's report, the last cleanup of old videos and the update check's answer.
