@@ -25,6 +25,7 @@ import {
   parseFilmedCode,
   prVerdict,
   RECEIPT_DIR,
+  RECEIPT_VERSION,
   REFRESH_LIST_FILE,
   type RefreshListEntry,
   type RunReport,
@@ -980,7 +981,7 @@ async function deliverOne(
                   ? {}
                   : { pinnedNow: report.pinnedNow }),
               }),
-          receiptVersion: 2,
+          receiptVersion: RECEIPT_VERSION,
           screens,
           screensDir,
           screensSize: shots.size,

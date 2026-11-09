@@ -2,6 +2,7 @@ import type { SceneDocument } from "@demoman/scene-schema";
 import type { FrameBundle } from "../bundle.js";
 import { inScreenSpace } from "../plan/screen-space.js";
 import type { FrameImage, FrameSource } from "../ports/types.js";
+import { meanAbsDiff } from "./frame-diff.js";
 
 /** The pointer arrived `HOVER_DWELL_MS` before the marker; sample before that. */
 export const HOVER_PROBE_PRE_MS = 400;
@@ -225,12 +226,6 @@ function cropGreyscale(
     out[i] = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   }
   return out;
-}
-
-function meanAbsDiff(a: Float32Array, b: Float32Array): number {
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) sum += Math.abs((a[i] ?? 0) - (b[i] ?? 0));
-  return sum / a.length;
 }
 
 /**

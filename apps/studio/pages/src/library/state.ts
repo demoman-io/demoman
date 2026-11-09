@@ -228,7 +228,9 @@ export function formatBytes(n: number): string {
   const GB = 1024 ** 3;
   const MB = 1024 ** 2;
   if (n >= GB) return `${(n / GB).toFixed(1).replace(/\.0$/, "")} GB`;
-  if (n >= MB) return `${Math.round(n / MB)} MB`;
+  // One decimal: the editor's saves read this too, and 9.6 MB must not
+  // read as 10 against a 9.5 MB attach budget.
+  if (n >= MB) return `${(n / MB).toFixed(1).replace(/\.0$/, "")} MB`;
   if (n >= 1024) return `${Math.round(n / 1024)} KB`;
   return `${n} B`;
 }

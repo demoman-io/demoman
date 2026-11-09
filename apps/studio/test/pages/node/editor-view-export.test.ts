@@ -436,6 +436,26 @@ describe("renderExport", () => {
     expect(row?.textContent).toContain("Saved Checkout flow.mp4 · 12.4 MB");
     (root.querySelector("[data-show-in-folder]") as HTMLButtonElement).click();
     expect(handlers.onReveal).toHaveBeenCalledWith({ kind: "download", id: 7 });
+    // Red: the editor's own formatter said "1536 MB" where the library says
+    // "1.5 GB" for the same file (DEM-95).
+    renderExport(
+      root,
+      {
+        ...idle,
+        save: {
+          kind: "saved",
+          names: ["Long.mp4"],
+          byteLength: 1.5 * 1024 ** 3,
+          reveal: { kind: "download", id: 8 },
+          summary: null,
+          outputRefs: [],
+        },
+      },
+      handlers,
+    );
+    expect(
+      root.querySelector('[data-save-outcome="saved"]')?.textContent,
+    ).toContain("Saved Long.mp4 · 1.5 GB");
   });
 
   it("says a cancelled save was cancelled, and offers it again", () => {

@@ -41,6 +41,7 @@ import {
   parseKept,
   parseReceipt,
   RECEIPT_DIR,
+  RECEIPT_VERSION,
   REFRESH_LIST_FILE,
   type RefilmInfo,
   type RunReport,
@@ -461,7 +462,7 @@ export async function keepVideo(
       deliver === "files" || screens === undefined
         ? null
         : {
-            receiptVersion: 2,
+            receiptVersion: RECEIPT_VERSION,
             screensDir: screensDirOf(receiptRel),
             screensSize: shots?.size ?? null,
             flow: video.id,

@@ -25,7 +25,6 @@ import {
   type ExportReadiness,
   type ExportRun,
   exportButtonLabel,
-  formatBytes,
   type SaveView,
 } from "../../src/editor/export-run";
 import {
@@ -55,7 +54,7 @@ import {
   SHORTCUT_LEGEND,
 } from "../../src/editor/shortcuts";
 import { formatLength } from "../../src/library/length";
-import { whenLabel } from "../../src/library/state";
+import { formatBytes, whenLabel } from "../../src/library/state";
 import type { OutputRow, RevealTarget } from "../../src/platform/types";
 import { EXPORT_QUALITY_LABELS } from "../../src/settings/view";
 import { setCodeText, withoutTicks } from "../../src/shell/code-spans";
