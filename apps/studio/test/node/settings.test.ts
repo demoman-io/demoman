@@ -3,10 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// A slow disk for settings.json reads: every save reads the file, then waits
-// 100 ms before it writes, so two saves that are not ordered both read the
-// file before either writes it.
-const slow = vi.hoisted(() => ({ reads: 0 }));
+// A slow disk for settings.json: every read takes 100 ms more, and each read
+// and write is logged in order. `duringRead` runs inside the next read.
+const disk = vi.hoisted(() => ({
+  log: [] as string[],
+  duringRead: null as null | (() => Promise<void>),
+}));
 vi.mock("../../src/files.js", async (importOriginal) => {
   const files = await importOriginal<typeof import("../../src/files.js")>();
   return {
@@ -14,10 +16,17 @@ vi.mock("../../src/files.js", async (importOriginal) => {
     readIfPresent: async (path: string) => {
       const bytes = await files.readIfPresent(path);
       if (path.endsWith("settings.json")) {
-        slow.reads++;
+        disk.log.push("read");
+        const during = disk.duringRead;
+        disk.duringRead = null;
+        await during?.();
         await new Promise((r) => setTimeout(r, 100));
       }
       return bytes;
+    },
+    writeAtomic: async (path: string, bytes: string | Uint8Array) => {
+      await files.writeAtomic(path, bytes);
+      if (path.endsWith("settings.json")) disk.log.push("write");
     },
   };
 });
@@ -32,13 +41,15 @@ async function anotherProcess() {
 let home: string;
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "demoman-settings-"));
-  slow.reads = 0;
+  disk.log = [];
+  disk.duringRead = null;
 });
 afterEach(() => rm(home, { recursive: true, force: true }));
 
 describe("writeSetting across processes", () => {
   // Red (DEM-87): saves queued per process only. Setup's save and the
-  // Studio's both read the file, and the second write drops the first key.
+  // Studio's both read the file, and the second write drops the first key
+  // (the log reads read, read, write, write).
   it("two processes saving different keys keep both", async () => {
     const setup = await anotherProcess();
     const studio = await anotherProcess();
@@ -49,8 +60,8 @@ describe("writeSetting across processes", () => {
       studio.writeSetting(home, "exportQuality", "share"),
     ]);
     expect(answers).toEqual([{}, {}]);
-    // Premise: both saves read the file through the slow read.
-    expect(slow.reads).toBe(2);
+    // Each read-modify-write ran whole before the other began.
+    expect(disk.log).toEqual(["read", "write", "read", "write"]);
     expect(
       JSON.parse(await readFile(join(home, "settings.json"), "utf8")),
     ).toEqual({ pullRequests: "attach", exportQuality: "share" });
@@ -68,5 +79,27 @@ describe("writeSetting across processes", () => {
     await expect(
       readFile(join(home, "settings.json"), "utf8"),
     ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  // Red (review): a release that failed after the write answered the save
+  // as refused, while the file held the new value.
+  it("a save whose lock was replaced while held stands, and the lock is said", async () => {
+    const { writeSetting } = await anotherProcess();
+    const lock = join(home, "settings.json.lock");
+    disk.duringRead = () => writeFile(lock, "1 someone-else\n");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await writeSetting(home, "pullRequests", "attach")).toEqual({});
+      // Premise: the lock really was replaced during the save.
+      expect(await readFile(lock, "utf8")).toBe("1 someone-else\n");
+      expect(
+        JSON.parse(await readFile(join(home, "settings.json"), "utf8")),
+      ).toEqual({ pullRequests: "attach" });
+      expect(warn.mock.calls.flat().join("\n")).toMatch(
+        /Pull requests setting: .*no longer this process's lock/,
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

@@ -158,11 +158,49 @@ export async function expireOld(
   return result;
 }
 
+type Tally = { expired: number; freedBytes: number; skippedLeased: number };
+
+/** Judged and marked under the videos lock, so a merge or a keep cannot land
+ *  between the judging and the mark (DEM-88); the files go after, outside
+ *  it, and every take marked is removed even when a later mark failed. */
 async function expire(
   store: VideoStore,
   library: Library,
   now: Date,
-  tally: { expired: number; freedBytes: number; skippedLeased: number },
+  tally: Tally,
+): Promise<void> {
+  const marked: string[][] = [];
+  let failure: string | null = null;
+  try {
+    const r = await store.exclusive((locked) =>
+      mark(locked, library, now, tally, marked),
+    );
+    if (!r.ok) failure = `the pass was put off: ${r.held}`;
+  } catch (error) {
+    failure = messageOf(error);
+  }
+  for (const [takeId, ...paths] of marked) {
+    for (const path of paths) {
+      try {
+        await rm(path, { recursive: true, force: true });
+      } catch (error) {
+        throw new Error(
+          `could not remove ${path} (${messageOf(error)}); video ${takeId} is marked expired${failure === null ? "" : `; and ${failure}`}`,
+        );
+      }
+    }
+  }
+  if (failure !== null) throw new Error(failure);
+}
+
+/** Marks each take old enough to expire; `marked` gets its id and the
+ *  paths to remove, as soon as it is marked. */
+async function mark(
+  store: VideoStore,
+  library: Library,
+  now: Date,
+  tally: Tally,
+  marked: string[][],
 ): Promise<void> {
   const ranAt = now.toISOString();
   for (const video of await store.list()) {
@@ -198,15 +236,7 @@ async function expire(
       await store.markExpired(v.takeId, ranAt, bytes);
       tally.expired++;
       tally.freedBytes += bytes;
-      for (const path of paths) {
-        try {
-          await rm(path, { recursive: true, force: true });
-        } catch (error) {
-          throw new Error(
-            `could not remove ${path} (${messageOf(error)}); video ${v.takeId} is marked expired`,
-          );
-        }
-      }
+      marked.push([v.takeId, ...paths]);
     }
   }
 }

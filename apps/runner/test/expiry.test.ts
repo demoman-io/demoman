@@ -269,6 +269,36 @@ describe("expireOld", () => {
     expect(await exists(join(old.dir, "frames", "k0.jpg"))).toBe(true);
   });
 
+  // Red (review): judge and mark take by take, each mark waiting up to
+  // LOCK_WAIT_MS — a run's start waited minutes behind another holder.
+  it("is put off at once, and says so, while the videos lock is held", async () => {
+    const video = await newVideo("Checkout");
+    const a = await take(video, "scene-a", ago(40));
+    await take(video, "scene-b", ago(1));
+    // Premise: scene-a is old enough to expire, and not the current one.
+    expect(NOW.getTime() - Date.parse(ago(40))).toBeGreaterThan(
+      EXPIRE_AFTER_MS,
+    );
+    expect((await store.current(video))?.takeId).toBe("scene-b");
+    const lock = join(home, "videos", ".lock");
+    await writeFile(lock, `${process.pid} another-holder\n`);
+    const started = Date.now();
+    const result = await expireOld(store, lib, NOW);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(result).toEqual({
+      ranAt: NOW.toISOString(),
+      failed: expect.stringMatching(
+        /the pass was put off: this process holds .*\.lock/,
+      ),
+    });
+    expect(await exists(join(a.dir, "frames", "k0.jpg"))).toBe(true);
+    expect((await store.versions(video))[0]?.expired).toBeNull();
+    await rm(lock);
+    expect(
+      await expireOld(store, lib, NOW, { minIntervalMs: 0 }),
+    ).toMatchObject({ expired: 1 });
+  });
+
   it("works past a corrupt video.json, and never expires that take", async () => {
     // Red (final review 4): let versions throw over one take's video.json —
     // the pass fails and nothing of any video expires.

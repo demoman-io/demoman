@@ -108,16 +108,24 @@ async function writeSettingNow(
       }, so nothing was written.`,
     };
   }
-  const answer = await saveHeld(path, what, key, value);
   try {
-    await taken.release();
+    return await saveHeld(path, what, key, value);
   } catch (error) {
     return {
       reason: "studioUnwritable",
-      detail: `${what} ${"reason" in answer ? "was not saved" : "was saved"}, but ${messageOf(error)}; while ${lock} stays, later saves wait on it and fail.`,
+      detail: `${what} was not saved: ${messageOf(error)}.`,
     };
+  } finally {
+    // The save's answer stands either way: it says what reached the file.
+    // A lock left behind is said here, and each later save names it.
+    await taken
+      .release()
+      .catch((error: unknown) =>
+        console.warn(
+          `${what}: ${messageOf(error)}; while ${lock} stays, later saves wait on it and fail`,
+        ),
+      );
   }
-  return answer;
 }
 
 /** The read-modify-write, run holding `<path>.lock`. */

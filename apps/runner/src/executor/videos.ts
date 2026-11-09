@@ -6,10 +6,12 @@ import {
   readFile,
   rename,
   rm,
+  rmdir,
   stat,
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import type { AgentName } from "@demoman/agent-bridge";
 import { isFlowId } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
@@ -152,7 +154,8 @@ export interface VideoStore {
   markExpired(takeId: string, at: string, freedBytes: number): Promise<void>;
   remove(id: string): Promise<void>;
   /** Runs `fn` holding the library's lock, which every process's `create`
-   *  and `rename` take too; answers `held` at once when another holds it.
+   *  and `rename` take too; answers `held` within a moment when another
+   *  holds it.
    *  `fn`'s store does not take the lock again. */
   exclusive<T>(fn: (store: VideoStore) => Promise<T>): Promise<Exclusive<T>>;
 }
@@ -185,6 +188,16 @@ export const EDIT_GAP_MS = 60_000;
 
 /** A waiting call gives up on a live holder after this, and names it. */
 export const LOCK_WAIT_MS = 2 * 60_000;
+
+/** `exclusive` waits this long, so a dead lock another waiter is breaking
+ *  right now answers `held` rather than an error. */
+const EXCLUSIVE_WAIT_MS = 500;
+
+/** An older Demoman's folder lock not refreshed for this long (it refreshed
+ *  every 30 s) was left by one that died. */
+const LEGACY_STALE_MS = 2 * 60_000;
+
+const codeOf = (e: unknown) => (e as { code?: string }).code;
 
 export interface VideoStoreOptions {
   /** Where the lock says what it could not do without failing the call
@@ -244,8 +257,10 @@ export function createVideoStore(
   /**
    * Holds `<home>/videos/.lock` for `fn` (runner's `takePidLock`): a holder
    * that died is taken over; a live one is waited for when `wait`, up to
-   * `LOCK_WAIT_MS`, else answered as `held` at once. Release never throws,
-   * so `fn`'s answer stands, and says what it could not do.
+   * `LOCK_WAIT_MS`, else for `EXCLUSIVE_WAIT_MS` and then answered as
+   * `held`. An older Demoman's lock is a folder, live while its mtime is
+   * fresh and cleared once stale, as that Demoman did. Release never
+   * throws, so `fn`'s answer stands, and says what it could not do.
    */
   async function locked<T>(
     fn: () => Promise<T>,
@@ -261,35 +276,73 @@ export function createVideoStore(
     } catch (error) {
       throw unwritable("make the folder for", messageOf(error));
     }
-    const taken = await takePidLock(lockPath, wait ? LOCK_WAIT_MS : 0);
-    if (!taken.ok) {
-      if ("error" in taken) {
-        throw unwritable(
-          "take",
-          (taken.error as { code?: string }).code === "EISDIR"
-            ? "it is a folder, the lock an older Demoman takes; remove it if no older Demoman is running"
-            : messageOf(taken.error),
+    const waitMs = wait ? LOCK_WAIT_MS : EXCLUSIVE_WAIT_MS;
+    const deadline = Date.now() + waitMs;
+    const timedOut = (held: string, hint = "") =>
+      new VideoError(
+        "videoUnwritable",
+        `${held}, and kept it for ${waitMs / 1000} s${hint}`,
+      );
+    let release: () => Promise<void>;
+    for (;;) {
+      const taken = await takePidLock(
+        lockPath,
+        Math.max(0, deadline - Date.now()),
+      );
+      if (taken.ok) {
+        release = taken.release;
+        break;
+      }
+      if ("holder" in taken) {
+        const self = taken.holder === process.pid;
+        const held = `${self ? "this process" : `another Demoman process (pid ${taken.holder})`} holds ${lockPath}`;
+        if (!wait) return { ok: false, held };
+        throw timedOut(
+          held,
+          self
+            ? ""
+            : `; if process ${taken.holder} is not a Demoman (a dead holder's pid was reused), remove the lock`,
         );
       }
-      const held = `another Demoman process (pid ${taken.holder}) holds ${lockPath}`;
+      if (codeOf(taken.error) !== "EISDIR") {
+        throw unwritable("take", messageOf(taken.error));
+      }
+      let since: number;
+      try {
+        since = (await stat(lockPath)).mtimeMs;
+      } catch (error) {
+        if (isMissing(error)) continue;
+        throw unwritable("read", messageOf(error));
+      }
+      if (Date.now() - since > LEGACY_STALE_MS) {
+        // Only while it is still a folder: rmdir refuses a file, so a pid
+        // lock another process took since is never removed here.
+        try {
+          await rm(join(lockPath, "owner"), { force: true });
+          await rmdir(lockPath);
+        } catch (error) {
+          const c = codeOf(error);
+          if (c !== "ENOENT" && c !== "ENOTDIR" && c !== "ENOTEMPTY") {
+            throw unwritable("clear the stale folder", messageOf(error));
+          }
+        }
+        continue;
+      }
+      const held = `an older Demoman holds ${lockPath}`;
       if (!wait) return { ok: false, held };
-      throw new VideoError(
-        "videoUnwritable",
-        `${held}, and kept it for ${LOCK_WAIT_MS / 1000} s; remove it if no other Demoman is running`,
-      );
+      if (Date.now() >= deadline) throw timedOut(held);
+      await delay(100);
     }
     try {
       return { ok: true, value: await fn() };
     } finally {
-      await taken
-        .release()
-        .catch((error: unknown) =>
-          say(
-            error instanceof LockNotMine
-              ? messageOf(error)
-              : `could not release ${lockPath} (${messageOf(error)}); this process's later calls wait on it until it is removed`,
-          ),
-        );
+      await release().catch((error: unknown) =>
+        say(
+          error instanceof LockNotMine
+            ? messageOf(error)
+            : `could not release ${lockPath} (${messageOf(error)}); until this process exits or it is removed, every locked videos call in every Demoman waits ${LOCK_WAIT_MS / 1000} s on it and fails`,
+        ),
+      );
     }
   }
 

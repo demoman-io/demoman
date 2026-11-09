@@ -26,20 +26,22 @@ import {
 } from "../src/executor/videos.js";
 import { readOnlySceneJson } from "./fixtures/scene.js";
 
-// Another process acting between two of this one's calls, on demand: the
-// first read (readFile or stat) of `seen.path` resolves, then `seen.after`
-// runs before the reader gets its answer. Unarmed, both are the real ones.
-const seen = vi.hoisted(() => ({ path: "", after: async () => {} }));
+// Another process acting between two of this one's calls, on demand: each
+// watch fires once, on the next read (readFile or stat) of its path; the
+// read resolves, then `after` runs before the reader gets its answer. With
+// no watch, both are the real ones.
+type Watch = { path: string; after: () => Promise<void> };
+const seen = vi.hoisted(() => ({ watches: [] as Watch[] }));
+const onRead = (path: string, after: () => Promise<void>) =>
+  seen.watches.push({ path, after });
 vi.mock("node:fs/promises", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs/promises")>();
   const watch =
     <F extends (path: never, ...rest: never[]) => Promise<unknown>>(real: F) =>
     async (...a: Parameters<F>) => {
       const answer = await real(...a);
-      if (seen.path !== "" && String(a[0]) === seen.path) {
-        seen.path = "";
-        await seen.after();
-      }
+      const at = seen.watches.findIndex((w) => w.path === String(a[0]));
+      if (at >= 0) await seen.watches.splice(at, 1)[0]?.after();
       return answer;
     };
   const readFile = watch(fs.readFile) as typeof fs.readFile;
@@ -53,7 +55,7 @@ beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "demoman-videos-"));
 });
 afterEach(() => {
-  seen.path = "";
+  seen.watches.length = 0;
   return rm(home, { recursive: true, force: true });
 });
 
@@ -251,16 +253,27 @@ describe("video store", () => {
       made: made({ none: "n" }),
       recordedRevision: null,
     });
+    const lock = join(home, "videos", ".lock");
+    const member = join(lib.takeDir("t1"), "video.json");
     let merging: Promise<unknown> = Promise.resolve();
-    seen.path = join(lib.takeDir("t1"), "video.json");
-    seen.after = async () => {
+    let first = "";
+    onRead(member, async () => {
       merging = s.merge(from.video.id, into.video.id);
-      // Long enough for an unlocked merge to finish; a locked one waits.
-      await Promise.race([merging, sleep(300)]);
-    };
+      // The merge's first read of the lock: it found the lock held, or (when
+      // it has already moved t1) it is releasing its own. Either lets the
+      // expiry go on.
+      const lockRead = new Promise<string>((r) =>
+        onRead(lock, async () => {
+          const now = JSON.parse(await readFile(member, "utf8"));
+          r(now.videoId === into.video.id ? "merged" : "waited");
+        }),
+      );
+      first = await Promise.race([merging.then(() => "merged"), lockRead]);
+    });
     await s.markExpired("t1", "2026-11-01T00:00:00.000Z", 42);
-    // Premise: the merge started while the expiry held its read.
-    expect(seen.path).toBe("");
+    // Premise: the merge started while the expiry held its read, and had to
+    // wait for the lock (unlocked, it finishes first and this goes red).
+    expect(first).toBe("waited");
     expect(await merging).toEqual({ ok: true, moved: 1 });
     expect(await s.videoOf("t1")).toMatchObject({
       videoId: into.video.id,
@@ -482,18 +495,18 @@ describe("the library's lock", () => {
     };
     let otherIn = false;
     let otherDone: Promise<unknown> = Promise.resolve();
-    seen.path = lock;
-    seen.after = async () => {
+    onRead(lock, async () => {
       otherDone = other.exclusive(async () => {
         otherIn = true;
-        await hold(300);
+        // Past exclusive's own short wait, so the waiter answers `held`.
+        await hold(1000);
         return "other";
       });
       const inside = (async () => {
         while (!otherIn) await sleep(5);
       })();
       await Promise.race([otherDone, inside]);
-    };
+    });
     const mine = await waiter.exclusive(async () => {
       await hold(0);
       return "waiter";
@@ -503,7 +516,24 @@ describe("the library's lock", () => {
     expect(otherIn).toBe(true);
     expect(await otherDone).toEqual({ ok: true, value: "other" });
     expect(most).toBe(1);
-    expect(mine.ok).toBe(false);
+    expect(mine).toEqual({
+      ok: false,
+      held: `this process holds ${lock}`,
+    });
+  });
+
+  // Red (review): exclusive with no wait at all — a dead lock another
+  // waiter was breaking at that moment answered an error, not `held`.
+  it("exclusive on a dead lock someone is breaking right now takes it once they are done", async () => {
+    const lock = join(home, "videos", ".lock");
+    await mkdir(join(home, "videos"), { recursive: true });
+    await writeFile(lock, `${deadPid()} old-token\n`);
+    await writeFile(`${lock}.break`, "");
+    setTimeout(() => void rm(`${lock}.break`, { force: true }), 100);
+    const r = await createVideoStore(home, createLibrary(home)).exclusive(
+      async () => "mine",
+    );
+    expect(r).toEqual({ ok: true, value: "mine" });
   });
 
   it("a holder whose lock was replaced leaves the new one, and says so", async () => {
@@ -530,17 +560,23 @@ describe("the library's lock", () => {
     );
   });
 
-  it("an older Demoman's folder lock is a refusal that names it", async () => {
+  // Red (review): refuse every call on a folder lock — an older Demoman
+  // running beside this one, or one that died holding it, refused every run.
+  it("an older Demoman's folder lock is held while fresh, and cleared once stale", async () => {
     const s = createVideoStore(home, createLibrary(home));
-    await mkdir(join(home, "videos", ".lock"), { recursive: true });
-    await expect(
-      s.create({ name: "Flow", repo: repoA, startPage: "x" }),
-    ).rejects.toMatchObject({
-      reason: "videoUnwritable",
-      message: expect.stringMatching(
-        /\.lock \(it is a folder, the lock an older Demoman takes/,
-      ),
+    const lock = join(home, "videos", ".lock");
+    await mkdir(lock, { recursive: true });
+    await writeFile(join(lock, "owner"), '{"token":"t","pid":1}');
+    expect(await s.exclusive(async () => "mine")).toEqual({
+      ok: false,
+      held: `an older Demoman holds ${lock}`,
     });
+    const old = new Date(Date.now() - 3 * 60_000);
+    await utimes(lock, old, old);
+    const made = await s.create({ name: "Flow", repo: repoA, startPage: "x" });
+    expect(made.ok).toBe(true);
+    // Cleared, and this call's own lock released after.
+    await expect(stat(lock)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 
