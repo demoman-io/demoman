@@ -353,6 +353,15 @@ describe("triggerOffers and defaultTrigger", () => {
     expect(staging?.why).toContain("--trigger");
   });
 
+  // DEM-89. Red when older deployments went unread and nothing says so.
+  it("says, not offered, that deployments past the ones read were not looked at", () => {
+    const offers = triggerOffers(facts({ olderUnread: true }));
+    const unread = offers.find((o) => o.why.includes("were not read"));
+    expect(unread?.offered).toBe(false);
+    expect(unread?.why).toContain("newest 150");
+    expect(unread?.why).toContain("--trigger");
+  });
+
   it("offers no deployment without one on record and no release without one", () => {
     const offers = triggerOffers(facts());
     const of = (t: string) =>

@@ -112,22 +112,34 @@ function forkClone(withUpstream: boolean): string {
   return work;
 }
 
-/** A busy repo: a full newest page of Preview, Production's success only
- *  by name, and GitHub listing `environments`. */
-function busy(environments: string[]): Record<string, Answer> {
+/** A busy repo: a full newest page of Preview, then `pages` of older
+ *  deployments (each array one page), and Production's success found only
+ *  by name. GitHub's environments list is never asked: on a private repo
+ *  whose plan has no environments it answers `[]` (checked 2026-11-08). */
+function busy(pages: string[][]): Record<string, Answer> {
   const previews = Array.from({ length: 30 }, (_, i) => ({
-    id: 100 - i,
+    id: 1000 - i,
     environment: "Preview",
     sha: `p${i}`,
   }));
+  const older = Object.fromEntries(
+    pages.map((names, i) => [
+      `api repos/${S}/deployments?per_page=30&page=${i + 2}`,
+      ok(
+        names.map((environment, j) => ({
+          id: 900 - i * 30 - j,
+          environment,
+          sha: `o${i}-${j}`,
+        })),
+      ),
+    ]),
+  );
   return {
     [`api repos/${S}/deployments?per_page=30`]: ok(previews),
-    [`api repos/${S}/deployments/100/statuses?per_page=30`]: ok([
+    [`api repos/${S}/deployments/1000/statuses?per_page=30`]: ok([
       { state: "success", environment_url: "https://p.example" },
     ]),
-    [`api repos/${S}/environments?per_page=100`]: ok({
-      environments: environments.map((name) => ({ name })),
-    }),
+    ...older,
     [`api repos/${S}/deployments?environment=Production&per_page=30`]: ok([
       { id: 7, environment: "Production", sha: "prod" },
     ]),
@@ -163,9 +175,7 @@ describe("readGithub", () => {
         [`api repos/${S}/deployments/7/statuses?per_page=30`]: ok([
           { state: "success", environment_url: "https://app.example" },
         ]),
-        [`api repos/${S}/environments?per_page=100`]: ok({
-          environments: [{ name: "Preview" }, { name: "Production" }],
-        }),
+        [`api repos/${S}/deployments?per_page=30&page=2`]: ok([]),
       },
       calls,
     );
@@ -190,11 +200,12 @@ describe("readGithub", () => {
       calls.filter((c) => c.args[1]?.endsWith("/statuses?per_page=30")),
     ).toHaveLength(2);
   });
-  // DEM-89. Red while only a named environment is looked for: interactive
-  // setup, --yes and the Studio name none, and never offered Production.
-  it("looks up each environment GitHub lists that a full page left out", async () => {
+  // DEM-89. Red while only a named environment is looked for (interactive
+  // setup, --yes and the Studio name none), or while the names come from
+  // GitHub's environments list, which a private repo on Free answers empty.
+  it("looks up each environment older deployments name", async () => {
     const r = await readGithub(
-      fake(busy(["Preview", "Production"])),
+      fake(busy([["Preview", "Production"]])),
       checkout(false),
     );
     expect(r).toMatchObject({
@@ -203,11 +214,12 @@ describe("readGithub", () => {
       ]),
     });
     expect(r).not.toHaveProperty("unchecked");
+    expect(r).not.toHaveProperty("olderUnread");
   });
   // DEM-89. Red when the environments past the limit are dropped unsaid.
   it("names the environments over the by-name limit as unchecked", async () => {
     const extra = Array.from({ length: 11 }, (_, i) => `pr-${i}`);
-    const answers = busy(["Preview", "Production", ...extra]);
+    const answers = busy([["Production", ...extra]]);
     for (const n of extra)
       answers[`api repos/${S}/deployments?environment=${n}&per_page=30`] = ok(
         [],
@@ -219,6 +231,25 @@ describe("readGithub", () => {
       calls.filter((c) => c.args[1]?.includes("environment=")),
     ).toHaveLength(10);
     expect(r).toMatchObject({ unchecked: ["pr-9", "pr-10"] });
+  });
+  // DEM-89. Red when paging stops unsaid, or does not stop: page 6 is
+  // unscripted, so asking for it throws.
+  it("reads four older pages at most, and says when there were more", async () => {
+    const full = (name: string) => Array.from({ length: 30 }, () => name);
+    const calls: Array<{ args: string[] }> = [];
+    const answers = busy([
+      full("Preview"),
+      full("Preview"),
+      full("Preview"),
+      full("Preview"),
+    ]);
+    const r = await readGithub(fake(answers, calls), checkout(false));
+    // Premise: pages 2 to 5 were each read once.
+    expect(
+      calls.filter((c) => /[?&]page=\d/.test(c.args[1] ?? "")),
+    ).toHaveLength(4);
+    expect(r).toMatchObject({ olderUnread: true });
+    expect(r).not.toHaveProperty("unchecked");
   });
   it("asks no second time when the chosen environment is on the first page", async () => {
     const calls: Array<{ args: string[] }> = [];

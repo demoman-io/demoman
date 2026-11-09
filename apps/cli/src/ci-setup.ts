@@ -33,6 +33,7 @@ import type {
   GithubFacts,
   readGithub,
 } from "./ci-github.js";
+import { DEPLOYMENTS_READ } from "./ci-github.js";
 import {
   type openSetupPr,
   SETUP_BRANCH,
@@ -140,6 +141,14 @@ export function triggerOffers(f: GithubFacts): TriggerOffer[] {
       `${environment}'s deployments are older than the newest 30 and were not looked for; choose it with --trigger to check it`,
     ),
   );
+  if (f.olderUnread === true)
+    unchecked.push(
+      offer(
+        { deployment: "" },
+        false,
+        `deployments older than the newest ${DEPLOYMENTS_READ} were not read, so an environment only they name is not listed; choose it with --trigger to check it`,
+      ),
+    );
   return [
     ...deployments,
     ...unchecked,

@@ -18,9 +18,12 @@ export type GithubFacts = {
   }>;
   hasReleases: boolean;
   workflowOnDefault: boolean;
-  /** Environments GitHub lists that were not looked for, past the newest
-   *  deployments and over the by-name limit (DEM-89): offered as unchecked. */
+  /** Environments older deployments name that were not looked for, over the
+   *  by-name limit (DEM-89): offered as unchecked. */
   unchecked?: string[];
+  /** Deployments past the pages read were not looked at (DEM-89): an
+   *  environment only they name is not in `deployments` or `unchecked`. */
+  olderUnread?: true;
   setupBranch: { pr: { number: number; url: string } | null } | null;
   /** The git remote whose URL is `slug`: what setup fetches from and pushes
    *  to, so git and gh act on one repo. */
@@ -69,6 +72,13 @@ const gitIn = (git: GitRunner, root: string, args: string[]) =>
 /** Environments looked up by name past the newest deployments: two gh calls
  *  each, so a repo with a preview environment per pull request stays quick. */
 const BY_NAME_LIMIT = 10;
+/** Pages of older deployments read for the environments they name, after
+ *  the newest: GitHub's environments list is empty on a private repo whose
+ *  plan has no environments (200, `[]`, checked 2026-11-08), so it cannot
+ *  say which names to look for. */
+const OLDER_PAGES = 4;
+/** How many of the newest deployments setup reads, at most. */
+export const DEPLOYMENTS_READ = 30 * (1 + OLDER_PAGES);
 
 export async function readGithub(
   gh: Gh,
@@ -240,24 +250,25 @@ export async function readGithub(
     if (r !== null) return r;
   }
   let unchecked: string[] = [];
+  let olderUnread = false;
   if (newest.length >= 30) {
-    const envs = await read(gh, [
-      "api",
-      `repos/${slug}/environments?per_page=100`,
-    ]);
-    // shortcut: a repo whose plan has no environments answers 404, and only a
-    // named trigger is looked past the newest page there; list deployments'
-    // environments page by page if one is missed that way.
-    if (!envs.ok && !envs.notFound)
-      return unreadable(`repos/${slug}/environments`, envs.why);
-    const names = (
-      (envs.ok
-        ? (envs.json as { environments?: Array<{ name: string }> } | null)
-            ?.environments
-        : undefined) ?? []
-    )
-      .map((e) => e.name)
-      .filter((n) => !done.has(n) && n !== o.environment);
+    // Newest first, so the environments deployed to most recently are the
+    // ones looked for within the limit.
+    const names: string[] = [];
+    let full = true;
+    for (let page = 2; full && page <= OLDER_PAGES + 1; page++) {
+      const older = await listOf(`per_page=30&page=${page}`);
+      if (!Array.isArray(older)) return older;
+      for (const d of older)
+        if (
+          !done.has(d.environment) &&
+          d.environment !== o.environment &&
+          !names.includes(d.environment)
+        )
+          names.push(d.environment);
+      full = older.length >= 30;
+    }
+    olderUnread = full;
     for (const name of names.slice(0, BY_NAME_LIMIT)) {
       const r = await byName(name);
       if (r !== null) return r;
@@ -315,6 +326,7 @@ export async function readGithub(
     isAdmin: repo.viewerPermission === "ADMIN",
     deployments,
     ...(unchecked.length > 0 ? { unchecked } : {}),
+    ...(olderUnread ? { olderUnread: true as const } : {}),
     hasReleases,
     workflowOnDefault: wf.ok,
     setupBranch,
