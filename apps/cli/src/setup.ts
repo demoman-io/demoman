@@ -36,6 +36,7 @@ import {
   opencodeServer,
 } from "./configs.js";
 import {
+  listed,
   MARKETPLACE_NAME,
   MARKETPLACE_SOURCE,
   PACKAGE_NAME,
@@ -790,6 +791,21 @@ const codex: Wire = (d) => {
  *  Never ~/.cursor: setup writes that folder itself. The Linux app reads
  *  the same ~/.cursor/mcp.json. */
 function cursorApp(d: SetupDeps): { found: boolean; unread: string[] } {
+  // Once per run: foundAgents and the wire ask the same machine.
+  const known = cursorAppSeen.get(d);
+  if (known !== undefined) return known;
+  const got = lookForCursorApp(d);
+  cursorAppSeen.set(d, got);
+  return got;
+}
+const cursorAppSeen = new WeakMap<
+  SetupDeps,
+  { found: boolean; unread: string[] }
+>();
+function lookForCursorApp(d: SetupDeps): {
+  found: boolean;
+  unread: string[];
+} {
   const installed = { found: true, unread: [] as string[] };
   if (d.platform !== "linux")
     return {
@@ -810,7 +826,11 @@ function cursorApp(d: SetupDeps): { found: boolean; unread: string[] } {
     else if (got.names.some((n) => /^cursor.*\.appimage$/i.test(n)))
       return installed;
   }
-  return { found: !d.run("cursor", ["--version"]).notFound, unread };
+  // `cursor` is a generic name: only one answering as an Electron editor
+  // (version, commit, arch) is taken for the app.
+  const r = d.run("cursor", ["--version"]);
+  const editor = /^\d+\.\d+\.\d+\n[0-9a-f]+\n(x64|arm64|armhf)\b/;
+  return { found: !failed(r) && editor.test(r.stdout.trim()), unread };
 }
 /** The commands that may be Cursor's agent CLI. */
 const cursorClis = (d: SetupDeps): string[] => [
@@ -1112,12 +1132,6 @@ const opencode: Wire = (d) => {
   d.say("OpenCode: Demoman is connected and updates itself");
   return result("wired");
 };
-
-/** "A", "A and B", "A, B and C". */
-export const listed = (names: string[]): string =>
-  names.length < 2
-    ? names.join("")
-    : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 
 async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
   const d: SetupDeps = flags.yes === true ? { ...given, ask: null } : given;

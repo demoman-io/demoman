@@ -349,7 +349,7 @@ export async function refreshKept(
         who,
         // DEM-99: setup turns the artifact on for the files flows it sees; one
         // added later lands here, so this names the way out.
-        "deliver files needs --out-dir <folder>; Demoman's CI workflow passes one only with its artifact, so delete .github/workflows/demoman.yml on the default branch and run `npx demoman setup --ci` again, which turns the artifact on for a files flow",
+        "deliver files needs --out-dir <folder> to write its videos to; pass one. In the workflow `npx demoman setup --ci` wrote, it comes with the artifact: if that workflow was set up before this flow delivered files, delete .github/workflows/demoman.yml on the default branch and run `npx demoman setup --ci` again, which turns the artifact on for it",
       );
       continue;
     }

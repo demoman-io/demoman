@@ -1254,6 +1254,21 @@ describe("setup", () => {
       expect(m.files.has("/home/u/.cursor/mcp.json")).toBe(true);
     });
 
+    it("does not take another tool's cursor command for the app", async () => {
+      const m = machine({
+        platform: "linux",
+        arch: "x64",
+        home: "/home/u",
+        answers: {
+          "/home/u/.local/bin/agent --version": NOT_FOUND,
+          "cursor --version": OK("cursor 2.0.1\n"),
+        },
+      });
+      expect(await setup(m.d)).toBe(0);
+      expect(m.out()).toContain("Cursor: not installed");
+      expect(m.files.has("/home/u/.cursor/mcp.json")).toBe(false);
+    });
+
     // Report before you forgive: a folder setup could not look in is said
     // beside "not installed", never read as empty.
     it("says which folder it could not look in when it finds no app", async () => {
