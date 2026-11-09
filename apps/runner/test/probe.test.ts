@@ -421,6 +421,7 @@ describe("probeOp", () => {
     );
     // DEM-104: a probe still can show a signed-in page.
     expect((await stat(stillPath)).mode & 0o777, said).toBe(0o600);
+    expect((await stat(join(home, "probes"))).mode & 0o777, said).toBe(0o700);
     // The picture: the viewport, no wider than the cap, and not one flat
     // colour — the page's black text on its white ground.
     const BLACK: Rgb = [0, 0, 0];

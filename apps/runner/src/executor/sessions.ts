@@ -19,6 +19,7 @@ import { unreadVersion } from "@demoman/run-core";
 import type { BrowserContext } from "playwright";
 import { getDomain } from "tldts";
 import { messageOf } from "../report.js";
+import { exposed, octal } from "./file-mode.js";
 
 export type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
@@ -89,11 +90,6 @@ export function samePage(a: string, b: string): boolean {
 }
 
 export const SESSION_VERSION = 1;
-/** Group or other can read it; Windows modes say nothing of the kind. */
-export const exposed = (mode: number) =>
-  process.platform !== "win32" && (mode & 0o077) !== 0;
-export const octal = (mode: number) =>
-  (mode & 0o777).toString(8).padStart(4, "0");
 const fileName = (site: string) => `${site.replace(/[^a-z0-9.-]/gi, "_")}.json`;
 
 function isSessionFile(v: unknown): v is SessionFile {

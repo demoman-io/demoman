@@ -166,10 +166,11 @@ export function parseAccounts(
   const version = (raw as { accountsVersion?: unknown } | null)
     ?.accountsVersion;
   if (typeof version === "number" && version > ACCOUNTS_VERSION) {
-    return no(
-      "accountsVersion",
-      unreadVersion("accountsVersion", version, [ACCOUNTS_VERSION]),
-    );
+    // The sentence names the field itself; no() would name it twice.
+    return {
+      ...no("", unreadVersion("accountsVersion", version, [ACCOUNTS_VERSION])),
+      field: "accountsVersion",
+    };
   }
   const parsed = FileSchema.safeParse(raw);
   if (!parsed.success) {

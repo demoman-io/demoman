@@ -171,6 +171,26 @@ describe("createUpdateCheck", () => {
   });
 
   // Review Focus 4.
+  // DEM-104 review: writeFile's mode applies only on create, so a temp file
+  // a crash left behind (with this pid, reused) would carry its 0644 over.
+  it("writes 0600 over a leftover temp file of another mode", async () => {
+    const h = await home();
+    const tmp = join(h, `update-check.json.${process.pid}.tmp`);
+    await writeFile(tmp, "{}", { mode: 0o644 });
+    expect((await stat(tmp)).mode & 0o777).toBe(0o644); // premise
+    const check = createUpdateCheck({
+      name: "demoman",
+      current: "0.2.0",
+      home: h,
+      log: quiet,
+      env: {},
+      now: () => 1_000,
+      fetchLatest: async () => "0.3.0",
+    });
+    await check();
+    expect((await stat(join(h, "update-check.json"))).mode & 0o777).toBe(0o600);
+  });
+
   it("creates a DEMOMAN_HOME that does not exist yet", async () => {
     const h = join(await home(), "not", "yet");
     const check = createUpdateCheck({

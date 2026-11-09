@@ -14,8 +14,8 @@ import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { join } from "node:path";
 import { messageOf } from "../report.js";
+import { octal, exposed as openToOthers } from "./file-mode.js";
 import { execGit } from "./repo.js";
-import { octal, exposed as openToOthers } from "./sessions.js";
 
 export const SECRET_PREFIX = "DEMOMAN_SECRET_";
 /** `${SECRET_PREFIX}NAME${SECRET_ORIGIN_SUFFIX}` holds the site NAME's

@@ -193,12 +193,14 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
 
   // Checked before it is saved: a sign-in that did not work must not read as
   // one that did, nor replace a session for this site that did (DEM-101).
-  // Only a signed-out verdict keeps the earlier file: a check that could not
-  // run says nothing against the new one, which may replace an expired one.
+  // Any failed check keeps the earlier file, a check that could not run
+  // included; the answer names how to save this one anyway, for an earlier
+  // session that has expired.
   const failure = await check(file, url, inPlace, start);
-  if (failure?.signedOut === true && existing !== undefined) {
+  if (failure !== null && existing !== undefined) {
+    const earlier = store.pathOf(site);
     say(
-      `not saved, so the earlier session in ${store.pathOf(site)} is kept: ${failure.why}`,
+      `not saved, so the earlier session in ${earlier} is kept: ${failure.why}. To save this sign-in anyway, remove ${earlier} and run demoman signin again`,
     );
     return 1;
   }
@@ -219,17 +221,16 @@ export async function signin(url: string, deps: SigninDeps): Promise<number> {
   return 0;
 }
 
-/** Whether `file` is signed in, in a fresh headless browser: null when it is;
- *  else why not (`signedOut`), or why it could not be told. */
+/** Whether `file` is signed in, in a fresh headless browser: null when it is,
+ *  else why not, or why it could not be told. */
 async function check(
   file: SessionFile,
   url: string,
   inPlace: boolean,
   start: (headless: boolean) => Promise<Launched | null>,
-): Promise<{ why: string; signedOut: boolean } | null> {
+): Promise<{ why: string } | null> {
   const browser = await start(true);
-  if (browser === null)
-    return { why: "a browser to check it would not start", signedOut: false };
+  if (browser === null) return { why: "a browser to check it would not start" };
   try {
     await browser.context.setStorageState(file.state as StateArg);
     await browser.page.goto(url, { waitUntil: "load" });
@@ -252,14 +253,12 @@ async function check(
             ? " — give signin a page behind the login (the app's home, say), not the sign-in page itself"
             : ""
         }`,
-        signedOut: true,
       };
     }
     return null;
   } catch (error) {
     return {
       why: `checking it failed (${messageOf(error)}), so it may not be signed in`,
-      signedOut: false,
     };
   } finally {
     await browser.close();
@@ -365,6 +364,7 @@ export async function signinAccount(
     say(result.detail);
     return 1;
   }
+  if (result.exposed !== undefined) say(result.exposed);
   out(`Signed in to ${site.origin} as ${name}; saved ${result.path}`);
   return 0;
 }

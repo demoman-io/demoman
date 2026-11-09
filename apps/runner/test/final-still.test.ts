@@ -1,5 +1,5 @@
 // apps/runner/test/final-still.test.ts
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FrameBundle } from "@demoman/compositor";
@@ -77,6 +77,10 @@ const counts = async (bytes: Uint8Array) => {
 describe("renderFinalStill", () => {
   it("renders the take's last frame, the size export would", async () => {
     const library = createLibrary(home);
+    // An older still, 0644 from before DEM-104: the render must close it.
+    const older = join(library.takeDir(take.takeId), "final-still.png");
+    await writeFile(older, "old", { mode: 0o644 });
+    expect((await stat(older)).mode & 0o777).toBe(0o644); // premise
     const still = await renderFinalStill({
       library,
       takeId: take.takeId,

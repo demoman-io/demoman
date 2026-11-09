@@ -246,14 +246,14 @@ it("leaves an earlier session file byte-for-byte when the new one is not signed 
   expect(code, lines.join("\n")).toBe(1);
   expect(await readFile(path, "utf8")).toBe(before);
   expect(lines.at(-1)).toBe(
-    `demoman signin: not saved, so the earlier session in ${path} is kept: ${app.url}/app still lands on ${app.url}/login?return_to=%2Fapp: not signed in`,
+    `demoman signin: not saved, so the earlier session in ${path} is kept: ${app.url}/app still lands on ${app.url}/login?return_to=%2Fapp: not signed in. To save this sign-in anyway, remove ${path} and run demoman signin again`,
   );
 }, 120_000);
 
-// A check that could not run says nothing against the new sign-in, which may
-// be replacing an expired session: it is saved, and the answer says why
-// it was not checked (review of DEM-101).
-it("saves over an earlier session, saying so, when the check browser will not start", async () => {
+// A check that could not run is a failed check too: the earlier file stays,
+// and the answer says why and how to save this sign-in anyway (review of
+// DEM-101).
+it("keeps an earlier session, naming the way past it, when the check browser will not start", async () => {
   const path = await createSessionStore(home).save(earlierSession());
   const before = await readFile(path, "utf8");
   const lines: string[] = [];
@@ -272,9 +272,9 @@ it("saves over an earlier session, saying so, when the check browser will not st
   });
   expect(code, lines.join("\n")).toBe(1);
   expect(launches, "the window, then the check that would not start").toBe(2);
-  expect(await readFile(path, "utf8")).not.toBe(before);
+  expect(await readFile(path, "utf8")).toBe(before);
   expect(lines.at(-1)).toBe(
-    `demoman signin: saved ${path}, but a browser to check it would not start`,
+    `demoman signin: not saved, so the earlier session in ${path} is kept: a browser to check it would not start. To save this sign-in anyway, remove ${path} and run demoman signin again`,
   );
 }, 120_000);
 

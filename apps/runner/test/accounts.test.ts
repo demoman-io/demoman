@@ -158,6 +158,20 @@ describe("parseAccounts", () => {
     expect(r.detail).toContain("/p/.demoman/accounts.json");
     expect(r.field).toContain(field);
   });
+
+  // DEM-105: update, never remove; and the field named once.
+  it("tells a newer accountsVersion to update Demoman, naming the field once", () => {
+    const r = parseAccounts(
+      "/p/.demoman/accounts.json",
+      good({ accountsVersion: 2 }),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.field).toBe("accountsVersion");
+    expect(r.detail).toBe(
+      "/p/.demoman/accounts.json: accountsVersion is 2; this Demoman reads 1 — it was written by a newer Demoman; update Demoman",
+    );
+  });
 });
 
 describe("parseAccounts on a secret name ending _ORIGIN (rc.3)", () => {

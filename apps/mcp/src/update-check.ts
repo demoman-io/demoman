@@ -4,7 +4,7 @@
 // most, cached in <home>/update-check.json; a failure is said as a failure
 // and asked again after an hour. It contacts the npm registry only — never
 // demoman.io — and DEMOMAN_NO_UPDATE_CHECK=1 turns it off.
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export type UpdateAnswer =
@@ -115,6 +115,8 @@ export function createUpdateCheck(o: {
     try {
       await mkdir(o.home, { recursive: true, mode: 0o700 });
       const tmp = `${file}.${process.pid}.tmp`;
+      // A leftover temp file (a crash, a reused pid) would keep its mode.
+      await rm(tmp, { force: true });
       await writeFile(tmp, JSON.stringify(c), { mode: 0o600 });
       await rename(tmp, file);
     } catch (error) {
