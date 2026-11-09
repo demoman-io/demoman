@@ -65,6 +65,7 @@ background, cursor). Every field is on [DemoScript](/reference/demoscript).
 - **CI records it again.** A refresh replays the DemoScript as it is and
   replaces the exports when the picture changed. It never rewrites the
   DemoScript. See [Refresh](/concepts/refresh).
-- **You edit it in the Studio.** Edits change the video, not the DemoScript.
-  Some edits cannot be recorded again, so add refuses them
+- **You edit it in the Studio.** A trim and a click's zoom are
+  written into the DemoScript when the flow is added, so a refresh keeps them. Other edits
+  (a cut, a split, a mask) cannot be recorded again, so add refuses them
   ([Add to your repo](/get-started/add-to-repo#when-add-refuses)).

@@ -1029,7 +1029,7 @@ describe("renaming a kept flow", () => {
     expect((await store.get(invoice))?.kept).toBeUndefined();
     // Red: clear the mark without a word.
     expect(h.logs).toContain(
-      `studio: flow ${invoice}'s recipe is no longer in ${checkout}; its mark was cleared`,
+      `studio: flow ${invoice}'s DemoScript is no longer in ${checkout}; its mark was cleared`,
     );
   });
 

@@ -125,7 +125,7 @@
       "github": "https://github.com/demoman-io"
     }
   },
-  "description": "Demoman is a screen recorder for your coding agent. Describe what you want to show and your agent records it in a real browser, handing you back a finished product video with cursor smoothing, zooms and framing already done.",
+  "description": "Demoman is a video recorder for coding agents and a CI pipeline that keeps every video current.",
   "icons": {
     "library": "lucide"
   },

@@ -70,7 +70,7 @@ export function authorSteps(version) {
   const rc = version.includes("-rc.");
   return [
     // The docs show the Studio as the lane draws it; a CI refresh cannot open the Studio (its entry is single-use).
-    "On macOS, redraw the docs' Studio stills, look at them, and commit any that changed:\n    pnpm --filter @demoman/studio exec vitest run test/browser/studio-shots.test.ts\n    node scripts/docs-studio-stills.mjs\n    git add apps/docs/media/studio\n    git diff --cached --quiet -- apps/docs/media/studio || git commit -m \"docs: Studio stills for this release\"",
+    "On macOS, redraw the docs' Studio stills, look at them, and commit any that changed:\n    pnpm --filter @demoman/studio exec vitest run test/browser/studio-shots.test.ts &&\n    node scripts/docs-studio-stills.mjs\n    git add apps/docs/media/studio\n    git diff --cached --quiet -- apps/docs/media/studio || git commit -m \"docs: Studio stills for this release\" -- apps/docs/media/studio",
     `Deploy the site, then open https://demoman.io/#changelog and check it lists ${version}:\n    (cd internal/site && npx wrangler deploy)`,
     // A subshell: step 3's paths are the repo root's.
     `Publish npm (your security key's browser prompt):\n    ${

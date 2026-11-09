@@ -837,3 +837,90 @@ describe("videos on the docs", () => {
     }
   });
 });
+
+describe("review fixes: what add refuses, and what it carries", () => {
+  const keepSrc = () =>
+    readFileSync(
+      new URL("../../runner/src/executor/keep.ts", import.meta.url),
+      "utf8",
+    );
+  it("Refusals names every reason add can give, and cannotRefilm for what it is", () => {
+    const type =
+      /export type KeepRefusal =([\s\S]*?);/.exec(keepSrc())?.[1] ?? "";
+    const reasons = [...type.matchAll(/\|\s*"([a-zA-Z]+)"/g)].map(
+      (m) => m[1] as string,
+    );
+    // Premise: the union was read, the two most common reasons among it.
+    expect(reasons).toContain("notCarried");
+    expect(reasons).toContain("unfilledHoles");
+    const page = readDocs("reference/refusals.mdx");
+    const section = page.slice(
+      page.indexOf("## Adding a flow"),
+      page.indexOf("## Setting up CI"),
+    );
+    for (const r of reasons) expect(section, r).toContain(`\`${r}\``);
+    const row =
+      section.split("\n").find((l) => l.startsWith("| `cannotRefilm`")) ?? "";
+    expect(row).not.toMatch(/Studio edits|typed text/);
+  });
+  it("add-to-repo lists the edits add refuses, not a trim, and does not promise every reason", () => {
+    const page = readDocs("get-started/add-to-repo.mdx");
+    expect(page).not.toMatch(/a trim, a cut/);
+    expect(page).toContain("a zoom you placed");
+    expect(page).not.toContain("Every reason");
+  });
+  it("Flows and DemoScripts says a trim and a click's zoom are written into the DemoScript", () => {
+    const page = readDocs("concepts/flows.mdx");
+    expect(page).not.toContain("Edits change the video, not the DemoScript");
+    expect(page).toContain("written into the DemoScript");
+  });
+});
+
+describe("review fixes: environment and positioning", () => {
+  it("Environment names every DEMOMAN_ variable the product reads", () => {
+    const root = new URL("../../../", import.meta.url);
+    const seen = new Set(
+      [
+        "apps/cli/src",
+        "apps/runner/src",
+        "apps/mcp/src",
+        "apps/studio/src",
+        "packages/run-core/src",
+      ].flatMap((d) =>
+        (readdirSync(new URL(d, root), { recursive: true }) as string[])
+          .filter((f) => f.endsWith(".ts"))
+          .flatMap((f) =>
+            [
+              ...readFileSync(new URL(`${d}/${f}`, root), "utf8").matchAll(
+                /DEMOMAN_[A-Z_]*[A-Z]/g,
+              ),
+            ].map(
+              // A demo account's secrets are one family, DEMOMAN_SECRET_<NAME>.
+              (m) =>
+                m[0].startsWith("DEMOMAN_SECRET_") ? "DEMOMAN_SECRET_" : m[0],
+            ),
+          ),
+      ),
+    );
+    // DEMOMAN_CLIENT is written by setup into an agent's config, never set by a person.
+    seen.delete("DEMOMAN_CLIENT");
+    // DEMOMAN_BASE_URL lives inside the workflow setup --ci writes, passed to --base-url there.
+    seen.delete("DEMOMAN_BASE_URL");
+    // Premise: the walk found the ones the page always had, and DISPLAY.
+    for (const v of [
+      "DEMOMAN_HOME",
+      "DEMOMAN_NO_UPDATE_CHECK",
+      "DEMOMAN_DISPLAY",
+    ])
+      expect(seen, v).toContain(v);
+    const page = readDocs("reference/environment.mdx");
+    for (const v of seen) expect(page, v).toContain(v);
+  });
+  it("docs.json's description is the Introduction's, not the retired positioning", () => {
+    const intro = /^description: "([^"]+)"$/m.exec(readDocs("index.mdx"))?.[1];
+    expect(intro).toContain("CI pipeline");
+    expect((docsJson() as unknown as { description: string }).description).toBe(
+      intro,
+    );
+  });
+});

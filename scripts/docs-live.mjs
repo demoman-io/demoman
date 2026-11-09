@@ -127,5 +127,17 @@ for (const slug of slugs) {
   for (const p of problems) fail(p);
 }
 
+// Each redirect in docs.json, followed as a reader's browser would: old
+// READMEs and bookmarks link the old paths, and the Worker in front of the
+// docs passes 3xx through, so a Location that drops the base path 404s.
+for (const { source, destination } of docs.redirects ?? []) {
+  const want = `${docsPath}${destination}`;
+  const r = await get(`${base}${source}`, false);
+  if (r.error) fail(`redirect ${source} ${r.error}`);
+  else if (r.status !== 200 || new URL(r.finalUrl).pathname !== want)
+    fail(`redirect ${source} landed on ${r.finalUrl} (${r.status}), not ${want}`);
+  else console.log(`ok redirect ${source} -> ${want}`);
+}
+
 console.log(`docs:live: ${slugs.length} pages, ${links} links, ${failures} failures`);
 process.exit(failures > 0 ? 1 : 0);

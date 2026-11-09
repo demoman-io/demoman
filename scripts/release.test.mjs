@@ -94,3 +94,9 @@ test("the docs' Studio stills are redrawn before main is pushed", () => {
   assert.ok(stills < push, "the stills are redrawn after main is pushed");
   assert.match(steps[stills], /studio-shots\.test\.ts/);
 });
+
+test("the stills step commits only the stills, and only after the lane passed", () => {
+  const step = authorSteps("0.8.0").find((s) => s.includes("docs-studio-stills"));
+  assert.match(step, /studio-shots\.test\.ts &&\s*\\?\s*\n?\s*node scripts\/docs-studio-stills\.mjs/);
+  assert.match(step, /git commit -m "[^"]+" -- apps\/docs\/media\/studio/);
+});

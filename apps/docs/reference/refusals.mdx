@@ -39,11 +39,18 @@ than this page can: read it first.
 
 | Reason | What to do |
 | --- | --- |
-| `cannotRefilm` | The current video has Studio edits a new video does not carry, or typed text the video never read. Remove the edit, or record the flow again |
+| `notCarried` | The current video has Studio edits a new video does not carry: a cut, a split, a mask, a hold, a gap, a zoom you placed, or an end trim that can't be placed. Remove them in the Studio, or record the flow again |
+| `unfilledHoles` | The video typed text it never read, so a new video would not know what to type. Record the flow again |
+| `cannotRefilm` | The video can't be recorded again; the detail names why: no scene left, no account the site can choose, or a script that won't build |
 | `handSignIn` | The flow was recorded after `signin`. Record it again with a demo account |
+| `unknownVideo` | No flow in your library has that name or id. Check `npx demoman studio` for the name |
 | `notInRepo`, `outsideRepo` | Run `add` inside the repo, with paths inside it |
 | `outputTaken` | Another flow already writes to that path |
 | `logoUnreadable` | The brand kit's logo could not be read |
+| `wallpaperUnreadable` | The background image could not be read, so the video would fall back to the plain gradient |
+| `exportFailed` | An export failed; the detail says which and why. Nothing is half-written |
+| `keepRefused` | The request itself was refused: a `files` output given as a path, or a name two flows in the repo share |
+| `repoFlowUnwritable` | The DemoScript was written but the old file it replaces could not be removed; delete the file the detail names |
 | `repoFlowNameTaken` | Your library has a different flow with the repo flow's name. Run the `join-flow` command the detail gives |
 | `duplicateFlow` | Two DemoScripts in `.demoman/flows/` name one flow. Delete one |
 | `repoFlowUnreadable` | A DemoScript in `.demoman/flows/` will not read; the detail names it |
