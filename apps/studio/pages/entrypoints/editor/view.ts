@@ -50,6 +50,7 @@ import {
   comboSpoken,
   describeShortcut,
   isKeySymbol,
+  isMacPlatform,
   keyLabel,
   SHORTCUT_LEGEND,
 } from "../../src/editor/shortcuts";
@@ -2566,10 +2567,10 @@ export function renderShortcuts(
   if (state.focus) search.focus();
 }
 
-/** The Studio runs on this machine, so its platform is the page's: Finder
- *  on macOS; elsewhere the server opens the file's folder (`revealFile`). */
+/** The Studio runs on this machine, so this is the server's own split
+ *  (`revealFile`): Finder on a Mac, the file's folder anywhere else. */
 function showFileLabel(): string {
-  return /Linux|Win/.test(navigator.platform)
-    ? "Show in folder"
-    : "Show in Finder";
+  return isMacPlatform(navigator.userAgent)
+    ? "Show in Finder"
+    : "Show in folder";
 }

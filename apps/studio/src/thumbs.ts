@@ -148,7 +148,8 @@ export function createThumbs(o: {
 
   return {
     async get(id, ref) {
-      // First, before any read: nothing this could check changes the answer.
+      if (!(await takeExists(library, id))) return noTake(id);
+      // Before reading the bundle: no sips, no preview of any frame in it.
       if (make === null) {
         return refused(
           501,
@@ -156,7 +157,6 @@ export function createThumbs(o: {
           `Couldn't make a preview of ${ref}: previews are made with sips, which only macOS has.`,
         );
       }
-      if (!(await takeExists(library, id))) return noTake(id);
       const store = library.frameStore(id);
       let bundle: Awaited<ReturnType<typeof store.getBundle>>;
       try {

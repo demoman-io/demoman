@@ -211,10 +211,13 @@ describe("buildLibraryModel", () => {
     expect(formatBytes(0)).toBe("0 B");
     expect(formatBytes(512 * 1024 * 1024)).toBe("512 MB");
     expect(formatBytes(1.4 * 1024 * 1024 * 1024)).toBe("1.4 GB");
-    // The editor's saves read this too: 9.6 MB must not read as 10 against
-    // a 9.5 MB attach budget.
+    // The editor's saves read this too (its own copy's cases, moved here):
+    // one decimal of MB, whole KB, and bytes as bytes, where the editor's
+    // copy said "1 KB" for 900.
     expect(formatBytes(9.6 * 1024 * 1024)).toBe("9.6 MB");
+    expect(formatBytes(12.4 * 1024 * 1024)).toBe("12.4 MB");
     expect(formatBytes(512 * 1024)).toBe("512 KB");
+    expect(formatBytes(900)).toBe("900 B");
   });
 
   // Coordinator amendment: a reclaim that CRASHED (`failed: true`) and a

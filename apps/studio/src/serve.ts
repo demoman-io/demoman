@@ -880,7 +880,7 @@ export async function runServe(o: ServeOptions): Promise<never> {
       version: o.version,
     });
   } catch (error) {
-    log(`studio: could not write studio.json: ${messageOf(error)}`);
+    log(`studio: ${messageOf(error)}`);
     await stop(1);
     return forever;
   }

@@ -1,5 +1,5 @@
 import { LANDSCAPE_1440P } from "@demoman/compositor";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { proceduralBundle } from "../../../../../packages/replay-engine/test/helpers/bundles";
 import { readonlyScene } from "../../../../../packages/replay-engine/test/helpers/scenes";
 import {
@@ -144,8 +144,14 @@ const drawHistory = (
     { onWarnings: vi.fn(), ...h, onShowAll: vi.fn() },
   );
 
+/** The editor's home: a path reveal there says Finder. */
+const MAC_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
+let userAgent: ReturnType<typeof vi.spyOn>;
 let root: HTMLElement;
+afterEach(() => userAgent.mockRestore());
 beforeEach(() => {
+  userAgent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue(MAC_UA);
   root = document.createElement("div");
   base.sections = createSections();
   for (const fn of Object.values(handlers)) fn.mockClear();
@@ -181,13 +187,13 @@ describe("a file row from outputs.json", () => {
   });
 
   it("off macOS the same button says Show in folder (DEM-86: no Finder there)", () => {
-    // Premise: jsdom's own platform is not Linux, so the case above is the
-    // Finder side of this one.
-    expect(navigator.platform).not.toMatch(/Linux/);
-    const platform = vi
-      .spyOn(navigator, "platform", "get")
-      .mockReturnValue("Linux x86_64");
-    try {
+    // FreeBSD too: the server opens the folder on anything not a Mac.
+    for (const ua of [
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+      "Mozilla/5.0 (X11; FreeBSD amd64; rv:120.0) Gecko/20100101",
+    ]) {
+      userAgent.mockReturnValue(ua);
+      root = document.createElement("div");
       drawHistory(root, { ...base, outputs: [file()] }, handlers);
       expect(
         root.querySelector<HTMLButtonElement>("[data-reveal]")?.textContent,
@@ -207,12 +213,11 @@ describe("a file row from outputs.json", () => {
         },
         handlers,
       );
-      // Red: label the path reveal "Show in Finder" whatever the platform.
+      // Red: label the path reveal "Show in Finder" whatever the platform,
+      // or read navigator.platform for /Linux|Win/ (FreeBSD said Finder).
       expect(root.querySelector("[data-show-in-folder]")?.textContent).toBe(
         "Show in folder",
       );
-    } finally {
-      platform.mockRestore();
     }
   });
 

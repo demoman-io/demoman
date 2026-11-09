@@ -9,12 +9,15 @@ import {
   type LibraryViewChoice,
   type VideoSummary,
 } from "@demoman/studio-protocol";
-import { createPlatform } from "#platform";
+import { createPlatform, StudioError } from "#platform";
 import { editedLength } from "../../src/library/length";
 import { createLengthCache, paintLength } from "../../src/library/length-cache";
 import type { ListSort } from "../../src/library/list-model";
 import type { PreviewMounter, PreviewPorts } from "../../src/library/preview";
-import { createPreviewMounter } from "../../src/library/preview";
+import {
+  createPreviewMounter,
+  PREVIEW_WIDTH_PX,
+} from "../../src/library/preview";
 import {
   narrow,
   type Place,
@@ -243,25 +246,30 @@ const previewPorts: PreviewPorts<FrameBundle> = {
   image: async (ref) => {
     const folder = platform.folder;
     if (folder === undefined || studioMakesNoPreviews) {
-      return decodeKeyframe(ref);
+      return decodedPreview(ref);
     }
     try {
       return await folder.thumb(ref);
     } catch (thumbError) {
       // Only a preview the Studio could not make: a take that is gone or a
       // Studio that stopped is said as it is, not asked of the store too.
-      const shape = thumbError as { reason?: unknown; status?: unknown };
-      if (shape?.reason !== "thumbFailed") throw thumbError;
+      if (
+        !(thumbError instanceof StudioError) ||
+        thumbError.reason !== "thumbFailed"
+      ) {
+        throw thumbError;
+      }
       // 501: this Studio makes none at all, so it is not asked again.
-      if (shape.status === 501) studioMakesNoPreviews = true;
+      const none = thumbError.status === 501;
+      if (none) studioMakesNoPreviews = true;
       console.info(
-        `demoman library: the Studio made no preview of ${ref} (${messageOf(thumbError)}); decoding ${shape.status === 501 ? "every preview" : "it"} here`,
+        `demoman library: the Studio made no preview of ${ref} (${thumbError.message}); decoding ${none ? "every preview" : "it"} here`,
       );
       try {
-        return await decodeKeyframe(ref);
+        return await decodedPreview(ref);
       } catch (decodeError) {
         throw new Error(
-          `${unperiod(messageOf(thumbError))}; decoding it on this page failed too: ${messageOf(decodeError)}`,
+          `${unperiod(thumbError.message)}; decoding it on this page failed too: ${messageOf(decodeError)}`,
         );
       }
     }
@@ -273,7 +281,33 @@ const previewPorts: PreviewPorts<FrameBundle> = {
  *  every later preview is decoded here without asking it. */
 let studioMakesNoPreviews = false;
 
-/** A keyframe decoded from the store, for a preview. */
+/** Previews this page decoded, kept at preview width by ref: a re-render
+ *  (every takes event) draws them again without fetching and decoding a
+ *  full-size keyframe per card. A failed one is not kept. */
+const decodedPreviews = new Map<string, Promise<ImageBitmap>>();
+
+/** A copy of the kept preview, since the mounter closes what it is given. */
+async function decodedPreview(ref: string): Promise<ImageBitmap> {
+  let small = decodedPreviews.get(ref);
+  if (small === undefined) {
+    const made = decodeKeyframe(ref).then(async (full) => {
+      try {
+        return await createImageBitmap(full, { resizeWidth: PREVIEW_WIDTH_PX });
+      } finally {
+        full.close();
+      }
+    });
+    made.catch(() => {
+      if (decodedPreviews.get(ref) === made) decodedPreviews.delete(ref);
+    });
+    decodedPreviews.set(ref, made);
+    small = made;
+  }
+  const kept = await small;
+  return createImageBitmap(kept);
+}
+
+/** A keyframe decoded from the store, full size. */
 async function decodeKeyframe(ref: string): Promise<ImageBitmap> {
   const frame = await bundles.load(ref);
   // `load` serves raw container bytes for a `span:` ref and a decoded

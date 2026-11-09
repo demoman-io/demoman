@@ -1368,6 +1368,31 @@ describe("revealFile", () => {
     expect(Date.now() - started).toBeLessThan(2_000);
   });
 
+  it("Windows is refused in words, and nothing is run", async () => {
+    const { ran, run } = recording();
+    await expect(revealFile("C:\\v\\out.mp4", "win32", run)).rejects.toThrow(
+      "not supported on Windows",
+    );
+    expect(ran).toEqual([]);
+  });
+
+  it("the real tool: one that fails after it settled is said, its stderr still read", async () => {
+    const late = new Promise<Error>((resolve) => {
+      void runTool(
+        process.execPath,
+        [
+          "-e",
+          "setTimeout(() => { process.stderr.write('no handler for inode/directory'); process.exitCode = 4 }, 600)",
+        ],
+        100,
+        resolve,
+      );
+    });
+    // Red: destroy the pipe at settle (the child's write then fails, and
+    // these words are lost), or drop `onLate`.
+    expect((await late).message).toBe("no handler for inode/directory");
+  });
+
   it("a tool that fails rejects with its words", async () => {
     const run = async () => {
       throw new Error("xdg-open: no method available");

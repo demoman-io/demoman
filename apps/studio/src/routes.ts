@@ -126,37 +126,50 @@ export type RunTool = (cmd: string, args: string[]) => Promise<void>;
 export const REVEAL_SETTLE_MS = 2_000;
 
 /** Runs a tool. Rejects with its own words if it fails (or exits non-zero)
- *  within `settleMs`; one still running then is left to run. */
+ *  within `settleMs`; one still running then is left to run, and if it
+ *  fails later `onLate` says so, since the request has been answered. */
 export const runTool = (
   cmd: string,
   args: string[],
   settleMs = REVEAL_SETTLE_MS,
+  onLate: (error: Error) => void = () => {},
 ): Promise<void> =>
   new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       detached: true,
       stdio: ["ignore", "ignore", "pipe"],
     });
+    let settled = false;
     let stderr = "";
+    // Read for as long as the tool runs: a pipe nobody reads fills and
+    // blocks it, and one destroyed kills it on its next write (SIGPIPE).
     child.stderr?.on("data", (chunk) => {
-      stderr += String(chunk);
+      stderr = (stderr + String(chunk)).slice(-4_000);
     });
     const timer = setTimeout(() => {
-      child.stderr?.destroy();
+      settled = true;
+      // Unref'd, not closed: still read, but holds no process open.
+      (child.stderr as { unref?: () => void } | null)?.unref?.();
       child.unref();
       resolve();
     }, settleMs);
-    child.on("error", (error) => {
+    const fail = (error: Error) => {
       clearTimeout(timer);
-      reject(error);
-    });
-    child.on("exit", (code, signal) => {
-      clearTimeout(timer);
-      if (code === 0) resolve();
-      else
-        reject(
+      if (settled) onLate(error);
+      else reject(error);
+    };
+    child.on("error", fail);
+    // `close`, not `exit`: it comes after stderr is drained, so the
+    // tool's own words are all here.
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        clearTimeout(timer);
+        resolve();
+      } else {
+        fail(
           new Error(stderr.trim() || `${cmd} exited with ${code ?? signal}`),
         );
+      }
     });
   });
 
@@ -167,9 +180,15 @@ export function revealFile(
   platform: NodeJS.Platform = process.platform,
   run: RunTool = runTool,
 ): Promise<void> {
-  return platform === "darwin"
-    ? run("open", ["-R", path])
-    : run("xdg-open", [dirname(path)]);
+  if (platform === "darwin") return run("open", ["-R", path]);
+  // shortcut: Windows has no xdg-open and is not supported yet; refused
+  // in words rather than as spawn ENOENT. Native Windows is DEM-85.
+  if (platform === "win32") {
+    return Promise.reject(
+      new Error("showing a file in its folder is not supported on Windows yet"),
+    );
+  }
+  return run("xdg-open", [dirname(path)]);
 }
 
 /**
@@ -209,7 +228,16 @@ export function createRoutes(o: {
   "window" | "exportStart" | "repoAdd" | "repoRemove" | CiRoute
 > {
   const { library, home, log } = o;
-  const reveal = o.reveal ?? ((path: string) => revealFile(path));
+  const reveal =
+    o.reveal ??
+    ((path: string) =>
+      revealFile(path, process.platform, (cmd, args) =>
+        runTool(cmd, args, REVEAL_SETTLE_MS, (error) =>
+          log(
+            `studio: ${cmd} failed after showing ${path}: ${messageOf(error)}`,
+          ),
+        ),
+      ));
   const sceneWrites = createChains();
   const kits = createKitsFile(home);
   const videos = createVideoStore(home, library, { log });
