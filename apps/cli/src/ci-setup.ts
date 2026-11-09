@@ -132,8 +132,17 @@ export function triggerOffers(f: GithubFacts): TriggerOffer[] {
                 `${d.environment} has a successful deployment on record`,
               );
         });
+  // Said, not dropped: an environment setup did not look for (DEM-89).
+  const unchecked = (f.unchecked ?? []).map((environment) =>
+    offer(
+      { deployment: environment },
+      false,
+      `${environment}'s deployments are older than the newest 30 and were not looked for; choose it with --trigger to check it`,
+    ),
+  );
   return [
     ...deployments,
+    ...unchecked,
     offer(
       "release",
       f.hasReleases,
@@ -484,7 +493,7 @@ async function makePlan(
       return stop(
         "noDeployment",
         d === undefined
-          ? `${facts.slug} has no successful deployment to ${trigger.deployment} on record, so there is nothing to record after; choose another trigger`
+          ? `${facts.slug} has no successful deployment to ${trigger.deployment} among its newest 30, so there is nothing to record after; choose another trigger`
           : `${trigger.deployment}'s successful deployment names no environment URL, so there is no deployed app to record; choose another trigger`,
       );
     deployment = { environment: d.environment, url: d.url };

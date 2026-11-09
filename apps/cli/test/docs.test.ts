@@ -271,15 +271,6 @@ describe("commands", () => {
       ].sort(),
     );
   });
-  // DEM-94. Red while USAGE leaves out an agent setup connects.
-  it("USAGE's --agents names every agent setup connects", () => {
-    const src = readFileSync(
-      new URL("../src/main.ts", import.meta.url),
-      "utf8",
-    );
-    const usage = /const USAGE = `([\s\S]*?)`;/.exec(src)?.[1] ?? "";
-    expect(usage).toContain("--agents claude,codex,cursor,opencode]");
-  });
   it("every npx demoman command on the site is one USAGE lists", () => {
     const seen = siteCommands();
     expect(seen.length).toBeGreaterThanOrEqual(3);

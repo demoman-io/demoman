@@ -15,6 +15,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   execGit,
   type GitRunner,
+  guardedGitEnv,
   normaliseRemote,
   readFilmedCode,
   readRepo,
@@ -148,6 +149,23 @@ describe("execGit and the repository's own config (DEM-90)", () => {
     const filmed = await readFilmedCode(dir);
     expect(filmed).toMatchObject({ dirty: true });
     expect(existsSync(marker)).toBe(false);
+  });
+});
+
+describe("guardedGitEnv", () => {
+  // Red when it replaces a GIT_CONFIG_COUNT the caller set: their entry is lost.
+  it("adds the guard after config already in the environment", () => {
+    const env = guardedGitEnv({
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "safe.directory",
+      GIT_CONFIG_VALUE_0: "*",
+    });
+    expect(env).toMatchObject({
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "safe.directory",
+      GIT_CONFIG_KEY_1: "core.fsmonitor",
+      GIT_CONFIG_VALUE_1: "false",
+    });
   });
 });
 

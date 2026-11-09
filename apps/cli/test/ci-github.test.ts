@@ -112,6 +112,31 @@ function forkClone(withUpstream: boolean): string {
   return work;
 }
 
+/** A busy repo: a full newest page of Preview, Production's success only
+ *  by name, and GitHub listing `environments`. */
+function busy(environments: string[]): Record<string, Answer> {
+  const previews = Array.from({ length: 30 }, (_, i) => ({
+    id: 100 - i,
+    environment: "Preview",
+    sha: `p${i}`,
+  }));
+  return {
+    [`api repos/${S}/deployments?per_page=30`]: ok(previews),
+    [`api repos/${S}/deployments/100/statuses?per_page=30`]: ok([
+      { state: "success", environment_url: "https://p.example" },
+    ]),
+    [`api repos/${S}/environments?per_page=100`]: ok({
+      environments: environments.map((name) => ({ name })),
+    }),
+    [`api repos/${S}/deployments?environment=Production&per_page=30`]: ok([
+      { id: 7, environment: "Production", sha: "prod" },
+    ]),
+    [`api repos/${S}/deployments/7/statuses?per_page=30`]: ok([
+      { state: "success", environment_url: "https://app.example" },
+    ]),
+  };
+}
+
 describe("readGithub", () => {
   // DEM-89. Red while only the newest 30 deployments are read: Production's
   // success sits behind 30 Preview ones, and setup said there was none.
@@ -138,6 +163,9 @@ describe("readGithub", () => {
         [`api repos/${S}/deployments/7/statuses?per_page=30`]: ok([
           { state: "success", environment_url: "https://app.example" },
         ]),
+        [`api repos/${S}/environments?per_page=100`]: ok({
+          environments: [{ name: "Preview" }, { name: "Production" }],
+        }),
       },
       calls,
     );
@@ -161,6 +189,36 @@ describe("readGithub", () => {
     expect(
       calls.filter((c) => c.args[1]?.endsWith("/statuses?per_page=30")),
     ).toHaveLength(2);
+  });
+  // DEM-89. Red while only a named environment is looked for: interactive
+  // setup, --yes and the Studio name none, and never offered Production.
+  it("looks up each environment GitHub lists that a full page left out", async () => {
+    const r = await readGithub(
+      fake(busy(["Preview", "Production"])),
+      checkout(false),
+    );
+    expect(r).toMatchObject({
+      deployments: expect.arrayContaining([
+        expect.objectContaining({ environment: "Production", sha: "prod" }),
+      ]),
+    });
+    expect(r).not.toHaveProperty("unchecked");
+  });
+  // DEM-89. Red when the environments past the limit are dropped unsaid.
+  it("names the environments over the by-name limit as unchecked", async () => {
+    const extra = Array.from({ length: 11 }, (_, i) => `pr-${i}`);
+    const answers = busy(["Preview", "Production", ...extra]);
+    for (const n of extra)
+      answers[`api repos/${S}/deployments?environment=${n}&per_page=30`] = ok(
+        [],
+      );
+    const calls: Array<{ args: string[] }> = [];
+    const r = await readGithub(fake(answers, calls), checkout(false));
+    // Premise: Production plus ten pr-* were asked by name, no more.
+    expect(
+      calls.filter((c) => c.args[1]?.includes("environment=")),
+    ).toHaveLength(10);
+    expect(r).toMatchObject({ unchecked: ["pr-9", "pr-10"] });
   });
   it("asks no second time when the chosen environment is on the first page", async () => {
     const calls: Array<{ args: string[] }> = [];

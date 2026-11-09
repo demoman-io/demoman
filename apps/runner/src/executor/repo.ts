@@ -24,6 +24,25 @@ export type GitRunner = (
   env?: Record<string, string>,
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
+/** The folder is the caller's choice: its config must not name a program
+ *  git runs on its own account while it reads the index (audit run 1,
+ *  DEM-90). Only fsmonitor: a clean filter (git-lfs) is the repo's own
+ *  content transform, and the tree filmed has to be the one git would commit. */
+const GIT_GUARD = { key: "core.fsmonitor", value: "false" } as const;
+
+/** `env` with the guard added for every git started under it — gh's own
+ *  included, which no `-c` can reach. Appends to any GIT_CONFIG_COUNT
+ *  already there rather than replacing it. */
+export function guardedGitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const n = Number.parseInt(env.GIT_CONFIG_COUNT ?? "0", 10) || 0;
+  return {
+    ...env,
+    GIT_CONFIG_COUNT: String(n + 1),
+    [`GIT_CONFIG_KEY_${n}`]: GIT_GUARD.key,
+    [`GIT_CONFIG_VALUE_${n}`]: GIT_GUARD.value,
+  };
+}
+
 export const execGit: GitRunner = (args, cwd, env) =>
   new Promise((done, fail) => {
     // execFile's 1 MB default refuses a big repo's `ls-tree -r -d` outright.
@@ -32,9 +51,8 @@ export const execGit: GitRunner = (args, cwd, env) =>
       env === undefined
         ? { cwd, maxBuffer }
         : { cwd, maxBuffer, env: { ...process.env, ...env } };
-    // The folder is the caller's choice: its config must not name a program
-    // git runs while it reads the index (audit run 1, DEM-90).
-    const guarded = ["-c", "core.fsmonitor=false", ...args];
+    // `-c` over the env form: it holds on a git older than 2.31 too.
+    const guarded = ["-c", `${GIT_GUARD.key}=${GIT_GUARD.value}`, ...args];
     execFile("git", guarded, options, (err, stdout, stderr) => {
       if (!err) return done({ code: 0, stdout, stderr });
       // A numeric code is git answering; a string code (ENOENT) is git not running.

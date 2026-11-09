@@ -18,6 +18,9 @@ export type GithubFacts = {
   }>;
   hasReleases: boolean;
   workflowOnDefault: boolean;
+  /** Environments GitHub lists that were not looked for, past the newest
+   *  deployments and over the by-name limit (DEM-89): offered as unchecked. */
+  unchecked?: string[];
   setupBranch: { pr: { number: number; url: string } | null } | null;
   /** The git remote whose URL is `slug`: what setup fetches from and pushes
    *  to, so git and gh act on one repo. */
@@ -62,6 +65,10 @@ const gitIn = (git: GitRunner, root: string, args: string[]) =>
     stdout: "",
     stderr: e instanceof Error ? e.message : String(e),
   }));
+
+/** Environments looked up by name past the newest deployments: two gh calls
+ *  each, so a repo with a preview environment per pull request stays quick. */
+const BY_NAME_LIMIT = 10;
 
 export async function readGithub(
   gh: Gh,
@@ -219,16 +226,43 @@ export async function readGithub(
   if (!Array.isArray(newest)) return newest;
   const walked = await walk(newest);
   if (walked !== null) return walked;
-  // A busy repo's newest page can be all another environment's: ask for the
-  // chosen one by name, as the workflow's own check does.
-  if (o.environment !== undefined && !done.has(o.environment)) {
-    const seen = new Set(newest.map((d) => d.id));
+  // A full newest page can be all other environments': ask for each missing
+  // one by name, as the workflow's own check does — the chosen one first.
+  const seen = new Set(newest.map((d) => d.id));
+  const byName = async (name: string): Promise<Unreadable | null> => {
     const own = await listOf(
-      `environment=${encodeURIComponent(o.environment)}&per_page=30`,
+      `environment=${encodeURIComponent(name)}&per_page=30`,
     );
-    if (!Array.isArray(own)) return own;
-    const walkedOwn = await walk(own.filter((d) => !seen.has(d.id)));
-    if (walkedOwn !== null) return walkedOwn;
+    return Array.isArray(own) ? walk(own.filter((d) => !seen.has(d.id))) : own;
+  };
+  if (o.environment !== undefined && !done.has(o.environment)) {
+    const r = await byName(o.environment);
+    if (r !== null) return r;
+  }
+  let unchecked: string[] = [];
+  if (newest.length >= 30) {
+    const envs = await read(gh, [
+      "api",
+      `repos/${slug}/environments?per_page=100`,
+    ]);
+    // shortcut: a repo whose plan has no environments answers 404, and only a
+    // named trigger is looked past the newest page there; list deployments'
+    // environments page by page if one is missed that way.
+    if (!envs.ok && !envs.notFound)
+      return unreadable(`repos/${slug}/environments`, envs.why);
+    const names = (
+      (envs.ok
+        ? (envs.json as { environments?: Array<{ name: string }> } | null)
+            ?.environments
+        : undefined) ?? []
+    )
+      .map((e) => e.name)
+      .filter((n) => !done.has(n) && n !== o.environment);
+    for (const name of names.slice(0, BY_NAME_LIMIT)) {
+      const r = await byName(name);
+      if (r !== null) return r;
+    }
+    unchecked = names.slice(BY_NAME_LIMIT);
   }
   // Newest deployment first.
   const deployments = found.sort((a, b) => b.id - a.id).map((f) => f.d);
@@ -280,6 +314,7 @@ export async function readGithub(
     canPush: ["ADMIN", "MAINTAIN", "WRITE"].includes(repo.viewerPermission),
     isAdmin: repo.viewerPermission === "ADMIN",
     deployments,
+    ...(unchecked.length > 0 ? { unchecked } : {}),
     hasReleases,
     workflowOnDefault: wf.ok,
     setupBranch,

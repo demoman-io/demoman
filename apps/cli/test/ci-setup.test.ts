@@ -334,6 +334,25 @@ describe("triggerOffers and defaultTrigger", () => {
     expect(offers[3]?.label).toContain("trunk");
   });
 
+  // DEM-89. Red when an environment readGithub did not look for is dropped:
+  // the person is never told it exists.
+  it("lists an environment that was not looked for, not offered, saying why", () => {
+    const offers = triggerOffers(
+      facts({
+        deployments: [
+          { environment: "production", url: "https://x.example", sha: "a" },
+        ],
+        unchecked: ["staging"],
+      }),
+    );
+    const staging = offers.find(
+      (o) =>
+        typeof o.trigger === "object" && o.trigger.deployment === "staging",
+    );
+    expect(staging?.offered).toBe(false);
+    expect(staging?.why).toContain("--trigger");
+  });
+
   it("offers no deployment without one on record and no release without one", () => {
     const offers = triggerOffers(facts());
     const of = (t: string) =>

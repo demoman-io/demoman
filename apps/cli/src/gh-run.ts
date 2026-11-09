@@ -1,5 +1,6 @@
 // The one `gh` the CI layer calls. A secret's value travels on stdin only.
 import { execFile } from "node:child_process";
+import { guardedGitEnv } from "@demoman/runner/package";
 
 export type Gh = (
   args: string[],
@@ -9,7 +10,10 @@ export type Gh = (
 export function realGh(cwd: string): Gh {
   return (args, o) =>
     new Promise((done) => {
-      const child = execFile("gh", args, { cwd }, (err, stdout, stderr) =>
+      // gh starts git in `cwd` itself (pr create counts uncommitted
+      // changes): the guard has to travel in the environment (DEM-90).
+      const env = guardedGitEnv(process.env);
+      const child = execFile("gh", args, { cwd, env }, (err, stdout, stderr) =>
         done({
           code: err ? (typeof err.code === "number" ? err.code : 127) : 0,
           stdout,
