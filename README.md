@@ -21,12 +21,13 @@
 
 # Demoman
 
-**Perfect demos. Just ask your agent.**
+**Self-recording, self-updating product demos.**
 
-Demoman records demo videos of web apps for your coding agent. Ask it for
-"a demo of the new checkout": the agent writes the steps, Demoman plays them
-in a browser you never see, and the video lands in `~/Downloads`, zoomed in
-on every click, with a smooth cursor and your brand.
+Record demos with your agent. Each flow is saved, and CI keeps it current.
+
+<p align="center">
+  <img alt="A demo Demoman recorded: adding a card to a kanban board, with the camera following each click" width="100%" src="brand/readme/kanban.gif">
+</p>
 
 ## Install
 
@@ -35,57 +36,95 @@ macOS or x86_64 Linux, and Node 20 or later:
     npx demoman setup
 
 Setup downloads Chromium and connects Demoman to Claude Code, Codex, Cursor
-and OpenCode, whichever it finds. Restart the agent, then ask it to make a
-demo. For another MCP client, see
-[Connect your agent](https://demoman.io/docs/get-started/connect). On Linux (x86_64),
-Chromium also needs system libraries: setup names the one `sudo` command that
-installs them; run it, then setup again. Demoman is in public beta.
+and OpenCode, whichever it finds. Restart the agent, then ask it for a demo.
+For another MCP client, see
+[Connect your agent](https://demoman.io/docs/get-started/connect). On Linux,
+setup names the one `sudo` command that installs Chromium's system libraries.
+Demoman is in public beta.
 
-## Features
+## Agent-native recorder
 
-- **Headless.** It records in a browser you never see, so your screen stays
-  yours while it works.
-- **Cinematic by default.** The camera eases in on every click and holds
-  while you read, and the cursor takes a smooth path from step to step, at
-  desktop, tablet or phone size.
-- **Self-reviewing, self-correcting.** Every run reports what was in frame,
-  what was cut off and any detours. When a step misses, your agent fixes the
-  script and runs it again.
-- **[Authenticated apps](https://demoman.io/docs/get-started/sign-in).**
-  For an app you run locally, your agent creates a demo account and Demoman
-  signs in with it, in development and in CI. For a real account, sign in
-  once with `npx demoman signin <url>`. Your agent never asks for your own
-  password.
-- **Edit in Studio.** `npx demoman studio` opens a timeline editor: trim the
-  waiting, split the clip and remove what you don't want, hide what shouldn't
-  be seen, tune each zoom, and apply a brand kit.
-- **Ready for delivery.** An MP4, a GIF, or a still of every step, 16:9 or
-  9:16 from one take. Your agent can attach the video to a pull request.
-- **[Kept current](https://demoman.io/docs/get-started/add-to-repo).**
-  `npx demoman keep` saves a flow's script in the repo, and a GitHub
-  Actions workflow from `npx demoman setup --ci` films it again on each
-  merge, committing it only when the picture changed. To commit nothing, keep a
-  flow with `--deliver files` and refresh with `--out-dir`: it writes the
-  videos and a `demoman-refresh.json` list for your own step to upload, such
-  as `aws s3 sync demoman-out s3://bucket/` or
-  `aws s3 sync demoman-out s3://bucket/ --endpoint-url $R2_ENDPOINT` for R2.
-  `setup --ci --artifact` uploads the folder as a workflow artifact.
-- **Runs locally.** Capture, editing and export happen on your machine, and
-  Demoman sends nothing to us. Your agent passes what Demoman reports to the
-  AI service it runs on.
+**Ask for a demo. Get a video.** Your coding agent drives Demoman through its
+MCP server. It handles sign-in, runs the flow in a headless browser and hands
+back a demo video, with the camera, cursor and framing already done.
+
+```text
+> record a demo of creating an invoice
+
+⏺ demoman.run  "a new invoice"  10 steps
+  ⎿ complete · 5 inside · 0 cut off · 0 detours
+⏺ demoman.export
+  ⎿ saved ~/Downloads/Nylon — New Invoice (Desktop).mp4
+```
+
+<p align="center">
+  <img alt="The video that run hands back: a new invoice for Hollis &amp; Grant created in a billing app" width="100%" src="brand/readme/new-invoice.gif">
+</p>
+
+| | |
+| --- | --- |
+| Interface | CLI · MCP server |
+| Browser | Headless Chromium |
+| Devices | Desktop · Tablet · Phone |
+| Sign-in | [Demo accounts · Seed scripts](https://demoman.io/docs/get-started/sign-in) |
+
+## CI pipeline
+
+**Video as Code.** One command adds Demoman to GitHub Actions. From then on,
+every merge records each DemoScript again against your real app, and a video
+changes only when the product did.
+
+```bash
+npx demoman add "Export report" --to docs/export-report.mp4
+npx demoman setup --ci
+```
+
+`add` saves the flow's DemoScript in `.demoman/flows/` beside its export.
+`setup --ci` records your flows once from a clean checkout, shows one plan
+and opens the pull request that sets it up. After that, each refresh opens a
+pull request with the videos that changed.
+
+```json
+{
+  "name": "Export report",
+  "target": "http://localhost:3000/reports",
+  "steps": [
+    { "do": "waitForLoad" },
+    { "do": "click", "on": { "stableId": "range-12m" } },
+    { "do": "click", "on": { "stableId": "export-report" } },
+    { "do": "waitFor", "until": "visible", "on": { "text": "Report exported" } }
+  ]
+}
+```
+
+| | |
+| --- | --- |
+| Source | DemoScripts in `.demoman/flows/` |
+| Format | JSON, schema-validated |
+| CI | GitHub Actions |
+| Trigger | Every merge, a deployment, a release, or daily |
+| Review | A video on the pull request |
+
+[Keep videos current](https://demoman.io/docs/get-started/ci) covers the
+triggers, committing to the branch instead, and keeping videos out of git.
+
+## Principles
+
+- **Runs on your machines.** Your laptop or your CI runner. Capture and
+  export happen there, and Demoman sends nothing to us.
+- **Your screen stays yours.** Demoman records in a browser of its own.
+- **No account.** Install it and ask your agent.
+
+## Specifications
+
+| | |
+| --- | --- |
+| Agents | Claude Code, Codex, Cursor, OpenCode |
+| Platforms | macOS, Linux (x86_64). Node 20+ |
+| Output | MP4 at 60 fps, up to 2560 px wide. GIF. A PNG still of every step |
+| Editor | [Studio](https://demoman.io/docs/studio/overview), optional: trim, cut, zoom, background |
 
 Documentation: [demoman.io/docs](https://demoman.io/docs)
-
-## Building from source
-
-    pnpm install
-    pnpm -r build
-
-The repo is a pnpm workspace: `apps/cli` is the published `demoman` package,
-`apps/mcp` the MCP server agents drive it through, `apps/runner` the executor
-that drives Chromium and records, `apps/studio` the Studio, `apps/docs` the
-documentation at demoman.io/docs, and `packages/` the capture, replay and
-rendering pipeline they share.
 
 ## Contributing
 
