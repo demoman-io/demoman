@@ -6,8 +6,11 @@ import { join } from "node:path";
 import {
   APP_FILE,
   type AppSpec,
+  FLOWS_DIR,
   type KeptVideo,
+  LEGACY_FLOWS_DIR,
   parseApp,
+  parseKept,
   parseReceipt,
   RECEIPT_DIR,
   scriptDigest,
@@ -65,6 +68,7 @@ import {
   SECRETS_IGNORE,
   withLines,
 } from "./gitignore-secrets.js";
+import { listed } from "./names.js";
 
 export type TriggerOffer = {
   trigger: CiOptions["trigger"];
@@ -199,7 +203,12 @@ export type CiPlan = {
   trigger: CiOptions["trigger"];
   offers: TriggerOffer[];
   route: "pr" | "main";
+  /** Whether refresh writes the files flows to demoman-out and uploads it.
+   *  Decided here, once (DEM-99): the workflow reads it and never asks. */
   artifact: boolean;
+  /** The flows CI will refresh that deliver files, which need the
+   *  artifact: the default branch's copy where it has one. */
+  filesFlows: string[];
   /** null only for a deployment trigger without app.json. */
   app: { spec: AppSpec; source: PlanAppSource; text: string } | null;
   /** A deployment trigger's environment and its URL now; CI records the
@@ -535,6 +544,63 @@ async function makePlan(
       "the repo has no repo flow for CI to refresh; add one with `npx demoman add`, then run setup again",
     );
 
+  // DEM-99: refresh delivers a files flow only into --out-dir, which the
+  // workflow gives with the artifact alone. Decided here, before anything
+  // slow, from every copy CI may refresh: the working tree's (carried by the
+  // pull request, or pushed later) and the base's (the pull request leaves
+  // a flow already there out, and one deleted here is still there).
+  const base = `${facts.remote}/${facts.defaultBranch}`;
+  const gitSaid = (r: { code: number; stderr: string }, cmd: string) =>
+    r.stderr.trim() || `${cmd} exited with code ${r.code}`;
+  // Only the flow folders: the whole tree can exceed git's output buffer.
+  const tree = await deps.git(
+    ["ls-tree", "-r", "--name-only", base, "--", ".demoman"],
+    root,
+  );
+  if (tree.code !== 0)
+    return stop(
+      "filesUnreadable",
+      `${base} could not be listed (${gitSaid(tree, "git ls-tree")}), so the flows CI will refresh are unknown; fetch ${base}, then run setup again`,
+    );
+  const onDefault = new Set(tree.stdout.split("\n"));
+  const baseFlows = [...onDefault].filter(
+    (f) =>
+      f.endsWith(".json") &&
+      [FLOWS_DIR, LEGACY_FLOWS_DIR].some(
+        (d) => f.startsWith(`${d}/`) && !f.slice(d.length + 1).includes("/"),
+      ),
+  );
+  const baseCopies = await Promise.all(
+    baseFlows.map(async (f) => ({
+      f,
+      r: await deps.git(["show", `${base}:${f}`], root),
+    })),
+  );
+  const filesFlows = flows
+    .filter((f) => f.kept.deliver === "files")
+    .map((f) => f.kept.name);
+  for (const { f, r } of baseCopies) {
+    if (r.code !== 0)
+      return stop(
+        "filesUnreadable",
+        `${base}:${f} could not be read (${gitSaid(r, "git show")}), so whether CI must deliver it as files is unknown; fetch ${base}, then run setup again`,
+      );
+    const parsed = parseKept(r.stdout, `${base}:${f}`);
+    // shortcut: a base flow that does not parse is not counted; CI's
+    // refresh fails it by name, whatever the artifact.
+    if (
+      parsed.ok &&
+      parsed.kept.deliver === "files" &&
+      !filesFlows.includes(parsed.kept.name)
+    )
+      filesFlows.push(parsed.kept.name);
+  }
+  if (choices.artifact === false && filesFlows.length > 0)
+    return stop(
+      "invalidArgs",
+      `the artifact was turned off, and ${listed(filesFlows)} deliver${filesFlows.length === 1 ? "s" : ""} files, which a CI refresh writes only into the artifact; nothing was written. Plan again without artifact: false`,
+    );
+
   // The app: the door's, else the working tree's app.json (R6), else detected.
   let app: CiPlan["app"] = null;
   if (choices.app !== undefined) {
@@ -687,7 +753,7 @@ async function makePlan(
   const shape = {
     trigger,
     route,
-    artifact: choices.artifact === true,
+    artifact: choices.artifact === true || filesFlows.length > 0,
     app,
     secrets,
     repo: {
@@ -703,17 +769,6 @@ async function makePlan(
     return stop("workflowRefused", messageOf(e));
   }
 
-  // The files: the workflow, app.json unless committed as is, and each flow
-  // not yet on the default branch.
-  const base = `${facts.remote}/${facts.defaultBranch}`;
-  // Only the flow folders: the whole tree can exceed git's output buffer.
-  const tree = await deps.git(
-    ["ls-tree", "-r", "--name-only", base, "--", ".demoman"],
-    root,
-  );
-  // shortcut: an unreadable default branch reads as empty, so every flow is
-  // listed; files identical to the base add nothing to the commit.
-  const onDefault = new Set(tree.code === 0 ? tree.stdout.split("\n") : []);
   // shortcut: a commit that cannot be read says nothing about the difference.
   const [head, tip] = await Promise.all(
     ["HEAD", base].map(async (ref) => {
@@ -827,6 +882,7 @@ async function makePlan(
   const made: CiPlan = {
     root,
     ...shape,
+    filesFlows,
     deployment,
     offers,
     check: checked,
@@ -940,6 +996,13 @@ function planSaid(p: CiPlan) {
       p.route === "pr"
         ? "Delivers what changed as a pull request."
         : `Delivers what changed as a commit on ${p.repo.defaultBranch}.`,
+    artifact: !p.artifact
+      ? []
+      : [
+          p.filesFlows.length === 0
+            ? "Uploads the demoman-videos artifact, though no repo flow delivers files yet."
+            : `Uploads the files flows' videos as the demoman-videos artifact, which ${listed(p.filesFlows)} need${p.filesFlows.length === 1 ? "s" : ""}: a CI refresh writes files only there.`,
+        ],
     app:
       p.deployment !== null
         ? `Starts no app: records the newest successful ${p.deployment.environment} deployment (now ${p.deployment.url}).`
@@ -970,6 +1033,7 @@ export function planLines(p: CiPlan): string[] {
     ...(p.notLookedFor === undefined ? [] : [p.notLookedFor]),
     ...said.byHand,
     said.delivery,
+    ...said.artifact,
     said.app,
     said.check,
     ...said.offBase,
@@ -1007,9 +1071,13 @@ export function prBody(p: CiPlan): string {
     `Merging this sets up Demoman: it records the repo's flows ${said.label} and ${delivers} when a video changes.`,
     "",
     "### What it does",
-    ...[said.trigger, ...said.byHand, said.delivery, said.app].map(
-      (l) => `- ${l}`,
-    ),
+    ...[
+      said.trigger,
+      ...said.byHand,
+      said.delivery,
+      ...said.artifact,
+      said.app,
+    ].map((l) => `- ${l}`),
     "",
     "### Checked",
     said.check,

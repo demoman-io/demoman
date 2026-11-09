@@ -96,6 +96,7 @@ describe("runCaptured", () => {
       },
       skill: { text: "---\nname: record-demo\n---\nDemoman" },
       exists: () => false,
+      names: () => ({ names: [] }),
       readText: () => ({ missing: true }),
       writeText: () => ({ ok: true }),
       say: (l) => void lines.push(l),

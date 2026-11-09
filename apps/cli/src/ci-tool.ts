@@ -141,7 +141,8 @@ export function createCiTool(io: {
       const choices: CiChoices = {
         ...(a.trigger === undefined ? {} : { trigger: a.trigger }),
         ...(a.route === undefined ? {} : { route: a.route }),
-        ...(a.artifact === true ? { artifact: true } : {}),
+        // false too: a files flow then refuses it rather than overrule it.
+        ...(a.artifact === undefined ? {} : { artifact: a.artifact }),
         ...(a.replaceSecrets === undefined
           ? {}
           : { replaceSecrets: a.replaceSecrets }),
@@ -150,7 +151,7 @@ export function createCiTool(io: {
       const key = JSON.stringify([
         choices.trigger ?? null,
         choices.route ?? null,
-        choices.artifact === true,
+        choices.artifact ?? null,
         app === undefined ? null : serializeApp(app),
         [...(choices.replaceSecrets ?? [])].sort(),
       ]);

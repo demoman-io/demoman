@@ -37,6 +37,13 @@ describe("setup's questions, for real", () => {
       expect(hint, v).not.toContain("\n");
     }
   });
+
+  // DEM-103: "off" attaches only when asked (pull-requests.ts), never "never".
+  it("says off attaches a video only when you ask", () => {
+    expect(SETUP_HINTS.off).toBe(
+      "Attach a video to a pull request only when you ask.",
+    );
+  });
 });
 
 describe("the setup command Demoman hands an agent", () => {

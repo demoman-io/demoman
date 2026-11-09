@@ -74,6 +74,7 @@ async function repo(
     flows?: boolean;
     appJson?: string;
     digest?: "match" | "edited" | "absent";
+    deliver?: "commit" | "files";
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "demoman-ci-setup-"));
@@ -86,7 +87,7 @@ async function repo(
       JSON.stringify({
         keptVersion: 2,
         flow,
-        deliver: "commit",
+        deliver: o.deliver ?? "commit",
         name: "Checkout",
         script: SCRIPT,
         scale: 1,
@@ -94,7 +95,7 @@ async function repo(
         wallpaper: null,
         outputs: [
           {
-            path: "docs/o.mp4",
+            path: o.deliver === "files" ? "o.mp4" : "docs/o.mp4",
             fileType: "mp4",
             aspect: "16:9",
             quality: "share",
@@ -178,6 +179,8 @@ function fakes(
     /** `git show <ref:path>` failing other than "not there": its stderr. */
     showFails?: Record<string, string>;
     onDefault?: string[];
+    /** `git ls-tree` on the base failing: its stderr. */
+    treeFails?: string;
     detected?: Awaited<ReturnType<CiDeps["detectApp"]>>;
     /** `git rev-parse <ref>`'s answers; absent refs fail. */
     tips?: Record<string, string>;
@@ -197,7 +200,9 @@ function fakes(
     calls.push(`git ${args[0]}`);
     gitArgs.push(args);
     if (args[0] === "ls-tree")
-      return { code: 0, stdout: (o.onDefault ?? []).join("\n"), stderr: "" };
+      return o.treeFails !== undefined
+        ? { code: 128, stdout: "", stderr: o.treeFails }
+        : { code: 0, stdout: (o.onDefault ?? []).join("\n"), stderr: "" };
     if (args[0] === "rev-parse") {
       const sha = o.tips?.[args[1] as string];
       return sha === undefined
@@ -947,6 +952,122 @@ describe("planCiSetup's plan", () => {
     expect(f.seen.verify?.[0].files.map((x) => x.path)).toEqual(p.files);
   });
 
+  // DEM-99, red when makePlan leaves `artifact` to the choice alone: a files
+  // flow's refresh fails without --out-dir, which only the artifact gives.
+  it("turns the artifact on for a files flow, says why, and the workflow carries --out-dir", async () => {
+    const f = fakes();
+    const p = await okPlan(await repo({ deliver: "files" }), f);
+    const workflow = String(
+      f.seen.verify?.[0].files.find(
+        (x) => x.path === ".github/workflows/demoman.yml",
+      )?.text,
+    );
+    // The premise: the check saw the workflow the plan wrote.
+    expect(workflow).toContain(" refresh --deliver pr");
+    expect(p.artifact).toBe(true);
+    expect(p.filesFlows).toEqual(["Checkout"]);
+    expect(workflow).toContain(
+      "--deliver pr --out-dir demoman-out --previous demoman-out",
+    );
+    expect(planLines(p)).toContain(
+      "Uploads the files flows' videos as the demoman-videos artifact, which Checkout needs: a CI refresh writes files only there.",
+    );
+    // Asked for with no files flow, it says so; a commit flow alone leaves it off.
+    const asked = await okPlan(await repo(), fakes(), { artifact: true });
+    expect(planLines(asked)).toContain(
+      "Uploads the demoman-videos artifact, though no repo flow delivers files yet.",
+    );
+    const commit = await okPlan(await repo(), fakes());
+    expect(commit.artifact).toBe(false);
+    expect(planLines(commit).join("\n")).not.toContain("artifact");
+  });
+
+  // Review of DEM-99: CI refreshes the base's copy of a flow the base has,
+  // which the pull request leaves out. Red when only the working tree counts.
+  it("decides the artifact from the base's copy of a flow already there", async () => {
+    const file = `${FLOWS_DIR}/checkout.json`;
+    const root = await repo();
+    const local = JSON.parse(await readFile(join(root, file), "utf8"));
+    const files = {
+      deliver: "files",
+      outputs: [{ ...local.outputs[0], path: "o.mp4" }],
+    };
+    const onBase = JSON.stringify({ ...local, ...files });
+    const f = fakes({
+      onDefault: [file, `${FLOWS_DIR}/gone.json`],
+      head: {
+        [`origin/trunk:${file}`]: onBase,
+        [`origin/trunk:${FLOWS_DIR}/gone.json`]: JSON.stringify({
+          ...local,
+          name: "Gone",
+          ...files,
+        }),
+      },
+    });
+    const p = await okPlan(root, f);
+    // The premise: the working tree's copy delivers by commit.
+    expect(local.deliver).toBe("commit");
+    expect(p.artifact).toBe(true);
+    expect(p.filesFlows).toEqual(["Checkout", "Gone"]);
+  });
+
+  // Second review: the working tree's files copy of a flow the base has as a
+  // commit flow is pushed later, and still needs the artifact.
+  it("counts a working tree's files copy of a flow the base delivers by commit", async () => {
+    const file = `${FLOWS_DIR}/checkout.json`;
+    const root = await repo({ deliver: "files" });
+    const local = JSON.parse(await readFile(join(root, file), "utf8"));
+    const f = fakes({
+      onDefault: [file],
+      head: {
+        [`origin/trunk:${file}`]: JSON.stringify({
+          ...local,
+          deliver: "commit",
+          outputs: [{ ...local.outputs[0], path: "docs/o.mp4" }],
+        }),
+      },
+    });
+    const p = await okPlan(root, f);
+    expect(p.files).not.toContain(file);
+    expect(p.filesFlows).toEqual(["Checkout"]);
+    expect(p.artifact).toBe(true);
+  });
+
+  // Report before you forgive: a base that cannot be read is never taken for
+  // one with no files flow.
+  it("stops, before the check, when the base's flows cannot be listed or read", async () => {
+    const file = `${FLOWS_DIR}/checkout.json`;
+    const listing = fakes({ treeFails: "fatal: Not a valid object name" });
+    const a = await plan(await repo(), listing, {});
+    expect(a).toMatchObject({ reason: "filesUnreadable" });
+    expect((a as CiStop).detail).toContain(
+      "origin/trunk could not be listed (fatal: Not a valid object name)",
+    );
+    expect(listing.seen.verify).toBeUndefined();
+    const reading = fakes({
+      onDefault: [file],
+      showFails: { [`origin/trunk:${file}`]: "fatal: bad object" },
+    });
+    const b = await plan(await repo(), reading, {});
+    expect(b).toMatchObject({ reason: "filesUnreadable" });
+    expect((b as CiStop).detail).toContain(
+      `origin/trunk:${file} could not be read (fatal: bad object)`,
+    );
+    expect(reading.seen.verify).toBeUndefined();
+  });
+
+  it("refuses artifact: false when a flow delivers files, naming it, before the check", async () => {
+    const f = fakes();
+    const r = await plan(await repo({ deliver: "files" }), f, {
+      artifact: false,
+    });
+    expect(r).toMatchObject({ reason: "invalidArgs" });
+    expect((r as CiStop).detail).toContain(
+      "the artifact was turned off, and Checkout delivers files",
+    );
+    expect(f.seen.verify).toBeUndefined();
+  });
+
   // Red when the plan does not say the refresh can be run by hand (DEM-62).
   it("says a push or daily refresh can be run by hand, and a release one cannot", async () => {
     const p = await okPlan(await repo(), fakes());
@@ -991,8 +1112,17 @@ describe("planCiSetup's plan", () => {
   });
 
   it("leaves out a flow already on the default branch", async () => {
-    const f = fakes({ onDefault: [`${FLOWS_DIR}/checkout.json`] });
-    const p = await okPlan(await repo(), f);
+    const file = `${FLOWS_DIR}/checkout.json`;
+    const root = await repo();
+    // The base's copy, which the plan now reads for its delivery (DEM-99).
+    const f = fakes({
+      onDefault: [file],
+      head: {
+        [`origin/trunk:${file}`]: await readFile(join(root, file), "utf8"),
+      },
+    });
+    const p = await okPlan(root, f);
+    expect(f.gitArgs).toContainEqual(["show", `origin/trunk:${file}`]);
     expect(p.files).not.toContain(`${FLOWS_DIR}/checkout.json`);
     expect(p.files).not.toContain("docs/o.mp4");
     // The flow folders only, never the whole tree (git's output buffer).

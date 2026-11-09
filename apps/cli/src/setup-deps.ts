@@ -5,6 +5,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
@@ -281,7 +282,7 @@ export const SETUP_HINTS: Record<ExportQuality | PullRequestsValue, string> = {
   share: "Small enough for a chat or a pull request.",
   high: "1440p at 60 fps, about 30 MB for 30 seconds.",
   full: "The largest size the source supports.",
-  off: "Never attach a video to a pull request.",
+  off: "Attach a video to a pull request only when you ask.",
   ask: "Ask to attach a video each time your agent creates a PR.",
   attach: "Always attach a video whenever your agent creates a PR.",
 };
@@ -370,6 +371,14 @@ export function realSetupDeps(
     ),
     skill: readSkill(distDir),
     exists: (path) => existsSync(path),
+    names: (dir) => {
+      try {
+        return { names: readdirSync(dir) };
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        return err.code === "ENOENT" ? { names: [] } : { error: err.message };
+      }
+    },
     readText: readTextFile,
     writeText: writeTextFile,
     say: (line) => void process.stdout.write(`${line}\n`),
