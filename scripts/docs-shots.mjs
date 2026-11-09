@@ -20,6 +20,8 @@ const SIZES = [
   { name: "phone", width: 390, height: 844 },
 ];
 const THEMES = ["light", "dark"];
+// Pinned, so a Mintlify release cannot change the answer: raise it on purpose.
+const MINT = "4.3.6";
 
 const freePort = () =>
   new Promise((done) => {
@@ -39,7 +41,7 @@ const check = (ok, line) => {
 
 const port = await freePort();
 const base = `http://localhost:${port}`;
-const server = spawn("npx", ["--yes", "mint@latest", "dev", "--port", String(port), "--no-open"], {
+const server = spawn("npx", ["--yes", `mint@${MINT}`, "dev", "--port", String(port), "--no-open"], {
   cwd: docsDir,
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -84,6 +86,11 @@ try {
           };
           return {
             manrope: document.fonts.check("16px Manrope"),
+            // A face named Geist Mono that actually loaded: the declared family
+            // alone names it whether or not its file was found.
+            monoLoaded: [...document.fonts].some(
+              (f) => f.family.replace(/["']/g, "") === "Geist Mono" && f.status === "loaded",
+            ),
             body: family("#content-area p"),
             code: family("#content-area code"),
             overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -107,7 +114,8 @@ try {
           };
         });
         check(m.manrope && /^"?Manrope/.test(m.body ?? ""), `${where}: body text in Manrope (${m.body})`);
-        if (m.code !== null) check(/^"?Geist Mono/.test(m.code), `${where}: code in Geist Mono (${m.code})`);
+        if (m.code !== null)
+          check(/^"?Geist Mono/.test(m.code) && m.monoLoaded, `${where}: code in Geist Mono, loaded (${m.code}, loaded ${m.monoLoaded})`);
         check(m.overflow <= 0, `${where}: no sideways scroll (${m.overflow}px over)`);
         if (slug.startsWith("get-started/"))
           check(m.steps === 6 && m.current === 1, `${where}: strip has 6 steps, 1 current (${m.steps}, ${m.current})`);

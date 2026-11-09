@@ -13,13 +13,14 @@ const START = "{/* generated:start */}";
 const END = "{/* generated:end */}";
 
 // The superRefine rules in script.ts, in words. Keep in step with it.
-const RULES = [
+export const RULES = [
   "At least one step acts on the page: a script of pauses alone is refused.",
   "Name a `device` or a `viewport`, not both.",
   "On a `device`, no `hover` step: a phone has no hover.",
   "A `drag` must end somewhere other than where it starts.",
   "`{secret:NAME}` is refused in a script's `type` text: it works only in `.demoman/accounts.json`.",
-  "A `trim` step names a step that exists and is not a `pause`, and the start is not after the end.",
+  "`trim.start.step` and `trim.end.step` name a step that exists and is not a `pause`, and the start is not after the end.",
+  "A `look.branding` wallpaper background names one of the built-in wallpapers.",
   "`look` names a `kit` or gives a `branding`, not both.",
 ];
 

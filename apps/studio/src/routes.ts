@@ -662,7 +662,7 @@ export function createRoutes(o: {
           "The flow was not renamed: a flow needs a name.",
         );
       }
-      // A kept flow's name is its recipe's too: both are renamed, or
+      // A kept flow's name is its DemoScript's too: both are renamed, or
       // neither, and never the record alone (renameKept).
       const done = await onVideoChain(async () => {
         const rec = await videos.get(id);

@@ -1,14 +1,12 @@
+/* Geist Mono from Google Fonts: an absolute URL, so it loads under the docs'
+   /docs base path as well as at mint dev's root (a root-relative url() did not). */
+@import url("https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&display=swap");
+
 /* Demoman docs: the site's tokens (internal/site/public/style.css), with
    dark values derived from them (the site has no dark mode). Mintlify
    includes every .css file here on every page. Tokens are prefixed --dm-
    so they never meet Mintlify's own. */
 
-@font-face {
-  font-family: "Geist Mono";
-  src: url("/fonts/GeistMono-Variable.woff2") format("woff2");
-  font-weight: 100 800;
-  font-display: swap;
-}
 
 :root {
   --dm-bg: #ffffff;

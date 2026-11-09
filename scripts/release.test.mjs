@@ -97,6 +97,10 @@ test("the docs' Studio stills are redrawn before main is pushed", () => {
 
 test("the stills step commits only the stills, and only after the lane passed", () => {
   const step = authorSteps("0.8.0").find((s) => s.includes("docs-studio-stills"));
-  assert.match(step, /studio-shots\.test\.ts &&\s*\\?\s*\n?\s*node scripts\/docs-studio-stills\.mjs/);
-  assert.match(step, /git commit -m "[^"]+" -- apps\/docs\/media\/studio/);
+  const [run, commit] = step.split(/Look at the stills/);
+  assert.ok(commit, "the step has no look before its commit");
+  // The lane, the copy and nothing else run as one chain: a failed lane stops it.
+  assert.match(run, /studio-shots\.test\.ts &&\s*\n\s*node scripts\/docs-studio-stills\.mjs\s*$/);
+  assert.doesNotMatch(run, /git (add|commit)/);
+  assert.match(commit, /git commit -m "[^"]+" -- apps\/docs\/media\/studio/);
 });

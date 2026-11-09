@@ -1,13 +1,15 @@
 // The six-step strip at the top of every Get started page. Styles in
-// /style.css (.dm-path). The pages and their order are docs.json's.
+// /style.css (.dm-path). The pages and their order are docs.json's. Links
+// are relative (./<page>): the docs live under demoman.io/docs, and a
+// root-relative href in a snippet is not rewritten to that base path.
 export const SetupPath = ({ step }) => {
   const steps = [
-    { label: "Install", href: "/get-started/install" },
-    { label: "Connect", href: "/get-started/connect" },
-    { label: "First video", href: "/get-started/first-video" },
-    { label: "Sign in", href: "/get-started/sign-in" },
-    { label: "Add to repo", href: "/get-started/add-to-repo" },
-    { label: "CI", href: "/get-started/ci" },
+    { label: "Install", page: "install" },
+    { label: "Connect", page: "connect" },
+    { label: "First video", page: "first-video" },
+    { label: "Sign in", page: "sign-in" },
+    { label: "Add to repo", page: "add-to-repo" },
+    { label: "CI", page: "ci" },
   ];
   return (
     <nav aria-label="Setup steps" className="dm-path not-prose">
@@ -16,8 +18,8 @@ export const SetupPath = ({ step }) => {
           const n = i + 1;
           const state = n < step ? "done" : n === step ? "current" : "next";
           return (
-            <li key={s.href} className={`dm-${state}`}>
-              <a href={s.href} aria-current={n === step ? "step" : undefined}>
+            <li key={s.page} className={`dm-${state}`}>
+              <a href={`./${s.page}`} aria-current={n === step ? "step" : undefined}>
                 <span className="dm-path-n">
                   {String(n).padStart(2, "0")}
                   {n < step ? " ✓" : ""}

@@ -18,13 +18,13 @@ In the repo, with a flow your agent recorded:
 npx demoman add "Add a task" --to docs/add-task.mp4
 ```
 
-It writes four files. Commit all four:
+It writes the DemoScript, a receipt with its screens, and the export. Commit everything it wrote:
 
 | File | What it is |
 | --- | --- |
 | `.demoman/flows/add-task.json` | The flow's DemoScript: every step a new video needs. See [Flows and DemoScripts](/concepts/flows) |
 | `.demoman/receipts/add-task.json` | What the export shows, for a refresh to compare against |
-| `.demoman/receipts/add-task.screens` | The screens the receipt describes, as pictures |
+| `.demoman/receipts/add-task.screens/` | A folder of the screens the receipt describes, as pictures |
 | `docs/add-task.mp4` | The export, at the path you named |
 
 `--gif <path>` adds a GIF, and `--to` may repeat. To keep videos out of git
@@ -42,7 +42,7 @@ DemoScript follows the new script.
 
 **Add to repo** is on a flow's card and row in the Studio, and in the
 editor's Export panel. Its sheet asks for the path, the delivery and the
-quality, writes the same four files, and ends on each with Reveal. After a
+quality, writes the same files, and ends on each with Reveal. After a
 **Commit** add in a repo with no CI yet, it offers the next step's setup.
 
 ## When add refuses

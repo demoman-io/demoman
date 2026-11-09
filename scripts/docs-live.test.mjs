@@ -146,3 +146,21 @@ test("each docs.json redirect must land on its destination under the docs' base 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("pages in a nested group are crawled like any other", async () => {
+  const { server, origin } = await site({});
+  const dir = docsFolder(`${origin}/away/outbound`);
+  const docs = JSON.parse(readFileSync(join(dir, "docs.json"), "utf8"));
+  docs.navigation.groups[0].pages = ["index", { group: "Inner", pages: ["stray"] }];
+  writeFileSync(join(dir, "docs.json"), JSON.stringify(docs));
+  try {
+    const { code, stdout } = await docsLive(`${origin}/docs`, dir);
+    assert.match(stdout, /^ok stray$/m, stdout);
+    assert.doesNotMatch(stdout, /object Object/, stdout);
+    assert.match(stdout, /2 pages, /, stdout);
+    assert.equal(code, 0, stdout);
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -316,7 +316,7 @@ for (const scheme of ["light", "dark"] as const) {
       expect(said.textContent).toContain("is not an export any video lists");
       expect(
         said.previousElementSibling?.getAttribute("aria-label"),
-        "under the Recipe row",
+        "under the DemoScript row",
       ).toBe("Reveal DemoScript");
     });
 

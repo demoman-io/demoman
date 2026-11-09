@@ -227,10 +227,16 @@ describe("the setup strip", () => {
       expect(t, page).toContain(`<SetupPath step={${i + 1}} />`);
     });
   });
-  it("the strip names the six steps in order and links each", () => {
+  it("the strip names the six steps in order, linked relative to their own folder", () => {
+    // The docs live under demoman.io/docs; a root-relative href in a snippet
+    // is not rewritten to the base path, so the strip links ./<page>.
     const jsx = readDocs("snippets/setup-path.jsx");
-    const hrefs = [...jsx.matchAll(/href: "\/([^"]+)"/g)].map((m) => m[1]);
-    expect(hrefs).toEqual(GET_STARTED.slice(1));
+    const pages = [...jsx.matchAll(/page: "([a-z-]+)"/g)].map(
+      (m) => `get-started/${m[1]}`,
+    );
+    expect(pages).toEqual(GET_STARTED.slice(1));
+    expect(jsx).toMatch(/href=\{`\.\/\$\{s\.page\}`\}/);
+    expect(jsx).not.toMatch(/href[:=]\s*["{`]*\//);
   });
 });
 
@@ -613,8 +619,8 @@ describe("the setup path", () => {
         ".demoman/flows/",
         ".demoman/receipts/",
         "DemoScript",
-        ".screens",
-        "Commit all four",
+        ".screens/",
+        "Commit everything it wrote",
       ],
       "get-started/ci": [
         "npx demoman setup --ci",

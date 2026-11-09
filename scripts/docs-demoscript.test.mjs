@@ -50,3 +50,14 @@ test("the file's own fields are documented", () => {
   for (const f of ["keptVersion", "flow", "name", "script", "scale", "logo", "wallpaper", "deliver", "outputs", "report"])
     assert.match(page(), new RegExp(`^\\| \`${f}\` \\|`, "m"), f);
 });
+
+test("RULES keeps pace with the schema's refinements", async () => {
+  const src = readFileSync(new URL("../packages/scene-schema/src/script.ts", import.meta.url), "utf8");
+  const body = src.slice(src.indexOf("export const DemoScriptSchema"), src.indexOf("export type DemoScriptInput"));
+  // Each ctx.addIssue site is a rule, but trimIssues' two sites are one rule;
+  // the look's .refine (kit or branding) is one more, in the shape above it.
+  const sites = (body.match(/ctx\.addIssue\(/g) ?? []).length - 1 + (src.match(/\.refine\(\(look\)/g) ?? []).length;
+  assert.ok(sites >= 7, `premise: read ${sites} refinement sites`);
+  const { RULES } = await import("./docs-demoscript.mjs");
+  assert.equal(RULES.length, sites, "a refinement was added or removed: update RULES in scripts/docs-demoscript.mjs");
+});

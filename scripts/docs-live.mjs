@@ -28,7 +28,10 @@ function outboundUrl(slug) {
   const m = /^url:\s*["']?([^"'\n]+?)["']?\s*$/m.exec(front);
   return m ? m[1] : null;
 }
-const slugs = (docs.navigation?.groups ?? []).flatMap((g) => g.pages ?? []);
+// A group's pages may hold a nested group ({ group, pages }) as well as slugs.
+const slugsOf = (node) =>
+  typeof node === "string" ? [node] : (node?.pages ?? []).flatMap(slugsOf);
+const slugs = (docs.navigation?.groups ?? []).flatMap(slugsOf);
 if (slugs.length === 0) {
   console.log("FAIL docs.json lists no pages (navigation.groups[].pages)");
   console.log("docs:live: 0 pages, 0 links, 1 failures");
