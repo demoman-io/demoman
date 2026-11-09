@@ -32,7 +32,10 @@ export const execGit: GitRunner = (args, cwd, env) =>
       env === undefined
         ? { cwd, maxBuffer }
         : { cwd, maxBuffer, env: { ...process.env, ...env } };
-    execFile("git", args, options, (err, stdout, stderr) => {
+    // The folder is the caller's choice: its config must not name a program
+    // git runs while it reads the index (audit run 1, DEM-90).
+    const guarded = ["-c", "core.fsmonitor=false", ...args];
+    execFile("git", guarded, options, (err, stdout, stderr) => {
       if (!err) return done({ code: 0, stdout, stderr });
       // A numeric code is git answering; a string code (ENOENT) is git not running.
       if (typeof err.code === "number") {

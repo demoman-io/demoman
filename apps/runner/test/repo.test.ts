@@ -131,6 +131,26 @@ describe("readRepo", () => {
   });
 });
 
+describe("execGit and the repository's own config (DEM-90)", () => {
+  // Red: execGit without `-c core.fsmonitor=false` — the filmed folder's
+  // config names a program git runs as the user on `add -A`.
+  it("never runs a program the repository's config names", async () => {
+    const dir = makeRepo("fsmonitor");
+    const marker = join(dir, "fsmonitor-ran");
+    const hook = join(dir, "hook.sh");
+    writeFileSync(hook, `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+    git(dir, "config", "core.fsmonitor", hook);
+    writeFileSync(join(dir, ".gitignore"), "hook.sh\nfsmonitor-ran\n");
+    // Premise: git does run it while reading the index here.
+    git(dir, "status", "--short");
+    expect(existsSync(marker)).toBe(true);
+    rmSync(marker);
+    const filmed = await readFilmedCode(dir);
+    expect(filmed).toMatchObject({ dirty: true });
+    expect(existsSync(marker)).toBe(false);
+  });
+});
+
 describe("readFilmedCode", () => {
   /** A repo with one committed file and a .gitignore'd `ignored.txt`. */
   function committed(name: string): string {
