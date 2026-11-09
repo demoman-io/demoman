@@ -1193,7 +1193,7 @@ async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
   }
   if (usable.length === 0 && failed.length === 0) {
     d.say(
-      `\nNo coding agent was found. Demoman works with Claude Code, Codex and Cursor: install one and run \`npx ${PACKAGE_NAME}@${d.version} setup\` again, or connect another MCP client with the block in the README (https://www.npmjs.com/package/${PACKAGE_NAME}).`,
+      `\nNo coding agent was found. Demoman works with Claude Code, Codex, Cursor and OpenCode: install one and run \`npx ${PACKAGE_NAME}@${d.version} setup\` again, or connect another MCP client with the block in the README (https://www.npmjs.com/package/${PACKAGE_NAME}).`,
     );
     return 1;
   }

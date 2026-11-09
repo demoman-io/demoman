@@ -854,7 +854,7 @@ describe("setup", () => {
     });
     expect(await setup(m.d)).toBe(1);
     expect(m.lines.at(-1)).toContain(
-      "No coding agent was found. Demoman works with Claude Code, Codex and Cursor",
+      "No coding agent was found. Demoman works with Claude Code, Codex, Cursor and OpenCode:",
     );
     expect(m.calls.some((c) => c.startsWith("npx"))).toBe(false);
     expect(m.out()).not.toContain("warm start");

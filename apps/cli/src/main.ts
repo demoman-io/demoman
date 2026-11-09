@@ -114,7 +114,7 @@ function requirePageBundles(pages: string, say: (line: string) => void): void {
 const USAGE = `demoman ${VERSION}
 
   npx demoman setup          install the browser and connect your coding agents
-    [--yes] [--agents claude,codex,cursor] [--quality share|high|full] [--pull-requests off|ask|attach]
+    [--yes] [--agents claude,codex,cursor,opencode] [--quality share|high|full] [--pull-requests off|ask|attach]
   npx demoman setup --browser-only   install the browser alone and connect no agent (CI)
   npx demoman setup --ci [--trigger release|daily|push|<environment>] [--route pr|main] [--artifact]
     [--yes] [--env-file <path>] [--replace-secret <NAME>]…
