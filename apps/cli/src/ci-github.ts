@@ -1,5 +1,5 @@
 // What the repo has on GitHub, and the one Actions setting setup turns on.
-import { execFile } from "node:child_process";
+import { execGit, type GitRunner } from "@demoman/runner/package";
 import type { Gh } from "./gh-run.js";
 
 export type GithubFacts = {
@@ -54,25 +54,26 @@ async function read(gh: Gh, args: string[]): Promise<Read> {
   };
 }
 
-function gitIn(
-  root: string,
-  args: string[],
-): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((done) =>
-    execFile("git", args, { cwd: root }, (err, stdout, stderr) =>
-      done({
-        code: err ? (typeof err.code === "number" ? err.code : -1) : 0,
-        stdout,
-        stderr: err ? stderr || String(err) : "",
-      }),
-    ),
-  );
-}
+/** git through the CLI's one runner; a git that would not start (missing,
+ *  or the folder gone) answers as a failure that says why, never a throw. */
+const gitIn = (git: GitRunner, root: string, args: string[]) =>
+  git(args, root).catch((e: unknown) => ({
+    code: -1,
+    stdout: "",
+    stderr: e instanceof Error ? e.message : String(e),
+  }));
 
 export async function readGithub(
   gh: Gh,
   root: string,
+  o: {
+    git?: GitRunner;
+    /** The environment setup was asked to trigger on: looked for past the
+     *  newest deployments when they hold none of it (DEM-89). */
+    environment?: string;
+  } = {},
 ): Promise<GithubFacts | GhUnusable | Unreadable> {
+  const git = o.git ?? execGit;
   const v = await gh(["--version"]);
   if (v.code !== 0 && !(v.code === 127 || /ENOENT/.test(v.stderr))) {
     return unreadable("whether the GitHub CLI runs (gh --version)", v.stderr);
@@ -136,7 +137,7 @@ export async function readGithub(
 
   // gh may answer for a repo origin is not (a fork's clone, gh's default
   // set to upstream): git must push where gh opens the pull request.
-  const urls = await gitIn(root, [
+  const urls = await gitIn(git, root, [
     "config",
     "--get-regexp",
     "^remote\\..*\\.url$",
@@ -164,49 +165,70 @@ export async function readGithub(
       detail: `gh answers for ${slug}, and no git remote here is that repo (${remotes.map((r) => `${r.name} (${r.url.replace(/\/\/[^/@]*@/, "//")})`).join(", ") || "there are none"}); point gh at the repo to set up with \`gh repo set-default\`, or add a remote for ${slug}, then run setup again`,
     };
 
-  const dep = await read(gh, ["api", `repos/${slug}/deployments?per_page=30`]);
-  if (!dep.ok || !Array.isArray(dep.json)) {
-    return unreadable(
-      `repos/${slug}/deployments`,
-      dep.ok ? "the answer was not a list" : dep.why,
-    );
-  }
-  const found: Array<{ id: number; d: GithubFacts["deployments"][number] }> =
-    [];
-  // The API lists newest first: walk each environment's deployments until one is a success.
-  const done = new Set<string>();
-  for (const d of dep.json as Array<{
+  type Deployment = {
     id: number;
     environment: string;
     sha: string;
     production_environment?: boolean;
     transient_environment?: boolean;
-  }>) {
-    if (done.has(d.environment)) continue;
-    const st = await read(gh, [
-      "api",
-      `repos/${slug}/deployments/${d.id}/statuses?per_page=30`,
-    ]);
-    if (!st.ok || !Array.isArray(st.json))
-      return unreadable(
-        `repos/${slug}/deployments/${d.id}/statuses`,
-        st.ok ? "the answer was not a list" : st.why,
-      );
-    const win = (
-      st.json as Array<{ state: string; environment_url?: string }>
-    ).find((s) => s.state === "success");
-    if (!win) continue;
-    done.add(d.environment);
-    found.push({
-      id: d.id,
-      d: {
-        environment: d.environment,
-        url: win.environment_url || null,
-        sha: d.sha,
-        production: d.production_environment === true,
-        transient: d.transient_environment === true,
-      },
-    });
+  };
+  const listOf = async (query: string): Promise<Deployment[] | Unreadable> => {
+    const dep = await read(gh, ["api", `repos/${slug}/deployments?${query}`]);
+    return dep.ok && Array.isArray(dep.json)
+      ? (dep.json as Deployment[])
+      : unreadable(
+          `repos/${slug}/deployments`,
+          dep.ok ? "the answer was not a list" : dep.why,
+        );
+  };
+  const found: Array<{ id: number; d: GithubFacts["deployments"][number] }> =
+    [];
+  // The API lists newest first: walk each environment's deployments until one is a success.
+  const done = new Set<string>();
+  const walk = async (list: Deployment[]): Promise<Unreadable | null> => {
+    for (const d of list) {
+      if (done.has(d.environment)) continue;
+      const st = await read(gh, [
+        "api",
+        `repos/${slug}/deployments/${d.id}/statuses?per_page=30`,
+      ]);
+      if (!st.ok || !Array.isArray(st.json))
+        return unreadable(
+          `repos/${slug}/deployments/${d.id}/statuses`,
+          st.ok ? "the answer was not a list" : st.why,
+        );
+      const win = (
+        st.json as Array<{ state: string; environment_url?: string }>
+      ).find((s) => s.state === "success");
+      if (!win) continue;
+      done.add(d.environment);
+      found.push({
+        id: d.id,
+        d: {
+          environment: d.environment,
+          url: win.environment_url || null,
+          sha: d.sha,
+          production: d.production_environment === true,
+          transient: d.transient_environment === true,
+        },
+      });
+    }
+    return null;
+  };
+  const newest = await listOf("per_page=30");
+  if (!Array.isArray(newest)) return newest;
+  const walked = await walk(newest);
+  if (walked !== null) return walked;
+  // A busy repo's newest page can be all another environment's: ask for the
+  // chosen one by name, as the workflow's own check does.
+  if (o.environment !== undefined && !done.has(o.environment)) {
+    const seen = new Set(newest.map((d) => d.id));
+    const own = await listOf(
+      `environment=${encodeURIComponent(o.environment)}&per_page=30`,
+    );
+    if (!Array.isArray(own)) return own;
+    const walkedOwn = await walk(own.filter((d) => !seen.has(d.id)));
+    if (walkedOwn !== null) return walkedOwn;
   }
   // Newest deployment first.
   const deployments = found.sort((a, b) => b.id - a.id).map((f) => f.d);
@@ -223,7 +245,7 @@ export async function readGithub(
   if (!wf.ok && !wf.notFound)
     return unreadable(`${slug}'s .github/workflows/demoman.yml`, wf.why);
 
-  const heads = await gitIn(root, [
+  const heads = await gitIn(git, root, [
     "ls-remote",
     "--heads",
     remote,

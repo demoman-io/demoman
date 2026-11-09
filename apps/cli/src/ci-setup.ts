@@ -237,7 +237,8 @@ export type CiDeps = {
   log(line: string): void;
   /** Stops the check (R3). */
   signal?: AbortSignal;
-  readGithub(root: string): ReturnType<typeof readGithub>;
+  /** `environment`: the deployment trigger asked for, if one was. */
+  readGithub(root: string, environment?: string): ReturnType<typeof readGithub>;
   detectApp: typeof detectApp;
   neededSecrets: typeof neededSecrets;
   localValues: typeof localValues;
@@ -441,7 +442,12 @@ async function makePlan(
   deps: CiDeps,
   values: SecretValues,
 ): Promise<CiPlan | CiStop> {
-  const facts = await deps.readGithub(root);
+  const facts = await deps.readGithub(
+    root,
+    typeof choices.trigger === "object"
+      ? choices.trigger.deployment
+      : undefined,
+  );
   if ("reason" in facts) return stop(facts.reason, facts.detail);
   if (facts.workflowOnDefault)
     return stop(

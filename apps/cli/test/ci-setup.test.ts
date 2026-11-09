@@ -188,6 +188,7 @@ function fakes(
     verify?: Parameters<CiDeps["verifySetup"]>;
     pr?: Parameters<CiDeps["openSetupPr"]>[0];
     set?: Parameters<CiDeps["setSecrets"]>;
+    environment?: string;
   } = {};
   const shown = { ...(o.head ?? {}) };
   const gitArgs: string[][] = [];
@@ -217,8 +218,9 @@ function fakes(
     env: {},
     git,
     log: (l) => logged.push(l),
-    readGithub: async () => {
+    readGithub: async (_root, environment) => {
       calls.push("readGithub");
+      seen.environment = environment;
       return o.github ?? facts();
     },
     detectApp: async () => {
@@ -483,6 +485,9 @@ describe("planCiSetup stops, in order, before anything later runs", () => {
     });
     expect(isStop(r) && r.reason).toBe("noDeployment");
     expect(f.calls).toEqual(["readGithub"]);
+    // DEM-89. Red while GitHub is asked only for its newest deployments:
+    // the chosen environment's own are past them on a busy repo.
+    expect(f.seen.environment).toBe("production");
   });
 
   it("a deployment trigger with route main: DEPLOYMENT_MAIN", async () => {

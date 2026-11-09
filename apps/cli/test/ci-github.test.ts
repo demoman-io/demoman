@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execGit, type GitRunner } from "@demoman/runner/package";
 import { describe, expect, it } from "vitest";
 import { allowActionPullRequests, readGithub } from "../src/ci-github.js";
 import type { Gh } from "../src/gh-run.js";
@@ -112,6 +113,96 @@ function forkClone(withUpstream: boolean): string {
 }
 
 describe("readGithub", () => {
+  // DEM-89. Red while only the newest 30 deployments are read: Production's
+  // success sits behind 30 Preview ones, and setup said there was none.
+  it("finds the chosen environment's deployment past a full page of others", async () => {
+    const previews = Array.from({ length: 30 }, (_, i) => ({
+      id: 100 - i,
+      environment: "Preview",
+      sha: `p${i}`,
+    }));
+    const statuses = Object.fromEntries(
+      previews.map((d) => [
+        `api repos/${S}/deployments/${d.id}/statuses?per_page=30`,
+        ok([{ state: "success", environment_url: `https://p${d.id}.example` }]),
+      ]),
+    );
+    const calls: Array<{ args: string[] }> = [];
+    const gh = fake(
+      {
+        [`api repos/${S}/deployments?per_page=30`]: ok(previews),
+        ...statuses,
+        [`api repos/${S}/deployments?environment=Production&per_page=30`]: ok([
+          { id: 7, environment: "Production", sha: "prod" },
+        ]),
+        [`api repos/${S}/deployments/7/statuses?per_page=30`]: ok([
+          { state: "success", environment_url: "https://app.example" },
+        ]),
+      },
+      calls,
+    );
+    // Premise: the first page is full, and none of it is Production.
+    expect(previews).toHaveLength(30);
+    const r = await readGithub(gh, checkout(false), {
+      environment: "Production",
+    });
+    expect(r).toMatchObject({
+      deployments: expect.arrayContaining([
+        {
+          environment: "Production",
+          url: "https://app.example",
+          sha: "prod",
+          production: false,
+          transient: false,
+        },
+      ]),
+    });
+    // Only Preview's newest status was read before the second ask.
+    expect(
+      calls.filter((c) => c.args[1]?.endsWith("/statuses?per_page=30")),
+    ).toHaveLength(2);
+  });
+  it("asks no second time when the chosen environment is on the first page", async () => {
+    const calls: Array<{ args: string[] }> = [];
+    const gh = fake(
+      {
+        [`api repos/${S}/deployments?per_page=30`]: ok([
+          { id: 7, environment: "Production", sha: "prod" },
+        ]),
+        [`api repos/${S}/deployments/7/statuses?per_page=30`]: ok([
+          { state: "success", environment_url: "https://app.example" },
+        ]),
+      },
+      calls,
+    );
+    const r = await readGithub(gh, checkout(false), {
+      environment: "Production",
+    });
+    expect(r).toMatchObject({ deployments: [{ environment: "Production" }] });
+    expect(calls.some((c) => c.args[1]?.includes("environment="))).toBe(false);
+  });
+  // DEM-92. Red while readGithub spawns git on its own: the runner it is
+  // given (the one carrying the fsmonitor guard) is never asked.
+  it("asks git through the runner it is given", async () => {
+    const asked: string[][] = [];
+    const git: GitRunner = (args, cwd, env) => {
+      asked.push(args);
+      return execGit(args, cwd, env);
+    };
+    const r = await readGithub(fake(), checkout(true), { git });
+    expect(r).toMatchObject({ slug: S, remote: "origin" });
+    expect(asked.map((a) => a[0])).toEqual(["config", "ls-remote"]);
+  });
+  // DEM-92. Red when the runner's throw (git missing, the folder gone)
+  // escapes readGithub instead of answering why.
+  it("a git that will not start is githubUnreadable, saying why", async () => {
+    const git: GitRunner = async () => {
+      throw new Error("spawn git ENOENT");
+    };
+    const r = await readGithub(fake(), checkout(false), { git });
+    expect(r).toMatchObject({ reason: "githubUnreadable" });
+    expect((r as { detail: string }).detail).toContain("spawn git ENOENT");
+  });
   // Review finding 6. Red when the branch is read on origin (the fork) while
   // gh answers for upstream, or `gh pr list` runs without --repo.
   it("in a fork's clone, reads the setup branch on the remote that is gh's repo, and asks gh about that repo", async () => {

@@ -7,7 +7,6 @@
 //
 // First, before anything that could print: console.log/info/debug to stderr.
 import "@demoman/mcp/stdout-guard";
-import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
@@ -615,7 +614,7 @@ function ciDeps(
     version: VERSION,
     env: process.env,
     git: execGit,
-    readGithub: (r) => readGithub(gh, r),
+    readGithub: (r, environment) => readGithub(gh, r, { environment }),
     detectApp,
     neededSecrets,
     localValues,
@@ -781,17 +780,7 @@ async function refresh(args: string[]): Promise<void> {
     },
     {
       git: execGit,
-      gh: (a) =>
-        new Promise((done) => {
-          execFile("gh", a, { cwd: repo.repo.root }, (err, stdout, stderr) =>
-            done({
-              code: err ? (typeof err.code === "number" ? err.code : 127) : 0,
-              stdout,
-              stderr:
-                err && typeof err.code !== "number" ? String(err) : stderr,
-            }),
-          );
-        }),
+      gh: realGh(repo.repo.root),
     },
   );
   process.stdout.write(
