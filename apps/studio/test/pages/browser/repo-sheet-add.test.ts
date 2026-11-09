@@ -165,6 +165,10 @@ for (const scheme of ["light", "dark"] as const) {
         (n) => n.textContent,
       );
       expect(words).toEqual(["Folder", "File name", "Video", "Quality"]);
+      // Red if the form stops naming the checkout the add commits to.
+      expect(dialog.querySelector("[data-repo-root]")?.textContent).toBe(
+        "Adds to /r",
+      );
       const said = () => dialog.querySelector("[data-repo-said]")?.textContent;
       expect(said()).toBe(
         "The video goes in the repo. A refresh commits a new one when the picture changes.",

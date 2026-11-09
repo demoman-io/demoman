@@ -22,27 +22,57 @@ export const isDir = (path: string): Promise<boolean> =>
     () => false,
   );
 
-/** The checkout to add `video` to: where it was last added, else where its
- *  current version was recorded, when that folder is still its repo. */
+/** The checkout to add `video` to: where it was last added, else the first
+ *  folder a version was recorded in that is still its repo, trying complete
+ *  versions before incomplete ones and each newest first. A flow can be
+ *  recorded from more than one checkout (another repo serving the same app),
+ *  so one folder that no longer fits must not hide another that does. */
 export async function checkoutOf(
   video: VideoRecord,
   store: VideoStore,
   read: typeof readRepo,
 ): Promise<{ root: string } | { missing: string }> {
-  if (video.kept !== undefined && (await isDir(video.kept.root)))
-    return { root: video.kept.root };
+  const why: string[] = [];
+  // No key check here: keepVideo adds only among the flows of its checkout's
+  // repo, so a kept folder now holding another repo is refused there.
+  if (video.kept !== undefined) {
+    if (await isDir(video.kept.root)) return { root: video.kept.root };
+    why.push(`${video.kept.root}, where it was last added, is gone`);
+  }
   const all = await store.versions(video.id);
-  const from = all.filter((v) => v.complete).at(-1) ?? all.at(-1);
-  const repo = from && (await store.videoOf(from.takeId))?.made.repo;
-  if (!repo || !("root" in repo) || typeof repo.root !== "string") {
+  const order = [
+    ...all.filter((v) => v.complete).reverse(),
+    ...all.filter((v) => !v.complete).reverse(),
+  ];
+  const made = await Promise.all(order.map((v) => store.videoOf(v.takeId)));
+  const roots: string[] = [];
+  for (const m of made) {
+    const repo = m?.made.repo;
+    if (repo && "root" in repo && typeof repo.root === "string")
+      if (!roots.includes(repo.root)) roots.push(repo.root);
+  }
+  if (roots.length === 0 && why.length === 0)
     return { missing: "it was recorded outside a git repo" };
+  for (const root of roots) {
+    if (!(await isDir(root))) {
+      why.push(`${root} is gone`);
+      continue;
+    }
+    const now = await read(root);
+    if (!now.ok) {
+      why.push(`${root} could not be read (${now.none})`);
+      continue;
+    }
+    if ("key" in video.repo && now.repo.key === video.repo.key) return { root };
+    why.push(`${root} is no longer this flow's repo`);
   }
-  if (!(await isDir(repo.root))) return { missing: `${repo.root} is gone` };
-  const now = await read(repo.root);
-  if (!now.ok || !("key" in video.repo) || now.repo.key !== video.repo.key) {
-    return { missing: `${repo.root} is no longer this flow's repo` };
-  }
-  return { root: repo.root };
+  // The escape hatch: `demoman add` adds to the checkout it runs in.
+  // shortcut: POSIX single quotes, wrong for cmd.exe; upgrade with native Windows (DEM-85).
+  const name = `'${video.name.replaceAll("'", `'\\''`)}'`;
+  const key = "key" in video.repo ? ` of ${video.repo.key}` : "";
+  return {
+    missing: `${why.join("; ")}. To add it to another checkout${key}, run \`npx demoman add ${name} --to <path>\` there`,
+  };
 }
 
 /** The one answer that needs no git: a flow recorded with no repo. The
@@ -89,7 +119,7 @@ export async function checkAddable(
     return {
       ok: false,
       reason: "noCheckout",
-      label: "key" in video.repo ? "its checkout is gone" : "not in a repo",
+      label: "key" in video.repo ? "no checkout found" : "not in a repo",
       detail: `"${video.name}" has no checkout to add to: ${where.missing}`,
     };
   }

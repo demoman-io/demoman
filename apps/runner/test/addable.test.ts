@@ -283,9 +283,78 @@ describe("checkAddable", () => {
     expect(out).toMatchObject({
       ok: false,
       reason: "noCheckout",
-      label: "its checkout is gone",
+      label: "no checkout found",
     });
-    if (!out.ok) expect(out.detail).toContain(gone);
+    if (!out.ok) {
+      expect(out.detail).toContain(gone);
+      // The escape hatch: the command that adds it from a checkout of its own.
+      expect(out.detail).toContain("npx demoman add 'Orphaned' --to <path>");
+    }
+  });
+
+  // Red if checkoutOf goes back to asking only the newest version's folder.
+  it("an older version's checkout answers when the newest was recorded in another repo", async () => {
+    const other = await initRepo();
+    try {
+      const first = "scene-addable-two-a";
+      const later = "scene-addable-two-b";
+      const { record } = await video("Two checkouts", repoRef, (d) => d, first);
+      const base = readonlyScene();
+      await library.putScene({ ...base, meta: { ...base.meta, id: later } });
+      const read = await library.getSceneRead(later);
+      if (read === null) throw new Error("no scene");
+      await videos.join(later, {
+        videoId: record.id,
+        made: {
+          repo: other,
+          agent: { none: "test" },
+          by: { none: "test" },
+          door: "mcp",
+        },
+        recordedRevision: read.revision,
+      });
+      // The premise: the newest version was recorded in the other repo.
+      // Both incomplete: complete-first ordering must not decide it instead.
+      const versions = await videos.versions(record.id);
+      expect(versions.map((v) => v.takeId)).toEqual([first, later]);
+      expect(versions.map((v) => v.complete)).toEqual([false, false]);
+      expect(other.key).not.toBe(repoRef.key);
+      expect((await videos.videoOf(later))?.made.repo).toMatchObject({
+        root: other.root,
+      });
+      expect(await addable(record)).toMatchObject({ ok: true, root: repo });
+    } finally {
+      await rm(other.root, { recursive: true, force: true });
+    }
+  });
+
+  // Red if checkoutOf drops readRepo's reason, skips a gone kept folder in
+  // silence, or stops quoting the name in its command.
+  it("says why each checkout failed, and quotes the name for the shell", async () => {
+    const broken = await initRepo();
+    try {
+      const { record } = await video("Bob's flow", broken);
+      // The premise: the folder stays, but is no git checkout any more.
+      await rm(join(broken.root, ".git"), { recursive: true, force: true });
+      const keptAt = join(home, "kept-checkout-removed");
+      const out = await addable({
+        ...record,
+        kept: { root: keptAt, file: "x" },
+      });
+      expect(out).toMatchObject({ ok: false, reason: "noCheckout" });
+      if (out.ok) return;
+      expect(out.detail).toContain(
+        `${keptAt}, where it was last added, is gone`,
+      );
+      expect(out.detail).toContain(
+        `${broken.root} could not be read (not a git checkout`,
+      );
+      expect(out.detail).toContain(
+        `npx demoman add 'Bob'\\''s flow' --to <path>`,
+      );
+    } finally {
+      await rm(broken.root, { recursive: true, force: true });
+    }
   });
 
   // Red if the default name goes back through normaliseName (DEM-50: "filter-invoice").
