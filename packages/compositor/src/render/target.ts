@@ -302,19 +302,21 @@ const macroblocks = (w: number, h: number) =>
 
 /**
  * `width`x`height` scaled down whole, to even sides, until Chrome's H.264
- * encoder takes it (`MAX_MP4_MACROBLOCKS`); the size itself when it fits. A
- * motion span is muxed at its screencast's size, and the screencast can
- * deliver at REPLAY_DPR 3: a 1710x1107 window's 5130x3320 is 66,880
- * macroblocks, and the encoder refused every such span (2026-10-21).
+ * encoder takes it (`MAX_MP4_MACROBLOCKS`); the size itself, evened, when it
+ * fits. A motion span is muxed at its screencast's size, and the screencast
+ * can deliver at REPLAY_DPR 3: a 1710x1107 window's 5130x3320 is 66,880
+ * macroblocks, and the encoder refused every such span (2026-10-21). H.264
+ * takes even sides only: the phone preset's 393-wide span on a scale-1
+ * display was refused whole (DEM-124).
  */
 export function fitH264Frame(
   width: number,
   height: number,
 ): { width: number; height: number } {
-  if (macroblocks(width, height) <= MAX_MP4_MACROBLOCKS) {
-    return { width, height };
-  }
   const even = (x: number) => Math.max(2, 2 * Math.floor(x / 2));
+  if (macroblocks(width, height) <= MAX_MP4_MACROBLOCKS) {
+    return { width: even(width), height: even(height) };
+  }
   let scale = Math.sqrt((MAX_MP4_MACROBLOCKS * 256) / (width * height));
   for (;;) {
     const fit = { width: even(width * scale), height: even(height * scale) };

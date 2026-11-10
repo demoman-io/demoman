@@ -26,6 +26,7 @@ import { bundleEntry } from "../src/bundle-js.js";
 import type { Rgb } from "../src/decode-probe-entry.js";
 import { RENDER_PROBE_GLOBAL } from "../src/entry-globals.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
+import { createLibrary } from "../src/executor/library.js";
 import { createFileFrameStore, type RunnerStore } from "../src/frame-store.js";
 import { launch } from "../src/launch.js";
 import { listenOnLoopback } from "../src/loopback.js";
@@ -863,5 +864,130 @@ describe("an agent take that ends on a click", () => {
     expect(report?.video?.finalFrame, JSON.stringify(report?.video)).toEqual({
       settled: true,
     });
+  }, 300_000);
+});
+
+// DEM-124. H.264 takes even sides only; a phone take filmed at display scale
+// 1 (headless here, a 1x monitor or a Linux runner for an author) screencasts
+// 393 CSS px as 393 px, and the encoder refused every such span whole. The
+// video was the stills alone. The page flashes black and white, so a video
+// with its motion alternates and one without it holds a still.
+const FLASH_APP = `<!doctype html><meta charset=utf-8><title>Flash</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { animation: flash 400ms steps(1) infinite; }
+  @keyframes flash { 0% { background: #000; } 50% { background: #fff; } }
+</style>
+<button style="margin: 16px; font: 16px sans-serif">Go</button>`;
+
+describe("a phone take filmed at display scale 1", () => {
+  // A click, a pause and a default export. Measured locally at ~15 s; x5 for CI.
+  it("keeps its motion: the 393-wide span is encoded, and the picture moves", async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(FLASH_APP);
+    });
+    const url = await listenOnLoopback(server);
+    const home = mkdtempSync(join(tmpdir(), "demoman-phone-"));
+    const executor = createLocalExecutor({
+      wallpapersDir: WALLPAPERS_DIR,
+      home,
+      headless: true,
+      outDir: join(home, "out"),
+      log: () => undefined,
+    });
+    onTestFinished(async () => {
+      await executor.close();
+      server.close();
+      rmSync(home, { recursive: true, force: true });
+    });
+    const run = await executor.request("run", {
+      video: ownVideo(),
+      callId: "make-phone-take",
+      script: {
+        scriptVersion: 4,
+        name: "Phone",
+        target: url,
+        device: "phone",
+        steps: [
+          { do: "waitForLoad" },
+          { do: "click", on: { text: "Go" } },
+          { do: "pause", ms: 2000 },
+        ],
+      },
+    });
+    const report = run.ok
+      ? (run.value as {
+          provenance?: { takeId?: unknown };
+          frames?: { spans: number; degradations: string[] };
+          video?: { steps?: { kind: string; outputMs: number | null }[] };
+        })
+      : null;
+    const takeId = report?.provenance?.takeId;
+    const clickMs = report?.video?.steps?.find(
+      (s) => s.kind === "click",
+    )?.outputMs;
+    if (typeof takeId !== "string" || typeof clickMs !== "number") {
+      throw new Error(`the phone take was not made: ${JSON.stringify(run)}`);
+    }
+    const spans =
+      (await createLibrary(home).frameStore(takeId).getBundle(takeId))
+        ?.motionSpans ?? [];
+    const said = JSON.stringify({
+      frames: report?.frames,
+      spans: spans.map((s) => [s.width, s.height]),
+    });
+    // The report: motion kept, none refused. Before the fix it said
+    // `spans: 0` and `encodeRefused` twice.
+    expect(report?.frames?.spans, said).toBeGreaterThan(0);
+    expect(report?.frames?.degradations, said).not.toContain("encodeRefused");
+    // The premise: the screencast was 393 wide, so this was the odd side,
+    // evened to 392. A headless run at scale 2 would be 786 and test nothing.
+    expect(
+      spans.map((s) => s.width),
+      said,
+    ).toContain(392);
+
+    const out = await executor.request("export", {
+      takeId,
+      callId: "e-phone",
+    });
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    const answer = out.value as ExportAnswer;
+    if (answer.outcome !== "saved" || answer.fileType === "stills") {
+      throw new Error(JSON.stringify(answer));
+    }
+    const bytes = await readFile(answer.file.path);
+    const { timesSec } = await mp4FrameTimes(bytes);
+    const endSec = timesSec.at(-1) ?? 0;
+    // The pause after the click: stills alone held one frame through all of
+    // it (measured before the fix, 4.15 s to the end, every frame black).
+    const pause = timesSec.filter(
+      (t, i) => i % 3 === 0 && t > clickMs / 1000 + 0.3 && t < endSec - 0.2,
+    );
+    const crops = await readMp4Crops(
+      bytes,
+      pause,
+      [0.45, 0.45, 0.1, 0.1],
+      { width: 16, height: 16 },
+      true,
+    );
+    const means = crops.map((c) => {
+      const g = Buffer.from(c.grey as string, "base64");
+      return Math.round(g.reduce((n, v) => n + v, 0) / g.length);
+    });
+    const evidence = JSON.stringify({ clickMs, endSec, pause, means });
+    // The premises: a run of frames, each on the page (black or white, not
+    // the wallpaper or the button).
+    expect(means.length, evidence).toBeGreaterThanOrEqual(15);
+    expect(
+      means.filter((m) => m > 32 && m < 224),
+      evidence,
+    ).toEqual([]);
+    // The page flashes every 200 ms; the picture has to follow it.
+    const flips = means
+      .slice(1)
+      .filter((m, i) => m > 128 !== (means[i] as number) > 128);
+    expect(flips.length, evidence).toBeGreaterThanOrEqual(4);
   }, 300_000);
 });

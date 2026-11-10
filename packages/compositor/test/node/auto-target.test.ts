@@ -197,6 +197,13 @@ describe("fitH264Frame", () => {
     expect(fitH264Frame(3420, 2214)).toEqual({ width: 3420, height: 2214 });
   });
 
+  // DEM-124: the phone preset's screencast on a scale-1 display. H.264 takes
+  // even sides only, and the encoder refused the 393-wide span whole.
+  it("evens an odd side of a frame that fits", () => {
+    expect(macroblocks(393, 853)).toBeLessThanOrEqual(36_864);
+    expect(fitH264Frame(393, 853)).toEqual({ width: 392, height: 852 });
+  });
+
   // The span Excalidraw and Actual lost on 2026-10-21: a 1710x1107 window
   // screencast at REPLAY_DPR 3.
   it("scales a 5130x3320 span down whole, to even sides, under level 5.2", () => {
