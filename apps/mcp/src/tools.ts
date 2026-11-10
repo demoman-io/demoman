@@ -408,6 +408,16 @@ export type StudioToolAnswer =
  *  the studio is: they reach the CLI's own core. Each answers an object; one
  *  with a `reason` is a refusal. Never rejects on purpose; a rejection is
  *  answered as `threw`. */
+/** The person's answer to a question the tool put to them, never the
+ *  agent's: `unsupported` when the client cannot ask (DEM-110). */
+export type CiApproval =
+  | { approved: true }
+  | { approved: false; why: string }
+  | { unsupported: true };
+
+/** How long the person has to answer the ci check's question. */
+export const APPROVAL_MS = 10 * 60_000;
+
 export type RepoDoors = {
   add(
     a: { flow: string; to: string[]; gif?: string[]; project?: string },
@@ -425,6 +435,8 @@ export type RepoDoors = {
       project?: string;
     },
     progress: (line: string) => void,
+    /** Puts `message` to the person, through the client (elicitation). */
+    approve: (message: string) => Promise<CiApproval>,
   ): Promise<Record<string, unknown>>;
 };
 type RepoOp = "add" | "ci";
@@ -584,12 +596,48 @@ export function registerTools(
           ? withStill(served(op, o))
           : fromOutcome(served(op, o));
 
+  /** Asks the person through the client, never the agent: a yes or no
+   *  only they can give, or `unsupported` (DEM-110). Never rejects. */
+  const askPerson = async (
+    message: string,
+    relatedRequestId: string | number,
+  ): Promise<CiApproval> => {
+    if (server.server.getClientCapabilities()?.elicitation === undefined)
+      return { unsupported: true };
+    try {
+      const r = await server.server.elicitInput(
+        {
+          mode: "form",
+          message,
+          requestedSchema: { type: "object", properties: {} },
+        },
+        { relatedRequestId, timeout: APPROVAL_MS },
+      );
+      return r.action === "accept"
+        ? { approved: true }
+        : {
+            approved: false,
+            why:
+              r.action === "decline"
+                ? "the person declined"
+                : "the person dismissed the question",
+          };
+    } catch (error) {
+      return {
+        approved: false,
+        why: `the person's answer did not come (${error instanceof Error ? error.message : String(error)})`,
+      };
+    }
+  };
+
   const longCall = async (
     op: "run" | "export" | "snapshot" | "probe" | "attach" | RepoOp,
     args: Record<string, unknown>,
     extra: Extra,
     /** A call this process runs itself, rather than one sent to the page. */
     local?: (progress: (value: unknown) => void) => Promise<Outcome>,
+    /** The person's answer the call is waiting on, if any. */
+    held?: () => Promise<unknown> | null,
   ): Promise<ToolResult> => {
     const id = newId();
     const progress = progressSender(extra);
@@ -625,7 +673,17 @@ export function registerTools(
     };
     call.then(settle, settle);
     calls.set(id, entry);
-    const outcome = await capped(call);
+    let outcome = await capped(call);
+    // A person reading a question is not the call running: the cap counts
+    // again from their answer, so the question stays tied to this request.
+    for (
+      let waiting = held?.() ?? null;
+      outcome === STILL_RUNNING && waiting !== null;
+      waiting = held?.() ?? null
+    ) {
+      await waiting;
+      outcome = await capped(call);
+    }
     if (outcome === STILL_RUNNING) {
       progress.close();
       return notYet(id);
@@ -963,7 +1021,7 @@ export function registerTools(
       {
         annotations: TOOL_ANNOTATIONS.ci,
         description:
-          'Set up CI to refresh the repo\'s flows (as `npx demoman setup --ci`): checks the refresh from a clean checkout of the repo (minutes), then answers {outcome: "plan", plan, lines, next} and does nothing else. Show the person lines; only on their yes, call again with the same choices and confirmed: true, which applies that plan: turns on the Actions setting for pull requests, sets the repo\'s GitHub secrets, opens the pull request "Set up Demoman" from demoman/setup, and watches its run: {outcome: "opened", pr, check, secrets, setting, run, lines}. trigger: release, daily, push or {deployment: <environment>}; absent, the plan\'s default. route: pr or main. app: the .demoman/app.json you propose ({appVersion: 1, install, start, url, ...}), written to the working tree uncommitted; one already there that differs is never overwritten (appInvalid). watch: true watches the newest run on demoman/setup after you pushed a fix there; outcome gaveUp after three failed runs: hand back. A secret\'s value never passes through you: secretMissing or secretTooShort names the secrets and gives command for the person to run in their terminal. Past about 50 s {outcome: "stillRunning", id}, then call report. A refusal carries reason and detail.',
+          'Set up CI to refresh the repo\'s flows (as `npx demoman setup --ci`): asks the person, through your client, to approve the app commands its check runs (never you: checkNeedsPerson where the client cannot ask, with commands and the command for the person to run; checkDeclined on their no; nothing ran either way), then checks the refresh from a clean checkout of the repo (minutes) and answers {outcome: "plan", plan, lines, next}, doing nothing else. Show the person lines; only on their yes, call again with the same choices and confirmed: true, which applies that plan: turns on the Actions setting for pull requests, sets the repo\'s GitHub secrets, opens the pull request "Set up Demoman" from demoman/setup, and watches its run: {outcome: "opened", pr, check, secrets, setting, run, lines}. trigger: release, daily, push or {deployment: <environment>}; absent, the plan\'s default. route: pr or main. app: the .demoman/app.json you propose ({appVersion: 1, install, start, url, ...}), written to the working tree uncommitted; one already there that differs is never overwritten (appInvalid). watch: true watches the newest run on demoman/setup after you pushed a fix there; outcome gaveUp after three failed runs: hand back. A secret\'s value never passes through you: secretMissing or secretTooShort names the secrets and gives command for the person to run in their terminal. Past about 50 s {outcome: "stillRunning", id}, then call report. A refusal carries reason and detail.',
         inputSchema: {
           trigger: z
             .union([
@@ -980,10 +1038,22 @@ export function registerTools(
           project: z.string().min(1).optional(),
         },
       },
-      async (args, extra) =>
-        longCall("ci", {}, extra as unknown as Extra, (p) =>
-          settled(repo.ci(args, p)),
-        ),
+      async (args, extra) => {
+        let asking: Promise<CiApproval> | null = null;
+        const approve = (message: string): Promise<CiApproval> => {
+          asking = askPerson(message, extra.requestId).finally(() => {
+            asking = null;
+          });
+          return asking;
+        };
+        return longCall(
+          "ci",
+          {},
+          extra as unknown as Extra,
+          (p) => settled(repo.ci(args, p, approve)),
+          () => asking,
+        );
+      },
     );
   }
 

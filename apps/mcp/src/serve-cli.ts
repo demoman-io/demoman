@@ -14,6 +14,7 @@ import { INSTRUCTIONS_CLI } from "./instructions.js";
 import { type ExecutorLike, localLink } from "./local-link.js";
 import { createSessionLinks } from "./session-links.js";
 import {
+  type CiApproval,
   type RepoDoors,
   registerTools,
   type StudioToolAnswer,
@@ -21,7 +22,7 @@ import {
 import type { UpdateAnswer } from "./update-check.js";
 
 export { browserFlagRefusal, RETIRED_EXTENSION } from "./browser-flag.js";
-export type { RepoDoors };
+export type { CiApproval, RepoDoors };
 export { demomanHome };
 
 /**

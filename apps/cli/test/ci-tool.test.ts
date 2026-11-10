@@ -14,7 +14,12 @@ import { describe, expect, it } from "vitest";
 import type { GithubFacts } from "../src/ci-github.js";
 import { envFileValues, type NeededSecret } from "../src/ci-secrets.js";
 import type { CiDeps } from "../src/ci-setup.js";
-import { CI_COMMAND, type CiToolArgs, createCiTool } from "../src/ci-tool.js";
+import {
+  CI_COMMAND,
+  type CiApproval,
+  type CiToolArgs,
+  createCiTool,
+} from "../src/ci-tool.js";
 import type { Watched } from "../src/ci-watch.js";
 
 /** Fed through every fake below; no answer or progress line may carry it. */
@@ -87,11 +92,15 @@ function tool(
     openSetupPr?: CiDeps["openSetupPr"];
     lsRemote?: { code: number; stdout: string; stderr: string };
     now?: () => number;
+    /** The person's answer to the check's question; yes unless said. */
+    approve?: (message: string) => Promise<CiApproval>;
+    deployments?: GithubFacts["deployments"];
   } = {},
 ) {
   const root = o.root ?? repoDir();
   const calls: string[] = [];
   const said: string[] = [];
+  const asked: string[] = [];
   const seen: {
     pr?: Parameters<CiDeps["openSetupPr"]>[0];
     watch?: Parameters<CiDeps["watchSetupRun"]>[0];
@@ -101,7 +110,7 @@ function tool(
     defaultBranch: "trunk",
     canPush: true,
     isAdmin: true,
-    deployments: [],
+    deployments: o.deployments ?? [],
     hasReleases: false,
     workflowOnDefault: false,
     setupBranch: null,
@@ -186,8 +195,16 @@ function tool(
       },
     }),
   });
-  const call = (a: CiToolArgs) => ci(a, (l) => void said.push(l));
-  return { call, calls, said, seen, root };
+  const call = (a: CiToolArgs) =>
+    ci(
+      a,
+      (l) => void said.push(l),
+      async (message) => {
+        asked.push(message);
+        return o.approve ? o.approve(message) : { approved: true };
+      },
+    );
+  return { call, calls, said, seen, root, asked };
 }
 const outward = [
   "allowActionPullRequests",
@@ -514,5 +531,84 @@ describe("the ci tool", () => {
     expect(a).toMatchObject({ reason: "invalidArgs" });
     expect(String(a.detail)).toContain("NOPE");
     expect(t.calls).toEqual([]);
+  });
+
+  // DEM-110: the check runs app.install and app.start through sh -c, and
+  // the agent wrote them. Only the person's yes may start them.
+  describe("asks the person before the check starts the app", () => {
+    const evil = {
+      appVersion: 1,
+      install: ["touch marker; exit 1"],
+      start: "npm start",
+      url: "http://127.0.0.1:3999/",
+    };
+
+    // Red when the check runs before or without the person's answer.
+    it("answers the commands, and runs none, where the person cannot be asked", async () => {
+      const t = tool({
+        root: repoDir({ appJson: false }),
+        approve: async () => ({ unsupported: true }),
+      });
+      const a = await t.call({ trigger: "daily", app: evil });
+      expect(t.asked).toHaveLength(1);
+      expect(a).toMatchObject({
+        reason: "checkNeedsPerson",
+        command: CI_COMMAND,
+      });
+      expect(a.commands).toEqual(
+        expect.arrayContaining(["touch marker; exit 1", "npm start"]),
+      );
+      expect(a).not.toHaveProperty("tail");
+      expect(t.calls).toEqual([]);
+      // Nothing to confirm: no plan was shown.
+      const b = await t.call({ trigger: "daily", app: evil, confirmed: true });
+      expect(b.reason).toBe("checkNeedsPerson");
+      expect(t.calls).toEqual([]);
+    });
+
+    it("runs nothing when the person declines, and says so", async () => {
+      const t = tool({
+        approve: async () => ({ approved: false, why: "the person declined" }),
+      });
+      const a = await t.call({ trigger: "daily" });
+      expect(a).toMatchObject({ reason: "checkDeclined" });
+      expect(String(a.detail)).toContain("the person declined");
+      expect(String(a.detail)).toContain("nothing was run");
+      expect(t.calls).toEqual([]);
+    });
+
+    // The committed app.json is asked about too: whoever wrote it, the
+    // agent triggers its commands here.
+    it("shows the person each command verbatim, then checks on their yes", async () => {
+      const t = tool();
+      const a = await t.call({ trigger: "daily" });
+      expect(a.outcome).toBe("plan");
+      expect(t.calls).toEqual(["verifySetup"]);
+      expect(t.asked).toHaveLength(1);
+      expect(t.asked[0]).toContain("npm ci");
+      expect(t.asked[0]).toContain("npm start");
+      expect(t.asked[0]).toContain("http://127.0.0.1:3999/");
+    });
+
+    // Positive control: a deployment's check records the deployed URL and
+    // starts nothing, so nothing is asked.
+    it("asks nothing for a deployment trigger, whose check starts no app", async () => {
+      const t = tool({
+        root: repoDir({ appJson: false }),
+        approve: async () => ({ unsupported: true }),
+        deployments: [
+          {
+            environment: "Production",
+            url: "https://app.example.com/",
+            sha: "abc",
+            production: true,
+          },
+        ],
+      });
+      const a = await t.call({ trigger: { deployment: "Production" } });
+      expect(a.outcome, JSON.stringify(a)).toBe("plan");
+      expect(t.asked).toEqual([]);
+      expect(t.calls).toEqual(["verifySetup"]);
+    });
   });
 });

@@ -10,6 +10,7 @@ import {
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   afterAll,
   afterEach,
@@ -2262,5 +2263,108 @@ describe("the final still on a run or probe answer", () => {
       runPage: { still: { path: stillPath } },
     });
     expect(blocks(r).map((b) => b.type)).toEqual(["text"]);
+  });
+});
+
+// DEM-110: the ci check runs the app's commands, so the person approves them
+// through the client; the agent never answers for them.
+describe("the ci tool's question to the person", () => {
+  /** A client that can be asked (elicitation) or not, and the door's view. */
+  async function asking(o: {
+    elicit?: (
+      message: string,
+    ) => Promise<{ action: "accept" | "decline" | "cancel" }>;
+    capMs?: number;
+    door?: RepoDoors["ci"];
+  }) {
+    const server = new McpServer(
+      { name: "demoman", version: "0.1.0" },
+      { instructions: INSTRUCTIONS_CLI },
+    );
+    const got: unknown[] = [];
+    registerTools(
+      server,
+      {
+        connected: () => ({ browser: "TestBrowser 1" }),
+        request: async () => failure("noHandler", "none"),
+      },
+      {
+        recipe: "RECIPE",
+        version: "0.1.0",
+        capMs: o.capMs ?? 200,
+        repo: {
+          add: async () => ({}),
+          ci:
+            o.door ??
+            (async (_a, _p, approve) => {
+              const answer = await approve("Run npm ci, then npm start?");
+              got.push(answer);
+              return { outcome: "plan" };
+            }),
+        },
+      },
+    );
+    const client = new Client(
+      { name: "test", version: "1.0.0" },
+      o.elicit === undefined ? {} : { capabilities: { elicitation: {} } },
+    );
+    const messages: string[] = [];
+    const elicit = o.elicit;
+    if (elicit !== undefined)
+      client.setRequestHandler(ElicitRequestSchema, async (req) => {
+        messages.push(req.params.message);
+        return elicit(req.params.message);
+      });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await server.connect(a);
+    await client.connect(b);
+    return { client, got, messages };
+  }
+
+  // Red if the tool answers for the person, or asks a client that cannot.
+  it("answers unsupported where the client cannot ask", async () => {
+    const t = await asking({});
+    await t.client.callTool({ name: "ci", arguments: {} });
+    expect(t.got).toEqual([{ unsupported: true }]);
+    const ci = (await t.client.listTools()).tools.find((x) => x.name === "ci");
+    expect(ci?.description).toContain(
+      "approve the app commands its check runs",
+    );
+    expect(ci?.description).toContain("checkNeedsPerson");
+  });
+
+  it("puts the door's message to the person and passes on their answer", async () => {
+    const yes = await asking({ elicit: async () => ({ action: "accept" }) });
+    await yes.client.callTool({ name: "ci", arguments: {} });
+    expect(yes.messages).toEqual(["Run npm ci, then npm start?"]);
+    expect(yes.got).toEqual([{ approved: true }]);
+    const no = await asking({ elicit: async () => ({ action: "decline" }) });
+    await no.client.callTool({ name: "ci", arguments: {} });
+    expect(no.got).toEqual([{ approved: false, why: "the person declined" }]);
+  });
+
+  // Red if the 50 s answer counts the person's reading time: the call
+  // would answer stillRunning, and the question would outlive its request.
+  it("does not answer stillRunning while the person is still reading", async () => {
+    const t = await asking({
+      capMs: 100,
+      elicit: () =>
+        new Promise((r) => setTimeout(() => r({ action: "accept" }), 400)),
+    });
+    const r = await t.client.callTool({ name: "ci", arguments: {} });
+    // Premise: the person took longer than the cap.
+    expect(t.got).toEqual([{ approved: true }]);
+    expect(textOf(r)).toMatchObject({ outcome: "plan" });
+  });
+
+  // Positive control: past the cap with no question open, it still answers.
+  it("answers stillRunning for a slow call that asks nothing", async () => {
+    const t = await asking({
+      capMs: 100,
+      door: () =>
+        new Promise((r) => setTimeout(() => r({ outcome: "plan" }), 400)),
+    });
+    const r = await t.client.callTool({ name: "ci", arguments: {} });
+    expect(textOf(r)).toMatchObject({ outcome: "stillRunning" });
   });
 });

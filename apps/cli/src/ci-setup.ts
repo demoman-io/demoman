@@ -259,6 +259,8 @@ export type CiStop = {
   proposal?: AppProposal;
   /** `secretMissing`: each missing name and why it is needed. */
   secrets?: NeededSecret[];
+  /** `checkNeedsPerson`, `checkDeclined`: what the check would have run. */
+  commands?: string[];
 };
 
 /** Every injected function, with `gh` (and `git` where they take it) bound
@@ -271,6 +273,10 @@ export type CiDeps = {
   log(line: string): void;
   /** Stops the check (R3). */
   signal?: AbortSignal;
+  /** Asked before the check starts the app, with what it runs: null goes
+   *  on. The ci tool's, whose caller is an agent (DEM-110); the terminal
+   *  and the Studio, which a person started, pass none. */
+  approveCheck?(app: AppSpec): Promise<CiStop | null>;
   /** `environment`: the deployment trigger asked for, if one was. */
   readGithub(
     root: string,
@@ -838,6 +844,11 @@ async function makePlan(
   const texts = await fileTexts(root, files, workflow, app, gitignore);
   if ("failed" in texts) return stop("filesUnreadable", texts.failed);
 
+  // A deployment's check records the deployed app and starts nothing.
+  if (deployment === null && app !== null && deps.approveCheck) {
+    const refused = await deps.approveCheck(app.spec);
+    if (refused !== null) return refused;
+  }
   // The check (Decision 1, R3): said before it runs, and stoppable.
   deps.log(
     deployment !== null
@@ -913,6 +924,9 @@ function originOf(target: unknown): string | null {
     return null;
   }
 }
+
+/** The shell commands the check runs, verbatim, in order. */
+export const checkCommands = (a: AppSpec): string[] => [...a.install, a.start];
 
 function checkWords(a: AppSpec): string {
   const services = Object.keys(a.services);

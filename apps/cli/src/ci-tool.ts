@@ -7,6 +7,7 @@
 // and stop is redacted over them.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { CiApproval } from "@demoman/mcp/serve-cli";
 import {
   APP_FILE,
   type AppSpec,
@@ -22,6 +23,7 @@ import {
   type CiDeps,
   type CiPlan,
   type CiStop,
+  checkCommands,
   planCiSetup,
   planLines,
   redact,
@@ -31,6 +33,8 @@ import { watchedLines } from "./ci-workflow.js";
 
 /** What the person runs to give a value the agent must never see. */
 export const CI_COMMAND = "npx demoman setup --ci";
+
+export type { CiApproval };
 
 export type CiToolArgs = {
   trigger?: CiChoices["trigger"];
@@ -75,7 +79,12 @@ export function createCiTool(io: {
     progress: (line: string) => void,
   ): Omit<CiDeps, "log" | "signal">;
   now?: () => number;
-}): (a: CiToolArgs, progress: (line: string) => void) => Promise<Answer> {
+}): (
+  a: CiToolArgs,
+  progress: (line: string) => void,
+  /** Asks the person, never the agent (DEM-110). */
+  approve: (message: string) => Promise<CiApproval>,
+) => Promise<Answer> {
   const now = io.now ?? Date.now;
   /** The plan each repo was last shown, when, and the values it read. */
   const shown = new Map<
@@ -83,7 +92,7 @@ export function createCiTool(io: {
     { key: string; plan: CiPlan; values: SecretValues; at: number }
   >();
 
-  return async (a, progress) => {
+  return async (a, progress, approve) => {
     // Rebound to a shown plan's own values before it is applied.
     let values: SecretValues = new Map();
     const say = (l: string) => progress(redact(l, values));
@@ -96,7 +105,11 @@ export function createCiTool(io: {
           detail: `${where.none}; pass project, the absolute path of the repo to set up`,
         };
       const { root } = where;
-      const deps: CiDeps = { ...io.deps(root, say), log: say };
+      const deps: CiDeps = {
+        ...io.deps(root, say),
+        log: say,
+        approveCheck: (app) => askToCheck(app, approve),
+      };
       if (a.watch === true) {
         const others = NOT_WITH_WATCH.filter((k) => a[k] !== undefined);
         if (others.length > 0)
@@ -204,6 +217,42 @@ export function createCiTool(io: {
   };
 }
 
+/** The check runs the app's commands through sh -c, and the agent may have
+ *  written them: only the person's yes starts them (DEM-110). */
+async function askToCheck(
+  app: AppSpec,
+  approve: (message: string) => Promise<CiApproval>,
+): Promise<CiStop | null> {
+  const commands = checkCommands(app);
+  const services = Object.values(app.services).map((s) => s.image);
+  const got = await approve(
+    [
+      "Demoman's CI setup will check the refresh from a clean checkout of this repo. It runs these commands on this machine, as you, with the setup's secrets in their environment:",
+      "",
+      ...commands.map((c) => `  ${c}`),
+      "",
+      ...(services.length > 0
+        ? [`and starts these Docker images: ${services.join(", ")}`]
+        : []),
+      `then records against ${app.url}. Run them?`,
+    ].join("\n"),
+  );
+  if ("unsupported" in got)
+    return {
+      reason: "checkNeedsPerson",
+      detail:
+        "the check runs the app's commands on this machine, and this client cannot ask the person to approve them; nothing was run",
+      commands,
+    };
+  if (!got.approved)
+    return {
+      reason: "checkDeclined",
+      detail: `${got.why} to run the app's commands for the check; nothing was run`,
+      commands,
+    };
+  return null;
+}
+
 /** `watch: true`: the newest run on the setup branch, after the agent
  *  pushed a fix there. */
 async function watch(
@@ -264,7 +313,10 @@ export function runOf(w: Watched | null, values: SecretValues): Watched {
  *  cannot give is the person's to give in their terminal. */
 function stopped(s: CiStop, values: SecretValues): Answer {
   const h = (t: string) => redact(t, values);
-  const person = s.reason === "secretMissing" || s.reason === "secretTooShort";
+  const person =
+    s.reason === "secretMissing" ||
+    s.reason === "secretTooShort" ||
+    s.reason === "checkNeedsPerson";
   return {
     reason: s.reason,
     detail: h(s.detail),
@@ -274,10 +326,14 @@ function stopped(s: CiStop, values: SecretValues): Answer {
     ...(s.secrets === undefined
       ? {}
       : { secrets: s.secrets.map(({ name, why }) => ({ name, why })) }),
+    ...(s.commands === undefined ? {} : { commands: s.commands }),
     ...(person
       ? {
           command: CI_COMMAND,
-          next: "A secret's value never passes through you: ask the person to run command in their terminal, which reads the app.json here and asks for each value unseen",
+          next:
+            s.reason === "checkNeedsPerson"
+              ? "Only the person may start these commands: show them commands, and ask them to run command in their terminal, which checks, shows the plan and opens the pull request; then call ci({ watch: true })"
+              : "A secret's value never passes through you: ask the person to run command in their terminal, which reads the app.json here and asks for each value unseen",
         }
       : {}),
   };

@@ -213,7 +213,7 @@ to change and run again.
 
   | Hole `reason` | What to do |
   | --- | --- |
-  | `scrubbedTarget` | `step` is null: the hole is the start URL. Demoman strips query values and secret-looking path segments from a video; `recorded` shows `redacted` there. Set `target` to the real start URL - ask the user if unsure. |
+  | `scrubbedTarget` | `step` is null: the hole is the start URL. `recorded` shows `redacted` where Demoman stripped a query value or secret-looking path segment. Set `target` to the real start URL - ask the user if unsure. |
   | `redacted` | Add `"text"` with a **demo** value, never a real credential. |
   | `unnameable`, `ambiguousAtCapture`, `brokenAtCapture` | Add the target, copied from a `snapshot` of that page. |
   | `buttonNotScriptable` | Delete `"button"` only if a left click is acceptable - it is a different action. Otherwise tell the user the step cannot be scripted. |
@@ -487,6 +487,7 @@ Studio exports go to `~/Downloads`.
 | `sessionNotLoaded` | `snapshot`, `run`¹ | The browser refused the saved sessions; `detail` says why. Tell the user to run `npx demoman signin` again there. |
 | `signInFailed` | `snapshot`, `run`¹ | Signed in as the account, the page still showed a sign-in page, or a step could not run; `detail` says where. It tried once. Fix the account's steps or secret, or tell the user; do not rerun unchanged. |
 | `secretMissing` | `snapshot`, `run`¹, `ci` | No `DEMOMAN_SECRET_NAME` for a `{secret:NAME}` in the environment (unused through `project`) or `.demoman/secrets.env`; `detail` names both. Write one (section 1) or ask the user; `ci`: give the person `command`. |
+| `checkNeedsPerson`, `checkDeclined` | `ci` | Only the person may approve the check's `commands`; nothing ran. Give them `command`. |
 | `secretTooShort` | `snapshot`, `run`¹, `ci` | The secret `NAME` is under 8 characters. Write a longer one; `ci`: give the person `command`. |
 | `secretUnbound` | `snapshot`, `run`¹ | `DEMOMAN_SECRET_NAME` has no `DEMOMAN_SECRET_NAME_ORIGIN` beside it, or one that is no origin; `detail` names the line and site. Nothing typed. Add it to `secrets.env` for an account you made; else tell the user. |
 | `secretOffOrigin` | `snapshot`, `run`¹ | A secret was about to be typed off its site: a sign-in step's page is not the site's origin, or the `_ORIGIN` names another site; `detail` names both. Nothing typed. Check the account's site and `goto`, then tell the user. |
@@ -495,7 +496,7 @@ Studio exports go to `~/Downloads`.
 | `accountsInvalid` | `snapshot`, `run`¹ | `.demoman/accounts.json` is malformed or breaks a rule; `detail` names it. Fix the file. |
 | `unknownAccount` | `snapshot`, `run`¹ | The script names an account the site lacks, or none and the site has no `default`; `detail` lists the accounts. Name one, or add it (section 1). |
 | `invalidProject` | `snapshot`, `run`¹, `attach` | `project` is not an absolute path to a folder. Pass one, or leave it out. |
-| `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach`¹, `ci` | `gh` is missing, too old or signed out; not a GitHub remote; no such PR, or GitHub did not answer. Nothing posted; do as `detail` says. |
+| `ghMissing`, `ghOutdated`, `ghSignedOut`, `notGitHub`, `prNotFound`, `prUnreadable` | `attach`¹, `ci` | Nothing posted; do as `detail` says. |
 | `invalidAttach` | `attach`¹ | The call is malformed; `detail` says how. Fix it. |
 | `uploadRefused` | `attach`² | GitHub refused the video. Retry as the Pull requests text says. |
 | `partial` | `attach`² | `gh` failed but the video is on the PR; do not post again. |
@@ -515,7 +516,7 @@ Studio exports go to `~/Downloads`.
 | `unfilledHoles` | `run` | A derived draft still has holes (section 3); also a re-film of a video that did not keep a value. |
 | `flowRequired` | `run`¹ | No `flow` was given. Find one (section 4), or pass `{ new }`. |
 | `possibleDuplicate`, `nameTaken` | `run`¹ | A similar flow exists (`matches`) or the name is taken (`holder`). Section 4. |
-| `repoFlowNameTaken`, `duplicateFlow`, `repoFlowUnreadable` | `run`¹; the first two also `flows` with `file` | Repo flows: this library has another flow with that name (`detail` gives the `join-flow` command to tell the user); two files in `.demoman/flows` or the old folder before it name one flow (delete one); a file there will not read (`detail` names it and the fix). |
+| `repoFlowNameTaken`, `duplicateFlow`, `repoFlowUnreadable` | `run`¹; the first two also `flows` with `file` | Repo flows: this library has another flow with that name (tell the user `detail`'s `join-flow` command); two files in `.demoman/flows` or the old folder before it name one flow (delete one); a file there will not read (`detail` names it and the fix). |
 | `flowNotFound` | `run`¹ | No flow has that `id`; call `flows`. |
 | `wrongIdKind` | any | Wrong kind of id; see `detail`. |
 | `flowUnreadable`, `flowUnwritable` | `run`¹, `flows` | The flow records could not be read or written; quote `detail`. Nothing recorded. |
@@ -535,7 +536,7 @@ Studio exports go to `~/Downloads`.
 | `invalidQuality`, `invalidMaxMB` | `export`¹, `attach` | Through these tools, only `quality` or `maxMB` given for a GIF or stills; the schema rejects a bad value first. |
 | `noVideoId`, `noFrames` | `export`¹ | No video id; no frames to render. |
 | `videoNotFound`, `videoUnreadable` | `export`¹, `run` re-film ¹, `studio` (`videoNotFound`: call `flows`) | No such video; it could not be read (or, for `run`, built into a script). |
-| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run`² | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. A `detail` naming a closed shadow root: its targets can't be reached; pick one outside. |
+| `unresolvedAnchor`, `anchorNotRendered`, `waitTimeout` | `run`² | The target was not there in the 10 s a step waits, or a `waitFor`/`waitForLoad` timed out. Check it against a `snapshot` and the step before; `scrollTo` first in a long list. A `detail` naming a closed shadow root: pick a target outside it. |
 | `ambiguousAnchor` | `run`² | Several elements matched; name the target more exactly. |
 | `anchorFrameMismatch`, `anchorUnreachable`, `occlusionTimeout` | `run`² | `anchorFrameMismatch`: its frame changed; pick another target. The others are not the script (unmeasurable, or window covered): run again once. |
 | `pageWentElsewhere`, `unperformableStep` | `run`² | The app left the page unasked (sign-in expired, or a missing `waitForLoad`); or the step asks the impossible. |
@@ -553,7 +554,7 @@ Studio exports go to `~/Downloads`.
 ## 8. Repo flows and CI
 
 `add({ flow, to })` puts a flow in the repo; commit what it wrote. `ci`
-sets up CI for them, acting only on `confirmed: true` after the person
-agreed to the plan's `lines`. Never ask for a secret: give the person
-`command`. After pushing a fix to `demoman/setup`, `ci({ watch: true })`;
+sets up CI for them: the person approves the check's commands, then the
+plan's `lines` (`confirmed: true`). Never ask for a secret: give the
+person `command`. After pushing a fix to `demoman/setup`, `ci({ watch: true })`;
 at `gaveUp`, hand back.

@@ -537,7 +537,7 @@ function repoDoors(): RepoDoors {
       };
     },
     // Lines reach `logged` already redacted.
-    ci: (a, progress) => ci(a, logged(progress)),
+    ci: (a, progress, approve) => ci(a, logged(progress), approve),
   };
 }
 
