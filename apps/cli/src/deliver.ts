@@ -217,29 +217,59 @@ export async function deliver(
         ok: true,
         detail: `committed ${updated.length} video(s) on ${base}`,
       };
-    // A merge may have landed while the refresh recorded: rebase once, push once.
+    // A merge may have landed while the refresh recorded: commit again on the new tip, push once more.
+    // A detached HEAD has no branch to follow, so it keeps its own refusal.
+    if (base === "HEAD") return fail("git push", push);
     const fetched = await git(["fetch", "origin", base]);
     if (fetched.code !== 0)
       return {
         delivered: "nothing",
         ok: false,
-        detail: `git push failed: ${said(push)}; fetching origin/${base} to rebase onto it failed: ${said(fetched)}`,
+        detail: `git push failed: ${said(push)}; fetching origin/${base} to commit again on it failed: ${said(fetched)}`,
       };
-    const rebase = await git(["rebase", "--autostash", "FETCH_HEAD"]);
-    if (rebase.code !== 0) {
-      const abort = await git(["rebase", "--abort"]);
-      return {
-        delivered: "nothing",
-        ok: false,
-        detail: `the branch moved during the run and a commit on it changed the same files (${said(rebase)}); nothing was pushed${abort.code === 0 ? "" : `; git rebase --abort failed: ${said(abort)}`}`,
-      };
-    }
+    const parent = await git(["rev-parse", "HEAD~1"]);
+    const tip = await git(["rev-parse", "FETCH_HEAD"]);
+    if (parent.code !== 0) return fail("git rev-parse HEAD~1", parent);
+    if (tip.code !== 0) return fail("git rev-parse FETCH_HEAD", tip);
+    // The branch did not move, so the refusal is the remote's own: say it, do not retry.
+    if (parent.stdout.trim() === tip.stdout.trim())
+      return fail("git push", push);
+    const overlap = await git([
+      "diff",
+      "--name-only",
+      "HEAD~1",
+      "FETCH_HEAD",
+      "--",
+      ...paths,
+    ]);
+    if (overlap.code !== 0)
+      return fail("git diff of the moved branch", overlap);
+    const changed = overlap.stdout.split("\n").filter(Boolean);
+    // Mixed reset: the index follows the new tip, the working tree (our files, a person's edits) stays.
+    const reset = await git(["reset", "-q", "FETCH_HEAD"]);
+    if (reset.code !== 0) return fail("git reset to the moved branch", reset);
+    const add2 = await git(["add", "--", ...paths]);
+    if (add2.code !== 0) return fail("git add on the moved branch", add2);
+    const commit2 = await git([
+      ...BOT,
+      "commit",
+      "-m",
+      COMMIT_SUBJECT,
+      "-m",
+      `${bodyText}\n\n[skip demoman]`,
+      "--only",
+      "--",
+      ...paths,
+    ]);
+    if (commit2.code !== 0)
+      return fail("git commit on the moved branch", commit2);
     const again = await git(["push", "origin", "HEAD"]);
-    if (again.code !== 0) return fail("git push after rebasing", again);
+    if (again.code !== 0)
+      return fail("git push after committing again on the moved branch", again);
     return {
       delivered: "main",
       ok: true,
-      detail: `committed ${updated.length} video(s) on ${base}, rebased onto a commit that landed during the run`,
+      detail: `committed ${updated.length} video(s) on ${base}, on top of a commit that landed during the run${changed.length === 0 ? "" : `; replaced ${changed.join(", ")} that a commit during the run had also changed`}`,
     };
   }
 

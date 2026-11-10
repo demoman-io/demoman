@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import {
-  existsSync,
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -333,32 +333,70 @@ describe("deliver", () => {
     git(other, "push", "-q", "origin", "main");
   };
 
-  it("main: a branch that moved during the run still delivers, rebased onto it", async () => {
+  it("main: a branch that moved during the run still delivers, committed again on top of it", async () => {
     moveMain("NOTES.md", "merged while recording\n", "a merge during the run");
     const a = await run("main", result());
     expect(a).toMatchObject({ delivered: "main", ok: true });
-    expect(a.detail).toMatch(
-      /rebased onto a commit that landed during the run/,
-    );
+    expect(a.detail).toMatch(/on top of a commit that landed during the run/);
     const subjects = git(remote, "log", "--format=%s", "main").split("\n");
     expect(subjects[0]).toMatch(/^Refresh demo videos/); // ours, on top
     expect(subjects[1]).toBe("a merge during the run"); // theirs, kept
   });
 
-  it("main: a moved branch that changed the same video stops with its reason, not mid-rebase", async () => {
+  it("a moved branch that changed the same video: ours is delivered on top and the overlap is said", async () => {
     moveMain(
       "docs/add-task.mp4",
       "someone else's video\n",
       "another refresh got there first",
     );
     const a = await run("main", result());
-    expect(a).toMatchObject({ delivered: "nothing", ok: false });
-    expect(a.detail).toMatch(/changed the same files/);
-    expect(existsSync(join(repo, ".git/rebase-merge"))).toBe(false);
-    expect(existsSync(join(repo, ".git/rebase-apply"))).toBe(false);
+    expect(a).toMatchObject({ delivered: "main", ok: true });
+    expect(a.detail).toMatch(
+      /replaced .*docs\/add-task\.mp4.* a commit during the run had also changed/,
+    );
+    expect(git(remote, "show", "main:docs/add-task.mp4")).toBe("new");
+    expect(git(remote, "log", "--format=%s", "main")).toContain(
+      "another refresh got there first",
+    );
   });
 
-  it("main: an uncommitted leftover does not stop the rebase", async () => {
+  it("a push refused while the branch did not move keeps its own reason and does not retry", async () => {
+    const hook = join(remote, "hooks/pre-receive");
+    const counter = join(dir, "pushes.log");
+    writeFileSync(
+      hook,
+      `#!/bin/sh\necho x >> '${counter}'\necho 'protected branch' >&2\nexit 1\n`,
+    );
+    chmodSync(hook, 0o755);
+    const a = await run("main", result());
+    expect(a).toMatchObject({ delivered: "nothing", ok: false });
+    expect(a.detail).toMatch(/protected branch/);
+    expect(a.detail).not.toMatch(/landed|again/);
+    expect(
+      readFileSync(counter, "utf8").split("\n").filter(Boolean),
+    ).toHaveLength(1);
+  });
+
+  it("a detached HEAD gets no retry", async () => {
+    git(repo, "checkout", "-q", "--detach");
+    // A dead remote makes the push fail; a retry would have to fetch, and this one must not.
+    git(repo, "remote", "set-url", "origin", join(dir, "nowhere.git"));
+    const a = await run("main", result());
+    expect(a).toMatchObject({ delivered: "nothing", ok: false });
+    expect(a.detail).toMatch(/push/);
+    expect(a.detail).not.toMatch(/fetch/);
+  });
+
+  it("the commit on the moved branch is made by the bot even with no git identity configured", async () => {
+    moveMain("NOTES.md", "merged while recording\n", "a merge during the run");
+    const a = await run("main", result());
+    expect(a.ok).toBe(true);
+    expect(git(remote, "log", "-1", "--format=%an %ae %cn %ce", "main")).toBe(
+      "github-actions[bot] 41898282+github-actions[bot]@users.noreply.github.com github-actions[bot] 41898282+github-actions[bot]@users.noreply.github.com",
+    );
+  });
+
+  it("main: an uncommitted leftover survives committing again", async () => {
     // The fixture tracks only the video, so track a README first.
     writeFileSync(join(repo, "README.md"), "committed\n");
     git(repo, "add", "README.md");
