@@ -343,13 +343,6 @@ export function mergeStates(files: readonly SessionFile[]): StorageState {
 }
 
 /**
- * `state` less every IndexedDB database the browser would refuse, named in
- * `dropped`. Playwright 1.62.1 saves a record keyed `0` or `""` with no key
- * (`if (trivial) record.key = …`), and an out-of-line store cannot add it
- * back, which fails the whole state: on 2026-10-21 Actual Budget's file
- * blocks, keyed from -1, refused every localhost session.
- */
-/**
  * What a run writes back to `saved`: the site's cookies, and storage only for
  * the origins `saved` already holds. Every localhost port is one site, so on
  * 2026-10-21 a run of Actual Budget on 3001 saved its budget into the session
@@ -375,6 +368,13 @@ type SavedDatabase = {
   }[];
 };
 
+/**
+ * `state` less every IndexedDB database the browser would refuse, named in
+ * `dropped`. Playwright 1.62.1 saves a record keyed `0` or `""` with no key
+ * (`if (trivial) record.key = …`), and an out-of-line store cannot add it
+ * back, which fails the whole state: on 2026-10-21 Actual Budget's file
+ * blocks, keyed from -1, refused every localhost session.
+ */
 export function restorable(state: StorageState): {
   state: StorageState;
   dropped: string[];

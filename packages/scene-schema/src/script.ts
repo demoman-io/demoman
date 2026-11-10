@@ -541,9 +541,10 @@ const DemoScriptShape = z.object({
       branding: ScriptBrandingSchema.optional(),
       /**
        * One of the author's brand kits, by the name Settings shows (case and
-       * surrounding space ignored). Resolved by the extension at the run's
-       * door; a name that is not there is refused (`unknownKit`), never
-       * replaced by the default kit (spec 2026-10-08 §3).
+       * surrounding space ignored). Resolved by the runner at the run's
+       * door (`lookForRun`, in `@demoman/run-core`); a name that is not
+       * there is refused (`unknownKit`), never replaced by the default kit
+       * (spec 2026-10-08 §3).
        */
       kit: z.string().trim().min(1).optional(),
       cursor: CursorSchema.optional(),

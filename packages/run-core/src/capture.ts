@@ -48,8 +48,8 @@ export interface CaptureForIntentResult {
   /**
    * Whether the element found is a credential field, by the rule the caller
    * passed (`options.credential`). Absent when no rule was passed (the
-   * extension's sensor, unchanged); null when the rule threw, which the
-   * caller treats as a credential and says so.
+   * runner always passes one); null when the rule threw, which the caller
+   * treats as a credential and says so.
    */
   credentialField?: boolean | null;
 }

@@ -30,8 +30,7 @@ export interface ParkedSpan {
  * A `FrameEncoder` with no WebCodecs under it — there is no node encoder
  * (design §3, "There is no node encoder"). `createMp4Sink` is mediabunny,
  * whose encode path is WebCodecs `VideoEncoder`, and node has none. So this
- * encoder does what the extension's capture already does when it faces the
- * same shape: it PARKS each pushed frame to the filesystem store rather than
+ * encoder PARKS each pushed frame to the filesystem store rather than
  * encoding it, and hands back the span's ref. A later browser-side pass
  * (Task 11's mux) reads the parked frames back and turns them into a real
  * mp4 span before the render reads it.
@@ -77,8 +76,7 @@ export function createParkingEncoder(
     // forgives the rejection the way a take needs (one frame, not the
     // span), counts it (`droppedMotionFrames`, `encodeRefusedFrames`) and
     // reports it once per span, with the reason, as an `encodeRefused`
-    // degradation on the bundle the pipeline prints. The extension's
-    // WebCodecs encoder honours the same contract. A catch here (review
+    // degradation on the bundle the pipeline prints. A catch here (review
     // of the runner audit, finding 6) hid that path and rebuilt a noisier
     // copy of it one layer up. The counters below advance only after the
     // park lands, so `frames` stays the number the mux will find on disk

@@ -5,11 +5,8 @@ import type { FrameImage } from "@demoman/compositor";
  * motion span (`span:`) as its raw container bytes, which the compositor
  * demuxes itself; every other ref (a `kf:` keyframe) decoded to an image.
  *
- * One rule for both sides of `#platform`: the extension's
- * `createMessagingBundleSource` reads the bytes from IndexedDB, the studio's
- * `http.ts` from `GET /api/takes/:id/frames/:ref`, and both hand them here.
- * Its own module so the studio's bundle can take it without the IndexedDB
- * frame store `bundle-source.ts` defaults to.
+ * The studio's `http.ts` reads the bytes from
+ * `GET /api/takes/:id/frames/:ref` and hands them here.
  */
 export async function decodeFrame(
   ref: string,

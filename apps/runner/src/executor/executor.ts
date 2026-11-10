@@ -140,8 +140,8 @@ export function createJobTable(kept: number = JOBS_KEPT) {
 }
 
 /**
- * The CLI executor: the seven ops the extension answers, answered here, with
- * the same values and refusal reasons (spec 2026-10-12 §3). One slot, as the
+ * The CLI executor: answers all nine of agent-bridge's `OPS` (status,
+ * snapshot, probe, run, report, videos, derive, export, attach). One slot, as the
  * run page has one: a run, a snapshot or an export holds it. `report` answers
  * from the in-memory job table only — a report.json that failed to write is
  * log-only, so reading it back would answer differently from what the run

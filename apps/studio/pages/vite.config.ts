@@ -12,10 +12,9 @@ import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 
 /**
- * The studio's pages (spec 2026-10-15 §3, §5): the editor, the library and the Settings page (Brand kit only),
- * built a second time with `#platform` on `src/platform/http.ts` — the
- * studio's loopback HTTP API — instead of the extension's `chrome.ts`.
- * Picked here, at build time; nothing in the pages picks a side at run time.
+ * The studio's pages (spec 2026-10-15 §3, §5): the editor, the library and
+ * the Settings page, built with `#platform` on `src/platform/http.ts` — the
+ * studio's loopback HTTP API.
  *
  * Writes `apps/studio/.output/pages/` (or `STUDIO_OUT_DIR`, for the bundle
  * test):
@@ -28,9 +27,8 @@ import { defineConfig, type Plugin } from "vite";
  * Moved here from `apps/extension/vite.studio.config.ts` on 2026-10-20,
  * when the extension was archived (tag `archive/extension`).
  *
- * `@demoman/*` resolve as the wxt build resolves them: through each
- * package's `exports` and its built `dist`, so `pnpm -r build` builds the
- * packages first.
+ * `@demoman/*` resolve through each package's `exports` and its built
+ * `dist`, so `pnpm -r build` builds the packages first.
  */
 
 const app = dirname(fileURLToPath(import.meta.url));
@@ -181,7 +179,7 @@ function studioMarker(): Plugin {
 
 /** The studio's prelude (`src/platform/studio-prelude.ts`), imported ahead
  *  of everything else in each page's entry, so it runs before any module
- *  the page imports. The extension's build never sees it. */
+ *  the page imports. */
 function studioPrelude(): Plugin {
   const prelude = resolve(app, "src", "platform", "studio-prelude.ts");
   const entries = new Set(

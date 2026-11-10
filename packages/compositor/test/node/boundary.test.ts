@@ -14,8 +14,8 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe("package boundary", () => {
-  // The compositor runs in the extension's offscreen document today and in
-  // the desktop app later. An extension API call would break the second.
+  // The compositor runs in any browser page: the runner's render page and
+  // the Studio's editor. An extension API call would tie it to one host.
   it("never reaches for an extension or CDP API", () => {
     const files = sourceFiles(SRC);
     // A green run must mean the boundary held, not that the walk found

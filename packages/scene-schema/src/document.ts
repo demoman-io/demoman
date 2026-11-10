@@ -496,10 +496,11 @@ const UrlTraceEntry = z.object({
 /**
  * What capture writes in place of a URL value it will not put on disk — every
  * query value, and any path segment the secret scrub would touch
- * (`scrubUrl` in the extension). `meta.capture.originUrl` is stored scrubbed,
- * so a URL carrying this was not the URL the author visited. Here rather than
- * in the extension so that capture and `scriptFromTake`, which has to tell a
- * scrubbed origin from a real one, read one value.
+ * (`scrubUrl`, `packages/run-core/src/url.ts`). `meta.capture.originUrl` is
+ * stored scrubbed, so a URL carrying this was not the URL the author visited.
+ * Here rather than in `@demoman/run-core` so that capture and
+ * `scriptFromTake`, which has to tell a scrubbed origin from a real one, read
+ * one value.
  */
 export const URL_SCRUB_PLACEHOLDER = "redacted";
 
@@ -571,14 +572,14 @@ const Meta = z.object({
    * unchanged, but its MEANING narrows: this now records which frames PLAY,
    * not which the author chose. The editor writes it nowhere — since
    * 2026-09-28 every write the editor makes carries the store's current
-   * value (`persist()` in `apps/extension/src/editor/session.ts`). Two
-   * writers flip it, both outside the editor: the run page's re-shoot
-   * promotion (`promote` in `apps/extension/src/adapters/reshoot.ts`) sets
-   * `demo` when a re-shoot finishes complete, and the library card's "Back
-   * to your recording" (`backToRecording` in
-   * `apps/extension/entrypoints/library/main.ts`) sets `screen`. Neither
-   * deletes anything to do it — the recording stays on disk under either
-   * mode (`chooseActiveBundle`'s own docblock) — so a re-shoot that turns
+   * value (`persist()` in `apps/studio/pages/src/editor/session.ts`). Two
+   * writers set it, both outside the editor: `assembleAuthored`
+   * (`@demoman/replay-engine`) writes `screen` on every new take, and the
+   * library card's "Back to your recording"
+   * (`apps/studio/pages/entrypoints/library/main.ts`) sets `screen`. Nothing writes `demo` today; it is
+   * read from takes the retired extension re-shot. Neither writer deletes
+   * anything — the recording stays on disk under either mode
+   * (`chooseActiveBundle`'s own docblock) — so a re-shoot that turns
    * out worse than the recording is always reversible by writing this field
    * back.
    */

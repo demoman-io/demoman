@@ -11,8 +11,9 @@ import {
  * What the browser context is created with — and deliberately **not** what
  * the engine emulates.
  *
- * This makes the same argument `apps/extension/test/helpers/cdp-playwright
- * .ts` makes for the browser-lane tests, restated for the runner: the
+ * This makes the same argument `packages/replay-engine/test/helpers
+ * /cdp-playwright.ts` makes for the browser-lane tests, restated for the
+ * runner: the
  * engine's own job is to call `Emulation.setDeviceMetricsOverride` at the
  * scene's viewport and `REPLAY_DPR`, and that call can only be proven to
  * matter if the numbers it sets disagree with whatever the numbers were
@@ -54,12 +55,10 @@ export interface CloseOutcome {
 /**
  * Adapts a Playwright CDP session to the engine's `CdpSession` port.
  *
- * Verbatim in shape to `apps/extension/test/helpers/cdp-playwright.ts`'s
- * `withReplayBrowser` — same three methods, same casts, same swallow on
- * `detach`. That file backs the engine's own browser-lane tests against a
- * Playwright session; this backs production. One adapter shape, two
- * transports (the other being `chrome.debugger` in the extension), so the
- * engine itself never needs to know which browser it is driving.
+ * Verbatim in shape to `packages/replay-engine/test/helpers
+ * /cdp-playwright.ts`'s `withReplayBrowser` — same three methods, same
+ * casts, same swallow on `detach`. That file backs the engine's own
+ * browser-lane tests against a Playwright session; this backs production.
  */
 function toCdpSession(session: CDPSession): CdpSession {
   return {
@@ -101,7 +100,7 @@ export async function openCdpSession(
 /**
  * Node's clock: no worker, no throttle-avoidance, just the real timers.
  *
- * `@demoman/replay-engine`'s `createWorkerClock` (in `apps/extension`) exists
+ * The retired extension's worker clock (`createWorkerClock`) existed
  * because Chrome throttles a *hidden tab's* main-thread timers to 1/s (and
  * to 1/min after five minutes), which turned a 240-700ms cursor segment
  * into 30-88s while the editor tab sat behind another window. This process

@@ -2,8 +2,8 @@
  * Phase two (b): the render phase. Composes the replayed (and now muxed)
  * bundle into a single mp4 and writes it to `--out`.
  *
- * **Mirrors `apps/extension/entrypoints/offscreen/main.ts`'s `framesFor` +
- * `renderOne`, not `packages/compositor/scripts/render-fixture.ts`.** Both
+ * **Renders through run-core's `framesFor` + `renderOutput`, not the way
+ * `packages/compositor/scripts/render-fixture.ts` does.** Both
  * are headless render harnesses and the resemblance is a trap —
  * `render-fixture.ts` serves a directory of numbered JPEGs because a
  * *harvest* is what it renders, and its own `render-entry.ts` comment says
@@ -157,8 +157,8 @@ async function readChunkInPage(
  * WebCodecs and OffscreenCanvas exist there and nowhere in node.
  *
  * `scene` is stamped with `COMPOSITOR_VERSION` here, once, before it ever
- * reaches the page — mirroring `offscreen/main.ts`'s `run()`, which does the
- * same before calling `renderOne`. There is no `replayEngineVersion` to
+ * reaches the page, so `render-entry.ts` never has to know the compositor's
+ * version. There is no `replayEngineVersion` to
  * stamp alongside it: design §9 re-defers that field, and adding one here
  * would be a schema bump this project did not plan.
  *

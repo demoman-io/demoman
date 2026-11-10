@@ -3,7 +3,8 @@ import type { FrameImage } from "@demoman/compositor";
 
 // In-page only (Image, OffscreenCanvas, createImageBitmap): its own subpath,
 // `@demoman/run-core/logo`, so a node consumer of the main entry never loads
-// it, and the extension's bundles do not pull the snapshot walk in with it.
+// it, and the Studio's pages and the runner's render page do not pull the
+// snapshot walk in with it.
 
 export interface LogoSource {
   contentType: string;

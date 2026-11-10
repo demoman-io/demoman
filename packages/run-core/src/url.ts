@@ -3,10 +3,10 @@ import { scrubSecrets } from "./secrets.js";
 /**
  * Must equal `@demoman/scene-schema`'s `URL_SCRUB_PLACEHOLDER`, which
  * `scriptFromTake` reads to tell a scrubbed origin from a real one. Not
- * imported from there: this module reaches the sensor content script, and a
- * value import from the schema package pulls zod in with it — measured
- * 2026-09-28, `sensor.js` 45 KB -> 122 KB, injected into every page. Held
- * equal by `url.test.ts` instead.
+ * imported from there: this module reaches the page code the runner injects
+ * into every page, and a value import from the schema package pulls zod in
+ * with it — measured 2026-09-28 on the extension's old `sensor.js`, 45 KB ->
+ * 122 KB. Kept equal by hand; no test compares the two.
  */
 const PLACEHOLDER = "redacted";
 

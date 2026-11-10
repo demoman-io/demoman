@@ -3,8 +3,8 @@
  * docblock for the transport this reuses from `packages/compositor/scripts
  * /render-fixture.ts`.
  *
- * **This mirrors `apps/extension/entrypoints/offscreen/main.ts`'s
- * `framesFor`, not `render-fixture.ts`'s own `render-entry.ts`.** Both are
+ * **Its frames come from run-core's `framesFor`, not from
+ * `render-fixture.ts`'s own `render-entry.ts`.** Both are
  * headless render harnesses and the resemblance is a trap:
  * `render-fixture.ts` serves a directory of numbered JPEGs because a
  * *harvest* is what it renders, and its own comment says a directory of
@@ -15,10 +15,8 @@
  * without it every motion span would have to render frozen.
  *
  * It renders MP4, GIF or stills through `renderOutput`
- * (`@demoman/run-core/render`), the function the extension's offscreen
- * document renders through too, at the target node decided (`targetFor`,
- * shared with the extension's export), with the take's logo. The point above
- * still holds, and `framesFor` is now literally the same function.
+ * (`@demoman/run-core/render`), at the target node decided (`targetFor`),
+ * with the take's logo.
  */
 import {
   type FrameBundle,
@@ -53,8 +51,8 @@ export interface RenderManifest {
    *  the compositor's own version number. */
   scene: SceneDocument;
   bundle: FrameBundle;
-  /** Decided in node by `targetFor`, the function the extension's export
-   *  resolves its target through — so the two doors cannot disagree about a
+  /** Decided in node by run-core's `targetFor`, the function every export
+   *  resolves its target through — so no two of them disagree about a
    *  9:16 or an Auto frame. */
   target: RenderTarget;
   /** Which output to make: one mp4, one gif, or a still per step. */
@@ -131,8 +129,7 @@ function bytesOf(base64: string): Uint8Array {
 
 /**
  * Fetches one blob off `render.ts`'s own http server and routes on the ref
- * prefix exactly as `apps/extension/src/adapters/bundle-source.ts`'s `load`
- * does: `span:` is encoded video for the demuxer, anything else becomes an
+ * prefix: `span:` is encoded video for the demuxer, anything else becomes an
  * `ImageBitmap`. Getting that backwards is a caller bug both frame sources
  * are written to name (`createVideoFrameSource` throws on a keyframe that
  * loads as bytes, `createImageFrameSource` on a span) — it should stay that

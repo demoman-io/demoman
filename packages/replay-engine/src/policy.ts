@@ -99,12 +99,12 @@ export type ReplayPolicy =
  * The two facts `replayPolicy` reads, and the only two it reads.
  *
  * Declared rather than taking a whole `SceneDocument` so that a door with no
- * document yet can state them without assembling one: an authored run
- * (`apps/extension/src/adapters/authored-runner.ts`) must pass the gate
- * *before* it has measured anything, and a stand-in document would be a
- * fabricated take — the one thing that design forbids. Every existing caller
- * hands over a real `SceneDocument`, which satisfies this structurally, so
- * nothing about the rule or its inputs changes.
+ * document yet can state them without assembling one: an authored run that
+ * gates must do so *before* it has measured anything, and a stand-in document
+ * would be a fabricated take — the one thing that design forbids. The CLI's
+ * authored run has no gate (see "No gate" in `apps/runner`'s `runScript`);
+ * today's one caller, the runner's `replay` command, hands over a real
+ * `SceneDocument`, which satisfies this structurally.
  */
 export interface ReplaySubject {
   /** `SceneDocument["flags"]["mutating"]`: whether this writes data. A run

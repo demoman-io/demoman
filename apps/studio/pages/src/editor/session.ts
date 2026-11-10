@@ -293,15 +293,14 @@ export function createSession(deps: SessionDeps) {
    * background-owned and monotonic. Do not generalise this to other flags.
    *
    * And `meta.renderMode`, on a third rule: the editor writes it nowhere.
-   * Its only writers are the run page's re-shoot promotion
-   * (`src/adapters/reshoot.ts`) and the library card's "Back to your
-   * recording", so every write carries the store's value, whatever this
-   * session loaded. Without that, one trim in a tab left open across a
-   * re-shoot quietly put the take back on `screen` (final review I1).
+   * Its only writer is the library card's "Back to your recording", so
+   * every write carries the store's value, whatever this session loaded.
+   * Without that, one trim in a tab left open across a re-shoot quietly
+   * put the take back on `screen` (final review I1).
    *
    * And `meta.name`, on a different rule: a name this session has not
    * changed since it last loaded or wrote one is not this session's to
-   * write, so a rename made on a Recordings card meanwhile survives the
+   * write, so a rename made on a library card meanwhile survives the
    * next edit here. A rename made here is newer intent and wins.
    *
    * Returns the document actually written, which can differ from `scene` by

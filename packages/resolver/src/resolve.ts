@@ -112,14 +112,15 @@ type Entry = { index: number; anchor: AnchorIntent };
 type DocEntry = Entry & { doc: Document };
 
 /**
- * For the badge, which re-resolves a whole scene at once. Anchors behind the
- * same cross-origin frame are grouped so that frame costs one broker round
- * trip, not one per anchor. Order of the returned reports matches `anchors`.
+ * Resolves a whole list of anchors at once (replay's `resolveForReplay`).
+ * Anchors behind the same cross-origin frame are grouped so that frame costs
+ * one broker round trip, not one per anchor. Order of the returned reports
+ * matches `anchors`.
  *
- * Keyed by array index, not anchor id: `SceneDocumentSchema` does not
- * require anchor ids to be unique, and keying by id would let two anchors
- * that happen to share one silently collapse onto a single, timing-dependent
- * report.
+ * Keyed by array index, not anchor id: `SceneDocumentSchema` refuses
+ * duplicate anchor ids, but this takes a bare `AnchorIntent[]` that nothing
+ * here checks, and keying by id would let two anchors that happen to share
+ * one silently collapse onto a single, timing-dependent report.
  */
 export async function resolveAll(
   anchors: AnchorIntent[],

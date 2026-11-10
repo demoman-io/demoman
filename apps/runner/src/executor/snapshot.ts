@@ -26,9 +26,9 @@ import type { SessionsLoaded } from "./session-loader.js";
 import type { SessionChoice } from "./sessions.js";
 
 /**
- * The `snapshot` op: the extension's `snapshotOnStage`, run on the CLI's own
- * page, plus the kits — the same value the run page answers. Refuses before
- * opening anything for a url or a device it cannot use, as the page does.
+ * The `snapshot` op: run-core's `snapshotOnStage`, run on the CLI's own
+ * page, plus the sign-in verdict and the kits. Refuses before opening
+ * anything for a url or a device it cannot use.
  */
 export async function snapshotOp(
   args: Record<string, unknown>,
@@ -62,7 +62,6 @@ export async function snapshotOp(
         typeof args.device === "string"
           ? args.device
           : JSON.stringify(args.device);
-      // The run page's sentence, verbatim (run/view.ts `api.snapshot`).
       return failure(
         "invalidDevice",
         `no device "${raw}" — use one of ${DEVICE_IDS.join(", ")}`,

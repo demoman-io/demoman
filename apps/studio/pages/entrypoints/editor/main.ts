@@ -448,13 +448,13 @@ function deliverable(
     bundle,
     frameOf({ ...scene, branding: liveBranding(scene) }),
     // The studio exports at this panel's quality, so the readout names that
-    // size. The extension has no such setting and passes nothing: Full-sized.
+    // size. A platform with no such setting passes nothing: Full-sized.
     quality === null ? {} : { quality },
   );
 }
 
 /** The studio's Export quality as last read, or null where the platform has
- *  none (the extension). Starts at the studio's default until the read
+ *  none. Starts at the studio's default until the read
  *  answers, which is what the studio exports at when the read fails too. */
 let exportQuality: ExportQualityChoice | null =
   platform.exportQuality === undefined ? null : DEFAULT_EXPORT_QUALITY;
@@ -3458,21 +3458,18 @@ $("redo").addEventListener(
   stepHistory(() => session.redo()),
 );
 
-/** A refusal's reason, in the author's terms — the same outcomes
- *  `demo:delete` can produce for the library page's own `REFUSAL_TEXT`
- *  (`entrypoints/library/main.ts`), and the two must be kept in step: a
- *  reason with no line here reaches the author as its raw identifier.
- *  Duplicated rather than imported: the two are separate entrypoints with
+/** A refusal's reason, in the author's terms. These four were the retired
+ *  extension's delete refusals; the studio refuses with its own reasons
+ *  (`takeBusy`, say), which have no line here and show their detail. Kept
+ *  in step with the library page's own `REFUSAL_TEXT`
+ *  (`entrypoints/library/main.ts`): a reason with no line and no detail
+ *  reaches the author as its raw identifier. Duplicated rather than imported: the two are separate entrypoints with
  *  no shared runtime module between them, and four string literals are
  *  cheaper than a new one. */
 const REFUSAL_TEXT: Record<string, string> = {
   recording: "a video is being recorded",
   rendering: "a render is running",
   sharing: "a share is in progress",
-  // A hold the background takes while a take is being replayed — since
-  // 2026-09-28 only by a re-shoot on the run page: `src/run/develop.ts` is
-  // the one sender of `replay:gate`, which takes it. An authored script run
-  // sends no `replay:gate` and takes no hold, and this editor takes none.
   replaying: "a video is being run in Runs",
 };
 

@@ -115,7 +115,7 @@ export async function serveCli(o: ServeCliOptions): Promise<void> {
   });
   await server.connect(new StdioServerTransport());
 
-  // Same form as the extension path's handler in index.ts: both events, once.
+  // The host closing stdin may fire `end`, `close` or both: handled once.
   let stdinClosed = false;
   const handleStdinClose = async () => {
     if (stdinClosed) return;

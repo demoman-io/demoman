@@ -7,7 +7,8 @@ import {
 } from "../../scripts/test-tier.mjs";
 
 /**
- * One lane, and — unlike `apps/extension`'s — it deliberately does NOT alias
+ * One lane, and — unlike `apps/studio`'s `pages-*` projects — it
+ * deliberately does NOT alias
  * `@demoman/*` to the packages' `src`.
  *
  * The runner esbuild-bundles `@demoman/replay-engine/page` through the
@@ -28,8 +29,8 @@ import {
  * `import()` for exactly the files this lane exists to check.
  *
  * The cost is real and is accepted: `pnpm -r test` does not build, so this
- * lane is meaningless on a stale tree. Run `pnpm test` (which is
- * `pnpm -r build && pnpm -r test`) or build first.
+ * lane is meaningless on a stale tree. Run `pnpm test` (which runs
+ * `pnpm -r build` before the packages' tests) or build first.
  *
  * Timeouts: this lane launches Chromium, replays a scene and composes video.
  * The 15s default is not survivable here, and the runner is ~5x slower than a

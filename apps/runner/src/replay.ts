@@ -36,12 +36,11 @@ export interface ReplayPhase {
  * against `about:blank`, failed to resolve its first anchor, and the CLI told
  * the author to re-record a step that was never broken.
  *
- * Fixed at the RUNNER's edge rather than in the shared engine: the extension
- * calls the same `createNavigatingGuard` and has its own attended,
- * tab-shaped story for a target that will not load — changing what
- * `install()` does with `errorText` would change that behaviour too, for a
- * consumer this project is not verifying. Wrapping the `CdpSession` port
- * here changes nothing for anyone else.
+ * Fixed at the RUNNER's edge rather than in the shared engine: when this was
+ * written the extension called the same `createNavigatingGuard` and had its
+ * own attended, tab-shaped story for a target that will not load, which
+ * changing what `install()` does with `errorText` would have changed too.
+ * Wrapping the `CdpSession` port here changed nothing for anyone else.
  *
  * Recorded rather than thrown, for the same reason: throwing from inside
  * `occlusion.install()` would unwind out of `runReplay` as an exception and
@@ -82,9 +81,8 @@ export function watchNavigation(cdp: CdpSession): {
  * hands back what the engine produced plus the parked motion spans that go
  * with it.
  *
- * Mirrors `apps/extension/src/adapters/replay-runner.ts`'s assembly
- * (roughly lines 851-966 there): a navigating occlusion guard, the real
- * `mayReplay` derivation, and the post-run tripwire that refuses to leave a
+ * Assembles a navigating occlusion guard, the real `mayReplay`
+ * derivation, and the post-run tripwire that refuses to leave a
  * blank-frame bundle where a later read would find it. See
  * `createNavigatingGuard`'s own docblock in
  * `packages/replay-engine/src/navigate.ts` for why the wrapper must never
@@ -157,8 +155,7 @@ export async function replayPhase(input: {
   if (!occlusion.navigated() && result.bundle !== null) {
     // The engine stores its bundle before returning, so a blank-frame
     // bundle is already on disk by now. It must not be left where a later
-    // `getBundle` would serve it. Swallowed like the extension's own
-    // `.catch(() => undefined)` here: `assertSceneWasLoaded` immediately
+    // `getBundle` would serve it. Swallowed: `assertSceneWasLoaded` immediately
     // below is about to throw regardless, and that throw — not this
     // best-effort cleanup — is what reports the failure.
     await store.deleteBundle(scene.meta.id).catch(() => undefined);

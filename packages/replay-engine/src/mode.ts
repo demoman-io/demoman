@@ -11,7 +11,7 @@ export type RenderMode = "screen" | "demo";
 /**
  * Which render this scene wants.
  *
- * `finalize` writes `"screen"` on every new take, so a document with no
+ * `assembleAuthored` writes `"screen"` on every new take, so a document with no
  * `renderMode` is one written before the field existed — and every one of
  * those was made under a regime where Stop always replayed. Absent therefore
  * reads as `"demo"`: a migration rule over a closed set of documents, not a

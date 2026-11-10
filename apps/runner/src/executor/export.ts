@@ -112,11 +112,10 @@ export type ScreensAnswer = {
 };
 
 /**
- * The CLI's `export`: the extension's `exportTake` (`adapters/agent-export.ts`)
- * with its ports swapped — the take library on disk for IndexedDB, a work page
- * of the CLI's own browser for the offscreen document, and a folder save for
- * chrome.downloads. Every decision that is not a port is the extension's own,
- * moved to run-core: the target (`targetFor`), the file name
+ * The CLI's `export`: reads the take from the library on disk, renders it in
+ * a work page of the CLI's own browser, and saves the file to a folder. Every
+ * decision that is not a port lives in run-core: the target (`targetFor`),
+ * the file name
  * (`exportFileName`/`exportBaseName` of the take's video name, else
  * `sceneLabel`), the report
  * (`reportForSave`) and the sentence (`withSummary`). It makes MP4, GIF or
@@ -532,7 +531,7 @@ async function exportLeased(a: {
   const times = stageTimes();
 
   const aspect = scene.canvas.aspect;
-  // The function the extension's offscreen renderer resolves its target through.
+  // run-core's `targetFor`, the function every export resolves its target through.
   const target = targetFor(asked, aspect, bundle, frameOf(scene), {
     maxTier: deps.maxTier,
     quality,
@@ -843,8 +842,8 @@ async function exportLeased(a: {
       ...(rendered.gifBudget === undefined
         ? {}
         : { gifSize: rendered.gifBudget }),
-      // The CLI's MP4 says what it was made at and how big it came out; the
-      // extension's export sets neither, so its summary stays as it was.
+      // An MP4 says what it was made at and how big it came out; a GIF or
+      // stills export sets neither, so its summary stays as it was.
       ...(asked === "mp4"
         ? {
             videoSize: {

@@ -78,12 +78,11 @@ import {
 /**
  * Why a capture round trip came back with no anchor.
  *
- * Structurally the extension's own `CaptureFailure`
- * (`apps/extension/src/adapters/resolve-bridge.ts`), declared again here
- * because this package cannot import from an app. The two are checked against
- * each other by the compiler where they meet: the adapter that wires
- * `askPageToCapture` into `captureResolved` below will not typecheck if they
- * drift.
+ * The page's own answer (`CaptureForIntentResult` in `@demoman/run-core`)
+ * can only say `FailureReasonName` or `"unresolved"`; the two page states
+ * below are the host's to report. The runner's `pageCapture`
+ * (`apps/runner/src/executor/page-ops.ts`) is that host, and returns
+ * `IntentCapture` as typed here.
  *
  * `"unresolved"` is the resolution ladder's own terminal "broken, with no more
  * specific verdict"; `"pageSilent"` is the page never answering at all; and
@@ -98,7 +97,7 @@ export type CaptureFailure =
 
 /** How the agent's own intent resolved, beside the anchor rather than inside
  *  it — see `captureForIntent`'s docblock for why the two can legitimately
- *  disagree. Structurally the extension's `IntentResolution`. */
+ *  disagree. Structurally `@demoman/run-core`'s `IntentResolution`. */
 export interface IntentResolution {
   strategy: StrategyName;
   candidates: number;
@@ -106,8 +105,7 @@ export interface IntentResolution {
 }
 
 /**
- * What one capture round trip said. Structurally the extension's
- * `CaptureAnswer`.
+ * What one capture round trip said.
  *
  * The two null cases are different facts and every consumer here keeps them
  * apart: `intentResolution: null` with `failureReason: "pageSilent"` means the
@@ -523,10 +521,11 @@ interface AuthoredRun {
  * page found, and only then synthesizes the action and its cursor move.
  *
  * Exported // test-only, see header: the tests drive this generator directly
- * with a fake `captureResolved` and a fake clock. There is no CDP, encoder or
- * store harness in this package, and everything below is orchestration around
- * injected dependencies — `runAuthored` end to end is the extension's
- * integration lane and the author's manual pass.
+ * with a fake `captureResolved` and a fake clock. Everything below is
+ * orchestration around injected dependencies. `runAuthored` end to end runs
+ * in this package's node lane against a fake CDP (`test/helpers/cdp-fake.ts`),
+ * in its integration lane against real Chromium, and in `apps/runner`'s
+ * executor tests through the CLI's own run.
  *
  * **When an action reaches the document**, because it is the one contract
  * between this file and the walk:

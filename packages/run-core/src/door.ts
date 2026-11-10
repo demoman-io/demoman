@@ -122,11 +122,10 @@ const plural = (n: number, one: string): string =>
   `${n} ${one}${n === 1 ? "" : "s"}`;
 
 /**
- * The run door's script checks, for a caller with no page: the CLI executor.
- * The same refusals in the same order as the run page's `pressRun`, minus the
- * two that only a page has (`invalidJson`: an MCP call already carries an
- * object; `alreadyRunning`: the executor's slot answers it). The settings,
- * kit and browser checks come after this, in the executor.
+ * The run door's script checks, for the CLI executor and its probe. No
+ * `invalidJson` (an MCP call already carries an object) and no
+ * `alreadyRunning` (the executor's slot answers it). The settings, kit and
+ * browser checks come after this, in the executor.
  */
 export function checkScript(
   raw: unknown,

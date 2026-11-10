@@ -31,10 +31,10 @@ export interface ExecutorEntry {
   endPageHere(): Promise<EndPage>;
 }
 
-// The sensor's env minus what only an extension has: no shadow hook (a
-// closed shadow root is out of reach here, where the sensor's hook reaches
-// it) and no frame broker (snapshot and capture are top-frame only in the
-// extension too). The gate (plan 2) measures what the first costs.
+// The document and a canvas matcher, nothing else: no shadow hook (a
+// closed shadow root is out of reach here) and no frame broker (snapshot
+// and capture are top-frame only). The gate (plan 2) measures what the
+// first costs.
 const env = (): ResolveEnv => ({
   root: document,
   patch: createCanvasMatcher(),

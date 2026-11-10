@@ -7,8 +7,9 @@
  * `planScene` plans the whole path, and an authored script cannot know a
  * step's rect until the steps before it have run.
  *
- * Nothing here decides *what* to perform. See `engine.ts` for the document
- * source, which is the only caller until the authored one lands.
+ * Nothing here decides *what* to perform. Its sources are `authored.ts`
+ * (`runAuthored`, what the CLI records through) and `engine.ts` (a recorded
+ * document, for `runReplay`).
  */
 import {
   CAMERA_DEFAULTS,
@@ -477,8 +478,9 @@ export interface EngineDeps {
    * `"continuous"` (spec 2026-10-03): keep every frame the page paints, as
    * paint-run spans the recorder opens and closes itself; take a sharp
    * still whenever the page goes quiet; mark the bundle `timing: "real"`.
-   * `"sampled"`, the default and the headless runner's: spans only around
-   * a verb or an approach scroll, as before.
+   * `"sampled"`, the default: spans only around a verb or an approach
+   * scroll, as before. The runner's authored run (`apps/runner`'s `play.ts`)
+   * asks for `"continuous"`; its `replay` command takes the default.
    */
   recording?: "continuous" | "sampled";
   /** Unhurried beats; see `RoomPolicy`. Continuous recording only. */

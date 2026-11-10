@@ -284,9 +284,6 @@ export interface SecretSweep {
   scrubValue<T>(value: T): T;
 }
 
-/** What every reply, log line and file passes before it leaves Demoman:
- *  each value resolved so far becomes `{secret:NAME}` again. Longest first,
- *  so a value that contains another is replaced whole. */
 /**
  * A value as an app may keep it: as typed, URL-encoded (a cookie), form-
  * encoded (a GET form's URL, which Playwright's call log quotes), either in
@@ -317,6 +314,9 @@ function formsOf(value: string): Set<string> {
   );
 }
 
+/** What every reply, log line and file passes before it leaves Demoman:
+ *  each value resolved so far becomes `{secret:NAME}` again. Longest first,
+ *  so a value that contains another is replaced whole. */
 export function createSecretSweep(): SecretSweep {
   const known = new Map<string, string>();
   const scrub = (text: string): string => {

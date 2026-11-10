@@ -1,7 +1,7 @@
 // apps/mcp/src/tools.ts
 //
-// The six tools of plan 1 (spec §1.1). Each forwards one op over the link and
-// turns its Outcome into an MCP result; a failure is `isError` with its
+// demoman-mcp's tools (spec §1.1). Each that reaches the executor forwards one
+// op over the link and turns its Outcome into an MCP result; a failure is `isError` with its
 // reason intact. `run` and `export` answer `stillRunning` at the cap, keeping
 // the call's promise under its id for `report` (spec §3.2, plan 1's decision).
 
@@ -354,10 +354,11 @@ type Watched = {
  *  own 60 s timeout, so the agent hears no reason at all. */
 const REPORT_CALL_SHARE = 0.8;
 
-/** The MCP client's own `clientInfo`, as the extension's prompt shows it
- *  (spec §5.4, amended 2026-10-03). Read per call: it is known only once the
- *  client has initialized. A field the extension would refuse to show is
- *  left out here rather than sent. */
+/** The MCP client's own `clientInfo`, which the executor records with the
+ *  video (spec §5.4, amended 2026-10-03). Read per call: it is known only
+ *  once the client has initialized. A field that is blank or over
+ *  `AGENT_NAME_MAX` is left out here rather than sent, so the executor's
+ *  `agentOf` is not handed a value it would refuse. */
 function agentName(server: McpServer): AgentName | null {
   const info = server.server.getClientVersion();
   const fits = (v: unknown): v is string =>

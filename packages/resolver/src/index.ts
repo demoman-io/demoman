@@ -1,6 +1,6 @@
 // THE anchor resolver — single shared implementation, versioned (v8 §5).
-// Resolution runs in the extension at capture, in local replay, and (phase 2)
-// in the headless runner. One implementation, one version, recorded per render.
+// Resolution runs in the pages `apps/runner` injects, at capture and at
+// replay. One implementation, one version, recorded per render.
 // Must equal package.json's `version` — boundary.test.ts compares them.
 export const RESOLVER_VERSION = "1.1.0";
 
@@ -14,7 +14,7 @@ export { createCanvasMatcher } from "./ports/patch-canvas.js";
 export { createShadowRegistry, NO_SHADOW } from "./ports/shadow.js";
 export { resolveAll, resolveAnchor } from "./resolve.js";
 /**
- * `findFrameElement` is the headless runner's door, not the extension's.
+ * `findFrameElement` is the headless runner's door.
  *
  * `apps/runner`'s `PageAgent` routes an anchor into the frame its hop names
  * *before* the resolver sees it — parking is replay's requirement, not

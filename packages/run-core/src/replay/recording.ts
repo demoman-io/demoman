@@ -1,4 +1,4 @@
-// packages/run-core/src/replay/recording.ts (was apps/extension/src/adapters/recording.ts)
+// packages/run-core/src/replay/recording.ts
 import type { FrameBundle } from "@demoman/compositor";
 import type { AuthoredStep } from "@demoman/replay-engine";
 import type { SceneDocument } from "@demoman/scene-schema";

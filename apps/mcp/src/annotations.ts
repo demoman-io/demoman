@@ -4,7 +4,8 @@
 // approval from them: Codex's default mode prompts for any tool that does
 // not declare itself read-only or closed-world and non-destructive, since an
 // unset hint counts as true. Each claim here is checked against what the
-// tool does: export picks a free file name (run-core's save.ts uniquifies),
+// tool does: export picks a free file name (the runner's `saveExport`,
+// apps/runner/src/executor/save.ts, uniquifies),
 // and derive reads a take without writing anything.
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 

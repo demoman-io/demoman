@@ -1,7 +1,6 @@
 // apps/mcp/src/home.ts
 //
-// Where Demoman keeps its files. Its own module so the CLI path (serve-cli)
-// needs nothing from key.ts, which is the extension bridge's.
+// Where Demoman keeps its files.
 import { homedir } from "node:os";
 import { join } from "node:path";
 

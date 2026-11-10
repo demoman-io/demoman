@@ -1,6 +1,6 @@
-// The studio's wire contract. Runtime is ROUTES/pathFor/matchRoute and three
-// constants; every other package is imported as a type only, so loading this
-// under raw node pulls in nothing else.
+// The studio's wire contract. Runtime is the routes (ROUTES/pathFor/matchRoute),
+// a few constants and small pure helpers; every other package is imported as a
+// type only, so loading this under raw node pulls in nothing else.
 import type { FrameBundle } from "@demoman/compositor";
 import type {
   AppDraft,
@@ -430,9 +430,10 @@ export interface PullRequestsAnswer {
   /** On a PUT: the file was not a JSON object and was replaced; says so. */
   replaced?: string;
 }
-/** The user's Export quality: how the studio sizes an MP4 (`share` is the
- *  default and the answer when nothing is set). `unreadable` says why the
- *  file or value could not be used; `exportQuality` is then `share`. */
+/** The user's Export quality: how the studio sizes an MP4
+ *  (`DEFAULT_EXPORT_QUALITY`, `high`, when nothing is set). `unreadable` says
+ *  why the file or value could not be used; `exportQuality` is then the
+ *  default. */
 export type ExportQualityChoice = ExportQuality;
 export interface ExportQualityAnswer {
   exportQuality: ExportQualityChoice;
@@ -509,11 +510,9 @@ export interface WindowBody {
 }
 
 /** `POST /api/window`: the page the window was opened or sent to
- *  (`/editor.html?scene=<id>`, or `/` for the library), and an entry URL to
- *  the same page for openStudio to print. `url` carries a fresh single-use
- *  ticket (good once, for 60 s), never the session token. */
-/** No link: the window is open already, and a live entry ticket in an
- *  answer that reaches agent transcripts and stdout is a credential. */
+ *  (`/editor.html?scene=<id>`, or `/` for the library). No link: the window
+ *  is open already, and a live entry ticket in an answer that reaches agent
+ *  transcripts and stdout is a credential. */
 export interface WindowAnswer {
   path: string;
 }

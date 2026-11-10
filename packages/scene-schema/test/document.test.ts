@@ -264,18 +264,19 @@ describe("generated JSON Schema", () => {
    * describes — not merely in a shape Zod will repair.
    *
    * `z.toJSONSchema` runs in OUTPUT mode, where a field carrying
-   * `.default()` is always present and therefore `required`. The Phoenix
-   * service validates uploads against exactly that file, while every test
+   * `.default()` is always present and therefore `required`. Anything that
+   * validates against `schema.gen.json` reads it that way, while every test
    * on this side validated the same fixtures with `SceneDocumentSchema
    * .parse`, which APPLIES the default and passes. Two validators, one
    * file, opposite verdicts, and nothing holding them against each other
    * — so when `edits.gaps` was added with a `.default([])` in 25c5856 the
-   * fixtures silently stopped satisfying the server, and 59 Elixir tests
-   * went red with a message that named the schema rather than the cause.
+   * fixtures silently stopped satisfying the hosted server's validator (since
+   * retired), and 59 of its tests went red with a message that named the
+   * schema rather than the cause.
    *
    * Parsing and comparing catches the whole class without a JSON Schema
    * validator here: if the parse ADDS anything, a default filled it in,
-   * which means the file on disk was missing something the server
+   * which means the file on disk was missing something the generated schema
    * requires.
    */
   it.each(["readonly-scene.json", "mutating-scene.json", "retro-scene.json"])(

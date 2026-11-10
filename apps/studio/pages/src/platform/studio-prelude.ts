@@ -2,9 +2,9 @@
 import { z } from "zod";
 
 /**
- * Runs first in each of the studio's pages: `vite.studio.config.ts` puts
- * `import` of this module at the head of the editor's and the library's
- * entry, in the studio build only.
+ * Runs first in each of the studio's pages: `pages/vite.config.ts` puts
+ * `import` of this module at the head of each page's entry (the editor,
+ * the library and Settings).
  *
  * The studio serves its pages under `default-src 'self'` (spec §4.1), which
  * refuses zod's `Function("")` probe for its JIT. The probe is caught, but
