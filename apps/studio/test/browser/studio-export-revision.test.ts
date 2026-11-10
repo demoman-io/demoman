@@ -14,10 +14,11 @@ import { createRunExport } from "../../src/run-export.js";
 // queued behind a held turn, the take is switched to 9:16 on disk, and only
 // then does the queue move. Both outputs must decode in the queued shape.
 //
-// Measured locally (2026-11-09, M-series Mac, headless): about 4 s for the
-// two renders and their decodes. x5 for CI (fff4505) is 20 s; 60 s leaves
-// room for a cold Chromium start on top.
-const LANE_MS = 60_000;
+// Measured locally (2026-11-09, M-series Mac, headless): 5.6 s, two runs,
+// with the MP4 at "share". At the default quality it was 7.3 s here, 33 s
+// on CI's first run (4.5x) and over 60 s on its second, a loaded runner
+// (job 129553558493). 150 s is 25x the local time.
+const LANE_MS = 150_000;
 
 const homes: string[] = [];
 afterEach(async () => {
@@ -85,6 +86,8 @@ describe("a Studio export renders the scene it was queued with", () => {
           const answer = await queue.start(takeId, {
             fileType,
             revision: before.revision,
+            // The smallest MP4: the shape is the question, not the quality.
+            ...(fileType === "mp4" ? { quality: "share" as const } : {}),
           });
           expect(answer, JSON.stringify(answer)).toHaveProperty("jobId");
         }
