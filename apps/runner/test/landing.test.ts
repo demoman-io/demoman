@@ -46,6 +46,25 @@ describe("landingVerdict", () => {
     );
   });
 
+  it("names a sign-in page without a token in its path (DEM-130)", () => {
+    const v = landingVerdict(
+      {
+        askedUrl: "https://app.kitchenlink.com/orders",
+        landedUrl:
+          "https://app.kitchenlink.com/auth/verify/q3Xv9_Lk2mP-wR7tYb4NcA",
+        passwordFieldVisible: true,
+      },
+      [kl()],
+      CMD,
+    );
+    expect(v.kind).toBe("signedOut");
+    if (v.kind !== "signedOut") return;
+    expect(v.detail).toContain(
+      "app.kitchenlink.com sent this browser to /auth/verify/redacted,",
+    );
+    expect(v.detail).not.toContain("q3Xv9");
+  });
+
   it("counts an identity provider's recorded sign-in page, on another site, as an expired session", () => {
     const v = landingVerdict(
       {

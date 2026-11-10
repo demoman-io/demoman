@@ -59,8 +59,9 @@ describe("pageCapture", () => {
     expect(answer.failureReason).toBe("pageFaulted");
   });
 
-  // DEM-130: these answers reach `report.json` as `pageUrl`, and
-  // `pageWentElsewhere` compares them with the sensor's scrubbed URL.
+  // DEM-130: `pageUrl` reaches `report.json`, so it is scrubbed. DEM-143:
+  // `here` is what `pageWentElsewhere` compares, never written, so its path
+  // stays raw and its query values go as the sensor's do.
   it.each([
     ["notInTree", DESTROYED],
     ["pageFaulted", "TypeError: boom"],
@@ -76,6 +77,9 @@ describe("pageCapture", () => {
     expect(answer.failureReason).toBe(reason);
     expect(answer.pageUrl).toBe(
       "https://app.example.com/reset/redacted?t=redacted",
+    );
+    expect(answer.here).toBe(
+      "https://app.example.com/reset/Zm9vYmFyYmF6cXV4Zm9v-YmFyYmF6cXV4Zm9vYmFy_enF1eA?t=redacted",
     );
   });
 });

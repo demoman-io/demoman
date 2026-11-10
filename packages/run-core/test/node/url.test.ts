@@ -1,13 +1,21 @@
 import { randomBytes } from "node:crypto";
 import { URL_SCRUB_PLACEHOLDER } from "@demoman/scene-schema";
 import { describe, expect, it } from "vitest";
-import { scrubUrl } from "../../src/index.js";
+import { pageKey, scrubSecrets, scrubUrl } from "../../src/index.js";
 
 // The base64url token from DEM-130: its `-` and `_` break every run the
 // secret sweeps look for, so the sweeps alone leave it whole.
 const TOKEN = "Zm9vYmFyYmF6cXV4Zm9v-YmFyYmF6cXV4Zm9vYmFy_enF1eA";
 
 describe("scrubUrl", () => {
+  it("is given a token the secret sweeps alone leave whole", () => {
+    // Premise of the cases below: without `looksLikeToken` they would fail.
+    expect(scrubSecrets(TOKEN)).toBe(TOKEN);
+    expect(scrubSecrets("q3Xv9_Lk2mP-wR7tYb4NcA")).toBe(
+      "q3Xv9_Lk2mP-wR7tYb4NcA",
+    );
+  });
+
   it("writes the placeholder scriptFromTake reads", () => {
     // `url.ts` holds its own copy to keep zod out of the sensor bundle.
     expect(scrubUrl(`https://app.test/x?q=1`)).toBe(
@@ -50,8 +58,14 @@ describe("scrubUrl", () => {
     expect(kept, `${kept} of ${N} kept`).toBeLessThan(N * 0.05);
   });
 
+  it("would read a UUID's shape as a token, but for the exemption", () => {
+    // Premise of "leaves a UUID alone": one more hex character and it goes.
+    expect(
+      scrubUrl("https://app.test/orders/550e8400-e29b-41d4-a716-4466554400001"),
+    ).toBe(`https://app.test/orders/${URL_SCRUB_PLACEHOLDER}`);
+  });
+
   it.each([
-    // Lowercase hex: without the exemption it switches class enough to go.
     ["a UUID", "https://app.test/orders/550e8400-e29b-41d4-a716-446655440000"],
     [
       "a mixed-case UUID",
@@ -78,7 +92,29 @@ describe("scrubUrl", () => {
       "a title slug with a version",
       "https://app.test/blog/Getting-Started-With-React-18",
     ],
+    // Percent-encoded by URL: `%C3%9F` must not count as switches.
+    ["an accented title", "https://de.wikipedia.org/wiki/Straße_München"],
+    [
+      "an encoded title",
+      "https://app.test/w/Caf%C3%A9_Cr%C3%A8me_Br%C3%BBl%C3%A9e",
+    ],
   ])("leaves %s alone", (_, url) => {
-    expect(scrubUrl(url)).toBe(url);
+    expect(scrubUrl(url)).toBe(new URL(url).href);
+  });
+});
+
+describe("pageKey", () => {
+  it("keeps the path raw, so two records stay two pages", () => {
+    const a = `https://app.test/orders/507f1f77bcf86cd799439011`;
+    const b = `https://app.test/orders/507f191e810c19729de860ea`;
+    // Premise: on disk the two read alike.
+    expect(scrubUrl(a)).toBe(scrubUrl(b));
+    expect(pageKey(a)).not.toBe(pageKey(b));
+  });
+
+  it("drops query values and the hash, as the stored address does", () => {
+    expect(pageKey(`https://u:p@app.test/search?q=a#top`)).toBe(
+      `https://app.test/search?q=${URL_SCRUB_PLACEHOLDER}`,
+    );
   });
 });

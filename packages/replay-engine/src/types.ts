@@ -291,13 +291,14 @@ export type ReplayStopReason =
    * an element that page does not have. Without this the author is told the
    * element is gone and sent to re-record a step that is fine.
    *
-   * Measured, never inferred, from either of two witnesses:
+   * Measured, never inferred, from either of two witnesses, each read off the
+   * page every capture names (`IntentCapture.here`, never written; the stored
+   * `resolution.url` and `pageUrl` are scrubbed and cannot tell two record
+   * ids apart, DEM-143):
    *
    * - the step's element was FOUND, and found on a different page from the one
-   *   the step before it ran on — every authored anchor carries the URL the
-   *   page captured it on (`resolution.url`);
-   * - or the capture FAILED and the page said which document it failed on
-   *   (`IntentCapture.pageUrl`), and that is a different page. This is the
+   *   the step before it ran on;
+   * - or the capture FAILED on a different page. This is the
    *   expired-session shape itself, where the target does not exist on the new
    *   page so there is no anchor to compare.
    *

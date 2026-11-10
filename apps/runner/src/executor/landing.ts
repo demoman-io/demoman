@@ -2,7 +2,7 @@
 // spec 2026-10-15 §3.3). The facts are read off the page; the verdict is
 // pure, so every rule is a unit test.
 import { seenNow } from "@demoman/replay-engine/page";
-import { landedElsewhere } from "@demoman/run-core";
+import { landedElsewhere, scrubUrl } from "@demoman/run-core";
 import type { Page } from "playwright";
 import { withinDeadline } from "../page-deadline.js";
 import { type SessionFile, samePage, siteOf } from "./sessions.js";
@@ -82,10 +82,22 @@ export async function readLandingFacts(
   return { askedUrl, landedUrl, passwordFieldVisible };
 }
 
+/** The page an address names, without query or hash; the address itself
+ *  when it does not parse. Raw: scrub it first where it is written out. */
+export const originAndPath = (raw: string): string => {
+  try {
+    const u = new URL(raw);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return raw;
+  }
+};
+
 const where = (raw: string): { host: string; path: string } => {
   try {
     const u = new URL(raw);
-    return { host: u.host, path: u.pathname };
+    // The path reaches the run report: a token in it does not (DEM-130).
+    return { host: u.host, path: new URL(scrubUrl(raw)).pathname };
   } catch {
     // An unparseable landed URL still gets a sentence: its raw text is the host.
     return { host: raw, path: "/" };

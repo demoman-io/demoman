@@ -146,10 +146,13 @@ function fakeCaptures(opts: {
         n >= opts.navigatesAwayAfterCall
           ? OTHER_PAGE
           : PAGE);
-      const doc =
-        opts.documents === undefined
+      // `here` is what the walk compares; every answer with a page names it.
+      const doc = {
+        here: url,
+        ...(opts.documents === undefined
           ? {}
-          : { document: opts.documents[n] ?? null };
+          : { document: opts.documents[n] ?? null }),
+      };
       const answer = ((): IntentCapture => {
         if (scripted.failureReason === "pageSilent") {
           // No reply at all, so nothing to carry a page in — exactly what

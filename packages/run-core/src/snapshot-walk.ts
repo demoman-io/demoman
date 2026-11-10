@@ -16,6 +16,7 @@ import {
 } from "@demoman/resolver";
 import type { ScriptTarget } from "@demoman/scene-schema";
 import { isCredentialField } from "./redaction.js";
+import { scrubUrl } from "./url.js";
 
 /** The most targets one answer lists. An agent reads every one of them, and
  *  250 entries is already some 50 KB of JSON. `contains` is how it asks for
@@ -261,8 +262,10 @@ export async function readEndPage(env: ResolveEnv): Promise<EndPage> {
     fields.push({ target, value });
   }
   const notListed = candidates.length - END_PAGE_MAX_FIELDS;
+  const href = doc.location?.href;
   return {
-    url: doc.location?.href ?? "",
+    // Written to `report.json`: scrubbed like every address that is.
+    url: href === undefined ? "" : scrubUrl(href),
     text,
     fields,
     ...(notListed > 0 ? { fieldsNotListed: notListed } : {}),

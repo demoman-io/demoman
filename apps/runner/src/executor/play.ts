@@ -41,6 +41,7 @@ import {
   type LandingFacts,
   type LandingVerdict,
   landingVerdict,
+  originAndPath,
   readLandingFacts,
 } from "./landing.js";
 import { measureViewport, pageCapture } from "./page-ops.js";
@@ -386,7 +387,7 @@ export async function playOnStage(
         }
       } else if (stoppedOn.kind === "passwordPage") {
         log(
-          `the run stopped on ${facts.landedUrl}, which shows a password field but is not ${stoppedOn.site}'s sign-in page (${stoppedOn.signInUrl}); its own stop reason stands`,
+          `the run stopped on ${scrubUrl(facts.landedUrl)}, which shows a password field but is not ${stoppedOn.site}'s sign-in page (${scrubUrl(stoppedOn.signInUrl)}); its own stop reason stands`,
         );
       }
     }
@@ -495,16 +496,6 @@ export function stopDetail(target: string, played: Played): string | undefined {
     : walkedReason(played) === "signedOut" && failedNote !== undefined
       ? `${failedNote} Nothing was recorded.`
       : ownDetail;
-}
-
-/** A URL's origin and path; the raw text when it does not parse. */
-function originAndPath(raw: string): string {
-  try {
-    const u = new URL(raw);
-    return `${u.origin}${u.pathname}`;
-  } catch {
-    return raw;
-  }
 }
 
 /** Where a re-labelled run stopped, and why, in its own words: the step it

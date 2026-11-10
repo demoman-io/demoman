@@ -5,7 +5,7 @@ import type {
   SceneAnchor,
   StrategyName,
 } from "@demoman/scene-schema";
-import { scrubUrl } from "./url.js";
+import { pageKey, scrubUrl } from "./url.js";
 
 /** The intent's own resolution: how `resolveAnchor(intent, env)` found (or
  *  did not find) an element for this step, before `captureAnchor`'s own
@@ -38,6 +38,13 @@ export interface CaptureForIntentResult {
    * for the second fact.
    */
   pageUrl: string | null;
+  /**
+   * Which page this capture ran on, as `pageKey` names it, on every answer.
+   * For telling pages apart in memory and never written: `pageUrl` and
+   * `anchor.resolution.url` are scrubbed for disk, and two record ids on one
+   * route scrub alike (DEM-143).
+   */
+  here: string;
   /**
    * Which document this capture ran in: `performance.timeOrigin`, the same
    * through `pushState`/`replaceState` and new on every page load. Lets the
@@ -96,11 +103,13 @@ export async function captureForIntent(
     failureReason: report.failureReason,
   };
   if (resolved && report.element !== null) {
+    // Read once: the stored address and `here` name the same moment.
+    const href = window.location.href;
     const { anchor } = await captureAnchor(
       report.element,
       {
         anchorId: intent.id,
-        url: scrubUrl(window.location.href),
+        url: scrubUrl(href),
         // No step index exists yet for a freshly authored anchor;
         // driftPick's own remap capture makes the same choice.
         actionIndex: 0,
@@ -128,6 +137,7 @@ export async function captureForIntent(
       failureReason: null,
       intentResolution,
       pageUrl: null,
+      here: pageKey(href),
       document: documentOf(),
       ...(credentialField === undefined ? {} : { credentialField }),
     };
@@ -149,6 +159,7 @@ export async function captureForIntent(
     // frame knows which document just failed to resolve the intent. Scrubbed
     // like every other URL that leaves the page.
     pageUrl: scrubUrl(window.location.href),
+    here: pageKey(window.location.href),
     document: documentOf(),
     // No element to ask: when the caller checks credentials, that is "could
     // not tell", which a typed step hides (launch C spec 3.5).
