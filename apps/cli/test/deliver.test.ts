@@ -431,4 +431,74 @@ describe("deliver", () => {
     expect(a.ok).toBe(false);
     expect(a.detail).toContain("HTTP 502 bad gateway");
   });
+
+  // A deployment or release trigger checks out a sha or tag: HEAD is
+  // detached, and the PR goes to the default branch (DEM-123).
+  describe("from a detached HEAD", () => {
+    const detachOnFeature = () => {
+      git(repo, "checkout", "-q", "-b", "feature");
+      writeFileSync(join(repo, "feature.txt"), "wip");
+      git(repo, "add", "feature.txt");
+      git(repo, ...PERSON, "commit", "-q", "-m", "Feature work");
+      git(repo, "push", "-q", "origin", "feature");
+      git(repo, "checkout", "-q", "--detach", "feature");
+      // Premise: detached, at a commit main does not have.
+      expect(git(repo, "rev-parse", "--abbrev-ref", "HEAD")).toBe("HEAD");
+      expect(git(remote, "log", "--format=%s", "main")).not.toContain(
+        "Feature work",
+      );
+    };
+
+    it("refuses to open a PR into main from a commit that is not on it", async () => {
+      detachOnFeature();
+      script = {
+        "repo view": { stdout: "main\n" },
+        "pr list": { stdout: "[]" },
+        "pr create": { stdout: "https://github.com/o/r/pull/5\n" },
+      };
+      const a = await run("pr", result());
+      expect(a.ok).toBe(false);
+      expect(a.delivered).toBe("nothing");
+      expect(a.detail).toContain("not on main");
+      expect(calls().filter((c) => c[1] === "create")).toEqual([]);
+      expect(() =>
+        git(remote, "rev-parse", "--verify", "-q", "demoman/refresh"),
+      ).toThrow();
+    });
+
+    it("leaves main's open refresh PR alone when nothing changed there", async () => {
+      detachOnFeature();
+      script = {
+        "repo view": { stdout: "main\n" },
+        "pr list": { stdout: '[{"number":12}]' },
+        "pr close": { stdout: "closed" },
+      };
+      const a = await run("pr", unchanged());
+      expect(a.ok).toBe(false);
+      expect(calls().filter((c) => c[1] === "close")).toEqual([]);
+    });
+
+    it("delivers from a commit on main, as a release tag on main checks out", async () => {
+      git(repo, "checkout", "-q", "--detach", "main");
+      expect(git(repo, "rev-parse", "--abbrev-ref", "HEAD")).toBe("HEAD");
+      script = {
+        "repo view": { stdout: "main\n" },
+        "pr list": { stdout: "[]" },
+        "pr create": { stdout: "https://github.com/o/r/pull/5\n" },
+      };
+      const a = await run("pr", result());
+      expect(a).toMatchObject({ delivered: "pr", ok: true });
+      expect(git(remote, "log", "--format=%s", "demoman/refresh")).toBe(
+        "Refresh demo videos\nstart",
+      );
+    });
+
+    it("says so when the default branch cannot be read", async () => {
+      detachOnFeature();
+      script = { "repo view": { code: 1, stderr: "HTTP 401" } };
+      const a = await run("pr", result());
+      expect(a.ok).toBe(false);
+      expect(a.detail).toContain("HTTP 401");
+    });
+  });
 });

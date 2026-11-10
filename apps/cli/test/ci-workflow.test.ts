@@ -674,6 +674,112 @@ describe("the loop guard", () => {
   });
 });
 
+// A deployment or release checks out a sha or tag that may be on any branch,
+// or a fork's: refreshing it would run that commit's app.json with secrets
+// and open its branch into main (DEM-123, DEM-117).
+describe("the default-branch guard", () => {
+  const release = ciWorkflow({
+    version: "0.2.0",
+    trigger: "release",
+    route: "pr",
+  });
+  const skipIf = expr("steps.guard.outputs.skip != 'true'");
+  const steps = (y: string) =>
+    y
+      .slice(y.indexOf("    steps:\n") + 11, y.indexOf("\n  check:\n"))
+      .split(/\n(?= {6}- )/)
+      .filter((b) => b.startsWith("      - "));
+  const scriptOf = (step: string) =>
+    (step.split("run: |\n")[1] ?? "")
+      .split("\n")
+      .map((l) => l.slice(10))
+      .join("\n");
+
+  for (const [name, y] of [
+    ["deployment", deploy],
+    ["release", release],
+  ] as const) {
+    it(`${name}: the step after the checkout skips the rest unless the commit is on the default branch`, () => {
+      const all = steps(y);
+      expect(all[0]).toContain("actions/checkout@v4");
+      expect(all[1]).toContain("id: guard");
+      expect(all[1]).toContain(
+        `DEFAULT_BRANCH: ${expr("github.event.repository.default_branch")}`,
+      );
+      expect(scriptOf(all[1] ?? "")).toContain(
+        'git merge-base --is-ancestor "$SHA" "origin/$DEFAULT_BRANCH"',
+      );
+      expect(all.length).toBeGreaterThan(4);
+      for (const later of all.slice(2)) {
+        expect(later, later).toContain(`if: ${skipIf}`);
+      }
+    });
+  }
+
+  it("is not in the self-check, the push or the daily job", () => {
+    for (const y of [
+      push,
+      ciWorkflow({ version: "0.2.0", trigger: "daily", route: "pr" }),
+    ]) {
+      expect(y).not.toContain("DEFAULT_BRANCH");
+    }
+    const check = deploy.slice(deploy.indexOf("\n  check:\n"));
+    expect(check).not.toContain("DEFAULT_BRANCH");
+  });
+
+  it("skips a commit off the default branch and says so; fails on a ref it cannot read", () => {
+    const step = steps(deploy)[1] ?? "";
+    const script = scriptOf(step);
+    const dir = mkdtempSync(join(tmpdir(), "on-default-"));
+    const git = (...a: string[]) =>
+      execFileSync("git", ["-C", dir, ...a], { encoding: "utf8" }).trim();
+    const commit = (m: string) =>
+      git(
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        m,
+      );
+    git("init", "-q", "-b", "main");
+    commit("Fix the invoice filter");
+    git("update-ref", "refs/remotes/origin/main", "HEAD");
+    const onMain = git("rev-parse", "HEAD");
+    git("checkout", "-q", "-b", "feature");
+    commit("Feature work");
+    const onFeature = git("rev-parse", "HEAD");
+    const answer = (sha: string) => {
+      const out = join(dir, "out.txt");
+      writeFileSync(out, "");
+      // GitHub runs a step's script under bash -e.
+      const r = spawnSync("bash", ["-e", "-c", script], {
+        cwd: dir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SHA: sha,
+          DEFAULT_BRANCH: "main",
+          GITHUB_OUTPUT: out,
+        },
+      });
+      return { code: r.status, out: readFileSync(out, "utf8"), log: r.stdout };
+    };
+    expect(answer(onMain)).toEqual({ code: 0, out: "", log: "" });
+    const off = answer(onFeature);
+    expect(off.code).toBe(0);
+    expect(off.out).toBe("skip=true\n");
+    expect(off.log).toContain("is not on main");
+    const bad = answer("0".repeat(40));
+    expect(bad.code).not.toBe(0);
+    expect(bad.out).toBe("");
+    expect(bad.log).toContain("::error::");
+  });
+});
+
 describe("the workflow's shape", () => {
   it("serialises runs", () => {
     expect(push).toContain(
@@ -732,9 +838,12 @@ describe("release and daily triggers", () => {
 
   it("guards neither with the loop guard, which only a push can trip", () => {
     for (const y of [release, daily]) {
-      expect(y).not.toContain("Skip Demoman's own commits");
-      expect(y).not.toContain("steps.guard");
+      expect(y).not.toContain("Demoman's own");
+      expect(y).not.toContain("[skip demoman]");
     }
+    // The release's only guard is the default-branch one (DEM-123).
+    expect(daily).not.toContain("steps.guard");
+    expect(release).toContain("Skip commits off the default branch\n");
     // Only the pull_request exclusion conditions the release job; daily
     // adds the manual run's branch check.
     expect(parse(release).jobs.refresh.if).toBe(

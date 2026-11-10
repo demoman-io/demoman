@@ -57,6 +57,20 @@ if printf '%s' "$msg" | grep -qE '\\[skip demoman\\]|/demoman/refresh|^${COMMIT_
   echo "Skipping: this commit is Demoman's own refresh, and refreshing on it would loop."
 fi`;
 
+/** A deployment or release names a commit on any branch, or a fork's:
+ *  refreshing it would run its app.json with this repo's secrets and open its
+ *  branch into the default one (DEM-123). Exit 1 is "not an ancestor"; any
+ *  other failure is git's and stops the job. */
+export const ON_DEFAULT_SCRIPT = `git merge-base --is-ancestor "$SHA" "origin/$DEFAULT_BRANCH" && code=0 || code=$?
+if [ "$code" -eq 1 ]; then
+  echo "skip=true" >> "$GITHUB_OUTPUT"
+  echo "Skipping: $SHA is not on $DEFAULT_BRANCH. Demoman refreshes only commits the default branch holds, so another branch's or a fork's deployment opens no refresh pull request."
+  exit 0
+elif [ "$code" -ne 0 ]; then
+  echo "::error::Could not tell whether $SHA is on $DEFAULT_BRANCH (git merge-base exited $code), so nothing was refreshed."
+  exit "$code"
+fi`;
+
 export const RELEASE_MAIN =
   "--route main cannot go with a release trigger: the released commit is a tag, not a branch, so the refresh cannot commit on main from it. Use --route pr there, or a daily or push trigger.";
 
@@ -94,6 +108,8 @@ function shapeOf(o: CiOptions) {
     kind,
     // Only a push can be Demoman's own commit; the other triggers have no loop.
     guarded: kind === "push" || kind === "deployment",
+    // A deployed sha or released tag may be on any branch.
+    onDefault: kind === "deployment" || kind === "release",
     branch: o.branch ?? "main",
   } as const;
 }
@@ -233,7 +249,9 @@ function refreshSteps(
   const kind: string = deliver ? shape.kind : "check";
   const deployment = deliver ? shape.deployment : null;
   const environment = shape.deployment;
-  const guarded = deliver && shape.guarded;
+  const loopGuard = deliver && shape.guarded;
+  const onDefault = deliver && shape.onDefault;
+  const guarded = loopGuard || onDefault;
   const branch = shape.branch;
   const npx = `npx --prefix ~/ -y ${PACKAGE_NAME}@${o.version}`;
   const sha = expr(
@@ -381,7 +399,12 @@ ${DEPLOYED_SCRIPT.split("\n")
       : `      - name: Turn on pnpm and yarn${ifRun}
         run: corepack enable
 ${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - uses: oven-sh/setup-bun@v2${ifRun}\n` : ""}`;
-  const script = GUARD_SCRIPT.split("\n")
+  const script = [
+    ...(onDefault ? [ON_DEFAULT_SCRIPT] : []),
+    ...(loopGuard ? [GUARD_SCRIPT] : []),
+  ]
+    .join("\n")
+    .split("\n")
     .map((l) => `          ${l}`)
     .join("\n");
   const secretEnv = secretNames(o)
@@ -404,10 +427,10 @@ ${/\bbunx?\b/.test([...started.install, started.start].join("\n")) ? `      - us
           lfs: true${ref}
 ${
   guarded
-    ? `      - name: Skip Demoman's own commits
+    ? `      - name: ${loopGuard ? (onDefault ? "Skip commits off the default branch, and Demoman's own" : "Skip Demoman's own commits") : "Skip commits off the default branch"}
         id: guard${runsByHand(o.trigger) ? `\n        if: ${expr("github.event_name != 'workflow_dispatch'")}` : ""}
         env:
-          SHA: ${sha}
+          SHA: ${sha}${onDefault ? `\n          DEFAULT_BRANCH: ${expr("github.event.repository.default_branch")}` : ""}
         run: |
 ${script}
 `

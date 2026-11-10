@@ -30,6 +30,41 @@ const toCommit = (v: RefreshResult["videos"][number]): boolean =>
     v.outcome === "added" ||
     v.outcome === "uncompared");
 
+/** Why a pull request may not be opened or closed from here, or null. A
+ *  detached HEAD (a deployed sha, a release tag) opens its PR into the
+ *  default branch, so it must already be on it: otherwise the PR carries
+ *  another branch's commits into main (DEM-123). */
+async function offBase(
+  repoRoot: string,
+  deps: { git: GitRunner; gh: Gh },
+): Promise<string | null> {
+  const here = await deps.git(["rev-parse", "--abbrev-ref", "HEAD"], repoRoot);
+  if (here.code !== 0) return `git rev-parse failed: ${said(here)}`;
+  if (here.stdout.trim() !== "HEAD") return null;
+  const view = await deps.gh([
+    "repo",
+    "view",
+    "--json",
+    "defaultBranchRef",
+    "--jq",
+    ".defaultBranchRef.name",
+  ]);
+  const base = view.stdout.trim();
+  if (view.code !== 0 || base === "")
+    return `the checkout is a detached HEAD, and the default branch it would deliver to could not be read (gh repo view): ${said(view)}`;
+  const fetched = await deps.git(["fetch", "origin", base], repoRoot);
+  if (fetched.code !== 0)
+    return `git fetch origin ${base} failed: ${said(fetched)}`;
+  const on = await deps.git(
+    ["merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD"],
+    repoRoot,
+  );
+  if (on.code === 0) return null;
+  if (on.code === 1)
+    return `the checked-out commit is not on ${base}, so a refresh pull request into ${base} would carry its branch's commits; refresh only what ${base} holds`;
+  return `git merge-base failed: ${said(on)}`;
+}
+
 /** Puts the files a refresh wrote into the repo's history: one commit on
  *  the checked-out branch (`main`), or one commit on `demoman/refresh` with a
  *  pull request opened or updated (`pr`). Only those videos' outputs (with
@@ -46,6 +81,11 @@ export async function deliver(
   deps: { git: GitRunner; gh: Gh },
 ): Promise<Delivered> {
   const { route, repoRoot, result, named, runUrl } = args;
+  if (route === "pr") {
+    const refused = await offBase(repoRoot, deps);
+    if (refused !== null)
+      return { delivered: "nothing", ok: false, detail: refused };
+  }
   const updated = result.videos.filter(toCommit);
   if (updated.length === 0) {
     const nothing = "no video changed";
