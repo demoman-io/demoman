@@ -6,7 +6,7 @@ import { scrubSecrets } from "./secrets.js";
  * imported from there: this module reaches the page code the runner injects
  * into every page, and a value import from the schema package pulls zod in
  * with it — measured 2026-09-28 on the extension's old `sensor.js`, 45 KB ->
- * 122 KB. Kept equal by hand; no test compares the two.
+ * 122 KB. Held equal by `test/node/url.test.ts`.
  */
 const PLACEHOLDER = "redacted";
 
