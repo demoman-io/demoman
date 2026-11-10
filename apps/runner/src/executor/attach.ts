@@ -154,9 +154,9 @@ async function remotesElsewhere(
 const ATTACH_MAX_MB = 9.5;
 
 /** What to do when GitHub refused the upload. A file this attach saved
- *  under a looser cap than 9.5 MB may be over what GitHub takes, so one
- *  capped attach first, then by hand. One already capped at 9.5 MB or less
- *  would only be refused again: the file goes by hand now. */
+ *  uncapped, or under a looser cap than 9.5 MB, may be over what GitHub
+ *  takes, so one capped attach first, then by hand. One already capped at
+ *  9.5 MB or less would only be refused again: the file goes by hand now. */
 function afterRefusedUpload(
   maxMB: number | undefined,
   path: string,

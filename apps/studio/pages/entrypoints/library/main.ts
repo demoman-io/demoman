@@ -160,13 +160,9 @@ function openInThisTab(url: string, context: string): void {
   }
 }
 
-/**
- * Previews read frames directly rather than over the runtime's messages, for the
- * reason `bundle-source.ts` already gives: sendMessage serialises as JSON,
- * so a Uint8Array would arrive as {"0":255,…}. Only the bundle row — which
- * is JSON, and whose replay-supersedes-capture rule belongs to the
- * background — comes back over a message.
- */
+/** Previews read through the platform's bundle source: the studio server
+ *  answers a take's bundle row as JSON and each frame as a request of its
+ *  own (`src/platform/http.ts`). */
 const bundles = platform.bundles;
 
 /** Paint pending for a box that has not yet come near the viewport. */

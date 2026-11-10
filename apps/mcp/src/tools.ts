@@ -357,8 +357,9 @@ const REPORT_CALL_SHARE = 0.8;
 /** The MCP client's own `clientInfo`, which the executor records with the
  *  video (spec §5.4, amended 2026-10-03). Read per call: it is known only
  *  once the client has initialized. A field that is blank or over
- *  `AGENT_NAME_MAX` is left out here rather than sent, so the executor's
- *  `agentOf` is not handed a value it would refuse. */
+ *  `AGENT_NAME_MAX` is left out here rather than sent. `agentOf` also
+ *  refuses one with nothing visible once `cleanAgentText` has run (a lone
+ *  zero-width space), which this check lets through (DEM-144). */
 function agentName(server: McpServer): AgentName | null {
   const info = server.server.getClientVersion();
   const fits = (v: unknown): v is string =>

@@ -70,7 +70,7 @@ import {
  * loaded), and any throw out of `muxSpans` — its misalignment invariant, or
  * its own setup (`page.goto`, `addScriptTag`, bundling the mux entry) — all
  * propagate. The executor's `run` op answers `{outcome: "threw", error}` for
- * each, as the run page does. Every one after the take's folder was first
+ * each. Every one after the take's folder was first
  * written removes that folder before it rethrows (`filmAndEncode`'s caller),
  * so a throw never leaves raw frames where `list()` skips them and nothing
  * sweeps them.

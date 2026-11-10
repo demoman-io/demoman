@@ -41,9 +41,10 @@ export type { RoomPolicy, StepTiming, WaitSaw } from "./walk.js";
  * symbols with no importer, which the note above forbids.
  */
 
-// The runner's page deadline (`apps/runner/src/page-deadline.ts`) uses both;
-// this package's engine lane asserts the walk's stop on a call that never
-// answers against them.
+// The runner uses both: `ANSWER_DEADLINE_MS` in its page deadline
+// (`apps/runner/src/page-deadline.ts`), `withAnswerDeadline` on its stage
+// session (`apps/runner/src/executor/browser.ts`). This package's engine
+// lane asserts the walk's stop on a call that never answers against them.
 export { ANSWER_DEADLINE_MS, withAnswerDeadline } from "./answer-deadline.js";
 export {
   type AuthoredDeps,

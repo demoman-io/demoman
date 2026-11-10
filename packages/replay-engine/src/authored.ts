@@ -1222,9 +1222,8 @@ export function assembleAuthored(
           ? {}
           : { displayScale: args.displayScale }),
       },
-      // The frames this take has are its own, which is what `screen` means —
-      // the same value `finalize` writes for every new take. A Rebuild of it
-      // later sets `demo` itself if it completes.
+      // The frames this take has are its own, which is what `screen` means.
+      // Nothing sets `demo` today (`renderMode` in `@demoman/scene-schema`).
       renderMode: "screen",
     },
     anchors: args.anchors,

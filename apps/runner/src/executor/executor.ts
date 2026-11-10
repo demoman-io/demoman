@@ -141,8 +141,8 @@ export function createJobTable(kept: number = JOBS_KEPT) {
 
 /**
  * The CLI executor: answers all nine of agent-bridge's `OPS` (status,
- * snapshot, probe, run, report, videos, derive, export, attach). One slot, as the
- * run page has one: a run, a snapshot or an export holds it. `report` answers
+ * snapshot, probe, run, report, videos, derive, export, attach). One slot: a run,
+ * a snapshot or an export holds it. `report` answers
  * from the in-memory job table only — a report.json that failed to write is
  * log-only, so reading it back would answer differently from what the run
  * said.

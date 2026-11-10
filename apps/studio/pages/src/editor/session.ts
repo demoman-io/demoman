@@ -293,10 +293,11 @@ export function createSession(deps: SessionDeps) {
    * background-owned and monotonic. Do not generalise this to other flags.
    *
    * And `meta.renderMode`, on a third rule: the editor writes it nowhere.
-   * Its only writer is the library card's "Back to your recording", so
-   * every write carries the store's value, whatever this session loaded.
-   * Without that, one trim in a tab left open across a re-shoot quietly
-   * put the take back on `screen` (final review I1).
+   * Its writers are outside it (`assembleAuthored` on a new take, and the
+   * library card's "Back to your recording"), so every write carries the
+   * store's value, whatever this session loaded. Without that, one trim in
+   * a tab left open while the library card changed it would write the old
+   * value back (final review I1, found when a re-shoot was that writer).
    *
    * And `meta.name`, on a different rule: a name this session has not
    * changed since it last loaded or wrote one is not this session's to

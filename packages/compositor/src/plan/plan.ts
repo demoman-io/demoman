@@ -46,9 +46,9 @@ export function planScene(
   const attachedToCuts: AttachedEdit[] = [];
 
   // `?? []` for the reason `migrateHoldsToGaps` writes it: a document cast
-  // from `JSON.parse` without a parse (the way the CLI frame store's
-  // `getBundle` reads its bundles) never runs Zod's `.default([])`, so one
-  // written before either field existed lacks it. `planScene` takes any
+  // rather than parsed (the studio pages take the server's JSON as typed)
+  // never runs Zod's `.default([])`, so one that skipped the schema on its
+  // way lacks it. `planScene` takes any
   // `SceneDocument`, and a TypeError here would take the whole render down
   // rather than degrade.
   const gapAfter = new Map(
