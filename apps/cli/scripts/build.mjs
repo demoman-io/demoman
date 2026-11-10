@@ -4,7 +4,7 @@
 //   dist/demoman.mjs   the node half: apps/mcp's CLI path + the runner, one file
 //   dist/page/*.js     the in-page bundles, prebuilt, so no esbuild ships
 //   dist/recipe.md     apps/mcp/recipe.md
-//   dist/skills/       the record-demo skill, which setup gives Cursor
+//   dist/skills/       the record-demo skill, which setup gives Cursor and OpenCode
 //   dist/studio/       the studio's pages (apps/studio's pages build)
 //   package.json       generated: dependencies are exactly what the bundle
 //                      leaves external, pinned to the versions installed here
@@ -148,8 +148,8 @@ for (const name of PAGE_ENTRIES) {
 // 3. The recipe.
 cpSync(join(repo, "apps", "mcp", "recipe.md"), join(pkg, "dist", "recipe.md"));
 
-// 3c. The record-demo skill, which setup copies into Cursor's skills folder
-//     (launch E); the plugin carries its own copy (step 7).
+// 3c. The record-demo skill, which setup copies into Cursor's and OpenCode's
+//     skills folders (launch E); the plugin carries its own copy (step 7).
 mkdirSync(join(pkg, "dist", "skills", "record-demo"), { recursive: true });
 cpSync(
   join(app, "plugin", "skills", "record-demo", "SKILL.md"),
