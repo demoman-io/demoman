@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import {
   type FrameBundle,
   LANDSCAPE_1080P,
@@ -82,7 +84,10 @@ export interface ExportDeps {
 }
 
 /** A take's scene as `getSceneRead` gave it, held for a later export. */
-export type PinnedScene = { scene: SceneDocument; notes: string[] };
+export type PinnedScene = Omit<
+  NonNullable<Awaited<ReturnType<Library["getSceneRead"]>>>,
+  "revision"
+>;
 
 const FILE_TYPES = ["mp4", "gif", "stills"] as const;
 
@@ -212,12 +217,23 @@ export async function exportTake(
     return refused("invalidMaxMB", maxBytes.refusal);
   }
   const store = library.frameStore(takeId);
+  const { pinned } = deps;
+  if (pinned !== undefined && pinned.scene.meta.id !== takeId) {
+    throw new Error(
+      `export of ${takeId} was handed the scene of ${pinned.scene.meta.id}`,
+    );
+  }
   let sceneRead: PinnedScene | null;
   let bundle: Awaited<ReturnType<typeof store.getBundle>>;
   try {
-    // Pinned, the caller has just checked the take is still there (the
-    // studio's `runOne`), and says a deleted one in its own words.
-    sceneRead = deps.pinned ?? (await library.getSceneRead(takeId));
+    // Pinned, only whether the take is still there is read: the scene on
+    // disk may have changed since, and is not what renders.
+    sceneRead =
+      pinned === undefined
+        ? await library.getSceneRead(takeId)
+        : (await sceneFileExists(library, takeId))
+          ? pinned
+          : null;
     bundle = sceneRead === null ? null : await store.getBundle(takeId);
   } catch (error) {
     return refused(
@@ -228,7 +244,9 @@ export async function exportTake(
   if (sceneRead === null) {
     return refused(
       "takeNotFound",
-      `there is no video ${takeId} in the library`,
+      pinned === undefined
+        ? `there is no video ${takeId} in the library`
+        : `video ${takeId} was deleted after its export was asked for`,
     );
   }
   const { scene, notes } = sceneRead;
@@ -312,6 +330,20 @@ export async function exportTake(
         `the export lease on ${takeId} would not release (${messageOf(error)})`,
       );
     }
+  }
+}
+
+/** Whether the take's `scene.json` is on disk; throws when it cannot be told. */
+async function sceneFileExists(
+  library: Library,
+  takeId: string,
+): Promise<boolean> {
+  try {
+    await stat(join(library.takeDir(takeId), "scene.json"));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
   }
 }
 

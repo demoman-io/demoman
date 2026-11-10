@@ -46,10 +46,12 @@ export type RunExport = (
   fileType: FileType,
   jobId: string,
   onProgress: (p: Exporting) => void,
-  /** Rendered in place of `scene.json`, so a later edit cannot reach it. */
-  pinned: PinnedScene,
-  /** The editor's pick for this export; absent, the Export quality setting. */
-  quality?: ExportQuality,
+  job: {
+    /** Rendered in place of `scene.json`, so a later edit cannot reach it. */
+    pinned: PinnedScene;
+    /** The editor's pick for this export; absent, the Export quality setting. */
+    quality?: ExportQuality;
+  },
 ) => Promise<ExportAnswer>;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
@@ -120,26 +122,7 @@ export function createExportQueue(o: {
     events.send({ ...e, type: "export", takeId: job.takeId, jobId: job.jobId });
 
   async function runOne(job: Job): Promise<void> {
-    // Deleted while it waited: said as itself, and nothing is rendered.
-    let present: boolean;
-    try {
-      present = (await library.getSceneRead(job.takeId)) !== null;
-    } catch (error) {
-      send(job, {
-        phase: "failed",
-        reason: "libraryUnreadable",
-        detail: `Not exported: the video could not be read (${messageOf(error)}).`,
-      });
-      return;
-    }
-    if (!present) {
-      send(job, {
-        phase: "failed",
-        reason: "takeNotFound",
-        detail: "Not exported: the video was deleted before its turn came.",
-      });
-      return;
-    }
+    // A take deleted while it waited is `exportTake`'s `takeNotFound`.
     let answer: ExportAnswer;
     try {
       answer = await o.run(
@@ -154,8 +137,10 @@ export function createExportQueue(o: {
               : { phase: "rendering", done: p.done, total: p.total },
           );
         },
-        job.pinned,
-        job.quality,
+        {
+          pinned: job.pinned,
+          ...(job.quality === undefined ? {} : { quality: job.quality }),
+        },
       );
     } catch (error) {
       // exportTake resolves for every outcome; a throw is a bug, and the

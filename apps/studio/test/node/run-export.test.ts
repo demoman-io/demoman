@@ -51,7 +51,7 @@ async function runWith(settings: string | null) {
 describe("the Studio's run passes the editor's quality", () => {
   it("passes the quality the editor picked for this export", async () => {
     const { run, asked } = await runWith('{"exportQuality":"full"}');
-    await run("t1", "mp4", "j1", () => {}, pinned, "share");
+    await run("t1", "mp4", "j1", () => {}, { pinned, quality: "share" });
     expect(asked[0]).toMatchObject({
       takeId: "t1",
       fileType: "mp4",
@@ -61,8 +61,8 @@ describe("the Studio's run passes the editor's quality", () => {
 
   it("passes no quality when the editor sent none, so exportTake reads Settings", async () => {
     const { run, asked, logs } = await runWith('{"exportQuality":"full"}');
-    await run("t1", "mp4", "j1", () => {}, pinned);
-    await run("t1", "gif", "j2", () => {}, pinned);
+    await run("t1", "mp4", "j1", () => {}, { pinned });
+    await run("t1", "gif", "j2", () => {}, { pinned });
     expect(asked.map((a) => "quality" in a)).toEqual([false, false]);
     expect(asked.map((a) => a.fileType)).toEqual(["mp4", "gif"]);
     expect(logs).toEqual([]);
@@ -70,7 +70,7 @@ describe("the Studio's run passes the editor's quality", () => {
 
   it("hands exportTake the scene the queue pinned, never through the agent's args", async () => {
     const { run, asked, depsSeen } = await runWith(null);
-    await run("t1", "mp4", "j1", () => {}, pinned);
+    await run("t1", "mp4", "j1", () => {}, { pinned });
     expect(depsSeen[0]?.pinned).toBe(pinned);
     expect("pinned" in (asked[0] ?? {})).toBe(false);
   });

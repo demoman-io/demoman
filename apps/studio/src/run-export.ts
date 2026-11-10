@@ -18,7 +18,7 @@ export function createRunExport(a: {
   deps: Omit<Deps, "jobId">;
 }): RunExport {
   const { exportTake, deps } = a;
-  return (takeId, fileType, jobId, onProgress, pinned, quality) =>
+  return (takeId, fileType, jobId, onProgress, { pinned, quality }) =>
     exportTake(
       { takeId, fileType, ...(quality === undefined ? {} : { quality }) },
       { ...deps, jobId, pinned },
