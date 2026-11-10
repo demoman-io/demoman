@@ -1,5 +1,5 @@
 // The receipt: what a kept flow's committed files show, written beside the
-// recipe (.demoman/videos/) under .demoman/receipts/.
+// recipe (.demoman/flows/) under .demoman/receipts/.
 
 import { isInstant } from "../app/file.js";
 import { type FilmedCode, parseFilmedCode } from "../replay/report.js";

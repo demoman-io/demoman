@@ -5,7 +5,8 @@ import { messageOf } from "../report.js";
 
 /**
  * `<home>/kits.json` — `{ "kits": StoredKit[], "default": "<kit id>" }`, the
- * shape the extension stores, judged by the same `coerceBrandKits`. No file
+ * shape the Studio's Brand kit page writes, judged by the same
+ * `coerceBrandKits` the Studio uses. No file
  * is "no kits" (ready, empty); a file that will not read or parse is
  * `invalid` with the path and the cause, which is what makes `snapshot` say
  * `kits: {ok:false}` and a run naming a kit refuse `kitsUnreadable`.

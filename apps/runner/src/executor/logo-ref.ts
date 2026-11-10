@@ -16,7 +16,7 @@ const TYPES: Record<string, string> = {
 /**
  * A take's `branding.logo.ref`, as the CLI reads it (author's ruling
  * 2026-10-12): a file path, absolute or relative to DEMOMAN_HOME, checked by
- * the extension's own `checkLogoFile`. Never throws: every way it cannot be
+ * `@demoman/run-core`'s `checkLogoFile` (the retired extension's rule). Never throws: every way it cannot be
  * had is a reason, which the export turns into `warnings.logo` and still
  * saves the video — a logo is decoration.
  */

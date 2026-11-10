@@ -46,13 +46,12 @@ export interface BrandKitStore {
 /** Runs `fn` while no other holder of the brand kits' lock runs. */
 export type KitLock = <T>(fn: () => Promise<T>) => Promise<T>;
 
-/** The Web Locks name: one origin, so every extension page and the worker
- *  share it. */
+/** The Web Locks name: one origin, so every studio page shares it. */
 export const KIT_LOCK_NAME = "demoman-brand-kits";
 
 /** This context's fallback, for a runtime with no `navigator.locks` (node
- *  tests). It orders the stores in one context only; every extension page
- *  and the worker have Web Locks, and use those. */
+ *  tests). It orders the stores in one context only; every studio page has
+ *  Web Locks, and uses those. */
 let localChain: Promise<unknown> = Promise.resolve();
 const localLock: KitLock = (fn) => {
   const run = localChain.then(fn);
@@ -63,7 +62,7 @@ const localLock: KitLock = (fn) => {
 
 /**
  * Web Locks when the context has them, looked up at each use (as `area`
- * is). chrome.storage has no transactions, so a read-modify-write is only
+ * is). The kits' storage has no transactions, so a read-modify-write is only
  * whole while every reader and writer of these keys holds this lock: the
  * move from the single kit (two pages reading the old key at once) and an
  * update (Settings and the editor saving at once) both lost a write
@@ -76,8 +75,9 @@ const defaultLock: KitLock = <T>(fn: () => Promise<T>) =>
       (navigator.locks.request(KIT_LOCK_NAME, fn) as unknown as Promise<T>)
     : localLock(fn);
 
-/** The three calls the store makes, so a test can hand it a fake without
- *  standing up chrome's whole `StorageArea`. `chrome.storage.local` is one. */
+/** The three calls the store makes, so a test can hand it a fake. The
+ *  shape is chrome's `StorageArea`, which the retired extension passed;
+ *  the studio's (`src/platform/http.ts`) is one now. */
 export interface KitStorageArea {
   get(keys: string[]): Promise<Record<string, unknown>>;
   set(items: Record<string, unknown>): Promise<void>;

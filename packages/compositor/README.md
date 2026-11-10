@@ -5,12 +5,13 @@ a landscape MP4, a vertical cut, a GIF, or stills. It is the last stage of
 the pipeline and the one a viewer actually judges.
 
 Nothing in `src/**` touches `chrome.*`, `browser.*`, or `apps/` — the
-boundary test enforces it. The package runs in the extension's offscreen
-document today and in a desktop app later, unchanged.
+boundary test enforces it. The package runs in any browser page, unchanged:
+`apps/runner` renders every export with it in a headless render page, and
+the Studio's editor draws its preview with `renderFrame`.
 
 ## Two rules that are easy to get wrong
 
-**SP5 owes this package `anchorRects` and `cursorSamples`.** They are not
+**Replay owes this package `anchorRects` and `cursorSamples`.** They are not
 optional decoration. Without `anchorRects` the camera falls back to
 capture-time rects that the replayed page may have moved, so the zoom frames
 the wrong thing. Without `cursorSamples` the compositor synthesizes a cursor
@@ -20,11 +21,11 @@ from its own plan — correct for a mutating scene that never replayed, but a
 
 **A deliverable is never produced by capturing a preview surface.** Every
 output frame is composed offline from `outputTimeMs`, never from wall clock,
-and muxed at constant fps. SP1 built both and the difference was the whole
-finding: the realtime-assembled sample was visibly janky from the *assembly
+and muxed at constant fps. An early prototype built both and the difference
+was the whole finding: the realtime-assembled sample was visibly janky from the *assembly
 path*, not from the harvest. `MediaRecorder` and anything else that records a
-live surface is banned from the deliverable path. SP7's scrubbing preview
-calls `renderFrame()` — the same renderer pointed at a canvas — but what the
+live surface is banned from the deliverable path. The Studio's scrubbing
+preview calls `renderFrame()` — the same renderer pointed at a canvas — but what the
 user downloads comes from `renderScene()`.
 
 ## The three stages
@@ -37,11 +38,11 @@ scene document ──▶ planScene()   ──▶ RenderPlan       (no frames nee
 
 **`planScene(scene)` is frameless on purpose.** Cursor paths, camera intent,
 cosmetic bindings and the retiming policy are all derivable from the document
-alone. That is what lets SP5 consume `plan.cursorSegments` to drive a replay
+alone. That is what lets replay consume `plan.cursorSegments` to drive a run
 *before* a single frame exists — the inversion contract: the compositor plans
 the path, replay dispatches it, replay hands the samples back, and the
 compositor draws the cursor from what was actually sent. It is also what let
-this package be built against fixtures instead of serializing behind SP5.
+this package be built against fixtures instead of serializing behind replay.
 
 **`resolvePlan(plan, bundle, scene, hints)`** is the bundle-dependent stage.
 Still pure, still canvas-free, but it now knows where elements really were
@@ -53,9 +54,9 @@ the timeline.
 loop. One canvas, reused. The loop owns frame fetching: it pulls exactly one
 source frame, hands `renderFrame` a one-shot source that returns the frame
 already in hand, and lets it go before the next iteration. Encoded chunks
-leave immediately. Nothing accumulates, because MV3 memory limits are a named
-platform risk and a crashed render is a broken promise where a slower one is
-only slower.
+leave immediately. Nothing accumulates, because a render runs in one browser
+page whose memory is finite, and a crashed render is a broken promise where a
+slower one is only slower.
 
 It returns `{ bytes, detailViolations }`. `renderStills` returns
 `{ files, detailViolations }`. **Print the violations.** They are the camera
@@ -95,8 +96,8 @@ clamp (`RETIMING_DEFAULTS.minIdleMs`/`maxIdleMs`) was removed on 2026-09-08:
 it invented a duration the take never had, squeezing a six-second pause down
 to 0.4s and stretching a 50ms one up to 120ms. In-app motion always played at
 rate 1.0 and still does. Motion is found three ways, cheapest first: a
-harvested `motionSpan`, a `keyframeOnly` degradation (SP5 reporting motion it
-could not keep), and keyframe diffing, which lives in the render layer
+harvested `motionSpan`, a `keyframeOnly` degradation (replay reporting motion
+it could not keep), and keyframe diffing, which lives in the render layer
 because it needs pixels.
 
 **Pacing.** How long the stretch between two steps plays for is carried on
@@ -150,14 +151,14 @@ A pace whose two markers the bundle does not carry is counted in
 `Timeline.unplacedPaces` rather than dropped. A rebuild that stopped early is
 the common cause and not the only one, so the count names the condition and
 leaves the cause to its caller; `Degradation.kind` carries `"pacingUnplaced"`
-as the shared word for it, and the extension's Capture lane is what says so
-to an author. Dropping one silently would be a video shorter than the take
+as the shared word for it, and the Studio's editor is what says so to an
+author. Dropping one silently would be a video shorter than the take
 with nothing to tell it apart from a take that was simply short — the exact
 defect this feature exists to remove.
 
 ## The `FrameBundle` contract
 
-`src/bundle.ts` is SP6's input and SP5's output obligation. All coordinates
+`src/bundle.ts` is this package's input and replay's output obligation. All coordinates
 are CSS pixels in the emulated viewport, so the bundle is DPR-independent;
 each frame records the pixels that actually arrived.
 
@@ -166,7 +167,7 @@ each frame records the pixels that actually arrived.
 | `keyframes` | full-resolution PNG stills, ascending | honour emulated DPR; at least one required |
 | `motionSpans` | encoded/streamed stretches of real in-app motion | routinely *smaller* than `viewport × dpr` — the screencast is capped at the physical compositor surface, and the compositor upscales |
 | `cursorSamples` | what replay actually dispatched, ascending | **required when `source: "replay"`** |
-| `anchorRects` | where each action's anchor really was, per action | **SP5 must produce these** |
+| `anchorRects` | where each action's anchor really was, per action | **replay must produce these** |
 | `markers` | the source time of each action's beat | drives the click pulse, the camera lead-in, and the default still times |
 | `degradations` | spans replay could not keep faithfully | `keyframeOnly` is read as motion, never as dead air |
 
@@ -178,7 +179,7 @@ deliverable flashes back to the pre-action page and then forward again.
 ## The five ports
 
 Everything platform-shaped is an interface in `src/ports/types.ts`, which is
-what keeps `src/**` free of extension APIs.
+what keeps `src/**` free of any one host's APIs.
 
 | Port | Production | In tests |
 | --- | --- | --- |
@@ -190,7 +191,7 @@ what keeps `src/**` free of extension APIs.
 
 The compositor does not care whether a frame was a hi-res keyframe, an
 upscaled motion frame, or a rectangle drawn on a canvas — which is exactly
-what let SP6 develop ahead of SP5.
+what let this package be built ahead of replay.
 
 ## Testing: two fixture tiers
 
@@ -222,8 +223,8 @@ pnpm --filter @demoman/compositor render:fixture  # → packages/compositor/.fix
 
 The render script bundles `scripts/render-entry.ts` with esbuild and runs it
 in headless Chromium, because the renderer needs `OffscreenCanvas` and
-WebCodecs and Node has neither — the same arrangement as the extension's
-offscreen document. It prints every detail clamp.
+WebCodecs and Node has neither — the same arrangement as `apps/runner`'s
+render page. It prints every detail clamp.
 
 `scripts/fixture-scene.ts` carries the anchor rects the page actually lays
 out. They are load-bearing: `planScene` is frameless, so the planned cursor
@@ -249,11 +250,12 @@ they may use `node:fs`.
 - **One H.264 generation on motion spans.** A harvested span is already
   encoded; recomposing it means decode → compose → re-encode.
 - **No audio.** Nothing in the pipeline carries or muxes an audio track.
-- **No App Store preview output.** Out of scope for Part I.
-- **Solid and gradient backgrounds only.** The presented background is
-  `branding.background`, painted as stored (schema v6): a solid colour or a
-  two-stop linear gradient at a CSS angle. Image backgrounds are not yet
-  supported.
+- **No App Store preview output.**
+- **Image backgrounds need the caller's pixels.** The presented background
+  is `branding.background`: a solid colour, a two-stop linear gradient at a
+  CSS angle, a built-in wallpaper or an uploaded image. A wallpaper or image
+  is drawn from the decoded image the caller passes in
+  (`Presentation.wallpaper`); without one the neutral is painted.
 - **The frame shadow's scale is an approximation under `cover`.**
   `drawFrameChrome` sizes both shadow passes from `frameRect.height / 800`,
   which reads the frame's height as if it still corresponded to an 800 px

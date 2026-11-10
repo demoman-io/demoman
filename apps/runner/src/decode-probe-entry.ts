@@ -1,13 +1,14 @@
 /**
- * The test-only DECODE probe: everything in this lane that has to look at
- * the pixels of an mp4 the runner produced goes through this file.
+ * The DECODE probe: everything that has to look at the pixels of an mp4
+ * the runner produced goes through this file, the tests and refresh's
+ * `samePicture` alike.
  *
  * Split out of `mux-entry.ts` on Task 11's fix round 1 (as
  * `mux-probe-entry.ts`) after a reviewer measured what folding a probe into
  * a production entry costs: `mux-entry.ts` alone (`muxSpan`/`readChunk`,
  * what a real replay run actually needs) is 987,225 bytes; with mediabunny's
  * demux side added it was 1,657,504 — ~654 KB, ~40%, of dead weight injected
- * into the page on every real run for a codepath only a test ever calls.
+ * into the page on every real run for a codepath no run ever calls.
  * Renamed on Task 13, when the acceptance test needed the same decode with
  * the pixels read back: two probe files would have been the same 654 KB
  * duplicated behind two globals, and `decodeFrame` and `sampleFrames` are

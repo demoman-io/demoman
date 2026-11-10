@@ -67,8 +67,8 @@ const EDITABLE = "input, textarea, [contenteditable]";
  * like the rule: a wrapper holding a password field hides what is typed
  * into it even if the keys would land in another field.
  *
- * The extension's sensor asks `isCredentialField` of the element that
- * received the keys, so it never needs this.
+ * The runner's injected page code passes this to `captureForIntent` as its
+ * credential rule (`apps/runner/src/executor/executor-entry.ts`).
  */
 export function focusesCredentialField(el: Element): boolean {
   if (isCredentialField(el)) return true;

@@ -45,10 +45,11 @@ vi.mock("@demoman/compositor", async (importOriginal) => {
     detectKeyframeMotion: async () => [],
     hoverVerdicts: async () => [],
     // The rendered boot's bundle carries motion spans, and the real video
-    // source decodes every one up front through `bundles.load` — the real
-    // IndexedDB frame store, which jsdom does not have. That threw
-    // `indexedDB is not defined` into `refreshHints` on every rendered test,
-    // so each ran with the hover check in its FAILURE state. The spans stay
+    // source decodes every one up front through `bundles.load` and
+    // WebCodecs, which this lane has not got. In the extension that load was
+    // the IndexedDB frame store, and it threw `indexedDB is not defined` into
+    // `refreshHints` on every rendered test, so each ran with the hover
+    // check in its FAILURE state. The spans stay
     // in the bundle (Shift+Delete's pause is measured against them); only
     // the decode is replaced, by the lazy image source, which loads nothing
     // until something draws.

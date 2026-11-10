@@ -2,16 +2,14 @@
  * The in-page half of the runner's `PageAgent` port.
  *
  * Bundled into an IIFE by `bundle-js.ts` and injected into every frame with
- * `page.addInitScript`, standing in for the extension's sensor content
- * script — which is not here, because the whole point of `apps/runner` is a
- * replay with no extension anywhere.
+ * `page.addInitScript`.
  *
  * It imports `@demoman/replay-engine/page`, the subpath the engine's
  * extraction opened for exactly this, and `@demoman/resolver`'s own frame
  * matcher. It must NOT reimplement any of them: a divergent double of
  * `resolveForReplay` is how the same-origin parking bug hid behind
  * `selectorPageAgent` for weeks — a test helper more correct than
- * production, so the extension lane's frame coverage proved the engine's CDP
+ * production, so the retired extension lane's frame coverage proved the engine's CDP
  * frame-walking and nothing at all about where the real resolver parked.
  *
  * Two entry points, both called from node by `page-agent.ts`:

@@ -511,10 +511,9 @@ function clearNotice(): void {
 
 /**
  * Where a fire-and-forget action lands on an outright throw — a rejected
- * `sendMessage`, a store that would not open. `console.error` because this
- * is an extension page, where `error` is the level that reaches the
- * chrome://extensions Errors list, and a store that will not open is a
- * real fault, not an expected outcome that merely owes a reason.
+ * platform call, a store that would not open. `console.error` because a
+ * store that will not open is a real fault, not an expected outcome that
+ * merely owes a reason.
  */
 function reportError(context: string, error: unknown): void {
   console.error(`demoman settings: ${context} —`, error);
@@ -689,8 +688,8 @@ function act(context: string, run: () => Promise<Said>): void {
       return "failed";
     }
     // Caught: this runs fire-and-forget, and a render that rejects would
-    // otherwise be an unhandled rejection on chrome://extensions' Errors
-    // list with nothing on the page saying the action's result is stale.
+    // otherwise be an unhandled rejection with nothing on the page saying
+    // the action's result is stale.
     try {
       await render();
     } catch (error) {
@@ -838,9 +837,8 @@ const actions = {
       } catch (error) {
         return `the logo "${file.name}" could not be read as an image: ${describe(error)}`;
       }
-      // Stored where this side keeps logos; the ref is whatever it answers
-      // (`logo:<uuid>` in the extension's store, `assets/<file>` in the
-      // studio's folder).
+      // Stored where the studio keeps logos; the ref is whatever it
+      // answers (`assets/<file>` in its folder).
       const { ref } = await platform.logos.put(file);
       kitUploadNote = check.note === null ? null : { ref, note: check.note };
       return writeKit(id, async (kit) => {
@@ -999,16 +997,11 @@ const actions = {
 /**
  * Re-read when the author looks at this tab again.
  *
- * Every fact on the Sites card is decided somewhere else — Rewind and the
- * analytics rules from the popup, the production override from a drift
- * alert — so a page left open beside that work showed yesterday's answer
- * until it was reloaded. Only the theme followed a change feed.
- *
- * `visibilitychange` rather than the extension storage's change event:
- * the drift store is IndexedDB and emits no storage event, so a storage
- * listener would quietly cover two of the three site facts and miss the third —
- * which is the shape of defect this whole pass is about. Visibility
- * covers all three because it re-runs the same read the load did.
+ * The Pull requests and Export quality settings can change outside this
+ * page and have no change feed, so a page left open showed yesterday's
+ * answer until it was reloaded. Only the kits follow a change feed
+ * (below). Visibility covers every section because it re-runs the same
+ * read the load did.
  *
  * Overlap, a flurry of changes and a refresh an action's own read already
  * covers are the refresher's (src/shell/refresher.ts), which chains every

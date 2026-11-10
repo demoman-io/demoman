@@ -241,7 +241,7 @@ interface RequestInit {
  */
 export function createPlatform(
   o: {
-    /** The brand kits' lock; Web Locks otherwise, as on the extension. */
+    /** The brand kits' lock; Web Locks otherwise. */
     kitLock?: KitLock;
     /** Tests: `location.reload()` otherwise. */
     reload?: () => void;
@@ -916,7 +916,7 @@ export function createPlatform(
         const got = await answer<OutputsAnswer>(
           await request("outputs", { params: { id: takeId } }),
         );
-        // Newest first, as the extension lists its stored outputs.
+        // Newest first, as the retired extension listed its stored outputs.
         return [...got.outputs]
           .sort((a, b) => b.renderedAt.localeCompare(a.renderedAt))
           .map(outputRowOf);

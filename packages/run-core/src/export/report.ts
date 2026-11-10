@@ -138,11 +138,10 @@ export function zoomWarnings(
 }
 
 /**
- * Where a rendered file was saved, as whoever saved it says. The extension's
- * `SaveOutcome` (`adapters/downloads.ts`, through chrome.downloads) is one;
- * the CLI's folder save (`apps/runner/src/executor/save.ts`) is the other.
- * `downloadId` is Chrome's id for the download, and null when no browser
- * download made the file — never a made-up number.
+ * Where a rendered file was saved, as the CLI's folder save
+ * (`apps/runner/src/executor/save.ts`) says. `downloadId` was the retired
+ * extension's Chrome download id; that save always writes null, never a
+ * made-up number.
  */
 export type SavedTo =
   | {
@@ -155,9 +154,9 @@ export type SavedTo =
   | { kind: "failed"; error: string };
 
 /**
- * What the run page's Export says (spec 2026-10-01 §2.3), as `#export-report`.
- * Every way an export can end has its own `outcome`, and only `saved` means a
- * file is on disk at a path someone measured.
+ * What an export answers (spec 2026-10-01 §2.3). Every way an export can end
+ * has its own `outcome`, and only `saved` means a file is on disk at a path
+ * someone measured. These are its refusals.
  */
 export type ExportRefusal =
   | "noTakeId"
@@ -187,8 +186,8 @@ export interface ExportWarnings {
    *  a stills report only. */
   unplacedStills?: UnplacedStill[];
   /** Clicks whose zoom the video does not play as asked
-   *  (`zoomWarnings`). Absent: this door does not report them (the
-   *  extension's export, today); empty: every zoom played as asked. */
+   *  (`zoomWarnings`). Absent: this door does not report them; empty:
+   *  every zoom played as asked. */
   zooms?: ZoomWarning[];
   /** What reading the take took away from it, one sentence each
    *  (`migrateToCurrent`'s notes): schema 12 removed text overlays.
@@ -214,12 +213,11 @@ export interface ExportWarnings {
   /** A GIF the CLI rendered under a byte budget (`renderOutput`'s
    *  `gifBudget`): the widths it would not fit at, widest first, and the
    *  kept file's size — over `maxBytes` when even the narrowest did not
-   *  fit. Absent: no budget (an MP4, stills, or the extension's export). */
+   *  fit. Absent: no budget (an MP4 or stills). */
   gifSize?: GifSize;
   /** What an MP4 was made at and how big it is: the quality asked for and
    *  the saved file's size, said in the summary's head. Set only by the
-   *  CLI door's MP4 save. Absent: the extension's export (its summary is
-   *  unchanged), a GIF or stills. */
+   *  CLI door's MP4 save. Absent: a GIF or stills. */
   videoSize?: VideoSize;
   /** Stills whose asked width (`width` or `native`) the 4K cap cut: the
    *  width asked for. Absent: nothing was cut. */

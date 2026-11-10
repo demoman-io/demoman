@@ -2,9 +2,9 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 
 // A port of `staleBuild` from the extension's browser launcher (archived)
-// (ruling R7: the .mjs is never imported). CLAUDE.md's "Rebuilding the
-// extension is not reloading it": a studio serving pages older than the
-// source it is being checked against proves nothing about that source.
+// (ruling R7: the .mjs is never imported). A studio serving pages older
+// than the source it is being checked against proves nothing about that
+// source.
 
 /** The checkout-relative folder the studio build writes (Task 11; since
  *  2026-10-20 the pages build in `apps/studio`, not `apps/extension`). */

@@ -17,12 +17,12 @@ vi.mock("#platform", async (importOriginal) => ({
 
 /**
  * The render-progress broadcast, driven against the real
- * `entrypoints/editor/main.ts` with a faked `chrome` and a faked store.
+ * `entrypoints/editor/main.ts` against the memory platform.
  *
- * The offscreen renderer reports per output; what only this file can catch
+ * The renderer reports per output; what only this file can catch
  * is the editor's listener reading the report and saying nothing — the
  * dead-wire class this package's entrypoint tests exist for. The harness
- * is the one `editor-main-share.test.ts` uses.
+ * is the one the other `editor-main-*` tests use.
  */
 
 class FakeOffscreenCanvas {

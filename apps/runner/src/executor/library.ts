@@ -580,8 +580,8 @@ export function createLibrary(
           actions: doc.actions.length,
         });
       }
-      // Newest first, by when the take was made: the extension's order
-      // (`scene-store.ts`'s `newestFirst`), and what `outsideFlows` and
+      // Newest first, by when the take was made: the retired extension's
+      // order (its `scene-store.ts`'s `newestFirst`), and what `outsideFlows` and
       // the recipe promise. A folder name is a random id and says nothing
       // about age (final review 2026-10-12, Important 5).
       return [

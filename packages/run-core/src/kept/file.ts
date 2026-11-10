@@ -1,4 +1,5 @@
-// The kept-video file: everything a re-film needs, committed under .demoman/videos/.
+// The kept-flow file: everything a re-film needs, committed under .demoman/flows/
+// (.demoman/videos/ is the legacy folder, still read).
 import { type DemoScript, DemoScriptSchema } from "@demoman/scene-schema";
 import { EXPORT_QUALITY_VALUES, type ExportQuality } from "../export/target.js";
 import { unreadVersion } from "../run-host.js";

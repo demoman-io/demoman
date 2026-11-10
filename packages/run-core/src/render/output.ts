@@ -1,10 +1,8 @@
 // packages/run-core/src/render/output.ts
 //
-// One render for every door: the extension's offscreen document and the
-// CLI's render page both call `renderOutput` (moved here from the offscreen
-// renderer's `renderOne`, launch D1). Browser-only: the sinks need
-// OffscreenCanvas and WebCodecs. Naming and storing the files are the
-// callers', since each door saves differently.
+// The CLI's render page (`apps/runner/src/render-entry.ts`) calls
+// `renderOutput` (launch D1). Browser-only: the sinks need OffscreenCanvas
+// and WebCodecs. Naming and storing the files are the caller's.
 import {
   blurWallpaper,
   type ClampedRange,
@@ -51,7 +49,7 @@ import {
 } from "./mp4-cap.js";
 
 /** The exact `reason` a reclaimed range's `UnavailableSpan` carries, so the
- *  extension's export row can tell "reclaimed to free space" from a decode
+ *  Studio's editor can tell "reclaimed to free space" from a decode
  *  failure without a second copy of the string. */
 export const RECLAIMED_SPAN_REASON = "motion reclaimed to free space";
 
@@ -316,8 +314,8 @@ export async function renderOutput(input: {
    *  backwards. */
   onFrame?: FrameReport;
   /** GIF only: render as wide as `GIF_WIDTH_LADDER` allows within this many
-   *  bytes. Without it the GIF renders at `target`, as the extension's
-   *  export panel, which names the size from `targetFor`, expects. */
+   *  bytes. Without it the GIF renders at `target`, the size `targetFor`
+   *  names. */
   gifBudget?: { maxBytes: number };
   /** MP4 only: keep the file to `maxBytes`, rendering again down the
    *  rungs `capLadder` lists (frame rate, `share`, the `floor`'s frame,
@@ -329,8 +327,7 @@ export async function renderOutput(input: {
    *  once, at `target`. */
   mp4Cap?: CapTargets & { maxBytes: number };
   /** Stills only: their size and framing (`StillsOptions`). Without it the
-   *  stills render at `target`, framed as the video, as the extension's
-   *  export panel — which names the size from `targetFor` — expects. */
+   *  stills render at `target`, framed as the video. */
   stills?: StillsOptions;
   /** Stills only: the output instants to take, honoured exactly
    *  (`renderStills`' own). Absent: one still per step. */

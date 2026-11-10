@@ -326,8 +326,8 @@ describe("launch", () => {
     const launched = await launch();
     const warnings: unknown[][] = [];
     const originalWarn = console.warn;
-    // vi.spyOn(console, "warn") is a known trap in this repo's *other*
-    // browser lane (apps/extension's @vitest/browser project): the module
+    // vi.spyOn(console, "warn") is a known trap in a @vitest/browser lane
+    // (it bit the retired apps/extension's): the module
     // under test runs inside the browser page, in a different console
     // binding than the spy patches, so the spy observes nothing and the
     // assertion passes vacuously (see the "Browser-lane spy trap" note).

@@ -56,9 +56,9 @@ export interface RenderResult {
  * that frame go before the next iteration starts. So a raw `FrameSource`
  * backed by decode or network I/O is only ever asked for one frame at a
  * time, and `renderFrame` never has to know that. Encoded chunks leave
- * immediately. Nothing accumulates, because MV3 memory limits are a named
- * platform risk (v8 §9) and a crashed render is a broken promise where a
- * slower one is only slower.
+ * immediately. Nothing accumulates, because a render runs in one browser
+ * page whose memory is finite, and a crashed render is a broken promise
+ * where a slower one is only slower.
  */
 export async function renderScene(args: {
   plan: RenderPlan;
@@ -145,8 +145,8 @@ export async function renderScene(args: {
   // non-empty bytes, stored and listed beside every real render with nothing
   // to tell them apart. The resolver already worked out why (both trim sides
   // saturating at a Rebuild-shortened duration is the reachable case), so
-  // hand its sentence on rather than inventing a second one. The offscreen
-  // renderer turns this throw into `{kind:"failed", output, error}`, which
+  // hand its sentence on rather than inventing a second one. The runner's
+  // export turns this throw into `{ outcome: "renderFailed", error }`, which
   // is what puts the reason in front of the author.
   //
   // Guarded on the take having a duration at all: a bundle whose own axis is
@@ -524,7 +524,7 @@ function stillBeats(
  * and the video's camera there is not the step's zoom: the zoom on a click
  * lands just before it, and on the last step has pulled back out by then.
  *
- * - `video`: the video's camera at that instant (the extension's stills).
+ * - `video`: the video's camera at that instant (the default).
  * - `none`: the whole window. A `cover` (9:16) target, whose crop cannot
  *   show it, pans to the step at 1x.
  * - `step`: the step's own zoom, or the zoom the video holds over the step,
@@ -554,7 +554,7 @@ export async function renderStills(args: {
   /** As `renderScene`'s. */
   wallpaper?: FrameImage | null;
   /** How each still is framed (`StillCamera`). Defaults to `video`, the
-   *  framing the extension's stills have always had. */
+   *  framing the retired extension's stills always had. */
   camera?: StillCamera;
   /** Called after each still is handed to the sink — `renderScene`'s
    *  `onFrame`, one call per file. */

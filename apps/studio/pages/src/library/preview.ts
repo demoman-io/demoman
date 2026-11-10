@@ -218,9 +218,8 @@ export function createPreviewMounter<B extends PreviewBundle>(
 
     const fail = (what: string, error: unknown): void => {
       stopTimer();
-      // `console.error`, not `warn`: this page is an extension page, where
-      // `error` is the level that reaches the chrome://extensions Errors
-      // list, and a keyframe on disk that will not decode is a real fault.
+      // `console.error`, not `warn`: a keyframe on disk that will not
+      // decode is a real fault.
       console.error(`demoman library: ${what} for ${sceneId} —`, error);
       applyPreviewState(box, {
         kind: "failed",

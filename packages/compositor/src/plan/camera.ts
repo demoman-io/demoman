@@ -92,9 +92,9 @@ export const CAMERA_DEFAULTS = {
   verticalMaxScale: 1.15,
   /**
    * CSS px of page kept round a zoomed target on every side, so its edges
-   * and the cursor on it are not flush with the frame. The extension's
-   * generated zooms fit against the capture viewport with it
-   * (`zoomsForClicks`); a `cover` render fits against its own crop with it
+   * and the cursor on it are not flush with the frame. Generated zooms fit
+   * against the capture viewport with it (`zoomsForClicks`,
+   * `@demoman/run-core`); a `cover` render fits against its own crop with it
    * (`solveCamera`'s `fitWindow`).
    */
   fitMarginPx: 24,
@@ -108,8 +108,8 @@ export const CAMERA_DEFAULTS = {
    */
   actSettleMs: 400,
   /**
-   * The push-in and the pull-out at the DEFAULT smoothness — what the
-   * extension sizes a fresh zoom's length by (`zoom-defaults.ts`) and the
+   * The push-in and the pull-out at the DEFAULT smoothness — what
+   * `@demoman/run-core` sizes a fresh zoom's length by (`zoom-defaults.ts`) and the
    * editor draws an unauthored end with. A render reads the document's own
    * smoothness through `motionTimings`, so these are the timings of a take
    * that never touched the slider, not of every take.

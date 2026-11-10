@@ -59,9 +59,8 @@ export interface LibraryRow {
    *  Needs a look for since — `scenesNeedingALook`, the toolbar badge's
    *  own rule. The card flags it; the popup no longer counts it. */
   needsLook: boolean;
-  /** What the take's folder holds, from the studio's listing. Absent on the
-   *  extension, whose rows state `frameBytes` and `outputBytes` instead, and
-   *  for a folder the studio could not measure (its log says why). */
+  /** What the take's folder holds, from the studio's listing. Absent for a
+   *  folder the studio could not measure (its log says why). */
   sizeBytes?: number;
   /** Which version of its video the take is; absent for a take in none. */
   version?: number;
@@ -326,7 +325,7 @@ export const pathOf = (url: string): string => {
 
 /**
  * "Oct 19, 2:14 PM", in the reader's locale, with the year when `withYear`:
- * the one way this extension writes a moment. The library leaves the year
+ * the one way these pages write a moment. The library leaves the year
  * to its section headings; Take info has none, so it asks for the year on
  * anything outside this one (`shortTime`).
  */

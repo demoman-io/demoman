@@ -383,10 +383,10 @@ function cutsToRemoved(actions: unknown, cuts: unknown): unknown[] {
  *
  * `edits.holds` and `edits.gaps` are read with `?? []` even though both are
  * required on `SceneDocument`. Every document reaching this through
- * `migrateToCurrent` has been parsed and so has both — but the frame store
- * casts raw IndexedDB rows without parsing, and Zod's `.default([])` never
- * runs on that path, so a caller arriving with such a row must get an answer
- * rather than a TypeError.
+ * `migrateToCurrent` has been parsed and so has both — but this takes any
+ * `SceneDocument`, and one cast rather than parsed (the studio pages take
+ * the server's JSON as typed) never runs Zod's `.default([])`, so a caller arriving with such a document must get an
+ * answer rather than a TypeError.
  */
 export function migrateHoldsToGaps(doc: SceneDocument): SceneDocument {
   const holds = doc.edits.holds ?? [];

@@ -33,9 +33,10 @@ export const ENTRY_GLOBAL = "__demomanRunner";
 export const MUX_ENTRY_GLOBAL = "__demomanMux";
 
 /**
- * Where `decode-probe-entry.ts` hangs its entry point. Test-only: only
- * `mux.test.ts` and `acceptance.test.ts` bundle and inject this script,
- * never any production path. It exists as its own bundle, under its own
+ * Where `decode-probe-entry.ts` hangs its entry point. No run or export
+ * injects it: refresh's `samePicture` (`executor/same-picture.ts`) does, on
+ * a work page of its own, and so do `mux.test.ts` and `acceptance.test.ts`.
+ * It exists as its own bundle, under its own
  * global, specifically so the decode side it carries (`mediabunny`'s demux
  * — `Input`/`ALL_FORMATS`/`CanvasSink`) never reaches the ~654 KB into the
  * script `mux.ts` injects on a real replay run that living inside
@@ -94,8 +95,8 @@ export const RENDER_PROBE_GLOBAL = "__demomanRenderProbe";
  */
 
 /**
- * Where `fingerprint-probe-entry.ts` hangs its entry point. Test-only, the
- * same way `DECODE_PROBE_GLOBAL` is: only `test/fixture.ts` bundles and
+ * Where `fingerprint-probe-entry.ts` hangs its entry point. Test-only:
+ * only `test/fixture.ts` bundles and
  * injects that script, and it does so additively — the probe and
  * `ENTRY_GLOBAL`'s resolver coexist on one page, because the fixture guard
  * asks both of them about the same document in the same test file.

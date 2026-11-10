@@ -1,8 +1,7 @@
 // packages/run-core/src/runs-route.ts
 import type { SceneDocument } from "@demoman/scene-schema";
 
-// Moved from apps/extension/src/shell/runs-link.ts (launch prep defect 2,
-// 2026-10-14), so every wording stays one copy.
+// One copy of every wording (launch prep defect 2, 2026-10-14).
 
 /** Whether a script made this take. The one decision every "re-shoot it" /
  *  "run its script again" wording reads, so no surface keeps its own. */

@@ -11,7 +11,7 @@ import type { FileType } from "./jobs";
 export type ExportRun =
   | { phase: "idle" }
   /** Waiting its turn behind other exports (the studio's queue). `position`
-   *  is how many are ahead; 0 is next. The extension never queues. */
+   *  is how many are ahead; 0 is next. */
   | { phase: "queued"; position: number }
   | { phase: "encoding"; done: number; total: number }
   | { phase: "saving" };
@@ -34,7 +34,7 @@ export type ExportRun =
 export type ExportReadiness = { kind: "exact" } | { kind: "noFrames" };
 
 /** How one stored output's save through the browser's downloads ended
- *  (the extension's; the studio's server saves its own files). */
+ *  (the retired extension's; the studio's server saves its own files). */
 export type SaveOutcome =
   | { kind: "saved"; downloadId: number; savedAs: string; path: string | null }
   | { kind: "cancelled" }
@@ -53,8 +53,8 @@ export type SaveView =
       /** What "Show in folder" reveals; null when this side has nothing to
        *  show (no button is drawn). */
       reveal: RevealTarget | null;
-      /** The studio's one-sentence account of the export; null on the
-       *  extension. */
+      /** The studio's one-sentence account of the export; the retired
+       *  extension sent null. */
       summary: string | null;
       /** The stored outputs this save describes, whose warnings the panel
        *  draws under its outcome row. Empty on the studio, whose `summary`

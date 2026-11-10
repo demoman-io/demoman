@@ -111,8 +111,9 @@ export interface StepReport {
   loadSeen?: boolean;
 }
 
-/** Which executor ran the script: the browser extension, or the CLI's own
- *  Chromium (spec 2026-10-12). Every report says so. */
+/** Which executor ran the script: the CLI's own Chromium (spec 2026-10-12),
+ *  or the retired browser extension on an older report. Every report says
+ *  so. */
 export type Executor = "extension" | "cli";
 
 /** The code a run filmed: the tree on disk when it started (every file git

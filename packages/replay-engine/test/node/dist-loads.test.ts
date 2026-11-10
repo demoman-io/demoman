@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
  * The one thing no other test in this repo can say: that the compiled output
  * loads in node.
  *
- * Every other consumer of these packages is a bundler — wxt, vite, esbuild —
+ * Every other consumer of these packages is a bundler — vite, esbuild —
  * and all of them resolve extensionless relative imports and interop a CJS
  * dependency's named exports. Node does neither. `apps/runner` is the first
  * node consumer, so this is the first test that can fail on it.

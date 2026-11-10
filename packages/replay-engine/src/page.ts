@@ -1,8 +1,8 @@
 /**
  * The in-page half of replay: the code that runs inside the demoed app.
  *
- * The other door, `index.ts`, is the driver's — node, the service worker, an
- * extension page. This one is bundled into a script injected into every frame
+ * The other door, `index.ts`, is the driver's — the runner's node process.
+ * This one is bundled into a script injected into every frame
  * of somebody else's site, so it must not drag that surface with it. That is
  * the whole reason this package has a second entry point.
  *

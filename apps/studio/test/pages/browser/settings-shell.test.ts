@@ -463,7 +463,7 @@ describe.each(["light", "dark"] as const)("the Settings page, %s", (scheme) => {
       contrast(ink(`${section} h2`), surface("body")),
     ).toBeGreaterThanOrEqual(7);
     // 20px since 2026-09-21. A section heading is the same size wherever
-    // the extension draws one, and the editor's inspector is the other
+    // a page draws one, and the editor's inspector is the other
     // half of that pair — see `editor-shell.test.ts`.
     expect(getComputedStyle(node(`${section} h2`)).fontSize).toBe("20px");
     // Alone since 2026-10-08: no line of description under any section's

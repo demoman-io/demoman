@@ -10,8 +10,8 @@ import type {
  * list can say "made before your last edit" — and stop saying it after an
  * undo lands the document back where the export was made.
  *
- * `meta.toolchain` is left out: the offscreen renderer stamps the
- * compositor's version onto its copy, and that is not an edit. `meta.name`
+ * `meta.toolchain` is left out: the runner's render (`apps/runner/src/render.ts`)
+ * stamps the compositor's version onto its copy, and that is not an edit. `meta.name`
  * is left out because it changes only the file's NAME, which already
  * carries it.
  *

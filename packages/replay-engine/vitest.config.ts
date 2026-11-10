@@ -10,7 +10,7 @@ import {
 
 /**
  * The node lane is deliberately NOT aliased to the other packages' `src`
- * the way `apps/extension`'s is. Its whole subject is what `dist` does under
+ * the way `apps/studio`'s pages lanes are. Its whole subject is what `dist` does under
  * node — an alias would make every assertion here vacuous.
  *
  * `server.deps.external` matters just as much and for the same reason.

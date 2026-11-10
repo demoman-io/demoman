@@ -30,11 +30,8 @@ export interface RunnerStore extends EngineStore {
   getBundle(sceneId: string): Promise<FrameBundle | null>;
   /**
    * Removes a stored bundle **and every blob it names** — every keyframe and
-   * kept motion span ref, the same shape `apps/extension`'s IndexedDB store
-   * and its `test/helpers/frame-store.ts` fake both take (whose own comment
-   * says why: a fake that dropped only the row would let a caller that
-   * leaks blobs pass its tests and leak in the real browser). Used by the
-   * replay phase when `assertSceneWasLoaded`'s tripwire is about to fire:
+   * kept motion span ref. Used by the replay phase when
+   * `assertSceneWasLoaded`'s tripwire is about to fire:
    * the engine stores its bundle before `runReplay` returns, so a
    * blank-frame bundle — keyframes and all — is already on disk by then.
    * Dropping only the row would leave those keyframes reachable through
@@ -75,10 +72,7 @@ function parseParkedIndex(ref: string, prefix: string): number | null {
   const remainder = ref.slice(prefix.length);
   // The index segment must be the WHOLE remainder after the prefix. Without
   // this, "s1"'s prefix "park:s1:" also matches "park:s1:extra:0"'s ref (a
-  // different namespace, "s1:extra", whose name merely extends this one) —
-  // a trap a real bounded IDBKeyRange never falls into, because that key
-  // sorts above "s1"'s upper bound. See
-  // apps/extension/test/helpers/frame-store.ts's readParked.
+  // different namespace, "s1:extra", whose name merely extends this one).
   if (remainder.includes(":")) return null;
   if (!/^\d+$/.test(remainder)) return null;
   return Number(remainder);
@@ -90,8 +84,7 @@ async function ensureDir(path: string): Promise<void> {
 }
 
 /** Every blob ref a bundle names — the set `deleteBundle` must remove
- *  alongside the bundle row itself. Mirrors `apps/extension/src/adapters
- *  /frame-store.ts`'s `blobRefsOf`. */
+ *  alongside the bundle row itself. */
 function blobRefsOf(bundle: FrameBundle): string[] {
   return [
     ...bundle.keyframes.map((k) => k.ref),

@@ -59,13 +59,10 @@ import { messageOf, type Report } from "./report.js";
 const CHUNK_BYTES = 4_000_000;
 
 /**
- * The intermediate span's own encode bitrate — matches `SPAN_BITRATE` in
- * `apps/extension/src/adapters/encoder-webcodecs.ts`, the analogous
- * span-level encode on the capture side of this same seam. This mp4 is not
- * the deliverable; the render phase demuxes it and re-encodes at the
- * output target's own bitrate, so this number only has to survive one
- * more generation without visibly degrading, which is exactly what the
- * capture path already asks of the identical number.
+ * The intermediate span's own encode bitrate. This mp4 is not the
+ * deliverable; the render phase demuxes it and re-encodes at the output
+ * target's own bitrate, so this number only has to survive one more
+ * generation without visibly degrading.
  */
 const MUX_BITRATE = 12_000_000;
 
@@ -207,13 +204,11 @@ async function readChunkInPage(
  * hole, and nothing after it may be pulled earlier to fill it.
  *
  * Until 2026-10-19 the frames were spread evenly from the span's start to
- * its end, as `capture-mux.ts` still does. A replay span ends its quiet
+ * its end. A replay span ends its quiet
  * window (`SPAN_QUIET_MS`, 250 ms) after its last paint, so that put every
  * span's last frame 250 ms late and stretched the frames before it, while
  * the cursor and the camera ran on the real clock: on the site's hero the
  * cursor left a typed amount for the next click before its last key showed.
- * The extension's WebCodecs encoder has always used each frame's own time
- * (`encoder-webcodecs.ts`); this is the same rule.
  *
  * A span that throws — a corrupt frame `jpegSize` cannot parse at all, a
  * WebCodecs configuration `createMp4Sink` refuses, an http fetch that
@@ -221,7 +216,7 @@ async function readChunkInPage(
  * with every one of its claimed frames counted as lost (a span that threw
  * mid-loop may have muxed some frames and still produced nothing usable,
  * so counting only what it reached would report a partial loss for a total
- * one — the same reasoning `capture-mux.ts`'s own comment gives). The
+ * one). The
  * REASON rides on the outcome as `MuxedSpan.reason`: `kept: false` says a
  * span was lost, and the pipeline puts the why in its own sentence.
  *

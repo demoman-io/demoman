@@ -165,9 +165,10 @@ describe("scriptFromTake", () => {
       (doc.actions[2] as Extract<SceneAction, { kind: "type" }>).host = true;
       return doc;
     },
-    // Capture scrubs the origin before it reaches disk (`scrubUrl` in the
-    // extension): every query value, and any secret-looking path segment,
-    // becomes the placeholder. The page the author was on is not recoverable.
+    // The retired extension's capture scrubbed the origin before it reached
+    // disk (`scrubUrl`, now in @demoman/run-core): every query value, and any
+    // secret-looking path segment, became the placeholder. The page the
+    // author was on is not recoverable.
     scrubbedTarget: () => {
       const doc = take();
       doc.meta.capture.originUrl = `https://app.example.com/orders?q=${URL_SCRUB_PLACEHOLDER}`;

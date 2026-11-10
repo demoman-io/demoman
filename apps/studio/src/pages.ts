@@ -24,9 +24,8 @@ const TYPES: Record<string, string> = {
 };
 
 /**
- * The file each bare path stands for. `/favicon.ico` is the toolbar icon the
- * extension shows as these pages' favicon: the pages name none (the
- * manifest does, in the extension), so Chrome asks for /favicon.ico, and a
+ * The file each bare path stands for. `/favicon.ico` is Demoman's 32px
+ * icon: the pages name no favicon, so Chrome asks for /favicon.ico, and a
  * 404 there is a console error on every studio page load.
  */
 const ALIASES: Record<string, string> = {

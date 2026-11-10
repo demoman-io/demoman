@@ -68,9 +68,9 @@ export function wrapCdp(session: CDPSession): CdpSession {
 
 /**
  * The same CdpSession port the engine takes in production, backed by a
- * Playwright CDP session instead of chrome.debugger. This is the whole
- * reason the port exists: one engine, two transports, and the risky half of
- * SP5 gets tested against a real browser rather than against a fake that
+ * Playwright CDP session as the runner's is (`chrome.debugger` backed it in
+ * the retired extension). One engine over a port, so the risky half of SP5
+ * gets tested against a real browser rather than against a fake that
  * agrees with us.
  */
 export async function withReplayBrowser(

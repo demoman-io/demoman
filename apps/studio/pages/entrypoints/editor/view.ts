@@ -256,10 +256,10 @@ export function renderFailure(
     wallpaperLoadError?: string | null;
     /**
      * The take itself could not be read — the scene deleted under the
-     * editor, the extension reloaded with it open, the store refusing. The
-     * one failure here that leaves nothing else on the page to render, so
-     * it is the one `main.ts` draws on its own when `session.load()`
-     * rejects rather than through a snapshot.
+     * editor, the studio refusing the read. The one failure here that
+     * leaves nothing else on the page to render, so it is the one
+     * `main.ts` draws on its own when `session.load()` rejects rather than
+     * through a snapshot.
      */
     openError?: string | null;
     /**
@@ -594,9 +594,8 @@ function stylePreview(style: CursorStyle, scale: number): HTMLCanvasElement {
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    // An extension page: `error` and above is what reaches the Errors list
-    // on chrome://extensions, and a style button that painted no cursor is
-    // a real fault. The button still renders, labelled and selectable.
+    // `error`: a style button that painted no cursor is a real fault. The
+    // button still renders, labelled and selectable.
     console.error(
       `the cursor panel could not paint its "${style}" preview: no 2D context`,
     );
@@ -921,8 +920,8 @@ export function renderCursor(
 }
 
 export interface ExportState {
-  /** What is stored for the take: the extension's rows hold their bytes
-   *  (`stored`), the studio's are files on disk (`file`). */
+  /** What is stored for the take: the studio's are files on disk
+   *  (`file`); the retired extension's rows held their bytes (`stored`). */
   outputs: OutputRow[];
   /** The file types ticked in this panel, in `FILE_TYPES` order.
    *  Page-local. */

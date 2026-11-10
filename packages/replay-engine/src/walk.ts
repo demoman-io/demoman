@@ -7,8 +7,9 @@
  * `planScene` plans the whole path, and an authored script cannot know a
  * step's rect until the steps before it have run.
  *
- * Nothing here decides *what* to perform. See `engine.ts` for the document
- * source, which is the only caller until the authored one lands.
+ * Nothing here decides *what* to perform. Its sources are `authored.ts`
+ * (`runAuthored`, what the CLI records through) and `engine.ts` (a recorded
+ * document, for `runReplay`).
  */
 import {
   CAMERA_DEFAULTS,
@@ -398,7 +399,7 @@ export interface WalkConfig {
  * the room the camera needs before a zoomed click, and which clicks will be
  * zoomed. Given, the walk records each step's act end on its marker and
  * waits before a zoomed click until there is room. Absent, it does neither,
- * as for the extension and `runReplay`.
+ * as for `runReplay`.
  */
 export interface RoomPolicy {
   /**
@@ -459,7 +460,7 @@ export interface EngineDeps {
    * Asked once, after the opening navigation has settled and before the
    * opening keyframe (launch C). A string stops the run as `signedOut`, with
    * that string as its note, before anything is filmed; null goes on.
-   * Absent: no check, as for every extension run.
+   * Absent: no check.
    */
   landing?: () => Promise<string | null>;
   /**
@@ -477,8 +478,9 @@ export interface EngineDeps {
    * `"continuous"` (spec 2026-10-03): keep every frame the page paints, as
    * paint-run spans the recorder opens and closes itself; take a sharp
    * still whenever the page goes quiet; mark the bundle `timing: "real"`.
-   * `"sampled"`, the default and the headless runner's: spans only around
-   * a verb or an approach scroll, as before.
+   * `"sampled"`, the default: spans only around a verb or an approach
+   * scroll, as before. The runner's authored run (`apps/runner`'s `play.ts`)
+   * asks for `"continuous"`; its `replay` command takes the default.
    */
   recording?: "continuous" | "sampled";
   /** Unhurried beats; see `RoomPolicy`. Continuous recording only. */
@@ -2787,8 +2789,8 @@ export async function runWalk(
     (cursorSamples.length > 0 || anchorRects.length > 0 || pressMarked);
 
   // Assembly and persistence are ports too, and `putBundle` writes to disk —
-  // quota is the most plausible failure this extension has, since frames are
-  // by far the largest thing it stores. A throw here has to become a reported
+  // a refused write is the most plausible store failure, since frames are
+  // by far the largest thing a run stores. A throw here has to become a reported
   // run like any other rather than an exception where the caller expected a
   // result. The bundle is assigned before it is stored, so a write that fails
   // still hands the caller a valid, renderable bundle.

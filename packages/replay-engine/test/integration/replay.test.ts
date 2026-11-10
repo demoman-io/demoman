@@ -47,8 +47,8 @@ const CONTINUOUS_PAINT_FPS = 10;
  * this is the only lane where a browser gets to answer.
  *
  * **What it does not prove.** Anchor *resolution*. That is SP3's suite and
- * Task 8's browser test, and there is no extension here to inject the sensor
- * into — so the `PageAgent` is a shim that parks elements by a selector map,
+ * Task 8's browser test, and nothing here injects the sensor — so the
+ * `PageAgent` is a shim that parks elements by a selector map,
  * exactly as the compositor's `harvest-fixture.ts` does with
  * `FIXTURE_SELECTORS`. It also does not prove the encoder: WebCodecs does not
  * exist in node, so the muxer is swapped for a counting encoder that still

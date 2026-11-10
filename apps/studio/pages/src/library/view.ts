@@ -86,7 +86,7 @@ export interface LibraryActions {
   remove(id: string, kind: RowKind): void;
   /**
    * Fill this row's preview box. Injected rather than done here because it
-   * decodes keyframes off IndexedDB, which this view has no business
+   * decodes keyframes from the platform, which this view has no business
    * knowing about — and because it is the one part of a row that cannot be
    * asserted in jsdom.
    */

@@ -268,8 +268,8 @@ export type OutputRow =
 export type ExportEvent =
   | { kind: "queued"; jobId: string; position: number }
   | { kind: "rendering"; jobId: string; done: number; total: number }
-  /** One output failed and the job goes on (the extension's per-output
-   *  failure). `line` is the sentence to show. */
+  /** One output failed and the job goes on. `line` is the sentence to
+   *  show. No platform sends it now (the retired extension did). */
   | { kind: "fileFailed"; jobId: string; line: string }
   | { kind: "saving"; jobId: string }
   | { kind: "saved"; jobId: string; save: SaveView; summary: string | null }

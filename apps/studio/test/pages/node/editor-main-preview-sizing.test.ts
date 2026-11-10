@@ -243,8 +243,8 @@ describe("editor main — preview sizing", () => {
 
   /**
    * The observer's first fire lands before `session.load()` answers, and a
-   * render then reads the placeholder scene and throws — uncaught, onto
-   * chrome://extensions' Errors list. Verified failable: dropping the
+   * render then reads the placeholder scene and throws — uncaught, into a
+   * console nobody has open. Verified failable: dropping the
    * `if (!loaded) return` guard throws `Cannot read properties of undefined`
    * out of `advanceTimersByTime` below.
    */

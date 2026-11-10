@@ -83,8 +83,8 @@ function failureOf(
   return {
     reason:
       answer.outcome === "refusedBeforeExport" ? answer.reason : answer.outcome,
-    // The summary is the sentence the extension's and the agent's exports
-    // say for this outcome, built from the refusal's detail or the error.
+    // The summary is the sentence the agent's export says for this
+    // outcome, built from the refusal's detail or the error.
     detail: answer.summary,
   };
 }

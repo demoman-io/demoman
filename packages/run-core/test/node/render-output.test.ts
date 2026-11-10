@@ -430,7 +430,7 @@ describe("renderOutput's GIF size budget", () => {
     ]);
   });
 
-  // Red if the extension's door (no budget) changes size.
+  // Red if a render with no budget changes size.
   it("renders the target as given when no budget is passed", async () => {
     const out = await renderOutput({
       ...base,
@@ -776,8 +776,8 @@ describe("renderOutput's MP4 size cap", () => {
     ]);
   });
 
-  // Red if the extension's door (no cap) renders more than once or reports
-  // a cap it never asked for.
+  // Red if a render with no cap renders more than once or reports a cap it
+  // never asked for.
   it("renders once and reports no cap without one", async () => {
     sizes({ "3840@60": 900 });
     const out = await renderOutput({
@@ -880,7 +880,7 @@ describe("renderOutput's stills size and framing", () => {
     expect(asked()?.camera).toBe("step");
   });
 
-  // Red if the extension's door (no stills options) changes size or framing.
+  // Red if a render with no stills options changes size or framing.
   it("renders the target as given, framed as the video, with no options", async () => {
     const out = await stillsOf(1280);
     expect(asked()?.target.width).toBe(2560);

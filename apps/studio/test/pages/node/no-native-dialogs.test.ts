@@ -3,9 +3,9 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * The extension's pages ask with `askToConfirm` (src/shell/confirm-dialog.ts),
+ * The studio's pages ask with `askToConfirm` (src/shell/confirm-dialog.ts),
  * never with the browser's own `confirm`, `alert` or `prompt` — those paint
- * in Chrome's look, name the extension's id as their title, and cannot say
+ * in Chrome's look, name the page's origin as their title, and cannot say
  * which button Enter presses. Replaced on 2026-10-04; this keeps them out.
  */
 

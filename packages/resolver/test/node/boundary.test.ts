@@ -14,9 +14,9 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe("package boundary", () => {
-  // Roadmap boundary rule: the future-open set is apps/extension + packages/*,
-  // and resolution must run unchanged in the extension, in replay, and in the
-  // phase-2 headless runner. A chrome.* call would break all three.
+  // Boundary rule: resolution runs unchanged in the pages the runner injects
+  // it into and in replay (and ran in the Chrome extension until 2026-10-20).
+  // A chrome.* call would break both.
   it("never reaches for an extension or CDP API", () => {
     const files = sourceFiles(SRC);
     // A green run must mean the boundary held, not that the walk found

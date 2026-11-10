@@ -857,7 +857,7 @@ describe("demoman-mcp's tools", () => {
     // No total for a run: Claude Code would add "(100%)" to a line that
     // already counts steps. Red if the run's total comes back.
     expect(seen.map((p) => p.total)).toEqual([undefined, undefined]);
-    // The extension's page sends no `doing`: the count it has is of steps done.
+    // No `doing` (as the retired extension's page sent): the count is of steps done.
     expect(seen[1]?.message).toBe("Step 2 of 2 done");
   });
 
@@ -1175,7 +1175,7 @@ describe("demoman-mcp's tools", () => {
   // m1. Red if status answers only what the extension said: its description
   // promises the browser, and the protocol is the server's to state.
   // Red if the name is dropped, or a title the client never gave is invented
-  // (the extension shows a title as given).
+  // (the retired extension showed a title as given).
   it("names the agent with the client's own name when it gives no title", async () => {
     const { client, calls } = await connect(
       { videos: async () => ({ ok: true, value: { videos: [] } }) },
@@ -1291,7 +1291,7 @@ describe("demoman-mcp's tools", () => {
   });
 
   // Red if recipe answers anything but the text it was given, or needs the
-  // extension: an agent reads it before anything is connected.
+  // executor: an agent reads it before anything is connected.
   it("answers the recipe as text, without asking the extension", async () => {
     const { client, calls } = await connect({});
     const result = await client.callTool({ name: "recipe", arguments: {} });
@@ -1882,7 +1882,7 @@ describe("demoman-mcp's tools", () => {
   });
 
   // Red if the tool is registered whether or not the bin injected a studio:
-  // the extension executor and demoman-mcp have none to open.
+  // demoman-mcp has none to open.
   it("lists no Studio tool unless one was injected", async () => {
     const without = await connect({}, 200, undefined);
     expect(

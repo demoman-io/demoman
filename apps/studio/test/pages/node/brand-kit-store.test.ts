@@ -195,9 +195,9 @@ describe("update", () => {
   });
 });
 
-// Review 2026-10-08: chrome.storage has no transactions, so every read and
-// write of the kit keys runs under one lock that every page and the worker
-// share (Web Locks; this context's fallback in node).
+// Review 2026-10-08, when the kits lived in chrome.storage, which has no
+// transactions: every read and write of the kit keys runs under one lock
+// that every page shares (Web Locks; this context's fallback in node).
 describe("the kit lock", () => {
   const kitNamed = (id: string, name: string) => ({ id, name, branding: kit });
   const names = (data: Record<string, unknown>) =>

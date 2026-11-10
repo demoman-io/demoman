@@ -91,8 +91,9 @@ describe("preview render path", () => {
   });
 
   it("holds at most one source frame while scrubbing", async () => {
-    // The invariant SP6's render loop keeps, kept here too: MV3 memory is a
-    // named platform risk and a scrub is the easiest way to violate it.
+    // The invariant SP6's render loop keeps, kept here too: memory was a
+    // named platform risk under MV3, and a scrub is the easiest way to
+    // violate it.
     const { target, source, resolved, presentation, ctx, bundle } = setup();
     let inFlight = 0;
     let peak = 0;

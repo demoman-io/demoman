@@ -11,7 +11,7 @@ const FIXTURE_MADE = "2026-09-01T00:00:00Z";
  * the shell it links and the rules it keeps inline.
  *
  * Pasting the rules into this file would assert that a copy of the CSS
- * works — the copy the extension loads could drift from it without a single
+ * works — the copy the studio loads could drift from it without a single
  * test going red.
  */
 const { css } = pageParts(pageHtml, "[data-preview]");

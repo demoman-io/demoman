@@ -18,7 +18,7 @@ const EXTENSION: Record<string, string> = {
 };
 
 /**
- * A logo upload, checked by the extension's own `checkLogoFile`, written to
+ * A logo upload, checked by `checkLogoFile`, the pages' own check, written to
  * `<home>/assets/<uuid>.<ext>`. The ref is relative to the home, which is
  * how `readLogo` (and so every export) resolves it.
  */

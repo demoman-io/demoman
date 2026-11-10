@@ -427,10 +427,11 @@ describe("beat timing provenance", () => {
   });
 
   it("reads a legacy row that predates edits.gaps rather than throwing", () => {
-    // The frame store casts raw IndexedDB rows, so Zod's `.default([])` never
-    // runs on a document written before either field existed —
-    // `migrateHoldsToGaps` and `commands.ts` both write `?? []` for exactly
-    // this. Unreachable through `scene-store.ts`'s `migrateToCurrent` today;
+    // The extension's frame store cast raw IndexedDB rows, so Zod's
+    // `.default([])` never ran on a document written before either field
+    // existed — `migrateHoldsToGaps` and `commands.ts` both write `?? []` for
+    // exactly this. Unreachable today, when every take the studio reads goes
+    // through `migrateToCurrent` (apps/runner's `executor/library.ts`);
     // asserted because a row that reaches here without it took the whole
     // editor render down with a TypeError rather than degrading.
     const scene = readonlyScene();

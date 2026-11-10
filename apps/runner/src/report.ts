@@ -17,8 +17,9 @@
  * forget, which is the defect this exists to close.
  *
  * CLAUDE.md's "give the swallow somewhere to speak" — this is the
- * somewhere. `createCaptureHarvester`'s `onShotFailed` is the extension's
- * worked example of the same shape.
+ * somewhere. `finalStillFor` (`executor/final-still.ts`) is the worked
+ * example of the same shape: a run whose last frame cannot be rendered
+ * still completes, and the report's `still` says `{ unavailable: "<why>" }`.
  */
 export type Report = (line: string) => void;
 

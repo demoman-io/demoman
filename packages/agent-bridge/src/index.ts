@@ -39,30 +39,29 @@ export const JOBS_KEPT = 50;
 /** Who the agent says it is: the MCP client's own `clientInfo` (spec §5.4,
  *  amended 2026-10-03). Claude Code sends
  *  `{name: "claude-code", title: "Claude Code"}`. It rides in a request's
- *  `args` as `agent`, beside `callId`, so neither protocol changes: an older
- *  extension ignores it, and an older server's request simply has none.
- *  Self-reported, so it is a label for a person to read, never a credential;
- *  the code is still what they check. */
+ *  `args` as `agent`, beside `callId`, and the executor records it with the
+ *  video (`agentOf`); a request without one records why. Self-reported, so
+ *  it is a label for a person to read, never a credential. */
 export interface AgentName {
   name: string;
   title?: string;
 }
 export const AGENT_ARG = "agent";
 /** Longer than any client name seen, short enough that a squatter cannot
- *  write a paragraph into the prompt's heading. */
+ *  write a paragraph into the name the video records. */
 export const AGENT_NAME_MAX = 64;
 
 /** What a person cannot see, or what reorders what they see: control
  *  characters, format characters (bidi overrides and isolates, zero-width
  *  spaces and joiners, the BOM) and line or paragraph separators. A name
- *  carrying them can read as a different name on the prompt, so they go
+ *  carrying them can read as a different name where it is shown, so they go
  *  before it is stored or shown. Homoglyphs (a Cyrillic "С" in "Сlaude")
  *  are not caught here; the code is the check for those. */
 const UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 
-/** `text` as the prompt may show it: runs of whitespace made one space,
+/** `text` as a person may be shown it: runs of whitespace made one space,
  *  everything UNSEEN removed, trimmed. Applied where a name is read
- *  (`agentOf`) and again where one is shown, for an entry stored before. */
+ *  (`agentOf`); nothing outside this package calls it. */
 export function cleanAgentText(text: string): string {
   return text
     .replace(/\s+/g, " ")
@@ -111,8 +110,8 @@ export function agentOf(
   return { ok: true, agent: { name, title } };
 }
 
-/** An answer's outcome without its envelope: what a handler returns before
- *  the request id is attached. */
+/** What the executor answers a request with; `localLink` hands it to the
+ *  MCP tools as it is. */
 export type Outcome =
   | { ok: true; value: unknown }
   | { ok: false; reason: string; detail: string };

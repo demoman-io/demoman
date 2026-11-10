@@ -5,9 +5,9 @@
 // person — `@demoman/run-core`'s snapshot ("demoman snapshot: … did not
 // load"), `@demoman/replay-engine`'s walk — and under node `console.log`,
 // `info` and `debug` go to stdout, where an MCP host reads them as a broken
-// message (final review 2026-10-12, Important 1). Those packages are shared
-// with the extension, whose console levels mean something on
-// chrome://extensions, so the line is moved here, at the process boundary,
+// message (final review 2026-10-12, Important 1). Those packages were shared
+// with the extension, whose console levels meant something on
+// chrome://extensions, so the line was moved here, at the process boundary,
 // and not there.
 //
 // A module of its own, imported FIRST by index.ts: ESM evaluates a module's

@@ -18,8 +18,8 @@ import { mountShell, node, pageParts } from "../helpers/shell-css";
  * heading that crowds its cards, a page that reads unevenly — and writes
  * every state in both themes, at a laptop and a phone width, to
  * `__screenshots__/library/`. The thumbnails are painted stand-ins: the
- * real ones come off IndexedDB through the preview port, which this lane
- * does not run.
+ * real ones come from the studio (`folder.thumb`) through the preview
+ * port, which this lane does not run.
  */
 
 const { css, body: bodyHtml } = pageParts(shell, "article.card:hover");

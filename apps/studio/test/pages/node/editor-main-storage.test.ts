@@ -388,9 +388,9 @@ describe("editor main — storage lifecycle wiring", () => {
   });
 
   // FINDING 7 (whole-branch review). The post-delete navigation sat in a
-  // `void (async …)()` with no handler. On an extension page an uncaught
-  // error lands on the chrome://extensions Errors list, and the author —
-  // who just watched the delete succeed — sees what looks like a crash for
+  // `void (async …)()` with no handler. On the extension's page an uncaught
+  // error landed on the chrome://extensions Errors list, and the author —
+  // who just watched the delete succeed — saw what looked like a crash for
   // a demo that is already gone.
   //
   // The navigation became `location.assign` on 2026-09-21, which THROWS

@@ -140,7 +140,7 @@ export type KeepOutput = Omit<KeptOutput, "aspect"> & {
 
 /**
  * `demoman keep`: the video's current version as a kept file under
- * `.demoman/videos/` (everything a re-film needs, built the way a re-film
+ * `.demoman/flows/` (everything a re-film needs, built the way a re-film
  * builds its script) and its outputs exported into the repo. Every output is
  * rendered to a temp folder first, and nothing lands in the repo until all
  * of them have: a refusal leaves the repo's files as they were. The kept

@@ -48,8 +48,8 @@ export interface CaptureForIntentResult {
   /**
    * Whether the element found is a credential field, by the rule the caller
    * passed (`options.credential`). Absent when no rule was passed (the
-   * extension's sensor, unchanged); null when the rule threw, which the
-   * caller treats as a credential and says so.
+   * runner always passes one); null when the rule threw, which the caller
+   * treats as a credential and says so.
    */
   credentialField?: boolean | null;
 }
@@ -61,11 +61,8 @@ const documentOf = (): number | null =>
     : null;
 
 /**
- * The `replayCapture` round trip's actual work, factored out of the message
- * listener below so the browser lane can drive it directly against this
- * frame's own document -- no window.top gate, no postMessage plumbing --
- * exactly as `resolveForReplay` is tested. See
- * `test/browser/capture-resolved.test.ts`.
+ * The `replayCapture` round trip's work, run in the page by the runner's
+ * executor entry (`apps/runner/src/executor/executor-entry.ts`).
  *
  * Resolves `intent` with the same `resolveAnchor` call the resolve path
  * uses, and on a real match captures a FULL anchor from the element

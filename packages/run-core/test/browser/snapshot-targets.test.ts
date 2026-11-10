@@ -17,9 +17,8 @@ import {
 
 /**
  * The snapshot's walk against a real Chromium layout (spec §4.1, §7). Driven
- * directly, as `capture-resolved.test.ts` drives `captureForIntent`: the
- * browser lane runs inside an iframe, where the content script's top-frame
- * gate would refuse the message.
+ * directly: the browser lane runs inside an iframe, with no runner page
+ * entry to ask.
  *
  * The fixture holds the four shapes spec §7 names, each asserted present
  * before anything is measured against it:

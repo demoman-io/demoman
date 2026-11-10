@@ -859,7 +859,6 @@ function clipTrack(
     node.setAttribute("data-tick", tick.actionId);
     // The verb picks the mark's shape and tone (see the stylesheet).
     node.setAttribute("data-verb", tick.verb);
-    // The step's icon: drawn in the studio, hidden on the extension's page.
     const glyph = STEP_GLYPH[tick.verb];
     if (glyph !== undefined) node.append(icon(glyph));
     node.setAttribute("data-timing", tick.timing);

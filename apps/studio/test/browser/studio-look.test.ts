@@ -1197,7 +1197,7 @@ describe("timeline", () => {
 
       // The steps read by their icons here (the author, 2026-10-19), and a
       // selected step is a soft tile. Red: hide the icons in studio.css as
-      // the extension's page does, or drop the selected tile.
+      // the page's own sheet does, or drop the selected tile.
       const step = page.locator('.lane[data-lane="clip"] .tick').first();
       const icon = await step.evaluate((e) => {
         const svg = e.querySelector("svg");

@@ -45,9 +45,10 @@ export function planScene(
   const cutSteps = stepsInsideRemoved(scene);
   const attachedToCuts: AttachedEdit[] = [];
 
-  // `?? []` for the reason `migrateHoldsToGaps` writes it: the frame store
-  // casts raw IndexedDB rows, so Zod's `.default([])` never runs on a
-  // document written before either field existed. `planScene` takes any
+  // `?? []` for the reason `migrateHoldsToGaps` writes it: a document cast
+  // rather than parsed (the studio pages take the server's JSON as typed)
+  // never runs Zod's `.default([])`, so one that skipped the schema on its
+  // way lacks it. `planScene` takes any
   // `SceneDocument`, and a TypeError here would take the whole render down
   // rather than degrade.
   const gapAfter = new Map(

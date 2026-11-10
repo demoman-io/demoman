@@ -65,9 +65,9 @@ export interface TargetOptions {
 
 /**
  * Progress is per frame. `renderScene` and `renderStills` report each frame
- * they hand to a sink (`onFrame`), and the offscreen renderer forwards them
- * as `frame` reports — throttled to whole-percent changes, always including
- * the last — so the Export button can read "Exporting · 43%" rather than a
+ * they hand to a sink (`onFrame`), and the runner's render page forwards
+ * them (`apps/runner/src/render-entry.ts`) — throttled to whole-percent
+ * changes, always including the last — so the Export button can read "Exporting · 43%" rather than a
  * spinner. `started`/`output`/`failed`/`finished` still bracket the job's
  * one file type.
  */
@@ -286,22 +286,23 @@ export const MAX_STILL_SIDE = 3840;
  */
 export const GIF_BUDGET_BYTES = 10_000_000;
 
-/** Longest base name, in characters. Chrome's own limit is the
- *  filesystem's (255 bytes on most); 120 leaves room for " stills
+/** Longest base name, in characters. The filesystem's limit is 255 bytes
+ *  on most; 120 leaves room for " stills
  *  (vertical)/", an action id and a de-duplicating " (1)". */
 const MAX_BASE = 120;
 
-/** Names Windows reserves for devices, refused by Chrome's downloads API on
- *  every platform — as the whole name before the extension, in any case. */
+/** Names Windows reserves for devices, refused on every platform so a file
+ *  saved anywhere opens on Windows — as the whole name before the
+ *  extension, in any case. */
 const DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 /**
- * A take's label as a filename Chrome will accept.
+ * A take's label as a filename every platform will accept.
  *
- * Chrome's downloads API REFUSES a filename it considers unsafe rather than
- * cleaning it, so an untitled take — labelled by host and path, slash
- * included — would be a failed save. Beyond the reserved punctuation it
- * refuses `~`, every Unicode format character (Cf: the ZWJ inside a joined
+ * The rules are the ones Chrome's downloads API enforced when the retired
+ * extension saved through it, kept so a name is safe on every platform: an
+ * untitled take is labelled by host and path, slash included. Beyond the
+ * reserved punctuation they refuse `~`, every Unicode format character (Cf: the ZWJ inside a joined
  * emoji, a soft hyphen, the direction marks RTL tab titles carry), control
  * characters, and a Windows device name. Punctuation and `~` become `-`,
  * format and control characters go, leading and trailing dots and spaces go

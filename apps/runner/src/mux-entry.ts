@@ -8,10 +8,8 @@
  * to resolve against — just `fetch`, `OffscreenCanvas` and WebCodecs.
  *
  * `createMp4Sink` is `@demoman/compositor`'s mediabunny wrapper — never a
- * second encoder. `apps/extension`'s `createWebCodecsEncoder` is the
- * extension's own and cannot be imported here; writing a second one would
- * be the divergent double this design keeps refusing (see `capture-mux.ts`
- * for the same refusal on the extension's side of the same seam).
+ * second encoder. Writing one here would be the divergent double this
+ * design keeps refusing.
  *
  * **No test-only code lives in this file.** It used to carry a decode probe
  * for `mux.test.ts`'s "assert on the picture" checks, and a reviewer
@@ -19,9 +17,8 @@
  * (`muxSpan`/`readChunk`, no probe) is 987,225 bytes; with the probe's
  * `mediabunny` demux imports (`Input`/`ALL_FORMATS`/`CanvasSink`) it was
  * 1,657,504 bytes — ~654 KB, ~40%, of dead weight injected into the page on
- * every real replay run for a codepath only a test ever calls. The probe
- * now lives in `decode-probe-entry.ts`, its own bundle that only
- * `mux.test.ts` loads.
+ * every real replay run for a codepath no run ever calls. The probe now
+ * lives in `decode-probe-entry.ts`, its own bundle, which no run injects.
  */
 import { createMp4Sink, type RenderTarget } from "@demoman/compositor";
 import { MUX_ENTRY_GLOBAL } from "./entry-globals.js";
