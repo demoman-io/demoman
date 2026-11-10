@@ -51,10 +51,14 @@ beforeAll(async () => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     // Another document with a Reply button of its own: a target found
     // after a real load must still stop the run.
+    const record = RECORDS.indexOf(req.url?.slice("/orders/".length) ?? "");
     res.end(
       req.url === "/other"
         ? '<!doctype html><title>Other</title><button id="reply">Reply</button>'
-        : html,
+        : record !== -1
+          ? // Two records on one route, each linking to the other.
+            `<!doctype html><title>Order</title><button id="reply">Reply</button><a id="next" href="/orders/${RECORDS[1 - record]}">Next</a>`
+          : html,
     );
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -71,12 +75,15 @@ beforeEach(() => {
   requested = [];
 });
 
-const run = (steps: unknown[]) =>
+/** Two Mongo-style ids: each scrubs to `redacted` on disk (DEM-130). */
+const RECORDS = ["507f1f77bcf86cd799439011", "507f191e810c19729de860ea"];
+
+const run = (steps: unknown[], target = url) =>
   runScript(
     {
       scriptVersion: 6,
       name: "same document",
-      target: url,
+      target,
       viewport: { width: 1280, height: 800 },
       steps: [{ do: "waitForLoad" }, ...steps],
     } as never,
@@ -133,6 +140,30 @@ describe("an address the app changes inside one document", () => {
     expect(reply?.pageUrl, said).toMatch(/\/other$/);
     expect(reply?.failureReason, said).toBeNull();
     expect(report.outcome, said).toBe("stopped");
+    expect(report.stopped?.reason, said).toBe("pageWentElsewhere");
+  }, 120_000);
+
+  // DEM-143: a record id scrubs to `redacted` on disk, so the stored address
+  // cannot tell two records apart; the run compares the raw path instead.
+  it("stops on a load of another record on the same route", async () => {
+    const report = await run(
+      [
+        { do: "click", on: { stableId: "reply" } },
+        { do: "click", on: { stableId: "next" } },
+        { do: "click", on: { stableId: "reply" } },
+      ],
+      `${url}orders/${RECORDS[0]}`,
+    );
+    const said = JSON.stringify({ report, lines, requested });
+    // Premise: the second record was loaded, both read alike on disk, and
+    // the last step FOUND its target: only the raw path can stop the run.
+    expect(requested, said).toContain(`/orders/${RECORDS[1]}`);
+    const pages = (report.steps ?? []).map((s) => s.pageUrl);
+    expect(pages[1], said).toMatch(/\/orders\/redacted$/);
+    const reply = report.steps?.at(-1);
+    expect(reply?.pageUrl, said).toBe(pages[1]);
+    expect(reply?.failureReason, said).toBeNull();
+    expect(JSON.stringify(report), said).not.toContain(RECORDS[1]);
     expect(report.stopped?.reason, said).toBe("pageWentElsewhere");
   }, 120_000);
 });

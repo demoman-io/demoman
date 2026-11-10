@@ -21,6 +21,7 @@ import {
   newId,
   type RunReport,
   type RunSize,
+  scrubUrl,
   zoomsForClicks,
 } from "@demoman/run-core";
 import {
@@ -40,6 +41,7 @@ import {
   type LandingFacts,
   type LandingVerdict,
   landingVerdict,
+  originAndPath,
   readLandingFacts,
 } from "./landing.js";
 import { measureViewport, pageCapture } from "./page-ops.js";
@@ -270,8 +272,11 @@ export async function playOnStage(
     if (verdict.kind === "signedOut") return verdict.detail;
     if (verdict.startedElsewhere) {
       // Origin and path only, like `signin`'s sign-in page: a redirect's
-      // query can carry a token, a nonce or an invite code.
-      landingNote = { startedElsewhere: originAndPath(facts.landedUrl) };
+      // query can carry a token, a nonce or an invite code, and its path a
+      // reset or invite token (DEM-130).
+      landingNote = {
+        startedElsewhere: originAndPath(scrubUrl(facts.landedUrl)),
+      };
     }
     return null;
   };
@@ -382,7 +387,7 @@ export async function playOnStage(
         }
       } else if (stoppedOn.kind === "passwordPage") {
         log(
-          `the run stopped on ${facts.landedUrl}, which shows a password field but is not ${stoppedOn.site}'s sign-in page (${stoppedOn.signInUrl}); its own stop reason stands`,
+          `the run stopped on ${scrubUrl(facts.landedUrl)}, which shows a password field but is not ${stoppedOn.site}'s sign-in page (${scrubUrl(stoppedOn.signInUrl)}); its own stop reason stands`,
         );
       }
     }
@@ -491,16 +496,6 @@ export function stopDetail(target: string, played: Played): string | undefined {
     : walkedReason(played) === "signedOut" && failedNote !== undefined
       ? `${failedNote} Nothing was recorded.`
       : ownDetail;
-}
-
-/** A URL's origin and path; the raw text when it does not parse. */
-function originAndPath(raw: string): string {
-  try {
-    const u = new URL(raw);
-    return `${u.origin}${u.pathname}`;
-  } catch {
-    return raw;
-  }
 }
 
 /** Where a re-labelled run stopped, and why, in its own words: the step it

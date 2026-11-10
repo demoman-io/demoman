@@ -282,8 +282,8 @@ it("still writes the session back when a cookie in the file had already expired"
 }, 120_000);
 
 // Final review minor d: a redirect's query (a token, an invite) stays out
-// of the report's note.
-it("notes where the start URL went as origin and path only", async () => {
+// of the report's note; DEM-130: so does a token in its path.
+it("notes where the start URL went as origin and scrubbed path only", async () => {
   const out = (await executor.request("run", {
     video: ownVideo(),
     script: {
@@ -295,7 +295,9 @@ it("notes where the start URL went as origin and path only", async () => {
     },
   })) as { value: Report };
   expect(out.value.outcome, JSON.stringify(out.value)).toBe("complete");
-  expect(out.value.landing).toEqual({ startedElsewhere: `${app.url}/goodbye` });
+  expect(out.value.landing).toEqual({
+    startedElsewhere: `${app.url}/welcome/redacted`,
+  });
 }, 120_000);
 
 // An in-app page with a password field (change password, sudo mode) is not a

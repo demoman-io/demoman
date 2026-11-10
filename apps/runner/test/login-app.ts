@@ -306,13 +306,16 @@ export async function serveLoginApp(
         return;
       }
       case "/goodbye":
+      case "/welcome/q3Xv9_Lk2mP-wR7tYb4NcA":
         // A public page: no login, no password field.
         html(page("Goodbye", `<h1>Goodbye</h1>`, "#ffffff"));
         return;
       case "/moved":
-        // A redirect to a page that is not a sign-in page, carrying a query
-        // that must not reach the report.
-        res.writeHead(302, { location: "/goodbye?invite=tok-moved-5521" });
+        // A redirect to a page that is not a sign-in page, carrying a token
+        // in its path and a query, neither of which may reach the report.
+        res.writeHead(302, {
+          location: "/welcome/q3Xv9_Lk2mP-wR7tYb4NcA?invite=tok-moved-5521",
+        });
         res.end();
         return;
       case "/app": {

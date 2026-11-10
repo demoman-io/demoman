@@ -127,8 +127,16 @@ export interface IntentCapture {
    * next target does not exist at all: the capture FAILS, so there is no
    * anchor to read a URL from, and without this the run would report the
    * element gone and send the author to re-record a step that is fine.
+   *
+   * Scrubbed for disk, so it is the evidence the report shows, not what the
+   * run compares: two record ids on one route scrub alike. `here` is that.
    */
   pageUrl: string | null;
+  /** Which page the capture ran on, as the port's `pageKey` names it: the
+   *  raw path, for telling one page from another (DEM-143). Held in memory
+   *  and never written. Null or absent: unknown, which never tells two
+   *  pages apart. */
+  here?: string | null;
   /** From the CLI's capture (launch C): whether the field is a credential.
    *  Absent: this port does not check. Null: it could not
    *  tell. A `type` into anything but `false` or absent is stored redacted. */
@@ -770,9 +778,9 @@ export function createAuthoredRun(
               answer.document != null && answer.document === hereDoc;
             const elsewhere =
               !sameDocument &&
-              answer.pageUrl !== null &&
+              answer.here != null &&
               herePage !== null &&
-              pageKeyOf(answer.pageUrl) !== herePage;
+              pageKeyOf(answer.here) !== herePage;
             if (
               answer.anchor !== null ||
               !notThereYet ||
@@ -788,11 +796,14 @@ export function createAuthoredRun(
         let credential: boolean | null | undefined;
         /** The document the latest capture of this step ran in. */
         let answeredDoc: number | null = null;
+        /** The page it ran on (`IntentCapture.here`); never written. */
+        let answeredPage: string | null = null;
         const capture = async (wait = false): Promise<SceneAnchor | null> => {
           const answer = wait
             ? await captureWaiting(intent)
             : await deps.captureResolved(intent);
           answeredDoc = answer.document ?? null;
+          answeredPage = answer.here ?? null;
           credential = answer.credentialField;
           // Here, not at the action: a capture that fails, or a step that
           // stops after it (another page), still leaves the record knowing
@@ -833,9 +844,9 @@ export function createAuthoredRun(
          */
         const stopForFailedCapture = (): ReplayStopReason => {
           const moved =
-            record.pageUrl !== null &&
+            answeredPage !== null &&
             herePage !== null &&
-            pageKeyOf(record.pageUrl) !== herePage;
+            pageKeyOf(answeredPage) !== herePage;
           // A new address inside the same document is the step's own doing
           // (DEM-61), so a failure there is the resolver's: a missing target
           // after a row's pushState is a missing target. A client-side
@@ -911,9 +922,10 @@ export function createAuthoredRun(
           // the comparison on the next step and tell the author to add the
           // `waitForLoad` they already wrote. So that case defers to the next
           // capture exactly as `waitForLoad` does.
-          herePage = foundBeforeTheWait
-            ? null
-            : pageKeyOf(anchor.resolution.url);
+          herePage =
+            foundBeforeTheWait || answeredPage === null
+              ? null
+              : pageKeyOf(answeredPage);
           hereDoc = foundBeforeTheWait ? null : answeredDoc;
           commit(action, anchor, record, anchor.fingerprint.boundingRect);
           continue;
@@ -930,8 +942,10 @@ export function createAuthoredRun(
           return;
         }
 
-        const page = pageKeyOf(anchor.resolution.url);
-        if (herePage === null) {
+        // Unknown (a port that does not say) adopts nothing: the next capture
+        // that knows its page is compared from scratch, as after a load.
+        const page = answeredPage === null ? null : pageKeyOf(answeredPage);
+        if (page === null || herePage === null) {
           herePage = page;
           hereDoc = answeredDoc;
         } else if (page === herePage) {
@@ -969,6 +983,7 @@ export function createAuthoredRun(
             record.failureReason = answer.failureReason;
             record.pageUrl = answer.pageUrl;
             answeredDoc = answer.document ?? null;
+            answeredPage = answer.here ?? null;
             stop = stopForFailedCapture();
             return;
           }

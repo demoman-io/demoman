@@ -7,7 +7,7 @@
 // a password typed.
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { landedElsewhere } from "@demoman/run-core";
+import { landedElsewhere, scrubUrl } from "@demoman/run-core";
 import type { Page } from "playwright";
 import { EXECUTOR_ENTRY_GLOBAL, SIGN_IN_MARK } from "../entry-globals.js";
 import { launch } from "../launch.js";
@@ -21,7 +21,12 @@ import type {
 } from "./accounts.js";
 import { accountDefinition } from "./accounts.js";
 import { classifyLaunchError } from "./browser.js";
-import { landingVerdict, readLandingFacts, settle } from "./landing.js";
+import {
+  landingVerdict,
+  originAndPath,
+  readLandingFacts,
+  settle,
+} from "./landing.js";
 import { installExecutorEntry } from "./page-ops.js";
 import { takePidLock } from "./pid-lock.js";
 import {
@@ -282,17 +287,6 @@ function secretIn(
   const n = named(whole);
   return n === null ? null : `${n} in its browser storage`;
 }
-
-/** The page an address names, without query or hash; the address itself
- *  when it does not parse. */
-const originAndPath = (raw: string): string => {
-  try {
-    const u = new URL(raw);
-    return `${u.origin}${u.pathname}`;
-  } catch {
-    return raw;
-  }
-};
 
 export async function signInAccount(
   chosen: { file: AccountsFile; site: AccountsSite; account: Account },
@@ -598,7 +592,7 @@ export async function signInAccount(
         if (facts.passwordFieldVisible && wall === null) {
           return fail(
             "signInFailed",
-            `the steps for ${name} ran, but ${account.checkUrl} (checkUrl) shows a password field at ${facts.landedUrl}: it is the sign-in form, so they did not sign in — check the account exists, its password, and that checkUrl is a page only a signed-in user can open`,
+            `the steps for ${name} ran, but ${account.checkUrl} (checkUrl) shows a password field at ${scrubUrl(facts.landedUrl)}: it is the sign-in form, so they did not sign in — check the account exists, its password, and that checkUrl is a page only a signed-in user can open`,
           );
         }
         if (
@@ -607,16 +601,16 @@ export async function signInAccount(
         ) {
           return fail(
             "signInFailed",
-            `the steps for ${name} ran, but ${account.checkUrl} (checkUrl) still lands on ${facts.landedUrl}: they did not sign in — check the account exists, its password, and that the last step submits the form`,
+            `the steps for ${name} ran, but ${account.checkUrl} (checkUrl) still lands on ${scrubUrl(facts.landedUrl)}: they did not sign in — check the account exists, its password, and that the last step submits the form`,
           );
         }
         // Signed out, checkUrl redirected to `wall`; now it does not, so the
         // steps signed in and the field is the page's own (a change-password
         // page). It cannot tell signed in from signed out on a later run.
-        if (facts.passwordFieldVisible) {
+        if (facts.passwordFieldVisible && wall !== null) {
           return fail(
             "signInFailed",
-            `the steps for ${name} signed in (${account.checkUrl} no longer sends this browser to ${wall}), but ${facts.landedUrl} shows a password field, so it cannot tell signed in from signed out later — set checkUrl to a page behind the login with no password field, not a change-password page`,
+            `the steps for ${name} signed in (${account.checkUrl} no longer sends this browser to ${scrubUrl(wall)}), but ${scrubUrl(facts.landedUrl)} shows a password field, so it cannot tell signed in from signed out later — set checkUrl to a page behind the login with no password field, not a change-password page`,
           );
         }
       } catch (error) {

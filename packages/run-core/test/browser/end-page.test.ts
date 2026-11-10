@@ -31,7 +31,14 @@ describe("readEndPage", () => {
       <select aria-label="Card expiry month" autocomplete="cc-exp-month"><option selected>04</option></select>
     `;
     const end = await readEndPage(env());
-    expect(end.url).toBe(location.href);
+    // Scrubbed for `report.json` (DEM-130). Premise: vitest's own page
+    // carries a query, so the scrub has values to replace.
+    expect(new URL(location.href).searchParams.get("sessionId")).toBeTruthy();
+    const page = new URL(location.href);
+    for (const key of page.searchParams.keys()) {
+      page.searchParams.set(key, "redacted");
+    }
+    expect(end.url).toBe(page.href);
     expect(end.text).toContain("Checkout");
     expect(end.fields.map((f) => f.value)).toEqual(["4,800", "checked"]);
     // The premise: the page holds each value left out.
