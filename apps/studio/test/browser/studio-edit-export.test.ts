@@ -48,7 +48,7 @@ const EXPORT_WAIT_MS = 30_000;
 /** The span's first frame in the preview, from the press that reaches it:
  *  114-116 ms here over five runs (the span's decoder stands up on that
  *  draw). x5 for CI is 0.6 s; 15 s is room for a cold decoder on a loaded
- *  runner, where this lane runs beside the extension's lanes (ci-ts.yml). */
+ *  runner (ci-ts.yml). */
 const SPAN_PAINT_MS = 15_000;
 
 /** The span's frames are this blue behind the red text; the keyframes are

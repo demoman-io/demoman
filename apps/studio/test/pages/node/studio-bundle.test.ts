@@ -151,9 +151,9 @@ describe("the pages' build carries the HTTP side of #platform", () => {
   // extension's Stop left, the `?fixture=` door — is not in the studio's
   // pages at all, rather than present and switched off. A control the
   // studio can never fill is code nobody can reach; one a later edit
-  // switched back on would be a dead control on screen. (Settings'
-  // extension sections, Agents and sites, the library's storage panel and
-  // "Download again" are a recorded follow-up, not cut yet.)
+  // switched back on would be a dead control on screen. (The library's
+  // storage panel and "Download again" are a recorded follow-up, not cut
+  // yet; Settings' extension sections, Agents and sites, have gone.)
   it("carries none of the extension-only surfaces", () => {
     // Premise: the walk reads the editor's own code, so "absent" is read.
     expect(hits(studioJs, "data-export-start").length).toBeGreaterThan(0);

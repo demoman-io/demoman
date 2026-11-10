@@ -143,8 +143,7 @@ const HTML_TAG = /<html\b([^>]*)>/i;
  * Marks a studio page (spec 2026-10-19 §7): `data-studio` and
  * `data-theme="dark"` on `<html>`, and a link to `assets/studio.css`, the
  * sheet whose every rule sits under `[data-studio]`. Written into the HTML,
- * so the first paint is already the studio's; the extension's build never
- * runs this, so its pages keep today's look. A page with nowhere to put the
+ * so the first paint is already the studio's. A page with nowhere to put the
  * marker would render the old look in the studio without a word, so it is
  * refused instead.
  */
@@ -201,7 +200,7 @@ export default defineConfig({
   root: resolve(app, "entrypoints"),
   base: "/",
   // The fonts (`/fonts/*.woff2`) and the images the pages name by
-  // absolute path, as the extension serves them from its own root.
+  // absolute path, as the studio serves them from its own root.
   publicDir: resolve(app, "public"),
   // Not `.env.*` from `entrypoints/`: the studio build reads nothing from
   // the environment but what `define` below names.
@@ -221,10 +220,10 @@ export default defineConfig({
     outDir,
     emptyOutDir: true,
     // The pages are served from loopback to the studio's own Chrome for
-    // Testing; the wxt build targets the same engine.
+    // Testing.
     target: "esnext",
     sourcemap: false,
-    // mediabunny alone is past vite's 500 kB warning, as in the wxt build.
+    // mediabunny alone is past vite's 500 kB warning.
     chunkSizeWarningLimit: 4096,
     rollupOptions: {
       input: {

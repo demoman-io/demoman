@@ -138,7 +138,7 @@ describe("the parking encoder", () => {
     // `encoder.push` counts the frame as dropped and pushes one
     // `encodeRefused` degradation per span, with the reason, into the
     // bundle the pipeline already prints. So `push` rejects, the way the
-    // extension's WebCodecs encoder already does — and the span's `frames`
+    // retired extension's WebCodecs encoder did — and the span's `frames`
     // is still the number the mux will actually find, because the counters
     // only advance after the park lands.
     const failing = {

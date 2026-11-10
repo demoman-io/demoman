@@ -271,12 +271,11 @@ const $ = (id: string): HTMLElement => {
 
 /**
  * The take's revision as this page read it at open, then as each of its own
- * writes left it: the studio's `If-Match` (always null on the extension,
- * which keeps none). `persist()` re-reads the scene before every write to
- * merge the fields the store owns, and that re-read must NOT move this — a
- * save would then carry the revision of another window's write and quietly
- * overwrite it, which is the race the studio's 409 `changedElsewhere` exists
- * to refuse (Review Focus 1).
+ * writes left it: the studio's `If-Match`. `persist()` re-reads the scene
+ * before every write to merge the fields the store owns, and that re-read
+ * must NOT move this — a save would then carry the revision of another
+ * window's write and quietly overwrite it, which is the race the studio's
+ * 409 `changedElsewhere` exists to refuse (Review Focus 1).
  */
 let sceneRevision: string | null = null;
 let sceneRevisionRead = false;
@@ -744,7 +743,7 @@ const stageFrameBox = new ResizeObserver(() => {
   //
   // Not before the take has loaded: the observer's first fire lands before
   // `session.load()` answers, and `render` on the placeholder scene throws —
-  // an uncaught error on chrome://extensions, once at boot and again on
+  // an uncaught error in the console, once at boot and again on
   // every resize after a failed load. The load's own render sizes the
   // bitmap, so nothing is owed here until then.
   if (!loaded) return;
@@ -1484,10 +1483,9 @@ function refreshDerived(snapshot: SessionSnapshot): void {
  * nothing here ever said how many frames were being dropped.
  *
  * Printed once per stretch of playback, at `info`: an expected outcome the
- * code owes a reason for, not a fault, so it stays off the Errors list on
- * chrome://extensions. Read the line it prints when you press pause — the
- * "fps drawn" figure against "asked" is the answer, and the three per-frame
- * costs after it say which stage to attack.
+ * code owes a reason for, not a fault. Read the line it prints when you
+ * press pause — the "fps drawn" figure against "asked" is the answer, and
+ * the three per-frame costs after it say which stage to attack.
  */
 /**
  * Recent per-megapixel composite costs, newest last.
@@ -1898,8 +1896,7 @@ function pickFileType(next: FileType, ticked: boolean): void {
  * build is the one running; `transition-property` is whether the animation
  * is actually in force.
  *
- * `info`, not `warn`: nothing here is wrong, and only `console.error` and
- * above reach an extension page's Errors list.
+ * `info`, not `warn`: nothing here is wrong.
  */
 console.info(
   `demoman editor: panel transition "${getComputedStyle(document.body).transitionProperty}"`,
@@ -2064,10 +2061,9 @@ function toggleZoom(): void {
  * see bigger.
  *
  * The promise is the point. Unhandled, a rejection here is an uncaught
- * rejection on an extension page, which lands on the Errors list at
- * chrome://extensions. Caught, the request is forgiven and the REASON is
- * not: `previewError` is the page-local transient channel `#failure`
- * renders — and, because an EXIT refusal leaves the document full screen
+ * rejection, and nothing on the page says why. Caught, the request is
+ * forgiven and the REASON is not: `previewError` is the page-local
+ * transient channel `#failure` renders — and, because an EXIT refusal leaves the document full screen
  * (where `#failure`, outside `#stage`, does not paint at all),
  * `renderStageBar`'s own `[data-stage-error]` renders it too. The button's
  * own label is untouched because `fullscreenchange` never fired.
@@ -3182,8 +3178,7 @@ async function startExport(
     // Every write this page still owes lands first (Review Focus 2). An
     // export pressed while an edit is being written would otherwise name the
     // revision from before it — which the studio refuses, `sceneNotSaved`,
-    // for a scene the page has in fact saved — and on the extension it would
-    // render the take without the edit. A write that failed leaves the
+    // for a scene the page has in fact saved. A write that failed leaves the
     // revision where it was, and a scene that really differs is refused
     // with the studio's own sentence below.
     await session.settled();
@@ -3463,9 +3458,10 @@ $("redo").addEventListener(
  *  (`takeBusy`, say), which have no line here and show their detail. Kept
  *  in step with the library page's own `REFUSAL_TEXT`
  *  (`entrypoints/library/main.ts`): a reason with no line and no detail
- *  reaches the author as its raw identifier. Duplicated rather than imported: the two are separate entrypoints with
- *  no shared runtime module between them, and four string literals are
- *  cheaper than a new one. */
+ *  reaches the author as its raw identifier. Duplicated rather than
+ *  imported: the two are separate entrypoints with no shared runtime
+ *  module between them, and four string literals are cheaper than a new
+ *  one. */
 const REFUSAL_TEXT: Record<string, string> = {
   recording: "a video is being recorded",
   rendering: "a render is running",
@@ -3759,10 +3755,10 @@ $("delete").addEventListener("click", () => {
     // Recordings tab behind it. Going there in this tab is the same
     // destination by the route the Back button already takes.
     //
-    // Left uncaught on an extension page, a refused navigation lands on
-    // the chrome://extensions Errors list, and the author, who just
-    // watched the delete succeed, sees what reads as a crash for a demo
-    // already gone. `openLibrary` catches it and says so on the page.
+    // Left uncaught, a refused navigation says nothing on the page, and
+    // the author, who just watched the delete succeed, is left on the
+    // editor of a demo already gone with no word why. `openLibrary`
+    // catches it and says so on the page.
     //
     // The studio's reply can carry a note — a folder it could not remove,
     // a stale export lock it cleared. This page is leaving, so the note
@@ -4237,7 +4233,7 @@ async function refreshBrandKit(): Promise<void> {
 }
 void refreshBrandKit().catch(reportError);
 if (brandKits.onChange === undefined) {
-  // Not an extension page (a fixture's faked chrome). Said once, at info:
+  // A fixture's platform with no kit change feed. Said once, at info:
   // the panel still reads the kit on boot, it just will not follow edits.
   console.info(
     "demoman: no storage change feed here, so the brand kit is read once",

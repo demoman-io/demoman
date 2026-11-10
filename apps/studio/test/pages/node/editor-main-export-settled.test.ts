@@ -12,7 +12,7 @@ import { editorDom } from "../helpers/editor-dom";
  *
  * Against the real `entrypoints/editor/main.ts`, with `#platform` replaced
  * by a platform that answers revisions the way the studio's does (the
- * extension's always answers null, so it cannot show which revision went).
+ * extension's always answered null, so it could not show which revision went).
  *
  * Production changes that redden it, made and watched go red:
  * - drop the `await session.settled()` from `startExport`: the export posts

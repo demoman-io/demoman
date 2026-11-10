@@ -399,7 +399,7 @@ export interface WalkConfig {
  * the room the camera needs before a zoomed click, and which clicks will be
  * zoomed. Given, the walk records each step's act end on its marker and
  * waits before a zoomed click until there is room. Absent, it does neither,
- * as for the extension and `runReplay`.
+ * as for `runReplay`.
  */
 export interface RoomPolicy {
   /**
@@ -460,7 +460,7 @@ export interface EngineDeps {
    * Asked once, after the opening navigation has settled and before the
    * opening keyframe (launch C). A string stops the run as `signedOut`, with
    * that string as its note, before anything is filmed; null goes on.
-   * Absent: no check, as for every extension run.
+   * Absent: no check.
    */
   landing?: () => Promise<string | null>;
   /**
@@ -2789,8 +2789,8 @@ export async function runWalk(
     (cursorSamples.length > 0 || anchorRects.length > 0 || pressMarked);
 
   // Assembly and persistence are ports too, and `putBundle` writes to disk —
-  // quota is the most plausible failure this extension has, since frames are
-  // by far the largest thing it stores. A throw here has to become a reported
+  // a refused write is the most plausible store failure, since frames are
+  // by far the largest thing a run stores. A throw here has to become a reported
   // run like any other rather than an exception where the caller expected a
   // result. The bundle is assigned before it is stored, so a write that fails
   // still hands the caller a valid, renderable bundle.

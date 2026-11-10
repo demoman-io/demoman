@@ -213,8 +213,8 @@ export function progressReading(value: unknown): {
   // A run sends no total: Claude Code would add "(50%)" to a line that
   // already says "step 2 of 4" (the author's pick, 2026-10-16).
   if (typeof v?.step === "number" && typeof v?.of === "number") {
-    // `doing` names the step in flight; the extension's page sends only the
-    // count of steps done.
+    // `doing` names the step in flight; without it (the retired extension's
+    // page sent only that) the count is of steps done.
     const where =
       typeof v.doing === "string" && v.doing !== ""
         ? `${v.doing[0]?.toUpperCase()}${v.doing.slice(1)}`

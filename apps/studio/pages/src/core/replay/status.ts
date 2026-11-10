@@ -182,12 +182,13 @@ export function replayRecoverable(replay: ReplayStatus | null): boolean {
  * than advice the policy refuses. The one caller today, the editor's
  * session, holds none: since 2026-09-28 (plan 2 of the agent door, Task 7)
  * it asks under `session.ts`'s `VOICED`, which always allows, because the
- * editor offers no run of its own and the run page reads the policy itself.
- * A stopped re-shoot is owed its reason whatever the setting now says.
+ * editor offers no run of its own. A stopped re-shoot is owed its reason
+ * whatever the setting now says.
  *
- * Worded as a re-shoot since that date: the run page's Re-shoot is the only
- * thing left that writes a replay status the editor reads, and the editor
- * has no rebuild to point at, so the advice sends the author to Runs.
+ * Worded as a re-shoot since that date. Then, the retired extension's run
+ * page wrote the replay status the editor reads; today a run the agent
+ * starts writes it (the take's `status.json`). The editor still has no
+ * rebuild to point at.
  *
  * `outcome` and `reason` are two facts, not one said twice: `outcome` says
  * how far replay got, `reason` says what went wrong, and **a complete run
@@ -208,9 +209,9 @@ export function replayRecoverable(replay: ReplayStatus | null): boolean {
  *   rebuild now); the export panel's Render was on the inspector's Demo tab,
  *   elsewhere on the page, even before that.
  * - Pressing that Render would not have helped anyway. `render:start`
- *   carries a `sceneId` and nothing else (`background.ts`), and the
- *   offscreen renderer reads the bundle back out of the store — which is
- *   precisely where this run's frames did not land. The session does not
+ *   carried a `sceneId` and nothing else (the retired extension's
+ *   `background.ts`), and its offscreen renderer read the bundle back out
+ *   of the store — which is precisely where this run's frames did not land. The session does not
  *   hold them either: `regenerate`'s `refresh()` re-reads through
  *   `bundles.active`, so the engine's in-memory bundle is gone the moment
  *   the run returns.

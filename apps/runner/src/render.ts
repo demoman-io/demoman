@@ -1,6 +1,7 @@
 /**
  * Phase two (b): the render phase. Composes the replayed (and now muxed)
- * bundle into a single mp4 and writes it to `--out`.
+ * bundle into one mp4, one gif, or a still per step (`renderToFiles`), and
+ * the pipeline writes it to `--out`.
  *
  * **Renders through run-core's `framesFor` + `renderOutput`, not the way
  * `packages/compositor/scripts/render-fixture.ts` does.** Both

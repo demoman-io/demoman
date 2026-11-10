@@ -732,10 +732,10 @@ describe("renderExport", () => {
   // ORIGINAL decode-failure case but reads as the wrong reason here, in
   // the one place the author actually reads it.
   // A stills export delivers one file per step, so a cut makes it deliver
-  // FEWER than the take has steps. The reason lived on the offscreen
-  // document's console first, which is a surface that does not exist by the
-  // time anyone looks: `offscreen-host.ts` closes that document in a
-  // `finally` as soon as its last job settles. It belongs on the row.
+  // FEWER than the take has steps. In the extension the reason lived on the
+  // offscreen document's console first, a surface that did not exist by the
+  // time anyone looked: `offscreen-host.ts` closed that document in a
+  // `finally` as soon as its last job settled. It belongs on the row.
   it("says which steps got no still, beside the output that is short of them", () => {
     drawLatest(
       root,

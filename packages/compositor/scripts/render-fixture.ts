@@ -70,8 +70,8 @@ async function main(): Promise<void> {
   const port = (server.address() as { port: number }).port;
 
   // The renderer needs OffscreenCanvas and WebCodecs, which Node has not —
-  // so this drives a real browser, exactly as the extension's offscreen
-  // document will. Nothing here is a capture of a preview surface: the page
+  // so this drives a real browser, exactly as the runner's render page
+  // does. Nothing here is a capture of a preview surface: the page
   // encodes frames it composed offline, on a fixed timeline.
   const browser = await chromium.launch();
   const page = await browser.newPage();

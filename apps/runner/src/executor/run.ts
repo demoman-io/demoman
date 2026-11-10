@@ -204,8 +204,8 @@ export function encodeLossesOf(
 /**
  * Motion the run kept and the encode lost, said where the report reads it.
  *
- * The extension encodes during the walk, so frames its encoder refuses are
- * an `encodeRefused` degradation the engine writes over the span, with a
+ * The retired extension encoded during the walk, so frames its encoder
+ * refused were an `encodeRefused` degradation the engine wrote over the span, with a
  * k-of-n note (`motion-recorder.ts`'s `refusalNote`). Here the encode happens
  * after the walk, in `muxSpans`, which says what it lost only on its return
  * value — a whole span (removed from `bundle.motionSpans`) or frames inside a

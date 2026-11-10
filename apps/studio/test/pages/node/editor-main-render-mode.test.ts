@@ -54,10 +54,12 @@ class FakeOffscreenCanvas {
   }
 }
 
-// The editor page reads frames straight from IndexedDB, which the node lane
-// has no implementation of; every read used to fail with "indexedDB is not
-// defined" and print a stack. A named refusal keeps the failure path these
-// tests exercise, and says what it is.
+// The editor page reads frames through `bundles.load`, which the memory
+// platform refuses by name for a ref it was not given. In the extension
+// they came straight from IndexedDB, which the node lane has no
+// implementation of, and every read failed with "indexedDB is not defined"
+// and printed a stack. A named refusal keeps the failure path these tests
+// exercise, and says what it is.
 // The refusal above is for the preview's DRAW. The hover check shares the
 // preview's frame source, and the real video source decodes every span when
 // it is built, so the same refusal failed the check too. The lazy image

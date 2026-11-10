@@ -4,10 +4,10 @@ import { describe, expect, it } from "vitest";
 import { markStudioPage } from "../../../pages/vite.config";
 
 // The studio build marks each of its pages (spec 2026-10-19 §7): the new
-// look applies under `[data-studio]` and only the studio build writes it, so
-// the extension's pages keep today's look. A page the build could not mark
-// would render the old look in the studio without a word, so the marker
-// refuses rather than pass it through.
+// look applies under `[data-studio]` and only the studio build writes it (the
+// extension's pages kept the old look until 2026-10-20). A page the build
+// could not mark would render the old look in the studio without a word, so
+// the marker refuses rather than pass it through.
 
 // From `__dirname`, as manifest.slow.test.ts does: vite rewrites a
 // `new URL(…, import.meta.url)` that names a folder or a template.

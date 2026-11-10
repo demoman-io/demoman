@@ -524,7 +524,7 @@ function stillBeats(
  * and the video's camera there is not the step's zoom: the zoom on a click
  * lands just before it, and on the last step has pulled back out by then.
  *
- * - `video`: the video's camera at that instant (the extension's stills).
+ * - `video`: the video's camera at that instant (the default).
  * - `none`: the whole window. A `cover` (9:16) target, whose crop cannot
  *   show it, pans to the step at 1x.
  * - `step`: the step's own zoom, or the zoom the video holds over the step,
@@ -554,7 +554,7 @@ export async function renderStills(args: {
   /** As `renderScene`'s. */
   wallpaper?: FrameImage | null;
   /** How each still is framed (`StillCamera`). Defaults to `video`, the
-   *  framing the extension's stills have always had. */
+   *  framing the retired extension's stills always had. */
   camera?: StillCamera;
   /** Called after each still is handed to the sink — `renderScene`'s
    *  `onFrame`, one call per file. */

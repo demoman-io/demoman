@@ -4,12 +4,10 @@ import { type DemoScript, DemoScriptSchema } from "@demoman/scene-schema";
 
 /**
  * The door's own envelope for a refusal that happened BEFORE `deps.run` was
- * ever called — bad JSON, a script `DemoScriptSchema` refuses, a non-http
- * target, or a second press while one is already running. `#run-report`
- * must carry SOMETHING parseable for every one of these, because an agent's
- * protocol is "poll `#run-report`, parse JSON" — it does not read
- * `#run-verdict` at all, so a refusal that only painted the verdict line
- * left `#run-report` exactly as empty as before anything happened.
+ * ever called — a script `DemoScriptSchema` refuses, a non-http target, or a
+ * second run while one is already running. The executor answers the call
+ * with it, so an agent gets SOMETHING parseable for every one of these
+ * rather than an answer that reads as if nothing happened.
  *
  * Deliberately NOT `RunReport["refused"]`: that field means the POLICY
  * refused a run that was actually attempted (a stage opened, or at least
@@ -18,7 +16,7 @@ import { type DemoScript, DemoScriptSchema } from "@demoman/scene-schema";
  * run was attempted, no window opened, no policy ever consulted. Reusing
  * `refused` would have an agent hunting for routes that do not exist, or
  * believing the mutating-replay gate refused it when its JSON was simply
- * malformed. `outcome` is the discriminator every reader of `#run-report`
+ * malformed. `outcome` is the discriminator every reader of a run's answer
  * switches on — `"complete"` | `"stopped"` | `"refused"` are `RunReport`'s
  * own three; `"refusedBeforeRun"` cannot collide with any of them, and
  * means exactly and only this.
@@ -26,36 +24,23 @@ import { type DemoScript, DemoScriptSchema } from "@demoman/scene-schema";
 export interface RefusedBeforeRun {
   outcome: "refusedBeforeRun";
   /** A stable identifier an agent can branch on without string-matching
-   *  prose — `"alreadyRunning"`, `"invalidJson"`, `"notAnObject"`,
-   *  `"invalidScript"`, `"unfilledHoles"`, `"nonHttpTarget"`,
-   *  `"unknownKit"` (`look.kit` names no kit, or one that cannot be read;
-   *  `field` is `"look.kit"`), `"kitsUnreadable"` (the kit list itself could
-   *  not be read — a fault, not a wrong name), `"wallpaperUnreadable"`
-   *  (`look.branding` names an image path that could not be read or
-   *  opened as an image; `field` is `"look.branding.background"`),
-   *  `"agentRunsOff"`, `"agentRunsUnreadable"`, and, from Re-shoot,
-   *  `"noTakeChosen"` (nothing is chosen in `#from-take`) and
-   *  `"authoredTake"` (a script-made take has no recording to replay).
-   *  `"unfilledHoles"` is an
-   *  invalid script whose refused fields include holes the last derivation
-   *  named (`#derive-report`) — a draft not yet finished, not a broken one.
-   *  Never reused for two different reasons and
-   *  never derived from `detail`. The last two are the door's own gate and
-   *  are deliberately distinct: "the author has turned this off" and "the
-   *  setting could not be read" call for different moves, and answering the
-   *  second with the first would send an agent to flip a switch that is
-   *  already where it wants it. */
+   *  prose. `checkScript` below gives `"notAnObject"`, `"invalidScript"`,
+   *  `"unfilledHoles"` and `"nonHttpTarget"`; the executor adds its own,
+   *  among them `"alreadyRunning"`, `"unknownKit"` (`look.kit` names no
+   *  kit, or one that cannot be read; `field` is `"look.kit"`),
+   *  `"kitsUnreadable"` (the kit list itself could not be read — a fault,
+   *  not a wrong name) and `"wallpaperUnreadable"` (`look.branding` names an
+   *  image path that could not be read or opened as an image; `field` is
+   *  `"look.branding.background"`). `"unfilledHoles"` is an invalid script
+   *  whose refused fields include holes the last derivation named (the
+   *  derive report) — a draft not yet finished, not a broken one. Never
+   *  reused for two different reasons and never derived from `detail`. */
   reason: string;
-  /** The same sentence `#run-verdict` shows, minus its own "Refused: … —
-   *  Nothing was run" framing — one human sentence, not painted twice with
-   *  two different wordings that could drift apart. */
+  /** One human sentence saying why, for the agent to tell the user. */
   detail: string;
   /** The zod issue path(s) for `"invalidScript"` (joined, `"target"` for
    *  `"nonHttpTarget"`), or `null` when the refusal names no single field
-   *  (`"alreadyRunning"`, `"invalidJson"`, `"notAnObject"`). For the gate's
-   *  two reasons it names the SETTING, `"allowAgentRuns"` — not a script
-   *  field, but the one identifier an agent would otherwise have to read out
-   *  of the prose. */
+   *  (`"alreadyRunning"`, `"notAnObject"`). */
   field: string | null;
 }
 /**
@@ -65,8 +50,8 @@ export interface RefusedBeforeRun {
  * `javascript:1` all pass it (verified against zod 4's own `z.url()`) — so
  * this is a SEPARATE gate, checked after the schema and before `deps.run` is
  * ever called. `apps/runner` does the same filtering, and for the same
- * reason: a `chrome-extension:` target would point a run at the extension's
- * own pages, which this file must refuse before any window opens.
+ * reason: a `chrome-extension:` target would point a run at a browser
+ * extension's own pages, which this file must refuse before any window opens.
  */
 export function isHttpUrl(value: string): boolean {
   try {

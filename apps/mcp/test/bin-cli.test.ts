@@ -10,8 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { SERVER_VERSION } from "../src/version.js";
 
 // `demoman-mcp`, spawned the way an MCP host spawns it. (bin.test.ts, about
-// the extension path's port, was archived with it on 2026-10-20.)
-// and key.
+// the extension path's port and key, was archived with it on 2026-10-20.)
 const BIN = fileURLToPath(new URL("../dist/index.js", import.meta.url));
 
 const dirs: string[] = [];

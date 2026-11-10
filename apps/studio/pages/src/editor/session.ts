@@ -185,7 +185,7 @@ function rebased(entry: SceneDocument, read: SceneDocument): SceneDocument {
  * The page owns exactly one of these and renders from `snapshot()`. Keeping
  * the coordination here rather than in `main.ts` is what makes the re-read
  * rules — including the `hoverSensitive` merge — testable with no DOM and no
- * extension.
+ * server.
  */
 export function createSession(deps: SessionDeps) {
   let state: EditorState = initEditor({} as SceneDocument);

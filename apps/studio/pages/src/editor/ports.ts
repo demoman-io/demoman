@@ -63,14 +63,15 @@ export interface StoredOutput {
    *  stored before this field existed carry none. */
   logoWarning?: string;
   /** Steps this take carries a marker for that got NO still, each with its
-   *  reason. A stills export is the only thing that sets it.
+   *  reason. Nothing sets it on a studio row today; the retired extension's
+   *  stills export did, and a CLI export reports it in its own answer.
    *
-   *  It has to reach the ROW, not a console: the offscreen document that
-   *  computes it is closed in a `finally` the moment its last job settles
-   *  (`offscreen-host.ts`), so anything logged there is gone from
-   *  chrome://extensions' Inspect views before an author can open it —
-   *  measured 2026-09-23, when exactly that was tried and there was no
-   *  `offscreen.html` left to inspect. Optional: rows stored before this
+   *  It had to reach the ROW, not a console: the retired extension's
+   *  offscreen document that computed it was closed in a `finally` the
+   *  moment its last job settled (`offscreen-host.ts`), so anything logged
+   *  there was gone from chrome://extensions' Inspect views before an
+   *  author could open it — measured 2026-09-23, when exactly that was
+   *  tried and there was no `offscreen.html` left to inspect. Optional: rows stored before this
    *  field existed carry none. */
   unplacedStills?: UnplacedStill[];
   /** `sceneDigest` of the scene this was rendered from. Optional: rows

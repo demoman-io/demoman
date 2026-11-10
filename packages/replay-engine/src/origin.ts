@@ -144,14 +144,14 @@ function isPrivateIpv4(host: string): boolean {
 /**
  * Which kind of environment a URL points at.
  *
- * Lives in this package rather than the extension because `replayPolicy` now
- * calls it: v8 §491's rule — a mutating scene may not be replayed unattended
- * against a published origin — is a policy over this answer, and the
- * headless runner cannot import an app. Its two other callers,
- * `finalize.ts` (stamping `meta.capture.originClass`) and
- * `drift/index-build.ts` (the badge checks published origins only), are
- * capture and badge concerns and import it from here; that is a known
- * naming oddity, taken over a fourth package for 102 lines.
+ * Lives in this package rather than an app because `replayPolicy` calls it
+ * (through `classifyOriginStrict`): v8 §491's rule — a mutating scene may
+ * not be replayed unattended against a published origin — is a policy over
+ * this answer, and the headless runner cannot import an app. Its other
+ * caller, `assembleAuthored` (stamping `meta.capture.originClass`), is a
+ * capture concern and imports it from here, as the retired extension's
+ * `finalize.ts` and drift badge did; that is a known naming oddity, taken
+ * over a fourth package for 102 lines.
  *
  * This folds an unparseable string into `"development"`. A policy gate must
  * NOT use it for that reason: `development` is the class the badge never

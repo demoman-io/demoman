@@ -89,8 +89,8 @@ function leadingHop(
     // A malformed path costs this signal and nothing else, which is exactly
     // what the resolver's own `frameHopOf` does with the same throw. The
     // anchor is resolved against this document and reported on its merits;
-    // diverging here would make the runner and the extension disagree about
-    // the same scene, which is worse than agreeing with a known limit.
+    // diverging here would make the runner and the resolver's own routing
+    // disagree about the same scene, which is worse than agreeing with a known limit.
     //
     // The control flow is forgiven; the reason is not. This is the one path
     // on which a *framed* anchor is resolved against the top document, and
@@ -153,7 +153,7 @@ export function isNavigationRace(error: unknown): boolean {
  *
  * The match itself is `@demoman/resolver`'s `findFrameElement`, reached
  * through the in-page entry — the same function `frameTarget` uses when the
- * resolver routes a hop itself, so the runner and the extension agree about
+ * resolver routes a hop itself, so the runner and the resolver agree about
  * which frame a hop is about, and about when it cannot tell.
  */
 async function frameForHop(
@@ -251,8 +251,8 @@ async function routeAnchor(
 }
 
 /**
- * How a resolver report reads to replay. Kept identical to the extension's
- * `createSensorPageAgent`: `ambiguous` is not a resolution, because clicking
+ * How a resolver report reads to replay. Written to match the retired
+ * extension's `createSensorPageAgent`: `ambiguous` is not a resolution, because clicking
  * one of several tied candidates is how a replay clicks the wrong row, and
  * the resolver's own `failureReason` is carried through rather than
  * recomputed — it already knows whether the element is gone, tied, or simply
@@ -388,10 +388,10 @@ export function createHeadlessPageAgent(page: Page, report: Report): PageAgent {
                     resolved: false,
                     failureReason: "notReachable",
                   }
-                : // Matched by position, not by anchor id: SceneDocument
-                  // does not require anchor ids to be unique, and keying by
-                  // id would let two anchors that share one collapse onto a
-                  // single, order-dependent report. `resolveAll` preserves
+                : // Matched by position, not by anchor id: keying by id
+                  // would let two anchors that share one collapse onto a
+                  // single, order-dependent report (SceneDocumentSchema
+                  // refuses duplicate ids, but this reads what it is given). `resolveAll` preserves
                   // the order it was given.
                   readReport(anchorId, report);
           });

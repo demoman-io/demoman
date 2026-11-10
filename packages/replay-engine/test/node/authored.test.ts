@@ -51,8 +51,8 @@ import { proceduralBundle } from "../helpers/bundles.js";
  * here is orchestration around injected dependencies. So these tests pull the
  * async generator themselves with a fake `captureResolved` and a fake clock,
  * and `walkThrough` below reproduces only the contract the source has with the
- * walk. `runAuthored` end to end is the extension's integration lane (Task 8)
- * plus the author's manual pass.
+ * walk. `runAuthored` end to end is the runner's executor lane
+ * (`apps/runner/test`) plus the author's manual pass.
  */
 
 const VIEWPORT = { width: 1000, height: 800 };
@@ -221,7 +221,7 @@ function fakeCaptures(opts: {
             candidates,
           },
         };
-        // Null on success, as the extension sends it: `anchor.resolution.url`
+        // Null on success, as `captureForIntent` sends it: `anchor.resolution.url`
         // is the same observation, read off the element that was found.
         return {
           anchor,

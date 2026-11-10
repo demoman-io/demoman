@@ -112,8 +112,8 @@ function freshStore(): RunnerStore {
 /**
  * `occlusion.ts`'s own private binding name (not exported — it has no
  * production consumer outside that module). Hardcoded here for the same
- * reason `apps/extension/test/node/replay-window.test.ts` already hardcodes
- * this identical literal: asserting against the guard's real wire protocol,
+ * reason the retired extension's `replay-window.test.ts` hardcoded this
+ * identical literal: asserting against the guard's real wire protocol,
  * not a stand-in for it.
  */
 const HEARTBEAT_BINDING = "__demomanHeartbeat";
@@ -189,8 +189,8 @@ async function assertHeartbeatBeats(
  * `bundle` comes back null — so there is nothing for the tripwire to trip
  * on, and `outcome: "partial"` / `reason: "portFailure"` is what reports
  * the break instead of a throw. This is exactly the state
- * `apps/extension/test/node/replay-window.test.ts` calls "unreachable with
- * the real engine on a healthy session" and mocks `runReplay` to reach.
+ * the retired extension's `replay-window.test.ts` called "unreachable with
+ * the real engine on a healthy session" and mocked `runReplay` to reach.
  *
  * This reaches it a different way, staying inside the real engine: the
  * page is navigated to the real app directly with `page.goto` — NOT

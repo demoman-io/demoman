@@ -250,7 +250,7 @@ describe("exportVerdict, the size of an MP4", () => {
     ).toBe("Saved /x.mp4 (1920×1080, 60 fps, 412 KB).");
   });
 
-  // The frozen extension never sets videoSize: its summary is today's.
+  // A door that never sets videoSize: its summary is today's.
   it("no videoSize, no size", () => {
     expect(exportVerdict(saved())).toBe("Saved /x.mp4 (1920×1080, 60 fps).");
   });

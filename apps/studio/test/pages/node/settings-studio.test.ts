@@ -20,19 +20,17 @@ import { captureNavigations, type Navigations } from "../helpers/navigation";
  * The Settings page on a platform with no `settings` member (the studio):
  * the real `entrypoints/settings/main.ts` and the real view, `#platform`
  * replaced by one whose kits live in memory. What this pins is that the page
- * is the Brand kit section alone there — no extension read is made, so no
- * section says it could not read one — and that the kit's store, its logos,
- * its change feed, its backup on a fresh start and its watcher's health all
- * come from the platform.
+ * draws its sections and none says it could not read one — and that the
+ * kit's store, its logos, its change feed, its backup on a fresh start and
+ * its watcher's health all come from the platform.
  *
  * Same mount pattern as `library-folder.test.ts`; the mock replaces
  * `#platform`'s `createPlatform` and keeps its other exports.
  *
  * Production changes that redden it, made and watched go red (see the task
- * report): run the extension reads whether or not `settings` is there; build
- * the `logo:` ref in the page instead of using the one `logos.put` answers;
- * subscribe to no `nav.onOpen`; leave on it without waiting for the kit
- * write in flight.
+ * report): build the `logo:` ref in the page instead of using the one
+ * `logos.put` answers; subscribe to no `nav.onOpen`; leave on it without
+ * waiting for the kit write in flight.
  */
 
 const confirmDialog = vi.hoisted(() => ({

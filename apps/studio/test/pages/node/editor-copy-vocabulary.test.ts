@@ -171,7 +171,7 @@ const CONSOLE_CALL = /^console\.\w+\(/;
  * them.
  *
  * `console.*` arguments are skipped whole. They are a developer surface —
- * CLAUDE.md's chrome://extensions Errors list — and they name the wiring by
+ * the browser's console — and they name the wiring by
  * its code name on purpose: `[demoman] editor: replay:policy not applied…` and
  * "the replay's delete hold on … could not be released" quote message
  * commands that spec §0 forbids renaming. Scanning them would force a

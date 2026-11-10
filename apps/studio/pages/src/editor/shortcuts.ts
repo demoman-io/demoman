@@ -308,8 +308,9 @@ export function comboSpoken(combo: readonly KeyToken[], mac: boolean): string {
  *
  * Unknown is not a Mac: CTRL is what the binding does everywhere else, so it
  * is the safer thing to be wrong about. `navigator.platform` would be the
- * obvious read and is deprecated; the extension platform-info API is
- * authoritative but async, and the legend draws synchronously.
+ * obvious read and is deprecated; the extension platform-info API (the
+ * retired extension's) was authoritative but async, and the legend draws
+ * synchronously.
  *
  * Named in prose rather than in code on purpose: this module is under the
  * capture-core boundary, and `test/node/boundary.test.ts` scans these files

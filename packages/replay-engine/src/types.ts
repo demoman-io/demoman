@@ -10,9 +10,9 @@ export interface Rect {
 }
 
 /**
- * CDP, narrowed to what replay uses. The browser's debugger extension API
- * satisfies it in production and a Playwright CDPSession satisfies it in the
- * integration lane — the same engine drives both, which is the only way the
+ * CDP, narrowed to what replay uses. A Playwright CDPSession satisfies it in
+ * the runner and in the integration lane (`chrome.debugger` did in the
+ * retired extension) — the same engine drives both, which is the only way the
  * CDP call sequence gets tested against a real browser rather than against
  * our assumptions about one (SP1's lesson).
  */
@@ -170,23 +170,23 @@ export interface ReplayStatus {
 /**
  * What the engine asks of a store: two methods.
  *
- * The extension's `FrameStore` declares 21, and the engine calls
- * `putKeyframe` and `putBundle` and nothing else. The other 19 are the
+ * The retired extension's `FrameStore` declared 21, and the engine calls
+ * `putKeyframe` and `putBundle` and nothing else. The other 19 were the
  * extension's storage lifecycle — sweeps, budgets, parked frames, both
  * status pairs — which reached this package because the extraction moved
  * `types.ts` wholesale.
  *
- * Declared separately rather than by narrowing that store, which has eight
- * production importers in the extension; it satisfies this interface
- * structurally, so pointing `EngineDeps` here costs no call site anything.
+ * Declared separately rather than by narrowing that store, which had eight
+ * production importers in the extension; it satisfied this interface
+ * structurally, so pointing `EngineDeps` here cost no call site anything.
  *
  * The narrowing is not tidiness. A caller outside the extension — the
  * headless runner — would otherwise implement 19 methods it has no storage
  * lifecycle for, and a `sweepOrphanBlobs` that returns 0 because there is
  * nothing to sweep is indistinguishable from one that could not run.
  *
- * Same move `core/storage/types.ts` already made with `StoragePorts`, which
- * narrows that store by `Pick` for the same reason.
+ * Same move the extension's `core/storage/types.ts` had made with
+ * `StoragePorts`, which narrowed that store by `Pick` for the same reason.
  */
 export interface EngineStore {
   putKeyframe(
@@ -457,9 +457,9 @@ export interface ReplayResult {
    * Read this and `reason` as two independent facts: "did the replay finish"
    * and "did anything fail". They are not restatements of each other, and
    * `complete` **can** carry a reason. The reachable case is a run that
-   * replayed every action and then could not *store* its bundle: quota is the
-   * most plausible failure this extension has, since frames are the largest
-   * thing it writes. That is a complete replay with `reason: "portFailure"`,
+   * replayed every action and then could not *store* its bundle: a refused
+   * write is the most plausible store failure, since frames are the largest
+   * thing a run writes. That is a complete replay with `reason: "portFailure"`,
    * and the bundle in this result is valid and renderable — it just will not
    * be there on a later `getBundle`, so a caller that means to render later
    * should re-persist it.
@@ -514,13 +514,13 @@ export interface ReplayResult {
    * nowhere else is `bundle !== null && storageRefused`, and a caller that
    * means to render later should re-persist exactly then.
    *
-   * Narrow on purpose. It exists because telemetry could not otherwise see
-   * storage exhaustion — quota is the most plausible failure this extension
-   * has, frames being the largest thing it writes, up to 200 keyframes at
-   * 1-3 MB — and a run that had already stopped for another reason kept its
-   * original `reason` (correctly) while the write survived only in the
-   * progress note, which never enters telemetry because it can quote page
-   * content. So `storageRefused` is exactly the set of runs whose bundle the
+   * Narrow on purpose. It exists because the retired extension's telemetry
+   * could not otherwise see storage exhaustion — quota was the most
+   * plausible failure it had, frames being the largest thing it wrote, up to
+   * 200 keyframes at 1-3 MB — and a run that had already stopped for another
+   * reason kept its original `reason` (correctly) while the write survived
+   * only in the progress note, which never entered telemetry because it can
+   * quote page content. So `storageRefused` is exactly the set of runs whose bundle the
    * store rejected, with no false positives to dilute it. Widening it to
    * "there is no stored bundle" would fire on every refusal and every
    * wait-only scene, and nothing else in a counters-only payload separates

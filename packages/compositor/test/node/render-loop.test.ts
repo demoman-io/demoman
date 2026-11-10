@@ -150,7 +150,7 @@ describe("renderScene", () => {
     expect(video.calls.length).toBeLessThan(expected + 3);
   });
 
-  // MV3 memory is a named platform risk (v8 §9). A render that accumulates
+  // Memory is a named platform risk (v8 §9). A render that accumulates
   // the timeline is a render that OOMs on a long demo.
   it("never holds more than one source frame in flight", async () => {
     const frames = countingFrameSource();
@@ -998,8 +998,8 @@ describe("renderScene, a trim collapsed to nothing", () => {
   // F2: `frameCount`'s `Math.max(1, ...)` floor is right for a range shorter
   // than one frame step and wrong for a range of zero — it turned a trim the
   // author had accidentally cut to nothing into a one-frame mp4 with
-  // non-empty bytes, stored and listed beside every real render. The offscreen
-  // renderer turns a throw here into `{kind:"failed", error}` per output, so
+  // non-empty bytes, stored and listed beside every real render. A throw here
+  // propagates out of the runner's render page as the export's failure, so
   // refusing is what puts the reason in front of the author.
   const scene = {
     ...readonlyScene(),

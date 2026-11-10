@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { checkoutAppOf, checkPagesFresh } from "../../src/stale.js";
 
-// The stale-pages guard for a checkout (CLAUDE.md, "Rebuilding … is not
-// reloading it"): since 2026-10-20 the pages are built from
-// `apps/studio/pages/` into `apps/studio/.output/pages/`, and a guard still
-// watching the extension's old folder would call every build fresh.
+// The stale-pages guard for a checkout: a studio serving pages older than
+// their source proves nothing about that source. Since 2026-10-20 the pages
+// are built from `apps/studio/pages/` into `apps/studio/.output/pages/`, and
+// a guard still watching the extension's old folder would call every build
+// fresh.
 
 let root = "";
 

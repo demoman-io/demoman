@@ -512,8 +512,8 @@ describe("renderToFiles", () => {
       const scene = withLogo(readonlyScene(), "9:16");
       const store = freshStore();
       const bundle = await keyframeOnlyBundle(store, scene);
-      // Premise: the extension's target for 9:16 is portrait, so a landscape
-      // file cannot be the right answer.
+      // Premise: the target for 9:16 is portrait, so a landscape file cannot
+      // be the right answer.
       const target = targetFor("mp4", "9:16", bundle, frameOf(scene));
       expect(target).toMatchObject({
         width: VERTICAL_1080.width,

@@ -3984,9 +3984,9 @@ describe("each verb draws its own beat", () => {
   };
 
   // The author, 2026-10-19: in the studio each step reads by its icon.
-  // Every tick carries its verb's; this page (the extension's) hides them
-  // and keeps the shapes below. Red: drop an entry from `STEP_GLYPH`, or
-  // the extension's `display: none` on them.
+  // Every tick carries its verb's; this page's own sheet hides them and
+  // keeps the shapes below (studio.css draws them). Red: drop an entry from
+  // `STEP_GLYPH`, or this page's `display: none` on them.
   it("gives every verb its own icon, which this page leaves unpainted", () => {
     const { tick } = mountEveryVerb("dark");
     const icons = VERBS.map((verb) =>

@@ -5,8 +5,8 @@
  * Moved out of the extension's replay-runner on 2026-09-07: these three take
  * a `CdpSession` and a `sleep` and touch no `chrome.*`, and the headless
  * runner needs all three. The rest of that file — stage windows, popup
- * surfacing, attachment sweeps, telemetry, retro truncation — is
- * irreducibly the extension's and stayed.
+ * surfacing, attachment sweeps, telemetry, retro truncation — was
+ * irreducibly the extension's and stayed, and retired with it.
  *
  * Not copied into the runner, on purpose. A second copy of the navigation's
  * coupling to `occlusion.install()` is exactly the divergent-double shape
@@ -35,7 +35,8 @@ export interface NavigatingGuardDeps {
   cdp: CdpSession;
   url: string;
   timeoutMs?: number;
-  /** The run's clock — never a bare `setTimeout`; see `createWorkerClock`. */
+  /** The run's clock — never a bare `setTimeout`; see `nodeClock` in
+   *  apps/runner/src/launch.ts. */
   sleep: (ms: number) => Promise<void>;
 }
 

@@ -48,13 +48,13 @@ export interface AgentName {
 }
 export const AGENT_ARG = "agent";
 /** Longer than any client name seen, short enough that a squatter cannot
- *  write a paragraph into the prompt's heading. */
+ *  write a paragraph into the name the video records. */
 export const AGENT_NAME_MAX = 64;
 
 /** What a person cannot see, or what reorders what they see: control
  *  characters, format characters (bidi overrides and isolates, zero-width
  *  spaces and joiners, the BOM) and line or paragraph separators. A name
- *  carrying them can read as a different name on the prompt, so they go
+ *  carrying them can read as a different name where it is shown, so they go
  *  before it is stored or shown. Homoglyphs (a Cyrillic "С" in "Сlaude")
  *  are not caught here; the code is the check for those. */
 const UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;

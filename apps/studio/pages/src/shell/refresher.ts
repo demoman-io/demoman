@@ -34,8 +34,8 @@ export function createRefresher(o: {
   /** Reads and draws the page. `keepNotice` is false for an action's own
    *  render, true for a refresh. */
   paint: (keepNotice: boolean) => Promise<void>;
-  /** Where a refresh's failure is said: `soon` is fire-and-forget, and an
-   *  extension page's unhandled rejection lands on chrome://extensions. */
+  /** Where a refresh's failure is said: `soon` is fire-and-forget, so an
+   *  unhandled rejection would say nothing on the page. */
   onRefreshFailed: (error: unknown) => void;
   /** True while a refresh must wait (the author mid-edit). */
   hold?: () => boolean;

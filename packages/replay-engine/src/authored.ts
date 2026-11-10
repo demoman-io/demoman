@@ -130,7 +130,7 @@ export interface IntentCapture {
    */
   pageUrl: string | null;
   /** From the CLI's capture (launch C): whether the field is a credential.
-   *  Absent: this port does not check (the extension). Null: it could not
+   *  Absent: this port does not check. Null: it could not
    *  tell. A `type` into anything but `false` or absent is stored redacted. */
   credentialField?: boolean | null;
   /** Which document the capture ran in (`performance.timeOrigin`): the same
@@ -238,17 +238,17 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
   ): RoomPolicy;
   /**
    * Resolves an intent against the live page and captures a real anchor from
-   * whatever it found. Task 5's round trip in the extension
-   * (`askPageToCapture`); a page-agent entry in the headless runner.
+   * whatever it found. A page-agent entry in the headless runner
+   * (`pageCapture`, apps/runner/src/executor/page-ops.ts).
    *
    * **The anchor it hands back must carry the intent's own `id`.** The run
    * mints that id, the action it synthesizes names it as its `anchorId`, and
    * the page parks the element under it for the walk to find — so an
    * implementation that minted an id of its own would produce a document whose
    * action points at an anchor it does not have, which the schema refuses (and
-   * `AuthoredResult.documentError` then reports). The extension satisfies this
-   * at `captureForIntent`, which passes `anchorId: intent.id` into
-   * `captureAnchor`; a runner-side implementation owes the same.
+   * `AuthoredResult.documentError` then reports). The runner satisfies this
+   * at `captureForIntent` (`@demoman/run-core`), which passes
+   * `anchorId: intent.id` into `captureAnchor`.
    */
   captureResolved(intent: AnchorIntent): Promise<IntentCapture>;
   /** Unique per call, for the life of the run: anchor ids and action ids are
@@ -281,17 +281,16 @@ export interface AuthoredDeps extends Omit<EngineDeps, "madeFrom" | "room"> {
   /**
    * The take's branding when the script names none (`look.branding` wins).
    * The caller's, because only the caller can read the author's brand kit:
-   * the extension passes the kit's snapshot (`brandingForTake`), which is
-   * what a recorded take gets at finalize, and `BRANDING_DEFAULTS` when there
-   * is no kit. Never defaulted here — a default in this package is how an
+   * the runner passes the kit's snapshot (`brandingForTake`), and
+   * `BRANDING_DEFAULTS` when there is no kit. Never defaulted here — a default in this package is how an
    * agent-made take came to skip the kit in the first place.
    */
   startingBranding: SceneBranding;
   /**
-   * The take's camera track, from the actions the run performed: the
-   * extension's `zoomsForClicks`, a zoom on every click, which is what a
-   * recorded take opens with. A dependency rather than an import because it
-   * lives in the extension, not in any package this one can reach.
+   * The take's camera track, from the actions the run performed:
+   * `zoomsForClicks`, a zoom on every click. A dependency rather than an
+   * import because it lives in `@demoman/run-core`, which depends on this
+   * package and so cannot be reached from it.
    * `viewport` is the run's: the zooms are fitted to what it showed.
    *
    * With the camera come the clicks it left out and why, which the take
@@ -574,8 +573,8 @@ export function createAuthoredRun(
   const origin = deps.clock.now();
   const stamp = (): number => deps.clock.now() - origin;
 
-  // The same naming `reduce` gives a recorded take's markers
-  // (`apps/extension/src/core/reduce.ts`): the verb and what it acted on, with
+  // The same naming the retired extension's `reduce` gave a recorded take's
+  // markers (`core/reduce.ts`): the verb and what it acted on, with
   // an ordinal for a repeat. A random id would satisfy the schema and fork the
   // meaning of a persisted field for authored takes alone. The ordinal is live
   // for repeated `waitForLoad` steps, which all name the document.

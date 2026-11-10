@@ -361,7 +361,7 @@ function describePreviewPicture(stats: PreviewFrameStats): string {
  * Pure, so the arithmetic is testable without a browser; the wiring that
  * feeds it lives in `entrypoints/editor/main.ts` and prints it at
  * `console.info` — an expected outcome the code owes a reason for, not a
- * fault, so it stays off the chrome://extensions Errors list.
+ * fault.
  *
  * Answers with words rather than with `NaN` when there is nothing to divide
  * by. A diagnostic that prints `NaN fps` has reported nothing while looking

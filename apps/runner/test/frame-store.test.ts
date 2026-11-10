@@ -108,13 +108,13 @@ describe("the filesystem store", () => {
   });
 
   it("deletes a bundle AND every blob it names, not just the row", async () => {
-    // The extension's own store (and its test helper's fake, whose comment
-    // says exactly why) drop the row and every referenced blob together —
-    // a fake that dropped only the row would let a caller that leaks blobs
-    // pass its tests and leak in the real browser. This is that same test
-    // for the filesystem store: `refs()` (what the render phase's http
-    // server serves from) must not still be able to hand out a keyframe or
-    // span belonging to a bundle this call was told to destroy.
+    // The retired extension's own store (and its test helper's fake, whose
+    // comment said exactly why) dropped the row and every referenced blob
+    // together — a fake that dropped only the row would let a caller that
+    // leaks blobs pass its tests and leak in the real browser. This is that
+    // same test for the filesystem store: `refs()` (what the render phase's
+    // http server serves from) must not still be able to hand out a keyframe
+    // or span belonging to a bundle this call was told to destroy.
     const kfRef = await store.putKeyframe("s1", 0, new Uint8Array([1]));
     await store.putSpan("span:s1:0", new Uint8Array([2]));
     const bundle = {

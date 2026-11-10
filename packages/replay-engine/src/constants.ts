@@ -200,7 +200,7 @@ export const CAPTURE_MAX_KEYFRAMES = 200;
  * two minutes.
  *
  * On breach, motion stops for the remainder and the take says so. It is a
- * bound on the largest transient thing this extension writes, in the same
+ * bound on the largest transient thing a take writes, in the same
  * spirit as CAPTURE_MAX_KEYFRAMES.
  */
 export const CAPTURE_MOTION_BUDGET_BYTES = 256 * 1024 * 1024;

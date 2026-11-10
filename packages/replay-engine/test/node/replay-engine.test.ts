@@ -1659,9 +1659,9 @@ describe("runReplay", () => {
     d.onProgress = (p) => {
       if (p.state === "failed") notes.push(p.note ?? "");
     };
-    // The most plausible failure this extension has: frames are the largest
-    // thing it writes, and up to 200 keyframes at 1-3 MB each is a real
-    // quota risk.
+    // The most plausible store failure: frames are the largest thing a run
+    // writes, up to 200 keyframes at 1-3 MB each (the retired extension's
+    // quota is where this was first a real risk).
     store.putBundle = async () => {
       throw new Error("QuotaExceededError");
     };
@@ -1730,7 +1730,7 @@ describe("runReplay", () => {
     // A run that throws with a span open — portFailure, a detached
     // debugger, a closed window — must still release the encoder's span
     // through recorder.teardown(); otherwise every frame it holds stays
-    // pinned for the life of the offscreen document. `recorder.open()` runs
+    // pinned for the life of the process. `recorder.open()` runs
     // before `performVerb`'s click and `recorder.close()` runs after it, so
     // throwing inside the click leaves the span open when the run's own
     // catch fires.

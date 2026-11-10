@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 
-/** `chrome.storage.local` as far as the kit store uses it: `get` with one
+/** A `KitStorageArea` as far as the kit store uses it: `get` with one
  *  key or several, `set`, `remove`. Setting `refuse.<name>` makes the next
  *  call of that name reject with it, for the failure paths. */
 export function fakeStorageArea(initial: Record<string, unknown> = {}) {

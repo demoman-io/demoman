@@ -132,13 +132,12 @@ function clearNotice(): void {
 
 /**
  * Where every fire-and-forget action below lands on an outright failure —
- * a thrown error from `sendMessage`, the scene store, or the tabs API, not
- * a replied refusal (those have their own, more specific wording). Without
- * this, the async IIFEs the actions below use to await a reply would leave
- * an unhandled rejection, which on an extension page reaches the
- * chrome://extensions Errors list as an uncaught error rather than
- * anything the author can act on. `console.error`, not `warn`: this is a
- * real fault, not an expected outcome that merely owes a reason.
+ * a thrown error from a platform call, not a replied refusal (those have
+ * their own, more specific wording). Without this, the async IIFEs the
+ * actions below use to await a reply would leave an unhandled rejection,
+ * an uncaught error in the console rather than anything the author can
+ * act on. `console.error`, not `warn`: this is a real fault, not an
+ * expected outcome that merely owes a reason.
  */
 function reportError(context: string, error: unknown): void {
   console.error(`demoman library: ${context} —`, error);
@@ -146,14 +145,12 @@ function reportError(context: string, error: unknown): void {
 }
 
 /**
- * Go to another of the extension's pages in THIS tab.
+ * Go to another of the studio's pages in THIS tab.
  *
  * `location.assign` throws synchronously on a URL the browser refuses,
  * where the tabs-API `create` this replaced rejected instead — so the
- * failure needs a `try`, not a `.catch`, and it does need one: an extension
- * page's uncaught error lands on the chrome://extensions Errors list, and
- * an author who clicked Edit and stayed put would otherwise be told
- * nothing at all. `fail`, through `reportError`, says it on the page.
+ * failure needs a `try`, not a `.catch`, and it does need one: an author
+ * who clicked Edit and stayed put would otherwise be told nothing at all. `fail`, through `reportError`, says it on the page.
  */
 function openInThisTab(url: string, context: string): void {
   try {
@@ -201,10 +198,8 @@ let saidNoObserver = false;
  * Laziness is an optimisation here, not a behaviour: with no
  * IntersectionObserver every row simply paints at once, which is correct
  * and merely more work. So the control flow is forgiven — and the reason
- * still gets said, once, at `info`. `info` and not `warn` because this page
- * is an extension page, where `warn` and above reach the
- * chrome://extensions Errors list, and this is an expected outcome rather
- * than a fault.
+ * still gets said, once, at `info`. `info` and not `warn` because this is
+ * an expected outcome rather than a fault.
  */
 const whenVisible: PreviewPorts["whenVisible"] = (box, paint) => {
   if (visibility === null) {
@@ -723,19 +718,18 @@ async function removeFromRepo(id: string): Promise<void> {
   }
 }
 
-/** A refusal's reason, in the author's terms — one of three distinct
- *  outcomes `demo:delete` can produce (refused / partly deleted / deleted),
- *  each of which must read differently. Every reason the background can
- *  send needs a line here: an unmapped one falls through to the raw
- *  identifier below. */
+/** A refusal's reason, in the author's terms. These four were the retired
+ *  extension's delete refusals; the studio refuses with its own reasons
+ *  (`takeBusy`, say), which have no line here and show their detail. Kept
+ *  in step with the editor's own `REFUSAL_TEXT`
+ *  (`entrypoints/editor/main.ts`): a reason with no line and no detail
+ *  reaches the author as its raw identifier. */
 const REFUSAL_TEXT: Record<string, string> = {
   recording: "a video is being recorded",
   rendering: "a render is running",
   sharing: "a share is in progress",
-  // A hold the background takes while a take is being replayed — since
-  // 2026-09-28 only by a re-shoot on the run page: `src/run/develop.ts` is
-  // the one sender of `replay:gate`, which takes it. An authored script run
-  // sends no `replay:gate` and takes no hold, and the editor takes none.
+  // The retired extension's hold while a re-shoot on its run page
+  // replayed a take.
   replaying: "a video is being run in Runs",
 };
 
@@ -966,10 +960,9 @@ const actions: LibraryActions = {
     const run = (async () => {
       try {
         // Through the platform's scene write, not straight into the store:
-        // on the extension that is the background's `scene:put`, which
-        // validates the document, marks it edited-after-host and refreshes
-        // the drift index, the same as an editor rename. Read back first
-        // so the rest of the document travels untouched.
+        // the studio validates the document and checks its revision, the
+        // same as an editor rename. Read back first so the rest of the
+        // document travels untouched.
         let why: string | null = null;
         try {
           const got = await scenes.get(sceneId);
@@ -1103,8 +1096,8 @@ const actions: LibraryActions = {
       if (said === "") rowStatus.delete(key);
       else rowStatus.set(key, said);
       // Fire-and-forget, so a refresh that failed has nowhere to go but
-      // here: an extension page's uncaught rejection lands on the
-      // chrome://extensions Errors list with no sentence for the author.
+      // here: uncaught, it would reach the console with no sentence for
+      // the author.
       try {
         await render();
       } catch (error) {
@@ -1384,8 +1377,7 @@ document.addEventListener("keydown", (event) => {
   box.focus();
 });
 
-// A take landed, changed or went in the studio's folder: read again. The
-// extension has no folder, and its page changes only by its own actions.
+// A take landed, changed or went in the studio's folder: read again.
 // A burst of them costs one read in flight and one after it, and a change
 // event raised by this page's own write is covered by that action's render.
 platform.folder?.onChange(() => refresher.soon());

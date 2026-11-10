@@ -232,12 +232,13 @@ export function buildTimelineView(args: {
   // hold array no longer carries the pauses this control authors.
   //
   // `?? []` here and on `holds` below for the reason `migrateHoldsToGaps`
-  // and `commands.ts` both write it: the frame store casts raw IndexedDB
-  // rows, so Zod's `.default([])` never runs on a document written before
-  // either field existed. Every path into this function today goes through
-  // `scene-store.ts`'s `migrateToCurrent`, so it is not reachable — but a
-  // row `prune` survives would throw a TypeError out of `buildTimelineView`
-  // and take the editor's whole render with it.
+  // and `commands.ts` both write it: the page casts the scene the studio
+  // sends rather than parsing it, so Zod's `.default([])` never runs here
+  // on a document written before either field existed. Every path into
+  // this function today reads a scene the studio ran through
+  // `migrateToCurrent`, so it is not reachable — but a document that
+  // skipped it would throw a TypeError out of `buildTimelineView` and take
+  // the editor's whole render with it.
   const gapAfterAction = new Map(
     (scene.edits.gaps ?? []).map((g) => [g.afterActionId, g]),
   );

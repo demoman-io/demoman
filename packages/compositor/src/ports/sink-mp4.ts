@@ -152,7 +152,7 @@ export function createMp4Sink(target: RenderTarget): VideoSink {
     },
     // Bytes or a reason, never an empty array: a 0-byte file stored as a
     // successful output is a Download button that does nothing, and the
-    // render loop, the offscreen host and the editor all read `bytes` as
+    // render loop, the runner's render page and the editor all read `bytes` as
     // "it worked".
     async finish() {
       finished = true;

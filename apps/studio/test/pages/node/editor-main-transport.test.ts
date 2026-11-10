@@ -76,8 +76,8 @@ const composeCalls = vi.hoisted(() => [] as RenderTarget[]);
  * Makes a draw SUCCEED, and cost something, for the one test that needs the
  * preview to have measured its machine.
  *
- * Every other test in this file wants the refusals below: the lane has no
- * IndexedDB and no canvas, and the named failures are the path those tests
+ * Every other test in this file wants the refusals below: the lane reads no
+ * frame and has no canvas, and the named failures are the path those tests
  * exercise. But a draw that never completes never calibrates
  * `msPerMegapixel`, so with refusals alone the adaptive playback height can
  * only ever be observed at its uncalibrated floor — and the whole feature
@@ -134,10 +134,11 @@ vi.mock("@demoman/compositor", async (importOriginal) => {
   };
 });
 
-// The editor page reads frames straight from IndexedDB, which the node lane
-// has no implementation of; every read used to fail with "indexedDB is not
-// defined" and print a stack. A named refusal keeps the failure path these
-// tests exercise, and says what it is.
+// The editor page reads frames through `bundles.load`, which refuses here by
+// name (`beforeEach`). In the extension they came straight from IndexedDB,
+// which the node lane has no implementation of, and every read failed with
+// "indexedDB is not defined" and printed a stack. A named refusal keeps the
+// failure path these tests exercise, and says what it is.
 const playButton = (): HTMLButtonElement =>
   document.querySelector("[data-transport-play]") as HTMLButtonElement;
 
@@ -655,7 +656,7 @@ describe("editor main — preview transport", () => {
    * `requestFullscreen`'s rejection, end to end: a lost user gesture, a
    * permissions policy, an element detached between click and call.
    * Unhandled, that rejection would be an uncaught rejection on this
-   * extension page, landing on the chrome://extensions Errors list — this
+   * page, landing in a console nobody has open — this
    * is the test that proves it is caught, and that the reason it names
    * reaches `#failure` rather than nowhere.
    */

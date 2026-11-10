@@ -1,6 +1,6 @@
 // apps/studio/pages/src/shell/icons.ts
 
-/** The extension's glyphs: Lucide outlines (MIT), 24-unit, stroked in the
+/** The pages' glyphs: Lucide outlines (MIT), 24-unit, stroked in the
  *  current colour. Decorative wherever they appear — every one sits
  *  beside words, or inside a control whose `aria-label` carries the name —
  *  so each is hidden from the accessibility tree. Lived in
