@@ -12,12 +12,16 @@ import { pageCapture } from "../src/executor/page-ops.js";
 const DESTROYED =
   "page.evaluate: Execution context was destroyed, most likely because of a navigation";
 
-function throwingPage(message: string, closed = false): Page {
+function throwingPage(
+  message: string,
+  closed = false,
+  url = "https://app.example.com/next",
+): Page {
   return {
     evaluate: async () => {
       throw new Error(message);
     },
-    url: () => "https://app.example.com/next",
+    url: () => url,
     isClosed: () => closed,
   } as unknown as Page;
 }
@@ -53,5 +57,25 @@ describe("pageCapture", () => {
       () => undefined,
     )({} as never);
     expect(answer.failureReason).toBe("pageFaulted");
+  });
+
+  // DEM-130: these answers reach `report.json` as `pageUrl`, and
+  // `pageWentElsewhere` compares them with the sensor's scrubbed URL.
+  it.each([
+    ["notInTree", DESTROYED],
+    ["pageFaulted", "TypeError: boom"],
+  ])("scrubs the page URL it answers %s with", async (reason, message) => {
+    const answer = await pageCapture(
+      throwingPage(
+        message,
+        false,
+        "https://app.example.com/reset/Zm9vYmFyYmF6cXV4Zm9v-YmFyYmF6cXV4Zm9vYmFy_enF1eA?t=1",
+      ),
+      () => undefined,
+    )({} as never);
+    expect(answer.failureReason).toBe(reason);
+    expect(answer.pageUrl).toBe(
+      "https://app.example.com/reset/redacted?t=redacted",
+    );
   });
 });

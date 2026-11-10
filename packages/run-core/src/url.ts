@@ -10,6 +10,24 @@ import { scrubSecrets } from "./secrets.js";
  */
 const PLACEHOLDER = "redacted";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A base64url token: `-` and `_` break the runs `scrubSecrets` sweeps for,
+ * so a reset or invite token passes it whole (DEM-130). 20+ URL-safe
+ * characters with a digit and both cases; a slug is one case, a word has no
+ * digit.
+ */
+function looksLikeToken(segment: string): boolean {
+  return (
+    /^[A-Za-z0-9_-]{20,}$/.test(segment) &&
+    /\d/.test(segment) &&
+    /[a-z]/.test(segment) &&
+    /[A-Z]/.test(segment) &&
+    !UUID.test(segment)
+  );
+}
+
 /**
  * v8's credential rule reaches URLs: a session token in a query parameter is
  * a credential on disk. Classification (mutation vs analytics) needs origin
@@ -20,8 +38,9 @@ const PLACEHOLDER = "redacted";
  * The path gets the same rule one segment at a time: a reset link, a magic
  * link or an invite carries its token as a segment, and a segment the
  * secret scrub would touch is replaced whole. The route around it stays,
- * which is what classification and the badge read. An ordinary id survives
- * -- a UUID's dashes and a date's break every run the sweeps look for.
+ * which is what classification and the badge read. So is a segment shaped
+ * like a URL-safe token (`looksLikeToken`). An ordinary id survives: a UUID
+ * is exempt, and a date's dashes break every run the sweeps look for.
  */
 export function scrubUrl(raw: string): string {
   let url: URL;
@@ -36,7 +55,9 @@ export function scrubUrl(raw: string): string {
   url.pathname = url.pathname
     .split("/")
     .map((segment) =>
-      scrubSecrets(segment) === segment ? segment : PLACEHOLDER,
+      looksLikeToken(segment) || scrubSecrets(segment) !== segment
+        ? PLACEHOLDER
+        : segment,
     )
     .join("/");
   // set() collapses a repeated key to one entry, which is what we want: two

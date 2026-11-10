@@ -4,7 +4,12 @@ import { fileURLToPath } from "node:url";
 import type { IntentCapture } from "@demoman/replay-engine";
 import type { AnchorIntent } from "@demoman/resolver";
 import type { SnapshotRequest } from "@demoman/run-core";
-import { type EndPage, messageOf, type SnapshotReply } from "@demoman/run-core";
+import {
+  type EndPage,
+  messageOf,
+  type SnapshotReply,
+  scrubUrl,
+} from "@demoman/run-core";
 import type { BrowserContext, Page } from "playwright";
 import { bundleEntry } from "../bundle-js.js";
 import { EXECUTOR_ENTRY_GLOBAL } from "../entry-globals.js";
@@ -145,7 +150,7 @@ export function pageCapture(
           anchor: null,
           failureReason: "notInTree",
           intentResolution: null,
-          pageUrl: page.url(),
+          pageUrl: scrubUrl(page.url()),
           // A capture that met a navigation cannot say its document.
           document: null,
           credentialField: null,
@@ -155,14 +160,14 @@ export function pageCapture(
       // those words, not as the `undefined` property read it would be.
       log(
         said.includes(NO_ENTRY)
-          ? `a step's capture could not run — ${NO_ENTRY} (${page.url()})`
+          ? `a step's capture could not run — ${NO_ENTRY} (${scrubUrl(page.url())})`
           : `a step's capture threw in the page — ${said}`,
       );
       return {
         anchor: null,
         failureReason: "pageFaulted",
         intentResolution: null,
-        pageUrl: page.url(),
+        pageUrl: scrubUrl(page.url()),
         document: null,
         // This port checks credentials; a capture that never reached the
         // page could not, and a typed step is hidden for it (launch C).
