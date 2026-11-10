@@ -248,8 +248,9 @@ async function mcp(args: string[]): Promise<void> {
   });
 }
 
-/** The version and the bin re-invoked as `studio --serve`, which is what
- *  `openStudio` detaches. */
+/** The version and this bundle re-invoked as `studio --serve`, which is what
+ *  `openStudio` detaches. Not the bin: the Node running this one already
+ *  passed the bin's check. */
 const STUDIO_SPAWN = {
   version: VERSION,
   serve: {

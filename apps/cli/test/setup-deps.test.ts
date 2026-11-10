@@ -76,7 +76,6 @@ describe("runCaptured", () => {
       platform: "darwin",
       arch: "arm64",
       isRoot: false,
-      nodeVersion: "v22.3.0",
       version: "0.2.0",
       run: () => stalled,
       runVisible: () => ({ status: 0, stdout: "", stderr: "" }),

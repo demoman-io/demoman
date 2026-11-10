@@ -968,7 +968,7 @@ describe("a phone take filmed at display scale 1", () => {
     const crops = await readMp4Crops(
       bytes,
       pause,
-      [0.45, 0.45, 0.1, 0.1],
+      [0.45, 0.45, 0.55, 0.55],
       { width: 16, height: 16 },
       true,
     );

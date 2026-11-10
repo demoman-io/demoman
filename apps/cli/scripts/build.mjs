@@ -1,7 +1,8 @@
 // apps/cli/scripts/build.mjs
 //
 // Builds the published `demoman` package into apps/cli/pkg (launch B):
-//   dist/demoman.mjs   the node half: apps/mcp's CLI path + the runner, one file
+//   dist/demoman.mjs   the bin: checks Node (node-floor.mjs), then loads cli.mjs
+//   dist/cli.mjs       the node half: apps/mcp's CLI path + the runner, one file
 //   dist/page/*.js     the in-page bundles, prebuilt, so no esbuild ships
 //   dist/recipe.md     apps/mcp/recipe.md
 //   dist/skills/       the record-demo skill, which setup gives Cursor
@@ -28,6 +29,7 @@ import {
   pageEntryPath,
 } from "@demoman/runner/package";
 import { build } from "esbuild";
+import { binSource, NODE_ENGINES } from "./node-floor.mjs";
 import { checkStudioPages } from "./studio-pages.mjs";
 
 const app = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -95,9 +97,6 @@ const thirdPartyExternal = {
     );
   },
 };
-// The oldest Node the package runs on: @clack/prompts needs 20.12 (DEM-121).
-// setup.ts's MIN_NODE says the same; build.test.ts holds them together.
-const NODE_FLOOR = "20.12";
 const node = await build({
   absWorkingDir: app,
   entryPoints: [join(app, "src", "main.ts")],
@@ -111,21 +110,7 @@ const node = await build({
   logLevel: "warning",
 });
 writeFileSync(join(meta, "node.json"), JSON.stringify(node.metafile));
-// The bin checks Node before it loads the bundle: an import a Node lacks
-// fails while the bundle links, before any line of it runs (DEM-121).
-const [floorMajor, floorMinor] = NODE_FLOOR.split(".").map(Number);
-writeFileSync(
-  join(pkg, "dist", "demoman.mjs"),
-  `#!/usr/bin/env node
-const [major, minor] = process.versions.node.split(".").map(Number);
-if (major < ${floorMajor} || (major === ${floorMajor} && minor < ${floorMinor})) {
-  console.error("Demoman needs Node ${NODE_FLOOR} or later, and this is Node " + process.versions.node + ".");
-  process.exitCode = 1;
-} else {
-  import("./cli.mjs");
-}
-`,
-);
+writeFileSync(join(pkg, "dist", "demoman.mjs"), binSource("./cli.mjs"));
 chmodSync(join(pkg, "dist", "demoman.mjs"), 0o755);
 
 const external = new Set();
@@ -216,7 +201,7 @@ writeFileSync(
       type: "module",
       bin: { demoman: "dist/demoman.mjs" },
       files: ["dist", "LICENSE", "THIRD_PARTY_NOTICES"],
-      engines: { node: `>=${NODE_FLOOR}` },
+      engines: { node: NODE_ENGINES },
       dependencies,
     },
     null,
