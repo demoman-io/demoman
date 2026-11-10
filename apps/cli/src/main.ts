@@ -1,9 +1,10 @@
 // apps/cli/src/main.ts
 //
 // The `demoman` bin of the published package (launch B): `demoman mcp`
-// serves the CLI executor on stdio; `demoman setup` installs Chromium and
-// the Claude Code plugin; `demoman --version`. Bundled by
-// scripts/build.mjs into pkg/dist/demoman.mjs, beside page/ and recipe.md.
+// serves the CLI executor on stdio; `demoman setup` installs the browser
+// and connects each coding agent it finds (setup.ts); the other commands
+// are listed in USAGE. Bundled by scripts/build.mjs into
+// pkg/dist/demoman.mjs, beside page/ and recipe.md.
 //
 // First, before anything that could print: console.log/info/debug to stderr.
 import "@demoman/mcp/stdout-guard";
