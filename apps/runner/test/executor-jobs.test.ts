@@ -1,9 +1,6 @@
+import { JOBS_KEPT } from "@demoman/agent-bridge";
 import { describe, expect, it } from "vitest";
-import {
-  createJobTable,
-  JOBS_KEPT,
-  type Job,
-} from "../src/executor/executor.js";
+import { createJobTable, type Job } from "../src/executor/executor.js";
 
 const settled = (): Job => ({
   op: "run",

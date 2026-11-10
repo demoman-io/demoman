@@ -11,6 +11,7 @@ import {
   AGENT_ARG,
   AGENT_NAME_MAX,
   type AgentName,
+  JOBS_KEPT,
   type Outcome,
   RUN_TOOL_CAP_MS,
 } from "@demoman/agent-bridge";
@@ -465,7 +466,10 @@ export function registerTools(
   const said = DESCRIPTIONS;
   /** Every run and export this server started, by the id it handed out, with
    *  which it was: the page keeps one report per kind, and `report` must read
-   *  the right one after a lost call. */
+   *  the right one after a lost call. Of each kind (`keptKind`), the last
+   *  `JOBS_KEPT` finished, in the order they finished (DEM-106); one still
+   *  going is never let go. The executor's job table counts its own calls
+   *  still going too, so it never holds a run this map has let go. */
   const calls = new Map<
     string,
     {
@@ -474,6 +478,11 @@ export function registerTools(
       watched: Watched;
     }
   >();
+  /** Runs, exports and attaches, which the executor's job table keeps too,
+   *  are kept apart from the calls only this server answers, so fifty
+   *  snapshots cannot push a run's id out while the executor holds it. */
+  const keptKind = (op: string) =>
+    op === "run" || op === "export" || op === "attach" ? "job" : "local";
 
   const capped = async (
     p: Promise<Outcome>,
@@ -599,11 +608,21 @@ export function registerTools(
             onProgress,
           )
         : local(onProgress);
+    const entry = { op, call, watched };
     const settle = () => {
       watched.settled = true;
+      // Moved to the end, so the oldest to finish goes first and never this
+      // one: a long run polled past 50 later calls keeps its answer.
+      calls.delete(id);
+      calls.set(id, entry);
+      const kind = keptKind(op);
+      const done = [...calls].filter(
+        ([, e]) => e.watched.settled && keptKind(e.op) === kind,
+      );
+      for (const [old] of done.slice(0, -JOBS_KEPT)) calls.delete(old);
     };
     call.then(settle, settle);
-    calls.set(id, { op, call, watched });
+    calls.set(id, entry);
     const outcome = await capped(call);
     if (outcome === STILL_RUNNING) {
       progress.close();
@@ -1012,7 +1031,7 @@ export function registerTools(
       if (entry === undefined) {
         return refused(
           "unknownRun",
-          `no run, export, attach, snapshot, probe, add or ci with id ${id} was started by this demoman-mcp — ids do not survive a restart of the server`,
+          `no run, export, attach, snapshot, probe, add or ci with id ${id} is known to this demoman-mcp: it keeps the last ${JOBS_KEPT} finished calls of each kind (runs, exports and attaches; the rest), and ids do not survive a restart of the server`,
         );
       }
       // One deadline over both waits below (REPORT_CALL_SHARE).

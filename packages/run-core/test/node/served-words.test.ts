@@ -40,6 +40,7 @@ const stored = (over: Record<string, unknown> = {}): RunReport =>
       name: "Create an invoice",
       version: 3,
       created: false,
+      otherRepo: "this flow belongs to X; this video was recorded from Y",
     },
     steps: [],
     provenance: { takeId: "scene-1-a", bundleId: "b", madeFrom: [] },
@@ -92,6 +93,8 @@ describe("the words served to agents (spec 2026-10-30 flows-and-bulk-delete §2)
       name: "Create an invoice",
       video: 3,
       created: false,
+      // DEM-108: the agent reads it here, so it must not be dropped.
+      otherRepo: "this flow belongs to X; this video was recorded from Y",
     });
     expect(out.stopped.reason).toBe("videoNotFound");
     expect(out.notStored.map((n: { what: string }) => n.what)).toEqual([

@@ -20,6 +20,7 @@ function played(
     landingNote: undefined,
     arrival: null,
     datesOnScreen: [],
+    closedShadowRoot: false,
     ...over,
   };
 }
@@ -68,6 +69,39 @@ describe("stopDetail", () => {
     ).toBe(
       `${target} did not load (net::ERR_CONNECTION_REFUSED) — check that the app is running at that address`,
     );
+  });
+
+  // DEM-102: said only on a page that has a closed shadow root.
+  it("names a closed shadow root when the page has one and the target was not found", () => {
+    const said =
+      "this page has a closed shadow root, and a target inside one can't be reached during a run";
+    const found = stopDetail(
+      target,
+      played(stoppedAt("unresolvedAnchor"), { closedShadowRoot: true }),
+    );
+    expect(found).toContain(reasonSentence("unresolvedAnchor"));
+    expect(found).toContain(said);
+    const waited = stopDetail(
+      target,
+      played(
+        {
+          ...stoppedAt("waitTimeout"),
+          steps: [{ waitSaw: "absent" }],
+        } as never,
+        { closedShadowRoot: true },
+      ),
+    );
+    expect(waited).toContain(reasonSentence("waitTimeout"));
+    expect(waited).toContain(said);
+    expect(
+      stopDetail(target, played(stoppedAt("unresolvedAnchor"))),
+    ).toBeUndefined();
+    expect(
+      stopDetail(
+        target,
+        played(stoppedAt("ambiguousAnchor"), { closedShadowRoot: true }),
+      ),
+    ).toBeUndefined();
   });
 
   it("leads with a mid-run sign-out and says the take was not kept", () => {

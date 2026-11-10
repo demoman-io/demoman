@@ -32,6 +32,7 @@ import {
 import { createHeadlessPageAgent } from "../page-agent.js";
 import { watchNavigation } from "../replay.js";
 import type { Stage } from "./browser.js";
+import { closedShadowHolds, targetWords } from "./closed-shadow.js";
 import { readDatesOnScreen } from "./dates-on-screen.js";
 import {
   fileForLanding,
@@ -201,6 +202,10 @@ export interface Played {
   /** Date-looking text on the last screen, [] when none or unreadable
    *  (DEM-79): refresh's evidence for its note on dates. */
   datesOnScreen: string[];
+  /** The target a run did not find is named inside a closed shadow root
+   *  on the page it stopped on (DEM-102); false when unasked or
+   *  unanswered (the log says why). */
+  closedShadowRoot: boolean;
 }
 
 /** The walk on a prepared stage, and the checks straight after it. Throws
@@ -389,8 +394,20 @@ export async function playOnStage(
     deps.readDates === true && result.reason === null
       ? await readDatesOnScreen(page, log)
       : [];
+  // A target not found may be inside a closed shadow root, which no run can
+  // reach (DEM-102). Not asked after a mid-run sign-out: the stop is that,
+  // and signing in again has moved the page on.
+  const failedStep = result.steps.at(-1)?.step;
+  const closedShadowRoot =
+    notFound(result) &&
+    signedOutAfter === null &&
+    failedStep !== undefined &&
+    !page.isClosed()
+      ? (await closedShadowHolds(page, targetWords(failedStep), log)) === true
+      : false;
   options.mark?.("checks");
   return {
+    closedShadowRoot,
     datesOnScreen,
     result,
     navigationError,
@@ -416,13 +433,25 @@ export function walkedReason(played: Played): ReplayStopReason | null {
   return played.signedOutAfter === null ? played.result.reason : "signedOut";
 }
 
+/** DEM-102's known limitation, said only on a page that has one. */
+const CLOSED_SHADOW_ROOT =
+  "Also, this page has a closed shadow root, and a target inside one can't be reached during a run (a known limitation): target an element outside it";
+
+/** A step stopped because its target was not on the page: not found, or
+ *  waited for and never there. */
+const notFound = (result: AuthoredResult): boolean =>
+  result.reason === "unresolvedAnchor" ||
+  (result.reason === "waitTimeout" &&
+    result.steps.at(-1)?.waitSaw === "absent");
+
 /**
  * `stopped.detail` is printed in place of the reason's sentence, so it is
  * set only where it IS that reason's explanation (as the extension's):
  * under `portFailure` the walk's note, under `deviceFailed` the device's
  * words, under `clickNotDelivered` where the click went, and — the
  * runner's own — a target that did not load, which the reason alone would
- * call a step that could not be found.
+ * call a step that could not be found; and, when the target's words are
+ * inside a closed shadow root, that no run can reach it (DEM-102).
  */
 export function stopDetail(target: string, played: Played): string | undefined {
   const {
@@ -431,6 +460,7 @@ export function stopDetail(target: string, played: Played): string | undefined {
     failedNote,
     signedOutAfter,
     lostHeadlessPage,
+    closedShadowRoot,
   } = played;
   const waitSaw =
     result.reason === "waitTimeout" ? result.steps.at(-1)?.waitSaw : undefined;
@@ -453,7 +483,9 @@ export function stopDetail(target: string, played: Played): string | undefined {
                   ? reasonSentence(waitSaw)
                   : navigationError !== null && result.outcome !== "complete"
                     ? `${target} did not load (${navigationError}) — check that the app is running at that address`
-                    : undefined;
+                    : closedShadowRoot && notFound(result) && result.reason
+                      ? `${reasonSentence(result.reason)}. ${CLOSED_SHADOW_ROOT}`
+                      : undefined;
   return signedOutAfter !== null && result.reason !== null
     ? `${signedOutAfter} The video was not kept: it would end on the sign-in page. ${ownStop(result, ownDetail ?? reasonSentence(result.reason))}`
     : walkedReason(played) === "signedOut" && failedNote !== undefined

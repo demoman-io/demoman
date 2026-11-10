@@ -289,6 +289,64 @@ describe("run records into a video", () => {
     RUN_MS,
   );
 
+  // DEM-108. The same-repo side is the `toEqual` above: no otherRepo there.
+  // Red if the `{ id }` join stops comparing the flow's repo with the run's.
+  it(
+    "joins a flow from a checkout of another repo, and says so",
+    async () => {
+      const other = await mkdtemp(join(tmpdir(), "demoman-video-other-"));
+      try {
+        execFileSync("git", ["init", "-q"], { cwd: other });
+        execFileSync(
+          "git",
+          ["remote", "add", "origin", "git@github.com:acme/site.git"],
+          { cwd: other },
+        );
+        const out = await executor.request("run", {
+          project: other,
+          script: script("Create an invoice"),
+          video: { id: videoId },
+        });
+        if (!out.ok) throw new Error(JSON.stringify(out));
+        const value = out.value as Answer;
+        expect(value.outcome, JSON.stringify(value.stopped ?? value)).toBe(
+          "complete",
+        );
+        const said = `this flow belongs to ${REPO_KEY}; this video was recorded from github.com/acme/site`;
+        expect(value.videoVersion).toMatchObject({
+          id: videoId,
+          created: false,
+          otherRepo: said,
+        });
+        expect(value.summary).toContain(said);
+        // Premise: the take did record the other repo.
+        const take = value.provenance.takeId;
+        if (take === null) throw new Error(JSON.stringify(value));
+        expect((await memberOf(take)).made.repo).toMatchObject({
+          key: "github.com/acme/site",
+        });
+        // No repo at all says why, not just "no repo".
+        const plain = await mkdtemp(join(tmpdir(), "demoman-video-plain-"));
+        try {
+          const out2 = await executor.request("run", {
+            project: plain,
+            script: script("Create an invoice"),
+            video: { id: videoId },
+          });
+          if (!out2.ok) throw new Error(JSON.stringify(out2));
+          expect((out2.value as Answer).videoVersion?.otherRepo).toMatch(
+            /^this flow belongs to github\.com\/acme\/shop; this video was recorded from no repo \(not a git checkout: /,
+          );
+        } finally {
+          await rm(plain, { recursive: true, force: true });
+        }
+      } finally {
+        await rm(other, { recursive: true, force: true });
+      }
+    },
+    2 * RUN_MS,
+  );
+
   it(
     "says a take whose new video could not be written is in no video, and starts none",
     async () => {
@@ -601,6 +659,50 @@ describe("a run joins the kept flow", () => {
       });
     },
     2 * RUN_MS,
+  );
+
+  // DEM-108, second review: an adopted kept flow holds this checkout's raw
+  // key. Red if the join compares it unresolved with the run's resolved
+  // one: one repo would read as two.
+  it(
+    "adopting a kept flow from a checkout whose key was aliased says nothing about another repo",
+    async () => {
+      const U9 = "1a2b3c4d-0000-4000-8000-000000000009";
+      const aliased = await mkdtemp(join(tmpdir(), "demoman-kept-alias-"));
+      try {
+        execFileSync("git", ["init", "-q"], { cwd: aliased });
+        execFileSync(
+          "git",
+          ["remote", "add", "origin", "git@github.com:acme/old-shop.git"],
+          { cwd: aliased },
+        );
+        await mkdir(join(aliased, KEPT_DIR), { recursive: true });
+        await writeFile(
+          join(aliased, keptFile("Kept alias flow")),
+          serializeKept(keptRecipe(U9, "Kept alias flow")),
+        );
+        await store().follow([
+          { from: "github.com/acme/old-shop", to: "github.com/acme/new-shop" },
+        ]);
+        // Premise: the run's key resolves to another.
+        expect(
+          await store().resolve({ key: "github.com/acme/old-shop" }),
+        ).toEqual({ key: "github.com/acme/new-shop" });
+        const out = await runIn({
+          project: aliased,
+          script: script("Kept alias flow"),
+          video: { id: U9 },
+        });
+        expect(out.outcome, JSON.stringify(out.stopped ?? out)).toBe(
+          "complete",
+        );
+        expect(out.videoVersion).toMatchObject({ id: U9 });
+        expect(out.videoVersion).not.toHaveProperty("otherRepo");
+      } finally {
+        await rm(aliased, { recursive: true, force: true });
+      }
+    },
+    RUN_MS,
   );
 
   it(

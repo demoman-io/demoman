@@ -6,6 +6,7 @@ import {
   AGENT_ARG,
   agentOf,
   failure,
+  JOBS_KEPT,
   type Op,
   type Outcome,
 } from "@demoman/agent-bridge";
@@ -78,6 +79,7 @@ import {
   createVideoStore,
   isVideoId,
   type Made,
+  sharesRepo,
   VideoError,
   type VideoRecord,
   type VideoRepo,
@@ -116,11 +118,6 @@ export interface Job {
   latest: unknown;
   final: Outcome | null;
 }
-
-/** How many runs and exports `report(id)` can still answer. Each keeps its
- *  whole final answer, a run's report included, for as long as it is kept
- *  (review 2026-10-13, #7). */
-export const JOBS_KEPT = 50;
 
 /**
  * The calls `report(id)` answers from: the latest `kept`, the oldest settled
@@ -599,6 +596,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
     let raw: unknown = args.script;
     let refilm: RefilmInfo | undefined;
     let builtFrom: string | null = null;
+    let otherRepo: string | undefined;
     try {
       const migrated = await ensureVideos(videos, library);
       for (const s of migrated.skipped) {
@@ -661,6 +659,20 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
             `no flow has the id ${JSON.stringify(asked.id)}`,
             "video",
           );
+        }
+        // DEM-108: joining from another repo's checkout can be meant (one
+        // repo serves another's app), so it joins, and the report says so.
+        // Both resolved (`sharesRepo`): an adopted kept flow holds the raw key.
+        const here = await videos.resolve(videoRepo);
+        const flowRepo = await videos.resolve(into.repo);
+        if (!sharesRepo(flowRepo, here)) {
+          const named = (r: VideoRepo) =>
+            "key" in r
+              ? r.key
+              : "none" in r
+                ? `no repo (${r.none})`
+                : "an unknown repo";
+          otherRepo = `this flow belongs to ${named(flowRepo)}; this video was recorded from ${named(here)}`;
         }
         if (!hasScript) {
           const target = into.id;
@@ -831,6 +843,7 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         name: video.name,
         ...(version === undefined ? {} : { version }),
         created,
+        ...(otherRepo === undefined ? {} : { otherRepo }),
       };
     };
     const paint = (value: unknown) => {

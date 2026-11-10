@@ -1,7 +1,12 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failure, type Outcome, RUN_TOOL_CAP_MS } from "@demoman/agent-bridge";
+import {
+  failure,
+  JOBS_KEPT,
+  type Outcome,
+  RUN_TOOL_CAP_MS,
+} from "@demoman/agent-bridge";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -732,6 +737,91 @@ describe("demoman-mcp's tools", () => {
     });
     expect(result.isError).toBe(true);
     expect(textOf(result)).toMatchObject({ reason: "unknownRun" });
+  });
+
+  // DEM-106. Red if the server keeps every call: id-2 would still answer.
+  // Red if it lets go of one still going: id-1 would answer unknownRun.
+  // Red if it lets go in start order: id-1, finishing last, would drop itself.
+  it("keeps the last JOBS_KEPT finished calls, in the order they finished, and never one still going", async () => {
+    let land: (o: Outcome) => void = () => {};
+    const { client } = await connect(
+      {
+        snapshot: (args) =>
+          args.callId === "id-1"
+            ? new Promise<Outcome>((r) => {
+                land = r;
+              })
+            : Promise.resolve({
+                ok: true,
+                value: { url: args.callId, targets: [] },
+              }),
+      },
+      50,
+    );
+    const snap = () =>
+      client.callTool({ name: "snapshot", arguments: { url: "http://a/" } });
+    const report = (id: string) =>
+      client.callTool({ name: "report", arguments: { id } });
+    expect(textOf(await snap())).toEqual({
+      outcome: "stillRunning",
+      id: "id-1",
+    });
+    // One more finished call than is kept: id-2 .. id-(JOBS_KEPT + 2).
+    for (let i = 0; i <= JOBS_KEPT; i++) await snap();
+    const last = `id-${JOBS_KEPT + 2}`;
+    expect(textOf(await report(last))).toEqual({ url: last, targets: [] });
+    const gone = await report("id-2");
+    expect(gone.isError).toBe(true);
+    expect(textOf(gone)).toMatchObject({
+      reason: "unknownRun",
+      detail: expect.stringContaining(`last ${JOBS_KEPT} finished calls`),
+    });
+    expect(textOf(await report("id-3"))).toEqual({ url: "id-3", targets: [] });
+    expect(textOf(await report("id-1"))).toEqual({
+      outcome: "stillRunning",
+      id: "id-1",
+    });
+    // The long call finishes last: it is kept, and the oldest to finish goes.
+    land({ ok: true, value: { url: "id-1", targets: [] } });
+    expect(textOf(await report("id-1"))).toEqual({ url: "id-1", targets: [] });
+    expect(textOf(await report("id-3"))).toMatchObject({
+      reason: "unknownRun",
+    });
+    expect(textOf(await report("id-4"))).toEqual({ url: "id-4", targets: [] });
+  });
+
+  // DEM-106, second review. Red if snapshots and runs share one budget: the
+  // run's id would be pushed out while the executor still holds its report.
+  it("keeps a finished run's id past JOBS_KEPT later snapshots", async () => {
+    const { client } = await connect(
+      {
+        run: async () => ({ ok: true, value: { outcome: "complete" } }),
+        snapshot: async (args) => ({
+          ok: true,
+          value: { url: args.callId, targets: [] },
+        }),
+      },
+      50,
+    );
+    await client.callTool({
+      name: "run",
+      arguments: { script: { steps: [] } },
+    });
+    for (let i = 0; i <= JOBS_KEPT; i++) {
+      await client.callTool({
+        name: "snapshot",
+        arguments: { url: "http://a/" },
+      });
+    }
+    const report = (id: string) =>
+      client.callTool({ name: "report", arguments: { id } });
+    // Premise: the snapshots did overflow their own budget.
+    expect(textOf(await report("id-2"))).toMatchObject({
+      reason: "unknownRun",
+    });
+    const run = await report("id-1");
+    expect(run.isError, JSON.stringify(textOf(run))).not.toBe(true);
+    expect(textOf(run)).toMatchObject({ outcome: "complete" });
   });
 
   it("forwards progress as MCP progress notifications", async () => {
