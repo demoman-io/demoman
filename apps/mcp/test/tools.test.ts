@@ -2276,6 +2276,7 @@ describe("the ci tool's question to the person", () => {
     ) => Promise<{ action: "accept" | "decline" | "cancel" }>;
     capMs?: number;
     door?: RepoDoors["ci"];
+    capabilities?: Record<string, unknown>;
   }) {
     const server = new McpServer(
       { name: "demoman", version: "0.1.0" },
@@ -2306,7 +2307,11 @@ describe("the ci tool's question to the person", () => {
     );
     const client = new Client(
       { name: "test", version: "1.0.0" },
-      o.elicit === undefined ? {} : { capabilities: { elicitation: {} } },
+      {
+        capabilities:
+          o.capabilities ??
+          (o.elicit === undefined ? {} : { elicitation: { form: {} } }),
+      },
     );
     const messages: string[] = [];
     const elicit = o.elicit;
@@ -2343,28 +2348,38 @@ describe("the ci tool's question to the person", () => {
     expect(no.got).toEqual([{ approved: false, why: "the person declined" }]);
   });
 
-  // Red if the 50 s answer counts the person's reading time: the call
-  // would answer stillRunning, and the question would outlive its request.
-  it("does not answer stillRunning while the person is still reading", async () => {
+  // Red if the question is tied to the tool call: answered stillRunning,
+  // the call is over, and a question tied to it could be dropped. Red too
+  // if the cap waits on the person, outlasting a client's own timeout.
+  it("answers stillRunning while the person reads, and report gives the plan after their yes", async () => {
+    let answer: (a: { action: "accept" }) => void = () => undefined;
     const t = await asking({
       capMs: 100,
       elicit: () =>
-        new Promise((r) => setTimeout(() => r({ action: "accept" }), 400)),
+        new Promise((r) => {
+          answer = r;
+        }),
     });
-    const r = await t.client.callTool({ name: "ci", arguments: {} });
-    // Premise: the person took longer than the cap.
+    const first = textOf(
+      await t.client.callTool({ name: "ci", arguments: {} }),
+    ) as { outcome: string; id: string };
+    expect(first.outcome).toBe("stillRunning");
+    // Premise: the question is open, unanswered, past the cap.
+    expect(t.messages).toHaveLength(1);
+    expect(t.got).toEqual([]);
+    answer({ action: "accept" });
+    const later = await t.client.callTool({
+      name: "report",
+      arguments: { id: first.id },
+    });
+    expect(textOf(later)).toMatchObject({ outcome: "plan" });
     expect(t.got).toEqual([{ approved: true }]);
-    expect(textOf(r)).toMatchObject({ outcome: "plan" });
   });
 
-  // Positive control: past the cap with no question open, it still answers.
-  it("answers stillRunning for a slow call that asks nothing", async () => {
-    const t = await asking({
-      capMs: 100,
-      door: () =>
-        new Promise((r) => setTimeout(() => r({ outcome: "plan" }), 400)),
-    });
-    const r = await t.client.callTool({ name: "ci", arguments: {} });
-    expect(textOf(r)).toMatchObject({ outcome: "stillRunning" });
+  // A client that can only open URLs cannot be asked a yes or no here.
+  it("answers unsupported for a client that offers only URL elicitation", async () => {
+    const t = await asking({ capabilities: { elicitation: { url: {} } } });
+    await t.client.callTool({ name: "ci", arguments: {} });
+    expect(t.got).toEqual([{ unsupported: true }]);
   });
 });

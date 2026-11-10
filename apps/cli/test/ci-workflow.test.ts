@@ -1054,6 +1054,8 @@ describe("ciSetup", () => {
       watched?: Watched;
       /** Runs inside each readGithub. */
       onRead?: () => void;
+      /** app.json is in the working tree only, as an agent's draft is. */
+      uncommitted?: boolean;
     } = {},
   ) {
     const root = o.root ?? repoDir();
@@ -1074,7 +1076,11 @@ describe("ciSetup", () => {
       git: async (args) =>
         args[0] === "ls-tree"
           ? { code: 0, stdout: "", stderr: "" }
-          : { code: 128, stdout: "", stderr: "fatal: no such path" },
+          : args[0] === "show" &&
+              args[1] === "HEAD:.demoman/app.json" &&
+              o.uncommitted !== true
+            ? { code: 0, stdout: serializeApp(checkApp), stderr: "" }
+            : { code: 128, stdout: "", stderr: "fatal: no such path" },
       readGithub: async () => {
         calls.push("readGithub");
         o.onRead?.();
@@ -1316,6 +1322,64 @@ describe("ciSetup", () => {
     expect(lines.some((l) => l.startsWith("Runner time: about"))).toBe(true);
     expect(m.calls.filter((c) => outward.includes(c))).toEqual([]);
     expect(m.said.join("\n")).toContain("nothing was written");
+  });
+
+  // DEM-110: an app.json nobody committed may be an agent's draft, and the
+  // check runs its commands. Red when the check runs before the question,
+  // or after a no.
+  describe("an app.json nobody committed", () => {
+    it("asks about its commands before the check, and a no runs nothing", async () => {
+      const order: string[] = [];
+      const { ask, asked } = asker({
+        confirm: async () => {
+          order.push("confirm");
+          return false;
+        },
+      });
+      const m = door({
+        ask,
+        uncommitted: true,
+        verify: async () => {
+          order.push("check");
+          return passedCheck;
+        },
+      });
+      expect(
+        await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+      ).toBe(1);
+      expect(order).toEqual(["confirm"]);
+      const lines = asked.find(([k]) => k === "confirm")?.[1][0] as string[];
+      expect(lines).toContain(`  start: ${JSON.stringify(checkApp.start)}`);
+      expect(m.said.join("\n")).toContain("nothing was run");
+    });
+
+    it("checks on a yes, then asks the plan's one confirmation", async () => {
+      const order: string[] = [];
+      const m = door({
+        ask: asker({
+          confirm: async () => {
+            order.push("confirm");
+            return true;
+          },
+        }).ask,
+        uncommitted: true,
+        verify: async () => {
+          order.push("check");
+          return passedCheck;
+        },
+      });
+      expect(
+        await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+      ).toBe(0);
+      expect(order).toEqual(["confirm", "check", "confirm"]);
+    });
+
+    it("--yes says the commands and runs them", async () => {
+      const m = door({ ask: asker({}).ask, uncommitted: true });
+      expect(await ciSetup(yes, m.io)).toBe(0);
+      expect(m.said).toContain(`  start: ${JSON.stringify(checkApp.start)}`);
+      expect(m.calls).toContain("verifySetup");
+    });
   });
 
   it("closes on the pull request, the run's verdict and the artifact link", async () => {

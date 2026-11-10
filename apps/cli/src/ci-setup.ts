@@ -274,9 +274,10 @@ export type CiDeps = {
   /** Stops the check (R3). */
   signal?: AbortSignal;
   /** Asked before the check starts the app, with what it runs: null goes
-   *  on. The ci tool's, whose caller is an agent (DEM-110); the terminal
-   *  and the Studio, which a person started, pass none. */
-  approveCheck?(app: AppSpec): Promise<CiStop | null>;
+   *  on. `committed`: the app.json is HEAD's own. The ci tool asks always,
+   *  its caller being an agent; the terminal asks of an app.json nobody
+   *  committed, which an agent may have drafted (DEM-110). */
+  approveCheck?(app: AppSpec, committed: boolean): Promise<CiStop | null>;
   /** `environment`: the deployment trigger asked for, if one was. */
   readGithub(
     root: string,
@@ -846,7 +847,9 @@ async function makePlan(
 
   // A deployment's check records the deployed app and starts nothing.
   if (deployment === null && app !== null && deps.approveCheck) {
-    const refused = await deps.approveCheck(app.spec);
+    const committed =
+      (await shown(deps.git, root, "HEAD", APP_FILE)) === app.text;
+    const refused = await deps.approveCheck(app.spec, committed);
     if (refused !== null) return refused;
   }
   // The check (Decision 1, R3): said before it runs, and stoppable.
@@ -926,7 +929,42 @@ function originOf(target: unknown): string | null {
 }
 
 /** The shell commands the check runs, verbatim, in order. */
-export const checkCommands = (a: AppSpec): string[] => [...a.install, a.start];
+export const checkCommands = (a: AppSpec): string[] => [
+  ...a.install,
+  a.start,
+  ...(a.reset === undefined ? [] : [a.reset]),
+];
+
+/** Everything the check runs on this machine, as the person approves it.
+ *  Each value is JSON-quoted: a newline in one cannot pass for the end of
+ *  the question (DEM-110). */
+export function checkQuestion(a: AppSpec): string[] {
+  const q = JSON.stringify;
+  const services = Object.entries(a.services);
+  const env = Object.entries(a.env);
+  return [
+    "Demoman's CI setup checks the refresh from a clean checkout of this repo. It runs these commands on this machine, as you, with the setup's secrets in their environment:",
+    ...a.install.map((c) => `  install: ${q(c)}`),
+    `  start: ${q(a.start)}`,
+    ...(a.reset === undefined ? [] : [`  before each flow: ${q(a.reset)}`]),
+    ...(env.length === 0
+      ? []
+      : [
+          `with this environment: ${env.map(([k, v]) => `${k}=${q(v)}`).join(", ")}`,
+        ]),
+    ...services.map(
+      ([name, s]) =>
+        `and runs the Docker service ${q(name)}: image ${q(s.image)}${s.ports.length > 0 ? `, ports ${s.ports.map((p) => q(p)).join(", ")}` : ""}${
+          Object.keys(s.env).length > 0
+            ? `, env ${Object.entries(s.env)
+                .map(([k, v]) => `${k}=${q(v)}`)
+                .join(", ")}`
+            : ""
+        }${s.options === null ? "" : `, docker options ${q(s.options)}`}`,
+    ),
+    `then records against ${q(a.url)}. Run them?`,
+  ];
+}
 
 function checkWords(a: AppSpec): string {
   const services = Object.keys(a.services);

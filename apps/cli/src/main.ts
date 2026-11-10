@@ -68,7 +68,7 @@ import type { CiDeps } from "./ci-setup.js";
 import { createCiTool } from "./ci-tool.js";
 import { watchSetupRun } from "./ci-watch.js";
 import { ciSetup } from "./ci-workflow.js";
-import { deliver } from "./deliver.js";
+import { deliver, offBase } from "./deliver.js";
 import { realGh } from "./gh-run.js";
 import { keepLines, removeLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
@@ -704,6 +704,15 @@ async function refresh(args: string[]): Promise<void> {
     join(fileURLToPath(new URL(".", import.meta.url)), "page"),
     (line) => fail(line),
   );
+  // deliver would refuse this checkout after every flow was recorded: say so
+  // before recording (DEM-123).
+  if (route === "pr") {
+    const off = await offBase(repo.repo.root, {
+      git: execGit,
+      gh: realGh(repo.repo.root),
+    });
+    if (off !== null) return fail(off);
+  }
   // Decodes the exports to compare them, out of sight.
   const session = createBrowserSession({
     headless: true,

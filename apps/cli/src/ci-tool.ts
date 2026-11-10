@@ -24,6 +24,7 @@ import {
   type CiPlan,
   type CiStop,
   checkCommands,
+  checkQuestion,
   planCiSetup,
   planLines,
   redact,
@@ -33,8 +34,6 @@ import { watchedLines } from "./ci-workflow.js";
 
 /** What the person runs to give a value the agent must never see. */
 export const CI_COMMAND = "npx demoman setup --ci";
-
-export type { CiApproval };
 
 export type CiToolArgs = {
   trigger?: CiChoices["trigger"];
@@ -224,19 +223,7 @@ async function askToCheck(
   approve: (message: string) => Promise<CiApproval>,
 ): Promise<CiStop | null> {
   const commands = checkCommands(app);
-  const services = Object.values(app.services).map((s) => s.image);
-  const got = await approve(
-    [
-      "Demoman's CI setup will check the refresh from a clean checkout of this repo. It runs these commands on this machine, as you, with the setup's secrets in their environment:",
-      "",
-      ...commands.map((c) => `  ${c}`),
-      "",
-      ...(services.length > 0
-        ? [`and starts these Docker images: ${services.join(", ")}`]
-        : []),
-      `then records against ${app.url}. Run them?`,
-    ].join("\n"),
-  );
+  const got = await approve(checkQuestion(app).join("\n"));
   if ("unsupported" in got)
     return {
       reason: "checkNeedsPerson",
@@ -316,7 +303,8 @@ function stopped(s: CiStop, values: SecretValues): Answer {
   const person =
     s.reason === "secretMissing" ||
     s.reason === "secretTooShort" ||
-    s.reason === "checkNeedsPerson";
+    s.reason === "checkNeedsPerson" ||
+    s.reason === "checkDeclined";
   return {
     reason: s.reason,
     detail: h(s.detail),
@@ -331,8 +319,8 @@ function stopped(s: CiStop, values: SecretValues): Answer {
       ? {
           command: CI_COMMAND,
           next:
-            s.reason === "checkNeedsPerson"
-              ? "Only the person may start these commands: show them commands, and ask them to run command in their terminal, which checks, shows the plan and opens the pull request; then call ci({ watch: true })"
+            s.reason === "checkNeedsPerson" || s.reason === "checkDeclined"
+              ? "Only the person may start these commands: show them commands, and if they want the setup, ask them to run command in their terminal, which shows the commands, checks, shows the plan and opens the pull request; then call ci({ watch: true })"
               : "A secret's value never passes through you: ask the person to run command in their terminal, which reads the app.json here and asks for each value unseen",
         }
       : {}),

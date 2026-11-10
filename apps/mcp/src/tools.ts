@@ -404,10 +404,6 @@ export type StudioToolAnswer =
   | { outcome: "opened"; takeId?: string; note?: string }
   | { reason: string; detail: string };
 
-/** The `add` and `ci` tools' doors (Task 13), given only by the CLI bin, as
- *  the studio is: they reach the CLI's own core. Each answers an object; one
- *  with a `reason` is a refusal. Never rejects on purpose; a rejection is
- *  answered as `threw`. */
 /** The person's answer to a question the tool put to them, never the
  *  agent's: `unsupported` when the client cannot ask (DEM-110). */
 export type CiApproval =
@@ -418,6 +414,10 @@ export type CiApproval =
 /** How long the person has to answer the ci check's question. */
 export const APPROVAL_MS = 10 * 60_000;
 
+/** The `add` and `ci` tools' doors (Task 13), given only by the CLI bin, as
+ *  the studio is: they reach the CLI's own core. Each answers an object; one
+ *  with a `reason` is a refusal. Never rejects on purpose; a rejection is
+ *  answered as `threw`. */
 export type RepoDoors = {
   add(
     a: { flow: string; to: string[]; gif?: string[]; project?: string },
@@ -597,12 +597,12 @@ export function registerTools(
           : fromOutcome(served(op, o));
 
   /** Asks the person through the client, never the agent: a yes or no
-   *  only they can give, or `unsupported` (DEM-110). Never rejects. */
-  const askPerson = async (
-    message: string,
-    relatedRequestId: string | number,
-  ): Promise<CiApproval> => {
-    if (server.server.getClientCapabilities()?.elicitation === undefined)
+   *  only they can give, or `unsupported` (DEM-110). Never rejects. Tied to
+   *  no request: the person may read past the 50 s answer, and the question
+   *  must outlive it while the agent polls report. */
+  const askPerson = async (message: string): Promise<CiApproval> => {
+    // The SDK sends only form elicitation here; a URL-only client cannot ask.
+    if (server.server.getClientCapabilities()?.elicitation?.form === undefined)
       return { unsupported: true };
     try {
       const r = await server.server.elicitInput(
@@ -611,7 +611,7 @@ export function registerTools(
           message,
           requestedSchema: { type: "object", properties: {} },
         },
-        { relatedRequestId, timeout: APPROVAL_MS },
+        { timeout: APPROVAL_MS },
       );
       return r.action === "accept"
         ? { approved: true }
@@ -636,8 +636,6 @@ export function registerTools(
     extra: Extra,
     /** A call this process runs itself, rather than one sent to the page. */
     local?: (progress: (value: unknown) => void) => Promise<Outcome>,
-    /** The person's answer the call is waiting on, if any. */
-    held?: () => Promise<unknown> | null,
   ): Promise<ToolResult> => {
     const id = newId();
     const progress = progressSender(extra);
@@ -673,17 +671,7 @@ export function registerTools(
     };
     call.then(settle, settle);
     calls.set(id, entry);
-    let outcome = await capped(call);
-    // A person reading a question is not the call running: the cap counts
-    // again from their answer, so the question stays tied to this request.
-    for (
-      let waiting = held?.() ?? null;
-      outcome === STILL_RUNNING && waiting !== null;
-      waiting = held?.() ?? null
-    ) {
-      await waiting;
-      outcome = await capped(call);
-    }
+    const outcome = await capped(call);
     if (outcome === STILL_RUNNING) {
       progress.close();
       return notYet(id);
@@ -1038,22 +1026,10 @@ export function registerTools(
           project: z.string().min(1).optional(),
         },
       },
-      async (args, extra) => {
-        let asking: Promise<CiApproval> | null = null;
-        const approve = (message: string): Promise<CiApproval> => {
-          asking = askPerson(message, extra.requestId).finally(() => {
-            asking = null;
-          });
-          return asking;
-        };
-        return longCall(
-          "ci",
-          {},
-          extra as unknown as Extra,
-          (p) => settled(repo.ci(args, p, approve)),
-          () => asking,
-        );
-      },
+      async (args, extra) =>
+        longCall("ci", {}, extra as unknown as Extra, (p) =>
+          settled(repo.ci(args, p, askPerson)),
+        ),
     );
   }
 

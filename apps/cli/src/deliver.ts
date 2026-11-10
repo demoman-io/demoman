@@ -34,7 +34,7 @@ const toCommit = (v: RefreshResult["videos"][number]): boolean =>
  *  detached HEAD (a deployed sha, a release tag) opens its PR into the
  *  default branch, so it must already be on it: otherwise the PR carries
  *  another branch's commits into main (DEM-123). */
-async function offBase(
+export async function offBase(
   repoRoot: string,
   deps: { git: GitRunner; gh: Gh },
 ): Promise<string | null> {

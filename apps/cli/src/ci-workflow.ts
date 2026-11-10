@@ -15,6 +15,7 @@ import {
   type CiDeps,
   type CiPlan,
   type CiStop,
+  checkQuestion,
   planCiSetup,
   planLines,
   redact,
@@ -637,6 +638,26 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   }
 
   // Plan; a hole or a missing value is asked once, then planned again.
+  // An app.json nobody committed may be an agent's draft: its commands are
+  // shown, and asked about, before the check runs them (DEM-110). --yes
+  // approves them, as it approves the plan.
+  const approveCheck = async (
+    app: AppSpec,
+    committed: boolean,
+  ): Promise<CiStop | null> => {
+    if (committed) return null;
+    const lines = checkQuestion(app);
+    if (ask === null) {
+      for (const l of lines) io.say(l);
+      return null;
+    }
+    return (await ask.confirm(lines))
+      ? null
+      : {
+          reason: "checkDeclined",
+          detail: "the app's commands were not approved; nothing was run",
+        };
+  };
   const handled = new Set<string>();
   let plan: CiPlan | CiStop;
   for (;;) {
@@ -646,7 +667,7 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
       plan = await planCiSetup(
         root,
         choices,
-        { ...deps, signal: abort.signal },
+        { ...deps, signal: abort.signal, approveCheck },
         values,
       );
     } finally {
