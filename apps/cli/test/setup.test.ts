@@ -205,8 +205,17 @@ describe("setup", () => {
     expect(await setup(old.d)).toBe(1);
     expect(old.calls).toEqual([]);
     expect(old.out()).toContain(
-      "needs Node 20 or later, and this is Node 18.19.0",
+      "needs Node 20.12 or later, and this is Node 18.19.0",
     );
+    // DEM-121: the major alone let 20.0-20.11 through, which cannot load
+    // @clack/prompts.
+    const minor = machine({ nodeVersion: "v20.11.1" });
+    expect(await setup(minor.d)).toBe(1);
+    expect(minor.out()).toContain(
+      "needs Node 20.12 or later, and this is Node 20.11.1",
+    );
+    const floor = machine({ nodeVersion: "v20.12.0" });
+    expect(await setup(floor.d)).toBe(0);
   });
 
   it("never test-launches Chromium or installs libraries on macOS", async () => {

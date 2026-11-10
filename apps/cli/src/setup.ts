@@ -125,7 +125,10 @@ export interface Questions {
 /** The same keys, answered. */
 export type Answers = Questions;
 
-const MIN_NODE = 20;
+/** The oldest Node the package runs on: @clack/prompts needs 20.12 (DEM-121).
+ *  pkg/package.json's engines and the bin's own check say the same
+ *  (scripts/build.mjs's NODE_FLOOR; build.test.ts holds them together). */
+export const MIN_NODE = "20.12";
 const failed = (r: Ran): boolean =>
   r.notFound === true || r.error !== undefined || r.status !== 0;
 /** The first thing the command said, else how it ended. */
@@ -159,8 +162,16 @@ export function platformRefusal(
 ): string | null {
   const recorder = recorderPlatform(platform, arch);
   if (!recorder.ok) return recorder.detail;
-  const major = Number(/^v?(\d+)/.exec(nodeVersion)?.[1]);
-  if (!(major >= MIN_NODE)) {
+  const [major, minor] = (/^v?(\d+)\.(\d+)/.exec(nodeVersion) ?? [])
+    .slice(1)
+    .map(Number);
+  const [minMajor, minMinor] = MIN_NODE.split(".").map(Number);
+  if (
+    !(
+      (major as number) > (minMajor as number) ||
+      (major === minMajor && (minor as number) >= (minMinor as number))
+    )
+  ) {
     return `Demoman needs Node ${MIN_NODE} or later, and this is Node ${nodeVersion.replace(/^v/, "")}`;
   }
   return null;

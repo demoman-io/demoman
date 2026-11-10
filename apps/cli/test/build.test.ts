@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -21,6 +21,7 @@ import {
   wallpaperFile,
 } from "../../../packages/scene-schema/src/wallpapers.js";
 import { checkStudioPages, WALLPAPER_IDS } from "../scripts/studio-pages.mjs";
+import { MIN_NODE } from "../src/setup.js";
 
 const at = (p: string) => new URL(`../${p}`, import.meta.url);
 const read = (p: string) => readFileSync(at(p), "utf8");
@@ -71,6 +72,18 @@ describe("the node bundle", () => {
   });
 });
 
+/** A dependency's own package.json, from whichever workspace installed it. */
+function installedManifest(name: string): { engines?: { node?: string } } {
+  const repo = fileURLToPath(new URL("../../../", import.meta.url));
+  for (const group of ["apps", "packages"]) {
+    for (const ws of readdirSync(join(repo, group))) {
+      const file = join(repo, group, ws, "node_modules", name, "package.json");
+      if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8"));
+    }
+  }
+  throw new Error(`no workspace has ${name} installed`);
+}
+
 describe("pkg/package.json", () => {
   const built = json("pkg/package.json");
   const deps: Record<string, string> = built.dependencies;
@@ -94,13 +107,38 @@ describe("pkg/package.json", () => {
     expect(deps).not.toHaveProperty("ws");
   });
 
-  it("is demoman, FSL-1.1-ALv2, Node 20+, with the bin", () => {
+  it("is demoman, FSL-1.1-ALv2, Node 20.12+, with the bin", () => {
     expect(built).toMatchObject({
       name: "demoman",
       license: "FSL-1.1-ALv2",
-      engines: { node: ">=20" },
+      engines: { node: `>=${MIN_NODE}` },
       bin: { demoman: "dist/demoman.mjs" },
     });
+  });
+
+  // DEM-121: @clack/prompts needs Node 20.12 and the package said 20, so on
+  // 20.0-20.11 every command died while loading, before any check of ours.
+  it("asks for no older Node than any dependency does", () => {
+    const floor = (range: string): number[] => {
+      const m = /^>=\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(range.trim());
+      if (m === null)
+        throw new Error(`an engines range I cannot read: ${range}`);
+      return [m[1], m[2], m[3]].map((n) => Number(n ?? 0));
+    };
+    const above = (a: number[], b: number[]) => {
+      const i = a.findIndex((n, k) => n !== b[k]);
+      return i !== -1 && (a[i] as number) > (b[i] as number);
+    };
+    const ours = floor(built.engines.node);
+    const ranges = Object.keys(deps).flatMap((name) => {
+      const range = installedManifest(name).engines?.node;
+      return typeof range === "string" ? [`${name} ${range}`] : [];
+    });
+    // The premise: dependencies do say a floor, clack's among them.
+    expect(ranges.join("\n")).toContain("@clack/prompts >=");
+    expect(
+      ranges.filter((r) => above(floor(r.slice(r.indexOf(" ") + 1)), ours)),
+    ).toEqual([]);
   });
 
   // npm's page links "Repository" and "Issues" from these.
@@ -119,7 +157,7 @@ describe("pkg/package.json", () => {
 describe("the page bundles", () => {
   it("are all there, and agree with the node half on REPLAY_TARGETS", () => {
     const literal = JSON.stringify(REPLAY_TARGETS);
-    expect(read("pkg/dist/demoman.mjs")).toContain(literal);
+    expect(read("pkg/dist/cli.mjs")).toContain(literal);
     const carrying = PAGES.filter((n) =>
       read(`pkg/dist/page/${n}.js`).includes(literal),
     );
@@ -377,5 +415,35 @@ describe("checkStudioPages (build.mjs step 3b)", () => {
 
   it("knows the same ids as scene-schema's WALLPAPERS", () => {
     expect(WALLPAPER_IDS).toEqual(WALLPAPERS.map((w) => w.id));
+  });
+});
+
+// DEM-121: an import a Node lacks fails while the bundle links, before any
+// line of it runs, so the bin checks Node before it loads the bundle. A
+// preload stands in for the old Node, which is not on this machine.
+describe("the bin", () => {
+  const asNode = (version: string) => {
+    const r = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        `data:text/javascript,Object.defineProperty(process.versions,"node",{value:"${version}"})`,
+        fileURLToPath(at("pkg/dist/demoman.mjs")),
+        "--version",
+      ],
+      { encoding: "utf8" },
+    );
+    return { status: r.status, said: `${r.stdout}${r.stderr}` };
+  };
+
+  it("refuses a Node older than the package's floor, in words, and loads nothing", () => {
+    expect(asNode("20.11.1")).toEqual({
+      status: 1,
+      said: `Demoman needs Node ${MIN_NODE} or later, and this is Node 20.11.1.\n`,
+    });
+  });
+
+  it("goes on to the bundle on the floor itself", () => {
+    expect(asNode(`${MIN_NODE}.0`).said).not.toContain("needs Node");
   });
 });

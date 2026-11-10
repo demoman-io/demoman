@@ -95,6 +95,9 @@ const thirdPartyExternal = {
     );
   },
 };
+// The oldest Node the package runs on: @clack/prompts needs 20.12 (DEM-121).
+// setup.ts's MIN_NODE says the same; build.test.ts holds them together.
+const NODE_FLOOR = "20.12";
 const node = await build({
   absWorkingDir: app,
   entryPoints: [join(app, "src", "main.ts")],
@@ -102,13 +105,27 @@ const node = await build({
   platform: "node",
   format: "esm",
   target: "node20",
-  outfile: join(pkg, "dist", "demoman.mjs"),
-  banner: { js: "#!/usr/bin/env node" },
+  outfile: join(pkg, "dist", "cli.mjs"),
   plugins: [thirdPartyExternal],
   metafile: true,
   logLevel: "warning",
 });
 writeFileSync(join(meta, "node.json"), JSON.stringify(node.metafile));
+// The bin checks Node before it loads the bundle: an import a Node lacks
+// fails while the bundle links, before any line of it runs (DEM-121).
+const [floorMajor, floorMinor] = NODE_FLOOR.split(".").map(Number);
+writeFileSync(
+  join(pkg, "dist", "demoman.mjs"),
+  `#!/usr/bin/env node
+const [major, minor] = process.versions.node.split(".").map(Number);
+if (major < ${floorMajor} || (major === ${floorMajor} && minor < ${floorMinor})) {
+  console.error("Demoman needs Node ${NODE_FLOOR} or later, and this is Node " + process.versions.node + ".");
+  process.exitCode = 1;
+} else {
+  import("./cli.mjs");
+}
+`,
+);
 chmodSync(join(pkg, "dist", "demoman.mjs"), 0o755);
 
 const external = new Set();
@@ -199,7 +216,7 @@ writeFileSync(
       type: "module",
       bin: { demoman: "dist/demoman.mjs" },
       files: ["dist", "LICENSE", "THIRD_PARTY_NOTICES"],
-      engines: { node: ">=20" },
+      engines: { node: `>=${NODE_FLOOR}` },
       dependencies,
     },
     null,
