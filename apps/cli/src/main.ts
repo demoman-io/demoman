@@ -706,13 +706,16 @@ async function refresh(args: string[]): Promise<void> {
   );
   // deliver would refuse this checkout after every flow was recorded: say so
   // before recording (DEM-123).
-  if (route === "pr") {
-    const off = await offBase(repo.repo.root, {
-      git: execGit,
-      gh: realGh(repo.repo.root),
-    });
-    if (off !== null) return fail(off);
-  }
+  const target =
+    route === "pr"
+      ? await offBase(
+          repo.repo.root,
+          { git: execGit, gh: realGh(repo.repo.root) },
+          // The workflow's own record of the default branch it checked.
+          process.env.DEMOMAN_DEFAULT_BRANCH || undefined,
+        )
+      : undefined;
+  if (target !== undefined && "refused" in target) return fail(target.refused);
   // Decodes the exports to compare them, out of sight.
   const session = createBrowserSession({
     headless: true,
@@ -787,6 +790,7 @@ async function refresh(args: string[]): Promise<void> {
       repoRoot: repo.repo.root,
       result,
       named: only.length > 0,
+      ...(target === undefined ? {} : { target }),
       runUrl:
         server && slug && id ? `${server}/${slug}/actions/runs/${id}` : null,
     },

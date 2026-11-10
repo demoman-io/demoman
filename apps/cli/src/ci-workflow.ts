@@ -65,7 +65,7 @@ fi`;
 export const ON_DEFAULT_SCRIPT = `git merge-base --is-ancestor "$SHA" "origin/$DEFAULT_BRANCH" && code=0 || code=$?
 if [ "$code" -eq 1 ]; then
   echo "skip=true" >> "$GITHUB_OUTPUT"
-  echo "Skipping: $SHA is not on $DEFAULT_BRANCH. Demoman refreshes only commits the default branch holds, so another branch's or a fork's deployment opens no refresh pull request."
+  echo "::notice::Skipping: $SHA is not on $DEFAULT_BRANCH. Demoman refreshes only commits the default branch holds, so another branch's or a fork's deployment opens no refresh pull request."
   exit 0
 elif [ "$code" -ne 0 ]; then
   echo "::error::Could not tell whether $SHA is on $DEFAULT_BRANCH (git merge-base exited $code), so nothing was refreshed."
@@ -450,7 +450,7 @@ ${kind === "daily" ? `${fetch}${freshStep}` : ""}${tools}      - uses: actions/c
 ${kind === "daily" ? "" : fetch}${deployedStep}      - name: Refresh the repo's flows${ifRun}
         run: ${npx} refresh${deliver ? ` --deliver ${o.route}` : ""}${baseUrl}${outDir}
         env:
-          GH_TOKEN: ${expr("github.token")}${baseUrlEnv}${secretEnv}
+          GH_TOKEN: ${expr("github.token")}${baseUrlEnv}${onDefault ? `\n          DEMOMAN_DEFAULT_BRANCH: ${expr("github.event.repository.default_branch")}` : ""}${secretEnv}
 ${
   deliver && o.artifact === true
     ? `      - uses: actions/upload-artifact@v4
@@ -502,6 +502,8 @@ export type CiAsk = {
   /** Which of `names` to take from the file. */
   envFile(path: string, names: string[]): Promise<string[] | null>;
   confirm(lines: string[]): Promise<boolean>;
+  /** The check's commands, asked apart from the plan: a yes runs them. */
+  runCommands(lines: string[]): Promise<boolean>;
 };
 
 export interface CiIo {
@@ -638,20 +640,21 @@ export async function ciSetup(args: string[], io: CiIo): Promise<number> {
   }
 
   // Plan; a hole or a missing value is asked once, then planned again.
-  // An app.json nobody committed may be an agent's draft: its commands are
-  // shown, and asked about, before the check runs them (DEM-110). --yes
-  // approves them, as it approves the plan.
+  // An app.json the default branch does not hold may be an agent's draft,
+  // committed or not: its commands are shown, and asked about, before the
+  // check runs them (DEM-110). Not the holes the person just typed here.
+  // --yes approves them, as it approves the plan.
   const approveCheck = async (
     app: AppSpec,
-    committed: boolean,
+    onBase: boolean,
   ): Promise<CiStop | null> => {
-    if (committed) return null;
+    if (onBase || choices.appBy === "person") return null;
     const lines = checkQuestion(app);
     if (ask === null) {
       for (const l of lines) io.say(l);
       return null;
     }
-    return (await ask.confirm(lines))
+    return (await ask.runCommands(lines))
       ? null
       : {
           reason: "checkDeclined",

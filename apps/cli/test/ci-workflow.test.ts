@@ -709,6 +709,13 @@ describe("the default-branch guard", () => {
       expect(scriptOf(all[1] ?? "")).toContain(
         'git merge-base --is-ancestor "$SHA" "origin/$DEFAULT_BRANCH"',
       );
+      // refresh delivers to the branch this step checked, never asks again.
+      const refresh = all.find((b) =>
+        b.includes("name: Refresh the repo's flows"),
+      );
+      expect(refresh).toContain(
+        `DEMOMAN_DEFAULT_BRANCH: ${expr("github.event.repository.default_branch")}`,
+      );
       expect(all.length).toBeGreaterThan(4);
       for (const later of all.slice(2)) {
         expect(later, later).toContain(`if: ${skipIf}`);
@@ -773,6 +780,8 @@ describe("the default-branch guard", () => {
     expect(off.code).toBe(0);
     expect(off.out).toBe("skip=true\n");
     expect(off.log).toContain("is not on main");
+    // A green run that refreshed nothing says so on its summary.
+    expect(off.log).toMatch(/^::notice::/m);
     const bad = answer("0".repeat(40));
     expect(bad.code).not.toBe(0);
     expect(bad.out).toBe("");
@@ -1030,7 +1039,15 @@ describe("ciSetup", () => {
     const asked: Array<[string, unknown[]]> = [];
     const ask = Object.fromEntries(
       (
-        ["trigger", "route", "appHole", "secret", "envFile", "confirm"] as const
+        [
+          "trigger",
+          "route",
+          "appHole",
+          "secret",
+          "envFile",
+          "confirm",
+          "runCommands",
+        ] as const
       ).map((k) => [
         k,
         async (...a: unknown[]) => {
@@ -1054,8 +1071,9 @@ describe("ciSetup", () => {
       watched?: Watched;
       /** Runs inside each readGithub. */
       onRead?: () => void;
-      /** app.json is in the working tree only, as an agent's draft is. */
-      uncommitted?: boolean;
+      /** app.json is not the default branch's, as an agent's draft is,
+       *  committed here or not. */
+      draft?: boolean;
     } = {},
   ) {
     const root = o.root ?? repoDir();
@@ -1077,8 +1095,10 @@ describe("ciSetup", () => {
         args[0] === "ls-tree"
           ? { code: 0, stdout: "", stderr: "" }
           : args[0] === "show" &&
-              args[1] === "HEAD:.demoman/app.json" &&
-              o.uncommitted !== true
+              // HEAD holds it either way: committed is not reviewed.
+              (args[1] === "HEAD:.demoman/app.json" ||
+                (args[1] === "origin/trunk:.demoman/app.json" &&
+                  o.draft !== true))
             ? { code: 0, stdout: serializeApp(checkApp), stderr: "" }
             : { code: 128, stdout: "", stderr: "fatal: no such path" },
       readGithub: async () => {
@@ -1152,7 +1172,7 @@ describe("ciSetup", () => {
       },
       say: (l) => void said.push(l),
     };
-    return { io, said, calls, seen, sig, root };
+    return { io, said, calls, seen, sig, root, deps };
   }
   const yes = ["--ci", "--yes"];
   const outward = ["allowActionPullRequests", "setSecrets", "openSetupPr"];
@@ -1359,17 +1379,17 @@ describe("ciSetup", () => {
       );
     });
 
-    it("asks about its commands before the check, and a no runs nothing", async () => {
+    it("asks about its commands apart from the plan, before the check, and a no runs nothing", async () => {
       const order: string[] = [];
       const { ask, asked } = asker({
-        confirm: async () => {
-          order.push("confirm");
+        runCommands: async () => {
+          order.push("runCommands");
           return false;
         },
       });
       const m = door({
         ask,
-        uncommitted: true,
+        draft: true,
         verify: async () => {
           order.push("check");
           return passedCheck;
@@ -1378,8 +1398,10 @@ describe("ciSetup", () => {
       expect(
         await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
       ).toBe(1);
-      expect(order).toEqual(["confirm"]);
-      const lines = asked.find(([k]) => k === "confirm")?.[1][0] as string[];
+      expect(order).toEqual(["runCommands"]);
+      const lines = asked.find(
+        ([k]) => k === "runCommands",
+      )?.[1][0] as string[];
       expect(lines).toContain(`  start: ${JSON.stringify(checkApp.start)}`);
       expect(m.said.join("\n")).toContain("nothing was run");
     });
@@ -1388,12 +1410,16 @@ describe("ciSetup", () => {
       const order: string[] = [];
       const m = door({
         ask: asker({
+          runCommands: async () => {
+            order.push("runCommands");
+            return true;
+          },
           confirm: async () => {
             order.push("confirm");
             return true;
           },
         }).ask,
-        uncommitted: true,
+        draft: true,
         verify: async () => {
           order.push("check");
           return passedCheck;
@@ -1402,11 +1428,38 @@ describe("ciSetup", () => {
       expect(
         await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
       ).toBe(0);
-      expect(order).toEqual(["confirm", "check", "confirm"]);
+      expect(order).toEqual(["runCommands", "check", "confirm"]);
+    });
+
+    // Red when the gate trusts HEAD: an agent can commit its own draft.
+    it("asks about a draft committed here but not on the default branch", async () => {
+      const { ask, asked } = asker({ runCommands: async () => false });
+      const m = door({ ask, draft: true });
+      // Premise: HEAD holds the draft; the default branch does not.
+      const show = (ref: string) =>
+        m.deps.git(["show", `${ref}:.demoman/app.json`], m.root);
+      expect((await show("HEAD")).code).toBe(0);
+      expect((await show("origin/trunk")).code).not.toBe(0);
+      await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io);
+      expect(asked.map(([k]) => k)).toContain("runCommands");
+    });
+
+    // Positive control: what the default branch holds was reviewed there.
+    it("asks nothing about the default branch's own app.json", async () => {
+      const { ask, asked } = asker({ confirm: async () => true });
+      const m = door({ ask });
+      expect(
+        (await m.deps.git(["show", "origin/trunk:.demoman/app.json"], m.root))
+          .stdout,
+      ).toBe(serializeApp(checkApp));
+      expect(
+        await ciSetup(["--ci", "--trigger", "daily", "--route", "pr"], m.io),
+      ).toBe(0);
+      expect(asked.map(([k]) => k)).not.toContain("runCommands");
     });
 
     it("--yes says the commands and runs them", async () => {
-      const m = door({ ask: asker({}).ask, uncommitted: true });
+      const m = door({ ask: asker({}).ask, draft: true });
       expect(await ciSetup(yes, m.io)).toBe(0);
       expect(m.said).toContain(`  start: ${JSON.stringify(checkApp.start)}`);
       expect(m.calls).toContain("verifySetup");
@@ -1521,7 +1574,11 @@ describe("ciSetup", () => {
     expect(m.seen.verify?.[0].target).toEqual({
       app: { ...checkApp, url: "http://127.0.0.1:3999/app" },
     });
+    // The person just typed the hole: the commands are not asked again,
+    // though the filled app.json is not the default branch's (the PR above
+    // carries it, the premise).
     expect(m.seen.pr?.files.map((f) => f.path)).toContain(".demoman/app.json");
+    expect(asked.map(([k]) => k)).not.toContain("runCommands");
   });
 
   it("with --yes, a hole stops naming it and app.json", async () => {

@@ -274,11 +274,11 @@ export type CiDeps = {
   /** Stops the check (R3). */
   signal?: AbortSignal;
   /** Asked before the check starts the app, with what it runs: null goes
-   *  on. `committed`: the app.json is HEAD's own. The ci tool always stops
-   *  here for the person's terminal, its caller being an agent; the
-   *  terminal asks of an app.json nobody committed, which an agent may have
-   *  drafted (DEM-110). */
-  approveCheck?(app: AppSpec, committed: boolean): Promise<CiStop | null>;
+   *  on. `onBase`: the app.json is the default branch's own, which a review
+   *  let in; an agent can commit locally, never there unreviewed. The ci
+   *  tool always stops here for the person's terminal, its caller being an
+   *  agent; the terminal asks of any other app.json (DEM-110). */
+  approveCheck?(app: AppSpec, onBase: boolean): Promise<CiStop | null>;
   /** `environment`: the deployment trigger asked for, if one was. */
   readGithub(
     root: string,
@@ -848,9 +848,8 @@ async function makePlan(
 
   // A deployment's check records the deployed app and starts nothing.
   if (deployment === null && app !== null && deps.approveCheck) {
-    const committed =
-      (await shown(deps.git, root, "HEAD", APP_FILE)) === app.text;
-    const refused = await deps.approveCheck(app.spec, committed);
+    const onBase = (await shown(deps.git, root, base, APP_FILE)) === app.text;
+    const refused = await deps.approveCheck(app.spec, onBase);
     if (refused !== null) return refused;
   }
   // The check (Decision 1, R3): said before it runs, and stoppable.

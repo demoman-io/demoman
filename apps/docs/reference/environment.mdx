@@ -11,6 +11,7 @@ description: "The environment variables Demoman reads."
 | `DEMOMAN_SECRET_<NAME>` | A demo account's secret ([accounts.json](/reference/accounts-json#secrets)) |
 | `DEMOMAN_SECRET_<NAME>_ORIGIN` | The one site that secret may be typed on |
 | `DEMOMAN_NOW` | Set by Demoman, not you: the pinned instant, given to the app's commands ([app.json](/reference/app-json#pinned-dates)) |
+| `DEMOMAN_DEFAULT_BRANCH` | Set by the workflow `setup --ci` writes for a deployment or release: the default branch it checked the commit is on. `refresh --deliver pr` opens its pull request into it; without it, `gh` says which branch |
 
 <Note>
   An agent may pass Demoman only part of its environment, as Codex does, so

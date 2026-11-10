@@ -298,7 +298,7 @@ function stopped(s: CiStop, values: SecretValues): Answer {
     ...(s.secrets === undefined
       ? {}
       : { secrets: s.secrets.map(({ name, why }) => ({ name, why })) }),
-    ...(s.commands === undefined ? {} : { commands: s.commands }),
+    ...(s.commands === undefined ? {} : { commands: s.commands.map(h) }),
     ...(person
       ? {
           command: CI_COMMAND,

@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execGit, type RefreshResult } from "@demoman/runner/package";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { deliver } from "../src/deliver.js";
+import { deliver, offBase } from "../src/deliver.js";
 
 const FAKE_GH = join(__dirname, "../../runner/test/fake-gh.mjs");
 const PERSON = ["-c", "user.name=Pat", "-c", "user.email=pat@example.com"];
@@ -491,6 +491,38 @@ describe("deliver", () => {
       expect(git(remote, "log", "--format=%s", "demoman/refresh")).toBe(
         "Refresh demo videos\nstart",
       );
+      // The PR goes where the check looked, named, not gh's own default.
+      const create = calls().find((c) => c[1] === "create") ?? [];
+      expect(create[create.indexOf("--base") + 1]).toBe("main");
+    });
+
+    // Decide once: the workflow names the branch it checked, and refresh
+    // hands deliver the answer it got before recording.
+    it("takes a named default branch without asking gh, and a given answer without checking again", async () => {
+      git(repo, "checkout", "-q", "--detach", "main");
+      expect(await offBase(repo, { git: execGit, gh }, "main")).toEqual({
+        base: "main",
+      });
+      expect(calls()).toEqual([]);
+      script = {
+        "pr list": { stdout: "[]" },
+        "pr create": { stdout: "https://github.com/o/r/pull/5\n" },
+      };
+      const a = await deliver(
+        {
+          route: "pr",
+          repoRoot: repo,
+          result: result(),
+          runUrl: null,
+          target: { base: "main" },
+        },
+        { git: execGit, gh },
+      );
+      expect(a).toMatchObject({ delivered: "pr", ok: true });
+      expect(calls().map((c) => c.slice(0, 2))).toEqual([
+        ["pr", "list"],
+        ["pr", "create"],
+      ]);
     });
 
     it("says so when the default branch cannot be read", async () => {

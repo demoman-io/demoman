@@ -89,6 +89,8 @@ function tool(
     now?: () => number;
     /** As shipped: no stand-in for the person's yes to the check. */
     shipped?: boolean;
+    /** The default branch (origin/trunk) holds the fixture's app.json. */
+    baseApp?: boolean;
     deployments?: GithubFacts["deployments"];
   } = {},
 ) {
@@ -120,20 +122,24 @@ function tool(
       version: "0.9.0",
       env: o.env ?? {},
       git: async (args) =>
-        args[0] === "ls-tree"
-          ? { code: 0, stdout: "", stderr: "" }
-          : args[0] === "ls-remote"
-            ? (o.lsRemote ??
-              // Only the full ref: the short name also matches
-              // alice/demoman/setup, so a watch asking by it reads nothing.
-              (args[3] === "refs/heads/demoman/setup"
-                ? {
-                    code: 0,
-                    stdout: "abc123\trefs/heads/demoman/setup\n",
-                    stderr: "",
-                  }
-                : { code: 0, stdout: "", stderr: "" }))
-            : { code: 128, stdout: "", stderr: "fatal: no such path" },
+        args[0] === "show" &&
+        args[1] === "origin/trunk:.demoman/app.json" &&
+        o.baseApp === true
+          ? { code: 0, stdout: serializeApp(APP), stderr: "" }
+          : args[0] === "ls-tree"
+            ? { code: 0, stdout: "", stderr: "" }
+            : args[0] === "ls-remote"
+              ? (o.lsRemote ??
+                // Only the full ref: the short name also matches
+                // alice/demoman/setup, so a watch asking by it reads nothing.
+                (args[3] === "refs/heads/demoman/setup"
+                  ? {
+                      code: 0,
+                      stdout: "abc123\trefs/heads/demoman/setup\n",
+                      stderr: "",
+                    }
+                  : { code: 0, stdout: "", stderr: "" }))
+              : { code: 128, stdout: "", stderr: "fatal: no such path" },
       readGithub: async () => facts,
       detectApp: async () => ({ none: "nothing to propose from" }),
       neededSecrets: async () => ({ needed: o.needed ?? [] }),
@@ -554,12 +560,31 @@ describe("the ci tool", () => {
       expect(t.calls).toEqual([]);
     });
 
-    // A committed app.json is no different: the agent triggers its commands.
-    it("stops the same before a committed or detected app's check", async () => {
-      const t = tool({ shipped: true });
+    // Red when the tool trusts a reviewed app.json: the agent still triggers
+    // its commands, and the person never saw them here.
+    it("stops the same before the default branch's own app.json", async () => {
+      const t = tool({ shipped: true, baseApp: true });
       const a = await t.call({ trigger: "daily" });
       expect(a.reason).toBe("checkNeedsPerson");
       expect(t.calls).toEqual([]);
+    });
+
+    // Red if commands skip the redaction every other field gets.
+    it("never says a secret value inside a command", async () => {
+      const t = tool({
+        root: repoDir({ appJson: false }),
+        shipped: true,
+        needed: [SELLER],
+        env: { DEMOMAN_SECRET_SELLER: SECRET },
+      });
+      const a = await t.call({
+        trigger: "daily",
+        app: { ...evil, install: [`npm config set _authToken=${SECRET}`] },
+      });
+      expect(a.reason).toBe("checkNeedsPerson");
+      // Premise: the command carried the value.
+      expect(String((a.commands as string[])[0])).toContain("_authToken=");
+      expect(JSON.stringify(a)).not.toContain(SECRET);
     });
 
     // Positive control: a deployment's check records the deployed URL and
