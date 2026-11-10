@@ -4,6 +4,7 @@ import {
   type Exporting,
   type Library,
   LibraryError,
+  type PinnedScene,
 } from "@demoman/runner/studio";
 import type {
   ExportStartAnswer,
@@ -45,8 +46,12 @@ export type RunExport = (
   fileType: FileType,
   jobId: string,
   onProgress: (p: Exporting) => void,
-  /** The editor's pick for this export; absent, the Export quality setting. */
-  quality?: ExportQuality,
+  job: {
+    /** Rendered in place of `scene.json`, so a later edit cannot reach it. */
+    pinned: PinnedScene;
+    /** The editor's pick for this export; absent, the Export quality setting. */
+    quality?: ExportQuality;
+  },
 ) => Promise<ExportAnswer>;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
@@ -63,6 +68,7 @@ interface Job {
   fileType: FileType;
   quality?: ExportQuality;
   jobId: string;
+  pinned: PinnedScene;
 }
 
 /** A turn on the queue that is not an export (`serial`). */
@@ -85,9 +91,10 @@ function failureOf(
 
 /**
  * The studio's exports: FIFO, one at a time in the studio's headless browser
- * (spec §6.3). `start` checks the take and its revision and queues; the
- * lease and the `outputs.json` row are `run`'s (`exportTake`), so the agent
- * door and the studio take them the same way.
+ * (spec §6.3). `start` checks the take and its revision and queues the
+ * scene it read, which is what renders however the take is edited while it
+ * waits; the lease and the `outputs.json` row are `run`'s (`exportTake`),
+ * so the agent door and the studio take them the same way.
  */
 export function createExportQueue(o: {
   library: Library;
@@ -115,26 +122,7 @@ export function createExportQueue(o: {
     events.send({ ...e, type: "export", takeId: job.takeId, jobId: job.jobId });
 
   async function runOne(job: Job): Promise<void> {
-    // Deleted while it waited: said as itself, and nothing is rendered.
-    let present: boolean;
-    try {
-      present = (await library.getSceneRead(job.takeId)) !== null;
-    } catch (error) {
-      send(job, {
-        phase: "failed",
-        reason: "libraryUnreadable",
-        detail: `Not exported: the video could not be read (${messageOf(error)}).`,
-      });
-      return;
-    }
-    if (!present) {
-      send(job, {
-        phase: "failed",
-        reason: "takeNotFound",
-        detail: "Not exported: the video was deleted before its turn came.",
-      });
-      return;
-    }
+    // A take deleted while it waited is `exportTake`'s `takeNotFound`.
     let answer: ExportAnswer;
     try {
       answer = await o.run(
@@ -149,7 +137,10 @@ export function createExportQueue(o: {
               : { phase: "rendering", done: p.done, total: p.total },
           );
         },
-        job.quality,
+        {
+          pinned: job.pinned,
+          ...(job.quality === undefined ? {} : { quality: job.quality }),
+        },
       );
     } catch (error) {
       // exportTake resolves for every outcome; a throw is a bug, and the
@@ -240,6 +231,8 @@ export function createExportQueue(o: {
       fileType: body.fileType,
       ...(body.quality === undefined ? {} : { quality: body.quality }),
       jobId: randomUUID(),
+      // The revision checked above is the scene rendered (DEM-100).
+      pinned: { scene: read.scene, notes: read.notes },
     };
     const position = waiting.length + (running === null ? 0 : 1);
     waiting.push(job);

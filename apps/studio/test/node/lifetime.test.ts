@@ -117,7 +117,7 @@ async function serve(
   const pagesDir = o.pagesDir ?? join(home, "pages");
   if (o.pagesDir === undefined) await writePages(pagesDir);
 
-  const run: RunExport = (takeId, _fileType, _jobId, onProgress, quality) =>
+  const run: RunExport = (takeId, _fileType, _jobId, onProgress, { quality }) =>
     new Promise((finish) => runs.push({ takeId, finish, onProgress, quality }));
 
   void runServe({

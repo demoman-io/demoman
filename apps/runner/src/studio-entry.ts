@@ -22,6 +22,7 @@ export {
   type ExportDeps,
   type Exporting,
   exportTake,
+  type PinnedScene,
 } from "./executor/export.js";
 export {
   type KeepAnswer,

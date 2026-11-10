@@ -136,9 +136,11 @@ export interface Platform {
      * `aspect` is the one the Export button showed when it was pressed. The
      * extension's renderer needs it on the job (`RenderJob.aspect`); the
      * studio does not send it, because its `revision` pins the scene and the
-     * scene pins `canvas.aspect`. `revision` is the reverse: the studio's
-     * guard against rendering a scene the page has not saved, which the
-     * chrome side has no counterpart for.
+     * scene pins `canvas.aspect`: the server checks it when the job is
+     * queued and renders the scene it read then, so an edit made while the
+     * job waits reaches only later exports. `revision` is the reverse: the
+     * studio's guard against rendering a scene the page has not saved,
+     * which the chrome side has no counterpart for.
      */
     start(
       takeId: string,

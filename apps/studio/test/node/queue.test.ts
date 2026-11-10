@@ -19,15 +19,19 @@ const flush = () => new Promise<void>((r) => setImmediate(r));
 async function fakeLibrary(ids: string[]) {
   const scene = await sceneFixture();
   const takes = new Map(ids.map((id) => [id, `rev-${id}`]));
+  /** A take's scene on disk, when a case has changed it from the fixture. */
+  const scenes = new Map<string, typeof scene>();
   const library = {
     root: "/library",
     isTakeId: (id: string) => /^[\w-]+$/.test(id),
     async getSceneRead(id: string) {
       const revision = takes.get(id);
-      return revision === undefined ? null : { scene, revision };
+      return revision === undefined
+        ? null
+        : { scene: scenes.get(id) ?? scene, revision, notes: [] };
     },
   } as unknown as Library;
-  return { library, takes };
+  return { library, takes, scenes, scene };
 }
 
 /** A `run` whose every call waits for the test to finish it. */
@@ -37,11 +41,12 @@ function heldRun() {
     fileType: FileType;
     jobId: string;
     onProgress: (p: Exporting) => void;
+    job: Parameters<RunExport>[4];
     finish: (a: ExportAnswer) => void;
   }[] = [];
-  const run: RunExport = (takeId, fileType, jobId, onProgress) =>
+  const run: RunExport = (takeId, fileType, jobId, onProgress, job) =>
     new Promise((finish) => {
-      calls.push({ takeId, fileType, jobId, onProgress, finish });
+      calls.push({ takeId, fileType, jobId, onProgress, job, finish });
     });
   return { run, calls };
 }
@@ -189,37 +194,32 @@ describe("the export queue", () => {
     expect(calls).toEqual([]);
   });
 
-  it("a take deleted between start and its turn fails takeNotFound", async () => {
-    const { library, takes } = await fakeLibrary(["a", "b"]);
-    const events: StudioEvent[] = [];
+  it("runs the scene read when the job was queued, not the one on disk at its turn", async () => {
+    const { library, takes, scenes, scene } = await fakeLibrary(["a", "b"]);
     const { run, calls } = heldRun();
     const queue = createExportQueue({
       library,
-      events: { send: (e) => events.push(e) },
+      events: { send: () => {} },
       run,
       log: () => {},
     });
     await queue.start("a", { fileType: "mp4", revision: "rev-a" });
-    const b = await queue.start("b", { fileType: "mp4", revision: "rev-b" });
-    expect(b).toMatchObject({ position: 1 });
-    // Premise: b was admitted, so its take existed when it was queued.
-    expect(events.map(shapeOf)).toEqual(["queued:a", "queued:b"]);
-    takes.delete("b");
-    await flush();
+    await queue.start("b", { fileType: "gif", revision: "rev-b" });
+    // The edit lands while b waits behind a.
+    const edited = { ...scene, canvas: { ...scene.canvas, aspect: "9:16" } };
+    scenes.set("b", edited as typeof scene);
+    takes.set("b", "rev-b2");
+    expect(
+      (await library.getSceneRead("b"))?.scene.canvas.aspect,
+      "the premise: b's scene on disk is the edited one",
+    ).toBe("9:16");
     calls[0]?.finish(saved("a"));
     await flush();
 
-    // Red: drop the existence check at the job's turn — run is called for b.
-    expect(calls.map((c) => c.takeId)).toEqual(["a"]);
-    await queue.drained();
-    const failed = events.at(-1);
-    expect(failed).toMatchObject({
-      type: "export",
-      takeId: "b",
-      phase: "failed",
-      reason: "takeNotFound",
-    });
-    expect((failed as { detail: string }).detail).toMatch(/deleted/);
+    // Red: pin anything but admission's read — the edited scene reaches b.
+    expect(calls.map((c) => c.takeId)).toEqual(["a", "b"]);
+    expect(calls[1]?.job.pinned.scene).toBe(scene);
+    expect(calls[1]?.job.pinned.notes).toEqual([]);
   });
 
   it("an export that does not save fails with the refusal's reason and its sentence", async () => {
