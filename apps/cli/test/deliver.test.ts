@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execGit, type RefreshResult } from "@demoman/runner/package";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deliver, offBase } from "../src/deliver.js";
 
 const FAKE_GH = join(__dirname, "../../runner/test/fake-gh.mjs");
@@ -128,7 +128,10 @@ beforeEach(() => {
   writeFileSync(join(repo, "docs/add-task.mp4"), "new");
   writeFileSync(join(repo, "unrelated.txt"), "mine");
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  vi.unstubAllEnvs();
+  rmSync(dir, { recursive: true, force: true });
+});
 
 describe("deliver", () => {
   const unchanged = () => {
@@ -320,7 +323,8 @@ describe("deliver", () => {
     expect(a.ok).toBe(false);
     expect(a.delivered).toBe("nothing");
     expect(a.detail).toMatch(/push/);
-    expect(a.detail).toMatch(/fetch/);
+    // A dead remote is not a refusal for being behind: no retry.
+    expect(a.detail).not.toMatch(/first push/);
   });
 
   const moveMain = (file: string, content: string, subject: string) => {
@@ -337,7 +341,9 @@ describe("deliver", () => {
     moveMain("NOTES.md", "merged while recording\n", "a merge during the run");
     const a = await run("main", result());
     expect(a).toMatchObject({ delivered: "main", ok: true });
-    expect(a.detail).toMatch(/on top of a commit that landed during the run/);
+    expect(a.detail).toMatch(
+      /on top of origin\/main, which had moved 1 commit\(s\) past the commit this run started from/,
+    );
     const subjects = git(remote, "log", "--format=%s", "main").split("\n");
     expect(subjects[0]).toMatch(/^Refresh demo videos/); // ours, on top
     expect(subjects[1]).toBe("a merge during the run"); // theirs, kept
@@ -352,7 +358,7 @@ describe("deliver", () => {
     const a = await run("main", result());
     expect(a).toMatchObject({ delivered: "main", ok: true });
     expect(a.detail).toMatch(
-      /replaced .*docs\/add-task\.mp4.* a commit during the run had also changed/,
+      /replaced .*docs\/add-task\.mp4.* those commits had also changed/,
     );
     expect(git(remote, "show", "main:docs/add-task.mp4")).toBe("new");
     expect(git(remote, "log", "--format=%s", "main")).toContain(
@@ -389,11 +395,141 @@ describe("deliver", () => {
 
   it("the commit on the moved branch is made by the bot even with no git identity configured", async () => {
     moveMain("NOTES.md", "merged while recording\n", "a merge during the run");
+    const home = join(dir, "home");
+    mkdirSync(home);
+    const global = join(home, "gitconfig");
+    // useConfigOnly: git may not make up an identity from the host name either.
+    writeFileSync(global, "[user]\n\tuseConfigOnly = true\n");
+    vi.stubEnv("GIT_CONFIG_GLOBAL", global);
+    vi.stubEnv("GIT_CONFIG_NOSYSTEM", "1");
+    vi.stubEnv("HOME", home);
+    // Premise: under this env git has no identity of its own.
+    expect(() => git(repo, "config", "user.name")).toThrow();
+    expect(() => git(repo, "var", "GIT_AUTHOR_IDENT")).toThrow();
     const a = await run("main", result());
-    expect(a.ok).toBe(true);
+    expect(a, a.detail).toMatchObject({ delivered: "main", ok: true });
+    expect(a.detail).toMatch(/had moved 1 commit/);
     expect(git(remote, "log", "-1", "--format=%an %ae %cn %ce", "main")).toBe(
       "github-actions[bot] 41898282+github-actions[bot]@users.noreply.github.com github-actions[bot] 41898282+github-actions[bot]@users.noreply.github.com",
     );
+  });
+
+  it("a moved branch with a commit this checkout has that origin lacks: refused, nothing pushed, nothing dropped", async () => {
+    writeFileSync(join(repo, "local.txt"), "not pushed\n");
+    git(repo, "add", "local.txt");
+    git(repo, ...PERSON, "commit", "-q", "-m", "unpushed", "--", "local.txt");
+    moveMain("NOTES.md", "merged while recording\n", "a merge during the run");
+    const remoteBefore = git(remote, "rev-parse", "main");
+    const a = await run("main", result());
+    expect(a).toMatchObject({ delivered: "nothing", ok: false });
+    expect(a.detail).toMatch(
+      /no longer contains the commit this run started from/,
+    );
+    expect(a.detail).toMatch(/fetch first|non-fast-forward/);
+    expect(git(remote, "rev-parse", "main")).toBe(remoteBefore);
+    expect(git(repo, "log", "--format=%s", "-2").split("\n")).toEqual([
+      "Refresh demo videos",
+      "unpushed",
+    ]);
+  });
+
+  it("a moved branch that already holds the same bytes: delivered, and no second bot commit", async () => {
+    moveMain("docs/add-task.mp4", "new", "the same video, landed first");
+    // Premise: the moved commit carries exactly what this run wrote.
+    expect(git(remote, "show", "main:docs/add-task.mp4")).toBe(
+      readFileSync(join(repo, "docs/add-task.mp4"), "utf8"),
+    );
+    const a = await run("main", result());
+    expect(a, a.detail).toMatchObject({ delivered: "main", ok: true });
+    expect(a.detail).toMatch(/already holds every file this run would commit/);
+    expect(git(remote, "log", "--format=%s", "main").split("\n")).toEqual([
+      "the same video, landed first",
+      "start",
+    ]);
+    expect(git(repo, "rev-parse", "HEAD")).toBe(
+      git(remote, "rev-parse", "main"),
+    );
+  });
+
+  it("a video the moved branch deleted is left out, not brought back", async () => {
+    const other = join(dir, "other");
+    execFileSync("git", ["clone", "-q", remote, other]);
+    git(other, "rm", "-q", "docs/add-task.mp4");
+    git(other, ...PERSON, "commit", "-q", "-m", "drop the video");
+    git(other, "push", "-q", "origin", "main");
+    const a = await run("main", result());
+    expect(a, a.detail).toMatchObject({ delivered: "main", ok: true });
+    expect(a.detail).toMatch(/left out .*docs\/add-task\.mp4/);
+    expect(a.detail).not.toMatch(/replaced/);
+    expect(() =>
+      git(remote, "cat-file", "-e", "main:docs/add-task.mp4"),
+    ).toThrow();
+  });
+
+  it("after delivering on a moved branch the checkout is what was pushed", async () => {
+    moveMain("NOTES.md", "merged while recording\n", "a merge during the run");
+    const a = await run("main", result());
+    expect(a, a.detail).toMatchObject({ delivered: "main", ok: true });
+    expect(a.detail).not.toMatch(/checkout stays/);
+    expect(git(repo, "rev-parse", "HEAD")).toBe(
+      git(remote, "rev-parse", "main"),
+    );
+    // Only the deliberate untracked leftover remains; nothing undoes the merge.
+    expect(git(repo, "status", "--porcelain")).toBe("?? unrelated.txt");
+    expect(readFileSync(join(repo, "NOTES.md"), "utf8")).toBe(
+      "merged while recording\n",
+    );
+  });
+
+  it("a push failing for another reason while the branch moved keeps its own reason and does not retry", async () => {
+    moveMain("NOTES.md", "merged while recording\n", "a merge during the run");
+    git(
+      repo,
+      "remote",
+      "set-url",
+      "--push",
+      "origin",
+      join(dir, "nowhere.git"),
+    );
+    const head = git(repo, "rev-parse", "HEAD");
+    const a = await run("main", result());
+    expect(a).toMatchObject({ delivered: "nothing", ok: false });
+    expect(a.detail).toMatch(/^git push failed: .*nowhere\.git/s);
+    expect(a.detail).not.toMatch(/moved|again|first push/);
+    // The checkout keeps its own commit on where it started: no reset to origin's tip.
+    expect(git(repo, "rev-parse", "HEAD~1")).toBe(head);
+    expect(git(repo, "log", "-1", "--format=%s")).toBe("Refresh demo videos");
+  });
+
+  it("a refused push whose fetch then fails names both", async () => {
+    moveMain("NOTES.md", "merged while recording\n", "a merge during the run");
+    git(repo, "remote", "set-url", "origin", join(dir, "nowhere.git"));
+    git(repo, "remote", "set-url", "--push", "origin", remote);
+    const a = await run("main", result());
+    expect(a).toMatchObject({ delivered: "nothing", ok: false });
+    expect(a.detail).toMatch(
+      /^the first push was refused \(.*fetch first.*\), then git fetch origin main failed: .*nowhere\.git/s,
+    );
+  });
+
+  it("a second push that fails says the first push's reason too", async () => {
+    moveMain("NOTES.md", "merged while recording\n", "a merge during the run");
+    // Installed after the move: the first push is refused client-side and never reaches it.
+    const hook = join(remote, "hooks/pre-receive");
+    const counter = join(dir, "pushes.log");
+    writeFileSync(
+      hook,
+      `#!/bin/sh\necho x >> '${counter}'\necho 'protected branch' >&2\nexit 1\n`,
+    );
+    chmodSync(hook, 0o755);
+    const a = await run("main", result());
+    expect(a).toMatchObject({ delivered: "nothing", ok: false });
+    expect(a.detail).toMatch(
+      /^the first push was refused \(.*fetch first.*\), then the second push failed: .*protected branch/s,
+    );
+    expect(
+      readFileSync(counter, "utf8").split("\n").filter(Boolean),
+    ).toHaveLength(1);
   });
 
   it("main: an uncommitted leftover survives committing again", async () => {

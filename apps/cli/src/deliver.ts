@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { GitRunner, RefreshResult } from "@demoman/runner/package";
 import type { Gh } from "./gh-run.js";
 
@@ -8,6 +11,8 @@ const BOT_NAME = "github-actions[bot]";
 const BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com";
 const BOT = ["-c", `user.name=${BOT_NAME}`, "-c", `user.email=${BOT_EMAIL}`];
 const NOT_PERMITTED = /not permitted to create or approve pull requests/i;
+// git's client-side refusal of a push that is behind the remote branch.
+const BEHIND = /\[rejected\][^\n]*\((?:fetch first|non-fast-forward)\)/;
 
 type GhResult = Awaited<ReturnType<Gh>>;
 
@@ -159,6 +164,8 @@ export async function deliver(
 
   const paths = [...new Set(updated.flatMap((v) => v.outputs))];
   const bodyText = updated.map((v) => `- ${v.name}`).join("\n");
+  // One message for the commit and for a commit made again on a moved branch.
+  const message = ["-m", COMMIT_SUBJECT, "-m", `${bodyText}\n\n[skip demoman]`];
   const here = await git(["rev-parse", "--abbrev-ref", "HEAD"]);
   if (here.code !== 0) return fail("git rev-parse", here);
   const base = here.stdout.trim();
@@ -199,10 +206,7 @@ export async function deliver(
   const commit = await git([
     ...BOT,
     "commit",
-    "-m",
-    COMMIT_SUBJECT,
-    "-m",
-    `${bodyText}\n\n[skip demoman]`,
+    ...message,
     "--only",
     "--",
     ...paths,
@@ -217,60 +221,21 @@ export async function deliver(
         ok: true,
         detail: `committed ${updated.length} video(s) on ${base}`,
       };
-    // A merge may have landed while the refresh recorded: commit again on the new tip, push once more.
-    // A detached HEAD has no branch to follow, so it keeps its own refusal.
-    if (base === "HEAD") return fail("git push", push);
-    const fetched = await git(["fetch", "origin", base]);
-    if (fetched.code !== 0)
-      return {
-        delivered: "nothing",
-        ok: false,
-        detail: `git push failed: ${said(push)}; fetching origin/${base} to commit again on it failed: ${said(fetched)}`,
-      };
-    const parent = await git(["rev-parse", "HEAD~1"]);
-    const tip = await git(["rev-parse", "FETCH_HEAD"]);
-    if (parent.code !== 0) return fail("git rev-parse HEAD~1", parent);
-    if (tip.code !== 0) return fail("git rev-parse FETCH_HEAD", tip);
-    // The branch did not move, so the refusal is the remote's own: say it, do not retry.
-    if (parent.stdout.trim() === tip.stdout.trim())
+    // Only a refusal for being behind may mean a merge landed while the refresh
+    // recorded; a hook, a 403 or a dead remote keeps its own reason. A
+    // detached HEAD has no branch to follow.
+    if (base === "HEAD" || !BEHIND.test(push.stderr))
       return fail("git push", push);
-    const overlap = await git([
-      "diff",
-      "--name-only",
-      "HEAD~1",
-      "FETCH_HEAD",
-      "--",
-      ...paths,
-    ]);
-    if (overlap.code !== 0)
-      return fail("git diff of the moved branch", overlap);
-    const changed = overlap.stdout.split("\n").filter(Boolean);
-    // Mixed reset: the index follows the new tip, the working tree (our files, a person's edits) stays.
-    const reset = await git(["reset", "-q", "FETCH_HEAD"]);
-    if (reset.code !== 0) return fail("git reset to the moved branch", reset);
-    const add2 = await git(["add", "--", ...paths]);
-    if (add2.code !== 0) return fail("git add on the moved branch", add2);
-    const commit2 = await git([
-      ...BOT,
-      "commit",
-      "-m",
-      COMMIT_SUBJECT,
-      "-m",
-      `${bodyText}\n\n[skip demoman]`,
-      "--only",
-      "--",
-      ...paths,
-    ]);
-    if (commit2.code !== 0)
-      return fail("git commit on the moved branch", commit2);
-    const again = await git(["push", "origin", "HEAD"]);
-    if (again.code !== 0)
-      return fail("git push after committing again on the moved branch", again);
-    return {
-      delivered: "main",
-      ok: true,
-      detail: `committed ${updated.length} video(s) on ${base}, on top of a commit that landed during the run${changed.length === 0 ? "" : `; replaced ${changed.join(", ")} that a commit during the run had also changed`}`,
-    };
+    return onMovedBranch({
+      git: deps.git,
+      repoRoot,
+      base,
+      paths,
+      message,
+      videos: updated.length,
+      push,
+      refused: fail("git push", push),
+    });
   }
 
   const push = await git(["push", "--force", "origin", BRANCH]);
@@ -379,5 +344,133 @@ export async function deliver(
       ok: false,
       detail: `${step} failed (the files are pushed to ${BRANCH}): ${said(r)}`,
     };
+  }
+}
+
+type GitResult = Awaited<ReturnType<GitRunner>>;
+
+/** The branch moved while the refresh recorded: commit the same files again
+ *  on origin's new tip, built in a temporary index so HEAD, the index and the
+ *  working tree are untouched until it is pushed, then move the checkout to
+ *  what was pushed. A file the moved commits deleted is left out. */
+async function onMovedBranch(a: {
+  git: GitRunner;
+  repoRoot: string;
+  base: string;
+  paths: string[];
+  message: string[];
+  videos: number;
+  push: GitResult;
+  /** The first push's own failure, for when there is nothing to retry. */
+  refused: Delivered;
+}): Promise<Delivered> {
+  const { base, paths, push } = a;
+  const git = (args: string[], env?: Record<string, string>) =>
+    a.git(args, a.repoRoot, env);
+  const failed = (step: string, r: GitResult): Delivered => ({
+    delivered: "nothing",
+    ok: false,
+    detail: `the first push was refused (${said(push)}), then ${step} failed: ${said(r)}`,
+  });
+  const fetched = await git(["fetch", "origin", base]);
+  if (fetched.code !== 0) return failed(`git fetch origin ${base}`, fetched);
+  const shas = await git(["rev-parse", "HEAD", "HEAD~1", "FETCH_HEAD"]);
+  if (shas.code !== 0) return failed("git rev-parse", shas);
+  const [ours = "", start = "", tip = ""] = shas.stdout.trim().split("\n");
+  // The branch did not move, so the refusal is the remote's own.
+  if (start === tip) return a.refused;
+  const on = await git(["merge-base", "--is-ancestor", start, tip]);
+  if (on.code === 1)
+    return {
+      delivered: "nothing",
+      ok: false,
+      detail: `origin/${base} no longer contains the commit this run started from (${start.slice(0, 7)}): it was rewritten, or this checkout has commits origin does not; nothing was pushed (the first push said: ${said(push)})`,
+    };
+  if (on.code !== 0) return failed("git merge-base", on);
+  const count = await git(["rev-list", "--count", `${start}..${tip}`]);
+  if (count.code !== 0) return failed("git rev-list", count);
+  const past = `${count.stdout.trim()} commit(s) past the commit this run started from`;
+  const touched = await git([
+    "diff",
+    "--name-status",
+    "--no-renames",
+    "-z",
+    start,
+    tip,
+    "--",
+    ...paths,
+  ]);
+  if (touched.code !== 0)
+    return failed("git diff of the moved branch", touched);
+  const deleted: string[] = [];
+  const changed: string[] = [];
+  const fields = touched.stdout.split("\0");
+  for (let i = 0; i + 1 < fields.length; i += 2)
+    (fields[i] === "D" ? deleted : changed).push(fields[i + 1] ?? "");
+  const leftOut =
+    deleted.length === 0
+      ? ""
+      : `; left out ${deleted.join(", ")} that those commits deleted`;
+  // The checkout follows what origin now holds; a person's edit in its way keeps it put, said.
+  const catchUp = async (to: string) => {
+    const reset = await git(["reset", "-q", "--keep", to]);
+    return reset.code === 0
+      ? ""
+      : `; the checkout stays at ${ours.slice(0, 7)} because ${said(reset)}: pull to catch up`;
+  };
+
+  const dir = await mkdtemp(join(tmpdir(), "demoman-index-"));
+  try {
+    const env = { GIT_INDEX_FILE: join(dir, "index") };
+    const read = await git(["read-tree", tip], env);
+    if (read.code !== 0) return failed("git read-tree", read);
+    const keep = paths.filter((p) => !deleted.includes(p));
+    // No positive pathspec would make the excludes mean "everything else".
+    if (keep.length > 0) {
+      const add = await git(
+        ["add", "--", ...keep, ...deleted.map((d) => `:(exclude,literal)${d}`)],
+        env,
+      );
+      if (add.code !== 0) return failed("git add on the moved branch", add);
+    }
+    const written = await git(["write-tree"], env);
+    if (written.code !== 0) return failed("git write-tree", written);
+    const tree = written.stdout.trim();
+    const differ = await git([
+      "diff",
+      "--name-only",
+      "--no-renames",
+      "-z",
+      tip,
+      tree,
+    ]);
+    if (differ.code !== 0) return failed("git diff of the new tree", differ);
+    const differs = differ.stdout.split("\0").filter(Boolean);
+    if (differs.length === 0)
+      return {
+        delivered: "main",
+        ok: true,
+        detail: `committed nothing: origin/${base}, which had moved ${past}, already holds every file this run would commit${leftOut}${await catchUp(tip)}`,
+      };
+    const made = await git([
+      ...BOT,
+      "commit-tree",
+      tree,
+      "-p",
+      tip,
+      ...a.message,
+    ]);
+    if (made.code !== 0) return failed("git commit-tree", made);
+    const sha = made.stdout.trim();
+    const again = await git(["push", "origin", `${sha}:refs/heads/${base}`]);
+    if (again.code !== 0) return failed("the second push", again);
+    const replaced = changed.filter((f) => differs.includes(f));
+    return {
+      delivered: "main",
+      ok: true,
+      detail: `committed ${a.videos} video(s) on ${base} on top of origin/${base}, which had moved ${past}${replaced.length === 0 ? "" : `; replaced ${replaced.join(", ")} that those commits had also changed`}${leftOut}${await catchUp(sha)}`,
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }
