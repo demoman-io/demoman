@@ -487,7 +487,7 @@ Studio exports go to `~/Downloads`.
 | `sessionNotLoaded` | `snapshot`, `run`¹ | The browser refused the saved sessions; `detail` says why. Tell the user to run `npx demoman signin` again there. |
 | `signInFailed` | `snapshot`, `run`¹ | Signed in as the account, the page still showed a sign-in page, or a step could not run; `detail` says where. It tried once. Fix the account's steps or secret, or tell the user; do not rerun unchanged. |
 | `secretMissing` | `snapshot`, `run`¹, `ci` | No `DEMOMAN_SECRET_NAME` for a `{secret:NAME}` in the environment (unused through `project`) or `.demoman/secrets.env`; `detail` names both. Write one (section 1) or ask the user; `ci`: give the person `command`. |
-| `checkNeedsPerson`, `checkDeclined` | `ci` | Only the person may approve the check's `commands`; nothing ran. Give them `command`. |
+| `checkNeedsPerson` | `ci` | Only the person may run the check's `commands`; nothing ran. Show them and `command`. |
 | `secretTooShort` | `snapshot`, `run`¹, `ci` | The secret `NAME` is under 8 characters. Write a longer one; `ci`: give the person `command`. |
 | `secretUnbound` | `snapshot`, `run`¹ | `DEMOMAN_SECRET_NAME` has no `DEMOMAN_SECRET_NAME_ORIGIN` beside it, or one that is no origin; `detail` names the line and site. Nothing typed. Add it to `secrets.env` for an account you made; else tell the user. |
 | `secretOffOrigin` | `snapshot`, `run`¹ | A secret was about to be typed off its site: a sign-in step's page is not the site's origin, or the `_ORIGIN` names another site; `detail` names both. Nothing typed. Check the account's site and `goto`, then tell the user. |
@@ -554,7 +554,7 @@ Studio exports go to `~/Downloads`.
 ## 8. Repo flows and CI
 
 `add({ flow, to })` puts a flow in the repo; commit what it wrote. `ci`
-sets up CI for them: the person approves the check's commands, then the
-plan's `lines` (`confirmed: true`). Never ask for a secret: give the
-person `command`. After pushing a fix to `demoman/setup`, `ci({ watch: true })`;
-at `gaveUp`, hand back.
+sets up CI: the person runs `command` when its check starts the app, else
+agrees to the plan's `lines` before `confirmed: true`. Never ask for a
+secret: give the person `command`. After pushing a fix to `demoman/setup`,
+`ci({ watch: true })`; at `gaveUp`, hand back.

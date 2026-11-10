@@ -274,9 +274,10 @@ export type CiDeps = {
   /** Stops the check (R3). */
   signal?: AbortSignal;
   /** Asked before the check starts the app, with what it runs: null goes
-   *  on. `committed`: the app.json is HEAD's own. The ci tool asks always,
-   *  its caller being an agent; the terminal asks of an app.json nobody
-   *  committed, which an agent may have drafted (DEM-110). */
+   *  on. `committed`: the app.json is HEAD's own. The ci tool always stops
+   *  here for the person's terminal, its caller being an agent; the
+   *  terminal asks of an app.json nobody committed, which an agent may have
+   *  drafted (DEM-110). */
   approveCheck?(app: AppSpec, committed: boolean): Promise<CiStop | null>;
   /** `environment`: the deployment trigger asked for, if one was. */
   readGithub(

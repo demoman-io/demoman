@@ -404,16 +404,6 @@ export type StudioToolAnswer =
   | { outcome: "opened"; takeId?: string; note?: string }
   | { reason: string; detail: string };
 
-/** The person's answer to a question the tool put to them, never the
- *  agent's: `unsupported` when the client cannot ask (DEM-110). */
-export type CiApproval =
-  | { approved: true }
-  | { approved: false; why: string }
-  | { unsupported: true };
-
-/** How long the person has to answer the ci check's question. */
-export const APPROVAL_MS = 10 * 60_000;
-
 /** The `add` and `ci` tools' doors (Task 13), given only by the CLI bin, as
  *  the studio is: they reach the CLI's own core. Each answers an object; one
  *  with a `reason` is a refusal. Never rejects on purpose; a rejection is
@@ -435,8 +425,6 @@ export type RepoDoors = {
       project?: string;
     },
     progress: (line: string) => void,
-    /** Puts `message` to the person, through the client (elicitation). */
-    approve: (message: string) => Promise<CiApproval>,
   ): Promise<Record<string, unknown>>;
 };
 type RepoOp = "add" | "ci";
@@ -595,40 +583,6 @@ export function registerTools(
         : op === "run" || op === "probe"
           ? withStill(served(op, o))
           : fromOutcome(served(op, o));
-
-  /** Asks the person through the client, never the agent: a yes or no
-   *  only they can give, or `unsupported` (DEM-110). Never rejects. Tied to
-   *  no request: the person may read past the 50 s answer, and the question
-   *  must outlive it while the agent polls report. */
-  const askPerson = async (message: string): Promise<CiApproval> => {
-    // The SDK sends only form elicitation here; a URL-only client cannot ask.
-    if (server.server.getClientCapabilities()?.elicitation?.form === undefined)
-      return { unsupported: true };
-    try {
-      const r = await server.server.elicitInput(
-        {
-          mode: "form",
-          message,
-          requestedSchema: { type: "object", properties: {} },
-        },
-        { timeout: APPROVAL_MS },
-      );
-      return r.action === "accept"
-        ? { approved: true }
-        : {
-            approved: false,
-            why:
-              r.action === "decline"
-                ? "the person declined"
-                : "the person dismissed the question",
-          };
-    } catch (error) {
-      return {
-        approved: false,
-        why: `the person's answer did not come (${error instanceof Error ? error.message : String(error)})`,
-      };
-    }
-  };
 
   const longCall = async (
     op: "run" | "export" | "snapshot" | "probe" | "attach" | RepoOp,
@@ -1009,7 +963,7 @@ export function registerTools(
       {
         annotations: TOOL_ANNOTATIONS.ci,
         description:
-          'Set up CI to refresh the repo\'s flows (as `npx demoman setup --ci`): asks the person, through your client, to approve the app commands its check runs (never you: checkNeedsPerson where the client cannot ask, with commands and the command for the person to run; checkDeclined on their no; nothing ran either way), then checks the refresh from a clean checkout of the repo (minutes) and answers {outcome: "plan", plan, lines, next}, doing nothing else. Show the person lines; only on their yes, call again with the same choices and confirmed: true, which applies that plan: turns on the Actions setting for pull requests, sets the repo\'s GitHub secrets, opens the pull request "Set up Demoman" from demoman/setup, and watches its run: {outcome: "opened", pr, check, secrets, setting, run, lines}. trigger: release, daily, push or {deployment: <environment>}; absent, the plan\'s default. route: pr or main. app: the .demoman/app.json you propose ({appVersion: 1, install, start, url, ...}), written to the working tree uncommitted; one already there that differs is never overwritten (appInvalid). watch: true watches the newest run on demoman/setup after you pushed a fix there; outcome gaveUp after three failed runs: hand back. A secret\'s value never passes through you: secretMissing or secretTooShort names the secrets and gives command for the person to run in their terminal. Past about 50 s {outcome: "stillRunning", id}, then call report. A refusal carries reason and detail.',
+          'Set up CI to refresh the repo\'s flows (as `npx demoman setup --ci`): plans it, then stops before the check whenever the check would start the app: it answers checkNeedsPerson with commands, what the check would run, and command, for the person to run in their terminal, which shows them the commands, asks, checks and opens the pull request (then call watch); you never run them. A deployment trigger starts no app: its check against the deployed app runs (minutes) and answers {outcome: "plan", plan, lines, next}, doing nothing else. Show the person lines; only on their yes, call again with the same choices and confirmed: true, which applies that plan: turns on the Actions setting for pull requests, sets the repo\'s GitHub secrets, opens the pull request "Set up Demoman" from demoman/setup, and watches its run: {outcome: "opened", pr, check, secrets, setting, run, lines}. trigger: release, daily, push or {deployment: <environment>}; absent, the plan\'s default. route: pr or main. app: the .demoman/app.json you propose ({appVersion: 1, install, start, url, ...}), written to the working tree uncommitted; one already there that differs is never overwritten (appInvalid). watch: true watches the newest run on demoman/setup after you pushed a fix there; outcome gaveUp after three failed runs: hand back. A secret\'s value never passes through you: secretMissing or secretTooShort names the secrets and gives command for the person to run in their terminal. Past about 50 s {outcome: "stillRunning", id}, then call report. A refusal carries reason and detail.',
         inputSchema: {
           trigger: z
             .union([
@@ -1028,7 +982,7 @@ export function registerTools(
       },
       async (args, extra) =>
         longCall("ci", {}, extra as unknown as Extra, (p) =>
-          settled(repo.ci(args, p, askPerson)),
+          settled(repo.ci(args, p)),
         ),
     );
   }
