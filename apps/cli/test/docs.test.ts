@@ -732,7 +732,7 @@ describe("the setup path", () => {
     const need: Record<string, string[]> = {
       "get-started/install": [
         "npx demoman setup",
-        `Node ${NODE_FLOORS[0].join(".")} or later`,
+        `Node ${NODE_FLOORS[0]?.join(".")} or later`,
         "sudo",
       ],
       "get-started/sign-in": ["cannot be added to the repo"],
