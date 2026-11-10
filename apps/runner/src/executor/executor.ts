@@ -662,15 +662,17 @@ export function createLocalExecutor(options: ExecutorOptions): LocalExecutor {
         }
         // DEM-108: joining from another repo's checkout can be meant (one
         // repo serves another's app), so it joins, and the report says so.
+        // Both resolved (`sharesRepo`): an adopted kept flow holds the raw key.
         const here = await videos.resolve(videoRepo);
-        if (!sharesRepo(into.repo, here)) {
+        const flowRepo = await videos.resolve(into.repo);
+        if (!sharesRepo(flowRepo, here)) {
           const named = (r: VideoRepo) =>
             "key" in r
               ? r.key
               : "none" in r
                 ? `no repo (${r.none})`
                 : "an unknown repo";
-          otherRepo = `this flow belongs to ${named(into.repo)}; this video was recorded from ${named(here)}`;
+          otherRepo = `this flow belongs to ${named(flowRepo)}; this video was recorded from ${named(here)}`;
         }
         if (!hasScript) {
           const target = into.id;

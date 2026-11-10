@@ -661,6 +661,50 @@ describe("a run joins the kept flow", () => {
     2 * RUN_MS,
   );
 
+  // DEM-108, second review: an adopted kept flow holds this checkout's raw
+  // key. Red if the join compares it unresolved with the run's resolved
+  // one: one repo would read as two.
+  it(
+    "adopting a kept flow from a checkout whose key was aliased says nothing about another repo",
+    async () => {
+      const U9 = "1a2b3c4d-0000-4000-8000-000000000009";
+      const aliased = await mkdtemp(join(tmpdir(), "demoman-kept-alias-"));
+      try {
+        execFileSync("git", ["init", "-q"], { cwd: aliased });
+        execFileSync(
+          "git",
+          ["remote", "add", "origin", "git@github.com:acme/old-shop.git"],
+          { cwd: aliased },
+        );
+        await mkdir(join(aliased, KEPT_DIR), { recursive: true });
+        await writeFile(
+          join(aliased, keptFile("Kept alias flow")),
+          serializeKept(keptRecipe(U9, "Kept alias flow")),
+        );
+        await store().follow([
+          { from: "github.com/acme/old-shop", to: "github.com/acme/new-shop" },
+        ]);
+        // Premise: the run's key resolves to another.
+        expect(
+          await store().resolve({ key: "github.com/acme/old-shop" }),
+        ).toEqual({ key: "github.com/acme/new-shop" });
+        const out = await runIn({
+          project: aliased,
+          script: script("Kept alias flow"),
+          video: { id: U9 },
+        });
+        expect(out.outcome, JSON.stringify(out.stopped ?? out)).toBe(
+          "complete",
+        );
+        expect(out.videoVersion).toMatchObject({ id: U9 });
+        expect(out.videoVersion).not.toHaveProperty("otherRepo");
+      } finally {
+        await rm(aliased, { recursive: true, force: true });
+      }
+    },
+    RUN_MS,
+  );
+
   it(
     "run { id } of a kept flow absent here adopts it",
     async () => {

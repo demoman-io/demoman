@@ -466,9 +466,10 @@ export function registerTools(
   const said = DESCRIPTIONS;
   /** Every run and export this server started, by the id it handed out, with
    *  which it was: the page keeps one report per kind, and `report` must read
-   *  the right one after a lost call. The last `JOBS_KEPT` finished ones in
-   *  the order they finished (DEM-106); one still going is never let go.
-   *  Unlike the executor's job table, calls still going do not count. */
+   *  the right one after a lost call. Of each kind (`keptKind`), the last
+   *  `JOBS_KEPT` finished, in the order they finished (DEM-106); one still
+   *  going is never let go. The executor's job table counts its own calls
+   *  still going too, so it never holds a run this map has let go. */
   const calls = new Map<
     string,
     {
@@ -477,7 +478,11 @@ export function registerTools(
       watched: Watched;
     }
   >();
-  let finished = 0;
+  /** Runs, exports and attaches, which the executor's job table keeps too,
+   *  are kept apart from the calls only this server answers, so fifty
+   *  snapshots cannot push a run's id out while the executor holds it. */
+  const keptKind = (op: string) =>
+    op === "run" || op === "export" || op === "attach" ? "job" : "local";
 
   const capped = async (
     p: Promise<Outcome>,
@@ -610,14 +615,11 @@ export function registerTools(
       // one: a long run polled past 50 later calls keeps its answer.
       calls.delete(id);
       calls.set(id, entry);
-      finished++;
-      for (const [old, e] of calls) {
-        if (finished <= JOBS_KEPT) break;
-        if (e.watched.settled) {
-          calls.delete(old);
-          finished--;
-        }
-      }
+      const kind = keptKind(op);
+      const done = [...calls].filter(
+        ([, e]) => e.watched.settled && keptKind(e.op) === kind,
+      );
+      for (const [old] of done.slice(0, -JOBS_KEPT)) calls.delete(old);
     };
     call.then(settle, settle);
     calls.set(id, entry);
@@ -1029,7 +1031,7 @@ export function registerTools(
       if (entry === undefined) {
         return refused(
           "unknownRun",
-          `no run, export, attach, snapshot, probe, add or ci with id ${id} is known to this demoman-mcp: it keeps the last ${JOBS_KEPT} finished calls, and ids do not survive a restart of the server`,
+          `no run, export, attach, snapshot, probe, add or ci with id ${id} is known to this demoman-mcp: it keeps the last ${JOBS_KEPT} finished calls of each kind (runs, exports and attaches; the rest), and ids do not survive a restart of the server`,
         );
       }
       // One deadline over both waits below (REPORT_CALL_SHARE).

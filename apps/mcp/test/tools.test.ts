@@ -790,6 +790,40 @@ describe("demoman-mcp's tools", () => {
     expect(textOf(await report("id-4"))).toEqual({ url: "id-4", targets: [] });
   });
 
+  // DEM-106, second review. Red if snapshots and runs share one budget: the
+  // run's id would be pushed out while the executor still holds its report.
+  it("keeps a finished run's id past JOBS_KEPT later snapshots", async () => {
+    const { client } = await connect(
+      {
+        run: async () => ({ ok: true, value: { outcome: "complete" } }),
+        snapshot: async (args) => ({
+          ok: true,
+          value: { url: args.callId, targets: [] },
+        }),
+      },
+      50,
+    );
+    await client.callTool({
+      name: "run",
+      arguments: { script: { steps: [] } },
+    });
+    for (let i = 0; i <= JOBS_KEPT; i++) {
+      await client.callTool({
+        name: "snapshot",
+        arguments: { url: "http://a/" },
+      });
+    }
+    const report = (id: string) =>
+      client.callTool({ name: "report", arguments: { id } });
+    // Premise: the snapshots did overflow their own budget.
+    expect(textOf(await report("id-2"))).toMatchObject({
+      reason: "unknownRun",
+    });
+    const run = await report("id-1");
+    expect(run.isError, JSON.stringify(textOf(run))).not.toBe(true);
+    expect(textOf(run)).toMatchObject({ outcome: "complete" });
+  });
+
   it("forwards progress as MCP progress notifications", async () => {
     const { client } = await connect({
       run: async (_args, progress) => {

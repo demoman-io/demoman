@@ -28,10 +28,12 @@ export type Op = (typeof OPS)[number];
  *  60 s default. apps/mcp's tools.test pins it at 55 s or less. */
 export const RUN_TOOL_CAP_MS = 50_000;
 
-/** How many runs and exports `report(id)` can still answer: the executor's
- *  job table and the MCP server's own calls each keep this many. Each keeps
- *  its whole final answer, a run's report included, for as long as it is
- *  kept (review 2026-10-13, #7; DEM-106). */
+/** How many calls `report(id)` can still answer. The executor's job table
+ *  keeps this many runs, exports and attaches, those in flight counted; the
+ *  MCP server keeps this many finished of those, and as many finished of
+ *  the calls only it answers (snapshot, probe, add, ci), never one in
+ *  flight. Each keeps its whole final answer, a run's report included
+ *  (review 2026-10-13, #7; DEM-106). */
 export const JOBS_KEPT = 50;
 
 /** Who the agent says it is: the MCP client's own `clientInfo` (spec §5.4,

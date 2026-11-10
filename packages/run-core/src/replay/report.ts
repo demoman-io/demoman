@@ -1051,17 +1051,17 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
     "a native drag's picture could not be drawn, so the dragged item jumps to its drop in the video instead of travelling",
 };
 
-/** An unreadable brand kit, or a default kit's image the take could not
- *  own (`look.wallpaperError`), said after everything else on the line: the take
- *  is made and correct by its own lights, but it is not in the colours the
- *  author saved, and a grey video with no reason reads as "no kit". Empty
- *  when there is nothing to say, so every other line is unchanged. */
 /** DEM-108: the run joined a flow from a checkout of another repo. */
 function otherRepoClause(report: RunReport): string {
   const said = report.videoVersion?.otherRepo;
   return said === undefined ? "" : ` Note: ${said}.`;
 }
 
+/** An unreadable brand kit, or a default kit's image the take could not
+ *  own (`look.wallpaperError`), said after everything else on the line: the take
+ *  is made and correct by its own lights, but it is not in the colours the
+ *  author saved, and a grey video with no reason reads as "no kit". Empty
+ *  when there is nothing to say, so every other line is unchanged. */
 function lookClause(report: RunReport): string {
   return [report.look?.brandKitError, report.look?.wallpaperError]
     .map((error) => (error == null ? "" : ` ${error}.`))
