@@ -21,6 +21,7 @@ import {
   newId,
   type RunReport,
   type RunSize,
+  scrubUrl,
   zoomsForClicks,
 } from "@demoman/run-core";
 import {
@@ -270,8 +271,11 @@ export async function playOnStage(
     if (verdict.kind === "signedOut") return verdict.detail;
     if (verdict.startedElsewhere) {
       // Origin and path only, like `signin`'s sign-in page: a redirect's
-      // query can carry a token, a nonce or an invite code.
-      landingNote = { startedElsewhere: originAndPath(facts.landedUrl) };
+      // query can carry a token, a nonce or an invite code, and its path a
+      // reset or invite token (DEM-130).
+      landingNote = {
+        startedElsewhere: originAndPath(scrubUrl(facts.landedUrl)),
+      };
     }
     return null;
   };

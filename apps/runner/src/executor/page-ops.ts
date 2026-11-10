@@ -144,13 +144,15 @@ export function pageCapture(
       )) as IntentCapture;
     } catch (error) {
       const said = messageOf(error);
+      // Read once: the log and the answer name the same page (DEM-130).
+      const here = scrubUrl(page.url());
       if (isNavigationRace(error) && !page.isClosed()) {
         log(`a step's capture met a navigation, looking again — ${said}`);
         return {
           anchor: null,
           failureReason: "notInTree",
           intentResolution: null,
-          pageUrl: scrubUrl(page.url()),
+          pageUrl: here,
           // A capture that met a navigation cannot say its document.
           document: null,
           credentialField: null,
@@ -160,14 +162,14 @@ export function pageCapture(
       // those words, not as the `undefined` property read it would be.
       log(
         said.includes(NO_ENTRY)
-          ? `a step's capture could not run — ${NO_ENTRY} (${scrubUrl(page.url())})`
+          ? `a step's capture could not run — ${NO_ENTRY} (${here})`
           : `a step's capture threw in the page — ${said}`,
       );
       return {
         anchor: null,
         failureReason: "pageFaulted",
         intentResolution: null,
-        pageUrl: scrubUrl(page.url()),
+        pageUrl: here,
         document: null,
         // This port checks credentials; a capture that never reached the
         // page could not, and a typed step is hidden for it (launch C).
