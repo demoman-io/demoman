@@ -1,5 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -319,6 +320,58 @@ describe("deliver", () => {
     expect(a.ok).toBe(false);
     expect(a.delivered).toBe("nothing");
     expect(a.detail).toMatch(/push/);
+    expect(a.detail).toMatch(/fetch/);
+  });
+
+  const moveMain = (file: string, content: string, subject: string) => {
+    const other = join(dir, "other");
+    execFileSync("git", ["clone", "-q", remote, other]);
+    mkdirSync(join(other, file, ".."), { recursive: true });
+    writeFileSync(join(other, file), content);
+    git(other, "add", file);
+    git(other, ...PERSON, "commit", "-q", "-m", subject);
+    git(other, "push", "-q", "origin", "main");
+  };
+
+  it("main: a branch that moved during the run still delivers, rebased onto it", async () => {
+    moveMain("NOTES.md", "merged while recording\n", "a merge during the run");
+    const a = await run("main", result());
+    expect(a).toMatchObject({ delivered: "main", ok: true });
+    expect(a.detail).toMatch(
+      /rebased onto a commit that landed during the run/,
+    );
+    const subjects = git(remote, "log", "--format=%s", "main").split("\n");
+    expect(subjects[0]).toMatch(/^Refresh demo videos/); // ours, on top
+    expect(subjects[1]).toBe("a merge during the run"); // theirs, kept
+  });
+
+  it("main: a moved branch that changed the same video stops with its reason, not mid-rebase", async () => {
+    moveMain(
+      "docs/add-task.mp4",
+      "someone else's video\n",
+      "another refresh got there first",
+    );
+    const a = await run("main", result());
+    expect(a).toMatchObject({ delivered: "nothing", ok: false });
+    expect(a.detail).toMatch(/changed the same files/);
+    expect(existsSync(join(repo, ".git/rebase-merge"))).toBe(false);
+    expect(existsSync(join(repo, ".git/rebase-apply"))).toBe(false);
+  });
+
+  it("main: an uncommitted leftover does not stop the rebase", async () => {
+    // The fixture tracks only the video, so track a README first.
+    writeFileSync(join(repo, "README.md"), "committed\n");
+    git(repo, "add", "README.md");
+    git(repo, ...PERSON, "commit", "-q", "-m", "readme", "--", "README.md");
+    git(repo, "push", "-q", "origin", "main");
+    moveMain("NOTES.md", "merged while recording\n", "a merge during the run");
+    writeFileSync(join(repo, "README.md"), "edited, not committed\n");
+    expect(git(repo, "ls-files", "README.md")).toBe("README.md");
+    const a = await run("main", result());
+    expect(a).toMatchObject({ delivered: "main", ok: true });
+    expect(readFileSync(join(repo, "README.md"), "utf8")).toBe(
+      "edited, not committed\n",
+    );
   });
 
   it("pr with no open PR: pushes demoman/refresh and creates it", async () => {

@@ -211,11 +211,35 @@ export async function deliver(
 
   if (route === "main") {
     const push = await git(["push", "origin", "HEAD"]);
-    if (push.code !== 0) return fail("git push", push);
+    if (push.code === 0)
+      return {
+        delivered: "main",
+        ok: true,
+        detail: `committed ${updated.length} video(s) on ${base}`,
+      };
+    // A merge may have landed while the refresh recorded: rebase once, push once.
+    const fetched = await git(["fetch", "origin", base]);
+    if (fetched.code !== 0)
+      return {
+        delivered: "nothing",
+        ok: false,
+        detail: `git push failed: ${said(push)}; fetching origin/${base} to rebase onto it failed: ${said(fetched)}`,
+      };
+    const rebase = await git(["rebase", "--autostash", "FETCH_HEAD"]);
+    if (rebase.code !== 0) {
+      const abort = await git(["rebase", "--abort"]);
+      return {
+        delivered: "nothing",
+        ok: false,
+        detail: `the branch moved during the run and a commit on it changed the same files (${said(rebase)}); nothing was pushed${abort.code === 0 ? "" : `; git rebase --abort failed: ${said(abort)}`}`,
+      };
+    }
+    const again = await git(["push", "origin", "HEAD"]);
+    if (again.code !== 0) return fail("git push after rebasing", again);
     return {
       delivered: "main",
       ok: true,
-      detail: `committed ${updated.length} video(s) on ${base}`,
+      detail: `committed ${updated.length} video(s) on ${base}, rebased onto a commit that landed during the run`,
     };
   }
 
