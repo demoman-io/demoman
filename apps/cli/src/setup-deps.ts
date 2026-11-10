@@ -485,5 +485,13 @@ export function ciPrompts(): CiAsk {
       const go = await confirm({ message: "Set it up?" });
       return go === true;
     },
+    runCommands: async (lines) => {
+      note(lines.join("\n"), "Commands the check runs");
+      const go = await confirm({
+        message: "Run these commands on this machine?",
+        initialValue: false,
+      });
+      return go === true;
+    },
   };
 }

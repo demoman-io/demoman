@@ -22,6 +22,7 @@ import {
   type CiDeps,
   type CiPlan,
   type CiStop,
+  checkCommands,
   planCiSetup,
   planLines,
   redact,
@@ -75,6 +76,9 @@ export function createCiTool(io: {
     progress: (line: string) => void,
   ): Omit<CiDeps, "log" | "signal">;
   now?: () => number;
+  /** Stands in for the person's yes to the check's commands, which the
+   *  MCP door never has: tests only. */
+  approveCheck?: CiDeps["approveCheck"];
 }): (a: CiToolArgs, progress: (line: string) => void) => Promise<Answer> {
   const now = io.now ?? Date.now;
   /** The plan each repo was last shown, when, and the values it read. */
@@ -96,7 +100,11 @@ export function createCiTool(io: {
           detail: `${where.none}; pass project, the absolute path of the repo to set up`,
         };
       const { root } = where;
-      const deps: CiDeps = { ...io.deps(root, say), log: say };
+      const deps: CiDeps = {
+        ...io.deps(root, say),
+        log: say,
+        approveCheck: io.approveCheck ?? toTerminal,
+      };
       if (a.watch === true) {
         const others = NOT_WITH_WATCH.filter((k) => a[k] !== undefined);
         if (others.length > 0)
@@ -204,6 +212,19 @@ export function createCiTool(io: {
   };
 }
 
+/** The check runs the app's commands through sh -c, and the agent may have
+ *  written them, so the agent never starts them: the person runs the
+ *  terminal's setup, which shows them and asks (DEM-110). MCP elicitation
+ *  was tried for this; Claude Code never showed the question. */
+async function toTerminal(app: AppSpec): Promise<CiStop> {
+  return {
+    reason: "checkNeedsPerson",
+    detail:
+      "the check runs the app's commands on this machine, and only the person may start them; nothing was run",
+    commands: checkCommands(app),
+  };
+}
+
 /** `watch: true`: the newest run on the setup branch, after the agent
  *  pushed a fix there. */
 async function watch(
@@ -264,7 +285,10 @@ export function runOf(w: Watched | null, values: SecretValues): Watched {
  *  cannot give is the person's to give in their terminal. */
 function stopped(s: CiStop, values: SecretValues): Answer {
   const h = (t: string) => redact(t, values);
-  const person = s.reason === "secretMissing" || s.reason === "secretTooShort";
+  const person =
+    s.reason === "secretMissing" ||
+    s.reason === "secretTooShort" ||
+    s.reason === "checkNeedsPerson";
   return {
     reason: s.reason,
     detail: h(s.detail),
@@ -274,10 +298,14 @@ function stopped(s: CiStop, values: SecretValues): Answer {
     ...(s.secrets === undefined
       ? {}
       : { secrets: s.secrets.map(({ name, why }) => ({ name, why })) }),
+    ...(s.commands === undefined ? {} : { commands: s.commands.map(h) }),
     ...(person
       ? {
           command: CI_COMMAND,
-          next: "A secret's value never passes through you: ask the person to run command in their terminal, which reads the app.json here and asks for each value unseen",
+          next:
+            s.reason === "checkNeedsPerson"
+              ? "Only the person may start these commands: show them commands, and if they want the setup, ask them to run command in their terminal, which shows the commands, asks, checks, shows the plan and opens the pull request; then call ci({ watch: true })"
+              : "A secret's value never passes through you: ask the person to run command in their terminal, which reads the app.json here and asks for each value unseen",
         }
       : {}),
   };

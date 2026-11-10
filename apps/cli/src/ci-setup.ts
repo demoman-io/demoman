@@ -259,6 +259,8 @@ export type CiStop = {
   proposal?: AppProposal;
   /** `secretMissing`: each missing name and why it is needed. */
   secrets?: NeededSecret[];
+  /** `checkNeedsPerson`, `checkDeclined`: what the check would have run. */
+  commands?: string[];
 };
 
 /** Every injected function, with `gh` (and `git` where they take it) bound
@@ -271,6 +273,12 @@ export type CiDeps = {
   log(line: string): void;
   /** Stops the check (R3). */
   signal?: AbortSignal;
+  /** Asked before the check starts the app, with what it runs: null goes
+   *  on. `onBase`: the app.json is the default branch's own, which a review
+   *  let in; an agent can commit locally, never there unreviewed. The ci
+   *  tool always stops here for the person's terminal, its caller being an
+   *  agent; the terminal asks of any other app.json (DEM-110). */
+  approveCheck?(app: AppSpec, onBase: boolean): Promise<CiStop | null>;
   /** `environment`: the deployment trigger asked for, if one was. */
   readGithub(
     root: string,
@@ -838,6 +846,12 @@ async function makePlan(
   const texts = await fileTexts(root, files, workflow, app, gitignore);
   if ("failed" in texts) return stop("filesUnreadable", texts.failed);
 
+  // A deployment's check records the deployed app and starts nothing.
+  if (deployment === null && app !== null && deps.approveCheck) {
+    const onBase = (await shown(deps.git, root, base, APP_FILE)) === app.text;
+    const refused = await deps.approveCheck(app.spec, onBase);
+    if (refused !== null) return refused;
+  }
   // The check (Decision 1, R3): said before it runs, and stoppable.
   deps.log(
     deployment !== null
@@ -912,6 +926,44 @@ function originOf(target: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+/** The shell commands the check runs, verbatim, in order. */
+export const checkCommands = (a: AppSpec): string[] => [
+  ...a.install,
+  a.start,
+  ...(a.reset === undefined ? [] : [a.reset]),
+];
+
+/** Everything the check runs on this machine, as the person approves it.
+ *  Each value is JSON-quoted: a newline in one cannot pass for the end of
+ *  the question (DEM-110). */
+export function checkQuestion(a: AppSpec): string[] {
+  const q = JSON.stringify;
+  const services = Object.entries(a.services);
+  const env = Object.entries(a.env);
+  return [
+    "Demoman's CI setup checks the refresh from a clean checkout of this repo. It runs these commands on this machine, as you, with the setup's secrets in their environment:",
+    ...a.install.map((c) => `  install: ${q(c)}`),
+    `  start: ${q(a.start)}`,
+    ...(a.reset === undefined ? [] : [`  before each flow: ${q(a.reset)}`]),
+    ...(env.length === 0
+      ? []
+      : [
+          `with this environment: ${env.map(([k, v]) => `${k}=${q(v)}`).join(", ")}`,
+        ]),
+    ...services.map(
+      ([name, s]) =>
+        `and runs the Docker service ${q(name)}: image ${q(s.image)}${s.ports.length > 0 ? `, ports ${s.ports.map((p) => q(p)).join(", ")}` : ""}${
+          Object.keys(s.env).length > 0
+            ? `, env ${Object.entries(s.env)
+                .map(([k, v]) => `${k}=${q(v)}`)
+                .join(", ")}`
+            : ""
+        }${s.options === null ? "" : `, docker options ${q(s.options)}`}`,
+    ),
+    `then records against ${q(a.url)}. Run them?`,
+  ];
 }
 
 function checkWords(a: AppSpec): string {

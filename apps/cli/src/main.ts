@@ -68,7 +68,7 @@ import type { CiDeps } from "./ci-setup.js";
 import { createCiTool } from "./ci-tool.js";
 import { watchSetupRun } from "./ci-watch.js";
 import { ciSetup } from "./ci-workflow.js";
-import { deliver } from "./deliver.js";
+import { deliver, offBase } from "./deliver.js";
 import { realGh } from "./gh-run.js";
 import { keepLines, removeLines } from "./keep-lines.js";
 import { PACKAGE_NAME } from "./names.js";
@@ -704,6 +704,18 @@ async function refresh(args: string[]): Promise<void> {
     join(fileURLToPath(new URL(".", import.meta.url)), "page"),
     (line) => fail(line),
   );
+  // deliver would refuse this checkout after every flow was recorded: say so
+  // before recording (DEM-123).
+  const target =
+    route === "pr"
+      ? await offBase(
+          repo.repo.root,
+          { git: execGit, gh: realGh(repo.repo.root) },
+          // The workflow's own record of the default branch it checked.
+          process.env.DEMOMAN_DEFAULT_BRANCH || undefined,
+        )
+      : undefined;
+  if (target !== undefined && "refused" in target) return fail(target.refused);
   // Decodes the exports to compare them, out of sight.
   const session = createBrowserSession({
     headless: true,
@@ -778,6 +790,7 @@ async function refresh(args: string[]): Promise<void> {
       repoRoot: repo.repo.root,
       result,
       named: only.length > 0,
+      ...(target === undefined ? {} : { target }),
       runUrl:
         server && slug && id ? `${server}/${slug}/actions/runs/${id}` : null,
     },

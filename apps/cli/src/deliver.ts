@@ -30,6 +30,52 @@ const toCommit = (v: RefreshResult["videos"][number]): boolean =>
     v.outcome === "added" ||
     v.outcome === "uncompared");
 
+/** Where a pull request from here goes, decided once: null on a branch
+ *  (its own), the default branch on a detached HEAD (a deployed sha, a
+ *  release tag), or why there may be none. A detached HEAD must already be
+ *  on that branch, or the PR carries another branch's commits into it
+ *  (DEM-123). `named`: the default branch the workflow already checked
+ *  against (DEMOMAN_DEFAULT_BRANCH); else gh says. */
+export async function offBase(
+  repoRoot: string,
+  deps: { git: GitRunner; gh: Gh },
+  named?: string,
+): Promise<{ base: string | null } | { refused: string }> {
+  const here = await deps.git(["rev-parse", "--abbrev-ref", "HEAD"], repoRoot);
+  if (here.code !== 0)
+    return { refused: `git rev-parse failed: ${said(here)}` };
+  if (here.stdout.trim() !== "HEAD") return { base: null };
+  let base = named ?? "";
+  if (base === "") {
+    const view = await deps.gh([
+      "repo",
+      "view",
+      "--json",
+      "defaultBranchRef",
+      "--jq",
+      ".defaultBranchRef.name",
+    ]);
+    base = view.stdout.trim();
+    if (view.code !== 0 || base === "")
+      return {
+        refused: `the checkout is a detached HEAD, and the default branch it would deliver to could not be read (gh repo view): ${said(view)}`,
+      };
+  }
+  const fetched = await deps.git(["fetch", "origin", base], repoRoot);
+  if (fetched.code !== 0)
+    return { refused: `git fetch origin ${base} failed: ${said(fetched)}` };
+  const on = await deps.git(
+    ["merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD"],
+    repoRoot,
+  );
+  if (on.code === 0) return { base };
+  if (on.code === 1)
+    return {
+      refused: `the checked-out commit is not on ${base}, so a refresh pull request into ${base} would carry its branch's commits; refresh only what ${base} holds`,
+    };
+  return { refused: `git merge-base failed: ${said(on)}` };
+}
+
 /** Puts the files a refresh wrote into the repo's history: one commit on
  *  the checked-out branch (`main`), or one commit on `demoman/refresh` with a
  *  pull request opened or updated (`pr`). Only those videos' outputs (with
@@ -42,10 +88,20 @@ export async function deliver(
     /** Only the named videos were filmed: the others' proposals are not judged. */
     named?: boolean;
     runUrl: string | null;
+    /** offBase's answer, when the caller asked it before recording. */
+    target?: Awaited<ReturnType<typeof offBase>>;
   },
   deps: { git: GitRunner; gh: Gh },
 ): Promise<Delivered> {
   const { route, repoRoot, result, named, runUrl } = args;
+  // The PR's base on a detached HEAD; null on a branch, which is its own.
+  let target: string | null = null;
+  if (route === "pr") {
+    const on = args.target ?? (await offBase(repoRoot, deps));
+    if ("refused" in on)
+      return { delivered: "nothing", ok: false, detail: on.refused };
+    target = on.base;
+  }
   const updated = result.videos.filter(toCommit);
   if (updated.length === 0) {
     const nothing = "no video changed";
@@ -211,7 +267,8 @@ export async function deliver(
     "create",
     "--head",
     BRANCH,
-    ...(base === "HEAD" ? [] : ["--base", base]),
+    "--base",
+    target ?? base,
     "--title",
     COMMIT_SUBJECT,
     "--body",

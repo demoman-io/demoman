@@ -13,8 +13,8 @@ user; section 7 lists every reason.
    `secretsFile` are the demo accounts below.
 2. The browser is signed in only where the user ran `npx demoman signin <url>`
    (`status.sessions` lists them). A demo account records best. A page
-   that sends this browser to its sign-in page answers `signedOut` (section
-   7) with the exact command in `detail`: give the user that command and
+   that sends this browser to its sign-in page answers `signedOut` with
+   the exact command in `detail`: give the user that command and
    spend no run until they say they have run it, unless a demo account can
    sign in (below). Only demo accounts: never ask for the
    user's own password, or type it. A sign-in or sign-up demo is not
@@ -135,7 +135,7 @@ The file, with one account:
   once more when a call lands on a sign-in page; `signedIn`
   (`{account, steps, ms}`) says it did. A second failure answers
   `signInFailed`. A session that lapses mid-run keeps no video; Demoman has
-  signed in again: just run again.
+  signed in again: run again.
 
 ## 2. Look at the page
 
@@ -487,7 +487,7 @@ Studio exports go to `~/Downloads`.
 | `sessionNotLoaded` | `snapshot`, `run`¹ | The browser refused the saved sessions; `detail` says why. Tell the user to run `npx demoman signin` again there. |
 | `signInFailed` | `snapshot`, `run`¹ | Signed in as the account, the page still showed a sign-in page, or a step could not run; `detail` says where. It tried once. Fix the account's steps or secret, or tell the user; do not rerun unchanged. |
 | `secretMissing` | `snapshot`, `run`¹, `ci` | No `DEMOMAN_SECRET_NAME` for a `{secret:NAME}` in the environment (unused through `project`) or `.demoman/secrets.env`; `detail` names both. Write one (section 1) or ask the user; `ci`: give the person `command`. |
-| `secretTooShort` | `snapshot`, `run`¹, `ci` | The secret `NAME` is under 8 characters. Write a longer one; `ci`: give the person `command`. |
+| `secretTooShort` | `snapshot`, `run`¹, `ci` | Secret `NAME` is under 8 characters. Write a longer one; `ci`: give the person `command`. |
 | `secretUnbound` | `snapshot`, `run`¹ | `DEMOMAN_SECRET_NAME` has no `DEMOMAN_SECRET_NAME_ORIGIN` beside it, or one that is no origin; `detail` names the line and site. Nothing typed. Add it to `secrets.env` for an account you made; else tell the user. |
 | `secretOffOrigin` | `snapshot`, `run`¹ | A secret was about to be typed off its site: a sign-in step's page is not the site's origin, or the `_ORIGIN` names another site; `detail` names both. Nothing typed. Check the account's site and `goto`, then tell the user. |
 | `secretsFileNotIgnored` | `snapshot`, `run`¹ | Git does not ignore `.demoman/secrets.env`, so Demoman did not read it. Add it to `.gitignore` (`detail` says the line), or untrack it. |
@@ -548,7 +548,7 @@ Studio exports go to `~/Downloads`.
 | `pageFaulted`, `snapshotThrew`, `probeThrew` | `snapshot`, `probe` | The page threw, or a fault; quote `detail`. |
 | `portFailure` | `probe` | The browser gave way, not the script. Probe once more; quote `detail` if it repeats. |
 | `notInRepo`, `outsideRepo`, `outputTaken`, `logoUnreadable`, `handSignIn`, `cannotRefilm`, `keepRefused`, `exportFailed`, `repoFlowUnwritable` | `add`, `ci` | `detail`: what was written, the fix. |
-| `appInvalid`, `appOriginMismatch`, `appUnknown`, `appHoles`, `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appPortTaken`, `appDockerMissing`, `appNowInFuture`, `appNowTooOld`, `appNowNotPinned`, `checkoutFailed`, `noRepoFlow`, `refreshFailed`, `checkThrew`, `alreadySetUp`, `setupPrOpen`, `setupBranchExists`, `noRepoFlows`, `noRelease`, `noDeployment`, `routeRefused`, `githubUnreadable`, `noSetupBranch`, `secretsUnknown`, `secretsUnreadable`, `workflowRefused`, `filesUnreadable`, `setupUnreadable`, `secretRefused`, `actionsRefused`, `actionsUnknown`, `prFailed` | `ci` | `detail`: what was done, the fix. |
+| `checkNeedsPerson`, `appInvalid`, `appOriginMismatch`, `appUnknown`, `appHoles`, `appInstallFailed`, `appStartExited`, `appNeverAnswered`, `appServiceFailed`, `appPortTaken`, `appDockerMissing`, `appNowInFuture`, `appNowTooOld`, `appNowNotPinned`, `checkoutFailed`, `noRepoFlow`, `refreshFailed`, `checkThrew`, `alreadySetUp`, `setupPrOpen`, `setupBranchExists`, `noRepoFlows`, `noRelease`, `noDeployment`, `routeRefused`, `githubUnreadable`, `noSetupBranch`, `secretsUnknown`, `secretsUnreadable`, `workflowRefused`, `filesUnreadable`, `setupUnreadable`, `secretRefused`, `actionsRefused`, `actionsUnknown`, `prFailed` | `ci` | `detail`: what was done, the fix. |
 
 ## 8. Repo flows and CI
 
