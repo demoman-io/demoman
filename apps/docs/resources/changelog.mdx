@@ -3,12 +3,12 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
-<Update label="0.9.4" description="CI setup that asks first, and tokens kept out of saved files">
-  - Your agent's `ci` tool no longer starts your app's commands. It hands you `npx demoman setup --ci`, which shows every command from an `app.json` that is not on your default branch and asks before running them.
-  - A refresh started by a deployment or a release skips commits that are not on the default branch, so a feature branch's preview no longer opens a pull request into it. CI setup turns on the artifact for flows that deliver files, which failed every run before.
-  - Reset, invite and magic-link tokens in a page's address are replaced before a run saves its files.
-  - Demoman needs Node 20.12 or later, and says so on an older Node instead of crashing.
-  - A phone recording at display scale 1 keeps its motion, and a Studio export renders the edit it was queued with. `demoman signin` keeps a working sign-in when the new one fails its check, and setup finds Cursor on Linux.
+<Update label="0.9.4" description="CI setup that asks first">
+  - Your agent's `ci` tool no longer starts your app's commands; `npx demoman setup --ci` shows them and asks first.
+  - A deployment or release refresh skips commits not on the default branch.
+  - Tokens in a page's address are kept out of saved files.
+  - Demoman needs Node 20.12 or later, and says so.
+  - Fixes: phone recordings at scale 1 keep their motion, exports render their queued edit, and a failed `signin` keeps the working session.
 </Update>
 
 <Update label="0.9.3" description="Pinned dates, and a steadier Studio">
@@ -35,11 +35,11 @@ description: "What changed in each release."
 </Update>
 
 <Update label="0.9.0" description="Set up CI from one plan, or from the Studio">
-  - `npx demoman setup --ci` checks the refresh from a clean checkout, shows one plan, and on one confirmation sets the secrets, opens a "Set up Demoman" pull request and watches its first run.
-  - `.demoman/app.json` records how the app starts; `refresh` starts the app from it. If your own workflow started the app before `demoman refresh`, delete that step.
-  - The refresh runs after a deployment, when a release is published, or once a day; each merge is offered, never the default.
-  - The Studio's Add to repo and Remove from repo add and remove flows from a card, row or Export panel.
-  - An unchanged refresh on a GitHub runner takes about 11 seconds, down from about 90.
+  - `npx demoman setup --ci` checks the refresh from a clean checkout, then on one confirmation sets the secrets and opens the setup pull request.
+  - `.demoman/app.json` records how the app starts, and `refresh` starts it.
+  - The refresh runs after a deployment, a release, or once a day.
+  - The Studio adds and removes repo flows.
+  - An unchanged refresh takes about 11 seconds on GitHub, down from about 90.
 </Update>
 
 <Update label="0.8.2" description="Video as code, flows in the repo, and a library you can search">
