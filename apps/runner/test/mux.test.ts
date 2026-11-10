@@ -15,7 +15,7 @@ import {
   LARGE_FIXTURE_WIDTH,
   largeJpeg,
 } from "./fixtures/jpeg.js";
-import { mp4FrameTimes } from "./mp4-probe.js";
+import { mp4FrameTimes, readMp4Crops } from "./mp4-probe.js";
 
 const SCENE_ID = "s1";
 const NAMESPACE = `${SCENE_ID}:replay`;
@@ -303,6 +303,75 @@ describe("muxSpans", () => {
       expect(width / height).toBeCloseTo(5130 / 3320, 2);
       const probe = await decodeInPage(page, await store.load(parked.ref), 0);
       expect(probe).toEqual({ width, height, decoded: true });
+    } finally {
+      await launched.close();
+    }
+  }, 120_000);
+
+  // DEM-124: a 393x853 span (the phone preset at display scale 1) is muxed
+  // at 392x852, H.264's even sides. Squeezed by a pixel, every column is
+  // resampled and the middle of the frame lands half a pixel off: 1px
+  // stripes there go grey. Cropped, they stay stripes.
+  it("crops an odd side to even rather than resampling the frame", async () => {
+    const launched = await launch();
+    try {
+      const page = launched.page;
+      const striped = Buffer.from(
+        await page.evaluate(async () => {
+          const canvas = new OffscreenCanvas(393, 853);
+          const ctx = canvas.getContext(
+            "2d",
+          ) as OffscreenCanvasRenderingContext2D;
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(0, 0, 393, 853);
+          ctx.fillStyle = "#000";
+          for (let x = 0; x < 393; x += 2) ctx.fillRect(x, 0, 1, 853);
+          const blob = await canvas.convertToBlob({
+            type: "image/jpeg",
+            quality: 1,
+          });
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          let binary = "";
+          for (const b of bytes) binary += String.fromCharCode(b);
+          return btoa(binary);
+        }),
+        "base64",
+      );
+      const { parked, bundleSpan } = await parkSpan({
+        index: 0,
+        firstFrameIndex: 0,
+        count: 3,
+        startMs: 0,
+        endMs: 100,
+        bytesFor: () => new Uint8Array(striped),
+      });
+      bundleSpan.width = 393;
+      bundleSpan.height = 853;
+      const bundle = bundleWith([bundleSpan]);
+      const outcome = await muxSpans({
+        sceneId: SCENE_ID,
+        page,
+        store,
+        spans: [parked],
+        bundle,
+        report: () => undefined,
+      });
+      expect(outcome.muxed).toEqual([
+        { index: 0, spanIndex: 0, kept: true, lost: 0, reason: null },
+      ]);
+      expect(bundle.motionSpans[0]).toMatchObject({ width: 392, height: 852 });
+      // The middle 40 columns, read at their own size: no resample here.
+      const [middle] = await readMp4Crops(
+        await store.load(parked.ref),
+        [0],
+        [176 / 392, 0.4, 216 / 392, 0.6],
+        { width: 40, height: 170 },
+      );
+      const said = JSON.stringify(middle);
+      expect(middle?.source.width, said).toBe(40);
+      // Stripes of 0 and 255 have a variance near 16,000; a resample's grey
+      // has next to none (measured below, before the crop).
+      expect(middle?.lumaVariance, said).toBeGreaterThan(8000);
     } finally {
       await launched.close();
     }

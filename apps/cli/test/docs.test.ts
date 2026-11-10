@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { NODE_FLOORS } from "../scripts/node-floor.mjs";
 
 // Text-only guards over apps/docs. Nothing here imports apps/cli/src.
 const docs = (p: string) => new URL(`../../docs/${p}`, import.meta.url);
@@ -729,7 +730,11 @@ describe("the setup path", () => {
   const steps = GET_STARTED.slice(1);
   it("each step carries what a stranger needs at that step", () => {
     const need: Record<string, string[]> = {
-      "get-started/install": ["npx demoman setup", "Node 20", "sudo"],
+      "get-started/install": [
+        "npx demoman setup",
+        `Node ${NODE_FLOORS[0]?.join(".")} or later`,
+        "sudo",
+      ],
       "get-started/sign-in": ["cannot be added to the repo"],
       "get-started/add-to-repo": [
         "npx demoman add",

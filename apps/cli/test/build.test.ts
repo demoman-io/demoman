@@ -1,10 +1,11 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   utimesSync,
@@ -12,7 +13,7 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { REPLAY_TARGETS } from "@demoman/replay-engine";
 import { afterAll, describe, expect, it } from "vitest";
@@ -20,6 +21,12 @@ import {
   WALLPAPERS,
   wallpaperFile,
 } from "../../../packages/scene-schema/src/wallpapers.js";
+import {
+  binSource,
+  NODE_ENGINES,
+  NODE_FLOORS,
+  NODE_NEEDED,
+} from "../scripts/node-floor.mjs";
 import { checkStudioPages, WALLPAPER_IDS } from "../scripts/studio-pages.mjs";
 
 const at = (p: string) => new URL(`../${p}`, import.meta.url);
@@ -71,6 +78,90 @@ describe("the node bundle", () => {
   });
 });
 
+type Manifest = {
+  name: string;
+  dependencies?: Record<string, string>;
+  engines?: { node?: string };
+};
+
+/**
+ * Every package the bundle's dependencies bring, each from the folder node
+ * resolves it to: the direct ones from the workspace that installed them (as
+ * build.mjs pins them), the rest up from their dependent's real folder.
+ */
+function dependencyTree(direct: string[]): Manifest[] {
+  const repo = fileURLToPath(new URL("../../../", import.meta.url));
+  const workspaces = ["apps", "packages"].flatMap((g) =>
+    readdirSync(join(repo, g)).map((w) => join(repo, g, w)),
+  );
+  const locate = (name: string, from: string[]): string => {
+    for (const start of from) {
+      for (let dir = start; ; dir = dirname(dir)) {
+        const at = join(dir, "node_modules", name);
+        if (existsSync(join(at, "package.json"))) return realpathSync(at);
+        if (dirname(dir) === dir) break;
+      }
+    }
+    throw new Error(`${name} is not installed where node would find it`);
+  };
+  const seen = new Map<string, Manifest>();
+  const walk = (name: string, from: string[]) => {
+    const dir = locate(name, from);
+    if (seen.has(dir)) return;
+    const manifest = JSON.parse(
+      readFileSync(join(dir, "package.json"), "utf8"),
+    ) as Manifest;
+    seen.set(dir, manifest);
+    for (const dep of Object.keys(manifest.dependencies ?? {})) {
+      walk(dep, [dir]);
+    }
+  };
+  for (const name of direct) walk(name, workspaces);
+  return [...seen.values()];
+}
+
+/**
+ * Whether `version` satisfies an npm engines range: `||` of space-separated
+ * comparators (`>=`, `>`, `<=`, `<`, `^`, `~`, `=`, bare, `*`/`x`). Anything
+ * else throws, so a shape it cannot read is said rather than passed.
+ */
+function satisfies(version: string, range: string): boolean {
+  const num = (v: string) => {
+    const parts = v.split(".");
+    return [0, 1, 2].map((i) => {
+      const p = parts[i];
+      return p === undefined || p === "x" || p === "*" ? 0 : Number(p);
+    });
+  };
+  const cmp = (a: number[], b: number[]) =>
+    (a[0] as number) - (b[0] as number) ||
+    (a[1] as number) - (b[1] as number) ||
+    (a[2] as number) - (b[2] as number);
+  const v = num(version);
+  return range.split("||").some((part) =>
+    part
+      .trim()
+      .replace(/([<>=^~]+)\s+/g, "$1")
+      .split(/\s+/)
+      .every((c) => {
+        if (c === "" || c === "*" || c === "x") return true;
+        const m = /^(>=|<=|>|<|\^|~|=)?v?(\d+(?:\.(?:\d+|x|\*)){0,2})$/.exec(c);
+        if (m === null)
+          throw new Error(`an engines range I cannot read: ${range}`);
+        const op = m[1] ?? "=";
+        const at = num(m[2] as string);
+        const d = cmp(v, at);
+        if (op === ">=") return d >= 0;
+        if (op === ">") return d > 0;
+        if (op === "<=") return d <= 0;
+        if (op === "<") return d < 0;
+        if (op === "^") return d >= 0 && v[0] === at[0];
+        if (op === "~") return d >= 0 && v[0] === at[0] && v[1] === at[1];
+        return d === 0;
+      }),
+  );
+}
+
 describe("pkg/package.json", () => {
   const built = json("pkg/package.json");
   const deps: Record<string, string> = built.dependencies;
@@ -94,13 +185,38 @@ describe("pkg/package.json", () => {
     expect(deps).not.toHaveProperty("ws");
   });
 
-  it("is demoman, FSL-1.1-ALv2, Node 20+, with the bin", () => {
+  it("is demoman, FSL-1.1-ALv2, Node 20.12+, with the bin", () => {
     expect(built).toMatchObject({
       name: "demoman",
       license: "FSL-1.1-ALv2",
-      engines: { node: ">=20" },
+      engines: { node: NODE_ENGINES },
       bin: { demoman: "dist/demoman.mjs" },
     });
+  });
+
+  // DEM-121: @clack/prompts needs Node 20.12 and the package said 20, so on
+  // 20.0-20.11 every command died while loading, before any check of ours.
+  it("runs on no Node that a dependency, direct or not, refuses", () => {
+    const floors = NODE_FLOORS.map(([major, minor]) => `${major}.${minor}.0`);
+    const tree = dependencyTree(Object.keys(deps));
+    const ranges = tree.flatMap((m) =>
+      typeof m.engines?.node === "string" ? [[m.name, m.engines.node]] : [],
+    );
+    // The premises: the walk reached past the direct dependencies, and
+    // clack's floor is among what it read.
+    expect(tree.map((m) => m.name)).toContain("@clack/core");
+    expect(tree.length).toBeGreaterThan(Object.keys(deps).length * 3);
+    expect(Object.fromEntries(ranges)).toHaveProperty("@clack/prompts");
+    // And the reader says no where it should: 21.6 is below clack's 20.12.
+    expect(satisfies("21.6.0", NODE_ENGINES)).toBe(false);
+    expect(satisfies("20.11.1", ">= 20.12.0")).toBe(false);
+    expect(
+      ranges.flatMap(([name, range]) =>
+        floors
+          .filter((f) => !satisfies(f, range as string))
+          .map((f) => `${name} ${range} refuses ${f}`),
+      ),
+    ).toEqual([]);
   });
 
   // npm's page links "Repository" and "Issues" from these.
@@ -119,7 +235,7 @@ describe("pkg/package.json", () => {
 describe("the page bundles", () => {
   it("are all there, and agree with the node half on REPLAY_TARGETS", () => {
     const literal = JSON.stringify(REPLAY_TARGETS);
-    expect(read("pkg/dist/demoman.mjs")).toContain(literal);
+    expect(read("pkg/dist/cli.mjs")).toContain(literal);
     const carrying = PAGES.filter((n) =>
       read(`pkg/dist/page/${n}.js`).includes(literal),
     );
@@ -137,7 +253,7 @@ it("ships apps/mcp's recipe verbatim", () => {
 });
 
 // Setup copies this into Cursor's skills folder (launch E): it reads it
-// beside demoman.mjs, so it has to be packed. Red: drop build.mjs's step 3c.
+// beside cli.mjs, so it has to be packed. Red: drop build.mjs's step 3c.
 it("ships the record-demo skill beside the recipe, and packs it", () => {
   expect(read("pkg/dist/skills/record-demo/SKILL.md")).toBe(
     read("plugin/skills/record-demo/SKILL.md"),
@@ -152,7 +268,7 @@ it("ships the record-demo skill beside the recipe, and packs it", () => {
   );
 });
 
-// `demoman studio --serve` serves `<dir of demoman.mjs>/studio`
+// `demoman studio --serve` serves `<dir of cli.mjs>/studio`
 // (src/main.ts), and refuses to start without its library.html. Red: drop
 // build.mjs's step 3b.
 it("ships the Studio's pages where studio --serve looks for them, and packs them", () => {
@@ -377,5 +493,50 @@ describe("checkStudioPages (build.mjs step 3b)", () => {
 
   it("knows the same ids as scene-schema's WALLPAPERS", () => {
     expect(WALLPAPER_IDS).toEqual(WALLPAPERS.map((w) => w.id));
+  });
+});
+
+// DEM-121: an import a Node lacks fails while the bundle links, before any
+// line of it runs, so the bin checks Node before it loads the bundle. A
+// preload stands in for the old Node; a stand-in cli.mjs beside a copy of the
+// bin says whether the bin loaded it.
+describe("the bin", () => {
+  const dir = mkdtempSync(join(tmpdir(), "demoman-bin-"));
+  writeFileSync(join(dir, "demoman.mjs"), read("pkg/dist/demoman.mjs"));
+  writeFileSync(join(dir, "cli.mjs"), 'console.log("cli.mjs loaded");\n');
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const asNode = (version: string) => {
+    const r = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        `data:text/javascript,Object.defineProperty(process.versions,"node",{value:"${version}"})`,
+        join(dir, "demoman.mjs"),
+      ],
+      { encoding: "utf8" },
+    );
+    return { status: r.status, said: `${r.stdout}${r.stderr}` };
+  };
+
+  it("is the one build.mjs writes from node-floor.mjs", () => {
+    expect(read("pkg/dist/demoman.mjs")).toBe(binSource("./cli.mjs"));
+  });
+
+  it("refuses a Node below its line's floor, in words, and loads nothing", () => {
+    for (const version of ["18.19.0", "20.11.1", "21.6.2"]) {
+      expect(asNode(version)).toEqual({
+        status: 1,
+        said: `${NODE_NEEDED}, and this is Node ${version}.\n`,
+      });
+    }
+  });
+
+  it("loads the bundle on each floor and above", () => {
+    for (const version of ["20.12.0", "21.7.0", "22.0.0", "24.10.0"]) {
+      expect(asNode(version), version).toEqual({
+        status: 0,
+        said: "cli.mjs loaded\n",
+      });
+    }
   });
 });

@@ -73,7 +73,6 @@ function machine(
     platform: "darwin",
     arch: "arm64",
     isRoot: false,
-    nodeVersion: "v22.3.0",
     version: "0.2.0",
     run: (c, args) => answer([c, ...args].join(" ")),
     runVisible: (c, args) => {
@@ -191,7 +190,7 @@ describe("setup", () => {
     expect(m.out()).toContain("browser: Chromium is already installed");
   });
 
-  it("refuses arm64 Linux, other platforms and old Node before doing anything", async () => {
+  it("refuses arm64 Linux and other platforms before doing anything", async () => {
     const arm = machine({ platform: "linux", arch: "arm64" });
     expect(await setup(arm.d)).toBe(1);
     expect(arm.calls).toEqual([]);
@@ -201,12 +200,6 @@ describe("setup", () => {
     expect(await setup(windows.d)).toBe(1);
     expect(windows.calls).toEqual([]);
     expect(windows.out()).toContain("this machine is win32 (x64)");
-    const old = machine({ nodeVersion: "v18.19.0" });
-    expect(await setup(old.d)).toBe(1);
-    expect(old.calls).toEqual([]);
-    expect(old.out()).toContain(
-      "needs Node 20 or later, and this is Node 18.19.0",
-    );
   });
 
   it("never test-launches Chromium or installs libraries on macOS", async () => {

@@ -60,7 +60,6 @@ export interface SetupDeps {
   arch: string;
   /** Root may install Chromium's system libraries; setup never runs sudo. */
   isRoot: boolean;
-  nodeVersion: string;
   version: string;
   /** Output captured: for claude's JSON answers. */
   run(command: string, args: string[]): Ran;
@@ -89,7 +88,7 @@ export interface SetupDeps {
    *  $CLAUDE_CONFIG_DIR when it is set, and the machine's managed settings,
    *  which setup only reads. */
   claude: { settings: string; config: string; managed: string };
-  /** The record-demo skill shipped beside demoman.mjs, or why this install
+  /** The record-demo skill shipped beside cli.mjs, or why this install
    *  could not read it. */
   skill: { text: string } | { error: string };
   exists(path: string): boolean;
@@ -125,7 +124,6 @@ export interface Questions {
 /** The same keys, answered. */
 export type Answers = Questions;
 
-const MIN_NODE = 20;
 const failed = (r: Ran): boolean =>
   r.notFound === true || r.error !== undefined || r.status !== 0;
 /** The first thing the command said, else how it ended. */
@@ -152,18 +150,11 @@ const userRow = (
     (p) => p.id === PLUGIN_ID && (p.scope === undefined || p.scope === "user"),
   );
 
-export function platformRefusal(
-  platform: string,
-  arch: string,
-  nodeVersion: string,
-): string | null {
+// Node is the bin's to refuse (scripts/node-floor.mjs): an older one cannot
+// load this module at all.
+export function platformRefusal(platform: string, arch: string): string | null {
   const recorder = recorderPlatform(platform, arch);
-  if (!recorder.ok) return recorder.detail;
-  const major = Number(/^v?(\d+)/.exec(nodeVersion)?.[1]);
-  if (!(major >= MIN_NODE)) {
-    return `Demoman needs Node ${MIN_NODE} or later, and this is Node ${nodeVersion.replace(/^v/, "")}`;
-  }
-  return null;
+  return recorder.ok ? null : recorder.detail;
 }
 
 function parseList(r: Ran): Array<Record<string, unknown>> | string {
@@ -1135,7 +1126,7 @@ const opencode: Wire = (d) => {
 
 async function steps(given: SetupDeps, flags: SetupFlags): Promise<number> {
   const d: SetupDeps = flags.yes === true ? { ...given, ask: null } : given;
-  const refusal = platformRefusal(d.platform, d.arch, d.nodeVersion);
+  const refusal = platformRefusal(d.platform, d.arch);
   if (refusal !== null) {
     d.say(`Demoman setup stopped: ${refusal}.`);
     return 1;

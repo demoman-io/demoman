@@ -231,7 +231,7 @@ export function stableNodeBin(
   return dirname(execPath);
 }
 
-/** The skill shipped beside demoman.mjs (scripts/build.mjs, step 3c), or
+/** The skill shipped beside cli.mjs (scripts/build.mjs, step 3c), or
  *  why it could not be read: only Cursor needs it, so setup says so there. */
 export function readSkill(
   distDir: string,
@@ -347,7 +347,6 @@ export function realSetupDeps(
     platform: process.platform,
     arch: process.arch,
     isRoot: process.getuid?.() === 0,
-    nodeVersion: process.version,
     version,
     run: (command, args) => runCaptured(command, args),
     // No timeout: a 190 MB download on a slow line is not a stall, and its

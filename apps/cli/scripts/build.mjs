@@ -1,7 +1,8 @@
 // apps/cli/scripts/build.mjs
 //
 // Builds the published `demoman` package into apps/cli/pkg (launch B):
-//   dist/demoman.mjs   the node half: apps/mcp's CLI path + the runner, one file
+//   dist/demoman.mjs   the bin: checks Node (node-floor.mjs), then loads cli.mjs
+//   dist/cli.mjs       the node half: apps/mcp's CLI path + the runner, one file
 //   dist/page/*.js     the in-page bundles, prebuilt, so no esbuild ships
 //   dist/recipe.md     apps/mcp/recipe.md
 //   dist/skills/       the record-demo skill, which setup gives Cursor
@@ -28,6 +29,7 @@ import {
   pageEntryPath,
 } from "@demoman/runner/package";
 import { build } from "esbuild";
+import { binSource, NODE_ENGINES } from "./node-floor.mjs";
 import { checkStudioPages } from "./studio-pages.mjs";
 
 const app = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -102,13 +104,13 @@ const node = await build({
   platform: "node",
   format: "esm",
   target: "node20",
-  outfile: join(pkg, "dist", "demoman.mjs"),
-  banner: { js: "#!/usr/bin/env node" },
+  outfile: join(pkg, "dist", "cli.mjs"),
   plugins: [thirdPartyExternal],
   metafile: true,
   logLevel: "warning",
 });
 writeFileSync(join(meta, "node.json"), JSON.stringify(node.metafile));
+writeFileSync(join(pkg, "dist", "demoman.mjs"), binSource("./cli.mjs"));
 chmodSync(join(pkg, "dist", "demoman.mjs"), 0o755);
 
 const external = new Set();
@@ -199,7 +201,7 @@ writeFileSync(
       type: "module",
       bin: { demoman: "dist/demoman.mjs" },
       files: ["dist", "LICENSE", "THIRD_PARTY_NOTICES"],
-      engines: { node: ">=20" },
+      engines: { node: NODE_ENGINES },
       dependencies,
     },
     null,
