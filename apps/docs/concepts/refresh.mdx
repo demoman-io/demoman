@@ -48,8 +48,9 @@ them. If the picture changed, every file of the flow is replaced along with
 its receipt. The DemoScript is never rewritten, and videos are not compared
 byte for byte, so an unchanged app makes no commit.
 
-A page that never settles is still saved, marked with what never held, such
-as `before step 3: the DOM never went quiet`. That screen is never compared:
+A page that never settles is still saved, unless the capture itself fails,
+and is marked with what never held, such as
+`before step 3: the DOM never went quiet`. That screen is never compared:
 the refresh line names it beside the screens that were. When no screen
 settled in both videos, nothing is compared and the flow fails with the
 reason, its files left as they are.
@@ -62,8 +63,10 @@ not be:
   goes within one step.
 - A change too faint to count: a single character in very light text, a
   slight shade change on a thin border.
-- Motion driven by script, a canvas, a video or a GIF never settles. Its
-  screen is skipped and named. A CSS spinner is held still and compared.
+- Script that keeps changing the page never settles: its screen is skipped
+  and named. Canvas drawing, a playing video and an animated GIF are not
+  seen as motion, so their screen is compared as captured and can read as
+  changed. A CSS spinner is held still and compared.
 - A change that comes after more than 200 ms of quiet with no request open,
   from a timer alone or a slow debounce, is saved before it happens and can
   read as changed.

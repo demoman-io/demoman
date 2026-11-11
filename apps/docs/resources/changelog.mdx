@@ -4,9 +4,9 @@ description: "What changed in each release."
 ---
 
 <Update label="Unreleased" description="Refresh compares the settled page">
-  - A refresh compares the page at each step once it settles, so a spinner, caret or slow answer no longer reads as changed.
-  - A page that never settles is skipped and named.
-  - Receipts from 0.9.4 or earlier are replaced once.
+  - A refresh compares each step's page once it settles: a spinner, caret or slow answer no longer reads as changed. Unsettled pages are named.
+  - The first refresh after updating records each flow again and replaces its files once, even if the app did not change.
+  - A video recorded before this release can't be added until it is recorded again.
   - A refresh is about a second longer per video.
 </Update>
 
@@ -27,10 +27,10 @@ description: "What changed in each release."
 </Update>
 
 <Update label="0.9.2" description="An easier Add to repo, and runs that follow a single-page app">
-  - Add to repo opens its sheet at once, with Folder and File name fields, and lists each file it wrote.
-  - Set up CI sits beside a project's heading in the Studio, so CI can be set up without adding a flow.
+  - Add to repo opens at once and lists each file it wrote.
+  - Set up CI sits beside a project's heading in the Studio.
   - A run carries on when a single-page app changes its own address, such as a search that writes `?q=`.
-  - A stopped run says "Stopped at script step N of M", counting steps the way the script does.
+  - A stopped run says "Stopped at script step N of M".
 </Update>
 
 <Update label="0.9.1" description="CI setup that works the first time, and refreshes you can trust">
