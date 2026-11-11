@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { authorSteps, bump, newestSiteEntry, preflight, strays } from "./release.mjs";
+import { authorSteps, bump, newestSiteEntry, preflight, shippedEntries, strays } from "./release.mjs";
 
 // The real files, so a reworded version line fails here, not mid-release.
 // The site lives in internal/, which CI has no copy of: its version lines and
@@ -16,6 +16,7 @@ const texts = {
   version: read("apps/cli/src/version.ts"),
   license: read("apps/docs/resources/license.mdx"),
   changelog: read("apps/docs/resources/changelog.mdx"),
+  shipped: read("apps/cli/test/changelog-shipped.json"),
   site: `<div class="class-line label"><b>v${current}</b> — <span>macOS / Linux</span></div>
 <svg class="el" id="sync-code" viewBox="0 0 80 124"><text class="ver" x="40" y="18" text-anchor="middle">v${current}</text></svg>
 <svg class="el" id="sync-video" viewBox="0 0 90 124"><text class="ver" x="45" y="18" text-anchor="middle">v${current}</text></svg>
@@ -39,6 +40,20 @@ test("bump sets the version in every file that carries it", () => {
   assert.equal((next.site.match(/<text class="ver"[^>]*>v9\.9\.9<\/text>/g) ?? []).length, 2, next.site);
   assert.doesNotMatch(next.site, at(current), "a version line was left behind");
   assert.deepEqual(bump("9.9.9", { ...texts, ...next }), next, "a second bump changes nothing");
+});
+
+// The docs test fails on a pinned entry that changed; pnpm release takes each pin.
+test("a release pins the entry before it, and never retakes or drops a pin", () => {
+  const log = (v, words) =>
+    v.map((l) => `<Update description="a -> b" label="${l}">\n  - ${words[l]}\n</Update>`).join("\n\n");
+  const pinned = shippedEntries("0.2.0", log(["0.2.0", "0.1.0"], { "0.2.0": "two", "0.1.0": "one" }), "{}");
+  assert.deepEqual(JSON.parse(pinned), { "0.1.0": "- one" });
+  const next = shippedEntries(
+    "0.3.0",
+    log(["0.3.0", "0.2.0", "0.1.0"], { "0.3.0": "three", "0.2.0": "two", "0.1.0": "one, cut" }),
+    JSON.stringify({ ...JSON.parse(pinned), "0.0.9": "- gone" }),
+  );
+  assert.deepEqual(JSON.parse(next), { "0.1.0": "- one", "0.0.9": "- gone", "0.2.0": "- two" });
 });
 
 test("an rc keeps its whole version on the class line", () => {

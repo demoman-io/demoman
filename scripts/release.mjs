@@ -4,7 +4,8 @@
 // Write both changelog entries for <version> first: the docs'
 // resources/changelog.mdx and the site's newest #changelog entry (the site
 // lives in internal/, the author's private repo cloned here). Then this sets
-// the version everywhere, commits "release: demoman <version>" here and the
+// the version everywhere, pins every earlier changelog entry as it shipped
+// (apps/cli/test/changelog-shipped.json), commits "release: demoman <version>" here and the
 // site's change in internal/, runs the gate one suite at a time, and prints
 // the author's commands in order.
 // Running it again after a fix is safe: an unchanged bump commits nothing.
@@ -12,6 +13,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { changelogEntries } from "./changelog.mjs";
 
 const ROOT = new URL("../", import.meta.url);
 const FILES = {
@@ -19,6 +21,7 @@ const FILES = {
   version: "apps/cli/src/version.ts",
   license: "apps/docs/resources/license.mdx",
   changelog: "apps/docs/resources/changelog.mdx",
+  shipped: "apps/cli/test/changelog-shipped.json",
   site: "internal/site/public/index.html",
 };
 // What `npm publish` may ship (internal/RELEASING.md step 5).
@@ -29,6 +32,14 @@ export const isVersion = (v) => /^\d+\.\d+\.\d+(-rc\.\d+)?$/.test(v ?? "");
 export function newestSiteEntry(html) {
   const m = html.match(/<article class="entry" data-version="([^"]+)"[^>]*>[\s\S]*?<time[^>]* datetime="([^"]+)">/);
   return m && { version: m[1], datetime: m[2] };
+}
+
+/** Every entry but this release's, as it shipped, oldest first: a pin is never retaken
+ * or dropped, so docs.test.ts fails on an entry edited or removed after it shipped. */
+export function shippedEntries(version, changelog, shipped) {
+  const pins = JSON.parse(shipped);
+  for (const e of changelogEntries(changelog).reverse()) if (e.label !== version) pins[e.label] ??= e.body;
+  return `${JSON.stringify(pins, null, 2)}\n`;
 }
 
 /** What is missing before anything is touched; empty when ready. */
@@ -52,6 +63,7 @@ export function bump(version, texts) {
     pkg: swap("pkg", texts.pkg, /"version": "[^"]+"/, `"version": "${version}"`),
     version: swap("version", texts.version, /VERSION = "[^"]+"/, `VERSION = "${version}"`),
     license: swap("license", texts.license, /demoman@[^/\s)]+\//g, `demoman@${version}/`),
+    shipped: shippedEntries(version, texts.changelog, texts.shipped),
     // The hero's class line, and the Premise drawing, which ends on it (site/test/sync.test.mjs).
     site: swap(
       "site",

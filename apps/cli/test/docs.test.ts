@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { changelogEntries } from "../../../scripts/changelog.mjs";
 import { NODE_FLOORS } from "../scripts/node-floor.mjs";
 
 // Text-only guards over apps/docs. Nothing here imports apps/cli/src.
@@ -640,9 +641,10 @@ describe("help", () => {
   });
   it("the changelog keeps every release and stays a summary", () => {
     const log = readDocs("resources/changelog.mdx");
-    const labels = [...log.matchAll(/<Update label="([^"]+)"/g)].map(
-      (m) => m[1],
-    );
+    const entries = changelogEntries(log);
+    const labels = entries.map((e) => e.label);
+    // Premise: every entry the page opens was read whole, or the caps below skip it.
+    expect(entries.length).toBe(log.match(/<Update\b/g)?.length);
     // Every release it listed on 2026-11-08, newest first; the site reads them.
     for (const v of [
       "0.9.2",
@@ -666,20 +668,43 @@ describe("help", () => {
       "0.2.0-rc.1",
     ])
       expect(labels, v).toContain(v);
-    // Each entry is a summary; the page as a whole grows with every release
-    // and past entries keep the words they shipped with.
-    const entries = [
-      ...log.matchAll(/<Update label="([^"]+)"[^>]*>([\s\S]*?)<\/Update>/g),
-    ];
-    // Premise: every label opens an entry the pattern read whole.
-    expect(entries.map((m) => m[1])).toEqual(labels);
-    for (const [, label, body] of entries) {
-      const bullets = body.match(/^\s*- /gm)?.length ?? 0;
-      const words = body.split(/\s+/).filter(Boolean).length;
-      expect(bullets, `${label}: ${bullets} bullets`).toBeGreaterThanOrEqual(1);
+    // Each entry is a summary, by its top-level bullets: three to five for a
+    // release (an rc said one thing). The page grows with every release.
+    for (const { label, body } of entries) {
+      const bullets = body.match(/^ {0,2}- /gm)?.length ?? 0;
+      const words = body.split(/\s+/).length;
+      const min = label?.includes("-rc.") ? 1 : 3;
+      expect(bullets, `${label}: ${bullets} bullets`).toBeGreaterThanOrEqual(
+        min,
+      );
       expect(bullets, `${label}: ${bullets} bullets`).toBeLessThanOrEqual(5);
       expect(words, `${label}: ${words} words`).toBeLessThanOrEqual(130);
     }
+  });
+  it("a shipped changelog entry keeps the words it shipped with", () => {
+    const pins: Record<string, string> = JSON.parse(
+      readFileSync(
+        new URL("./changelog-shipped.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    const entries = changelogEntries(readDocs("resources/changelog.mdx"));
+    const bodies = new Map(entries.map((e) => [e.label, e.body]));
+    // Premise: the releases up to 0.9.3 are pinned, or the loop checks nothing.
+    expect(Object.keys(pins).length).toBeGreaterThanOrEqual(20);
+    // pnpm release pins every entry but its own; only that one and a newer
+    // entry being written may be unpinned.
+    for (const { label } of entries.slice(1))
+      if (label !== VERSION)
+        expect(
+          Object.keys(pins),
+          `${label}: no pin (pnpm release adds it)`,
+        ).toContain(label);
+    for (const [label, body] of Object.entries(pins))
+      expect(
+        bodies.get(label),
+        `${label} changed or was removed after it shipped`,
+      ).toBe(body);
   });
   it("privacy links out to demoman.io/privacy", () => {
     expect(readDocs("security/privacy.mdx")).toContain(
