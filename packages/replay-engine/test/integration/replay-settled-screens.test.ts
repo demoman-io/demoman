@@ -652,6 +652,8 @@ describe("a page whose CSP refuses inline styles", () => {
   /** The focused field's luma in captures taken without the hold. */
   const bare: number[][] = [];
   let ownStyleRefused = false;
+  /** The page's CSP violation count once the walk has ended. */
+  let violationsAfter = -1;
   beforeAll(async () => {
     r = await record(
       [{ do: "click", on: { stableId: "q" } }],
@@ -676,6 +678,9 @@ describe("a page whose CSP refuses inline styles", () => {
           await new Promise((res) => setTimeout(res, 200));
         }
         await decoder.close();
+        violationsAfter = await page.evaluate(
+          () => (window as unknown as { __violations: number }).__violations,
+        );
         return rects;
       },
       "csp",
@@ -709,6 +714,22 @@ describe("a page whose CSP refuses inline styles", () => {
       "pixels in the empty field's content box that changed on focus",
     ).toBe(0);
     expect(r.caretStyleLeft, "the stand-in sheet is gone after").toBe(false);
+  });
+  // Red when every capture appends the refused <style> again: each sets off
+  // the page's CSP, and its report-uri, once per screen.
+  it("sets off the page's CSP at the first capture only", () => {
+    const [first, second] = r.violationsAtHold;
+    expect(r.violationsAtHold, "premise: one count per capture").toHaveLength(
+      2,
+    );
+    expect(
+      (second ?? -1) - (first ?? -1),
+      `premise: the first capture's <style> was refused (${r.violationsAtHold})`,
+    ).toBe(1);
+    expect(
+      violationsAfter - (second ?? -1),
+      `violations during the second capture (${r.violationsAtHold}, then ${violationsAfter})`,
+    ).toBe(0);
   });
 });
 

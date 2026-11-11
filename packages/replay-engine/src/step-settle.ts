@@ -102,15 +102,23 @@ const CARET_RULE = "*{caret-color:transparent!important}";
  * cannot be read.
  *
  * A page whose CSP refuses inline styles gives the `<style>` no sheet; a
- * constructed sheet is not subject to that policy, so it stands in.
+ * constructed sheet is not subject to that policy, so it stands in. The
+ * refusal is remembered for the document, so later captures go straight to
+ * the stand-in rather than setting off the page's CSP report each time.
  */
 export const PAGE_CAPTURE_HOLD = `(() => {
-  if (!document.getElementById("${CARET_STYLE_ID}")) {
-    const s = document.createElement("style");
-    s.id = "${CARET_STYLE_ID}";
-    s.textContent = "${CARET_RULE}";
-    (document.head || document.documentElement).append(s);
-    if (!s.sheet && !window.__demomanCaretSheet) {
+  if (!document.getElementById("${CARET_STYLE_ID}") && !window.__demomanCaretSheet) {
+    if (!window.__demomanCaretRefused) {
+      const s = document.createElement("style");
+      s.id = "${CARET_STYLE_ID}";
+      s.textContent = "${CARET_RULE}";
+      (document.head || document.documentElement).append(s);
+      if (!s.sheet) {
+        s.remove();
+        window.__demomanCaretRefused = true;
+      }
+    }
+    if (window.__demomanCaretRefused) {
       try {
         const c = new CSSStyleSheet();
         c.replaceSync("${CARET_RULE}");
