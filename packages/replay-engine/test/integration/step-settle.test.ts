@@ -62,26 +62,46 @@ describe("the step-settle probe in a real page", () => {
     });
   }, 15_000);
 
-  it("waits out a toast's slide-in", async () => {
+  // A short quietMs against a slide longer than it, so only the animation
+  // clause can hold the reply open: with the default 300 ms quiet window the
+  // window alone outlasts the 300 ms slide and the clause is never tested.
+  it.each([
+    ["#toastbtn", "slide-in"],
+    ["#hoverbtn", "hover transition"],
+  ])("waits out a finite animation (%s, %s)", async (button) => {
     await withPage(async (page) => {
-      await page.click("#toastbtn");
+      await page.click(button);
       const running = await page.evaluate(
         () =>
           document.getAnimations().filter((a) => a.playState === "running")
             .length,
       );
-      expect(running, "premise: the slide is running after the click").toBe(1);
-      const report = await ask(page);
+      expect(running, "premise: an animation is running when asked").toBe(1);
+      const report = await ask(page, 30, CAP);
       expect(report.animations, JSON.stringify(report)).toBe(0);
-      const transform = await page.evaluate(
+      expect(report.quiet, JSON.stringify(report)).toBe(true);
+      const left = await page.evaluate(
         () =>
-          getComputedStyle(document.getElementById("toast") as Element)
-            .transform,
+          document.getAnimations().filter((a) => a.playState === "running")
+            .length,
       );
       expect(
-        ["none", "matrix(1, 0, 0, 1, 0, 0)"],
-        `transform ${transform}`,
-      ).toContain(transform);
+        left,
+        `animations left after answer: ${JSON.stringify(report)}`,
+      ).toBe(0);
+      expect(report.waitedMs, JSON.stringify(report)).toBeGreaterThan(100);
+    });
+  });
+
+  it("answers unsettled, not quiet, when the animation read throws", async () => {
+    await withPage(async (page) => {
+      await page.evaluate(() => {
+        document.getAnimations = () => {
+          throw new Error("stubbed");
+        };
+      });
+      const report = await ask(page, 0, CAP);
+      expect(report.quiet, JSON.stringify(report)).toBe(false);
     });
   });
 

@@ -34,15 +34,17 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
   let painted = false;
   let animations = 0;
   let watcher = null;
+  // An animation read that failed is unknown, not zero: never quiet.
+  let failed = false;
   const countAnimations = () => {
     try {
-      if (!document.getAnimations) return 0;
+      if (!document.getAnimations) { failed = true; return 0; }
       return document.getAnimations().filter((a) => {
         if (a.playState !== "running") return false;
         const t = a.effect && a.effect.getComputedTiming();
         return !t || t.iterations !== Infinity;
       }).length;
-    } catch (e) { return 0; }
+    } catch (e) { failed = true; return 0; }
   };
   const quietNow = () => Date.now() - lastChange >= ${quietMs};
   const reply = () => {
@@ -51,7 +53,7 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
     return {
       painted,
       animations,
-      quiet: painted && animations === 0 && quietNow(),
+      quiet: painted && !failed && animations === 0 && quietNow(),
       waitedMs: Date.now() - t0,
     };
   };
@@ -67,6 +69,7 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
     painted = true;
     for (;;) {
       if (countAnimations() === 0 && quietNow()) return;
+      if (failed) return;
       await frame();
     }
   })();
@@ -89,7 +92,7 @@ export const PAGE_CAPTURE_HOLD = `(() => {
     const s = document.createElement("style");
     s.id = "${CARET_STYLE_ID}";
     s.textContent = "*{caret-color:transparent!important}";
-    document.head.append(s);
+    (document.head || document.documentElement).append(s);
   }
   const held = window.__demomanHeld || (window.__demomanHeld = []);
   for (const a of document.getAnimations ? document.getAnimations() : []) {
