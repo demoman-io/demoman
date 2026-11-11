@@ -85,16 +85,21 @@ const HeldPressSchema = z.object({
  * never compares such a screen. A capture that failed has an empty `ref`
  * and the viewport's size: there are no bytes, and `unsettled` says why.
  */
-export const PageScreenSchema = z.object({
-  after: z.number().int().min(0),
-  sourceTimeMs: z.number(),
-  ref: z.string(),
-  width: z.number().int().positive(),
-  height: z.number().int().positive(),
-  heldAnimations: z.number().int().min(0),
-  waitedMs: z.number().min(0),
-  unsettled: z.string().optional(),
-});
+export const PageScreenSchema = z
+  .object({
+    after: z.number().int().min(0),
+    sourceTimeMs: z.number(),
+    ref: z.string(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    heldAnimations: z.number().int().min(0),
+    waitedMs: z.number().min(0),
+    unsettled: z.string().optional(),
+  })
+  .refine((s) => s.ref !== "" || s.unsettled !== undefined, {
+    message: 'a page screen with no bytes (ref "") must say why in `unsettled`',
+    path: ["unsettled"],
+  });
 export type PageScreen = z.infer<typeof PageScreenSchema>;
 
 /**

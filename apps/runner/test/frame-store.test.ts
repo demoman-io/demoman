@@ -157,3 +157,46 @@ describe("the filesystem store", () => {
     expect(await store.load("span:s1:0")).toEqual(new Uint8Array([2, 2]));
   });
 });
+
+describe("the filesystem store's page screens", () => {
+  const pathOf = (ref: string) =>
+    join(store.root, "page-screens", `${fileNameOf(ref)}.png`);
+
+  it("round-trips a page screen beside the keyframes, owner-only", async () => {
+    const ref = await store.putPageScreen("s1", 2, new Uint8Array([7, 7]));
+    expect(ref).toBe("ps:s1:2");
+    expect(await store.getPageScreen(ref)).toEqual(new Uint8Array([7, 7]));
+    expect(readFileSync(pathOf(ref))).toEqual(Buffer.from([7, 7]));
+    expect(modeOf(pathOf(ref))).toBe(0o600);
+    // Not served by the render phase: `refs()` lists the root's own blobs.
+    expect(await store.refs()).toEqual([]);
+  });
+
+  it("answers null for a screen never stored, and throws any other failure", async () => {
+    expect(await store.getPageScreen("ps:s1:9")).toBeNull();
+    // A directory where the file should be: EISDIR, not "absent".
+    mkdirSync(pathOf("ps:s1:3"), { recursive: true });
+    await expect(store.getPageScreen("ps:s1:3")).rejects.toThrow(/EISDIR/);
+  });
+
+  it("deletes a bundle's page screens with it", async () => {
+    const ref = await store.putPageScreen("s1", 0, new Uint8Array([1]));
+    const bundle = {
+      source: "replay",
+      keyframes: [],
+      motionSpans: [],
+      cursorSamples: [],
+      degradations: [],
+      pageScreens: [
+        { ref },
+        // A screen that could not be taken names no file.
+        { ref: "", unsettled: "the page screen could not be taken (x)" },
+      ],
+    } as never;
+    await store.putBundle("s1", bundle);
+    // Premise: the screen is on disk before the delete.
+    expect(await store.getPageScreen(ref)).not.toBeNull();
+    await store.deleteBundle("s1");
+    expect(await store.getPageScreen(ref)).toBeNull();
+  });
+});

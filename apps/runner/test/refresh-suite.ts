@@ -888,7 +888,13 @@ async function differing(a: Buffer, b: Buffer) {
         const [p, q] = [await pixels(x as string), await pixels(y as string)];
         if (p.width !== q.width || p.height !== q.height)
           return { sizes: [p.width, p.height, q.width, q.height] };
-        let [x0, y0, x1, y1, n] = [p.width, p.height, -1, -1, 0];
+        let [x0, y0, x1, y1, n]: [number, number, number, number, number] = [
+          p.width,
+          p.height,
+          -1,
+          -1,
+          0,
+        ];
         for (let i = 0; i < p.data.length; i += 4) {
           if (
             p.data[i] === q.data[i] &&
@@ -960,10 +966,15 @@ export const smallGreyText = () => {
         expect("n" in d, `images differ in size: ${JSON.stringify(d)}`).toBe(
           true,
         );
+        // Narrows for the checker what the line above asserted: the reply
+        // is the diff, not the two sizes.
+        if (d.n === undefined || d.width === undefined) {
+          throw new Error(`images differ in size: ${JSON.stringify(d)}`);
+        }
         // The window is in the film's output pixels; the image is smaller
         // (`screensSize` is what the windows are measured in).
         const size = was.size as { width: number };
-        const scale = ("width" in d ? d.width : 0) / size.width;
+        const scale = d.width / size.width;
         const [ww, wx, wy] = [
           w?.width as number,
           w?.x as number,
@@ -986,13 +997,11 @@ export const smallGreyText = () => {
           moment: was.moment,
           names: was.names,
         });
-        expect("n" in d && d.n > 0, evidence).toBe(true);
-        if ("n" in d) {
-          expect(d.x0, evidence).toBeGreaterThanOrEqual(box.x0 - 2);
-          expect(d.y0, evidence).toBeGreaterThanOrEqual(box.y0 - 2);
-          expect(d.x1, evidence).toBeLessThanOrEqual(box.x1 + 2);
-          expect(d.y1, evidence).toBeLessThanOrEqual(box.y1 + 2);
-        }
+        expect(d.n, evidence).toBeGreaterThan(0);
+        expect(d.x0, evidence).toBeGreaterThanOrEqual(box.x0 - 2);
+        expect(d.y0, evidence).toBeGreaterThanOrEqual(box.y0 - 2);
+        expect(d.x1, evidence).toBeLessThanOrEqual(box.x1 + 2);
+        expect(d.y1, evidence).toBeLessThanOrEqual(box.y1 + 2);
         html = LOCAL_TIME_NOW;
         const r = await refresh([A]);
         const a = byName(r, A);

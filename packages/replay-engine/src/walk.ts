@@ -635,17 +635,31 @@ function evaluatedValue(reply: Record<string, unknown>): unknown {
 }
 
 /** The conditions a step-settle reply says never held, in words. Never
- *  empty for a reply that is not quiet. */
-function unsettledWords(report: Partial<StepSettleReport>): string[] {
+ *  empty for a reply that is not quiet. `capMs` is the cap it was asked
+ *  with: the probe answers unsettled before it only when its animation read
+ *  failed (`step-settle.ts`), which is how that case is told apart from a
+ *  DOM still changing, a reply the report has no field for. */
+function unsettledWords(
+  report: Partial<StepSettleReport>,
+  capMs: number,
+): string[] {
   const words: string[] = [];
   const animations = report.animations ?? 0;
   if (report.painted !== true) words.push("its first paint never came");
   if (animations > 0) words.push(`${animations} animation(s) still running`);
   if (report.quiet !== true && report.painted === true && animations === 0) {
-    words.push("the DOM never went quiet");
+    // Less 5 ms: the backstop's timer and Date.now() disagree by a tick.
+    words.push(
+      (report.waitedMs ?? capMs) < capMs - 5
+        ? "the page's animations could not be read"
+        : "the DOM never went quiet",
+    );
   }
   return words;
 }
+
+/** Said in place of a page condition the cap left no time to ask about. */
+const PAGE_NOT_ASKED = "the page was not asked (the cap ran out first)";
 
 /**
  * How far a run got through the action log, and nothing about failure.
@@ -1150,10 +1164,16 @@ export async function runWalk(
         return null;
       }
     };
+    /** The newest frame kept or seen before filming began, so a page
+     *  screen right after the opening still has a size to come back to. */
+    let latest: string | null = null;
     return {
+      seen(data: string): void {
+        latest = data;
+      },
       hold(): void {
         holding = true;
-        back = newestFrame === null ? null : sizeOf(newestFrame.data);
+        back = latest === null ? null : sizeOf(latest);
       },
       release(): void {
         holding = false;
@@ -1191,16 +1211,20 @@ export async function runWalk(
   const settlePage = async (deadline: number): Promise<string[]> => {
     for (;;) {
       while (topLoading && at() < deadline) await clock.sleep(50);
+      const capMs = deadline - at();
+      if (capMs <= 0) {
+        return [
+          ...(topLoading ? ["the page was still loading"] : []),
+          PAGE_NOT_ASKED,
+        ];
+      }
       const navs = navigationsSeen;
       let report: Partial<StepSettleReport> | undefined;
       let failure: unknown = null;
       try {
         report = evaluatedValue(
           await cdp.send("Runtime.evaluate", {
-            expression: stepSettleExpression(
-              STEP_QUIET_MS,
-              Math.max(0, deadline - at()),
-            ),
+            expression: stepSettleExpression(STEP_QUIET_MS, capMs),
             awaitPromise: true,
             returnByValue: true,
           }),
@@ -1221,7 +1245,33 @@ export async function runWalk(
       if (report === undefined || typeof report.quiet !== "boolean") {
         return [...words, "the settle probe answered with nothing readable"];
       }
-      return [...words, ...unsettledWords(report)];
+      return [...words, ...unsettledWords(report, capMs)];
+    }
+  };
+
+  /**
+   * Both halves of a step's settle, within `deadline`: requests, then the
+   * page, and round again while a request is in flight once the page has
+   * answered. All four conditions must hold at once (spec 2026-11-10
+   * decision 1), and a page can start a request inside its own quiet
+   * window: a debounced search firing, a new document's first fetches.
+   */
+  const settleWords = async (deadline: number): Promise<string[]> => {
+    for (;;) {
+      if (tracker === null) {
+        return [
+          `requests could not be watched (${untracked})`,
+          ...(await settlePage(deadline)),
+        ];
+      }
+      if (!(await tracker.idle(deadline, clock.sleep, at))) {
+        return [`${tracker.inFlight()} request(s) in flight`, PAGE_NOT_ASKED];
+      }
+      const page = await settlePage(deadline);
+      if (tracker.inFlight() === 0) return page;
+      if (at() >= deadline) {
+        return [`${tracker.inFlight()} request(s) in flight`, ...page];
+      }
     }
   };
 
@@ -1334,13 +1384,7 @@ export async function runWalk(
   ): Promise<void> => {
     const from = at();
     const deadline = from + STEP_SETTLE_CAP_MS;
-    const unsettled: string[] = [];
-    if (tracker === null) {
-      unsettled.push(`requests could not be watched (${untracked})`);
-    } else if (!(await tracker.idle(deadline, clock.sleep, at))) {
-      unsettled.push(`${tracker.inFlight()} request(s) in flight`);
-    }
-    unsettled.push(...(await settlePage(deadline)));
+    const unsettled = await settleWords(deadline);
     const waitedMs = Math.max(0, at() - from);
     let screen: PageScreen | null = null;
     try {
@@ -1427,8 +1471,13 @@ export async function runWalk(
     // Continuous: the film starts at the opening still. What paints before
     // it is the page loading — the navigation, a bar sweeping, a black
     // first paint — which is exactly what the settle waited out.
-    if (continuous && !filming) return;
-    if (pageFrames.dropping(String(params.data ?? ""))) return;
+    const data = String(params.data ?? "");
+    if (continuous && !filming) {
+      pageFrames.seen(data);
+      return;
+    }
+    if (pageFrames.dropping(data)) return;
+    pageFrames.seen(data);
     const seen = { data: String(params.data ?? ""), atMs: at() };
     priorFrame = newestFrame;
     newestFrame = seen;

@@ -40,6 +40,9 @@ const ANSWER_WORDS = 15;
 /** Longer than the quiet beat: the page being left goes quiet long before
  *  the next one arrives, so only waiting for the new document finds it. */
 const NEXT_PAUSE_MS = 600;
+/** How long the search answers after it is asked: longer than the quiet
+ *  beat, so a screen taken without re-checking requests has no results. */
+const SEARCH_PAUSE_MS = 500;
 /** Far from everything on the first page, so the old page has no ink there. */
 const NEXT_PAGE = `<!doctype html><meta charset=utf-8><title>next</title>
 <h1 id="heading" style="position:absolute;left:420px;top:420px;margin:0;font:32px sans-serif">The next page</h1>`;
@@ -58,6 +61,14 @@ beforeAll(async () => {
         if (++i < ANSWER_WORDS) setTimeout(word, 40);
         else res.end();
       }, ANSWER_PAUSE_MS);
+      return;
+    }
+    if (req.url?.startsWith("/search?")) {
+      const q = new URL(req.url, "http://x").searchParams.get("q");
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end(`results:${q}`);
+      }, SEARCH_PAUSE_MS);
       return;
     }
     const page = (): void => {
@@ -409,7 +420,8 @@ describe("a continuous walk settles each step and captures its page", () => {
     // screens after the focus, the typing and the hover. The caret itself is
     // pinned by "hides the caret" above, not here: measured 2026-11-10,
     // headless Chromium draws it in the same phase in both recordings, so
-    // with the caret style removed these bytes still agree.
+    // with the caret style removed these bytes still agree. Without the
+    // endless-animation hold they do not: screens 1-6 differ (the spinner).
     expect(
       a.screens.slice(1).map((s) => s.heldAnimations),
       "spinner held",
@@ -434,6 +446,41 @@ describe("a continuous walk settles each step and captures its page", () => {
   it("the caret style is gone after the capture", () => {
     expect(a.focusAtHold.length, "premise: HOLD ran for every screen").toBe(7);
     expect(a.caretStyleLeft).toBe(false);
+  });
+});
+
+describe("a search the typing fires", () => {
+  let r: Recorded;
+  beforeAll(async () => {
+    r = await record(
+      [{ do: "type", into: { stableId: "search" }, text: "ab" }],
+      async (page) => ({
+        results: { ...(await textRect(page, "#results")), width: 700 },
+        resultsText: await textRect(page, "#results"),
+      }),
+    );
+    // One glide, the typing and a 500 ms answer: about 4 s here.
+  }, 60_000);
+
+  // The request starts 250 ms after the last key, inside the page's quiet
+  // beat: only asking about requests again after the page answered sees it.
+  it("the screen after typing shows the search's results", () => {
+    const text = r.live.resultsText as Rect;
+    expect(text.width, "premise: the results arrived").toBeGreaterThan(20);
+    const right = inkRight(
+      r.luma[1]?.results,
+      Math.round(r.live.results?.width ?? 0),
+    );
+    expect(
+      r.screens[1]?.unsettled,
+      JSON.stringify(r.screens[1]),
+    ).toBeUndefined();
+    expect(
+      Math.abs(
+        Math.round(r.live.results?.x ?? 0) + right + 1 - (text.x + text.width),
+      ),
+      `results ink ends at ${right}; waited ${r.screens[1]?.waitedMs} ms`,
+    ).toBeLessThanOrEqual(3);
   });
 });
 

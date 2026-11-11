@@ -7,7 +7,7 @@
   #toast { display: inline-block; animation: slide 300ms ease-out forwards }
   #hoverrow { background-color: #fff; transition: background-color 150ms }
   #hoverrow.on, #hoverrow:hover { background-color: #ccc }
-  #answer { height: 20px }
+  #answer, #results { height: 20px }
   #spin { width: 20px; height: 20px; background: #333; animation: spin 800ms linear infinite }
 </style>
 <button id="stream">stream</button>
@@ -22,6 +22,10 @@
 <div id="list">all</div>
 <div id="out"></div>
 <div id="answer"></div>
+<!-- A line of its own: beside #q, #q's focus ring met its border and the
+     ring's corner pixels came out differently in 1 of ~6 recordings. -->
+<div><input id="search" placeholder="search"></div>
+<div id="results"></div>
 <div id="toasts"></div>
 <div id="hoverrow">row</div>
 <div id="count"></div>
@@ -42,6 +46,16 @@
     d.id = "toast";
     d.textContent = "saved";
     $("toasts").append(d);
+  };
+  // A search that asks the server once the typing stops (http only): the
+  // request starts inside the quiet beat that follows the last key.
+  let searching;
+  $("search").oninput = () => {
+    clearTimeout(searching);
+    searching = setTimeout(async () => {
+      const r = await fetch("search?q=" + encodeURIComponent($("search").value));
+      $("results").textContent = await r.text();
+    }, 250);
   };
   let deb;
   $("q").oninput = () => {
