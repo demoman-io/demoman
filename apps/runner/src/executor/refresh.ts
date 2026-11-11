@@ -249,7 +249,7 @@ const pageOnly = (problems: string[]): boolean =>
  *  all the page's own are said as the page's, not blamed on this machine. */
 export function degradedNote(problems: string[]): string {
   return pageOnly(problems)
-    ? `recorded with problems the page itself made, which recording again does not change: ${problems.join("; ")}`
+    ? `recorded with problems the page itself made, which a second run would not change: ${problems.join("; ")}`
     : `recorded with problems Demoman could not avoid on this machine: ${problems.join("; ")}`;
 }
 
