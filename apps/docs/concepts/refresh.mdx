@@ -28,7 +28,7 @@ run it locally too.
 | Line | Meaning |
 | --- | --- |
 | `<name>: changed: <what changed>` | The picture changed: how much, and when in the video. The files are replaced |
-| `<name>: added: <which file>` | It looks the same, and an output that was not there yet is written |
+| `<name>: added: <which file>` | It looks the same, and an output that was not there yet is written. Once, after its receipt predates page screens, `added: recorded again and not compared`: every file is replaced, with nothing compared |
 | `<name>: uncompared: nothing to compare against; delivered as new` | No earlier video to compare with. The files are written |
 | `<name>: unchanged: <how much changed>` | It looks the same. The files are left as they are |
 | `<name>: failed: <why>` | The run was not clean. The committed files stay, and the command exits 1 |
@@ -77,8 +77,8 @@ not be:
 
 A receipt written by Demoman 0.9.4 or earlier has no page screens. Its first
 refresh records the flow again and replaces its files once, with nothing
-compared, and says so: `added`, noting that the receipt predates page
-screens.
+compared, and says so: `added: recorded again and not compared`, noting
+that the receipt predates page screens.
 
 Waiting for each step adds about a second to each video's refresh. A step
 whose request streams its answer waits for it.

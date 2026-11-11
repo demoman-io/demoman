@@ -803,9 +803,8 @@ async function filmOne(
   } else if (previous.screens === null || previous.screensDir === null) {
     // Review Focus 5: compared with nothing, never read as "unchanged".
     predates = true;
-    job.notes.push(
-      `${job.previousAt} predates page screens; recorded again to make them`,
-    );
+    // Why, as a note (a pull request lists notes); what, in the detail.
+    job.notes.push(`${job.previousAt} predates page screens`);
   } else {
     let cmp: Awaited<ReturnType<typeof sameScreens>>;
     try {
@@ -827,7 +826,12 @@ async function filmOne(
     same = cmp.same;
     said.push(`${judged.path}: ${cmp.detail}`);
   }
-  if (same === null) said.push("nothing to compare against; delivered as new");
+  if (same === null)
+    said.push(
+      predates
+        ? "recorded again and not compared"
+        : "nothing to compare against; delivered as new",
+    );
   const toWrite: number[] = [];
   for (const [i, o] of kept.outputs.entries()) {
     if (same !== true) toWrite.push(i);

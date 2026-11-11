@@ -308,9 +308,10 @@ describe("a refresh against the receipt", () => {
     expect(v.sameAs).toBeNull();
     expect(compared).toEqual([]);
     expect(await readFile(join(repo, FILE), "utf8")).toBe(text);
-    expect(v.notes).toEqual([
-      `${FILE} predates page screens; recorded again to make them`,
-    ]);
+    expect(v.notes).toEqual([`${FILE} predates page screens`]);
+    // Red when it also says it was delivered as new: it was recorded again,
+    // and its outcome is `added` (close review 6).
+    expect(v.detail).toBe("recorded again and not compared");
     expect(await receiptOf()).toMatchObject({
       receiptVersion: 3,
       video: "t-new",
@@ -631,9 +632,8 @@ describe("a refresh decides from the screens, then exports", () => {
       expect(v.outcome, JSON.stringify(v)).toBe("added");
       expect(v.line).toContain(NAME);
       expect(v.sameAs).toBeNull();
-      expect(v.notes).toEqual([
-        `${RECEIPT} predates page screens; recorded again to make them`,
-      ]);
+      expect(v.notes).toEqual([`${RECEIPT} predates page screens`]);
+      expect(v.detail).toBe("recorded again and not compared");
       // Nothing was compared: every output is the new recording's.
       expect(screensCompared).toEqual([]);
       expect(exported()).toEqual(["screens", "mp4"]);

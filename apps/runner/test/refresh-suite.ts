@@ -1425,9 +1425,8 @@ export const compareFailures = () => {
       const r = await refresh([B]);
       const b = byName(r, B);
       expect(b.outcome, JSON.stringify(r)).toBe("added");
-      expect(b.notes).toEqual([
-        `${receiptFile} predates page screens; recorded again to make them`,
-      ]);
+      expect(b.notes).toEqual([`${receiptFile} predates page screens`]);
+      expect(b.detail).toBe("recorded again and not compared");
       expect(b.sameAs).toBeNull();
       expect(b.outputs).toContain(out.bMp4);
       expect(b.outputs).toContain(receiptFile);
