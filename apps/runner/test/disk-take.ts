@@ -4,6 +4,7 @@ import { readonlyScene } from "../../../packages/compositor/test/fixtures/scene.
 import type { Rgb } from "../src/decode-probe-entry.js";
 import { createLibrary } from "../src/executor/library.js";
 import { launch } from "../src/launch.js";
+import { flatPng } from "./wallpaper-own-harness.js";
 
 // A take built on disk rather than run, shared by the export tests that read
 // the picture (the retext test, the GIF and stills tests).
@@ -141,4 +142,41 @@ export async function putTake(
   const library = createLibrary(home);
   await library.frameStore(takeId).putBundle(takeId, frames);
   await library.putScene(scene);
+}
+
+/**
+ * `bundle` with a page screen after each of its steps and at the opening,
+ * as a real-time walk records them: one flat PNG each, a colour of its own
+ * so a screen copied under another step's name is told apart. A step in
+ * `unsettled` has no image, only its reason (as a failed capture leaves it).
+ */
+export async function withPageScreens(
+  home: string,
+  takeId: string,
+  bundle: FrameBundle,
+  unsettled: Record<number, string> = {},
+): Promise<FrameBundle> {
+  const store = createLibrary(home).frameStore(takeId);
+  const pageScreens: NonNullable<FrameBundle["pageScreens"]> = [];
+  for (let after = 0; after <= bundle.markers.length; after++) {
+    const why = unsettled[after];
+    pageScreens.push({
+      after,
+      sourceTimeMs: after * 100,
+      ref:
+        why === undefined
+          ? await store.putPageScreen(
+              takeId,
+              after,
+              flatPng(4, 4, [after * 40, 255 - after * 40, 128]),
+            )
+          : "",
+      width: 4,
+      height: 4,
+      heldAnimations: 0,
+      waitedMs: 0,
+      ...(why === undefined ? {} : { unsettled: why }),
+    });
+  }
+  return { ...bundle, pageScreens };
 }

@@ -31,12 +31,12 @@ import {
   type KeptDeliver,
   type KeptOutput,
   type KeptReceipt,
-  type KeptScreens,
   type KeptVideo,
   keptFileName,
   LEGACY_FLOWS_DIR,
   normaliseName,
   notCarriedOf,
+  type PageScreens,
   parseFilmedCode,
   parseKept,
   parseReceipt,
@@ -61,6 +61,7 @@ import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
 import { refilmFromVideo } from "./refilm.js";
 import { type GitRunner, readRepo } from "./repo.js";
+import { screenPlace } from "./same-picture.js";
 import { createSessionStore, type SessionFile, siteOf } from "./sessions.js";
 import { sameName } from "./video-match.js";
 import { sharesRepo, type VideoRecord, type VideoStore } from "./videos.js";
@@ -406,13 +407,12 @@ export async function keepVideo(
       }
       rendered.push(await readFile(answer.file.path));
     }
-    // The images a refresh compares with: the judged output's screens alone.
-    let screens: KeptScreens | undefined;
-    let shots: { dir: string; size: { width: number; height: number } } | null =
-      null;
+    // The images a refresh compares with: the take's own page screens.
+    let screens: PageScreens | undefined;
+    let shots: { dir: string } | null = null;
     if (deliver === "commit") {
       const o = base.outputs[judged] as KeptOutput;
-      deps.log(`add: rendering the screens of ${o.path}`);
+      deps.log(`add: copying the page screens of ${o.path}`);
       const shot = await exportTake(
         {
           takeId: built.takeId,
@@ -441,15 +441,15 @@ export async function keepVideo(
         );
       }
       screens = shot.screens;
-      shots = { dir: shot.folder.path, size: shot.size };
+      shots = { dir: shot.folder.path };
     }
     if (
       deliver === "commit" &&
-      (screens === undefined || screens.moments.length === 0)
+      !screens?.screens.some((s) => s.unsettled === undefined)
     ) {
       return refuse(
         "exportFailed",
-        `${base.outputs[judged]?.path}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
+        `${base.outputs[judged]?.path}, the output a refresh judges, has no settled screen to compare against (${screensNoteOf(screens, base.script.steps)}) — a refresh would have nothing to check; nothing was written`,
       );
     }
     const kept: KeptVideo = base;
@@ -464,7 +464,6 @@ export async function keepVideo(
         : {
             receiptVersion: RECEIPT_VERSION,
             screensDir: screensDirOf(receiptRel),
-            screensSize: shots?.size ?? null,
             flow: video.id,
             video: built.takeId,
             filmedAt: filmedAtOf(runReport),
@@ -567,7 +566,7 @@ export async function keepVideo(
       ...(receipt === null
         ? {}
         : {
-            screensNote: `${receipt.screens.moments.length} of ${receipt.screens.steps + 1} screens are still`,
+            screensNote: screensNoteOf(receipt.screens, kept.script.steps),
           }),
       ...(markNote === undefined ? {} : { markNote }),
       written,
@@ -583,6 +582,20 @@ export async function keepVideo(
       deps.log(`add: ${temp} was not removed (${messageOf(error)})`),
     );
   }
+}
+
+/** "6 of 7 screens settled", then each unsettled one by its step and why:
+ *  what a refresh will skip, said when it is kept. */
+function screensNoteOf(
+  screens: PageScreens | null | undefined,
+  steps: readonly { do: string }[],
+): string {
+  if (screens === null || screens === undefined) return "no screens";
+  const unsettled = screens.screens.filter((s) => s.unsettled !== undefined);
+  return [
+    `${screens.screens.length - unsettled.length} of ${screens.steps + 1} screens settled`,
+    ...unsettled.map((s) => `${screenPlace(s.step, steps)}: ${s.unsettled}`),
+  ].join("; ");
 }
 
 type Built =
@@ -1055,8 +1068,10 @@ export async function rewriteKept(
       return { refused: `${rel} was not rewritten: ${made.detail}` };
     // The receipt describes the film that made the committed files, which
     // a rewrite does not replace, so it is left as it is. A v1 file carries
-    // its own, which the v2 recipe written below does not: written out.
-    let receipt: KeptReceipt | null = null;
+    // its own, from before page screens, which is never written again: the
+    // v2 recipe written below has none, and the next refresh records the
+    // flow again and says its receipt is missing.
+    let predates: string | null = null;
     if (old.deliver === "commit") {
       const had = await readReceiptFile(join(root, receiptFile), receiptFile);
       if ("detail" in had || ("missing" in had && parsed.migrated === null)) {
@@ -1064,7 +1079,8 @@ export async function rewriteKept(
           refused: `${rel} was not rewritten: ${"detail" in had ? had.detail : `${receiptFile} is missing`}, so what its outputs show is unknown`,
         };
       }
-      if ("missing" in had) receipt = parsed.migrated;
+      if ("missing" in had)
+        predates = `${rel}: its own receipt predates page screens and is not written out; the next refresh records it again and replaces its outputs`;
     }
     try {
       if (made.kept.logo !== null && made.logoBytes !== null) {
@@ -1073,9 +1089,6 @@ export async function rewriteKept(
       if (made.kept.wallpaper !== null && made.wallpaperBytes !== null) {
         await place(join(root, made.kept.wallpaper), made.wallpaperBytes);
       }
-      if (receipt !== null) {
-        await place(join(root, receiptFile), serializeReceipt(receipt));
-      }
       await place(join(root, rel), serializeKept(made.kept));
     } catch (error) {
       return {
@@ -1083,6 +1096,7 @@ export async function rewriteKept(
       };
     }
     for (const u of unreadable) deps.log(`refresh: ${u}`);
+    if (predates !== null) deps.log(`refresh: ${predates}`);
     if (made.scaleGuess !== null)
       deps.log(`refresh: ${rel}: ${made.scaleGuess}`);
     return { rewritten: rel };
@@ -1186,8 +1200,8 @@ export async function renameKept(
       );
     }
   }
-  // The receipt goes with the recipe; a v1 recipe carries its own, which
-  // the v2 recipe written below does not, so it is written out.
+  // The receipt goes with the recipe. A v1 recipe's own, from before page
+  // screens, is never written again: the next refresh replaces it.
   let carry: (() => Promise<unknown>) | null = null;
   // The receipt's screen folder goes with it: the old name is free to be
   // kept again, and must not take the folder a renamed flow reads.
@@ -1206,16 +1220,16 @@ export async function renameKept(
     // A move to the same file name in the new folder keeps its receipt.
     if ("receipt" in had && moves && receipt !== oldReceipt) {
       carry = () => rename(join(root, oldReceipt), join(root, receipt));
-      if (had.receipt.screensDir !== null) {
+      // A receipt from before page screens is never written again, so it
+      // keeps naming its folder where it is; the next refresh writes a new
+      // one beside the moved receipt.
+      if (had.receipt.screensDir !== null && had.receipt.screens !== null) {
         screens = {
           from: `${RECEIPT_DIR}/${had.receipt.screensDir}`,
           to: `${RECEIPT_DIR}/${screensDirOf(receipt)}`,
           receipt: had.receipt,
         };
       }
-    } else if ("missing" in had && parsed.migrated !== null) {
-      const migrated = parsed.migrated;
-      carry = () => place(join(root, receipt), serializeReceipt(migrated));
     }
   }
   // A file of the new name in the old folder would be a second recipe for

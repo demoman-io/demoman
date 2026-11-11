@@ -5,7 +5,6 @@ import {
   type FrameBundle,
   LANDSCAPE_1080P,
   type RenderTarget,
-  type Screens,
   wallpaperShape,
 } from "@demoman/compositor";
 import {
@@ -25,6 +24,7 @@ import {
   lookDigest,
   MAX_STILL_SIDE,
   messageOf,
+  type PageScreens,
   parseFilmedCode,
   reportForSave,
   reportForStillsSave,
@@ -38,6 +38,7 @@ import {
   withSummary,
   zoomWarnings,
 } from "@demoman/run-core";
+import { screenImageName } from "@demoman/run-core/render";
 import {
   SCENE_ASPECTS,
   type SceneAspect,
@@ -50,7 +51,6 @@ import type { BrowserSession } from "./browser.js";
 import { tagBytes as tagFileBytes, type VideoTag } from "./export-tag.js";
 import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
-import { PICTURE_OPTIONS } from "./same-picture.js";
 import { checkExportFolder, saveExport, saveStillsFolder } from "./save.js";
 import { readUserSettings } from "./user-settings.js";
 import type { VideoStore } from "./videos.js";
@@ -94,16 +94,16 @@ const FILE_TYPES = ["mp4", "gif", "stills"] as const;
 export type Exporting = Extract<ExportReport, { outcome: "exporting" }>;
 
 /** A screens-only export (`screensOnly: true`, for `refresh` and `keep`):
- *  one image per still screen of the mp4 or gif output, named by
- *  `screenImageName`, `PICTURE_OPTIONS.width` wide, in a folder of its own.
- *  `size` is the output target's, which the screens' windows are in. */
+ *  the take's own page screens (spec 2026-11-10, decision 3), each settled
+ *  one copied byte for byte into a folder of its own and named by
+ *  `screenImageName`. Nothing is rendered. An unsettled screen is listed
+ *  with its reason and has no image: it is never compared. */
 export type ScreensAnswer = {
   outcome: "saved";
   fileType: "screens";
   takeId: string;
   folder: { path: string };
-  screens: Screens;
-  size: { width: number; height: number };
+  screens: PageScreens;
   warnings: {
     logo: string | null;
     wallpaperWarning: WallpaperWarning | null;
@@ -282,6 +282,13 @@ export async function exportTake(
     return refused(
       "noFrames",
       `video ${takeId} has no frames to render — run its script again${videoUnread}`,
+    );
+  }
+  // Review Focus 5: a take with nothing to compare says why, never "none".
+  if (screensOnly && (bundle.pageScreens ?? []).length === 0) {
+    return refused(
+      "noFrames",
+      `video ${takeId} has no page screens to compare: it was recorded before page screens, or not in real time — record it again`,
     );
   }
   // Only a take that exists: a lease on a missing one would make its folder.
@@ -576,6 +583,57 @@ async function exportLeased(a: {
     });
   }
 
+  // The look is recorded beside the bytes the render is handed: a file's
+  // contents are part of it (`lookDigest`).
+  const look = lookDigest(scene.branding, {
+    logo: logo?.ok ? fileDigest(logo.bytes) : null,
+    wallpaper: wallpaper?.ok ? fileDigest(wallpaper.bytes) : null,
+  });
+  if (screensOnly) {
+    const screens = await pageScreensOf(takeId, scene, bundle, store, look);
+    if ("error" in screens)
+      return withSummary({
+        outcome: "renderFailed",
+        takeId,
+        error: screens.error,
+      });
+    const saved = await saveStillsFolder(
+      deps.outDir,
+      `${takeId} screens`,
+      screens.files,
+    );
+    if (saved.kind === "failed") {
+      return withSummary({
+        outcome: "saveFailed",
+        takeId,
+        error: saved.error,
+        fileType: asked,
+      });
+    }
+    return {
+      outcome: "saved",
+      fileType: "screens",
+      takeId,
+      folder: { path: saved.path },
+      screens: screens.screens,
+      // What the render would say of them: the look records what was read.
+      warnings: {
+        logo:
+          logo === null || logo.ok
+            ? null
+            : `The logo was left out: ${logo.error}`,
+        wallpaperWarning:
+          wallpaper === null || wallpaper.ok
+            ? null
+            : {
+                kind: "leftOut",
+                sentence: `The wallpaper was left out: ${wallpaper.error}; the video uses the plain gradient.`,
+              },
+      },
+      summary: `Copied ${saved.files.length} page screens of video ${takeId} into ${saved.path}.`,
+    };
+  }
+
   times.mark("prepare");
   onProgress({ outcome: "exporting", phase: "rendering", done: 0, total: 0 });
   // Default relaunch: an export may be the first call that needs a browser,
@@ -604,20 +662,15 @@ async function exportLeased(a: {
       fileType: asked,
       logo,
       wallpaper,
-      // Screens render at the target itself: a budget or a cap sizes a
-      // file, and screens make none, only images as wide as the
-      // comparison reads.
-      ...(screensOnly
-        ? { screensOnly: { width: PICTURE_OPTIONS.width } }
-        : asked === "gif"
-          ? // As wide as fits: sharp on a Retina screen when the take is
-            // short, narrower (and said) when it is long.
-            { gifBudget: { maxBytes: GIF_BUDGET_BYTES } }
-          : {}),
+      ...(asked === "gif"
+        ? // As wide as fits: sharp on a Retina screen when the take is
+          // short, narrower (and said) when it is long.
+          { gifBudget: { maxBytes: GIF_BUDGET_BYTES } }
+        : {}),
       // A cap steps down to the share target, then this take's 1080p share
       // frame (the floor), then a bitrate that fits (`capLadder`): Auto's
       // frames are its own, re-solved.
-      ...(maxBytes === null || screensOnly
+      ...(maxBytes === null
         ? {}
         : {
             mp4Cap: {
@@ -675,61 +728,6 @@ async function exportLeased(a: {
   }
 
   onProgress({ outcome: "exporting", phase: "saving", done: 0, total: 0 });
-  // The look is recorded beside the bytes the render was handed: a file's
-  // contents are part of it (`lookDigest`).
-  const look = lookDigest(scene.branding, {
-    logo: logo?.ok ? fileDigest(logo.bytes) : null,
-    wallpaper: wallpaper?.ok ? fileDigest(wallpaper.bytes) : null,
-  });
-  if (screensOnly) {
-    // As a video's: no screens is a failed render, never one that "has
-    // none"; and each screen has its one image, by its name.
-    const named = rendered.files.flatMap((f) =>
-      f.name === null ? [] : [{ name: f.name, bytes: f.bytes }],
-    );
-    if (
-      rendered.screens === undefined ||
-      named.length !== rendered.files.length ||
-      named.length !== rendered.screens.moments.length
-    ) {
-      return withSummary({
-        outcome: "renderFailed",
-        takeId,
-        error: `the ${asked} screens render made ${named.length} named images of ${rendered.files.length} for ${rendered.screens?.moments.length ?? "no"} screens`,
-      });
-    }
-    const saved = await saveStillsFolder(
-      deps.outDir,
-      `${takeId} screens`,
-      named,
-    );
-    times.mark("save");
-    deps.log(times.line(`export ${takeId} screens`));
-    if (saved.kind === "failed") {
-      return withSummary({
-        outcome: "saveFailed",
-        takeId,
-        error: saved.error,
-        fileType: asked,
-      });
-    }
-    return {
-      outcome: "saved",
-      fileType: "screens",
-      takeId,
-      folder: { path: saved.path },
-      screens: { ...rendered.screens, look },
-      size: {
-        width: rendered.rendered.width,
-        height: rendered.rendered.height,
-      },
-      warnings: {
-        logo: rendered.logoWarning,
-        wallpaperWarning: rendered.wallpaperWarning,
-      },
-      summary: `Rendered ${saved.files.length} screen images of video ${takeId} into ${saved.path}.`,
-    };
-  }
   const tagger = await taggerFor(takeId, deps);
   const base = exportBaseName(tagger.videoName ?? sceneLabel(scene.meta));
   const warnings = {
@@ -983,3 +981,56 @@ function stillsOptionsOf(
 
 /** Narrower than this, a still of a product page is unreadable. */
 const MIN_STILL_WIDTH = 320;
+
+/**
+ * The take's page screens as a receipt holds them, and the image of each
+ * settled one, by its step's name. A screen is the page as step `after`
+ * begins (`after < steps`), else the final one; `steps` is what
+ * `screenMoments` counts (scene.actions), so a step means the same in every
+ * receipt. An unsettled screen keeps its reason and is not read. A screen
+ * the take names but does not hold is an error, never a screen left out.
+ */
+async function pageScreensOf(
+  takeId: string,
+  scene: SceneDocument,
+  bundle: FrameBundle,
+  store: ReturnType<Library["frameStore"]>,
+  look: string,
+): Promise<
+  | {
+      screens: PageScreens;
+      files: { name: string; bytes: Uint8Array }[];
+    }
+  | { error: string }
+> {
+  const steps = scene.actions.length;
+  const screens: PageScreens["screens"] = [];
+  const files: { name: string; bytes: Uint8Array }[] = [];
+  for (const p of bundle.pageScreens ?? []) {
+    const step = p.after < steps ? p.after : null;
+    const name = screenImageName(step);
+    if (screens.some((s) => s.step === step))
+      return {
+        error: `video ${takeId} has two page screens named ${name} (its scene has ${steps} steps)`,
+      };
+    screens.push({
+      step,
+      ...(p.unsettled === undefined ? {} : { unsettled: p.unsettled }),
+    });
+    if (p.unsettled !== undefined) continue;
+    let bytes: Uint8Array | null;
+    try {
+      bytes = await store.getPageScreen(p.ref);
+    } catch (error) {
+      return {
+        error: `video ${takeId}'s page screen ${p.ref} could not be read (${messageOf(error)})`,
+      };
+    }
+    if (bytes === null)
+      return {
+        error: `video ${takeId}'s page screen ${p.ref} is missing from its frames`,
+      };
+    files.push({ name, bytes });
+  }
+  return { screens: { steps, screens, look }, files };
+}

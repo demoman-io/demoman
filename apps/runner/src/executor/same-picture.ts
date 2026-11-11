@@ -426,6 +426,15 @@ function before(action: number, steps?: readonly { do: string }[]): string {
   return i === null ? `before action ${action + 1}` : `before step ${i + 1}`;
 }
 
+/** Where a screen is, as every line about one says it: before a step in
+ *  the script's numbering, or on the final screen. */
+export function screenPlace(
+  step: number | null,
+  steps?: readonly { do: string }[],
+): string {
+  return step === null ? "on the final screen" : before(step, steps);
+}
+
 /** The screens both films have, paired by `step`, in increasing ms, with
  *  each film's window where it recorded one. */
 export function sharedScreens(
