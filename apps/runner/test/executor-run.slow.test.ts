@@ -501,8 +501,13 @@ describe("runScript", () => {
     const ok = await session.ensure();
     if (!ok.ok) throw new Error(JSON.stringify(ok));
     // Closed on a condition, not after a duration (CLAUDE.md: no fixed
-    // sleeps in a browser lane): the first tick past `waitForLoad` means the
-    // page loaded and the walk is now in the pause the close interrupts.
+    // sleeps in a browser lane): the first tick with a step done. That tick
+    // comes once the pause has ended (measured 2026-11-11: step 1 at 5.6 s,
+    // the close 2 ms later), so the close lands as the click begins and
+    // races its first touch of the page: the walk's CDP call or the
+    // capture's `page.evaluate`. Either must read as a lost page;
+    // `page-capture.test.ts` pins the capture's side, which under load
+    // answered `pageFaulted` here.
     let closing: Promise<void> | null = null;
     const report = await runScript(
       long as never,
@@ -532,6 +537,9 @@ describe("runScript", () => {
     // The premise: the close happened during the run, not never.
     expect(closing, JSON.stringify({ report, lines })).not.toBeNull();
     expect(report.outcome, JSON.stringify({ report, lines })).toBe("stopped");
+    expect(report.stopped?.at?.scriptStep, JSON.stringify(report.stopped)).toBe(
+      3,
+    );
     expect(report.stopped?.reason, JSON.stringify(report.stopped)).toBe(
       "portFailure",
     );

@@ -48,15 +48,17 @@ describe("pageCapture", () => {
     expect(answer.failureReason).toBe("pageFaulted");
   });
 
-  it("keeps a closed page pageFaulted: waiting cannot bring it back", async () => {
-    const answer = await pageCapture(
-      throwingPage(
-        "page.evaluate: Target page, context or browser has been closed",
-        true,
-      ),
-      () => undefined,
-    )({} as never);
-    expect(answer.failureReason).toBe("pageFaulted");
+  // A closed page is lost, not faulted: the throw reaches the walk, which
+  // stops with `portFailure` as for its own calls on a lost page. Not
+  // `notInTree` either (waiting cannot bring it back), even when the
+  // message reads like a navigation race.
+  it.each([
+    "page.evaluate: Target page, context or browser has been closed",
+    DESTROYED,
+  ])("rethrows on a closed page: %s", async (message) => {
+    await expect(
+      pageCapture(throwingPage(message, true), () => undefined)({} as never),
+    ).rejects.toThrow(message);
   });
 
   // DEM-130: `pageUrl` reaches `report.json`, so it is scrubbed. DEM-143:

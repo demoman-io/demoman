@@ -123,6 +123,13 @@ export async function pageEndPage(
  * document, and `pageWentElsewhere` still reads `here` (final review
  * 2026-10-30, Important 2). `intentResolution` stays null: nothing was
  * measured.
+ *
+ * And except a page that is gone: that throw is rethrown, so the walk stops
+ * as it does for any other call on a lost page (`portFailure`, which the
+ * runner words as a lost page). `pageFaulted` would say the app is up and
+ * send the author to its console, which is what executor-run's lost-page
+ * case reported twice under load (2026-11-11): its page closes as the click
+ * step begins, and there the capture can touch it before the walk does.
  */
 export function pageCapture(
   page: Page,
@@ -144,12 +151,13 @@ export function pageCapture(
         "a step's capture",
       )) as IntentCapture;
     } catch (error) {
+      if (page.isClosed()) throw error;
       const said = messageOf(error);
       // Read once: the log, the report and the comparison name one page.
       const at = page.url();
       const pageUrl = scrubUrl(at);
       const here = pageKey(at);
-      if (isNavigationRace(error) && !page.isClosed()) {
+      if (isNavigationRace(error)) {
         log(`a step's capture met a navigation, looking again — ${said}`);
         return {
           anchor: null,
