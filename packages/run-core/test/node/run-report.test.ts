@@ -621,6 +621,17 @@ describe("RunReport", () => {
     expect(lost, both).toContain("(surfaceMismatch)");
     expect(lost, both).not.toContain("stepUnsettled");
     expect(both).toContain("(stepUnsettled)");
+    // Beside a loss the video is not intact, and the line must not say so.
+    expect(both).not.toContain("The video is intact");
+    expect(both).toContain(" For refresh: ");
+    // A hold left on is about the video: a loss, never "intact".
+    const held = verdictLine(build(["stepUnsettled", "pageHoldNotReleased"]));
+    expect(held).toContain("But not everything was kept:");
+    expect(held).toContain("(pageHoldNotReleased)");
+    expect(held).not.toContain("The video is intact");
+    expect(prVerdict(build(["pageHoldNotReleased"])).clause).toMatch(
+      /with notes$/,
+    );
   });
 
   // The sentence is pinned whole: since 2026-09-30 a landing is either a

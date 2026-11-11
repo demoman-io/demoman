@@ -278,6 +278,10 @@ const DegradationSchema = z.object({
     // before the step began (a long poll): its own step waited for it. The
     // screen counts as settled; the note names the step and how many.
     "requestNotWaited",
+    // A page screen's hold (caret hidden, endless animations held) could not
+    // be undone after the capture: the video after that step may show no
+    // caret and frozen spinners. About the video, so not forgiven.
+    "pageHoldNotReleased",
   ]),
   note: z.string(),
 });

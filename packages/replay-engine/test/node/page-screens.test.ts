@@ -83,7 +83,10 @@ async function screensOf(d: EngineDeps & { cdp: CdpFake }) {
   const result = await runReplay(scene(), d);
   const screens = result.bundle?.pageScreens ?? [];
   const said = result.degradations.filter(
-    (x) => x.kind === "stepUnsettled" || x.kind === "stepSettleFailed",
+    (x) =>
+      x.kind === "stepUnsettled" ||
+      x.kind === "stepSettleFailed" ||
+      x.kind === "pageHoldNotReleased",
   );
   const evidence = JSON.stringify({ screens, said, reason: result.reason });
   // Every case: the take completes and has its three screens (the opening
@@ -261,17 +264,22 @@ describe("a step's page screen, when something fails", () => {
     }
   });
 
-  it("says the caret may not have been put back when the release fails", async () => {
+  it("says the caret may not have been put back when the release fails, as about the video", async () => {
     const d = deps();
     intercept(d, isEval(PAGE_CAPTURE_RELEASE), async () => {
       throw new Error("Cannot find context with specified id");
     });
     const { screens, said, evidence } = await screensOf(d);
-    expect(screens[1]?.unsettled, evidence).toBe(
+    // The video after the step is what may be wrong, so it is not a
+    // screens-only kind refresh forgives; the screen itself was taken.
+    expect(kinds(said), evidence).toEqual(["pageHoldNotReleased"]);
+    expect(
+      said.find((s) => s.kind === "pageHoldNotReleased")?.note,
+      evidence,
+    ).toContain(
       "the caret and held animations may not have been put back (Cannot find context with specified id)",
     );
-    expect(kinds(said), evidence).toEqual(["stepSettleFailed"]);
-    // The screen was taken: its bytes are kept, and only refresh skips it.
+    expect(screens[1]?.unsettled, evidence).toBeUndefined();
     expect(screens[1]?.ref, evidence).toBe("ps:scene-1:1");
   });
 

@@ -194,9 +194,9 @@ export interface CaptureWindow {
 }
 
 /**
- * Whether a screencast frame painted at `paintedMs` stays out of the film
- * because of a page capture: painted while the capture held the page (caret
- * hidden, spinners held), whenever it arrives; or painted within
+ * Whether a screencast frame stamped at `paintedMs` stays out of the film
+ * because of a page capture: stamped while the capture held the page (caret
+ * hidden, spinners held), whenever it arrives; or stamped within
  * `STRAY_WINDOW_MS` after it at another size than the page had before it,
  * whatever came between. `size` is read only in that window: it decodes.
  */

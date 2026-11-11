@@ -1168,15 +1168,18 @@ export async function runWalk(
    * 2026-11-10 at display scale 2: one 1280x800 frame among 2560x1600 ones,
    * arriving within two frames after the capture returned, and a span that
    * opened on it recorded its whole stretch at 1x (the runner's "records the
-   * display scale" case). So a frame is judged by when it was painted
-   * (`capturedAway`): dropped if painted from HOLD to RELEASE, however late
-   * it arrives, and if painted just after at another size than before the
+   * display scale" case). So a frame is judged by its stamp
+   * (`capturedAway`): dropped if stamped from HOLD to RELEASE, however late
+   * it arrives, and if stamped just after at another size than before the
    * capture, whatever arrived between.
    *
-   * When it was painted is the frame's own `metadata.timestamp`: wall-clock
-   * seconds, measured 2026-11-11 on Chrome 151 at 2-4 ms before the frame
-   * arrives, on the same clock as the runner's (`Date.now()`, launch.ts). A
-   * frame without one is placed at its arrival.
+   * The stamp is the frame's own `metadata.timestamp`: wall-clock seconds,
+   * measured 2026-11-11 on Chrome 151 at 2-4 ms before the frame arrives, on
+   * the same clock as the runner's (`Date.now()`, launch.ts). Chrome stamps
+   * it when the browser has the frame, not when it was composited, so one
+   * frame composited just before RELEASE can still be stamped after it and
+   * kept: at most one frame of a hidden caret or held spinner. A frame
+   * without a stamp is placed at its arrival.
    */
   const pageFrames = (() => {
     let capture: CaptureWindow | null = null;
@@ -1464,10 +1467,15 @@ export async function runWalk(
     let screen: PageScreen | null = null;
     try {
       const { taken, failure, releaseFailed } = await capturePage();
+      // The screen was taken under the hold and is fine; the video after it
+      // is what may be wrong, so this is said apart from the screen.
       if (releaseFailed !== null) {
-        unsettled.push(
-          machineMade(
-            `the caret and held animations may not have been put back (${releaseFailed})`,
+        degradations.push(
+          degradation(
+            "pageHoldNotReleased",
+            from,
+            at(),
+            `${place}: the caret and held animations may not have been put back (${releaseFailed})`,
           ),
         );
       }
