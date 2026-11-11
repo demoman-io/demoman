@@ -939,6 +939,12 @@ async function buildKept(
   };
 }
 
+/** A v1 recipe's own receipt, dropped when the recipe is written again:
+ *  `serializeReceipt` refuses one from before page screens. Said the same
+ *  by a rewrite and a rename. */
+const ownReceiptNotWritten = (rel: string): string =>
+  `${rel}: its own receipt predates page screens and is not written out; the next refresh records it again and replaces its outputs`;
+
 export type RewriteAnswer =
   | { rewritten: string }
   | { none: true }
@@ -1067,8 +1073,7 @@ export async function rewriteKept(
           refused: `${rel} was not rewritten: ${"detail" in had ? had.detail : `${receiptFile} is missing`}, so what its outputs show is unknown`,
         };
       }
-      if ("missing" in had)
-        predates = `${rel}: its own receipt predates page screens and is not written out; the next refresh records it again and replaces its outputs`;
+      if ("missing" in had) predates = ownReceiptNotWritten(rel);
     }
     try {
       if (made.kept.logo !== null && made.logoBytes !== null) {
@@ -1118,7 +1123,7 @@ export type RenameKeptAnswer =
  */
 export async function renameKept(
   a: { root: string; file: string; name: string },
-  deps: { videos: VideoStore },
+  deps: { videos: VideoStore; log: (line: string) => void },
 ): Promise<RenameKeptAnswer> {
   const refuse = (
     reason: "repoCheckoutMissing" | "nameTaken" | "repoFlowUnwritable",
@@ -1189,7 +1194,8 @@ export async function renameKept(
     }
   }
   // The receipt goes with the recipe. A v1 recipe's own, from before page
-  // screens, is never written again: the next refresh replaces it.
+  // screens, is never written again (said once renamed): the next refresh
+  // replaces it.
   let carry: (() => Promise<unknown>) | null = null;
   // The receipt's screen folder goes with it: the old name is free to be
   // kept again, and must not take the folder a renamed flow reads.
@@ -1393,6 +1399,8 @@ export async function renameKept(
     }
     done.push(step);
   }
+  if (old.deliver === "commit" && "missing" in had && parsed.migrated !== null)
+    deps.log(`rename: ${ownReceiptNotWritten(a.file)}`);
   return { ok: true, file };
 }
 

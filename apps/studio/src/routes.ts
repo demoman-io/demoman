@@ -753,7 +753,7 @@ export function createRoutes(o: {
         }
         return renameKept(
           { root: kept.root, file: kept.file, name: name.trim() },
-          { videos },
+          { videos, log },
         );
       });
       if (done.ok) {

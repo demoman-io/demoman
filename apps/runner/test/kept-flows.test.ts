@@ -167,7 +167,7 @@ describe("renameKept", () => {
     const outside = `../${keptFileName("Elsewhere")}`;
     const out = await renameKept(
       { root, file: outside, name: "Anything" },
-      { videos: {} as VideoStore },
+      { videos: {} as VideoStore, log: () => undefined },
     );
     expect(out).toEqual({
       ok: false,
@@ -220,7 +220,7 @@ describe("renameKept moves the screens folder with the receipt", () => {
     expect([await hasAt(oldDir), await hasAt(newDir)]).toEqual([true, false]);
     const out = await renameKept(
       { root, file: FILE, name: NEW },
-      { videos: fake(true) },
+      { videos: fake(true), log: () => undefined },
     );
     expect(out, JSON.stringify(out)).toMatchObject({ ok: true });
     expect([await hasAt(oldDir), await hasAt(newDir)]).toEqual([false, true]);
@@ -238,12 +238,54 @@ describe("renameKept moves the screens folder with the receipt", () => {
     const before = await readFile(join(root, oldReceipt), "utf8");
     const out = await renameKept(
       { root, file: FILE, name: NEW },
-      { videos: fake(false) },
+      { videos: fake(false), log: () => undefined },
     );
     expect(out).toMatchObject({ ok: false, reason: "repoFlowUnwritable" });
     expect(!out.ok && out.detail).toContain("every step before it was undone");
     expect([await hasAt(oldDir), await hasAt(newDir)]).toEqual([true, false]);
     expect(await readFile(join(root, oldReceipt), "utf8")).toBe(before);
+  });
+});
+
+describe("renameKept on a v1 recipe", () => {
+  // Red when the rename drops a v1 recipe's own receipt and says nothing:
+  // a rewrite names the same loss (close review 8).
+  it("says its own receipt is not written out, as a rewrite does", async () => {
+    const { flow: _f, deliver: _d, ...rest } = JSON.parse(serializeKept(kept));
+    await writeFile(
+      join(root, FILE),
+      `${JSON.stringify({ ...rest, keptVersion: 1, screens: { steps: 1, moments: [{ step: null, ms: 500 }] }, from: { videoId: FLOW_ID, takeId: "t1", recordedRevision: "r1" } }, null, 2)}\n`,
+    );
+    const lines: string[] = [];
+    const videos = {
+      list: async () => [{ id: FLOW_ID, name: NAME, repo: undefined }],
+      rename: async () => ({ ok: true as const }),
+      setKept: async () => ({ ok: true as const }),
+    } as unknown as VideoStore;
+    const out = await renameKept(
+      { root, file: FILE, name: "Place a big order" },
+      { videos, log: (l) => lines.push(l) },
+    );
+    expect(out, JSON.stringify(out)).toMatchObject({ ok: true });
+    expect(lines).toEqual([
+      `rename: ${FILE}: its own receipt predates page screens and is not written out; the next refresh records it again and replaces its outputs`,
+    ]);
+  });
+
+  // The control: a v2 recipe's rename has no such loss to say.
+  it("says nothing of a v2 recipe with no receipt", async () => {
+    const lines: string[] = [];
+    const videos = {
+      list: async () => [{ id: FLOW_ID, name: NAME, repo: undefined }],
+      rename: async () => ({ ok: true as const }),
+      setKept: async () => ({ ok: true as const }),
+    } as unknown as VideoStore;
+    const out = await renameKept(
+      { root, file: FILE, name: "Place a big order" },
+      { videos, log: (l) => lines.push(l) },
+    );
+    expect(out, JSON.stringify(out)).toMatchObject({ ok: true });
+    expect(lines).toEqual([]);
   });
 });
 
