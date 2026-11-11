@@ -94,3 +94,21 @@ Runs a model as an agent against the five briefs in `compare/briefs/` (one per s
 - It costs real tokens: one agent session of tens of minutes per brief, plus one opus judge call. By hand only, never CI. It needs the `claude` CLI on the PATH, ffmpeg and ffprobe.
 - It never uses `bypassPermissions`: the agent gets `mcp__demoman__*` and `ToolSearch`, nothing else.
 - Output, gitignored: `agent-study/<date>/<model>-<pass>/<brief>/{transcript.jsonl,final.png,judge.json}` and `summary.md` beside them (App, Judge, Runs, Probes, Length, Agent's claim, Judge's reason). "unjudged" means the judge could not be read or there was no export; the reason says which.
+
+## Settle cost
+
+`node apps/runner/compare/settle-cost.mjs --demoman "<command>" [--out <json>] <appDir>...`
+runs `<command> refresh` (never `--deliver`) in a throwaway `git worktree` of
+each app, so nothing is left in the app's checkout, and prints each flow's
+`timing run … walk N s`. It also copies out each take's bundle while the flow
+runs (refresh deletes its throwaway home) and keeps the page screens' PNG
+sizes, so `pageScreens[*].waitedMs` and `unsettled` come with the times. It
+copies an app's ignored `.env.local` and `.demoman/secrets.env` into the
+worktree, on this machine only. Run it once per build, with `--demoman
+demoman` or `node <checkout>/apps/cli/pkg/dist/demoman.mjs` (install that
+bundle's dependencies first, as `internal/tools/dev-demoman.sh` does), and
+compare each flow's first walk. A flow that Refresh films again after a
+problem has more than one walk line; the first is the comparable one. Measured
+on 2026-11-10 for the step settle (`STEP_QUIET_MS`, spec 2026-11-10
+refresh-settled-screens, decision 7): helpdesk, nylon, sublime and the chatbot
+sample, ten flows, two runs per build per flow.
