@@ -939,9 +939,9 @@ async function firstScreenOf(page: string) {
 
 /** DEM-138: 4 characters of 12px grey text, in the app's own page. */
 export const smallGreyText = () => {
-  // DEM-138: red until refresh compares 1x page screens (Task 8 makes this `it`).
-  vitestIt.fails(
-    "a small grey text change reads changed",
+  // DEM-138: refresh reads this real change as unchanged today. Task 8 flips this to `changed` once refresh compares 1x page screens.
+  it(
+    "a small grey text change reads unchanged today (DEM-138)",
     async () => {
       await leavingRepo(async () => {
         // The premise: the two pages differ only in the digits of one span.
@@ -957,6 +957,9 @@ export const smallGreyText = () => {
         expect(w, JSON.stringify(was.moment)).toBeDefined();
         const rect = await localTimeRect(LOCAL_TIME_WAS);
         const d = await differing(was.image, now);
+        expect("n" in d, `images differ in size: ${JSON.stringify(d)}`).toBe(
+          true,
+        );
         // The window is in the film's output pixels; the image is smaller
         // (`screensSize` is what the windows are measured in).
         const size = was.size as { width: number };
@@ -994,9 +997,8 @@ export const smallGreyText = () => {
         const r = await refresh([A]);
         const a = byName(r, A);
         noiseLine("small grey text", a.detail);
-        expect(a.outcome, JSON.stringify(r)).toBe("changed");
-        expect(a.detail).toMatch(
-          /% of the picture changed \w+ (before step \d+|on the final screen) at /,
+        expect(a.outcome, `${a.detail} | ${JSON.stringify(r)}`).toBe(
+          "unchanged",
         );
       }).finally(() => {
         html = ORIGINAL;
