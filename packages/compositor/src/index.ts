@@ -16,6 +16,8 @@ export {
   type MarkerEntry,
   type MotionSpanEntry,
   madeFromOf,
+  type PageScreen,
+  PageScreenSchema,
   servingMotionSpan,
   type ViewportTransform,
   validateBundle,

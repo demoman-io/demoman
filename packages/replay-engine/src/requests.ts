@@ -32,6 +32,13 @@ export async function trackRequests(
       "Network.loadingFailed",
       (p) => void open.delete(String(p.requestId)),
     ),
+    // A new top document: the old one's requests died with it, and Chrome
+    // does not always say so with `loadingFailed`. Left counted, each would
+    // cost the step the whole cap and read as in flight when it was not.
+    cdp.on("Page.frameNavigated", (p) => {
+      const frame = p.frame as { parentId?: string } | undefined;
+      if (frame !== undefined && frame.parentId === undefined) open.clear();
+    }),
   ];
   const dispose = () => {
     for (const off of offs) off();

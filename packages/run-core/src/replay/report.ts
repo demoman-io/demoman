@@ -1050,6 +1050,8 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
     "a drag reached the page and changed nothing on screen, so the page may not take drags this way",
   dragPictureMissing:
     "a native drag's picture could not be drawn, so the dragged item jumps to its drop in the video instead of travelling",
+  stepUnsettled:
+    "a step's page had not settled when the next began, so refresh cannot compare that screen",
 };
 
 /** DEM-108: the run joined a flow from a checkout of another repo. */

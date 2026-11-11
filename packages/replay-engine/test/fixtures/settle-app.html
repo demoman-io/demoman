@@ -6,7 +6,8 @@
   @keyframes slide { from { transform: translateX(200px) } to { transform: translateX(0) } }
   #toast { display: inline-block; animation: slide 300ms ease-out forwards }
   #hoverrow { background-color: #fff; transition: background-color 150ms }
-  #hoverrow.on { background-color: #ccc }
+  #hoverrow.on, #hoverrow:hover { background-color: #ccc }
+  #answer { height: 20px }
   #spin { width: 20px; height: 20px; background: #333; animation: spin 800ms linear infinite }
 </style>
 <button id="stream">stream</button>
@@ -15,9 +16,12 @@
 <button id="spinbtn">spinner</button>
 <button id="finishedbtn">finished</button>
 <button id="never">never</button>
+<button id="ask">ask</button>
+<a id="nav" href="next">next page</a>
 <input id="q" placeholder="filter">
 <div id="list">all</div>
 <div id="out"></div>
+<div id="answer"></div>
 <div id="toasts"></div>
 <div id="hoverrow">row</div>
 <div id="count"></div>
@@ -56,6 +60,24 @@
     d.textContent = "box";
     $("finwrap").append(d);
     d.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, fill: "forwards" });
+  };
+  // Served over http only (replay-settled-screens.test.ts): the answer's
+  // first word comes after a pause longer than the quiet beat, so only the
+  // request in flight says the step is not done.
+  $("ask").onclick = async () => {
+    const reader = (await fetch("answer")).body.getReader();
+    const text = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      $("answer").textContent += text.decode(value);
+    }
+  };
+  // Leaves a beat after the click, as a router or a form handler does: the
+  // click's own check is long done when the page starts to go.
+  $("nav").onclick = (e) => {
+    e.preventDefault();
+    setTimeout(() => { location.href = "next"; }, 100);
   };
   $("never").onclick = () => {
     let n = 0;

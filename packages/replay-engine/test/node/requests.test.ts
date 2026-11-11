@@ -50,6 +50,18 @@ describe("trackRequests", () => {
     expect(t.inFlight()).toBe(0);
   });
 
+  it("forgets the old document's requests when the top frame navigates, not a child's", async () => {
+    const cdp = fakeCdp();
+    const t = await trackRequests(cdp);
+    cdp.emit("Network.requestWillBeSent", start("1", "Fetch"));
+    cdp.emit("Page.frameNavigated", {
+      frame: { id: "child", parentId: "top" },
+    });
+    expect(t.inFlight()).toBe(1);
+    cdp.emit("Page.frameNavigated", { frame: { id: "top" } });
+    expect(t.inFlight()).toBe(0);
+  });
+
   it("does not count EventSource, WebSocket, Document or Image requests", async () => {
     const cdp = fakeCdp();
     const t = await trackRequests(cdp);

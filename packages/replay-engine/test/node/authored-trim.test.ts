@@ -27,8 +27,10 @@ const PAGE = "https://app.example.com/";
 /** How long the fake's slow `type` verb takes. */
 const SLOW_MS = 600;
 /** What the fake room says the camera needs after a zoom's hold: long
- *  enough that a zoomed click's zoom-out lands after its finish. */
-const PULL_OUT_MS = 3000;
+ *  enough that a zoomed click's zoom-out lands after its finish. 5000 since
+ *  each step's finish includes its settle and page screen (2026-11-10):
+ *  on this fake's clock, where concurrent sleeps add up, about 2 s more. */
+const PULL_OUT_MS = 5000;
 
 const anchorFor = (intent: AnchorIntent): SceneAnchor => ({
   id: intent.id,

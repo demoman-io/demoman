@@ -287,16 +287,23 @@ describe("unhurried beats through the executor", () => {
   // began, so a zoomed click after it got no room and the camera pushed in
   // while the new page was still coming in.
   it("holds a zoomed click after a navigation until the new page has settled", async () => {
-    const { markerOf, said } = await run([
+    const { bundle, markerOf, said } = await run([
       { do: "click", on: { text: "Go next" } },
       { do: "waitForLoad" },
       CREATE,
     ]);
+    const click = markerOf(0);
     const waited = markerOf(1);
     const create = markerOf(2);
     const actEnd = waited.actEndSourceTimeMs as number;
-    // Premise: the new page went on painting after the load was met.
-    expect(actEnd - waited.sourceTimeMs, said()).toBeGreaterThanOrEqual(100);
+    // Premise: the new page went on painting after it loaded. Since
+    // 2026-11-10 the click's own settle waits that out, before the wait
+    // begins: its page screen waited through most of the 800 ms fade.
+    const after =
+      bundle.markers.findIndex((m) => m.actionId === click.actionId) + 1;
+    const screen = bundle.pageScreens?.find((p) => p.after === after);
+    expect(screen?.unsettled, said()).toBeUndefined();
+    expect(screen?.waitedMs ?? 0, said()).toBeGreaterThanOrEqual(600);
     expect(create.sourceTimeMs - actEnd, said()).toBeGreaterThanOrEqual(
       NEEDED_MS,
     );

@@ -2,7 +2,7 @@ import type { FrameBundle } from "@demoman/compositor";
 import type { EngineStore } from "../../src/index.js";
 
 /**
- * The engine's frame store with nothing behind it but maps: the two
+ * The engine's frame store with nothing behind it but maps: the three
  * `EngineStore` writes the engine makes, `putSpan` for the node frame
  * encoder (`frame-encoder-node.ts`), and the reads the tests check them
  * with.
@@ -28,6 +28,11 @@ export function createMemoryFrameStore(): MemoryFrameStore {
   return {
     async putKeyframe(sceneId, index, bytes) {
       const ref = `kf:${sceneId}:${index}`;
+      blobs.set(ref, bytes);
+      return ref;
+    },
+    async putPageScreen(sceneId, after, bytes) {
+      const ref = `ps:${sceneId}:${after}`;
       blobs.set(ref, bytes);
       return ref;
     },

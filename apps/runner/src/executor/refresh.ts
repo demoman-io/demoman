@@ -177,6 +177,8 @@ const FORGIVEN = new Set<string>([
   "scrollUnsettled",
   "budgetBreach",
   "keyframeOnly",
+  // The video is right; only that step's page screen cannot be compared.
+  "stepUnsettled",
 ]);
 const STILLS_ONLY = "no motion was recorded: the video is its stills only";
 

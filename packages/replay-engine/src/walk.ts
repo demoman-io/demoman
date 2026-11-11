@@ -19,6 +19,7 @@ import {
   type FrameBundle,
   type KeyframeEntry,
   type MadeFromStep,
+  type PageScreen,
   VERBS,
   type ViewportTransform,
   validateBundle,
@@ -56,6 +57,8 @@ import {
   SPAN_MAX_MS,
   SPAN_MIN_FRAMES,
   SPAN_QUIET_MS,
+  STEP_QUIET_MS,
+  STEP_SETTLE_CAP_MS,
   STILL_DRAIN_MS,
   TAKE_TAIL_MS,
   TYPE_KEY_MS,
@@ -89,12 +92,13 @@ import {
   rectFromQuad,
   resolveCdpFrameId,
 } from "./geometry.js";
-import { decodeBase64, jpegSize } from "./image.js";
+import { decodeBase64, jpegSize, pngSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
 import { pressKey } from "./keys.js";
 import { createMotionRecorder } from "./motion-recorder.js";
 import type { OcclusionGuard } from "./occlusion.js";
 import { pathPointAt, retargetSegment } from "./path.js";
+import { type RequestTracker, trackRequests } from "./requests.js";
 import {
   type ScrollAim,
   type ScrollReport,
@@ -103,6 +107,12 @@ import {
 } from "./scroll.js";
 import { type SettleReport, settlePaintExpression } from "./settle.js";
 import { degradation } from "./span.js";
+import {
+  PAGE_CAPTURE_HOLD,
+  PAGE_CAPTURE_RELEASE,
+  type StepSettleReport,
+  stepSettleExpression,
+} from "./step-settle.js";
 import type {
   CdpSession,
   Clock,
@@ -610,6 +620,33 @@ function describeSettleError(error: unknown): string {
   return String(error);
 }
 
+/** A by-value `Runtime.evaluate` reply's value; throws what the page threw,
+ *  which CDP answers with rather than rejecting. */
+function evaluatedValue(reply: Record<string, unknown>): unknown {
+  const thrown = reply.exceptionDetails as
+    | { text?: string; exception?: { description?: string } }
+    | undefined;
+  if (thrown !== undefined) {
+    throw new Error(
+      thrown.exception?.description ?? thrown.text ?? "the page threw",
+    );
+  }
+  return (reply.result as { value?: unknown } | undefined)?.value;
+}
+
+/** The conditions a step-settle reply says never held, in words. Never
+ *  empty for a reply that is not quiet. */
+function unsettledWords(report: Partial<StepSettleReport>): string[] {
+  const words: string[] = [];
+  const animations = report.animations ?? 0;
+  if (report.painted !== true) words.push("its first paint never came");
+  if (animations > 0) words.push(`${animations} animation(s) still running`);
+  if (report.quiet !== true && report.painted === true && animations === 0) {
+    words.push("the DOM never went quiet");
+  }
+  return words;
+}
+
 /**
  * How far a run got through the action log, and nothing about failure.
  *
@@ -926,6 +963,16 @@ export async function runWalk(
    *  answers after that files nothing, because the bundle has been built
    *  without it. */
   let sealed = false;
+  /** Stills asked for and not yet answered: a page screen waits behind them
+   *  only within a bound (`capturePage`). */
+  let stillsWaiting = 0;
+  const counted = (run: Promise<unknown>): void => {
+    stillsWaiting++;
+    const done = (): void => {
+      stillsWaiting--;
+    };
+    void run.then(done, done);
+  };
   const shot = (
     actionId: string | null,
     /** Asked again when the still's turn comes: false skips it. */
@@ -934,6 +981,7 @@ export async function runWalk(
     const run = shooting.then(() =>
       stillWanted() ? takeShot(actionId) : undefined,
     );
+    counted(run);
     shooting = run.catch(() => undefined);
     return run;
   };
@@ -991,6 +1039,7 @@ export async function runWalk(
       if (frame === null || bytes === null) return takeShot(actionId);
       await fileStill(bytes, actionId, frame.atMs);
     });
+    counted(run);
     shooting = run.catch(() => undefined);
     return run;
   };
@@ -1076,6 +1125,274 @@ export async function runWalk(
     return drained;
   };
 
+  /**
+   * Screencast frames a page screen must keep out of the video. While one is
+   * taken the page shows its caret hidden and its spinners held; and a
+   * clipped capture makes Chrome emit a frame at the clip's scale. Measured
+   * 2026-11-10 at display scale 2: one 1280x800 frame among 2560x1600 ones,
+   * arriving within two frames after the capture returned, and a span that
+   * opened on it recorded its whole stretch at 1x (the runner's "records the
+   * display scale" case). So frames are dropped from HOLD to RELEASE, and
+   * then until one of the size seen before the capture arrives, at most
+   * `STRAY_FRAMES` of them.
+   */
+  const STRAY_FRAMES = 3;
+  const pageFrames = (() => {
+    let holding = false;
+    let back: string | null = null;
+    let strays = 0;
+    const sizeOf = (data: string): string | null => {
+      try {
+        const { width, height } = jpegSize(decodeBase64(data));
+        return `${width}x${height}`;
+      } catch {
+        // Not a frame anyone can measure; it is judged as a stray.
+        return null;
+      }
+    };
+    return {
+      hold(): void {
+        holding = true;
+        back = newestFrame === null ? null : sizeOf(newestFrame.data);
+      },
+      release(): void {
+        holding = false;
+        strays = back === null ? 0 : STRAY_FRAMES;
+      },
+      dropping(data: string): boolean {
+        if (holding) return true;
+        if (strays === 0) return false;
+        if (sizeOf(data) === back) {
+          strays = 0;
+          return false;
+        }
+        strays--;
+        return true;
+      },
+    };
+  })();
+
+  /** Continuous only: what counts the page's requests in flight, or why
+   *  nothing does (`Network.enable` refused), which every screen then says. */
+  let tracker = null as RequestTracker | null;
+  let untracked = "they were never asked about";
+  const pageScreens: PageScreen[] = [];
+
+  /**
+   * The page-side half of a step's settle (`step-settle.ts`), within
+   * `deadline`. Answers the conditions that never held, in words.
+   *
+   * A step that navigated is asked about the new document: a load still
+   * running is waited out first, and an answer from a document that began
+   * to leave while it was asked (or that was destroyed under the question)
+   * is asked again. Without that, a navigating click's screen was the old
+   * page mid-unload (Review Focus 2).
+   */
+  const settlePage = async (deadline: number): Promise<string[]> => {
+    for (;;) {
+      while (topLoading && at() < deadline) await clock.sleep(50);
+      const navs = navigationsSeen;
+      let report: Partial<StepSettleReport> | undefined;
+      let failure: unknown = null;
+      try {
+        report = evaluatedValue(
+          await cdp.send("Runtime.evaluate", {
+            expression: stepSettleExpression(
+              STEP_QUIET_MS,
+              Math.max(0, deadline - at()),
+            ),
+            awaitPromise: true,
+            returnByValue: true,
+          }),
+        ) as Partial<StepSettleReport> | undefined;
+      } catch (error) {
+        failure = error;
+      }
+      if ((navigationsSeen !== navs || topLoading) && at() < deadline) {
+        continue;
+      }
+      const words = topLoading ? ["the page was still loading"] : [];
+      if (failure !== null) {
+        return [
+          ...words,
+          `the settle probe failed (${describeSettleError(failure)})`,
+        ];
+      }
+      if (report === undefined || typeof report.quiet !== "boolean") {
+        return [...words, "the settle probe answered with nothing readable"];
+      }
+      return [...words, ...unsettledWords(report)];
+    }
+  };
+
+  /**
+   * The page itself as a PNG at CSS 1x, on the still line and through the
+   * gate like every still: caret hidden and endless animations held for the
+   * capture only, and put back whatever happened. A put-back that failed is
+   * answered, not thrown: the screen may be fine, but the video after it
+   * may not be, and that must be said.
+   *
+   * The line is waited for within `STILL_DRAIN_MS`, as `drainShots` does: a
+   * still ahead of it that never answers (a covered window stops painting)
+   * would otherwise hold the walk here, short of the step's visibility
+   * check that turns it into `occlusionTimeout`.
+   */
+  const capturePage = async (): Promise<{
+    taken: { bytes: Uint8Array; held: number; atMs: number } | null;
+    failure: unknown;
+    releaseFailed: string | null;
+  }> => {
+    let free = stillsWaiting === 0;
+    if (!free) {
+      await Promise.race([
+        shooting.then(() => {
+          free = true;
+        }),
+        clock.sleep(STILL_DRAIN_MS),
+      ]);
+    }
+    if (!free) {
+      throw new Error(
+        `a still ahead of it was still being taken after ${STILL_DRAIN_MS / 1000} s; the page had most likely stopped painting`,
+      );
+    }
+    const run = shooting.then(() =>
+      gate.capture(async () => {
+        let taken: { bytes: Uint8Array; held: number; atMs: number } | null =
+          null;
+        let failure: unknown = null;
+        pageFrames.hold();
+        try {
+          const g = evaluatedValue(
+            await cdp.send("Runtime.evaluate", {
+              expression: PAGE_CAPTURE_HOLD,
+              returnByValue: true,
+            }),
+          ) as
+            | Partial<
+                Record<"held" | "x" | "y" | "width" | "height" | "dpr", number>
+              >
+            | undefined;
+          const { held, x, y, width, height, dpr } = g ?? {};
+          if (
+            held === undefined ||
+            x === undefined ||
+            y === undefined ||
+            width === undefined ||
+            height === undefined ||
+            dpr === undefined
+          ) {
+            throw new Error("the capture hold answered with nothing readable");
+          }
+          const shot = await cdp.send("Page.captureScreenshot", {
+            format: "png",
+            clip: { x, y, width, height, scale: 1 / dpr },
+          });
+          captureEndedMs = at();
+          taken = {
+            bytes: decodeBase64(String(shot.data ?? "")),
+            held,
+            atMs: captureEndedMs,
+          };
+        } catch (error) {
+          failure = error;
+        }
+        let releaseFailed: string | null = null;
+        try {
+          evaluatedValue(
+            await cdp.send("Runtime.evaluate", {
+              expression: PAGE_CAPTURE_RELEASE,
+              returnByValue: true,
+            }),
+          );
+        } catch (error) {
+          releaseFailed = describeSettleError(error);
+        }
+        pageFrames.release();
+        return { taken, failure, releaseFailed };
+      }),
+    );
+    shooting = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
+
+  /**
+   * Continuous only: wait for a step's result to settle, then capture the
+   * page (spec 2026-11-10, decisions 1 and 2), and record both in the take.
+   * `after` is how many steps had finished; `actionId` the step, null for
+   * the opening. Requests first, then the page, on one `STEP_SETTLE_CAP_MS`
+   * budget. Every condition that never held is written on the screen and
+   * said as a `stepUnsettled`, never taken as settled. A screen that could
+   * not be taken does not fail the take, and says so the same way.
+   */
+  const settleAndCapture = async (
+    after: number,
+    actionId: string | null,
+  ): Promise<void> => {
+    const from = at();
+    const deadline = from + STEP_SETTLE_CAP_MS;
+    const unsettled: string[] = [];
+    if (tracker === null) {
+      unsettled.push(`requests could not be watched (${untracked})`);
+    } else if (!(await tracker.idle(deadline, clock.sleep, at))) {
+      unsettled.push(`${tracker.inFlight()} request(s) in flight`);
+    }
+    unsettled.push(...(await settlePage(deadline)));
+    const waitedMs = Math.max(0, at() - from);
+    let screen: PageScreen | null = null;
+    try {
+      const { taken, failure, releaseFailed } = await capturePage();
+      if (releaseFailed !== null) {
+        unsettled.push(
+          `the caret and held animations may not have been put back (${releaseFailed})`,
+        );
+      }
+      if (taken === null) throw failure;
+      const size = pngSize(taken.bytes);
+      screen = {
+        after,
+        sourceTimeMs: taken.atMs,
+        ref: await store.putPageScreen(sceneId, after, taken.bytes),
+        width: size.width,
+        height: size.height,
+        heldAnimations: taken.held,
+        waitedMs,
+      };
+    } catch (error) {
+      unsettled.push(
+        `the page screen could not be taken (${describeSettleError(error)})`,
+      );
+    }
+    screen ??= {
+      after,
+      sourceTimeMs: at(),
+      ref: "",
+      width: viewport.width,
+      height: viewport.height,
+      heldAnimations: 0,
+      waitedMs,
+    };
+    if (unsettled.length > 0) {
+      screen.unsettled = unsettled.join("; ");
+      degradations.push(
+        degradation(
+          "stepUnsettled",
+          from,
+          at(),
+          `${actionId === null ? "the opening page" : `the page after step ${actionId}`}: ${screen.unsettled}`,
+        ),
+      );
+    }
+    pageScreens.push(screen);
+    // Time the walk added, like room: a zoom is decided with it taken out,
+    // so a settle that ran long cannot make a zoom (MIN_ZOOM_GAP_MS) the
+    // take would not have had, nor jitter one across that line.
+    roomAdded += at() - from;
+  };
+
   const recorder = createMotionRecorder({
     encoder,
     clock,
@@ -1111,6 +1428,7 @@ export async function runWalk(
     // it is the page loading — the navigation, a bar sweeping, a black
     // first paint — which is exactly what the settle waited out.
     if (continuous && !filming) return;
+    if (pageFrames.dropping(String(params.data ?? ""))) return;
     const seen = { data: String(params.data ?? ""), atMs: at() };
     priorFrame = newestFrame;
     newestFrame = seen;
@@ -2116,6 +2434,15 @@ export async function runWalk(
       quality: 80,
       everyNthFrame: 1,
     });
+    // Before `install()`'s navigation, so a request the first page makes is
+    // counted. A refusal does not stop the run: every screen says it.
+    if (continuous) {
+      try {
+        tracker = await trackRequests(cdp);
+      } catch (error) {
+        untracked = describeSettleError(error);
+      }
+    }
     // `install()` is where the navigation happens (see `createNavigatingGuard`),
     // so this is the first moment there is a page to wait for — and the
     // opening keyframe is the very next thing, which is what made a
@@ -2137,6 +2464,7 @@ export async function runWalk(
     } else {
       await shot(null);
       filming = true;
+      if (continuous) await settleAndCapture(0, null);
     }
 
     navsAtThisStep = navsBeforeStart;
@@ -2263,6 +2591,7 @@ export async function runWalk(
         // falls back to the nearest keyframe at or *before* it, which is the
         // page the wait was waiting to leave.
         await stepStill(step.action.id);
+        if (continuous) await settleAndCapture(completed + 1, step.action.id);
         completed++;
         lastCompletedActionId = step.action.id;
         inFlight = null;
@@ -2324,6 +2653,7 @@ export async function runWalk(
         stillOwed = true;
         verbs++;
         if (room !== undefined) pendingAct = { marker, verbEndMs: at() };
+        if (continuous) await settleAndCapture(completed + 1, keyAction.id);
         completed++;
         lastCompletedActionId = keyAction.id;
         inFlight = null;
@@ -2630,6 +2960,9 @@ export async function runWalk(
         await shot(null);
       }
 
+      // After the verb's result and before the next step's glide, whose
+      // `mouseMoved` events would change the page's hover state.
+      if (continuous) await settleAndCapture(completed + 1, step.action.id);
       completed++;
       lastCompletedActionId = step.action.id;
       inFlight = null;
@@ -2718,6 +3051,7 @@ export async function runWalk(
     // regardless, the frames are already encoded, and a stop the page
     // refuses must not turn a finished run into a failed one.
     await cdp.send("Page.stopScreencast").catch(() => undefined);
+    tracker?.dispose();
     await recorder.teardown();
     // A settled still the last span asked for may still be in the line.
     // Already said if the closing still's drain gave up on it.
@@ -2812,6 +3146,7 @@ export async function runWalk(
         cursorGaps: [],
         anchorRects,
         ...(heldPresses.length === 0 ? {} : { heldPresses }),
+        ...(pageScreens.length === 0 ? {} : { pageScreens }),
         ...(viewportTransforms.length === 0 ? {} : { viewportTransforms }),
         markers,
         degradations,
