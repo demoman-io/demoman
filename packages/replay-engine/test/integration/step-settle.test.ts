@@ -117,6 +117,37 @@ describe("the step-settle probe in a real page", () => {
     });
   });
 
+  // Red without the `done` flag: the loop the backstop beat keeps reading
+  // the page's animations every frame for the rest of the take.
+  it("stops reading the page once it has answered at the cap", async () => {
+    await withPage(async (page) => {
+      await page.evaluate(() => {
+        const w = window as unknown as { reads: number };
+        w.reads = 0;
+        // One finite animation that never ends: only the cap answers.
+        document.getAnimations = () => {
+          w.reads++;
+          return [
+            {
+              playState: "running",
+              effect: { getComputedTiming: () => ({ iterations: 1 }) },
+            } as unknown as Animation,
+          ];
+        };
+      });
+      const report = await ask(page, 0, 300);
+      expect(report.animations, JSON.stringify(report)).toBe(1);
+      const reads = () =>
+        page.evaluate(() => (window as unknown as { reads: number }).reads);
+      const atAnswer = await reads();
+      expect(atAnswer, "premise: the loop read every frame").toBeGreaterThan(5);
+      await page.waitForTimeout(300);
+      expect(await reads(), "reads after the answer").toBeLessThanOrEqual(
+        atAnswer + 1,
+      );
+    });
+  });
+
   it("does not wait for an endless spinner", async () => {
     await withPage(async (page) => {
       await page.click("#spinbtn");

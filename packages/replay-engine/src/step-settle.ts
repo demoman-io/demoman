@@ -36,6 +36,9 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
   let watcher = null;
   // An animation read that failed is unknown, not zero: never quiet.
   let failed = false;
+  // Set once answered: a loop the backstop beat must not read the page's
+  // animations every frame for the rest of the take.
+  let done = false;
   const countAnimations = () => {
     try {
       if (!document.getAnimations) { failed = true; return 0; }
@@ -48,6 +51,7 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
   };
   const quietNow = () => Date.now() - lastChange >= ${quietMs};
   const reply = () => {
+    done = true;
     if (watcher) watcher.disconnect();
     animations = countAnimations();
     return {
@@ -68,6 +72,7 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
     await frame();
     painted = true;
     for (;;) {
+      if (done) return;
       if (countAnimations() === 0 && quietNow()) return;
       if (failed) return;
       await frame();
