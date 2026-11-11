@@ -2,35 +2,59 @@ import { describe, expect, it } from "vitest";
 import {
   type KeptReceipt,
   parseReceipt,
+  RECEIPT_VERSION,
   screensDirOf,
   serializeReceipt,
 } from "../../src/kept/receipt.js";
 
-const window = { x: 202.5, y: 86, width: 876, height: 548, radius: 12 };
 const receipt: KeptReceipt = {
-  receiptVersion: 1,
+  receiptVersion: 3,
   flow: "0b6e1c52-7d3a-4f0e-9a41-2c8d5e6f7a90",
   video: "t1",
   filmedAt: "2026-10-31T12:00:00.000Z",
   filmedCode: { commit: "abc123", tree: "def456", dirty: false },
   screens: {
     steps: 2,
-    moments: [
-      { step: 0, ms: 400, window },
-      { step: null, ms: 900, window },
+    screens: [
+      { step: 0 },
+      { step: 1, unsettled: "the DOM never went quiet" },
+      { step: null },
     ],
     look: "1a2b3c",
   },
   recordedRevision: "r1",
-  screensDir: null,
-  screensSize: null,
+  screensDir: "order.screens",
 };
-const v2: KeptReceipt = {
-  ...receipt,
+/** The fields every version shares, as a version 1 or 2 receipt wrote
+ *  them: what an old receipt is read for until a refresh replaces it. */
+const shared = {
+  flow: receipt.flow,
+  video: receipt.video,
+  filmedAt: receipt.filmedAt,
+  filmedCode: receipt.filmedCode,
+  recordedRevision: receipt.recordedRevision,
+};
+const window = { x: 202.5, y: 86, width: 876, height: 548, radius: 12 };
+const oldScreens = {
+  steps: 2,
+  moments: [
+    { step: 0, ms: 400, window },
+    { step: null, ms: 900, window },
+  ],
+  look: "1a2b3c",
+};
+const v1Text = JSON.stringify({
+  receiptVersion: 1,
+  ...shared,
+  screens: oldScreens,
+});
+const v2Text = JSON.stringify({
   receiptVersion: 2,
+  ...shared,
   screensDir: "order.screens",
   screensSize: { width: 1440, height: 900 },
-};
+  screens: oldScreens,
+});
 
 const refusal = (text: string) => {
   const r = parseReceipt(text, "r.json");
@@ -41,12 +65,97 @@ const withChange = (change: Record<string, unknown>) =>
   JSON.stringify({ ...JSON.parse(serializeReceipt(receipt)), ...change });
 
 describe("the receipt", () => {
-  it("round-trips, window and look included", () => {
+  it("a v3 receipt round-trips", () => {
     const text = serializeReceipt(receipt);
     // The premise: the fixture carries the optional keys it claims to.
+    expect(JSON.parse(text).receiptVersion).toBe(3);
+    expect(RECEIPT_VERSION).toBe(3);
     expect(JSON.parse(text).screens.look).toBe("1a2b3c");
-    expect(JSON.parse(text).screens.moments[0].window).toEqual(window);
+    expect(JSON.parse(text).screens.screens[1].unsettled).toBe(
+      "the DOM never went quiet",
+    );
+    expect(JSON.parse(text)).not.toHaveProperty("screensSize");
     expect(parseReceipt(text, "r.json")).toEqual({ ok: true, receipt });
+  });
+
+  // Read only to be replaced: its moments are a picture refresh no longer
+  // compares, so none of them is carried.
+  it("a v2 receipt parses with screens null", () => {
+    // Premise: the text is a v2 receipt with moments and a size.
+    expect(JSON.parse(v2Text).screens.moments).toHaveLength(2);
+    expect(parseReceipt(v2Text, "r.json")).toEqual({
+      ok: true,
+      receipt: {
+        receiptVersion: 2,
+        ...shared,
+        screens: null,
+        screensDir: "order.screens",
+      },
+    });
+  });
+
+  it("a v1 receipt parses with screens null", () => {
+    expect(JSON.parse(v1Text).screens.moments).toHaveLength(2);
+    expect(parseReceipt(v1Text, "r.json")).toEqual({
+      ok: true,
+      receipt: {
+        receiptVersion: 1,
+        ...shared,
+        screens: null,
+        screensDir: null,
+      },
+    });
+  });
+
+  it("a step named twice is refused, naming it", () => {
+    const twice = { steps: 2, screens: [{ step: 1 }, { step: 1 }] };
+    expect(refusal(withChange({ screens: twice }))).toContain(
+      "screens.screens[1].step 1 is named by an earlier screen",
+    );
+    const finals = { steps: 2, screens: [{ step: null }, { step: null }] };
+    expect(refusal(withChange({ screens: finals }))).toContain(
+      "screens.screens[1].step is a second final screen",
+    );
+  });
+
+  it("an empty unsettled reason is refused", () => {
+    const empty = { steps: 2, screens: [{ step: 0, unsettled: "" }] };
+    expect(refusal(withChange({ screens: empty }))).toContain(
+      "screens.screens[0].unsettled must be a non-empty string",
+    );
+  });
+
+  it("refuses a step that is not below steps, and steps that are no whole number", () => {
+    expect(
+      refusal(withChange({ screens: { steps: 2, screens: [{ step: 2 }] } })),
+    ).toContain("screens.screens[0].step 2 is not below screens.steps 2");
+    expect(
+      refusal(withChange({ screens: { steps: 1.5, screens: [{ step: 0 }] } })),
+    ).toContain("screens.steps must be a whole number of steps");
+  });
+
+  it("refuses a v3 receipt with no screen, or with no screen folder", () => {
+    expect(
+      refusal(withChange({ screens: { steps: 2, screens: [] } })),
+    ).toContain("screens.screens must list at least one screen");
+    expect(refusal(withChange({ screensDir: undefined }))).toContain(
+      "screensDir must be a folder beside the receipt",
+    );
+  });
+
+  it("refuses a look that is not a non-empty string", () => {
+    expect(
+      refusal(withChange({ screens: { ...receipt.screens, look: "" } })),
+    ).toContain("screens.look must be a non-empty string");
+  });
+
+  // A v1 or v2 receipt is never written again: the next refresh replaces it.
+  it("refuses to write a receipt with no page screens", () => {
+    const parsed = parseReceipt(v2Text, "r.json");
+    if (!parsed.ok) throw new Error(parsed.detail);
+    expect(() => serializeReceipt(parsed.receipt)).toThrow(
+      "predates page screens",
+    );
   });
 
   it("round-trips a filmedCode that says why there is none, and a null revision", () => {
@@ -80,44 +189,22 @@ describe("the receipt", () => {
     );
   });
 
-  it("refuses empty moments, naming screens.moments", () => {
-    expect(
-      refusal(withChange({ screens: { steps: 2, moments: [] } })),
-    ).toContain("screens.moments must list at least one still screen");
-  });
-
   it("refuses a bad filmedCode and another receiptVersion, naming them", () => {
     expect(refusal(withChange({ filmedCode: { commit: 3 } }))).toContain(
       "filmedCode",
     );
-    expect(refusal(withChange({ receiptVersion: 3 }))).toContain(
-      "receiptVersion is 3; this Demoman reads 1 and 2 — it was written by a newer Demoman; update Demoman",
+    expect(refusal(withChange({ receiptVersion: 4 }))).toContain(
+      "receiptVersion is 4; this Demoman reads 1 and 2 and 3 — it was written by a newer Demoman; update Demoman",
     );
-    expect(refusal(withChange({ receiptVersion: "2" }))).not.toContain("newer");
+    expect(refusal(withChange({ receiptVersion: "3" }))).not.toContain("newer");
   });
 
   it("names the file when the JSON is invalid", () => {
     expect(refusal("{nope")).toContain("r.json");
   });
 
-  it("reads a version 1 receipt as naming no screen folder", () => {
-    // Premise: the fixture is version 1 and writes no folder.
-    const text = serializeReceipt(receipt);
-    expect(JSON.parse(text).receiptVersion).toBe(1);
-    const parsed = parseReceipt(text, "r.json");
-    expect(parsed).toEqual({ ok: true, receipt });
-    expect(parsed.ok && parsed.receipt.screensDir).toBeNull();
-  });
-
-  it("round-trips a version 2 receipt that names its screen folder and size", () => {
-    const text = serializeReceipt(v2);
-    expect(JSON.parse(text).receiptVersion).toBe(2);
-    expect(JSON.parse(text).screensDir).toBe("order.screens");
-    expect(parseReceipt(text, "r.json")).toEqual({ ok: true, receipt: v2 });
-  });
-
   it("round-trips the script digest, and reads a receipt without one", () => {
-    const withDigest: KeptReceipt = { ...v2, scriptDigest: "9f3a" };
+    const withDigest: KeptReceipt = { ...receipt, scriptDigest: "9f3a" };
     const text = serializeReceipt(withDigest);
     expect(JSON.parse(text).scriptDigest).toBe("9f3a");
     expect(parseReceipt(text, "r.json")).toEqual({
@@ -125,21 +212,24 @@ describe("the receipt", () => {
       receipt: withDigest,
     });
     // Absent: written before it was recorded, still read, and not written back.
-    const without = parseReceipt(serializeReceipt(v2), "r.json");
+    const without = parseReceipt(serializeReceipt(receipt), "r.json");
     expect(without.ok && "scriptDigest" in without.receipt).toBe(false);
     expect(refusal(withChange({ scriptDigest: "" }))).toContain("scriptDigest");
   });
 
   // Red when a receipt cannot say which instant its video was pinned to (DEM-79).
   it("round-trips pinnedNow", () => {
-    const pinned: KeptReceipt = { ...v2, pinnedNow: "2026-11-06T09:00:00Z" };
+    const pinned: KeptReceipt = {
+      ...receipt,
+      pinnedNow: "2026-11-06T09:00:00Z",
+    };
     const text = serializeReceipt(pinned);
     expect(JSON.parse(text).pinnedNow).toBe("2026-11-06T09:00:00Z");
     expect(parseReceipt(text, "r.json")).toEqual({ ok: true, receipt: pinned });
   });
 
   it("a receipt without pinnedNow parses and writes as before", () => {
-    const text = serializeReceipt(v2);
+    const text = serializeReceipt(receipt);
     expect(text).not.toContain("pinnedNow");
     const r = parseReceipt(text, "r.json");
     expect(r.ok && "pinnedNow" in r.receipt).toBe(false);
@@ -151,54 +241,23 @@ describe("the receipt", () => {
     }
   });
 
-  it("refuses a screen folder that is not beside the receipt", () => {
-    // Premise: the same change with a folder beside the receipt is accepted.
+  it("refuses a screen folder that is not beside the receipt, in any version", () => {
+    // Premise: the fixture's folder beside the receipt is accepted.
+    expect(parseReceipt(serializeReceipt(receipt), "r.json").ok).toBe(true);
+    expect(refusal(withChange({ screensDir: "../x" }))).toContain(
+      "screensDir must be a folder beside the receipt",
+    );
     expect(
-      parseReceipt(
-        withChange({
-          receiptVersion: 2,
-          screensDir: "order.screens",
-          screensSize: { width: 1440, height: 900 },
-        }),
-        "r.json",
-      ).ok,
-    ).toBe(true);
-    expect(
-      refusal(
-        withChange({
-          receiptVersion: 2,
-          screensDir: "../x",
-          screensSize: { width: 1440, height: 900 },
-        }),
-      ),
+      refusal(JSON.stringify({ ...JSON.parse(v2Text), screensDir: "/x" })),
     ).toContain("screensDir must be a folder beside the receipt");
-  });
-
-  it("refuses a version 2 receipt whose screen size is not whole pixels", () => {
-    expect(
-      refusal(
-        withChange({
-          receiptVersion: 2,
-          screensDir: "order.screens",
-        }),
-      ),
-    ).toContain("screensSize must be { width, height } in whole pixels");
   });
 
   it("refuses a screens folder under version 1, which has none", () => {
     expect(
       refusal(
-        withChange({
-          screensDir: "order.screens",
-          screensSize: { width: 1440, height: 900 },
-        }),
+        JSON.stringify({ ...JSON.parse(v1Text), screensDir: "o.screens" }),
       ),
-    ).toContain("screensDir needs receiptVersion 2");
-  });
-
-  it("writes version 2 only when it names a screen folder", () => {
-    expect(JSON.parse(serializeReceipt(receipt)).receiptVersion).toBe(1);
-    expect(JSON.parse(serializeReceipt(v2)).receiptVersion).toBe(2);
+    ).toContain("screensDir needs receiptVersion 2 or 3");
   });
 
   it("names the screen folder beside a receipt, dropping only .json", () => {

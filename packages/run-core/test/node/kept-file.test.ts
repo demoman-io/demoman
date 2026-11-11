@@ -92,7 +92,10 @@ describe("the kept file", () => {
     if (!r.ok) throw new Error(r.detail);
     expect(r.kept).toEqual(kept);
     expect(r.kept.flow).toBe(v1.from.videoId);
-    expect(r.migrated?.screens).toEqual(v1.screens);
+    // Premise: the v1 file carries screens, which are not carried over.
+    expect(v1.screens.moments).toHaveLength(3);
+    expect(r.migrated?.screens).toBeNull();
+    expect(r.migrated?.receiptVersion).toBe(1);
     expect(r.migrated?.video).toBe("t1");
     expect(r.migrated?.recordedRevision).toBe("r1");
     expect(r.migrated?.flow).toBe(FLOW);
@@ -154,48 +157,6 @@ describe("the kept file", () => {
     );
   });
 
-  // A v1 file's screens keep their per-field messages (parseScreens).
-  it("refuses a migrated screen's window and look, naming them", () => {
-    const window = { x: 202.5, y: 86, width: 876, height: 548, radius: 12 };
-    const screens = { ...v1.screens };
-    expect(
-      refusal(
-        withV1({
-          screens: {
-            ...screens,
-            moments: [{ step: 0, ms: 1, window: { ...window, width: 0 } }],
-          },
-        }),
-      ),
-    ).toContain("screens.moments[0].window");
-    expect(refusal(withV1({ screens: { ...screens, look: 7 } }))).toContain(
-      "screens.look",
-    );
-  });
-
-  // Red if a window's number is checked by a bare comparison: "876" > 0 is
-  // true, and 1e999 parses to Infinity.
-  it.each([
-    ["width", '"876"'],
-    ["height", "1e999"],
-    ["x", '"1"'],
-    ["y", "null"],
-    ["radius", "-1"],
-    ["radius", '"12"'],
-  ])("refuses a window whose %s is %s, naming it", (key, raw) => {
-    const window = { x: 202.5, y: 86, width: 876, height: 548, radius: 12 };
-    const screens = {
-      ...v1.screens,
-      moments: [{ step: 0, ms: 1, window: { ...window, [key]: "@" } }],
-    };
-    const text = withV1({ screens }).replace('"@"', raw);
-    // The premise: the text holds the value asked about, as JSON reads it.
-    expect(text).toContain(`"${key}":${raw}`);
-    expect(refusal(text)).toContain(
-      `screens.moments[0].window.${key} must be a finite number`,
-    );
-  });
-
   it("refuses another keptVersion, naming it", () => {
     expect(refusal(withChange({ keptVersion: 3 }))).toContain("keptVersion");
   });
@@ -240,68 +201,18 @@ describe("the kept file", () => {
     expect(keptFileName("!!!")).toBe("video.json");
   });
 
-  it("refuses a file without screens, naming the video and demoman add", () => {
+  // Its screens are a picture refresh no longer compares: a v1 file is
+  // read only for its receipt to be replaced, whatever they held.
+  it("reads a v1 file whose screens are missing or malformed, its receipt's screens null", () => {
     const { screens: _s, ...rest } = v1;
-    const d = refusal(JSON.stringify(rest));
-    expect(d).toContain("screens");
-    expect(d).toContain("`demoman add Add a task`");
-    expect(d).toContain("Add a task");
-  });
-
-  const moments = (...m: unknown[]) =>
-    withV1({ screens: { steps: 3, moments: m } });
-  it.each([
-    [
-      "a negative ms",
-      [
-        { step: 0, ms: 5 },
-        { step: 1, ms: -1 },
-      ],
-    ],
-    [
-      "a fractional step",
-      [
-        { step: 0, ms: 5 },
-        { step: 1.5, ms: 9 },
-      ],
-    ],
-    [
-      "a step at or past steps",
-      [
-        { step: 0, ms: 5 },
-        { step: 3, ms: 9 },
-      ],
-    ],
-    [
-      "a repeated step",
-      [
-        { step: 1, ms: 5 },
-        { step: 1, ms: 9 },
-      ],
-    ],
-    [
-      "ms not increasing",
-      [
-        { step: 0, ms: 5 },
-        { step: 1, ms: 5 },
-      ],
-    ],
-  ])("refuses %s, naming screens.moments[1]", (_n, m) => {
-    expect(refusal(moments(...m))).toContain("screens.moments[1]");
-  });
-
-  it("refuses no moments and a non-integer steps", () => {
-    expect(refusal(moments())).toContain("screens.moments");
-    expect(
-      refusal(
-        withV1({ screens: { steps: 2.5, moments: [{ step: 0, ms: 1 }] } }),
-      ),
-    ).toContain("screens.steps");
-  });
-
-  it("refuses a second final screen, naming screens.moments[1]", () => {
-    const text = moments({ step: null, ms: 5 }, { step: null, ms: 9 });
-    expect(refusal(text)).toContain("screens.moments[1]");
+    for (const text of [
+      JSON.stringify(rest),
+      withV1({ screens: { steps: 2.5, moments: [] } }),
+    ]) {
+      const r = parseKept(text, "x.json");
+      if (!r.ok) throw new Error(r.detail);
+      expect(r.migrated?.screens).toBeNull();
+    }
   });
 });
 
