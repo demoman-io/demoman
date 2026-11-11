@@ -1109,9 +1109,10 @@ describe("keep refuses, writing nothing", () => {
   };
 
   // Review Focus 5. Red if keep forgives a take with no page screens: a
-  // receipt with nothing to compare would be written.
+  // receipt with nothing to compare would be written. Red too if it renders
+  // any output first: minutes each without a GPU, for a refusal.
   it(
-    "a take recorded before page screens, saying so",
+    "a take recorded before page screens, saying so, before any export",
     async () => {
       const { scene } = await videoOf("scene-no-pages", "No pages");
       await copyFrames(scene.meta.id);
@@ -1121,10 +1122,16 @@ describe("keep refuses, writing nothing", () => {
       const { pageScreens: _gone, ...older } = bundle;
       expect(_gone?.length, "premise: it had page screens").toBeGreaterThan(0);
       await frames.putBundle(scene.meta.id, older);
+      const from = lines.length;
       const out = await refused("No pages");
       expect(out.reason).toBe("exportFailed");
       expect(out.detail).toContain("has no page screens");
       expect(out.detail).toContain("recorded before page screens");
+      const said = lines.slice(from);
+      expect(said, "premise: keep logged its steps").toContain(
+        `add: copying the page screens of docs/case-${cases}.mp4`,
+      );
+      expect(said.filter((l) => l.startsWith("add: exporting"))).toEqual([]);
     },
     KEEP_MS,
   );

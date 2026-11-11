@@ -288,7 +288,7 @@ export async function exportTake(
   if (screensOnly && (bundle.pageScreens ?? []).length === 0) {
     return refused(
       "noFrames",
-      `video ${takeId} has no page screens to compare: it was recorded before page screens, or not in real time — record it again`,
+      `video ${takeId} has no page screens to compare: it was recorded before page screens — record it again`,
     );
   }
   // Only a take that exists: a lease on a missing one would make its folder.

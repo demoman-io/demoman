@@ -263,7 +263,7 @@ describe("a screens-only export copies the take's page screens", () => {
   );
 
   // Review Focus 5: an older take has nothing to compare, and says why.
-  it("screensOnly on a take with no page screens refuses, saying it was recorded before page screens or not in real time", async () => {
+  it("screensOnly on a take with no page screens refuses, saying it was recorded before page screens", async () => {
     const library = createLibrary(home);
     // Premise: the disk take carries none.
     expect(
@@ -285,7 +285,8 @@ describe("a screens-only export copies the take's page screens", () => {
     });
     const detail = (out as { detail: string }).detail;
     expect(detail).toContain(`video ${diskTakeId} has no page screens`);
-    expect(detail).toContain("recorded before page screens");
-    expect(detail).toContain("not in real time");
+    expect(detail).toContain(
+      "it was recorded before page screens — record it again",
+    );
   });
 });

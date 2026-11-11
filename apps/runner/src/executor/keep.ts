@@ -375,39 +375,9 @@ export async function keepVideo(
   try {
     const rendered: Uint8Array[] = [];
     const judged = judgedOutput(base.outputs);
-    for (const o of deliver === "files" ? [] : base.outputs) {
-      deps.log(`add: exporting ${o.path}`);
-      const answer = await exportTake(
-        {
-          takeId: built.takeId,
-          fileType: o.fileType,
-          aspect: o.aspect,
-          // Its file is renamed into the repo; no row names the temp one.
-          unlisted: true,
-          // A GIF has no quality to choose; export refuses one.
-          ...(o.fileType === "mp4" ? { quality: o.quality } : {}),
-        },
-        { ...deps.export, outDir: temp },
-        () => undefined,
-      );
-      if (answer.outcome !== "saved" || answer.fileType === "stills") {
-        return refuse("exportFailed", `${o.path}: ${answer.summary}`);
-      }
-      if (answer.warnings.logo !== null) {
-        return refuse(
-          "logoUnreadable",
-          `${o.path} was rendered without its logo: ${answer.warnings.logo}`,
-        );
-      }
-      if (answer.warnings.wallpaperWarning?.kind === "leftOut") {
-        return refuse(
-          "wallpaperUnreadable",
-          `${o.path} was rendered without its wallpaper: ${answer.warnings.wallpaperWarning.sentence}`,
-        );
-      }
-      rendered.push(await readFile(answer.file.path));
-    }
-    // The images a refresh compares with: the take's own page screens.
+    // The images a refresh compares with: the take's own page screens. A
+    // copy, no render, so asked first: a take with none to compare is
+    // refused before any output is exported.
     let screens: PageScreens | undefined;
     let shots: { dir: string } | null = null;
     if (deliver === "commit") {
@@ -451,6 +421,38 @@ export async function keepVideo(
         "exportFailed",
         `${base.outputs[judged]?.path}, the output a refresh judges, has no settled screen to compare against (${screensNote(screens, base.script.steps)}) — a refresh would have nothing to check; nothing was written`,
       );
+    }
+    for (const o of deliver === "files" ? [] : base.outputs) {
+      deps.log(`add: exporting ${o.path}`);
+      const answer = await exportTake(
+        {
+          takeId: built.takeId,
+          fileType: o.fileType,
+          aspect: o.aspect,
+          // Its file is renamed into the repo; no row names the temp one.
+          unlisted: true,
+          // A GIF has no quality to choose; export refuses one.
+          ...(o.fileType === "mp4" ? { quality: o.quality } : {}),
+        },
+        { ...deps.export, outDir: temp },
+        () => undefined,
+      );
+      if (answer.outcome !== "saved" || answer.fileType === "stills") {
+        return refuse("exportFailed", `${o.path}: ${answer.summary}`);
+      }
+      if (answer.warnings.logo !== null) {
+        return refuse(
+          "logoUnreadable",
+          `${o.path} was rendered without its logo: ${answer.warnings.logo}`,
+        );
+      }
+      if (answer.warnings.wallpaperWarning?.kind === "leftOut") {
+        return refuse(
+          "wallpaperUnreadable",
+          `${o.path} was rendered without its wallpaper: ${answer.warnings.wallpaperWarning.sentence}`,
+        );
+      }
+      rendered.push(await readFile(answer.file.path));
     }
     const kept: KeptVideo = base;
     const runReport =
