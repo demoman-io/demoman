@@ -1,8 +1,8 @@
-// apps/runner/test/executor-accounts-env.test.ts
+// apps/runner/test/executor-accounts-env.slow.test.ts
 //
 // Launch C2's security review (2026-10-16): which environment secrets and
 // project folders an account sign-in may use. Split from
-// executor-accounts.test.ts on 2026-10-17; the shared setup is
+// executor-accounts.slow.test.ts on 2026-10-17; the shared setup is
 // accounts-harness.ts.
 import { execFileSync } from "node:child_process";
 import {

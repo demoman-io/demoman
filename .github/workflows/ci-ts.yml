@@ -91,8 +91,24 @@ jobs:
           pnpm --filter @demoman/scene-schema gen-schema
           git diff --exit-code packages/scene-schema/schema.gen.json
 
+  # The packages and the runner run on macOS too: until 2026-11-11 the only
+  # macOS check was the author's local `pnpm test`, a slower copy of this
+  # workflow that held the laptop for ~25 min before every push (DEM-149).
+  # Five macOS jobs, the free plan's macOS concurrency. The refresh lane
+  # stays on Linux: five more macOS jobs would queue behind these.
+  #
+  # Not blocking yet: their first run (2026-11-11) failed two tests that pass
+  # on Linux and on the author's Mac, DEM-151 (account-signin's 10 s wait)
+  # and DEM-152 (studio-shots' zoom block). A red macOS job still shows red
+  # on the run; it does not fail it. Drop `continue-on-error` once both are
+  # fixed.
   packages:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -117,7 +133,7 @@ jobs:
       - if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: studio-pages-failure-screenshots
+          name: studio-pages-failure-screenshots-${{ matrix.os }}
           path: apps/studio/test/pages/browser/__screenshots__/
           if-no-files-found: ignore
 
@@ -127,10 +143,13 @@ jobs:
   # it was 3012 s of its shard's 3014 s (run 41224304573, 2026-10-31).
   # Standard runners cost nothing on this public repo; more of them is free.
   runner:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    # macOS not blocking yet: DEM-151, DEM-152 (above the packages job).
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest]
         shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4

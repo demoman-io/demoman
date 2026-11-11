@@ -1,4 +1,4 @@
-// apps/runner/test/probe.test.ts
+// apps/runner/test/probe.slow.test.ts
 import {
   mkdir,
   mkdtemp,

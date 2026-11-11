@@ -1,4 +1,4 @@
-// apps/runner/test/pinned-clock.test.ts
+// apps/runner/test/pinned-clock.slow.test.ts
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";

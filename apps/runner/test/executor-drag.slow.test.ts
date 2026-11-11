@@ -1,4 +1,4 @@
-// apps/runner/test/executor-drag.test.ts
+// apps/runner/test/executor-drag.slow.test.ts
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";

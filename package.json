@@ -6,6 +6,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r build && DEMOMAN_TEST_TIER=full pnpm test:packages && node --test 'scripts/*.test.mjs'",
+    "test:changed": "pnpm -r build && node scripts/test-changed.mjs && node --test 'scripts/*.test.mjs'",
     "test:fast": "pnpm -r build && DEMOMAN_TEST_TIER=fast pnpm test:packages && node --test 'scripts/*.test.mjs'",
     "test:packages": "pnpm test:light && pnpm test:heavy",
     "test:light": "pnpm -r --workspace-concurrency=2 --filter '!@demoman/runner' --filter '!@demoman/studio' --filter '!@demoman/cli' --filter '!@demoman/compositor' --filter '!@demoman/resolver' --filter '!@demoman/replay-engine' --filter '!@demoman/run-core' test",

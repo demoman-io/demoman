@@ -39,7 +39,7 @@ import { WALLPAPERS_DIR } from "./fixture.js";
 const ATTACH_MS = 60_000;
 
 /** A small landscape MP4: these tests read what was posted, not the picture
- *  (executor-export.test.ts samples that), so the render is kept cheap. */
+ *  (executor-export.slow.test.ts samples that), so the render is kept cheap. */
 const TINY: RenderTarget = {
   format: "mp4",
   width: 640,

@@ -78,7 +78,7 @@ it("sends a signed-out /late to /login from script after load, not by an HTTP re
   expect(await passwordShown()).toBe(true);
 });
 
-// The premises account-signin.test.ts relies on (launch C2).
+// The premises account-signin.slow.test.ts relies on (launch C2).
 it("with accounts: a wrong password sets no cookie and echoes what was typed; a right one signs in", async () => {
   const named = await serveLoginApp({
     accounts: { "a@demo.test": "right-password" },

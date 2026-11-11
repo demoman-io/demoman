@@ -1,4 +1,4 @@
-// apps/runner/test/executor-credential.test.ts
+// apps/runner/test/executor-credential.slow.test.ts
 //
 // Launch C done-means 2, second half: a demo password a script types into a
 // password field is in no file of the take and not in the run's reply.

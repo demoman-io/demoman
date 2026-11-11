@@ -450,7 +450,7 @@ export async function videoOfTake(
 
 /** A 10x10 flat magenta square: nothing in the fixture app or the kit's green
  *  is near it, so counting magenta pixels counts the logo. Asserted, not
- *  assumed: `executor-export.test.ts`'s missing-logo export counts zero
+ *  assumed: `executor-export.slow.test.ts`'s missing-logo export counts zero
  *  magenta pixels in the same 9:16 frame where the logo counts over 50. */
 /** The built-in wallpapers, where the studio's pages ship them: what the
  *  CLI and the studio hand `ExportDeps.wallpapersDir`. */
@@ -474,7 +474,7 @@ export const LOGO_SVG =
  * when absent). 9:16 renders at 1080x1920; 16:9 and Auto take the 4K tier
  * from this take's keyframes, about 6x slower headless. Run through
  * `executor`, so it lands in that executor's library; its id is the answer.
- * `executor-export.test.ts` asserts what it supplies (a zoom on the click,
+ * `executor-export.slow.test.ts` asserts what it supplies (a zoom on the click,
  * a cursor that moved) before sampling any picture made from it.
  */
 export async function makeFixtureTake(
