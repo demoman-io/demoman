@@ -5,6 +5,7 @@ import {
   PAGE_CAPTURE_HOLD,
   PAGE_CAPTURE_RELEASE,
   runReplay,
+  STEP_REQUEST_CAP_MS,
   STEP_SETTLE_MARKER,
   STILL_DRAIN_MS,
 } from "../../src/index.js";
@@ -219,6 +220,48 @@ describe("a step's page screen, when something fails", () => {
       String(c.params.expression ?? "").includes(STEP_SETTLE_MARKER),
     );
     expect(asked, evidence).toEqual([]);
+    // Said at the request cap, not the page's.
+    expect(screens[1]?.waitedMs ?? 0, evidence).toBeGreaterThanOrEqual(
+      STEP_REQUEST_CAP_MS,
+    );
+  });
+
+  // A streamed answer is one request open for seconds. Red when requests
+  // share the page's 2 s cap: the screen would say "1 request(s) in flight".
+  it("waits out a request open for 3 s, then asks the page", async () => {
+    const d = deps();
+    const sleep = d.clock.sleep;
+    let opened = -1;
+    let closed = false;
+    d.clock.sleep = async (ms) => {
+      await sleep(ms);
+      if (opened >= 0 && !closed && d.clock.now() - opened >= 3000) {
+        closed = true;
+        d.cdp.emit("Network.loadingFinished", { requestId: "stream" });
+      }
+    };
+    intercept(
+      d,
+      (m) => m === "Network.enable",
+      async () => {
+        queueMicrotask(() => {
+          opened = d.clock.now();
+          d.cdp.emit("Network.requestWillBeSent", {
+            requestId: "stream",
+            type: "Fetch",
+          });
+        });
+        return {};
+      },
+    );
+    const { screens, evidence } = await screensOf(d);
+    expect(closed, evidence).toBe(true); // the premise: the request did open and close
+    expect(screens[0]?.unsettled, evidence).toBeUndefined();
+    expect(screens[0]?.waitedMs ?? 0, evidence).toBeGreaterThanOrEqual(3000);
+    const asked = d.cdp.calls.filter((c) =>
+      String(c.params.expression ?? "").includes(STEP_SETTLE_MARKER),
+    );
+    expect(asked.length, evidence).toBeGreaterThan(0);
   });
 
   it.each([

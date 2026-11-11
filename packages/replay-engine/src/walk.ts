@@ -58,6 +58,7 @@ import {
   SPAN_MIN_FRAMES,
   SPAN_QUIET_MS,
   STEP_QUIET_MS,
+  STEP_REQUEST_CAP_MS,
   STEP_SETTLE_CAP_MS,
   STILL_DRAIN_MS,
   TAKE_TAIL_MS,
@@ -1250,26 +1251,28 @@ export async function runWalk(
   };
 
   /**
-   * Both halves of a step's settle, within `deadline`: requests, then the
-   * page, and round again while a request is in flight once the page has
-   * answered. All four conditions must hold at once (spec 2026-11-10
-   * decision 1), and a page can start a request inside its own quiet
-   * window: a debounced search firing, a new document's first fetches.
+   * Both halves of a step's settle: requests, then the page, and round again
+   * while a request is in flight once the page has answered. All four
+   * conditions must hold at once (spec 2026-11-10 decision 1), and a page can
+   * start a request inside its own quiet window: a debounced search firing,
+   * a new document's first fetches. Requests may take until `requestBy` (a
+   * streamed answer is one long request); the page is then asked within its
+   * own `STEP_SETTLE_CAP_MS`, so a long stream never leaves it "not asked".
    */
-  const settleWords = async (deadline: number): Promise<string[]> => {
+  const settleWords = async (requestBy: number): Promise<string[]> => {
     for (;;) {
       if (tracker === null) {
         return [
           `requests could not be watched (${untracked})`,
-          ...(await settlePage(deadline)),
+          ...(await settlePage(at() + STEP_SETTLE_CAP_MS)),
         ];
       }
-      if (!(await tracker.idle(deadline, clock.sleep, at))) {
+      if (!(await tracker.idle(requestBy, clock.sleep, at))) {
         return [`${tracker.inFlight()} request(s) in flight`, PAGE_NOT_ASKED];
       }
-      const page = await settlePage(deadline);
+      const page = await settlePage(at() + STEP_SETTLE_CAP_MS);
       if (tracker.inFlight() === 0) return page;
-      if (at() >= deadline) {
+      if (at() >= requestBy) {
         return [`${tracker.inFlight()} request(s) in flight`, ...page];
       }
     }
@@ -1373,8 +1376,8 @@ export async function runWalk(
    * Continuous only: wait for a step's result to settle, then capture the
    * page (spec 2026-11-10, decisions 1 and 2), and record both in the take.
    * `after` is how many steps had finished; `actionId` the step, null for
-   * the opening. Requests first, then the page, on one `STEP_SETTLE_CAP_MS`
-   * budget. Every condition that never held is written on the screen and
+   * the opening. Requests first (up to `STEP_REQUEST_CAP_MS`), then the page
+   * (its own `STEP_SETTLE_CAP_MS`). Every condition that never held is written on the screen and
    * said as a `stepUnsettled`, never taken as settled. A screen that could
    * not be taken does not fail the take, and says so the same way.
    */
@@ -1383,8 +1386,7 @@ export async function runWalk(
     actionId: string | null,
   ): Promise<void> => {
     const from = at();
-    const deadline = from + STEP_SETTLE_CAP_MS;
-    const unsettled = await settleWords(deadline);
+    const unsettled = await settleWords(from + STEP_REQUEST_CAP_MS);
     const waitedMs = Math.max(0, at() - from);
     let screen: PageScreen | null = null;
     try {

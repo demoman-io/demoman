@@ -249,6 +249,10 @@ export async function recordWithRetry(
   const first = await run();
   const verdict = runVerdict(first);
   if (verdict.kind !== "degraded") return { answer: first, verdict };
+  // A page that never settled (a stream, a poll) settles no better the next
+  // time: it stands, and its reason is in the problems the caller reports.
+  if (verdict.problems.every((p) => p.endsWith("(stepUnsettled)")))
+    return { answer: first, verdict };
   log(
     `refresh: "${name}" recorded with ${verdict.problems.join("; ")}; trying it once more`,
   );

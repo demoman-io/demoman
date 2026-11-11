@@ -157,6 +157,31 @@ describe("recordWithRetry", () => {
     expect(got.answer).toBe(degraded);
     expect(got.verdict).toMatchObject({ kind: "degraded" });
   });
+  // Red when a step that never settled sends the flow round again: a stream
+  // does not settle on the second recording either (DEM-138 trial).
+  it("does not record again for an unsettled step, and still says why", async () => {
+    const unsettled = {
+      ...clean,
+      frames: { spans: 2, degradations: ["stepUnsettled"] },
+    };
+    const r = runs(unsettled, clean);
+    const got = await recordWithRetry(r.run, "Flow", log);
+    expect(r.count()).toBe(1);
+    expect(got.answer).toBe(unsettled);
+    expect(got.verdict).toMatchObject({
+      kind: "degraded",
+      problems: [expect.stringContaining("(stepUnsettled)")],
+    });
+  });
+  it("still records again when an unsettled step comes with a soft still", async () => {
+    const both = {
+      ...clean,
+      frames: { spans: 2, degradations: ["stepUnsettled", "stillFailed"] },
+    };
+    const r = runs(both, clean);
+    await recordWithRetry(r.run, "Flow", log);
+    expect(r.count()).toBe(2);
+  });
   it("never retries a failed run", async () => {
     const r = runs(diverged, clean);
     const got = await recordWithRetry(r.run, "Flow", log);
