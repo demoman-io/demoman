@@ -344,14 +344,16 @@ describe("keep, a clean take", () => {
         );
         if (plain.outcome !== "saved" || plain.fileType === "stills")
           throw new Error(JSON.stringify(plain));
+        const shown = plain.screens;
         // Premise: there are screens to count, or equal empties prove nothing.
-        expect(plain.screens.steps).toBeGreaterThan(0);
-        expect(plain.screens.look).toBeDefined();
+        if (shown === undefined) throw new Error(JSON.stringify(plain));
+        expect(shown.steps).toBeGreaterThan(0);
+        expect(shown.look).toBeDefined();
         // A step means what the video's own screens count (screenMoments).
-        expect(receipt.screens?.steps).toBe(plain.screens.steps);
-        expect(receipt.screens?.look).toBe(plain.screens.look);
+        expect(receipt.screens?.steps).toBe(shown.steps);
+        expect(receipt.screens?.look).toBe(shown.look);
         expect(out.screensNote).toBe(
-          `${plain.screens.steps + 1} of ${plain.screens.steps + 1} screens settled`,
+          `${shown.steps + 1} of ${shown.steps + 1} screens settled`,
         );
       } finally {
         await rm(outDir, { recursive: true, force: true });
