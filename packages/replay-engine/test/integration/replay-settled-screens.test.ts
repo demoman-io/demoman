@@ -160,6 +160,12 @@ async function record(
   rectsOf: (page: Page) => Promise<Record<string, Rect>>,
   path = "",
   againstBytes: Uint8Array[] = [],
+  /** Called with each CDP call the walk made, once it has answered. */
+  afterSend?: (
+    method: string,
+    params: Record<string, unknown> | undefined,
+    ctx: { cdp: CdpSession; page: Page },
+  ) => Promise<void>,
 ): Promise<Recorded> {
   let out: Recorded | null = null;
   await withReplayBrowser(
@@ -206,7 +212,9 @@ async function record(
             deepFocusAtHold.push(read.deep);
             violationsAtHold.push(read.violations);
           }
-          return cdp.send(method, params);
+          const reply = await cdp.send(method, params);
+          await afterSend?.(method, params, { cdp, page });
+          return reply;
         },
       };
       const selectors: Record<string, string> = {};
@@ -551,7 +559,11 @@ describe("a continuous walk settles each step and captures its page", () => {
     ).toBe(0);
   });
 
-  it("two recordings of the same script give byte-identical page screens", () => {
+  // Under 8 levels a pixel moves neither of refresh's looks (`STILL_LOOKS`:
+  // 40 levels a pixel, 13 levels an 8x8 mean). Measured: 1 px by 2 levels
+  // at #q's focus-ring corner in some recordings. A hover lost on #spinbtn
+  // was 39 levels (CI, 2026-11-10), which this still fails on.
+  it("two recordings of the same script give page screens no pixel of which differs by 8 levels or more", () => {
     // The premises: an endless spinner was on screen and held for every
     // screen after the first step, and the field held focus for the
     // screens after the focus, the typing and the hover. The caret itself is
@@ -579,8 +591,12 @@ describe("a continuous walk settles each step and captures its page", () => {
     // And the comparison reads 0 where the bytes agree.
     for (const [i, d] of b.against.entries())
       if (!differing.includes(i)) expect(d.pixels, `screen ${i}`).toBe(0);
+    // -1 is two sizes, which no tolerance forgives.
     expect(
-      differing,
+      differing.filter((i) => {
+        const d = b.against[i];
+        return d === undefined || d.maxDelta < 0 || d.maxDelta >= 8;
+      }),
       `sizes a ${a.bytes.map((x) => x.byteLength)} b ${b.bytes.map((x) => x.byteLength)}; pixels ${JSON.stringify(differing.map((i) => ({ i, after: a.screens[i]?.after, ...b.against[i] })))}`,
     ).toEqual([]);
   });
@@ -588,6 +604,83 @@ describe("a continuous walk settles each step and captures its page", () => {
   it("the caret style is gone after the capture", () => {
     expect(a.focusAtHold.length, "premise: HOLD ran for every screen").toBe(7);
     expect(a.caretStyleLeft).toBe(false);
+  });
+});
+
+describe("a layout change as a still is taken, under the resting pointer", () => {
+  // Chrome recomputes hover after a layout change, and one that lands while
+  // a 3x still is in flight hit-tests at the display's scale, not the
+  // emulated one (`input-gate.ts`): the button under the pointer loses its
+  // hover and stays that way. In a walk that is a race (#spinbtn, CI
+  // 2026-11-10); here the harness loses it on purpose. Once the click's
+  // release has answered, it changes the layout and takes a still at once.
+  let r: Recorded;
+  /** Whether #hoverbtn was hovered right after the harness's still. */
+  let hoveredAfterStill: boolean | null = null;
+  /** Whether #hoverbtn was hovered as each page capture began. */
+  const hoveredAtHold: boolean[] = [];
+  beforeAll(async () => {
+    const hovered = (page: Page) =>
+      page.evaluate(
+        () => document.getElementById("hoverbtn")?.matches(":hover") === true,
+      );
+    r = await record(
+      [{ do: "click", on: { stableId: "hoverbtn" } }],
+      async (page) => ({
+        hoverbtn: await page.evaluate(() => {
+          const b = (
+            document.getElementById("hoverbtn") as HTMLElement
+          ).getBoundingClientRect();
+          return { x: b.x, y: b.y, width: b.width, height: b.height };
+        }),
+      }),
+      "",
+      [],
+      async (method, params, { cdp, page }) => {
+        if (
+          method === "Runtime.evaluate" &&
+          params?.expression === PAGE_CAPTURE_HOLD
+        ) {
+          hoveredAtHold.push(await hovered(page));
+        }
+        if (
+          hoveredAfterStill !== null ||
+          method !== "Input.dispatchMouseEvent" ||
+          params?.type !== "mouseReleased"
+        ) {
+          return;
+        }
+        await page.evaluate(() => {
+          const d = document.createElement("div");
+          d.style.height = "20px";
+          document.getElementById("finwrap")?.append(d);
+        });
+        await cdp.send("Page.captureScreenshot", {
+          format: "jpeg",
+          quality: 95,
+        });
+        hoveredAfterStill = await hovered(page);
+      },
+    );
+  }, 60_000);
+
+  // Red without the pointer's move before the settle (`settleAndCapture`):
+  // the screen after the click shows the button as the opening does.
+  it("the screen after the click shows the button under the pointer hovered", () => {
+    // The premises: the opening had nothing hovered, and the harness's
+    // still really did lose the hover the click had.
+    expect(hoveredAtHold, "hovered as each capture began").toHaveLength(2);
+    expect(hoveredAtHold[0], "the opening").toBe(false);
+    expect(hoveredAfterStill, "lost to the still").toBe(false);
+    expect(hoveredAtHold[1], "the screen after the click").toBe(true);
+    // On the picture: the button's border darkens when hovered (a native
+    // button, 39 levels), so the screen after differs from the opening.
+    const [before, after] = [r.luma[0]?.hoverbtn, r.luma[1]?.hoverbtn];
+    expect(before?.length, "premise: the button was read").toBeGreaterThan(0);
+    let most = 0;
+    for (let i = 0; i < (before?.length ?? 0); i++)
+      most = Math.max(most, Math.abs((before?.[i] ?? 0) - (after?.[i] ?? 0)));
+    expect(most, JSON.stringify(r.screens)).toBeGreaterThanOrEqual(20);
   });
 });
 

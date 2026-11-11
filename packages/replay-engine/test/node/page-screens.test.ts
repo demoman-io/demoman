@@ -2,6 +2,7 @@ import { madeFromOf } from "@demoman/compositor";
 import { describe, expect, it, vi } from "vitest";
 import type { EngineDeps, PageAgent } from "../../src/index.js";
 import {
+  createInputGate,
   PAGE_CAPTURE_HOLD,
   PAGE_CAPTURE_RELEASE,
   runReplay,
@@ -519,8 +520,11 @@ describe("a step's page screen, when something fails", () => {
     // The premise: a still really was asked for and never answered.
     expect(hung, evidence).toBe(true);
     expect(result.reason, evidence).toBe("occlusionTimeout");
+    // The pointer's move before the settle waits on the same line, and
+    // gives up on it the same way rather than wait forever.
+    const stuck = `a still ahead of it was still being taken after ${STILL_DRAIN_MS / 1000} s; the page had most likely stopped painting`;
     expect(screens[1]?.unsettled, evidence).toBe(
-      `the page screen could not be taken (a still ahead of it was still being taken after ${STILL_DRAIN_MS / 1000} s; the page had most likely stopped painting)`,
+      `the pointer's hover could not be renewed (${stuck}); the page screen could not be taken (${stuck})`,
     );
   }, 5000);
 });
@@ -647,5 +651,113 @@ describe("frames a page screen keeps out of the film", () => {
     ).toBeGreaterThanOrEqual(3);
     expect(pushed, pushed.join(",")).not.toContain("1280x800");
     expect(pushed, pushed.join(",")).not.toContain("2400x1500");
+  });
+});
+
+/**
+ * Before each step's settle the pointer's move is sent again where it rests,
+ * so the screen's hover is the pointer's (Chrome can lose it to a hover
+ * recomputed while a still was in flight; the integration lane's "a layout
+ * change as a still is taken" shows that against Chromium). Here: where and
+ * when it goes, through what, and what it leaves out of the take.
+ */
+describe("the pointer's move before each step's settle", () => {
+  /** Input calls and settle probes in order, each input marked with
+   *  whether it went out inside a gate section. */
+  function watch(d: ReturnType<typeof deps>) {
+    const inner = createInputGate();
+    let inSection = 0;
+    d.inputGate = {
+      section: (input) =>
+        inner.section(async () => {
+          inSection++;
+          try {
+            return await input();
+          } finally {
+            inSection--;
+          }
+        }),
+      capture: (take) => inner.capture(take),
+    };
+    const seen: { what: string; x?: unknown; y?: unknown; gated?: boolean }[] =
+      [];
+    const send = d.cdp.send.bind(d.cdp);
+    d.cdp.send = async (method, params = {}) => {
+      if (method === "Input.dispatchMouseEvent")
+        seen.push({
+          what: String(params.type),
+          x: params.x,
+          y: params.y,
+          gated: inSection > 0,
+        });
+      if (String(params.expression ?? "").includes(STEP_SETTLE_MARKER))
+        seen.push({ what: "settle" });
+      return send(method, params);
+    };
+    return seen;
+  }
+
+  // Red without the move: the input before each step's settle is the
+  // click's release, not a move.
+  it("sends it at the click's point, through the gate, before each step's settle and not the opening's", async () => {
+    const d = deps();
+    const seen = watch(d);
+    const { result, evidence } = await screensOf(d);
+    const settles = seen.flatMap((s, i) => (s.what === "settle" ? [i] : []));
+    // The premise: the opening and both clicks were settled.
+    expect(settles, evidence).toHaveLength(3);
+    // The opening: no pointer had been placed, so nothing was sent.
+    expect(seen.slice(0, settles[0]), JSON.stringify(seen)).toEqual([]);
+    for (const i of settles.slice(1)) {
+      const before = seen.slice(0, i).filter((s) => s.what !== "settle");
+      const [release, move] = before.slice(-2);
+      expect(release?.what, JSON.stringify(seen)).toBe("mouseReleased");
+      expect(move, JSON.stringify(seen)).toEqual({
+        what: "mouseMoved",
+        x: release?.x,
+        y: release?.y,
+        gated: true,
+      });
+    }
+    // No cursor sample for it: the drawn cursor did not move. Every other
+    // move the walk sent is one.
+    const moves = seen.filter((s) => s.what === "mouseMoved").length;
+    expect(result.bundle?.cursorSamples, evidence).toHaveLength(moves - 2);
+    const release = seen.filter((s) => s.what === "mouseReleased").at(-1);
+    expect(result.bundle?.cursorSamples.at(-1), evidence).toMatchObject({
+      x: release?.x,
+      y: release?.y,
+    });
+  });
+
+  // Red if the refusal is swallowed: the screen would read settled with a
+  // hover that may be stale.
+  it("says a move the browser refused as the machine's, and still settles and captures", async () => {
+    const d = deps();
+    let last = "";
+    intercept(
+      d,
+      (m, p) => {
+        const resent =
+          m === "Input.dispatchMouseEvent" &&
+          p.type === "mouseMoved" &&
+          last === "mouseReleased";
+        if (m === "Input.dispatchMouseEvent") last = String(p.type);
+        return resent;
+      },
+      async () => {
+        throw new Error("Input domain refused");
+      },
+    );
+    const { screens, said, evidence } = await screensOf(d);
+    expect(screens[0]?.unsettled, evidence).toBeUndefined();
+    for (const s of screens.slice(1)) {
+      expect(s.unsettled, evidence).toBe(
+        "the pointer's hover could not be renewed (Input domain refused)",
+      );
+      expect(s.ref, evidence).not.toBe("");
+    }
+    expect(said, evidence).toHaveLength(2);
+    expect(kinds(said), evidence).toEqual(["stepSettleFailed"]);
   });
 });

@@ -1331,6 +1331,23 @@ export async function runWalk(
    * same bound (`screening`): one that never answers is a screen not taken,
    * said in the deadline's words, and the hold is still put back.
    */
+  /** Whether the still line empties within `STILL_DRAIN_MS`: what waits
+   *  on it (a page screen, the pointer's move before a settle) would
+   *  otherwise wait forever behind a still of a page that stopped painting. */
+  const stillLineFree = async (): Promise<boolean> => {
+    let free = stillsWaiting === 0;
+    if (!free) {
+      await Promise.race([
+        shooting.then(() => {
+          free = true;
+        }),
+        clock.sleep(STILL_DRAIN_MS),
+      ]);
+    }
+    return free;
+  };
+  const STILL_LINE_STUCK = `a still ahead of it was still being taken after ${STILL_DRAIN_MS / 1000} s; the page had most likely stopped painting`;
+
   const capturePage = async (): Promise<{
     taken: {
       bytes: Uint8Array;
@@ -1341,20 +1358,7 @@ export async function runWalk(
     failure: unknown;
     releaseFailed: string | null;
   }> => {
-    let free = stillsWaiting === 0;
-    if (!free) {
-      await Promise.race([
-        shooting.then(() => {
-          free = true;
-        }),
-        clock.sleep(STILL_DRAIN_MS),
-      ]);
-    }
-    if (!free) {
-      throw new Error(
-        `a still ahead of it was still being taken after ${STILL_DRAIN_MS / 1000} s; the page had most likely stopped painting`,
-      );
-    }
+    if (!(await stillLineFree())) throw new Error(STILL_LINE_STUCK);
     const run = shooting.then(() =>
       gate.capture(async () => {
         let taken: {
@@ -1441,10 +1445,40 @@ export async function runWalk(
   ): Promise<void> => {
     const from = at();
     const openedAfter = from - STEP_REQUEST_CAP_MS;
-    const unsettled = await settleWords(
-      from + STEP_REQUEST_CAP_MS,
-      openedAfter,
-    );
+    // The pointer's move again, where it already rests, so the hover the
+    // screen shows is the pointer's and is settled in the quiet window
+    // below. Chrome recomputes hover after a layout change, and one that
+    // lands while a still is in flight hit-tests at the display's scale,
+    // not the emulated one (see `input-gate.ts`): measured 2026-11-11, a
+    // click that added an element and a 3x still taken straight after left
+    // the button unhovered 10 of 10 times, and this move put it back 10 of
+    // 10. No cursor sample: the drawn cursor has not moved. Nothing before
+    // the pointer is first placed (the opening), which hovers nothing.
+    const moved: Unmet[] = [];
+    if (cursorSamples.length > 0) {
+      try {
+        // A section waits for any still in flight, and one of a page that
+        // stopped painting never ends.
+        if (!(await stillLineFree())) throw new Error(STILL_LINE_STUCK);
+        await gate.section(() =>
+          cdp.send("Input.dispatchMouseEvent", {
+            type: "mouseMoved",
+            x: cursor.x,
+            y: cursor.y,
+          }),
+        );
+      } catch (error) {
+        moved.push(
+          machineMade(
+            `the pointer's hover could not be renewed (${describeSettleError(error)})`,
+          ),
+        );
+      }
+    }
+    const unsettled = [
+      ...moved,
+      ...(await settleWords(from + STEP_REQUEST_CAP_MS, openedAfter)),
+    ];
     const waitedMs = Math.max(0, at() - from);
     const leftOut =
       tracker === null ? 0 : tracker.inFlight() - tracker.inFlight(openedAfter);

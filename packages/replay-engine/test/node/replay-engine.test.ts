@@ -3158,17 +3158,16 @@ describe("review of 2026-10-03: continuous pacing and its pauses", () => {
       }));
       const send = d.cdp.send.bind(d.cdp);
       let clicked = false;
+      let movesAfterClick = 0;
       let painted = false;
       d.cdp.send = async (method, params) => {
         if (method === "Input.dispatchMouseEvent") {
           if (params?.type === "mouseReleased") clicked = true;
-          // The moveTo's path arrives: the page reacts to the pointer.
-          else if (
-            paint &&
-            params?.type === "mouseMoved" &&
-            clicked &&
-            !painted
-          ) {
+          else if (params?.type === "mouseMoved" && clicked) movesAfterClick++;
+          // The moveTo's path arrives: the page reacts to the pointer. Its
+          // second move after the click: the first is the click's own, sent
+          // again where it rests before the click's settle.
+          if (paint && movesAfterClick === 2 && !painted) {
             painted = true;
             for (let i = 0; i < 3; i++) {
               d.cdp.emit("Page.screencastFrame", frame(700 + i));
