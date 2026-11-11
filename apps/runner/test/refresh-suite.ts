@@ -189,12 +189,15 @@ const STREAM_WORDS =
     " ",
   );
 const STREAM_FIRST_MS = 500;
+/** The answer's box at 1280x800, wider than the sentence by a margin no
+ *  platform's glyph widths eat (`stream` asserts 20 px are left over). */
+const ANSWER = { x: 340, y: 748, width: 880, height: 32 };
 const STREAM_MS = 1500;
 /** How long each stream the server sent took, in ms. */
 const streamed: number[] = [];
 const STREAM = withExtra(
   "",
-  `<button type="button" id="ask" style="${FOOT} left: 260px; width: 60px">Ask</button><div id="answer" style="${FOOT} left: 340px; width: 640px; line-height: 32px; white-space: nowrap; overflow: hidden"></div>`,
+  `<button type="button" id="ask" style="${FOOT} left: 260px; width: 60px">Ask</button><div id="answer" style="${FOOT} left: ${ANSWER.x}px; width: ${ANSWER.width}px; line-height: 32px; white-space: nowrap; overflow: hidden"></div>`,
   `document.getElementById("ask").onclick = async () => {
     const reader = (await fetch("${STREAM_PATH}")).body.getReader();
     const text = new TextDecoder();
@@ -240,11 +243,11 @@ const DEBOUNCE = withExtra(
     }, ${DEBOUNCE_MS});
   });`,
 );
-/** A count that ticks every 50 ms, shorter than the beat: the DOM never
- *  goes quiet once it starts. */
+/** A count that ticks every `TICK_MS`, shorter than the beat: the DOM
+ *  never goes quiet once it starts. */
 const TICKS = `<span id="ticks" style="${FOOT} left: 260px; width: 80px; line-height: 32px"></span>`;
-const TICK =
-  'setInterval(() => { const t = document.getElementById("ticks"); t.textContent = String(Number(t.textContent) + 1); }, 50);';
+const TICK_MS = 50;
+const TICK = `setInterval(() => { const t = document.getElementById("ticks"); t.textContent = String(Number(t.textContent) + 1); }, ${TICK_MS});`;
 const NEVER_AFTER_CLICK = withExtra(
   "",
   TICKS,
@@ -491,7 +494,7 @@ const exported: {
   screens: unknown;
   wallpaper: "leftOut" | "soft" | null;
   /** A page screens export's images, copied before refresh removes them:
-   *  each video's screens, the new one's included. Null for a film. */
+   *  each video's screens, the new one's included. Null for a video export. */
   dir: string | null;
 }[] = [];
 /** The copies in `exported`, removed when the file ends. */
@@ -701,15 +704,17 @@ const it = (name: string, body: () => unknown, ms?: number) =>
  *  gets a repo, an app and a browser of its own (vitest isolates modules per
  *  file), so the parts a file names read only what that file filmed.
  *
- *  Split four ways on 2026-11-01: as one file the lane ran 3012 s on CI, the
- *  whole of its shard's 3014 s, and a file is the smallest unit vitest can
- *  hand to another machine. */
+ *  Split four ways on 2026-11-01 (six files now, each a job of CI's refresh
+ *  matrix): as one file the lane ran 3012 s on CI, the whole of its shard's
+ *  3014 s, and a file is the smallest unit vitest can hand to another
+ *  machine. */
 export function refreshSuite(...parts: (() => void)[]): void {
   beforeAll(async () => {
     server = createServer((req, res) => {
       if (req.url === STREAM_PATH) {
-        // The first word after a pause longer than the beat, the rest at
-        // once a beat's half apart: only the request says it is not done.
+        // The first word after a pause longer than the beat, the rest
+        // evenly over what is left of `STREAM_MS` (both asserted in
+        // `stream`): in the pause only the request says it is not done.
         const from = performance.now();
         res.writeHead(200, { "content-type": "text/plain" });
         STREAM_WORDS.forEach((word, i) => {
@@ -2313,7 +2318,9 @@ export const caret = () => {
     "a focused field with a blinking caret reads unchanged (DEM-139)",
     async () => {
       // The premise: a capture without the caret style differs between the
-      // two pages, and only inside the field (the caret).
+      // two pages, and only inside the field (the caret). A work page's
+      // capture, not the video's: it shows the forcing works, not that a
+      // video's capture would catch the caret in its drawn phase.
       const shot = (page: string) =>
         inPage(page, () => {
           (document.getElementById("search") as HTMLInputElement).focus();
@@ -2453,7 +2460,12 @@ export const stream = () => {
   it(
     "the screen after a streamed answer is the finished answer, unchanged",
     async () => {
+      // The premise: a pause longer than the beat before the first word,
+      // and the words after it inside the beat.
       expect(STREAM_FIRST_MS).toBeGreaterThan(STEP_QUIET_MS);
+      expect(
+        (STREAM_MS - STREAM_FIRST_MS) / (STREAM_WORDS.length - 1),
+      ).toBeLessThan(STEP_QUIET_MS);
       const full = STREAM_WORDS.join(" ");
       const text = await inPage(
         STREAM.replace(
@@ -2467,6 +2479,12 @@ export const stream = () => {
           return { x: r.x, y: r.y, width: r.width, height: r.height };
         },
       );
+      // The premise: the whole answer fits its box on this platform's
+      // fonts, so where the ink ends is where the answer ends.
+      expect(
+        text.x + text.width,
+        `the answer spans ${JSON.stringify(text)} in a box ending at ${ANSWER.x + ANSWER.width}`,
+      ).toBeLessThan(ANSWER.x + ANSWER.width - 20);
       const from = streamed.length;
       const videos = await recordOn(
         own("Stream", [{ do: "click", on: { text: "Ask" } }]),
@@ -2483,17 +2501,16 @@ export const stream = () => {
       for (const ms of took) expect(ms).toBeGreaterThanOrEqual(STREAM_MS - 5);
       for (const v of videos) {
         const after = v.screens.find((s) => s.after === 2);
+        // The picture: the ink ends where the whole answer ends.
+        const right = await inkRight(await finalScreen(v), ANSWER);
+        expect(
+          Math.abs(ANSWER.x + right + 1 - (text.x + text.width)),
+          `ink ends at ${ANSWER.x + right + 1}; the whole answer at ${text.x + text.width}; ${JSON.stringify(v.screens)}`,
+        ).toBeLessThanOrEqual(3);
         expect(after?.unsettled, JSON.stringify(v.screens)).toBeUndefined();
         expect(after?.waitedMs, JSON.stringify(v.screens)).toBeGreaterThan(
-          STREAM_MS - 300,
+          STREAM_FIRST_MS,
         );
-        // The picture: the ink ends where the whole answer ends.
-        const row = { x: 340, y: 748, width: 640, height: 32 };
-        const right = await inkRight(await finalScreen(v), row);
-        expect(
-          Math.abs(row.x + right + 1 - (text.x + text.width)),
-          `ink ends at ${row.x + right + 1}; the whole answer at ${text.x + text.width}`,
-        ).toBeLessThanOrEqual(3);
       }
     },
     BOTH_MS,
@@ -2527,6 +2544,7 @@ export const toast = () => {
       const two = videos[1] as Video;
       noiseLine("toast", two.v.detail);
       expect(two.v.outcome, two.v.detail).toBe("unchanged");
+      expect(two.v.detail).toMatch(/over 3 of 3 screens$/);
       for (const v of videos) {
         // Both ends of the toast at rest, in its padding.
         const y = TOAST_REST.y + TOAST_REST.height / 2;
@@ -2581,7 +2599,9 @@ export const debounce = () => {
       expect(two.v.outcome, two.v.detail).toBe("unchanged");
       expect(two.v.detail).toMatch(/over 3 of 3 screens$/);
       // The picture: in each video the final screen has lost nine rows
-      // against the opening (typing alone changes a few hundred pixels).
+      // against the opening. The typed word alone changed 3,106 when the
+      // screen was taken before the filter (measured 2026-11-11, the beat at
+      // 100 ms).
       for (const v of videos) {
         const d = await differing(
           await readFile(join(v.dir, screenImageName(0))),
@@ -2618,8 +2638,7 @@ export const neverSettles = () => {
         ).toEqual([true, true, false]);
       // The premise: the count ticks inside the beat, and an unsettled
       // screen's image is never written, so nothing of it can be read.
-      expect(TICK).toContain("}, 50);");
-      expect(50).toBeLessThan(STEP_QUIET_MS);
+      expect(TICK_MS).toBeLessThan(STEP_QUIET_MS);
       for (const v of videos)
         expect((await readdir(v.dir)).sort()).toEqual(
           [screenImageName(0), screenImageName(1)].sort(),

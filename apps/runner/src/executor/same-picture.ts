@@ -33,10 +33,12 @@ type Look = { name: string; block: number; levels: number; allowed: number };
  * gave the same shares both times:
  *
  *   share of the picture changed         sharply (allowed 0.0008%)   faintly (allowed 0.017%)
- *   unchanged: order, reports, slower,      0.0000%                  0.0000%
- *     GIF alone, short ending, caret,
- *     hover, spinner, stream, toast,
- *     debounce, never settles
+ *   unchanged, 14 readings: order and       0.0000%                  0.0000%
+ *     reports, each again slower; GIF
+ *     alone, and slower; short ending,
+ *     slower; caret, hover, spinner,
+ *     stream, toast, debounce, never
+ *     settles
  *   a digit beside a spinner, 3 to 4         0.0020% (2.5x over)      -
  *   one digit, $1,200.00 to $1,207.00        0.0047% (5.9x over)      -
  *   small grey text, 14:11 to 05:00          0.0070% (8.8x over)      -

@@ -164,7 +164,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [unchanged, restyle, replace, own, dates]
+        part: [unchanged, restyle, replace, own, dates, settle]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
