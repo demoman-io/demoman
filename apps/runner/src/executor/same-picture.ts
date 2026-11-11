@@ -30,27 +30,27 @@ type Look = { name: string; block: number; levels: number; allowed: number };
  * was a 2-pixel block at 60 levels until PR #67's CI: on ubuntu, 12px
  * #9ca3af text drew its strokes too light for a 2x2 mean to move 60, and
  * the DEM-138 case read 0.0003% there (0.0070% on macOS). Per pixel at 40
- * levels, macOS, 2026-11-11:
+ * levels, 2026-11-11, on macOS and on ubuntu with the GPU off (PR #67 CI):
  *
- *   share of the picture changed         sharply (allowed 0.0008%)   faintly (allowed 0.017%)
- *   unchanged, 14 readings: order and       0.0000%                  0.0000%
- *     reports, each again slower; GIF
- *     alone, and slower; short ending,
+ *   share changed, sharply (0.0008% allowed)    macOS            ubuntu
+ *   unchanged, 14 readings (faintly 0 too):     0.0000%          0.0000%
+ *     order and reports, each again slower;
+ *     GIF alone, and slower; short ending,
  *     slower; caret, hover, spinner,
  *     stream, toast, debounce, never
  *     settles
- *   one digit, $1,200.00 to $1,207.00        0.0050% (6.2x over)      -
- *   a digit beside a spinner, 3 to 4         0.0055% (6.9x over)      -
- *   small grey text, 14:11 to 05:00          0.0364% (45x over)       -
- *   nav text gray-700 to gray-500            0.0527% (66x over)       -
- *   a button blue to a green as light        0.65-0.70%               -
- *   a dark panel #111827 to #7f1d1d          25.41%                   -
+ *   one digit, $1,200.00 to $1,207.00           0.0050% (6.2x)   0.0068% (8.5x)
+ *   a digit beside a spinner, 3 to 4            0.0055% (6.9x)   0.0028% (3.5x)
+ *   small grey text, 14:11 to 05:00             0.0364% (45x)    0.0160% (20x)
+ *   nav text gray-700 to gray-500               0.0527% (66x)    0.1051% (131x)
+ *   a button blue to a green as light           0.65-0.70%       0.6492%
+ *   a dark panel #111827 to #7f1d1d             25.41%           25.43%
  *
- * CI's numbers (ubuntu, the GPU off) come from the branch's pull request,
- * and an unchanged case above 0 there stops it.
+ * Each changed case is counted by sharply first, so faintly reads none of
+ * them here. An unchanged case above 0 on either machine stops a change.
  *
- * A "-" is a look the case did not reach: the detail line names the first
- * look that counts it changed. Still not seen: a pixel moving under 40
+ * The detail line names the first look that counts a change, so it may
+ * read "faintly". Still not seen: a pixel moving under 40
  * levels or a shade under 13 over a block of 8, and anything on a screen
  * that never settled, which is named and skipped, never compared.
  */
