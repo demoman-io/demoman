@@ -666,7 +666,20 @@ describe("help", () => {
       "0.2.0-rc.1",
     ])
       expect(labels, v).toContain(v);
-    expect(log.split(/\s+/).length).toBeLessThanOrEqual(1200);
+    // Each entry is a summary; the page as a whole grows with every release
+    // and past entries keep the words they shipped with.
+    const entries = [
+      ...log.matchAll(/<Update label="([^"]+)"[^>]*>([\s\S]*?)<\/Update>/g),
+    ];
+    // Premise: every label opens an entry the pattern read whole.
+    expect(entries.map((m) => m[1])).toEqual(labels);
+    for (const [, label, body] of entries) {
+      const bullets = body.match(/^\s*- /gm)?.length ?? 0;
+      const words = body.split(/\s+/).filter(Boolean).length;
+      expect(bullets, `${label}: ${bullets} bullets`).toBeGreaterThanOrEqual(1);
+      expect(bullets, `${label}: ${bullets} bullets`).toBeLessThanOrEqual(5);
+      expect(words, `${label}: ${words} words`).toBeLessThanOrEqual(130);
+    }
   });
   it("privacy links out to demoman.io/privacy", () => {
     expect(readDocs("security/privacy.mdx")).toContain(

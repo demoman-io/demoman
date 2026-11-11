@@ -62,4 +62,4 @@ and `scripts/docs-demoscript.test.mjs` are its tests. The design is
 | Studio pages | `npx demoman studio`, the Studio's own labels |
 | Data | `internal/docs/disclosure-cli.md` |
 | License | FSL-1.1-ALv2 |
-| Changelog | User-facing changes per release, three to five bullets |
+| Changelog | User-facing changes per release: three to five bullets, 130 words at most. Past entries are never cut |
