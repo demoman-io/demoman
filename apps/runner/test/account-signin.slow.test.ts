@@ -274,7 +274,9 @@ describe("signInAccount", () => {
     const t0 = Date.now();
     const r = await signInAccount(chosen(steps("/login-spa")), d);
     expect(r.ok, JSON.stringify(r)).toBe(true);
-    expect(Date.now() - t0).toBeLessThan(6000);
+    // The log says which 10 s wait ran out: CI's macOS runner took 12 s here
+    // (2026-11-11) where this Mac takes 2.
+    expect(Date.now() - t0, logs.join("\n")).toBeLessThan(6000);
     expect(logs.join("\n")).not.toContain("no page navigation followed");
   }, 30_000);
 
