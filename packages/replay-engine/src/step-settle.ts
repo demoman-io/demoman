@@ -176,3 +176,38 @@ export const PAGE_CAPTURE_RELEASE = `(() => {
   window.__demomanHeld = [];
   return held.length;
 })()`;
+
+/**
+ * How long after a page capture a frame of another size than the page had
+ * before it is still the capture's stray. Measured 2026-11-10 at display
+ * scale 2: Chrome's one 1x frame arrived within two frames (about 33 ms) of
+ * the capture returning; the rest is room for a loaded machine.
+ */
+export const STRAY_WINDOW_MS = 250;
+
+/** A page capture, on the walk's clock: when the hold began and ended (null
+ *  while it holds), and the frame size seen before it (null when none was). */
+export interface CaptureWindow {
+  fromMs: number;
+  toMs: number | null;
+  size: string | null;
+}
+
+/**
+ * Whether a screencast frame painted at `paintedMs` stays out of the film
+ * because of a page capture: painted while the capture held the page (caret
+ * hidden, spinners held), whenever it arrives; or painted within
+ * `STRAY_WINDOW_MS` after it at another size than the page had before it,
+ * whatever came between. `size` is read only in that window: it decodes.
+ */
+export function capturedAway(
+  paintedMs: number,
+  size: () => string | null,
+  capture: CaptureWindow | null,
+): boolean {
+  if (capture === null || paintedMs < capture.fromMs) return false;
+  if (capture.toMs === null || paintedMs <= capture.toMs) return true;
+  if (capture.size === null || paintedMs > capture.toMs + STRAY_WINDOW_MS)
+    return false;
+  return size() !== capture.size;
+}

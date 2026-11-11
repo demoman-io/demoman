@@ -109,6 +109,8 @@ import {
 import { type SettleReport, settlePaintExpression } from "./settle.js";
 import { degradation } from "./span.js";
 import {
+  type CaptureWindow,
+  capturedAway,
   PAGE_CAPTURE_HOLD,
   PAGE_CAPTURE_RELEASE,
   type StepSettleReport,
@@ -1166,15 +1168,18 @@ export async function runWalk(
    * 2026-11-10 at display scale 2: one 1280x800 frame among 2560x1600 ones,
    * arriving within two frames after the capture returned, and a span that
    * opened on it recorded its whole stretch at 1x (the runner's "records the
-   * display scale" case). So frames are dropped from HOLD to RELEASE, and
-   * then until one of the size seen before the capture arrives, at most
-   * `STRAY_FRAMES` of them.
+   * display scale" case). So a frame is judged by when it was painted
+   * (`capturedAway`): dropped if painted from HOLD to RELEASE, however late
+   * it arrives, and if painted just after at another size than before the
+   * capture, whatever arrived between.
+   *
+   * When it was painted is the frame's own `metadata.timestamp`: wall-clock
+   * seconds, measured 2026-11-11 on Chrome 151 at 2-4 ms before the frame
+   * arrives, on the same clock as the runner's (`Date.now()`, launch.ts). A
+   * frame without one is placed at its arrival.
    */
-  const STRAY_FRAMES = 3;
   const pageFrames = (() => {
-    let holding = false;
-    let back: string | null = null;
-    let strays = 0;
+    let capture: CaptureWindow | null = null;
     const sizeOf = (data: string): string | null => {
       try {
         const { width, height } = jpegSize(decodeBase64(data));
@@ -1192,22 +1197,17 @@ export async function runWalk(
         latest = data;
       },
       hold(): void {
-        holding = true;
-        back = latest === null ? null : sizeOf(latest);
+        capture = {
+          fromMs: clock.now(),
+          toMs: null,
+          size: latest === null ? null : sizeOf(latest),
+        };
       },
       release(): void {
-        holding = false;
-        strays = back === null ? 0 : STRAY_FRAMES;
+        if (capture !== null) capture.toMs = clock.now();
       },
-      dropping(data: string): boolean {
-        if (holding) return true;
-        if (strays === 0) return false;
-        if (sizeOf(data) === back) {
-          strays = 0;
-          return false;
-        }
-        strays--;
-        return true;
+      dropping(data: string, paintedMs: number): boolean {
+        return capturedAway(paintedMs, () => sizeOf(data), capture);
       },
     };
   })();
@@ -1560,9 +1560,13 @@ export async function runWalk(
       pageFrames.seen(data);
       return;
     }
-    if (pageFrames.dropping(data)) return;
+    const arrived = clock.now();
+    const stamp = (params.metadata as { timestamp?: unknown } | undefined)
+      ?.timestamp;
+    const painted = typeof stamp === "number" ? stamp * 1000 : arrived;
+    if (pageFrames.dropping(data, painted)) return;
     pageFrames.seen(data);
-    const seen = { data: String(params.data ?? ""), atMs: at() };
+    const seen = { data: String(params.data ?? ""), atMs: arrived - started };
     priorFrame = newestFrame;
     newestFrame = seen;
     for (const waiter of frameWaiters.splice(0)) waiter(seen);

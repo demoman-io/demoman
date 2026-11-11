@@ -567,4 +567,77 @@ describe("frames a page screen keeps out of the film", () => {
     ).toBeGreaterThan(0);
     expect(pushed, pushed.join(",")).not.toContain("1280x800");
   });
+
+  // Red when the stray check stops at the first frame of the normal size, or
+  // judges by arrival: Chrome's 1x frame arriving second was kept, and so was
+  // a frame painted while the hold had the caret hidden that arrived after
+  // the release (close review 3).
+  it("drops a stray arriving second, and a frame painted in the hold arriving after it", async () => {
+    const d = deps();
+    const HI = fakeScreenshotBase64(2560, 1600);
+    const LO = fakeScreenshotBase64(1280, 800);
+    // Its own size, so it can be found among the pushed frames; it arrives
+    // after a frame of the normal size, so only when it was painted can
+    // drop it.
+    const HELD = fakeScreenshotBase64(2400, 1500);
+    let holdAt = -1;
+    let releases = 0;
+    let burstDue = false;
+    let burst = 0;
+    const send = d.cdp.send.bind(d.cdp);
+    const frame = (sessionId: number, data: string, paintedMs: number) =>
+      d.cdp.emit("Page.screencastFrame", {
+        sessionId,
+        data,
+        metadata: { timestamp: paintedMs / 1000 },
+      });
+    d.cdp.send = async (method, params = {}) => {
+      if (
+        method === "Runtime.evaluate" &&
+        String(params.expression).includes("__demomanSettlePaint")
+      ) {
+        d.cdp.emit("Page.screencastFrame", { sessionId: 1, data: HI });
+      }
+      if (
+        method === "Runtime.evaluate" &&
+        params.expression === PAGE_CAPTURE_HOLD &&
+        holdAt < 0
+      ) {
+        holdAt = d.clock.now();
+      }
+      if (burstDue && method !== "Page.screencastFrameAck") {
+        burstDue = false;
+        burst++;
+        const after = d.clock.now();
+        frame(2, HI, after);
+        frame(3, HELD, holdAt);
+        frame(4, LO, after + 1);
+        frame(5, HI, after + 2);
+        frame(6, HI, after + 3);
+      }
+      const reply = await send(method, params);
+      if (
+        method === "Runtime.evaluate" &&
+        params.expression === PAGE_CAPTURE_RELEASE &&
+        ++releases === 1
+      ) {
+        burstDue = true;
+      }
+      return reply;
+    };
+    await runReplay(scene(), d);
+    const pushed = vi
+      .mocked(d.encoder.push)
+      .mock.calls.map(([f]) => `${f.width}x${f.height}`);
+    // The premises: the burst was sent, and its frames after the hold were
+    // kept.
+    expect(burst).toBe(1);
+    expect(holdAt).toBeGreaterThan(0);
+    expect(
+      pushed.filter((s) => s === "2560x1600").length,
+      pushed.join(","),
+    ).toBeGreaterThanOrEqual(3);
+    expect(pushed, pushed.join(",")).not.toContain("1280x800");
+    expect(pushed, pushed.join(",")).not.toContain("2400x1500");
+  });
 });
