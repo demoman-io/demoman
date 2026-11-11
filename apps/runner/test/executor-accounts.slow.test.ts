@@ -1,4 +1,4 @@
-// apps/runner/test/executor-accounts.test.ts
+// apps/runner/test/executor-accounts.slow.test.ts
 //
 // Launch C2, task 6: the CLI executor signs in as the script's account on
 // demand, and nothing it sends or writes carries a secret value.

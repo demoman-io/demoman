@@ -22,7 +22,7 @@ import type { LocalExecutor } from "../src/executor/types.js";
 import { ownVideo, serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
-// Measured as executor-export.test.ts measures its own (x5 for CI): a run
+// Measured as executor-export.slow.test.ts measures its own (x5 for CI): a run
 // of the fixture app with two clicks, and a 16:9 export capped at 1080p.
 const RUN_MS = 60_000;
 const EXPORT_MS = 150_000;

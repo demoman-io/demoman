@@ -13,7 +13,7 @@ const { applyPalette, GIFEncoder, quantize } = (typeof ns.GIFEncoder ===
   : (ns.default ?? ns)) as unknown as typeof gifencModule;
 
 // Red if sampleImage reads only the first frame, or reads a frame's colours
-// wrong: the GIF and stills tests in executor-export-filetypes.test.ts rest
+// wrong: the GIF and stills tests in executor-export-filetypes.slow.test.ts rest
 // on it.
 describe("sampleImage", () => {
   it("reads every frame of a gif, each with its own colour", async () => {

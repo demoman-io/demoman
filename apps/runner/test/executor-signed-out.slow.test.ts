@@ -1,4 +1,4 @@
-// apps/runner/test/executor-signed-out.test.ts
+// apps/runner/test/executor-signed-out.slow.test.ts
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

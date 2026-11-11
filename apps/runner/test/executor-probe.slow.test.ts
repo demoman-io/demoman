@@ -1,4 +1,4 @@
-// apps/runner/test/executor-probe.test.ts
+// apps/runner/test/executor-probe.slow.test.ts
 //
 // The executor's `probe` op: its turn in the slot, its sign-in on demand,
 // and the next call starting from the saved sessions, not from what the

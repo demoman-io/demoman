@@ -1,4 +1,4 @@
-// apps/runner/test/executor-run.test.ts
+// apps/runner/test/executor-run.slow.test.ts
 import { access, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

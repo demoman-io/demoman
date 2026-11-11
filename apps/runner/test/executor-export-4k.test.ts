@@ -10,7 +10,7 @@ import { sampleMp4 } from "./mp4-probe.js";
 
 /**
  * The one end-to-end proof that a CLI export takes the 4K tier from the
- * keyframes. `executor-export.test.ts` caps its executor at 1080p
+ * keyframes. `executor-export.slow.test.ts` caps its executor at 1080p
  * (`mp4MaxTier`) to render landscape in software at a quarter of the
  * pixels; this executor sets no cap, as production never does.
  *

@@ -9,7 +9,7 @@ import { makeFixtureTake, serveFixtureApp, WALLPAPERS_DIR } from "./fixture.js";
 import { sampleMp4 } from "./mp4-probe.js";
 
 /**
- * Auto at the uncapped tier, encoded for real. `executor-export.test.ts`
+ * Auto at the uncapped tier, encoded for real. `executor-export.slow.test.ts`
  * caps its executor at 1080p, and executor-export-4k.test.ts proves
  * 16:9 at 3840x2160; Auto is the recording's shape plus an even margin, so
  * its 4K frame is taller than 16:9 and sits near the H.264 level 5.2 limit

@@ -1,6 +1,6 @@
 // apps/runner/test/accounts-harness.ts
 //
-// What executor-accounts.test.ts and executor-accounts-env.test.ts share:
+// What executor-accounts.slow.test.ts and executor-accounts-env.slow.test.ts share:
 // one login app per file, a fresh home, repo and executor per case, and the
 // script and accounts helpers. Split from one file on 2026-10-17 so the two
 // halves run in parallel (together they were 132 s, the fast tier's longest

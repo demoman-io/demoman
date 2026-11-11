@@ -16,7 +16,7 @@ import { createLibrary } from "../src/executor/library.js";
 import type { LocalExecutor } from "../src/executor/types.js";
 import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 
-// Measured as executor-export.test.ts measures its own (2026-10-12, x5 for
+// Measured as executor-export.slow.test.ts measures its own (2026-10-12, x5 for
 // CI): a run of a three-click take and one 9:16 export at 1080x1920.
 const RUN_MS = 60_000;
 const VERTICAL_EXPORT_MS = 120_000;

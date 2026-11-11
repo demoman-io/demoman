@@ -2,7 +2,7 @@
  * `runPipeline`'s own wiring and branching, unit-tested against fakes for
  * `launch`, `replayPhase`, `muxSpans` and `renderPhase` — every one of
  * which already has its own real-browser coverage elsewhere
- * (`launch.test.ts`, `replay.test.ts`, `mux.test.ts`, `render.slow.test.ts`).
+ * (`launch.test.ts`, `replay.slow.test.ts`, `mux.test.ts`, `render.slow.test.ts`).
  * What THIS file is the only place to prove is the ORDER those pieces run
  * in and what each branch reports — `pipeline.ts` imports them directly
  * rather than accepting them as ports, so `vi.mock` on the local modules is

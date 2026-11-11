@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 /** A file at or over this, not named `*.slow.test.ts`, is listed as one
  *  the fast tier probably should skip. */
-export const UNMARKED_SLOW_MS = 90_000;
+export const UNMARKED_SLOW_MS = 30_000;
 
 const TOP = 25;
 

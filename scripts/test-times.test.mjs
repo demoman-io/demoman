@@ -41,12 +41,13 @@ test("drops and counts a file that no longer exists", () => {
   );
 });
 
-test("flags a 120 s file not marked slow, and not one that is", () => {
+test("flags a file of 30 s or more not marked slow, and not one that is", () => {
   const out = summarize(
     [
       cache("apps/runner", [
         ["runner:test/heavy.test.ts", { duration: 120_000 }],
         ["runner:test/heavy.slow.test.ts", { duration: 120_000 }],
+        ["runner:test/mid.test.ts", { duration: 40_000 }],
         ["runner:test/light.test.ts", { duration: 5_000 }],
       ]),
     ],
@@ -54,7 +55,7 @@ test("flags a 120 s file not marked slow, and not one that is", () => {
   );
   assert.deepEqual(
     out.unmarked.map((t) => t.file),
-    ["test/heavy.test.ts"],
+    ["test/heavy.test.ts", "test/mid.test.ts"],
   );
   assert.equal(out.top.find((t) => t.file.includes(".slow."))?.slow, true);
 });
