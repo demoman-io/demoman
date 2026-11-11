@@ -20,17 +20,17 @@ type Look = { name: string; block: number; levels: number; allowed: number };
  * The two ways a screen is looked at, each with the share of the picture it
  * may count changed before the picture has. Each pixel's colour is averaged
  * over a block around it in both images (`blockMoves`); a "move" is how far
- * that mean moved in its most-moved channel. `sharply` (a small block, a
- * high level) sees a small, strong change, one digit of body text;
- * `faintly` (a wide block, a low level) a weak change over an area, text or
- * a fill a few shades off.
+ * that mean moved in its most-moved channel. `sharply` (one pixel, a
+ * middling level) sees a small, strong change, one digit of body text or
+ * a thin grey stroke; `faintly` (a wide block, a low level) a weak change
+ * over an area, text or a fill a few shades off.
  *
- * Set 2026-10-28 on MP4 frames, and re-measured on page screens on
- * 2026-11-11 (the page at CSS 1x, compared at its own size, with no window
- * and no inset: spec 2026-11-10, decisions 2 and 4), where the levels held:
- * every unchanged case reads 0 and the least-changed case is 2.5x over. The
- * refresh lanes (restyle, unchanged, own, settle), run twice on macOS,
- * gave the same shares both times:
+ * Set 2026-10-28 on MP4 frames. On lossless page screens (the page at CSS
+ * 1x, its own size, no window: spec 2026-11-10, decisions 2 and 4) `sharply`
+ * was a 2-pixel block at 60 levels until PR #67's CI: on ubuntu, 12px
+ * #9ca3af text drew its strokes too light for a 2x2 mean to move 60, and
+ * the DEM-138 case read 0.0003% there (0.0070% on macOS). Per pixel at 40
+ * levels, macOS, 2026-11-11:
  *
  *   share of the picture changed         sharply (allowed 0.0008%)   faintly (allowed 0.017%)
  *   unchanged, 14 readings: order and       0.0000%                  0.0000%
@@ -39,23 +39,23 @@ type Look = { name: string; block: number; levels: number; allowed: number };
  *     slower; caret, hover, spinner,
  *     stream, toast, debounce, never
  *     settles
- *   a digit beside a spinner, 3 to 4         0.0020% (2.5x over)      -
- *   one digit, $1,200.00 to $1,207.00        0.0047% (5.9x over)      -
- *   small grey text, 14:11 to 05:00          0.0070% (8.8x over)      -
- *   nav text gray-700 to gray-500            -                        0.1226% (7.2x over)
- *   a button blue to a green as light        0.6735%                  -
- *   a dark panel #111827 to #7f1d1d          25.37%                   -
+ *   one digit, $1,200.00 to $1,207.00        0.0050% (6.2x over)      -
+ *   a digit beside a spinner, 3 to 4         0.0055% (6.9x over)      -
+ *   small grey text, 14:11 to 05:00          0.0364% (45x over)       -
+ *   nav text gray-700 to gray-500            0.0527% (66x over)       -
+ *   a button blue to a green as light        0.65-0.70%               -
+ *   a dark panel #111827 to #7f1d1d          25.41%                   -
  *
- * CI's numbers (ubuntu, the GPU off) are pending: they come from the
- * branch's pull request, and an unchanged case above 0 there stops it.
+ * CI's numbers (ubuntu, the GPU off) come from the branch's pull request,
+ * and an unchanged case above 0 there stops it.
  *
  * A "-" is a look the case did not reach: the detail line names the first
- * look that counts it changed. Still not seen: a glyph moving under about
- * 60 levels or a shade under 13, and anything on a screen that never
- * settled, which is named and skipped, never compared.
+ * look that counts it changed. Still not seen: a pixel moving under 40
+ * levels or a shade under 13 over a block of 8, and anything on a screen
+ * that never settled, which is named and skipped, never compared.
  */
 export const STILL_LOOKS: readonly Look[] = [
-  { name: "sharply", block: 2, levels: 60, allowed: 0.000008 },
+  { name: "sharply", block: 1, levels: 40, allowed: 0.000008 },
   { name: "faintly", block: 8, levels: 13, allowed: 0.00017 },
 ];
 
