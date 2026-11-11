@@ -35,6 +35,7 @@ import {
   verdictLine,
   webpSize,
 } from "@demoman/run-core";
+import { screenImageName } from "@demoman/run-core/render";
 import {
   BRANDING_DEFAULTS,
   DEFAULT_WALLPAPER_BLUR,
@@ -116,6 +117,16 @@ const ONE_DIGIT = ORIGINAL.replace(
   AMOUNT,
   "(1200 + i * 317 + (i === 0 ? 7 : 0))",
 );
+/** DEM-138's case: a line of 12px grey text, in a box of fixed width so its
+ *  glyph advances move nothing else, and the same line with 4 characters
+ *  changed (14:11 to 05:00 is 4 digits). */
+const LOCAL_TIME = (t: string) =>
+  ORIGINAL.replace(
+    HEADING,
+    `${HEADING}<span class="local-time" style="display:block;width:140px;height:16px;font-size:12px;color:#9ca3af">${t} local time</span>`,
+  );
+const LOCAL_TIME_WAS = LOCAL_TIME("14:11");
+const LOCAL_TIME_NOW = LOCAL_TIME("05:00");
 /** A spinner that never stops, beside the button the camera zooms to, so it
  *  is in view on every screen: the page is never still (#10). */
 const SPINNER = ORIGINAL.replace(
@@ -838,6 +849,158 @@ export const oneDigit = () => {
       const back = byName(await refresh([A]), A);
       noiseLine("one digit, back", back.detail);
       expect(back.outcome, back.detail).toBe("changed");
+    },
+    BOTH_MS,
+  );
+};
+
+/** Where `.local-time` sits on the page at 1280x800, and the pixels at which
+ *  two PNG screens differ (their bounding box and count), decoded in a work
+ *  page. */
+async function localTimeRect(page: string) {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    await work.page.setViewportSize({ width: 1280, height: 800 });
+    await work.page.setContent(page);
+    return await work.page.$eval(".local-time", (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    });
+  } finally {
+    await work.page.close();
+  }
+}
+async function differing(a: Buffer, b: Buffer) {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    return await work.page.evaluate(
+      async ([x, y]) => {
+        const pixels = async (base64: string) => {
+          const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+          const bmp = await createImageBitmap(new Blob([bytes]));
+          const c = new OffscreenCanvas(bmp.width, bmp.height);
+          const ctx = c.getContext("2d") as OffscreenCanvasRenderingContext2D;
+          ctx.drawImage(bmp, 0, 0);
+          return ctx.getImageData(0, 0, bmp.width, bmp.height);
+        };
+        const [p, q] = [await pixels(x as string), await pixels(y as string)];
+        if (p.width !== q.width || p.height !== q.height)
+          return { sizes: [p.width, p.height, q.width, q.height] };
+        let [x0, y0, x1, y1, n] = [p.width, p.height, -1, -1, 0];
+        for (let i = 0; i < p.data.length; i += 4) {
+          if (
+            p.data[i] === q.data[i] &&
+            p.data[i + 1] === q.data[i + 1] &&
+            p.data[i + 2] === q.data[i + 2]
+          )
+            continue;
+          const [px, py] = [(i / 4) % p.width, Math.floor(i / 4 / p.width)];
+          [x0, y0, x1, y1, n] = [
+            Math.min(x0, px),
+            Math.min(y0, py),
+            Math.max(x1, px),
+            Math.max(y1, py),
+            n + 1,
+          ];
+        }
+        return { n, x0, y0, x1, y1, width: p.width };
+      },
+      [a.toString("base64"), b.toString("base64")],
+    );
+  } finally {
+    await work.page.close();
+  }
+}
+
+/** Films A of `page` with nothing to compare against, so the committed screens
+ *  are that page's; returns the first screen's image and its window. */
+async function firstScreenOf(page: string) {
+  html = page;
+  const file = keptFileName(A);
+  await rm(join(repo, RECEIPT_DIR, file), { force: true });
+  await rm(join(repo, RECEIPT_DIR, screensDirOf(file)), {
+    recursive: true,
+    force: true,
+  });
+  const r = await refresh([A]);
+  expect(byName(r, A).outcome, JSON.stringify(r)).toBe("uncompared");
+  const { receipt } = await readKeptV2(repo, `${KEPT_DIR}/${file}`);
+  const dir = join(repo, RECEIPT_DIR, screensDirOf(file));
+  const moment = receipt.screens.moments[0];
+  return {
+    image: await readFile(join(dir, screenImageName(moment?.step ?? null))),
+    names: await readdir(dir),
+    moment,
+    size: receipt.screensSize,
+  };
+}
+
+/** DEM-138: 4 characters of 12px grey text, in the app's own page. */
+export const smallGreyText = () => {
+  // DEM-138: red until refresh compares 1x page screens (Task 8 makes this `it`).
+  vitestIt.fails(
+    "a small grey text change reads changed",
+    async () => {
+      await leavingRepo(async () => {
+        // The premise: the two pages differ only in the digits of one span.
+        expect(LOCAL_TIME_WAS).not.toBe(LOCAL_TIME_NOW);
+        expect(LOCAL_TIME_WAS.replace("14:11", "05:00")).toBe(LOCAL_TIME_NOW);
+        const was = await firstScreenOf(LOCAL_TIME_WAS);
+        const now = (await firstScreenOf(LOCAL_TIME_NOW)).image;
+        // Leave the committed screens as the first page's: what refresh reads.
+        await firstScreenOf(LOCAL_TIME_WAS);
+        // The premise: the first screen shows the app in a window, and the
+        // span sits in it. Its page rect maps through the window to the image.
+        const w = was.moment?.window;
+        expect(w, JSON.stringify(was.moment)).toBeDefined();
+        const rect = await localTimeRect(LOCAL_TIME_WAS);
+        const d = await differing(was.image, now);
+        // The window is in the film's output pixels; the image is smaller
+        // (`screensSize` is what the windows are measured in).
+        const size = was.size as { width: number };
+        const scale = ("width" in d ? d.width : 0) / size.width;
+        const [ww, wx, wy] = [
+          w?.width as number,
+          w?.x as number,
+          w?.y as number,
+        ];
+        const onImage = (px: number, py: number) => ({
+          x: (wx + (px * ww) / 1280) * scale,
+          y: (wy + (py * ww) / 1280) * scale,
+        });
+        const [p0, p1] = [
+          onImage(rect.x, rect.y),
+          onImage(rect.x + rect.width, rect.y + rect.height),
+        ];
+        const box = { x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y };
+        // The premise: the two kept screen images differ, and only inside
+        // that rect (2 px for the resampling); every pixel outside is equal.
+        const evidence = JSON.stringify({
+          d,
+          box,
+          moment: was.moment,
+          names: was.names,
+        });
+        expect("n" in d && d.n > 0, evidence).toBe(true);
+        if ("n" in d) {
+          expect(d.x0, evidence).toBeGreaterThanOrEqual(box.x0 - 2);
+          expect(d.y0, evidence).toBeGreaterThanOrEqual(box.y0 - 2);
+          expect(d.x1, evidence).toBeLessThanOrEqual(box.x1 + 2);
+          expect(d.y1, evidence).toBeLessThanOrEqual(box.y1 + 2);
+        }
+        html = LOCAL_TIME_NOW;
+        const r = await refresh([A]);
+        const a = byName(r, A);
+        noiseLine("small grey text", a.detail);
+        expect(a.outcome, JSON.stringify(r)).toBe("changed");
+        expect(a.detail).toMatch(
+          /% of the picture changed \w+ (before step \d+|on the final screen) at /,
+        );
+      }).finally(() => {
+        html = ORIGINAL;
+      });
     },
     BOTH_MS,
   );

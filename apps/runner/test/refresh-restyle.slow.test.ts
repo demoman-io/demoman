@@ -5,7 +5,15 @@ import {
   lookOutside,
   refreshSuite,
   restyles,
+  smallGreyText,
   wallpaperLeftOut,
 } from "./refresh-suite.js";
 
-refreshSuite(firstFilm, restyles, wallpaperLeftOut, lookOutside, clickGuard);
+refreshSuite(
+  firstFilm,
+  restyles,
+  wallpaperLeftOut,
+  lookOutside,
+  clickGuard,
+  smallGreyText,
+);
