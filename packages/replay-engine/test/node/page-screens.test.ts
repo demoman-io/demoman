@@ -215,6 +215,52 @@ describe("a step's page screen, when something fails", () => {
     expect(releases, evidence).toHaveLength(3);
   });
 
+  // Red when the capture is awaited with no bound of its own: a covered
+  // window's screenshot never answers, and the walk sat on it for the
+  // answer deadline's 30 s instead of the still line's bound (close
+  // review 2). Only the deadline is a real timer, so only it is faked.
+  it("gives up on a page screen whose capture never answers, puts the hold back, and goes on", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const d = deps();
+      let pngs = 0;
+      let hung = false;
+      const send = d.cdp.send.bind(d.cdp);
+      d.cdp.send = async (method, params = {}) => {
+        if (isPng(method, params) && ++pngs === 2) {
+          hung = true;
+          return new Promise(() => undefined);
+        }
+        return send(method, params);
+      };
+      let finished = false;
+      const running = screensOf(d).finally(() => {
+        finished = true;
+      });
+      for (let i = 0; i < 100 && !finished; i++) {
+        await vi.advanceTimersByTimeAsync(500);
+      }
+      const { screens, said, evidence } = await running;
+      expect(hung, evidence).toBe(true); // the premise: a capture never answered
+      expect(screens[1]?.unsettled, evidence).toBe(
+        `the page screen could not be taken (Page.captureScreenshot got no answer from the browser in ${STILL_DRAIN_MS / 1000} s)`,
+      );
+      expect(screens[1]?.ref, evidence).toBe("");
+      // The others were taken, and the hold was put back every time.
+      expect(screens[0]?.ref, evidence).not.toBe("");
+      expect(screens[2]?.ref, evidence).not.toBe("");
+      const releases = d.cdp.calls.filter(
+        (c) =>
+          c.method === "Runtime.evaluate" &&
+          c.params.expression === PAGE_CAPTURE_RELEASE,
+      );
+      expect(releases, evidence).toHaveLength(3);
+      expect(kinds(said), evidence).toEqual(["stepSettleFailed"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says the caret may not have been put back when the release fails", async () => {
     const d = deps();
     intercept(d, isEval(PAGE_CAPTURE_RELEASE), async () => {

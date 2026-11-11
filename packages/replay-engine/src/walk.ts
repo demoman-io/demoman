@@ -715,6 +715,9 @@ export async function runWalk(
   // (`answer-deadline.ts`). Cleared at the very end of teardown.
   const answering = withAnswerDeadline(deps.cdp);
   const { cdp } = answering;
+  // A page screen's capture, on the still line's own bound: a covered
+  // window stops painting, and its screenshot then never answers.
+  const screening = withAnswerDeadline(cdp, STILL_DRAIN_MS);
   const { sceneId, viewport, total, device } = config;
 
   const empty = (reason: ReplayStopReason): ReplayResult => ({
@@ -1321,7 +1324,9 @@ export async function runWalk(
    * The line is waited for within `STILL_DRAIN_MS`, as `drainShots` does: a
    * still ahead of it that never answers (a covered window stops painting)
    * would otherwise hold the walk here, short of the step's visibility
-   * check that turns it into `occlusionTimeout`.
+   * check that turns it into `occlusionTimeout`. The capture itself has the
+   * same bound (`screening`): one that never answers is a screen not taken,
+   * said in the deadline's words, and the hold is still put back.
    */
   const capturePage = async (): Promise<{
     taken: {
@@ -1379,7 +1384,7 @@ export async function runWalk(
           ) {
             throw new Error("the capture hold answered with nothing readable");
           }
-          const shot = await cdp.send("Page.captureScreenshot", {
+          const shot = await screening.cdp.send("Page.captureScreenshot", {
             format: "png",
             clip: { x, y, width, height, scale: 1 / dpr },
           });
@@ -3186,6 +3191,7 @@ export async function runWalk(
     if (!sealed) await drainShots();
     sealed = true;
     await sightings.stop();
+    screening.stop();
     answering.stop();
   }
 
