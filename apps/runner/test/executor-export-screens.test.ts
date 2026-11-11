@@ -22,6 +22,10 @@ import { ownVideo, WALLPAPERS_DIR } from "./fixture.js";
 // x5 for CI (fff4505) with margin. The recorded take (2026-11-10): its run
 // about 6 s, as executor.test.ts measured one.
 const SETUP_MS = 180_000;
+/** The screens-only case renders a full mp4 to compare against: 4 s here,
+ *  131 s on CI's runner and over 180 s twice (PR #67, 2026-11-11), where the
+ *  export draws on the CPU. Twice the slowest pass, with margin. */
+const SCREENS_ONLY_MS = 360_000;
 
 let home: string;
 let session: BrowserSession;
@@ -259,7 +263,7 @@ describe("a screens-only export copies the take's page screens", () => {
         ).toBe(0);
       }
     },
-    SETUP_MS,
+    SCREENS_ONLY_MS,
   );
 
   // Review Focus 5: an older take has nothing to compare, and says why.

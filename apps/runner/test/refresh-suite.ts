@@ -77,6 +77,9 @@ import { sampleMp4 } from "./mp4-probe.js";
 // those. Each limit is at least 1.6x 2.5 times its slowest GPU-off case.
 const SETUP_MS = 60_000;
 const BOTH_MS = 300_000;
+/** The grey-text case records three takes before its refresh: 53 s here,
+ *  333 s on CI once (PR #67, 2026-11-11: 33 s past BOTH_MS, then passed). */
+const GREY_TEXT_MS = 600_000;
 const ONE_MS = 180_000;
 
 const ORIGINAL = await readFile(
@@ -1237,7 +1240,7 @@ export const smallGreyText = () => {
         html = ORIGINAL;
       });
     },
-    BOTH_MS,
+    GREY_TEXT_MS,
   );
 };
 
