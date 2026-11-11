@@ -238,6 +238,21 @@ export function runVerdict(answer: Record<string, unknown>): RunVerdict {
   };
 }
 
+/** Every problem is the page's own (a stream, a long poll): recording again
+ *  settles it no better, and the machine is not why. */
+const pageOnly = (problems: string[]): boolean =>
+  problems.every(
+    (p) => p.endsWith("(stepUnsettled)") || p.endsWith("(requestNotWaited)"),
+  );
+
+/** The note a degraded run that stands is delivered with. Problems that are
+ *  all the page's own are said as the page's, not blamed on this machine. */
+export function degradedNote(problems: string[]): string {
+  return pageOnly(problems)
+    ? `recorded with problems the page itself made, which recording again does not change: ${problems.join("; ")}`
+    : `recorded with problems Demoman could not avoid on this machine: ${problems.join("; ")}`;
+}
+
 /** Records a flow, and once more when the first recording is degraded: on a
  *  busy runner a soft still or a starved screencast is usually a one-off
  *  (DEM-55). Answers the run that stands and its verdict; a second degraded
@@ -252,12 +267,7 @@ export async function recordWithRetry(
   if (verdict.kind !== "degraded") return { answer: first, verdict };
   // A page that never settled (a stream, a poll) settles no better the next
   // time: it stands, and its reason is in the problems the caller reports.
-  if (
-    verdict.problems.every(
-      (p) => p.endsWith("(stepUnsettled)") || p.endsWith("(requestNotWaited)"),
-    )
-  )
-    return { answer: first, verdict };
+  if (pageOnly(verdict.problems)) return { answer: first, verdict };
   log(
     `refresh: "${name}" recorded with ${verdict.problems.join("; ")}; trying it once more`,
   );
@@ -655,9 +665,7 @@ async function filmOne(
   times.mark("record");
   if (verdict.kind === "failed") return { failed: verdict.detail };
   if (verdict.kind === "degraded")
-    job.notes.push(
-      `recorded with problems Demoman could not avoid on this machine: ${verdict.problems.join("; ")}`,
-    );
+    job.notes.push(degradedNote(verdict.problems));
   const report = answer as unknown as RunReport;
   const takeId = report.provenance.takeId;
   if (takeId === null) return { failed: "the run is clean but made no video" };

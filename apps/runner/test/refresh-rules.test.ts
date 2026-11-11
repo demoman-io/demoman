@@ -1,6 +1,10 @@
 import { DEGRADATION_WORDS } from "@demoman/run-core";
 import { describe, expect, it } from "vitest";
-import { recordWithRetry, runVerdict } from "../src/executor/refresh.js";
+import {
+  degradedNote,
+  recordWithRetry,
+  runVerdict,
+} from "../src/executor/refresh.js";
 import {
   comparePictures,
   pairScreens,
@@ -199,6 +203,35 @@ describe("recordWithRetry", () => {
     const got = await recordWithRetry(r.run, "Flow", log);
     expect(r.count()).toBe(1);
     expect(got.verdict).toMatchObject({ kind: "failed" });
+  });
+});
+
+describe("degradedNote", () => {
+  const problems = (...kinds: string[]) => {
+    const v = runVerdict({
+      ...clean,
+      frames: { spans: 2, degradations: kinds },
+    });
+    if (v.kind !== "degraded") throw new Error(JSON.stringify(v));
+    return v.problems;
+  };
+  const MACHINE = "could not avoid on this machine";
+  // Red when an app's long poll or stream is blamed on the machine: neither
+  // is, and recording again changes neither.
+  it("says the page's own problems as the page's, and still names them", () => {
+    const note = degradedNote(problems("stepUnsettled", "requestNotWaited"));
+    expect(note).not.toContain(MACHINE);
+    expect(note).toContain("the page itself");
+    expect(note).toContain("(stepUnsettled)");
+    expect(note).toContain("(requestNotWaited)");
+  });
+  // The control: a problem the machine can make keeps the machine's note,
+  // with the page's beside it.
+  it("blames the machine when any problem is the machine's", () => {
+    const note = degradedNote(problems("stepUnsettled", "budgetBreach"));
+    expect(note).toContain(MACHINE);
+    expect(note).toContain("(budgetBreach)");
+    expect(note).toContain("(stepUnsettled)");
   });
 });
 
