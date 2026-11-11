@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type CdpSession,
   PAGE_CAPTURE_HOLD,
+  PAGE_CAPTURE_RELEASE,
   runAuthored,
   STEP_QUIET_MS,
   STEP_REQUEST_CAP_MS,
@@ -126,6 +127,11 @@ interface Recorded {
   bytes: Uint8Array[];
   /** The focused element's id as each page capture began. */
   focusAtHold: (string | null)[];
+  /** The same, followed into open shadow roots and same-origin frames:
+   *  ids joined with ">". */
+  deepFocusAtHold: string[];
+  /** The page's count of CSP violations as each page capture began. */
+  violationsAtHold: number[];
   /** Whether a caret style is in the page once the walk has ended. */
   caretStyleLeft: boolean;
   /** Read from the live page once the walk has ended. */
@@ -149,6 +155,8 @@ async function record(
   await withReplayBrowser(
     async ({ cdp, page }) => {
       const focusAtHold: (string | null)[] = [];
+      const deepFocusAtHold: string[] = [];
+      const violationsAtHold: number[] = [];
       const watched: CdpSession = {
         ...cdp,
         send: async (method, params) => {
@@ -163,6 +171,30 @@ async function record(
                 .evaluate(() => document.activeElement?.id ?? null)
                 .catch((e: Error) => `unreadable: ${e.message}`),
             );
+            const read = await page
+              .evaluate(() => {
+                const ids: string[] = [];
+                let f: Element | null = document.activeElement;
+                while (f !== null) {
+                  ids.push(f.id);
+                  f =
+                    f.shadowRoot?.activeElement ??
+                    (f as HTMLIFrameElement).contentDocument?.activeElement ??
+                    null;
+                  if (f?.tagName === "BODY") f = null;
+                }
+                return {
+                  deep: ids.join(">"),
+                  violations: (window as unknown as { __violations: number })
+                    .__violations,
+                };
+              })
+              .catch((e: Error) => ({
+                deep: `unreadable: ${e.message}`,
+                violations: -1,
+              }));
+            deepFocusAtHold.push(read.deep);
+            violationsAtHold.push(read.violations);
           }
           return cdp.send(method, params);
         },
@@ -241,6 +273,8 @@ async function record(
         screens,
         bytes,
         focusAtHold,
+        deepFocusAtHold,
+        violationsAtHold,
         caretStyleLeft,
         live,
         decoded,
@@ -675,5 +709,66 @@ describe("a page whose CSP refuses inline styles", () => {
       "pixels in the empty field's content box that changed on focus",
     ).toBe(0);
     expect(r.caretStyleLeft, "the stand-in sheet is gone after").toBe(false);
+  });
+});
+
+describe("focus the document's caret rule cannot reach", () => {
+  let r: Recorded;
+  /** The component field's caret-color with the hold applied. */
+  let componentCaret = "";
+  beforeAll(async () => {
+    r = await record(
+      [
+        { do: "click", on: { stableId: "frame" } },
+        { do: "click", on: { stableId: "shost" } },
+      ],
+      async (page) => {
+        await page.evaluate(PAGE_CAPTURE_HOLD);
+        componentCaret = await page.evaluate(() => {
+          const field = document
+            .getElementById("shost")
+            ?.shadowRoot?.getElementById("shin");
+          return field ? getComputedStyle(field).caretColor : "no field";
+        });
+        await page.evaluate(PAGE_CAPTURE_RELEASE);
+        return {};
+      },
+    );
+    // Two clicks and their settles: about 4 s here.
+  }, 60_000);
+
+  const CARET_WORDS = "a focused field's caret could not be hidden";
+
+  it("says nothing of a caret with nothing focused (control)", () => {
+    expect(r.result.reason, String(r.result.reason)).toBeNull();
+    expect(r.screens.map((s) => s.after)).toEqual([0, 1, 2]);
+    expect(r.screens[0]?.unsettled ?? "").not.toContain(CARET_WORDS);
+  });
+
+  // Red when the hold reads only the top document's activeElement: it sees
+  // the <iframe>, no field, and the screen is compared with a caret in it.
+  it("names the caret of a field focused inside a frame", () => {
+    expect(r.deepFocusAtHold[1], "premise: focus is inside the frame").toBe(
+      "frame>fin",
+    );
+    expect(
+      r.screens[1]?.unsettled ?? "",
+      JSON.stringify(r.screens[1]),
+    ).toContain(CARET_WORDS);
+  });
+
+  // Red the same way: the top document sees the component, not its field.
+  it("names the caret of a component field that sets its own caret-color", () => {
+    expect(r.deepFocusAtHold[2], "premise: focus is in the component").toBe(
+      "shost>shin",
+    );
+    expect(
+      componentCaret,
+      "premise: the component's colour beats the document's rule",
+    ).toBe("rgb(255, 0, 0)");
+    expect(
+      r.screens[2]?.unsettled ?? "",
+      JSON.stringify(r.screens[2]),
+    ).toContain(CARET_WORDS);
   });
 });

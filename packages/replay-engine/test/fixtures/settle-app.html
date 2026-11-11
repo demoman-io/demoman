@@ -32,7 +32,23 @@
 <div id="count"></div>
 <div id="spinwrap"></div>
 <div id="finwrap"></div>
+<!-- Focus the document's caret rule cannot reach: a field inside a frame,
+     and one inside a component that sets its own caret-color. Each fills
+     its box, so a click at the box's centre focuses the field. -->
+<iframe id="frame" srcdoc="<input id=fin style='margin:0;width:180px;height:24px'>"
+  style="position:absolute;left:40px;top:510px;width:200px;height:40px;border:0"></iframe>
+<x-field id="shost" style="position:absolute;left:40px;top:560px;display:block;width:200px;height:30px"></x-field>
 <script>
+  // What a CSP refused, counted for the cases that serve this page under one.
+  window.__violations = 0;
+  document.addEventListener("securitypolicyviolation", () => window.__violations++);
+  customElements.define("x-field", class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML =
+        "<style>input{caret-color:red;margin:0;width:200px;height:30px;box-sizing:border-box}</style><input id=shin>";
+    }
+  });
   const $ = (id) => document.getElementById(id);
   // 15 words, one per 100 ms: 1.5 s of appends.
   $("stream").onclick = () => {

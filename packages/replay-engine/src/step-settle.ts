@@ -95,6 +95,12 @@ const CARET_RULE = "*{caret-color:transparent!important}";
  * field whose caret is still drawn (its own `!important` inline colour, say),
  * which the screen must then say.
  *
+ * The focused field is looked for through open shadow roots: a component
+ * that sets its own caret-color is not reached by a rule in the document,
+ * so its field's caret has to be read where it is. A focused frame counts
+ * as a caret shown: the rule is not in its document, and a cross-origin one
+ * cannot be read.
+ *
  * A page whose CSP refuses inline styles gives the `<style>` no sheet; a
  * constructed sheet is not subject to that policy, so it stands in.
  */
@@ -113,10 +119,11 @@ export const PAGE_CAPTURE_HOLD = `(() => {
       } catch (e) {} // said below: the caret is still shown
     }
   }
-  const f = document.activeElement;
-  const caretShown = !!f &&
-    (f.isContentEditable || f.tagName === "INPUT" || f.tagName === "TEXTAREA") &&
-    getComputedStyle(f).caretColor !== "rgba(0, 0, 0, 0)";
+  let f = document.activeElement;
+  while (f && f.shadowRoot && f.shadowRoot.activeElement) f = f.shadowRoot.activeElement;
+  const caretShown = !!f && (f.tagName === "IFRAME" || f.tagName === "FRAME" ||
+    ((f.isContentEditable || f.tagName === "INPUT" || f.tagName === "TEXTAREA") &&
+      getComputedStyle(f).caretColor !== "rgba(0, 0, 0, 0)"));
   const held = window.__demomanHeld || (window.__demomanHeld = []);
   for (const a of document.getAnimations ? document.getAnimations() : []) {
     const t = a.effect && a.effect.getComputedTiming();
