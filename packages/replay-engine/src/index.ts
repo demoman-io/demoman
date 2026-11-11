@@ -105,6 +105,8 @@ export {
   SPAN_MAX_MS,
   SPAN_MIN_FRAMES,
   SPAN_QUIET_MS,
+  STEP_QUIET_MS,
+  STEP_SETTLE_CAP_MS,
   STILL_DRAIN_MS,
   STORAGE_BUDGET_DEFAULT_BYTES,
   SWEEP_GATE_TIMEOUT_MS,
@@ -200,6 +202,13 @@ export {
   spanIsMotion,
   spanWentQuiet,
 } from "./span.js";
+export {
+  PAGE_CAPTURE_HOLD,
+  PAGE_CAPTURE_RELEASE,
+  STEP_SETTLE_MARKER,
+  type StepSettleReport,
+  stepSettleExpression,
+} from "./step-settle.js";
 export type {
   CdpSession,
   Clock,

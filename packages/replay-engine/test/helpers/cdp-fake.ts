@@ -5,6 +5,7 @@ import {
   SCROLL_MARKER,
   SETTLE_MARKER,
   type SettleReport,
+  STEP_SETTLE_MARKER,
 } from "../../src/index.js";
 
 /** A 4x4 JPEG's worth of bytes: SOI, APP0, SOF0 declaring 800x600. Enough
@@ -203,6 +204,19 @@ export function createCdpFake(): CdpFake {
           if (expression.includes(SETTLE_MARKER)) {
             if (fake.settleThrows !== null) throw new Error(fake.settleThrows);
             return { result: { type: "object", value: fake.settle } };
+          }
+          if (expression.includes(STEP_SETTLE_MARKER)) {
+            return {
+              result: {
+                type: "object",
+                value: {
+                  painted: true,
+                  animations: 0,
+                  quiet: true,
+                  waitedMs: 0,
+                },
+              },
+            };
           }
           if (expression.includes("readyState")) {
             return { result: { value: "complete" } };

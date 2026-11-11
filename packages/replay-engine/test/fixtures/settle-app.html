@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>settle app</title>
+<style>
+  @keyframes spin { to { transform: rotate(360deg) } }
+  @keyframes slide { from { transform: translateX(200px) } to { transform: translateX(0) } }
+  #toast { display: inline-block; animation: slide 300ms ease-out forwards }
+  #hoverrow { background-color: #fff; transition: background-color 150ms }
+  #hoverrow.on { background-color: #ccc }
+  #spin { width: 20px; height: 20px; background: #333; animation: spin 800ms linear infinite }
+</style>
+<button id="stream">stream</button>
+<button id="toastbtn">toast</button>
+<button id="hoverbtn">hover</button>
+<button id="spinbtn">spinner</button>
+<button id="finishedbtn">finished</button>
+<button id="never">never</button>
+<input id="q" placeholder="filter">
+<div id="list">all</div>
+<div id="out"></div>
+<div id="toasts"></div>
+<div id="hoverrow">row</div>
+<div id="count"></div>
+<div id="spinwrap"></div>
+<div id="finwrap"></div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  // 15 words, one per 100 ms: 1.5 s of appends.
+  $("stream").onclick = () => {
+    let i = 0;
+    const t = setInterval(() => {
+      $("out").textContent += (i ? " " : "") + "w" + i;
+      if (++i >= 15) clearInterval(t);
+    }, 100);
+  };
+  $("toastbtn").onclick = () => {
+    const d = document.createElement("div");
+    d.id = "toast";
+    d.textContent = "saved";
+    $("toasts").append(d);
+  };
+  let deb;
+  $("q").oninput = () => {
+    clearTimeout(deb);
+    deb = setTimeout(() => { $("list").textContent = "filtered:" + $("q").value; }, 250);
+  };
+  $("hoverbtn").onclick = () => $("hoverrow").classList.add("on");
+  $("spinbtn").onclick = () => {
+    const d = document.createElement("div");
+    d.id = "spin";
+    $("spinwrap").append(d);
+  };
+  $("finishedbtn").onclick = () => {
+    const d = document.createElement("div");
+    d.id = "fin";
+    d.textContent = "box";
+    $("finwrap").append(d);
+    d.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, fill: "forwards" });
+  };
+  $("never").onclick = () => {
+    let n = 0;
+    setInterval(() => { $("count").textContent = String(++n); }, 50);
+  };
+</script>

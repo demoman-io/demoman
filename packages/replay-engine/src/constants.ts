@@ -271,3 +271,16 @@ export const NAVIGATE_TIMEOUT_MS = 15_000;
  * autoplaying video never goes quiet; past this the act is over anyway.
  */
 export const ACT_CEILING_MS = 1000;
+
+/**
+ * How long a step's page must go without a DOM mutation before the walk calls
+ * the step's result settled. Long enough to bridge a 250 ms debounce. Task 5
+ * of the settled-screens plan measured it and may move it within 200-500.
+ */
+export const STEP_QUIET_MS = 300;
+/**
+ * The most the walk waits for one step to settle. A page that never stops
+ * (a poll, a ticker) costs this per step and is reported unsettled. Task 5 of
+ * the settled-screens plan measured it.
+ */
+export const STEP_SETTLE_CAP_MS = 2000;
