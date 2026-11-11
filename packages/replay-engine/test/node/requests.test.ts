@@ -8,15 +8,18 @@ function fakeCdp(
 ) {
   const handlers = new Map<string, Set<Handler>>();
   const sent: string[] = [];
+  const params: Record<string, unknown>[] = [];
   return {
     sent,
+    params,
     listeners: () => [...handlers.values()].reduce((n, s) => n + s.size, 0),
     emit(event: string, params: Record<string, unknown>) {
       for (const h of handlers.get(event) ?? []) h(params);
     },
-    send: async (method: string) => {
+    send: async (method: string, p: Record<string, unknown> = {}) => {
       sent.push(method);
-      return enable();
+      params.push(p);
+      return method === "Network.enable" ? enable() : {};
     },
     on(event: string, h: Handler) {
       if (!handlers.has(event)) handlers.set(event, new Set());
@@ -41,6 +44,12 @@ describe("trackRequests", () => {
     const cdp = fakeCdp();
     const t = await trackRequests(cdp, () => 0);
     expect(cdp.sent).toEqual(["Network.enable"]);
+    // Red if bodies are buffered: the tracker reads only the events.
+    expect(cdp.params[0]).toEqual({
+      maxTotalBufferSize: 0,
+      maxResourceBufferSize: 0,
+      maxPostDataSize: 0,
+    });
     cdp.emit("Network.requestWillBeSent", start("1", "Fetch"));
     cdp.emit("Network.requestWillBeSent", start("2", "XHR"));
     expect(t.inFlight()).toBe(2);
@@ -60,6 +69,33 @@ describe("trackRequests", () => {
     expect(t.inFlight()).toBe(1);
     cdp.emit("Page.frameNavigated", { frame: { id: "top" } });
     expect(t.inFlight()).toBe(0);
+  });
+
+  // Red if only a top navigation forgets requests: a child frame's new
+  // document, or a frame removed from the page, left its fetches counted,
+  // and each cost a step the whole cap.
+  it("forgets a child frame's requests when that frame navigates or is detached, and no other's", async () => {
+    const cdp = fakeCdp();
+    const t = await trackRequests(cdp, () => 0);
+    cdp.emit(
+      "Network.requestWillBeSent",
+      start("top", "Fetch", { frameId: "top" }),
+    );
+    cdp.emit(
+      "Network.requestWillBeSent",
+      start("a", "Fetch", { frameId: "a" }),
+    );
+    cdp.emit("Network.requestWillBeSent", start("b", "XHR", { frameId: "b" }));
+    cdp.emit("Network.requestWillBeSent", start("worker", "Fetch"));
+    expect(t.inFlight()).toBe(4);
+    cdp.emit("Page.frameNavigated", { frame: { id: "a", parentId: "top" } });
+    expect(t.inFlight()).toBe(3);
+    cdp.emit("Page.frameDetached", { frameId: "b", reason: "remove" });
+    expect(t.inFlight()).toBe(2);
+    // A frame with nothing open, and one with no id, forget nothing.
+    cdp.emit("Page.frameDetached", { frameId: "c" });
+    cdp.emit("Page.frameDetached", {});
+    expect(t.inFlight()).toBe(2);
   });
 
   it("does not count EventSource, WebSocket, Document or Image requests", async () => {
@@ -144,6 +180,28 @@ describe("trackRequests", () => {
     expect(cdp.listeners()).toBeGreaterThan(0);
     t.dispose();
     expect(cdp.listeners()).toBe(0);
+    // Red if the domain is left on after the walk.
+    expect(cdp.sent).toEqual(["Network.enable", "Network.disable"]);
+  });
+
+  it("dispose on a closed session answers nothing and rejects nothing", async () => {
+    const cdp = fakeCdp();
+    const t = await trackRequests(cdp, () => 0);
+    cdp.send = async (method: string) => {
+      cdp.sent.push(method);
+      throw new Error("Target page, context or browser has been closed");
+    };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      expect(() => t.dispose()).not.toThrow();
+      await new Promise((r) => setTimeout(r, 0));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+    expect(cdp.sent).toContain("Network.disable");
+    expect(unhandled).toEqual([]);
   });
 
   it("rejects with the reason when Network.enable fails, leaving no listener", async () => {

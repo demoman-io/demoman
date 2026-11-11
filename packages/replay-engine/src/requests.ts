@@ -13,6 +13,7 @@ export interface RequestTracker {
     sleep: (ms: number) => Promise<void>,
     openedAfter?: number,
   ): Promise<boolean>;
+  /** Stops listening and turns the Network domain off again. */
   dispose(): void;
 }
 
@@ -21,13 +22,18 @@ export async function trackRequests(
   cdp: Pick<CdpSession, "on" | "send">,
   now: () => number,
 ): Promise<RequestTracker> {
-  /** Each request in flight, by id, and when it opened. */
-  const open = new Map<string, number>();
+  /** Each request in flight, by id: when it opened, and the frame it is for. */
+  const open = new Map<string, { at: number; frame: unknown }>();
+  const forget = (frame: unknown): void => {
+    if (frame === undefined) return;
+    for (const [id, r] of open) if (r.frame === frame) open.delete(id);
+  };
   const offs = [
     cdp.on("Network.requestWillBeSent", (p) => {
       const id = String(p.requestId);
       // A redirect reuses its id: it stays one request, opened when it first did.
-      if (COUNTED.has(String(p.type)) && !open.has(id)) open.set(id, now());
+      if (COUNTED.has(String(p.type)) && !open.has(id))
+        open.set(id, { at: now(), frame: p.frameId });
     }),
     cdp.on(
       "Network.loadingFinished",
@@ -37,26 +43,36 @@ export async function trackRequests(
       "Network.loadingFailed",
       (p) => void open.delete(String(p.requestId)),
     ),
-    // A new top document: the old one's requests died with it, and Chrome
-    // does not always say so with `loadingFailed`. Left counted, each would
-    // cost the step the whole cap and read as in flight when it was not.
+    // A new document in a frame: the old one's requests died with it, and
+    // Chrome does not always say so with `loadingFailed`. Left counted, each
+    // would cost the step the whole cap and read as in flight when it was
+    // not. A new top document takes its frames' requests with it too.
     cdp.on("Page.frameNavigated", (p) => {
-      const frame = p.frame as { parentId?: string } | undefined;
-      if (frame !== undefined && frame.parentId === undefined) open.clear();
+      const frame = p.frame as { id?: string; parentId?: string } | undefined;
+      if (frame === undefined) return;
+      if (frame.parentId === undefined) open.clear();
+      else forget(frame.id);
     }),
+    // A frame removed from the page: its requests went with it.
+    cdp.on("Page.frameDetached", (p) => forget(p.frameId)),
   ];
   const dispose = () => {
     for (const off of offs) off();
   };
   try {
-    await cdp.send("Network.enable");
+    // Only the events are read: no body is kept, so none is buffered.
+    await cdp.send("Network.enable", {
+      maxTotalBufferSize: 0,
+      maxResourceBufferSize: 0,
+      maxPostDataSize: 0,
+    });
   } catch (err) {
     dispose();
     throw err;
   }
   const inFlight = (openedAfter = Number.NEGATIVE_INFINITY): number => {
     let n = 0;
-    for (const at of open.values()) if (at > openedAfter) n++;
+    for (const r of open.values()) if (r.at > openedAfter) n++;
     return n;
   };
   return {
@@ -68,6 +84,12 @@ export async function trackRequests(
       }
       return true;
     },
-    dispose,
+    dispose() {
+      dispose();
+      // Swallowed on purpose: at teardown the session is often already
+      // closed, which refuses this, and nothing is left that reads the
+      // domain or waits on its answer.
+      void cdp.send("Network.disable").catch(() => undefined);
+    },
   };
 }
