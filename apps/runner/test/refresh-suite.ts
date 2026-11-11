@@ -20,7 +20,7 @@ import {
   motionTimings,
   WALLPAPER_LONG_SIDE,
 } from "@demoman/compositor";
-import { pngSize } from "@demoman/replay-engine";
+import { pngSize, STEP_QUIET_MS } from "@demoman/replay-engine";
 import {
   fileDigest,
   LEGACY_FLOWS_DIR as KEPT_DIR,
@@ -141,6 +141,115 @@ const SPINNER = ORIGINAL.replace(
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>`,
 ).replace("</main>", '<div id="spin"></div></main>');
+/** A page of the fixture app with something added (the behaviours are
+ *  `settle-app.html`'s, in replay-engine's fixtures): CSS, elements fixed at
+ *  the foot of the page below the table so nothing else moves, a script. */
+const withExtra = (css: string, body: string, js = "") =>
+  `${ORIGINAL.replace("</style>", `${css}\n</style>`).replace("</main>", `${body}</main>`)}${js === "" ? "" : `<script>${js}</script>`}`;
+/** The foot of the page: 32px high, 20px above the bottom of 1280x800. */
+const FOOT = "position: fixed; bottom: 20px; height: 32px;";
+/** DEM-139's field: `#search` focused, its caret drawn in one video and not
+ *  in the other, as two captures a blink apart would show it. Headless
+ *  Chromium draws the caret in the same phase in every recording (measured
+ *  2026-11-10, replay-settled-screens.test.ts), so the phase is forced. */
+const caretPage = (color: string) =>
+  ORIGINAL.replace("</style>", `#search { caret-color: ${color}; }\n</style>`);
+const CARET_ON = caretPage("#111827");
+const CARET_OFF = caretPage("transparent");
+/** A chip that fills on hover over `HOVER_MS`. Longer than the spec's
+ *  150 ms on purpose: measured 2026-11-11, the pointer enters the chip
+ *  ~530 ms before the hover returns (the glide's slow end), and the page
+ *  screen is taken 734 ms after it entered; a 150 ms or 600 ms fill had
+ *  arrived with or without the finite-animation condition, so only a fill
+ *  longer than that lets this test fail. */
+const HOVER_FILL = "#c7d2fe";
+const HOVER_MS = 1000;
+const HOVER = withExtra(
+  `#tip { transition: background-color ${HOVER_MS}ms linear; background: #ffffff; }\n  #tip:hover { background: ${HOVER_FILL}; }`,
+  `<span id="tip" style="${FOOT} left: 260px; width: 32px; border-radius: 6px"></span>`,
+);
+/** The spinner page with a line of small grey text beside the spinner. */
+const PENDING = (n: number) =>
+  SPINNER.replace(
+    "</main>",
+    `<span id="pending" style="position: fixed; right: 360px; bottom: 150px; width: 90px; font-size: 12px; color: #6b7280">${n} pending</span></main>`,
+  );
+/** The same page with its spinner half a turn on: what a capture at
+ *  another moment shows. Two recordings here capture at the same phase
+ *  (measured 2026-11-11: without the hold the angles differed by at most 38
+ *  levels in a channel, which neither look sees), so the phase is forced. */
+const SPIN_SHIFT_MS = 400;
+const PENDING_SHIFTED = `${PENDING(3)}<script>{ const a = document.getElementById("spin").getAnimations()[0]; a.currentTime = (a.currentTime ?? 0) + ${SPIN_SHIFT_MS}; }</script>`;
+/** An answer streamed over `STREAM_MS`: its first word after a pause
+ *  longer than the beat, so only the request in flight says the step is
+ *  not done. */
+const STREAM_PATH = "/stream";
+const STREAM_WORDS =
+  "Your order ships on Tuesday from our Leeds warehouse and arrives by Friday next week.".split(
+    " ",
+  );
+const STREAM_FIRST_MS = 500;
+const STREAM_MS = 1500;
+/** How long each stream the server sent took, in ms. */
+const streamed: number[] = [];
+const STREAM = withExtra(
+  "",
+  `<button type="button" id="ask" style="${FOOT} left: 260px; width: 60px">Ask</button><div id="answer" style="${FOOT} left: 340px; width: 640px; line-height: 32px; white-space: nowrap; overflow: hidden"></div>`,
+  `document.getElementById("ask").onclick = async () => {
+    const reader = (await fetch("${STREAM_PATH}")).body.getReader();
+    const text = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      document.getElementById("answer").textContent += text.decode(value);
+    }
+  };`,
+);
+/** A toast that slides in over `TOAST_MS`, longer than the beat, so only
+ *  the running animation says the step is not done. */
+const TOAST_MS = 600;
+const TOAST_FILL = "#065f46";
+/** Where the toast comes to rest, at 1280x800. */
+const TOAST_REST = { x: 600, y: 748, width: 180, height: 32 };
+const TOAST = withExtra(
+  `@keyframes slidein { from { transform: translateX(240px); } to { transform: none; } }
+  .toast { ${FOOT} left: 600px; width: 180px; padding: 6px 12px; border-radius: 8px; background: ${TOAST_FILL}; color: #fff; animation: slidein ${TOAST_MS}ms ease-out forwards; }`,
+  `<button type="button" id="save" style="${FOOT} left: 260px; width: 80px">Save</button><div id="toasts"></div>`,
+  `document.getElementById("save").onclick = () => {
+    const d = document.createElement("div");
+    d.className = "toast";
+    d.textContent = "Saved";
+    document.getElementById("toasts").append(d);
+  };`,
+);
+/** A search that filters the table once the typing has stopped for
+ *  `DEBOUNCE_MS`, inside the beat. A debounce longer than the beat is a
+ *  delay made by a timer alone, outside the settle by design
+ *  (`STEP_QUIET_MS`): measured 2026-11-11 at 250 ms, both videos' screens
+ *  were taken before the filter. */
+const DEBOUNCE_MS = 150;
+const DEBOUNCE = withExtra(
+  "",
+  "",
+  `let deb;
+  document.getElementById("search").addEventListener("input", (e) => {
+    clearTimeout(deb);
+    deb = setTimeout(() => {
+      for (const tr of document.querySelectorAll("#rows tr"))
+        tr.style.display = tr.textContent.includes(e.target.value) ? "" : "none";
+    }, ${DEBOUNCE_MS});
+  });`,
+);
+/** A count that ticks every 50 ms, shorter than the beat: the DOM never
+ *  goes quiet once it starts. */
+const TICKS = `<span id="ticks" style="${FOOT} left: 260px; width: 80px; line-height: 32px"></span>`;
+const TICK =
+  'setInterval(() => { const t = document.getElementById("ticks"); t.textContent = String(Number(t.textContent) + 1); }, 50);';
+const NEVER_AFTER_CLICK = withExtra(
+  "",
+  TICKS,
+  `document.getElementById("checkout-btn").addEventListener("click", () => { ${TICK} });`,
+);
 /** The page an app that shows dates relative to its "now" serves (DEM-79):
  *  a due date the server renders, and an age the page works out from a
  *  server timestamp against its own clock. `serverNow` is what the app
@@ -367,6 +476,13 @@ const gaps: {
   /** The page screen after the first click (`after` 2): how long its
    *  settle waited, and why it never settled if it did not. */
   clickScreen: { waitedMs: number; unsettled?: string } | null;
+  /** Every page screen the run took, as the bundle records it. */
+  screens: {
+    after: number;
+    waitedMs: number;
+    heldAnimations: number;
+    unsettled?: string;
+  }[];
 }[] = [];
 /** Every saved export's screens and wallpaper warning, in order. */
 const exported: {
@@ -374,7 +490,12 @@ const exported: {
   /** Page screens for "screens"; the video's own screens otherwise. */
   screens: unknown;
   wallpaper: "leftOut" | "soft" | null;
+  /** A page screens export's images, copied before refresh removes them:
+   *  each video's screens, the new one's included. Null for a film. */
+  dir: string | null;
 }[] = [];
+/** The copies in `exported`, removed when the file ends. */
+const copies: string[] = [];
 /** Every home and output folder refresh handed an executor, in order. Read
  *  from the handoff, not by listing the system's temp: other checkouts'
  *  suites refresh into the same temp at the same time (2026-10-30). */
@@ -420,6 +541,12 @@ const deps = (): RefreshDeps => ({
           const click = bundle?.pageScreens?.find((p) => p.after === 2);
           gaps.push({
             name: String((args.script as { name: string }).name),
+            screens: (bundle?.pageScreens ?? []).map((p) => ({
+              after: p.after,
+              waitedMs: p.waitedMs,
+              heldAnimations: p.heldAnimations,
+              ...(p.unsettled === undefined ? {} : { unsettled: p.unsettled }),
+            })),
             clickScreen:
               click === undefined
                 ? null
@@ -451,12 +578,20 @@ const deps = (): RefreshDeps => ({
           const v = answer.value as {
             fileType: string;
             screens: unknown;
+            folder?: { path: string };
             warnings: { wallpaperWarning?: { kind: "leftOut" | "soft" } };
           };
+          let dir: string | null = null;
+          if (v.fileType === "screens" && v.folder !== undefined) {
+            dir = await mkdtemp(join(tmpdir(), "demoman-refresh-shots-"));
+            copies.push(dir);
+            await cp(v.folder.path, dir, { recursive: true });
+          }
           exported.push({
             fileType: v.fileType,
             screens: v.screens,
             wallpaper: v.warnings.wallpaperWarning?.kind ?? null,
+            dir,
           });
           if (injectExport !== null)
             return {
@@ -572,6 +707,25 @@ const it = (name: string, body: () => unknown, ms?: number) =>
 export function refreshSuite(...parts: (() => void)[]): void {
   beforeAll(async () => {
     server = createServer((req, res) => {
+      if (req.url === STREAM_PATH) {
+        // The first word after a pause longer than the beat, the rest at
+        // once a beat's half apart: only the request says it is not done.
+        const from = performance.now();
+        res.writeHead(200, { "content-type": "text/plain" });
+        STREAM_WORDS.forEach((word, i) => {
+          setTimeout(
+            () => {
+              res.write(i === 0 ? word : ` ${word}`);
+              if (i < STREAM_WORDS.length - 1) return;
+              res.end();
+              streamed.push(performance.now() - from);
+            },
+            STREAM_FIRST_MS +
+              (i * (STREAM_MS - STREAM_FIRST_MS)) / (STREAM_WORDS.length - 1),
+          );
+        });
+        return;
+      }
       if (req.url === SLOW_PATH) {
         const from = performance.now();
         setTimeout(() => {
@@ -674,7 +828,7 @@ export function refreshSuite(...parts: (() => void)[]): void {
   afterAll(async () => {
     await session?.close();
     server?.close();
-    for (const dir of [repo, home])
+    for (const dir of [repo, home, ...copies])
       if (dir) await rm(dir, { recursive: true, force: true });
   });
 
@@ -1210,51 +1364,6 @@ export const gifAlone = () => {
           expect(v.outcome, v.detail).toBe("unchanged");
         }
       });
-    },
-    BOTH_MS,
-  );
-};
-
-/** A video of its own on a page that never stops. */
-export const spinner = () => {
-  it(
-    "measures a spinner that never stops, filmed twice (#10)",
-    async () => {
-      const name = "Spinner";
-      const video = kept(
-        name,
-        ["Place order"],
-        1,
-        [
-          {
-            path: "docs/spinner.mp4",
-            fileType: "mp4",
-            aspect: "16:9",
-            quality: "share",
-          },
-        ],
-        0,
-        3500,
-      );
-      // The premise: the spinner is on the page.
-      expect(SPINNER).toContain('<div id="spin"></div></main>');
-      expect(SPINNER).toContain("animation: spin");
-      html = SPINNER;
-      try {
-        await withKept(video, async () => {
-          const first = byName(await refresh([name]), name);
-          const { screens } = await keptOf(name).catch((error: unknown) => ({
-            screens: `unreadable: ${error instanceof Error ? error.message : String(error)}`,
-          }));
-          const second = byName(await refresh([name]), name);
-          // Measured, not asserted: it goes on #10.
-          console.info(
-            `spinner: first ${first.outcome}: ${first.detail} | screens ${JSON.stringify(screens)} | again ${second.outcome}: ${second.detail} | on ${process.platform}`,
-          );
-        });
-      } finally {
-        html = ORIGINAL;
-      }
     },
     BOTH_MS,
   );
@@ -2061,6 +2170,467 @@ export const pinnedDates = () => {
       } finally {
         html = ORIGINAL;
       }
+    },
+    BOTH_MS,
+  );
+};
+
+type Rect = { x: number; y: number; width: number; height: number };
+/** `fn`'s answer on `page`, laid out at 1280x800 in a work page. */
+async function inPage<T>(page: string, fn: () => T): Promise<T> {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    await work.page.setViewportSize({ width: 1280, height: 800 });
+    await work.page.setContent(page);
+    return await work.page.evaluate(fn);
+  } finally {
+    await work.page.close();
+  }
+}
+/** The RGB of every pixel of `png` inside `rect`, row by row, decoded in a
+ *  work page. */
+async function pixelsIn(png: Buffer, rect: Rect): Promise<number[][]> {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    const flat = await work.page.evaluate(
+      async ([b64, r]) => {
+        const bytes = Uint8Array.from(atob(b64 as string), (c) =>
+          c.charCodeAt(0),
+        );
+        const bmp = await createImageBitmap(new Blob([bytes]));
+        const c = new OffscreenCanvas(bmp.width, bmp.height);
+        const ctx = c.getContext("2d") as OffscreenCanvasRenderingContext2D;
+        ctx.drawImage(bmp, 0, 0);
+        const { x, y, width, height } = r as Rect;
+        return Array.from(
+          ctx.getImageData(
+            Math.round(x),
+            Math.round(y),
+            Math.round(width),
+            Math.round(height),
+          ).data,
+        );
+      },
+      [png.toString("base64"), rect] as const,
+    );
+    const out: number[][] = [];
+    for (let i = 0; i < flat.length; i += 4)
+      out.push([flat[i], flat[i + 1], flat[i + 2]] as number[]);
+    return out;
+  } finally {
+    await work.page.close();
+  }
+}
+/** How far into `rect` (from its left) the last pixel darker than mid grey
+ *  is; -1 when none is. */
+async function inkRight(png: Buffer, rect: Rect): Promise<number> {
+  const px = await pixelsIn(png, rect);
+  const width = Math.round(rect.width);
+  let right = -1;
+  for (const [i, [r, g, b]] of px.entries())
+    if (
+      0.299 * (r as number) + 0.587 * (g as number) + 0.114 * (b as number) <
+      128
+    )
+      right = Math.max(right, i % width);
+  return right;
+}
+/** Whether `rgb` is within `by` of `hex` in every channel. */
+const near = (rgb: number[] | undefined, hex: string, by = 12) =>
+  [1, 3, 5].every(
+    (at, i) =>
+      Math.abs(
+        (rgb?.[i] ?? -99) - Number.parseInt(hex.slice(at, at + 2), 16),
+      ) <= by,
+  );
+
+/** A video of its own: `steps` after the load, one MP4 at scale 1. */
+function own(name: string, steps: Record<string, unknown>[]): KeptVideo {
+  const base = kept(name, [], 1, [
+    {
+      path: `docs/${name.toLowerCase().replaceAll(" ", "-")}.mp4`,
+      fileType: "mp4",
+      aspect: "16:9",
+      quality: "share",
+    },
+  ]);
+  return {
+    ...base,
+    script: {
+      ...base.script,
+      steps: [{ do: "waitForLoad" }, ...steps],
+    } as KeptVideo["script"],
+  };
+}
+type Video = {
+  /** The refresh's answer for the video. */
+  v: RefreshVideo;
+  /** The folder its page screens were copied to. */
+  dir: string;
+  /** Its page screens, as the bundle recorded them. */
+  screens: (typeof gaps)[0]["screens"];
+};
+/** Records `video` on each page in turn, one refresh each, with nothing
+ *  committed before the first: each refresh's answer, page screens and
+ *  their images. */
+async function recordOn(video: KeptVideo, pages: string[]): Promise<Video[]> {
+  const out: Video[] = [];
+  try {
+    await withKept(video, async () => {
+      for (const page of pages) {
+        html = page;
+        const [runs, shots] = [gaps.length, exported.length];
+        const r = await refresh([video.name]);
+        const set = exported
+          .slice(shots)
+          .filter((e) => e.fileType === "screens")
+          .at(-1);
+        const run = gaps.slice(runs).at(-1);
+        if (set?.dir == null || run === undefined)
+          throw new Error(
+            `no page screens from the refresh: ${JSON.stringify(r)}`,
+          );
+        out.push({
+          v: byName(r, video.name),
+          dir: set.dir,
+          screens: run.screens,
+        });
+      }
+    });
+  } finally {
+    html = ORIGINAL;
+  }
+  return out;
+}
+const finalScreen = (v: Video) => readFile(join(v.dir, screenImageName(null)));
+
+/** DEM-139: a focused field's blinking caret. Red without the caret style
+ *  (PAGE_CAPTURE_HOLD): the final screen differs at the caret. */
+export const caret = () => {
+  it(
+    "a focused field with a blinking caret reads unchanged (DEM-139)",
+    async () => {
+      // The premise: a capture without the caret style differs between the
+      // two pages, and only inside the field (the caret).
+      const shot = (page: string) =>
+        inPage(page, () => {
+          (document.getElementById("search") as HTMLInputElement).focus();
+          const r = (
+            document.getElementById("search") as HTMLElement
+          ).getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height };
+        }).then(async (field) => {
+          const work = await session.openWorkPage();
+          if (!work.ok) throw new Error(work.detail);
+          try {
+            await work.page.setViewportSize({ width: 1280, height: 800 });
+            await work.page.setContent(page);
+            await work.page.focus("#search");
+            return {
+              field,
+              png: await work.page.screenshot({ caret: "initial" }),
+            };
+          } finally {
+            await work.page.close();
+          }
+        });
+      const [on, off] = [await shot(CARET_ON), await shot(CARET_OFF)];
+      const d = await differing(on.png, off.png);
+      const f = on.field;
+      const evidence = JSON.stringify({ d, field: f });
+      expect("n" in d && (d.n ?? 0) > 0, evidence).toBe(true);
+      if (!("n" in d)) return;
+      expect(d.x0, evidence).toBeGreaterThanOrEqual(f.x);
+      expect(d.x1, evidence).toBeLessThanOrEqual(f.x + f.width);
+      expect(d.y0, evidence).toBeGreaterThanOrEqual(f.y);
+      expect(d.y1, evidence).toBeLessThanOrEqual(f.y + f.height);
+      const [, again] = await recordOn(
+        own("Caret", [{ do: "click", on: { stableId: "search" } }]),
+        [CARET_ON, CARET_OFF],
+      );
+      noiseLine("caret", again?.v.detail ?? "");
+      expect(again?.v.outcome, again?.v.detail).toBe("unchanged");
+      // The premise: the final screen, the field focused, was compared.
+      expect(again?.v.detail).toMatch(/over 3 of 3 screens$/);
+    },
+    BOTH_MS,
+  );
+};
+
+/** A chip the resting pointer hovers, its fill arriving over `HOVER_MS`.
+ *  Red without the finite-animation condition: the screen is taken with
+ *  the fill on its way. */
+export const hover = () => {
+  it(
+    "an element hovered by the resting pointer reads unchanged",
+    async () => {
+      expect(HOVER).toContain(`transition: background-color ${HOVER_MS}ms`);
+      const [one, two] = (await recordOn(
+        own("Hover", [{ do: "hover", on: { stableId: "tip" } }]),
+        [HOVER, HOVER],
+      )) as [Video, Video];
+      noiseLine("hover", two.v.detail);
+      expect(two.v.outcome, two.v.detail).toBe("unchanged");
+      expect(two.v.detail).toMatch(/over 3 of 3 screens$/);
+      // The premise: both final screens show the chip's fill all the way
+      // arrived, at its centre (260 + 16, 748 + 16).
+      for (const v of [one, two]) {
+        const [px] = await pixelsIn(await finalScreen(v), {
+          x: 276,
+          y: 764,
+          width: 1,
+          height: 1,
+        });
+        expect(near(px, HOVER_FILL, 1), JSON.stringify(px)).toBe(true);
+      }
+    },
+    BOTH_MS,
+  );
+};
+
+/** DEM-73's fixture: a spinner that never stops, on every screen, half a
+ *  turn apart in the two videos. Red without the hold at the start: the
+ *  spinner's angle differs. */
+export const spinner = () => {
+  it(
+    "a spinner beside static content reads unchanged, and a change beside it changed",
+    async () => {
+      // The premise: the spinner is on the page, in view.
+      expect(SPINNER).toContain('<div id="spin"></div></main>');
+      const spin = await inPage(PENDING(3), () => {
+        const r = (
+          document.getElementById("spin") as HTMLElement
+        ).getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      });
+      expect(
+        spin.x >= 0 &&
+          spin.y >= 0 &&
+          spin.x + spin.width <= 1280 &&
+          spin.y + spin.height <= 800,
+        JSON.stringify(spin),
+      ).toBe(true);
+      // The premise: at the same moment, the second page's spinner is
+      // about half its 800 ms turn ahead of the first's.
+      const phase = (page: string) =>
+        inPage(page, () =>
+          Number(
+            (document.getElementById("spin") as HTMLElement).getAnimations()[0]
+              ?.currentTime,
+          ),
+        );
+      const ahead = (await phase(PENDING_SHIFTED)) - (await phase(PENDING(3)));
+      expect(ahead, `${ahead} ms`).toBeGreaterThan(SPIN_SHIFT_MS - 150);
+      expect(ahead, `${ahead} ms`).toBeLessThan(SPIN_SHIFT_MS + 150);
+      const videos = await recordOn(
+        own("Spinner", [{ do: "click", on: { text: "Place order" } }]),
+        [PENDING(3), PENDING_SHIFTED, PENDING(4)],
+      );
+      const [first, same, changed] = videos as [Video, Video, Video];
+      // The premise: the spinner was running at every capture, so every
+      // screen held it.
+      for (const v of videos)
+        expect(
+          v.screens.map((s) => s.heldAnimations),
+          JSON.stringify(v.screens),
+        ).toEqual([1, 1, 1]);
+      expect(first.v.outcome).toBe("uncompared");
+      noiseLine("spinner", same.v.detail);
+      expect(same.v.outcome, same.v.detail).toBe("unchanged");
+      expect(same.v.detail).toMatch(/over 3 of 3 screens$/);
+      noiseLine("spinner, a digit beside it", changed.v.detail);
+      expect(changed.v.outcome, changed.v.detail).toBe("changed");
+    },
+    BOTH_MS,
+  );
+};
+
+/** An answer streamed over 1.5 s. Red without the in-flight condition: the
+ *  screen is taken in the pause before the first word. */
+export const stream = () => {
+  it(
+    "the screen after a streamed answer is the finished answer, unchanged",
+    async () => {
+      expect(STREAM_FIRST_MS).toBeGreaterThan(STEP_QUIET_MS);
+      const full = STREAM_WORDS.join(" ");
+      const text = await inPage(
+        STREAM.replace(
+          'overflow: hidden"></div>',
+          `overflow: hidden">${full}</div>`,
+        ),
+        () => {
+          const range = document.createRange();
+          range.selectNodeContents(document.getElementById("answer") as Node);
+          const r = range.getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height };
+        },
+      );
+      const from = streamed.length;
+      const videos = await recordOn(
+        own("Stream", [{ do: "click", on: { text: "Ask" } }]),
+        [STREAM, STREAM],
+      );
+      const two = videos[1] as Video;
+      noiseLine("stream", two.v.detail);
+      expect(two.v.outcome, two.v.detail).toBe("unchanged");
+      expect(two.v.detail).toMatch(/over 3 of 3 screens$/);
+      // The premise: each video's stream took its 1.5 s, and was still open
+      // when the click returned: the settle after it waited most of it.
+      const took = streamed.slice(from);
+      expect(took.length, JSON.stringify(took)).toBe(2);
+      for (const ms of took) expect(ms).toBeGreaterThanOrEqual(STREAM_MS - 5);
+      for (const v of videos) {
+        const after = v.screens.find((s) => s.after === 2);
+        expect(after?.unsettled, JSON.stringify(v.screens)).toBeUndefined();
+        expect(after?.waitedMs, JSON.stringify(v.screens)).toBeGreaterThan(
+          STREAM_MS - 300,
+        );
+        // The picture: the ink ends where the whole answer ends.
+        const row = { x: 340, y: 748, width: 640, height: 32 };
+        const right = await inkRight(await finalScreen(v), row);
+        expect(
+          Math.abs(row.x + right + 1 - (text.x + text.width)),
+          `ink ends at ${row.x + right + 1}; the whole answer at ${text.x + text.width}`,
+        ).toBeLessThanOrEqual(3);
+      }
+    },
+    BOTH_MS,
+  );
+};
+
+/** A toast that slides in over 600 ms. Red without the finite-animation
+ *  condition: the screen is taken mid-slide. */
+export const toast = () => {
+  it(
+    "a toast that slides in is on the final screen in both videos",
+    async () => {
+      expect(TOAST_MS).toBeGreaterThan(STEP_QUIET_MS);
+      const rest = await inPage(
+        TOAST.replace(
+          '<div id="toasts"></div>',
+          '<div id="toasts"><div class="toast" style="animation: none">Saved</div></div>',
+        ),
+        () => {
+          const r = (
+            document.querySelector(".toast") as HTMLElement
+          ).getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height };
+        },
+      );
+      expect(rest).toEqual(TOAST_REST);
+      const videos = await recordOn(
+        own("Toast", [{ do: "click", on: { text: "Save" } }]),
+        [TOAST, TOAST],
+      );
+      const two = videos[1] as Video;
+      noiseLine("toast", two.v.detail);
+      expect(two.v.outcome, two.v.detail).toBe("unchanged");
+      for (const v of videos) {
+        // Both ends of the toast at rest, in its padding.
+        const y = TOAST_REST.y + TOAST_REST.height / 2;
+        const png = await finalScreen(v);
+        const left = await pixelsIn(png, {
+          x: TOAST_REST.x + 4,
+          y,
+          width: 1,
+          height: 1,
+        });
+        const right = await pixelsIn(png, {
+          x: TOAST_REST.x + TOAST_REST.width - 6,
+          y,
+          width: 1,
+          height: 1,
+        });
+        expect(
+          near(left[0], TOAST_FILL) && near(right[0], TOAST_FILL),
+          `left ${JSON.stringify(left)} right ${JSON.stringify(right)}; ${JSON.stringify(v.screens)}`,
+        ).toBe(true);
+      }
+    },
+    BOTH_MS,
+  );
+};
+
+/** A search that filters once typing stops for 150 ms. Red if the beat is
+ *  below the debounce: the screen is taken before the filter. */
+export const debounce = () => {
+  it(
+    "a debounced search's screen is the filtered list, unchanged",
+    async () => {
+      const rows = await inPage(
+        DEBOUNCE,
+        () =>
+          [...document.querySelectorAll("#rows tr")].filter((tr) =>
+            (tr.textContent ?? "").includes("Acme"),
+          ).length,
+      );
+      // The premise: the search leaves one row of ten, and its delay is
+      // inside the beat.
+      expect(rows).toBe(1);
+      expect(DEBOUNCE_MS).toBeLessThan(STEP_QUIET_MS);
+      const videos = await recordOn(
+        own("Debounce", [
+          { do: "type", into: { stableId: "search" }, text: "Acme" },
+        ]),
+        [DEBOUNCE, DEBOUNCE],
+      );
+      const two = videos[1] as Video;
+      noiseLine("debounce", two.v.detail);
+      expect(two.v.outcome, two.v.detail).toBe("unchanged");
+      expect(two.v.detail).toMatch(/over 3 of 3 screens$/);
+      // The picture: in each video the final screen has lost nine rows
+      // against the opening (typing alone changes a few hundred pixels).
+      for (const v of videos) {
+        const d = await differing(
+          await readFile(join(v.dir, screenImageName(0))),
+          await finalScreen(v),
+        );
+        expect(
+          "n" in d ? d.n : 0,
+          `${JSON.stringify(d)}; ${JSON.stringify(v.screens)}`,
+        ).toBeGreaterThan(100_000);
+      }
+    },
+    BOTH_MS,
+  );
+};
+
+/** A page whose DOM never goes quiet once the click starts a count. Red if
+ *  an unsettled screen is compared (its image is never written) or
+ *  forgiven (it goes unnamed). A page that never settles from its load is not a case here:
+ *  the run itself fails on it (`pageNeverSettled`). */
+export const neverSettles = () => {
+  it(
+    "a page that never settles names the step, and never reads unchanged on it",
+    async () => {
+      const videos = await recordOn(
+        own("Never settles", [{ do: "click", on: { text: "Place order" } }]),
+        [NEVER_AFTER_CLICK, NEVER_AFTER_CLICK],
+      );
+      const [first, again] = videos as [Video, Video];
+      // The premise: before the click the page settled, after it never did.
+      for (const v of videos)
+        expect(
+          v.screens.map((s) => s.unsettled === undefined),
+          JSON.stringify(v.screens),
+        ).toEqual([true, true, false]);
+      // The premise: the count ticks inside the beat, and an unsettled
+      // screen's image is never written, so nothing of it can be read.
+      expect(TICK).toContain("}, 50);");
+      expect(50).toBeLessThan(STEP_QUIET_MS);
+      for (const v of videos)
+        expect((await readdir(v.dir)).sort()).toEqual(
+          [screenImageName(0), screenImageName(1)].sort(),
+        );
+      expect(first.v.outcome, first.v.detail).toBe("uncompared");
+      // The two settled screens are compared, and the final one is named.
+      expect(again.v.outcome, again.v.detail).toBe("unchanged");
+      noiseLine("never settles", again.v.detail);
+      expect(again.v.detail).toMatch(
+        /over 2 of 3 screens; on the final screen: the DOM never went quiet$/,
+      );
     },
     BOTH_MS,
   );

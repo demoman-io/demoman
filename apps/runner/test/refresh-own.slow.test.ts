@@ -5,8 +5,7 @@ import {
   logoOrUpload,
   refreshSuite,
   shortEnding,
-  spinner,
   upload,
 } from "./refresh-suite.js";
 
-refreshSuite(shortEnding, gifAlone, spinner, upload, logoOrUpload);
+refreshSuite(shortEnding, gifAlone, upload, logoOrUpload);

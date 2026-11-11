@@ -25,23 +25,32 @@ type Look = { name: string; block: number; levels: number; allowed: number };
  * `faintly` (a wide block, a low level) a weak change over an area, text or
  * a fill a few shades off.
  *
- * Measured 2026-10-28 on MP4 frames, kept for still screens on 2026-11-03,
- * and carried unchanged to page screens on 2026-11-10: the page at CSS 1x,
- * compared at its own size, with no window and no inset (spec 2026-11-10,
- * decisions 2 and 4). Page screens are re-measured by Task 9 of that plan.
- * The still-screen table (1280 wide, the app drawn inside its window):
+ * Set 2026-10-28 on MP4 frames, and re-measured on page screens on
+ * 2026-11-11 (the page at CSS 1x, compared at its own size, with no window
+ * and no inset: spec 2026-11-10, decisions 2 and 4), where the levels held:
+ * every unchanged case reads 0 and the least-changed case is 2.5x over. The
+ * refresh lanes (restyle, unchanged, own, settle), run twice on macOS,
+ * gave the same shares both times:
  *
  *   share of the picture changed         sharply (allowed 0.0008%)   faintly (allowed 0.017%)
- *   unchanged re-films (order, reports)     0.0000%                  0.0000%
- *   the same, a slower app (macOS only)      0.0000%                  0.0000%
- *   one digit, $1,200.00 to $1,207.00        0.0020% (2.5x over)      -
- *   nav text gray-700 to gray-500            -                        0.0611% (3.6x over)
- *   a button blue to a green as light        0.344%                   -
- *   a dark panel #111827 to #7f1d1d          13.0%                    -
+ *   unchanged: order, reports, slower,      0.0000%                  0.0000%
+ *     GIF alone, short ending, caret,
+ *     hover, spinner, stream, toast,
+ *     debounce, never settles
+ *   a digit beside a spinner, 3 to 4         0.0020% (2.5x over)      -
+ *   one digit, $1,200.00 to $1,207.00        0.0047% (5.9x over)      -
+ *   small grey text, 14:11 to 05:00          0.0070% (8.8x over)      -
+ *   nav text gray-700 to gray-500            -                        0.1226% (7.2x over)
+ *   a button blue to a green as light        0.6735%                  -
+ *   a dark panel #111827 to #7f1d1d          25.37%                   -
+ *
+ * CI's numbers (ubuntu, the GPU off) are pending: they come from the
+ * branch's pull request, and an unchanged case above 0 there stops it.
  *
  * A "-" is a look the case did not reach: the detail line names the first
- * look that counts it changed. A glyph moving under about 60 levels or a
- * shade under 13 is not seen.
+ * look that counts it changed. Still not seen: a glyph moving under about
+ * 60 levels or a shade under 13, and anything on a screen that never
+ * settled, which is named and skipped, never compared.
  */
 export const STILL_LOOKS: readonly Look[] = [
   { name: "sharply", block: 2, levels: 60, allowed: 0.000008 },
