@@ -16,6 +16,7 @@
 <button id="spinbtn">spinner</button>
 <button id="finishedbtn">finished</button>
 <button id="never">never</button>
+<button id="poll">poll</button>
 <button id="ask">ask</button>
 <a id="nav" href="next">next page</a>
 <input id="q" placeholder="filter">
@@ -93,6 +94,8 @@
     e.preventDefault();
     setTimeout(() => { location.href = "next"; }, 100);
   };
+  // A long poll (http only): the server holds it open for the whole take.
+  $("poll").onclick = () => void fetch("poll").catch(() => undefined);
   $("never").onclick = () => {
     let n = 0;
     setInterval(() => { $("count").textContent = String(++n); }, 50);

@@ -178,6 +178,8 @@ const FORGIVEN = new Set<string>([
   "keyframeOnly",
   // The video is right; only that step's page screen cannot be compared.
   "stepUnsettled",
+  // The video is right; a long poll was not waited for again, and said.
+  "requestNotWaited",
 ]);
 const STILLS_ONLY = "no motion was recorded: the video is its stills only";
 
@@ -250,7 +252,11 @@ export async function recordWithRetry(
   if (verdict.kind !== "degraded") return { answer: first, verdict };
   // A page that never settled (a stream, a poll) settles no better the next
   // time: it stands, and its reason is in the problems the caller reports.
-  if (verdict.problems.every((p) => p.endsWith("(stepUnsettled)")))
+  if (
+    verdict.problems.every(
+      (p) => p.endsWith("(stepUnsettled)") || p.endsWith("(requestNotWaited)"),
+    )
+  )
     return { answer: first, verdict };
   log(
     `refresh: "${name}" recorded with ${verdict.problems.join("; ")}; trying it once more`,

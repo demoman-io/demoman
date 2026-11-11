@@ -166,6 +166,25 @@ describe("recordWithRetry", () => {
       problems: [expect.stringContaining("(stepUnsettled)")],
     });
   });
+  // Red when a long poll left out fails the run or sends it round again: it
+  // is open on the second recording too, and the video is right.
+  it("delivers a run that left out a long poll, once, and still says so", async () => {
+    const poll = {
+      ...clean,
+      frames: { spans: 2, degradations: ["stepUnsettled", "requestNotWaited"] },
+    };
+    const r = runs(poll, clean);
+    const got = await recordWithRetry(r.run, "Flow", log);
+    expect(r.count()).toBe(1);
+    expect(got.answer).toBe(poll);
+    expect(got.verdict).toMatchObject({
+      kind: "degraded",
+      problems: [
+        expect.stringContaining("(stepUnsettled)"),
+        expect.stringContaining("was not waited for again"),
+      ],
+    });
+  });
   it("still records again when an unsettled step comes with a soft still", async () => {
     const both = {
       ...clean,

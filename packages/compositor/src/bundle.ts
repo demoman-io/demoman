@@ -267,6 +267,10 @@ const DegradationSchema = z.object({
     // screen could not be taken. The video is unaffected; refresh cannot
     // compare that screen. The note names the step and the conditions.
     "stepUnsettled",
+    // A step's settle left out a request open since more than a request cap
+    // before the step began (a long poll): its own step waited for it. The
+    // screen counts as settled; the note names the step and how many.
+    "requestNotWaited",
   ]),
   note: z.string(),
 });

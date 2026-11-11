@@ -1052,6 +1052,8 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
     "a native drag's picture could not be drawn, so the dragged item jumps to its drop in the video instead of travelling",
   stepUnsettled:
     "a step's page had not settled when the next began, so refresh cannot compare that screen",
+  requestNotWaited:
+    "a request open since an earlier step (a long poll, say) was not waited for again, so a step's page screen may have been taken before it answered",
 };
 
 /** DEM-108: the run joined a flow from a checkout of another repo. */

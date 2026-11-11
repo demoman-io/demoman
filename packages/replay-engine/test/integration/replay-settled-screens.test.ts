@@ -10,6 +10,7 @@ import {
   type CdpSession,
   PAGE_CAPTURE_HOLD,
   runAuthored,
+  STEP_REQUEST_CAP_MS,
 } from "../../src/index.js";
 import {
   selectorPageAgent,
@@ -50,9 +51,16 @@ const VIEWPORT = { width: 800, height: 600 };
 
 let server: Server;
 let base = "";
+/** The long polls the server is holding: answered only when it closes. */
+let polls = 0;
 
 beforeAll(async () => {
   server = createServer((req, res) => {
+    if (req.url === "/poll") {
+      polls++;
+      res.writeHead(200, { "content-type": "text/plain" });
+      return; // never ended: the walk's browser closes it
+    }
     if (req.url === "/answer") {
       res.writeHead(200, { "content-type": "text/plain" });
       let i = 0;
@@ -82,6 +90,7 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
 });
 afterAll(async () => {
+  server.closeAllConnections();
   await new Promise<void>((r) => server.close(() => r()));
 });
 
@@ -531,5 +540,47 @@ describe("a click that navigates", () => {
       inkRight(r.luma[1]?.heading, width),
       `the screen after the click, where the new page's heading is; waited ${r.screens[1]?.waitedMs} ms`,
     ).toBeGreaterThan(width / 2);
+  });
+});
+
+describe("a request that never closes (a long poll)", () => {
+  let r: Recorded;
+  beforeAll(async () => {
+    r = await record(
+      [
+        { do: "click", on: { stableId: "poll" } },
+        { do: "click", on: { stableId: "toastbtn" } },
+        { do: "click", on: { stableId: "hoverbtn" } },
+      ],
+      async () => ({}),
+    );
+    // The poll's own step waits the whole 6 s request cap; the two after it
+    // must not: about 10 s here, 30 s if they wait it too.
+  }, 90_000);
+
+  it("waits for it on the step that opened it, then leaves it out and says so", () => {
+    expect(polls, "premise: the poll reached the server").toBeGreaterThan(0);
+    expect(r.result.outcome, String(r.result.reason)).toBe("complete");
+    expect(r.screens.map((s) => s.after)).toEqual([0, 1, 2, 3]);
+    expect(r.screens[1]?.unsettled, JSON.stringify(r.screens[1])).toMatch(
+      /1 request\(s\) in flight/,
+    );
+    for (const s of r.screens.slice(2)) {
+      expect(s.unsettled, JSON.stringify(s)).toBeUndefined();
+      expect(s.waitedMs, JSON.stringify(s)).toBeLessThan(
+        STEP_REQUEST_CAP_MS / 2,
+      );
+    }
+    const said = r.result.degradations
+      .filter((d) => d.kind === "requestNotWaited")
+      .map((d) => d.note);
+    // One for each step after the poll's own, each naming its step.
+    expect(said, JSON.stringify(r.result.degradations)).toHaveLength(2);
+    for (const note of said) {
+      expect(note).toMatch(
+        /^the page after step \S+: 1 request open since an earlier step was not waited for$/,
+      );
+    }
+    expect(new Set(said).size, "two steps, two names").toBe(2);
   });
 });

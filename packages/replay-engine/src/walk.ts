@@ -1257,9 +1257,18 @@ export async function runWalk(
    * start a request inside its own quiet window: a debounced search firing,
    * a new document's first fetches. Requests may take until `requestBy` (a
    * streamed answer is one long request); the page is then asked within its
-   * own `STEP_SETTLE_CAP_MS`, so a long stream never leaves it "not asked".
+   * own `STEP_SETTLE_CAP_MS`. A request still in flight when the cap runs
+   * out leaves the page not asked.
+   *
+   * Only requests that opened after `openedAfter` are waited for. One open
+   * longer than a whole request cap before the step began (a long poll, a
+   * channel that never closes) had its step's wait already: waiting again
+   * would cost every later step the cap and its screen.
    */
-  const settleWords = async (requestBy: number): Promise<string[]> => {
+  const settleWords = async (
+    requestBy: number,
+    openedAfter: number,
+  ): Promise<string[]> => {
     for (;;) {
       if (tracker === null) {
         return [
@@ -1267,13 +1276,19 @@ export async function runWalk(
           ...(await settlePage(at() + STEP_SETTLE_CAP_MS)),
         ];
       }
-      if (!(await tracker.idle(requestBy, clock.sleep, at))) {
-        return [`${tracker.inFlight()} request(s) in flight`, PAGE_NOT_ASKED];
+      if (!(await tracker.idle(requestBy, clock.sleep, openedAfter))) {
+        return [
+          `${tracker.inFlight(openedAfter)} request(s) in flight`,
+          PAGE_NOT_ASKED,
+        ];
       }
       const page = await settlePage(at() + STEP_SETTLE_CAP_MS);
-      if (tracker.inFlight() === 0) return page;
+      if (tracker.inFlight(openedAfter) === 0) return page;
       if (at() >= requestBy) {
-        return [`${tracker.inFlight()} request(s) in flight`, ...page];
+        return [
+          `${tracker.inFlight(openedAfter)} request(s) in flight`,
+          ...page,
+        ];
       }
     }
   };
@@ -1386,8 +1401,30 @@ export async function runWalk(
     actionId: string | null,
   ): Promise<void> => {
     const from = at();
-    const unsettled = await settleWords(from + STEP_REQUEST_CAP_MS);
+    const openedAfter = from - STEP_REQUEST_CAP_MS;
+    const unsettled = await settleWords(
+      from + STEP_REQUEST_CAP_MS,
+      openedAfter,
+    );
     const waitedMs = Math.max(0, at() - from);
+    const leftOut =
+      tracker === null ? 0 : tracker.inFlight() - tracker.inFlight(openedAfter);
+    const place =
+      actionId === null
+        ? "the opening page"
+        : `the page after step ${actionId}`;
+    if (leftOut > 0) {
+      // Forgiven, not hidden: the screen counts as settled, and this says
+      // what it did not wait for.
+      degradations.push(
+        degradation(
+          "requestNotWaited",
+          from,
+          at(),
+          `${place}: ${leftOut} request${leftOut === 1 ? "" : "s"} open since an earlier step ${leftOut === 1 ? "was" : "were"} not waited for`,
+        ),
+      );
+    }
     let screen: PageScreen | null = null;
     try {
       const { taken, failure, releaseFailed } = await capturePage();
@@ -1428,7 +1465,7 @@ export async function runWalk(
           "stepUnsettled",
           from,
           at(),
-          `${actionId === null ? "the opening page" : `the page after step ${actionId}`}: ${screen.unsettled}`,
+          `${place}: ${screen.unsettled}`,
         ),
       );
     }
@@ -2489,7 +2526,7 @@ export async function runWalk(
     // counted. A refusal does not stop the run: every screen says it.
     if (continuous) {
       try {
-        tracker = await trackRequests(cdp);
+        tracker = await trackRequests(cdp, at);
       } catch (error) {
         untracked = describeSettleError(error);
       }

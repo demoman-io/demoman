@@ -212,18 +212,31 @@ describe("a step's page screen, when something fails", () => {
         return {};
       },
     );
-    const { screens, evidence } = await screensOf(d);
-    expect(screens[1]?.unsettled, evidence).toBe(
+    const { result, screens, evidence } = await screensOf(d);
+    expect(screens[0]?.unsettled, evidence).toBe(
       "1 request(s) in flight; the page was not asked (the cap ran out first)",
     );
+    // Said at the request cap, not the page's.
+    expect(screens[0]?.waitedMs ?? 0, evidence).toBeGreaterThanOrEqual(
+      STEP_REQUEST_CAP_MS,
+    );
+    // The opening waited for it; the steps after leave it out, say so, and
+    // ask the page. Red if they wait the cap again (I1).
+    expect(screens.length, evidence).toBeGreaterThan(1);
+    for (const s of screens.slice(1)) {
+      expect(s.unsettled, evidence).toBeUndefined();
+      expect(s.waitedMs, evidence).toBeLessThan(STEP_REQUEST_CAP_MS);
+    }
+    expect(
+      result.degradations
+        .filter((x) => x.kind === "requestNotWaited")
+        .map((x) => x.note),
+      JSON.stringify(result.degradations),
+    ).toHaveLength(screens.length - 1);
     const asked = d.cdp.calls.filter((c) =>
       String(c.params.expression ?? "").includes(STEP_SETTLE_MARKER),
     );
-    expect(asked, evidence).toEqual([]);
-    // Said at the request cap, not the page's.
-    expect(screens[1]?.waitedMs ?? 0, evidence).toBeGreaterThanOrEqual(
-      STEP_REQUEST_CAP_MS,
-    );
+    expect(asked, evidence).toHaveLength(screens.length - 1);
   });
 
   // A streamed answer is one request open for seconds. Red when requests

@@ -38,7 +38,9 @@ run it locally too.
 After every step, Demoman waits for the page to settle: painted, no
 request open, no animation finishing, and no change on the page for 200 ms.
 A request may hold it up to 6 seconds, such as an answer streamed in; the
-page then gets 2 more. The page is then saved as a screen: one as each
+page then gets 2 more. A request its own step already waited for, such as
+a long poll, is not waited for again, and the run says so
+(`requestNotWaited`). The page is then saved as a screen: one as each
 step begins, and the last screen. A screen shows the page alone, so
 Demoman's cursor, click ripple and camera never count as a change.
 

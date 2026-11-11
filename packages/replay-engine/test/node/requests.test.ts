@@ -39,7 +39,7 @@ const start = (
 describe("trackRequests", () => {
   it("counts a fetch until it finishes", async () => {
     const cdp = fakeCdp();
-    const t = await trackRequests(cdp);
+    const t = await trackRequests(cdp, () => 0);
     expect(cdp.sent).toEqual(["Network.enable"]);
     cdp.emit("Network.requestWillBeSent", start("1", "Fetch"));
     cdp.emit("Network.requestWillBeSent", start("2", "XHR"));
@@ -52,7 +52,7 @@ describe("trackRequests", () => {
 
   it("forgets the old document's requests when the top frame navigates, not a child's", async () => {
     const cdp = fakeCdp();
-    const t = await trackRequests(cdp);
+    const t = await trackRequests(cdp, () => 0);
     cdp.emit("Network.requestWillBeSent", start("1", "Fetch"));
     cdp.emit("Page.frameNavigated", {
       frame: { id: "child", parentId: "top" },
@@ -64,7 +64,7 @@ describe("trackRequests", () => {
 
   it("does not count EventSource, WebSocket, Document or Image requests", async () => {
     const cdp = fakeCdp();
-    const t = await trackRequests(cdp);
+    const t = await trackRequests(cdp, () => 0);
     for (const type of ["EventSource", "WebSocket", "Document", "Image"]) {
       cdp.emit("Network.requestWillBeSent", start(type, type));
     }
@@ -78,7 +78,7 @@ describe("trackRequests", () => {
 
   it("a redirect is still one request", async () => {
     const cdp = fakeCdp();
-    const t = await trackRequests(cdp);
+    const t = await trackRequests(cdp, () => 0);
     cdp.emit("Network.requestWillBeSent", start("1", "Fetch"));
     cdp.emit(
       "Network.requestWillBeSent",
@@ -91,7 +91,7 @@ describe("trackRequests", () => {
 
   it("a request that fails is no longer in flight", async () => {
     const cdp = fakeCdp();
-    const t = await trackRequests(cdp);
+    const t = await trackRequests(cdp, () => 0);
     cdp.emit("Network.requestWillBeSent", start("1", "XHR"));
     cdp.emit("Network.loadingFailed", { requestId: "1" });
     expect(t.inFlight()).toBe(0);
@@ -99,26 +99,48 @@ describe("trackRequests", () => {
 
   it("idle answers true once the last request ends, false at the deadline while a fetch never answers", async () => {
     const cdp = fakeCdp();
-    const t = await trackRequests(cdp);
     let clock = 0;
-    const now = () => clock;
+    const t = await trackRequests(cdp, () => clock);
     const sleep = async (ms: number) => {
       clock += ms;
     };
-    expect(await t.idle(100, sleep, now)).toBe(true);
+    expect(await t.idle(100, sleep)).toBe(true);
     cdp.emit("Network.requestWillBeSent", start("1", "Fetch"));
-    expect(await t.idle(200, sleep, now)).toBe(false);
+    expect(await t.idle(200, sleep)).toBe(false);
     expect(clock).toBeGreaterThanOrEqual(200);
     const ends = async (ms: number) => {
       clock += ms;
       cdp.emit("Network.loadingFinished", { requestId: "1" });
     };
-    expect(await t.idle(clock + 500, ends, now)).toBe(true);
+    expect(await t.idle(clock + 500, ends)).toBe(true);
+  });
+
+  // Red if `openedAfter` is ignored: a long poll would hold every later step.
+  it("leaves out the requests that opened at or before openedAfter, and only those", async () => {
+    const cdp = fakeCdp();
+    let clock = 0;
+    const t = await trackRequests(cdp, () => clock);
+    const sleep = async (ms: number) => {
+      clock += ms;
+    };
+    cdp.emit("Network.requestWillBeSent", start("old", "Fetch"));
+    clock = 1000;
+    // A redirect of the old one keeps its first opening.
+    cdp.emit(
+      "Network.requestWillBeSent",
+      start("old", "Fetch", { redirectResponse: { status: 302 } }),
+    );
+    expect(t.inFlight()).toBe(1);
+    expect(t.inFlight(500)).toBe(0);
+    expect(await t.idle(2000, sleep, 500)).toBe(true);
+    cdp.emit("Network.requestWillBeSent", start("new", "XHR"));
+    expect(t.inFlight(500)).toBe(1);
+    expect(await t.idle(clock + 100, sleep, 500)).toBe(false);
   });
 
   it("dispose removes every listener", async () => {
     const cdp = fakeCdp();
-    const t = await trackRequests(cdp);
+    const t = await trackRequests(cdp, () => 0);
     expect(cdp.listeners()).toBeGreaterThan(0);
     t.dispose();
     expect(cdp.listeners()).toBe(0);
@@ -128,7 +150,7 @@ describe("trackRequests", () => {
     const cdp = fakeCdp(async () => {
       throw new Error("session closed");
     });
-    await expect(trackRequests(cdp)).rejects.toThrow("session closed");
+    await expect(trackRequests(cdp, () => 0)).rejects.toThrow("session closed");
     expect(cdp.listeners()).toBe(0);
   });
 });
