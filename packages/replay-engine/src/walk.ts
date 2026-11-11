@@ -1432,7 +1432,7 @@ export async function runWalk(
           "requestNotWaited",
           from,
           at(),
-          `${place}: ${leftOut} request${leftOut === 1 ? "" : "s"} open since an earlier step ${leftOut === 1 ? "was" : "were"} not waited for`,
+          `${place}: ${leftOut} request${leftOut === 1 ? "" : "s"} opened more than ${STEP_REQUEST_CAP_MS / 1000} s before this step's wait began ${leftOut === 1 ? "was" : "were"} not waited for`,
         ),
       );
     }

@@ -181,7 +181,7 @@ describe("recordWithRetry", () => {
       kind: "degraded",
       problems: [
         expect.stringContaining("(stepUnsettled)"),
-        expect.stringContaining("was not waited for again"),
+        expect.stringContaining("was not waited for, so"),
       ],
     });
   });

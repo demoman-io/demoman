@@ -640,7 +640,7 @@ describe("a request that never closes (a long poll)", () => {
     expect(said, JSON.stringify(r.result.degradations)).toHaveLength(2);
     for (const note of said) {
       expect(note).toMatch(
-        /^the page after step \S+: 1 request open since an earlier step was not waited for$/,
+        /^the page after step \S+: 1 request opened more than 6 s before this step's wait began was not waited for$/,
       );
     }
     expect(new Set(said).size, "two steps, two names").toBe(2);

@@ -178,7 +178,7 @@ const FORGIVEN = new Set<string>([
   "keyframeOnly",
   // The video is right; only that step's page screen cannot be compared.
   "stepUnsettled",
-  // The video is right; a long poll was not waited for again, and said.
+  // The video is right; a long poll was not waited for, and said.
   "requestNotWaited",
 ]);
 const STILLS_ONLY = "no motion was recorded: the video is its stills only";
