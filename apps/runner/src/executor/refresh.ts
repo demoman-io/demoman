@@ -52,7 +52,7 @@ import {
 } from "./keep.js";
 import { readKeptFlows } from "./kept-flows.js";
 import { createLibrary, type Library } from "./library.js";
-import { sameScreens, screenPlace } from "./same-picture.js";
+import { sameScreens, screensNote } from "./same-picture.js";
 import type { LocalExecutor } from "./types.js";
 import type { VideoStore } from "./videos.js";
 
@@ -697,12 +697,16 @@ async function filmOne(
       return { failed: `${o.path}: ${exported.summary ?? exported.outcome}` };
     if (exported.warnings.logo !== null)
       return {
-        failed: `${o.path} was rendered without its logo: ${exported.warnings.logo}`,
+        failed: screensOnly
+          ? `${o.path}'s page screens would be judged by a look that leaves out its logo: ${exported.warnings.logo}`
+          : `${o.path} was rendered without its logo: ${exported.warnings.logo}`,
       };
     // A soft wallpaper is the picture the author kept; a missing one is not.
     if (exported.warnings.wallpaperWarning?.kind === "leftOut")
       return {
-        failed: `${o.path} was rendered without its wallpaper: ${exported.warnings.wallpaperWarning.sentence}`,
+        failed: screensOnly
+          ? `${o.path}'s page screens would be judged by a look that leaves out its wallpaper: ${exported.warnings.wallpaperWarning.sentence}`
+          : `${o.path} was rendered without its wallpaper: ${exported.warnings.wallpaperWarning.sentence}`,
       };
     return exported as Extract<
       typeof exported,
@@ -747,7 +751,7 @@ async function filmOne(
     return filmed(
       null,
       [],
-      `${judged.path}, the output a refresh judges, has no settled screen to compare against (${shots.screens.screens.map((sc) => `${screenPlace(sc.step, kept.script.steps)}: ${sc.unsettled}`).join("; ")}) — a refresh would have nothing to check; nothing was written`,
+      `${judged.path}, the output a refresh judges, has no settled screen to compare against (${screensNote(shots.screens, kept.script.steps)}) — a refresh would have nothing to check; nothing was written`,
     );
   const exportAll = async (which: number[]) => {
     for (const i of which) {

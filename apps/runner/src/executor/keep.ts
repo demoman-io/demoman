@@ -61,7 +61,7 @@ import type { Library } from "./library.js";
 import { readLogo } from "./logo-ref.js";
 import { refilmFromVideo } from "./refilm.js";
 import { type GitRunner, readRepo } from "./repo.js";
-import { screenPlace } from "./same-picture.js";
+import { screensNote } from "./same-picture.js";
 import { createSessionStore, type SessionFile, siteOf } from "./sessions.js";
 import { sameName } from "./video-match.js";
 import { sharesRepo, type VideoRecord, type VideoStore } from "./videos.js";
@@ -431,13 +431,13 @@ export async function keepVideo(
       if (shot.warnings.logo !== null) {
         return refuse(
           "logoUnreadable",
-          `${o.path}'s screens were rendered without the logo: ${shot.warnings.logo}`,
+          `${o.path}'s page screens would be kept with a look that leaves out the logo: ${shot.warnings.logo}`,
         );
       }
       if (shot.warnings.wallpaperWarning?.kind === "leftOut") {
         return refuse(
           "wallpaperUnreadable",
-          `${o.path}'s screens were rendered without the wallpaper: ${shot.warnings.wallpaperWarning.sentence}`,
+          `${o.path}'s page screens would be kept with a look that leaves out the wallpaper: ${shot.warnings.wallpaperWarning.sentence}`,
         );
       }
       screens = shot.screens;
@@ -449,7 +449,7 @@ export async function keepVideo(
     ) {
       return refuse(
         "exportFailed",
-        `${base.outputs[judged]?.path}, the output a refresh judges, has no settled screen to compare against (${screensNoteOf(screens, base.script.steps)}) — a refresh would have nothing to check; nothing was written`,
+        `${base.outputs[judged]?.path}, the output a refresh judges, has no settled screen to compare against (${screensNote(screens, base.script.steps)}) — a refresh would have nothing to check; nothing was written`,
       );
     }
     const kept: KeptVideo = base;
@@ -566,7 +566,7 @@ export async function keepVideo(
       ...(receipt === null
         ? {}
         : {
-            screensNote: screensNoteOf(receipt.screens, kept.script.steps),
+            screensNote: screensNote(receipt.screens, kept.script.steps),
           }),
       ...(markNote === undefined ? {} : { markNote }),
       written,
@@ -582,20 +582,6 @@ export async function keepVideo(
       deps.log(`add: ${temp} was not removed (${messageOf(error)})`),
     );
   }
-}
-
-/** "6 of 7 screens settled", then each unsettled one by its step and why:
- *  what a refresh will skip, said when it is kept. */
-function screensNoteOf(
-  screens: PageScreens | null | undefined,
-  steps: readonly { do: string }[],
-): string {
-  if (screens === null || screens === undefined) return "no screens";
-  const unsettled = screens.screens.filter((s) => s.unsettled !== undefined);
-  return [
-    `${screens.screens.length - unsettled.length} of ${screens.steps + 1} screens settled`,
-    ...unsettled.map((s) => `${screenPlace(s.step, steps)}: ${s.unsettled}`),
-  ].join("; ");
 }
 
 type Built =
@@ -1220,10 +1206,7 @@ export async function renameKept(
     // A move to the same file name in the new folder keeps its receipt.
     if ("receipt" in had && moves && receipt !== oldReceipt) {
       carry = () => rename(join(root, oldReceipt), join(root, receipt));
-      // A receipt from before page screens is never written again, so it
-      // keeps naming its folder where it is; the next refresh writes a new
-      // one beside the moved receipt.
-      if (had.receipt.screensDir !== null && had.receipt.screens !== null) {
+      if (had.receipt.screensDir !== null) {
         screens = {
           from: `${RECEIPT_DIR}/${had.receipt.screensDir}`,
           to: `${RECEIPT_DIR}/${screensDirOf(receipt)}`,
@@ -1291,25 +1274,29 @@ export async function renameKept(
     });
   }
   if (screens !== null) {
-    const { from, to, receipt: r } = screens;
-    steps.push(
-      {
-        what: `move ${from} to ${to}`,
-        run: () => rename(join(root, from), join(root, to)),
-        undo: () => rename(join(root, to), join(root, from)),
-        left: `the screens are left at ${to}`,
-      },
-      {
-        what: `point ${receipt} at ${to}`,
-        run: () =>
-          place(
-            join(root, receipt),
-            serializeReceipt({ ...r, screensDir: screensDirOf(receipt) }),
-          ),
-        undo: () => place(join(root, receipt), serializeReceipt(r)),
-        left: `${receipt} is left naming ${to}`,
-      },
-    );
+    const { from, to } = screens;
+    steps.push({
+      what: `move ${from} to ${to}`,
+      run: () => rename(join(root, from), join(root, to)),
+      undo: () => rename(join(root, to), join(root, from)),
+      left: `the screens are left at ${to}`,
+    });
+  }
+  // A receipt from before page screens is never written again: its folder
+  // moves with it, under the name the next refresh writes its new screens
+  // to, so none is left behind; until then it names the old folder.
+  if (screens !== null && screens.receipt.screens !== null) {
+    const { to, receipt: r } = screens;
+    steps.push({
+      what: `point ${receipt} at ${to}`,
+      run: () =>
+        place(
+          join(root, receipt),
+          serializeReceipt({ ...r, screensDir: screensDirOf(receipt) }),
+        ),
+      undo: () => place(join(root, receipt), serializeReceipt(r)),
+      left: `${receipt} is left naming ${to}`,
+    });
   }
   steps.push(
     {

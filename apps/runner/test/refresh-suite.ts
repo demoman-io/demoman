@@ -96,10 +96,18 @@ const PANEL_CHANGED = ORIGINAL.replace(
   "background: #f9fafb; color: #e5e7eb;",
 );
 const CLICK_ANSWER = 'document.getElementById("panel").classList.add("open");';
+/** A slower app: the click's answer waits on a request the test server
+ *  holds `SLOW_ANSWER_MS` (a slow search, the settle's condition 2). A
+ *  delay made by a timer alone is outside the settle by design
+ *  (`STEP_QUIET_MS`). */
+const SLOW_ANSWER_MS = 600;
+const SLOW_PATH = "/slow-answer";
 const SLOW = ORIGINAL.replace(
   CLICK_ANSWER,
-  `setTimeout(() => { ${CLICK_ANSWER} }, 600);`,
+  `fetch("${SLOW_PATH}").then(() => { ${CLICK_ANSWER} });`,
 );
+/** How long the server held each slow answer, in ms. */
+const slowHeld: number[] = [];
 /** `returnsBetween`'s line, as the gap from one beat's hold to the next
  *  arrival at the default smoothness (2725 ms); a gap between two markers is
  *  the same length, as both sit `leadInMs` before theirs. */
@@ -352,7 +360,14 @@ function kept(
 const filmed: { name: string; display: string; scale: number | null }[] = [];
 /** Every run this file films: its name, and the gaps (source ms) between
  *  its consecutive step markers after the first. */
-const gaps: { name: string; gaps: number[]; settle: number }[] = [];
+const gaps: {
+  name: string;
+  gaps: number[];
+  settle: number;
+  /** The page screen after the first click (`after` 2): how long its
+   *  settle waited, and why it never settled if it did not. */
+  clickScreen: { waitedMs: number; unsettled?: string } | null;
+}[] = [];
 /** Every saved export's screens and wallpaper warning, in order. */
 const exported: {
   fileType: string;
@@ -402,8 +417,18 @@ const deps = (): RefreshDeps => ({
             .slice()
             .sort((x, y) => x.sourceTimeMs - y.sourceTimeMs)
             .slice(1);
+          const click = bundle?.pageScreens?.find((p) => p.after === 2);
           gaps.push({
             name: String((args.script as { name: string }).name),
+            clickScreen:
+              click === undefined
+                ? null
+                : {
+                    waitedMs: click.waitedMs,
+                    ...(click.unsettled === undefined
+                      ? {}
+                      : { unsettled: click.unsettled }),
+                  },
             gaps: at.slice(1).map((t, i) => t - (at[i] as number)),
             // When the page stopped moving after the first click, from its
             // marker: the end of the last screencast span before the next.
@@ -546,7 +571,16 @@ const it = (name: string, body: () => unknown, ms?: number) =>
  *  hand to another machine. */
 export function refreshSuite(...parts: (() => void)[]): void {
   beforeAll(async () => {
-    server = createServer((_req, res) => {
+    server = createServer((req, res) => {
+      if (req.url === SLOW_PATH) {
+        const from = performance.now();
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "text/plain" });
+          res.end("ok");
+          slowHeld.push(performance.now() - from);
+        }, SLOW_ANSWER_MS);
+        return;
+      }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(html);
     });
@@ -783,9 +817,12 @@ export const unchangedThenSlower = () => {
   it(
     "reads a slower app as unchanged",
     async () => {
-      // The premise: the app really answers the click 600 ms later.
-      expect(SLOW).not.toBe(ORIGINAL);
+      // The premise: the app answers the click through a request, not a
+      // timer.
+      expect(SLOW).toContain(`fetch("${SLOW_PATH}")`);
+      expect(SLOW).not.toContain("setTimeout");
       const fast = gaps.filter((g) => g.name === B).length;
+      const held = slowHeld.length;
       html = SLOW;
       let r: RefreshResult;
       try {
@@ -809,15 +846,33 @@ export const unchangedThenSlower = () => {
         screensOf(slowA),
         `unchanged: ${unchangedDetailA} | slower: ${slowA}`,
       ).toEqual(screensOf(unchangedDetailA));
-      // The premise: the page settled after the first click later than in the
-      // film before it, by most of the 600 ms (the click's act is capped near
-      // 1.1 s, and on CI it reached the cap in both films, so it cannot say),
-      // and neither film's gap sits near the camera's line.
+      // The premise: the server held the answer the full 600 ms, once for
+      // each video's click.
+      const heldNow = slowHeld.slice(held);
+      expect(heldNow.length, JSON.stringify(heldNow)).toBeGreaterThanOrEqual(2);
+      for (const ms of heldNow)
+        expect(ms, JSON.stringify(heldNow)).toBeGreaterThanOrEqual(
+          SLOW_ANSWER_MS - 5,
+        );
       const bGaps = gaps.filter((g) => g.name === B);
       const [before, now] = [
         bGaps[fast - 1],
         bGaps[fast],
       ] as (typeof gaps)[0][];
+      // The premise: the settle waited for that request. The screen after
+      // the click settled in both videos, and its wait grew by most of the
+      // 600 ms.
+      const evidence = JSON.stringify([before?.clickScreen, now?.clickScreen]);
+      expect(before?.clickScreen?.unsettled, evidence).toBeUndefined();
+      expect(now?.clickScreen?.unsettled, evidence).toBeUndefined();
+      expect(
+        (now?.clickScreen?.waitedMs ?? 0) -
+          (before?.clickScreen?.waitedMs ?? 0),
+        evidence,
+      ).toBeGreaterThan(400);
+      // The premise: the page stopped moving after the first click later
+      // than in the video before it, by most of the 600 ms, and neither
+      // video's gap sits near the camera's line.
       expect(
         (now?.settle as number) - (before?.settle as number),
         JSON.stringify(gaps),
@@ -1448,7 +1503,7 @@ export const replaceChain = () => {
       const a = byName(r, A);
       expect(a.outcome, JSON.stringify(r)).toBe("failed");
       expect(a.detail).toMatch(
-        /^docs\/order\.mp4, the output a refresh judges, has no settled screen to compare against \(before step 1: injected; .*on the final screen: injected\) — a refresh would have nothing to check; nothing was written$/,
+        /^docs\/order\.mp4, the output a refresh judges, has no settled screen to compare against \(0 of \d+ screens settled; before step 1: injected; .*on the final screen: injected\) — a refresh would have nothing to check; nothing was written$/,
       );
       expect(a.outputs).toEqual([]);
       // The premise: the page screens really answered.
@@ -1747,8 +1802,9 @@ export const wallpaperLeftOut = () => {
       }
       const a = byName(r, A);
       expect(a.outcome, JSON.stringify(r)).toBe("failed");
+      // The page screens are the first export asked for: they say it.
       expect(a.detail).toBe(
-        `${out.aMp4} was rendered without its wallpaper: ${said}`,
+        `${out.aMp4}'s page screens would be judged by a look that leaves out its wallpaper: ${said}`,
       );
       const after = await Promise.all([out.aMp4, out.aGif].map(bytes));
       for (const [i, b] of after.entries())

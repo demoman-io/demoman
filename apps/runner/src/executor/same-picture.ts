@@ -62,6 +62,20 @@ const ENTRY_PATH = fileURLToPath(
 
 type ScreenImages = { dir: string; screens: PageScreens };
 
+/** "6 of 7 screens settled", then each unsettled one where it is and why:
+ *  the one way a set of page screens is said, by keep and by refresh. */
+export function screensNote(
+  screens: PageScreens | null | undefined,
+  steps?: readonly { do: string }[],
+): string {
+  if (screens === null || screens === undefined) return "no screens";
+  const unsettled = screens.screens.filter((s) => s.unsettled !== undefined);
+  return [
+    `${screens.screens.length - unsettled.length} of ${screens.steps + 1} screens settled`,
+    ...unsettled.map((s) => `${screenPlace(s.step, steps)}: ${s.unsettled}`),
+  ].join("; ");
+}
+
 /** The screens settled in both recordings, by step; and each one left out,
  *  in words: never settled on a side (named when only one), or missing. */
 export function pairScreens(
