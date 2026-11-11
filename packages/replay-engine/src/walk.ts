@@ -1437,11 +1437,13 @@ export async function runWalk(
    * said as a `stepUnsettled` (the page's own) or a `stepSettleFailed` (any
    * of it this machine's, see `Unmet`), never taken as settled. A screen
    * that could not be taken does not fail the take, and says so the same
-   * way.
+   * way. `pointerStep`: the step just finished moved the pointer (a
+   * targeted verb), so its hover is renewed before the settle.
    */
   const settleAndCapture = async (
     after: number,
     actionId: string | null,
+    pointerStep = false,
   ): Promise<void> => {
     const from = at();
     const openedAfter = from - STEP_REQUEST_CAP_MS;
@@ -1452,10 +1454,12 @@ export async function runWalk(
     // not the emulated one (see `input-gate.ts`): measured 2026-11-11, a
     // click that added an element and a 3x still taken straight after left
     // the button unhovered 10 of 10 times, and this move put it back 10 of
-    // 10. No cursor sample: the drawn cursor has not moved. Nothing before
-    // the pointer is first placed (the opening), which hovers nothing.
+    // 10. No cursor sample: the drawn cursor has not moved. Only after a
+    // step that moved the pointer: a keyboard step (press, waitFor) leaves
+    // it alone, since a menu the keys are walking follows the pointer on any
+    // move and would lose the keys' selection (review of 301982b4).
     const moved: Unmet[] = [];
-    if (cursorSamples.length > 0) {
+    if (pointerStep && cursorSamples.length > 0) {
       try {
         // A section waits for any still in flight, and one of a page that
         // stopped painting never ends.
@@ -3141,7 +3145,8 @@ export async function runWalk(
 
       // After the verb's result and before the next step's glide, whose
       // `mouseMoved` events would change the page's hover state.
-      if (continuous) await settleAndCapture(completed + 1, step.action.id);
+      if (continuous)
+        await settleAndCapture(completed + 1, step.action.id, true);
       completed++;
       lastCompletedActionId = step.action.id;
       inFlight = null;

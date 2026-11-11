@@ -1,4 +1,5 @@
 import { madeFromOf } from "@demoman/compositor";
+import type { SceneDocument } from "@demoman/scene-schema";
 import { describe, expect, it, vi } from "vitest";
 import type { EngineDeps, PageAgent } from "../../src/index.js";
 import {
@@ -728,6 +729,43 @@ describe("the pointer's move before each step's settle", () => {
       x: release?.x,
       y: release?.y,
     });
+  });
+
+  // Red if the move follows every step: a keyboard step leaves the pointer
+  // alone, or a menu its keys walk would follow the pointer instead.
+  it("sends none after a press, which did not move the pointer", async () => {
+    const base = scene();
+    const doc = {
+      ...base,
+      actions: [
+        base.actions[0],
+        {
+          id: "act-press",
+          kind: "press",
+          anchorId: null,
+          timestamp: 1,
+          marker: "press:none",
+          key: "ArrowDown",
+        },
+      ],
+    } as SceneDocument;
+    const d = deps({ madeFrom: madeFromOf(doc) });
+    const seen = watch(d);
+    const result = await runReplay(doc, d);
+    const evidence = JSON.stringify({ seen, reason: result.reason });
+    expect(result.outcome, evidence).toBe("complete");
+    const settles = seen.flatMap((s, i) => (s.what === "settle" ? [i] : []));
+    // The premise: the opening, the click and the press were each settled,
+    // and the click's settle had its move (the case above).
+    expect(settles, evidence).toHaveLength(3);
+    expect(seen[(settles[1] as number) - 1]?.what, evidence).toBe("mouseMoved");
+    // Between the click's settle and the press's: no pointer input at all.
+    expect(
+      seen
+        .slice((settles[1] as number) + 1, settles[2])
+        .filter((s) => s.what !== "settle"),
+      evidence,
+    ).toEqual([]);
   });
 
   // Red if the refusal is swallowed: the screen would read settled with a

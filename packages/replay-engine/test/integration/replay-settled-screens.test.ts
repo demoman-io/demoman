@@ -619,6 +619,8 @@ describe("a layout change as a still is taken, under the resting pointer", () =>
   let hoveredAfterStill: boolean | null = null;
   /** Whether #hoverbtn was hovered as each page capture began. */
   const hoveredAtHold: boolean[] = [];
+  /** #hoverbtn's top before the harness changed the layout. */
+  let topBefore: number | null = null;
   beforeAll(async () => {
     const hovered = (page: Page) =>
       page.evaluate(
@@ -650,6 +652,12 @@ describe("a layout change as a still is taken, under the resting pointer", () =>
         ) {
           return;
         }
+        topBefore = await page.evaluate(
+          () =>
+            (
+              document.getElementById("hoverbtn") as HTMLElement
+            ).getBoundingClientRect().y,
+        );
         await page.evaluate(() => {
           const d = document.createElement("div");
           d.style.height = "20px";
@@ -672,6 +680,10 @@ describe("a layout change as a still is taken, under the resting pointer", () =>
     expect(hoveredAtHold, "hovered as each capture began").toHaveLength(2);
     expect(hoveredAtHold[0], "the opening").toBe(false);
     expect(hoveredAfterStill, "lost to the still").toBe(false);
+    // The layout change is below the button (#finwrap), so the button did
+    // not move: the picture below compares the same pixels.
+    expect(topBefore, "premise: read before the change").not.toBeNull();
+    expect(r.live.hoverbtn?.y, "the button did not move").toBe(topBefore);
     expect(hoveredAtHold[1], "the screen after the click").toBe(true);
     // On the picture: the button's border darkens when hovered (a native
     // button, 39 levels), so the screen after differs from the opening.
