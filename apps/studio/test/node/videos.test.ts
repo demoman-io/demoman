@@ -1022,6 +1022,44 @@ describe("renaming a kept flow", () => {
     );
   });
 
+  // Red if a second rename looks for the folder where the old receipt
+  // still says it is: it moved with the first rename.
+  it("a second rename of a flow whose receipt predates page screens moves its folder again", async () => {
+    await keepInvoice(checkout);
+    const v2 = `${JSON.stringify({
+      receiptVersion: 2,
+      flow: invoice,
+      video: "inv-1",
+      filmedAt: null,
+      filmedCode: { none: "a test" },
+      recordedRevision: null,
+      screensDir: screensDirOf(OLD),
+      screensSize: { width: 1280, height: 800 },
+      screens: { steps: 1, moments: [{ step: null, ms: 0 }] },
+    })}\n`;
+    await writeFile(join(checkout, RECEIPT_DIR, OLD), v2);
+    const first = await rename(invoice, { name: "Send an invoice" });
+    expect(first.status, first.text).toBe(200);
+    // Premise: the moved receipt still names the folder at the old name,
+    // which is not there any more.
+    expect(await readFile(join(checkout, RECEIPT_DIR, NEW), "utf8")).toBe(v2);
+    expect(await exists(join(checkout, RECEIPT_DIR, screensDirOf(OLD)))).toBe(
+      false,
+    );
+    const THIRD = keptFileName("Mail an invoice");
+    const second = await rename(invoice, { name: "Mail an invoice" });
+    expect(second.status, second.text).toBe(200);
+    expect(await readFile(join(checkout, RECEIPT_DIR, THIRD), "utf8")).toBe(v2);
+    expect(
+      await exists(
+        join(checkout, RECEIPT_DIR, screensDirOf(THIRD), "final.png"),
+      ),
+    ).toBe(true);
+    expect(await exists(join(checkout, RECEIPT_DIR, screensDirOf(NEW)))).toBe(
+      false,
+    );
+  });
+
   it("renaming a flow in .demoman/videos/ to a name with the same file moves it", async () => {
     await keepInvoice(checkout);
     // Premise: the new name makes the old file name, in the old folder.

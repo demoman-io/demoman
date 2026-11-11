@@ -1206,9 +1206,27 @@ export async function renameKept(
     // A move to the same file name in the new folder keeps its receipt.
     if ("receipt" in had && moves && receipt !== oldReceipt) {
       carry = () => rename(join(root, oldReceipt), join(root, receipt));
-      if (had.receipt.screensDir !== null) {
+      // A receipt from before page screens is never written again, so after
+      // a rename it still names the folder it was kept with, which has moved
+      // to the name beside it. Its folder is found where it is: the recorded
+      // name, else the one beside the receipt, else there is none to move.
+      const exists = (dir: string) =>
+        lstat(join(root, RECEIPT_DIR, dir)).then(
+          () => true,
+          () => false,
+        );
+      const dir =
+        had.receipt.screensDir === null
+          ? null
+          : had.receipt.screens !== null ||
+              (await exists(had.receipt.screensDir))
+            ? had.receipt.screensDir
+            : (await exists(screensDirOf(oldReceipt)))
+              ? screensDirOf(oldReceipt)
+              : null;
+      if (dir !== null) {
         screens = {
-          from: `${RECEIPT_DIR}/${had.receipt.screensDir}`,
+          from: `${RECEIPT_DIR}/${dir}`,
           to: `${RECEIPT_DIR}/${screensDirOf(receipt)}`,
           receipt: had.receipt,
         };
@@ -1283,8 +1301,10 @@ export async function renameKept(
     });
   }
   // A receipt from before page screens is never written again: its folder
-  // moves with it, under the name the next refresh writes its new screens
-  // to, so none is left behind; until then it names the old folder.
+  // moves with it to the name beside it, where the next refresh writes its
+  // new screens, so none is left behind. Until then the receipt still names
+  // the folder it was kept with; a later rename finds the folder by the
+  // receipt's own name (above).
   if (screens !== null && screens.receipt.screens !== null) {
     const { to, receipt: r } = screens;
     steps.push({
