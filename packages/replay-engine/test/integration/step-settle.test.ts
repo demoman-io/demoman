@@ -102,6 +102,42 @@ describe("the step-settle probe in a real page", () => {
       });
       const report = await ask(page, 0, CAP);
       expect(report.quiet, JSON.stringify(report)).toBe(false);
+      expect(report.stopped, JSON.stringify(report)).toBe(
+        "animationReadFailed",
+      );
+    });
+  });
+
+  // Red when the reply reads the page again after the loop saw it settled:
+  // a change in the moment between made it answer unsettled early, which
+  // the walk said as "the page's animations could not be read" (close
+  // review 7). A finite animation keeps the loop from seeing quiet until
+  // the stub lets go, and in that same read the stub queues a change.
+  it("answers quiet from what the loop saw, not from a change just after", async () => {
+    await withPage(async (page) => {
+      const Q = 100;
+      const report = (await page.evaluate(`(() => {
+        const T = Date.now();
+        window.__late = 0;
+        document.getAnimations = () => {
+          if (Date.now() - T < ${Q + 5}) {
+            return [{ playState: "running",
+              effect: { getComputedTiming: () => ({ iterations: 1 }) } }];
+          }
+          if (window.__late++ === 0) {
+            queueMicrotask(() => document.body.setAttribute("data-late", "1"));
+          }
+          return [];
+        };
+        return ${stepSettleExpression(Q, CAP)};
+      })()`)) as StepSettleReport;
+      const late = await page.evaluate(() =>
+        document.body.getAttribute("data-late"),
+      );
+      expect(late, "premise: the change came as the loop let go").toBe("1");
+      expect(report.quiet, JSON.stringify(report)).toBe(true);
+      expect(report.stopped, JSON.stringify(report)).toBe("quiet");
+      expect(report.waitedMs, JSON.stringify(report)).toBeLessThan(CAP);
     });
   });
 
@@ -110,6 +146,7 @@ describe("the step-settle probe in a real page", () => {
       await page.click("#never");
       const report = await ask(page, QUIET, 800);
       expect(report.quiet, JSON.stringify(report)).toBe(false);
+      expect(report.stopped, JSON.stringify(report)).toBe("cap");
       expect(
         Math.abs(report.waitedMs - 800),
         JSON.stringify(report),

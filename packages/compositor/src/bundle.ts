@@ -263,10 +263,17 @@ const DegradationSchema = z.object({
     // ran; the film shows the card jump to its drop instead of travelling.
     "dragPictureMissing",
     // A step's page had not settled when the cap ran out (requests in
-    // flight, an animation running, the DOM still changing), or its page
-    // screen could not be taken. The video is unaffected; refresh cannot
-    // compare that screen. The note names the step and the conditions.
+    // flight, an animation running, the DOM still changing) or showed a
+    // caret it would not hide: the page's own doing. The video is
+    // unaffected; refresh cannot compare that screen. The note names the
+    // step and the conditions.
     "stepUnsettled",
+    // As `stepUnsettled`, but at least one condition was this machine's:
+    // the first paint never came, the settle probe or the page screen
+    // failed, requests could not be watched. Recording again may change
+    // it, so refresh does (DEM-55); the note names the step and the
+    // conditions, the page's beside the machine's.
+    "stepSettleFailed",
     // A step's settle left out a request open since more than a request cap
     // before the step began (a long poll): its own step waited for it. The
     // screen counts as settled; the note names the step and how many.

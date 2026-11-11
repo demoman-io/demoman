@@ -635,32 +635,48 @@ function evaluatedValue(reply: Record<string, unknown>): unknown {
   return (reply.result as { value?: unknown } | undefined)?.value;
 }
 
-/** The conditions a step-settle reply says never held, in words. Never
- *  empty for a reply that is not quiet. `capMs` is the cap it was asked
- *  with: the probe answers unsettled before it only when its animation read
- *  failed (`step-settle.ts`), which is how that case is told apart from a
- *  DOM still changing, a reply the report has no field for. */
-function unsettledWords(
-  report: Partial<StepSettleReport>,
-  capMs: number,
-): string[] {
-  const words: string[] = [];
+/**
+ * A condition a step's settle or page screen never met, in words. `machine`
+ * when it is not the page's own doing (a paint that never came, a probe or
+ * capture that failed, requests that could not be watched): recording again
+ * may change it, so it is said as `stepSettleFailed`, which refresh records
+ * once more. Otherwise a cap the page ran out (requests, animations, the DOM
+ * changing, a load) or a caret it would not hide: `stepUnsettled`.
+ */
+interface Unmet {
+  words: string;
+  machine: boolean;
+}
+const pageMade = (words: string): Unmet => ({ words, machine: false });
+const machineMade = (words: string): Unmet => ({ words, machine: true });
+
+/** The conditions a step-settle reply says never held. Never empty for a
+ *  reply that is not quiet. Read from why the probe says it stopped, never
+ *  inferred from when (`StepSettleReport.stopped`). */
+function unsettledWords(report: Partial<StepSettleReport>): Unmet[] {
+  if (report.quiet === true) return [];
+  if (report.stopped === "unwatched")
+    return [machineMade("the page's changes could not be watched")];
+  if (report.stopped === "animationReadFailed")
+    return [machineMade("the page's animations could not be read")];
+  // At the cap.
+  const words: Unmet[] = [];
   const animations = report.animations ?? 0;
-  if (report.painted !== true) words.push("its first paint never came");
-  if (animations > 0) words.push(`${animations} animation(s) still running`);
-  if (report.quiet !== true && report.painted === true && animations === 0) {
-    // Less 5 ms: the backstop's timer and Date.now() disagree by a tick.
-    words.push(
-      (report.waitedMs ?? capMs) < capMs - 5
-        ? "the page's animations could not be read"
-        : "the DOM never went quiet",
-    );
-  }
+  if (report.painted !== true)
+    words.push(machineMade("its first paint never came"));
+  if (animations > 0)
+    words.push(pageMade(`${animations} animation(s) still running`));
+  if (report.painted === true && animations === 0)
+    words.push(pageMade("the DOM never went quiet"));
   return words;
 }
 
 /** Said in place of a page condition the cap left no time to ask about. */
-const PAGE_NOT_ASKED = "the page was not asked (the cap ran out first)";
+const PAGE_NOT_ASKED = pageMade(
+  "the page was not asked (the cap ran out first)",
+);
+/** A load that outlasted the cap is the page's, as a request is. */
+const STILL_LOADING = pageMade("the page was still loading");
 
 /**
  * How far a run got through the action log, and nothing about failure.
@@ -1209,15 +1225,12 @@ export async function runWalk(
    * is asked again. Without that, a navigating click's screen was the old
    * page mid-unload (Review Focus 2).
    */
-  const settlePage = async (deadline: number): Promise<string[]> => {
+  const settlePage = async (deadline: number): Promise<Unmet[]> => {
     for (;;) {
       while (topLoading && at() < deadline) await clock.sleep(50);
       const capMs = deadline - at();
       if (capMs <= 0) {
-        return [
-          ...(topLoading ? ["the page was still loading"] : []),
-          PAGE_NOT_ASKED,
-        ];
+        return [...(topLoading ? [STILL_LOADING] : []), PAGE_NOT_ASKED];
       }
       const navs = navigationsSeen;
       let report: Partial<StepSettleReport> | undefined;
@@ -1236,17 +1249,22 @@ export async function runWalk(
       if ((navigationsSeen !== navs || topLoading) && at() < deadline) {
         continue;
       }
-      const words = topLoading ? ["the page was still loading"] : [];
+      const words = topLoading ? [STILL_LOADING] : [];
       if (failure !== null) {
         return [
           ...words,
-          `the settle probe failed (${describeSettleError(failure)})`,
+          machineMade(
+            `the settle probe failed (${describeSettleError(failure)})`,
+          ),
         ];
       }
       if (report === undefined || typeof report.quiet !== "boolean") {
-        return [...words, "the settle probe answered with nothing readable"];
+        return [
+          ...words,
+          machineMade("the settle probe answered with nothing readable"),
+        ];
       }
-      return [...words, ...unsettledWords(report, capMs)];
+      return [...words, ...unsettledWords(report)];
     }
   };
 
@@ -1268,17 +1286,17 @@ export async function runWalk(
   const settleWords = async (
     requestBy: number,
     openedAfter: number,
-  ): Promise<string[]> => {
+  ): Promise<Unmet[]> => {
     for (;;) {
       if (tracker === null) {
         return [
-          `requests could not be watched (${untracked})`,
+          machineMade(`requests could not be watched (${untracked})`),
           ...(await settlePage(at() + STEP_SETTLE_CAP_MS)),
         ];
       }
       if (!(await tracker.idle(requestBy, clock.sleep, openedAfter))) {
         return [
-          `${tracker.inFlight(openedAfter)} request(s) in flight`,
+          pageMade(`${tracker.inFlight(openedAfter)} request(s) in flight`),
           PAGE_NOT_ASKED,
         ];
       }
@@ -1286,7 +1304,7 @@ export async function runWalk(
       if (tracker.inFlight(openedAfter) === 0) return page;
       if (at() >= requestBy) {
         return [
-          `${tracker.inFlight(openedAfter)} request(s) in flight`,
+          pageMade(`${tracker.inFlight(openedAfter)} request(s) in flight`),
           ...page,
         ];
       }
@@ -1404,8 +1422,10 @@ export async function runWalk(
    * `after` is how many steps had finished; `actionId` the step, null for
    * the opening. Requests first (up to `STEP_REQUEST_CAP_MS`), then the page
    * (its own `STEP_SETTLE_CAP_MS`). Every condition that never held is written on the screen and
-   * said as a `stepUnsettled`, never taken as settled. A screen that could
-   * not be taken does not fail the take, and says so the same way.
+   * said as a `stepUnsettled` (the page's own) or a `stepSettleFailed` (any
+   * of it this machine's, see `Unmet`), never taken as settled. A screen
+   * that could not be taken does not fail the take, and says so the same
+   * way.
    */
   const settleAndCapture = async (
     after: number,
@@ -1441,12 +1461,14 @@ export async function runWalk(
       const { taken, failure, releaseFailed } = await capturePage();
       if (releaseFailed !== null) {
         unsettled.push(
-          `the caret and held animations may not have been put back (${releaseFailed})`,
+          machineMade(
+            `the caret and held animations may not have been put back (${releaseFailed})`,
+          ),
         );
       }
       if (taken === null) throw failure;
       if (taken.caretShown) {
-        unsettled.push("a focused field's caret could not be hidden");
+        unsettled.push(pageMade("a focused field's caret could not be hidden"));
       }
       const size = pngSize(taken.bytes);
       screen = {
@@ -1460,7 +1482,9 @@ export async function runWalk(
       };
     } catch (error) {
       unsettled.push(
-        `the page screen could not be taken (${describeSettleError(error)})`,
+        machineMade(
+          `the page screen could not be taken (${describeSettleError(error)})`,
+        ),
       );
     }
     screen ??= {
@@ -1473,10 +1497,12 @@ export async function runWalk(
       waitedMs,
     };
     if (unsettled.length > 0) {
-      screen.unsettled = unsettled.join("; ");
+      screen.unsettled = unsettled.map((u) => u.words).join("; ");
       degradations.push(
         degradation(
-          "stepUnsettled",
+          unsettled.some((u) => u.machine)
+            ? "stepSettleFailed"
+            : "stepUnsettled",
           from,
           at(),
           `${place}: ${screen.unsettled}`,

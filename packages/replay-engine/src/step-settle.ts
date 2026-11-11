@@ -24,6 +24,15 @@ export interface StepSettleReport {
   quiet: boolean;
   /** Milliseconds from asking to answering. */
   waitedMs: number;
+  /**
+   * Why it answered, from what the loop itself saw: `quiet` when it saw the
+   * page settled, `cap` at the backstop, `animationReadFailed` when reading
+   * the animations threw (or the page has none to read), `unwatched` when
+   * the page's changes could not be observed. Never recomputed after the
+   * fact: a change in the moment between seeing quiet and answering must
+   * not read as a failed animation read.
+   */
+  stopped: "quiet" | "cap" | "animationReadFailed" | "unwatched";
 }
 
 export function stepSettleExpression(quietMs: number, capMs: number): string {
@@ -50,15 +59,21 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
     } catch (e) { failed = true; return 0; }
   };
   const quietNow = () => Date.now() - lastChange >= ${quietMs};
-  const reply = () => {
+  const reply = (stopped) => {
     done = true;
     if (watcher) watcher.disconnect();
-    animations = countAnimations();
+    // Settled as the loop saw it; at the cap, the page as it is then.
+    if (stopped === "cap") {
+      animations = countAnimations();
+      if (painted && !failed && animations === 0 && quietNow()) stopped = "quiet";
+    }
+    if (failed) stopped = "animationReadFailed";
     return {
       painted,
       animations,
-      quiet: painted && !failed && animations === 0 && quietNow(),
+      quiet: stopped === "quiet",
       waitedMs: Date.now() - t0,
+      stopped,
     };
   };
   try {
@@ -66,20 +81,21 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
     watcher.observe(document, {
       subtree: true, childList: true, attributes: true, characterData: true,
     });
-  } catch (e) { return Promise.resolve(reply()); }
+  } catch (e) { return Promise.resolve(reply("unwatched")); }
   const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
   const work = (async () => {
     await frame();
     painted = true;
     for (;;) {
-      if (done) return;
-      if (countAnimations() === 0 && quietNow()) return;
-      if (failed) return;
+      if (done) return "done";
+      const n = countAnimations();
+      if (failed) return "animationReadFailed";
+      if (n === 0 && quietNow()) return "quiet";
       await frame();
     }
   })();
-  const backstop = new Promise((r) => setTimeout(r, ${capMs}));
-  return Promise.race([work, backstop]).then(reply, reply);
+  const backstop = new Promise((r) => setTimeout(() => r("cap"), ${capMs}));
+  return Promise.race([work, backstop]).then(reply);
 })()`;
 }
 

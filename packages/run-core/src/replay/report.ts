@@ -1053,6 +1053,8 @@ export const DEGRADATION_WORDS: Record<Degradation["kind"], string> = {
     "a native drag's picture could not be drawn, so the dragged item jumps to its drop in the video instead of travelling",
   stepUnsettled:
     "a step's page had not settled when the next began, so refresh cannot compare that screen",
+  stepSettleFailed:
+    "a step's settle or page screen failed on this machine (a paint that never came, a probe or capture that failed), so refresh cannot compare that screen",
   requestNotWaited: `a request opened more than ${STEP_REQUEST_CAP_MS / 1000} seconds before a step's wait began (a long poll, say) was not waited for, so that step's page screen may have been taken before it answered`,
 };
 

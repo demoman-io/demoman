@@ -259,6 +259,7 @@ export function createCdpFake(): CdpFake {
                   animations: 0,
                   quiet: true,
                   waitedMs: 0,
+                  stopped: "quiet",
                 },
               },
             };

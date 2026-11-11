@@ -19,8 +19,9 @@ import { scene } from "../helpers/replay-scene";
 
 /**
  * Every way a step's settle and page screen can fail, against the fake CDP:
- * each says what happened on the screen and as a `stepUnsettled`, and none
- * fails the take (CLAUDE.md, "Report before you forgive").
+ * each says what happened on the screen and as a `stepUnsettled` (the page's
+ * own doing) or a `stepSettleFailed` (this machine's), and none fails the
+ * take (CLAUDE.md, "Report before you forgive").
  */
 
 type Send = CdpFake["send"];
@@ -81,7 +82,9 @@ const isPng = (m: string, p: Record<string, unknown>) =>
 async function screensOf(d: EngineDeps & { cdp: CdpFake }) {
   const result = await runReplay(scene(), d);
   const screens = result.bundle?.pageScreens ?? [];
-  const said = result.degradations.filter((x) => x.kind === "stepUnsettled");
+  const said = result.degradations.filter(
+    (x) => x.kind === "stepUnsettled" || x.kind === "stepSettleFailed",
+  );
   const evidence = JSON.stringify({ screens, said, reason: result.reason });
   // Every case: the take completes and has its three screens (the opening
   // and one after each of the two clicks), each said once.
@@ -93,6 +96,11 @@ async function screensOf(d: EngineDeps & { cdp: CdpFake }) {
   ).toEqual([0, 1, 2]);
   return { result, screens, said, evidence };
 }
+
+/** The kind each step's settle was said as, in order. */
+const kinds = (said: { kind: string }[]) => [
+  ...new Set(said.map((x) => x.kind)),
+];
 
 describe("a step's page screen, when something fails", () => {
   it("settles and captures cleanly against the fake (the control)", async () => {
@@ -123,6 +131,9 @@ describe("a step's page screen, when something fails", () => {
     }
     expect(said, evidence).toHaveLength(3);
     expect(said[0]?.note, evidence).toMatch(/^the opening page: requests/);
+    // Red if a refused Network domain is said as the page's: refresh would
+    // not record again, and would blame the page.
+    expect(kinds(said), evidence).toEqual(["stepSettleFailed"]);
   });
 
   it("says the page screen could not be taken when the hold throws in the page", async () => {
@@ -133,13 +144,14 @@ describe("a step's page screen, when something fails", () => {
         exception: { description: "TypeError: getAnimations is broken" },
       },
     }));
-    const { screens, evidence } = await screensOf(d);
+    const { screens, said, evidence } = await screensOf(d);
     for (const s of screens) {
       expect(s.unsettled, evidence).toBe(
         "the page screen could not be taken (TypeError: getAnimations is broken)",
       );
       expect(s.ref, evidence).toBe("");
     }
+    expect(kinds(said), evidence).toEqual(["stepSettleFailed"]);
   });
 
   // Red if a caret the hold could not hide is compared: it blinks, so the
@@ -160,7 +172,9 @@ describe("a step's page screen, when something fails", () => {
         },
       },
     }));
-    const { screens, evidence } = await screensOf(d);
+    const { screens, said, evidence } = await screensOf(d);
+    // The page's own: a caret it shows whatever the hold asks.
+    expect(kinds(said), evidence).toEqual(["stepUnsettled"]);
     for (const s of screens) {
       expect(s.unsettled, evidence).toBe(
         "a focused field's caret could not be hidden",
@@ -191,6 +205,7 @@ describe("a step's page screen, when something fails", () => {
       "the page screen could not be taken (Unable to capture screenshot)",
     );
     expect(said, evidence).toHaveLength(3);
+    expect(kinds(said), evidence).toEqual(["stepSettleFailed"]);
     // The release still ran after each refused capture.
     const releases = d.cdp.calls.filter(
       (c) =>
@@ -205,10 +220,11 @@ describe("a step's page screen, when something fails", () => {
     intercept(d, isEval(PAGE_CAPTURE_RELEASE), async () => {
       throw new Error("Cannot find context with specified id");
     });
-    const { screens, evidence } = await screensOf(d);
+    const { screens, said, evidence } = await screensOf(d);
     expect(screens[1]?.unsettled, evidence).toBe(
       "the caret and held animations may not have been put back (Cannot find context with specified id)",
     );
+    expect(kinds(said), evidence).toEqual(["stepSettleFailed"]);
     // The screen was taken: its bytes are kept, and only refresh skips it.
     expect(screens[1]?.ref, evidence).toBe("ps:scene-1:1");
   });
@@ -240,10 +256,12 @@ describe("a step's page screen, when something fails", () => {
         return {};
       },
     );
-    const { result, screens, evidence } = await screensOf(d);
+    const { result, screens, said, evidence } = await screensOf(d);
     expect(screens[0]?.unsettled, evidence).toBe(
       "1 request(s) in flight; the page was not asked (the cap ran out first)",
     );
+    // The page's own: a request it never answered.
+    expect(kinds(said), evidence).toEqual(["stepUnsettled"]);
     // Said at the request cap, not the page's.
     expect(screens[0]?.waitedMs ?? 0, evidence).toBeGreaterThanOrEqual(
       STEP_REQUEST_CAP_MS,
@@ -305,12 +323,26 @@ describe("a step's page screen, when something fails", () => {
     expect(asked.length, evidence).toBeGreaterThan(0);
   });
 
+  // Red when the words are inferred from how long the probe waited: a cap
+  // answer that came early read as a failed animation read (close review 7).
   it.each([
-    [10, "the page's animations could not be read"],
-    [5000, "the DOM never went quiet"],
+    [
+      "animationReadFailed",
+      10,
+      "the page's animations could not be read",
+      "stepSettleFailed",
+    ],
+    ["cap", 10, "the DOM never went quiet", "stepUnsettled"],
+    ["cap", 5000, "the DOM never went quiet", "stepUnsettled"],
+    [
+      "unwatched",
+      0,
+      "the page's changes could not be watched",
+      "stepSettleFailed",
+    ],
   ])(
-    "tells a failed animation read from a DOM still changing (waited %i ms)",
-    async (waitedMs, words) => {
+    "says why the probe stopped as it says (%s, waited %i ms)",
+    async (stopped, waitedMs, words, kind) => {
       const d = deps();
       intercept(
         d,
@@ -320,14 +352,77 @@ describe("a step's page screen, when something fails", () => {
         async () => ({
           result: {
             type: "object",
-            value: { painted: true, animations: 0, quiet: false, waitedMs },
+            value: {
+              painted: true,
+              animations: 0,
+              quiet: false,
+              waitedMs,
+              stopped,
+            },
           },
         }),
       );
-      const { screens, evidence } = await screensOf(d);
+      const { screens, said, evidence } = await screensOf(d);
       expect(screens[1]?.unsettled, evidence).toBe(words);
+      expect(kinds(said), evidence).toEqual([kind]);
     },
   );
+
+  // Red if a paint that never came (a covered window) is said as the
+  // page's, and an animation still running is said as the machine's.
+  it("says a paint that never came as the machine's, beside the page's animation", async () => {
+    const d = deps();
+    intercept(
+      d,
+      (m, p) =>
+        m === "Runtime.evaluate" &&
+        String(p.expression).includes(STEP_SETTLE_MARKER),
+      async () => ({
+        result: {
+          type: "object",
+          value: {
+            painted: false,
+            animations: 2,
+            quiet: false,
+            waitedMs: 2000,
+            stopped: "cap",
+          },
+        },
+      }),
+    );
+    const { screens, said, evidence } = await screensOf(d);
+    expect(screens[1]?.unsettled, evidence).toBe(
+      "its first paint never came; 2 animation(s) still running",
+    );
+    expect(kinds(said), evidence).toEqual(["stepSettleFailed"]);
+  });
+
+  it("says an animation the page kept running as the page's", async () => {
+    const d = deps();
+    intercept(
+      d,
+      (m, p) =>
+        m === "Runtime.evaluate" &&
+        String(p.expression).includes(STEP_SETTLE_MARKER),
+      async () => ({
+        result: {
+          type: "object",
+          value: {
+            painted: true,
+            animations: 1,
+            quiet: false,
+            waitedMs: 2000,
+            stopped: "cap",
+          },
+        },
+      }),
+    );
+    const { screens, said, evidence } = await screensOf(d);
+    expect(screens[1]?.unsettled, evidence).toBe(
+      "1 animation(s) still running",
+    );
+    expect(kinds(said), evidence).toEqual(["stepUnsettled"]);
+  });
 
   it("gives up waiting behind a still that never answers, and says so", async () => {
     const d = deps();

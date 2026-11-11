@@ -198,6 +198,19 @@ describe("recordWithRetry", () => {
     await recordWithRetry(r.run, "Flow", log);
     expect(r.count()).toBe(2);
   });
+  // Red when a settle the machine failed (a paint that never came, a page
+  // screen that could not be taken) is taken as the page's: it is the
+  // DEM-55 kind of one-off, and recording again may settle it.
+  it("records again when a step's settle failed on the machine's side", async () => {
+    const failedSettle = {
+      ...clean,
+      frames: { spans: 2, degradations: ["stepSettleFailed"] },
+    };
+    const r = runs(failedSettle, clean);
+    const got = await recordWithRetry(r.run, "Flow", log);
+    expect(r.count()).toBe(2);
+    expect(got.verdict).toEqual({ kind: "clean" });
+  });
   it("never retries a failed run", async () => {
     const r = runs(diverged, clean);
     const got = await recordWithRetry(r.run, "Flow", log);
@@ -227,6 +240,13 @@ describe("degradedNote", () => {
   });
   // The control: a problem the machine can make keeps the machine's note,
   // with the page's beside it.
+  // Red if a settle the machine failed is said as the page's own.
+  it("blames the machine for a settle that failed on its side", () => {
+    const note = degradedNote(problems("stepUnsettled", "stepSettleFailed"));
+    expect(note).toContain(MACHINE);
+    expect(note).not.toContain("the page itself");
+    expect(note).toContain("(stepSettleFailed)");
+  });
   it("blames the machine when any problem is the machine's", () => {
     const note = degradedNote(problems("stepUnsettled", "budgetBreach"));
     expect(note).toContain(MACHINE);

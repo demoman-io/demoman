@@ -178,6 +178,7 @@ const FORGIVEN = new Set<string>([
   "keyframeOnly",
   // The video is right; only that step's page screen cannot be compared.
   "stepUnsettled",
+  "stepSettleFailed",
   // The video is right; a long poll was not waited for, and said.
   "requestNotWaited",
 ]);
@@ -239,7 +240,8 @@ export function runVerdict(answer: Record<string, unknown>): RunVerdict {
 }
 
 /** Every problem is the page's own (a stream, a long poll): recording again
- *  settles it no better, and the machine is not why. */
+ *  settles it no better, and the machine is not why. A settle the machine
+ *  failed is `stepSettleFailed`, never one of these, and is recorded again. */
 const pageOnly = (problems: string[]): boolean =>
   problems.every(
     (p) => p.endsWith("(stepUnsettled)") || p.endsWith("(requestNotWaited)"),
