@@ -35,11 +35,11 @@ description: "What changed in each release."
 </Update>
 
 <Update label="0.9.0" description="Set up CI from one plan, or from the Studio">
-  - `npx demoman setup --ci` checks the refresh from a clean checkout, then on one confirmation sets the secrets and opens the setup pull request.
-  - `.demoman/app.json` records how the app starts, and `refresh` starts it.
-  - The refresh runs after a deployment, a release, or once a day.
-  - The Studio adds and removes repo flows.
-  - An unchanged refresh takes about 11 seconds on GitHub, down from about 90.
+  - `npx demoman setup --ci` checks the refresh from a clean checkout, shows one plan, and on one confirmation sets the secrets, opens a "Set up Demoman" pull request and watches its first run.
+  - `.demoman/app.json` records how the app starts; `refresh` starts the app from it. If your own workflow started the app before `demoman refresh`, delete that step.
+  - The refresh runs after a deployment, when a release is published, or once a day; each merge is offered, never the default.
+  - The Studio's Add to repo and Remove from repo add and remove flows from a card, row or Export panel.
+  - An unchanged refresh on a GitHub runner takes about 11 seconds, down from about 90.
 </Update>
 
 <Update label="0.8.2" description="Video as code, flows in the repo, and a library you can search">
