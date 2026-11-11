@@ -16,6 +16,12 @@ import {
 } from "@demoman/compositor";
 import { frameOf, targetFor } from "@demoman/run-core";
 import type { SceneDocument } from "@demoman/scene-schema";
+import {
+  ALL_FORMATS,
+  BufferSource,
+  EncodedPacketSink,
+  Input,
+} from "mediabunny";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { CropReading, Rect } from "../src/decode-probe-entry.js";
 import { createLocalExecutor } from "../src/executor/executor.js";
@@ -83,8 +89,27 @@ const CROP: Rect = [0, 0.02, 0.75, 0.46];
 const BACKGROUND: Rect = [0, 0.2, 0.08, 0.8];
 
 /**
- * How many frames of the push-in are read, evenly through the move (its
- * first and last tenth left out): the frames an encoder spends its bits on.
+ * Which frames are read: every 30 fps frame from the push-in's departure up
+ * to the first keyframe at or after the camera arrives. The move is where
+ * an encoder spends its bits, and where the renders differ.
+ *
+ * Why the window runs on to a keyframe rather than stopping at the arrival:
+ * under the bitrate fallback the encoder overspends on the move's first
+ * frames and on any keyframe (one every 2 s, mediabunny's default), then
+ * starves the frames after them to pay it back. Where that starved stretch
+ * falls depends on where the move sits against the 2 s keyframe grid, not
+ * on the encode. Measured 2026-11-11 on one fixture take, two timings: with
+ * the move departing at 1.60-1.63 s (origin/main 4527caf8) the 0.35 floor
+ * keeps 0.26-0.40 over the move alone; with the walk's settle after load
+ * moving it to 1.89 s, just before the 2.0 s keyframe, the floor spends no
+ * more bytes
+ * than the 0.2 control from 2.17 to 2.77 s (packet sizes within about 12%,
+ * kept fraction about 0 there) and keeps 0.09-0.17 over the move alone.
+ * Read to the end of the GOP, the bits it withheld and spent later in it,
+ * on the arrived picture, count too (numbers at `KEPT_FRACTION_MIN`).
+ * Frames before departure are left out because every render holds the
+ * same picture there (asserted: "reads every render ..."), and frames
+ * every render agrees on add nothing to `keptFraction`.
  *
  * Not the frame at the click's instant, which the plan first asked for.
  * The camera has arrived by then and the picture is held, and on a held
@@ -97,7 +122,12 @@ const BACKGROUND: Rect = [0, 0.2, 0.08, 0.8];
  * in these frames is smeared in every render; what is compared is how much
  * of that picture each encode keeps. `DEMOMAN_SHARE_CROPS` shows them.
  */
-const MOVE_SAMPLES = 9;
+const FRAME_SEC = 1 / 30;
+
+/** How close every render's held frame before departure is to full's
+ *  edge energy, the premise for leaving those frames out. Measured
+ *  2026-11-11: control 1.0032, share and floor 1.0062 of full's. */
+const HELD_AGREEMENT = 0.02;
 
 /**
  * "The crop holds text", at a held, unblurred frame before the push-in:
@@ -111,10 +141,11 @@ const BACKGROUND_EDGE_PER_PX_CEILING = 1;
 
 /**
  * The metric can tell a known-bad encode on this machine, this run: share's
- * edge ratio (share / full, summed over the push-in) is at least this much
- * above the 0.2 control's. Measured 2026-10-18, headless, same-run pairs:
- * share 0.9097 / control 0.8407 (gap 0.069), 0.9416 / 0.8385 (0.103),
- * 0.9268 / 0.8450 (0.082).
+ * edge ratio (share / full, summed over the frames read) is at least this
+ * much above the 0.2 control's. Measured 2026-10-18 over the move alone,
+ * headless, same-run pairs: share 0.9097 / control 0.8407 (gap 0.069),
+ * 0.9416 / 0.8385 (0.103), 0.9268 / 0.8450 (0.082). Over the window to the
+ * keyframe (2026-11-11): 0.073 with the move at 1.89 s, 0.067 at 1.61 s.
  */
 const DISCRIMINATION_MIN = 0.03;
 
@@ -127,10 +158,14 @@ const DISCRIMINATION_MIN = 0.03;
  * One floor for share and for the cap's floor (0.35), which the author
  * accepted, so the check never calls 0.35 soft. Measured 2026-10-18,
  * headless (bitrate fallback: 0.5 ran at 3.23 Mbps, 0.35 at 2.20, 0.2 at
- * 1.50): share 0.43, 0.64, 0.53; floor 0.19, 0.21, 0.16. Share's spread
- * is wide run to run (its edge ratio 0.910-0.942). 0.10 sits 0.056 under
- * the floor's lowest. It fails a share encode that keeps less than a tenth
- * of what 0.2 loses: one well below 0.35, as 0.2 itself (0 by definition).
+ * 1.50): share 0.43, 0.64, 0.53; floor 0.19, 0.21, 0.16, over the move
+ * alone. Share's spread is wide run to run (its edge ratio 0.910-0.942).
+ * 0.10 sat 0.056 under the floor's lowest. Over the window to the keyframe
+ * (`FRAME_SEC` says why), 2026-11-11, three runs at each timing: move at
+ * 1.87-1.90 s, share 0.59-0.64, floor 0.30-0.34; move at 1.60-1.63 s,
+ * share 0.62-0.74, floor 0.36-0.42. It fails a share encode that keeps
+ * less than a tenth of what 0.2 loses: one well below 0.35, as 0.2 itself
+ * (0 by definition).
  */
 const KEPT_FRACTION_MIN = 0.1;
 
@@ -146,7 +181,11 @@ interface Render {
   target: RenderTarget;
   bytes: Buffer;
   encoderUsed: EncoderUsed | undefined;
+  /** Its keyframes' timestamps, in seconds, from the file's packets. */
+  keySecs: number[];
   crops: CropReading[];
+  /** CROP at `held.sec`, the picture before the move. */
+  held: CropReading;
 }
 
 let app: { url: string; close(): void };
@@ -159,6 +198,8 @@ let floor: Render;
 let held: { sec: number; text: CropReading; background: CropReading };
 let pushIn: { key: CameraKey; departMs: number; keys: CameraKey[] };
 let clickMs: number;
+/** Where the frames read end: full's first keyframe at or after arrival. */
+let windowEndSec: number;
 let instants: number[];
 const notes: string[] = [];
 
@@ -185,6 +226,8 @@ function evidence(): string {
     frames: r.crops.map(
       (c) => `${c.frameWidth}x${c.frameHeight}@${c.frameSec}`,
     ),
+    keySecs: r.keySecs,
+    heldRatio: r.held.edgeEnergy / full.held.edgeEnergy,
     encoderUsed: r.encoderUsed,
   });
   return JSON.stringify({
@@ -195,6 +238,7 @@ function evidence(): string {
       scale: pushIn.key.scale,
     },
     clickMs,
+    windowEndSec,
     instants,
     scales: instants.map((t) => sampleCamera(pushIn.keys, t * 1000).scale),
     size: { width: share.crops[0]?.width, height: share.crops[0]?.height },
@@ -212,12 +256,31 @@ function evidence(): string {
   });
 }
 
+/** The timestamps of an mp4's keyframes, in seconds, read from its packets. */
+async function keySecsOf(bytes: Uint8Array): Promise<number[]> {
+  const input = new Input({
+    source: new BufferSource(bytes),
+    formats: ALL_FORMATS,
+  });
+  const track = await input.getPrimaryVideoTrack();
+  if (track === null) throw new Error("the render has no video track");
+  const secs: number[] = [];
+  for await (const packet of new EncodedPacketSink(track).packets(
+    undefined,
+    undefined,
+    { metadataOnly: true },
+  )) {
+    if (packet.type === "key") secs.push(packet.timestamp);
+  }
+  return secs;
+}
+
 async function render(
   scene: SceneDocument,
   bundle: FrameBundle,
   store: RunnerStore,
   target: RenderTarget,
-): Promise<Omit<Render, "crops">> {
+): Promise<Omit<Render, "crops" | "held" | "keySecs">> {
   const launched = await launch();
   try {
     const rendered = await renderToFiles({
@@ -341,10 +404,6 @@ beforeAll(async () => {
     );
   }
   const departSec = pushIn.departMs / 1000;
-  const spanSec = (pushIn.key.outputTimeMs - pushIn.departMs) / 1000;
-  instants = Array.from({ length: MOVE_SAMPLES }, (_, i) =>
-    onFrame(departSec + (spanSec * (i + 1)) / (MOVE_SAMPLES + 1)),
-  );
   // A held frame before the move: the camera at rest, nothing blurred.
   const heldSec = onFrame(Math.max(0.1, departSec - 0.2));
 
@@ -358,15 +417,45 @@ beforeAll(async () => {
     ...shareTarget,
     encoder: { ...shareTarget.encoder, quality },
   });
-  const read = async (file: Omit<Render, "crops">): Promise<Render> => ({
-    ...file,
-    crops: await readMp4Crops(file.bytes, instants, CROP, size, dump),
-  });
-  full = await read(await render(scene, bundle, store, fullTarget));
-  share = await read(await render(scene, bundle, store, shareTarget));
-  control = await read(await render(scene, bundle, store, at(CONTROL_QUALITY)));
-  floor = await read(await render(scene, bundle, store, at(FLOOR_QUALITY)));
-  const [heldText] = await readMp4Crops(full.bytes, [heldSec], CROP, size);
+  const files = [
+    await render(scene, bundle, store, fullTarget),
+    await render(scene, bundle, store, shareTarget),
+    await render(scene, bundle, store, at(CONTROL_QUALITY)),
+    await render(scene, bundle, store, at(FLOOR_QUALITY)),
+  ];
+  const keySecs = await Promise.all(files.map((f) => keySecsOf(f.bytes)));
+  const arriveSec = pushIn.key.outputTimeMs / 1000;
+  const end = keySecs[0]?.find((s) => s >= arriveSec);
+  if (end === undefined) {
+    throw new Error(
+      `full has no keyframe at or after the camera arrives (${arriveSec}s): ${JSON.stringify(keySecs[0])}`,
+    );
+  }
+  windowEndSec = end;
+  const first = Math.ceil(departSec / FRAME_SEC - 1e-6);
+  const last = Math.round(windowEndSec / FRAME_SEC);
+  instants = Array.from({ length: last - first }, (_, i) =>
+    onFrame((first + i) * FRAME_SEC),
+  );
+  const read = async (
+    file: Omit<Render, "crops" | "held" | "keySecs">,
+    i: number,
+  ): Promise<Render> => {
+    const [heldCrop, ...crops] = await readMp4Crops(
+      file.bytes,
+      [heldSec, ...instants],
+      CROP,
+      size,
+      dump,
+    );
+    if (heldCrop === undefined) {
+      throw new Error(`no held frame was read at ${heldSec}s`);
+    }
+    return { ...file, keySecs: keySecs[i] ?? [], crops, held: heldCrop };
+  };
+  const reads: Render[] = [];
+  for (const [i, f] of files.entries()) reads.push(await read(f, i));
+  [full, share, control, floor] = reads as [Render, Render, Render, Render];
   const bgSize = {
     width: Math.round((BACKGROUND[2] - BACKGROUND[0]) * fullTarget.width),
     height: Math.round((BACKGROUND[3] - BACKGROUND[1]) * fullTarget.height),
@@ -377,10 +466,10 @@ beforeAll(async () => {
     BACKGROUND,
     bgSize,
   );
-  if (heldText === undefined || heldBackground === undefined) {
+  if (heldBackground === undefined) {
     throw new Error(`no held frame was read at ${heldSec}s`);
   }
-  held = { sec: heldSec, text: heldText, background: heldBackground };
+  held = { sec: heldSec, text: full.held, background: heldBackground };
   console.info(`share-quality: ${evidence()}`);
 
   // DEMOMAN_SHARE_CROPS=<dir>: every render and crop, as PGM, to look at.
@@ -444,24 +533,62 @@ describe("the share render", () => {
     });
   });
 
-  // The premises the comparisons stand on: the frames read are one push-in
-  // toward the first click, mid-move, at one set of instants, decoded at
-  // the size each render was asked for.
-  it("reads every render at the same instants, mid-move, at its own size", () => {
+  // The premises the comparisons stand on: the frames read are every frame
+  // of one push-in toward the first click and on to the end of its GOP, at
+  // one set of instants, decoded at the size each render was asked for; and
+  // the frames left out before it are ones every render agrees on.
+  it("reads every render at the same instants, departure to keyframe, at its own size", () => {
     expect(pushIn.key.outputTimeMs, evidence()).toBeLessThanOrEqual(clickMs);
     expect(pushIn.key.outputTimeMs, evidence()).toBeGreaterThan(clickMs - 1500);
+    // Every frame from departure: the first read is the first frame at or
+    // after it, and none is skipped after that.
+    const firstMs = (instants[0] ?? -1) * 1000;
+    expect(firstMs, evidence()).toBeGreaterThanOrEqual(pushIn.departMs);
+    expect(firstMs, evidence()).toBeLessThan(
+      pushIn.departMs + FRAME_SEC * 1000 + 1,
+    );
+    for (const [i, t] of instants.entries()) {
+      if (i > 0) {
+        expect(
+          Math.abs(t - (instants[i - 1] as number) - FRAME_SEC),
+          evidence(),
+        ).toBeLessThan(0.0005);
+      }
+    }
+    // ... through the move, which the camera completes inside the window ...
     const scales = instants.map(
       (t) => sampleCamera(pushIn.keys, t * 1000).scale,
     );
-    for (const [i, scale] of scales.entries()) {
-      expect(scale, evidence()).toBeGreaterThan(1);
-      expect(scale, evidence()).toBeLessThan(pushIn.key.scale);
-      if (i > 0) {
-        expect(scale, evidence()).toBeGreaterThan(scales[i - 1] as number);
-      }
+    expect(
+      scales.filter((s) => s > 1 && s < pushIn.key.scale).length,
+      evidence(),
+    ).toBeGreaterThan(
+      (pushIn.key.outputTimeMs - pushIn.departMs) / (FRAME_SEC * 1000) - 2,
+    );
+    expect(windowEndSec * 1000, evidence()).toBeGreaterThanOrEqual(
+      pushIn.key.outputTimeMs,
+    );
+    // ... to the last frame before a keyframe every render holds.
+    expect(
+      windowEndSec - (instants.at(-1) ?? -1),
+      evidence(),
+    ).toBeLessThanOrEqual(FRAME_SEC);
+    for (const r of [full, share, control, floor]) {
+      expect(
+        r.keySecs.some((s) => Math.abs(s - windowEndSec) < 0.001),
+        `no keyframe at ${windowEndSec}s in the ${r.target.fps} fps render at quality ${r.encoderUsed?.quality}: ${evidence()}`,
+      ).toBe(true);
+    }
+    // Before departure every render holds the same picture, so leaving
+    // those frames out changes no `keptFraction`.
+    for (const r of [share, control, floor]) {
+      expect(
+        Math.abs(r.held.edgeEnergy / full.held.edgeEnergy - 1),
+        evidence(),
+      ).toBeLessThan(HELD_AGREEMENT);
     }
     for (const r of [full, share, control, floor]) {
-      expect(r.crops, evidence()).toHaveLength(MOVE_SAMPLES);
+      expect(r.crops, evidence()).toHaveLength(instants.length);
       for (const [i, crop] of r.crops.entries()) {
         expect([crop.frameWidth, crop.frameHeight], evidence()).toEqual([
           r.target.width,
