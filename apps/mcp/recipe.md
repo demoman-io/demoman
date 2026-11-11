@@ -277,10 +277,10 @@ A flow in the repo (.demoman/flows) is rewritten by each run: commit that file w
      sign-in page. `notStored` with `what: "session"` means the saved
      session could not be refreshed: name it to the user.
    - `threw` - a fault in the run; report its `error`.
-   - Then read `frames.degradations` and `frames.storageRefused`. These are
-     about the video, not the script (`surfaceMismatch`: the browser handed
-     back frames of the wrong size; `dragPictureMissing`: a native drag's item
-     jumps). `notDragged`: a drag changed nothing; `verdict.diverged` lists
+   - Then read `frames.degradations` and `frames.storageRefused`, about the
+     video (`surfaceMismatch`: wrong-size frames; `dragPictureMissing`: a
+     drag's item jumps) or refresh screens (`step*`, `requestNotWaited`), not
+     the script. `notDragged`: a drag did nothing; `verdict.diverged` lists
      it. Name them to the user; spend no run. `clickUnconfirmed` is about a step: a click
      could not be confirmed to have reached its target, and
      `frames.unconfirmedClicks` names each such step and says why; check in

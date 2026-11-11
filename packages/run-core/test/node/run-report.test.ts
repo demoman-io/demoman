@@ -1,4 +1,4 @@
-import type { MadeFromStep } from "@demoman/compositor";
+import type { Degradation, MadeFromStep } from "@demoman/compositor";
 import { type AuthoredStep, reasonSentence } from "@demoman/replay-engine";
 import {
   BRANDING_DEFAULTS,
@@ -573,6 +573,54 @@ describe("RunReport", () => {
     expect(line).toContain("surfaceMismatch");
     // Once per kind, not once per stretch.
     expect(line.split("surfaceMismatch")).toHaveLength(2);
+  });
+
+  // Red when a screen refresh cannot compare is said as frames lost: the
+  // video is intact, and "not everything was kept" sent readers after
+  // nothing (close review 4). The control beside it: a real loss in the same
+  // run is still said as one.
+  it("says the page screens' kinds in a sentence of their own, never as frames lost", () => {
+    const n = 3;
+    const script = scriptOf(n);
+    const build = (kinds: Degradation["kind"][]) =>
+      buildRunReport({
+        ...NOT_CHECKED,
+        run: baseRun(),
+        walk: {
+          ...completeWalk(n),
+          degradations: kinds.map((kind) => ({
+            kind,
+            startMs: 0,
+            endMs: 1,
+            note: "x",
+          })),
+        },
+        steps: Array.from({ length: n }, (_, i) => authoredStep(i + 1)),
+        scene: sceneOf(n),
+        madeFrom: madeFromFor(script),
+      });
+    const screens = build([
+      "stepUnsettled",
+      "stepSettleFailed",
+      "requestNotWaited",
+    ]);
+    expect(screens.verdict.kind).toBe("matches");
+    expect(screens.frames.degradations).toHaveLength(3);
+    const line = verdictLine(screens);
+    expect(line).toMatch(/^Complete: the video matches every step/);
+    expect(line).not.toContain("not everything was kept");
+    expect(line).toContain("The video is intact, but for refresh:");
+    for (const kind of [
+      "stepUnsettled",
+      "stepSettleFailed",
+      "requestNotWaited",
+    ])
+      expect(line).toContain(`(${kind})`);
+    const both = verdictLine(build(["stepUnsettled", "surfaceMismatch"]));
+    const lost = /But not everything was kept: ([^.]*)\./.exec(both)?.[1];
+    expect(lost, both).toContain("(surfaceMismatch)");
+    expect(lost, both).not.toContain("stepUnsettled");
+    expect(both).toContain("(stepUnsettled)");
   });
 
   // The sentence is pinned whole: since 2026-09-30 a landing is either a
@@ -1242,6 +1290,22 @@ describe("prVerdict", () => {
         walk: { ...completeWalk(3), storageRefused: true },
       }),
       "matches all 3 steps, with notes",
+    ],
+    [
+      // The video is whole: a screen refresh cannot compare is said in the
+      // details, never as a note on the video (close review 4).
+      "screens refresh cannot compare",
+      buildRunReport({
+        ...complete(),
+        walk: {
+          ...completeWalk(3),
+          degradations: [
+            { kind: "stepUnsettled", startMs: 0, endMs: 1, note: "x" },
+            { kind: "requestNotWaited", startMs: 0, endMs: 1, note: "y" },
+          ],
+        },
+      }),
+      "matches all 3 steps",
     ],
     [
       "an unreadable brand kit",

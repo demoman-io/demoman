@@ -943,9 +943,9 @@ export function verdictLine(report: RunReport): string {
           unstored.every((w) => w.what === "session")
           ? "The run's video is in the library, but the site's session could not be saved back"
           : "The run's video is in the library, but part of its record is not";
-    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
+    return `${take}: ${said}. ${runVerdictLine(report)}${framesClause(report)}${screensClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
   }
-  return `${runVerdictLine(report)}${framesClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
+  return `${runVerdictLine(report)}${framesClause(report)}${screensClause(report)}${lookClause(report)}${otherRepoClause(report)}`;
 }
 
 /**
@@ -961,7 +961,10 @@ export function prVerdict(report: RunReport): {
   const n = report.steps.length;
   const clean = `matches all ${n} step${n === 1 ? "" : "s"}`;
   const clause = prClause(report, clean);
-  return { clause, details: clause === clean ? null : verdictLine(report) };
+  // A screen refresh cannot compare leaves the video's clause clean, and is
+  // still said in the details.
+  const quiet = clause === clean && screensClause(report) === "";
+  return { clause, details: quiet ? null : verdictLine(report) };
 }
 
 /**
@@ -1005,7 +1008,7 @@ function prClause(report: RunReport, clean: string): string {
   }
   const noted =
     sessionOnly ||
-    report.frames.degradations.length > 0 ||
+    report.frames.degradations.some((k) => !SCREENS_ONLY.has(k)) ||
     report.frames.storageRefused ||
     (report.look?.brandKitError ?? null) !== null ||
     (report.look?.wallpaperError ?? null) !== null;
@@ -1086,7 +1089,9 @@ function lookClause(report: RunReport): string {
  * kind, naming the kind, so an agent can find it in `frames.degradations`.
  */
 function framesClause(report: RunReport): string {
-  const kinds = [...new Set(report.frames.degradations)];
+  const kinds = [...new Set(report.frames.degradations)].filter(
+    (k) => !SCREENS_ONLY.has(k),
+  );
   const said = kinds.map((kind) => `${DEGRADATION_WORDS[kind]} (${kind})`);
   if (report.frames.storageRefused) {
     said.push("the frame store refused frames during the run (storageRefused)");
@@ -1094,6 +1099,29 @@ function framesClause(report: RunReport): string {
   return said.length === 0
     ? ""
     : ` But not everything was kept: ${said.join("; ")}.`;
+}
+
+/**
+ * The kinds that are about refresh's page screens and not the video (close
+ * review of 2026-11-10): the film is whole, so they never say a frame was
+ * lost nor turn a match into one "with notes". `screensClause` says them.
+ */
+const SCREENS_ONLY = new Set<Degradation["kind"]>([
+  "stepUnsettled",
+  "stepSettleFailed",
+  "requestNotWaited",
+]);
+
+/** The page screens' sentence: what refresh will not compare, or compared
+ *  early, with the video itself intact. Empty when there is nothing. */
+function screensClause(report: RunReport): string {
+  const kinds = [...new Set(report.frames.degradations)].filter((k) =>
+    SCREENS_ONLY.has(k),
+  );
+  const said = kinds.map((kind) => `${DEGRADATION_WORDS[kind]} (${kind})`);
+  return said.length === 0
+    ? ""
+    : ` The video is intact, but for refresh: ${said.join("; ")}.`;
 }
 
 /** `verdictLine` without the storage clause: what the run itself has to say.
