@@ -3,6 +3,13 @@ title: "Changelog"
 description: "What changed in each release."
 ---
 
+<Update label="Unreleased" description="Refresh compares the settled page">
+  - A refresh compares the page at each step once it settles, so a spinner, caret or slow answer no longer reads as changed.
+  - A page that never settles is skipped and named.
+  - Receipts from 0.9.4 or earlier are replaced once.
+  - A refresh is about a second longer per video.
+</Update>
+
 <Update label="0.9.4" description="CI setup that asks first">
   - Your agent's `ci` tool no longer starts your app's commands; `npx demoman setup --ci` shows them and asks first.
   - A deployment or release refresh skips commits not on the default branch.
@@ -12,10 +19,10 @@ description: "What changed in each release."
 </Update>
 
 <Update label="0.9.3" description="Pinned dates, and a steadier Studio">
-  - `.demoman/app.json` may pin `now`, so a refresh records the app at the same instant every time and moved dates never count as a change. The app reads it from `DEMOMAN_NOW`.
+  - `.demoman/app.json` may pin `now` (`DEMOMAN_NOW`), so moved dates never count as a change.
   - The camera holds a drag's frame after the drop until the pointer moves on.
   - The Studio's lanes are brighter and taller, and its Export panel is calmer.
-  - Previews and Reveal work on Linux, and `status` says the browser is not installed when Chromium's Linux libraries are missing.
+  - Previews and Reveal work on Linux.
   - Add finds a flow's checkout past a newer recording in another repo, and a sign-in on another localhost port no longer blocks it.
 </Update>
 
@@ -30,7 +37,7 @@ description: "What changed in each release."
   - An optional `reset` in `.demoman/app.json` runs before each flow, so one flow's changes never show in the next.
   - `.demoman/app.json` may leave out `env`, `secrets` and `services`; a refused file names the field.
   - A refresh records a rough video once more before delivering it with a note.
-  - The refresh workflow can be run by hand from the Actions tab. A workflow set up earlier gets this when you add `workflow_dispatch:` under its `on:`.
+  - The refresh workflow can be run by hand from the Actions tab.
   - Setup turns on the Actions setting before it sets any secret, and says who can change it when an organisation refuses.
 </Update>
 
@@ -44,9 +51,9 @@ description: "What changed in each release."
 
 <Update label="0.8.2" description="Video as code, flows in the repo, and a library you can search">
   - A script can set where the video starts and ends with `trim`, and each click's zoom with `zoom`.
-  - `demoman keep` is now `demoman add`, and repo flows live in `.demoman/flows/` with a receipt in `.demoman/receipts/`. `demoman remove` and `demoman join-flow` are new.
-  - `refresh` prints `changed`, `added`, `uncompared`, `unchanged` or `failed` per flow. `add --deliver files` keeps videos out of git.
-  - The Studio's library is grouped by project, searchable with `/`, and has a sortable List view with bulk delete.
+  - `demoman keep` is now `demoman add`, and repo flows live in `.demoman/flows/`. `remove` and `join-flow` are new.
+  - `refresh` prints one word per flow. `add --deliver files` keeps videos out of git.
+  - The Studio's library is grouped by project, searchable, and has a List view.
   - The Export panel makes an MP4, GIF and stills in one go.
 </Update>
 
