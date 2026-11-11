@@ -139,7 +139,16 @@ interface Recorded {
   decoded: { width: number; height: number }[];
   /** Luma of each screen inside each live rect, by `after`. */
   luma: Record<string, number[]>[];
+  /** Against `against`'s screens, by index: which pixels differ, so a
+   *  byte mismatch says where and how much. Empty when none was given. */
+  against: PixelDiff[];
 }
+
+type PixelDiff = {
+  pixels: number;
+  maxDelta: number;
+  box: { x0: number; y0: number; x1: number; y1: number } | null;
+};
 
 /**
  * Records `steps` continuously and reads everything the cases need before
@@ -150,6 +159,7 @@ async function record(
   steps: DemoScript["steps"],
   rectsOf: (page: Page) => Promise<Record<string, Rect>>,
   path = "",
+  againstBytes: Uint8Array[] = [],
 ): Promise<Recorded> {
   let out: Recorded | null = null;
   await withReplayBrowser(
@@ -268,6 +278,11 @@ async function record(
         decoded.push(read.size);
         luma.push(read.luma);
       }
+      const against: PixelDiff[] = [];
+      for (const [i, other] of againstBytes.entries())
+        against.push(
+          await pixelDiff(decoder, bytes[i] ?? new Uint8Array(), other),
+        );
       out = {
         result,
         screens,
@@ -279,6 +294,7 @@ async function record(
         live,
         decoded,
         luma,
+        against,
       };
     },
     { url: base + path, readySelector: "#ask" },
@@ -326,6 +342,61 @@ async function pixels(
       return { size: { width: bitmap.width, height: bitmap.height }, luma };
     },
     { b64: Buffer.from(png).toString("base64"), rects },
+  );
+}
+
+/** Decodes two PNGs in a page and says which pixels differ, for evidence. */
+async function pixelDiff(
+  decoder: Page,
+  a: Uint8Array,
+  b: Uint8Array,
+): Promise<PixelDiff> {
+  return decoder.evaluate(
+    async ({ a, b }) => {
+      const read = async (b64: string) => {
+        const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+        const bitmap = await createImageBitmap(blob);
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+        const ctx = canvas.getContext(
+          "2d",
+        ) as OffscreenCanvasRenderingContext2D;
+        ctx.drawImage(bitmap, 0, 0);
+        return ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+      };
+      const [x, y] = [await read(a), await read(b)];
+      if (x.width !== y.width || x.height !== y.height)
+        return { pixels: -1, maxDelta: -1, box: null };
+      let pixels = 0;
+      let maxDelta = 0;
+      let box: { x0: number; y0: number; x1: number; y1: number } | null = null;
+      for (let i = 0; i < x.data.length; i += 4) {
+        let d = 0;
+        for (let c = 0; c < 3; c++)
+          d = Math.max(
+            d,
+            Math.abs((x.data[i + c] ?? 0) - (y.data[i + c] ?? 0)),
+          );
+        if (d === 0) continue;
+        pixels++;
+        maxDelta = Math.max(maxDelta, d);
+        const px = (i / 4) % x.width;
+        const py = Math.floor(i / 4 / x.width);
+        box =
+          box === null
+            ? { x0: px, y0: py, x1: px, y1: py }
+            : {
+                x0: Math.min(box.x0, px),
+                y0: Math.min(box.y0, py),
+                x1: Math.max(box.x1, px),
+                y1: Math.max(box.y1, py),
+              };
+      }
+      return { pixels, maxDelta, box };
+    },
+    {
+      a: Buffer.from(a).toString("base64"),
+      b: Buffer.from(b).toString("base64"),
+    },
   );
 }
 
@@ -402,7 +473,7 @@ describe("a continuous walk settles each step and captures its page", () => {
   let b: Recorded;
   beforeAll(async () => {
     a = await record(MAIN, mainRects);
-    b = await record(MAIN, mainRects);
+    b = await record(MAIN, mainRects, "", a.bytes);
     // Two walks of six steps with the settle after each: about 8 s each
     // here, and CI's runner is about 5x slower.
   }, 120_000);
@@ -503,9 +574,14 @@ describe("a continuous walk settles each step and captures its page", () => {
       }))
       .filter((x) => !x.same)
       .map((x) => x.i);
+    // The premise for the evidence: b was compared with a, screen by screen.
+    expect(b.against).toHaveLength(a.bytes.length);
+    // And the comparison reads 0 where the bytes agree.
+    for (const [i, d] of b.against.entries())
+      if (!differing.includes(i)) expect(d.pixels, `screen ${i}`).toBe(0);
     expect(
       differing,
-      `sizes a ${a.bytes.map((x) => x.byteLength)} b ${b.bytes.map((x) => x.byteLength)}`,
+      `sizes a ${a.bytes.map((x) => x.byteLength)} b ${b.bytes.map((x) => x.byteLength)}; pixels ${JSON.stringify(differing.map((i) => ({ i, after: a.screens[i]?.after, ...b.against[i] })))}`,
     ).toEqual([]);
   });
 
