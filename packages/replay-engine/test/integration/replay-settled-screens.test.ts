@@ -10,6 +10,7 @@ import {
   type CdpSession,
   PAGE_CAPTURE_HOLD,
   runAuthored,
+  STEP_QUIET_MS,
   STEP_REQUEST_CAP_MS,
 } from "../../src/index.js";
 import {
@@ -36,6 +37,11 @@ const FIXTURE = readFileSync(
   join(import.meta.dirname, "..", "fixtures", "settle-app.html"),
   "utf8",
 );
+/** The fixture's search debounce, as its page declares it. A debounce made
+ *  by a timer alone must be shorter than the walk's quiet beat, or the
+ *  screen is taken before it fires (`STEP_QUIET_MS`); the typing cases
+ *  assert it. */
+const DEBOUNCE_MS = Number(/const DEBOUNCE_MS = (\d+);/.exec(FIXTURE)?.[1]);
 const ANSWER_PAUSE_MS = 700;
 const ANSWER_WORDS = 15;
 /** Longer than the quiet beat: the page being left goes quiet long before
@@ -405,7 +411,11 @@ describe("a continuous walk settles each step and captures its page", () => {
       Math.abs(right + 1 - advance),
       `ink ends ${right + 1} px into the field; "abc" is ${advance} px wide`,
     ).toBeLessThanOrEqual(2);
-    // The debounced search the last key fired, 250 ms after it.
+    // The debounced search the last key fired, DEBOUNCE_MS after it.
+    expect(
+      DEBOUNCE_MS,
+      "premise: the debounce is inside the beat",
+    ).toBeLessThan(STEP_QUIET_MS);
     const list = a.live.listText as Rect;
     const listRight = inkRight(
       a.luma[4]?.list,
@@ -484,9 +494,14 @@ describe("a search the typing fires", () => {
     // One glide, the typing and a 500 ms answer: about 4 s here.
   }, 60_000);
 
-  // The request starts 250 ms after the last key, inside the page's quiet
-  // beat: only asking about requests again after the page answered sees it.
+  // The request starts DEBOUNCE_MS after the last key, inside the page's
+  // quiet beat: only asking about requests again after the page answered
+  // sees it.
   it("the screen after typing shows the search's results", () => {
+    expect(
+      DEBOUNCE_MS,
+      "premise: the debounce is inside the beat",
+    ).toBeLessThan(STEP_QUIET_MS);
     const text = r.live.resultsText as Rect;
     expect(text.width, "premise: the results arrived").toBeGreaterThan(20);
     const right = inkRight(

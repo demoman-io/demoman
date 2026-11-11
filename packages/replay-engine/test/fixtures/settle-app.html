@@ -48,6 +48,10 @@
     d.textContent = "saved";
     $("toasts").append(d);
   };
+  // How long both searches wait after the last key: shorter than the
+  // walk's quiet beat (STEP_QUIET_MS), which a timer alone longer than it
+  // outlasts by design. replay-settled-screens.test.ts asserts it.
+  const DEBOUNCE_MS = 150;
   // A search that asks the server once the typing stops (http only): the
   // request starts inside the quiet beat that follows the last key.
   let searching;
@@ -56,12 +60,12 @@
     searching = setTimeout(async () => {
       const r = await fetch("search?q=" + encodeURIComponent($("search").value));
       $("results").textContent = await r.text();
-    }, 250);
+    }, DEBOUNCE_MS);
   };
   let deb;
   $("q").oninput = () => {
     clearTimeout(deb);
-    deb = setTimeout(() => { $("list").textContent = "filtered:" + $("q").value; }, 250);
+    deb = setTimeout(() => { $("list").textContent = "filtered:" + $("q").value; }, DEBOUNCE_MS);
   };
   $("hoverbtn").onclick = () => $("hoverrow").classList.add("on");
   $("spinbtn").onclick = () => {
