@@ -23,7 +23,6 @@ import {
   planScene,
   type RenderTarget,
   renderScene,
-  renderScreens,
   renderStills,
   type Screens,
   type UnavailableSpan,
@@ -260,35 +259,9 @@ function oncePerSpan(spans: UnavailableSpan[]): UnavailableSpan[] {
   });
 }
 
-/** The file a still screen is saved as: its step, or `final.png`. */
+/** The file a page screen is saved as: its step, or `final.png`. */
 export function screenImageName(step: number | null): string {
   return step === null ? "final.png" : `step-${step}.png`;
-}
-
-/** One `drawImage` onto a canvas `width` wide, aspect kept. Every
- *  comparison of screens reads both sides through this. */
-async function scaledPng(
-  bytes: Uint8Array,
-  width: number,
-): Promise<Uint8Array> {
-  const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]));
-  try {
-    const canvas = new OffscreenCanvas(
-      width,
-      Math.round((bitmap.height * width) / bitmap.width),
-    );
-    (canvas.getContext("2d") as OffscreenCanvasRenderingContext2D).drawImage(
-      bitmap,
-      0,
-      0,
-      canvas.width,
-      canvas.height,
-    );
-    const blob = await canvas.convertToBlob({ type: "image/png" });
-    return new Uint8Array(await blob.arrayBuffer());
-  } finally {
-    bitmap.close();
-  }
 }
 
 export interface RenderOutput {
@@ -332,15 +305,8 @@ export async function renderOutput(input: {
   /** Stills only: the output instants to take, honoured exactly
    *  (`renderStills`' own). Absent: one still per step. */
   outputTimesMs?: number[];
-  /** Mp4 or gif only: draw just the still screens at `target`, each scaled
-   *  to `width` wide, instead of the file. `files` are then the images,
-   *  named by `screenImageName`. */
-  screensOnly?: { width: number };
 }): Promise<RenderOutput> {
   const { fileType, target, scene, bundle, frames, onFrame } = input;
-  if (input.screensOnly !== undefined && fileType === "stills") {
-    throw new Error("screensOnly applies to an mp4 or gif output, not stills");
-  }
   // Rasterised per output: an SVG is drawn at each target's own size. A
   // logo that cannot be had never fails the output — it is decoration —
   // but the facts say the file has none.
@@ -566,61 +532,6 @@ export async function renderOutput(input: {
         ...(sized.cappedFrom === null
           ? {}
           : { stillsCapped: { askedWidth: sized.cappedFrom } }),
-      },
-    };
-  }
-
-  if (input.screensOnly !== undefined) {
-    const { width } = input.screensOnly;
-    const { logo, logoWarning } = await logoAt(target);
-    const wallpaper = await wallpaperAt(target);
-    let result: Awaited<ReturnType<typeof renderScreens>>;
-    try {
-      result = await renderScreens({
-        plan,
-        bundle,
-        scene,
-        target,
-        ports: { frames, surface, images: createPngSink() },
-        logo,
-        wallpaper: wallpaper.image,
-      });
-    } finally {
-      release(wallpaper.image, wallpaper.held ?? null);
-    }
-    const deepest =
-      input.wallpaper?.ok !== true
-        ? 1
-        : composeForTarget({
-            plan,
-            bundle,
-            scene,
-            target,
-          }).resolved.cameraKeys.reduce((m, k) => Math.max(m, k.scale), 1);
-    const files: RenderOutput["files"] = [];
-    for (const image of result.images) {
-      files.push({
-        name: screenImageName(image.step),
-        bytes: await scaledPng(image.bytes, width),
-      });
-    }
-    return {
-      files,
-      facts: {
-        detailViolations: result.detailViolations,
-        unavailableSpans: [...result.unavailableSpans, ...reclaimed],
-        unplacedStills: [],
-        loweredZooms: [],
-        logoWarning,
-        wallpaperWarning: wallpaperWarning(target, deepest, wallpaper.failed),
-        clampedRanges: [],
-        // The target's own size: the screens' windows are measured in it.
-        rendered: {
-          width: target.width,
-          height: target.height,
-          fps: target.fps,
-        },
-        screens: result.screens,
       },
     };
   }

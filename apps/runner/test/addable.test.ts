@@ -19,7 +19,7 @@ import {
   type VideoRecord,
   type VideoStore,
 } from "../src/executor/videos.js";
-import { makeDiskTake, putTake } from "./disk-take.js";
+import { makeDiskTake, putTake, withPageScreens } from "./disk-take.js";
 import { WALLPAPERS_DIR } from "./fixture.js";
 
 const SETUP_MS = 120_000;
@@ -137,11 +137,17 @@ describe("checkAddable", () => {
     "a clean video is addable to its checkout, and the command adds it",
     async () => {
       const { takeId, original, bundle } = await makeDiskTake(home);
+      // A take recorded in real time: it carries page screens to keep.
       const still = { sourceTimeMs: 0, x: 900, y: 600 };
-      await putTake(home, takeId, original, {
-        ...bundle,
-        cursorSamples: [still, { ...still, sourceTimeMs: 9000 }],
-      });
+      await putTake(
+        home,
+        takeId,
+        original,
+        await withPageScreens(home, takeId, {
+          ...bundle,
+          cursorSamples: [still, { ...still, sourceTimeMs: 9000 }],
+        }),
+      );
       const { record, scene } = await video(
         "Create an invoice",
         repoRef,

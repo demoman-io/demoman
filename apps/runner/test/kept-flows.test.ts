@@ -178,14 +178,13 @@ describe("renameKept", () => {
 });
 
 const receiptV2 = (file: string): KeptReceipt => ({
-  receiptVersion: 2,
+  receiptVersion: 3,
   screensDir: screensDirOf(file),
-  screensSize: { width: 1280, height: 720 },
   flow: FLOW_ID,
   video: "take-1",
   filmedAt: null,
   filmedCode: { none: "test" },
-  screens: { steps: 1, moments: [{ step: 0, ms: 0 }] },
+  screens: { steps: 1, screens: [{ step: 0 }] },
   recordedRevision: null,
 });
 const hasAt = (p: string) =>

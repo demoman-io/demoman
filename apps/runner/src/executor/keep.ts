@@ -119,8 +119,8 @@ export type KeepAnswer =
       key: string | null;
       /** What `deliver: "commit"` wrote beside the DemoScript; null for `files`. */
       receipt: KeptReceipt | null;
-      /** "k of n screens are still": what a refresh compares at. Said for
-       *  `commit` only: `files` renders nothing here. */
+      /** "k of n screens settled", and why each other one did not: what a
+       *  refresh compares at. Said for `commit` only: `files` keeps none. */
       screensNote?: string;
       /** Said when the library could not mark the flow kept: the keep
        *  stands, and the Library will not show it as kept until it does. */

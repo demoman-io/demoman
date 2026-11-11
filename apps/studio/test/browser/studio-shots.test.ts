@@ -4979,15 +4979,33 @@ describe("the Studio's screenshot set", () => {
         report: { outcome: "saved" } as never,
       });
       const TRIM_NAME = "Filter invoices";
-      // The pointer holds still: a take that is never still has no screens
-      // for a refresh to compare, and an add refuses it.
+      // The take settled a page screen per step, as a real-time take
+      // records them: a take with none has nothing for a refresh to
+      // compare, and an add refuses it.
       const frames = library.frameStore(okTake);
       const bundle = await frames.getBundle(okTake);
       if (bundle === null) throw new Error(`${okTake} has no bundle`);
       const still = { sourceTimeMs: 0, x: 900, y: 600 };
+      // A 1x1 white PNG.
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC",
+        "base64",
+      );
+      const pageScreens = [];
+      for (let after = 0; after <= bundle.markers.length; after++)
+        pageScreens.push({
+          after,
+          sourceTimeMs: after * 100,
+          ref: await frames.putPageScreen(okTake, after, png),
+          width: 1,
+          height: 1,
+          heldAnimations: 0,
+          waitedMs: 0,
+        });
       await frames.putBundle(okTake, {
         ...bundle,
         cursorSamples: [still, { ...still, sourceTimeMs: 9000 }],
+        pageScreens,
       });
       const okFlow = await flow(OK_NAME, (PLAIN[2] as PlainTake).id, checkout);
       // A trim on the other flow's take: a new video cannot carry it.
@@ -5447,7 +5465,7 @@ describe("the Studio's screenshot set", () => {
       // DEM-49: the terminal's notes are not the sheet's.
       const sheetText = (await page.locator("dialog[open]").innerText()) ?? "";
       expect(sheetText).not.toContain("added on macOS");
-      expect(sheetText).not.toMatch(/screens are still/);
+      expect(sheetText).not.toMatch(/screens settled/);
       await dialogPaint("the last step");
       await shoot("add-sheet-last-step", "the last step");
       await page.locator("[data-ci-check]").click();

@@ -18,16 +18,16 @@ import { join } from "node:path";
 import {
   CAMERA_DEFAULTS,
   motionTimings,
-  SHARE_LANDSCAPE,
   WALLPAPER_LONG_SIDE,
 } from "@demoman/compositor";
+import { pngSize } from "@demoman/replay-engine";
 import {
   fileDigest,
   LEGACY_FLOWS_DIR as KEPT_DIR,
-  type KeptScreens,
   type KeptVideo,
   keptFileName,
   lookDigest,
+  type PageScreens,
   RECEIPT_DIR,
   type RunReport,
   screensDirOf,
@@ -36,10 +36,7 @@ import {
   webpSize,
 } from "@demoman/run-core";
 import { screenImageName } from "@demoman/run-core/render";
-import {
-  BRANDING_DEFAULTS,
-  DEFAULT_WALLPAPER_BLUR,
-} from "@demoman/scene-schema";
+import { BRANDING_DEFAULTS } from "@demoman/scene-schema";
 import {
   afterAll,
   beforeAll,
@@ -62,6 +59,7 @@ import {
   refreshKept,
   runVerdict,
 } from "../src/executor/refresh.js";
+import { sameScreens } from "../src/executor/same-picture.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { listenOnLoopback } from "../src/loopback.js";
 import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
@@ -358,7 +356,8 @@ const gaps: { name: string; gaps: number[]; settle: number }[] = [];
 /** Every saved export's screens and wallpaper warning, in order. */
 const exported: {
   fileType: string;
-  screens: KeptScreens;
+  /** Page screens for "screens"; the video's own screens otherwise. */
+  screens: unknown;
   wallpaper: "leftOut" | "soft" | null;
 }[] = [];
 /** Every home and output folder refresh handed an executor, in order. Read
@@ -426,7 +425,7 @@ const deps = (): RefreshDeps => ({
         if (op === "export" && answer.ok) {
           const v = answer.value as {
             fileType: string;
-            screens: KeptScreens;
+            screens: unknown;
             warnings: { wallpaperWarning?: { kind: "leftOut" | "soft" } };
           };
           exported.push({
@@ -470,13 +469,41 @@ const bytes = (p: string) => readFile(join(repo, p));
 /** The recipe, with the screens its receipt says the committed files show. */
 const keptOf = async (
   name: string,
-): Promise<KeptVideo & { screens: KeptScreens }> => {
+): Promise<KeptVideo & { screens: PageScreens }> => {
   const { kept, receipt } = await readKeptV2(
     repo,
     `${KEPT_DIR}/${keptFileName(name)}`,
   );
+  if (receipt.screens === null)
+    throw new Error(`${name}'s receipt predates page screens`);
   return { ...kept, screens: receipt.screens };
 };
+/** The settled screens of a receipt's page screens. */
+const settled = (sc: PageScreens) =>
+  sc.screens.filter((s) => s.unsettled === undefined);
+/** A copy of `name`'s page screens, to read after its receipt is replaced. */
+async function screensCopy(
+  name: string,
+): Promise<{ dir: string; screens: PageScreens }> {
+  const dir = await mkdtemp(join(tmpdir(), "demoman-screens-copy-"));
+  await cp(join(repo, RECEIPT_DIR, screensDirOf(keptFileName(name))), dir, {
+    recursive: true,
+  });
+  return { dir, screens: (await keptOf(name)).screens };
+}
+/** `sameScreens` on two sets of page screens with their looks left out:
+ *  whether the pages alone read the same. */
+async function pagesAlone(
+  a: { dir: string; screens: PageScreens },
+  b: { dir: string; screens: PageScreens },
+) {
+  const bare = ({ look: _look, ...sc }: PageScreens) => sc;
+  return sameScreens(
+    { dir: a.dir, screens: bare(a.screens) },
+    { dir: b.dir, screens: bare(b.screens) },
+    { session, log: (l) => void lines.push(l) },
+  );
+}
 /** How far a gap between two clicks is from the pan-or-pull-back line: the
  *  room `returnsBetween` finds between the camera's hold after the first
  *  click and its arrival at the second (both `leadInMs` before their markers).
@@ -721,32 +748,22 @@ export const unchangedThenSlower = () => {
         r.videos.map((v) => v.outcome),
         JSON.stringify(r),
       ).toEqual(["unchanged", "unchanged"]);
-      // The premise: these films are on the wallpaper new takes default
-      // to, sharp, whose edges the window's split keeps out of the verdict.
-      expect(BRANDING_DEFAULTS.background).toMatchObject({
-        kind: "wallpaper",
-        blur: DEFAULT_WALLPAPER_BLUR,
-      });
-      // The premise: samePicture answered same for the judged output
-      // alone, over k of n screens recorded from a real film, each with
-      // a window inside its share frame and the look beside them.
-      const { width: fw, height: fh } = SHARE_LANDSCAPE;
+      // The premise: sameScreens answered same for the judged output
+      // alone, over k of n page screens recorded from a real run, each the
+      // page at CSS 1x, with the look beside them.
       for (const name of [A, B]) {
         const { screens } = await keptOf(name);
         expect(screens.look, name).toMatch(/^[0-9a-f]+$/);
-        for (const { window: w } of screens.moments) {
-          expect(w, JSON.stringify(screens)).toBeDefined();
-          const { x, y, width, height } = w as NonNullable<typeof w>;
-          expect(
-            x >= 0 && y >= 0 && x + width <= fw && y + height <= fh,
-            JSON.stringify(w),
-          ).toBe(true);
-          expect(width * height, JSON.stringify(w)).toBeGreaterThan(
-            0.25 * fw * fh,
-          );
+        const dir = join(repo, RECEIPT_DIR, screensDirOf(keptFileName(name)));
+        for (const sc of settled(screens)) {
+          const png = await readFile(join(dir, screenImageName(sc.step)));
+          expect(pngSize(png), `${name} ${screenImageName(sc.step)}`).toEqual({
+            width: 1280,
+            height: 800,
+          });
         }
         const m = byName(r, name).detail.match(
-          /^docs\/\w+\.mp4: at most [\d.]+% sharply and [\d.]+% faintly of the picture changed, over (\d+) of (\d+) screens$/,
+          /^docs\/\w+\.mp4: at most [\d.]+% sharply and [\d.]+% faintly of the picture changed, over (\d+) of (\d+) screens(; .+)?$/,
         );
         expect(m, byName(r, name).detail).not.toBeNull();
         expect(Number(m?.[1])).toBeGreaterThanOrEqual(2);
@@ -829,7 +846,7 @@ export const oneDigit = () => {
       // table is in view (the panel the click opens covers the amounts).
       const { screens } = await keptOf(A);
       expect(
-        screens.moments.some((m) => m.step !== null),
+        settled(screens).some((sc) => sc.step !== null),
         JSON.stringify(screens),
       ).toBe(true);
       html = ONE_DIGIT;
@@ -843,7 +860,7 @@ export const oneDigit = () => {
       noiseLine("one digit", a.detail);
       expect(a.outcome, JSON.stringify(r)).toBe("changed");
       expect(a.detail).toMatch(
-        /% of the picture changed sharply before step \d+ at /,
+        /% of the picture changed sharply before step \d+, over /,
       );
       // And back: the digit restored reads changed too, a second reading.
       const back = byName(await refresh([A]), A);
@@ -920,8 +937,8 @@ async function differing(a: Buffer, b: Buffer) {
   }
 }
 
-/** Films A of `page` with nothing to compare against, so the committed screens
- *  are that page's; returns the first screen's image and its window. */
+/** Records A of `page` with nothing to compare against, so the committed
+ *  screens are that page's; returns its opening page screen's image. */
 async function firstScreenOf(page: string) {
   html = page;
   const file = keptFileName(A);
@@ -934,35 +951,42 @@ async function firstScreenOf(page: string) {
   expect(byName(r, A).outcome, JSON.stringify(r)).toBe("uncompared");
   const { receipt } = await readKeptV2(repo, `${KEPT_DIR}/${file}`);
   const dir = join(repo, RECEIPT_DIR, screensDirOf(file));
-  const moment = receipt.screens.moments[0];
+  const screen = receipt.screens?.screens[0];
   return {
-    image: await readFile(join(dir, screenImageName(moment?.step ?? null))),
+    image: await readFile(join(dir, screenImageName(screen?.step ?? null))),
     names: await readdir(dir),
-    moment,
-    size: receipt.screensSize,
+    screen,
   };
 }
 
 /** DEM-138: 4 characters of 12px grey text, in the app's own page. */
 export const smallGreyText = () => {
-  // DEM-138: refresh reads this real change as unchanged today. Task 8 flips this to `changed` once refresh compares 1x page screens.
+  // DEM-138: read "unchanged" while refresh compared 1280-wide drawn
+  // screens; the page at CSS 1x sees it (spec 2026-11-10).
   it(
-    "a small grey text change reads unchanged today (DEM-138)",
+    "a small grey text change reads changed (DEM-138)",
     async () => {
       await leavingRepo(async () => {
         // The premise: the two pages differ only in the digits of one span.
         expect(LOCAL_TIME_WAS).not.toBe(LOCAL_TIME_NOW);
         expect(LOCAL_TIME_WAS.replace("14:11", "05:00")).toBe(LOCAL_TIME_NOW);
         const was = await firstScreenOf(LOCAL_TIME_WAS);
-        const now = (await firstScreenOf(LOCAL_TIME_NOW)).image;
+        const now = await firstScreenOf(LOCAL_TIME_NOW);
         // Leave the committed screens as the first page's: what refresh reads.
         await firstScreenOf(LOCAL_TIME_WAS);
-        // The premise: the first screen shows the app in a window, and the
-        // span sits in it. Its page rect maps through the window to the image.
-        const w = was.moment?.window;
-        expect(w, JSON.stringify(was.moment)).toBeDefined();
+        // The premise: both opening screens settled, and are the page itself
+        // at CSS 1x, so the span's page rect is its rect on the image.
+        expect(was.screen, JSON.stringify(was.screen)).toEqual({ step: 0 });
+        expect(now.screen, JSON.stringify(now.screen)).toEqual({ step: 0 });
         const rect = await localTimeRect(LOCAL_TIME_WAS);
-        const d = await differing(was.image, now);
+        expect(
+          rect.x >= 0 &&
+            rect.y >= 0 &&
+            rect.x + rect.width <= 1280 &&
+            rect.y + rect.height <= 800,
+          `the span is in view: ${JSON.stringify(rect)}`,
+        ).toBe(true);
+        const d = await differing(was.image, now.image);
         expect("n" in d, `images differ in size: ${JSON.stringify(d)}`).toBe(
           true,
         );
@@ -971,43 +995,28 @@ export const smallGreyText = () => {
         if (d.n === undefined || d.width === undefined) {
           throw new Error(`images differ in size: ${JSON.stringify(d)}`);
         }
-        // The window is in the film's output pixels; the image is smaller
-        // (`screensSize` is what the windows are measured in).
-        const size = was.size as { width: number };
-        const scale = d.width / size.width;
-        const [ww, wx, wy] = [
-          w?.width as number,
-          w?.x as number,
-          w?.y as number,
-        ];
-        const onImage = (px: number, py: number) => ({
-          x: (wx + (px * ww) / 1280) * scale,
-          y: (wy + (py * ww) / 1280) * scale,
-        });
-        const [p0, p1] = [
-          onImage(rect.x, rect.y),
-          onImage(rect.x + rect.width, rect.y + rect.height),
-        ];
-        const box = { x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y };
+        expect(d.width, "the page at 1x").toBe(1280);
         // The premise: the two kept screen images differ, and only inside
-        // that rect (2 px for the resampling); every pixel outside is equal.
-        const evidence = JSON.stringify({
-          d,
-          box,
-          moment: was.moment,
-          names: was.names,
-        });
+        // the span's rect (1 px for its glyphs' antialiasing).
+        const box = {
+          x0: rect.x,
+          y0: rect.y,
+          x1: rect.x + rect.width,
+          y1: rect.y + rect.height,
+        };
+        const evidence = JSON.stringify({ d, box, names: was.names });
         expect(d.n, evidence).toBeGreaterThan(0);
-        expect(d.x0, evidence).toBeGreaterThanOrEqual(box.x0 - 2);
-        expect(d.y0, evidence).toBeGreaterThanOrEqual(box.y0 - 2);
-        expect(d.x1, evidence).toBeLessThanOrEqual(box.x1 + 2);
-        expect(d.y1, evidence).toBeLessThanOrEqual(box.y1 + 2);
+        expect(d.x0, evidence).toBeGreaterThanOrEqual(box.x0 - 1);
+        expect(d.y0, evidence).toBeGreaterThanOrEqual(box.y0 - 1);
+        expect(d.x1, evidence).toBeLessThanOrEqual(box.x1 + 1);
+        expect(d.y1, evidence).toBeLessThanOrEqual(box.y1 + 1);
         html = LOCAL_TIME_NOW;
         const r = await refresh([A]);
         const a = byName(r, A);
         noiseLine("small grey text", a.detail);
-        expect(a.outcome, `${a.detail} | ${JSON.stringify(r)}`).toBe(
-          "unchanged",
+        expect(a.outcome, `${a.detail} | ${JSON.stringify(r)}`).toBe("changed");
+        expect(a.detail).toMatch(
+          /% of the picture changed \w+ (before step \d+|on the final screen), over the [\d.]+% allowed/,
         );
       }).finally(() => {
         html = ORIGINAL;
@@ -1076,10 +1085,10 @@ export const shortEnding = () => {
       await withKept(video, async () => {
         const first = byName(await refresh([name]), name);
         expect(first.outcome, first.detail).toBe("uncompared");
-        // The premise: both films end on a still screen, so the final screen
-        // is compared (the slower film's screens, from its export).
-        const final = (sc: KeptScreens) =>
-          sc.moments.some((m) => m.step === null);
+        // The premise: both recordings' final screens settled, so the final
+        // screen is compared (the slower one's, from its page screens).
+        const final = (sc: PageScreens) =>
+          settled(sc).some((x) => x.step === null);
         const { screens } = await keptOf(name);
         expect(final(screens), JSON.stringify(screens)).toBe(true);
         exported.length = 0;
@@ -1092,8 +1101,9 @@ export const shortEnding = () => {
         }
         const v = byName(r, name);
         noiseLine("short ending, slower", v.detail);
-        // The screens render's: an unchanged refresh exports no MP4.
-        const slower = exported.find((e) => e.fileType === "screens")?.screens;
+        // The page screens': an unchanged refresh exports no MP4.
+        const slower = exported.find((e) => e.fileType === "screens")
+          ?.screens as PageScreens | undefined;
         expect(slower && final(slower), JSON.stringify(exported)).toBe(true);
         expect(v.outcome, v.detail).toBe("unchanged");
       });
@@ -1122,9 +1132,10 @@ export const gifAlone = () => {
         expect(first.outcome, first.detail).toBe("uncompared");
         // The premise: the GIF is the output judged, and it has screens.
         const { screens } = await keptOf(name);
-        expect(screens.moments.length, JSON.stringify(screens)).toBeGreaterThan(
-          1,
-        );
+        expect(
+          settled(screens).length,
+          JSON.stringify(screens),
+        ).toBeGreaterThan(1);
         const same = byName(await refresh([name]), name);
         html = SLOW;
         let slower: RefreshVideo;
@@ -1220,67 +1231,41 @@ export const compareFailures = () => {
     ONE_MS,
   );
 
+  // Review Focus 5, recorded for real: a receipt from before page screens
+  // is compared with nothing, never read as "unchanged", and says so.
   it(
-    "fails a kept file with no screens, saying keep it again",
-    async () => {
-      const kf = join(repo, KEPT_DIR, "no-screens.json");
-      // A v1 file, kept before screens were recorded: no screens, and a
-      // flow of its own in `from`.
-      const {
-        flow: _flow,
-        deliver: _deliver,
-        ...bare
-      } = JSON.parse(serializeKept(await keptOf(A)));
-      expect(bare.screens, "premise: no screens").toBeUndefined();
-      const from = {
-        videoId: randomUUID(),
-        takeId: "t",
-        recordedRevision: "r",
-      };
-      await writeFile(
-        kf,
-        JSON.stringify({ ...bare, keptVersion: 1, name: "No screens", from }),
-      );
-      try {
-        const r = await refresh([A]);
-        const v = r.videos.find((x) => x.file.endsWith("no-screens.json"));
-        expect(v?.outcome, JSON.stringify(r)).toBe("failed");
-        expect(v?.detail).toContain("demoman add No screens");
-        expect(v?.outputs).toEqual([]);
-      } finally {
-        await rm(kf, { force: true });
-      }
-    },
-    ONE_MS,
-  );
-
-  // Only a version 1 receipt's comparison decodes the committed file: a
-  // version 2 one compares its images.
-  it(
-    "delivers as new over a committed file that is not a decodable video, saying so",
+    "replaces once a video whose receipt predates page screens, saying so",
     async () => {
       const receiptFile = `${RECEIPT_DIR}/${keptFileName(B)}`;
-      const v2 = JSON.parse((await bytes(receiptFile)).toString());
-      // The premise: the receipt was version 2, and is made version 1.
-      expect(v2.receiptVersion).toBe(2);
-      const { screensDir: _d, screensSize: _s, ...v1 } = v2;
+      const v3 = JSON.parse((await bytes(receiptFile)).toString());
+      // The premise: the receipt was version 3, and is made version 2 as a
+      // version 2 receipt was written: moments and a size, no page screens.
+      expect(v3.receiptVersion).toBe(3);
       await writeFile(
         join(repo, receiptFile),
-        JSON.stringify({ ...v1, receiptVersion: 1 }),
+        JSON.stringify({
+          ...v3,
+          receiptVersion: 2,
+          screensSize: { width: 1280, height: 927 },
+          screens: {
+            steps: v3.screens.steps,
+            moments: [{ step: null, ms: 1 }],
+          },
+        }),
       );
-      await writeFile(join(repo, out.bMp4), "not a video");
       const r = await refresh([B]);
       const b = byName(r, B);
-      expect(b.outcome, JSON.stringify(r)).toBe("uncompared");
+      expect(b.outcome, JSON.stringify(r)).toBe("added");
       expect(b.notes).toEqual([
-        `${receiptFile} had no screen images, so this refresh exported to compare; the next one compares its screens`,
-        expect.stringMatching(
-          /^docs\/reports\.mp4 was replaced without a comparison: the committed file could not be decoded \(.+\)$/,
-        ),
+        `${receiptFile} predates page screens; recorded again to make them`,
       ]);
-      expect((await bytes(out.bMp4)).toString("latin1")).not.toBe(
-        "not a video",
-      );
+      expect(b.sameAs).toBeNull();
+      expect(b.outputs).toContain(out.bMp4);
+      expect(b.outputs).toContain(receiptFile);
+      expect(JSON.parse((await bytes(receiptFile)).toString())).toMatchObject({
+        receiptVersion: 3,
+        video: b.video,
+      });
     },
     ONE_MS,
   );
@@ -1301,7 +1286,7 @@ export const replaceChain = () => {
       const r = await refresh([A]);
       expect(byName(r, A).outcome, JSON.stringify(r)).toBe("changed");
       expect(byName(r, A).detail).toMatch(
-        /% of the picture changed \w+ on the final screen at [\d.]+s/,
+        /% of the picture changed \w+ on the final screen, over /,
       );
     },
     ONE_MS,
@@ -1339,7 +1324,7 @@ export const replaceChain = () => {
       const file = `${KEPT_DIR}/${keptFileName(A)}`;
       const receiptFile = `${RECEIPT_DIR}/${keptFileName(A)}`;
       const recipe = await bytes(file);
-      const before = (await keptOf(A)).screens;
+      const before = await screensCopy(A);
       html = PANEL_CHANGED.replace(HEADING, "<h1>Overdue invoices</h1>");
       expect(html).not.toContain(HEADING);
       exported.length = 0;
@@ -1348,13 +1333,21 @@ export const replaceChain = () => {
       expect(byName(r, A).outputs).toContain(receiptFile);
       expect(byName(r, A).outputs).not.toContain(file);
       expect((await bytes(file)).equals(recipe)).toBe(true);
-      // The receipt records the screens render's screens, which decided.
+      // The receipt records the take's page screens, which decided.
       const judged = exported.find((e) => e.fileType === "screens");
       expect(judged, JSON.stringify(exported)).toBeDefined();
       const after = (await keptOf(A)).screens;
       expect(after).toEqual(judged?.screens);
-      // The premise: the new film's screens are not the file's old ones.
-      expect(after).not.toEqual(before);
+      // The premise: the receipt's images are the new page's, not the old
+      // ones: the opening screen shows the new heading.
+      const name = screenImageName(0);
+      const dir = join(repo, RECEIPT_DIR, screensDirOf(keptFileName(A)));
+      const [was, now] = await Promise.all([
+        readFile(join(before.dir, name)),
+        readFile(join(dir, name)),
+      ]);
+      await rm(before.dir, { recursive: true, force: true });
+      expect(was.equals(now), name).toBe(false);
     },
     ONE_MS,
   );
@@ -1378,7 +1371,7 @@ export const replaceChain = () => {
         JSON.stringify(r),
       ).toEqual(["changed", "changed"]);
       expect(byName(r, A).detail).toMatch(
-        /% of the picture changed \w+ (before step \d+|on the final screen) at [\d.]+s/,
+        /% of the picture changed \w+ (before step \d+|on the final screen), over /,
       );
       const after = await Promise.all(Object.values(out).map(bytes));
       for (const [i, b] of after.entries())
@@ -1423,10 +1416,10 @@ export const replaceChain = () => {
   );
 
   it(
-    "fails a replace whose new film has no still screen, writing nothing",
+    "fails a replace whose new video has no settled screen, writing nothing",
     async () => {
       // The committed MP4 is gone, so the video is delivered without a
-      // comparison, and its new film recorded no still screen.
+      // comparison, and its new video settled no screen.
       const file = `${KEPT_DIR}/${keptFileName(A)}`;
       const receiptFile = `${RECEIPT_DIR}/${keptFileName(A)}`;
       const mp4 = await bytes(out.aMp4);
@@ -1434,10 +1427,17 @@ export const replaceChain = () => {
         [out.aGif, file, receiptFile].map(bytes),
       );
       await rm(join(repo, out.aMp4));
-      injectExport = (v) =>
-        v.fileType === "screens"
-          ? { ...v, screens: { ...(v.screens as KeptScreens), moments: [] } }
-          : v;
+      injectExport = (v) => {
+        if (v.fileType !== "screens") return v;
+        const sc = v.screens as PageScreens;
+        return {
+          ...v,
+          screens: {
+            ...sc,
+            screens: sc.screens.map((x) => ({ ...x, unsettled: "injected" })),
+          },
+        };
+      };
       let r: RefreshResult;
       try {
         r = await refresh([A]);
@@ -1447,11 +1447,11 @@ export const replaceChain = () => {
       }
       const a = byName(r, A);
       expect(a.outcome, JSON.stringify(r)).toBe("failed");
-      expect(a.detail).toBe(
-        `${out.aMp4}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
+      expect(a.detail).toMatch(
+        /^docs\/order\.mp4, the output a refresh judges, has no settled screen to compare against \(before step 1: injected; .*on the final screen: injected\) — a refresh would have nothing to check; nothing was written$/,
       );
       expect(a.outputs).toEqual([]);
-      // The premise: the screens render really answered.
+      // The premise: the page screens really answered.
       expect(
         exported.some((e) => e.fileType === "screens"),
         JSON.stringify(exported),
@@ -1687,14 +1687,15 @@ export const upload = () => {
         // Nothing changed since: unchanged.
         const second = byName(again, C);
         expect(second.outcome, JSON.stringify(again)).toBe("unchanged");
-        // The premise: each render warned soft, and nothing else: the
-        // first refresh's screens and MP4, the unchanged one's screens.
+        // The premise: the render warned soft, and nothing else: the first
+        // refresh's page screens and MP4, the unchanged one's page screens.
+        // Page screens render nothing, so they say nothing soft.
         expect(
           exported.slice(before).map((e) => [e.fileType, e.wallpaper]),
         ).toEqual([
-          ["screens", "soft"],
+          ["screens", null],
           ["mp4", "soft"],
-          ["screens", "soft"],
+          ["screens", null],
         ]);
         // The picture: the margin is the upload's green.
         const [reading] = (
@@ -1768,6 +1769,7 @@ export const lookOutside = () => {
       html = ORIGINAL;
       const before = await keptOf(B);
       expect(before.screens.look, "premise: a look to compare").toBeDefined();
+      const pagesBefore = await screensCopy(B);
       const file = join(repo, KEPT_DIR, keptFileName(B));
       const blurred = {
         ...before,
@@ -1786,17 +1788,17 @@ export const lookOutside = () => {
       const b = byName(r, B);
       expect(b.outcome, JSON.stringify(r)).toBe("changed");
       expect(b.detail).toBe(
-        `${out.bMp4}: the look changed: the background, padding or logo round the window is not the one the committed video was filmed with`,
+        `${out.bMp4}: the look changed: the background, padding or logo round the window is not the one the committed video was recorded with`,
       );
-      // The premise: only the look moved; the window is where it was.
+      // The premise: only the look moved; the pages alone read the same.
       const after = await keptOf(B);
       expect(after.screens.look).not.toBe(before.screens.look);
-      const pairs = before.screens.moments.flatMap((m) => {
-        const n = after.screens.moments.find((x) => x.step === m.step);
-        return n === undefined ? [] : [[m.window, n.window]];
+      const pages = await pagesAlone(pagesBefore, {
+        dir: join(repo, RECEIPT_DIR, screensDirOf(keptFileName(B))),
+        screens: after.screens,
       });
-      expect(pairs.length, "premise: a screen in both").toBeGreaterThan(0);
-      for (const [w0, w1] of pairs) expect(w1).toEqual(w0);
+      await rm(pagesBefore.dir, { recursive: true, force: true });
+      expect(pages, JSON.stringify(pages)).toMatchObject({ same: true });
     },
     ONE_MS,
   );
@@ -1857,23 +1859,26 @@ export const logoOrUpload = () => {
             ["upload", upload, await webpOf([200, 60, 30])],
           ] as const) {
             const before = await keptOf(D);
+            const pagesBefore = await screensCopy(D);
             await writeFile(join(repo, path), bytes);
             const r = byName(await refresh([D]), D);
             expect(r.outcome, `${what}: ${r.detail}`).toBe("changed");
             expect(r.detail, what).toBe(
-              "docs/branded.mp4: the look changed: the background, padding or logo round the window is not the one the committed video was filmed with",
+              "docs/branded.mp4: the look changed: the background, padding or logo round the window is not the one the committed video was recorded with",
             );
-            // The premise: the same files by name, the window where it was,
+            // The premise: the same files by name, the pages alone the same,
             // and only the look moved.
             const after = await keptOf(D);
             expect([after.logo, after.wallpaper], what).toEqual([logo, upload]);
             expect(after.screens.look, what).not.toBe(before.screens.look);
-            const pairs = before.screens.moments.flatMap((m) => {
-              const n = after.screens.moments.find((x) => x.step === m.step);
-              return n === undefined ? [] : [[m.window, n.window]];
+            const pages = await pagesAlone(pagesBefore, {
+              dir: join(repo, RECEIPT_DIR, screensDirOf(keptFileName(D))),
+              screens: after.screens,
             });
-            expect(pairs.length, what).toBeGreaterThan(0);
-            for (const [w0, w1] of pairs) expect(w1, what).toEqual(w0);
+            await rm(pagesBefore.dir, { recursive: true, force: true });
+            expect(pages, `${what}: ${JSON.stringify(pages)}`).toMatchObject({
+              same: true,
+            });
           }
         });
       } finally {

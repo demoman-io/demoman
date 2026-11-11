@@ -208,7 +208,6 @@ export {
 export type { RenderResult } from "./render/render.js";
 export {
   renderScene,
-  renderScreens,
   renderStills,
   type StillCamera,
   type UnplacedStill,

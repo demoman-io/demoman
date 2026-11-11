@@ -143,7 +143,7 @@ export {
   rectFromQuad,
   resolveCdpFrameId,
 } from "./geometry.js";
-export { decodeBase64, jpegSize } from "./image.js";
+export { decodeBase64, jpegSize, pngSize } from "./image.js";
 // Test-only, see header: the runner lane drives it against real Chromium.
 export { createInputGate, type InputGate } from "./input-gate.js";
 /** The snapshot's wait (plan 2): a page loaded and painted, for a host that

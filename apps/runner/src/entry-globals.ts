@@ -34,7 +34,7 @@ export const MUX_ENTRY_GLOBAL = "__demomanMux";
 
 /**
  * Where `decode-probe-entry.ts` hangs its entry point. No run or export
- * injects it: refresh's `samePicture` (`executor/same-picture.ts`) does, on
+ * injects it: refresh's `sameScreens` (`executor/same-picture.ts`) does, on
  * a work page of its own, and so do `mux.test.ts` and `acceptance.test.ts`.
  * It exists as its own bundle, under its own
  * global, specifically so the decode side it carries (`mediabunny`'s demux

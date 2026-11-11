@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { KeptScreens } from "@demoman/run-core";
+import type { Screens } from "@demoman/compositor";
 import { screenImageName } from "@demoman/run-core/render";
 import type { SceneDocument } from "@demoman/scene-schema";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -148,8 +148,7 @@ afterAll(async () => {
   if (home) await rm(home, { recursive: true, force: true });
 });
 
-const screensOf = (k: string) =>
-  (answers[k] as { screens?: KeptScreens }).screens;
+const screensOf = (k: string) => (answers[k] as { screens?: Screens }).screens;
 
 describe("an export's answer carries the screens", () => {
   // Red if the answer drops the screens, or the render found none.

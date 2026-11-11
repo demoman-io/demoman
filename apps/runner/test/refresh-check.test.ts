@@ -51,15 +51,14 @@ const receipt = (
   k: KeptVideo,
   code: KeptReceipt["filmedCode"],
 ): KeptReceipt => ({
-  receiptVersion: 1,
+  receiptVersion: 3,
   flow: k.flow,
   video: "t1",
   filmedAt: null,
   filmedCode: code,
-  screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
+  screens: { steps: 1, screens: [{ step: null }] },
   recordedRevision: null,
-  screensDir: null,
-  screensSize: null,
+  screensDir: screensDirOf(keptFileName(k.name)),
 });
 
 let repo: string;
@@ -220,13 +219,12 @@ describe("checkCurrent", () => {
     await add(a, {
       ...receipt(a, { commit: AT, tree: "t", dirty: false }),
       screensDir: dir,
-      screensSize: { width: 1280, height: 720 },
     });
     const written = JSON.parse(
       await readFile(join(repo, RECEIPT_DIR, keptFileName(a.name)), "utf8"),
     );
     expect(written, "premise: a receipt that names its screens").toMatchObject({
-      receiptVersion: 2,
+      receiptVersion: 3,
       screensDir: dir,
     });
     const screens = `${RECEIPT_DIR}/${dir}`;

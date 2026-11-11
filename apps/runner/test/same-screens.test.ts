@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { KeptScreens } from "@demoman/run-core";
+import type { PageScreens } from "@demoman/run-core";
 import { screenImageName } from "@demoman/run-core/render";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -15,49 +15,53 @@ import { sameScreens } from "../src/executor/same-picture.js";
 const SETUP_MS = 60_000;
 const CASE_MS = 60_000;
 
-/** The badge drawn on every image, at the image's own 1280 width. */
-const BADGE = { x: 900, y: 300, width: 200, height: 100 };
-const SIZE = { width: 2560, height: 1440 };
-const screens: KeptScreens = {
+/** The page at CSS 1x, as the house apps' page screens are (1710x1107). */
+const PAGE = { width: 1710, height: 1107 };
+/** Where the small grey line is drawn, and the one digit that differs. */
+const LINE = { x: 1400, y: 900, width: 160, height: 20 };
+const screens: PageScreens = {
   steps: 2,
-  moments: [
-    { step: 0, ms: 0 },
-    { step: 1, ms: 1000 },
-    { step: null, ms: 2000 },
-  ],
+  screens: [{ step: 0 }, { step: 1 }, { step: null }],
 };
-const NAMES = screens.moments.map((m) => screenImageName(m.step));
+const NAMES = screens.screens.map((s) => screenImageName(s.step));
 
 let home: string;
 let session: BrowserSession;
 const dirs: Record<string, string> = {};
+const images: Record<string, Buffer> = {};
 
-/** A 1280x720 page with a big heading and some body text, as PNG bytes. */
+/** A page with a big heading, body text, and a line of 12 px grey text, as
+ *  PNG bytes at `size`. */
 async function drawn(
   heading: string,
   colour: string,
-  badge = "#2563eb",
+  grey = "14:11 local time",
+  size = PAGE,
 ): Promise<Buffer> {
   const work = await session.openWorkPage();
   if (!work.ok) throw new Error(work.detail);
   try {
     const base64 = await work.page.evaluate(
-      async ([text, fill, badgeFill, box]) => {
-        const canvas = new OffscreenCanvas(1280, 720);
+      async ([text, fill, small, at, box]) => {
+        const { width, height } = box as typeof PAGE;
+        const canvas = new OffscreenCanvas(width, height);
         const ctx = canvas.getContext(
           "2d",
         ) as OffscreenCanvasRenderingContext2D;
         ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, 1280, 720);
+        ctx.fillRect(0, 0, width, height);
         ctx.fillStyle = fill as string;
         ctx.font = "bold 120px sans-serif";
         ctx.fillText(text as string, 80, 200);
-        ctx.fillStyle = badgeFill as string;
-        const b = box as typeof BADGE;
-        ctx.fillRect(b.x, b.y, b.width, b.height);
         ctx.fillStyle = "#374151";
         ctx.font = "40px sans-serif";
         ctx.fillText("Invoices due this week", 80, 400);
+        // gray-500 on white, 12 px: the DEM-138 line.
+        const l = at as { x: number; y: number };
+        ctx.fillStyle = "#6b7280";
+        ctx.font = "12px sans-serif";
+        ctx.textBaseline = "top";
+        ctx.fillText(small as string, l.x, l.y);
         const bytes = new Uint8Array(
           await (
             await canvas.convertToBlob({ type: "image/png" })
@@ -67,7 +71,7 @@ async function drawn(
         for (const b of bytes) binary += String.fromCharCode(b);
         return btoa(binary);
       },
-      [heading, colour, badge, BADGE] as const,
+      [heading, colour, grey, LINE, size] as const,
     );
     return Buffer.from(base64, "base64");
   } finally {
@@ -75,17 +79,16 @@ async function drawn(
   }
 }
 
-/** Whether two PNGs differ in any pixel of a rect (image pixels). */
-async function differsIn(
+/** The bounding box of the pixels two same-sized PNGs differ in, or null. */
+async function differing(
   a: Buffer,
   b: Buffer,
-  r: { x: number; y: number; width: number; height: number },
-): Promise<boolean> {
+): Promise<{ x0: number; y0: number; x1: number; y1: number } | null> {
   const work = await session.openWorkPage();
   if (!work.ok) throw new Error(work.detail);
   try {
     return await work.page.evaluate(
-      async ([x, y, r0]) => {
+      async ([x, y]) => {
         const read = async (base64: string) => {
           const bmp = await createImageBitmap(
             await (await fetch(`data:image/png;base64,${base64}`)).blob(),
@@ -93,12 +96,36 @@ async function differsIn(
           const c = new OffscreenCanvas(bmp.width, bmp.height);
           const ctx = c.getContext("2d") as OffscreenCanvasRenderingContext2D;
           ctx.drawImage(bmp, 0, 0);
-          return ctx.getImageData(r0.x, r0.y, r0.width, r0.height).data;
+          return {
+            w: bmp.width,
+            data: ctx.getImageData(0, 0, c.width, c.height).data,
+          };
         };
         const [p, q] = await Promise.all([read(x), read(y)]);
-        return p.some((v, i) => v !== q[i]);
+        let box: { x0: number; y0: number; x1: number; y1: number } | null =
+          null;
+        for (let i = 0; i < p.data.length; i += 4) {
+          if (
+            p.data[i] === q.data[i] &&
+            p.data[i + 1] === q.data[i + 1] &&
+            p.data[i + 2] === q.data[i + 2]
+          )
+            continue;
+          const px = (i / 4) % p.w;
+          const py = Math.floor(i / 4 / p.w);
+          box =
+            box === null
+              ? { x0: px, y0: py, x1: px, y1: py }
+              : {
+                  x0: Math.min(box.x0, px),
+                  y0: Math.min(box.y0, py),
+                  x1: Math.max(box.x1, px),
+                  y1: Math.max(box.y1, py),
+                };
+        }
+        return box;
       },
-      [a.toString("base64"), b.toString("base64"), r] as const,
+      [a.toString("base64"), b.toString("base64")] as const,
     );
   } finally {
     await work.page.close();
@@ -113,61 +140,29 @@ async function folder(name: string, bytes: Buffer[]): Promise<string> {
   return dir;
 }
 
-/** The target the windows below are in; its images are 1280 wide. */
-const TARGET = { width: 2560, height: 1758 };
-const windowed = (x: number, y: number, width: number, height: number) => ({
-  ...screens,
-  moments: screens.moments.map((m) => ({
-    ...m,
-    window: { x, y, width, height, radius: 0 },
-  })),
-});
-/** Whether a window (target pixels) holds the whole badge once scaled to the
- *  image's 1280, or none of it. */
-function holdsBadge(w: {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}) {
-  const k = 1280 / TARGET.width;
-  const [x0, y0, x1, y1] = [
-    w.x * k,
-    w.y * k,
-    (w.x + w.width) * k,
-    (w.y + w.height) * k,
-  ];
-  const across =
-    x0 < BADGE.x + BADGE.width &&
-    x1 > BADGE.x &&
-    y0 < BADGE.y + BADGE.height &&
-    y1 > BADGE.y;
-  const whole =
-    x0 <= BADGE.x &&
-    x1 >= BADGE.x + BADGE.width &&
-    y0 <= BADGE.y &&
-    y1 >= BADGE.y + BADGE.height;
-  return { across, whole };
-}
-
-const side = (dir: string, size = SIZE) => ({ dir, screens, size });
+const side = (dir: string, sc: PageScreens = screens) => ({ dir, screens: sc });
 const deps = () => ({ session, log: console.warn });
 
 beforeAll(async () => {
   home = await mkdtemp(join(tmpdir(), "demoman-same-screens-"));
   session = createBrowserSession({ headless: true, log: () => undefined });
   const plain = await drawn("Revenue", "#111827");
-  const edited = await drawn("Revenue!", "#b91c1c");
+  images.plain = plain;
+  images.edited = await drawn("Revenue!", "#b91c1c");
+  images.digit = await drawn("Revenue", "#111827", "15:11 local time");
   // Premise: the repainted heading is a different picture, not a copy.
-  expect(edited.equals(plain), "the repainted image differs").toBe(false);
+  expect(images.edited.equals(plain), "the repainted image differs").toBe(
+    false,
+  );
   dirs.a = await folder("a", [plain, plain, plain]);
   dirs.same = await folder("same", [plain, plain, plain]);
-  dirs.edited = await folder("edited", [plain, edited, plain]);
-  dirs.badge = await folder("badge", [
-    plain,
-    await drawn("Revenue", "#111827", "#16a34a"),
-    plain,
-  ]);
+  dirs.edited = await folder("edited", [plain, images.edited, plain]);
+  dirs.digit = await folder("digit", [plain, images.digit, plain]);
+  const small = await drawn("Revenue", "#111827", undefined, {
+    width: 1280,
+    height: 800,
+  });
+  dirs.smaller = await folder("smaller", [plain, small, plain]);
   dirs.missing = await folder("missing", [plain, plain]);
   dirs.notPng = await folder("notPng", [
     plain,
@@ -182,7 +177,7 @@ afterAll(async () => {
 });
 
 describe("sameScreens", () => {
-  it("premise: three shared screens, each named by its step", () => {
+  it("premise: three screens, each named by its step", () => {
     expect(NAMES).toEqual(["step-0.png", "step-1.png", "final.png"]);
   });
 
@@ -194,9 +189,41 @@ describe("sameScreens", () => {
         side(dirs.same as string),
         deps(),
       );
-      expect(out).toMatchObject({ same: true });
+      expect(out).toEqual({
+        same: true,
+        detail:
+          "at most 0.0000% sharply and 0.0000% faintly of the picture changed, over 3 of 3 screens",
+        skipped: [],
+      });
+    },
+    CASE_MS,
+  );
+
+  // DEM-138. Red if the images are drawn smaller before they are compared,
+  // as the receipt's 1280-wide screens were.
+  it(
+    "compares at the images' own size",
+    async () => {
+      // Premise: two 1710-wide pages that differ only inside the small grey
+      // line, which is 12 px text.
+      const box = await differing(
+        images.plain as Buffer,
+        images.digit as Buffer,
+      );
+      expect(box, "the digit's pixels differ").not.toBeNull();
+      const b = box as NonNullable<typeof box>;
+      expect(b.x0).toBeGreaterThanOrEqual(LINE.x);
+      expect(b.x1).toBeLessThan(LINE.x + LINE.width);
+      expect(b.y0).toBeGreaterThanOrEqual(LINE.y);
+      expect(b.y1).toBeLessThan(LINE.y + LINE.height);
+      const out = await sameScreens(
+        side(dirs.a as string),
+        side(dirs.digit as string),
+        deps(),
+      );
+      expect(out, JSON.stringify(out)).toMatchObject({ same: false });
       expect((out as { detail: string }).detail).toMatch(
-        /^at most 0\.0000% sharply and 0\.0000% faintly of the picture changed, over 3 of 3 screens$/,
+        /% of the picture changed \w+ before action 2, over the 0\.\d+% allowed, of 3 of 3 screens$/,
       );
     },
     CASE_MS,
@@ -208,12 +235,87 @@ describe("sameScreens", () => {
       const out = await sameScreens(
         side(dirs.a as string),
         side(dirs.edited as string),
-        deps(),
+        { ...deps(), steps: [{ do: "waitForLoad" }, { do: "click" }] },
       );
       expect(out).toMatchObject({ same: false });
       expect((out as { detail: string }).detail).toMatch(
-        /% of the picture changed \w+ before action 2 at [\d.]+s in the committed video and 1\.00s in the new one, over the 0\.0\d+% allowed, of 3 of 3 screens$/,
+        /% of the picture changed \w+ before step 2, over the 0\.\d+% allowed, of 3 of 3 screens$/,
       );
+    },
+    CASE_MS,
+  );
+
+  // Red if an unsettled screen is compared (the edited one would read
+  // changed) or skipped without saying so.
+  it(
+    "skips a screen unsettled on one side and names it",
+    async () => {
+      const unsettled: PageScreens = {
+        ...screens,
+        screens: [
+          { step: 0 },
+          { step: 1, unsettled: "the DOM never went quiet" },
+          { step: null },
+        ],
+      };
+      // Premise: compared, that screen is a change.
+      expect(
+        await sameScreens(
+          side(dirs.a as string),
+          side(dirs.edited as string),
+          deps(),
+        ),
+      ).toMatchObject({ same: false });
+      const out = await sameScreens(
+        side(dirs.a as string),
+        side(dirs.edited as string, unsettled),
+        deps(),
+      );
+      expect(out).toEqual({
+        same: true,
+        detail:
+          "at most 0.0000% sharply and 0.0000% faintly of the picture changed, over 2 of 3 screens; before action 2: the DOM never went quiet in the new video",
+        skipped: ["before action 2: the DOM never went quiet in the new video"],
+      });
+    },
+    CASE_MS,
+  );
+
+  // Review Focus 5's shape and the anti-goal: nothing compared is never
+  // "unchanged".
+  it(
+    "no screen settled in both is uncomparable, never same",
+    async () => {
+      const never = (why: string): PageScreens => ({
+        ...screens,
+        screens: screens.screens.map((s) => ({ ...s, unsettled: why })),
+      });
+      const out = await sameScreens(
+        side(dirs.a as string),
+        side(dirs.same as string, never("2 requests in flight")),
+        deps(),
+      );
+      expect(out).toEqual({
+        uncomparable:
+          "no screen settled in both the committed video and the new one; before action 1: 2 requests in flight in the new video; before action 2: 2 requests in flight in the new video; on the final screen: 2 requests in flight in the new video",
+      });
+    },
+    CASE_MS,
+  );
+
+  it(
+    "a different page size is a change",
+    async () => {
+      const out = await sameScreens(
+        side(dirs.a as string),
+        side(dirs.smaller as string),
+        deps(),
+      );
+      expect(out).toEqual({
+        same: false,
+        detail: "the page size changed, 1710x1107 to 1280x800, before action 2",
+        skipped: [],
+      });
     },
     CASE_MS,
   );
@@ -229,12 +331,13 @@ describe("sameScreens", () => {
           deps(),
         ),
       ).toEqual({ uncomparable: `${gone} is missing` });
-      const goneA = await sameScreens(
-        side(dirs.missing as string),
-        side(dirs.a as string),
-        deps(),
-      );
-      expect(goneA).toEqual({ uncomparable: `${gone} is missing` });
+      expect(
+        await sameScreens(
+          side(dirs.missing as string),
+          side(dirs.a as string),
+          deps(),
+        ),
+      ).toEqual({ uncomparable: `${gone} is missing` });
     },
     CASE_MS,
   );
@@ -257,71 +360,29 @@ describe("sameScreens", () => {
   );
 
   it(
-    "folders filmed at different sizes read the frame size changed",
+    "steps or a look that differ are a change, before anything is read",
     async () => {
-      const out = await sameScreens(
-        side(dirs.a as string),
-        side(dirs.same as string, { width: 1920, height: 1080 }),
-        deps(),
-      );
-      expect(out).toEqual({
-        same: false,
-        detail: "the frame size changed, 2560x1440 to 1920x1080",
-      });
-    },
-    CASE_MS,
-  );
-
-  // Windows are in the target's pixels, the images 1280 wide: a window read
-  // at the wrong scale lands somewhere else on the image.
-  it(
-    "pixels outside the window count as unchanged, inside it as changed",
-    async () => {
-      const around = { x: 1600, y: 500, width: 800, height: 400 };
-      const away = { x: 100, y: 100, width: 1200, height: 400 };
-      // Premise: scaled to 1280, one holds the badge and the other none of it.
-      expect(holdsBadge(around)).toEqual({ across: true, whole: true });
-      expect(holdsBadge(away).across).toBe(false);
-      const run = (w: typeof around, dir: string) => {
-        const win = windowed(w.x, w.y, w.width, w.height);
-        return sameScreens(
-          { dir: dirs.a as string, screens: win, size: TARGET },
-          { dir, screens: win, size: TARGET },
-          deps(),
-        );
-      };
-      // Premise: the badge folder's step 1 differs from the plain one inside
-      // the badge's rect, and not in the heading's rows above it.
-      const [plain1, badge1] = await Promise.all(
-        [dirs.a, dirs.badge].map((d) =>
-          readFile(join(d as string, NAMES[1] as string)),
+      const none = {} as never;
+      expect(
+        await sameScreens(
+          side("/nowhere"),
+          side("/nowhere", { ...screens, steps: 3 }),
+          { session: none, log: () => undefined },
         ),
-      );
-      expect(
-        await differsIn(plain1 as Buffer, badge1 as Buffer, BADGE),
-        "the badge pixels differ",
-      ).toBe(true);
-      expect(
-        await differsIn(plain1 as Buffer, badge1 as Buffer, {
-          x: 0,
-          y: 0,
-          width: 1280,
-          height: BADGE.y,
-        }),
-        "the heading rows are identical",
-      ).toBe(false);
-      const inside = await run(around, dirs.badge as string);
-      expect(inside, "the badge changed inside its window").toMatchObject({
+      ).toEqual({
         same: false,
+        detail: "the video's steps changed, 2 to 3",
+        skipped: [],
       });
-      const outside = await run(away, dirs.badge as string);
-      expect(outside, "the badge changed outside the window").toMatchObject({
-        same: true,
-      });
-      // Control: the window `away` does see a change in what it holds.
-      const heading = await run(away, dirs.edited as string);
-      expect(heading, "the heading changed inside its window").toMatchObject({
+      expect(
+        await sameScreens(
+          side("/nowhere", { ...screens, look: "a1" }),
+          side("/nowhere", { ...screens, look: "b2" }),
+          { session: none, log: () => undefined },
+        ),
+      ).toMatchObject({
         same: false,
+        detail: expect.stringMatching(/^the look changed: /),
       });
     },
     CASE_MS,

@@ -1,6 +1,6 @@
 // verifySetup for real: a temp git repo with the fixture app committed, a
 // worktree, the app started there, one repo flow recorded and exported into
-// a throwaway library, and the export's final screen decoded.
+// a throwaway library, and the receipt's final page screen decoded.
 //
 // The real root's page.html is edited and left uncommitted (the heading's
 // band turned white): an app started from the real root instead of the clean
@@ -19,7 +19,6 @@ import {
   type AppSpec,
   FLOWS_DIR,
   type KeptVideo,
-  type KeptWindow,
   keptFileName,
   parseReceipt,
   RECEIPT_DIR,
@@ -36,7 +35,7 @@ import { createLocalExecutor } from "../src/executor/executor.js";
 import { createLibrary } from "../src/executor/library.js";
 import { type RefreshDeps, refreshKept } from "../src/executor/refresh.js";
 import { execGit } from "../src/executor/repo.js";
-import { LOOKS } from "../src/executor/same-picture.js";
+import { STILL_LOOKS } from "../src/executor/same-picture.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { WALLPAPERS_DIR } from "./fixture.js";
 
@@ -45,8 +44,9 @@ import { WALLPAPERS_DIR } from "./fixture.js";
 // canvases draw on the CPU: 180 s is 2.7x that.
 const TIMEOUT_MS = 180_000;
 /** `sharply`'s levels: the least grey change refresh calls a sharp one. */
-const SHARP = (LOOKS.find((l) => l.name === "sharply") as { levels: number })
-  .levels;
+const SHARP = (
+  STILL_LOOKS.find((l) => l.name === "sharply") as { levels: number }
+).levels;
 
 const SERVER = fileURLToPath(
   new URL("./fixtures/app-start/server.mjs", import.meta.url),
@@ -212,11 +212,7 @@ it(
       report: null,
     } as unknown as KeptVideo;
     /** The final screen, read from the checkout before it is removed. */
-    let shot = null as {
-      png: Buffer;
-      size: { width: number; height: number };
-      window: KeptWindow | undefined;
-    } | null;
+    let shot = null as { png: Buffer } | null;
     const refreshDeps = (env: NodeJS.ProcessEnv): RefreshDeps => ({
       library: createLibrary(home),
       videos: createVideoStore(home, createLibrary(home)),
@@ -269,9 +265,6 @@ it(
                 "final.png",
               ),
             ),
-            size: receipt.screensSize as { width: number; height: number },
-            window: receipt.screens.moments.find((m) => m.step === null)
-              ?.window,
           };
           return result;
         },
@@ -301,27 +294,18 @@ it(
     ).toBe("M page.html");
 
     if (shot === null) throw new Error("refresh never read the final screen");
-    const { png, size, window } = shot;
-    if (window === undefined) throw new Error("the final screen has no window");
-    // The window is the page alone, so page pixels map onto it by scale.
-    expect(window.width / window.height).toBeCloseTo(
-      VIEW.width / VIEW.height,
-      2,
-    );
+    const { png } = shot;
+    // Premise: the final screen is the page itself at CSS 1x, so page
+    // pixels are its pixels.
     const decoded = await greysOf(png, []);
-    const k = decoded.width / size.width;
-    /** A page rect on the PNG, 15% in from each edge (the band's edges blur
-     *  in the encode). */
-    const onPng = (p: typeof HEADING) => {
-      const sx = (window.width / VIEW.width) * k;
-      const sy = (window.height / VIEW.height) * k;
-      return {
-        x: window.x * k + (p.x + p.width * 0.15) * sx,
-        y: window.y * k + (p.y + p.height * 0.15) * sy,
-        width: p.width * 0.7 * sx,
-        height: p.height * 0.7 * sy,
-      };
-    };
+    expect([decoded.width, decoded.height]).toEqual([VIEW.width, VIEW.height]);
+    /** A page rect on the PNG, 15% in from each edge. */
+    const onPng = (p: typeof HEADING) => ({
+      x: p.x + p.width * 0.15,
+      y: p.y + p.height * 0.15,
+      width: p.width * 0.7,
+      height: p.height * 0.7,
+    });
     const { means } = await greysOf(png, [onPng(HEADING), onPng(PLAIN)]);
     const [heading, plain] = means as [number, number];
     console.info(

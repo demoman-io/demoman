@@ -10,14 +10,14 @@ describe("keepLines", () => {
       kept: { name: "Add a task" },
       file: ".demoman/flows/add-a-task.json",
       written: ["docs/a.mp4", ".demoman/flows/add-a-task.json"],
-      screensNote: "4 of 4 screens are still",
+      screensNote: "4 of 4 screens settled",
       platformNote: "kept on macOS: x",
       moved: null,
     } as Extract<KeepAnswer, { ok: true }>);
     expect(lines).toEqual([
       'Added "Add a task" to the repo: .demoman/flows/add-a-task.json',
       "  wrote docs/a.mp4",
-      "  4 of 4 screens are still",
+      "  4 of 4 screens settled",
       "  kept on macOS: x",
     ]);
   });

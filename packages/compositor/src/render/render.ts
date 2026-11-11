@@ -235,8 +235,7 @@ export async function renderScene(args: {
 type Composed = ReturnType<typeof composeForTarget>;
 
 /** The composition `renderScene` walks: keyframe hints for a non-png target,
- *  then `composeForTarget`. `renderScreens` calls the same, so a screen is
- *  decided from one composition. */
+ *  then `composeForTarget`. */
 async function composeLikeRender(args: {
   plan: RenderPlan;
   bundle: FrameBundle;
@@ -301,86 +300,6 @@ function screensWithWindows(
         },
       };
     }),
-  };
-}
-
-/**
- * Composes exactly as `renderScene` does and draws only its still screens,
- * through `ports.images` and never the target's own sink. One image per
- * `screens.moments` entry, in order; none when the scene has none (the
- * caller decides that is a failure). No unsmearing: nothing moves at a
- * still screen, by `busySpans`.
- */
-export async function renderScreens(args: {
-  plan: RenderPlan;
-  bundle: FrameBundle;
-  scene: SceneDocument;
-  target: RenderTarget;
-  ports: CompositorPorts;
-  logo?: FrameImage | null;
-  wallpaper?: FrameImage | null;
-}): Promise<{
-  screens: Screens;
-  images: { step: number | null; bytes: Uint8Array }[];
-  detailViolations: DetailViolation[];
-  unavailableSpans: UnavailableSpan[];
-}> {
-  const { plan, bundle, scene, target, ports } = args;
-  const { logo = null, wallpaper = null } = args;
-  const sink = ports.images;
-  if (!sink) throw new Error("renderScreens needs an image sink");
-  const { resolved, presentation, violations } = await composeLikeRender({
-    plan,
-    bundle,
-    scene,
-    target,
-    ports,
-    logo,
-    wallpaper,
-  });
-  const { startMs } = resolved.range;
-  const screens = screensWithWindows(
-    resolved,
-    presentation,
-    target,
-    scene,
-    bundle,
-    startMs,
-  );
-  const canvas = ports.surface.create(target.width, target.height);
-  const ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D;
-  for (const [i, m] of screens.moments.entries()) {
-    const outputTimeMs = startMs + m.ms;
-    const image = await ports.frames.at(
-      toSourceMs(resolved.timeline, outputTimeMs),
-    );
-    await renderFrame({
-      resolved,
-      target,
-      presentation,
-      frames: {
-        at: async () => image,
-        describe: () => ports.frames.describe(),
-      },
-      ctx,
-      outputTimeMs,
-    });
-    await sink.add(canvas, `screen-${i}.png`);
-  }
-  const files = await sink.finish();
-  if (files.length !== screens.moments.length) {
-    throw new Error(
-      `${screens.moments.length} screens drawn but the image sink returned ${files.length} files`,
-    );
-  }
-  return {
-    screens,
-    images: screens.moments.map((m, i) => ({
-      step: m.step,
-      bytes: (files[i] as { bytes: Uint8Array }).bytes,
-    })),
-    detailViolations: violations,
-    unavailableSpans: ports.frames.unavailable?.() ?? [],
   };
 }
 

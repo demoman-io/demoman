@@ -5,7 +5,7 @@ import { isInstant } from "../app/file.js";
 import { type FilmedCode, parseFilmedCode } from "../replay/report.js";
 import { unreadVersion } from "../run-host.js";
 import { isFlowId } from "../served-words.js";
-import type { KeptMoment, KeptScreens, PageScreens } from "./file.js";
+import type { PageScreens } from "./file.js";
 
 export const RECEIPT_VERSION = 3;
 export const RECEIPT_DIR = ".demoman/receipts";
@@ -44,94 +44,8 @@ export function screensDirOf(receiptFile: string): string {
   return `${base.replace(/\.json$/, "")}.screens`;
 }
 
-type Screens =
-  | { ok: true; screens: KeptScreens }
-  | { ok: false; detail: string };
-
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
-
-/** The one check of a screens object, whichever file holds it. `at` names
- *  the field in each message ("screens"). */
-export function parseScreens(sc: unknown, at: string): Screens {
-  const bad = (what: string): Screens => ({ ok: false, detail: what });
-  if (!isObj(sc)) return bad(`${at} is not an object`);
-  if (!Number.isInteger(sc.steps) || (sc.steps as number) < 0)
-    return bad(`${at}.steps must be a whole number of steps`);
-  if (!Array.isArray(sc.moments) || sc.moments.length === 0)
-    return bad(`${at}.moments must list at least one still screen`);
-  const moments: KeptMoment[] = [];
-  const seen = new Set<number | null>();
-  for (const [i, m] of sc.moments.entries()) {
-    const mAt = `${at}.moments[${i}]`;
-    if (!isObj(m)) return bad(`${mAt} is not an object`);
-    if (typeof m.ms !== "number" || !Number.isFinite(m.ms) || m.ms < 0)
-      return bad(`${mAt}.ms must be a non-negative number`);
-    if (m.ms <= (moments[i - 1]?.ms ?? -1))
-      return bad(`${mAt}.ms must be greater than the one before it`);
-    if (m.step !== null) {
-      if (!Number.isInteger(m.step) || (m.step as number) < 0)
-        return bad(`${mAt}.step must be null or a whole step number`);
-      if ((m.step as number) >= (sc.steps as number))
-        return bad(
-          `${mAt}.step ${m.step} is not below ${at}.steps ${sc.steps}`,
-        );
-      if (seen.has(m.step as number))
-        return bad(`${mAt}.step ${m.step} is named by an earlier moment`);
-      seen.add(m.step as number);
-    } else if (seen.has(null))
-      return bad(`${mAt}.step is a second final screen`);
-    else seen.add(null);
-    const w = m.window;
-    if (w !== undefined) {
-      if (!isObj(w)) return bad(`${mAt}.window is not an object`);
-      // Numbers, finite, each: a string or Infinity would pass a bare `> 0`.
-      for (const [key, least] of [
-        ["x", null],
-        ["y", null],
-        ["width", "positive"],
-        ["height", "positive"],
-        ["radius", "0 or more"],
-      ] as const) {
-        const v = w[key];
-        if (
-          typeof v !== "number" ||
-          !Number.isFinite(v) ||
-          (least === "positive" && v <= 0) ||
-          (least === "0 or more" && v < 0)
-        )
-          return bad(
-            `${mAt}.window.${key} must be a finite number${least === null ? "" : `, ${least}`}`,
-          );
-      }
-    }
-    moments.push({
-      step: m.step as number | null,
-      ms: m.ms,
-      ...(isObj(w)
-        ? {
-            window: {
-              x: w.x as number,
-              y: w.y as number,
-              width: w.width as number,
-              height: w.height as number,
-              radius: w.radius as number,
-            },
-          }
-        : {}),
-    });
-  }
-  if (sc.look !== undefined && (typeof sc.look !== "string" || sc.look === ""))
-    return bad(`${at}.look must be a non-empty string`);
-  return {
-    ok: true,
-    screens: {
-      steps: sc.steps as number,
-      moments,
-      ...(typeof sc.look === "string" ? { look: sc.look } : {}),
-    },
-  };
-}
 
 /** The one check of a receipt's page screens. `at` names the field in
  *  each message ("screens"). */

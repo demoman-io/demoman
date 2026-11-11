@@ -18,6 +18,7 @@ import {
   type KeptVideo,
   keptFileName,
   RECEIPT_DIR,
+  screensDirOf,
   serializeKept,
   serializeReceipt,
 } from "@demoman/run-core";
@@ -907,16 +908,16 @@ describe("renaming a kept flow", () => {
     ],
     report: null,
   });
-  const receiptText = () =>
+  /** The receipt as `keep` writes it, naming its folder of page screens. */
+  const receiptText = (screensDir = screensDirOf(OLD)) =>
     serializeReceipt({
-      receiptVersion: 1,
-      screensDir: null,
-      screensSize: null,
+      receiptVersion: 3,
+      screensDir,
       flow: invoice,
       video: "inv-2",
       filmedAt: null,
       filmedCode: { none: "a test" },
-      screens: { steps: 1, moments: [{ step: null, ms: 0 }] },
+      screens: { steps: 1, screens: [{ step: null }] },
       recordedRevision: null,
     });
   /** `invoice` kept in `checkout`: its recipe and receipt written, and its
@@ -926,6 +927,11 @@ describe("renaming a kept flow", () => {
     await mkdir(join(root, RECEIPT_DIR), { recursive: true });
     await writeFile(join(root, KEPT_DIR, OLD), serializeKept(recipe()));
     await writeFile(join(root, RECEIPT_DIR, OLD), receiptText());
+    await mkdir(join(root, RECEIPT_DIR, screensDirOf(OLD)));
+    await writeFile(
+      join(root, RECEIPT_DIR, screensDirOf(OLD), "final.png"),
+      "",
+    );
     const store = createVideoStore(home, createLibrary(home));
     const marked = await store.setKept(invoice, {
       root,
@@ -963,10 +969,17 @@ describe("renaming a kept flow", () => {
       serializeKept({ ...recipe(), name: "Send an invoice" }),
     );
     expect(await exists(join(checkout, KEPT_DIR, OLD))).toBe(false);
+    // The receipt and its page screens move together, and it names them.
     expect(await readFile(join(checkout, RECEIPT_DIR, NEW), "utf8")).toBe(
-      receiptText(),
+      receiptText(screensDirOf(NEW)),
     );
     expect(await exists(join(checkout, RECEIPT_DIR, OLD))).toBe(false);
+    expect(
+      await exists(join(checkout, RECEIPT_DIR, screensDirOf(NEW), "final.png")),
+    ).toBe(true);
+    expect(await exists(join(checkout, RECEIPT_DIR, screensDirOf(OLD)))).toBe(
+      false,
+    );
     const after = (await listing()).videos.find((v) => v.id === invoice);
     expect(after?.name).toBe("Send an invoice");
     expect(after?.kept).toEqual({

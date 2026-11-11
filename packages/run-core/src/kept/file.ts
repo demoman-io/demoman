@@ -26,32 +26,6 @@ export type KeptOutput = {
   quality: ExportQuality;
 };
 
-/** The app's window on a screen, in the film's own output pixels, with its
- *  corners' radius (the compositor's `ScreenMoment.window`). */
-export type KeptWindow = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  radius: number;
-};
-/** A still screen of the committed video: the step it follows (null for the
- *  opening) and when it ends, in output milliseconds. `window` is absent
- *  from a file kept before it was recorded (2026-10-28): refresh then
- *  compares that screen's whole picture. */
-export type KeptMoment = {
-  step: number | null;
-  ms: number;
-  window?: KeptWindow;
-};
-/** The same shape as the compositor's `Screens`: the file's format is owned
- *  here. `look` (`lookDigest`) is absent from a file kept before it. */
-export type KeptScreens = {
-  steps: number;
-  moments: KeptMoment[];
-  look?: string;
-};
-
 /** A receipt's page screens (receipt version 3): the take's own pictures of
  *  the page once each step settled (spec 2026-11-10, decision 3), one image
  *  each in the receipt's folder (`screenImageName`). `step: k` is the page
