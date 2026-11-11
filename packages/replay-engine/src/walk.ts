@@ -1306,7 +1306,12 @@ export async function runWalk(
    * check that turns it into `occlusionTimeout`.
    */
   const capturePage = async (): Promise<{
-    taken: { bytes: Uint8Array; held: number; atMs: number } | null;
+    taken: {
+      bytes: Uint8Array;
+      held: number;
+      atMs: number;
+      caretShown: boolean;
+    } | null;
     failure: unknown;
     releaseFailed: string | null;
   }> => {
@@ -1326,8 +1331,12 @@ export async function runWalk(
     }
     const run = shooting.then(() =>
       gate.capture(async () => {
-        let taken: { bytes: Uint8Array; held: number; atMs: number } | null =
-          null;
+        let taken: {
+          bytes: Uint8Array;
+          held: number;
+          atMs: number;
+          caretShown: boolean;
+        } | null = null;
         let failure: unknown = null;
         pageFrames.hold();
         try {
@@ -1337,9 +1346,9 @@ export async function runWalk(
               returnByValue: true,
             }),
           ) as
-            | Partial<
+            | (Partial<
                 Record<"held" | "x" | "y" | "width" | "height" | "dpr", number>
-              >
+              > & { caretShown?: boolean })
             | undefined;
           const { held, x, y, width, height, dpr } = g ?? {};
           if (
@@ -1361,6 +1370,8 @@ export async function runWalk(
             bytes: decodeBase64(String(shot.data ?? "")),
             held,
             atMs: captureEndedMs,
+            // Unreadable counts as shown: a hidden caret is never assumed.
+            caretShown: g?.caretShown !== false,
           };
         } catch (error) {
           failure = error;
@@ -1434,6 +1445,9 @@ export async function runWalk(
         );
       }
       if (taken === null) throw failure;
+      if (taken.caretShown) {
+        unsettled.push("a focused field's caret could not be hidden");
+      }
       const size = pngSize(taken.bytes);
       screen = {
         after,

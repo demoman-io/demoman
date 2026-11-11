@@ -80,20 +80,38 @@ export function stepSettleExpression(quietMs: number, capMs: number): string {
 
 /** The style that hides every caret for the capture. */
 const CARET_STYLE_ID = "__demomanCaretHold";
+const CARET_RULE = "*{caret-color:transparent!important}";
 
 /**
  * Before a page capture: hide the caret and freeze endless animations at
  * time 0, so two captures of the same page agree. Only animations whose
  * iterations are `Infinity` are held; a finished `fill: forwards` one stays
- * as it is. Replies with the capture geometry.
+ * as it is. Replies with the capture geometry, and `caretShown`: a focused
+ * field whose caret is still drawn (its own `!important` inline colour, say),
+ * which the screen must then say.
+ *
+ * A page whose CSP refuses inline styles gives the `<style>` no sheet; a
+ * constructed sheet is not subject to that policy, so it stands in.
  */
 export const PAGE_CAPTURE_HOLD = `(() => {
   if (!document.getElementById("${CARET_STYLE_ID}")) {
     const s = document.createElement("style");
     s.id = "${CARET_STYLE_ID}";
-    s.textContent = "*{caret-color:transparent!important}";
+    s.textContent = "${CARET_RULE}";
     (document.head || document.documentElement).append(s);
+    if (!s.sheet && !window.__demomanCaretSheet) {
+      try {
+        const c = new CSSStyleSheet();
+        c.replaceSync("${CARET_RULE}");
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, c];
+        window.__demomanCaretSheet = c;
+      } catch (e) {} // said below: the caret is still shown
+    }
   }
+  const f = document.activeElement;
+  const caretShown = !!f &&
+    (f.isContentEditable || f.tagName === "INPUT" || f.tagName === "TEXTAREA") &&
+    getComputedStyle(f).caretColor !== "rgba(0, 0, 0, 0)";
   const held = window.__demomanHeld || (window.__demomanHeld = []);
   for (const a of document.getAnimations ? document.getAnimations() : []) {
     const t = a.effect && a.effect.getComputedTiming();
@@ -103,7 +121,7 @@ export const PAGE_CAPTURE_HOLD = `(() => {
     a.currentTime = 0;
   }
   return {
-    held: held.length, x: scrollX, y: scrollY,
+    held: held.length, caretShown, x: scrollX, y: scrollY,
     width: innerWidth, height: innerHeight, dpr: devicePixelRatio,
   };
 })()`;
@@ -112,6 +130,11 @@ export const PAGE_CAPTURE_HOLD = `(() => {
 export const PAGE_CAPTURE_RELEASE = `(() => {
   const s = document.getElementById("${CARET_STYLE_ID}");
   if (s) s.remove();
+  const c = window.__demomanCaretSheet;
+  if (c) {
+    document.adoptedStyleSheets = document.adoptedStyleSheets.filter((x) => x !== c);
+    delete window.__demomanCaretSheet;
+  }
   const held = window.__demomanHeld || [];
   for (const { a, t } of held) { a.currentTime = t; a.play(); }
   window.__demomanHeld = [];

@@ -61,6 +61,15 @@ beforeAll(async () => {
       res.writeHead(200, { "content-type": "text/plain" });
       return; // never ended: the walk's browser closes it
     }
+    if (req.url === "/csp") {
+      // No 'unsafe-inline': a <style> the page did not load is refused.
+      res.writeHead(200, {
+        "content-type": "text/html",
+        "content-security-policy": "style-src 'self'",
+      });
+      res.end(FIXTURE);
+      return;
+    }
     if (req.url === "/answer") {
       res.writeHead(200, { "content-type": "text/plain" });
       let i = 0;
@@ -111,7 +120,7 @@ interface Recorded {
   bytes: Uint8Array[];
   /** The focused element's id as each page capture began. */
   focusAtHold: (string | null)[];
-  /** Whether the caret style is in the page once the walk has ended. */
+  /** Whether a caret style is in the page once the walk has ended. */
   caretStyleLeft: boolean;
   /** Read from the live page once the walk has ended. */
   live: Record<string, Rect>;
@@ -128,6 +137,7 @@ interface Recorded {
 async function record(
   steps: DemoScript["steps"],
   rectsOf: (page: Page) => Promise<Record<string, Rect>>,
+  path = "",
 ): Promise<Recorded> {
   let out: Recorded | null = null;
   await withReplayBrowser(
@@ -155,7 +165,7 @@ async function record(
       const store: MemoryFrameStore = createMemoryFrameStore();
       let n = 0;
       const result = await runAuthored(
-        { scriptVersion: 1, name: "settled", target: base, steps },
+        { scriptVersion: 1, name: "settled", target: base + path, steps },
         {
           cdp: watched,
           page: selectorPageAgent(page, selectors),
@@ -205,8 +215,11 @@ async function record(
           s.ref === "" ? new Uint8Array() : store.load(s.ref),
         ),
       );
+      // The `<style>`, or the constructed sheet a CSP page gets instead.
       const caretStyleLeft = await page.evaluate(
-        () => document.getElementById("__demomanCaretHold") !== null,
+        () =>
+          document.getElementById("__demomanCaretHold") !== null ||
+          document.adoptedStyleSheets.length > 0,
       );
       const live = await rectsOf(page);
       const decoder = await page.context().newPage();
@@ -228,7 +241,7 @@ async function record(
         luma,
       };
     },
-    { url: base, readySelector: "#ask" },
+    { url: base + path, readySelector: "#ask" },
   );
   if (out === null) throw new Error("the browser closed before the run");
   return out;
@@ -582,5 +595,70 @@ describe("a request that never closes (a long poll)", () => {
       );
     }
     expect(new Set(said).size, "two steps, two names").toBe(2);
+  });
+});
+
+describe("a page whose CSP refuses inline styles", () => {
+  let r: Recorded;
+  /** The focused field's luma in captures taken without the hold. */
+  const bare: number[][] = [];
+  let ownStyleRefused = false;
+  beforeAll(async () => {
+    r = await record(
+      [{ do: "click", on: { stableId: "q" } }],
+      async (page) => {
+        // The field alone: with the page's own style refused, #answer and
+        // #list have no height to read.
+        const rects = { field: (await mainRects(page)).field as Rect };
+        ownStyleRefused = await page.evaluate(
+          () =>
+            getComputedStyle(document.getElementById("answer") as Element)
+              .height !== "20px",
+        );
+        const decoder = await page.context().newPage();
+        // The caret blinks about every 500 ms: one of six shots 200 ms apart
+        // is in its drawn phase.
+        for (let i = 0; i < 6; i++) {
+          const png = await page.screenshot({ caret: "initial", scale: "css" });
+          bare.push(
+            (await pixels(decoder, png, { field: rects.field as Rect })).luma
+              .field ?? [],
+          );
+          await new Promise((res) => setTimeout(res, 200));
+        }
+        await decoder.close();
+        return rects;
+      },
+      "csp",
+    );
+    // One click and its settle: about 4 s here.
+  }, 60_000);
+
+  // Red when the caret style is refused: the field's screen shows the caret.
+  it("still hides the caret in the screen of a focused field", () => {
+    expect(
+      ownStyleRefused,
+      "premise: the page's own inline <style> was refused",
+    ).toBe(true);
+    expect(r.focusAtHold[1], "premise: the field held focus").toBe("q");
+    const unfocused = r.luma[0]?.field ?? [];
+    expect(unfocused.length, "premise: the field was read").toBeGreaterThan(0);
+    const drawn = bare.map(
+      (l) => l.filter((v, i) => v !== unfocused[i]).length,
+    );
+    expect(
+      Math.max(...drawn),
+      `premise: a capture without the hold shows a caret (${drawn})`,
+    ).toBeGreaterThan(0);
+    expect(
+      r.screens[1]?.unsettled,
+      JSON.stringify(r.screens[1]),
+    ).toBeUndefined();
+    const focused = r.luma[1]?.field ?? [];
+    expect(
+      focused.filter((v, i) => v !== unfocused[i]).length,
+      "pixels in the empty field's content box that changed on focus",
+    ).toBe(0);
+    expect(r.caretStyleLeft, "the stand-in sheet is gone after").toBe(false);
   });
 });

@@ -138,6 +138,29 @@ describe("the step-settle probe in a real page", () => {
     });
   });
 
+  // Red if HOLD answers a caret it could not hide as hidden: the screen
+  // would be compared with a blinking caret in it.
+  it("HOLD says a focused field's caret it could not hide is shown", async () => {
+    await withPage(async (page) => {
+      await page.focus("#q");
+      const hidden = (await page.evaluate(PAGE_CAPTURE_HOLD)) as {
+        caretShown: boolean;
+      };
+      await page.evaluate(PAGE_CAPTURE_RELEASE);
+      expect(hidden.caretShown, "the hold's own rule wins").toBe(false);
+      await page.evaluate(() =>
+        document
+          .getElementById("q")
+          ?.style.setProperty("caret-color", "red", "important"),
+      );
+      const shown = (await page.evaluate(PAGE_CAPTURE_HOLD)) as {
+        caretShown: boolean;
+      };
+      await page.evaluate(PAGE_CAPTURE_RELEASE);
+      expect(shown.caretShown).toBe(true);
+    });
+  });
+
   it("HOLD hides the caret and holds endless animations, RELEASE puts both back", async () => {
     await withPage(async (page) => {
       await page.click("#spinbtn");

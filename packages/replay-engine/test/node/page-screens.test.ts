@@ -142,6 +142,34 @@ describe("a step's page screen, when something fails", () => {
     }
   });
 
+  // Red if a caret the hold could not hide is compared: it blinks, so the
+  // same page reads changed (DEM-139).
+  it("says so when a focused field's caret could not be hidden", async () => {
+    const d = deps();
+    intercept(d, isEval(PAGE_CAPTURE_HOLD), async () => ({
+      result: {
+        type: "object",
+        value: {
+          held: 0,
+          caretShown: true,
+          x: 0,
+          y: 0,
+          width: 1280,
+          height: 800,
+          dpr: 3,
+        },
+      },
+    }));
+    const { screens, evidence } = await screensOf(d);
+    for (const s of screens) {
+      expect(s.unsettled, evidence).toBe(
+        "a focused field's caret could not be hidden",
+      );
+      // The screen itself was still taken.
+      expect(s.ref, evidence).not.toBe("");
+    }
+  });
+
   it("says so when the hold answers nothing readable", async () => {
     const d = deps();
     intercept(d, isEval(PAGE_CAPTURE_HOLD), async () => ({

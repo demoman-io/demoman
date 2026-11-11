@@ -271,6 +271,7 @@ export function createCdpFake(): CdpFake {
                 type: "object",
                 value: {
                   held: 0,
+                  caretShown: false,
                   x: 0,
                   y: 0,
                   width: 1280,
