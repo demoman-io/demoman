@@ -858,6 +858,10 @@
 [data-studio] .settings .section-head {
   margin-bottom: 12px;
 }
+/* A hint under a setting's choices, clear of the segmented ring. */
+[data-studio] .settings .switch-row + .hint {
+  margin-top: 10px;
+}
 [data-studio] .kit-strip {
   margin-bottom: 14px;
 }

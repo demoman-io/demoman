@@ -13,7 +13,7 @@ Setup also downloads Chromium into Playwright's cache (`~/Library/Caches/ms-play
 
 ## What setup changes in your agents
 
-Setup connects each agent you choose and pre-approves Demoman's tools, so they run without asking, except `attach` and `ci`: they act on GitHub under your account, so they ask each time. It says what it did for each agent, and when it could not pre-approve. Run without a terminal, as your agent runs it, setup updates only the agents Demoman is already connected to.
+Setup connects each agent you choose and pre-approves Demoman's tools, so they run without asking, except `attach` and `ci`: they act on GitHub under your account, so they ask each time. When your pull-request setting is Attach as setup runs, `attach` runs without asking too. It says what it did for each agent, and when it could not pre-approve. Run without a terminal, as your agent runs it, setup updates only the agents Demoman is already connected to.
 
 | Agent | What setup does |
 | --- | --- |
@@ -86,7 +86,7 @@ To the publisher: nothing.
 - **npm**, once a day at most: Demoman asks `https://registry.npmjs.org/demoman/latest` whether a newer version exists, with no identifiers beyond Node's default user agent. `DEMOMAN_NO_UPDATE_CHECK=1` turns it off; set it where your agent starts Demoman, and see [Sign in](/get-started/sign-in#demo-accounts) for why Codex may not pass it on from your shell. `npx` also asks npm for the newest Demoman each time your agent starts the server.
 - **During setup**: Playwright downloads Chromium from its CDN, Claude Code and Codex fetch the Demoman plugin from GitHub, and npm's cache is warmed with the package.
 - **GitHub, to update the plugin**: Claude Code and Codex check the Demoman plugin's GitHub repository in the background and install a newer version when there is one.
-- **GitHub**, only when your agent attaches a video to a pull request: the video goes up through your `gh` sign-in, to the pull request's description or a comment, where anyone who can see the pull request can see it. Your agent does this without asking only when the pull-request setting is Attach. It is Ask unless you change it, which offers first. The setting guides your agent; what enforces it is the agent's own prompt. Setup leaves `attach` asking each time in Claude Code, Codex and Cursor's agent CLI, so you approve every upload there, including one a page your agent read talked it into. In OpenCode, `attach` runs unasked unless OpenCode's own settings ask.
+- **GitHub**, only when your agent attaches a video to a pull request: the video goes up through your `gh` sign-in, to the pull request's description or a comment, where anyone who can see the pull request can see it. Your agent does this without asking only when the pull-request setting is Attach. It is Ask unless you change it, which offers first. The setting guides your agent; what enforces it is the agent's own prompt. Unless your own setting is Attach when setup runs, setup leaves `attach` asking each time in Claude Code, Codex and Cursor's agent CLI, so you approve every upload there, including one a page your agent read talked it into. In OpenCode, `attach` runs unasked unless OpenCode's own settings ask.
 - **The sites your agent opens**, and whatever they load, in Demoman's browser.
 - **Your agent's AI service**, through the agent, for everything under "What your agent sees". Demoman neither sees nor controls that.
 

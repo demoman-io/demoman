@@ -130,6 +130,17 @@ describe("codexApproval", () => {
     ).toHaveLength(1);
   });
 
+  it("approves attach when it is not asked to ask, and back again", () => {
+    const asking = text(codexApproval(null));
+    const attach = text(codexApproval(asking, ["ci"]));
+    expect(asks(attach)).toEqual({ attach: "approve", ci: "prompt" });
+    expect(attach.match(/tools\.attach\]/g)).toHaveLength(1);
+    expect(asks(text(codexApproval(attach)))).toEqual({
+      attach: "prompt",
+      ci: "prompt",
+    });
+  });
+
   it("is idempotent", () => {
     const once = text(codexApproval('model = "o5"\n'));
     expect(codexApproval(once)).toEqual({ text: once, changed: false });

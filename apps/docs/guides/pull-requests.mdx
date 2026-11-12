@@ -28,6 +28,12 @@ it for one repository, commit a `.demoman/config.json`:
 
 The repository's file wins over your default.
 
+Your agent asks you before each upload, whatever the setting, in Claude
+Code, Codex and Cursor's agent CLI. When your own default is Attach, setup
+lets it upload without that prompt. Setup reads the default as it runs, so
+run `npx demoman setup` again after changing it. A repository's Attach
+does not remove the prompt.
+
 ## What it needs
 
 The [GitHub CLI](https://cli.github.com), `gh` 2.99.0 or later, signed in.

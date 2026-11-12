@@ -6,7 +6,7 @@
 // reason the caller prints beside the block to paste by hand — a file it
 // cannot read, rather than overwriting it.
 import { basename } from "node:path";
-import { ASKS_EACH_TIME } from "@demoman/mcp/annotations";
+import { ASKS_EACH_TIME, type ToolName } from "@demoman/mcp/annotations";
 import { parse } from "smol-toml";
 import {
   MARKETPLACE_NAME,
@@ -23,29 +23,35 @@ const message = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 const CODEX_SERVER = '[plugins."demoman@demoman".mcp_servers.demoman]';
+const codexTool = (tool: string): string =>
+  `[plugins."demoman@demoman".mcp_servers.demoman.tools.${tool}]`;
 /** Each table setup keeps in Codex's config.toml, the key it sets there and
- *  that key's value: the plugin's server approved, then each tool that acts
- *  beyond this machine set back to asking (a plugin's server table takes
- *  `tools.<tool>.approval_mode`, launch E spec). Codex validates the values,
- *  and refuses to start on a bad one (Task 1 findings). */
-const CODEX_TABLES = [
+ *  that key's value: the plugin's server approved, then each tool of
+ *  ASKS_EACH_TIME set to asking when `asks` holds it, else approved (a
+ *  plugin's server table takes `tools.<tool>.approval_mode`, launch E
+ *  spec). Codex validates the values, and refuses to start on a bad one
+ *  (Task 1 findings; "prompt" checked against codex-cli 0.166). */
+const codexTables = (asks: readonly ToolName[]) => [
   {
     header: CODEX_SERVER,
     key: "default_tools_approval_mode",
     value: "approve",
   },
   ...ASKS_EACH_TIME.map((tool) => ({
-    header: `[plugins."demoman@demoman".mcp_servers.demoman.tools.${tool}]`,
+    header: codexTool(tool),
     key: "approval_mode",
-    value: "prompt",
+    value: asks.includes(tool) ? "prompt" : "approve",
   })),
 ];
-const codexLine = (t: (typeof CODEX_TABLES)[number]): string =>
+const codexLine = (t: { key: string; value: string }): string =>
   `${t.key} = "${t.value}"`;
 /** What setup writes to Codex's config.toml, as one block to paste. */
-export const CODEX_APPROVAL_TABLE = CODEX_TABLES.map(
-  (t) => `${t.header}\n${codexLine(t)}`,
-).join("\n\n");
+export const codexApprovalTable = (asks: readonly ToolName[]): string =>
+  codexTables(asks)
+    .map((t) => `${t.header}\n${codexLine(t)}`)
+    .join("\n\n");
+/** The block when every tool of ASKS_EACH_TIME asks. */
+export const CODEX_APPROVAL_TABLE = codexApprovalTable(ASKS_EACH_TIME);
 
 type CodexServer = {
   default_tools_approval_mode?: unknown;
@@ -58,13 +64,15 @@ const serverIn = (toml: string): CodexServer | undefined =>
     }
   ).plugins?.["demoman@demoman"]?.mcp_servers?.demoman;
 
-/** Whether the parsed file says what CODEX_TABLES say. */
-function codexSays(toml: string): boolean {
+/** Whether the parsed file says what codexTables(asks) says. */
+function codexSays(toml: string, asks: readonly ToolName[]): boolean {
   const server = serverIn(toml);
   return (
     server?.default_tools_approval_mode === "approve" &&
     ASKS_EACH_TIME.every(
-      (tool) => server.tools?.[tool]?.approval_mode === "prompt",
+      (tool) =>
+        server.tools?.[tool]?.approval_mode ===
+        (asks.includes(tool) ? "prompt" : "approve"),
     )
   );
 }
@@ -73,7 +81,10 @@ function codexSays(toml: string): boolean {
  *  a `#` inside a string. */
 const bare = (line: string): string => line.replace(/\s*#.*$/, "").trim();
 
-export function codexApproval(text: string | null): Edit {
+export function codexApproval(
+  text: string | null,
+  asks: readonly ToolName[] = ASKS_EACH_TIME,
+): Edit {
   const src = text ?? "";
   try {
     parse(src);
@@ -82,7 +93,7 @@ export function codexApproval(text: string | null): Edit {
   }
   const eol = src.includes("\r\n") ? "\r\n" : "\n";
   let out = src;
-  for (const t of CODEX_TABLES) {
+  for (const t of codexTables(asks)) {
     const lines = out.split(eol);
     const header = lines.findIndex((l) => bare(l) === t.header);
     if (header >= 0) {
@@ -105,7 +116,7 @@ export function codexApproval(text: string | null): Edit {
   }
   let says: boolean;
   try {
-    says = codexSays(out);
+    says = codexSays(out, asks);
   } catch (error) {
     return {
       refused: `it already sets demoman@demoman's plugin table in a form setup cannot extend (${message(error)})`,
@@ -139,8 +150,8 @@ function readObject(
   return { obj: v };
 }
 
-/** Adds each missing rule to permissions.allow and permissions.ask, and
- *  takes each `drop` rule out of permissions.allow: Claude Code's
+/** Takes each `drop` rule out of permissions.allow and permissions.ask,
+ *  then adds each missing rule to its list: Claude Code's
  *  settings.json and Cursor's cli-config.json share the shape. One list it
  *  cannot read refuses the whole edit, so an allow is never written without
  *  the asks beside it. */
@@ -164,10 +175,7 @@ export function addPermissionRules(
     if (!Array.isArray(had) || !had.every((r) => typeof r === "string")) {
       return { refused: `its permissions.${list} is not a list of rules` };
     }
-    const kept =
-      list === "allow"
-        ? had.filter((r) => !(rules.drop ?? []).includes(r))
-        : had;
+    const kept = had.filter((r) => !(rules.drop ?? []).includes(r));
     const missing = add.filter((r) => !kept.includes(r));
     if (missing.length === 0 && kept.length === had.length) continue;
     permissions[list] = [...kept, ...missing];
