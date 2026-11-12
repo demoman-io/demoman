@@ -5,7 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // move over are the rows the page renders.
 import shell from "../../../pages/entrypoints/library/index.html?raw";
 import { setExpanded } from "../../../pages/src/library/list";
-import { TYPE_AHEAD_MS } from "../../../pages/src/library/list-keys";
+import {
+  setTypeAheadMsForTests,
+  TYPE_AHEAD_MS,
+} from "../../../pages/src/library/list-keys";
 import { nextSort } from "../../../pages/src/library/list-model";
 import {
   clickSelect,
@@ -248,11 +251,11 @@ function recordKeys() {
   return {
     after,
     /** The longest pause between two keys, and the premise's message. */
-    pause(): { ms: number; said: string } {
+    pause(window = TYPE_AHEAD_MS): { ms: number; said: string } {
       const ms = Math.max(0, ...at.slice(1).map((t, i) => t - (at[i] ?? t)));
       return {
         ms,
-        said: `premise: the longest pause between keys was ${ms.toFixed(0)} ms, the search lapses after ${TYPE_AHEAD_MS}; ${where()}`,
+        said: `premise: the longest pause between keys was ${ms.toFixed(0)} ms, the search lapses after ${window}; ${where()}`,
       };
     },
     stop() {
@@ -748,8 +751,15 @@ describe("type-ahead after another key", () => {
   });
 
   it("a letter after a click searches from where the click put focus", async () => {
+    // A window no runner's click outlasts (DEM-172: a real click took
+    // 669 ms on CI's macOS runner, past the 500 ms one), so only the click
+    // can have ended the search.
+    const window = 60_000;
     mount();
     await enter();
+    // Set where the finally below restores it, so no case after this one
+    // inherits it.
+    setTypeAheadMsForTests(window);
     const keys = recordKeys();
     try {
       await press("e", "f:B");
@@ -761,10 +771,11 @@ describe("type-ahead after another key", () => {
       // From E, the next "e" wraps round to Edit profile.
       await press("e", "f:B/open");
       // Premise: the click, not a lapse, started the new search.
-      const { ms, said } = keys.pause();
-      expect(ms, said).toBeLessThanOrEqual(TYPE_AHEAD_MS);
+      const { ms, said } = keys.pause(window);
+      expect(ms, said).toBeLessThanOrEqual(window);
     } finally {
       keys.stop();
+      setTypeAheadMsForTests(null);
     }
   });
 });
