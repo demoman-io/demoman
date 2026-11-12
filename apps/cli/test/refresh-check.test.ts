@@ -63,7 +63,7 @@ beforeAll(() => {
   writeFileSync(
     join(repo, RECEIPT_DIR, keptFileName(NAME)),
     serializeReceipt({
-      receiptVersion: 1,
+      receiptVersion: 3,
       flow: kept.flow,
       video: "t1",
       filmedAt: null,
@@ -72,10 +72,9 @@ beforeAll(() => {
         tree: git(repo, "rev-parse", "HEAD^{tree}"),
         dirty: false,
       },
-      screens: { steps: 1, moments: [{ step: null, ms: 500 }] },
+      screens: { steps: 1, screens: [{ step: null }] },
       recordedRevision: null,
-      screensDir: null,
-      screensSize: null,
+      screensDir: "screens",
     }),
   );
   git(repo, "add", ".");

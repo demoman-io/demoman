@@ -83,8 +83,18 @@ beforeAll(async () => {
     }
     const hold = url.searchParams.get("hold");
     // `later`: the button navigates by script `later` ms after the click;
-    // otherwise it is a plain form submit, which starts at once.
+    // otherwise it is a plain form submit, which starts at once. With
+    // `screen`, `later` counts from the click step's page screen instead:
+    // the walk settles each step before the next begins (2026-11-10), so a
+    // navigation that starts during that settle is waited out by the click
+    // step and never reaches the wait. The screen's caret style leaving the
+    // page is the moment the click step is done with it.
     const later = url.searchParams.get("later");
+    const navigate = `setTimeout(() => { location.href = '/arrived?hold=${hold}'; }, ${later})`;
+    const onclick =
+      url.searchParams.get("screen") === null
+        ? navigate
+        : `new MutationObserver((rs, o) => { if (rs.some((r) => [...r.removedNodes].some((n) => n.id === '__demomanCaretHold'))) { o.disconnect(); ${navigate}; } }).observe(document, { childList: true, subtree: true })`;
     const go = `style="margin:200px;font-size:24px"`;
     res.writeHead(200, { "content-type": "text/html" });
     res.end(
@@ -92,7 +102,7 @@ beforeAll(async () => {
         RED,
         later === null
           ? `<form action="/arrived"><input type=hidden name=hold value="${hold}"><button ${go}>Go</button></form>`
-          : `<button ${go} onclick="setTimeout(() => { location.href = '/arrived?hold=${hold}'; }, ${later})">Go</button>`,
+          : `<button ${go} onclick="${onclick}">Go</button>`,
       ),
     );
   });
@@ -243,6 +253,8 @@ const near = (got: number[], want: readonly number[]) =>
 async function runRedToBlue(options: {
   hold: number;
   later?: number;
+  /** `later` counts from the click step's page screen, not the click. */
+  afterScreen?: boolean;
   pauseMs?: number;
   holdClickReads?: boolean;
 }): Promise<{
@@ -259,7 +271,7 @@ async function runRedToBlue(options: {
     clickReadsRefused: 0,
   };
   const library = createLibrary(home);
-  const query = `hold=${options.hold}${options.later === undefined ? "" : `&later=${options.later}`}`;
+  const query = `hold=${options.hold}${options.later === undefined ? "" : `&later=${options.later}`}${options.afterScreen === true ? "&screen=1" : ""}`;
   const report = await runScript(
     {
       scriptVersion: 1,
@@ -323,13 +335,17 @@ async function runRedToBlue(options: {
 const SETTLE_ROOM_MS = 1000;
 
 describe("waitForLoad after a click that navigates", () => {
-  // The page starts navigating 150 ms after the click — after the wait's
-  // first read, during the settle that follows it. Only the count of
+  // The page starts navigating 150 ms after the click step's page screen —
+  // after the wait's first read, during the settle that follows it. Only the count of
   // navigations seen across the read and the settle can tell.
   it(
     "waits for the page the click went to when it starts navigating after the wait's read",
     async () => {
-      const { heard, held: h } = await runRedToBlue({ hold: 1200, later: 150 });
+      const { heard, held: h } = await runRedToBlue({
+        hold: 1200,
+        later: 150,
+        afterScreen: true,
+      });
       const evidence = JSON.stringify({ heard, h });
       // The premise: a read after the click said `complete` before the
       // navigation had even asked the server — the red page, read in time
@@ -360,7 +376,7 @@ describe("waitForLoad after a click that navigates", () => {
         heard,
         held: h,
         degradations,
-      } = await runRedToBlue({ hold: 200, later: 150 });
+      } = await runRedToBlue({ hold: 200, later: 150, afterScreen: true });
       const evidence = JSON.stringify({ heard, h, degradations });
       // The premise: a settle really was refused mid-way, after a read of
       // the red page.

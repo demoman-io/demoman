@@ -6,9 +6,9 @@ import type { EngineStore } from "@demoman/replay-engine";
 /**
  * The filesystem frame store: where harvested keyframes, parked motion
  * frames and rendered spans live between the replay phase and the render
- * phase. `EngineStore` stays two methods on purpose (`putKeyframe`,
- * `putBundle` — see `packages/replay-engine/src/types.ts`'s docblock); the
- * rest are the runner's own, not the engine's.
+ * phase. `EngineStore` stays small on purpose (`putKeyframe`, `putBundle`,
+ * `putPageScreen` — see `packages/replay-engine/src/types.ts`'s docblock);
+ * the rest are the runner's own, not the engine's.
  */
 export interface RunnerStore extends EngineStore {
   /** Parked frames, the shape capture already uses: written by the encoder,
@@ -28,6 +28,8 @@ export interface RunnerStore extends EngineStore {
   putSpan(ref: string, bytes: Uint8Array): Promise<void>;
   load(ref: string): Promise<Uint8Array>;
   getBundle(sceneId: string): Promise<FrameBundle | null>;
+  /** A page screen's PNG by its ref, or null when none was stored there. */
+  getPageScreen(ref: string): Promise<Uint8Array | null>;
   /**
    * Removes a stored bundle **and every blob it names** — every keyframe and
    * kept motion span ref. Used by the replay phase when
@@ -51,6 +53,9 @@ export interface RunnerStore extends EngineStore {
 }
 
 const BUNDLES_DIR = "bundles";
+/** Beside the keyframes, in a folder of their own: `refs()` lists only the
+ *  blobs directly under the root, which the render phase serves. */
+const PAGE_SCREENS_DIR = "page-screens";
 
 /**
  * The store's own ref -> filename rule. A ref contains `:`, which is legal
@@ -117,6 +122,8 @@ export function createFileFrameStore(root: string): RunnerStore {
   const blobPath = (ref: string): string => join(root, fileNameOf(ref));
   const bundlePath = (sceneId: string): string =>
     join(bundlesDir, `${fileNameOf(sceneId)}.json`);
+  const pageScreenPath = (ref: string): string =>
+    join(root, PAGE_SCREENS_DIR, `${fileNameOf(ref)}.png`);
 
   async function writeBlob(ref: string, bytes: Uint8Array): Promise<void> {
     const path = blobPath(ref);
@@ -146,6 +153,23 @@ export function createFileFrameStore(root: string): RunnerStore {
       const ref = `kf:${sceneId}:${index}`;
       await writeBlob(ref, bytes);
       return ref;
+    },
+
+    async putPageScreen(sceneId, after, bytes) {
+      const ref = `ps:${sceneId}:${after}`;
+      const path = pageScreenPath(ref);
+      await ensureDir(dirname(path));
+      await fs.writeFile(path, bytes, { mode: 0o600 });
+      return ref;
+    },
+
+    async getPageScreen(ref) {
+      try {
+        return new Uint8Array(await fs.readFile(pageScreenPath(ref)));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      }
     },
 
     async putSpan(ref, bytes) {
@@ -214,6 +238,9 @@ export function createFileFrameStore(root: string): RunnerStore {
       // already gone that would still resolve to refs nothing can load.
       for (const ref of blobRefsOf(bundle)) {
         await removeBlob(blobPath(ref));
+      }
+      for (const screen of bundle.pageScreens ?? []) {
+        if (screen.ref !== "") await removeBlob(pageScreenPath(screen.ref));
       }
       await removeBlob(bundlePath(sceneId));
     },

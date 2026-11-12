@@ -77,6 +77,32 @@ const HeldPressSchema = z.object({
 });
 
 /**
+ * The page itself, captured once a step's result had settled (spec
+ * 2026-11-10 decision 2): a PNG at CSS 1x, caret hidden and endless
+ * animations held at their start. `after` is how many steps had finished
+ * (0 is the opening), `waitedMs` how long the settle waited. `unsettled`
+ * says which conditions never held, or why the capture failed; refresh
+ * never compares such a screen. A capture that failed has an empty `ref`
+ * and the viewport's size: there are no bytes, and `unsettled` says why.
+ */
+export const PageScreenSchema = z
+  .object({
+    after: z.number().int().min(0),
+    sourceTimeMs: z.number(),
+    ref: z.string(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    heldAnimations: z.number().int().min(0),
+    waitedMs: z.number().min(0),
+    unsettled: z.string().optional(),
+  })
+  .refine((s) => s.ref !== "" || s.unsettled !== undefined, {
+    message: 'a page screen with no bytes (ref "") must say why in `unsettled`',
+    path: ["unsettled"],
+  });
+export type PageScreen = z.infer<typeof PageScreenSchema>;
+
+/**
  * The page's visual viewport against its layout viewport at an instant. A
  * page with no `<meta name="viewport">` on a phone lays out 980 CSS px wide
  * and is shown zoomed out (scale 0.401 on an iPhone), and a pinch-zoom moves
@@ -236,6 +262,26 @@ const DegradationSchema = z.object({
     // the page named for it was gone, or copying it threw). The drag still
     // ran; the film shows the card jump to its drop instead of travelling.
     "dragPictureMissing",
+    // A step's page had not settled when the cap ran out (requests in
+    // flight, an animation running, the DOM still changing) or showed a
+    // caret it would not hide: the page's own doing. The video is
+    // unaffected; refresh cannot compare that screen. The note names the
+    // step and the conditions.
+    "stepUnsettled",
+    // As `stepUnsettled`, but at least one condition was this machine's:
+    // the first paint never came, the settle probe or the page screen
+    // failed, requests could not be watched. Recording again may change
+    // it, so refresh does (DEM-55); the note names the step and the
+    // conditions, the page's beside the machine's.
+    "stepSettleFailed",
+    // A step's settle left out a request open since more than a request cap
+    // before the step began (a long poll): its own step waited for it. The
+    // screen counts as settled; the note names the step and how many.
+    "requestNotWaited",
+    // A page screen's hold (caret hidden, endless animations held) could not
+    // be undone after the capture: the video after that step may show no
+    // caret and frozen spinners. About the video, so not forgiven.
+    "pageHoldNotReleased",
   ]),
   note: z.string(),
 });
@@ -309,6 +355,9 @@ export const FrameBundleSchema = z
     // 2026-10-11 carries none, and identity is what they were drawn as.
     // See `ViewportTransformSchema`.
     viewportTransforms: z.array(ViewportTransformSchema).optional(),
+    // Optional, and absent is none: a sampled replay, a capture, and every
+    // bundle written before 2026-11-10 carry none.
+    pageScreens: z.array(PageScreenSchema).optional(),
     markers: z.array(MarkerSchema),
     degradations: z.array(DegradationSchema),
     /**

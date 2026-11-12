@@ -299,9 +299,6 @@ export async function renderToFiles(input: {
   stills?: StillsOptions;
   /** See `RenderManifest.outputTimesMs`. */
   outputTimesMs?: number[];
-  /** See `RenderManifest.screensOnly`: `files` are then the screens'
-   *  images, named by `screenImageName`. */
-  screensOnly?: { width: number };
   /** Marked at each of this render's stages (`stage-times.ts`). */
   times?: StageTimes;
 }): Promise<Rendered> {
@@ -319,7 +316,6 @@ export async function renderToFiles(input: {
     mp4Cap,
     stills,
     outputTimesMs,
-    screensOnly,
     times,
   } = input;
   const stamped: SceneDocument = {
@@ -384,7 +380,6 @@ export async function renderToFiles(input: {
       ...(mp4Cap === undefined ? {} : { mp4Cap }),
       ...(stills === undefined ? {} : { stills }),
       ...(outputTimesMs === undefined ? {} : { outputTimesMs }),
-      ...(screensOnly === undefined ? {} : { screensOnly }),
     });
     times?.mark("render");
     const { renderMs, framesMs, frameReads, sink } = facts.timing;

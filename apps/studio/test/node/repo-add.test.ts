@@ -271,7 +271,7 @@ describe("adding a flow to its repo, and removing it", () => {
         markNote: "the mark was not set",
         platformNote: "off Linux",
         scaleGuess: "1x is a guess",
-        screensNote: "2 of 3 screens are still",
+        screensNote: "2 of 3 screens settled",
       });
     await add(good);
     await until(() => phases().includes("added"));

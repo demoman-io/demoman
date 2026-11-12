@@ -18,8 +18,8 @@ run it locally too.
   title="~/nylon"
   lines={[
     "$ npx demoman refresh add-customer filter-invoices --base-url https://demoman.io",
-    "add-customer: unchanged: videos/add-customer.mp4: at most 0.0000% sharply and 0.0000% faintly of the picture changed, over 1 of 8 screens",
-    "filter-invoices: unchanged: videos/filter-invoices.mp4: at most 0.0000% sharply and 0.0000% faintly of the picture changed, over 1 of 3 screens",
+    "add-customer: unchanged: videos/add-customer.mp4: at most 0.0000% sharply and 0.0000% faintly of the picture changed, over 8 of 8 screens",
+    "filter-invoices: unchanged: videos/filter-invoices.mp4: at most 0.0000% sharply and 0.0000% faintly of the picture changed, over 3 of 3 screens",
   ]}
 />
 
@@ -28,19 +28,34 @@ run it locally too.
 | Line | Meaning |
 | --- | --- |
 | `<name>: changed: <what changed>` | The picture changed: how much, and when in the video. The files are replaced |
-| `<name>: added: <which file>` | It looks the same, and an output that was not there yet is written |
+| `<name>: added: <which file>` | It looks the same, and an output that was not there yet is written. Once, after its receipt predates page screens, `added: recorded again and not compared`: every file is replaced, with nothing compared |
 | `<name>: uncompared: nothing to compare against; delivered as new` | No earlier video to compare with. The files are written |
 | `<name>: unchanged: <how much changed>` | It looks the same. The files are left as they are |
 | `<name>: failed: <why>` | The run was not clean. The committed files stay, and the command exits 1 |
 
 ## How a change is judged
 
-Each export has a receipt in `.demoman/receipts/`: what the video showed on
-the screen before each step, and on its last screen. A refresh reads the new
-video at the same points and compares. If the picture changed, every file of
-the flow is replaced along with its receipt. The DemoScript is never
-rewritten, and videos are not compared byte for byte, so an unchanged app
-makes no commit.
+After every step, Demoman waits for the page to settle: painted, no
+request open, no animation finishing, and no change on the page for 200 ms.
+A request may hold it up to 6 seconds, such as an answer streamed in; the
+page then gets 2 more. A request opened more than 6 seconds before a
+step's wait begins, such as a long poll, is not waited for, and the run
+says so (`requestNotWaited`). The page is then saved as a screen: one as each
+step begins, and the last screen. A screen shows the page alone, so
+Demoman's cursor, click ripple and camera never count as a change.
+
+Each export has a receipt in `.demoman/receipts/` with those screens beside
+it. A refresh records the flow again, saves the same screens, and compares
+them. If the picture changed, every file of the flow is replaced along with
+its receipt. The DemoScript is never rewritten, and videos are not compared
+byte for byte, so an unchanged app makes no commit.
+
+A page that never settles is still saved, unless the capture itself fails,
+and is marked with what never held, such as
+`before step 3: the DOM never went quiet`. That screen is never compared:
+the refresh line names it beside the screens that were. When no screen
+settled in both videos, nothing is compared and the flow fails with the
+reason, its files left as they are.
 
 A compared screen catches a change as small as one digit of body text, or a
 colour change alone. Five things are not caught, or caught when they should
@@ -48,14 +63,25 @@ not be:
 
 - A change seen only in motion or mid-scroll, or something that appears and
   goes within one step.
-- A change too small to tell from the video's compression: a single
-  character in very light text, a slight shade change on a thin border.
-- An animation always in view (a spinner, a clock, a carousel) can read as
-  changed on some refreshes.
-- A slower app can tip the camera between panning and pulling back, which
-  reads as changed.
+- A change too faint to count: a single character in very light text, a
+  slight shade change on a thin border.
+- Script that keeps changing the page never settles: its screen is skipped
+  and named. Canvas drawing, a playing video and an animated GIF are not
+  seen as motion, so their screen is compared as captured and can read as
+  changed. A CSS spinner is held still and compared.
+- A change that comes after more than 200 ms of quiet with no request open,
+  from a timer alone or a slow debounce, is saved before it happens and can
+  read as changed.
 - A flow added on macOS is replaced once by the first refresh on Linux,
   whose fonts differ. After that, refresh in CI only.
+
+A receipt written by Demoman 0.9.4 or earlier has no page screens. Its first
+refresh records the flow again and replaces its files once, with nothing
+compared, and says so: `added: recorded again and not compared`, noting
+that the receipt predates page screens.
+
+Waiting for each step adds about a second to each video's refresh. A step
+whose request streams its answer waits for it.
 
 An app that shows today's date changes every day. Pin its clock with `now`
 ([app.json](/reference/app-json#pinned-dates)).

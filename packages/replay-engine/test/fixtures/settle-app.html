@@ -1,0 +1,123 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>settle app</title>
+<style>
+  @keyframes spin { to { transform: rotate(360deg) } }
+  @keyframes slide { from { transform: translateX(200px) } to { transform: translateX(0) } }
+  #toast { display: inline-block; animation: slide 300ms ease-out forwards }
+  #hoverrow { background-color: #fff; transition: background-color 150ms }
+  #hoverrow.on, #hoverrow:hover { background-color: #ccc }
+  #answer, #results { height: 20px }
+  #spin { width: 20px; height: 20px; background: #333; animation: spin 800ms linear infinite }
+</style>
+<button id="stream">stream</button>
+<button id="toastbtn">toast</button>
+<button id="hoverbtn">hover</button>
+<button id="spinbtn">spinner</button>
+<button id="finishedbtn">finished</button>
+<button id="never">never</button>
+<button id="poll">poll</button>
+<button id="ask">ask</button>
+<a id="nav" href="next">next page</a>
+<input id="q" placeholder="filter">
+<div id="list">all</div>
+<div id="out"></div>
+<div id="answer"></div>
+<!-- A line of its own: beside #q, #q's focus ring met its border and the
+     ring's corner pixels came out differently in 1 of ~6 recordings. -->
+<div><input id="search" placeholder="search"></div>
+<div id="results"></div>
+<div id="toasts"></div>
+<div id="hoverrow">row</div>
+<div id="count"></div>
+<div id="spinwrap"></div>
+<div id="finwrap"></div>
+<!-- Focus the document's caret rule cannot reach: a field inside a frame,
+     and one inside a component that sets its own caret-color. Each fills
+     its box, so a click at the box's centre focuses the field. -->
+<iframe id="frame" srcdoc="<input id=fin style='margin:0;width:180px;height:24px'>"
+  style="position:absolute;left:40px;top:510px;width:200px;height:40px;border:0"></iframe>
+<x-field id="shost" style="position:absolute;left:40px;top:560px;display:block;width:200px;height:30px"></x-field>
+<script>
+  // What a CSP refused, counted for the cases that serve this page under one.
+  window.__violations = 0;
+  document.addEventListener("securitypolicyviolation", () => window.__violations++);
+  customElements.define("x-field", class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" }).innerHTML =
+        "<style>input{caret-color:red;margin:0;width:200px;height:30px;box-sizing:border-box}</style><input id=shin>";
+    }
+  });
+  const $ = (id) => document.getElementById(id);
+  // 15 words, one per 100 ms: 1.5 s of appends.
+  $("stream").onclick = () => {
+    let i = 0;
+    const t = setInterval(() => {
+      $("out").textContent += (i ? " " : "") + "w" + i;
+      if (++i >= 15) clearInterval(t);
+    }, 100);
+  };
+  $("toastbtn").onclick = () => {
+    const d = document.createElement("div");
+    d.id = "toast";
+    d.textContent = "saved";
+    $("toasts").append(d);
+  };
+  // How long both searches wait after the last key: shorter than the
+  // walk's quiet beat (STEP_QUIET_MS), which a timer alone longer than it
+  // outlasts by design. replay-settled-screens.test.ts asserts it.
+  const DEBOUNCE_MS = 150;
+  // A search that asks the server once the typing stops (http only): the
+  // request starts inside the quiet beat that follows the last key.
+  let searching;
+  $("search").oninput = () => {
+    clearTimeout(searching);
+    searching = setTimeout(async () => {
+      const r = await fetch("search?q=" + encodeURIComponent($("search").value));
+      $("results").textContent = await r.text();
+    }, DEBOUNCE_MS);
+  };
+  let deb;
+  $("q").oninput = () => {
+    clearTimeout(deb);
+    deb = setTimeout(() => { $("list").textContent = "filtered:" + $("q").value; }, DEBOUNCE_MS);
+  };
+  $("hoverbtn").onclick = () => $("hoverrow").classList.add("on");
+  $("spinbtn").onclick = () => {
+    const d = document.createElement("div");
+    d.id = "spin";
+    $("spinwrap").append(d);
+  };
+  $("finishedbtn").onclick = () => {
+    const d = document.createElement("div");
+    d.id = "fin";
+    d.textContent = "box";
+    $("finwrap").append(d);
+    d.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, fill: "forwards" });
+  };
+  // Served over http only (replay-settled-screens.test.ts): the answer's
+  // first word comes after a pause longer than the quiet beat, so only the
+  // request in flight says the step is not done.
+  $("ask").onclick = async () => {
+    const reader = (await fetch("answer")).body.getReader();
+    const text = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      $("answer").textContent += text.decode(value);
+    }
+  };
+  // Leaves a beat after the click, as a router or a form handler does: the
+  // click's own check is long done when the page starts to go.
+  $("nav").onclick = (e) => {
+    e.preventDefault();
+    setTimeout(() => { location.href = "next"; }, 100);
+  };
+  // A long poll (http only): the server holds it open for the whole take.
+  $("poll").onclick = () => void fetch("poll").catch(() => undefined);
+  $("never").onclick = () => {
+    let n = 0;
+    setInterval(() => { $("count").textContent = String(++n); }, 50);
+  };
+</script>

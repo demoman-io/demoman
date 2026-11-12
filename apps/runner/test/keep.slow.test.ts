@@ -38,10 +38,10 @@ import { createLibrary, type Library } from "../src/executor/library.js";
 import { execGit, readRepo } from "../src/executor/repo.js";
 import { createSessionStore } from "../src/executor/sessions.js";
 import { createVideoStore, type VideoStore } from "../src/executor/videos.js";
-import { makeDiskTake, putTake } from "./disk-take.js";
+import { makeDiskTake, putTake, withPageScreens } from "./disk-take.js";
 import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
 import { readKeptV2 } from "./kept-v2.js";
-import { sampleImage, sampleMp4 } from "./mp4-probe.js";
+import { sampleMp4 } from "./mp4-probe.js";
 
 // Measured locally (2026-10-27, M-series Mac, headless): the disk take
 // about 2 s; the clean keep (a share MP4 and a GIF) about 15 s. x5 for CI
@@ -58,8 +58,6 @@ let videos: VideoStore;
 let session: BrowserSession;
 let repoKey: string;
 let cleanTakeId: string;
-/** The disk take's own pointer, which glides for the whole take: no still screen. */
-let movingCursor: NonNullable<FrameBundle["cursorSamples"]>;
 const lines: string[] = [];
 
 const deps = (): KeepDeps => ({
@@ -122,10 +120,20 @@ async function copyFrames(
   for (const m of motionSpans ?? []) {
     await to.putSpan(m.ref, new Uint8Array([1, 2, 3]));
   }
+  // Its page screens too: a keep stores them, by the take's own refs.
+  const pageScreens = await Promise.all(
+    (bundle.pageScreens ?? []).map(async (p) => {
+      const bytes = p.ref === "" ? null : await from.getPageScreen(p.ref);
+      return bytes === null
+        ? p
+        : { ...p, ref: await to.putPageScreen(takeId, p.after, bytes) };
+    }),
+  );
   await to.putBundle(takeId, {
     ...bundle,
     sceneId: takeId,
     keyframes,
+    pageScreens,
     ...(motionSpans === undefined ? {} : { motionSpans }),
   });
   // Premise: the copy reads back as a bundle with frames.
@@ -177,14 +185,18 @@ beforeAll(async () => {
   // The clean take: frames on disk, and a logo outside the repo (in home).
   const { takeId, original, bundle } = await makeDiskTake(home);
   cleanTakeId = takeId;
-  // The pointer holds still, as in executor-export-screens.test.ts: a
-  // film that is never still has no screens, and keep refuses one.
-  movingCursor = bundle.cursorSamples;
+  // The pointer holds still, as in executor-export-screens.test.ts, and
+  // the take settled every screen, as a real-time take records them.
   const still = { sourceTimeMs: 0, x: 900, y: 600 };
-  await putTake(home, takeId, original, {
-    ...bundle,
-    cursorSamples: [still, { ...still, sourceTimeMs: 9000 }],
-  });
+  await putTake(
+    home,
+    takeId,
+    original,
+    await withPageScreens(home, takeId, {
+      ...bundle,
+      cursorSamples: [still, { ...still, sourceTimeMs: 9000 }],
+    }),
+  );
   await writeFile(join(home, "acme.svg"), LOGO_SVG);
   const withLogo: SceneDocument = {
     ...original,
@@ -332,14 +344,16 @@ describe("keep, a clean take", () => {
         );
         if (plain.outcome !== "saved" || plain.fileType === "stills")
           throw new Error(JSON.stringify(plain));
-        // Premise: there are screens to carry, or equal empties prove nothing.
-        expect(plain.screens.moments.length).toBeGreaterThan(0);
-        // ...and each its window, and the look: keep writes all of them.
-        expect(plain.screens.look).toBeDefined();
-        expect(plain.screens.moments.every((m) => m.window)).toBe(true);
-        expect(receipt.screens).toEqual(plain.screens);
+        const shown = plain.screens;
+        // Premise: there are screens to count, or equal empties prove nothing.
+        if (shown === undefined) throw new Error(JSON.stringify(plain));
+        expect(shown.steps).toBeGreaterThan(0);
+        expect(shown.look).toBeDefined();
+        // A step means what the video's own screens count (screenMoments).
+        expect(receipt.screens?.steps).toBe(shown.steps);
+        expect(receipt.screens?.look).toBe(shown.look);
         expect(out.screensNote).toBe(
-          `${plain.screens.moments.length} of ${plain.screens.steps + 1} screens are still`,
+          `${shown.steps + 1} of ${shown.steps + 1} screens settled`,
         );
       } finally {
         await rm(outDir, { recursive: true, force: true });
@@ -582,10 +596,10 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
     }
   });
 
-  // Red if keep stops writing the images (the folder is missing or short) or
-  // writes them at another width than a refresh's own screens render.
+  // Red if keep stops writing the images (the folder is missing or short),
+  // or writes anything but the take's own page screens under their names.
   it(
-    "keep writes a v2 receipt and one image per still screen beside it",
+    "keep writes a v3 receipt and its screens folder",
     async () => {
       await freshVideo("scene-img-1", "Images");
       const out = await keepVideo(
@@ -594,7 +608,8 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       );
       if (!out.ok) throw new Error(JSON.stringify(out));
       const { kept, receipt, receiptFile } = await readKeptV2(repo, out.file);
-      expect(receipt.receiptVersion).toBe(2);
+      expect(receipt.receiptVersion).toBe(3);
+      expect(receipt).not.toHaveProperty("screensSize");
       // Red if keep stops recording the script it delivered from.
       expect(receipt.scriptDigest).toBe(scriptDigest(kept.script));
       // Review finding 8: the digest keep wrote is the one setup computes
@@ -610,34 +625,80 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
         0,
       );
       expect(receipt.scriptDigest).toBe(scriptDigest(read.kept.script));
-      expect(
-        receipt.screens.moments.length,
-        "premise: moments",
-      ).toBeGreaterThan(1);
+      const store = library.frameStore("scene-img-1");
+      const page = (await store.getBundle("scene-img-1"))?.pageScreens ?? [];
+      // Premise: the take has a screen per step and the final one.
+      const steps = receipt.screens?.steps ?? -1;
+      expect(page.length, JSON.stringify(page)).toBe(steps + 1);
+      expect(receipt.screens?.screens).toEqual(
+        page.map((p) => ({ step: p.after < steps ? p.after : null })),
+      );
       expect(receipt.screensDir).toBe(
         `${keptFileName("Images").replace(/\.json$/, "")}.screens`,
       );
-      expect(receipt.screensSize).not.toBeNull();
       const dir = join(
         repo,
         dirname(receiptFile),
         receipt.screensDir as string,
       );
-      const names = receipt.screens.moments.map((m) => screenImageName(m.step));
+      const names = page.map((p) =>
+        screenImageName(p.after < steps ? p.after : null),
+      );
       expect((await readdir(dir)).sort()).toEqual([...names].sort());
-      for (const n of names) {
-        const read = await sampleImage(
-          await readFile(join(dir, n)),
-          "image/png",
-          {
-            colors: [],
-          },
+      for (const [i, p] of page.entries()) {
+        const bytes = await readFile(join(dir, names[i] as string));
+        const take = await store.getPageScreen(p.ref);
+        expect(take, `premise: ${p.ref} is stored`).not.toBeNull();
+        expect(Buffer.compare(bytes, Buffer.from(take ?? [])), names[i]).toBe(
+          0,
         );
-        expect(read.width, n).toBe(1280);
       }
       expect(out.written).toContain(
         join(dirname(receiptFile), receipt.screensDir as string),
       );
+    },
+    KEEP_MS,
+  );
+
+  // Red if the note counts every screen as settled, or drops the reason.
+  it(
+    "keep's screens note counts unsettled screens by step",
+    async () => {
+      const takeId = "scene-unsettled-1";
+      await freshVideo(takeId, "Unsettled");
+      const store = library.frameStore(takeId);
+      const bundle = await store.getBundle(takeId);
+      if (bundle === null) throw new Error("no bundle");
+      // The screen before the third step never settled.
+      await store.putBundle(
+        takeId,
+        await withPageScreens(home, takeId, bundle, {
+          2: "the DOM never went quiet",
+        }),
+      );
+      const out = await keepVideo(
+        { video: "Unsettled", to: [gif("docs/unsettled.gif")], repoRoot: repo },
+        deps(),
+      );
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      // Premise: the recipe's third step is the take's third action.
+      expect(out.kept.script.steps.slice(0, 3).map((s) => s.do)).not.toContain(
+        "pause",
+      );
+      expect(out.screensNote).toBe(
+        "3 of 4 screens settled; before step 3: the DOM never went quiet",
+      );
+      expect(out.receipt?.screens?.screens[2]).toEqual({
+        step: 2,
+        unsettled: "the DOM never went quiet",
+      });
+      // An unsettled screen is never compared, so it has no image.
+      const dir = join(
+        repo,
+        ".demoman/receipts",
+        out.receipt?.screensDir as string,
+      );
+      expect(await readdir(dir)).not.toContain(screenImageName(2));
     },
     KEEP_MS,
   );
@@ -661,7 +722,7 @@ describe("keep writes the recipe, the receipt, and marks the flow kept", () => {
       expect(receipt.video).toBe("scene-v2-1");
       expect(receipt.flow).toBe(videoId);
       expect(
-        receipt.screens.moments.length,
+        receipt.screens?.screens.length,
         "premise: screens",
       ).toBeGreaterThan(0);
       expect(out.written).toContain(receiptFile);
@@ -1049,66 +1110,82 @@ describe("keep refuses, writing nothing", () => {
     return out;
   };
 
-  // Red if keep stops checking the judged export's moments: an empty array
-  // would be written, and parseKept refuses the file it just wrote.
+  // Review Focus 5. Red if keep forgives a take with no page screens: a
+  // receipt with nothing to compare would be written. Red too if it renders
+  // any output first: minutes each without a GPU, for a refusal.
   it(
-    "a take whose film is never still, saying it has no still screen to compare against",
+    "a take recorded before page screens, saying so, before any export",
     async () => {
-      const { scene } = await videoOf("scene-moving", "Never still");
+      const { scene } = await videoOf("scene-no-pages", "No pages");
       await copyFrames(scene.meta.id);
       const frames = library.frameStore(scene.meta.id);
       const bundle = await frames.getBundle(scene.meta.id);
       if (bundle === null) throw new Error("no bundle");
-      // Premise: the pointer travels the whole take.
-      expect(movingCursor.length).toBeGreaterThan(1);
-      expect(movingCursor[0]).not.toEqual(movingCursor[1]);
-      await frames.putBundle(scene.meta.id, {
-        ...bundle,
-        cursorSamples: movingCursor,
-      });
-      const out = await refused("Never still");
-      expect(out.detail).toContain("no still screen to compare against");
+      const { pageScreens: _gone, ...older } = bundle;
+      expect(_gone?.length, "premise: it had page screens").toBeGreaterThan(0);
+      await frames.putBundle(scene.meta.id, older);
+      const from = lines.length;
+      const out = await refused("No pages");
+      expect(out.reason).toBe("exportFailed");
+      expect(out.detail).toContain("has no page screens");
+      expect(out.detail).toContain("recorded before page screens");
+      const said = lines.slice(from);
+      expect(said, "premise: keep logged its steps").toContain(
+        `add: copying the page screens of docs/case-${cases}.mp4`,
+      );
+      expect(said.filter((l) => l.startsWith("add: exporting"))).toEqual([]);
     },
     KEEP_MS,
   );
 
-  // Red if keep forgives a screens render that failed: a receipt would name
-  // images that are not there.
+  // Red if keep stops checking for a settled screen: a receipt every
+  // refresh reads as "nothing to compare" would be written.
   it(
-    "a screens render that fails refuses the keep with its reason, writing nothing",
+    "a take none of whose screens settled, saying it has no settled screen to compare against",
+    async () => {
+      const { scene } = await videoOf("scene-none-settled", "None settled");
+      await copyFrames(scene.meta.id);
+      const frames = library.frameStore(scene.meta.id);
+      const bundle = await frames.getBundle(scene.meta.id);
+      if (bundle === null) throw new Error("no bundle");
+      const never = Object.fromEntries(
+        bundle.markers.map((_, i) => [i, "2 requests in flight"]),
+      );
+      never[bundle.markers.length] = "the DOM never went quiet";
+      await frames.putBundle(
+        scene.meta.id,
+        await withPageScreens(home, scene.meta.id, bundle, never),
+      );
+      const out = await refused("None settled");
+      expect(out.detail).toContain("no settled screen to compare against");
+    },
+    KEEP_MS,
+  );
+
+  // Red if keep forgives a page screen it could not read: a receipt would
+  // name an image that is not there.
+  it(
+    "a page screen missing from the take refuses the keep, naming it, writing nothing",
     async () => {
       const { scene } = await videoOf("scene-img-2", "Screens fail");
       await copyFrames(scene.meta.id);
-      const before = await repoFiles();
-      let opened = 0;
-      const d = deps();
-      const out = await keepVideo(
-        { video: "Screens fail", to: [mp4("docs/sf.mp4")], repoRoot: repo },
-        {
-          ...d,
-          export: {
-            ...d.export,
-            session: new Proxy(session, {
-              get: (t, k) =>
-                k === "openWorkPage"
-                  ? async (...a: never[]) =>
-                      ++opened === 2
-                        ? {
-                            ok: false as const,
-                            reason: "x",
-                            detail: "screens page gone",
-                          }
-                        : (t.openWorkPage as (...a: never[]) => unknown)(...a)
-                  : Reflect.get(t, k),
-            }),
-          },
-        },
-      );
-      expect(opened, "premise: the screens render opened its own page").toBe(2);
-      expect(await repoFiles()).toEqual(before);
-      expect(out).toMatchObject({ ok: false, reason: "exportFailed" });
-      if (out.ok) return;
-      expect(out.detail).toContain("screens page gone");
+      const frames = library.frameStore(scene.meta.id);
+      const bundle = await frames.getBundle(scene.meta.id);
+      const first = bundle?.pageScreens?.[0];
+      if (bundle === null || first === undefined) throw new Error("no screen");
+      await frames.putBundle(scene.meta.id, {
+        ...bundle,
+        pageScreens: [
+          { ...first, ref: "ps:elsewhere:0" },
+          ...(bundle.pageScreens ?? []).slice(1),
+        ],
+      });
+      // Premise: nothing is stored under that ref.
+      expect(await frames.getPageScreen("ps:elsewhere:0")).toBeNull();
+      const out = await refused("Screens fail");
+      expect(out.reason).toBe("exportFailed");
+      expect(out.detail).toContain("ps:elsewhere:0");
+      expect(out.detail).toContain("is missing");
     },
     KEEP_MS,
   );
@@ -1706,8 +1783,8 @@ describe("a run into a kept video rewrites its file", () => {
       const tampered = {
         ...before.receipt,
         screens: {
-          steps: before.receipt.screens.steps,
-          moments: [{ step: null, ms: 1 }],
+          steps: before.receipt.screens?.steps ?? 0,
+          screens: [{ step: null }],
         },
       };
       expect(tampered.screens).not.toEqual(before.receipt.screens);

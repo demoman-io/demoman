@@ -1,7 +1,7 @@
 /**
  * The DECODE probe: everything that has to look at the pixels of an mp4
- * the runner produced goes through this file, the tests and refresh's
- * `samePicture` alike.
+ * the runner produced goes through this file, and refresh's page screens
+ * (`sameScreens`) too.
  *
  * Split out of `mux-entry.ts` on Task 11's fix round 1 (as
  * `mux-probe-entry.ts`) after a reviewer measured what folding a probe into
@@ -14,7 +14,7 @@
  * duplicated behind two globals, and `decodeFrame` and `sampleFrames` are
  * the same `Input`/`CanvasSink` open with different questions asked of it.
  *
- * No run or export injects this file. `refresh`'s `samePicture` does, on a
+ * No run or export injects this file. `refresh`'s `sameScreens` does, on a
  * work page of its own, and so the package prebuilds it (`PAGE_ENTRIES`).
  * `mux.test.ts` and `acceptance.test.ts` do too, via the same
  * `bundleEntry` + `page.addScriptTag` mechanism `mux.ts`/`render.ts` use for
@@ -40,15 +40,9 @@ import {
   VideoSampleSink,
 } from "mediabunny";
 import { DECODE_PROBE_GLOBAL } from "./entry-globals.js";
-import {
-  changedShare,
-  type Drawn,
-  insideOnly,
-  type PictureLook,
-  type ScreenWindow,
-} from "./picture-diff.js";
+import { changedShare, type Drawn, type PictureLook } from "./picture-diff.js";
 
-export type { PictureLook, ScreenWindow } from "./picture-diff.js";
+export type { PictureLook } from "./picture-diff.js";
 
 /** One fractional point, rect or colour. Fractions of the frame's own width
  *  and height, never absolute pixels: a target-size change must not silently
@@ -130,23 +124,10 @@ export interface CropReading {
   grey?: string;
 }
 
-/** One file as `screensDiff` read it; `length` and `frame` (its shortest
- *  frame) in seconds. */
-export interface PictureFile {
-  width: number;
-  height: number;
-  length: number;
-  frame: number;
-}
-
-export interface ScreensDiff {
-  a: PictureFile;
-  b: PictureFile;
-  /** Per moment pair, per look (in `looks` order): the share of the
-   *  picture that look counts changed at that moment in `b`; null where
-   *  either moment lies past its film's end. Empty when the two differ in
-   *  frame size. */
-  changed: (number[] | null)[];
+/** Per image pair, per look (in `looks` order): the share of the picture
+ *  that look counts changed in `b`. */
+export interface ImagesDiff {
+  changed: number[][];
 }
 
 /** One file could not be read as its type: `a` or `b`, and why. */
@@ -155,38 +136,14 @@ export interface PictureUnreadable {
   error: string;
 }
 
-export interface PictureOptions {
-  /** The width both films are drawn at before comparing. */
-  width: number;
-  looks: PictureLook[];
-  /** How far inside a screen's window (`ScreenWindow`) its pixels are
-   *  compared, in pixels at `width`. */
-  inset: number;
-}
 export interface DecodeProbeEntry {
-  screensDiff(
-    a: string,
-    b: string,
-    type: "video/mp4" | "image/gif",
-    msA: number[],
-    msB: number[],
-    /** Per moment pair, the window to compare inside; null for the whole
-     *  picture. */
-    windows: (ScreenWindow | null)[],
-    options: PictureOptions,
-  ): Promise<ScreensDiff | PictureUnreadable>;
-  /** `screensDiff` over still images: `urlsA[i]` against `urlsB[i]`, each
-   *  drawn `options.width` wide. The files report `sizeA` and `sizeB`, the
-   *  output target's pixels the windows are in, with `length` and `frame` 0;
-   *  no entry of `changed` is null. */
+  /** `urlsA[i]` against `urlsB[i]`, two PNGs of one size, each read at
+   *  its own size: page screens (spec 2026-11-10, decision 4). */
   imagesDiff(
     urlsA: string[],
     urlsB: string[],
-    sizeA: { width: number; height: number },
-    sizeB: { width: number; height: number },
-    windows: (ScreenWindow | null)[],
-    options: PictureOptions,
-  ): Promise<ScreensDiff | PictureUnreadable>;
+    looks: PictureLook[],
+  ): Promise<ImagesDiff | PictureUnreadable>;
   /** Every frame of the film at `url`, decoded in order: its timestamp, and
    *  how much its picture changed from the frame before. */
   frameTimes(url: string): Promise<FrameTimes>;
@@ -797,170 +754,22 @@ function drawnOf(
   return { width, height, rgba: ctx.getImageData(0, 0, width, height).data };
 }
 
-/** A file's frames by time, drawn small. `at` takes ascending times. */
-interface PictureReader extends PictureFile {
-  at(times: number[]): Promise<Drawn[]>;
-  close(): void;
-}
-
-async function pictureReader(
-  url: string,
-  type: "video/mp4" | "image/gif",
-  width: number,
-): Promise<PictureReader> {
-  if (type === "image/gif") {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`${url} answered ${res.status}`);
-    const decoder = new ImageDecoder({ data: await res.arrayBuffer(), type });
-    try {
-      await decoder.tracks.ready;
-      const count = decoder.tracks.selectedTrack?.frameCount ?? 0;
-      if (count === 0) throw new Error(`${url} has no frames`);
-      // A GIF holds a frame that does not change for as long as it lasts,
-      // so its frames are found by time, never by index.
-      const ends: number[] = [];
-      let w = 0;
-      let h = 0;
-      let end = 0;
-      for (let i = 0; i < count; i++) {
-        const { image } = await decoder.decode({ frameIndex: i });
-        w = image.displayWidth;
-        h = image.displayHeight;
-        end += (image.duration ?? 0) / 1e6;
-        ends.push(end);
-        image.close();
-      }
-      const frame = Math.min(
-        ...ends.map((e, i) => e - (ends[i - 1] ?? 0)).filter((d) => d > 0),
-      );
-      const indexAt = (t: number) => {
-        const i = ends.findIndex((e) => t < e);
-        return i < 0 ? count - 1 : i;
-      };
-      const drawnAt = async (i: number) => {
-        const { image } = await decoder.decode({ frameIndex: i });
-        try {
-          return drawnOf(image, w, h, width);
-        } finally {
-          image.close();
-        }
-      };
-      return {
-        width: w,
-        height: h,
-        length: end,
-        frame,
-        at: async (times) => {
-          const out: Drawn[] = [];
-          for (const t of times) out.push(await drawnAt(indexAt(t)));
-          return out;
-        },
-        close: () => decoder.close(),
-      };
-    } catch (error) {
-      decoder.close();
-      throw error;
-    }
-  }
-  const input = new Input({
-    source: new UrlSource(url, { getRetryDelay: () => null }),
-    formats: ALL_FORMATS,
-  });
-  const track = await input.getPrimaryVideoTrack();
-  if (track === null) throw new Error(`${url} has no video track`);
-  if (!(await track.canDecode())) {
-    throw new Error(
-      `${url}'s video track (${track.codec ?? "unknown codec"}) cannot be decoded in this browser`,
-    );
-  }
-  const length = await input.computeDuration();
-  const rate = (await track.computePacketStats()).averagePacketRate;
-  const frame = rate > 0 ? 1 / rate : 1 / 30;
-  const at = async (times: number[]) => {
-    const drawn: Drawn[] = [];
-    for await (const wrapped of new CanvasSink(track).canvasesAtTimestamps(
-      times,
-    )) {
-      const t = times[drawn.length] as number;
-      if (!wrapped) throw new Error(`no frame decoded at ${t.toFixed(3)}s`);
-      const c = wrapped.canvas as OffscreenCanvas;
-      drawn.push(drawnOf(c, c.width, c.height, width));
-    }
-    return drawn;
-  };
-  return {
-    width: track.displayWidth,
-    height: track.displayHeight,
-    length,
-    frame,
-    at,
-    close: () => input.dispose(),
-  };
-}
-
-/**
- * `a` at `msA[i]` against `b` at `msB[i]`, for the moments the renders
- * recorded as still screens. Read here, next to the pixels, so no frame
- * crosses `page.evaluate`. Throws, like `sampleFrames`: a comparison cannot
- * use a false verdict.
- */
-async function screensDiff(
-  urlA: string,
-  urlB: string,
-  type: "video/mp4" | "image/gif",
-  msA: number[],
-  msB: number[],
-  windows: (ScreenWindow | null)[],
-  o: PictureOptions,
-): Promise<ScreensDiff | PictureUnreadable> {
-  try {
-    const ra = await blamed("a", urlA, type, o.width);
-    try {
-      const rb = await blamed("b", urlB, type, o.width);
-      try {
-        return await diffOf(ra, rb, msA, msB, windows, o);
-      } finally {
-        rb.close();
-      }
-    } finally {
-      ra.close();
-    }
-  } catch (error) {
-    if (error instanceof Unreadable)
-      return { unreadable: error.side, error: error.message };
-    throw error;
-  }
-}
-
-/** `screensDiff` over still images (`DecodeProbeEntry.imagesDiff`). An image
- *  that will not load is `unreadable`, its message led by its url. */
+/** `imagesDiff` (`DecodeProbeEntry.imagesDiff`). An image that will not
+ *  load is `unreadable`, its message led by its url. Throws on two images
+ *  of different sizes: the caller compares sizes before it asks. */
 async function imagesDiff(
   urlsA: string[],
   urlsB: string[],
-  sizeA: { width: number; height: number },
-  sizeB: { width: number; height: number },
-  windows: (ScreenWindow | null)[],
-  o: PictureOptions,
-): Promise<ScreensDiff | PictureUnreadable> {
-  const file = (size: { width: number; height: number }): PictureFile => ({
-    ...size,
-    length: 0,
-    frame: 0,
-  });
-  const answer: ScreensDiff = {
-    a: file(sizeA),
-    b: file(sizeB),
-    changed: [],
-  };
-  if (sizeA.width !== sizeB.width || sizeA.height !== sizeB.height)
-    return answer;
+  looks: PictureLook[],
+): Promise<ImagesDiff | PictureUnreadable> {
+  const answer: ImagesDiff = { changed: [] };
   const read = async (side: "a" | "b", url: string): Promise<Drawn> => {
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`answered ${res.status}`);
       const bitmap = await createImageBitmap(await res.blob());
       try {
-        return drawnOf(bitmap, bitmap.width, bitmap.height, o.width);
+        return drawnOf(bitmap, bitmap.width, bitmap.height, bitmap.width);
       } finally {
         bitmap.close();
       }
@@ -974,10 +783,12 @@ async function imagesDiff(
   try {
     for (const [i, urlA] of urlsA.entries()) {
       const da = await read("a", urlA);
-      const gb = await read("b", urlsB[i] as string);
-      const w = windows[i] ?? null;
-      const db = w === null ? gb : insideOnly(da, gb, w, sizeB.width, o.inset);
-      answer.changed.push(o.looks.map((look) => changedShare(da, db, look)));
+      const db = await read("b", urlsB[i] as string);
+      if (da.width !== db.width || da.height !== db.height)
+        throw new Error(
+          `${urlA} is ${da.width}x${da.height} and ${urlsB[i]} ${db.width}x${db.height}: images of two sizes are not compared`,
+        );
+      answer.changed.push(looks.map((look) => changedShare(da, db, look)));
     }
   } catch (error) {
     if (error instanceof Unreadable)
@@ -987,7 +798,7 @@ async function imagesDiff(
   return answer;
 }
 
-/** A failure to read one file's frames, and which file. */
+/** A failure to read one file, and which file. */
 class Unreadable extends Error {
   constructor(
     readonly side: "a" | "b",
@@ -995,69 +806,6 @@ class Unreadable extends Error {
   ) {
     super(cause instanceof Error ? cause.message : String(cause));
   }
-}
-
-/** `pictureReader`, with every failure to read it blamed on `side`. */
-async function blamed(
-  side: "a" | "b",
-  url: string,
-  type: "video/mp4" | "image/gif",
-  width: number,
-): Promise<PictureReader> {
-  const blame = <T>(p: Promise<T>) =>
-    p.catch((error: unknown) => {
-      throw new Unreadable(side, error);
-    });
-  const r = await blame(pictureReader(url, type, width));
-  return {
-    ...r,
-    at: (times) => blame(r.at(times)),
-  };
-}
-
-async function diffOf(
-  ra: PictureReader,
-  rb: PictureReader,
-  msA: number[],
-  msB: number[],
-  windows: (ScreenWindow | null)[],
-  o: PictureOptions,
-): Promise<ScreensDiff> {
-  const file = (r: PictureReader): PictureFile => ({
-    width: r.width,
-    height: r.height,
-    length: r.length,
-    frame: r.frame,
-  });
-  const answer = {
-    a: file(ra),
-    b: file(rb),
-    changed: [] as (number[] | null)[],
-  };
-  if (ra.width !== rb.width || ra.height !== rb.height) return answer;
-  // A moment at or past the length has no frame; a request there decodes none.
-  const within = (r: PictureReader, ms: number) => ms / 1000 < r.length;
-  const keep = msA.map((a, i) =>
-    within(ra, a) && within(rb, msB[i] as number) ? i : -1,
-  );
-  const ids = keep.filter((i) => i >= 0);
-  const ga = await ra.at(ids.map((i) => (msA[i] as number) / 1000));
-  const gb = await rb.at(ids.map((i) => (msB[i] as number) / 1000));
-  for (const i of msA.keys()) {
-    const k = ids.indexOf(i);
-    if (k < 0) {
-      answer.changed.push(null);
-      continue;
-    }
-    const da = ga[k] as Drawn;
-    const w = windows[i] ?? null;
-    const db =
-      w === null
-        ? (gb[k] as Drawn)
-        : insideOnly(da, gb[k] as Drawn, w, rb.width, o.inset);
-    answer.changed.push(o.looks.map((look) => changedShare(da, db, look)));
-  }
-  return answer;
 }
 
 /** Mean absolute difference per colour channel (alpha left out), 0–255. */
@@ -1076,7 +824,6 @@ function meanAbsoluteDifference(
 }
 
 const entry: DecodeProbeEntry = {
-  screensDiff,
   imagesDiff,
   decodeFrame,
   readCrops,

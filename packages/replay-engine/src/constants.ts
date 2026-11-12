@@ -271,3 +271,53 @@ export const NAVIGATE_TIMEOUT_MS = 15_000;
  * autoplaying video never goes quiet; past this the act is over anyway.
  */
 export const ACT_CEILING_MS = 1000;
+
+/**
+ * How long a step's page must go without a DOM mutation before the walk calls
+ * the step's result settled. Measured 2026-11-10 on the house apps
+ * (helpdesk, nylon, sublime) and the chatbot sample, ten flows, two runs per
+ * build, against the build before the settle (`apps/runner/compare/
+ * settle-cost.mjs`). Growth in walk seconds per video, 300 ms then 200 ms:
+ *
+ *   flow                                  300    200
+ *   chatbot  Ask about the weather        1.84   0.33
+ *   helpdesk Answer with a macro          1.84   2.52
+ *   helpdesk Reply with a drafted answer  1.45   0.85
+ *   helpdesk Search tickets               1.28   1.05
+ *   nylon    Create an invoice            3.51   2.73
+ *   nylon    Filter invoices              1.90   0.82
+ *   nylon    Mark an invoice paid         1.79   1.88
+ *   sublime  Add an issue to the board    1.77   1.47
+ *   sublime  Find an issue (palette)      2.18   1.42
+ *   sublime  Move an issue to review      0.80   0.56
+ *   median                                1.82   1.24
+ *   p90                                   2.18   2.52
+ *
+ * The cost is a fixed floor of about this much per step (every settled
+ * screen waited this plus 5-15 ms; only network or animation waits ran
+ * longer), so it grows with a script's length, not with its pages. The
+ * author accepted +1.24 s median at 200 (2026-11-10).
+ *
+ * What it cannot cover: a page that changes after a quiet gap longer than
+ * about 200 ms with no request open is captured before it changes. That is
+ * a debounce longer than the beat, and any delay made by a timer alone
+ * (`setTimeout` with no fetch or XHR) longer than the beat. A delay that
+ * waits on a request is condition 2's, and is waited out.
+ */
+export const STEP_QUIET_MS = 200;
+/**
+ * The most the walk waits for one step's page (paint, finite animations, DOM
+ * quiet) once its requests are idle. A page that never stops (a ticker)
+ * costs this per step and is reported unsettled.
+ */
+export const STEP_SETTLE_CAP_MS = 2000;
+/**
+ * The most the walk waits for one step's fetch/XHR requests to finish,
+ * before the page is asked at all. Longer than the page's cap because a
+ * streamed answer is one request that stays open while it is written:
+ * measured 2026-11-10, the chatbot sample's reply and the helpdesk's drafted
+ * answer each held the 2 s cap and were captured mid-stream. A request still
+ * open at this cap is reported unsettled ("N request(s) in flight"). A step
+ * costs at most this plus `STEP_SETTLE_CAP_MS`.
+ */
+export const STEP_REQUEST_CAP_MS = 6000;

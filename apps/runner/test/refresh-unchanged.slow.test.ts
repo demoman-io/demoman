@@ -1,4 +1,4 @@
-// The refresh lane, part 1 of 4 (`refresh-suite.ts` says why it is split).
+// The refresh lane, part 1 of 6 (`refresh-suite.ts` says why it is split).
 import {
   clickGuard,
   compareFailures,

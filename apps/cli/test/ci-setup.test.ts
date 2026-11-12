@@ -110,7 +110,7 @@ async function repo(
     await writeFile(
       join(root, RECEIPT_DIR, "checkout.json"),
       JSON.stringify({
-        receiptVersion: 2,
+        receiptVersion: 3,
         flow,
         video: "take-1",
         filmedAt: null,
@@ -122,8 +122,7 @@ async function repo(
           absent: {},
         }[o.digest ?? "match"],
         screensDir: "checkout.screens",
-        screensSize: { width: 1280, height: 800 },
-        screens: { steps: 1, moments: [{ step: null, ms: 100 }] },
+        screens: { steps: 1, screens: [{ step: null }] },
       }),
     );
     await writeFile(

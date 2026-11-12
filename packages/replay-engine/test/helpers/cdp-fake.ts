@@ -2,9 +2,11 @@ import type { CdpFrameNode, CdpSession } from "../../src/index.js";
 import {
   CLICK_PROBE_MARKER,
   type ClickSeen,
+  PAGE_CAPTURE_HOLD,
   SCROLL_MARKER,
   SETTLE_MARKER,
   type SettleReport,
+  STEP_SETTLE_MARKER,
 } from "../../src/index.js";
 
 /** A 4x4 JPEG's worth of bytes: SOI, APP0, SOF0 declaring 800x600. Enough
@@ -48,6 +50,45 @@ export function fakeScreenshotBase64(width = 1280, height = 800): string {
     0x03,
     0x11,
     0x01,
+  ];
+  return btoa(String.fromCharCode(...bytes));
+}
+
+/** A PNG's signature and IHDR, declaring the size asked for: enough for
+ *  `pngSize`. The page screens are PNG at CSS 1x, so the default is the
+ *  fixture viewport. */
+export function fakePngBase64(width = 1280, height = 800): string {
+  const be = (n: number) => [
+    (n >>> 24) & 0xff,
+    (n >>> 16) & 0xff,
+    (n >>> 8) & 0xff,
+    n & 0xff,
+  ];
+  const bytes = [
+    0x89,
+    0x50,
+    0x4e,
+    0x47,
+    0x0d,
+    0x0a,
+    0x1a,
+    0x0a,
+    ...be(13),
+    0x49,
+    0x48,
+    0x44,
+    0x52,
+    ...be(width),
+    ...be(height),
+    8,
+    6,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
   ];
   return btoa(String.fromCharCode(...bytes));
 }
@@ -179,7 +220,12 @@ export function createCdpFake(): CdpFake {
       calls.push({ method, params });
       switch (method) {
         case "Page.captureScreenshot":
-          return { data: fakeScreenshotBase64() };
+          return {
+            data:
+              params.format === "png"
+                ? fakePngBase64()
+                : fakeScreenshotBase64(),
+          };
         case "Page.getFrameTree":
           return { frameTree };
         case "Page.getLayoutMetrics":
@@ -203,6 +249,38 @@ export function createCdpFake(): CdpFake {
           if (expression.includes(SETTLE_MARKER)) {
             if (fake.settleThrows !== null) throw new Error(fake.settleThrows);
             return { result: { type: "object", value: fake.settle } };
+          }
+          if (expression.includes(STEP_SETTLE_MARKER)) {
+            return {
+              result: {
+                type: "object",
+                value: {
+                  painted: true,
+                  animations: 0,
+                  quiet: true,
+                  waitedMs: 0,
+                  stopped: "quiet",
+                },
+              },
+            };
+          }
+          // The page screen's hold: the fixture viewport at the replay DPR,
+          // nothing endless to hold.
+          if (expression === PAGE_CAPTURE_HOLD) {
+            return {
+              result: {
+                type: "object",
+                value: {
+                  held: 0,
+                  caretShown: false,
+                  x: 0,
+                  y: 0,
+                  width: 1280,
+                  height: 800,
+                  dpr: 3,
+                },
+              },
+            };
           }
           if (expression.includes("readyState")) {
             return { result: { value: "complete" } };

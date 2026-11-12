@@ -49,7 +49,7 @@ than this page can: read it first.
 | `outputTaken` | Another flow already writes to that path |
 | `logoUnreadable` | The brand kit's logo could not be read |
 | `wallpaperUnreadable` | The background image could not be read, so the video would fall back to the plain gradient |
-| `exportFailed` | An export failed; the detail says which and why. Nothing is half-written |
+| `exportFailed` | An export failed; the detail says which and why. Nothing is half-written. When it says the output "has no settled screen to compare against", no page in the video settled, and the detail lists each screen and why: record the flow again once the page can settle. When it says the video "has no page screens to compare: it was recorded before page screens", record the flow again |
 | `keepRefused` | The request itself was refused: a `files` output given as a path, or a name two flows in the repo share |
 | `repoFlowUnwritable` | The DemoScript was written but the old file it replaces could not be removed; delete the file the detail names |
 | `repoFlowNameTaken` | Your library has a different flow with the repo flow's name. Run the `join-flow` command the detail gives |

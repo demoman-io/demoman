@@ -176,7 +176,7 @@ describe("runReplay", () => {
   it("runs against a store that implements only what the engine calls", async () => {
     const written: string[] = [];
     // Deliberately NOT `createMemoryFrameStore()`. The point of this test is
-    // that two methods are enough: it is the compile-time assertion that
+    // that the three `EngineStore` methods are enough: it is the compile-time assertion that
     // EngineDeps.store is EngineStore and not FrameStore, and `pnpm typecheck`
     // is where it fails if that regresses.
     const store = {
@@ -186,6 +186,9 @@ describe("runReplay", () => {
         return ref;
       },
       async putBundle(_sceneId: string, _bundle: FrameBundle) {},
+      async putPageScreen(sceneId: string, after: number, _bytes: Uint8Array) {
+        return `ps:${sceneId}:${after}`;
+      },
     };
 
     // `deps(over)` takes a Partial<EngineDeps> and spreads it, so this is the
@@ -2189,9 +2192,10 @@ describe("continuous recording", () => {
     expect(result.outcome).toBe("complete");
     expect(result.bundle?.timing).toBe("real");
     // Opening + (marker + post-verb) x2 = 5 sampled. Continuous: opening +
-    // marker x2 + one closing still for the last step's result = 4.
+    // marker x2 + one closing still for the last step's result = 4, plus a
+    // page screen for the opening and after each of the 2 steps = 7.
     expect(screenshots(sampled)).toBe(5);
-    expect(screenshots(continuous)).toBe(4);
+    expect(screenshots(continuous)).toBe(7);
   });
 
   // The last step's own paint lands after its verb returns, by which time
@@ -2381,7 +2385,9 @@ describe("continuous recording", () => {
     const send = d.cdp.send.bind(d.cdp);
     let n = 0;
     d.cdp.send = async (method, params) => {
-      if (method === "Page.captureScreenshot") {
+      // Counts stills only: a continuous walk's page screens (PNG, one per
+      // step and the opening) are captures too, but not stills.
+      if (method === "Page.captureScreenshot" && params?.format !== "png") {
         n++;
         if (n === fail) throw new Error("screenshot refused");
         if (n === nth) {
@@ -2642,7 +2648,11 @@ describe("continuous recording", () => {
     let settledAskedWhileMarkerPending = false;
     let markerPending = false;
     d.cdp.send = async (method, params) => {
-      if (method !== "Page.captureScreenshot") return send(method, params);
+      // Stills only: the page screens (PNG) are captures, not stills, and
+      // frames painted while one is taken are kept out of the film.
+      if (method !== "Page.captureScreenshot" || params?.format === "png") {
+        return send(method, params);
+      }
       shots++;
       if (shots === 2) {
         markerPending = true;
@@ -3096,7 +3106,8 @@ describe("review of 2026-10-03: continuous pacing and its pauses", () => {
     let shots = 0;
     let hung = false;
     d.cdp.send = async (method, params) => {
-      if (method === "Page.captureScreenshot") {
+      // Stills only: the page screens (PNG) are captures, not stills.
+      if (method === "Page.captureScreenshot" && params?.format !== "png") {
         shots++;
         // The first marker still: the click paints.
         if (shots === 2) {
@@ -3147,17 +3158,16 @@ describe("review of 2026-10-03: continuous pacing and its pauses", () => {
       }));
       const send = d.cdp.send.bind(d.cdp);
       let clicked = false;
+      let movesAfterClick = 0;
       let painted = false;
       d.cdp.send = async (method, params) => {
         if (method === "Input.dispatchMouseEvent") {
           if (params?.type === "mouseReleased") clicked = true;
-          // The moveTo's path arrives: the page reacts to the pointer.
-          else if (
-            paint &&
-            params?.type === "mouseMoved" &&
-            clicked &&
-            !painted
-          ) {
+          else if (params?.type === "mouseMoved" && clicked) movesAfterClick++;
+          // The moveTo's path arrives: the page reacts to the pointer. Its
+          // second move after the click: the first is the click's own, sent
+          // again where it rests before the click's settle.
+          if (paint && movesAfterClick === 2 && !painted) {
             painted = true;
             for (let i = 0; i < 3; i++) {
               d.cdp.emit("Page.screencastFrame", frame(700 + i));

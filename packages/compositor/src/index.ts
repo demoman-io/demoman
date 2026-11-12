@@ -16,6 +16,8 @@ export {
   type MarkerEntry,
   type MotionSpanEntry,
   madeFromOf,
+  type PageScreen,
+  PageScreenSchema,
   servingMotionSpan,
   type ViewportTransform,
   validateBundle,
@@ -206,7 +208,6 @@ export {
 export type { RenderResult } from "./render/render.js";
 export {
   renderScene,
-  renderScreens,
   renderStills,
   type StillCamera,
   type UnplacedStill,

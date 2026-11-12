@@ -168,9 +168,10 @@ export interface ReplayStatus {
 }
 
 /**
- * What the engine asks of a store: two methods.
+ * What the engine asks of a store: three methods (the page screens joined
+ * the first two on 2026-11-10).
  *
- * The retired extension's `FrameStore` declared 21, and the engine calls
+ * The retired extension's `FrameStore` declared 21, and the engine called
  * `putKeyframe` and `putBundle` and nothing else. The other 19 were the
  * extension's storage lifecycle — sweeps, budgets, parked frames, both
  * status pairs — which reached this package because the extraction moved
@@ -195,6 +196,13 @@ export interface EngineStore {
     bytes: Uint8Array,
   ): Promise<string>;
   putBundle(sceneId: string, bundle: FrameBundle): Promise<void>;
+  /** A step's settled page as a PNG (`FrameBundle.pageScreens`); answers
+   *  the ref `ps:<sceneId>:<after>`. */
+  putPageScreen(
+    sceneId: string,
+    after: number,
+    bytes: Uint8Array,
+  ): Promise<string>;
 }
 
 export interface Clock {

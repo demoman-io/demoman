@@ -16,6 +16,13 @@ not be drawn) keeps its committed files and prints why, and the command exits
 your own. How it judges a change, and what each line means, is on
 [Refresh](/concepts/refresh).
 
+It compares the page as each step settled. A screen whose page never settled
+is skipped and named on the flow's line, where it is and why, such as
+`before step 3: the DOM never went quiet` or `1 request(s) in flight`; the
+others are still compared. When no screen settled in both videos, the flow
+fails and its files stay. A receipt from Demoman 0.9.4 or earlier is
+recorded again and replaced once, and its line says so.
+
 It starts the app from [`.demoman/app.json`](/reference/app-json): off CI it
 uses an app already answering at `url`, otherwise it runs `start`.
 

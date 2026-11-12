@@ -4,7 +4,7 @@ import { type DemoScript, DemoScriptSchema } from "@demoman/scene-schema";
 import { EXPORT_QUALITY_VALUES, type ExportQuality } from "../export/target.js";
 import { unreadVersion } from "../run-host.js";
 import { isFlowId } from "../served-words.js";
-import { type KeptReceipt, parseScreens } from "./receipt.js";
+import type { KeptReceipt } from "./receipt.js";
 
 export const KEPT_VERSION = 2;
 /** The first format: screens and `from` lived in the recipe. Read, never written. */
@@ -26,29 +26,16 @@ export type KeptOutput = {
   quality: ExportQuality;
 };
 
-/** The app's window on a screen, in the film's own output pixels, with its
- *  corners' radius (the compositor's `ScreenMoment.window`). */
-export type KeptWindow = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  radius: number;
-};
-/** A still screen of the committed video: the step it follows (null for the
- *  opening) and when it ends, in output milliseconds. `window` is absent
- *  from a file kept before it was recorded (2026-10-28): refresh then
- *  compares that screen's whole picture. */
-export type KeptMoment = {
-  step: number | null;
-  ms: number;
-  window?: KeptWindow;
-};
-/** The same shape as the compositor's `Screens`: the file's format is owned
- *  here. `look` (`lookDigest`) is absent from a file kept before it. */
-export type KeptScreens = {
+/** A receipt's page screens (receipt version 3): the take's own pictures of
+ *  the page once each step settled (spec 2026-11-10, decision 3), one image
+ *  each in the receipt's folder (`screenImageName`). `step: k` is the page
+ *  as step k begins, null the final screen; `steps` counts what
+ *  `screenMoments` counts (scene.actions, no `pause`). `unsettled` says
+ *  why a screen never settled: refresh skips it, naming it. `look` is
+ *  `lookDigest`, as before. */
+export type PageScreens = {
   steps: number;
-  moments: KeptMoment[];
+  screens: { step: number | null; unsettled?: string }[];
   look?: string;
 };
 
@@ -195,22 +182,17 @@ export function parseKept(text: string, file: string): Parsed {
   }
   let migrated: KeptReceipt | null = null;
   if (v1) {
-    if (!isObj(raw.screens))
-      return bad(
-        `${raw.name} has no screens — it was kept before they were recorded; run \`demoman add ${raw.name}\` again to record them`,
-      );
-    const sc = parseScreens(raw.screens, "screens");
-    if (!sc.ok) return bad(sc.detail);
+    // Its screens are not read: a receipt older than page screens is
+    // replaced by the next refresh (spec 2026-11-10, decision 3).
     const f = raw.from as Record<string, string>;
     migrated = {
       receiptVersion: 1,
       screensDir: null,
-      screensSize: null,
       flow,
       video: f.takeId as string,
       filmedAt: null,
       filmedCode: { none: "kept before receipts were recorded" },
-      screens: sc.screens,
+      screens: null,
       recordedRevision: f.recordedRevision as string,
     };
   }

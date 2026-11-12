@@ -19,6 +19,7 @@ import {
   type FrameBundle,
   type KeyframeEntry,
   type MadeFromStep,
+  type PageScreen,
   VERBS,
   type ViewportTransform,
   validateBundle,
@@ -56,6 +57,9 @@ import {
   SPAN_MAX_MS,
   SPAN_MIN_FRAMES,
   SPAN_QUIET_MS,
+  STEP_QUIET_MS,
+  STEP_REQUEST_CAP_MS,
+  STEP_SETTLE_CAP_MS,
   STILL_DRAIN_MS,
   TAKE_TAIL_MS,
   TYPE_KEY_MS,
@@ -89,12 +93,13 @@ import {
   rectFromQuad,
   resolveCdpFrameId,
 } from "./geometry.js";
-import { decodeBase64, jpegSize } from "./image.js";
+import { decodeBase64, jpegSize, pngSize } from "./image.js";
 import { createInputGate, type InputGate } from "./input-gate.js";
 import { pressKey } from "./keys.js";
 import { createMotionRecorder } from "./motion-recorder.js";
 import type { OcclusionGuard } from "./occlusion.js";
 import { pathPointAt, retargetSegment } from "./path.js";
+import { type RequestTracker, trackRequests } from "./requests.js";
 import {
   type ScrollAim,
   type ScrollReport,
@@ -103,6 +108,14 @@ import {
 } from "./scroll.js";
 import { type SettleReport, settlePaintExpression } from "./settle.js";
 import { degradation } from "./span.js";
+import {
+  type CaptureWindow,
+  capturedAway,
+  PAGE_CAPTURE_HOLD,
+  PAGE_CAPTURE_RELEASE,
+  type StepSettleReport,
+  stepSettleExpression,
+} from "./step-settle.js";
 import type {
   CdpSession,
   Clock,
@@ -610,6 +623,63 @@ function describeSettleError(error: unknown): string {
   return String(error);
 }
 
+/** A by-value `Runtime.evaluate` reply's value; throws what the page threw,
+ *  which CDP answers with rather than rejecting. */
+function evaluatedValue(reply: Record<string, unknown>): unknown {
+  const thrown = reply.exceptionDetails as
+    | { text?: string; exception?: { description?: string } }
+    | undefined;
+  if (thrown !== undefined) {
+    throw new Error(
+      thrown.exception?.description ?? thrown.text ?? "the page threw",
+    );
+  }
+  return (reply.result as { value?: unknown } | undefined)?.value;
+}
+
+/**
+ * A condition a step's settle or page screen never met, in words. `machine`
+ * when it is not the page's own doing (a paint that never came, a probe or
+ * capture that failed, requests that could not be watched): recording again
+ * may change it, so it is said as `stepSettleFailed`, which refresh records
+ * once more. Otherwise a cap the page ran out (requests, animations, the DOM
+ * changing, a load) or a caret it would not hide: `stepUnsettled`.
+ */
+interface Unmet {
+  words: string;
+  machine: boolean;
+}
+const pageMade = (words: string): Unmet => ({ words, machine: false });
+const machineMade = (words: string): Unmet => ({ words, machine: true });
+
+/** The conditions a step-settle reply says never held. Never empty for a
+ *  reply that is not quiet. Read from why the probe says it stopped, never
+ *  inferred from when (`StepSettleReport.stopped`). */
+function unsettledWords(report: Partial<StepSettleReport>): Unmet[] {
+  if (report.quiet === true) return [];
+  if (report.stopped === "unwatched")
+    return [machineMade("the page's changes could not be watched")];
+  if (report.stopped === "animationReadFailed")
+    return [machineMade("the page's animations could not be read")];
+  // At the cap.
+  const words: Unmet[] = [];
+  const animations = report.animations ?? 0;
+  if (report.painted !== true)
+    words.push(machineMade("its first paint never came"));
+  if (animations > 0)
+    words.push(pageMade(`${animations} animation(s) still running`));
+  if (report.painted === true && animations === 0)
+    words.push(pageMade("the DOM never went quiet"));
+  return words;
+}
+
+/** Said in place of a page condition the cap left no time to ask about. */
+const PAGE_NOT_ASKED = pageMade(
+  "the page was not asked (the cap ran out first)",
+);
+/** A load that outlasted the cap is the page's, as a request is. */
+const STILL_LOADING = pageMade("the page was still loading");
+
 /**
  * How far a run got through the action log, and nothing about failure.
  *
@@ -647,6 +717,9 @@ export async function runWalk(
   // (`answer-deadline.ts`). Cleared at the very end of teardown.
   const answering = withAnswerDeadline(deps.cdp);
   const { cdp } = answering;
+  // A page screen's capture, on the still line's own bound: a covered
+  // window stops painting, and its screenshot then never answers.
+  const screening = withAnswerDeadline(cdp, STILL_DRAIN_MS);
   const { sceneId, viewport, total, device } = config;
 
   const empty = (reason: ReplayStopReason): ReplayResult => ({
@@ -878,7 +951,17 @@ export async function runWalk(
 
   // --- CDP helpers -------------------------------------------------------
   // Input and stills never overlap: see `input-gate.ts` for why.
-  const gate = deps.inputGate ?? createInputGate();
+  const sharedGate = deps.inputGate ?? createInputGate();
+  // Every input section ends the last page capture's echo
+  // (`ECHO_WINDOW_MS`): what paints after the walk acts is the page's.
+  const gate: InputGate = {
+    section: (input) =>
+      sharedGate.section(() => {
+        pageFrames.inputBegan();
+        return input();
+      }),
+    capture: (take) => sharedGate.capture(take),
+  };
   const takeShot = async (actionId: string | null): Promise<void> => {
     const reply = await gate.capture(() =>
       cdp.send("Page.captureScreenshot", {
@@ -926,6 +1009,16 @@ export async function runWalk(
    *  answers after that files nothing, because the bundle has been built
    *  without it. */
   let sealed = false;
+  /** Stills asked for and not yet answered: a page screen waits behind them
+   *  only within a bound (`capturePage`). */
+  let stillsWaiting = 0;
+  const counted = (run: Promise<unknown>): void => {
+    stillsWaiting++;
+    const done = (): void => {
+      stillsWaiting--;
+    };
+    void run.then(done, done);
+  };
   const shot = (
     actionId: string | null,
     /** Asked again when the still's turn comes: false skips it. */
@@ -934,6 +1027,7 @@ export async function runWalk(
     const run = shooting.then(() =>
       stillWanted() ? takeShot(actionId) : undefined,
     );
+    counted(run);
     shooting = run.catch(() => undefined);
     return run;
   };
@@ -991,6 +1085,7 @@ export async function runWalk(
       if (frame === null || bytes === null) return takeShot(actionId);
       await fileStill(bytes, actionId, frame.atMs);
     });
+    counted(run);
     shooting = run.catch(() => undefined);
     return run;
   };
@@ -1076,6 +1171,421 @@ export async function runWalk(
     return drained;
   };
 
+  /**
+   * Screencast frames a page screen must keep out of the video. While one is
+   * taken the page shows its caret hidden and its spinners held; and a
+   * clipped capture makes Chrome emit a frame at the clip's scale. Measured
+   * 2026-11-10 at display scale 2: one 1280x800 frame among 2560x1600 ones,
+   * arriving within two frames after the capture returned, and a span that
+   * opened on it recorded its whole stretch at 1x (the runner's "records the
+   * display scale" case). So a frame is judged by its stamp
+   * (`capturedAway`): dropped if stamped from HOLD to RELEASE, however late
+   * it arrives, and if stamped just after at another size than before the
+   * capture, whatever arrived between.
+   *
+   * The stamp is the frame's own `metadata.timestamp`: wall-clock seconds,
+   * measured 2026-11-11 on Chrome 151 at 2-4 ms before the frame arrives, on
+   * the same clock as the runner's (`Date.now()`, launch.ts). Chrome stamps
+   * it when the browser has the frame, not when it was composited, so one
+   * frame composited just before RELEASE can still be stamped after it and
+   * kept: at most one frame of a hidden caret or held spinner. A frame
+   * without a stamp is placed at its arrival.
+   */
+  const pageFrames = (() => {
+    let capture: CaptureWindow | null = null;
+    const sizeOf = (data: string): string | null => {
+      try {
+        const { width, height } = jpegSize(decodeBase64(data));
+        return `${width}x${height}`;
+      } catch {
+        // Not a frame anyone can measure; it is judged as a stray.
+        return null;
+      }
+    };
+    /** The newest frame kept or seen before filming began, so a page
+     *  screen right after the opening still has a size to come back to. */
+    let latest: string | null = null;
+    return {
+      seen(data: string): void {
+        latest = data;
+      },
+      hold(): void {
+        capture = {
+          fromMs: clock.now(),
+          toMs: null,
+          inputMs: null,
+          size: latest === null ? null : sizeOf(latest),
+        };
+      },
+      release(): void {
+        if (capture !== null) capture.toMs = clock.now();
+      },
+      inputBegan(): void {
+        if (
+          capture !== null &&
+          capture.toMs !== null &&
+          capture.inputMs === null
+        )
+          capture.inputMs = clock.now();
+      },
+      dropping(data: string, paintedMs: number): boolean {
+        return capturedAway(paintedMs, () => sizeOf(data), capture);
+      },
+    };
+  })();
+
+  /** Continuous only: what counts the page's requests in flight, or why
+   *  nothing does (`Network.enable` refused), which every screen then says. */
+  let tracker = null as RequestTracker | null;
+  let untracked = "they were never asked about";
+  const pageScreens: PageScreen[] = [];
+
+  /**
+   * The page-side half of a step's settle (`step-settle.ts`), within
+   * `deadline`. Answers the conditions that never held, in words.
+   *
+   * A step that navigated is asked about the new document: a load still
+   * running is waited out first, and an answer from a document that began
+   * to leave while it was asked (or that was destroyed under the question)
+   * is asked again. Without that, a navigating click's screen was the old
+   * page mid-unload (Review Focus 2).
+   */
+  const settlePage = async (deadline: number): Promise<Unmet[]> => {
+    for (;;) {
+      while (topLoading && at() < deadline) await clock.sleep(50);
+      const capMs = deadline - at();
+      if (capMs <= 0) {
+        return [...(topLoading ? [STILL_LOADING] : []), PAGE_NOT_ASKED];
+      }
+      const navs = navigationsSeen;
+      let report: Partial<StepSettleReport> | undefined;
+      let failure: unknown = null;
+      try {
+        report = evaluatedValue(
+          await cdp.send("Runtime.evaluate", {
+            expression: stepSettleExpression(STEP_QUIET_MS, capMs),
+            awaitPromise: true,
+            returnByValue: true,
+          }),
+        ) as Partial<StepSettleReport> | undefined;
+      } catch (error) {
+        failure = error;
+      }
+      if ((navigationsSeen !== navs || topLoading) && at() < deadline) {
+        continue;
+      }
+      const words = topLoading ? [STILL_LOADING] : [];
+      if (failure !== null) {
+        return [
+          ...words,
+          machineMade(
+            `the settle probe failed (${describeSettleError(failure)})`,
+          ),
+        ];
+      }
+      if (report === undefined || typeof report.quiet !== "boolean") {
+        return [
+          ...words,
+          machineMade("the settle probe answered with nothing readable"),
+        ];
+      }
+      return [...words, ...unsettledWords(report)];
+    }
+  };
+
+  /**
+   * Both halves of a step's settle: requests, then the page, and round again
+   * while a request is in flight once the page has answered. All four
+   * conditions must hold at once (spec 2026-11-10 decision 1), and a page can
+   * start a request inside its own quiet window: a debounced search firing,
+   * a new document's first fetches. Requests may take until `requestBy` (a
+   * streamed answer is one long request); the page is then asked within its
+   * own `STEP_SETTLE_CAP_MS`. A request still in flight when the cap runs
+   * out leaves the page not asked.
+   *
+   * Only requests that opened after `openedAfter` are waited for. One open
+   * longer than a whole request cap before the step began (a long poll, a
+   * channel that never closes) had its step's wait already: waiting again
+   * would cost every later step the cap and its screen.
+   */
+  const settleWords = async (
+    requestBy: number,
+    openedAfter: number,
+  ): Promise<Unmet[]> => {
+    for (;;) {
+      if (tracker === null) {
+        return [
+          machineMade(`requests could not be watched (${untracked})`),
+          ...(await settlePage(at() + STEP_SETTLE_CAP_MS)),
+        ];
+      }
+      if (!(await tracker.idle(requestBy, clock.sleep, openedAfter))) {
+        return [
+          pageMade(`${tracker.inFlight(openedAfter)} request(s) in flight`),
+          PAGE_NOT_ASKED,
+        ];
+      }
+      const page = await settlePage(at() + STEP_SETTLE_CAP_MS);
+      if (tracker.inFlight(openedAfter) === 0) return page;
+      if (at() >= requestBy) {
+        return [
+          pageMade(`${tracker.inFlight(openedAfter)} request(s) in flight`),
+          ...page,
+        ];
+      }
+    }
+  };
+
+  /**
+   * The page itself as a PNG at CSS 1x, on the still line and through the
+   * gate like every still: caret hidden and endless animations held for the
+   * capture only, and put back whatever happened. A put-back that failed is
+   * answered, not thrown: the screen may be fine, but the video after it
+   * may not be, and that must be said.
+   *
+   * The line is waited for within `STILL_DRAIN_MS`, as `drainShots` does: a
+   * still ahead of it that never answers (a covered window stops painting)
+   * would otherwise hold the walk here, short of the step's visibility
+   * check that turns it into `occlusionTimeout`. The capture itself has the
+   * same bound (`screening`): one that never answers is a screen not taken,
+   * said in the deadline's words, and the hold is still put back.
+   */
+  /** Whether the still line empties within `STILL_DRAIN_MS`: what waits
+   *  on it (a page screen, the pointer's move before a settle) would
+   *  otherwise wait forever behind a still of a page that stopped painting. */
+  const stillLineFree = async (): Promise<boolean> => {
+    let free = stillsWaiting === 0;
+    if (!free) {
+      await Promise.race([
+        shooting.then(() => {
+          free = true;
+        }),
+        clock.sleep(STILL_DRAIN_MS),
+      ]);
+    }
+    return free;
+  };
+  const STILL_LINE_STUCK = `a still ahead of it was still being taken after ${STILL_DRAIN_MS / 1000} s; the page had most likely stopped painting`;
+
+  const capturePage = async (): Promise<{
+    taken: {
+      bytes: Uint8Array;
+      held: number;
+      atMs: number;
+      caretShown: boolean;
+    } | null;
+    failure: unknown;
+    releaseFailed: string | null;
+  }> => {
+    if (!(await stillLineFree())) throw new Error(STILL_LINE_STUCK);
+    const run = shooting.then(() =>
+      gate.capture(async () => {
+        let taken: {
+          bytes: Uint8Array;
+          held: number;
+          atMs: number;
+          caretShown: boolean;
+        } | null = null;
+        let failure: unknown = null;
+        pageFrames.hold();
+        try {
+          const g = evaluatedValue(
+            await cdp.send("Runtime.evaluate", {
+              expression: PAGE_CAPTURE_HOLD,
+              returnByValue: true,
+            }),
+          ) as
+            | (Partial<
+                Record<"held" | "x" | "y" | "width" | "height" | "dpr", number>
+              > & { caretShown?: boolean })
+            | undefined;
+          const { held, x, y, width, height, dpr } = g ?? {};
+          if (
+            held === undefined ||
+            x === undefined ||
+            y === undefined ||
+            width === undefined ||
+            height === undefined ||
+            dpr === undefined
+          ) {
+            throw new Error("the capture hold answered with nothing readable");
+          }
+          const shot = await screening.cdp.send("Page.captureScreenshot", {
+            format: "png",
+            clip: { x, y, width, height, scale: 1 / dpr },
+          });
+          captureEndedMs = at();
+          taken = {
+            bytes: decodeBase64(String(shot.data ?? "")),
+            held,
+            atMs: captureEndedMs,
+            // Unreadable counts as shown: a hidden caret is never assumed.
+            caretShown: g?.caretShown !== false,
+          };
+        } catch (error) {
+          failure = error;
+        }
+        let releaseFailed: string | null = null;
+        try {
+          evaluatedValue(
+            await cdp.send("Runtime.evaluate", {
+              expression: PAGE_CAPTURE_RELEASE,
+              returnByValue: true,
+            }),
+          );
+        } catch (error) {
+          releaseFailed = describeSettleError(error);
+        }
+        pageFrames.release();
+        return { taken, failure, releaseFailed };
+      }),
+    );
+    shooting = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
+
+  /**
+   * Continuous only: wait for a step's result to settle, then capture the
+   * page (spec 2026-11-10, decisions 1 and 2), and record both in the take.
+   * `after` is how many steps had finished; `actionId` the step, null for
+   * the opening. Requests first (up to `STEP_REQUEST_CAP_MS`), then the page
+   * (its own `STEP_SETTLE_CAP_MS`). Every condition that never held is written on the screen and
+   * said as a `stepUnsettled` (the page's own) or a `stepSettleFailed` (any
+   * of it this machine's, see `Unmet`), never taken as settled. A screen
+   * that could not be taken does not fail the take, and says so the same
+   * way. `pointerStep`: the step just finished moved the pointer (a
+   * targeted verb), so its hover is renewed before the settle.
+   */
+  const settleAndCapture = async (
+    after: number,
+    actionId: string | null,
+    pointerStep = false,
+  ): Promise<void> => {
+    const from = at();
+    const openedAfter = from - STEP_REQUEST_CAP_MS;
+    // The pointer's move again, where it already rests, so the hover the
+    // screen shows is the pointer's and is settled in the quiet window
+    // below. Chrome recomputes hover after a layout change, and one that
+    // lands while a still is in flight hit-tests at the display's scale,
+    // not the emulated one (see `input-gate.ts`): measured 2026-11-11, a
+    // click that added an element and a 3x still taken straight after left
+    // the button unhovered 10 of 10 times, and this move put it back 10 of
+    // 10. No cursor sample: the drawn cursor has not moved. Only after a
+    // step that moved the pointer: a keyboard step (press, waitFor) leaves
+    // it alone, since a menu the keys are walking follows the pointer on any
+    // move and would lose the keys' selection (review of 301982b4).
+    const moved: Unmet[] = [];
+    if (pointerStep && cursorSamples.length > 0) {
+      try {
+        // A section waits for any still in flight, and one of a page that
+        // stopped painting never ends.
+        if (!(await stillLineFree())) throw new Error(STILL_LINE_STUCK);
+        await gate.section(() =>
+          cdp.send("Input.dispatchMouseEvent", {
+            type: "mouseMoved",
+            x: cursor.x,
+            y: cursor.y,
+          }),
+        );
+      } catch (error) {
+        moved.push(
+          machineMade(
+            `the pointer's hover could not be renewed (${describeSettleError(error)})`,
+          ),
+        );
+      }
+    }
+    const unsettled = [
+      ...moved,
+      ...(await settleWords(from + STEP_REQUEST_CAP_MS, openedAfter)),
+    ];
+    const waitedMs = Math.max(0, at() - from);
+    const leftOut =
+      tracker === null ? 0 : tracker.inFlight() - tracker.inFlight(openedAfter);
+    const place =
+      actionId === null
+        ? "the opening page"
+        : `the page after step ${actionId}`;
+    if (leftOut > 0) {
+      // Forgiven, not hidden: the screen counts as settled, and this says
+      // what it did not wait for.
+      degradations.push(
+        degradation(
+          "requestNotWaited",
+          from,
+          at(),
+          `${place}: ${leftOut} request${leftOut === 1 ? "" : "s"} opened more than ${STEP_REQUEST_CAP_MS / 1000} s before this step's wait began ${leftOut === 1 ? "was" : "were"} not waited for`,
+        ),
+      );
+    }
+    let screen: PageScreen | null = null;
+    try {
+      const { taken, failure, releaseFailed } = await capturePage();
+      // The screen was taken under the hold and is fine; the video after it
+      // is what may be wrong, so this is said apart from the screen.
+      if (releaseFailed !== null) {
+        degradations.push(
+          degradation(
+            "pageHoldNotReleased",
+            from,
+            at(),
+            `${place}: the caret and held animations may not have been put back (${releaseFailed})`,
+          ),
+        );
+      }
+      if (taken === null) throw failure;
+      if (taken.caretShown) {
+        unsettled.push(pageMade("a focused field's caret could not be hidden"));
+      }
+      const size = pngSize(taken.bytes);
+      screen = {
+        after,
+        sourceTimeMs: taken.atMs,
+        ref: await store.putPageScreen(sceneId, after, taken.bytes),
+        width: size.width,
+        height: size.height,
+        heldAnimations: taken.held,
+        waitedMs,
+      };
+    } catch (error) {
+      unsettled.push(
+        machineMade(
+          `the page screen could not be taken (${describeSettleError(error)})`,
+        ),
+      );
+    }
+    screen ??= {
+      after,
+      sourceTimeMs: at(),
+      ref: "",
+      width: viewport.width,
+      height: viewport.height,
+      heldAnimations: 0,
+      waitedMs,
+    };
+    if (unsettled.length > 0) {
+      screen.unsettled = unsettled.map((u) => u.words).join("; ");
+      degradations.push(
+        degradation(
+          unsettled.some((u) => u.machine)
+            ? "stepSettleFailed"
+            : "stepUnsettled",
+          from,
+          at(),
+          `${place}: ${screen.unsettled}`,
+        ),
+      );
+    }
+    pageScreens.push(screen);
+    // Time the walk added, like room: a zoom is decided with it taken out,
+    // so a settle that ran long cannot make a zoom (MIN_ZOOM_GAP_MS) the
+    // take would not have had, nor jitter one across that line.
+    roomAdded += at() - from;
+  };
+
   const recorder = createMotionRecorder({
     encoder,
     clock,
@@ -1110,8 +1620,18 @@ export async function runWalk(
     // Continuous: the film starts at the opening still. What paints before
     // it is the page loading — the navigation, a bar sweeping, a black
     // first paint — which is exactly what the settle waited out.
-    if (continuous && !filming) return;
-    const seen = { data: String(params.data ?? ""), atMs: at() };
+    const data = String(params.data ?? "");
+    if (continuous && !filming) {
+      pageFrames.seen(data);
+      return;
+    }
+    const arrived = clock.now();
+    const stamp = (params.metadata as { timestamp?: unknown } | undefined)
+      ?.timestamp;
+    const painted = typeof stamp === "number" ? stamp * 1000 : arrived;
+    if (pageFrames.dropping(data, painted)) return;
+    pageFrames.seen(data);
+    const seen = { data: String(params.data ?? ""), atMs: arrived - started };
     priorFrame = newestFrame;
     newestFrame = seen;
     for (const waiter of frameWaiters.splice(0)) waiter(seen);
@@ -2116,6 +2636,15 @@ export async function runWalk(
       quality: 80,
       everyNthFrame: 1,
     });
+    // Before `install()`'s navigation, so a request the first page makes is
+    // counted. A refusal does not stop the run: every screen says it.
+    if (continuous) {
+      try {
+        tracker = await trackRequests(cdp, at);
+      } catch (error) {
+        untracked = describeSettleError(error);
+      }
+    }
     // `install()` is where the navigation happens (see `createNavigatingGuard`),
     // so this is the first moment there is a page to wait for — and the
     // opening keyframe is the very next thing, which is what made a
@@ -2137,6 +2666,7 @@ export async function runWalk(
     } else {
       await shot(null);
       filming = true;
+      if (continuous) await settleAndCapture(0, null);
     }
 
     navsAtThisStep = navsBeforeStart;
@@ -2263,6 +2793,7 @@ export async function runWalk(
         // falls back to the nearest keyframe at or *before* it, which is the
         // page the wait was waiting to leave.
         await stepStill(step.action.id);
+        if (continuous) await settleAndCapture(completed + 1, step.action.id);
         completed++;
         lastCompletedActionId = step.action.id;
         inFlight = null;
@@ -2324,6 +2855,7 @@ export async function runWalk(
         stillOwed = true;
         verbs++;
         if (room !== undefined) pendingAct = { marker, verbEndMs: at() };
+        if (continuous) await settleAndCapture(completed + 1, keyAction.id);
         completed++;
         lastCompletedActionId = keyAction.id;
         inFlight = null;
@@ -2630,6 +3162,10 @@ export async function runWalk(
         await shot(null);
       }
 
+      // After the verb's result and before the next step's glide, whose
+      // `mouseMoved` events would change the page's hover state.
+      if (continuous)
+        await settleAndCapture(completed + 1, step.action.id, true);
       completed++;
       lastCompletedActionId = step.action.id;
       inFlight = null;
@@ -2718,12 +3254,14 @@ export async function runWalk(
     // regardless, the frames are already encoded, and a stop the page
     // refuses must not turn a finished run into a failed one.
     await cdp.send("Page.stopScreencast").catch(() => undefined);
+    tracker?.dispose();
     await recorder.teardown();
     // A settled still the last span asked for may still be in the line.
     // Already said if the closing still's drain gave up on it.
     if (!sealed) await drainShots();
     sealed = true;
     await sightings.stop();
+    screening.stop();
     answering.stop();
   }
 
@@ -2812,6 +3350,7 @@ export async function runWalk(
         cursorGaps: [],
         anchorRects,
         ...(heldPresses.length === 0 ? {} : { heldPresses }),
+        ...(pageScreens.length === 0 ? {} : { pageScreens }),
         ...(viewportTransforms.length === 0 ? {} : { viewportTransforms }),
         markers,
         degradations,

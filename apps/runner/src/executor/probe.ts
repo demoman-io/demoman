@@ -68,6 +68,7 @@ export function discardingFilm(): {
     store: {
       putKeyframe: async (_sceneId, index) => `discarded:${index}`,
       putBundle: async () => undefined,
+      putPageScreen: async (_sceneId, after) => `discarded:ps:${after}`,
     },
   };
 }

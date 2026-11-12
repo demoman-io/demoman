@@ -105,6 +105,9 @@ export {
   SPAN_MAX_MS,
   SPAN_MIN_FRAMES,
   SPAN_QUIET_MS,
+  STEP_QUIET_MS,
+  STEP_REQUEST_CAP_MS,
+  STEP_SETTLE_CAP_MS,
   STILL_DRAIN_MS,
   STORAGE_BUDGET_DEFAULT_BYTES,
   SWEEP_GATE_TIMEOUT_MS,
@@ -140,7 +143,7 @@ export {
   rectFromQuad,
   resolveCdpFrameId,
 } from "./geometry.js";
-export { decodeBase64, jpegSize } from "./image.js";
+export { decodeBase64, jpegSize, pngSize } from "./image.js";
 // Test-only, see header: the runner lane drives it against real Chromium.
 export { createInputGate, type InputGate } from "./input-gate.js";
 /** The snapshot's wait (plan 2): a page loaded and painted, for a host that
@@ -200,6 +203,13 @@ export {
   spanIsMotion,
   spanWentQuiet,
 } from "./span.js";
+export {
+  PAGE_CAPTURE_HOLD,
+  PAGE_CAPTURE_RELEASE,
+  STEP_SETTLE_MARKER,
+  type StepSettleReport,
+  stepSettleExpression,
+} from "./step-settle.js";
 export type {
   CdpSession,
   Clock,

@@ -18,16 +18,16 @@ import { join } from "node:path";
 import {
   CAMERA_DEFAULTS,
   motionTimings,
-  SHARE_LANDSCAPE,
   WALLPAPER_LONG_SIDE,
 } from "@demoman/compositor";
+import { pngSize, STEP_QUIET_MS } from "@demoman/replay-engine";
 import {
   fileDigest,
   LEGACY_FLOWS_DIR as KEPT_DIR,
-  type KeptScreens,
   type KeptVideo,
   keptFileName,
   lookDigest,
+  type PageScreens,
   RECEIPT_DIR,
   type RunReport,
   screensDirOf,
@@ -35,10 +35,8 @@ import {
   verdictLine,
   webpSize,
 } from "@demoman/run-core";
-import {
-  BRANDING_DEFAULTS,
-  DEFAULT_WALLPAPER_BLUR,
-} from "@demoman/scene-schema";
+import { screenImageName } from "@demoman/run-core/render";
+import { BRANDING_DEFAULTS } from "@demoman/scene-schema";
 import {
   afterAll,
   beforeAll,
@@ -61,6 +59,7 @@ import {
   refreshKept,
   runVerdict,
 } from "../src/executor/refresh.js";
+import { sameScreens } from "../src/executor/same-picture.js";
 import { createVideoStore } from "../src/executor/videos.js";
 import { listenOnLoopback } from "../src/loopback.js";
 import { LOGO_SVG, WALLPAPERS_DIR } from "./fixture.js";
@@ -78,6 +77,9 @@ import { sampleMp4 } from "./mp4-probe.js";
 // those. Each limit is at least 1.6x 2.5 times its slowest GPU-off case.
 const SETUP_MS = 60_000;
 const BOTH_MS = 300_000;
+/** The grey-text case records three takes before its refresh: 53 s here,
+ *  333 s on CI once (PR #67, 2026-11-11: 33 s past BOTH_MS, then passed). */
+const GREY_TEXT_MS = 600_000;
 const ONE_MS = 180_000;
 
 const ORIGINAL = await readFile(
@@ -97,10 +99,18 @@ const PANEL_CHANGED = ORIGINAL.replace(
   "background: #f9fafb; color: #e5e7eb;",
 );
 const CLICK_ANSWER = 'document.getElementById("panel").classList.add("open");';
+/** A slower app: the click's answer waits on a request the test server
+ *  holds `SLOW_ANSWER_MS` (a slow search, the settle's condition 2). A
+ *  delay made by a timer alone is outside the settle by design
+ *  (`STEP_QUIET_MS`). */
+const SLOW_ANSWER_MS = 600;
+const SLOW_PATH = "/slow-answer";
 const SLOW = ORIGINAL.replace(
   CLICK_ANSWER,
-  `setTimeout(() => { ${CLICK_ANSWER} }, 600);`,
+  `fetch("${SLOW_PATH}").then(() => { ${CLICK_ANSWER} });`,
 );
+/** How long the server held each slow answer, in ms. */
+const slowHeld: number[] = [];
 /** `returnsBetween`'s line, as the gap from one beat's hold to the next
  *  arrival at the default smoothness (2725 ms); a gap between two markers is
  *  the same length, as both sit `leadInMs` before theirs. */
@@ -116,6 +126,16 @@ const ONE_DIGIT = ORIGINAL.replace(
   AMOUNT,
   "(1200 + i * 317 + (i === 0 ? 7 : 0))",
 );
+/** DEM-138's case: a line of 12px grey text, in a box of fixed width so its
+ *  glyph advances move nothing else, and the same line with 4 characters
+ *  changed (14:11 to 05:00 is 4 digits). */
+const LOCAL_TIME = (t: string) =>
+  ORIGINAL.replace(
+    HEADING,
+    `${HEADING}<span class="local-time" style="display:block;width:140px;height:16px;font-size:12px;color:#9ca3af">${t} local time</span>`,
+  );
+const LOCAL_TIME_WAS = LOCAL_TIME("14:11");
+const LOCAL_TIME_NOW = LOCAL_TIME("05:00");
 /** A spinner that never stops, beside the button the camera zooms to, so it
  *  is in view on every screen: the page is never still (#10). */
 const SPINNER = ORIGINAL.replace(
@@ -124,6 +144,118 @@ const SPINNER = ORIGINAL.replace(
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>`,
 ).replace("</main>", '<div id="spin"></div></main>');
+/** A page of the fixture app with something added (the behaviours are
+ *  `settle-app.html`'s, in replay-engine's fixtures): CSS, elements fixed at
+ *  the foot of the page below the table so nothing else moves, a script. */
+const withExtra = (css: string, body: string, js = "") =>
+  `${ORIGINAL.replace("</style>", `${css}\n</style>`).replace("</main>", `${body}</main>`)}${js === "" ? "" : `<script>${js}</script>`}`;
+/** The foot of the page: 32px high, 20px above the bottom of 1280x800. */
+const FOOT = "position: fixed; bottom: 20px; height: 32px;";
+/** DEM-139's field: `#search` focused, its caret drawn in one video and not
+ *  in the other, as two captures a blink apart would show it. Headless
+ *  Chromium draws the caret in the same phase in every recording (measured
+ *  2026-11-10, replay-settled-screens.test.ts), so the phase is forced. */
+const caretPage = (color: string) =>
+  ORIGINAL.replace("</style>", `#search { caret-color: ${color}; }\n</style>`);
+const CARET_ON = caretPage("#111827");
+const CARET_OFF = caretPage("transparent");
+/** A chip that fills on hover over `HOVER_MS`. Longer than the spec's
+ *  150 ms on purpose: measured 2026-11-11, the pointer enters the chip
+ *  ~530 ms before the hover returns (the glide's slow end), and the page
+ *  screen is taken 734 ms after it entered; a 150 ms or 600 ms fill had
+ *  arrived with or without the finite-animation condition, so only a fill
+ *  longer than that lets this test fail. */
+const HOVER_FILL = "#c7d2fe";
+const HOVER_MS = 1000;
+const HOVER = withExtra(
+  `#tip { transition: background-color ${HOVER_MS}ms linear; background: #ffffff; }\n  #tip:hover { background: ${HOVER_FILL}; }`,
+  `<span id="tip" style="${FOOT} left: 260px; width: 32px; border-radius: 6px"></span>`,
+);
+/** The spinner page with a line of small grey text beside the spinner. */
+const PENDING = (n: number) =>
+  SPINNER.replace(
+    "</main>",
+    `<span id="pending" style="position: fixed; right: 360px; bottom: 150px; width: 90px; font-size: 12px; color: #6b7280">${n} pending</span></main>`,
+  );
+/** The same page with its spinner half a turn on: what a capture at
+ *  another moment shows. Two recordings here capture at the same phase
+ *  (measured 2026-11-11: without the hold the angles differed by at most 38
+ *  levels in a channel, which neither look sees), so the phase is forced. */
+const SPIN_SHIFT_MS = 400;
+const PENDING_SHIFTED = `${PENDING(3)}<script>{ const a = document.getElementById("spin").getAnimations()[0]; a.currentTime = (a.currentTime ?? 0) + ${SPIN_SHIFT_MS}; }</script>`;
+/** An answer streamed over `STREAM_MS`: its first word after a pause
+ *  longer than the beat, so only the request in flight says the step is
+ *  not done. */
+const STREAM_PATH = "/stream";
+const STREAM_WORDS =
+  "Your order ships on Tuesday from our Leeds warehouse and arrives by Friday next week.".split(
+    " ",
+  );
+const STREAM_FIRST_MS = 500;
+/** The answer's box at 1280x800, wider than the sentence by a margin no
+ *  platform's glyph widths eat (`stream` asserts 20 px are left over). */
+const ANSWER = { x: 340, y: 748, width: 880, height: 32 };
+const STREAM_MS = 1500;
+/** How long each stream the server sent took, in ms. */
+const streamed: number[] = [];
+const STREAM = withExtra(
+  "",
+  `<button type="button" id="ask" style="${FOOT} left: 260px; width: 60px">Ask</button><div id="answer" style="${FOOT} left: ${ANSWER.x}px; width: ${ANSWER.width}px; line-height: 32px; white-space: nowrap; overflow: hidden"></div>`,
+  `document.getElementById("ask").onclick = async () => {
+    const reader = (await fetch("${STREAM_PATH}")).body.getReader();
+    const text = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      document.getElementById("answer").textContent += text.decode(value);
+    }
+  };`,
+);
+/** A toast that slides in over `TOAST_MS`, longer than the beat, so only
+ *  the running animation says the step is not done. */
+const TOAST_MS = 600;
+const TOAST_FILL = "#065f46";
+/** Where the toast comes to rest, at 1280x800. */
+const TOAST_REST = { x: 600, y: 748, width: 180, height: 32 };
+const TOAST = withExtra(
+  `@keyframes slidein { from { transform: translateX(240px); } to { transform: none; } }
+  .toast { ${FOOT} left: 600px; width: 180px; padding: 6px 12px; border-radius: 8px; background: ${TOAST_FILL}; color: #fff; animation: slidein ${TOAST_MS}ms ease-out forwards; }`,
+  `<button type="button" id="save" style="${FOOT} left: 260px; width: 80px">Save</button><div id="toasts"></div>`,
+  `document.getElementById("save").onclick = () => {
+    const d = document.createElement("div");
+    d.className = "toast";
+    d.textContent = "Saved";
+    document.getElementById("toasts").append(d);
+  };`,
+);
+/** A search that filters the table once the typing has stopped for
+ *  `DEBOUNCE_MS`, inside the beat. A debounce longer than the beat is a
+ *  delay made by a timer alone, outside the settle by design
+ *  (`STEP_QUIET_MS`): measured 2026-11-11 at 250 ms, both videos' screens
+ *  were taken before the filter. */
+const DEBOUNCE_MS = 150;
+const DEBOUNCE = withExtra(
+  "",
+  "",
+  `let deb;
+  document.getElementById("search").addEventListener("input", (e) => {
+    clearTimeout(deb);
+    deb = setTimeout(() => {
+      for (const tr of document.querySelectorAll("#rows tr"))
+        tr.style.display = tr.textContent.includes(e.target.value) ? "" : "none";
+    }, ${DEBOUNCE_MS});
+  });`,
+);
+/** A count that ticks every `TICK_MS`, shorter than the beat: the DOM
+ *  never goes quiet once it starts. */
+const TICKS = `<span id="ticks" style="${FOOT} left: 260px; width: 80px; line-height: 32px"></span>`;
+const TICK_MS = 50;
+const TICK = `setInterval(() => { const t = document.getElementById("ticks"); t.textContent = String(Number(t.textContent) + 1); }, ${TICK_MS});`;
+const NEVER_AFTER_CLICK = withExtra(
+  "",
+  TICKS,
+  `document.getElementById("checkout-btn").addEventListener("click", () => { ${TICK} });`,
+);
 /** The page an app that shows dates relative to its "now" serves (DEM-79):
  *  a due date the server renders, and an age the page works out from a
  *  server timestamp against its own clock. `serverNow` is what the app
@@ -157,9 +289,10 @@ const RESTYLES = [
     rule: "nav a { display: block; padding: 8px 12px; border-radius: 6px; color: ",
     from: "#374151",
     to: "#6b7280",
-    // The nav is on every screen; which one reads most depends on the
-    // platform's fonts (Linux: the final screen, 2026-10-28).
-    where: /changed faintly (before step \d+|on the final screen)/,
+    // The nav is on every screen; which one reads most, and which look
+    // counts it first, depends on the platform's fonts (Linux: the final
+    // screen, 2026-10-28; macOS: sharply since the per-pixel look).
+    where: /changed (sharply|faintly) (before step \d+|on the final screen)/,
   },
   {
     name: "the button blue to a green as light",
@@ -343,13 +476,33 @@ function kept(
 const filmed: { name: string; display: string; scale: number | null }[] = [];
 /** Every run this file films: its name, and the gaps (source ms) between
  *  its consecutive step markers after the first. */
-const gaps: { name: string; gaps: number[]; settle: number }[] = [];
+const gaps: {
+  name: string;
+  gaps: number[];
+  settle: number;
+  /** The page screen after the first click (`after` 2): how long its
+   *  settle waited, and why it never settled if it did not. */
+  clickScreen: { waitedMs: number; unsettled?: string } | null;
+  /** Every page screen the run took, as the bundle records it. */
+  screens: {
+    after: number;
+    waitedMs: number;
+    heldAnimations: number;
+    unsettled?: string;
+  }[];
+}[] = [];
 /** Every saved export's screens and wallpaper warning, in order. */
 const exported: {
   fileType: string;
-  screens: KeptScreens;
+  /** Page screens for "screens"; the video's own screens otherwise. */
+  screens: unknown;
   wallpaper: "leftOut" | "soft" | null;
+  /** A page screens export's images, copied before refresh removes them:
+   *  each video's screens, the new one's included. Null for a video export. */
+  dir: string | null;
 }[] = [];
+/** The copies in `exported`, removed when the file ends. */
+const copies: string[] = [];
 /** Every home and output folder refresh handed an executor, in order. Read
  *  from the handoff, not by listing the system's temp: other checkouts'
  *  suites refresh into the same temp at the same time (2026-10-30). */
@@ -392,8 +545,24 @@ const deps = (): RefreshDeps => ({
             .slice()
             .sort((x, y) => x.sourceTimeMs - y.sourceTimeMs)
             .slice(1);
+          const click = bundle?.pageScreens?.find((p) => p.after === 2);
           gaps.push({
             name: String((args.script as { name: string }).name),
+            screens: (bundle?.pageScreens ?? []).map((p) => ({
+              after: p.after,
+              waitedMs: p.waitedMs,
+              heldAnimations: p.heldAnimations,
+              ...(p.unsettled === undefined ? {} : { unsettled: p.unsettled }),
+            })),
+            clickScreen:
+              click === undefined
+                ? null
+                : {
+                    waitedMs: click.waitedMs,
+                    ...(click.unsettled === undefined
+                      ? {}
+                      : { unsettled: click.unsettled }),
+                  },
             gaps: at.slice(1).map((t, i) => t - (at[i] as number)),
             // When the page stopped moving after the first click, from its
             // marker: the end of the last screencast span before the next.
@@ -415,13 +584,21 @@ const deps = (): RefreshDeps => ({
         if (op === "export" && answer.ok) {
           const v = answer.value as {
             fileType: string;
-            screens: KeptScreens;
+            screens: unknown;
+            folder?: { path: string };
             warnings: { wallpaperWarning?: { kind: "leftOut" | "soft" } };
           };
+          let dir: string | null = null;
+          if (v.fileType === "screens" && v.folder !== undefined) {
+            dir = await mkdtemp(join(tmpdir(), "demoman-refresh-shots-"));
+            copies.push(dir);
+            await cp(v.folder.path, dir, { recursive: true });
+          }
           exported.push({
             fileType: v.fileType,
             screens: v.screens,
             wallpaper: v.warnings.wallpaperWarning?.kind ?? null,
+            dir,
           });
           if (injectExport !== null)
             return {
@@ -459,13 +636,41 @@ const bytes = (p: string) => readFile(join(repo, p));
 /** The recipe, with the screens its receipt says the committed files show. */
 const keptOf = async (
   name: string,
-): Promise<KeptVideo & { screens: KeptScreens }> => {
+): Promise<KeptVideo & { screens: PageScreens }> => {
   const { kept, receipt } = await readKeptV2(
     repo,
     `${KEPT_DIR}/${keptFileName(name)}`,
   );
+  if (receipt.screens === null)
+    throw new Error(`${name}'s receipt predates page screens`);
   return { ...kept, screens: receipt.screens };
 };
+/** The settled screens of a receipt's page screens. */
+const settled = (sc: PageScreens) =>
+  sc.screens.filter((s) => s.unsettled === undefined);
+/** A copy of `name`'s page screens, to read after its receipt is replaced. */
+async function screensCopy(
+  name: string,
+): Promise<{ dir: string; screens: PageScreens }> {
+  const dir = await mkdtemp(join(tmpdir(), "demoman-screens-copy-"));
+  await cp(join(repo, RECEIPT_DIR, screensDirOf(keptFileName(name))), dir, {
+    recursive: true,
+  });
+  return { dir, screens: (await keptOf(name)).screens };
+}
+/** `sameScreens` on two sets of page screens with their looks left out:
+ *  whether the pages alone read the same. */
+async function pagesAlone(
+  a: { dir: string; screens: PageScreens },
+  b: { dir: string; screens: PageScreens },
+) {
+  const bare = ({ look: _look, ...sc }: PageScreens) => sc;
+  return sameScreens(
+    { dir: a.dir, screens: bare(a.screens) },
+    { dir: b.dir, screens: bare(b.screens) },
+    { session, log: (l) => void lines.push(l) },
+  );
+}
 /** How far a gap between two clicks is from the pan-or-pull-back line: the
  *  room `returnsBetween` finds between the camera's hold after the first
  *  click and its arrival at the second (both `leadInMs` before their markers).
@@ -503,12 +708,42 @@ const it = (name: string, body: () => unknown, ms?: number) =>
  *  gets a repo, an app and a browser of its own (vitest isolates modules per
  *  file), so the parts a file names read only what that file filmed.
  *
- *  Split four ways on 2026-11-01: as one file the lane ran 3012 s on CI, the
- *  whole of its shard's 3014 s, and a file is the smallest unit vitest can
- *  hand to another machine. */
+ *  Split four ways on 2026-11-01 (six files now, each a job of CI's refresh
+ *  matrix): as one file the lane ran 3012 s on CI, the whole of its shard's
+ *  3014 s, and a file is the smallest unit vitest can hand to another
+ *  machine. */
 export function refreshSuite(...parts: (() => void)[]): void {
   beforeAll(async () => {
-    server = createServer((_req, res) => {
+    server = createServer((req, res) => {
+      if (req.url === STREAM_PATH) {
+        // The first word after a pause longer than the beat, the rest
+        // evenly over what is left of `STREAM_MS` (both asserted in
+        // `stream`): in the pause only the request says it is not done.
+        const from = performance.now();
+        res.writeHead(200, { "content-type": "text/plain" });
+        STREAM_WORDS.forEach((word, i) => {
+          setTimeout(
+            () => {
+              res.write(i === 0 ? word : ` ${word}`);
+              if (i < STREAM_WORDS.length - 1) return;
+              res.end();
+              streamed.push(performance.now() - from);
+            },
+            STREAM_FIRST_MS +
+              (i * (STREAM_MS - STREAM_FIRST_MS)) / (STREAM_WORDS.length - 1),
+          );
+        });
+        return;
+      }
+      if (req.url === SLOW_PATH) {
+        const from = performance.now();
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "text/plain" });
+          res.end("ok");
+          slowHeld.push(performance.now() - from);
+        }, SLOW_ANSWER_MS);
+        return;
+      }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(html);
     });
@@ -602,7 +837,7 @@ export function refreshSuite(...parts: (() => void)[]): void {
   afterAll(async () => {
     await session?.close();
     server?.close();
-    for (const dir of [repo, home])
+    for (const dir of [repo, home, ...copies])
       if (dir) await rm(dir, { recursive: true, force: true });
   });
 
@@ -710,32 +945,22 @@ export const unchangedThenSlower = () => {
         r.videos.map((v) => v.outcome),
         JSON.stringify(r),
       ).toEqual(["unchanged", "unchanged"]);
-      // The premise: these films are on the wallpaper new takes default
-      // to, sharp, whose edges the window's split keeps out of the verdict.
-      expect(BRANDING_DEFAULTS.background).toMatchObject({
-        kind: "wallpaper",
-        blur: DEFAULT_WALLPAPER_BLUR,
-      });
-      // The premise: samePicture answered same for the judged output
-      // alone, over k of n screens recorded from a real film, each with
-      // a window inside its share frame and the look beside them.
-      const { width: fw, height: fh } = SHARE_LANDSCAPE;
+      // The premise: sameScreens answered same for the judged output
+      // alone, over k of n page screens recorded from a real run, each the
+      // page at CSS 1x, with the look beside them.
       for (const name of [A, B]) {
         const { screens } = await keptOf(name);
         expect(screens.look, name).toMatch(/^[0-9a-f]+$/);
-        for (const { window: w } of screens.moments) {
-          expect(w, JSON.stringify(screens)).toBeDefined();
-          const { x, y, width, height } = w as NonNullable<typeof w>;
-          expect(
-            x >= 0 && y >= 0 && x + width <= fw && y + height <= fh,
-            JSON.stringify(w),
-          ).toBe(true);
-          expect(width * height, JSON.stringify(w)).toBeGreaterThan(
-            0.25 * fw * fh,
-          );
+        const dir = join(repo, RECEIPT_DIR, screensDirOf(keptFileName(name)));
+        for (const sc of settled(screens)) {
+          const png = await readFile(join(dir, screenImageName(sc.step)));
+          expect(pngSize(png), `${name} ${screenImageName(sc.step)}`).toEqual({
+            width: 1280,
+            height: 800,
+          });
         }
         const m = byName(r, name).detail.match(
-          /^docs\/\w+\.mp4: at most [\d.]+% sharply and [\d.]+% faintly of the picture changed, over (\d+) of (\d+) screens$/,
+          /^docs\/\w+\.mp4: at most [\d.]+% sharply and [\d.]+% faintly of the picture changed, over (\d+) of (\d+) screens(; .+)?$/,
         );
         expect(m, byName(r, name).detail).not.toBeNull();
         expect(Number(m?.[1])).toBeGreaterThanOrEqual(2);
@@ -755,9 +980,12 @@ export const unchangedThenSlower = () => {
   it(
     "reads a slower app as unchanged",
     async () => {
-      // The premise: the app really answers the click 600 ms later.
-      expect(SLOW).not.toBe(ORIGINAL);
+      // The premise: the app answers the click through a request, not a
+      // timer.
+      expect(SLOW).toContain(`fetch("${SLOW_PATH}")`);
+      expect(SLOW).not.toContain("setTimeout");
       const fast = gaps.filter((g) => g.name === B).length;
+      const held = slowHeld.length;
       html = SLOW;
       let r: RefreshResult;
       try {
@@ -781,15 +1009,33 @@ export const unchangedThenSlower = () => {
         screensOf(slowA),
         `unchanged: ${unchangedDetailA} | slower: ${slowA}`,
       ).toEqual(screensOf(unchangedDetailA));
-      // The premise: the page settled after the first click later than in the
-      // film before it, by most of the 600 ms (the click's act is capped near
-      // 1.1 s, and on CI it reached the cap in both films, so it cannot say),
-      // and neither film's gap sits near the camera's line.
+      // The premise: the server held the answer the full 600 ms, once for
+      // each video's click.
+      const heldNow = slowHeld.slice(held);
+      expect(heldNow.length, JSON.stringify(heldNow)).toBeGreaterThanOrEqual(2);
+      for (const ms of heldNow)
+        expect(ms, JSON.stringify(heldNow)).toBeGreaterThanOrEqual(
+          SLOW_ANSWER_MS - 5,
+        );
       const bGaps = gaps.filter((g) => g.name === B);
       const [before, now] = [
         bGaps[fast - 1],
         bGaps[fast],
       ] as (typeof gaps)[0][];
+      // The premise: the settle waited for that request. The screen after
+      // the click settled in both videos, and its wait grew by most of the
+      // 600 ms.
+      const evidence = JSON.stringify([before?.clickScreen, now?.clickScreen]);
+      expect(before?.clickScreen?.unsettled, evidence).toBeUndefined();
+      expect(now?.clickScreen?.unsettled, evidence).toBeUndefined();
+      expect(
+        (now?.clickScreen?.waitedMs ?? 0) -
+          (before?.clickScreen?.waitedMs ?? 0),
+        evidence,
+      ).toBeGreaterThan(400);
+      // The premise: the page stopped moving after the first click later
+      // than in the video before it, by most of the 600 ms, and neither
+      // video's gap sits near the camera's line.
       expect(
         (now?.settle as number) - (before?.settle as number),
         JSON.stringify(gaps),
@@ -818,7 +1064,7 @@ export const oneDigit = () => {
       // table is in view (the panel the click opens covers the amounts).
       const { screens } = await keptOf(A);
       expect(
-        screens.moments.some((m) => m.step !== null),
+        settled(screens).some((sc) => sc.step !== null),
         JSON.stringify(screens),
       ).toBe(true);
       html = ONE_DIGIT;
@@ -832,7 +1078,7 @@ export const oneDigit = () => {
       noiseLine("one digit", a.detail);
       expect(a.outcome, JSON.stringify(r)).toBe("changed");
       expect(a.detail).toMatch(
-        /% of the picture changed sharply before step \d+ at /,
+        /% of the picture changed sharply before step \d+, over /,
       );
       // And back: the digit restored reads changed too, a second reading.
       const back = byName(await refresh([A]), A);
@@ -840,6 +1086,161 @@ export const oneDigit = () => {
       expect(back.outcome, back.detail).toBe("changed");
     },
     BOTH_MS,
+  );
+};
+
+/** Where `.local-time` sits on the page at 1280x800, and the pixels at which
+ *  two PNG screens differ (their bounding box and count), decoded in a work
+ *  page. */
+async function localTimeRect(page: string) {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    await work.page.setViewportSize({ width: 1280, height: 800 });
+    await work.page.setContent(page);
+    return await work.page.$eval(".local-time", (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    });
+  } finally {
+    await work.page.close();
+  }
+}
+async function differing(a: Buffer, b: Buffer) {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    return await work.page.evaluate(
+      async ([x, y]) => {
+        const pixels = async (base64: string) => {
+          const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+          const bmp = await createImageBitmap(new Blob([bytes]));
+          const c = new OffscreenCanvas(bmp.width, bmp.height);
+          const ctx = c.getContext("2d") as OffscreenCanvasRenderingContext2D;
+          ctx.drawImage(bmp, 0, 0);
+          return ctx.getImageData(0, 0, bmp.width, bmp.height);
+        };
+        const [p, q] = [await pixels(x as string), await pixels(y as string)];
+        if (p.width !== q.width || p.height !== q.height)
+          return { sizes: [p.width, p.height, q.width, q.height] };
+        let [x0, y0, x1, y1, n]: [number, number, number, number, number] = [
+          p.width,
+          p.height,
+          -1,
+          -1,
+          0,
+        ];
+        for (let i = 0; i < p.data.length; i += 4) {
+          if (
+            p.data[i] === q.data[i] &&
+            p.data[i + 1] === q.data[i + 1] &&
+            p.data[i + 2] === q.data[i + 2]
+          )
+            continue;
+          const [px, py] = [(i / 4) % p.width, Math.floor(i / 4 / p.width)];
+          [x0, y0, x1, y1, n] = [
+            Math.min(x0, px),
+            Math.min(y0, py),
+            Math.max(x1, px),
+            Math.max(y1, py),
+            n + 1,
+          ];
+        }
+        return { n, x0, y0, x1, y1, width: p.width };
+      },
+      [a.toString("base64"), b.toString("base64")],
+    );
+  } finally {
+    await work.page.close();
+  }
+}
+
+/** Records A of `page` with nothing to compare against, so the committed
+ *  screens are that page's; returns its opening page screen's image. */
+async function firstScreenOf(page: string) {
+  html = page;
+  const file = keptFileName(A);
+  await rm(join(repo, RECEIPT_DIR, file), { force: true });
+  await rm(join(repo, RECEIPT_DIR, screensDirOf(file)), {
+    recursive: true,
+    force: true,
+  });
+  const r = await refresh([A]);
+  expect(byName(r, A).outcome, JSON.stringify(r)).toBe("uncompared");
+  const { receipt } = await readKeptV2(repo, `${KEPT_DIR}/${file}`);
+  const dir = join(repo, RECEIPT_DIR, screensDirOf(file));
+  const screen = receipt.screens?.screens[0];
+  return {
+    image: await readFile(join(dir, screenImageName(screen?.step ?? null))),
+    names: await readdir(dir),
+    screen,
+  };
+}
+
+/** DEM-138: 4 characters of 12px grey text, in the app's own page. */
+export const smallGreyText = () => {
+  // DEM-138: read "unchanged" while refresh compared 1280-wide drawn
+  // screens; the page at CSS 1x sees it (spec 2026-11-10).
+  it(
+    "a small grey text change reads changed (DEM-138)",
+    async () => {
+      await leavingRepo(async () => {
+        // The premise: the two pages differ only in the digits of one span.
+        expect(LOCAL_TIME_WAS).not.toBe(LOCAL_TIME_NOW);
+        expect(LOCAL_TIME_WAS.replace("14:11", "05:00")).toBe(LOCAL_TIME_NOW);
+        const was = await firstScreenOf(LOCAL_TIME_WAS);
+        const now = await firstScreenOf(LOCAL_TIME_NOW);
+        // Leave the committed screens as the first page's: what refresh reads.
+        await firstScreenOf(LOCAL_TIME_WAS);
+        // The premise: both opening screens settled, and are the page itself
+        // at CSS 1x, so the span's page rect is its rect on the image.
+        expect(was.screen, JSON.stringify(was.screen)).toEqual({ step: 0 });
+        expect(now.screen, JSON.stringify(now.screen)).toEqual({ step: 0 });
+        const rect = await localTimeRect(LOCAL_TIME_WAS);
+        expect(
+          rect.x >= 0 &&
+            rect.y >= 0 &&
+            rect.x + rect.width <= 1280 &&
+            rect.y + rect.height <= 800,
+          `the span is in view: ${JSON.stringify(rect)}`,
+        ).toBe(true);
+        const d = await differing(was.image, now.image);
+        expect("n" in d, `images differ in size: ${JSON.stringify(d)}`).toBe(
+          true,
+        );
+        // Narrows for the checker what the line above asserted: the reply
+        // is the diff, not the two sizes.
+        if (d.n === undefined || d.width === undefined) {
+          throw new Error(`images differ in size: ${JSON.stringify(d)}`);
+        }
+        expect(d.width, "the page at 1x").toBe(1280);
+        // The premise: the two kept screen images differ, and only inside
+        // the span's rect (1 px for its glyphs' antialiasing).
+        const box = {
+          x0: rect.x,
+          y0: rect.y,
+          x1: rect.x + rect.width,
+          y1: rect.y + rect.height,
+        };
+        const evidence = JSON.stringify({ d, box, names: was.names });
+        expect(d.n, evidence).toBeGreaterThan(0);
+        expect(d.x0, evidence).toBeGreaterThanOrEqual(box.x0 - 1);
+        expect(d.y0, evidence).toBeGreaterThanOrEqual(box.y0 - 1);
+        expect(d.x1, evidence).toBeLessThanOrEqual(box.x1 + 1);
+        expect(d.y1, evidence).toBeLessThanOrEqual(box.y1 + 1);
+        html = LOCAL_TIME_NOW;
+        const r = await refresh([A]);
+        const a = byName(r, A);
+        noiseLine("small grey text", a.detail);
+        expect(a.outcome, `${a.detail} | ${JSON.stringify(r)}`).toBe("changed");
+        expect(a.detail).toMatch(
+          /% of the picture changed \w+ (before step \d+|on the final screen), over the [\d.]+% allowed/,
+        );
+      }).finally(() => {
+        html = ORIGINAL;
+      });
+    },
+    GREY_TEXT_MS,
   );
 };
 
@@ -902,10 +1303,10 @@ export const shortEnding = () => {
       await withKept(video, async () => {
         const first = byName(await refresh([name]), name);
         expect(first.outcome, first.detail).toBe("uncompared");
-        // The premise: both films end on a still screen, so the final screen
-        // is compared (the slower film's screens, from its export).
-        const final = (sc: KeptScreens) =>
-          sc.moments.some((m) => m.step === null);
+        // The premise: both recordings' final screens settled, so the final
+        // screen is compared (the slower one's, from its page screens).
+        const final = (sc: PageScreens) =>
+          settled(sc).some((x) => x.step === null);
         const { screens } = await keptOf(name);
         expect(final(screens), JSON.stringify(screens)).toBe(true);
         exported.length = 0;
@@ -918,8 +1319,9 @@ export const shortEnding = () => {
         }
         const v = byName(r, name);
         noiseLine("short ending, slower", v.detail);
-        // The screens render's: an unchanged refresh exports no MP4.
-        const slower = exported.find((e) => e.fileType === "screens")?.screens;
+        // The page screens': an unchanged refresh exports no MP4.
+        const slower = exported.find((e) => e.fileType === "screens")
+          ?.screens as PageScreens | undefined;
         expect(slower && final(slower), JSON.stringify(exported)).toBe(true);
         expect(v.outcome, v.detail).toBe("unchanged");
       });
@@ -948,9 +1350,10 @@ export const gifAlone = () => {
         expect(first.outcome, first.detail).toBe("uncompared");
         // The premise: the GIF is the output judged, and it has screens.
         const { screens } = await keptOf(name);
-        expect(screens.moments.length, JSON.stringify(screens)).toBeGreaterThan(
-          1,
-        );
+        expect(
+          settled(screens).length,
+          JSON.stringify(screens),
+        ).toBeGreaterThan(1);
         const same = byName(await refresh([name]), name);
         html = SLOW;
         let slower: RefreshVideo;
@@ -970,51 +1373,6 @@ export const gifAlone = () => {
           expect(v.outcome, v.detail).toBe("unchanged");
         }
       });
-    },
-    BOTH_MS,
-  );
-};
-
-/** A video of its own on a page that never stops. */
-export const spinner = () => {
-  it(
-    "measures a spinner that never stops, filmed twice (#10)",
-    async () => {
-      const name = "Spinner";
-      const video = kept(
-        name,
-        ["Place order"],
-        1,
-        [
-          {
-            path: "docs/spinner.mp4",
-            fileType: "mp4",
-            aspect: "16:9",
-            quality: "share",
-          },
-        ],
-        0,
-        3500,
-      );
-      // The premise: the spinner is on the page.
-      expect(SPINNER).toContain('<div id="spin"></div></main>');
-      expect(SPINNER).toContain("animation: spin");
-      html = SPINNER;
-      try {
-        await withKept(video, async () => {
-          const first = byName(await refresh([name]), name);
-          const { screens } = await keptOf(name).catch((error: unknown) => ({
-            screens: `unreadable: ${error instanceof Error ? error.message : String(error)}`,
-          }));
-          const second = byName(await refresh([name]), name);
-          // Measured, not asserted: it goes on #10.
-          console.info(
-            `spinner: first ${first.outcome}: ${first.detail} | screens ${JSON.stringify(screens)} | again ${second.outcome}: ${second.detail} | on ${process.platform}`,
-          );
-        });
-      } finally {
-        html = ORIGINAL;
-      }
     },
     BOTH_MS,
   );
@@ -1046,67 +1404,40 @@ export const compareFailures = () => {
     ONE_MS,
   );
 
+  // Review Focus 5, recorded for real: a receipt from before page screens
+  // is compared with nothing, never read as "unchanged", and says so.
   it(
-    "fails a kept file with no screens, saying keep it again",
-    async () => {
-      const kf = join(repo, KEPT_DIR, "no-screens.json");
-      // A v1 file, kept before screens were recorded: no screens, and a
-      // flow of its own in `from`.
-      const {
-        flow: _flow,
-        deliver: _deliver,
-        ...bare
-      } = JSON.parse(serializeKept(await keptOf(A)));
-      expect(bare.screens, "premise: no screens").toBeUndefined();
-      const from = {
-        videoId: randomUUID(),
-        takeId: "t",
-        recordedRevision: "r",
-      };
-      await writeFile(
-        kf,
-        JSON.stringify({ ...bare, keptVersion: 1, name: "No screens", from }),
-      );
-      try {
-        const r = await refresh([A]);
-        const v = r.videos.find((x) => x.file.endsWith("no-screens.json"));
-        expect(v?.outcome, JSON.stringify(r)).toBe("failed");
-        expect(v?.detail).toContain("demoman add No screens");
-        expect(v?.outputs).toEqual([]);
-      } finally {
-        await rm(kf, { force: true });
-      }
-    },
-    ONE_MS,
-  );
-
-  // Only a version 1 receipt's comparison decodes the committed file: a
-  // version 2 one compares its images.
-  it(
-    "delivers as new over a committed file that is not a decodable video, saying so",
+    "replaces once a video whose receipt predates page screens, saying so",
     async () => {
       const receiptFile = `${RECEIPT_DIR}/${keptFileName(B)}`;
-      const v2 = JSON.parse((await bytes(receiptFile)).toString());
-      // The premise: the receipt was version 2, and is made version 1.
-      expect(v2.receiptVersion).toBe(2);
-      const { screensDir: _d, screensSize: _s, ...v1 } = v2;
+      const v3 = JSON.parse((await bytes(receiptFile)).toString());
+      // The premise: the receipt was version 3, and is made version 2 as a
+      // version 2 receipt was written: moments and a size, no page screens.
+      expect(v3.receiptVersion).toBe(3);
       await writeFile(
         join(repo, receiptFile),
-        JSON.stringify({ ...v1, receiptVersion: 1 }),
+        JSON.stringify({
+          ...v3,
+          receiptVersion: 2,
+          screensSize: { width: 1280, height: 927 },
+          screens: {
+            steps: v3.screens.steps,
+            moments: [{ step: null, ms: 1 }],
+          },
+        }),
       );
-      await writeFile(join(repo, out.bMp4), "not a video");
       const r = await refresh([B]);
       const b = byName(r, B);
-      expect(b.outcome, JSON.stringify(r)).toBe("uncompared");
-      expect(b.notes).toEqual([
-        `${receiptFile} had no screen images, so this refresh exported to compare; the next one compares its screens`,
-        expect.stringMatching(
-          /^docs\/reports\.mp4 was replaced without a comparison: the committed file could not be decoded \(.+\)$/,
-        ),
-      ]);
-      expect((await bytes(out.bMp4)).toString("latin1")).not.toBe(
-        "not a video",
-      );
+      expect(b.outcome, JSON.stringify(r)).toBe("added");
+      expect(b.notes).toEqual([`${receiptFile} predates page screens`]);
+      expect(b.detail).toBe("recorded again and not compared");
+      expect(b.sameAs).toBeNull();
+      expect(b.outputs).toContain(out.bMp4);
+      expect(b.outputs).toContain(receiptFile);
+      expect(JSON.parse((await bytes(receiptFile)).toString())).toMatchObject({
+        receiptVersion: 3,
+        video: b.video,
+      });
     },
     ONE_MS,
   );
@@ -1127,7 +1458,7 @@ export const replaceChain = () => {
       const r = await refresh([A]);
       expect(byName(r, A).outcome, JSON.stringify(r)).toBe("changed");
       expect(byName(r, A).detail).toMatch(
-        /% of the picture changed \w+ on the final screen at [\d.]+s/,
+        /% of the picture changed \w+ on the final screen, over /,
       );
     },
     ONE_MS,
@@ -1165,7 +1496,7 @@ export const replaceChain = () => {
       const file = `${KEPT_DIR}/${keptFileName(A)}`;
       const receiptFile = `${RECEIPT_DIR}/${keptFileName(A)}`;
       const recipe = await bytes(file);
-      const before = (await keptOf(A)).screens;
+      const before = await screensCopy(A);
       html = PANEL_CHANGED.replace(HEADING, "<h1>Overdue invoices</h1>");
       expect(html).not.toContain(HEADING);
       exported.length = 0;
@@ -1174,13 +1505,21 @@ export const replaceChain = () => {
       expect(byName(r, A).outputs).toContain(receiptFile);
       expect(byName(r, A).outputs).not.toContain(file);
       expect((await bytes(file)).equals(recipe)).toBe(true);
-      // The receipt records the screens render's screens, which decided.
+      // The receipt records the take's page screens, which decided.
       const judged = exported.find((e) => e.fileType === "screens");
       expect(judged, JSON.stringify(exported)).toBeDefined();
       const after = (await keptOf(A)).screens;
       expect(after).toEqual(judged?.screens);
-      // The premise: the new film's screens are not the file's old ones.
-      expect(after).not.toEqual(before);
+      // The premise: the receipt's images are the new page's, not the old
+      // ones: the opening screen shows the new heading.
+      const name = screenImageName(0);
+      const dir = join(repo, RECEIPT_DIR, screensDirOf(keptFileName(A)));
+      const [was, now] = await Promise.all([
+        readFile(join(before.dir, name)),
+        readFile(join(dir, name)),
+      ]);
+      await rm(before.dir, { recursive: true, force: true });
+      expect(was.equals(now), name).toBe(false);
     },
     ONE_MS,
   );
@@ -1204,7 +1543,7 @@ export const replaceChain = () => {
         JSON.stringify(r),
       ).toEqual(["changed", "changed"]);
       expect(byName(r, A).detail).toMatch(
-        /% of the picture changed \w+ (before step \d+|on the final screen) at [\d.]+s/,
+        /% of the picture changed \w+ (before step \d+|on the final screen), over /,
       );
       const after = await Promise.all(Object.values(out).map(bytes));
       for (const [i, b] of after.entries())
@@ -1249,10 +1588,10 @@ export const replaceChain = () => {
   );
 
   it(
-    "fails a replace whose new film has no still screen, writing nothing",
+    "fails a replace whose new video has no settled screen, writing nothing",
     async () => {
       // The committed MP4 is gone, so the video is delivered without a
-      // comparison, and its new film recorded no still screen.
+      // comparison, and its new video settled no screen.
       const file = `${KEPT_DIR}/${keptFileName(A)}`;
       const receiptFile = `${RECEIPT_DIR}/${keptFileName(A)}`;
       const mp4 = await bytes(out.aMp4);
@@ -1260,10 +1599,17 @@ export const replaceChain = () => {
         [out.aGif, file, receiptFile].map(bytes),
       );
       await rm(join(repo, out.aMp4));
-      injectExport = (v) =>
-        v.fileType === "screens"
-          ? { ...v, screens: { ...(v.screens as KeptScreens), moments: [] } }
-          : v;
+      injectExport = (v) => {
+        if (v.fileType !== "screens") return v;
+        const sc = v.screens as PageScreens;
+        return {
+          ...v,
+          screens: {
+            ...sc,
+            screens: sc.screens.map((x) => ({ ...x, unsettled: "injected" })),
+          },
+        };
+      };
       let r: RefreshResult;
       try {
         r = await refresh([A]);
@@ -1273,11 +1619,11 @@ export const replaceChain = () => {
       }
       const a = byName(r, A);
       expect(a.outcome, JSON.stringify(r)).toBe("failed");
-      expect(a.detail).toBe(
-        `${out.aMp4}, the output a refresh judges, has no still screen to compare against — a refresh would have nothing to check; nothing was written`,
+      expect(a.detail).toMatch(
+        /^docs\/order\.mp4, the output a refresh judges, has no settled screen to compare against \(0 of \d+ screens settled; before step 1: injected; .*on the final screen: injected\) — a refresh would have nothing to check; nothing was written$/,
       );
       expect(a.outputs).toEqual([]);
-      // The premise: the screens render really answered.
+      // The premise: the page screens really answered.
       expect(
         exported.some((e) => e.fileType === "screens"),
         JSON.stringify(exported),
@@ -1513,14 +1859,15 @@ export const upload = () => {
         // Nothing changed since: unchanged.
         const second = byName(again, C);
         expect(second.outcome, JSON.stringify(again)).toBe("unchanged");
-        // The premise: each render warned soft, and nothing else: the
-        // first refresh's screens and MP4, the unchanged one's screens.
+        // The premise: the render warned soft, and nothing else: the first
+        // refresh's page screens and MP4, the unchanged one's page screens.
+        // Page screens render nothing, so they say nothing soft.
         expect(
           exported.slice(before).map((e) => [e.fileType, e.wallpaper]),
         ).toEqual([
-          ["screens", "soft"],
+          ["screens", null],
           ["mp4", "soft"],
-          ["screens", "soft"],
+          ["screens", null],
         ]);
         // The picture: the margin is the upload's green.
         const [reading] = (
@@ -1572,8 +1919,9 @@ export const wallpaperLeftOut = () => {
       }
       const a = byName(r, A);
       expect(a.outcome, JSON.stringify(r)).toBe("failed");
+      // The page screens are the first export asked for: they say it.
       expect(a.detail).toBe(
-        `${out.aMp4} was rendered without its wallpaper: ${said}`,
+        `${out.aMp4}'s page screens would be judged by a look that leaves out its wallpaper: ${said}`,
       );
       const after = await Promise.all([out.aMp4, out.aGif].map(bytes));
       for (const [i, b] of after.entries())
@@ -1594,6 +1942,7 @@ export const lookOutside = () => {
       html = ORIGINAL;
       const before = await keptOf(B);
       expect(before.screens.look, "premise: a look to compare").toBeDefined();
+      const pagesBefore = await screensCopy(B);
       const file = join(repo, KEPT_DIR, keptFileName(B));
       const blurred = {
         ...before,
@@ -1612,17 +1961,17 @@ export const lookOutside = () => {
       const b = byName(r, B);
       expect(b.outcome, JSON.stringify(r)).toBe("changed");
       expect(b.detail).toBe(
-        `${out.bMp4}: the look changed: the background, padding or logo round the window is not the one the committed video was filmed with`,
+        `${out.bMp4}: the look changed: the background, padding or logo round the window is not the one the committed video was recorded with`,
       );
-      // The premise: only the look moved; the window is where it was.
+      // The premise: only the look moved; the pages alone read the same.
       const after = await keptOf(B);
       expect(after.screens.look).not.toBe(before.screens.look);
-      const pairs = before.screens.moments.flatMap((m) => {
-        const n = after.screens.moments.find((x) => x.step === m.step);
-        return n === undefined ? [] : [[m.window, n.window]];
+      const pages = await pagesAlone(pagesBefore, {
+        dir: join(repo, RECEIPT_DIR, screensDirOf(keptFileName(B))),
+        screens: after.screens,
       });
-      expect(pairs.length, "premise: a screen in both").toBeGreaterThan(0);
-      for (const [w0, w1] of pairs) expect(w1).toEqual(w0);
+      await rm(pagesBefore.dir, { recursive: true, force: true });
+      expect(pages, JSON.stringify(pages)).toMatchObject({ same: true });
     },
     ONE_MS,
   );
@@ -1683,23 +2032,26 @@ export const logoOrUpload = () => {
             ["upload", upload, await webpOf([200, 60, 30])],
           ] as const) {
             const before = await keptOf(D);
+            const pagesBefore = await screensCopy(D);
             await writeFile(join(repo, path), bytes);
             const r = byName(await refresh([D]), D);
             expect(r.outcome, `${what}: ${r.detail}`).toBe("changed");
             expect(r.detail, what).toBe(
-              "docs/branded.mp4: the look changed: the background, padding or logo round the window is not the one the committed video was filmed with",
+              "docs/branded.mp4: the look changed: the background, padding or logo round the window is not the one the committed video was recorded with",
             );
-            // The premise: the same files by name, the window where it was,
+            // The premise: the same files by name, the pages alone the same,
             // and only the look moved.
             const after = await keptOf(D);
             expect([after.logo, after.wallpaper], what).toEqual([logo, upload]);
             expect(after.screens.look, what).not.toBe(before.screens.look);
-            const pairs = before.screens.moments.flatMap((m) => {
-              const n = after.screens.moments.find((x) => x.step === m.step);
-              return n === undefined ? [] : [[m.window, n.window]];
+            const pages = await pagesAlone(pagesBefore, {
+              dir: join(repo, RECEIPT_DIR, screensDirOf(keptFileName(D))),
+              screens: after.screens,
             });
-            expect(pairs.length, what).toBeGreaterThan(0);
-            for (const [w0, w1] of pairs) expect(w1, what).toEqual(w0);
+            await rm(pagesBefore.dir, { recursive: true, force: true });
+            expect(pages, `${what}: ${JSON.stringify(pages)}`).toMatchObject({
+              same: true,
+            });
           }
         });
       } finally {
@@ -1826,6 +2178,481 @@ export const pinnedDates = () => {
       } finally {
         html = ORIGINAL;
       }
+    },
+    BOTH_MS,
+  );
+};
+
+type Rect = { x: number; y: number; width: number; height: number };
+/** `fn`'s answer on `page`, laid out at 1280x800 in a work page. */
+async function inPage<T>(page: string, fn: () => T): Promise<T> {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    await work.page.setViewportSize({ width: 1280, height: 800 });
+    await work.page.setContent(page);
+    return await work.page.evaluate(fn);
+  } finally {
+    await work.page.close();
+  }
+}
+/** The RGB of every pixel of `png` inside `rect`, row by row, decoded in a
+ *  work page. */
+async function pixelsIn(png: Buffer, rect: Rect): Promise<number[][]> {
+  const work = await session.openWorkPage();
+  if (!work.ok) throw new Error(work.detail);
+  try {
+    const flat = await work.page.evaluate(
+      async ([b64, r]) => {
+        const bytes = Uint8Array.from(atob(b64 as string), (c) =>
+          c.charCodeAt(0),
+        );
+        const bmp = await createImageBitmap(new Blob([bytes]));
+        const c = new OffscreenCanvas(bmp.width, bmp.height);
+        const ctx = c.getContext("2d") as OffscreenCanvasRenderingContext2D;
+        ctx.drawImage(bmp, 0, 0);
+        const { x, y, width, height } = r as Rect;
+        return Array.from(
+          ctx.getImageData(
+            Math.round(x),
+            Math.round(y),
+            Math.round(width),
+            Math.round(height),
+          ).data,
+        );
+      },
+      [png.toString("base64"), rect] as const,
+    );
+    const out: number[][] = [];
+    for (let i = 0; i < flat.length; i += 4)
+      out.push([flat[i], flat[i + 1], flat[i + 2]] as number[]);
+    return out;
+  } finally {
+    await work.page.close();
+  }
+}
+/** How far into `rect` (from its left) the last pixel darker than mid grey
+ *  is; -1 when none is. */
+async function inkRight(png: Buffer, rect: Rect): Promise<number> {
+  const px = await pixelsIn(png, rect);
+  const width = Math.round(rect.width);
+  let right = -1;
+  for (const [i, [r, g, b]] of px.entries())
+    if (
+      0.299 * (r as number) + 0.587 * (g as number) + 0.114 * (b as number) <
+      128
+    )
+      right = Math.max(right, i % width);
+  return right;
+}
+/** Whether `rgb` is within `by` of `hex` in every channel. */
+const near = (rgb: number[] | undefined, hex: string, by = 12) =>
+  [1, 3, 5].every(
+    (at, i) =>
+      Math.abs(
+        (rgb?.[i] ?? -99) - Number.parseInt(hex.slice(at, at + 2), 16),
+      ) <= by,
+  );
+
+/** A video of its own: `steps` after the load, one MP4 at scale 1. */
+function own(name: string, steps: Record<string, unknown>[]): KeptVideo {
+  const base = kept(name, [], 1, [
+    {
+      path: `docs/${name.toLowerCase().replaceAll(" ", "-")}.mp4`,
+      fileType: "mp4",
+      aspect: "16:9",
+      quality: "share",
+    },
+  ]);
+  return {
+    ...base,
+    script: {
+      ...base.script,
+      steps: [{ do: "waitForLoad" }, ...steps],
+    } as KeptVideo["script"],
+  };
+}
+type Video = {
+  /** The refresh's answer for the video. */
+  v: RefreshVideo;
+  /** The folder its page screens were copied to. */
+  dir: string;
+  /** Its page screens, as the bundle recorded them. */
+  screens: (typeof gaps)[0]["screens"];
+};
+/** Records `video` on each page in turn, one refresh each, with nothing
+ *  committed before the first: each refresh's answer, page screens and
+ *  their images. */
+async function recordOn(video: KeptVideo, pages: string[]): Promise<Video[]> {
+  const out: Video[] = [];
+  try {
+    await withKept(video, async () => {
+      for (const page of pages) {
+        html = page;
+        const [runs, shots] = [gaps.length, exported.length];
+        const r = await refresh([video.name]);
+        const set = exported
+          .slice(shots)
+          .filter((e) => e.fileType === "screens")
+          .at(-1);
+        const run = gaps.slice(runs).at(-1);
+        if (set?.dir == null || run === undefined)
+          throw new Error(
+            `no page screens from the refresh: ${JSON.stringify(r)}`,
+          );
+        out.push({
+          v: byName(r, video.name),
+          dir: set.dir,
+          screens: run.screens,
+        });
+      }
+    });
+  } finally {
+    html = ORIGINAL;
+  }
+  return out;
+}
+const finalScreen = (v: Video) => readFile(join(v.dir, screenImageName(null)));
+
+/** DEM-139: a focused field's blinking caret. Red without the caret style
+ *  (PAGE_CAPTURE_HOLD): the final screen differs at the caret. */
+export const caret = () => {
+  it(
+    "a focused field with a blinking caret reads unchanged (DEM-139)",
+    async () => {
+      // The premise: a capture without the caret style differs between the
+      // two pages, and only inside the field (the caret). A work page's
+      // capture, not the video's: it shows the forcing works, not that a
+      // video's capture would catch the caret in its drawn phase.
+      const shot = (page: string) =>
+        inPage(page, () => {
+          (document.getElementById("search") as HTMLInputElement).focus();
+          const r = (
+            document.getElementById("search") as HTMLElement
+          ).getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height };
+        }).then(async (field) => {
+          const work = await session.openWorkPage();
+          if (!work.ok) throw new Error(work.detail);
+          try {
+            await work.page.setViewportSize({ width: 1280, height: 800 });
+            await work.page.setContent(page);
+            await work.page.focus("#search");
+            return {
+              field,
+              png: await work.page.screenshot({ caret: "initial" }),
+            };
+          } finally {
+            await work.page.close();
+          }
+        });
+      const [on, off] = [await shot(CARET_ON), await shot(CARET_OFF)];
+      const d = await differing(on.png, off.png);
+      const f = on.field;
+      const evidence = JSON.stringify({ d, field: f });
+      expect("n" in d && (d.n ?? 0) > 0, evidence).toBe(true);
+      if (!("n" in d)) return;
+      expect(d.x0, evidence).toBeGreaterThanOrEqual(f.x);
+      expect(d.x1, evidence).toBeLessThanOrEqual(f.x + f.width);
+      expect(d.y0, evidence).toBeGreaterThanOrEqual(f.y);
+      expect(d.y1, evidence).toBeLessThanOrEqual(f.y + f.height);
+      const [, again] = await recordOn(
+        own("Caret", [{ do: "click", on: { stableId: "search" } }]),
+        [CARET_ON, CARET_OFF],
+      );
+      noiseLine("caret", again?.v.detail ?? "");
+      expect(again?.v.outcome, again?.v.detail).toBe("unchanged");
+      // The premise: the final screen, the field focused, was compared.
+      expect(again?.v.detail).toMatch(/over 3 of 3 screens$/);
+    },
+    BOTH_MS,
+  );
+};
+
+/** A chip the resting pointer hovers, its fill arriving over `HOVER_MS`.
+ *  Red without the finite-animation condition: the screen is taken with
+ *  the fill on its way. */
+export const hover = () => {
+  it(
+    "an element hovered by the resting pointer reads unchanged",
+    async () => {
+      expect(HOVER).toContain(`transition: background-color ${HOVER_MS}ms`);
+      const [one, two] = (await recordOn(
+        own("Hover", [{ do: "hover", on: { stableId: "tip" } }]),
+        [HOVER, HOVER],
+      )) as [Video, Video];
+      noiseLine("hover", two.v.detail);
+      expect(two.v.outcome, two.v.detail).toBe("unchanged");
+      expect(two.v.detail).toMatch(/over 3 of 3 screens$/);
+      // The premise: both final screens show the chip's fill all the way
+      // arrived, at its centre (260 + 16, 748 + 16).
+      for (const v of [one, two]) {
+        const [px] = await pixelsIn(await finalScreen(v), {
+          x: 276,
+          y: 764,
+          width: 1,
+          height: 1,
+        });
+        expect(near(px, HOVER_FILL, 1), JSON.stringify(px)).toBe(true);
+      }
+    },
+    BOTH_MS,
+  );
+};
+
+/** DEM-73's fixture: a spinner that never stops, on every screen, half a
+ *  turn apart in the two videos. Red without the hold at the start: the
+ *  spinner's angle differs. */
+export const spinner = () => {
+  it(
+    "a spinner beside static content reads unchanged, and a change beside it changed",
+    async () => {
+      // The premise: the spinner is on the page, in view.
+      expect(SPINNER).toContain('<div id="spin"></div></main>');
+      const spin = await inPage(PENDING(3), () => {
+        const r = (
+          document.getElementById("spin") as HTMLElement
+        ).getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      });
+      expect(
+        spin.x >= 0 &&
+          spin.y >= 0 &&
+          spin.x + spin.width <= 1280 &&
+          spin.y + spin.height <= 800,
+        JSON.stringify(spin),
+      ).toBe(true);
+      // The premise: at the same moment, the second page's spinner is
+      // about half its 800 ms turn ahead of the first's.
+      const phase = (page: string) =>
+        inPage(page, () =>
+          Number(
+            (document.getElementById("spin") as HTMLElement).getAnimations()[0]
+              ?.currentTime,
+          ),
+        );
+      const ahead = (await phase(PENDING_SHIFTED)) - (await phase(PENDING(3)));
+      expect(ahead, `${ahead} ms`).toBeGreaterThan(SPIN_SHIFT_MS - 150);
+      expect(ahead, `${ahead} ms`).toBeLessThan(SPIN_SHIFT_MS + 150);
+      const videos = await recordOn(
+        own("Spinner", [{ do: "click", on: { text: "Place order" } }]),
+        [PENDING(3), PENDING_SHIFTED, PENDING(4)],
+      );
+      const [first, same, changed] = videos as [Video, Video, Video];
+      // The premise: the spinner was running at every capture, so every
+      // screen held it.
+      for (const v of videos)
+        expect(
+          v.screens.map((s) => s.heldAnimations),
+          JSON.stringify(v.screens),
+        ).toEqual([1, 1, 1]);
+      expect(first.v.outcome).toBe("uncompared");
+      noiseLine("spinner", same.v.detail);
+      expect(same.v.outcome, same.v.detail).toBe("unchanged");
+      expect(same.v.detail).toMatch(/over 3 of 3 screens$/);
+      noiseLine("spinner, a digit beside it", changed.v.detail);
+      expect(changed.v.outcome, changed.v.detail).toBe("changed");
+    },
+    BOTH_MS,
+  );
+};
+
+/** An answer streamed over 1.5 s. Red without the in-flight condition: the
+ *  screen is taken in the pause before the first word. */
+export const stream = () => {
+  it(
+    "the screen after a streamed answer is the finished answer, unchanged",
+    async () => {
+      // The premise: a pause longer than the beat before the first word,
+      // and the words after it inside the beat.
+      expect(STREAM_FIRST_MS).toBeGreaterThan(STEP_QUIET_MS);
+      expect(
+        (STREAM_MS - STREAM_FIRST_MS) / (STREAM_WORDS.length - 1),
+      ).toBeLessThan(STEP_QUIET_MS);
+      const full = STREAM_WORDS.join(" ");
+      const text = await inPage(
+        STREAM.replace(
+          'overflow: hidden"></div>',
+          `overflow: hidden">${full}</div>`,
+        ),
+        () => {
+          const range = document.createRange();
+          range.selectNodeContents(document.getElementById("answer") as Node);
+          const r = range.getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height };
+        },
+      );
+      // The premise: the whole answer fits its box on this platform's
+      // fonts, so where the ink ends is where the answer ends.
+      expect(
+        text.x + text.width,
+        `the answer spans ${JSON.stringify(text)} in a box ending at ${ANSWER.x + ANSWER.width}`,
+      ).toBeLessThan(ANSWER.x + ANSWER.width - 20);
+      const from = streamed.length;
+      const videos = await recordOn(
+        own("Stream", [{ do: "click", on: { text: "Ask" } }]),
+        [STREAM, STREAM],
+      );
+      const two = videos[1] as Video;
+      noiseLine("stream", two.v.detail);
+      expect(two.v.outcome, two.v.detail).toBe("unchanged");
+      expect(two.v.detail).toMatch(/over 3 of 3 screens$/);
+      // The premise: each video's stream took its 1.5 s, and was still open
+      // when the click returned: the settle after it waited most of it.
+      const took = streamed.slice(from);
+      expect(took.length, JSON.stringify(took)).toBe(2);
+      for (const ms of took) expect(ms).toBeGreaterThanOrEqual(STREAM_MS - 5);
+      for (const v of videos) {
+        const after = v.screens.find((s) => s.after === 2);
+        // The picture: the ink ends where the whole answer ends.
+        const right = await inkRight(await finalScreen(v), ANSWER);
+        expect(
+          Math.abs(ANSWER.x + right + 1 - (text.x + text.width)),
+          `ink ends at ${ANSWER.x + right + 1}; the whole answer at ${text.x + text.width}; ${JSON.stringify(v.screens)}`,
+        ).toBeLessThanOrEqual(3);
+        expect(after?.unsettled, JSON.stringify(v.screens)).toBeUndefined();
+        expect(after?.waitedMs, JSON.stringify(v.screens)).toBeGreaterThan(
+          STREAM_FIRST_MS,
+        );
+      }
+    },
+    BOTH_MS,
+  );
+};
+
+/** A toast that slides in over 600 ms. Red without the finite-animation
+ *  condition: the screen is taken mid-slide. */
+export const toast = () => {
+  it(
+    "a toast that slides in is on the final screen in both videos",
+    async () => {
+      expect(TOAST_MS).toBeGreaterThan(STEP_QUIET_MS);
+      const rest = await inPage(
+        TOAST.replace(
+          '<div id="toasts"></div>',
+          '<div id="toasts"><div class="toast" style="animation: none">Saved</div></div>',
+        ),
+        () => {
+          const r = (
+            document.querySelector(".toast") as HTMLElement
+          ).getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height };
+        },
+      );
+      expect(rest).toEqual(TOAST_REST);
+      const videos = await recordOn(
+        own("Toast", [{ do: "click", on: { text: "Save" } }]),
+        [TOAST, TOAST],
+      );
+      const two = videos[1] as Video;
+      noiseLine("toast", two.v.detail);
+      expect(two.v.outcome, two.v.detail).toBe("unchanged");
+      expect(two.v.detail).toMatch(/over 3 of 3 screens$/);
+      for (const v of videos) {
+        // Both ends of the toast at rest, in its padding.
+        const y = TOAST_REST.y + TOAST_REST.height / 2;
+        const png = await finalScreen(v);
+        const left = await pixelsIn(png, {
+          x: TOAST_REST.x + 4,
+          y,
+          width: 1,
+          height: 1,
+        });
+        const right = await pixelsIn(png, {
+          x: TOAST_REST.x + TOAST_REST.width - 6,
+          y,
+          width: 1,
+          height: 1,
+        });
+        expect(
+          near(left[0], TOAST_FILL) && near(right[0], TOAST_FILL),
+          `left ${JSON.stringify(left)} right ${JSON.stringify(right)}; ${JSON.stringify(v.screens)}`,
+        ).toBe(true);
+      }
+    },
+    BOTH_MS,
+  );
+};
+
+/** A search that filters once typing stops for 150 ms. Red if the beat is
+ *  below the debounce: the screen is taken before the filter. */
+export const debounce = () => {
+  it(
+    "a debounced search's screen is the filtered list, unchanged",
+    async () => {
+      const rows = await inPage(
+        DEBOUNCE,
+        () =>
+          [...document.querySelectorAll("#rows tr")].filter((tr) =>
+            (tr.textContent ?? "").includes("Acme"),
+          ).length,
+      );
+      // The premise: the search leaves one row of ten, and its delay is
+      // inside the beat.
+      expect(rows).toBe(1);
+      expect(DEBOUNCE_MS).toBeLessThan(STEP_QUIET_MS);
+      const videos = await recordOn(
+        own("Debounce", [
+          { do: "type", into: { stableId: "search" }, text: "Acme" },
+        ]),
+        [DEBOUNCE, DEBOUNCE],
+      );
+      const two = videos[1] as Video;
+      noiseLine("debounce", two.v.detail);
+      expect(two.v.outcome, two.v.detail).toBe("unchanged");
+      expect(two.v.detail).toMatch(/over 3 of 3 screens$/);
+      // The picture: in each video the final screen has lost nine rows
+      // against the opening. The typed word alone changed 3,106 when the
+      // screen was taken before the filter (measured 2026-11-11, the beat at
+      // 100 ms).
+      for (const v of videos) {
+        const d = await differing(
+          await readFile(join(v.dir, screenImageName(0))),
+          await finalScreen(v),
+        );
+        expect(
+          "n" in d ? d.n : 0,
+          `${JSON.stringify(d)}; ${JSON.stringify(v.screens)}`,
+        ).toBeGreaterThan(100_000);
+      }
+    },
+    BOTH_MS,
+  );
+};
+
+/** A page whose DOM never goes quiet once the click starts a count. Red if
+ *  an unsettled screen is compared (its image is never written) or
+ *  forgiven (it goes unnamed). A page that never settles from its load is not a case here:
+ *  the run itself fails on it (`pageNeverSettled`). */
+export const neverSettles = () => {
+  it(
+    "a page that never settles names the step, and never reads unchanged on it",
+    async () => {
+      const videos = await recordOn(
+        own("Never settles", [{ do: "click", on: { text: "Place order" } }]),
+        [NEVER_AFTER_CLICK, NEVER_AFTER_CLICK],
+      );
+      const [first, again] = videos as [Video, Video];
+      // The premise: before the click the page settled, after it never did.
+      for (const v of videos)
+        expect(
+          v.screens.map((s) => s.unsettled === undefined),
+          JSON.stringify(v.screens),
+        ).toEqual([true, true, false]);
+      // The premise: the count ticks inside the beat, and an unsettled
+      // screen's image is never written, so nothing of it can be read.
+      expect(TICK_MS).toBeLessThan(STEP_QUIET_MS);
+      for (const v of videos)
+        expect((await readdir(v.dir)).sort()).toEqual(
+          [screenImageName(0), screenImageName(1)].sort(),
+        );
+      expect(first.v.outcome, first.v.detail).toBe("uncompared");
+      // The two settled screens are compared, and the final one is named.
+      expect(again.v.outcome, again.v.detail).toBe("unchanged");
+      noiseLine("never settles", again.v.detail);
+      expect(again.v.detail).toMatch(
+        /over 2 of 3 screens; on the final screen: the DOM never went quiet$/,
+      );
     },
     BOTH_MS,
   );

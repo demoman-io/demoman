@@ -15,9 +15,9 @@ import { join } from "node:path";
 import {
   LEGACY_FLOWS_DIR as KEPT_DIR,
   type KeptReceipt,
-  type KeptScreens,
   type KeptVideo,
   keptFileName,
+  type PageScreens,
   parseReceipt,
   RECEIPT_DIR,
   REFRESH_LIST_FILE,
@@ -41,8 +41,6 @@ const FILE = `${KEPT_DIR}/${keptFileName(NAME)}`;
 const RECEIPT = `${RECEIPT_DIR}/${keptFileName(NAME)}`;
 /** The receipt's folder of screen images, beside it. */
 const SCREENS = `${RECEIPT_DIR}/${screensDirOf(RECEIPT)}`;
-/** The screens render's size: the output target's. */
-const SIZE = { width: 1920, height: 1080 };
 const MP4 = "docs/o.mp4";
 /** A files flow's output: a bare name, written beside the list. */
 const BARE = "o.mp4";
@@ -51,8 +49,10 @@ const GIF = "docs/o.gif";
 const FILMED = "a".repeat(40);
 /** When the fake run started: what a refresh-written receipt's filmedAt says. */
 const STARTED = "2026-10-31T12:00:00.000Z";
-const OLD: KeptScreens = { steps: 1, moments: [{ step: null, ms: 500 }] };
-const NEW: KeptScreens = { steps: 1, moments: [{ step: null, ms: 700 }] };
+const OLD: PageScreens = { steps: 1, screens: [{ step: null }] };
+const NEW: PageScreens = { steps: 1, screens: [{ step: 0 }, { step: null }] };
+/** A receipt's screens as a version 1 or 2 receipt wrote them. */
+const MOMENTS = { steps: 1, moments: [{ step: null, ms: 500 }] };
 
 const recipe = (outputs = [MP4]): KeptVideo => ({
   keptVersion: 2,
@@ -78,9 +78,8 @@ const recipe = (outputs = [MP4]): KeptVideo => ({
   report: null,
 });
 const receipt = (more: Partial<KeptReceipt> = {}): KeptReceipt => ({
-  receiptVersion: 1,
-  screensDir: null,
-  screensSize: null,
+  receiptVersion: 3,
+  screensDir: screensDirOf(RECEIPT),
   flow: FLOW,
   video: "t1",
   filmedAt: null,
@@ -92,24 +91,45 @@ const receipt = (more: Partial<KeptReceipt> = {}): KeptReceipt => ({
 /** A kept file as Demoman wrote it before receipts: screens and `from` in it. */
 const v1Text = (k: KeptVideo): string => {
   const { flow: _f, deliver: _d, ...rest } = JSON.parse(serializeKept(k));
-  return `${JSON.stringify({ ...rest, keptVersion: 1, screens: OLD, from: { videoId: FLOW, takeId: "t1", recordedRevision: "r1" } }, null, 2)}\n`;
+  return `${JSON.stringify({ ...rest, keptVersion: 1, screens: MOMENTS, from: { videoId: FLOW, takeId: "t1", recordedRevision: "r1" } }, null, 2)}\n`;
 };
+/** A receipt as Demoman wrote it before page screens (version 1 or 2):
+ *  never written again, so as text. */
+const oldReceiptText = (version: 1 | 2): string =>
+  `${JSON.stringify(
+    {
+      receiptVersion: version,
+      flow: FLOW,
+      video: "t1",
+      filmedAt: null,
+      filmedCode: { none: "test" },
+      recordedRevision: "r1",
+      ...(version === 2
+        ? {
+            screensDir: screensDirOf(RECEIPT),
+            screensSize: { width: 1920, height: 1080 },
+          }
+        : {}),
+      screens: MOMENTS,
+    },
+    null,
+    2,
+  )}\n`;
 
 let repo: string;
 let runs: Record<string, unknown>[];
-let compared: { committed: KeptScreens; fresh: KeptScreens }[];
+/** The screens each comparison was handed, committed and fresh. */
+let compared: { committed: PageScreens; fresh: PageScreens }[];
 /** What the screens comparison was handed: each side's folder and screens. */
 let screensCompared: {
-  committed: { dir: string; screens: KeptScreens; size: unknown };
-  fresh: { dir: string; screens: KeptScreens; size: unknown };
+  committed: { dir: string; screens: PageScreens };
+  fresh: { dir: string; screens: PageScreens };
 }[];
 /** Every export the executor was asked for, in order. */
 let exports: Record<string, unknown>[];
 /** An output type whose full export fails. */
 let failExport: string | null;
 let same: boolean;
-/** The size the fake screens render reports. */
-let freshSize: { width: number; height: number };
 /** Run while filming: what changes in the repo between the read and the write. */
 let duringRun: (() => Promise<void>) | null;
 /** Whether the fake run filmed uncommitted changes. */
@@ -150,7 +170,6 @@ beforeEach(async () => {
   exports = [];
   failExport = null;
   same = true;
-  freshSize = SIZE;
   duringRun = null;
   dirty = false;
   storedDates = null;
@@ -211,9 +230,9 @@ const deps = (): RefreshDeps => ({
         }
         exports.push(args);
         if (args.screensOnly === true) {
-          // The screens render: one image per screen, in a folder of its own.
+          // The page screens: one image per screen, in a folder of its own.
           const folder = await mkdtemp(join(outDir, "screens-"));
-          for (const m of NEW.moments)
+          for (const m of NEW.screens)
             await writeFile(
               join(folder, screenImageName(m.step)),
               `new ${screenImageName(m.step)}`,
@@ -225,7 +244,6 @@ const deps = (): RefreshDeps => ({
               fileType: "screens",
               folder: { path: folder },
               screens: NEW,
-              size: freshSize,
               warnings: { logo: null, wallpaperWarning: null },
             },
           };
@@ -255,13 +273,14 @@ const deps = (): RefreshDeps => ({
       close: async () => undefined,
     }) as unknown as ReturnType<RefreshDeps["executor"]>,
   session: {} as RefreshDeps["session"],
-  samePicture: async (_c, _f, _t, committed, fresh) => {
-    compared.push({ committed, fresh });
-    return { same, detail: same ? "the same" : "50% of the picture changed" };
-  },
   sameScreens: async (committed, fresh) => {
     screensCompared.push({ committed, fresh });
-    return { same, detail: same ? "the same" : "50% of the picture changed" };
+    compared.push({ committed: committed.screens, fresh: fresh.screens });
+    return {
+      same,
+      detail: same ? "the same" : "50% of the picture changed",
+      skipped: [],
+    };
   },
   env: {},
   log: (line) => void logged.push(line),
@@ -276,29 +295,29 @@ const one = async (d = deps()) => {
 };
 
 describe("a refresh against the receipt", () => {
-  it("a v1 repo refreshes the same picture as added, its file untouched, and gains a receipt with images", async () => {
+  // Review Focus 5: a v1 file's own receipt predates page screens.
+  it("a v1 repo is recorded again and replaced once, its file untouched, saying its receipt predates page screens", async () => {
     const text = v1Text(recipe());
     await writeFile(join(repo, FILE), text);
     // Premise: the file is the v1 shape, and no receipt sits beside it.
     expect(JSON.parse(text).keptVersion).toBe(1);
     expect(existsSync(join(repo, RECEIPT))).toBe(false);
     const v = await one();
-    // `added`: its receipt and images are written, and must be committed.
     expect(v.outcome, JSON.stringify(v)).toBe("added");
-    expect(v.sameAs).toEqual({ video: "t1" });
-    // Compared against the v1 file's own screens.
-    expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
+    // Not compared, so it matched nothing.
+    expect(v.sameAs).toBeNull();
+    expect(compared).toEqual([]);
     expect(await readFile(join(repo, FILE), "utf8")).toBe(text);
-    expect(v.notes).toEqual([
-      `${FILE} had no screen images, so this refresh exported to compare; the next one compares its screens`,
-    ]);
-    // The receipt beside it still names the committed video.
+    expect(v.notes).toEqual([`${FILE} predates page screens`]);
+    // Red when it also says it was delivered as new: it was recorded again,
+    // and its outcome is `added` (close review 6).
+    expect(v.detail).toBe("recorded again and not compared");
     expect(await receiptOf()).toMatchObject({
-      receiptVersion: 2,
-      video: "t1",
-      recordedRevision: "r1",
+      receiptVersion: 3,
+      video: "t-new",
+      screens: NEW,
     });
-    expect(v.outputs).toEqual([SCREENS, RECEIPT]);
+    expect(v.outputs).toEqual([MP4, SCREENS, RECEIPT]);
   });
 
   it("a changed film writes outputs and the receipt, never the recipe", async () => {
@@ -330,8 +349,8 @@ describe("a refresh against the receipt", () => {
     // Premise: the two names make different files.
     expect(keptFileName("Renamed in the studio")).not.toBe(keptFileName(NAME));
     const v = await one();
-    // A v1 receipt the same: added, with its images.
-    expect(v.outcome, JSON.stringify(v)).toBe("added");
+    // Premise: the receipt it read is the one the comparison was handed.
+    expect(v.outcome, JSON.stringify(v)).toBe("unchanged");
     expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
   });
 
@@ -380,8 +399,8 @@ describe("a refresh against the receipt", () => {
     expect(existsSync(join(repo, GIF))).toBe(false);
     const v = await one();
     expect(v.outcome, JSON.stringify(v)).toBe("added");
-    // A v1 receipt: written again as v2, with its images.
-    expect(v.outputs).toEqual([GIF, SCREENS, RECEIPT]);
+    // Only the new output: the receipt still describes the judged one.
+    expect(v.outputs).toEqual([GIF]);
     expect(v.detail).toContain(`${GIF} is new`);
     expect(await readFile(join(repo, MP4), "utf8")).toBe("committed film");
     // The receipt still says what the judged output shows: the old film.
@@ -483,18 +502,11 @@ describe("a refresh against the receipt", () => {
   });
 });
 
-/** A version 2 receipt, and its folder of the committed screens' images. */
+/** A version 3 receipt, and its folder of the committed screens' images. */
 const writeWithScreens = async (k = recipe()) => {
-  await writeV2(
-    k,
-    receipt({
-      receiptVersion: 2,
-      screensDir: screensDirOf(RECEIPT),
-      screensSize: SIZE,
-    }),
-  );
+  await writeV2(k, receipt());
   await mkdir(join(repo, SCREENS), { recursive: true });
-  for (const m of OLD.moments)
+  for (const m of OLD.screens)
     await writeFile(
       join(repo, SCREENS, screenImageName(m.step)),
       `old ${screenImageName(m.step)}`,
@@ -523,7 +535,7 @@ const receiptOf = async () => {
 };
 
 describe("a refresh decides from the screens, then exports", () => {
-  it("v2, same: renders the screens alone, exports nothing, writes nothing", async () => {
+  it("v3, same: copies the page screens alone, exports nothing, writes nothing", async () => {
     await writeWithScreens();
     const before = await snapshot([MP4, RECEIPT, SCREENS]);
     // Premise: the committed images are there to compare with.
@@ -540,18 +552,17 @@ describe("a refresh decides from the screens, then exports", () => {
     });
     expect(screensCompared).toEqual([
       {
-        committed: { dir: join(repo, SCREENS), screens: OLD, size: SIZE },
-        fresh: { dir: expect.any(String), screens: NEW, size: SIZE },
+        committed: { dir: join(repo, SCREENS), screens: OLD },
+        fresh: { dir: expect.any(String), screens: NEW },
       },
     ]);
-    expect(compared).toEqual([]);
     expect(v.detail).toBe(`${MP4}: the same`);
     expect(v.outputs).toEqual([]);
     expect(v.sameAs).toEqual({ video: "t1" });
     expect(await snapshot([MP4, RECEIPT, SCREENS])).toEqual(before);
   });
 
-  it("v2, same, with an output not committed: exports only that one, added", async () => {
+  it("v3, same, with an output not committed: exports only that one, added", async () => {
     await writeWithScreens(recipe([MP4, GIF]));
     // Premise: the GIF was never committed.
     expect(existsSync(join(repo, GIF))).toBe(false);
@@ -565,30 +576,25 @@ describe("a refresh decides from the screens, then exports", () => {
     expect(await snapshot([MP4, RECEIPT, SCREENS])).toEqual(before);
   });
 
-  it("v2, changed: exports every output after the screens, and writes them with the images and receipt", async () => {
+  it("v3, changed: exports every output after the screens, and writes them with the images and receipt", async () => {
     await writeWithScreens(recipe([MP4, GIF]));
     same = false;
-    freshSize = { width: 1280, height: 720 };
-    // Premise: the fresh render's size is not the committed receipt's.
-    expect((await receiptOf()).screensSize).toEqual(SIZE);
-    expect(freshSize).not.toEqual(SIZE);
     const v = await one();
     expect(v.outcome, JSON.stringify(v)).toBe("changed");
     expect(exported()).toEqual(["screens", "mp4", "gif"]);
     // The screens decide: the changed video's export is not compared again.
     expect(screensCompared).toHaveLength(1);
-    expect(compared).toEqual([]);
     expect(v.outputs).toEqual([MP4, GIF, SCREENS, RECEIPT]);
     expect(await readFile(join(repo, MP4), "utf8")).toBe("new mp4");
     expect(await snapshot([SCREENS])).toEqual({
       [`${SCREENS}/final.png`]: "new final.png",
+      [`${SCREENS}/step-0.png`]: "new step-0.png",
     });
     expect(await receiptOf()).toMatchObject({
-      receiptVersion: 2,
+      receiptVersion: 3,
       video: "t-new",
       screens: NEW,
       screensDir: screensDirOf(RECEIPT),
-      screensSize: freshSize,
     });
     expect(v.screens).toEqual(NEW);
     // The list names files, not the images' folder.
@@ -610,46 +616,59 @@ describe("a refresh decides from the screens, then exports", () => {
     expect(await snapshot([MP4, GIF, RECEIPT, SCREENS])).toEqual(before);
   });
 
-  it("v1: exports to compare, says so, and writes the receipt v2 and its images", async () => {
-    await writeV2();
-    // Premise: the committed receipt is version 1, naming no images.
-    expect(
-      JSON.parse(await readFile(join(repo, RECEIPT), "utf8")).receiptVersion,
-    ).toBe(1);
-    const v = await one();
-    // Added, not unchanged: its receipt and images are written, and a
-    // delivery commits only changed, added or uncompared videos.
-    expect(v.outcome, JSON.stringify(v)).toBe("added");
-    expect(v.line).toContain(NAME);
-    expect(exported()).toEqual(["screens", "mp4"]);
-    expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
-    expect(screensCompared).toEqual([]);
-    expect(v.notes).toEqual([
-      `${RECEIPT} had no screen images, so this refresh exported to compare; the next one compares its screens`,
-    ]);
-    expect(await readFile(join(repo, MP4), "utf8")).toBe("committed film");
-    expect(v.outputs).toEqual([SCREENS, RECEIPT]);
-    // The committed video is still the one the receipt names; its images
-    // are the screens judged the same as it.
-    expect(await receiptOf()).toMatchObject({
-      receiptVersion: 2,
-      video: "t1",
-      screens: NEW,
+  // Review Focus 5. Red if an old receipt is compared, read "unchanged", or
+  // replaced without saying why.
+  it.each([1, 2] as const)(
+    "a v%s receipt is recorded again and replaced once, saying the receipt predates page screens",
+    async (version) => {
+      await writeV2(recipe(), null);
+      await mkdir(join(repo, RECEIPT_DIR), { recursive: true });
+      await writeFile(join(repo, RECEIPT), oldReceiptText(version));
+      // Premise: the committed receipt is that version, with moments.
+      const before = JSON.parse(await readFile(join(repo, RECEIPT), "utf8"));
+      expect(before.receiptVersion).toBe(version);
+      expect(before.screens.moments).toHaveLength(1);
+      const v = await one();
+      expect(v.outcome, JSON.stringify(v)).toBe("added");
+      expect(v.line).toContain(NAME);
+      expect(v.sameAs).toBeNull();
+      expect(v.notes).toEqual([`${RECEIPT} predates page screens`]);
+      expect(v.detail).toBe("recorded again and not compared");
+      // Nothing was compared: every output is the new recording's.
+      expect(screensCompared).toEqual([]);
+      expect(exported()).toEqual(["screens", "mp4"]);
+      expect(await readFile(join(repo, MP4), "utf8")).toBe("new mp4");
+      expect(v.outputs).toEqual([MP4, SCREENS, RECEIPT]);
+      // The next one compares its screens.
+      exports.length = 0;
+      const next = await one();
+      expect(next.outcome, JSON.stringify(next)).toBe("unchanged");
+      expect(exported()).toEqual(["screens"]);
+      expect(next.notes).toEqual([]);
+    },
+  );
+
+  // Red if a replace writes an older receipt, or one without its screens.
+  it("refresh writes a v3 receipt on replace", async () => {
+    await mkdir(join(repo, RECEIPT_DIR), { recursive: true });
+    await writeV2(recipe(), null);
+    await writeFile(join(repo, RECEIPT), oldReceiptText(2));
+    await one();
+    const written = JSON.parse(await readFile(join(repo, RECEIPT), "utf8"));
+    expect(written).toMatchObject({
+      receiptVersion: 3,
+      video: "t-new",
       screensDir: screensDirOf(RECEIPT),
-      screensSize: SIZE,
+      screens: NEW,
     });
+    expect(written).not.toHaveProperty("screensSize");
     expect(await snapshot([SCREENS])).toEqual({
       [`${SCREENS}/final.png`]: "new final.png",
+      [`${SCREENS}/step-0.png`]: "new step-0.png",
     });
-    // The next one compares its screens.
-    exports.length = 0;
-    const next = await one();
-    expect(next.outcome, JSON.stringify(next)).toBe("unchanged");
-    expect(exported()).toEqual(["screens"]);
-    expect(next.notes).toEqual([]);
   });
 
-  it("v2 whose images folder is missing fails, naming the missing image, and writes nothing", async () => {
+  it("v3 whose images folder is missing fails, naming the missing image, and writes nothing", async () => {
     await writeWithScreens();
     await rm(join(repo, SCREENS), { recursive: true });
     const before = await snapshot([MP4, RECEIPT]);
@@ -845,25 +864,27 @@ describe("the files route", () => {
     });
   });
 
-  it("a files flow with a previous v1 receipt and the same picture is added, its receipt written again", async () => {
+  it("a files flow with a previous receipt and the same picture is unchanged, the previous folder's video standing", async () => {
     await writeV2(filesRecipe(), null);
     await writeFile(join(prev, BARE), "delivered film");
-    await writeFile(join(prev, RECEIPT_NAME), serializeReceipt(receipt()));
+    await writeFile(
+      join(prev, RECEIPT_NAME),
+      serializeReceipt(receipt({ screensDir: `${stem}.receipt.screens` })),
+    );
     const [v] = await refreshInto({ previous: prev });
-    // A v1 receipt the same: added, its receipt written again with images.
-    expect(v?.outcome, JSON.stringify(v)).toBe("added");
+    expect(v?.outcome, JSON.stringify(v)).toBe("unchanged");
     expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
+    // The images are read beside the receipt in the previous folder.
+    expect(screensCompared[0]?.committed.dir).toBe(
+      join(prev, `${stem}.receipt.screens`),
+    );
     // No output to deliver: the previous folder's film stands.
     expect(existsSync(join(out, BARE))).toBe(false);
     expect((await listIn()).videos[0]).toMatchObject({
-      outcome: "added",
+      outcome: "unchanged",
       sameAs: { video: "t1", commit: FILMED, dirty: false },
-      // Its v1 receipt, written again as v2 beside its images.
-      files: [{ path: RECEIPT_NAME, fileType: "json", aspect: null }],
+      files: [],
     });
-    expect(existsSync(join(out, `${stem}.receipt.screens`, "final.png"))).toBe(
-      true,
-    );
   });
 
   it("with --previous the same folder as --out-dir, the same picture's video stays and its receipt still names it", async () => {
@@ -871,8 +892,7 @@ describe("the files route", () => {
     await writeFile(join(out, BARE), "delivered film");
     await writeFile(join(out, RECEIPT_NAME), serializeReceipt(receipt()));
     const [v] = await refreshInto({ previous: out });
-    // A v1 receipt the same: added, its receipt written again with images.
-    expect(v?.outcome, JSON.stringify(v)).toBe("added");
+    expect(v?.outcome, JSON.stringify(v)).toBe("unchanged");
     // Premise: the comparison read the receipt in that folder.
     expect(compared).toEqual([{ committed: OLD, fresh: NEW }]);
     // The next run, downloading this folder, compares with the same receipt.
@@ -906,7 +926,7 @@ describe("the files route", () => {
     const [first] = await refreshInto({ previous: out });
     expect(first?.outcome, JSON.stringify(first)).toBe("uncompared");
     const images = join(out, `${stem}.receipt.screens`);
-    expect(await readdir(images)).toEqual(["final.png"]);
+    expect((await readdir(images)).sort()).toEqual(["final.png", "step-0.png"]);
     expect(first?.outputs).toEqual([
       BARE,
       `${stem}.receipt.screens`,

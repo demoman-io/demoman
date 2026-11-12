@@ -41,3 +41,15 @@ export function jpegSize(bytes: Uint8Array): { width: number; height: number } {
   }
   throw new Error("screenshot is not a JPEG this parser understands");
 }
+
+/** A PNG's size, from its IHDR chunk (always the first). */
+export function pngSize(bytes: Uint8Array): { width: number; height: number } {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const signed =
+    bytes.length >= 24 &&
+    view.getUint32(0) === 0x89504e47 &&
+    view.getUint32(12) === 0x49484452; // "IHDR"
+  if (!signed)
+    throw new Error("screenshot is not a PNG this parser understands");
+  return { width: view.getUint32(16), height: view.getUint32(20) };
+}

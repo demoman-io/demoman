@@ -188,7 +188,38 @@ async function exported(take: Take) {
     first,
     last,
     edgesBetween,
+    // Where the render cut a zoom to the frames' detail (`clampToSourceDetail`):
+    // a zoom in the scene that the picture does not play shows up here.
+    detail: answer.warnings.detailViolations,
   };
+}
+
+/** Evidence only: each still's source time, width and step. The render grants a
+ *  zoom the detail of the still before it, so a narrow one there is a zoom
+ *  the scene has and the picture does not. */
+async function stillsOf(take: Take): Promise<unknown> {
+  const path = join(
+    createLibrary(home).takeDir(take.takeId),
+    "frames",
+    "bundles",
+    `${take.takeId}.json`,
+  );
+  try {
+    const bundle = JSON.parse(await readFile(path, "utf8")) as {
+      keyframes: {
+        sourceTimeMs: number;
+        width: number;
+        actionId: string | null;
+      }[];
+    };
+    return bundle.keyframes.map((k) => [
+      Math.round(k.sourceTimeMs),
+      k.width,
+      k.actionId,
+    ]);
+  } catch (error) {
+    return `unread: ${String(error)}`;
+  }
 }
 
 const zoomOn = (scene: SceneDocument, actionId: string) =>
@@ -329,7 +360,15 @@ describe("a click's zoom, on the decoded video", () => {
         [outputMs - AROUND_MS.before, outputMs + AROUND_MS.after] as const;
       const withZoom = zoomedPicture.edgesBetween(...window(zoomedAt.outputMs));
       const without = offPicture.edgesBetween(...window(offAt.outputMs));
-      const evidence = JSON.stringify({ zoomedAt, offAt, withZoom, without });
+      const evidence = JSON.stringify({
+        zoomedAt,
+        offAt,
+        withZoom,
+        without,
+        zoomedCamera: zoomed.scene.camera,
+        zoomedDetail: zoomedPicture.detail,
+        zoomedStills: await stillsOf(zoomed),
+      });
       expect(withZoom.length, evidence).toBeGreaterThanOrEqual(6);
       expect(without.length, evidence).toBeGreaterThanOrEqual(6);
       expect(
