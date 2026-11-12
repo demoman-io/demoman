@@ -31,7 +31,8 @@ Setup asks three things, then does the rest:
 | Whether pull requests get a demo: Off, Ask or Attach | Ask |
 
 It downloads Chromium (about 190 MB) and connects Demoman to each agent you
-chose, pre-approving its tools so they run without asking. `--yes` asks
+chose, pre-approving its tools so they run without asking, except `attach`
+and `ci`, which act on GitHub under your account and ask each time. `--yes` asks
 nothing and keeps your current settings. Every flag is on [setup](/reference/setup).
 
 On Linux, Chromium also needs system libraries. Setup names the one `sudo`
