@@ -34,6 +34,21 @@ script is filmed. Rebrand anything filmed from them before it goes on the site.
 
 Ctrl+C mid-run leaves its temporary folders in `$TMPDIR`: the two homes (`film-compare-cli-home-*`, `film-compare-headless-home-*`). A side whose runs did not all complete keeps its home on purpose; the refusal names it.
 
+## House-app trial
+
+`house-trial.sh <app checkout> <rounds> [flow…]` runs a house app's refresh
+trial on this machine with the repo's own build, so a refresh fix is measured
+before it is released, not after. It records a local baseline, then
+refreshes `<rounds>` times against it with nothing changed; the last line
+counts the unchanged verdicts, and every one should be. `DEMOMAN` picks the
+build to run, and `COLD=1` wipes the app's build caches before each refresh.
+
+A Mac is fast enough to hide a race CI's runner loses. DEM-176 read 15 of 15
+unchanged here, warm or cold, until the ticket page's modules were slowed to
+CI's pace: a local, never-pushed vite plugin in helpdesk's `nuxt.config.ts`
+that holds each `/_nuxt/…/pages/` module 1.5 s. Then every round took the
+empty reader, and with the fix every round showed the ticket.
+
 ## Export cost
 
 Three scripts for where an export's time goes, all headless, all against a

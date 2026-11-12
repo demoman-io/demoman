@@ -98,6 +98,19 @@ describe("trackRequests", () => {
     expect(t.inFlight()).toBe(2);
   });
 
+  // DEM-176: red while only fetch and XHR count. A route change in a dev
+  // server loads the page's code (Script, Stylesheet) before its fetch.
+  it("counts a script or stylesheet until it finishes", async () => {
+    const cdp = fakeCdp();
+    const t = await trackRequests(cdp, () => 0);
+    cdp.emit("Network.requestWillBeSent", start("js", "Script"));
+    cdp.emit("Network.requestWillBeSent", start("css", "Stylesheet"));
+    expect(t.inFlight()).toBe(2);
+    cdp.emit("Network.loadingFinished", { requestId: "js" });
+    cdp.emit("Network.loadingFailed", { requestId: "css" });
+    expect(t.inFlight()).toBe(0);
+  });
+
   it("does not count EventSource, WebSocket, Document or Image requests", async () => {
     const cdp = fakeCdp();
     const t = await trackRequests(cdp, () => 0);

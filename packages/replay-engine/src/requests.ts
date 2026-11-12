@@ -1,7 +1,12 @@
 import type { CdpSession } from "./types.js";
 
-/** Only fetch and XHR count: a dev server's WebSocket/EventSource never closes, and documents and images are the load check's business. */
-const COUNTED = new Set(["Fetch", "XHR"]);
+/**
+ * What counts as in flight: fetch and XHR, and the code a page loads to draw
+ * what it shows (a route change's lazily loaded scripts and stylesheets,
+ * which run before its fetch; DEM-176). A dev server's WebSocket/EventSource
+ * never closes, and documents and images are the load check's business.
+ */
+const COUNTED = new Set(["Fetch", "XHR", "Script", "Stylesheet"]);
 const POLL_MS = 25;
 
 export interface RequestTracker {

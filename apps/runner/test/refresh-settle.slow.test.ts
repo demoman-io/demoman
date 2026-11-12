@@ -13,6 +13,7 @@ import {
   caret,
   debounce,
   hover,
+  lazyModule,
   neverSettles,
   refreshSuite,
   spinner,
@@ -20,4 +21,13 @@ import {
   toast,
 } from "./refresh-suite.js";
 
-refreshSuite(caret, hover, spinner, stream, toast, debounce, neverSettles);
+refreshSuite(
+  caret,
+  hover,
+  spinner,
+  stream,
+  lazyModule,
+  toast,
+  debounce,
+  neverSettles,
+);

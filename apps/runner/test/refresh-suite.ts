@@ -211,6 +211,20 @@ const STREAM = withExtra(
     }
   };`,
 );
+/** DEM-176: a click that loads the code for what it shows, as a route
+ *  change in a dev server does, held `LAZY_MS` (longer than the beat). The
+ *  module writes the line itself; until it arrives the page does not move,
+ *  so only the script request in flight says the step is not done. */
+const LAZY_PATH = "/lazy-panel.js";
+const LAZY_MS = 800;
+const LAZY_TEXT = "Ticket 1040 opened";
+/** How long each lazy module the server sent was held, in ms. */
+const lazyHeld: number[] = [];
+const LAZY = withExtra(
+  "",
+  `<button type="button" id="open" style="${FOOT} left: 260px; width: 60px">Open</button><div id="opened" style="${FOOT} left: ${ANSWER.x}px; width: ${ANSWER.width}px; line-height: 32px; white-space: nowrap; overflow: hidden"></div>`,
+  `document.getElementById("open").onclick = () => import("${LAZY_PATH}");`,
+);
 /** A toast that slides in over `TOAST_MS`, longer than the beat, so only
  *  the running animation says the step is not done. */
 const TOAST_MS = 600;
@@ -733,6 +747,17 @@ export function refreshSuite(...parts: (() => void)[]): void {
               (i * (STREAM_MS - STREAM_FIRST_MS)) / (STREAM_WORDS.length - 1),
           );
         });
+        return;
+      }
+      if (req.url === LAZY_PATH) {
+        const from = performance.now();
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "text/javascript" });
+          res.end(
+            `document.getElementById("opened").textContent = ${JSON.stringify(LAZY_TEXT)};`,
+          );
+          lazyHeld.push(performance.now() - from);
+        }, LAZY_MS);
         return;
       }
       if (req.url === SLOW_PATH) {
@@ -2513,6 +2538,66 @@ export const stream = () => {
         expect(after?.unsettled, JSON.stringify(v.screens)).toBeUndefined();
         expect(after?.waitedMs, JSON.stringify(v.screens)).toBeGreaterThan(
           STREAM_FIRST_MS,
+        );
+      }
+    },
+    BOTH_MS,
+  );
+};
+
+/** DEM-176: a click whose result waits on a lazily loaded module. Red while
+ *  only fetch and XHR count as in flight: the screen is taken before the
+ *  module arrives, with the panel still empty. */
+export const lazyModule = () => {
+  it(
+    "the screen after a click that loads code is the page the code drew, unchanged (DEM-176)",
+    async () => {
+      // The premise: the module is held longer than the beat.
+      expect(LAZY_MS).toBeGreaterThan(STEP_QUIET_MS);
+      // The premise: the element the module writes to is the one in the
+      // box the screens are read in (the base page has a `#panel` of its
+      // own, off screen), and its line leaves more than 40 px of ink there.
+      const drawn = await inPage(
+        LAZY.replace(
+          'overflow: hidden"></div>',
+          `overflow: hidden">${LAZY_TEXT}</div>`,
+        ),
+        () => {
+          const range = document.createRange();
+          range.selectNodeContents(document.getElementById("opened") as Node);
+          const r = range.getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width };
+        },
+      );
+      expect(drawn.x, JSON.stringify(drawn)).toBe(ANSWER.x);
+      expect(drawn.y, JSON.stringify(drawn)).toBeGreaterThanOrEqual(ANSWER.y);
+      expect(drawn.width, JSON.stringify(drawn)).toBeGreaterThan(40);
+      const from = lazyHeld.length;
+      const videos = await recordOn(
+        own("Lazy module", [{ do: "click", on: { stableId: "open" } }]),
+        [LAZY, LAZY],
+      );
+      const two = videos[1] as Video;
+      noiseLine("lazy module", two.v.detail);
+      expect(two.v.outcome, two.v.detail).toBe("unchanged");
+      expect(two.v.detail).toMatch(/over 3 of 3 screens$/);
+      // The premise: each video's click loaded the module, held its time.
+      const took = lazyHeld.slice(from);
+      expect(took.length, JSON.stringify(took)).toBeGreaterThanOrEqual(2);
+      for (const ms of took) expect(ms).toBeGreaterThanOrEqual(LAZY_MS - 5);
+      for (const v of videos) {
+        // The picture: the panel is empty on the opening screen and holds
+        // the module's line on the final one.
+        const opening = await readFile(join(v.dir, screenImageName(0)));
+        expect(await inkRight(opening, ANSWER)).toBe(-1);
+        expect(
+          await inkRight(await finalScreen(v), ANSWER),
+          JSON.stringify(v.screens),
+        ).toBeGreaterThan(40);
+        const after = v.screens.find((s) => s.after === 2);
+        expect(after?.unsettled, JSON.stringify(v.screens)).toBeUndefined();
+        expect(after?.waitedMs, JSON.stringify(v.screens)).toBeGreaterThan(
+          LAZY_MS - STEP_QUIET_MS,
         );
       }
     },
