@@ -3,8 +3,12 @@ import type { CdpSession } from "./types.js";
 /**
  * What counts as in flight: fetch and XHR, and the code a page loads to draw
  * what it shows (a route change's lazily loaded scripts and stylesheets,
- * which run before its fetch; DEM-176). A dev server's WebSocket/EventSource
- * never closes, and documents and images are the load check's business.
+ * which run before its fetch; DEM-176). Any origin's, as a fetch already was:
+ * a build may serve its chunks from a CDN. A script always finishes or
+ * fails; a slow third-party one costs a step at most `STEP_REQUEST_CAP_MS`
+ * and is named on the screen ("N request(s) in flight"), never forgiven.
+ * A dev server's WebSocket/EventSource never closes, and documents and
+ * images are the load check's business.
  */
 const COUNTED = new Set(["Fetch", "XHR", "Script", "Stylesheet"]);
 const POLL_MS = 25;

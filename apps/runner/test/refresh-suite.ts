@@ -216,7 +216,10 @@ const STREAM = withExtra(
  *  module writes the line itself; until it arrives the page does not move,
  *  so only the script request in flight says the step is not done. */
 const LAZY_PATH = "/lazy-panel.js";
-const LAZY_MS = 800;
+/** Long beside the click step's own tail (from the click to its settle
+ *  starting), which CI's slower runner stretches: a module that arrived
+ *  before the settle began would pass without the fix. */
+const LAZY_MS = 1500;
 const LAZY_TEXT = "Ticket 1040 opened";
 /** How long each lazy module the server sent was held, in ms. */
 const lazyHeld: number[] = [];
@@ -2596,8 +2599,11 @@ export const lazyModule = () => {
         ).toBeGreaterThan(40);
         const after = v.screens.find((s) => s.after === 2);
         expect(after?.unsettled, JSON.stringify(v.screens)).toBeUndefined();
+        // The settle waited for the module: without the fix it answers in
+        // about one beat (203 ms measured 2026-11-12); with it, the hold
+        // less the click's tail, plus the beat.
         expect(after?.waitedMs, JSON.stringify(v.screens)).toBeGreaterThan(
-          LAZY_MS - STEP_QUIET_MS,
+          2 * STEP_QUIET_MS,
         );
       }
     },
