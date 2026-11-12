@@ -44,6 +44,7 @@ import {
   sampleMp4,
 } from "./mp4-probe.js";
 import { keyframeOnlyBundle } from "./render-small.js";
+import { stillLog } from "./still-log.js";
 
 // The decode probe (mediabunny's demux side) lives in its own bundle, never
 // render.ts's production one — see entry-globals.ts's RENDER_PROBE_GLOBAL
@@ -870,6 +871,7 @@ describe("an agent take that ends on a click", () => {
       last,
       moving,
       detail: answer.warnings.detailViolations,
+      stillLog: stillLog(),
       stills,
     });
     // The premises: each window holds a run of decoded frames, and the
