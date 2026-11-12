@@ -194,7 +194,7 @@ async function exported(take: Take) {
   };
 }
 
-/** Evidence only: each still's source time and width. The render grants a
+/** Evidence only: each still's source time, width and step. The render grants a
  *  zoom the detail of the still before it, so a narrow one there is a zoom
  *  the scene has and the picture does not. */
 async function stillsOf(take: Take): Promise<unknown> {
@@ -206,9 +206,17 @@ async function stillsOf(take: Take): Promise<unknown> {
   );
   try {
     const bundle = JSON.parse(await readFile(path, "utf8")) as {
-      keyframes: { sourceTimeMs: number; width: number }[];
+      keyframes: {
+        sourceTimeMs: number;
+        width: number;
+        actionId: string | null;
+      }[];
     };
-    return bundle.keyframes.map((k) => [Math.round(k.sourceTimeMs), k.width]);
+    return bundle.keyframes.map((k) => [
+      Math.round(k.sourceTimeMs),
+      k.width,
+      k.actionId,
+    ]);
   } catch (error) {
     return `unread: ${String(error)}`;
   }

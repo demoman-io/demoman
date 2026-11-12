@@ -833,7 +833,45 @@ describe("an agent take that ends on a click", () => {
     // way back out of the zoom (held 1.2 s from its arrival 350 ms before
     // the click), and the picture moves.
     const moving = between(clickMs / 1000 + 1, clickMs / 1000 + 1.2);
-    const evidence = JSON.stringify({ clickMs, endSec, last, moving });
+    // Evidence only: a zoom the render cut to the stills' detail moves
+    // nothing, so a red positive control names the cut and each still's
+    // [sourceTimeMs, width, actionId] (a narrow one is a screencast frame
+    // that stood in for a step's still).
+    let stills: unknown;
+    try {
+      const bundle = JSON.parse(
+        readFileSync(
+          join(
+            createLibrary(home).takeDir(takeId),
+            "frames",
+            "bundles",
+            `${takeId}.json`,
+          ),
+          "utf8",
+        ),
+      ) as {
+        keyframes: {
+          sourceTimeMs: number;
+          width: number;
+          actionId: string | null;
+        }[];
+      };
+      stills = bundle.keyframes.map((k) => [
+        Math.round(k.sourceTimeMs),
+        k.width,
+        k.actionId,
+      ]);
+    } catch (error) {
+      stills = `unread: ${String(error)}`;
+    }
+    const evidence = JSON.stringify({
+      clickMs,
+      endSec,
+      last,
+      moving,
+      detail: answer.warnings.detailViolations,
+      stills,
+    });
     // The premises: each window holds a run of decoded frames, and the
     // film runs past the moving one.
     expect(last.length, evidence).toBeGreaterThanOrEqual(5);
