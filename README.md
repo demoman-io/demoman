@@ -23,7 +23,7 @@
 
 **Self-recording, self-updating product demos.**
 
-Record demos with your agent. Each flow is saved, and CI keeps it current.
+Record demos with your agent. Keep them current in CI.
 
 <p align="center">
   <img alt="A demo Demoman recorded: adding a card to a kanban board, with the camera following each click" width="100%" src="brand/readme/kanban.gif">
